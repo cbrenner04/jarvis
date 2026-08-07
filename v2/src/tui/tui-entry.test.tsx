@@ -25,7 +25,6 @@ import {
   monitorTextLines,
 } from "./tui-monitor-lines.ts";
 import { monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
-import { TUI_TERMINAL_WINDOW_MS } from "./tui-monitor-terminal-window.ts";
 import type {
   DetachedPipelineStartAdmission,
   RunTuiEntryDeps,
@@ -1314,7 +1313,6 @@ describe("runTuiEntry", () => {
             selectedNodeId: "pipe-gone",
             steeringFeedback: null,
             pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [PIPELINE_SNAPSHOT_MULTI] } },
-            terminalWindowNowMs: WORKFLOW_FILTER_NOW_MS,
           },
           WORKFLOW_FILTER_NOW_MS,
         ),
@@ -1584,13 +1582,65 @@ describe("runTuiEntry", () => {
     await pending;
   });
 
-  test("a selected terminal run ageing out of the live window clears the selection", async () => {
+  test("a selected unattributed run evicted by segment FIFO clears the selection", async () => {
     const view = createViewHost();
     const refresh = createIntervalScheduler();
-    let now = TERMINAL_LIST_FINISH_MS + 1_000;
+    const terminalColumns = 80;
+    const terminalRows = 8;
+    const orphanBeta: DaemonListRunRow = {
+      ...RUN_BETA,
+      workflow: {
+        invocationId: "inv-beta",
+        steps: [{ stepId: "implement", role: "implement", status: "completed", attemptCount: 1 }],
+      },
+    };
+    const overflowRuns: DaemonListRunRow[] = [
+      {
+        runId: "run-active",
+        project: "demo",
+        branch: "active",
+        createdAt: 0,
+        status: "in-progress",
+        isLive: true,
+        workflow: {
+          invocationId: "inv-active",
+          steps: [{ stepId: "implement", role: "implement", status: "in_progress", attemptCount: 1 }],
+        },
+      },
+      {
+        runId: "run-newer",
+        project: "demo",
+        branch: "newer",
+        createdAt: 0,
+        status: "completed",
+        isLive: false,
+        finishedAtMs: TERMINAL_LIST_FINISH_MS + 2_000,
+        workflow: {
+          invocationId: "inv-newer",
+          steps: [{ stepId: "implement", role: "implement", status: "completed", attemptCount: 1 }],
+        },
+      },
+      {
+        runId: "run-newest",
+        project: "demo",
+        branch: "newest",
+        createdAt: 0,
+        status: "completed",
+        isLive: false,
+        finishedAtMs: TERMINAL_LIST_FINISH_MS + 3_000,
+        workflow: {
+          invocationId: "inv-newest",
+          steps: [{ stepId: "implement", role: "implement", status: "completed", attemptCount: 1 }],
+        },
+      },
+    ];
     const { deps } = entryDeps(
-      { methods: [], listResponses: [{ runs: [RUN_BETA] }] },
-      { viewHost: view.host, refreshScheduler: refresh.scheduler, nowMs: () => now },
+      { methods: [], listResponses: [{ runs: [orphanBeta] }, { runs: [orphanBeta, ...overflowRuns] }] },
+      {
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+        terminalSize: () => ({ columns: terminalColumns, rows: terminalRows }),
+      },
     );
 
     const pending = runTuiEntry(deps);
@@ -1600,8 +1650,6 @@ describe("runTuiEntry", () => {
     await flush();
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-beta");
 
-    // Past the terminal retention window the row is no longer selectable.
-    now = TERMINAL_LIST_FINISH_MS + TUI_TERMINAL_WINDOW_MS + 1_000;
     await flushIntervalTick(refresh);
     for (let i = 0; i < 20 && view.monitorStates.at(-1)?.selectedNodeId !== null; i += 1) {
       await flush();
@@ -2046,7 +2094,6 @@ describe("runTuiEntry", () => {
       keyedSocketDigest: "unknown",
       refreshIntervalLabel: "1s",
       pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [] } },
-      terminalWindowNowMs: expect.any(Number),
       actionableRunIds: [],
     });
   });
@@ -2611,7 +2658,6 @@ describe("runTuiEntry", () => {
       keyedSocketDigest: "unknown",
       refreshIntervalLabel: "1s",
       pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [] } },
-      terminalWindowNowMs: expect.any(Number),
       actionableRunIds: ["run-beta"],
     });
   });

@@ -1,0 +1,14 @@
+Reviewing the implementation against the spec and advocate claims before issuing the verdict.
+## Verdict: required outcomes
+
+1. **Ink must paint unattributed through the tested segment helper.** Left-pane ink currently derives the unattributed heading and body by calling `monitorLeftPaneTreeRows` and `unattributedLeftPaneHeading` separately. The subspec requires ink to use the exported `monitorLeftPaneUnattributedSegmentRows` surface that the label regression exercises. Paint and tests must share one derivation path so future FIFO or label changes cannot drift.
+
+2. **Label regression must pin `N = 0`.** The subspec contracts an always-on `─ Unattributed (N) ─` heading including zero orphan candidates. The named label test only asserts a non-zero retained count. Extend coverage so heading text and `N` are asserted when post-FIFO body rows are empty.
+
+3. **`v1-behaviors.md` must lead with current TUI unattributed retention.** The subspec documentation task replaces the one-hour / twenty-row live-window description for the unattributed segment. The bullet still opens with legacy window semantics and treats pane FIFO as a carve-out. Restructure so operator-facing TUI unattributed behavior (segment FIFO, active retention, oldest-terminal eviction, finishless keep, always-on heading) is the primary description; legacy `filterMonitorRunsForLiveWindow` scope should be secondary (tests/legacy callers only).
+
+4. **Remove dead `terminalWindowNowMs` state.** Refresh paths still stamp `terminalWindowNowMs` on monitor state, but unattributed retention no longer reads it after removing the time-window filter. Eliminate the write path and type field (and test fixtures that only served the old contract) so state and docs do not imply time-based unattributed eviction still exists.
+
+**Rationale summary:** Items 1–2 close explicit subspec tasks and AC literalism (tested derivation wired to paint; always-on `N = 0` heading). Item 3 satisfies the subspec documentation-update requirement to replace, not partially qualify, stale unattributed window wording. Item 4 prevents misleading operator/agent inference from orphaned state after a behavior change.
+
+**Not required for this actuator pass:** finishless-terminal sort among multiple rows (spec pins eviction only); unattributed scroll-follow for active overflow (explicitly allowed); queue body height not reserved in budget (explicit spec decision); FIFO regressions with `treeRowsPainted = 0` only (AC-sufficient isolation); `tui-overhaul-brief.md` queue-FIFO line-61 qualification (outside subspec doc list); empty monitor showing both “No runs.” and `─ Unattributed (0) ─` (spec-ambiguous at the empty-state seam).

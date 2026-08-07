@@ -46,11 +46,11 @@ Unattributed runs appear in the left pane without the FIFO retention rule or seg
 
 ## Acceptance criteria
 
-- [ ] `tui-monitor-pipeline-tree.test.ts` test `unattributed segment FIFO retains active runs and drops oldest terminals first` covers retention ordering and fails against the pre-fix code.
-- [ ] `tui-monitor-lines.test.ts` test `left pane labels unattributed segment with retained run count` fails against the pre-fix code.
-- [ ] Mutation checkpoint: in `tui-monitor-pipeline-tree.test.ts` test `unattributed segment FIFO retains active runs and drops oldest terminals first`, `// @mutate` directives inverting active retention and oldest-terminal-first eviction both turn that regression RED.
-- [ ] `tui-monitor-pipeline-tree.test.ts` membership-only unattributed candidate test stays green for stage-matched and queued exclusion.
-- [ ] `bun run typecheck`, `bun run check`, and `bun run test:v2` pass. TUI behavior is proven through production monitor state and the injected input hook, not rendered-ink assertions (`v2/docs/test-writing.md` § TUI test strategy).
+- [x] `tui-monitor-pipeline-tree.test.ts` test `unattributed segment FIFO retains active runs and drops oldest terminals first` covers retention ordering and fails against the pre-fix code.
+- [x] `tui-monitor-lines.test.ts` test `left pane labels unattributed segment with retained run count` fails against the pre-fix code.
+- [x] Mutation checkpoint: in `tui-monitor-pipeline-tree.test.ts` test `unattributed segment FIFO retains active runs and drops oldest terminals first`, `// @mutate` directives inverting active retention and oldest-terminal-first eviction both turn that regression RED.
+- [x] `tui-monitor-pipeline-tree.test.ts` membership-only unattributed candidate test stays green for stage-matched and queued exclusion.
+- [x] `bun run typecheck`, `bun run check`, and `bun run test:v2` pass. TUI behavior is proven through production monitor state and the injected input hook, not rendered-ink assertions (`v2/docs/test-writing.md` § TUI test strategy).
 
 ## Documentation updates
 

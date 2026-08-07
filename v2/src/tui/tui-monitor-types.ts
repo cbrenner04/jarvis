@@ -51,8 +51,6 @@ export type TuiMonitorState = {
   keyedSocketDigest?: string;
   /** Last-good per-daemon `pipeline_list` snapshots keyed by socket path. */
   pipelineSnapshotsBySocketPath?: Readonly<Record<string, PipelineListResult>>;
-  /** Clock snapshot for unattributed terminal retention; updated on daemon refresh only. */
-  terminalWindowNowMs?: number;
 };
 
 /**

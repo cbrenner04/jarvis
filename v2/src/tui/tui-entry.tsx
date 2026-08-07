@@ -16,7 +16,6 @@ import {
   mergePipelineSnapshots,
   monitorLeftPaneTreeRows,
   monitorSelectableNodeIds,
-  monitorTerminalFilterNowMs,
   withLeftPaneTreeScrollFollow,
 } from "./tui-monitor-lines.ts";
 import { buildMonitorPipelineTreeJoin, isExpandablePipelineNodeId } from "./tui-monitor-pipeline-tree.ts";
@@ -139,11 +138,9 @@ function monitorShellState(
   );
 }
 
-function pipelineNodesForState(state: TuiMonitorState, displayNowMs: number) {
+function pipelineNodesForState(state: TuiMonitorState) {
   const snapshots = mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath);
-  return buildMonitorPipelineTreeJoin(snapshots, state.runs, {
-    filterNowMs: monitorTerminalFilterNowMs(state, displayNowMs),
-  }).pipelineNodes;
+  return buildMonitorPipelineTreeJoin(snapshots, state.runs).pipelineNodes;
 }
 
 export function commandSubmissionBlockedByPendingAdmission(admissionPending: boolean): boolean {
@@ -168,7 +165,7 @@ export function expansionCommandSelectionError(
   const selectedNodeId = state.selectedNodeId;
   if (selectedNodeId === null) return "no_selection";
 
-  const pipelineNodes = pipelineNodesForState(state, nowMs);
+  const pipelineNodes = pipelineNodesForState(state);
   // Mutation checkpoint: short-circuiting this guard before expansion eligibility must turn explicit-expansion pin RED.
   if (isExpandablePipelineNodeId(pipelineNodes, selectedNodeId)) return null;
 
@@ -456,7 +453,6 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
               actionableRunIds,
               ...invocationIdentity,
               pipelineSnapshotsBySocketPath,
-              terminalWindowNowMs: refreshNowMs,
             },
             terminalSizeFn,
           );
@@ -477,7 +473,6 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
               ...currentState,
               runs: mergedRuns,
               pipelineSnapshotsBySocketPath,
-              terminalWindowNowMs: refreshNowMs,
             },
             refreshNowMs,
           ).includes(selectedNodeId)
@@ -491,7 +486,6 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
             lastRpcError: refreshRpcFeedback(refreshError),
             actionableRunIds,
             pipelineSnapshotsBySocketPath,
-            terminalWindowNowMs: refreshNowMs,
           });
           continue;
         }
@@ -502,7 +496,6 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
           lastRpcError: refreshRpcFeedback(refreshError),
           actionableRunIds,
           pipelineSnapshotsBySocketPath,
-          terminalWindowNowMs: refreshNowMs,
         });
       } while (refreshQueued);
     } finally {
@@ -637,7 +630,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
           if (ids.length === 0) return;
           if (
             selectedNodeId !== null &&
-            isExpandablePipelineNodeId(pipelineNodesForState(state, nowMs), selectedNodeId) &&
+            isExpandablePipelineNodeId(pipelineNodesForState(state), selectedNodeId) &&
             !(state.expandedPipelineNodeIds ?? []).includes(selectedNodeId)
           ) {
             state = { ...state, expandedPipelineNodeIds: [...(state.expandedPipelineNodeIds ?? []), selectedNodeId] };
@@ -681,7 +674,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
           const selectedNodeId = currentState.selectedNodeId;
           if (selectedNodeId === null) return;
           // Mutation checkpoint: short-circuiting this guard before the toggle body must turn pipeline/stage expansion RED.
-          if (!isExpandablePipelineNodeId(pipelineNodesForState(currentState, nowMsFn()), selectedNodeId)) return;
+          if (!isExpandablePipelineNodeId(pipelineNodesForState(currentState), selectedNodeId)) return;
 
           const expanded = new Set(currentState.expandedPipelineNodeIds ?? []);
           if (expanded.has(selectedNodeId)) {

@@ -1,7 +1,6 @@
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
-import { filterMonitorRunsForLiveWindow } from "./tui-monitor-terminal-window.ts";
 import { buildWorkflowTableRows, type WorkflowTableRow } from "./tui-monitor-workflow-collapse.ts";
 import {
   formatTreeCell,
@@ -188,7 +187,6 @@ function isUnattributedCandidate(run: DaemonListRunRow, matchedInvocationIds: Re
 export function buildMonitorPipelineTreeJoin(
   snapshots: readonly PipelineSnapshot[],
   runs: readonly DaemonListRunRow[],
-  options: { filterNowMs: number },
 ): {
   pipelineNodes: MonitorPipelineTreePipelineNode[];
   unattributedRows: WorkflowTableRow[];
@@ -207,10 +205,7 @@ export function buildMonitorPipelineTreeJoin(
   }));
 
   const unattributedCandidates = builderRuns.filter((run) => isUnattributedCandidate(run, matchedInvocationIds));
-  const windowedUnattributed = filterMonitorRunsForLiveWindow(unattributedCandidates, {
-    nowMs: options.filterNowMs,
-  });
-  const unattributedRows = buildWorkflowTableRows(windowedUnattributed, builderRuns, new Set());
+  const unattributedRows = buildWorkflowTableRows(unattributedCandidates, builderRuns, new Set());
 
   return { pipelineNodes, unattributedRows, builderRuns };
 }
@@ -335,12 +330,11 @@ export function buildMonitorPipelineTree(
   expandedNodeIds: ReadonlySet<string>,
   selectedNodeId: string | null,
   maxVisibleRows: number,
-  options: { filterNowMs: number },
 ): {
   displayNodes: MonitorPipelineTreeDisplayNode[];
   unattributedRows: WorkflowTableRow[];
 } {
-  const { pipelineNodes, unattributedRows, builderRuns } = buildMonitorPipelineTreeJoin(snapshots, runs, options);
+  const { pipelineNodes, unattributedRows, builderRuns } = buildMonitorPipelineTreeJoin(snapshots, runs);
   return {
     displayNodes: flattenMonitorPipelineTree(
       pipelineNodes,

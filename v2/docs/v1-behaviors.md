@@ -606,17 +606,22 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
 - [v2 additive] TUI multi-daemon aggregation: `jarvis tui` discovers all live
   daemon sockets, connects to each, and aggregates their `list` results into one
   monitor. Each run ID dedupes to the daemon reporting `isLive` (the owner);
-  connections that fail to list are skipped without aborting the view. After merge,
-  the monitor applies a live terminal window: non-terminal rows pass through;
-  terminal rows need `finishedAtMs` within the last hour (list rows take the max
-  of attempt `completed_at` and store `reconciledAt`), or stay in-window when
-  `finishedAtMs` is omitted; `blocked` ages out on `finishedAtMs` like other
-  terminal statuses; sort newest-first. The one-hour / twenty-row live window applies
-  only to **unattributed** runs below the pipeline tree (pipeline-attributed runs
-  join under their stage without that cap). Press **`e`** on a selected pipeline or
-  stage to expand workflow constituent runs; flat unattributed rows no longer expand
-  with **`e`**. Unlike default `jarvis run list`, which keeps the daemon fifty-newest
-  terminal retention.
+  connections that fail to list are skipped without aborting the view. The left-pane
+  unattributed segment below the pipeline tree applies pane FIFO retention: active
+  orphan rows are always retained (even when they exceed the segment body budget);
+  terminal orphans drop oldest-by-rollup-finish first when retained body rows would
+  exceed the budget; finishless terminals are never dropped by FIFO; retained rows
+  sort actives first (earliest `createdAt`) then terminals (oldest finish first); the
+  segment heading `─ Unattributed (N) ─` is always shown including `N = 0`.
+  Pipeline-attributed runs join under their stage without that cap. The legacy
+  one-hour / twenty-row `filterMonitorRunsForLiveWindow` helper (non-terminal rows
+  pass through; terminal rows need `finishedAtMs` within the last hour, or stay
+  in-window when `finishedAtMs` is omitted; `blocked` ages out on `finishedAtMs` like
+  other terminal statuses; sort newest-first) remains for unit tests and legacy
+  callers but does not govern TUI unattributed retention or pipeline-tree membership.
+  Press **`e`** on a selected pipeline or stage to expand workflow constituent runs;
+  flat unattributed rows no longer expand with **`e`**. Unlike default `jarvis run
+  list`, which keeps the daemon fifty-newest terminal retention.
   Steering RPCs (`pause`, `resume`, `kill`) route to the owning daemon. When no sockets
   are discovered, the monitor connects only to the invoking digest's socket
   (single-daemon fallback). `jarvis run list`, `jarvis run log`, and `jarvis run wait`

@@ -105,11 +105,27 @@ describe("parseTuiCommand", () => {
     expectCode(input, "unexpected_arguments");
   });
 
+  test("parses resume-run as a run-steering verb", () => {
+    expect(parseTuiCommand("resume-run")).toEqual({ kind: "resume-run" });
+  });
+
+  test("parses kill and pause as run-steering verbs", () => {
+    expect(parseTuiCommand("kill")).toEqual({ kind: "kill" });
+    expect(parseTuiCommand("pause")).toEqual({ kind: "pause" });
+  });
+
   test.each([
-    ["kill", "jarvis run kill"],
-    ["pause", "jarvis run pause"],
-    ["log", "jarvis tui log"],
-  ] as const)("classifies unavailable %s", (verb, command) => {
+    "kill foo",
+    "pause foo",
+    "resume-run foo",
+    "kill ignored --tokens",
+    "pause ignored --tokens",
+    "resume-run ignored --tokens",
+  ])("rejects trailing run-steering tokens: %s", (input) => {
+    expectCode(input, "unexpected_arguments");
+  });
+
+  test.each([["log", "jarvis tui log"]] as const)("classifies unavailable %s", (verb, command) => {
     for (const input of [verb, `${verb} ignored --tokens`]) {
       expect(parseTuiCommand(input)).toEqual({
         kind: "error",
@@ -121,10 +137,10 @@ describe("parseTuiCommand", () => {
 
   test("still-unavailable verbs classify as recognized_unavailable", () => {
     // @mutate v2/src/tui/tui-command-parser.ts "Object.hasOwn(UNAVAILABLE_COMMANDS, verb)" -> "false"
-    expect(parseTuiCommand("kill")).toEqual({
+    expect(parseTuiCommand("log")).toEqual({
       kind: "error",
       code: "recognized_unavailable",
-      command: "jarvis run kill",
+      command: "jarvis tui log",
     });
   });
 

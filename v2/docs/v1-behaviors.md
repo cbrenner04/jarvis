@@ -663,10 +663,19 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   re-admits. An admitted settlement reports the pipeline id, clears the buffer and
   cursor, and restores tree focus; parse errors, pre-admission failures, and daemon
   refusals retain command focus, buffer, and cursor and report their named code,
-  with `recognized_unavailable` naming the exact CLI equivalent (`jarvis run
-  kill|pause`, `jarvis tui log`). Sources:
-  `v2/src/tui/tui-entry.tsx`, `v2/src/tui/tui-command-parser.ts`,
+  with `recognized_unavailable` naming the exact CLI equivalent (`jarvis tui log`).
+  Sources: `v2/src/tui/tui-entry.tsx`, `v2/src/tui/tui-command-parser.ts`,
   `v2/src/daemon/pipeline-start-admission.ts`
+- [v2 additive] TUI dock run steering: submitted `kill`, `pause`, and `resume-run`
+  (no arguments) reach daemon `kill`, `pause`, and `resume` on the owning daemon for
+  the selected attributed run leaf — detached, with no `wait` RPC. Pre-RPC
+  selection-shape refusal reports `no_selection`, `unattributed`, or
+  `stale_non_expandable` on `lastCommandResult`. `kill` and `pause` additionally
+  require a live steerable run; ineligible selections report `not_live_run` with no
+  RPC. `resume-run` shares keybind resume eligibility (no kill-hint pre-gate). RPC
+  outcomes and daemon refusals report on `steeringFeedback`, not `lastCommandResult`.
+  Sources: `v2/src/tui/tui-entry.tsx`, `v2/src/tui/tui-command-parser.ts`,
+  `v2/docs/operator-runbook.md`
 - [v2 additive] TUI dock pipeline steering: submitted `approve`, `reject`, and
   `resume` (no arguments) reach `pipeline_approve`, `pipeline_reject`, and
   `pipeline_resume` on the owning daemon — detached, with no `pipeline_wait`.

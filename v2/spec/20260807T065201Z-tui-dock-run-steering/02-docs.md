@@ -20,9 +20,9 @@ Once `kill`/`pause`/`resume-run` are live typed dock verbs, the operator runbook
 
 ## Acceptance criteria
 
-- [ ] The runbook Dock-commands table lists `kill`, `pause`, and `resume-run` as live dock verbs and no longer lists their CLI-fallback rows; `log` remains listed as CLI-fallback.
-- [ ] `v2/docs/v1-behaviors.md` records in-TUI typed run steering (`kill`, `pause`, `resume-run`).
-- [ ] `bun run lint:md` passes.
+- [x] The runbook Dock-commands table lists `kill`, `pause`, and `resume-run` as live dock verbs and no longer lists their CLI-fallback rows; `log` remains listed as CLI-fallback.
+- [x] `v2/docs/v1-behaviors.md` records in-TUI typed run steering (`kill`, `pause`, `resume-run`).
+- [x] `bun run lint:md` passes.
 
 ## Documentation updates
 

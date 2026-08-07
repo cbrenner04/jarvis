@@ -1,15 +1,31 @@
 # v2 implement queue
 
-Authority: operator priorities. Updated 2026-08-06 (stale-reset sibling + no-hard-wrap session).
+Authority: operator priorities. Updated 2026-08-07 (queue-drain session: gate-repair + 6 more specs).
 
 ## Goal
 
-**Stale-reset siblings + author-facing no-hard-wrap landed** (2026-08-06). `intent-workflow-lacks-stale-workspace-reset` shipped as two subspecs (CLI `#2639` + pipeline `#2644`): an interrupted `run workflow intent` — and pipeline intent-stage re-dispatch — now retires its poisoned worktree/branch/verdict before the write step. An operator-requested `authored-markdown-no-hard-wrap` change landed the `global.no-hard-wrap` prompt fragment (`#2645`) plus a custom markdownlint rule + `bun run reflow:md` + a 107-file corpus reflow (`#2647`). Next: `gate-repair-fence`, then the remaining seeds, then TUI slice 6.
+**Queue drained: `gate-repair-fence` (the #1 item) + 6 more specs landed** (2026-08-06/07). `gate-repair-fence` shipped in two increments — base-ref scope classification + attributable write fence + biome pin (`#2665`), then non-resumable unchanged-path out-of-scope + verified autofix (`#2666`). Also landed: mutation-checkpoint enclosing-test docs (`#2655`), plan-review hollow-pin pass (`#2660`), pipeline-plan-stage consumes-ready-intent (`#2667`), pipeline-stage-settlement-honesty (`#2668`), intent-landing wrapped-prerequisites (`#2670`), and plan-intent-write-steps-lint (split runner/plan/intent, `#2669`→`#2671`). Next: the 2 remaining seeds + 2 new seeds below, then TUI slice 6.
 
 ## Start here next (in order)
 
-1. `seeds/gate-repair-fence` — **bumped, recurred again.** Its Problem A (`ready_gate_out_of_scope` refuses repair and settles `resumable:true` over a condition no resume can change) blocked `#2645` finalization this session on the slow out-of-scope `v1/test/run.test.ts` under machine load. Also: repair write fence, autofix-turns-tree-red.
-2. The other open seeds below, then TUI slice 6.
+1. `seeds/gate-repair-baseref-probe-runs-scoped-command` — **new follow-up to gate-repair-fence.** The base-ref probe runs raw `bun test`, not the terminal step's scoped command (dead branch in `buildBaseRefProbeCommandArgs`); can re-strand env-sensitive tests. Small, high value (completes the gate-correctness fix).
+2. `seeds/mutate-directive-placed-above-test-goes-hollow` — **new; blocked `#2667` this session.** Agents place `// @mutate` above the `test(...)` line → `enclosingPinTitle` links the wrong pin → hollow `contract_miss`. Distinct from the criterion-naming rule (shipped `#2655`).
+3. The other open seeds below, then TUI slice 6.
+
+## Landed 2026-08-06/07 (queue-drain session — gate-repair + 6 specs)
+
+| Thread | intent → plan → implement PRs |
+| --- | --- |
+| **`gate-repair-fence`** (base-ref scope, attributable write fence, non-resumable out-of-scope, verified autofix, biome pin) | #2651 → #2654 → #2665 (00/01+02 code) + #2666 (02 mutation+03+05) |
+| **`mutation-checkpoint-criterion-enclosing-test-docs`** (authoring rule + runbook + doc-assertion) | #2650 → #2652 → #2655 |
+| **`plan-review-hollow-pin-criterion`** (advisory hollow-pin pass in plan debate review) | #2650 → #2653 → #2660 |
+| **`pipeline-plan-stage-consumes-ready-intent`** (plan stage deletes its chained ready-intent) | #2658 → #2663 → #2667 |
+| **`pipeline-stage-settlement-honesty`** (settlement liveness defer, base retarget, guard deletion) | #2659 → #2664 → #2668 |
+| **`intent-landing-accepts-wrapped-prerequisite-bullets`** (block-assembly for prerequisites) | #2657 → #2661 → #2670 |
+| **`plan-intent-write-steps-lint-own-markdown`** (staged-md lint before finalize; split) | #2656 → #2662 → #2669 (split) → #2671 |
+| Operator docs + queue reconciliation + 2 seeds | this session's close PR |
+
+Notes: GitHub Actions hosted-runner outage all session → every merge on operator-approved local ready gate. gate-repair-fence stranded on the slow-`v1/test/run.test.ts` Problem A it fixes; the completion run finished green but settled `ready_flip_failed` (outage) — hand-published both increments. **#2668 surviving mutation was a real fan-out bug**: `settleFanOutBranch` would skip a still-running live-linked branch's suffix; traced the deferred-adopt trigger (untested by the suite), wrote + hand-verified a pinning test, and resolved a merge conflict with gate-repair (took #2666's settlement-resumable, reverting 2664's scope-creep). **plan-intent-write-steps-lint** timed out one write iteration as a single subspec (claude `iteration_timeout` ~45min ×2) → split into 3; each then finished in one iteration. Operator misdiagnosed two long silent iterations as "saturation" and killed a run — refuted by 18 cores / load ~6 and a sibling flying through 4 subspecs concurrently; the silence was claude-blindness, not contention.
 
 ## Landed 2026-08-06 (session — stale-reset sibling + no-hard-wrap)
 
@@ -59,12 +75,9 @@ Notes: each seed ran the full intent→plan→implement pipeline (cursor-first, 
 
 | Order | Seed | Notes |
 | --- | --- | --- |
-| 1 | `seeds/gate-repair-fence` | **Bumped, recurred again** — Problem A (`ready_gate_out_of_scope` refuses repair, resume can't clear it) blocked `#2645` finalization this session (slow out-of-scope `v1/test/run.test.ts` under load). Also: repair write fence, autofix-turns-tree-red. |
-| 2 | `seeds/pipeline-stage-settlement-honesty` | pipeline marks implement `failed` while the run is still live. |
-| 3 | `seeds/pipeline-plan-stage-orphans-ready-intent` | Pipeline plan stage doesn't consume its ready-intent. |
-| 4 | `seeds/plan-review-must-falsify-guard-premises` | Extends the verifier bundle 1 rewrote. |
-| 5 | `seeds/plan-intent-write-steps-lint-own-markdown` | Small, standalone. |
-| 6 | `seeds/intent-landing-contract-rejects-wrapped-bullets` | Small, standalone. |
+| 1 | `seeds/gate-repair-baseref-probe-runs-scoped-command` | **New** — base-ref probe runs raw `bun test`, not the terminal step's scoped command; completes the gate-repair-fence correctness fix. |
+| 2 | `seeds/mutate-directive-placed-above-test-goes-hollow` | **New** — `// @mutate` above the `test(...)` line links the wrong pin → hollow; blocked `#2667`. Distinct from the criterion-naming rule (#2655). |
+| 3 | `seeds/plan-review-must-falsify-guard-premises` | Extends the verifier bundle 1 rewrote. |
 
 `seeds/tui-waitstate-is-polled-but-no-longer-rendered` rides TUI slice 6.
 
@@ -83,3 +96,9 @@ Notes: each seed ran the full intent→plan→implement pipeline (cursor-first, 
 - **`jarvis run kill` and `jarvis cleanup` are classifier-gated** in auto mode; hand them to the operator's own shell when blocked.
 - **`bun run reflow:md` is blind to malformed tables.** The reflow (and the `no-hard-wrap` rule) share one markdown-it view, so a run of `| … |` rows that lacks a `| --- |` delimiter row, or has a paragraph wedged between the header and later rows with no blank line, parses as a *paragraph* and gets joined into one line. If a reflow diff mangles a table, the source was already malformed (never rendered as a table) — fix the source (add the delimiter row and/or a blank line), do not touch the reflow script. Review reflow diffs on table-heavy docs before merging. First hit: `#2647` on `v2/docs/write-behavior.md`.
 - **The `no-hard-wrap` rule applies to v1's `runHarnessMarkdownlint`, but v1's autofix repair cannot satisfy it.** The rule lives in the shared `.markdownlint-cli2.jsonc`, so v1's `intentCommand` markdown repair (autofix-based, `runMarkdownlintAutofix`) is now linted against it — but `no-hard-wrap` is not `markdownlint --fix`-able, so any v1 repair-cleanliness test asserting 0 violations on wrapped input fails. v1 *runtime* is unaffected (repair is autofix, not a hard gate; it just leaves wrapped prose). Fix the test fixture to conform (single-line prose), do not weaken the rule or exclude v1. First hit: `#2647` on `v1/test/intent-command.test.ts`.
+- **`ready_flip_failed` = green run, un-flipped PR — hand-publish.** During the Actions outage, completion runs finished the full ready gate (`runtime_smoke_outcome: observed-clean`) but settled `ready_flip_failed` (the draft→ready flip failed) with no open PR. The work is committed on the branch. Recovery: create the PR by hand, run the scoped local gate + a subagent review, mark ready, admin-merge. Also seen: `idle_output_timeout` / `invalid_token` / `iteration_timeout` successors leave all subspec code committed but the last box un-ticked and no PR — same hand-publish (tick the lagging index box, hand-verify any un-harness-verified mutation checkpoint). First hits: `#2665`/`#2666`/`#2670`/`#2671`.
+- **A single subspec can be too big for one write iteration — split it.** `plan-intent-write-steps-lint` (new lint runner + plan + intent gates + prompt + big test file, ~15 files) settled claude `iteration_timeout` at ~45min twice, even solo on a quiet machine (not load). Split into 00 runner / 01 plan / 02 intent (#2669) and each finished in one iteration. When an implement run keeps timing out one iteration, split the spec, don't just re-run.
+- **A surviving mutation can be a real bug — dig in before overriding.** `#2668` settled `surviving_mutation_failed` on an operator-flip `=== "running"` at `settleFanOutBranch`; the code was reviewed-correct and 564 tests passed. First hand-assertion attempt did NOT catch the flip (verify your pin!). Tracing the exact trigger (deferred-adopt on a live-linked fan-out branch) exposed a genuine "skip a still-running branch's suffix" bug the suite never exercised. Write the pinning test and hand-verify it reddens; don't merge past the mutation gate on a "probably equivalent" guess.
+- **Trust the harness (watchdog included) until proven wrong — don't babysit silence.** The default posture is "the harness works": a run logging only `iteration_started` for a long time is *working* until the watchdog says otherwise. `jarvis run log` shows lifecycle events, not the agent stream, so a long claude iteration always looks silent there — that is not evidence of a stall. The idle/wall watchdogs already reset on claude's `--include-partial-messages` stream and fire `idle_output_timeout`/`iteration_timeout` on a genuine stall (verified this session: fired on a truly-idle successor, stayed quiet on 45-min streaming write steps). This session an operator killed a working claude run on silence + a "saturation" guess (refuted: 18 cores, load ~6, a sibling flew through 4 subspecs concurrently) and wasted its compute. Don't kill/intervene on quiet; wait for an actual terminal signal (failed/blocked/watchdog timeout) or hard evidence.
+- **`bun run lint:md` uses config globs (v2/spec, v2/docs, …), not arbitrary files.** Linting changed files explicitly (e.g. `git diff --name-only | xargs markdownlint`) gives false positives on paths outside the gate's globs — intentional test fixtures under `v2/src/**` and prompts under `prompts/**` are NOT linted by the gate. Verify markdown PRs with `bun run lint:md` (config globs) before merging, not an explicit-file lint.
+- **`git pull` before `jarvis cleanup` — cleanup reads local completion state, so a stale local `main` misarchives.** Admin-merging via `gh` advances `origin/main` but only `git fetch` (not `pull`) updates the ref; the local working tree stays behind. Running cleanup then reads stale spec files: it misread two just-merged specs as having unchecked criteria (skipped archiving them) and archived the older ones off stale content, leaving the primary checkout dirty. Recovery: `git stash -u` → `git pull --ff-only` → `git stash drop`, then re-run cleanup on the synced tree. Always `git pull --ff-only origin main` immediately before `jarvis cleanup`. First hit: 2026-08-07 close (local at #2669 while origin at #2671).

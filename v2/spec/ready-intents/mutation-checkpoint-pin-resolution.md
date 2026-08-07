@@ -4,7 +4,7 @@ name: mutation-checkpoint-pin-resolution
 
 # Mutation-checkpoint pin resolution for multiline tests and test-file extensions
 
-Splitting does not apply: multiline pin-title resolution, pinning-test extension tolerance, and any plan-draft hollow-pin guard all land on the execution-loop mutation-checkpoint verifier seam.
+Splitting does not apply: multiline pin-title resolution and pinning-test extension tolerance both land on the execution-loop mutation-checkpoint verifier seam (verifier-only; plan-draft hollow-pin guards deferred).
 
 ## Problem
 
@@ -24,9 +24,10 @@ Related authoring gap: the must-name-enclosing-test rule (#2655) is guidance and
 
 ## Acceptance criteria
 
-- [ ] `mutation-checkpoint-verifier.test.ts` — a `// @mutate` directive inside a multiline `test.each([...])("<title>", …)` block resolves to `<title>` and links to a criterion naming `<title>` (reaches `caught`, not `hollow`); fails against the current line-based `enclosingPinTitle`.
-- [ ] Pin resolution links a criterion naming `foo.test.tsx` to an on-disk `foo.test.ts` (or plan-draft flags the mismatch); a regression covers the `.tsx`↔`.ts` case and fails pre-fix.
-- [ ] Mutation checkpoint: in the multiline-`test.each` regression, a `// @mutate` directive inside that block inverting the new resolution turns it RED.
+- [ ] `mutation-checkpoint-verifier.test.ts` — `multiline test.each continuation title links directive` proves a `// @mutate` inside multiline `test.each([...])("<title>", …)` resolves `pinTitle` to `<title>` and links to a criterion naming `<title>` (reaches `caught`, not `hollow`); fails against the current line-based `enclosingPinTitle`.
+- [ ] `mutation-checkpoint-verifier.test.ts` — `pinning test extension mismatch resolves` proves pin resolution links a criterion naming `foo.test.tsx` to an on-disk `foo.test.ts` (reaches `caught`, not `unresolved_pinning_test`); fails pre-fix.
+- [ ] `mutation-checkpoint-verifier.test.ts` — `multiline test.each continuation title links directive`; Mutation checkpoint: its pinning test carries `// @mutate v2/src/execution/mutation-checkpoint-verifier.ts` `"for (let i = lineIndex + 1; i < lines.length; i += 1)" -> "for (let i = lines.length; i < lines.length; i += 1)"` inverting forward continuation title scan in `enclosingPinTitle`; the mutation turns the named pin RED.
+- [ ] `mutation-checkpoint-verifier.test.ts` — `pinning test extension mismatch resolves`; Mutation checkpoint: its pinning test carries `// @mutate v2/src/execution/mutation-checkpoint-verifier.ts` `"for (const altExt of [\".ts\", \".tsx\", \".js\", \".jsx\"])" -> "for (const altExt of [])"` inverting extension-tolerant basename lookup in `resolvePinningTestPath`; the mutation turns the named pin RED.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates

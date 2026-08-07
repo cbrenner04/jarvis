@@ -1,15 +1,31 @@
 # v2 implement queue
 
-Authority: operator priorities. Updated 2026-08-07 (queue-drain session: gate-repair + 6 more specs).
+Authority: operator priorities. Updated 2026-08-07 (slice-6 session: queue 3/4 + all 5 TUI slice-6 plans + waitstate impl).
 
 ## Goal
 
-**Queue drained: `gate-repair-fence` (the #1 item) + 6 more specs landed** (2026-08-06/07). `gate-repair-fence` shipped in two increments — base-ref scope classification + attributable write fence + biome pin (`#2665`), then non-resumable unchanged-path out-of-scope + verified autofix (`#2666`). Also landed: mutation-checkpoint enclosing-test docs (`#2655`), plan-review hollow-pin pass (`#2660`), pipeline-plan-stage consumes-ready-intent (`#2667`), pipeline-stage-settlement-honesty (`#2668`), intent-landing wrapped-prerequisites (`#2670`), and plan-intent-write-steps-lint (split runner/plan/intent, `#2669`→`#2671`). Next: the 2 remaining seeds + 2 new seeds below, then TUI slice 6.
+**2026-08-07 slice-6 session: 3 of the 4 remaining queue specs landed, and TUI slice 6 is planned + started.** Landed: gate-repair-baseref-probe (#2683), mutate-directive above-test attribution (#2682), plan-review premise-falsification (#2685). **`mutation-checkpoint-keystone` is held (draft #2684) — do not merge as-is:** it hard-refuses completion for any spec with a guard `Mutation checkpoint:` and no `Keystone checkpoint:`, but nothing authors keystones in plans, so merging bricks every future guard-checkpoint implement. Operator decision needed (see below). TUI slice 6: all 5 subspec plans landed (#2686 waitstate, #2687 unattributed, #2688 pipeline-steering [4 subspecs], #2689 log-follow, #2690 run-steering); **waitstate (#2691) and unattributed (#2693) implements landed** — 2 of 5. Remaining: the pipeline-steering → run-steering → log-follow chain, serialized on `tui-entry.tsx`/`tui-command-parser.ts` and blocked on the mutation-pin-resolution seed.
 
 ## Start here next (in order)
 
-1. `seeds/gate-repair-baseref-probe-runs-scoped-command` — **new follow-up to gate-repair-fence.** The base-ref probe runs raw `bun test`, not the terminal step's scoped command (dead branch in `buildBaseRefProbeCommandArgs`); can re-strand env-sensitive tests. Small, high value (completes the gate-correctness fix).
-2. The other open seeds below, then TUI slice 6.
+1. **Decide `mutation-checkpoint-keystone` (#2684, held).** Merging as-is bricks the pipeline (guard-checkpoint specs refused for lacking a keystone; plans don't author keystones). Recommended: re-scope to *verify a keystone if present, do not require one* (drop the "guard-without-keystone → refuse" gate), matching the seed's "a subspec's *headline* change carries a keystone" framing. Alternative: ship plan-side keystone authoring + migrate in-flight specs first. Then re-implement/close #2684.
+2. **TUI slice 6 implements — remaining chain** (serial on `tui-entry.tsx`/`tui-command-parser.ts`; waitstate #2691 and unattributed #2693 already merged): `20260807T063715Z-tui-dock-pipeline-steering` (4 subspecs — **stranded this session**: subspec 00 hollow because the `// @mutate` sits in a multiline `test.each([...])("classifies unavailable %s", …)` the verifier can't link, and 01–03 are unimplemented; needs `seeds/mutation-checkpoint-pin-resolution-is-brittle` first, or restructure the test to a single-line title, then re-run) → `20260807T065201Z-tui-dock-run-steering` → `20260807T065201Z-tui-dock-log-follow`. The last slice-6 spec to merge marks slice 6 shipped in `tui-overhaul-brief.md`.
+3. **New harness seeds from this session** (all blocked a run): `seeds/plan-intent-completion-ready-gate-runs-full-suite-on-spec-only-diff`, `seeds/plan-review-actuator-edits-bypass-write-step-markdown-lint`, `seeds/mutation-checkpoint-pin-resolution-is-brittle`. The last is a prerequisite for a clean pipeline-steering re-run.
+
+## Landed 2026-08-07 (slice-6 session)
+
+| Thread | PRs |
+| --- | --- |
+| **`gate-repair-baseref-probe-runs-scoped-command`** (v2 terminal steps probe via `runV2TestFiles` at base) | #2675 → #2678 → #2683 |
+| **`mutate-directive-above-test-attribution`** (forward-line `enclosingPinTitle`) | #2673 → #2677 → #2682 |
+| **`plan-review-premise-falsification`** (advisory `## Unfalsifiable premises` pass) | #2674 → #2679 → #2685 |
+| **`mutation-checkpoint-keystone`** (inert-headline keystone gate) | #2674 → #2681 → **#2684 HELD** |
+| **TUI slice 6 plans** (all 5) | seed #2676; intent #2680; plans #2686/#2687/#2688/#2689/#2690 |
+| **TUI slice 6 impl — waitstate** (remove wait polling + window right-pane detail) | #2691 |
+| **TUI slice 6 impl — unattributed** (segment FIFO retention + count label) | #2693 |
+| Operator docs + queue + 3 seeds | this session's close PR |
+
+Notes: every batch-A/premise/waitstate implement settled non-clean and was **hand-finished** — recurring cursor patterns: `idle_output_timeout` after committing the impl but before finalization (fold in the un-committed AC-ticks/fixture-regens, verify, publish); malformed/stray prose `// @mutate` → `contract_miss` (gate-repair); a **hollow** mutation directive that the run never verified because it died first (premise: `if (false) continue` didn't redden — corrected to `if (true) continue`; **always hand-verify the pin reddens**); `.test.tsx`↔`.test.ts` pin extension mismatch (waitstate). CI **now runs `lint:md`** (a plan actuator's nested-backtick MD038 stranded premise's plan). Fanning plan-completion ready-gates ≥4-wide risks flaky full-suite strands (see spec-only-diff seed) — ran slice-6 plans 3-then-2 and they came clean.
 
 ## Landed 2026-08-06/07 (queue-drain session — gate-repair + 6 specs)
 
@@ -90,7 +106,7 @@ Notes: each seed ran the full intent→plan→implement pipeline (cursor-first, 
 - **`jarvis cleanup --abandon <branch> --yes`** works non-interactively.
 - **`jarvis config set-agents` takes a CSV arg** (`claude,cursor`), not space-separated.
 - **A `completed`/`no-work` implement row can have committed nothing.** Confirm by PR, not status.
-- **CI does not run `lint:md`.** Run it locally before merging any markdown-touching PR.
+- **CI now runs `lint:md`** (verified 2026-08-07: a plan-actuator MD038 failed the CI "Lint markdown" job on #2679). You no longer have to run it locally as the last line of defense — but the plan/intent *review actuator* still edits staged Markdown after the write-step lint without re-linting, so an actuator-introduced violation lands on the branch and fails CI (see `seeds/plan-review-actuator-edits-bypass-write-step-markdown-lint`). Watch reflow/table-heavy and verbatim-backtick criteria.
 - **`jarvis run kill` and `jarvis cleanup` are classifier-gated** in auto mode; hand them to the operator's own shell when blocked.
 - **`bun run reflow:md` is blind to malformed tables.** The reflow (and the `no-hard-wrap` rule) share one markdown-it view, so a run of `| … |` rows that lacks a `| --- |` delimiter row, or has a paragraph wedged between the header and later rows with no blank line, parses as a *paragraph* and gets joined into one line. If a reflow diff mangles a table, the source was already malformed (never rendered as a table) — fix the source (add the delimiter row and/or a blank line), do not touch the reflow script. Review reflow diffs on table-heavy docs before merging. First hit: `#2647` on `v2/docs/write-behavior.md`.
 - **The `no-hard-wrap` rule applies to v1's `runHarnessMarkdownlint`, but v1's autofix repair cannot satisfy it.** The rule lives in the shared `.markdownlint-cli2.jsonc`, so v1's `intentCommand` markdown repair (autofix-based, `runMarkdownlintAutofix`) is now linted against it — but `no-hard-wrap` is not `markdownlint --fix`-able, so any v1 repair-cleanliness test asserting 0 violations on wrapped input fails. v1 *runtime* is unaffected (repair is autofix, not a hard gate; it just leaves wrapped prose). Fix the test fixture to conform (single-line prose), do not weaken the rule or exclude v1. First hit: `#2647` on `v1/test/intent-command.test.ts`.

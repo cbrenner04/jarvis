@@ -1,0 +1,20 @@
+Validating a few advocate claims against the repo so the verdict stays accurate.
+# Verdict: required refinements
+
+The tolerance branch and core fix are sound. The subspec is mergeable after these outcome-focused refinements:
+
+1. **Reconcile branch language in bundled intent artifacts.** `intent.md` still reads like the diagnostic branch (“MUST require inside body, not above it”; operator docs for hollow-on-above-test). The subspec correctly chose tolerance and preference-only operator docs. At plan merge, intent/ready-intent wording must match the subspec’s decision ledger so reviewers do not see an unresolved branch pick.
+
+2. **Align final verification ACs with touched surfaces and repo scope rules.** The work touches `shared/prompts/step-rules.ts`, `test/spec-guidance-doc-assertions.test.ts`, and `v2/src/execution/mutation-checkpoint-verifier.ts`. Final ACs must require `bun run typecheck`, `bun run test:v2`, and `bun run test:shared` (the suite that runs `test/**` assertions). Tasks already note v1 snapshot refresh when `DEFAULT_WRITE_STEP_RULES` bytes change; final ACs must include conditional `bun run test:v1` (or an equivalent rendered-snapshot gate) on that same condition. Without this, an implementer can tick completion with red shared or v1 snapshot tests.
+
+3. **Pin the mutation-checkpoint inversion in AC #5.** The mutation-checkpoint criterion must name a concrete, uniquely occurring `original` → `replacement` anchor in `enclosingPinTitle` (or the forward-check block), not only the pinning test file and behavioral test title. Repo convention requires an unambiguous single-line mutation; without a pinned string, the AC is satisfiable with a weak inversion.
+
+4. **Document adjacent-line-only tolerance on all authoring/operator surfaces.** Tolerance applies when the **next physical line** is the `test`/`it` declaration. A blank line, comment, or multiline `test(` where the title is not on the immediately following line falls back to backward scan (same wrong-pin/hollow behavior as today). Spec-guidance, write-step rules, and Gate trust must state this bound explicitly so “one line above” is not read as unconditional tolerance.
+
+5. **Resolve write-step vs spec-guidance tolerance split.** Intent AC #1 requires both surfaces to instruct inside-the-test-body placement; the subspec gates spec-guidance for inside-body **and** above-test tolerance but step-rules AC #3 only requires inside-body preference. Either step-rules must also state that adjacent above-test placement is verifier-tolerated, or the decision ledger must explicitly record that write-step carries preference-only while spec-guidance and operator docs carry tolerance detail. Pick one and reflect it in tasks and ACs.
+
+6. **Close implement-queue references by slug, not ordinal alone.** AC #8 must require removal/reconciliation of all references to `mutate-directive-placed-above-test-goes-hollow` in `v2/spec/implement-queue.md` — “Start here next,” the open-seeds table, and any duplicate mentions — not only “row #2.” Wording must not imply deleting a `seeds/` file (the slug is queue metadata; the ready-intent was consumed by plan).
+
+**Rationale:** Items 1–3 prevent implement-stranding (stale branch language, incomplete test gates, unverifiable mutation checkpoints). Items 4–5 make the tolerance contract observable and consistent across harness surfaces per intent and prior plan verdicts on the same seams. Item 6 prevents partial queue closure leaving stale operator routing, consistent with prior queue-drain specs.
+
+**Not required for merge:** splitting the subspec; broadening the regression to `it(...)` or file-leading directives; `write-behavior.md` cross-reference; plan-time hollow-pin changes; documenting the forward-over-backward precedence edge case (optional ledger note only).

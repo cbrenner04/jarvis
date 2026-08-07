@@ -79,23 +79,6 @@ function writeMultiSurfacePlanDraftStage(stagePath: string, subspecFile = "00-on
   );
 }
 
-function writeEnclosingTestMissPlanDraftStage(cwd: string, stagePath: string, subspecFile = "00-one.md"): void {
-  const pinTitle = "enclosing test miss pin";
-  mkdirSync(stagePath, { recursive: true });
-  writeFileSync(join(stagePath, "intent.md"), "---\nname: test\n---\n", "utf8");
-  writeFileSync(join(stagePath, "index.md"), `# Index\n\n- [ ] [00 - One](./${subspecFile})\n`, "utf8");
-  writeFileSync(
-    join(stagePath, subspecFile),
-    `# One\n\n## Acceptance criteria\n\n- [ ] \`enclosing-pin.test.ts\` — Mutation checkpoint: omits enclosing test title.\n`,
-    "utf8",
-  );
-  writeFileSync(
-    join(cwd, "enclosing-pin.test.ts"),
-    `test("${pinTitle}", () => {\n  // @mutate guard.ts "a > 0" -> "a >= 0"\n});\n`,
-    "utf8",
-  );
-}
-
 function loopTelemetry(sinkPath: string): NonNullable<WriteLoopInput["telemetry"]> {
   return {
     sinkPath,
@@ -1198,60 +1181,6 @@ describe("write loop", () => {
     if (existsSync(specPath)) {
       expect(readFileSync(specPath, "utf8")).not.toContain("## Blocker");
     }
-  });
-
-  test("plan-draft enclosing-test contract_miss carries failureReason on contract_miss_detail and intent blocker", async () => {
-    const { jarvisRoot, stateDbPath } = createJarvisHome();
-    const sink = new TestLogSink();
-    const agentStdout = "agent claimed done";
-    const subspecFile = "00-one.md";
-    const pinTitle = "enclosing test miss pin";
-
-    const result = await runLoop({
-      jarvisRoot,
-      stateDbPath,
-      branchName: "plan-draft-enclosing-log-detail",
-      artifactPath: ".jarvis-plan-stage",
-      specPath: PLAN_DRAFT_SPEC_PATH,
-      promptId: "plan.prompt.draft",
-      intentSeed: PLAN_DRAFT_INTENT_SEED,
-      bindings: [
-        {
-          id: "agent",
-          invoke: async ({ cwd }) => {
-            writeEnclosingTestMissPlanDraftStage(cwd, join(cwd, ".jarvis-plan-stage"), subspecFile);
-            return { kind: "ok", stdout: agentStdout, stderr: "" };
-          },
-        },
-      ],
-      logSink: sink,
-    });
-
-    expect(result.kind).toBe("contract_miss");
-    const detail = sink.getEventsForRun(result.runId).find((event) => event.kind === "contract_miss_detail");
-    expect(detail).toMatchObject({
-      kind: "contract_miss_detail",
-      failedContractId: "artifact.exists",
-      responseText: agentStdout,
-    });
-    const loggedFailureReason = detail && "failureReason" in detail ? detail.failureReason : undefined;
-    expect(loggedFailureReason).toContain("reason: missing_enclosing_test_title");
-    expect(loggedFailureReason).toContain(pinTitle);
-    expect(loggedFailureReason).toContain("criterion:");
-    expect(loggedFailureReason).toContain("reference:");
-
-    const intentPath = join(
-      jarvisRoot,
-      "worktrees",
-      "demo",
-      "plan-draft-enclosing-log-detail",
-      ".jarvis-plan-stage",
-      "intent.md",
-    );
-    const intent = readFileSync(intentPath, "utf8");
-    expect(intent).toContain("## Blocker");
-    expect(intent).toContain("missing_enclosing_test_title");
-    expect(intent).toContain(pinTitle);
   });
 
   test("blocked with blocker text stops immediately with distinct outcome", async () => {

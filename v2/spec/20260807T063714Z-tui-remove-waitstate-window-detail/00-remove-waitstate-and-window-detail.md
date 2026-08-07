@@ -48,8 +48,3 @@
 - `v2/docs/v1-behaviors.md` § TUI / observability — record right-pane run detail windowing to selectable runs and removal of TUI monitor `wait` RPC.
 - `v2/docs/write-behavior.md` — remove outcome panel, selection-driven `wait`, and resume re-wait; document monitor right-pane detail from selectable runs only.
 - `v2/docs/first-workflow-walkthrough.md` — drop Outcome-from-daemon-`wait` copy for the monitor path.
-
-## Blocker
-
-Artifact contract check failed: Unparseable mutation checkpoints:
-- criterion: Mutation checkpoint: in `tui-monitor-lines.test.ts` test `right pane omits detail for runs outside the selectable window`, a `// @mutate` directive inverting the post-fix `monitorSelectableNodeIds` membership guard turns that regression RED.; reference: tui-monitor-lines.test.ts; reason: unresolved_pinning_test

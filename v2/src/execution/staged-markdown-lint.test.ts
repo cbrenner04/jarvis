@@ -71,7 +71,7 @@ describe("staged-markdown-lint", () => {
   });
 
   test("fails closed when the linter invocation errors", async () => {
-    // @mutate v2/src/execution/staged-markdown-lint.ts "if (err instanceof AsyncSubprocessError) {" -> "if (false) {"
+    // @mutate v2/src/execution/staged-markdown-lint.ts "      return { kind: \"invocation_error\", message: invocationErrorMessage(err) };" -> "      return { kind: \"clean\" };"
     const { worktreePath, stagingRoot } = stageFixture("lint-clean.md");
     const runner: AsyncSubprocessRunner = {
       runAsync: async () => {

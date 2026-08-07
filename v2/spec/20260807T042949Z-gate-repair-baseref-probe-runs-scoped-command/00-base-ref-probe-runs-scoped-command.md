@@ -27,8 +27,3 @@ Follow-up to landed `gate-repair-fence` (#2665/#2666). Subspec 01 wired base-ref
 ## Documentation updates
 
 - Optional clarification only: `v2/docs/write-behavior.md` already states the probe re-runs the terminal step's scoped test command; align wording to exclude raw `bun test` if touched. No `v1-behaviors.md` change (bugfix-to-docs alignment).
-
-## Blocker
-
-Artifact contract check failed: Unparseable mutation checkpoints:
-- /Users/christopherbrenner/.jarvis/worktrees/jarvis/20260807T042949Z-gate-repair-baseref-probe-runs-scoped-command/v2/src/execution/ready-finalize.test.ts:487: malformed: // @mutate invert `outcome === "pass"` to `outcome !== "pass"` in `probeOutsidePathsAtBaseRef` (ready-finalize.ts)

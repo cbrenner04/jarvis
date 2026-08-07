@@ -27,7 +27,6 @@ import type {
   TuiMonitorState,
   TuiRefreshScheduler,
   TuiViewState,
-  TuiWaitState,
 } from "./tui-monitor-types.ts";
 import { computeShellLayout, monitorTreeRun } from "./tui-shell-layout.ts";
 
@@ -80,10 +79,6 @@ function createIntervalScheduler(intervalMs = TUI_REFRESH_INTERVAL_MS): TuiRefre
   };
 }
 
-function buildWaitStateForSelection(runId: string | null): TuiWaitState {
-  return runId === null ? { kind: "none" } : { kind: "pending", runId };
-}
-
 function selectedRunIdFromState(state: TuiMonitorState): string | null {
   const nodeId = state.selectedNodeId;
   if (nodeId === null) return null;
@@ -102,7 +97,6 @@ function emptyMonitorState(
   return {
     runs: [],
     selectedNodeId: null,
-    waitState: { kind: "none" },
     steeringFeedback: null,
     expandedPipelineNodeIds: [],
     refreshIntervalLabel: tuiRefreshIntervalLabel(),
@@ -246,11 +240,8 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
   let refreshHandle: { close(): void } | undefined;
   let displayTickHandle: { close(): void } | undefined;
   let currentState: TuiMonitorState = emptyMonitorState(invocationIdentity);
-  let activeWaitToken = 0;
-  const waitOwners = new Map<string, TuiDaemonClient>();
   let refreshInFlight = false;
   let refreshQueued = false;
-  const lastReadyByRunId = new Map<string, Extract<TuiWaitState, { kind: "ready" }>>();
   let resolveQuit!: () => void;
   let monitorOpen = false;
   let admissionPending = false;
@@ -311,51 +302,15 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
     setCommandEditor(graphemes, cursor + offset);
   };
 
-  const startWaitForRun = (runId: string): void => {
-    const waitToken = activeWaitToken;
-    const owner = getOwner(runId);
-    if (!owner) return;
-    waitOwners.set(runId, owner);
-
-    void (async () => {
-      try {
-        const result = await owner.wait(runId);
-        if (waitToken !== activeWaitToken || selectedRunIdFromState(currentState) !== runId) return;
-        const readyState = { kind: "ready" as const, runId, result };
-        lastReadyByRunId.set(runId, readyState);
-        setState({
-          ...currentState,
-          waitState: readyState,
-        });
-      } catch {
-        if (waitToken !== activeWaitToken || selectedRunIdFromState(currentState) !== runId) return;
-        const lastReady = lastReadyByRunId.get(runId);
-        setState({
-          ...currentState,
-          waitState: lastReady ?? { kind: "error", runId },
-        });
-      }
-    })();
-  };
-
   const setSelection = (nodeId: string | null): void => {
-    activeWaitToken += 1;
-    const runId = nodeId !== null && currentState.runs.some((run) => run.runId === nodeId) ? nodeId : null;
     setState({
       ...currentState,
       selectedNodeId: nodeId,
-      waitState: buildWaitStateForSelection(runId),
       steeringFeedback: null,
     });
-    if (runId !== null) {
-      startWaitForRun(runId);
-    }
   };
 
-  const runAction = (
-    perform: (runId: string, owner: TuiDaemonClient) => Promise<unknown>,
-    rewaitOnSuccess: boolean,
-  ): void => {
+  const runAction = (perform: (runId: string, owner: TuiDaemonClient) => Promise<unknown>): void => {
     const runId = selectedRunIdFromState(currentState);
     if (currentState.selectedNodeId === null) {
       setState({ ...currentState, steeringFeedback: "no run selected" });
@@ -373,17 +328,6 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
       try {
         await perform(runId, owner);
         if (selectedRunIdFromState(currentState) !== runId) return;
-        if (rewaitOnSuccess) {
-          activeWaitToken += 1;
-          lastReadyByRunId.delete(runId);
-          setState({
-            ...currentState,
-            waitState: buildWaitStateForSelection(runId),
-            steeringFeedback: null,
-          });
-          startWaitForRun(runId);
-          return;
-        }
         setState({ ...currentState, steeringFeedback: null });
       } catch (error) {
         if (selectedRunIdFromState(currentState) !== runId) return;
@@ -395,8 +339,8 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
     })();
   };
 
-  const runSteeringAction = (method: "pause" | "resume" | "kill", rewaitOnSuccess = false): void =>
-    runAction((runId, owner) => owner[method](runId), rewaitOnSuccess);
+  const runSteeringAction = (method: "pause" | "resume" | "kill"): void =>
+    runAction((runId, owner) => owner[method](runId));
 
   const updateConnections = async (): Promise<unknown | undefined> => {
     const sockets = await discoverFn();
@@ -408,29 +352,14 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
 
     // Close clients for sockets no longer live
     const currentSockets = new Set(clients.keys());
-    let selectedRunOwnerDropped = false;
     for (const socketPath of currentSockets) {
       if (!allSockets.has(socketPath)) {
         const client = clients.get(socketPath);
         client?.close();
         clients.delete(socketPath);
-        const selectedRunId = selectedRunIdFromState(currentState);
-        if (selectedRunId !== null && getOwner(selectedRunId) === client) {
-          selectedRunOwnerDropped = true;
-        }
         // Owners are rebuilt from this refresh's successful lists below, so a
         // dropped client's entries cannot outlive this cycle.
       }
-    }
-
-    // An unselectable selection is cleared by the refresh path below, so this
-    // connection-update pass only has to abandon a wait whose owner went away.
-    if (selectedRunOwnerDropped) {
-      activeWaitToken += 1;
-      setState({
-        ...currentState,
-        waitState: { kind: "none" },
-      });
     }
 
     // Add clients for newly discovered sockets
@@ -478,7 +407,6 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
         const liveListResults: Array<[TuiDaemonClient, DaemonListResult]> = [];
         let allClientsFailed = true;
         let firstError: unknown;
-        let selectedRunOwnerLost = false;
         for (const [socketPath, client] of [...clients.entries()]) {
           try {
             const result = await client.list();
@@ -490,11 +418,6 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
             if (socketPath === deps.socketPath) {
               client.close();
               clients.delete(socketPath);
-              const selectedRunId = selectedRunIdFromState(currentState);
-              if (selectedRunId !== null && getOwner(selectedRunId) === client) {
-                selectedRunOwnerLost = true;
-                activeWaitToken += 1;
-              }
               if (!firstError) firstError = error;
               continue;
             }
@@ -523,7 +446,6 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
             {
               runs: mergedRuns,
               selectedNodeId: null,
-              waitState: { kind: "none" },
               steeringFeedback: null,
               expandedPipelineNodeIds: [],
               commandBuffer: "",
@@ -539,11 +461,9 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
             terminalSizeFn,
           );
           const nodeId = firstSelectableNodeId(draftState, refreshNowMs);
-          const runId = nodeId !== null && mergedRuns.some((run) => run.runId === nodeId) ? nodeId : null;
           currentState = {
             ...draftState,
             selectedNodeId: nodeId,
-            waitState: buildWaitStateForSelection(runId),
           };
           return;
         }
@@ -566,7 +486,6 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
             ...currentState,
             runs: mergedRuns,
             selectedNodeId: null,
-            waitState: { kind: "none" },
             steeringFeedback: null,
             expandedPipelineNodeIds: currentState.expandedPipelineNodeIds ?? [],
             lastRpcError: refreshRpcFeedback(refreshError),
@@ -574,28 +493,17 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
             pipelineSnapshotsBySocketPath,
             terminalWindowNowMs: refreshNowMs,
           });
-          activeWaitToken += 1;
           continue;
         }
 
         setState({
           ...currentState,
           runs: mergedRuns,
-          ...(selectedRunOwnerLost ? { waitState: { kind: "none" } } : {}),
           lastRpcError: refreshRpcFeedback(refreshError),
           actionableRunIds,
           pipelineSnapshotsBySocketPath,
           terminalWindowNowMs: refreshNowMs,
         });
-        const selectedRunId = selectedRunIdFromState(currentState);
-        const selectedOwner = selectedRunId === null ? undefined : owners.get(selectedRunId);
-        // A dropped or reconnected owner socket yields a fresh client object, so an
-        // owner-identity change is the whole re-wait condition.
-        if (selectedRunId !== null && selectedOwner !== undefined && waitOwners.get(selectedRunId) !== selectedOwner) {
-          activeWaitToken += 1;
-          setState({ ...currentState, waitState: buildWaitStateForSelection(selectedRunId) });
-          startWaitForRun(selectedRunId);
-        }
       } while (refreshQueued);
     } finally {
       refreshInFlight = false;
@@ -616,10 +524,6 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
     await Promise.all([...healthChecks, ...statusChecks]);
 
     await refreshRuns(true, admissionError);
-
-    if (currentState.selectedNodeId !== null) {
-      setSelection(currentState.selectedNodeId);
-    }
 
     session = await openMonitor(
       monitorShellState(currentState, terminalSizeFn),
@@ -795,7 +699,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
           runSteeringAction("pause");
         },
         resumeSelected() {
-          runSteeringAction("resume", true);
+          runSteeringAction("resume");
         },
         killSelected() {
           runSteeringAction("kill");

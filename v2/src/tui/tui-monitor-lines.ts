@@ -636,8 +636,8 @@ function unwrappedRightPaneSegmentRows(state: TuiMonitorState, layout: ShellLayo
     return [...pipelineLines, ...stageDetailRows(stage)];
   }
 
-  const selectedRunId =
-    treeRow?.kind === "run" ? treeRow.id : monitorSelectableRuns(state).find((run) => run.runId === selected)?.runId;
+  const selectableIds = monitorSelectableNodeIds(state, nowMs);
+  const selectedRunId = treeRow?.kind === "run" ? treeRow.id : selectableIds.includes(selected) ? selected : undefined;
   const selectedRun = state.runs.find((run) => run.runId === selectedRunId);
   if (selectedRun === undefined) {
     return [row(untoned("No run selected."))];

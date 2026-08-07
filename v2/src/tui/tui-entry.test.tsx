@@ -1312,7 +1312,6 @@ describe("runTuiEntry", () => {
           {
             runs: pipelineMultiListFixture(),
             selectedNodeId: "pipe-gone",
-            waitState: { kind: "none" },
             steeringFeedback: null,
             pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [PIPELINE_SNAPSHOT_MULTI] } },
             terminalWindowNowMs: WORKFLOW_FILTER_NOW_MS,
@@ -1542,7 +1541,6 @@ describe("runTuiEntry", () => {
       runs: [RUN_ALPHA],
       selectedNodeId: "run-alpha",
       actionableRunIds: [],
-      waitState: { kind: "none" },
     });
     view.killSelected();
     await flush();
@@ -1551,7 +1549,6 @@ describe("runTuiEntry", () => {
     await flushIntervalTick(refresh);
     expect(view.monitorStates.at(-1)?.actionableRunIds).toEqual(["run-alpha"]);
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-alpha");
-    expect(secondMethods).toContain("wait:run-alpha");
     view.quit();
     expect(await pending).toBe(0);
   });
@@ -1610,61 +1607,6 @@ describe("runTuiEntry", () => {
       await flush();
     }
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBeNull();
-
-    view.quit();
-    await pending;
-  });
-
-  test("a reconnected owner socket re-issues the selected run's wait exactly once", async () => {
-    const view = createViewHost();
-    const refresh = createIntervalScheduler();
-    const ownerMethods: string[] = [];
-    let discoveryPhase = 0;
-    const waitsIssued = () => ownerMethods.filter((m) => m === "wait:run-alpha").length;
-    const { deps } = entryDeps(
-      {},
-      {
-        socketPath: DAEMON2_SOCKET,
-        viewHost: view.host,
-        refreshScheduler: refresh.scheduler,
-        connectTuiDaemon: async (options) => {
-          const socketPath = options?.socketPath ?? DAEMON2_SOCKET;
-          // Reconnecting the owner socket builds a fresh client for the same path.
-          return (
-            socketPath === DAEMON1_SOCKET
-              ? fakeClient({ methods: ownerMethods, listResponses: [{ runs: [{ ...RUN_ALPHA, isLive: true }] }] })
-              : fakeClient({ methods: [], listResponses: [{ runs: [] }] })
-          ) as TuiDaemonClient;
-        },
-        socketDiscovery: async () => {
-          discoveryPhase += 1;
-          // The owner socket drops on the second refresh and returns afterwards.
-          return discoveryPhase === 2 ? [DAEMON2_SOCKET] : [DAEMON1_SOCKET, DAEMON2_SOCKET];
-        },
-      },
-    );
-
-    const pending = runTuiEntry(deps);
-    await view.waitUntilOpen();
-    await flush();
-    view.selectNode("run-alpha");
-    await flush();
-    const waitsAfterSelect = waitsIssued();
-
-    await flushIntervalTick(refresh);
-    await flush();
-    await flushIntervalTick(refresh);
-    for (let i = 0; i < 30 && waitsIssued() === waitsAfterSelect; i += 1) {
-      await flush();
-    }
-    const waitsAfterReconnect = waitsIssued();
-    expect(waitsAfterReconnect).toBe(waitsAfterSelect + 1);
-
-    // The reconnect flag is consumed, so a further quiet refresh must not re-issue.
-    await flushIntervalTick(refresh);
-    await flush();
-    await flush();
-    expect(waitsIssued()).toBe(waitsAfterReconnect);
 
     view.quit();
     await pending;
@@ -1999,17 +1941,62 @@ describe("runTuiEntry", () => {
     const code = await pending;
 
     expect(code).toBe(0);
-    expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list", "wait:run-alpha", "close"]);
+    expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list", "close"]);
     expect(view.monitorStates[0]).toMatchObject({
       runs: [RUN_ALPHA],
       selectedNodeId: "run-alpha",
-      waitState: { kind: "pending", runId: "run-alpha" },
     });
     expect(view.isClosed()).toBe(true);
     expect(refresh.isClosed()).toBe(true);
   });
 
-  test("terminal-first daemon order selects the topmost active run and waits for it", async () => {
+  test("monitor session issues no wait RPC", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [RUN_ALPHA, RUN_BETA] }],
+      },
+      { viewHost: view.host },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.selectNode("run-beta");
+    await flush();
+    view.selectNode("run-alpha");
+    await flush();
+    view.quit();
+    await pending;
+
+    expect(clientOptions.methods?.some((method) => method.startsWith("wait:"))).toBe(false);
+    expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list", "close"]);
+  });
+
+  test("successful resume does not re-issue wait", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [RUN_ALPHA] }],
+      },
+      { viewHost: view.host },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    view.resumeSelected();
+    await flush();
+    view.quit();
+    await pending;
+
+    expect(clientOptions.methods).toContain("resume:run-alpha");
+    expect(clientOptions.methods?.some((method) => method.startsWith("wait:"))).toBe(false);
+  });
+
+  test("terminal-first daemon order selects the topmost active run", async () => {
     const view = createViewHost();
     const { deps, clientOptions } = entryDeps(
       {
@@ -2025,7 +2012,7 @@ describe("runTuiEntry", () => {
     view.quit();
     await pending;
 
-    expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list", "wait:run-alpha", "close"]);
+    expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list", "close"]);
     expect(view.monitorStates[0]?.selectedNodeId).toBe("run-alpha");
   });
 
@@ -2048,7 +2035,6 @@ describe("runTuiEntry", () => {
     expect(view.monitorStates[0]).toEqual({
       runs: [],
       selectedNodeId: null,
-      waitState: { kind: "none" },
       steeringFeedback: null,
       expandedPipelineNodeIds: [],
       commandBuffer: "",
@@ -2084,7 +2070,7 @@ describe("runTuiEntry", () => {
     await pending;
 
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-alpha");
-    expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list", "wait:run-alpha", "close"]);
+    expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list", "close"]);
   });
 
   test("navigates selectable rows in rendered order, skipping queued rows and clamping", async () => {
@@ -2113,17 +2099,7 @@ describe("runTuiEntry", () => {
     await pending;
 
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-beta");
-    expect(clientOptions.methods).toEqual([
-      "health",
-      "status",
-      "list",
-      "pipeline_list",
-      "wait:run-alpha",
-      "wait:run-beta",
-      "wait:run-gamma",
-      "wait:run-beta",
-      "close",
-    ]);
+    expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list", "close"]);
   });
 
   test("drives row navigation through the injected input hook", async () => {
@@ -2413,7 +2389,7 @@ describe("runTuiEntry", () => {
     expect(await pending).toBe(0);
   });
 
-  test("when a refresh drops the selected id from the selectable list, selectedNodeId clears and wait-state resets", async () => {
+  test("when a refresh drops the selected id from the selectable list, selectedNodeId clears", async () => {
     const view = createViewHost();
     const refresh = createIntervalScheduler();
     const { deps } = entryDeps(
@@ -2443,8 +2419,6 @@ describe("runTuiEntry", () => {
     await flush();
 
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBeNull();
-    expect(view.monitorStates.at(-1)?.waitState).toEqual({ kind: "none" });
-
     view.quit();
     expect(await pending).toBe(0);
   });
@@ -2564,7 +2538,6 @@ describe("runTuiEntry", () => {
     await pending;
 
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBeNull();
-    expect(view.monitorStates.at(-1)?.waitState).toEqual({ kind: "none" });
   });
 
   test("refresh updates displayed status and liveness in place and keeps selection anchored", async () => {
@@ -2595,15 +2568,13 @@ describe("runTuiEntry", () => {
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-alpha");
   });
 
-  test("refresh clears selection and abandons a pending wait when the selected run disappears", async () => {
+  test("refresh clears selection when the selected run disappears", async () => {
     const view = createViewHost();
     const refresh = createIntervalScheduler();
-    const alphaWait = deferred<WaitRunCompletionResult>();
     const { deps, clientOptions } = entryDeps(
       {
         methods: [],
         listResponses: [{ runs: [RUN_ALPHA] }, { runs: [RUN_BETA] }],
-        waitImpl: async () => alphaWait.promise,
       },
       { viewHost: view.host, refreshScheduler: refresh.scheduler },
     );
@@ -2613,8 +2584,6 @@ describe("runTuiEntry", () => {
     await flush();
     refresh.tick();
     await flush();
-    alphaWait.resolve({ runStatus: "completed", loopOutcomeKind: "complete" });
-    await flush();
     view.quit();
     await pending;
 
@@ -2623,7 +2592,6 @@ describe("runTuiEntry", () => {
       "status",
       "list",
       "pipeline_list",
-      "wait:run-alpha",
       "list",
       "pipeline_list",
       "close",
@@ -2631,7 +2599,6 @@ describe("runTuiEntry", () => {
     expect(view.monitorStates.at(-1)).toEqual({
       runs: [RUN_BETA],
       selectedNodeId: null,
-      waitState: { kind: "none" },
       steeringFeedback: null,
       expandedPipelineNodeIds: [],
       leftPaneTreeScrollOffset: 0,
@@ -2646,122 +2613,6 @@ describe("runTuiEntry", () => {
       pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [] } },
       terminalWindowNowMs: expect.any(Number),
       actionableRunIds: ["run-beta"],
-    });
-  });
-
-  test("selecting a quiescent run waits for that run and shows only present optional outcome fields", async () => {
-    const view = createViewHost();
-    const { deps, clientOptions } = entryDeps(
-      {
-        methods: [],
-        listResponses: [{ runs: [RUN_ALPHA, RUN_BETA] }],
-        waitImpl: async (runId) =>
-          runId === "run-alpha" ? { runStatus: "completed" } : { runStatus: "blocked", iterationsConsumed: 3 },
-      },
-      { viewHost: view.host },
-    );
-
-    const pending = runTuiEntry(deps);
-    await view.waitUntilOpen();
-    await flush();
-    view.selectNode("run-beta");
-    await flush();
-    view.quit();
-    await pending;
-
-    const finalWaitState = view.monitorStates.at(-1)?.waitState;
-    expect(clientOptions.methods).toEqual([
-      "health",
-      "status",
-      "list",
-      "pipeline_list",
-      "wait:run-alpha",
-      "wait:run-beta",
-      "close",
-    ]);
-    expect(view.monitorStates.at(-1)).toMatchObject({
-      selectedNodeId: "run-beta",
-      waitState: {
-        kind: "ready",
-        runId: "run-beta",
-        result: { runStatus: "blocked", iterationsConsumed: 3 },
-      },
-    });
-    if (finalWaitState?.kind !== "ready") {
-      throw new Error("expected ready wait state");
-    }
-    expect("loopOutcomeKind" in finalWaitState.result).toBe(false);
-    expect("resumable" in finalWaitState.result).toBe(false);
-  });
-
-  test("changing selection while wait is pending abandons the prior wait and starts a fresh one", async () => {
-    const view = createViewHost();
-    const alphaWait = deferred<WaitRunCompletionResult>();
-    const betaWait = deferred<WaitRunCompletionResult>();
-    const { deps, clientOptions } = entryDeps(
-      {
-        methods: [],
-        listResponses: [{ runs: [RUN_ALPHA, RUN_BETA] }],
-        waitImpl: async (runId) => (runId === "run-alpha" ? alphaWait.promise : betaWait.promise),
-      },
-      { viewHost: view.host },
-    );
-
-    const pending = runTuiEntry(deps);
-    await view.waitUntilOpen();
-    await flush();
-    view.selectNode("run-beta");
-    await flush();
-    betaWait.resolve({ runStatus: "completed" });
-    await flush();
-    view.quit();
-    await pending;
-
-    expect(clientOptions.methods).toEqual([
-      "health",
-      "status",
-      "list",
-      "pipeline_list",
-      "wait:run-alpha",
-      "wait:run-beta",
-      "close",
-    ]);
-    expect(view.monitorStates.at(-2)?.waitState).toEqual({ kind: "pending", runId: "run-beta" });
-    expect(view.monitorStates.at(-1)?.waitState).toEqual({
-      kind: "ready",
-      runId: "run-beta",
-      result: { runStatus: "completed" },
-    });
-  });
-
-  test("late replies from abandoned waits are ignored", async () => {
-    const view = createViewHost();
-    const alphaWait = deferred<WaitRunCompletionResult>();
-    const betaWait = deferred<WaitRunCompletionResult>();
-    const { deps } = entryDeps(
-      {
-        listResponses: [{ runs: [RUN_ALPHA, RUN_BETA] }],
-        waitImpl: async (runId) => (runId === "run-alpha" ? alphaWait.promise : betaWait.promise),
-      },
-      { viewHost: view.host },
-    );
-
-    const pending = runTuiEntry(deps);
-    await view.waitUntilOpen();
-    await flush();
-    view.selectNode("run-beta");
-    await flush();
-    betaWait.resolve({ runStatus: "blocked", loopOutcomeKind: "blocked" });
-    await flush();
-    alphaWait.resolve({ runStatus: "completed", loopOutcomeKind: "complete" });
-    await flush();
-    view.quit();
-    await pending;
-
-    expect(view.monitorStates.at(-1)?.waitState).toEqual({
-      kind: "ready",
-      runId: "run-beta",
-      result: { runStatus: "blocked", loopOutcomeKind: "blocked" },
     });
   });
 
@@ -2908,31 +2759,6 @@ describe("runTuiEntry", () => {
       runs: [RUN_BETA],
       selectedNodeId: "run-beta",
     });
-
-    view.quit();
-    await pending;
-  });
-
-  test("wait failure with unchanged selection shows error state not perpetual pending", async () => {
-    const view = createViewHost();
-    const alphaWait = deferred<WaitRunCompletionResult>();
-    const { deps } = entryDeps(
-      {
-        listResponses: [{ runs: [RUN_ALPHA] }],
-        waitImpl: async () => alphaWait.promise,
-      },
-      { viewHost: view.host },
-    );
-
-    const pending = runTuiEntry(deps);
-    await view.waitUntilOpen();
-    await flush();
-    expect(view.monitorStates.at(-1)?.waitState).toEqual({ kind: "pending", runId: "run-alpha" });
-
-    alphaWait.reject(new RpcError("unknown_run", "run not found"));
-    await flush();
-
-    expect(view.monitorStates.at(-1)?.waitState).toEqual({ kind: "error", runId: "run-alpha" });
 
     view.quit();
     await pending;
@@ -3265,7 +3091,7 @@ describe("runTuiEntry", () => {
     const code = await pending;
 
     expect(code).toBe(0);
-    expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list", "wait:run-alpha", "close"]);
+    expect(clientOptions.methods).toEqual(["health", "status", "list", "pipeline_list", "close"]);
     expect(view.monitorStates[0]).toMatchObject({
       runs: [RUN_ALPHA],
       selectedNodeId: "run-alpha",
@@ -3424,42 +3250,12 @@ describe("runTuiEntry", () => {
     expect(view.monitorStates.at(-1)?.steeringFeedback).toBeNull();
   });
 
-  test("waitState error display is unchanged by steering feedback", async () => {
+  test("successful pause issues no wait RPC", async () => {
     const view = createViewHost();
-    const alphaWait = deferred<WaitRunCompletionResult>();
-    const { deps } = entryDeps(
-      {
-        listResponses: [{ runs: [RUN_ALPHA] }],
-        waitImpl: async () => alphaWait.promise,
-        pauseError: new RpcError("run_not_active", "not active"),
-      },
-      { viewHost: view.host },
-    );
-
-    const pending = runTuiEntry(deps);
-    await view.waitUntilOpen();
-    await flush();
-    alphaWait.reject(new RpcError("unknown_run", "run not found"));
-    await flush();
-    expect(view.monitorStates.at(-1)?.waitState).toEqual({ kind: "error", runId: "run-alpha" });
-
-    view.pauseSelected();
-    await flush();
-    expect(view.monitorStates.at(-1)?.waitState).toEqual({ kind: "error", runId: "run-alpha" });
-    expect(view.monitorStates.at(-1)?.steeringFeedback).toBe("run_not_active: not active");
-
-    view.quit();
-    await pending;
-  });
-
-  test("successful pause does not re-issue wait or mutate waitState", async () => {
-    const view = createViewHost();
-    const pauseWait = deferred<WaitRunCompletionResult>();
     const { deps, clientOptions } = entryDeps(
       {
         methods: [],
         listResponses: [{ runs: [RUN_ALPHA] }],
-        waitImpl: async () => pauseWait.promise,
       },
       { viewHost: view.host },
     );
@@ -3467,17 +3263,10 @@ describe("runTuiEntry", () => {
     const pending = runTuiEntry(deps);
     await view.waitUntilOpen();
     await flush();
-    pauseWait.resolve({ runStatus: "completed" });
-    await flush();
-    expect(view.monitorStates.at(-1)?.waitState?.kind).toBe("ready");
-    const readyWaitState = view.monitorStates.at(-1)?.waitState;
-    const waitCount = clientOptions.methods?.filter((method) => method === "wait:run-alpha").length ?? 0;
-
     view.pauseSelected();
     await flush();
 
-    expect(view.monitorStates.at(-1)?.waitState).toEqual(readyWaitState);
-    expect(clientOptions.methods?.filter((method) => method === "wait:run-alpha").length).toBe(waitCount);
+    expect(clientOptions.methods?.some((method) => method.startsWith("wait:"))).toBe(false);
     expect(clientOptions.methods).toContain("pause:run-alpha");
     view.quit();
     await pending;
@@ -3517,48 +3306,6 @@ describe("runTuiEntry", () => {
       view.quit();
       expect(await pending).toBe(0);
     }
-  });
-
-  test("successful resume re-issues wait and abandons a prior ready snapshot", async () => {
-    const view = createViewHost();
-    const waitQueue: Array<ReturnType<typeof deferred<WaitRunCompletionResult>>> = [];
-    const { deps, clientOptions } = entryDeps(
-      {
-        methods: [],
-        listResponses: [{ runs: [RUN_ALPHA] }],
-        waitImpl: async () => {
-          const pending = deferred<WaitRunCompletionResult>();
-          waitQueue.push(pending);
-          return pending.promise;
-        },
-      },
-      { viewHost: view.host },
-    );
-
-    const pending = runTuiEntry(deps);
-    await view.waitUntilOpen();
-    await flush();
-    waitQueue[0]?.resolve({ runStatus: "completed", loopOutcomeKind: "complete" });
-    await flush();
-    expect(view.monitorStates.at(-1)?.waitState).toMatchObject({ kind: "ready", runId: "run-alpha" });
-
-    view.resumeSelected();
-    await flush();
-    expect(view.monitorStates.at(-1)?.waitState).toEqual({ kind: "pending", runId: "run-alpha" });
-    expect(clientOptions.methods).toContain("resume:run-alpha");
-    expect(clientOptions.methods?.filter((method) => method === "wait:run-alpha").length).toBe(2);
-
-    waitQueue[1]?.resolve({ runStatus: "in-progress" });
-    await flush();
-    await flush();
-    expect(view.monitorStates.at(-1)?.waitState).toMatchObject({
-      kind: "ready",
-      runId: "run-alpha",
-      result: { runStatus: "in-progress" },
-    });
-
-    view.quit();
-    await pending;
   });
 
   test("rediscovery: a socket appearing after startup contributes runs on the next tick", async () => {
@@ -3775,8 +3522,6 @@ describe("runTuiEntry", () => {
     await flush();
     await flush();
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-beta");
-    expect(view.monitorStates.at(-1)?.waitState).toEqual({ kind: "none" });
-
     view.quit();
     await pending;
   });
@@ -3833,8 +3578,6 @@ describe("runTuiEntry", () => {
     await flush();
     await flush();
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-beta");
-    expect(view.monitorStates.at(-1)?.waitState).toEqual({ kind: "none" });
-
     view.quit();
     await pending;
   });

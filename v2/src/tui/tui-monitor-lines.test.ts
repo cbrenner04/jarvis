@@ -12,6 +12,7 @@ import {
   monitorRightPaneSegmentRows,
   monitorSegmentRows,
   monitorSelectableNodeIds,
+  monitorSelectableRuns,
   monitorTextLines,
   orderSelectableRuns,
   RUN_STATUS_TONES,
@@ -60,7 +61,6 @@ function monitorState(overrides: Partial<TuiMonitorState> = {}): TuiMonitorState
   return {
     runs: [],
     selectedNodeId: null,
-    waitState: { kind: "none" },
     steeringFeedback: null,
     expandedPipelineNodeIds: [],
     ...overrides,
@@ -185,7 +185,6 @@ const MONITOR_LINES_FIXTURE_STATE: TuiMonitorState = {
     { runId: "run-queued", project: "demo", branch: "queued", createdAt: 0, status: "queued", isLive: false },
   ],
   selectedNodeId: "run-alpha",
-  waitState: { kind: "ready", runId: "run-alpha", result: { runStatus: "in-progress" } },
   steeringFeedback: "daemon_error: paused",
 };
 
@@ -894,9 +893,7 @@ describe("monitorRightPaneSegmentRows", () => {
   test("attributed run detail is resolved only from the selected durable row", () => {
     // @mutate v2/src/tui/tui-monitor-lines.ts "state.runs.find((run) => run.runId === selectedRunId)" -> "state.runs[0]"
     // @mutate v2/src/tui/tui-monitor-lines.ts "if (selectedRun === undefined) {" -> "if (true) {"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "value === undefined ? [] :" -> "false ? [] :"
     // @mutate v2/src/tui/tui-monitor-lines.ts "if (state.steeringFeedback !== null) {" -> "if (false) {"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "const lines = [...pipelineLines, ...selectedRunDetailRows(selectedRun)];" -> "const lines = [...pipelineLines, ...selectedRunDetailRows(selectedRun), ...(state.waitState.kind === \"ready\" ? [row(untoned(`runStatus: ${state.waitState.result.runStatus}`))] : [])];"
     const snapshot = pipelineSnapshot({
       ...detailedSnapshot,
       stages: [detailedStage],
@@ -963,16 +960,6 @@ describe("monitorRightPaneSegmentRows", () => {
     const state = monitorState({
       runs: [conflictingRun, selectedRun],
       selectedNodeId: "run-detail-a",
-      waitState: {
-        kind: "ready",
-        runId: "run-conflicting",
-        result: {
-          runStatus: "failed",
-          loopOutcomeKind: "invocation_failure",
-          iterationsConsumed: 88,
-          resumable: true,
-        },
-      },
       steeringFeedback: "daemon_error: retained steering",
       pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
     });
@@ -1014,7 +1001,7 @@ describe("monitorRightPaneSegmentRows", () => {
     expect(lines).not.toContain("resumable: true");
   });
 
-  test("unattributed run detail preserves null and omits only undefined fields without wait rows", () => {
+  test("unattributed run detail preserves null and omits only undefined fields", () => {
     const selectedRun: DaemonListRunRow = {
       runId: "run-unattributed",
       project: "",
@@ -1030,41 +1017,56 @@ describe("monitorRightPaneSegmentRows", () => {
       prNumber: 0,
       prUrl: "",
     };
-    const waitStates: TuiMonitorState["waitState"][] = [
-      { kind: "pending", runId: "run-other" },
-      { kind: "ready", runId: "run-other", result: { runStatus: "failed" } },
-      { kind: "error", runId: "run-other" },
-    ];
+    const lines = monitorRightPaneSegmentRows(
+      monitorState({ runs: [selectedRun], selectedNodeId: selectedRun.runId }),
+      TREE_NOW_MS,
+    ).map(joinMonitorRow);
 
-    for (const waitState of waitStates) {
-      const lines = monitorRightPaneSegmentRows(
-        monitorState({ runs: [selectedRun], selectedNodeId: selectedRun.runId, waitState }),
-        TREE_NOW_MS,
-      ).map(joinMonitorRow);
+    expect(lines).toEqual([
+      "Run",
+      "runId: run-unattributed",
+      "project: ",
+      "branch: ",
+      "status: paused",
+      "isLive: false",
+      "createdAt: 0",
+      "iterationsConsumed: 0",
+      "resumable: false",
+      "error: null",
+      "reviewPasses: 0",
+      "worktreePath: ",
+      "prNumber: 0",
+      "prUrl: ",
+    ]);
+    expect(lines.some((line) => line.startsWith("pipelineId:"))).toBe(false);
+    expect(lines).not.toContain("Stages");
+    expect(lines).not.toContain("Outcome");
+    expect(lines.some((line) => line.startsWith("runStatus:"))).toBe(false);
+  });
 
-      expect(lines).toEqual([
-        "Run",
-        "runId: run-unattributed",
-        "project: ",
-        "branch: ",
-        "status: paused",
-        "isLive: false",
-        "createdAt: 0",
-        "iterationsConsumed: 0",
-        "resumable: false",
-        "error: null",
-        "reviewPasses: 0",
-        "worktreePath: ",
-        "prNumber: 0",
-        "prUrl: ",
-      ]);
-      expect(lines.some((line) => line.startsWith("pipelineId:"))).toBe(false);
-      expect(lines).not.toContain("Stages");
-      expect(lines).not.toContain("Outcome");
-      expect(lines.some((line) => line.startsWith("Waiting for "))).toBe(false);
-      expect(lines.some((line) => line.startsWith("Wait failed for "))).toBe(false);
-      expect(lines.some((line) => line.startsWith("runStatus:"))).toBe(false);
-    }
+  test("right pane omits detail for runs outside the selectable window", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "selectableIds.includes(selected)" -> "true"
+    const staleFinishedAt = TREE_NOW_MS - TUI_TERMINAL_WINDOW_MS - 1;
+    const staleUnattributed: DaemonListRunRow = {
+      runId: "run-stale-unattributed",
+      project: "demo",
+      branch: "stale",
+      createdAt: 0,
+      status: "completed",
+      isLive: false,
+      finishedAtMs: staleFinishedAt,
+    };
+    const state = monitorState({
+      runs: [staleUnattributed],
+      selectedNodeId: "run-stale-unattributed",
+    });
+
+    expect(monitorSelectableRuns(state).some((run) => run.runId === "run-stale-unattributed")).toBe(true);
+    expect(monitorSelectableNodeIds(state, TREE_NOW_MS)).not.toContain("run-stale-unattributed");
+
+    const lines = monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow);
+    expect(lines.some((line) => line.startsWith("runId:"))).toBe(false);
+    expect(lines).not.toContain("Run");
   });
 
   test("resolves pipeline detail for off-pane tree row selection", () => {
@@ -1102,7 +1104,6 @@ describe("monitorRightPaneSegmentRows", () => {
     const base = monitorState({
       runs: [matchedRun],
       selectedNodeId: "run-implement",
-      waitState: { kind: "ready", runId: "run-implement", result: { runStatus: "in-progress" } },
       pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
     });
 

@@ -28,13 +28,13 @@ The plan write step drafts Markdown under `.jarvis-plan-stage/` and finalizes wi
 
 ## Acceptance criteria
 
-- [ ] `write-loop-staged-markdown-lint.test.ts` `plan write step staged Markdown lint violation reprompts before finalize` drives a plan write with a staged `MD012`/`MD038` violation, asserts a reprompt carrying rule id and file path, asserts the loop `continue`s without terminal settlement on the first miss, and fails against pre-fix code that finalizes unconditionally.
-- [ ] `write-loop-staged-markdown-lint.test.ts` `plan write step clean staged Markdown finalizes without extra invocation` asserts one agent invocation and finalize on clean staging; fails against pre-fix code if a second lint-only invocation runs.
-- [ ] `write-loop-staged-markdown-lint.test.ts` `plan write step lint-clean MD012 and MD038 golden fixtures finalize without reprompt` drives plan writes with committed lint-clean fixtures covering the `MD012` and `MD038` rule families from the 2026-08-03 incidents and asserts finalize proceeds in one invocation.
-- [ ] `write-loop-staged-markdown-lint.test.ts` `plan write step staged Markdown lint budget exhaustion settles landing_failed` drives a plan write that never fixes the violation through `maxIterations` and asserts `landing_failed` with `resumable: true` / `nextAction: "resume"` and preserved stage bytes (not `contract_miss`).
-- [ ] `write-loop-staged-markdown-lint.test.ts` `plan write step staged Markdown lint reprompt preserves sibling stage files` drives a plan write where only one staged file violates lint and asserts sibling staged files under `.jarvis-plan-stage/` are byte-identical after the reprompt.
-- [ ] Mutation checkpoint: in `write-loop-staged-markdown-lint.test.ts`, the test titled `plan write step staged Markdown lint violation reprompts before finalize` carries a `// @mutate` directive (inside the test body) on the plan-draft lint guard line in `write-loop.ts`; the mutation turns that test RED.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `write-loop-staged-markdown-lint.test.ts` `plan write step staged Markdown lint violation reprompts before finalize` drives a plan write with a staged `MD012`/`MD038` violation, asserts a reprompt carrying rule id and file path, asserts the loop `continue`s without terminal settlement on the first miss, and fails against pre-fix code that finalizes unconditionally.
+- [x] `write-loop-staged-markdown-lint.test.ts` `plan write step clean staged Markdown finalizes without extra invocation` asserts one agent invocation and finalize on clean staging; fails against pre-fix code if a second lint-only invocation runs.
+- [x] `write-loop-staged-markdown-lint.test.ts` `plan write step lint-clean MD012 and MD038 golden fixtures finalize without reprompt` drives plan writes with committed lint-clean fixtures covering the `MD012` and `MD038` rule families from the 2026-08-03 incidents and asserts finalize proceeds in one invocation.
+- [x] `write-loop-staged-markdown-lint.test.ts` `plan write step staged Markdown lint budget exhaustion settles landing_failed` drives a plan write that never fixes the violation through `maxIterations` and asserts `landing_failed` with `resumable: true` / `nextAction: "resume"` and preserved stage bytes (not `contract_miss`).
+- [x] `write-loop-staged-markdown-lint.test.ts` `plan write step staged Markdown lint reprompt preserves sibling stage files` drives a plan write where only one staged file violates lint and asserts sibling staged files under `.jarvis-plan-stage/` are byte-identical after the reprompt.
+- [x] Mutation checkpoint: in `write-loop-staged-markdown-lint.test.ts`, the test titled `plan write step staged Markdown lint violation reprompts before finalize` carries a `// @mutate` directive (inside the test body) on the plan-draft lint guard line in `write-loop.ts`; the mutation turns that test RED.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

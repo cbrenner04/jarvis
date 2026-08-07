@@ -9319,7 +9319,7 @@ describe("executeWorkflow plan review dispatch", () => {
       const projectRoot = mkdtempSync(join(tmpdir(), "plan-default-landing-project-"));
       roots.push(projectRoot);
       const readyIntentRel = "v2/spec/ready-intents/default-plan.md";
-      const intentContent = "---\nname: default-plan\n---\n\n## Prerequisites\n\n- none\n";
+      const intentContent = "---\nname: default-plan\n---\n\n# Default Plan\n\n## Prerequisites\n\n- none\n";
       mkdirSync(join(projectRoot, "v2/spec/ready-intents"), { recursive: true });
       writeFileSync(join(projectRoot, readyIntentRel), intentContent);
       const configPath = join(projectRoot, "config.json");
@@ -9379,7 +9379,7 @@ describe("executeWorkflow plan review dispatch", () => {
           mkdirSync(stage, { recursive: true });
           writeFileSync(join(stage, "index.md"), "# Index\n\n- [ ] [00 - First](./00-first.md)\n", "utf8");
           writeFileSync(join(stage, "intent.md"), intentContent, "utf8");
-          writeFileSync(join(stage, "00-first.md"), "# First\n\n## Acceptance criteria\n", "utf8");
+          writeFileSync(join(stage, "00-first.md"), "# First\n\n## Acceptance criteria\n\n- [ ] criterion\n", "utf8");
           return { kind: "ok", stdout: "done", stderr: "" };
         },
       });

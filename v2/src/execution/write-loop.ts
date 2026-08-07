@@ -34,6 +34,7 @@ import {
   type MutationDirectiveRepromptEvent,
   type PersistedRecord,
   priorLogRecordsFromSink,
+  type StagedMarkdownLintRepromptEvent,
   truncateLogText,
 } from "../persistence/log-stream.ts";
 import {
@@ -80,6 +81,7 @@ import {
 } from "./ready-finalize.ts";
 import { type SmokePass, verifyRuntimeSmoke } from "./runtime-smoke-verifier.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
+import { lintStagedMarkdown } from "./staged-markdown-lint.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import { reportUncoveredChangedLines } from "./uncovered-changed-lines.ts";
@@ -265,6 +267,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   bypassPersistedReadyGateRepairFenceForTest?: boolean;
   /** Reprompt context for the next intent-split iteration after a landing-contract miss. */
   landingContractReprompt?: { violation: string; offendingFile: string };
+  /** Reprompt context for the next plan-draft iteration after a staged Markdown lint miss. */
+  stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string };
   /** Reprompt context for the next implement iteration after a repromptable mutation-directive miss. */
   mutationDirectiveReprompt?: MutationDirectiveRepromptContext;
   /** Publication landing contract when invoked from workflow-runner write steps. */
@@ -330,6 +334,22 @@ export function findLandingContractRepromptFromLog(
     }
   }
   return latest === undefined ? undefined : { violation: latest.violation, offendingFile: latest.offendingFile };
+}
+
+/** Last in-loop staged-Markdown lint reprompt from a run's persisted log tail (resume after pause). */
+export function findStagedMarkdownLintRepromptFromLog(
+  logRecords: readonly PersistedRecord[] | undefined,
+): WriteLoopInput["stagedMarkdownLintReprompt"] {
+  if (logRecords === undefined) return undefined;
+  let latest: StagedMarkdownLintRepromptEvent | undefined;
+  for (const record of logRecords) {
+    if (record.event.kind === "staged_markdown_lint_reprompt") {
+      latest = record.event;
+    }
+  }
+  return latest === undefined
+    ? undefined
+    : { ruleId: latest.ruleId, offendingFile: latest.offendingFile, message: latest.violation };
 }
 
 /** Last in-loop mutation-directive reprompt from a run's persisted log tail (resume after pause). */
@@ -981,6 +1001,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
     let iterationsConsumed = 0;
     let resumedAttemptId = prepared.resumedAttemptId;
     let pendingLandingReprompt = args.landingContractReprompt;
+    let pendingStagedMarkdownLintReprompt = args.stagedMarkdownLintReprompt;
     let pendingMutationDirectiveReprompt = args.mutationDirectiveReprompt;
 
     store.setRunStatus(runId, "in-progress");
@@ -1009,6 +1030,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         sessionLog,
         "bounded",
         pendingLandingReprompt,
+        pendingStagedMarkdownLintReprompt,
         pendingMutationDirectiveReprompt,
       );
       if (settled.kind === "aborted") {
@@ -1199,6 +1221,125 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           continue;
         }
         pendingLandingReprompt = undefined;
+      }
+
+      if (result.kind === "complete" && args.promptId === PLAN_DRAFT_PROMPT_ID) {
+        const lintResult = await lintStagedMarkdown(args.expectedArtifactPath, { worktreePath });
+        // Mutation checkpoint: skipping the pre-finalization plan-draft staged-Markdown lint guard must turn
+        // "plan write step staged Markdown lint violation reprompts before finalize" RED.
+        if (lintResult.kind === "violation") {
+          try {
+            await checkpointSettledIteration(args, prepared, store, runId, worktreePath, attemptId, result);
+          } catch (error) {
+            return iterationCommitFailed(
+              args,
+              store,
+              runId,
+              attemptId,
+              iterationsConsumed,
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          }
+          if (iterationsConsumed >= maxIterations) {
+            store.commitCompletionBoundary({
+              attemptId,
+              runStatus: "failed",
+              outcomeKind: "landing_failed",
+            });
+            args.logSink?.append(runId, {
+              kind: "boundary_committed",
+              attemptId,
+              outcomeKind: "landing_failed",
+              runStatus: "failed",
+            });
+            store.setRunStatus(runId, "failed");
+            args.logSink?.append(runId, {
+              kind: "loop_finished",
+              loopOutcomeKind: "landing_failed",
+              iterationsConsumed,
+              resumable: true,
+            });
+            return {
+              kind: "landing_failed",
+              runId,
+              iterationsConsumed,
+              resumable: true,
+              attemptId,
+              outcomeKind: "landing_failed",
+              runStatus: "failed",
+            };
+          }
+
+          store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
+          args.logSink?.append(runId, {
+            kind: "boundary_committed",
+            attemptId,
+            outcomeKind: "progress",
+            runStatus: "in-progress",
+          });
+          args.logSink?.append(runId, {
+            kind: "staged_markdown_lint_reprompt",
+            attemptId,
+            ruleId: lintResult.ruleId,
+            violation: truncateLogText(lintResult.message),
+            offendingFile: lintResult.filePath,
+          });
+          pendingStagedMarkdownLintReprompt = {
+            ruleId: lintResult.ruleId,
+            offendingFile: lintResult.filePath,
+            message: lintResult.message,
+          };
+          if (args.signal?.aborted) {
+            return finishLoop(args, runId, "progress", iterationsConsumed, true);
+          }
+          if (args.pauseSignal?.aborted) {
+            store.setRunStatus(runId, "paused");
+            return finishLoop(args, runId, "paused", iterationsConsumed, true);
+          }
+          continue;
+        }
+        if (lintResult.kind === "invocation_error") {
+          try {
+            await checkpointSettledIteration(args, prepared, store, runId, worktreePath, attemptId, result);
+          } catch (error) {
+            return iterationCommitFailed(
+              args,
+              store,
+              runId,
+              attemptId,
+              iterationsConsumed,
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          }
+          store.commitCompletionBoundary({
+            attemptId,
+            runStatus: "failed",
+            outcomeKind: "landing_failed",
+          });
+          args.logSink?.append(runId, {
+            kind: "boundary_committed",
+            attemptId,
+            outcomeKind: "landing_failed",
+            runStatus: "failed",
+          });
+          store.setRunStatus(runId, "failed");
+          args.logSink?.append(runId, {
+            kind: "loop_finished",
+            loopOutcomeKind: "landing_failed",
+            iterationsConsumed,
+            resumable: false,
+          });
+          return {
+            kind: "landing_failed",
+            runId,
+            iterationsConsumed,
+            resumable: false,
+            attemptId,
+            outcomeKind: "landing_failed",
+            runStatus: "failed",
+          };
+        }
+        pendingStagedMarkdownLintReprompt = undefined;
       }
 
       if (result.kind === "complete") {
@@ -1623,6 +1764,7 @@ async function awaitIteration(
   sessionLog: SessionLog,
   settlementPolicy: IterationSettlementPolicy = "bounded",
   landingContractReprompt?: { violation: string; offendingFile: string },
+  stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string },
   mutationDirectiveReprompt?: MutationDirectiveRepromptContext,
 ): Promise<IterationSettlement> {
   const executionController = new AbortController();
@@ -1670,6 +1812,7 @@ async function awaitIteration(
       executionController.signal,
       sessionLog,
       landingContractReprompt,
+      stagedMarkdownLintReprompt,
       mutationDirectiveReprompt,
     ),
     remainingIterationWallMs: () => Math.max(0, wallSegmentDeadline - Date.now()),
@@ -1970,6 +2113,7 @@ function buildWriteExecuteInput(
   signal: AbortSignal,
   sessionLog: SessionLog,
   landingContractReprompt?: { violation: string; offendingFile: string },
+  stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string },
   mutationDirectiveReprompt?: MutationDirectiveRepromptContext,
 ): WriteExecuteInput {
   const telemetry = args.telemetry;
@@ -2021,6 +2165,7 @@ function buildWriteExecuteInput(
     ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
     ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
     ...(landingContractReprompt !== undefined ? { landingContractReprompt } : {}),
+    ...(stagedMarkdownLintReprompt !== undefined ? { stagedMarkdownLintReprompt } : {}),
     ...(mutationDirectiveReprompt !== undefined ? { mutationDirectiveReprompt } : {}),
   };
 }

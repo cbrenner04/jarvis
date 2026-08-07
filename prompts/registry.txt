@@ -31,6 +31,7 @@ write/principles.md
 write/token-reprompt.md
 write/blocker-reprompt.md
 write/landing-contract-reprompt.md
+write/staged-markdown-lint-reprompt.md
 write/mutation-directive-reprompt.md
 write/ready-repair.md
 write/mutation-repair.md

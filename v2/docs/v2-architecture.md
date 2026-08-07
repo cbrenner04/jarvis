@@ -274,8 +274,7 @@ To design later: the contract primitive vocabulary. A blocker surfaces as a `blo
   target over the API/CLI. A natural-language prompt router — `jarvis "<intent>"`
   that classifies free text and routes to a workflow (new run) or an existing run
   (resume), conservatively asking for a sharper prompt when unsure — is a later
-  thin client over this same surface (the last open roadmap item,
-  [`v2-meta-index.md`](../spec/v2-meta-index.md)), not part of
+  thin client over this same surface (a later roadmap item), not part of
   the core entry contract.
 - **Ink and Yoga layout loading boundary.** All dynamic imports of the `ink`
   package and its Yoga-layout dependency happen through a single lazy boundary,

@@ -633,8 +633,9 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   (pipeline, stage, or run): pipeline selection shows pipeline context and stage
   roll-up; stage selection adds the selected durable-stage record; an attributed
   run adds selected durable-run workflow/outcome/error/PR/worktree detail from its
-  durable `list` row (not `wait`), followed by retained steering feedback; an
-  unattributed run shows only that durable-run detail. Rows hard-wrap losslessly by display-column width without
+  durable `list` row when the run id is in `monitorSelectableNodeIds`, followed by
+  retained steering feedback; an unattributed run shows only that durable-run detail
+  when selectable. The monitor issues no daemon `wait` RPC. Rows hard-wrap losslessly by display-column width without
   ellipsis, using split right-pane or stacked terminal width with a one-column
   floor; extended grapheme clusters stay atomic, so a wider grapheme can overflow a
   narrower row; tones survive wrapping. Sources:

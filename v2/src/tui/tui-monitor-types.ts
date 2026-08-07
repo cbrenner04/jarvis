@@ -2,7 +2,6 @@ import type {
   PipelineStartAdmissionInput,
   PipelineStartAdmissionResult,
 } from "../commands/pipeline-start-admission.ts";
-import type { WaitRunCompletionResult } from "../daemon/daemon.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { ConnectTuiDaemonOptions, PipelineListResult, TuiDaemonClient } from "./tui-daemon-client.ts";
 import type { InkRender } from "./tui-ink-feedback.tsx";
@@ -16,18 +15,10 @@ export type DetachedPipelineStartAdmission = (
 /** Operator-visible non-monitor feedback states. */
 export type TuiViewState = { kind: "rpc-error"; code: string; message: string } | { kind: "unavailable" };
 
-/** Outcome-panel state for the selected run. */
-export type TuiWaitState =
-  | { kind: "none" }
-  | { kind: "pending"; runId: string }
-  | { kind: "ready"; runId: string; result: WaitRunCompletionResult }
-  | { kind: "error"; runId: string };
-
 /** Operator-visible monitor snapshot. */
 export type TuiMonitorState = {
   runs: readonly DaemonListRunRow[];
   selectedNodeId: string | null;
-  waitState: TuiWaitState;
   /** Session-local steering feedback; cleared on selection change. */
   steeringFeedback: string | null;
   /** Pipeline tree nodes expanded in the left-pane tree. */
@@ -90,7 +81,7 @@ export type TuiMonitorControls = {
   toggleSelectedWorkflowExpansion(): void;
   /** Signals pause via daemon `pause`. */
   pauseSelected(): void;
-  /** Resumes via daemon `resume` and re-issues `wait`, abandoning any prior ready snapshot. */
+  /** Resumes via daemon `resume`. */
   resumeSelected(): void;
   /** Signals kill via daemon `kill`. */
   killSelected(): void;

@@ -211,7 +211,6 @@ function shellState(
   return {
     runs,
     selectedNodeId,
-    waitState: { kind: "none" },
     steeringFeedback: null,
     expandedPipelineNodeIds: [],
     terminalColumns: 245,
@@ -370,13 +369,7 @@ describe("createMonitorDisplay", () => {
         { runId: "run-beta", project: "demo", branch: "beta", createdAt: 0, status: "completed", isLive: false },
       ],
       "run-alpha",
-      {
-        waitState: {
-          kind: "ready",
-          runId: "run-alpha",
-          result: { runStatus: "completed", loopOutcomeKind: "complete" },
-        },
-      },
+      {},
     );
     const tree = createMonitorDisplay(state, stubText, stubBox);
 
@@ -544,7 +537,8 @@ describe("createMonitorDisplay", () => {
 
     expect(collectInkText(inWindowTree)).toContain("run-fresh-orphan");
     expect(collectInkText(findRegion(outOfWindowTree, MonitorLeftPane))).not.toContain("run-fresh-orphan");
-    expect(collectInkText(findRegion(outOfWindowTree, MonitorRightPane))).toContain("runId: run-fresh-orphan");
+    expect(collectInkText(findRegion(outOfWindowTree, MonitorRightPane))).not.toContain("runId: run-fresh-orphan");
+    expect(collectInkText(findRegion(outOfWindowTree, MonitorRightPane))).toContain("No run selected.");
     expect(collectInkText(displayTickTree)).toContain("run-fresh-orphan");
   });
 });

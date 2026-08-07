@@ -76,18 +76,17 @@ Full-screen ink monitor after connect + liveness proof. Layout (not a fixed tran
   uncolored); text labels remain the primary signal. Rows list active runs first
   (newest first), then terminal history (newest first); daemon order is
   preserved within each group. The selected row is marked with `>`. On entry
-  the topmost active run is selected and a daemon `wait` is issued for it; when
-  every run is terminal, selection falls to the first terminal row.
+  the first selectable tree or unattributed row is selected; when every run is
+  terminal, selection falls to the first terminal row.
 - **Queue** (when present) — FIFO rows waiting for memory headroom.
-- **Outcome** — from daemon `wait` for the selected run: `runStatus` plus
-  optional `loopOutcomeKind`, `iterationsConsumed`, and `resumable`. Shows
-  `Waiting for <run-id>...` while `wait` is pending.
+- **Run detail** — durable-run workflow/outcome/error/PR/worktree fields from the
+  selected `list` row when the run is selectable in the left pane.
 - **Steering feedback** — inline `<code>: <message>` after a steering RPC
   failure, triggered by the interactive keys below.
 
 Keys act on the selected run: `k` kills any live run.
 
-Move selection with Up/Down arrow keys or `j` (down only). Movement clamps at the first and last selectable run-table rows, skips Queue rows, re-issues daemon `wait` for the new selection, and resets Outcome to its pending state.
+Move selection with Up/Down arrow keys or `j` (down only). Movement walks every selectable tree and unattributed row in pane order, skips Queue rows, and clamps at either end.
 
 Quit with `q` or Ctrl-C.
 

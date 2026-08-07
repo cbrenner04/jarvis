@@ -56,7 +56,6 @@ function monitorState(overrides: Partial<TuiMonitorState>): TuiMonitorState {
   return {
     runs: [],
     selectedNodeId: null,
-    waitState: { kind: "none" },
     steeringFeedback: null,
     ...overrides,
   };

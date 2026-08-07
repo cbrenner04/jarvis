@@ -33,14 +33,14 @@
 
 ## Acceptance criteria
 
-- [ ] `tui-entry.test.tsx` test `monitor session issues no wait RPC` opens the monitor and changes selection against a fake daemon client, asserts zero `wait` calls for the whole session, and fails against the pre-fix code (open alone issues `wait` on main).
-- [ ] `tui-entry.test.tsx` test `successful resume does not re-issue wait` drives `resumeSelected` after open and asserts no additional `wait` calls, failing against pre-fix `successful resume re-issues wait and abandons a prior ready snapshot` behavior reachable on main.
-- [ ] Legacy monitor wait-polling entry tests (`selecting a quiescent run waits for that run and shows only present optional outcome fields`, `changing selection while wait is pending abandons the prior wait and starts a fresh one`, `a reconnected owner socket re-issues the selected run's wait exactly once`, `late replies from abandoned waits are ignored`, `wait failure with unchanged selection shows error state not perpetual pending`, `waitState error display is unchanged by steering feedback`, wait-state-on-refresh pins, and `successful resume re-issues wait and abandons a prior ready snapshot`) are removed or rewritten; `bun run test:v2` passes with no monitor-path `wait` RPC assertions.
-- [ ] `waitState` and `buildWaitStateForSelection` are gone from `tui-entry.tsx` and `tui-monitor-types.ts`; `bun run typecheck` proves no reader remains.
-- [ ] `tui-monitor-lines.test.tsx` test `attributed run detail is resolved only from the selected durable row` stays green after `waitState` removal (steering feedback still renders after run detail).
-- [ ] `tui-monitor-lines.test.tsx` test `right pane omits detail for runs outside the selectable window` fails against the current unwindowed fallback and passes after windowing.
-- [ ] Mutation checkpoint: in `tui-monitor-lines.test.tsx` test `right pane omits detail for runs outside the selectable window`, a `// @mutate` directive inverting the post-fix `monitorSelectableNodeIds` membership guard turns that regression RED.
-- [ ] `bun run typecheck`, `bun run check`, and `bun run test:v2` pass. TUI behavior is proven through production monitor state and the injected input hook, not rendered-ink assertions (`v2/docs/test-writing.md` § TUI test strategy).
+- [x] `tui-entry.test.tsx` test `monitor session issues no wait RPC` opens the monitor and changes selection against a fake daemon client, asserts zero `wait` calls for the whole session, and fails against the pre-fix code (open alone issues `wait` on main).
+- [x] `tui-entry.test.tsx` test `successful resume does not re-issue wait` drives `resumeSelected` after open and asserts no additional `wait` calls, failing against pre-fix `successful resume re-issues wait and abandons a prior ready snapshot` behavior reachable on main.
+- [x] Legacy monitor wait-polling entry tests (`selecting a quiescent run waits for that run and shows only present optional outcome fields`, `changing selection while wait is pending abandons the prior wait and starts a fresh one`, `a reconnected owner socket re-issues the selected run's wait exactly once`, `late replies from abandoned waits are ignored`, `wait failure with unchanged selection shows error state not perpetual pending`, `waitState error display is unchanged by steering feedback`, wait-state-on-refresh pins, and `successful resume re-issues wait and abandons a prior ready snapshot`) are removed or rewritten; `bun run test:v2` passes with no monitor-path `wait` RPC assertions.
+- [x] `waitState` and `buildWaitStateForSelection` are gone from `tui-entry.tsx` and `tui-monitor-types.ts`; `bun run typecheck` proves no reader remains.
+- [x] `tui-monitor-lines.test.tsx` test `attributed run detail is resolved only from the selected durable row` stays green after `waitState` removal (steering feedback still renders after run detail).
+- [x] `tui-monitor-lines.test.tsx` test `right pane omits detail for runs outside the selectable window` fails against the current unwindowed fallback and passes after windowing.
+- [x] Mutation checkpoint: in `tui-monitor-lines.test.tsx` test `right pane omits detail for runs outside the selectable window`, a `// @mutate` directive inverting the post-fix `monitorSelectableNodeIds` membership guard turns that regression RED.
+- [x] `bun run typecheck`, `bun run check`, and `bun run test:v2` pass. TUI behavior is proven through production monitor state and the injected input hook, not rendered-ink assertions (`v2/docs/test-writing.md` § TUI test strategy).
 
 ## Documentation updates
 
@@ -48,3 +48,8 @@
 - `v2/docs/v1-behaviors.md` § TUI / observability — record right-pane run detail windowing to selectable runs and removal of TUI monitor `wait` RPC.
 - `v2/docs/write-behavior.md` — remove outcome panel, selection-driven `wait`, and resume re-wait; document monitor right-pane detail from selectable runs only.
 - `v2/docs/first-workflow-walkthrough.md` — drop Outcome-from-daemon-`wait` copy for the monitor path.
+
+## Blocker
+
+Artifact contract check failed: Unparseable mutation checkpoints:
+- criterion: Mutation checkpoint: in `tui-monitor-lines.test.tsx` test `right pane omits detail for runs outside the selectable window`, a `// @mutate` directive inverting the post-fix `monitorSelectableNodeIds` membership guard turns that regression RED.; reference: tui-monitor-lines.test.tsx; reason: unresolved_pinning_test

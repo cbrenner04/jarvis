@@ -23,11 +23,11 @@ Plan and intent write steps stage Markdown under `.jarvis-plan-stage/` and `.jar
 
 ## Acceptance criteria
 
-- [ ] `staged-markdown-lint.test.ts` `reports the first violation with rule id and repo-relative path` stages an `MD012`-or-`MD038`-violating `*.md` under a staging root and asserts the runner returns `{ ruleId, filePath, message }`; fails against a stub that always reports clean.
-- [ ] `staged-markdown-lint.test.ts` `reports clean staged Markdown as passing` asserts a lint-clean staging root returns no violation.
-- [ ] `staged-markdown-lint.test.ts` `fails closed when the linter invocation errors` injects an invocation failure (missing binary / non-zero tool error) and asserts the runner returns a blocking error rather than clean.
-- [ ] Mutation checkpoint: in `staged-markdown-lint.test.ts`, the test titled `fails closed when the linter invocation errors` carries a `// @mutate` directive (inside the test body) inverting the fail-closed guard so an invocation error reports clean; the mutation turns that test RED.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `staged-markdown-lint.test.ts` `reports the first violation with rule id and repo-relative path` stages an `MD012`-or-`MD038`-violating `*.md` under a staging root and asserts the runner returns `{ ruleId, filePath, message }`; fails against a stub that always reports clean.
+- [x] `staged-markdown-lint.test.ts` `reports clean staged Markdown as passing` asserts a lint-clean staging root returns no violation.
+- [x] `staged-markdown-lint.test.ts` `fails closed when the linter invocation errors` injects an invocation failure (missing binary / non-zero tool error) and asserts the runner returns a blocking error rather than clean.
+- [x] Mutation checkpoint: in `staged-markdown-lint.test.ts`, the test titled `fails closed when the linter invocation errors` carries a `// @mutate` directive (inside the test body) inverting the fail-closed guard so an invocation error reports clean; the mutation turns that test RED.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

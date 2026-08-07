@@ -186,6 +186,7 @@ export type WriteExecuteInput = {
   joinProcessOnIdleStall?: boolean;
   landingContractReprompt?: { violation: string; offendingFile: string };
   mutationDirectiveReprompt?: MutationDirectiveRepromptContext;
+  stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string };
   /** Test seams for mutation-checkpoint verification; production uses real fs and scoped test scripts. */
   mutationCheckpointSeams?: MutationCheckpointSeams;
 };
@@ -236,9 +237,16 @@ async function executePlanDraftWrite(
   stagingPath: string,
 ): Promise<StepRunResult> {
   const specDir = stagingPath;
+  const reprompt = args.stagedMarkdownLintReprompt;
+  const preserveStage = reprompt !== undefined || (existsSync(specDir) && existsSync(join(specDir, "index.md")));
+  if (!preserveStage) {
+    rmSync(specDir, { recursive: true, force: true });
+  }
   mkdirSync(specDir, { recursive: true });
   const intentPath = join(specDir, "intent.md");
-  writeFileSync(intentPath, args.intentSeed ?? "", "utf8");
+  if (!preserveStage || !existsSync(intentPath)) {
+    writeFileSync(intentPath, args.intentSeed ?? "", "utf8");
+  }
 
   const name = getSpecDirName(args.specPath);
   const targetDir = getTargetDir(args.specPath);
@@ -246,15 +254,23 @@ async function executePlanDraftWrite(
 
   let prompt: string;
   try {
-    prompt = buildPlanDraftPrompt({
-      name,
-      intent: args.intentSeed ?? "",
-      specGuidance,
-      workDirLabel: args.promptPlaceholders?.WORKDIR ?? worktreePath,
-      targetDir,
-      specDir,
-      stepRules: args.stepRules,
-    });
+    prompt =
+      reprompt !== undefined
+        ? renderArtifactTemplate(loadPromptRegistry().getById("write.staged-markdown-lint-reprompt"), {
+            RULE_ID: reprompt.ruleId,
+            OFFENDING_FILE: reprompt.offendingFile,
+            STAGING_DIR: args.expectedArtifactPath,
+            VIOLATION: reprompt.message,
+          })
+        : buildPlanDraftPrompt({
+            name,
+            intent: args.intentSeed ?? "",
+            specGuidance,
+            workDirLabel: args.promptPlaceholders?.WORKDIR ?? worktreePath,
+            targetDir,
+            specDir,
+            stepRules: args.stepRules,
+          });
   } catch (err) {
     if (err instanceof PromptRenderingError) {
       return {
@@ -314,28 +330,37 @@ async function executeIntentSplitWrite(
     throw new Error("intent split write requires SEED_LABEL and SEED_CONTENT placeholders");
   }
 
-  const reprompt = args.landingContractReprompt;
+  const landingReprompt = args.landingContractReprompt;
+  const lintReprompt = args.stagedMarkdownLintReprompt;
   const preserveStage =
-    reprompt !== undefined ||
+    landingReprompt !== undefined ||
+    lintReprompt !== undefined ||
     (existsSync(expectedArtifactPath) && listIntentStageMarkdownFiles(expectedArtifactPath).length > 0);
   if (!preserveStage) {
     rmSync(expectedArtifactPath, { recursive: true, force: true });
   }
   mkdirSync(expectedArtifactPath, { recursive: true });
   const prompt =
-    reprompt !== undefined
+    landingReprompt !== undefined
       ? renderArtifactTemplate(loadPromptRegistry().getById("write.landing-contract-reprompt"), {
-          VIOLATION: reprompt.violation,
-          OFFENDING_FILE: reprompt.offendingFile,
+          VIOLATION: landingReprompt.violation,
+          OFFENDING_FILE: landingReprompt.offendingFile,
           STAGING_DIR: args.expectedArtifactPath,
         })
-      : buildIntentSplitPrompt({
-          workdir: args.promptPlaceholders?.WORKDIR ?? worktreePath,
-          seedLabel,
-          seedContent,
-          stagingDir: args.expectedArtifactPath,
-          stepRules: args.stepRules,
-        });
+      : lintReprompt !== undefined
+        ? renderArtifactTemplate(loadPromptRegistry().getById("write.staged-markdown-lint-reprompt"), {
+            RULE_ID: lintReprompt.ruleId,
+            OFFENDING_FILE: lintReprompt.offendingFile,
+            STAGING_DIR: args.expectedArtifactPath,
+            VIOLATION: lintReprompt.message,
+          })
+        : buildIntentSplitPrompt({
+            workdir: args.promptPlaceholders?.WORKDIR ?? worktreePath,
+            seedLabel,
+            seedContent,
+            stagingDir: args.expectedArtifactPath,
+            stepRules: args.stepRules,
+          });
 
   return runWriteStep(args, worktreePath, {
     prompt,

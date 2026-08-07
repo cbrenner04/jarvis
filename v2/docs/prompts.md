@@ -24,6 +24,10 @@ Re-prompt issued when implement mutation-checkpoint verification finds only repr
 
 Re-prompt issued when `intent.prompt.split` staged output fails landing-shape validation before write-loop completion. Injects `VIOLATION`, `OFFENDING_FILE`, and `STAGING_DIR`. Used by the write loop; see [`write-behavior.md`](./write-behavior.md#intent-split-landing-contracts).
 
+### `write.staged-markdown-lint-reprompt`
+
+Re-prompt issued when `plan.prompt.draft` staged output fails markdownlint before write-loop completion. Injects `RULE_ID`, `VIOLATION` (markdownlint message), `OFFENDING_FILE`, and `STAGING_DIR`. Used by the write loop; see [`workflow-runner.md`](./workflow-runner.md).
+
 ### `write.ready-repair`
 
 Re-prompt issued when the ready gate fails during completion publication. Injects `SPEC_PATH`, `STEP_RULES`, `GATE_COMMAND`, `GATE_EXIT_CODE`, and `GATE_OUTPUT`. Used by the write loop's publication boundary; see [`write-behavior.md`](./write-behavior.md#ready-finalization).

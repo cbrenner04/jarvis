@@ -139,6 +139,15 @@ export type LandingContractRepromptEvent = {
   offendingFile: string;
 };
 
+/** Emitted when plan-draft staged Markdown fails markdownlint before write-loop completion. */
+export type StagedMarkdownLintRepromptEvent = {
+  kind: "staged_markdown_lint_reprompt";
+  attemptId: string;
+  ruleId: string;
+  violation: string;
+  offendingFile: string;
+};
+
 /** Structured directive row carried in a mutation-directive reprompt log event. */
 export type MutationDirectiveRepromptDirective = {
   pinningFile: string;
@@ -219,6 +228,7 @@ type LogEventWithoutLoopFinished =
   | TokenRepromptEvent
   | BlockerRepromptEvent
   | LandingContractRepromptEvent
+  | StagedMarkdownLintRepromptEvent
   | MutationDirectiveRepromptEvent
   | MissingBlockerDetailEvent
   | ContractMissDetailEvent

@@ -142,6 +142,16 @@ export type WorkflowTableRow =
   | { kind: "workflow-collapsed"; representative: DaemonListRunRow; members: DaemonListRunRow[] }
   | { kind: "workflow-child"; run: DaemonListRunRow };
 
+export function workflowTableRowMembers(row: WorkflowTableRow): DaemonListRunRow[] {
+  switch (row.kind) {
+    case "standalone":
+    case "workflow-child":
+      return [row.run];
+    case "workflow-collapsed":
+      return row.members;
+  }
+}
+
 export function buildWorkflowTableRows(
   orderedSelectable: readonly DaemonListRunRow[],
   allRuns: readonly DaemonListRunRow[],

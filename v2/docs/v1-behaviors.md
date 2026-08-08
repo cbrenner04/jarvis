@@ -604,61 +604,9 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   returns focus, and Enter parses and dispatches the buffer (see the command-dock
   dispatch entry below). Sources: `v2/src/tui/tui-monitor-lines.ts`,
   `v2/src/tui/tui-ink-monitor.tsx`, `v2/src/tui/tui-entry.tsx`
-- [v2 additive] TUI multi-daemon aggregation: `jarvis tui` discovers all live
-  daemon sockets, connects to each, and aggregates their `list` results into one
-  monitor. Each run ID dedupes to the daemon reporting `isLive` (the owner);
-  connections that fail to list are skipped without aborting the view. The left-pane
-  unattributed segment below the pipeline tree applies pane FIFO retention: active
-  orphan rows are always retained (even when they exceed the segment body budget);
-  terminal orphans drop oldest-by-rollup-finish first when retained body rows would
-  exceed the budget; finishless terminals are never dropped by FIFO; retained rows
-  sort actives first (earliest `createdAt`) then terminals (oldest finish first); the
-  segment heading `─ Unattributed (N) ─` is always shown including `N = 0`. This
-  oldest-finish-first retention sort is now inconsistent with the pipeline tree's
-  newest-finish-first top-level terminal order (`tui-monitor-pipeline-tree.ts`);
-  pending removal via the queued `tui-unified-work-tree` seed.
-  Pipeline-attributed runs join under their stage without that cap. The legacy
-  one-hour / twenty-row `filterMonitorRunsForLiveWindow` helper (non-terminal rows
-  pass through; terminal rows need `finishedAtMs` within the last hour, or stay
-  in-window when `finishedAtMs` is omitted; `blocked` ages out on `finishedAtMs` like
-  other terminal statuses; sort newest-first) remains for unit tests and legacy
-  callers but does not govern TUI unattributed retention or pipeline-tree membership.
-  Press **`e`** on a selected pipeline or stage to expand workflow constituent runs;
-  flat unattributed rows no longer expand with **`e`**. Unlike default `jarvis run
-  list`, which keeps the daemon fifty-newest terminal retention.
-  Steering RPCs (`pause`, `resume`, `kill`) route to the owning daemon. When no sockets
-  are discovered, the monitor connects only to the invoking digest's socket
-  (single-daemon fallback). `jarvis run list`, `jarvis run log`, and `jarvis run wait`
-  resolve run owners across live keyed daemons (same merge as `run list`).
-  `jarvis run list --since` queries durable history past the
-  default fifty-terminal-run retention window (relative duration or absolute
-  timestamp); returned run IDs work with `run log` and `tui log` across live
-  keyed daemons (each resolves the owner). Sources:
-  `v2/src/tui/tui-entry.tsx`, `v2/src/tui/tui-log-follow-entry.tsx`,
-  `v2/src/tui/tui-monitor-pipeline-tree.ts`
-- [v2 additive] TUI pipeline tree: the left pane merges daemon `pipeline_list`
-  snapshots with run rows by `workflowInvocationId`, nests pipeline → stage → run,
-  and keeps unattributed runs in a flat segment below. Top-level pipeline rows order running → awaiting gate (`awaiting-approval` derived state) → terminal (`isPipelineTerminal`); running and gated rows sort by `createdAt` ascending; terminal rows sort by `finishedAtMs` descending (newest finish first), falling back to `createdAt` when `finishedAtMs` is `null` — a defensive default guarding `parsePipelineList`'s unvalidated wire-payload cast in `tui-daemon-client.ts`, not a state the daemon's own `derivePipelineFinishedAtMs` produces. Initial selection (`firstSelectableNodeId`) is order-derived, so on an all-terminal tree it now lands on the newest-finish pipeline instead of the oldest. Selection is three-deep
-  (pipeline, stage, or run): pipeline selection shows pipeline context and stage
-  roll-up; stage selection adds the selected durable-stage record; an attributed
-  run adds selected durable-run workflow/outcome/error/PR/worktree detail from its
-  durable `list` row when the run id is in `monitorSelectableNodeIds`, followed by
-  retained steering feedback; an unattributed run shows only that durable-run detail
-  when selectable. The monitor issues no daemon `wait` RPC. Rows hard-wrap losslessly by display-column width without
-  ellipsis, using split right-pane or stacked terminal width with a one-column
-  floor; extended grapheme clusters stay atomic, so a wider grapheme can overflow a
-  narrower row; tones survive wrapping. Sources:
-  `v2/src/tui/tui-monitor-pipeline-tree.ts`, `v2/src/tui/tui-monitor-lines.ts`
-- [v2 additive] TUI pipeline-tree **`e`** and row navigation: **`e`** toggles
-  expansion on the selected pipeline or stage (no-op on run leaves and unattributed
-  rows); stage **`e`** toggles between representative and constituent run rows.
-  **`j`** or ↓/↑ walk every selectable tree and unattributed row in pane order (queue
-  rows are display-only). ↓ into a collapsed pipeline or stage expands it for the
-  session and selects its first child; ↑ retraces the nodes ↓ visited. When the
-  flattened tree exceeds the pane, walk order still spans all selectables and the
-  viewport scrolls to keep the selected tree row visible. Sources:
-  `v2/src/tui/tui-entry.tsx`, `v2/src/tui/tui-monitor-lines.ts`,
-  `v2/src/tui/tui-monitor-pipeline-tree.ts`
+- [v2 additive] TUI multi-daemon aggregation: `jarvis tui` discovers all live daemon sockets, connects to each, and aggregates their `list` results into one monitor. Each run ID dedupes to the daemon reporting `isLive` (the owner); connections that fail to list are skipped without aborting the view. Every non-queued run appears as a work-tree row — pipeline-attributed runs nest under their stage; every other run is a top-level ad-hoc row — with no pane-side retention or eviction; the daemon's fifty-newest-terminal `list` retention is the only cap. The legacy one-hour / twenty-row `filterMonitorRunsForLiveWindow` helper (non-terminal rows pass through; terminal rows need `finishedAtMs` within the last hour, or stay in-window when `finishedAtMs` is omitted; `blocked` ages out on `finishedAtMs` like other terminal statuses; sort newest-first) remains for unit tests and legacy callers but has no production caller and does not govern TUI work-tree membership. Press **`e`** on a selected pipeline or stage to expand workflow constituent runs; ad-hoc top-level rows do not expand with **`e`**. Steering RPCs (`pause`, `resume`, `kill`) route to the owning daemon. When no sockets are discovered, the monitor connects only to the invoking digest's socket (single-daemon fallback). `jarvis run list`, `jarvis run log`, and `jarvis run wait` resolve run owners across live keyed daemons (same merge as `run list`). `jarvis run list --since` queries durable history past the default fifty-terminal-run retention window (relative duration or absolute timestamp); returned run IDs work with `run log` and `tui log` across live keyed daemons (each resolves the owner). Sources: `v2/src/tui/tui-entry.tsx`, `v2/src/tui/tui-log-follow-entry.tsx`, `v2/src/tui/tui-monitor-pipeline-tree.ts`
+- [v2 additive] TUI pipeline tree: the left pane merges daemon `pipeline_list` snapshots with run rows by `workflowInvocationId`, nests pipeline → stage → run, and unifies every run matching no stage into top-level ad-hoc nodes (one node per workflow-invocation group; a run with no invocation degenerates to a `standalone` row) ordered alongside pipelines in the same flatten. An ad-hoc node's order key: `rank` is `running` when any member is non-terminal, else `terminal` (never `gated`); `createdAt` is its earliest member's; `finishedAtMs` is its latest member's. Top-level rows order running → awaiting gate (pipelines only, `awaiting-approval` derived state) → terminal (`isPipelineTerminal` for pipelines, no non-terminal member for ad-hoc nodes); running and gated rows sort by `createdAt` ascending; terminal rows sort by `finishedAtMs` descending (newest finish first), falling back to `createdAt` when `finishedAtMs` is `null` — for pipelines this is a defensive default guarding `parsePipelineList`'s unvalidated wire-payload cast in `tui-daemon-client.ts`, not a state the daemon's own `derivePipelineFinishedAtMs` produces. Initial selection (`firstSelectableNodeId`) is order-derived, so a running ad-hoc row can now be selected first, ahead of a running pipeline, and on an all-terminal tree it lands on the newest-finish row instead of the oldest. Selection is three-deep for a pipeline (pipeline, stage, or run): pipeline selection shows pipeline context and stage roll-up; stage selection adds the selected durable-stage record; a run nested under a stage adds selected durable-run workflow/outcome/error/PR/worktree detail from its durable `list` row when the run id is in `monitorSelectableNodeIds`, followed by retained steering feedback; an ad-hoc row shows only that durable-run detail, with no pipeline context, even when a pipeline row sorts above it. The monitor issues no daemon `wait` RPC. Rows hard-wrap losslessly by display-column width without ellipsis, using split right-pane or stacked terminal width with a one-column floor; extended grapheme clusters stay atomic, so a wider grapheme can overflow a narrower row; tones survive wrapping. Sources: `v2/src/tui/tui-monitor-pipeline-tree.ts`, `v2/src/tui/tui-monitor-lines.ts`
+- [v2 additive] TUI pipeline-tree **`e`** and row navigation: **`e`** toggles expansion on the selected pipeline or stage (no-op on run leaves and ad-hoc rows); stage **`e`** toggles between representative and constituent run rows. **`j`** or ↓/↑ walk every row in the unified work tree in pane order (queue rows are display-only). ↓ into a collapsed pipeline or stage expands it for the session and selects its first child; ↑ retraces the nodes ↓ visited. Because a running ad-hoc row can now sort ahead of a running pipeline, initial selection can land on an ad-hoc row where it previously always landed on a pipeline or stage. When the flattened tree exceeds the pane, walk order still spans every row and the viewport scrolls to keep the selected row visible; an off-viewport selection is resolved from the full flattened list, not the painted slice, so it now reports `unattributed` for an ad-hoc row rather than `stale_non_expandable`. Sources: `v2/src/tui/tui-entry.tsx`, `v2/src/tui/tui-monitor-lines.ts`, `v2/src/tui/tui-monitor-pipeline-tree.ts`
 - [v2 additive] TUI command dock dispatch: a submitted `start <project> --seed
   <path>` or `--seed-text <text>` reaches `admitPipelineStart` on the same
   pre-admission seams as `jarvis pipeline start`, detached — one `pipeline_start`
@@ -684,8 +632,12 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   require a live steerable run; ineligible selections report `not_live_run` with no
   RPC. `resume-run` shares keybind resume eligibility (no kill-hint pre-gate). RPC
   outcomes and daemon refusals report on `steeringFeedback`, not `lastCommandResult`.
-  Sources: `v2/src/tui/tui-entry.tsx`, `v2/src/tui/tui-command-parser.ts`,
-  `v2/docs/operator-runbook.md`
+  The `unattributed` code keeps its name and meaning across this and every other
+  dock command below: a selected top-level ad-hoc row. Its detection source moved
+  from segment membership to node kind with the unified work tree, so it is now
+  also reported for an off-viewport ad-hoc selection; typed steering still refuses
+  ad-hoc rows with it. Sources: `v2/src/tui/tui-entry.tsx`,
+  `v2/src/tui/tui-command-parser.ts`, `v2/docs/operator-runbook.md`
 - [v2 additive] TUI dock pipeline steering: submitted `approve`, `reject`, and
   `resume` (no arguments) reach `pipeline_approve`, `pipeline_reject`, and
   `pipeline_resume` on the owning daemon — detached, with no `pipeline_wait`.

@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
-import { leftPaneUnattributedBodyRowBudget, retainUnattributedSegmentFifo } from "./tui-monitor-lines.ts";
 import {
   buildMonitorPipelineTree,
   buildMonitorPipelineTreeJoin,
@@ -14,13 +13,7 @@ import {
   monitorPipelineStageNodeId,
   stageBranchCellValue,
 } from "./tui-monitor-pipeline-tree.ts";
-import {
-  buildMonitorTreeRow,
-  computeShellLayout,
-  monitorTreeRun,
-  TREE_COLUMN_WIDTHS,
-  visibleColumns,
-} from "./tui-shell-layout.ts";
+import { buildMonitorTreeRow, TREE_COLUMN_WIDTHS, visibleColumns } from "./tui-shell-layout.ts";
 
 const FILTER_NOW_MS = 1_700_000_000_000;
 const PIPELINE_ID = "pipe-abc";
@@ -115,10 +108,10 @@ function flattenJoined(
   pipelineNodes: MonitorPipelineTreePipelineNode[],
   expandedNodeIds: ReadonlySet<string>,
   selectedNodeId: string | null,
-  maxVisibleRows: number,
+  _maxVisibleRows: number,
   builderRuns: readonly DaemonListRunRow[] = [],
 ) {
-  return flattenMonitorPipelineTree(pipelineNodes, expandedNodeIds, selectedNodeId, maxVisibleRows, builderRuns);
+  return flattenMonitorPipelineTree(pipelineNodes, [], expandedNodeIds, selectedNodeId, builderRuns);
 }
 
 function columnSlice(row: string, leftPaneWidth: number, column: keyof typeof TREE_COLUMN_WIDTHS): string {
@@ -156,16 +149,17 @@ describe("buildMonitorPipelineTreeJoin", () => {
     expect(runNode?.tableRow.kind).toBe("workflow-collapsed");
   });
 
-  test("places runs with no matching stage only in unattributed", () => {
-    const { pipelineNodes, unattributedRows } = buildMonitorPipelineTreeJoin(
+  test("places runs with no matching stage only in the ad-hoc top level", () => {
+    const { pipelineNodes, adHocNodes } = buildMonitorPipelineTreeJoin(
       [pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] })],
       [workflowRun({ runId: "run-orphan", status: "completed", isLive: false }, INVOCATION_ORPHAN)],
     );
 
     expect(pipelineNodes[0]?.stages[0]?.runs).toHaveLength(0);
-    expect(unattributedRows).toHaveLength(1);
-    expect(unattributedRows[0]?.kind).toBe("workflow-collapsed");
-    expect(unattributedRows[0] !== undefined ? monitorTreeRun(unattributedRows[0]).runId : "").toBe("run-orphan");
+    expect(adHocNodes).toHaveLength(1);
+    expect(adHocNodes[0]?.kind).toBe("adhoc");
+    expect(adHocNodes[0]?.tableRow.kind).toBe("workflow-collapsed");
+    expect(adHocNodes[0]?.id).toBe("run-orphan");
   });
 
   test("fan-out stages with the same stageId but different branchKey get distinct ids and branch cells", () => {
@@ -277,9 +271,9 @@ describe("buildMonitorPipelineTreeJoin", () => {
     expect(stages[1]?.runs).toEqual([]);
   });
 
-  test("excludes stage-matched and queued runs from unattributed candidates", () => {
-    // Mutation checkpoint: negating matchedInvocationIds exclusion in isUnattributedCandidate must turn unattributed filtering RED.
-    const { pipelineNodes, unattributedRows } = buildMonitorPipelineTreeJoin(
+  test("excludes stage-matched and queued runs from ad-hoc candidates", () => {
+    // Mutation checkpoint: negating matchedInvocationIds exclusion in isAdHocCandidate must turn ad-hoc filtering RED.
+    const { pipelineNodes, adHocNodes } = buildMonitorPipelineTreeJoin(
       [pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] })],
       [
         workflowRun({ runId: "run-matched", status: "in-progress" }, INVOCATION_MATCHED),
@@ -296,49 +290,9 @@ describe("buildMonitorPipelineTreeJoin", () => {
     );
 
     expect(pipelineNodes[0]?.stages[0]?.runs.some((node) => node.id === "run-matched")).toBe(true);
-    expect(unattributedRows.map((row) => monitorTreeRun(row).runId)).toEqual(["run-stale-orphan", "run-fresh-orphan"]);
-    expect(unattributedRows.some((row) => monitorTreeRun(row).runId === "run-matched")).toBe(false);
-    expect(unattributedRows.some((row) => monitorTreeRun(row).runId === "run-queued")).toBe(false);
-  });
-
-  test("unattributed segment FIFO retains active runs and drops oldest terminals first", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (workflowGroupHasActiveMember(members)) {" -> "if (false) {"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "keptFinishable.shift()" -> "keptFinishable.pop()"
-    const layout = computeShellLayout(245, 9, 0);
-    const baseFinish = FILTER_NOW_MS - 3_600_000;
-    const orphanRuns = [
-      workflowRun({ runId: "run-active", status: "in-progress", createdAt: 100 }, "inv-active"),
-      workflowRun(
-        { runId: "run-term-oldest", status: "completed", isLive: false, finishedAtMs: baseFinish, createdAt: 10 },
-        "inv-term-oldest",
-      ),
-      workflowRun(
-        { runId: "run-term-old", status: "completed", isLive: false, finishedAtMs: baseFinish + 1_000, createdAt: 20 },
-        "inv-term-old",
-      ),
-      workflowRun(
-        { runId: "run-term-mid", status: "completed", isLive: false, finishedAtMs: baseFinish + 2_000, createdAt: 30 },
-        "inv-term-mid",
-      ),
-      workflowRun(
-        { runId: "run-term-new", status: "completed", isLive: false, finishedAtMs: baseFinish + 3_000, createdAt: 40 },
-        "inv-term-new",
-      ),
-    ];
-    const { unattributedRows: candidates } = buildMonitorPipelineTreeJoin([], orphanRuns);
-    const budget = leftPaneUnattributedBodyRowBudget(
-      { runs: orphanRuns, selectedNodeId: null, steeringFeedback: null },
-      layout,
-      0,
-    );
-    expect(budget).toBe(4);
-    const retained = retainUnattributedSegmentFifo(candidates, budget);
-    expect(retained.map((row) => monitorTreeRun(row).runId)).toEqual([
-      "run-active",
-      "run-term-old",
-      "run-term-mid",
-      "run-term-new",
-    ]);
+    expect(adHocNodes.map((node) => node.id)).toEqual(["run-stale-orphan", "run-fresh-orphan"]);
+    expect(adHocNodes.some((node) => node.id === "run-matched")).toBe(false);
+    expect(adHocNodes.some((node) => node.id === "run-queued")).toBe(false);
   });
 });
 
@@ -475,11 +429,11 @@ describe("monitor pipeline tree elapsed cells", () => {
 });
 
 describe("buildMonitorPipelineTree", () => {
-  test("maps snapshots, runs, expansion, selection, and maxVisibleRows to ordered display nodes", () => {
+  test("maps snapshots, runs, expansion, and selection to ordered display nodes", () => {
     const { snapshot, run } = pipelineWithStageAndRun(PIPELINE_ID, INVOCATION_MATCHED, "run-implement");
     const expanded = new Set([PIPELINE_ID, monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default")]);
 
-    const { displayNodes } = buildMonitorPipelineTree([snapshot], [run], expanded, null, 10);
+    const displayNodes = buildMonitorPipelineTree([snapshot], [run], expanded, null);
 
     expect(displayNodes.map((node) => ({ kind: node.kind, id: node.id, depth: node.depth }))).toEqual([
       { kind: "pipeline", id: PIPELINE_ID, depth: 0 },
@@ -489,6 +443,42 @@ describe("buildMonitorPipelineTree", () => {
         depth: 1,
       },
       { kind: "run", id: "run-implement", depth: 2 },
+    ]);
+  });
+
+  test("ad-hoc work items order among pipelines by rank then finish", () => {
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "workflowGroupHasActiveMember(members)" -> "true"
+    const runningPipeline = pipelineSnapshot({ pipelineId: "pipe-running", createdAt: 1000, finishedAtMs: null });
+    const terminalPipeline = pipelineSnapshot({
+      pipelineId: "pipe-terminal",
+      createdAt: 50,
+      state: "succeeded",
+      finishedAtMs: 300,
+    });
+    const activeAdHocRun = workflowRun(
+      { runId: "run-active-adhoc", status: "in-progress", createdAt: 1500 },
+      "inv-active-adhoc",
+    );
+    // createdAt is earlier than every running top-level item's createdAt (1000, 1500) — the
+    // rank-checkpoint fixture invariant: promoting this item to "running" is the only thing that
+    // moves it, since non-terminal items sort by createdAt ascending.
+    const terminalAdHocRun = workflowRun(
+      { runId: "run-terminal-adhoc", status: "completed", isLive: false, finishedAtMs: 500, createdAt: 10 },
+      "inv-terminal-adhoc",
+    );
+
+    const displayNodes = buildMonitorPipelineTree(
+      [runningPipeline, terminalPipeline],
+      [activeAdHocRun, terminalAdHocRun],
+      new Set(),
+      null,
+    );
+
+    expect(displayNodes.map((node) => ({ kind: node.kind, id: node.id }))).toEqual([
+      { kind: "pipeline", id: "pipe-running" },
+      { kind: "adhoc", id: "run-active-adhoc" },
+      { kind: "adhoc", id: "run-terminal-adhoc" },
+      { kind: "pipeline", id: "pipe-terminal" },
     ]);
   });
 });

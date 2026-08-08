@@ -141,6 +141,8 @@ export type Run = {
   prNumber?: number | null;
   prUrl?: string | null;
   reconciledAt?: number | null;
+  /** Unix epoch ms of the last durable terminal status write outside a completion boundary. */
+  finishedAt?: number | null;
   readyGateRepairFence?: ReadyGateRepairFenceProvenance | null;
   /** True when a non-null fence column could not be parsed into a valid allowset. */
   readyGateRepairFenceCorrupt?: boolean;
@@ -604,7 +606,7 @@ const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, 
   attempt_count AS attemptCount, worktree_path AS worktreePath, branch, spec_path AS specPath,
   downstream_inputs AS downstreamInputsJson, step_id AS stepId,
   workflow_snapshot AS workflowSnapshotJson, queued_input AS queuedInputJson, creation_title AS creationTitle,
-  pr_number AS prNumber, pr_url AS prUrl, reconciled_at AS reconciledAt,
+  pr_number AS prNumber, pr_url AS prUrl, reconciled_at AS reconciledAt, finished_at AS finishedAt,
   ready_gate_repair_fence AS readyGateRepairFenceJson,
   retained_finalization_checkpoint AS retainedFinalizationCheckpointJson`;
 
@@ -760,6 +762,7 @@ const SCHEMA_MIGRATIONS = [
       );
     `,
   },
+  { id: "023-run-finished-at", up: "ALTER TABLE runs ADD COLUMN finished_at INTEGER" },
 ] as const;
 
 const ORPHAN_STATUSES = "'queued', 'in-progress', 'paused', 'budget-soft-stopped'";
@@ -1578,7 +1581,8 @@ class StateStoreImpl implements StateStore {
   }
 
   setRunStatus(runId: string, status: RunStatus): void {
-    this.db.prepare("UPDATE runs SET status = ? WHERE id = ?").run(status, runId);
+    const finishedAt = isTerminalRunStatus(status) ? Date.now() : null;
+    this.db.prepare("UPDATE runs SET status = ?, finished_at = ? WHERE id = ?").run(status, finishedAt, runId);
   }
 
   commitGuardedKill(runId: string): void {
@@ -1586,7 +1590,8 @@ class StateStoreImpl implements StateStore {
       const row = this.db.prepare("SELECT status FROM runs WHERE id = ?").get(runId) as { status: RunStatus } | null;
       if (!row) throw new Error(`Run ${runId} not found`);
       if (isBoundaryTerminalRunStatus(row.status)) return;
-      this.db.prepare("UPDATE runs SET status = 'killed' WHERE id = ?").run(runId);
+      const finishedAt = Date.now();
+      this.db.prepare("UPDATE runs SET status = 'killed', finished_at = ? WHERE id = ?").run(finishedAt, runId);
     })();
   }
 

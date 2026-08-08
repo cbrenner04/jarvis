@@ -22,6 +22,7 @@ import {
   reopenPredecessorAllowsStatus,
   reopenSuffixAllowsStatus,
   type StateStore,
+  TERMINAL_RUN_STATUSES,
 } from "./state-store";
 import { removeOrchestrationStore } from "./state-store-on-disk";
 
@@ -468,6 +469,31 @@ describe("StateStore", () => {
 
     expect(runs.map((r) => r.id)).toEqual([run1Id, run2Id, run3Id]);
   });
+
+  test("setRunStatus stamps a finish timestamp on a terminal status", () => {
+    for (const status of TERMINAL_RUN_STATUSES) {
+      const runId = seedRun(store, { branch: `branch-${status}` });
+      const before = Date.now();
+      store.setRunStatus(runId, status);
+
+      const run = loadRunOrThrow(store, runId);
+      // @mutate v2/src/persistence/state-store.ts "isTerminalRunStatus(status) ? Date.now() : null" -> "null"
+      expect(run.finishedAt).not.toBeNull();
+      expect(run.finishedAt).toBeGreaterThanOrEqual(before);
+      expect(run.attempts).toEqual([]);
+      expect(run.reconciledAt).toBeNull();
+    }
+  });
+
+  test("setRunStatus clears the finish timestamp when a run leaves a terminal status", () => {
+    const runId = seedRun(store);
+    store.setRunStatus(runId, "failed");
+    expect(loadRunOrThrow(store, runId).finishedAt).not.toBeNull();
+
+    store.setRunStatus(runId, "in-progress");
+    // @mutate v2/src/persistence/state-store.ts "isTerminalRunStatus(status) ? Date.now() : null" -> "Date.now()"
+    expect(loadRunOrThrow(store, runId).finishedAt).toBeNull();
+  });
 });
 
 describe("commitGuardedKill", () => {
@@ -507,6 +533,21 @@ describe("commitGuardedKill", () => {
 
     store.commitCompletionBoundary({ attemptId, runStatus: "blocked", outcomeKind: "blocked" });
     expect(loadRunOrThrow(store, runId).status).toBe("blocked");
+  });
+
+  test("commitGuardedKill stamps a finish timestamp on the killed row", () => {
+    const killedRunId = seedRun(store);
+    store.commitGuardedKill(killedRunId);
+    const killedRun = loadRunOrThrow(store, killedRunId);
+    // @mutate v2/src/persistence/state-store.ts ".run(finishedAt, runId);" -> ".run(null, runId);"
+    expect(killedRun.status).toBe("killed");
+    expect(killedRun.finishedAt).not.toBeNull();
+
+    const completedRunId = seedRun(store, { status: "completed", branch: "branch-completed" });
+    store.commitGuardedKill(completedRunId);
+    const completedRun = loadRunOrThrow(store, completedRunId);
+    expect(completedRun.status).toBe("completed");
+    expect(completedRun.finishedAt).toBeNull();
   });
 });
 
@@ -1571,7 +1612,7 @@ describe("pipelines", () => {
 
       const verify = new Database(legacyDbPath);
       const migrationCount = verify.prepare("SELECT COUNT(*) AS total FROM _migrations").get() as { total: number };
-      expect(migrationCount.total).toBe(19);
+      expect(migrationCount.total).toBe(20);
       verify.close();
 
       const pipelineId = migrated.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });

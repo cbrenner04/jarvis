@@ -29,7 +29,11 @@ import {
   monitorSelectableNodeIds,
   withLeftPaneTreeScrollFollow,
 } from "./tui-monitor-lines.ts";
-import { buildMonitorPipelineTreeJoin, isExpandablePipelineNodeId } from "./tui-monitor-pipeline-tree.ts";
+import {
+  buildMonitorPipelineTreeJoin,
+  isExpandablePipelineNodeId,
+  type MonitorPipelineTreeDisplayNode,
+} from "./tui-monitor-pipeline-tree.ts";
 import type {
   RunTuiEntryDeps,
   TuiMonitorControls,
@@ -39,7 +43,7 @@ import type {
   TuiViewState,
 } from "./tui-monitor-types.ts";
 import { isActiveRunStatus } from "./tui-monitor-workflow-collapse.ts";
-import { computeShellLayout, monitorTreeRun } from "./tui-shell-layout.ts";
+import { computeShellLayout } from "./tui-shell-layout.ts";
 
 const TUI_REFRESH_INTERVAL_MS = 1_000;
 const COMMAND_GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -200,6 +204,15 @@ function pipelineIdForSelection(
   return null;
 }
 
+function runRowSelectionError(
+  fullTreeRows: readonly MonitorPipelineTreeDisplayNode[],
+  selectedNodeId: string,
+): "unattributed" | "run_leaf" | null {
+  if (fullTreeRows.some((row) => row.kind === "adhoc" && row.id === selectedNodeId)) return "unattributed";
+  if (fullTreeRows.some((row) => row.kind === "run" && row.id === selectedNodeId)) return "run_leaf";
+  return null;
+}
+
 function pipelineSteeringSharedSelectionError(
   state: TuiMonitorState,
   nowMs: number,
@@ -209,9 +222,9 @@ function pipelineSteeringSharedSelectionError(
   if (selectedNodeId === null) return "no_selection";
 
   const layout = computeShellLayout(state.terminalColumns ?? 245, state.terminalRows ?? 72, state.dividerOffset ?? 0);
-  const { fullTreeRows, unattributedRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
-  if (unattributedRows.some((row) => monitorTreeRun(row).runId === selectedNodeId)) return "unattributed";
-  if (fullTreeRows.some((row) => row.kind === "run" && row.id === selectedNodeId)) return "run_leaf";
+  const { fullTreeRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
+  const rowError = runRowSelectionError(fullTreeRows, selectedNodeId);
+  if (rowError !== null) return rowError;
 
   const pipelineId = pipelineIdForSelection(pipelineNodesForState(state), selectedNodeId);
   if (pipelineId === null || !pipelineOwners.has(pipelineId)) return "stale_non_targetable";
@@ -356,10 +369,8 @@ export function expansionCommandSelectionError(
   if (isExpandablePipelineNodeId(pipelineNodes, selectedNodeId)) return null;
 
   const layout = computeShellLayout(state.terminalColumns ?? 245, state.terminalRows ?? 72, state.dividerOffset ?? 0);
-  const { fullTreeRows, unattributedRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
-  if (unattributedRows.some((row) => monitorTreeRun(row).runId === selectedNodeId)) return "unattributed";
-  if (fullTreeRows.some((row) => row.kind === "run" && row.id === selectedNodeId)) return "run_leaf";
-  return "stale_non_expandable";
+  const { fullTreeRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
+  return runRowSelectionError(fullTreeRows, selectedNodeId) ?? "stale_non_expandable";
 }
 
 function runSteeringCommandSelectionError(

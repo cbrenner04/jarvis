@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { TuiDaemonClient } from "./tui-daemon-client.ts";
 import { runTuiEntry } from "./tui-entry.tsx";
-import { monitorLeftPaneTreeRows } from "./tui-monitor-lines.ts";
+import { monitorSelectableNodeIds } from "./tui-monitor-lines.ts";
 import {
   filterMonitorRunsForLiveWindow,
   TUI_TERMINAL_ROW_CAP,
@@ -10,7 +10,6 @@ import {
   terminalRunInLiveWindow,
 } from "./tui-monitor-terminal-window.ts";
 import type { TuiMonitorState, TuiViewHost } from "./tui-monitor-types.ts";
-import { computeShellLayout, monitorTreeRun } from "./tui-shell-layout.ts";
 
 const FIXED_NOW = 1_700_000_000_000;
 
@@ -283,37 +282,8 @@ async function flush(): Promise<void> {
   await Promise.resolve();
 }
 
-function tableRunIds(state: TuiMonitorState, columns = 245, rows = 72): string[] {
-  const layout = computeShellLayout(columns, rows, 0);
-  const { treeRows, unattributedRows } = monitorLeftPaneTreeRows(state, layout, FIXED_NOW);
-  const treeRunIds = treeRows.filter((row) => row.kind === "run").map((row) => row.id);
-  const unattributedIds = unattributedRows.map((row) => monitorTreeRun(row).runId);
-  return [...treeRunIds, ...unattributedIds];
-}
-
-async function renderedTableRunIds(runs: DaemonListRunRow[], columns = 80, rows = 8): Promise<string[]> {
-  const view = createViewHost();
-  const pending = runTuiEntry({
-    socketPath: "/tmp/test.sock",
-    machineProfile: "test",
-    admitDetachedPipelineStart: async () => ({ kind: "admitted", pipelineId: "test-pipeline" }),
-    nowMs: () => FIXED_NOW,
-    viewHost: view.host,
-    connectTuiDaemon: async () => fakeClient([{ runs }]),
-    socketDiscovery: async () => [],
-  });
-  await view.waitUntilOpen();
-  await flush();
-  const state = view.monitorStates.at(-1);
-  if (!state) throw new Error("missing monitor state");
-  const renderedIds = tableRunIds({ ...state, terminalColumns: columns, terminalRows: rows }, columns, rows);
-  view.quit();
-  await pending;
-  return renderedIds;
-}
-
-describe("runTuiEntry unattributed segment FIFO", () => {
-  function buildFixtureRuns(): DaemonListRunRow[] {
+describe("runTuiEntry unified work-tree selectability", () => {
+  test("every ad-hoc run stays selectable at an 8-row terminal", async () => {
     const activeOld: DaemonListRunRow = {
       runId: "run-paused-old",
       project: "demo",
@@ -326,25 +296,30 @@ describe("runTuiEntry unattributed segment FIFO", () => {
     const terminals = Array.from({ length: 22 }, (_, index) =>
       terminalRow(`run-t-${index}`, FIXED_NOW - index * 1_000),
     );
-    return [stale, activeOld, ...terminals];
-  }
+    const runs = [stale, activeOld, ...terminals];
 
-  test("retains active rows and drops oldest terminal orphans first within the pane budget", async () => {
-    const renderedIds = await renderedTableRunIds(buildFixtureRuns());
-    expect(renderedIds[0]).toBe("run-paused-old");
-    expect(renderedIds.includes("run-stale")).toBe(false);
-    const terminalRendered = renderedIds.filter((id) => id.startsWith("run-t-"));
-    expect(terminalRendered).toEqual(["run-t-1", "run-t-0"]);
-    expect(renderedIds.includes("run-paused-old")).toBe(true);
-  });
+    const view = createViewHost();
+    const pending = runTuiEntry({
+      socketPath: "/tmp/test.sock",
+      machineProfile: "test",
+      admitDetachedPipelineStart: async () => ({ kind: "admitted", pipelineId: "test-pipeline" }),
+      nowMs: () => FIXED_NOW,
+      viewHost: view.host,
+      connectTuiDaemon: async () => fakeClient([{ runs }]),
+      socketDiscovery: async () => [],
+      terminalSize: () => ({ columns: 80, rows: 8 }),
+    });
+    await view.waitUntilOpen();
+    await flush();
+    const state = view.monitorStates.at(-1);
+    if (!state) throw new Error("missing monitor state");
 
-  test("retains finishless terminal rows when finishable terminals are evicted", async () => {
-    const runs = [
-      finishlessRow("interrupted"),
-      ...Array.from({ length: 3 }, (_, index) => terminalRow(`run-t-${index}`, FIXED_NOW - index * 1_000)),
-    ];
-    const renderedIds = await renderedTableRunIds(runs);
-    expect(renderedIds.includes("run-finishless")).toBe(true);
-    expect(renderedIds.filter((id) => id.startsWith("run-t-"))).toEqual(["run-t-1", "run-t-0"]);
+    const selectableIds = monitorSelectableNodeIds(state, FIXED_NOW);
+    for (const run of runs) {
+      expect(selectableIds).toContain(run.runId);
+    }
+
+    view.quit();
+    await pending;
   });
 });

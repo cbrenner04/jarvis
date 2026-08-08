@@ -6,15 +6,12 @@ import {
   countActivePipelines,
   firstSelectableRunId,
   joinMonitorRow,
-  leftPaneUnattributedBodyRowBudget,
   livenessTone,
   monitorDockLines,
   monitorLeftPaneTreeRows,
-  monitorLeftPaneUnattributedSegmentRows,
   monitorRightPaneSegmentRows,
   monitorSegmentRows,
   monitorSelectableNodeIds,
-  monitorSelectableRuns,
   monitorTextLines,
   orderSelectableRuns,
   RUN_STATUS_TONES,
@@ -23,12 +20,7 @@ import {
 import { monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
 import { TUI_TERMINAL_WINDOW_MS } from "./tui-monitor-terminal-window.ts";
 import type { TuiMonitorState } from "./tui-monitor-types.ts";
-import {
-  computeShellLayout,
-  listMonitorTreeCellsAtDepth,
-  monitorTreeRun,
-  TREE_COLUMN_WIDTHS,
-} from "./tui-shell-layout.ts";
+import { computeShellLayout, listMonitorTreeCellsAtDepth, TREE_COLUMN_WIDTHS } from "./tui-shell-layout.ts";
 
 const SINGLE_STEP_RUN: DaemonListRunRow = {
   runId: "run-single",
@@ -141,16 +133,25 @@ function treeLayout(rows = 72) {
   return computeShellLayout(245, rows, 0);
 }
 
+function overflowPaneLayout(): {
+  layout: ReturnType<typeof computeShellLayout>;
+  maxVisibleRows: number;
+  terminalColumns: number;
+  terminalRows: number;
+} {
+  const terminalColumns = 80;
+  const terminalRows = 24;
+  const layout = computeShellLayout(terminalColumns, terminalRows, 0);
+  return { layout, maxVisibleRows: layout.paneHeight, terminalColumns, terminalRows };
+}
+
 function overflowPaneMonitorFixture(): {
   state: TuiMonitorState;
   layout: ReturnType<typeof computeShellLayout>;
   maxVisibleRows: number;
   pipelines: PipelineSnapshot[];
 } {
-  const terminalColumns = 80;
-  const terminalRows = 24;
-  const layout = computeShellLayout(terminalColumns, terminalRows, 0);
-  const maxVisibleRows = layout.paneHeight;
+  const { layout, maxVisibleRows, terminalColumns, terminalRows } = overflowPaneLayout();
   const pipelines = Array.from({ length: maxVisibleRows + 10 }, (_, index) =>
     pipelineSnapshot({
       pipelineId: `pipe-${index}`,
@@ -541,7 +542,7 @@ describe("monitorTextLines", () => {
 });
 
 describe("monitorLeftPaneTreeRows", () => {
-  test("emits pipeline, stage, and run rows with increasing depth and places orphans after the tree", () => {
+  test("emits pipeline, stage, and run rows with increasing depth and appends the ad-hoc orphan as a top-level row", () => {
     // Mutation checkpoint: using monitorLeftPaneTableRows as the tree-pane source in tui-ink-monitor.tsx must turn pipeline tree row ordering RED.
     const snapshot = pipelineSnapshot({
       pipelineId: PIPELINE_ID,
@@ -557,16 +558,14 @@ describe("monitorLeftPaneTreeRows", () => {
       expandedPipelineNodeIds: [PIPELINE_ID, stageId],
     });
 
-    const { treeRows, unattributedRows } = monitorLeftPaneTreeRows(state, treeLayout(), TREE_NOW_MS);
+    const { treeRows } = monitorLeftPaneTreeRows(state, treeLayout(), TREE_NOW_MS);
 
     expect(treeRows.map((row) => ({ kind: row.kind, id: row.id, depth: row.depth }))).toEqual([
       { kind: "pipeline", id: PIPELINE_ID, depth: 0 },
       { kind: "stage", id: stageId, depth: 1 },
       { kind: "run", id: "run-implement", depth: 2 },
+      { kind: "adhoc", id: "run-orphan", depth: 0 },
     ]);
-    expect(
-      unattributedRows.map((row) => (row.kind === "workflow-collapsed" ? row.representative.runId : row.run.runId)),
-    ).toEqual(["run-orphan"]);
   });
 
   test("maps node.depth to indent column slots for pipeline, stage, and run leaves", () => {
@@ -644,7 +643,7 @@ describe("monitorLeftPaneTreeRows", () => {
     expect(labelCell?.text.startsWith("  ")).toBe(true);
   });
 
-  test("keeps stage-matched runs out of unattributed when they fail the terminal window", () => {
+  test("keeps stage-matched runs out of the ad-hoc top level when they fail the terminal window", () => {
     // Mutation checkpoint: re-applying filterMonitorRunsForLiveWindow in tui-entry.tsx refreshRuns must turn full-run-set pipeline matching RED.
     const staleFinishedAt = TREE_NOW_MS - TUI_TERMINAL_WINDOW_MS - 1;
     const snapshot = pipelineSnapshot({
@@ -661,10 +660,10 @@ describe("monitorLeftPaneTreeRows", () => {
       pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
     });
 
-    const { treeRows, unattributedRows } = monitorLeftPaneTreeRows(state, treeLayout(), TREE_NOW_MS);
+    const { treeRows } = monitorLeftPaneTreeRows(state, treeLayout(), TREE_NOW_MS);
 
     expect(treeRows.some((row) => row.kind === "run" && row.id === "run-stale-matched")).toBe(true);
-    expect(unattributedRows).toHaveLength(0);
+    expect(treeRows.some((row) => row.kind === "adhoc")).toBe(false);
   });
 
   test("concatenates pipeline snapshots from socket paths in ascending key order", () => {
@@ -682,67 +681,10 @@ describe("monitorLeftPaneTreeRows", () => {
 
     expect(treeRows.filter((row) => row.kind === "pipeline").map((row) => row.id)).toEqual(["pipe-a", "pipe-b"]);
   });
-
-  test("left pane labels unattributed segment with retained run count", () => {
-    const layout = computeShellLayout(245, 9, 0);
-    const baseFinish = TREE_NOW_MS - 3_600_000;
-    const orphanRuns = [
-      workflowRun("run-active", "in-progress", "inv-active", { createdAt: 100 }),
-      workflowRun("run-term-oldest", "completed", "inv-term-oldest", {
-        isLive: false,
-        finishedAtMs: baseFinish,
-        createdAt: 10,
-      }),
-      workflowRun("run-term-old", "completed", "inv-term-old", {
-        isLive: false,
-        finishedAtMs: baseFinish + 1_000,
-        createdAt: 20,
-      }),
-      workflowRun("run-term-mid", "completed", "inv-term-mid", {
-        isLive: false,
-        finishedAtMs: baseFinish + 2_000,
-        createdAt: 30,
-      }),
-      workflowRun("run-term-new", "completed", "inv-term-new", {
-        isLive: false,
-        finishedAtMs: baseFinish + 3_000,
-        createdAt: 40,
-      }),
-    ];
-    const state = monitorState({ runs: orphanRuns, selectedNodeId: null });
-    const { heading, bodyRows } = monitorLeftPaneUnattributedSegmentRows(state, layout, TREE_NOW_MS);
-
-    expect(joinMonitorRow(heading)).toBe("─ Unattributed (4) ─");
-    expect(bodyRows.map((row) => monitorTreeRun(row).runId)).toEqual([
-      "run-active",
-      "run-term-old",
-      "run-term-mid",
-      "run-term-new",
-    ]);
-  });
-
-  test("left pane labels unattributed segment with zero retained body rows", () => {
-    const layout = computeShellLayout(245, 72, 0);
-    const snapshot = pipelineSnapshot({
-      pipelineId: PIPELINE_ID,
-      stages: [implementStage(INVOCATION_MATCHED)],
-    });
-    const matchedRun = workflowRun("run-implement", "in-progress", INVOCATION_MATCHED);
-    const state = monitorState({
-      runs: [matchedRun],
-      selectedNodeId: null,
-      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
-    });
-    const { heading, bodyRows } = monitorLeftPaneUnattributedSegmentRows(state, layout, TREE_NOW_MS);
-
-    expect(joinMonitorRow(heading)).toBe("─ Unattributed (0) ─");
-    expect(bodyRows).toEqual([]);
-  });
 });
 
 describe("monitorSelectableNodeIds", () => {
-  test("lists visible tree rows then unattributed runs in pane order", () => {
-    // Mutation checkpoint: omitting unattributed rows from monitorSelectableNodeIds must turn tree+unattributed navigation pin RED.
+  test("lists every full-flatten work-tree row id in pane order", () => {
     const snapshot = pipelineSnapshot({
       pipelineId: PIPELINE_ID,
       stages: [implementStage(INVOCATION_MATCHED)],
@@ -802,6 +744,30 @@ describe("monitorSelectableNodeIds", () => {
         .slice(scrollOffset, scrollOffset + maxVisibleRows)
         .map((pipeline) => pipeline.pipelineId),
     );
+  });
+
+  test("every ad-hoc row stays selectable when the work tree overflows the pane", () => {
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "node.kind === \"adhoc\" ? [node] : flattenPipelineNode(node, effectiveExpansion, builderRuns)" -> "node.kind === \"adhoc\" ? [] : flattenPipelineNode(node, effectiveExpansion, builderRuns)"
+    const { layout, maxVisibleRows, terminalColumns, terminalRows } = overflowPaneLayout();
+    const activeRuns = Array.from({ length: maxVisibleRows }, (_, index) =>
+      workflowRun(`run-active-${index}`, "in-progress", `inv-active-${index}`, { createdAt: index }),
+    );
+    const finishedTerminal = workflowRun("run-term-finished", "completed", "inv-term-finished", {
+      isLive: false,
+      finishedAtMs: TREE_NOW_MS,
+    });
+    const finishlessTerminal = workflowRun("run-term-finishless", "failed", "inv-term-finishless", { isLive: false });
+    const runs = [...activeRuns, finishedTerminal, finishlessTerminal];
+    const state = monitorState({ runs, selectedNodeId: null, terminalColumns, terminalRows });
+
+    const selectableIds = monitorSelectableNodeIds(state, TREE_NOW_MS);
+    const { treeRows } = monitorLeftPaneTreeRows(state, layout, TREE_NOW_MS);
+
+    expect(runs.length).toBeGreaterThan(maxVisibleRows);
+    for (const run of runs) {
+      expect(selectableIds).toContain(run.runId);
+    }
+    expect(treeRows.length).toBeLessThanOrEqual(maxVisibleRows);
   });
 });
 
@@ -1110,47 +1076,23 @@ describe("monitorRightPaneSegmentRows", () => {
     expect(lines.some((line) => line.startsWith("runStatus:"))).toBe(false);
   });
 
-  test("right pane omits detail for runs outside the selectable window", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "selectableIds.includes(selected)" -> "true"
-    const layout = computeShellLayout(245, 9, 0);
-    const baseFinish = TREE_NOW_MS - 3_600_000;
-    const evictedOrphan = workflowRun("run-evicted-orphan", "completed", "inv-evicted", {
-      isLive: false,
-      finishedAtMs: baseFinish,
-      createdAt: 10,
-    });
-    const retainedOrphans = [
-      workflowRun("run-active", "in-progress", "inv-active", { createdAt: 100 }),
-      workflowRun("run-term-old", "completed", "inv-term-old", {
-        isLive: false,
-        finishedAtMs: baseFinish + 1_000,
-        createdAt: 20,
-      }),
-      workflowRun("run-term-mid", "completed", "inv-term-mid", {
-        isLive: false,
-        finishedAtMs: baseFinish + 2_000,
-        createdAt: 30,
-      }),
-      workflowRun("run-term-new", "completed", "inv-term-new", {
-        isLive: false,
-        finishedAtMs: baseFinish + 3_000,
-        createdAt: 40,
-      }),
-    ];
+  test("ad-hoc run detail omits pipeline context when a pipeline row precedes it", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (treeRow === undefined || treeRow.kind === \"adhoc\") return undefined;" -> "if (treeRow === undefined) return undefined;"
+    const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] });
+    const matchedRun = workflowRun("run-implement", "in-progress", INVOCATION_MATCHED);
+    const orphanRun = workflowRun("run-orphan", "completed", INVOCATION_ORPHAN, { isLive: false });
     const state = monitorState({
-      runs: [evictedOrphan, ...retainedOrphans],
-      selectedNodeId: "run-evicted-orphan",
-      terminalColumns: 245,
-      terminalRows: 9,
+      runs: [matchedRun, orphanRun],
+      selectedNodeId: "run-orphan",
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
     });
-
-    expect(monitorSelectableRuns(state).some((run) => run.runId === "run-evicted-orphan")).toBe(true);
-    expect(monitorSelectableNodeIds(state, TREE_NOW_MS)).not.toContain("run-evicted-orphan");
-    expect(leftPaneUnattributedBodyRowBudget(state, layout, 0)).toBe(4);
 
     const lines = monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow);
-    expect(lines.some((line) => line.startsWith("runId:"))).toBe(false);
-    expect(lines).not.toContain("Run");
+
+    expect(lines.some((line) => line.startsWith("pipelineId:"))).toBe(false);
+    expect(lines).not.toContain("Stages");
+    expect(lines).toContain("Run");
+    expect(lines).toContain("runId: run-orphan");
   });
 
   test("resolves pipeline detail for off-pane tree row selection", () => {

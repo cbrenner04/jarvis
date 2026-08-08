@@ -250,8 +250,8 @@ function pipelineMultiListFixture(): DaemonListRunRow[] {
 function leftPaneTreeRowIds(state: TuiMonitorState | undefined): string[] {
   if (state === undefined) return [];
   const layout = computeShellLayout(state.terminalColumns ?? 245, state.terminalRows ?? 72, state.dividerOffset ?? 0);
-  const { treeRows, unattributedRows } = monitorLeftPaneTreeRows(state, layout, WORKFLOW_FILTER_NOW_MS);
-  return [...treeRows.map((row) => row.id), ...unattributedRows.map((row) => monitorTreeRun(row).runId)];
+  const { treeRows } = monitorLeftPaneTreeRows(state, layout, WORKFLOW_FILTER_NOW_MS);
+  return treeRows.map((row) => row.id);
 }
 
 function overflowPipelineEntryDeps(view: ReturnType<typeof createViewHost>) {
@@ -824,10 +824,11 @@ function elapsedCellForRun(state: TuiMonitorState | undefined, runId: string, no
   if (state === undefined) return "";
   const layout = computeShellLayout(state.terminalColumns ?? 245, state.terminalRows ?? 72, state.dividerOffset ?? 0);
   const leftPaneWidth = layout.leftWidth >= 90 ? 90 : layout.leftWidth;
-  const { treeRows, unattributedRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
-  const runNode = treeRows.find((row) => row.kind === "run" && monitorTreeRun(row.tableRow).runId === runId);
-  const tableRow =
-    runNode?.kind === "run" ? runNode.tableRow : unattributedRows.find((row) => monitorTreeRun(row).runId === runId);
+  const { treeRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
+  const runNode = treeRows.find(
+    (row) => (row.kind === "run" || row.kind === "adhoc") && monitorTreeRun(row.tableRow).runId === runId,
+  );
+  const tableRow = runNode?.kind === "run" || runNode?.kind === "adhoc" ? runNode.tableRow : undefined;
   if (tableRow === undefined) return "";
   return columnSlice(buildMonitorTreeRow(tableRow, null, leftPaneWidth, nowMs), leftPaneWidth, "elapsed").trimEnd();
 }
@@ -1516,6 +1517,7 @@ describe("runTuiEntry", () => {
       view.selectNode("run-review");
       expectExpansionFailure("run_leaf", () => {});
 
+      // @mutate v2/src/tui/tui-entry.tsx "row.kind === \"adhoc\"" -> "false"
       view.selectNode("run-orphan");
       expectExpansionFailure("unattributed", () => {});
 
@@ -1787,84 +1789,6 @@ describe("runTuiEntry", () => {
     // The pipeline disappears from the next snapshot, so its row is no longer selectable.
     await flushIntervalTick(refresh);
     for (let i = 0; i < 20 && view.monitorStates.at(-1)?.selectedNodeId === "pipe-alpha"; i += 1) {
-      await flush();
-    }
-    expect(view.monitorStates.at(-1)?.selectedNodeId).toBeNull();
-
-    view.quit();
-    await pending;
-  });
-
-  test("a selected unattributed run evicted by segment FIFO clears the selection", async () => {
-    const view = createViewHost();
-    const refresh = createIntervalScheduler();
-    const terminalColumns = 80;
-    const terminalRows = 8;
-    const orphanBeta: DaemonListRunRow = {
-      ...RUN_BETA,
-      workflow: {
-        invocationId: "inv-beta",
-        steps: [{ stepId: "implement", role: "implement", status: "completed", attemptCount: 1 }],
-      },
-    };
-    const overflowRuns: DaemonListRunRow[] = [
-      {
-        runId: "run-active",
-        project: "demo",
-        branch: "active",
-        createdAt: 0,
-        status: "in-progress",
-        isLive: true,
-        workflow: {
-          invocationId: "inv-active",
-          steps: [{ stepId: "implement", role: "implement", status: "in_progress", attemptCount: 1 }],
-        },
-      },
-      {
-        runId: "run-newer",
-        project: "demo",
-        branch: "newer",
-        createdAt: 0,
-        status: "completed",
-        isLive: false,
-        finishedAtMs: TERMINAL_LIST_FINISH_MS + 2_000,
-        workflow: {
-          invocationId: "inv-newer",
-          steps: [{ stepId: "implement", role: "implement", status: "completed", attemptCount: 1 }],
-        },
-      },
-      {
-        runId: "run-newest",
-        project: "demo",
-        branch: "newest",
-        createdAt: 0,
-        status: "completed",
-        isLive: false,
-        finishedAtMs: TERMINAL_LIST_FINISH_MS + 3_000,
-        workflow: {
-          invocationId: "inv-newest",
-          steps: [{ stepId: "implement", role: "implement", status: "completed", attemptCount: 1 }],
-        },
-      },
-    ];
-    const { deps } = entryDeps(
-      { methods: [], listResponses: [{ runs: [orphanBeta] }, { runs: [orphanBeta, ...overflowRuns] }] },
-      {
-        viewHost: view.host,
-        refreshScheduler: refresh.scheduler,
-        terminalSize: () => ({ columns: terminalColumns, rows: terminalRows }),
-      },
-    );
-
-    const pending = runTuiEntry(deps);
-    await view.waitUntilOpen();
-    await flush();
-    view.selectNode("run-beta");
-    await flush();
-    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-beta");
-
-    await flushIntervalTick(refresh);
-    for (let i = 0; i < 20 && view.monitorStates.at(-1)?.selectedNodeId !== null; i += 1) {
       await flush();
     }
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBeNull();
@@ -2646,8 +2570,10 @@ describe("runTuiEntry", () => {
     await view.waitUntilOpen();
     await flush();
 
-    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-alpha");
-    expect(view.monitorStates.at(-1)?.selectedNodeId).not.toBe("run-alpha");
+    // run-alpha is a running ad-hoc row with an earlier createdAt than pipe-alpha, so unified
+    // running-rank ordering selects it first.
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-alpha");
+    expect(view.monitorStates.at(-1)?.selectedNodeId).not.toBe("pipe-alpha");
 
     view.quit();
     expect(await pending).toBe(0);

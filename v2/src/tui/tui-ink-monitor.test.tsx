@@ -532,7 +532,7 @@ describe("createMonitorDisplay", () => {
 
     expect(collectInkText(inWindowTree)).toContain("run-fresh-orphan");
     expect(collectInkText(findRegion(outOfWindowTree, MonitorLeftPane))).toContain("run-fresh-orphan");
-    expect(collectInkText(findRegion(outOfWindowTree, MonitorLeftPane))).toContain("─ Unattributed (1) ─");
+    expect(collectInkText(findRegion(outOfWindowTree, MonitorLeftPane))).not.toContain("─ Unattributed");
     expect(collectInkText(findRegion(outOfWindowTree, MonitorRightPane))).toContain("runId: run-fresh-orphan");
     expect(collectInkText(displayTickTree)).toContain("run-fresh-orphan");
   });

@@ -2,7 +2,13 @@ import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { isPipelineTerminal, type PipelineDerivedState } from "../daemon/pipeline-execution.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
-import { buildWorkflowTableRows, type WorkflowTableRow } from "./tui-monitor-workflow-collapse.ts";
+import {
+  buildWorkflowTableRows,
+  type WorkflowTableRow,
+  workflowGroupHasActiveMember,
+  workflowRollupFinishedAtMs,
+  workflowTableRowMembers,
+} from "./tui-monitor-workflow-collapse.ts";
 import {
   formatTreeCell,
   monitorTreeRun,
@@ -39,10 +45,18 @@ export type MonitorPipelineTreePipelineNode = {
   stages: MonitorPipelineTreeStageNode[];
 };
 
+export type MonitorPipelineTreeAdHocNode = {
+  kind: "adhoc";
+  id: string;
+  depth: 0;
+  tableRow: WorkflowTableRow;
+};
+
 export type MonitorPipelineTreeDisplayNode =
   | MonitorPipelineTreePipelineNode
   | MonitorPipelineTreeStageNode
-  | MonitorPipelineTreeRunNode;
+  | MonitorPipelineTreeRunNode
+  | MonitorPipelineTreeAdHocNode;
 
 export function monitorPipelineStageNodeId(pipelineId: string, stageId: string, branchKey: string): string {
   return `${pipelineId}:${stageId}:${branchKey}`;
@@ -178,10 +192,10 @@ function buildStageNodes(
   return stages;
 }
 
-function isUnattributedCandidate(run: DaemonListRunRow, matchedInvocationIds: ReadonlySet<string>): boolean {
+function isAdHocCandidate(run: DaemonListRunRow, matchedInvocationIds: ReadonlySet<string>): boolean {
   const invocationId = run.workflow?.invocationId;
   if (invocationId === undefined) return true;
-  // Mutation checkpoint: negating matchedInvocationIds exclusion must turn unattributed filtering RED.
+  // Mutation checkpoint: negating matchedInvocationIds exclusion must turn ad-hoc filtering RED.
   return !matchedInvocationIds.has(invocationId);
 }
 
@@ -190,7 +204,7 @@ export function buildMonitorPipelineTreeJoin(
   runs: readonly DaemonListRunRow[],
 ): {
   pipelineNodes: MonitorPipelineTreePipelineNode[];
-  unattributedRows: WorkflowTableRow[];
+  adHocNodes: MonitorPipelineTreeAdHocNode[];
   builderRuns: DaemonListRunRow[];
 } {
   const builderRuns = runs.filter((run) => run.status !== "queued");
@@ -205,10 +219,15 @@ export function buildMonitorPipelineTreeJoin(
     stages: buildStageNodes(snapshot, builderRuns),
   }));
 
-  const unattributedCandidates = builderRuns.filter((run) => isUnattributedCandidate(run, matchedInvocationIds));
-  const unattributedRows = buildWorkflowTableRows(unattributedCandidates, builderRuns, new Set());
+  const adHocCandidates = builderRuns.filter((run) => isAdHocCandidate(run, matchedInvocationIds));
+  const adHocNodes = buildWorkflowTableRows(adHocCandidates, builderRuns, new Set()).map((tableRow) => ({
+    kind: "adhoc" as const,
+    id: monitorTreeRun(tableRow).runId,
+    depth: 0 as const,
+    tableRow,
+  }));
 
-  return { pipelineNodes, unattributedRows, builderRuns };
+  return { pipelineNodes, adHocNodes, builderRuns };
 }
 
 type TopLevelOrderKey = { rank: "running" | "gated" | "terminal"; createdAt: number; finishedAtMs: number | null };
@@ -230,11 +249,24 @@ function compareTopLevelOrderKeys(a: TopLevelOrderKey, b: TopLevelOrderKey): num
   return (b.finishedAtMs ?? b.createdAt) - (a.finishedAtMs ?? a.createdAt);
 }
 
-function orderPipelineNodes(
+function adHocNodeOrderKey(node: MonitorPipelineTreeAdHocNode): TopLevelOrderKey {
+  const members = workflowTableRowMembers(node.tableRow);
+  const rank = workflowGroupHasActiveMember(members) ? "running" : "terminal";
+  return {
+    rank,
+    createdAt: Math.min(...members.map((run) => run.createdAt)),
+    finishedAtMs: workflowRollupFinishedAtMs(members) ?? null,
+  };
+}
+
+function orderTopLevelNodes(
   pipelineNodes: readonly MonitorPipelineTreePipelineNode[],
-): MonitorPipelineTreePipelineNode[] {
-  return pipelineNodes
-    .map((node) => ({ node, key: pipelineNodeOrderKey(node) }))
+  adHocNodes: readonly MonitorPipelineTreeAdHocNode[],
+): (MonitorPipelineTreePipelineNode | MonitorPipelineTreeAdHocNode)[] {
+  return [
+    ...pipelineNodes.map((node) => ({ node, key: pipelineNodeOrderKey(node) })),
+    ...adHocNodes.map((node) => ({ node, key: adHocNodeOrderKey(node) })),
+  ]
     .sort((left, right) => compareTopLevelOrderKeys(left.key, right.key))
     .map(({ node }) => node);
 }
@@ -326,14 +358,14 @@ export function isExpandablePipelineNodeId(
 
 export function flattenMonitorPipelineTree(
   pipelineNodes: readonly MonitorPipelineTreePipelineNode[],
+  adHocNodes: readonly MonitorPipelineTreeAdHocNode[],
   expandedNodeIds: ReadonlySet<string>,
   selectedNodeId: string | null,
-  _maxVisibleRows: number,
   builderRuns: readonly DaemonListRunRow[] = [],
 ): MonitorPipelineTreeDisplayNode[] {
   const effectiveExpansion = resolveEffectiveExpansion(pipelineNodes, expandedNodeIds, selectedNodeId);
-  return orderPipelineNodes(pipelineNodes).flatMap((pipeline) =>
-    flattenPipelineNode(pipeline, effectiveExpansion, builderRuns),
+  return orderTopLevelNodes(pipelineNodes, adHocNodes).flatMap((node) =>
+    node.kind === "adhoc" ? [node] : flattenPipelineNode(node, effectiveExpansion, builderRuns),
   );
 }
 
@@ -342,20 +374,7 @@ export function buildMonitorPipelineTree(
   runs: readonly DaemonListRunRow[],
   expandedNodeIds: ReadonlySet<string>,
   selectedNodeId: string | null,
-  maxVisibleRows: number,
-): {
-  displayNodes: MonitorPipelineTreeDisplayNode[];
-  unattributedRows: WorkflowTableRow[];
-} {
-  const { pipelineNodes, unattributedRows, builderRuns } = buildMonitorPipelineTreeJoin(snapshots, runs);
-  return {
-    displayNodes: flattenMonitorPipelineTree(
-      pipelineNodes,
-      expandedNodeIds,
-      selectedNodeId,
-      maxVisibleRows,
-      builderRuns,
-    ),
-    unattributedRows,
-  };
+): MonitorPipelineTreeDisplayNode[] {
+  const { pipelineNodes, adHocNodes, builderRuns } = buildMonitorPipelineTreeJoin(snapshots, runs);
+  return flattenMonitorPipelineTree(pipelineNodes, adHocNodes, expandedNodeIds, selectedNodeId, builderRuns);
 }

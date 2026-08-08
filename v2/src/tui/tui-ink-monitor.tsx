@@ -8,7 +8,6 @@ import {
   monitorDockLines,
   monitorLeftPaneQueueRows,
   monitorLeftPaneTreeRows,
-  monitorLeftPaneUnattributedSegmentRows,
   monitorRightPaneSegmentRows,
   RUN_STATUS_TONES,
 } from "./tui-monitor-lines.ts";
@@ -137,6 +136,7 @@ function renderTreeRow(
         RowBox,
       );
     case "run":
+    case "adhoc":
       return renderRunGridRow(
         treeRow.tableRow,
         selectedNodeId,
@@ -199,20 +199,13 @@ function renderLeftPaneContent(
   const { columns, rows } = shellTerminalSize(state);
   const layout = computeShellLayout(columns, rows, state.dividerOffset ?? 0);
   const { treeRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
-  const { heading, bodyRows: unattributedRows } = monitorLeftPaneUnattributedSegmentRows(state, layout, nowMs);
   const rendered: ReactElement[] = [];
-  if (treeRows.length === 0 && unattributedRows.length === 0) {
+  if (treeRows.length === 0) {
     rendered.push(renderSegmentRow({ segments: [{ text: "No runs." }] }, Text, 0, RowBox));
   } else {
     for (const [index, treeRow] of treeRows.entries()) {
       rendered.push(renderTreeRow(treeRow, state.selectedNodeId, leftPaneWidth, nowMs, Text, index, RowBox));
     }
-  }
-  rendered.push(renderSegmentRow(heading, Text, rendered.length, RowBox));
-  for (const [index, tableRow] of unattributedRows.entries()) {
-    rendered.push(
-      renderRunGridRow(tableRow, state.selectedNodeId, leftPaneWidth, 0, nowMs, Text, rendered.length + index, RowBox),
-    );
   }
   const queueRows = monitorLeftPaneQueueRows(state);
   rendered.push(...renderSegmentRows(queueRows, Text, RowBox, rendered.length));

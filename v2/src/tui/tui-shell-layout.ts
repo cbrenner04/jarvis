@@ -145,11 +145,16 @@ export function monitorTreeRun(tableRow: WorkflowTableRow): DaemonListRunRow {
   }
 }
 
+function runRowLabelHead(run: DaemonListRunRow): string {
+  return `${workflowRoleLabel(run)} ${shortMonitorId(run.runId)}`;
+}
+
 function monitorTreeCellValue(
   column: TreeColumnId,
   tableRow: WorkflowTableRow,
   selectedNodeId: string | null,
   nowMs: number,
+  labelOverride?: string,
 ): string {
   const run = monitorTreeRun(tableRow);
   switch (column) {
@@ -158,12 +163,10 @@ function monitorTreeCellValue(
     case "indent":
       return tableRow.kind === "workflow-child" ? "  " : "";
     case "label": {
-      const label = run.runId;
-      if (tableRow.kind === "workflow-child") return `${label} ${workflowRoleLabel(run)}`;
-      if (tableRow.kind === "workflow-collapsed") {
-        return `${label}${workflowCollapsedContextSuffix(tableRow.members)}`;
-      }
-      return label;
+      if (labelOverride !== undefined) return labelOverride;
+      const head = runRowLabelHead(run);
+      if (tableRow.kind !== "workflow-collapsed") return head;
+      return `${head}${workflowCollapsedContextSuffix(tableRow.members)}`;
     }
     case "project":
       return tableRow.kind === "workflow-child" ? "" : run.project;
@@ -198,12 +201,13 @@ export function listMonitorTreeCells(
   selectedNodeId: string | null,
   leftPaneWidth: number,
   nowMs: number,
+  labelOverride?: string,
 ): { column: TreeColumnId; text: string }[] {
   return visibleColumns(leftPaneWidth).map((column) => {
     const width = TREE_COLUMN_WIDTHS[column];
     return {
       column,
-      text: formatMonitorTreeCell(monitorTreeCellValue(column, tableRow, selectedNodeId, nowMs), width),
+      text: formatMonitorTreeCell(monitorTreeCellValue(column, tableRow, selectedNodeId, nowMs, labelOverride), width),
     };
   });
 }
@@ -215,8 +219,9 @@ export function listMonitorTreeCellsAtDepth(
   leftPaneWidth: number,
   depth: number,
   nowMs: number,
+  labelOverride?: string,
 ): { column: TreeColumnId; text: string }[] {
-  const cells = listMonitorTreeCells(tableRow, selectedNodeId, leftPaneWidth, nowMs);
+  const cells = listMonitorTreeCells(tableRow, selectedNodeId, leftPaneWidth, nowMs, labelOverride);
   let remainingIndent = "  ".repeat(depth);
   return cells.map((cell) => {
     if (cell.column === "indent" && remainingIndent.length > 0) {

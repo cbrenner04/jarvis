@@ -98,8 +98,9 @@ function renderRunGridRow(
   Text: MonitorText,
   rowKey: number,
   RowBox?: MonitorBox,
+  labelOverride?: string,
 ): ReactElement {
-  const cells = listMonitorTreeCellsAtDepth(tableRow, selectedNodeId, leftPaneWidth, depth, nowMs);
+  const cells = listMonitorTreeCellsAtDepth(tableRow, selectedNodeId, leftPaneWidth, depth, nowMs, labelOverride);
   const rendered = cells.map((cell, index) => {
     const tone = gridCellTone(cell.column, tableRow);
     const props: { key: number; color?: string } = { key: index };
@@ -145,6 +146,16 @@ function renderTreeRow(
         RowBox,
       );
     case "run":
+      return renderRunGridRow(
+        treeRow.tableRow,
+        selectedNodeId,
+        leftPaneWidth,
+        treeRow.depth,
+        nowMs,
+        Text,
+        rowKey,
+        RowBox,
+      );
     case "adhoc":
       return renderRunGridRow(
         treeRow.tableRow,
@@ -155,6 +166,7 @@ function renderTreeRow(
         Text,
         rowKey,
         RowBox,
+        treeRow.label,
       );
   }
 }

@@ -335,7 +335,7 @@ describe("buildMonitorTreeRow", () => {
     expect(elapsedAfter).not.toBe(elapsedBefore);
   });
 
-  test("workflow-child uses indent and role suffix; standalone and collapsed do not", () => {
+  test("workflow children differ by indentation while all run rows use role-first labels", () => {
     const standalone = buildMonitorTreeRow({ kind: "standalone", run: SAMPLE_RUN }, null, 90, TEST_NOW_MS);
     const collapsed = buildMonitorTreeRow(
       { kind: "workflow-collapsed", representative: SAMPLE_RUN, members: [SAMPLE_RUN] },
@@ -349,9 +349,22 @@ describe("buildMonitorTreeRow", () => {
     expect(columnSlice(collapsed, 90, "indent")).toBe(" ".repeat(TREE_COLUMN_WIDTHS.indent));
     expect(columnSlice(child, 90, "indent")).toBe("  ");
 
-    expect(columnSlice(standalone, 90, "label").trimEnd()).toBe("run-abc");
-    expect(columnSlice(collapsed, 90, "label").trimEnd()).toBe("run-abc");
-    expect(columnSlice(child, 90, "label").trimEnd()).toBe("rc role:actuator");
+    expect(columnSlice(standalone, 90, "label").trimEnd()).toBe("role:unknown run-abc");
+    expect(columnSlice(collapsed, 90, "label").trimEnd()).toBe("role:unknown run-abc");
+    expect(columnSlice(child, 90, "label").trimEnd()).toBe("role:actuator rc");
+  });
+
+  test("a run row leads with its role and follows with the short run id", () => {
+    // @mutate v2/src/tui/tui-shell-layout.ts "const head = runRowLabelHead(run);" -> "const head = run.runId;"
+    const run: DaemonListRunRow = {
+      ...WORKFLOW_CHILD_RUN,
+      runId: "12345678-1234-1234-1234-123456789abc",
+    };
+    const label = listMonitorTreeCells({ kind: "workflow-child", run }, null, 90, TEST_NOW_MS).find(
+      (cell) => cell.column === "label",
+    );
+
+    expect(label?.text).toBe("role:actuator 12345678".padEnd(TREE_COLUMN_WIDTHS.label, " "));
   });
 
   test("workflow-collapsed appends step context suffix in label via listMonitorTreeCells", () => {
@@ -361,13 +374,41 @@ describe("buildMonitorTreeRow", () => {
       members: COLLAPSED_WORKFLOW_MEMBERS,
     };
     const expectedLabel = formatTreeCell(
-      `run-review${workflowCollapsedContextSuffix(COLLAPSED_WORKFLOW_MEMBERS)}`,
+      `role:unknown run-revi${workflowCollapsedContextSuffix(COLLAPSED_WORKFLOW_MEMBERS)}`,
       TREE_COLUMN_WIDTHS.label,
     ).padEnd(TREE_COLUMN_WIDTHS.label, " ");
     const labelCell = listMonitorTreeCells(tableRow, null, 90, TEST_NOW_MS).find((cell) => cell.column === "label");
     expect(labelCell?.text).toBe(expectedLabel);
-    expect(labelCell?.text).toContain("workflow-s");
-    expect(buildMonitorTreeRow(tableRow, null, 90, TEST_NOW_MS)).toContain("workflow-s");
+    expect(buildMonitorTreeRow(tableRow, null, 90, TEST_NOW_MS)).toContain(expectedLabel);
+  });
+
+  test("a collapsed workflow row keeps its step context suffix after the role-first head", () => {
+    // @mutate v2/src/tui/tui-shell-layout.ts "if (tableRow.kind !== \"workflow-collapsed\") return head;" -> "if (tableRow.kind === \"workflow-collapsed\") return head;"
+    const representative: DaemonListRunRow = {
+      runId: "87654321-4321-4321-4321-cba987654321",
+      project: "demo",
+      branch: "main",
+      createdAt: 0,
+      status: "in-progress",
+      isLive: true,
+      stepId: "x",
+      workflow: {
+        invocationId: "inv-short-role",
+        steps: [{ stepId: "x", role: "a", status: "in_progress", attemptCount: 1 }],
+      },
+    };
+    const members = [representative];
+    const tableRow = { kind: "workflow-collapsed" as const, representative, members };
+    const head = "role:a 87654321";
+    const label = listMonitorTreeCells(tableRow, null, 90, TEST_NOW_MS).find((cell) => cell.column === "label");
+    const expected = formatTreeCell(head + workflowCollapsedContextSuffix(members), TREE_COLUMN_WIDTHS.label).padEnd(
+      TREE_COLUMN_WIDTHS.label,
+      " ",
+    );
+    const headOnly = formatTreeCell(head, TREE_COLUMN_WIDTHS.label).padEnd(TREE_COLUMN_WIDTHS.label, " ");
+
+    expect(label?.text).toBe(expected);
+    expect(label?.text).not.toBe(headOnly);
   });
 
   test("expanded workflow-child rows render through grid builder alongside collapsed parent", () => {
@@ -393,13 +434,13 @@ describe("buildMonitorTreeRow", () => {
 
     expect(columnSlice(collapsed, 90, "label")).toBe(
       formatTreeCell(
-        `run-review${workflowCollapsedContextSuffix(COLLAPSED_WORKFLOW_MEMBERS)}`,
+        `role:unknown run-revi${workflowCollapsedContextSuffix(COLLAPSED_WORKFLOW_MEMBERS)}`,
         TREE_COLUMN_WIDTHS.label,
       ).padEnd(TREE_COLUMN_WIDTHS.label, " "),
     );
     expect(columnSlice(child, 90, "indent")).toBe("  ");
     expect(columnSlice(child, 90, "label")).toBe(
-      formatTreeCell("run-implement role:implement", TREE_COLUMN_WIDTHS.label).padEnd(TREE_COLUMN_WIDTHS.label, " "),
+      formatTreeCell("role:implement run-impl", TREE_COLUMN_WIDTHS.label).padEnd(TREE_COLUMN_WIDTHS.label, " "),
     );
     expect(columnSlice(child, 90, "project")).toBe(" ".repeat(TREE_COLUMN_WIDTHS.project));
   });

@@ -55,7 +55,7 @@ Dependency order; 1 and 2 are independent starting points; 5–7 in any order af
 |---|------|----------|------------|-------|
 | 1 | `pipeline-terminal-timestamps` | Terminal stages/runs always stamped; approval `decidedAt` on wire; failed-before-start shape pinned | — | seeded |
 | 2 | `tui-unified-work-tree` | Pipelines + ad-hoc in one tree; segment/FIFO deleted; uniform selection | — | **shipped** (`20260808T193703Z-tui-unified-work-tree`); running→gated→terminal order **shipped** (`00-three-bucket-top-level-ordering`) |
-| 3 | `tui-intent-branch-subtree` | Branch-grouped subtree; placeholder + satisfied-gate elision; stripped branch labels; intent yield | 2 | seeded |
+| 3 | `tui-intent-branch-subtree` | Branch-grouped subtree; placeholder + satisfied-gate elision; stripped branch labels; intent yield | 2 | **shipped** (`20260808T205837Z-tui-intent-branch-subtree`) |
 | 4 | `tui-work-row-anatomy` | Fill-width labels; seed-slug identity; real indent + ▼/▶; grid + tier table removed | 2, 3 | seeded |
 | 5 | `tui-attention-segment` | Pinned needs-me list + act-in-place; segmented status counts | 1, 2 | seeded |
 | 6 | `tui-work-idle-time` | work/idle aggregation; failed-before-start rendering; frozen finishless display | 1, 3 | seeded |

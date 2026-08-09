@@ -831,6 +831,26 @@ describe("monitorRightPaneSegmentRows", () => {
     expect(monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow)).toEqual(pipelineBlock);
   });
 
+  test("an elided gate's stage record still lists in the pipeline detail roll-up", () => {
+    const snapshot = pipelineSnapshot({
+      pipelineId: PIPELINE_ID,
+      name: "full-review",
+      stages: [
+        snapshotStage({ stageId: "intent", position: 0, status: "succeeded" }),
+        snapshotStage({ stageId: "approve-intent", position: 1, status: "approved" }),
+        snapshotStage({ stageId: "plan", position: 2, status: "pending" }),
+      ],
+    });
+    const state = monitorState({
+      selectedNodeId: PIPELINE_ID,
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
+    });
+
+    const lines = monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow);
+
+    expect(lines).toContain("stage: approve-intent branch=default status=approved elapsed=");
+  });
+
   test("stage selection appends the selected durable record with exact branch and stable diagnostics", () => {
     // @mutate v2/src/tui/tui-monitor-lines.ts "if (treeRow?.kind === \"stage\") {" -> "if (false) {"
     const stageNodeId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");

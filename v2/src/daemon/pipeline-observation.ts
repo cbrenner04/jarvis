@@ -142,6 +142,8 @@ export type PipelineSnapshot = {
   terminalPublicationFailure: Pipeline["terminalPublicationFailure"];
   createdAt: number;
   finishedAtMs: number | null;
+  /** Boundary projected by the daemon from the admitted definition and durable stage records. */
+  boundary?: PipelineBoundaryResult | null;
   stages: Array<{
     id: string;
     stageId: string;
@@ -184,6 +186,7 @@ export function projectPipelineSnapshot(pipeline: Pipeline & { stages: PipelineS
     terminalPublicationFailure: pipeline.terminalPublicationFailure,
     createdAt: pipeline.createdAt,
     finishedAtMs: derivePipelineFinishedAtMs(pipeline, state),
+    boundary: derivePipelineBoundary(pipeline),
     stages: pipeline.stages.map((stage) => ({
       id: stage.id,
       stageId: stage.stageId,

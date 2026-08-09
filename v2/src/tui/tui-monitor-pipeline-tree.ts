@@ -279,10 +279,19 @@ function claimInvocationId(claimed: Set<string>, invocationId: string | null): i
   return true;
 }
 
+/** A stage keeps its entry run id; TUI rows group that run by its workflow invocation id. */
+function workflowInvocationIdForStage(
+  entryRunId: string | null,
+  builderRuns: readonly DaemonListRunRow[],
+): string | null {
+  if (entryRunId === null) return null;
+  return builderRuns.find((run) => run.runId === entryRunId)?.workflow?.invocationId ?? entryRunId;
+}
+
 function derivePipelineProject(snapshot: PipelineSnapshot, builderRuns: readonly DaemonListRunRow[]): string {
   const claimedInvocationIds = new Set<string>();
   for (const stage of snapshot.stages) {
-    const invocationId = stage.workflowInvocationId;
+    const invocationId = workflowInvocationIdForStage(stage.workflowInvocationId, builderRuns);
     if (!claimInvocationId(claimedInvocationIds, invocationId)) continue;
     const joinedRun = builderRuns.find((run) => run.workflow?.invocationId === invocationId);
     // Mutation checkpoint: skipping the joinedRun guard must turn pipeline project derivation RED.
@@ -291,12 +300,15 @@ function derivePipelineProject(snapshot: PipelineSnapshot, builderRuns: readonly
   return "";
 }
 
-function collectMatchedInvocationIds(snapshots: readonly PipelineSnapshot[]): Set<string> {
+function collectMatchedInvocationIds(
+  snapshots: readonly PipelineSnapshot[],
+  builderRuns: readonly DaemonListRunRow[],
+): Set<string> {
   const matched = new Set<string>();
   for (const snapshot of snapshots) {
     const claimedInPipeline = new Set<string>();
     for (const stage of snapshot.stages) {
-      const invocationId = stage.workflowInvocationId;
+      const invocationId = workflowInvocationIdForStage(stage.workflowInvocationId, builderRuns);
       if (claimInvocationId(claimedInPipeline, invocationId)) {
         matched.add(invocationId);
       }
@@ -323,7 +335,7 @@ function buildStageNodes(
 
     const isBranched = splitPosition !== null && stage.position >= splitPosition;
     const stageDepth = isBranched ? 2 : 1;
-    const invocationId = stage.workflowInvocationId;
+    const invocationId = workflowInvocationIdForStage(stage.workflowInvocationId, builderRuns);
     let tableRows: WorkflowTableRow[] = [];
 
     if (claimInvocationId(claimedInPipeline, invocationId)) {
@@ -399,7 +411,7 @@ export function buildMonitorPipelineTreeJoin(
   builderRuns: DaemonListRunRow[];
 } {
   const builderRuns = runs.filter((run) => run.status !== "queued");
-  const matchedInvocationIds = collectMatchedInvocationIds(snapshots);
+  const matchedInvocationIds = collectMatchedInvocationIds(snapshots, builderRuns);
 
   const pipelineNodes = snapshots.map((snapshot) => ({
     kind: "pipeline" as const,
@@ -521,7 +533,7 @@ function stageRunsForExpansion(
   const snapshotStage = pipeline.snapshot.stages.find(
     (candidate) => candidate.stageId === stage.stageId && candidate.branchKey === stage.branchKey,
   );
-  const invocationId = snapshotStage?.workflowInvocationId;
+  const invocationId = workflowInvocationIdForStage(snapshotStage?.workflowInvocationId ?? null, builderRuns);
   if (invocationId === null || invocationId === undefined) return stage.runs;
 
   const stageRuns = builderRuns.filter((run) => run.workflow?.invocationId === invocationId);

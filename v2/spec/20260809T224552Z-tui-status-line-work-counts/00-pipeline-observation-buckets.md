@@ -27,12 +27,12 @@ Retained snapshots can repeat a pipeline and a fan-out pipeline can expose a rea
 
 ## Acceptance criteria
 
-- [ ] `v2/src/tui/tui-monitor-lines.test.ts` — `classifies every pipeline state into the four dock buckets` asserts `awaiting-approval` only under `awaiting gate`, `pending` and `running` under `running`, `succeeded` under `done`, and `failed`, `rejected`, and `interrupted` under `failed`; it fails against the pre-fix `N active` output.
-- [ ] `v2/src/tui/tui-monitor-lines.test.ts` — `classifies a reachable fan-out gate ahead of sibling running work` supplies a pipeline with an undecided reachable approval branch and a running sibling whose derived state is `running`, asserts it counts only under `awaiting gate`, and fails against the pre-fix state-only classification.
-- [ ] `v2/src/tui/tui-monitor-lines.test.ts` — `classifies every pipeline state into the four dock buckets` and `classifies a reachable fan-out gate ahead of sibling running work`; Mutation checkpoint: their in-body `// @mutate` directives invert every added pipeline-state and reachable-gate classification guard, and each mutation turns the scoped test RED.
-- [ ] `v2/src/tui/tui-monitor-lines.test.ts` — `deduplicates contradictory pipeline snapshots by bucket precedence` supplies repeated ids across retained sockets and asserts each id contributes once in `awaiting gate`, then `running`, then `failed`, then `done` precedence.
-- [ ] `v2/src/tui/tui-monitor-lines.test.ts` — `deduplicates contradictory pipeline snapshots by bucket precedence`; Mutation checkpoint: its in-body `// @mutate` directive inverts the duplicate-bucket precedence guard, and the mutation turns the scoped test RED.
-- [ ] `countActivePipelines` no longer exists under `v2/src/`.
+- [x] `v2/src/tui/tui-monitor-lines.test.ts` — `classifies every pipeline state into the four dock buckets` asserts `awaiting-approval` only under `awaiting gate`, `pending` and `running` under `running`, `succeeded` under `done`, and `failed`, `rejected`, and `interrupted` under `failed`; it fails against the pre-fix `N active` output.
+- [x] `v2/src/tui/tui-monitor-lines.test.ts` — `classifies a reachable fan-out gate ahead of sibling running work` supplies a pipeline with an undecided reachable approval branch and a running sibling whose derived state is `running`, asserts it counts only under `awaiting gate`, and fails against the pre-fix state-only classification.
+- [x] `v2/src/tui/tui-monitor-lines.test.ts` — `classifies every pipeline state into the four dock buckets` and `classifies a reachable fan-out gate ahead of sibling running work`; Mutation checkpoint: their in-body `// @mutate` directives invert every added pipeline-state and reachable-gate classification guard, and each mutation turns the scoped test RED.
+- [x] `v2/src/tui/tui-monitor-lines.test.ts` — `deduplicates contradictory pipeline snapshots by bucket precedence` supplies repeated ids across retained sockets and asserts each id contributes once in `awaiting gate`, then `running`, then `failed`, then `done` precedence.
+- [x] `v2/src/tui/tui-monitor-lines.test.ts` — `deduplicates contradictory pipeline snapshots by bucket precedence`; Mutation checkpoint: its in-body `// @mutate` directive inverts the duplicate-bucket precedence guard, and the mutation turns the scoped test RED.
+- [x] `countActivePipelines` no longer exists under `v2/src/`.
 
 ## Documentation updates
 

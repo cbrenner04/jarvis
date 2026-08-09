@@ -397,9 +397,9 @@ describe("createMonitorDisplay", () => {
     expect(rightText).toContain("status: in-progress");
     expect(rightText).toContain("runId: run-alpha");
     expect(rightText).not.toContain("run-beta");
-    expect(dockText).toContain("0 active · unknown@unknown · refresh 1s");
-    expect(leftText).not.toContain("0 active · unknown@unknown · refresh 1s");
-    expect(rightText).not.toContain("0 active · unknown@unknown · refresh 1s");
+    expect(dockText).toContain("1 running · 0 awaiting gate · 0 failed · 1 done · unknown@unknown · refresh 1s");
+    expect(leftText).not.toContain("1 running · 0 awaiting gate · 0 failed · 1 done · unknown@unknown · refresh 1s");
+    expect(rightText).not.toContain("1 running · 0 awaiting gate · 0 failed · 1 done · unknown@unknown · refresh 1s");
     expect(regionBoxWidth(left)).toBe(computeShellLayout(245, 72, 0).leftWidth);
   });
 
@@ -422,7 +422,7 @@ describe("createMonitorDisplay", () => {
       expect(rows.map((row) => row.text)).toEqual(monitorDockLines(state));
       expect(rows).toHaveLength(4);
       expect(rows.every((row) => row.props.height === 1 && row.props.overflow === "hidden")).toBe(true);
-      expect(rows[0]?.text).toContain("1 active · workstation@0123456789abcdef · refresh 1s · result: ready");
+      expect(rows[0]?.text).toStartWith("1 running · 0 awaiting gate · 0 failed · 0 done");
       expect(rows[1]?.text).toContain("▏");
       expect(rows[2]?.text).not.toBe("");
       expect(rows[3]?.text).toContain("e expand/collapse");

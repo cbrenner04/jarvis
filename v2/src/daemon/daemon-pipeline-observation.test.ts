@@ -274,6 +274,7 @@ test("pipeline_list reports every admitted pipeline with identity, derived state
     state: "awaiting-approval",
     createdAt: loaded.createdAt,
     finishedAtMs: null,
+    boundary: { kind: "awaiting-approval", stageId: "gate", branchKey: "default" },
     stages: [
       projectedStage({
         stageId: "plan",
@@ -950,12 +951,15 @@ test("two-branch pipeline_list projection includes branchKey per durable row", a
     new AbortController().signal,
   );
   const pipelines = (response as { result: { pipelines: Array<Record<string, unknown>> } }).result.pipelines;
-  const snapshot = pipelines.find((pipeline) => pipeline.pipelineId === pipelineId) as {
-    stages: PipelineSnapshot["stages"];
-  };
+  const snapshot = pipelines.find((pipeline) => pipeline.pipelineId === pipelineId) as Pick<
+    PipelineSnapshot,
+    "boundary" | "stages"
+  >;
   expect(snapshot).toBeDefined();
   const stages = snapshot.stages;
   // Mutation checkpoint: omitting branchKey from projectPipelineSnapshot stage projection must turn this test RED.
+  // @mutate v2/src/daemon/pipeline-observation.ts "boundary: derivePipelineBoundary(pipeline)," -> "boundary: null,"
+  expect(snapshot.boundary).toEqual({ kind: "awaiting-approval", stageId: "gate", branchKey: "alpha" });
   expect(stages.every((row) => typeof row.branchKey === "string" && row.branchKey.length > 0)).toBe(true);
   expect(stages.filter((row) => row.stageId === "gate")).toHaveLength(3);
   expect(stages.filter((row) => row.stageId === "gate" && row.branchKey === "alpha")).toEqual([

@@ -13,6 +13,7 @@ import {
   type MonitorPipelineTreePipelineNode,
   monitorPipelineBranchNodeId,
   monitorPipelineStageNodeId,
+  pipelineStageRollupGroups,
   stageBranchCellValue,
   strippedBranchLabels,
 } from "./tui-monitor-pipeline-tree.ts";
@@ -376,6 +377,49 @@ describe("buildMonitorPipelineTreeJoin", () => {
 describe("branch-grouped pipeline subtree", () => {
   const MODEL_BRANCH = "tui-pipeline-tree-model";
   const MONITOR_BRANCH = "tui-pipeline-tree-monitor";
+
+  test("the stage roll-up groups post-split records under their branch after the pre-split records", () => {
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "const branched = split !== null && stage.position >= split;" -> "const branched = false;"
+    const snapshot = pipelineSnapshot({
+      pipelineId: PIPELINE_ID,
+      stages: [
+        snapshotStage({ stageId: "intent", position: 0, status: "succeeded" }),
+        snapshotStage({ stageId: "plan", branchKey: MODEL_BRANCH, position: 2, status: "succeeded" }),
+        snapshotStage({ stageId: "plan", branchKey: MONITOR_BRANCH, position: 2, status: "succeeded" }),
+        snapshotStage({ stageId: "implement", branchKey: MODEL_BRANCH, position: 4, status: "running" }),
+        snapshotStage({ stageId: "implement", branchKey: MONITOR_BRANCH, position: 4, status: "running" }),
+      ],
+    });
+
+    const groups = pipelineStageRollupGroups(snapshot);
+
+    expect(groups.map((group) => group.branchKey)).toEqual([null, MODEL_BRANCH, MONITOR_BRANCH]);
+    expect(groups.map((group) => group.records.map((record) => `${record.stageId}:${record.branchKey}`))).toEqual([
+      ["intent:default"],
+      [`plan:${MODEL_BRANCH}`, `implement:${MODEL_BRANCH}`],
+      [`plan:${MONITOR_BRANCH}`, `implement:${MONITOR_BRANCH}`],
+    ]);
+  });
+
+  test("the stage roll-up drops the post-split default placeholder record", () => {
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (isElidedPlaceholderStage(stage, split)) continue;" -> "if (false) continue;"
+    const snapshot = pipelineSnapshot({
+      pipelineId: PIPELINE_ID,
+      stages: [
+        snapshotStage({ stageId: "intent", position: 0, status: "succeeded" }),
+        snapshotStage({ stageId: "plan", branchKey: MODEL_BRANCH, position: 2, status: "succeeded" }),
+        snapshotStage({ stageId: "plan", branchKey: MONITOR_BRANCH, position: 2, status: "succeeded" }),
+        snapshotStage({ stageId: "plan", position: 2, status: "skipped" }),
+        snapshotStage({ stageId: "implement", branchKey: MODEL_BRANCH, position: 4, status: "running" }),
+        snapshotStage({ stageId: "implement", branchKey: MONITOR_BRANCH, position: 4, status: "running" }),
+      ],
+    });
+
+    const groupedRecords = pipelineStageRollupGroups(snapshot).flatMap((group) => group.records);
+
+    expect(groupedRecords).not.toContain(snapshot.stages[3]);
+    expect(groupedRecords).toHaveLength(snapshot.stages.length - 1);
+  });
 
   test("post-split stages group under one branch node per branchKey after pre-split stages", () => {
     // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return branchedPositions.length === 0 ? null : Math.min(...branchedPositions);" -> "return null;"

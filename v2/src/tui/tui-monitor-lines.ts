@@ -1,5 +1,6 @@
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
+import type { PipelineStageArtifact } from "../daemon/pipeline-stage-dispatch.ts";
 import type { RunStatus } from "../persistence/state-store.ts";
 import type { PipelineListResult } from "./tui-daemon-client.ts";
 import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
@@ -10,6 +11,7 @@ import {
   type MonitorPipelineTreeDisplayNode,
   type MonitorPipelineTreePipelineNode,
   type MonitorPipelineTreeStageNode,
+  pipelineStageRollupGroups,
 } from "./tui-monitor-pipeline-tree.ts";
 import type { TuiMonitorState } from "./tui-monitor-types.ts";
 import {
@@ -75,7 +77,13 @@ export type MonitorLineRow = {
   segments: readonly MonitorSegment[];
 };
 
+type DetailSection = {
+  heading?: string;
+  rows: readonly MonitorLineRow[];
+};
+
 const GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+const SECTION_GAP = " ";
 
 export const RUN_STATUS_TONES: Record<RunStatus, MonitorSegmentTone> = {
   "in-progress": "active",
@@ -478,10 +486,117 @@ function detailValue(value: unknown): string {
   return typeof value === "string" ? value : stableJson(value);
 }
 
+function sectionGapRows(index: number): MonitorLineRow[] {
+  return index === 0 ? [] : [row(untoned(SECTION_GAP))];
+}
+
+function joinDetailSections(sections: readonly DetailSection[]): MonitorLineRow[] {
+  const present = sections.filter((section) => section.rows.length > 0);
+  return present.flatMap((section, index) => [
+    ...sectionGapRows(index),
+    ...(section.heading === undefined ? [] : [row(untoned(section.heading))]),
+    ...section.rows,
+  ]);
+}
+
+function isEmptyDetailValue(value: unknown): boolean {
+  return value === undefined || value === null || value === "";
+}
+
 function detailRows(entries: readonly (readonly [label: string, value: unknown])[]): MonitorLineRow[] {
-  return entries.flatMap(([label, value]) =>
-    value === undefined ? [] : [row(untoned(`${label}: ${detailValue(value)}`))],
+  return entries.flatMap(([label, value]) => {
+    if (isEmptyDetailValue(value)) return [];
+    return [row(untoned(`${label}: ${detailValue(value)}`))];
+  });
+}
+
+function isStageArtifactShape(artifact: unknown): artifact is PipelineStageArtifact {
+  if (typeof artifact !== "object" || artifact === null) return false;
+  const record = artifact as Record<string, unknown>;
+  return typeof record.entryRunId === "string" && typeof record.specPath === "string";
+}
+
+function downstreamInputRows(inputs: readonly string[] | undefined): MonitorLineRow[] {
+  const paths = inputs ?? [];
+  if (paths.length === 0) return [];
+  return [row(untoned("downstreamInputs")), ...paths.map((path) => row(untoned(`  ${path}`)))];
+}
+
+function sortJsonKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortJsonKeys);
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, sortJsonKeys(entry)]),
   );
+}
+
+function prettyJsonRows(value: unknown): MonitorLineRow[] {
+  const pretty = JSON.stringify(sortJsonKeys(value), null, 2) as string;
+  return pretty.split("\n").map((line) => row(untoned(line)));
+}
+
+function knownArtifactRows(artifact: PipelineStageArtifact): MonitorLineRow[] {
+  return [
+    ...detailRows([
+      ["specPath", artifact.specPath],
+      ["entryRunId", artifact.entryRunId],
+      ["invocationId", artifact.invocationId],
+      ["prNumber", artifact.prNumber],
+      ["prUrl", artifact.prUrl],
+      ["requestedBase", artifact.requestedBase],
+      ["resolvedBase", artifact.resolvedBase],
+    ]),
+    ...downstreamInputRows(artifact.downstreamInputs),
+  ];
+}
+
+function artifactRows(artifact: unknown): MonitorLineRow[] {
+  if (isEmptyDetailValue(artifact)) return [];
+  return isStageArtifactShape(artifact) ? knownArtifactRows(artifact) : prettyJsonRows(artifact);
+}
+
+function stageArtifactSection(artifact: unknown): DetailSection {
+  return { heading: "Artifact", rows: artifactRows(artifact) };
+}
+
+function rollupFields(fields: readonly (readonly [label: string, value: string])[]): string {
+  const present = fields.filter(([, value]) => value !== "");
+  return present.map(([label, value]) => `${label}=${value}`).join(" ");
+}
+
+function isDecidedGateStatus(status: string): boolean {
+  return status === "approved" || status === "rejected";
+}
+
+function pipelineStageRollupRow(stage: PipelineSnapshot["stages"][number], nowMs: number): MonitorLineRow {
+  if (isDecidedGateStatus(stage.status)) {
+    return row(
+      untoned(
+        `gate: ${stage.stageId} ${rollupFields([
+          ["outcome", stage.status],
+          ["decided", formatElapsedWallClock(stage.endedAt, null, nowMs)],
+        ])}`,
+      ),
+    );
+  }
+  return row(
+    untoned(
+      `stage: ${stage.stageId} ${rollupFields([
+        ["status", stage.status],
+        ["elapsed", formatElapsedWallClock(stage.startedAt, stage.endedAt, nowMs)],
+      ])}`,
+    ),
+  );
+}
+
+function pipelineStageRollupRows(snapshot: PipelineSnapshot, nowMs: number): MonitorLineRow[] {
+  return pipelineStageRollupGroups(snapshot).flatMap((group) => [
+    ...(group.branchKey === null ? [] : [row(untoned(`Branch ${group.branchKey}`))]),
+    ...group.records.map((stage) => pipelineStageRollupRow(stage, nowMs)),
+  ]);
 }
 
 function pipelineProjectRows(snapshot: PipelineSnapshot, runs: readonly DaemonListRunRow[]): MonitorLineRow[] {
@@ -504,95 +619,98 @@ function pipelineContextRows(
   pipeline: MonitorPipelineTreePipelineNode,
   runs: readonly DaemonListRunRow[],
   nowMs: number,
-): MonitorLineRow[] {
+): DetailSection[] {
   const snapshot = pipeline.snapshot;
   return [
-    ...detailRows([
-      ["pipelineId", snapshot.pipelineId],
-      ["name", snapshot.name],
-    ]),
-    ...pipelineProjectRows(snapshot, runs),
-    ...detailRows([
-      ["state", snapshot.state],
-      ["elapsed", formatElapsedWallClock(snapshot.createdAt, snapshot.finishedAtMs, nowMs)],
-      ["createdAt", snapshot.createdAt],
-      ["finishedAtMs", snapshot.finishedAtMs],
-      ["terminalAction", snapshot.terminalAction],
-      ["seedPath", snapshot.seedPath],
-      ["terminalPublicationSucceededAt", snapshot.terminalPublicationSucceededAt],
-      ["terminalPublicationFailure", snapshot.terminalPublicationFailure],
-    ]),
-    row(untoned("Stages")),
-    ...snapshot.stages.map((stage) =>
-      row(
-        untoned(
-          `stage: ${stage.stageId} branch=${stage.branchKey} status=${stage.status} elapsed=${formatElapsedWallClock(stage.startedAt, stage.endedAt, nowMs)}`,
-        ),
-      ),
-    ),
+    {
+      heading: "Pipeline",
+      rows: [
+        ...detailRows([
+          ["pipelineId", snapshot.pipelineId],
+          ["name", snapshot.name],
+        ]),
+        ...pipelineProjectRows(snapshot, runs),
+        ...detailRows([
+          ["state", snapshot.state],
+          ["elapsed", formatElapsedWallClock(snapshot.createdAt, snapshot.finishedAtMs, nowMs)],
+          ["createdAt", snapshot.createdAt],
+          ["finishedAtMs", snapshot.finishedAtMs],
+          ["terminalAction", snapshot.terminalAction],
+          ["seedPath", snapshot.seedPath],
+          ["terminalPublicationSucceededAt", snapshot.terminalPublicationSucceededAt],
+          ["terminalPublicationFailure", snapshot.terminalPublicationFailure],
+        ]),
+      ],
+    },
+    {
+      heading: "Stages",
+      rows: pipelineStageRollupRows(snapshot, nowMs),
+    },
   ];
 }
 
-function stageDetailRows(stage: PipelineSnapshot["stages"][number] | undefined): MonitorLineRow[] {
+function stageDetailRows(stage: PipelineSnapshot["stages"][number] | undefined): DetailSection[] {
   if (stage === undefined) return [];
+  const artifactSection = stageArtifactSection(stage.artifact);
   return [
-    row(untoned("Stage")),
-    ...detailRows([
-      ["id", stage.id],
-      ["stageId", stage.stageId],
-      ["branch", stage.branchKey],
-      ["position", stage.position],
-      ["status", stage.status],
-      ["workflowInvocationId", stage.workflowInvocationId],
-      ["artifact", stage.artifact],
-      ["failureDetail", stage.failureDetail],
-      ["startedAt", stage.startedAt],
-      ["endedAt", stage.endedAt],
-    ]),
+    {
+      heading: "Stage",
+      rows: detailRows([
+        ["id", stage.id],
+        ["stageId", stage.stageId],
+        ["branch", stage.branchKey],
+        ["position", stage.position],
+        ["status", stage.status],
+        ["workflowInvocationId", stage.workflowInvocationId],
+        ["failureDetail", stage.failureDetail],
+        ["startedAt", stage.startedAt],
+        ["endedAt", stage.endedAt],
+      ]),
+    },
+    artifactSection,
   ];
 }
 
-function selectedRunDetailRows(run: DaemonListRunRow): MonitorLineRow[] {
-  const lines = [
-    row(untoned("Run")),
-    ...detailRows([
-      ["runId", run.runId],
-      ["project", run.project],
-      ["branch", run.branch],
-      ["status", run.status],
-      ["isLive", run.isLive],
-      ["createdAt", run.createdAt],
-      ["finishedAtMs", run.finishedAtMs],
-      ["stepId", run.stepId],
-      ["workflowInvocationId", run.workflow?.invocationId],
-    ]),
+function selectedRunDetailRows(run: DaemonListRunRow): DetailSection[] {
+  const sections: DetailSection[] = [
+    {
+      heading: "Run",
+      rows: detailRows([
+        ["runId", run.runId],
+        ["project", run.project],
+        ["branch", run.branch],
+        ["status", run.status],
+        ["isLive", run.isLive],
+        ["createdAt", run.createdAt],
+        ["finishedAtMs", run.finishedAtMs],
+        ["stepId", run.stepId],
+        ["workflowInvocationId", run.workflow?.invocationId],
+        ["loopOutcomeKind", run.loopOutcomeKind],
+        ["iterationsConsumed", run.iterationsConsumed],
+        ["resumable", run.resumable],
+        ["error", run.error],
+        ["reviewPasses", run.reviewPasses],
+        ["reviewBehavior", run.reviewBehavior],
+        ["worktreePath", run.worktreePath],
+        ["prNumber", run.prNumber],
+        ["prUrl", run.prUrl],
+      ]),
+    },
   ];
-  if (run.workflow !== undefined) {
-    lines.push(row(untoned("Workflow")));
+  if (run.workflow !== undefined && run.workflow.steps.length > 0) {
+    const rows: MonitorLineRow[] = [];
     for (const step of run.workflow.steps) {
       const marker = step.status === "in_progress" ? ">" : " ";
       const outcomeSuffix = step.terminalOutcome !== undefined ? ` ${step.terminalOutcome}` : "";
-      lines.push(
+      rows.push(
         row(
           untoned(`${marker} ${step.stepId} ${step.role} ${step.status}${outcomeSuffix} attempts=${step.attemptCount}`),
         ),
       );
     }
+    sections.push({ heading: "Workflow", rows });
   }
-  lines.push(
-    ...detailRows([
-      ["loopOutcomeKind", run.loopOutcomeKind],
-      ["iterationsConsumed", run.iterationsConsumed],
-      ["resumable", run.resumable],
-      ["error", run.error],
-      ["reviewPasses", run.reviewPasses],
-      ["reviewBehavior", run.reviewBehavior],
-      ["worktreePath", run.worktreePath],
-      ["prNumber", run.prNumber],
-      ["prUrl", run.prUrl],
-    ]),
-  );
-  return lines;
+  return sections;
 }
 
 function selectedAncestorPipeline(
@@ -615,7 +733,7 @@ const stageRecordForTreeRow = (
 function unwrappedRightPaneSegmentRows(state: TuiMonitorState, layout: ShellLayout, nowMs: number): MonitorLineRow[] {
   const selected = state.selectedNodeId;
   if (selected === null) {
-    return [row(untoned("No run selected."))];
+    return joinDetailSections([{ rows: [row(untoned("No run selected."))] }]);
   }
 
   const { fullTreeRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
@@ -623,30 +741,33 @@ function unwrappedRightPaneSegmentRows(state: TuiMonitorState, layout: ShellLayo
   const treeRow = fullTreeRows.find((entry) => entry.id === selected);
 
   if (treeRow?.kind === "pipeline") {
-    return pipelineContextRows(treeRow, state.runs, nowMs);
+    return joinDetailSections(pipelineContextRows(treeRow, state.runs, nowMs));
   }
 
   const pipeline = selectedAncestorPipeline(fullTreeRows, treeRow);
-  const pipelineLines = pipeline === undefined ? [] : pipelineContextRows(pipeline, state.runs, nowMs);
+  const pipelineSections = pipeline === undefined ? [] : pipelineContextRows(pipeline, state.runs, nowMs);
 
   if (treeRow?.kind === "stage") {
-    return [...pipelineLines, ...stageDetailRows(stageRecordForTreeRow(pipeline, treeRow))];
+    return joinDetailSections([...pipelineSections, ...stageDetailRows(stageRecordForTreeRow(pipeline, treeRow))]);
   }
 
   if (treeRow?.kind === "branch") {
-    return [...pipelineLines, row(untoned("Branch")), ...detailRows([["branch", treeRow.branchKey]])];
+    return joinDetailSections([
+      ...pipelineSections,
+      { heading: "Branch", rows: detailRows([["branch", treeRow.branchKey]]) },
+    ]);
   }
 
   const selectedRunId = treeRow?.kind === "run" || treeRow?.kind === "adhoc" ? treeRow.id : undefined;
   const selectedRun = state.runs.find((run) => run.runId === selectedRunId);
   if (selectedRun === undefined) {
-    return [row(untoned("No run selected."))];
+    return joinDetailSections([{ rows: [row(untoned("No run selected."))] }]);
   }
-  const lines = [...pipelineLines, ...selectedRunDetailRows(selectedRun)];
+  const sections = [...pipelineSections, ...selectedRunDetailRows(selectedRun)];
   if (state.steeringFeedback !== null) {
-    lines.push(row(untoned(state.steeringFeedback)));
+    sections.push({ rows: [row(untoned(state.steeringFeedback))] });
   }
-  return lines;
+  return joinDetailSections(sections);
 }
 
 /** Pipeline, stage, selected-run, and steering detail for the right pane. */

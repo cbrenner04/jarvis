@@ -76,6 +76,11 @@ export type MonitorPipelineTreeDisplayNode =
   | MonitorPipelineTreeRunNode
   | MonitorPipelineTreeAdHocNode;
 
+export type PipelineStageRollupGroup = {
+  branchKey: string | null;
+  records: readonly PipelineSnapshot["stages"][number][];
+};
+
 const MONITOR_TREE_DEFAULT_BRANCH_KEY = "default";
 
 export function monitorPipelineStageNodeId(pipelineId: string, stageId: string, branchKey: string): string {
@@ -104,6 +109,32 @@ function isElidedPlaceholderStage(stage: PipelineSnapshot["stages"][number], spl
   if (splitPosition === null) return false;
   // Mutation checkpoint: eliding nothing here must turn placeholder-elision RED.
   return stage.position >= splitPosition && stage.branchKey === MONITOR_TREE_DEFAULT_BRANCH_KEY;
+}
+
+export function pipelineStageRollupGroups(snapshot: PipelineSnapshot): PipelineStageRollupGroup[] {
+  const split = fanOutSplitPosition(snapshot);
+  const preSplitRecords: PipelineSnapshot["stages"][number][] = [];
+  const branchRecordsByKey = new Map<string, PipelineSnapshot["stages"][number][]>();
+  const branchKeyOrder: string[] = [];
+
+  for (const stage of snapshot.stages) {
+    if (isElidedPlaceholderStage(stage, split)) continue;
+    const branched = split !== null && stage.position >= split;
+    if (!branched) {
+      preSplitRecords.push(stage);
+      continue;
+    }
+    if (!branchRecordsByKey.has(stage.branchKey)) {
+      branchRecordsByKey.set(stage.branchKey, []);
+      branchKeyOrder.push(stage.branchKey);
+    }
+    branchRecordsByKey.get(stage.branchKey)?.push(stage);
+  }
+
+  return [
+    ...(preSplitRecords.length === 0 ? [] : [{ branchKey: null, records: preSplitRecords }]),
+    ...branchKeyOrder.map((branchKey) => ({ branchKey, records: branchRecordsByKey.get(branchKey) ?? [] })),
+  ];
 }
 
 /** stageId -> declared kind from the pipeline's registry definition; empty when the name is unregistered. */

@@ -59,7 +59,7 @@ Dependency order; 1 and 2 are independent starting points; 5–7 in any order af
 | 4 | `tui-work-row-anatomy` | Fill-width labels; seed-slug identity; real indent + ▼/▶; grid + tier table removed | 2, 3 | re-intent → `labels` + `fill-layout` (fill-layout lands after labels). labels-00 **shipped** (#2755); labels-01 + fill-layout **pending** |
 | 5 | `tui-attention-segment` | Pinned needs-me list + act-in-place; segmented status counts | 1, 2 | re-intent → `segment-rows` + `row-act-in-place` + `status-line-work-counts`; **pending** (gated on wire) |
 | 6 | `tui-work-idle-time` | work/idle aggregation; failed-before-start rendering; frozen finishless display | 1, 3 | intented; **pending** (gated on wire) |
-| 7 | `tui-detail-pane-structure` | Sections; branch-grouped roll-up; null suppression; semantic artifact | 3 | subspec 00 implemented (PR #2757 conflict-dirty, unmerged); 01, 02 **pending** |
+| 7 | `tui-detail-pane-structure` | Sections; branch-grouped roll-up; null suppression; semantic artifact | 3 | **shipped** by [`20260809T024443Z-tui-detail-pane-structure`](./20260809T024443Z-tui-detail-pane-structure/) |
 
 State legend: seeded → intent #NN → planned #NN → **shipped** #NN (implementation PR). Update the row as each lands.
 

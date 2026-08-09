@@ -10,6 +10,7 @@ import {
   type MonitorPipelineTreeDisplayNode,
   type MonitorPipelineTreePipelineNode,
   type MonitorPipelineTreeStageNode,
+  pipelineStageRollupGroups,
 } from "./tui-monitor-pipeline-tree.ts";
 import type { TuiMonitorState } from "./tui-monitor-types.ts";
 import {
@@ -508,6 +509,43 @@ function detailRows(entries: readonly (readonly [label: string, value: unknown])
   });
 }
 
+function rollupFields(fields: readonly (readonly [label: string, value: string])[]): string {
+  const present = fields.filter(([, value]) => value !== "");
+  return present.map(([label, value]) => `${label}=${value}`).join(" ");
+}
+
+function isDecidedGateStatus(status: string): boolean {
+  return status === "approved" || status === "rejected";
+}
+
+function pipelineStageRollupRow(stage: PipelineSnapshot["stages"][number], nowMs: number): MonitorLineRow {
+  if (isDecidedGateStatus(stage.status)) {
+    return row(
+      untoned(
+        `gate: ${stage.stageId} ${rollupFields([
+          ["outcome", stage.status],
+          ["decided", formatElapsedWallClock(stage.endedAt, null, nowMs)],
+        ])}`,
+      ),
+    );
+  }
+  return row(
+    untoned(
+      `stage: ${stage.stageId} ${rollupFields([
+        ["status", stage.status],
+        ["elapsed", formatElapsedWallClock(stage.startedAt, stage.endedAt, nowMs)],
+      ])}`,
+    ),
+  );
+}
+
+function pipelineStageRollupRows(snapshot: PipelineSnapshot, nowMs: number): MonitorLineRow[] {
+  return pipelineStageRollupGroups(snapshot).flatMap((group) => [
+    ...(group.branchKey === null ? [] : [row(untoned(`Branch ${group.branchKey}`))]),
+    ...group.records.map((stage) => pipelineStageRollupRow(stage, nowMs)),
+  ]);
+}
+
 function pipelineProjectRows(snapshot: PipelineSnapshot, runs: readonly DaemonListRunRow[]): MonitorLineRow[] {
   const invocationIds = new Set(
     snapshot.stages.flatMap((stage) => (stage.workflowInvocationId === null ? [] : [stage.workflowInvocationId])),
@@ -553,13 +591,7 @@ function pipelineContextRows(
     },
     {
       heading: "Stages",
-      rows: snapshot.stages.map((stage) =>
-        row(
-          untoned(
-            `stage: ${stage.stageId} branch=${stage.branchKey} status=${stage.status} elapsed=${formatElapsedWallClock(stage.startedAt, stage.endedAt, nowMs)}`,
-          ),
-        ),
-      ),
+      rows: pipelineStageRollupRows(snapshot, nowMs),
     },
   ];
 }

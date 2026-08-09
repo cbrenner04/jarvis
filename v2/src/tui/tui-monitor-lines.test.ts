@@ -818,8 +818,8 @@ describe("monitorRightPaneSegmentRows", () => {
     `terminalPublicationSucceededAt: ${pipelineFinishedAt}`,
     " ",
     "Stages",
-    "stage: implement branch=default status=succeeded elapsed=1m 0s",
-    "stage: implement branch=default status=succeeded elapsed=1m 0s",
+    "stage: implement status=succeeded elapsed=1m 0s",
+    "stage: implement status=succeeded elapsed=1m 0s",
   ];
 
   test("pipeline selection renders complete identity and durable-order stage roll-up", () => {
@@ -894,7 +894,51 @@ describe("monitorRightPaneSegmentRows", () => {
 
     const lines = monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow);
 
-    expect(lines).toContain("stage: approve-intent branch=default status=approved elapsed=");
+    expect(lines).toContain("gate: approve-intent outcome=approved");
+  });
+
+  test("a decided gate record paints a compact gate row with its outcome", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "return status === \"approved\" || status === \"rejected\";" -> "return false;"
+    const snapshot = pipelineSnapshot({
+      pipelineId: PIPELINE_ID,
+      stages: [
+        snapshotStage({ stageId: "approve-intent", position: 1, status: "approved", endedAt: null }),
+        snapshotStage({ stageId: "approve-plan", position: 3, status: "rejected", endedAt: TREE_NOW_MS - 30_000 }),
+      ],
+    });
+    const state = monitorState({
+      selectedNodeId: PIPELINE_ID,
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
+    });
+
+    const lines = monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow);
+
+    expect(lines.slice(lines.indexOf("Stages") + 1)).toEqual([
+      "gate: approve-intent outcome=approved",
+      "gate: approve-plan outcome=rejected decided=30s",
+    ]);
+  });
+
+  test("roll-up rows drop an empty elapsed and an empty decided age", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "const present = fields.filter(([, value]) => value !== \"\");" -> "const present = [...fields];"
+    const snapshot = pipelineSnapshot({
+      pipelineId: PIPELINE_ID,
+      stages: [
+        snapshotStage({ stageId: "plan", status: "pending", startedAt: null }),
+        snapshotStage({ stageId: "approve-intent", position: 1, status: "approved", endedAt: null }),
+      ],
+    });
+    const state = monitorState({
+      selectedNodeId: PIPELINE_ID,
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
+    });
+
+    const lines = monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow);
+
+    expect(lines.slice(lines.indexOf("Stages") + 1)).toEqual([
+      "stage: plan status=pending",
+      "gate: approve-intent outcome=approved",
+    ]);
   });
 
   test("stage selection appends the selected durable record with exact branch and stable diagnostics", () => {
@@ -965,6 +1009,39 @@ describe("monitorRightPaneSegmentRows", () => {
     expect(lines).toContain(`pipelineId: ${PIPELINE_ID}`);
     expect(lines).toContain(`branch: ${branchKey}`);
     expect(monitorDockLines(state)[3]).toContain("e expand/collapse");
+  });
+
+  test("the pipeline roll-up heads each branch group with its full unstripped branch key", () => {
+    const modelBranch = "tui-pipeline-tree-model";
+    const monitorBranch = "tui-pipeline-tree-monitor";
+    const snapshot = pipelineSnapshot({
+      pipelineId: PIPELINE_ID,
+      stages: [
+        snapshotStage({ stageId: "intent", position: 0, status: "succeeded" }),
+        snapshotStage({ stageId: "plan", branchKey: modelBranch, position: 2, status: "succeeded" }),
+        snapshotStage({ stageId: "plan", branchKey: monitorBranch, position: 2, status: "succeeded" }),
+        snapshotStage({ stageId: "implement", branchKey: modelBranch, position: 4, status: "running" }),
+        snapshotStage({ stageId: "implement", branchKey: monitorBranch, position: 4, status: "running" }),
+      ],
+    });
+    const state = monitorState({
+      selectedNodeId: PIPELINE_ID,
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
+    });
+
+    const lines = monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow);
+    const rollup = lines.slice(lines.indexOf("Stages") + 1);
+
+    expect(rollup).toEqual([
+      "stage: intent status=succeeded",
+      `Branch ${modelBranch}`,
+      "stage: plan status=succeeded",
+      "stage: implement status=running",
+      `Branch ${monitorBranch}`,
+      "stage: plan status=succeeded",
+      "stage: implement status=running",
+    ]);
+    expect(rollup.every((line) => !line.includes("branch="))).toBe(true);
   });
 
   test("stage artifact and failure values preserve JSON omission and falsy semantics", () => {
@@ -1246,7 +1323,7 @@ describe("monitorRightPaneSegmentRows", () => {
       "state: succeeded",
     ]);
     expect(lines).toContain("elapsed: 1m 40s");
-    expect(lines).toContain("stage: plan branch=default status=succeeded elapsed=");
+    expect(lines).toContain("stage: plan status=succeeded");
   });
 
   test("pipeline and stage selection hide the wait/outcome panel", () => {

@@ -42,7 +42,9 @@ Main is green (latest commit passed CI). One transient red (#2756, a markdown-on
 
 ## Cost
 
-_/cost figures pending from operator — CSVs to be updated once provided._
+Operator loop (this Claude Code session, `claude-opus-4-8`): **$101.13** — API 2h 8m 55s; wall 1d 22h 27m (dominated by two quota outages, overnight, and CPU-starvation crawls). 507.2k output tokens, 144.8m cache read. Operator direct edits: 246 lines added, 4 removed (intents/specs/brief/report — the feature code was agent-written).
+
+The jarvis **agent** runs — plans on `claude-opus-5`, implements on `claude-sonnet-5` — are billed separately through the claude quota and are **not** in the $101.13. Cumulative CSVs updated (`reports/*.csv`).
 
 ## Follow-ups on resume
 

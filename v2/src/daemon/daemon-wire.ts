@@ -43,7 +43,7 @@ export type DaemonListRunRow = {
   prNumber?: number;
   /** Confirmed PR URL when publication succeeded. */
   prUrl?: string;
-  /** Latest finish timestamp for terminal statuses (max of attempt `completed_at` and `reconciledAt`); drives TUI live terminal window. */
+  /** Latest durable run, attempt, or reconciliation finish; present for current terminal transitions but possibly absent on legacy terminal rows. */
   finishedAtMs?: number;
   /** Durable run admission timestamp (ms since epoch). */
   createdAt: number;

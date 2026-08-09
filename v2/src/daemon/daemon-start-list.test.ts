@@ -853,16 +853,20 @@ const RECONCILED_AT = 1_700_000_100_000;
 const STALE_COMPLETED_AT = 1_700_000_000_000;
 const SEEDED_CREATED_AT = 1_700_000_050_000;
 
-function seedTerminalRun(overrides: Partial<Parameters<StateStore["createRun"]>[0]> = {}): string {
+function seedRun(overrides: Partial<Parameters<StateStore["createRun"]>[0]> = {}): string {
   return stateStore.createRun({
     project: "test-project",
     specRef: "main",
     worktreePath: "/tmp/worktree",
     branch: `branch-${crypto.randomUUID()}`,
     specPath: "spec.md",
-    status: "killed",
+    status: "in-progress",
     ...overrides,
   });
+}
+
+function seedTerminalRun(overrides: Partial<Parameters<StateStore["createRun"]>[0]> = {}): string {
+  return seedRun({ status: "killed", ...overrides });
 }
 
 function patchStore(sql: string, ...params: SQLQueryBindings[]): void {
@@ -907,6 +911,68 @@ test("list sets finishedAtMs from reconciledAt when terminal row has no attempt 
   expect(loadRunOrThrow(stateStore, runId).reconciledAt).toBe(RECONCILED_AT);
 });
 
+test("a failed run with no completion boundary still reports finishedAtMs", async () => {
+  // @mutate v2/src/daemon/daemon.ts "if (finishedAt != null) {" -> "if (false) {"
+  const runId = seedRun();
+  stateStore.setRunStatus(runId, "failed");
+
+  const loaded = loadRunOrThrow(stateStore, runId);
+  const row = (await listRunsDirect(handlers))?.find((candidate) => candidate.runId === runId);
+  expect(loaded.attempts).toEqual([]);
+  expect(loaded.reconciledAt).toBeNull();
+  expect(loaded.finishedAt).toBeNumber();
+  expect(row?.finishedAtMs).toBe(loaded.finishedAt ?? undefined);
+});
+
+test("every current terminal run transition reports finishedAtMs and non-terminal status omits it", async () => {
+  const completedRunId = seedRun();
+  const completedAttemptId = stateStore.recordAttemptStart(completedRunId);
+  stateStore.commitCompletionBoundary({ attemptId: completedAttemptId, runStatus: "completed", outcomeKind: "done" });
+
+  const failedRunId = seedRun();
+  stateStore.setRunStatus(failedRunId, "failed");
+
+  const blockedRunId = seedRun();
+  const blockedAttemptId = stateStore.recordAttemptStart(blockedRunId);
+  stateStore.commitCompletionBoundary({ attemptId: blockedAttemptId, runStatus: "blocked", outcomeKind: "blocked" });
+
+  const killedRunId = seedRun();
+  stateStore.commitGuardedKill(killedRunId);
+
+  const interruptedRunId = seedRun();
+  stateStore.setRunStatus(interruptedRunId, "interrupted");
+
+  const nonTerminalRunId = seedRun();
+  const nonTerminalAttemptId = stateStore.recordAttemptStart(nonTerminalRunId);
+  stateStore.commitCompletionBoundary({
+    attemptId: nonTerminalAttemptId,
+    runStatus: "in-progress",
+    outcomeKind: "progress",
+  });
+
+  const rows = await listRunsDirect(handlers);
+  for (const [runId, status] of [
+    [completedRunId, "completed"],
+    [failedRunId, "failed"],
+    [blockedRunId, "blocked"],
+    [killedRunId, "killed"],
+    [interruptedRunId, "interrupted"],
+  ] as const) {
+    const row = rows?.find((candidate) => candidate.runId === runId);
+    expect(row?.status).toBe(status);
+    expect(row?.finishedAtMs).toBeNumber();
+  }
+  const nonTerminalRow = rows?.find((candidate) => candidate.runId === nonTerminalRunId);
+  expect(nonTerminalRow?.status).toBe("in-progress");
+  expect(nonTerminalRow?.finishedAtMs).toBeUndefined();
+});
+
+test("runListTerminalFinishAtMs selects the latest durable finish source", () => {
+  expect(runListTerminalFinishAtMs([{ completedAt: 200 }], 100, 300)).toBe(300);
+  expect(runListTerminalFinishAtMs([{ completedAt: 300 }], 100, 200)).toBe(300);
+  expect(runListTerminalFinishAtMs([{ completedAt: 100 }], 300, 200)).toBe(300);
+});
+
 test("reconciledAt-only finish-time maximum guard inversion", () => {
   const attemptOnlyMax = (
     attempts: Array<{ completedAt: number | null }>,
@@ -923,7 +989,7 @@ test("reconciledAt-only finish-time maximum guard inversion", () => {
   };
 
   expect(attemptOnlyMax([], RECONCILED_AT)).toBeUndefined();
-  expect(runListTerminalFinishAtMs([], RECONCILED_AT)).toBe(RECONCILED_AT);
+  expect(runListTerminalFinishAtMs([], RECONCILED_AT, undefined)).toBe(RECONCILED_AT);
 });
 
 test("list sets finishedAtMs to later reconciledAt when attempt completed_at is stale", async () => {

@@ -29,13 +29,13 @@ Daemon `list` derives terminal `finishedAtMs` only from attempt `completedAt` an
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-start-list.test.ts` — `a failed run with no completion boundary still reports finishedAtMs` drives the run through the durable failure transition with no attempt `completedAt` and no `reconciledAt`, asserts `list.finishedAtMs` equals the loaded run's non-null `finishedAt`, and fails against the pre-fix projection.
-- [ ] `v2/src/daemon/daemon-start-list.test.ts` — `every current terminal run transition reports finishedAtMs and non-terminal status omits it` covers `completed`, `failed`, `blocked`, `killed`, and `interrupted` through their durable finish paths, asserts a non-terminal row omits the field, and makes no promise for legacy/unbackfilled or terminal-at-creation rows.
-- [ ] `v2/src/daemon/daemon-start-list.test.ts` — `runListTerminalFinishAtMs selects the latest durable finish source` makes run `finishedAt`, attempt `completedAt`, and `reconciledAt` independently latest and asserts each wins over the other two.
-- [ ] `v2/src/daemon/daemon-start-list.test.ts` — `a failed run with no completion boundary still reports finishedAtMs`; Keystone checkpoint: its test body carries `// @mutate v2/src/daemon/daemon.ts "if (finishedAt != null) {" -> "if (false) {"`, reverting the new durable run-finish source to baseline behavior, and the mutation turns the regression RED.
-- [ ] `v2/src/daemon/daemon-start-list.test.ts` — `a failed run with no completion boundary still reports finishedAtMs`; Mutation checkpoint: the linked source-guard inversion suppresses the run-level finish while leaving attempt and reconciliation sources intact, and the mutation turns the regression RED.
-- [ ] `v2/docs/daemon-host.md` and `v2/docs/v1-behaviors.md` describe non-null `finishedAtMs` for terminal rows written by current durable transitions, its latest durable finish sources, and the deliberate exclusion of legacy/unbackfilled and terminal-at-creation rows.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/daemon/daemon-start-list.test.ts` — `a failed run with no completion boundary still reports finishedAtMs` drives the run through the durable failure transition with no attempt `completedAt` and no `reconciledAt`, asserts `list.finishedAtMs` equals the loaded run's non-null `finishedAt`, and fails against the pre-fix projection.
+- [x] `v2/src/daemon/daemon-start-list.test.ts` — `every current terminal run transition reports finishedAtMs and non-terminal status omits it` covers `completed`, `failed`, `blocked`, `killed`, and `interrupted` through their durable finish paths, asserts a non-terminal row omits the field, and makes no promise for legacy/unbackfilled or terminal-at-creation rows.
+- [x] `v2/src/daemon/daemon-start-list.test.ts` — `runListTerminalFinishAtMs selects the latest durable finish source` makes run `finishedAt`, attempt `completedAt`, and `reconciledAt` independently latest and asserts each wins over the other two.
+- [x] `v2/src/daemon/daemon-start-list.test.ts` — `a failed run with no completion boundary still reports finishedAtMs`; Keystone checkpoint: its test body carries `// @mutate v2/src/daemon/daemon.ts "if (finishedAt != null) {" -> "if (false) {"`, reverting the new durable run-finish source to baseline behavior, and the mutation turns the regression RED.
+- [x] `v2/src/daemon/daemon-start-list.test.ts` — `a failed run with no completion boundary still reports finishedAtMs`; Mutation checkpoint: the linked source-guard inversion suppresses the run-level finish while leaving attempt and reconciliation sources intact, and the mutation turns the regression RED.
+- [x] `v2/docs/daemon-host.md` and `v2/docs/v1-behaviors.md` describe non-null `finishedAtMs` for terminal rows written by current durable transitions, its latest durable finish sources, and the deliberate exclusion of legacy/unbackfilled and terminal-at-creation rows.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

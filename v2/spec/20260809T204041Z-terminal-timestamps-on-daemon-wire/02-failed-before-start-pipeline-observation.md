@@ -27,9 +27,9 @@ Authoritative for implement runs: acceptance criteria, documentation updates, an
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-pipeline-observation.test.ts` — `pipeline_list preserves the failed-before-start stage from a pre-admission throw` drives a real dispatch throw before entry-run admission through durable storage and `pipeline_list`, asserts both the stored and wire rows are `failed` with numeric `endedAt`, `startedAt: null`, and no workflow linkage, and fails against a producer or projection that invents a start or loses the terminal finish.
-- [ ] `v2/docs/daemon-host.md` and `v2/docs/v1-behaviors.md` describe the failed-before-start `pipeline_list` shape: non-null `endedAt`, `startedAt: null`, and no synthesized start.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/daemon/daemon-pipeline-observation.test.ts` — `pipeline_list preserves the failed-before-start stage from a pre-admission throw` drives a real dispatch throw before entry-run admission through durable storage and `pipeline_list`, asserts both the stored and wire rows are `failed` with numeric `endedAt`, `startedAt: null`, and no workflow linkage, and fails against a producer or projection that invents a start or loses the terminal finish.
+- [x] `v2/docs/daemon-host.md` and `v2/docs/v1-behaviors.md` describe the failed-before-start `pipeline_list` shape: non-null `endedAt`, `startedAt: null`, and no synthesized start.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

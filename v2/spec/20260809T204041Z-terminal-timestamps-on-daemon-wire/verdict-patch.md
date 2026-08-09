@@ -1,3 +1,0 @@
-- Make settlement-writer coverage exhaustive across both pipeline modules. Any new, aliased, indirect, nonliteral, or otherwise unclassified status-bearing `updateStage` write must fail review; every terminal stage-run write must explicitly carry numeric `endedAt`. The current identifier-only detection does not satisfy subspec 01’s completeness guarantee.
-
-- Align `v2/docs/daemon-host.md`’s “Pipeline snapshots” section with the implemented contract: include stage `decidedAt` and its role alongside `endedAt` in terminal `finishedAtMs` derivation. The current section contradicts the RPC table and violates the durable documentation standard.

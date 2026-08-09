@@ -251,6 +251,7 @@ describe("buildMonitorPipelineTreeJoin", () => {
       id: monitorPipelineStageNodeId(PIPELINE_ID, "implement", "feature"),
       depth: 1,
       stageId: "implement",
+      label: "implement",
       branchKey: "feature",
       status: "running",
       startedAt: null,
@@ -470,6 +471,109 @@ describe("branch-grouped pipeline subtree", () => {
   });
 });
 
+describe("gate elision and intent yield", () => {
+  function fullReviewStage(
+    stageId: string,
+    position: number,
+    status: string,
+    overrides?: Partial<PipelineSnapshot["stages"][number]>,
+  ): PipelineSnapshot["stages"][number] {
+    return snapshotStage({ stageId, position, status, ...overrides });
+  }
+
+  test("an approved gate row is absent while an awaiting gate row renders", () => {
+    const snapshot = pipelineSnapshot({
+      pipelineId: PIPELINE_ID,
+      name: "full-review",
+      stages: [
+        fullReviewStage("intent", 0, "succeeded"),
+        fullReviewStage("approve-intent", 1, "approved"),
+        fullReviewStage("plan", 2, "succeeded"),
+        fullReviewStage("approve-plan", 3, "awaiting"),
+        fullReviewStage("implement", 4, "pending"),
+      ],
+    });
+    const pipelineNodes = joinTree([snapshot]);
+    const ids = flattenJoined(pipelineNodes, new Set([PIPELINE_ID]), null, 20).map((node) => node.id);
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return status !== \"awaiting\" && status !== \"rejected\";" -> "return false;"
+
+    expect(ids).not.toContain(monitorPipelineStageNodeId(PIPELINE_ID, "approve-intent", "default"));
+    expect(ids).toContain(monitorPipelineStageNodeId(PIPELINE_ID, "approve-plan", "default"));
+    expect(ids).toContain(monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default"));
+  });
+
+  test("a post-split workflow stage settled skipped still renders under its branch", () => {
+    const branchKey = "alpha";
+    const snapshot = pipelineSnapshot({
+      pipelineId: PIPELINE_ID,
+      name: "full-review",
+      stages: [
+        fullReviewStage("intent", 0, "succeeded"),
+        fullReviewStage("approve-intent", 1, "approved"),
+        fullReviewStage("plan", 2, "succeeded", { branchKey }),
+        fullReviewStage("approve-plan", 3, "awaiting", { branchKey }),
+        fullReviewStage("implement", 4, "skipped", { branchKey }),
+      ],
+    });
+    const pipelineNodes = joinTree([snapshot]);
+    const branchId = monitorPipelineBranchNodeId(PIPELINE_ID, branchKey);
+    const ids = flattenJoined(pipelineNodes, new Set([PIPELINE_ID, branchId]), null, 20).map((node) => node.id);
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (kind !== \"approval\") return false;" -> "if (kind === \"approval\") return false;"
+
+    expect(ids).not.toContain(monitorPipelineStageNodeId(PIPELINE_ID, "approve-intent", "default"));
+    expect(ids).toContain(monitorPipelineStageNodeId(PIPELINE_ID, "implement", branchKey));
+  });
+
+  test("a skipped gate row is absent from a fanned-out branch subtree", () => {
+    const branchKey = "beta";
+    const snapshot = pipelineSnapshot({
+      pipelineId: PIPELINE_ID,
+      name: "full-review",
+      stages: [
+        fullReviewStage("intent", 0, "succeeded"),
+        fullReviewStage("approve-intent", 1, "approved"),
+        fullReviewStage("plan", 2, "succeeded", { branchKey }),
+        fullReviewStage("approve-plan", 3, "skipped", { branchKey }),
+        fullReviewStage("implement", 4, "running", { branchKey }),
+      ],
+    });
+    const pipelineNodes = joinTree([snapshot]);
+    const branchId = monitorPipelineBranchNodeId(PIPELINE_ID, branchKey);
+    const ids = flattenJoined(pipelineNodes, new Set([PIPELINE_ID, branchId]), null, 20).map((node) => node.id);
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (!resolved.ok) return new Map();" -> "if (resolved.ok) return new Map();"
+
+    expect(ids).not.toContain(monitorPipelineStageNodeId(PIPELINE_ID, "approve-plan", branchKey));
+  });
+
+  test("the intent stage row appends the split yield only when the artifact lists downstream inputs", () => {
+    const snapshot = pipelineSnapshot({
+      pipelineId: PIPELINE_ID,
+      stages: [
+        snapshotStage({
+          stageId: "intent",
+          position: 0,
+          status: "succeeded",
+          artifact: { downstreamInputs: ["a.md", "b.md", "c.md"] },
+        }),
+        snapshotStage({ stageId: "plan", position: 1, status: "pending", artifact: null }),
+      ],
+    });
+    const stages = joinTree([snapshot])[0]?.stages ?? [];
+    const intentStage = stages.find((stage) => stage.stageId === "intent");
+    const planStage = stages.find((stage) => stage.stageId === "plan");
+    expect(intentStage).toBeDefined();
+    expect(planStage).toBeDefined();
+    if (intentStage === undefined || planStage === undefined) throw new Error("expected intent and plan stages");
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (inputs.length === 0) return \"\";" -> "if (inputs.length < 0) return \"\";"
+
+    const intentRow = buildStageMonitorTreeRow(intentStage, null, 90, FILTER_NOW_MS);
+    const planRow = buildStageMonitorTreeRow(planStage, null, 90, FILTER_NOW_MS);
+
+    expect(columnSlice(intentRow, 90, "label").trimEnd()).toBe("intent → 3 intents");
+    expect(columnSlice(planRow, 90, "label").trimEnd()).toBe("plan");
+  });
+});
+
 describe("monitor pipeline tree elapsed cells", () => {
   const PIPELINE_START_MS = 1_700_000_000_000;
   const STAGE_START_MS = PIPELINE_START_MS + 60_000;
@@ -591,6 +695,7 @@ describe("monitor pipeline tree elapsed cells", () => {
       id: monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default"),
       depth: 1,
       stageId: "implement",
+      label: "implement",
       branchKey: "default",
       status: "pending",
       startedAt: null,

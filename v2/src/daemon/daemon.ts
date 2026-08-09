@@ -675,8 +675,12 @@ function runListRowError(
 export function runListTerminalFinishAtMs(
   attempts: Array<{ completedAt: number | null }>,
   reconciledAt: number | null | undefined,
+  finishedAt: number | null | undefined,
 ): number | undefined {
   let finishedAtMs: number | undefined;
+  if (finishedAt != null) {
+    finishedAtMs = finishedAt;
+  }
   for (const attempt of attempts) {
     if (attempt.completedAt === null) continue;
     if (finishedAtMs === undefined || attempt.completedAt > finishedAtMs) {
@@ -1419,7 +1423,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
     const finishedAtMs =
       isTerminalRunStatus(reportedStatus) && fullRun !== undefined
-        ? runListTerminalFinishAtMs(fullRun.attempts, fullRun.reconciledAt)
+        ? runListTerminalFinishAtMs(fullRun.attempts, fullRun.reconciledAt, fullRun.finishedAt)
         : undefined;
 
     return {

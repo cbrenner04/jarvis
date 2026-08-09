@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { basename, join } from "node:path";
+import ts from "typescript";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
@@ -14,6 +17,159 @@ import type { TerminalLogRecord } from "./run-operator-error.ts";
 import { composeRunOperatorError } from "./run-operator-error.ts";
 
 const okStep = { behavior: "write" } as unknown as AnyWorkflowStep;
+
+const STAGE_WRITE_SOURCE_PATHS = [
+  join(import.meta.dir, "pipeline-stage-dispatch.ts"),
+  join(import.meta.dir, "pipeline-execution.ts"),
+] as const;
+
+const CLASSIFIED_STATUS_WRITES = new Map<string, "terminal" | "nonterminal">([
+  ["pipeline-stage-dispatch.ts:settleUnexpectedThrow:failed#1", "terminal"],
+  ["pipeline-stage-dispatch.ts:writeRunningStageLinkage:running#1", "nonterminal"],
+  ["pipeline-stage-dispatch.ts:applyEntryRunSettlement:failed#1", "terminal"],
+  ["pipeline-stage-dispatch.ts:applyEntryRunSettlement:succeeded#1", "terminal"],
+  ["pipeline-stage-dispatch.ts:applyEntryRunSettlement:failed#2", "terminal"],
+  ["pipeline-stage-dispatch.ts:dispatchPipelineStage:failed#1", "terminal"],
+  ["pipeline-execution.ts:admitFanOutBranches:skipped#1", "terminal"],
+  ["pipeline-execution.ts:settleApprovalBoundaryFailure:failed#1", "terminal"],
+  ["pipeline-execution.ts:skipRemainingStages:skipped#1", "terminal"],
+  ["pipeline-execution.ts:failWorkflowStageAt:failed#1", "terminal"],
+  ["pipeline-execution.ts:advanceWorkflowStage:failed#1", "terminal"],
+  ["pipeline-execution.ts:failStrandedPipelineStage:failed#1", "terminal"],
+]);
+
+const TERMINAL_STAGE_RUN_STATUSES = new Set(["succeeded", "failed", "interrupted", "skipped"]);
+
+type StatusWrite = { endedAt: ts.Expression | undefined; identity: string; status: string };
+
+function propertyAssignment(object: ts.ObjectLiteralExpression, name: string): ts.PropertyAssignment | undefined {
+  return object.properties.find(
+    (property): property is ts.PropertyAssignment =>
+      ts.isPropertyAssignment(property) &&
+      ((ts.isIdentifier(property.name) && property.name.text === name) ||
+        (ts.isStringLiteral(property.name) && property.name.text === name)),
+  );
+}
+
+function isDirectUpdateStageCall(node: ts.Node): node is ts.CallExpression {
+  return (
+    ts.isCallExpression(node) &&
+    ts.isPropertyAccessExpression(node.expression) &&
+    ts.isIdentifier(node.expression.expression) &&
+    node.expression.expression.text === "store" &&
+    node.expression.name.text === "updateStage"
+  );
+}
+
+function isDirectUpdateStageProperty(node: ts.Node): node is ts.PropertyAccessExpression {
+  return ts.isPropertyAccessExpression(node) && node.name.text === "updateStage";
+}
+
+function isStoreAlias(node: ts.VariableDeclaration): boolean {
+  return (
+    node.initializer !== undefined &&
+    ts.isIdentifier(node.initializer) &&
+    node.initializer.text === "store" &&
+    (!ts.isIdentifier(node.name) || node.name.text !== "store")
+  );
+}
+
+function isUpdateStageBinding(node: ts.VariableDeclaration): boolean {
+  if (!ts.isObjectBindingPattern(node.name)) return false;
+  return node.name.elements.some(
+    (element) =>
+      (element.propertyName === undefined && ts.isIdentifier(element.name) && element.name.text === "updateStage") ||
+      (element.propertyName !== undefined &&
+        ((ts.isIdentifier(element.propertyName) && element.propertyName.text === "updateStage") ||
+          (ts.isStringLiteral(element.propertyName) && element.propertyName.text === "updateStage"))),
+  );
+}
+
+function functionName(node: ts.SignatureDeclaration): string | undefined {
+  if (ts.isFunctionDeclaration(node) && node.name !== undefined) return node.name.text;
+  if (ts.isVariableDeclaration(node.parent) && ts.isIdentifier(node.parent.name)) return node.parent.name.text;
+  return undefined;
+}
+
+function parseStatusWrites(path: string): StatusWrite[] {
+  const source = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const writes: StatusWrite[] = [];
+  const occurrences = new Map<string, number>();
+
+  const visit = (node: ts.Node, scope = "<top-level>"): void => {
+    const nextScope = ts.isFunctionLike(node) ? (functionName(node) ?? scope) : scope;
+    if (ts.isVariableDeclaration(node)) {
+      expect(isStoreAlias(node)).toBe(false);
+      expect(isUpdateStageBinding(node)).toBe(false);
+    }
+    if (ts.isElementAccessExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "store") {
+      throw new Error("store element access can hide updateStage writes");
+    }
+    if (isDirectUpdateStageProperty(node)) {
+      expect(isDirectUpdateStageCall(node.parent) && node.parent.expression === node).toBe(true);
+    }
+    if (isDirectUpdateStageCall(node)) {
+      const argument = node.arguments[0];
+      expect(argument !== undefined && ts.isObjectLiteralExpression(argument)).toBe(true);
+      if (!argument || !ts.isObjectLiteralExpression(argument)) return;
+      const patchProperty = propertyAssignment(argument, "patch");
+      expect(patchProperty !== undefined && ts.isObjectLiteralExpression(patchProperty.initializer)).toBe(true);
+      if (patchProperty === undefined || !ts.isObjectLiteralExpression(patchProperty.initializer)) return;
+      const patch = patchProperty.initializer;
+      expect(
+        patch.properties.every(
+          (property) =>
+            ts.isPropertyAssignment(property) && (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)),
+        ),
+      ).toBe(true);
+      const statusProperty = propertyAssignment(patch, "status");
+      if (statusProperty !== undefined) {
+        expect(ts.isStringLiteral(statusProperty.initializer)).toBe(true);
+        if (!ts.isStringLiteral(statusProperty.initializer)) return;
+        const status = statusProperty.initializer.text;
+        const occurrenceKey = `${basename(path)}:${nextScope}:${status}`;
+        const occurrence = (occurrences.get(occurrenceKey) ?? 0) + 1;
+        occurrences.set(occurrenceKey, occurrence);
+        writes.push({
+          identity: `${occurrenceKey}#${occurrence}`,
+          status,
+          endedAt: propertyAssignment(patch, "endedAt")?.initializer,
+        });
+      }
+    }
+    ts.forEachChild(node, (child) => visit(child, nextScope));
+  };
+
+  visit(source);
+  return writes;
+}
+
+function isNumericTimestamp(expression: ts.Expression | undefined): boolean {
+  return (
+    expression !== undefined &&
+    (ts.isNumericLiteral(expression) ||
+      (ts.isCallExpression(expression) &&
+        expression.arguments.length === 0 &&
+        ts.isPropertyAccessExpression(expression.expression) &&
+        ts.isIdentifier(expression.expression.expression) &&
+        expression.expression.expression.text === "Date" &&
+        expression.expression.name.text === "now"))
+  );
+}
+
+test("every terminal pipeline stage-run write carries endedAt", () => {
+  // @mutate v2/src/daemon/pipeline-execution.ts "store.updateStage({ pipelineId, stageId: record.stageId, branchKey, patch: { status: \"skipped\", endedAt: Date.now() } });" -> "store.updateStage({ pipelineId, stageId: record.stageId, branchKey, patch: { status: \"skipped\" } });"
+  const writes = STAGE_WRITE_SOURCE_PATHS.flatMap(parseStatusWrites);
+  expect(writes.map(({ identity }) => identity).sort()).toEqual([...CLASSIFIED_STATUS_WRITES.keys()].sort());
+  expect(TERMINAL_STAGE_RUN_STATUSES.has("approved")).toBe(false);
+  expect(TERMINAL_STAGE_RUN_STATUSES.has("rejected")).toBe(false);
+
+  for (const write of writes) {
+    const classification = CLASSIFIED_STATUS_WRITES.get(write.identity);
+    expect(classification).toBe(TERMINAL_STAGE_RUN_STATUSES.has(write.status) ? "terminal" : "nonterminal");
+    if (classification === "terminal") expect(isNumericTimestamp(write.endedAt)).toBe(true);
+  }
+});
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void;

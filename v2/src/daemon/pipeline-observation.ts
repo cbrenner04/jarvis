@@ -151,6 +151,7 @@ export type PipelineSnapshot = {
     workflowInvocationId: string | null;
     startedAt: number | null;
     endedAt: number | null;
+    decidedAt: number | null;
     artifact: unknown;
     failureDetail: unknown;
   }>;
@@ -166,10 +167,9 @@ function derivePipelineFinishedAtMs(
   if (pipeline.terminalPublicationSucceededAt !== null) {
     return pipeline.terminalPublicationSucceededAt;
   }
-  const endedAts = pipeline.stages
-    .map((stage) => stage.endedAt)
-    .filter((endedAt): endedAt is number => endedAt !== null);
-  return endedAts.length > 0 ? Math.max(...endedAts) : pipeline.createdAt;
+  const candidateFinishAts = pipeline.stages.flatMap((stage) => [stage.endedAt, stage.decidedAt]);
+  const finishAts = candidateFinishAts.filter((finishedAt): finishedAt is number => finishedAt !== null);
+  return finishAts.length > 0 ? Math.max(...finishAts) : pipeline.createdAt;
 }
 
 export function projectPipelineSnapshot(pipeline: Pipeline & { stages: PipelineStageRecord[] }): PipelineSnapshot {
@@ -193,6 +193,7 @@ export function projectPipelineSnapshot(pipeline: Pipeline & { stages: PipelineS
       workflowInvocationId: stage.workflowInvocationId,
       startedAt: stage.startedAt,
       endedAt: stage.endedAt,
+      decidedAt: stage.decidedAt,
       artifact: stage.artifact,
       failureDetail: stage.failureDetail,
     })),

@@ -58,6 +58,11 @@ const WITH_APPROVAL: PipelineDefinition = {
   ],
 };
 
+const APPROVAL_ONLY: PipelineDefinition = {
+  name: "approval-only",
+  stages: [{ stageId: "gate", kind: "approval" }],
+};
+
 const SINGLE_WORKFLOW = (name: string): PipelineDefinition => ({
   name,
   stages: [{ stageId: "s1", kind: "workflow", workflow: "intent", review: "none" }],
@@ -114,7 +119,7 @@ function projectedStage(
   row: Pick<PipelineSnapshot["stages"][number], "stageId" | "branchKey" | "status" | "workflowInvocationId"> &
     Partial<Pick<PipelineSnapshot["stages"][number], "startedAt" | "endedAt">>,
 ) {
-  return expect.objectContaining({ startedAt: null, endedAt: null, ...row });
+  return expect.objectContaining({ startedAt: null, endedAt: null, decidedAt: null, ...row });
 }
 
 function pipelineWithStages(
@@ -151,6 +156,21 @@ function pipelineWithStages(
   };
 }
 
+function createApprovalPipelines(): [string, string] {
+  return [
+    stateStore.createPipeline({ definition: APPROVAL_ONLY }),
+    stateStore.createPipeline({ definition: APPROVAL_ONLY }),
+  ];
+}
+
+function openApprovalGates(pipelineIds: readonly string[]): void {
+  for (const pipelineId of pipelineIds) {
+    const gate = stateStore.loadPipeline(pipelineId)?.stages[0];
+    if (!gate) throw new Error("expected durable gate");
+    stateStore.commitApprovalBoundary({ stageRecordId: gate.id });
+  }
+}
+
 let stateStore: StateStore;
 let fakeExecutor: FakeWriteLoopExecutor;
 
@@ -173,6 +193,64 @@ test("pipeline_list returns an empty pipelines array for an empty store", async 
   const response = await handlers().pipeline_list(requestFrame("l0", "pipeline_list"), new AbortController().signal);
   expect(response.kind).toBe("response");
   expect((response as { result: { pipelines: unknown[] } }).result.pipelines).toEqual([]);
+});
+
+test("pipeline_list preserves the failed-before-start stage from a pre-admission throw", async () => {
+  const step = createWriteStep("pre-admission", "pipeline-branch", doneWithArtifactBindingFactory, {
+    suppressShrink: true,
+  });
+  const h = handlers({
+    resolveStage: async () => ({ ok: true, steps: [step] }),
+    pipelineDispatch: async () => {
+      throw new Error("dispatch failed before admission");
+    },
+    pipelineWait: async () => {
+      throw new Error("wait must not run without an admitted entry run");
+    },
+  });
+
+  const startResponse = await h.pipeline_start(
+    requestFrame("p-failed-before-start", "pipeline_start", {
+      definition: SINGLE_WORKFLOW("failed-before-start"),
+      context: PIPELINE_CONTEXT,
+    }),
+    new AbortController().signal,
+  );
+  expect(startResponse.kind).toBe("response");
+  const pipelineId = (startResponse as { result: { pipelineId: string } }).result.pipelineId;
+  await waitFor(() => stateStore.loadPipeline(pipelineId)?.stages[0]?.status === "failed");
+
+  const stored = stateStore.loadPipeline(pipelineId)?.stages[0];
+  if (!stored) throw new Error("expected durable stage");
+  const listResponse = await h.pipeline_list(
+    requestFrame("l-failed-before-start", "pipeline_list"),
+    new AbortController().signal,
+  );
+  const wire = (
+    listResponse as { result: { pipelines: Array<{ pipelineId: string; stages: PipelineSnapshot["stages"] }> } }
+  ).result.pipelines.find((pipeline) => pipeline.pipelineId === pipelineId)?.stages[0];
+  if (!wire) throw new Error("expected projected stage");
+
+  // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "settleUnexpectedThrow(store, stageTarget, error);" -> "store.updateStage({ ...stageTarget, patch: { status: \"failed\", startedAt: Date.now() } });"
+  // @mutate v2/src/daemon/pipeline-observation.ts "endedAt: stage.endedAt," -> "endedAt: null,"
+  const storedShape = {
+    status: stored.status,
+    startedAt: stored.startedAt,
+    endedAt: stored.endedAt,
+    workflowInvocationId: stored.workflowInvocationId,
+  };
+  expect(storedShape).toEqual({
+    status: "failed",
+    startedAt: null,
+    endedAt: expect.any(Number),
+    workflowInvocationId: null,
+  });
+  expect({
+    status: wire.status,
+    startedAt: wire.startedAt,
+    endedAt: wire.endedAt,
+    workflowInvocationId: wire.workflowInvocationId,
+  }).toEqual(storedShape);
 });
 
 test("pipeline_list reports every admitted pipeline with identity, derived state, and ordered stage projection", async () => {
@@ -208,6 +286,40 @@ test("pipeline_list reports every admitted pipeline with identity, derived state
       projectedStage({ stageId: "implement", branchKey: "default", status: "pending", workflowInvocationId: null }),
     ],
   });
+});
+
+test("pipeline_list projects decidedAt for approved and rejected gates", async () => {
+  // @mutate v2/src/daemon/pipeline-observation.ts "decidedAt: stage.decidedAt," -> "decidedAt: null,"
+  const [approvedPipelineId, rejectedPipelineId] = createApprovalPipelines();
+  openApprovalGates([approvedPipelineId, rejectedPipelineId]);
+
+  const h = handlers();
+  const approve = await h.pipeline_approve(
+    requestFrame("approve-projection", "pipeline_approve", { pipelineId: approvedPipelineId, stageId: "gate" }),
+    new AbortController().signal,
+  );
+  const reject = await h.pipeline_reject(
+    requestFrame("reject-projection", "pipeline_reject", { pipelineId: rejectedPipelineId, stageId: "gate" }),
+    new AbortController().signal,
+  );
+  expect(approve.kind).toBe("response");
+  expect(reject.kind).toBe("response");
+
+  const approvedGate = stateStore.loadPipeline(approvedPipelineId)?.stages[0];
+  const rejectedGate = stateStore.loadPipeline(rejectedPipelineId)?.stages[0];
+  if (approvedGate?.decidedAt === null || approvedGate?.decidedAt === undefined) {
+    throw new Error("expected approved decision timestamp");
+  }
+  if (rejectedGate?.decidedAt === null || rejectedGate?.decidedAt === undefined) {
+    throw new Error("expected rejected decision timestamp");
+  }
+
+  const response = await h.pipeline_list(requestFrame("list-decisions", "pipeline_list"), new AbortController().signal);
+  const pipelines = (response as { result: { pipelines: PipelineSnapshot[] } }).result.pipelines;
+  const approvedWire = pipelines.find((pipeline) => pipeline.pipelineId === approvedPipelineId)?.stages[0];
+  const rejectedWire = pipelines.find((pipeline) => pipeline.pipelineId === rejectedPipelineId)?.stages[0];
+  expect(approvedWire?.decidedAt).toBe(approvedGate.decidedAt);
+  expect(rejectedWire?.decidedAt).toBe(rejectedGate.decidedAt);
 });
 
 test("projectPipelineSnapshot projects stored terminal and admission diagnostics with JSON omission semantics", () => {
@@ -284,6 +396,7 @@ test("projectPipelineSnapshot projects stored stage identity, position, and fals
       workflowInvocationId: null,
       startedAt: null,
       endedAt: null,
+      decidedAt: null,
       artifact: false,
       failureDetail: 0,
     },
@@ -296,6 +409,7 @@ test("projectPipelineSnapshot projects stored stage identity, position, and fals
       workflowInvocationId: null,
       startedAt: null,
       endedAt: null,
+      decidedAt: null,
       artifact: "",
       failureDetail: null,
     },
@@ -308,6 +422,7 @@ test("projectPipelineSnapshot projects stored stage identity, position, and fals
       workflowInvocationId: null,
       startedAt: null,
       endedAt: null,
+      decidedAt: null,
       artifact: null,
       failureDetail: "",
     },
@@ -929,16 +1044,41 @@ test("projectPipelineSnapshot derives finishedAtMs from max stage endedAt withou
   expect(projectPipelineSnapshot(pipeline).finishedAtMs).toBe(1_700_000_007_000);
 });
 
-test("projectPipelineSnapshot falls back to pipeline createdAt for terminal finish when publication and stage endedAt are absent", () => {
-  const createdAt = 1_700_000_000_000;
-  const pipeline = pipelineWithStages(
-    WITH_APPROVAL,
-    { s1: { status: "succeeded" }, gate: { status: "rejected" } },
-    { createdAt },
+test("pipeline finish uses approval decidedAt for rejected and approved-final gates", async () => {
+  // @mutate v2/src/daemon/pipeline-observation.ts "const candidateFinishAts = pipeline.stages.flatMap((stage) => [stage.endedAt, stage.decidedAt]);" -> "const candidateFinishAts = pipeline.stages.flatMap((stage) => [stage.endedAt]);"
+  const [approvedPipelineId, rejectedPipelineId] = createApprovalPipelines();
+  const approvedBefore = stateStore.loadPipeline(approvedPipelineId);
+  const rejectedBefore = stateStore.loadPipeline(rejectedPipelineId);
+  if (!approvedBefore || !rejectedBefore) {
+    throw new Error("expected durable approval pipelines");
+  }
+  await waitFor(() => Date.now() > Math.max(approvedBefore.createdAt, rejectedBefore.createdAt));
+  openApprovalGates([approvedPipelineId, rejectedPipelineId]);
+
+  const h = handlers();
+  await h.pipeline_approve(
+    requestFrame("approve-finish", "pipeline_approve", { pipelineId: approvedPipelineId, stageId: "gate" }),
+    new AbortController().signal,
+  );
+  await h.pipeline_reject(
+    requestFrame("reject-finish", "pipeline_reject", { pipelineId: rejectedPipelineId, stageId: "gate" }),
+    new AbortController().signal,
   );
 
-  // Mutation checkpoint: projecting null finishedAtMs on terminal pipelines must turn this test RED.
-  expect(projectPipelineSnapshot(pipeline).finishedAtMs).toBe(createdAt);
+  const approved = stateStore.loadPipeline(approvedPipelineId);
+  const rejected = stateStore.loadPipeline(rejectedPipelineId);
+  const approvedGate = approved?.stages[0];
+  const rejectedGate = rejected?.stages[0];
+  if (!approved || !rejected || approvedGate?.decidedAt === null || approvedGate?.decidedAt === undefined) {
+    throw new Error("expected durable approved decision");
+  }
+  if (rejectedGate?.decidedAt === null || rejectedGate?.decidedAt === undefined) {
+    throw new Error("expected durable rejected decision");
+  }
+  expect(approvedGate.endedAt).toBeNull();
+  expect(rejectedGate.endedAt).toBeNull();
+  expect(projectPipelineSnapshot(approved).finishedAtMs).toBe(approvedGate.decidedAt);
+  expect(projectPipelineSnapshot(rejected).finishedAtMs).toBe(rejectedGate.decidedAt);
 });
 
 test("two-branch derivePipelineBoundary names awaiting branchKey while sibling branch runs", () => {

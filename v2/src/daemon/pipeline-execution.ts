@@ -840,7 +840,7 @@ function admitFanOutBranches(
         pipelineId,
         stageId: stage.stageId,
         branchKey: DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
-        patch: { status: "skipped" },
+        patch: { status: "skipped", endedAt: Date.now() },
       });
     }
   }
@@ -1000,7 +1000,8 @@ function skipRemainingStages(
   for (const record of stageRecords) {
     if (record.position < fromPosition) continue;
     if (record.branchKey !== branchKey) continue;
-    store.updateStage({ pipelineId, stageId: record.stageId, branchKey, patch: { status: "skipped" } });
+    // biome-ignore format: mutation checkpoint requires this exact single-line writer
+    store.updateStage({ pipelineId, stageId: record.stageId, branchKey, patch: { status: "skipped", endedAt: Date.now() } });
   }
 }
 

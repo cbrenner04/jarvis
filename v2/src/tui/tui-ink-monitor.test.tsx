@@ -39,6 +39,7 @@ function implementStage(invocationId: string): PipelineSnapshot["stages"][number
     workflowInvocationId: invocationId,
     startedAt: null,
     endedAt: null,
+    decidedAt: null,
     artifact: null,
     failureDetail: null,
   };

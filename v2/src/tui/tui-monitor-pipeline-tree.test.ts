@@ -78,6 +78,7 @@ function snapshotStage(
     workflowInvocationId: null,
     startedAt: null,
     endedAt: null,
+    decidedAt: null,
     ...overrides,
     id: overrides.id ?? "stage",
     position: overrides.position ?? 0,

@@ -3,7 +3,6 @@ import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { RUN_STATUSES } from "../persistence/state-store.ts";
 import {
-  countActivePipelines,
   firstSelectableRunId,
   joinMonitorRow,
   livenessTone,
@@ -14,6 +13,7 @@ import {
   monitorSelectableNodeIds,
   monitorTextLines,
   orderSelectableRuns,
+  pipelineObservationBuckets,
   RUN_STATUS_TONES,
   wrapMonitorRows,
 } from "./tui-monitor-lines.ts";
@@ -1603,6 +1603,122 @@ describe("monitorRightPaneSegmentRows", () => {
 });
 
 describe("monitorDockLines", () => {
+  test("classifies every pipeline state into the four dock buckets", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (snapshot.state === \"awaiting-approval\") return \"awaitingGate\";" -> "if (snapshot.state !== \"awaiting-approval\") return \"awaitingGate\";"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (RUNNING_PIPELINE_STATES.has(snapshot.state)) return \"running\";" -> "if (!RUNNING_PIPELINE_STATES.has(snapshot.state)) return \"running\";"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (snapshot.state === \"succeeded\") return \"done\";" -> "if (snapshot.state !== \"succeeded\") return \"done\";"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (FAILED_PIPELINE_STATES.has(snapshot.state)) return \"failed\";" -> "if (!FAILED_PIPELINE_STATES.has(snapshot.state)) return \"failed\";"
+    const snapshots = [
+      pipelineSnapshot({ pipelineId: "awaiting", state: "awaiting-approval" }),
+      pipelineSnapshot({ pipelineId: "pending", state: "pending" }),
+      pipelineSnapshot({ pipelineId: "running", state: "running" }),
+      pipelineSnapshot({ pipelineId: "succeeded", state: "succeeded" }),
+      pipelineSnapshot({ pipelineId: "failed", state: "failed" }),
+      pipelineSnapshot({ pipelineId: "rejected", state: "rejected" }),
+      pipelineSnapshot({ pipelineId: "interrupted", state: "interrupted" }),
+    ];
+
+    expect(
+      pipelineObservationBuckets(
+        monitorState({ pipelineSnapshotsBySocketPath: { "/socket": { pipelines: snapshots } } }),
+      ),
+    ).toEqual({ running: 2, awaitingGate: 1, failed: 3, done: 1 });
+  });
+
+  test("classifies a reachable fan-out gate ahead of sibling running work", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (snapshotHasReachableUndecidedGate(snapshot)) return \"awaitingGate\";" -> "if (false) return \"awaitingGate\";"
+    const snapshot = pipelineSnapshot({
+      pipelineId: "fan-out",
+      name: "full-review",
+      state: "running",
+      stages: [
+        snapshotStage({
+          id: "intent-default",
+          stageId: "intent",
+          position: 0,
+          status: "succeeded",
+          artifact: {
+            entryRunId: "run-intent",
+            specPath: "intent.md",
+            downstreamInputs: ["alpha.md", "beta.md"],
+          },
+        }),
+        snapshotStage({
+          id: "gate-alpha",
+          stageId: "approve-intent",
+          branchKey: "alpha",
+          position: 1,
+          status: "awaiting",
+        }),
+        snapshotStage({
+          id: "gate-beta",
+          stageId: "approve-intent",
+          branchKey: "beta",
+          position: 1,
+          status: "approved",
+        }),
+        snapshotStage({
+          id: "plan-alpha",
+          stageId: "plan",
+          branchKey: "alpha",
+          position: 2,
+          status: "pending",
+        }),
+        snapshotStage({
+          id: "plan-beta",
+          stageId: "plan",
+          branchKey: "beta",
+          position: 2,
+          status: "running",
+        }),
+      ],
+    });
+
+    expect(
+      pipelineObservationBuckets(
+        monitorState({ pipelineSnapshotsBySocketPath: { "/socket": { pipelines: [snapshot] } } }),
+      ),
+    ).toEqual({
+      running: 0,
+      awaitingGate: 1,
+      failed: 0,
+      done: 0,
+    });
+  });
+
+  test("deduplicates contradictory pipeline snapshots by bucket precedence", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (candidateOutranksCurrent) bucketByPipelineId.set(snapshot.pipelineId, bucket);" -> "if (!candidateOutranksCurrent) bucketByPipelineId.set(snapshot.pipelineId, bucket);"
+    const state = monitorState({
+      pipelineSnapshotsBySocketPath: {
+        "/a": {
+          pipelines: [
+            pipelineSnapshot({ pipelineId: "gate", state: "succeeded" }),
+            pipelineSnapshot({ pipelineId: "running", state: "succeeded" }),
+            pipelineSnapshot({ pipelineId: "failed", state: "succeeded" }),
+            pipelineSnapshot({ pipelineId: "done", state: "succeeded" }),
+          ],
+        },
+        "/b": {
+          pipelines: [
+            pipelineSnapshot({ pipelineId: "gate", state: "failed" }),
+            pipelineSnapshot({ pipelineId: "running", state: "rejected" }),
+            pipelineSnapshot({ pipelineId: "failed", state: "interrupted" }),
+            pipelineSnapshot({ pipelineId: "done", state: "succeeded" }),
+          ],
+        },
+        "/c": {
+          pipelines: [
+            pipelineSnapshot({ pipelineId: "gate", state: "running" }),
+            pipelineSnapshot({ pipelineId: "running", state: "pending" }),
+          ],
+        },
+        "/d": { pipelines: [pipelineSnapshot({ pipelineId: "gate", state: "awaiting-approval" })] },
+      },
+    });
+
+    expect(pipelineObservationBuckets(state)).toEqual({ running: 1, awaitingGate: 1, failed: 1, done: 1 });
+  });
+
   test("projects exactly four ordered dock rows from one state snapshot", () => {
     const state = monitorState({
       commandBuffer: "start",
@@ -1629,9 +1745,7 @@ describe("monitorDockLines", () => {
     expect(lines).not.toEqual(["1 active · refresh 2s", ">", "", ""]);
   });
 
-  test("counts retained pipeline identities once and projects RPC and command feedback together", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "(activeByPipelineId.get(snapshot.pipelineId) ?? false) || !TERMINAL_PIPELINE_STATES.has(snapshot.state)" -> "false"
-    // @mutate v2/src/tui/tui-monitor-lines.ts ".filter(Boolean)" -> ""
+  test("projects retained pipeline buckets and RPC and command feedback together", () => {
     const terminal = pipelineSnapshot({ pipelineId: "contradictory", state: "succeeded", finishedAtMs: 20 });
     const nonTerminal = pipelineSnapshot({ pipelineId: "contradictory", state: "running", finishedAtMs: null });
     const duplicate = pipelineSnapshot({ pipelineId: "duplicate", state: "pending" });
@@ -1649,7 +1763,7 @@ describe("monitorDockLines", () => {
       terminalColumns: 120,
     });
 
-    expect(countActivePipelines(state)).toBe(2);
+    expect(pipelineObservationBuckets(state)).toEqual({ running: 2, awaitingGate: 0, failed: 1, done: 0 });
     const controlReplacement = "\uFFFD";
     expect(monitorDockLines(state)[0]).toBe(
       `2 active · profile@digest · refresh 750ms · error: list${controlReplacement}failed · result: retained${controlReplacement}result`,
@@ -1657,7 +1771,12 @@ describe("monitorDockLines", () => {
     expect(monitorDockLines({ ...state, lastRpcError: null })[0]).toBe(
       `2 active · profile@digest · refresh 750ms · result: retained${controlReplacement}result`,
     );
-    expect(countActivePipelines({ ...state, lastRpcError: "refresh failed" })).toBe(2);
+    expect(pipelineObservationBuckets({ ...state, lastRpcError: "refresh failed" })).toEqual({
+      running: 2,
+      awaitingGate: 0,
+      failed: 1,
+      done: 0,
+    });
   });
 
   test("retains command feedback alongside RPC errors, clears only RPC on refresh, and fits both suffixes at narrow widths", () => {

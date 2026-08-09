@@ -1,7 +1,8 @@
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
-import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
+import { derivePipelineBoundary, type PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import type { PipelineStageArtifact } from "../daemon/pipeline-stage-dispatch.ts";
-import type { RunStatus } from "../persistence/state-store.ts";
+import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
+import type { Pipeline, PipelineStageRecord, RunStatus } from "../persistence/state-store.ts";
 import type { PipelineListResult } from "./tui-daemon-client.ts";
 import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
 import {
@@ -200,13 +201,6 @@ function queueRow(run: DaemonListRunRow): MonitorLineRow {
   );
 }
 
-const TERMINAL_PIPELINE_STATES: ReadonlySet<PipelineSnapshot["state"]> = new Set([
-  "succeeded",
-  "failed",
-  "rejected",
-  "interrupted",
-]);
-
 const DOCK_CURSOR = "▏";
 const DOCK_CONTROL_REPLACEMENT = "�";
 const DEFAULT_DOCK_COLUMNS = 245;
@@ -219,16 +213,68 @@ type DockInputAtom = {
   cursor: boolean;
 };
 
-/** Distinct retained pipelines with at least one non-terminal observation. */
-export function countActivePipelines(state: TuiMonitorState): number {
-  const activeByPipelineId = new Map<string, boolean>();
+type PipelineObservationBucket = "running" | "awaitingGate" | "failed" | "done";
+
+export type PipelineObservationBuckets = Record<PipelineObservationBucket, number>;
+
+const RUNNING_PIPELINE_STATES: ReadonlySet<PipelineSnapshot["state"]> = new Set(["pending", "running"]);
+const FAILED_PIPELINE_STATES: ReadonlySet<PipelineSnapshot["state"]> = new Set(["failed", "rejected", "interrupted"]);
+const PIPELINE_OBSERVATION_BUCKET_PRECEDENCE: Record<PipelineObservationBucket, number> = {
+  done: 0,
+  failed: 1,
+  running: 2,
+  awaitingGate: 3,
+};
+
+function snapshotPipeline(snapshot: PipelineSnapshot): (Pipeline & { stages: PipelineStageRecord[] }) | null {
+  const resolved = getPipelineDefinition(snapshot.name);
+  if (!resolved.ok) return null;
+  return {
+    id: snapshot.pipelineId,
+    name: snapshot.name,
+    createdAt: snapshot.createdAt,
+    ownerIdentity: null,
+    status: snapshot.state === "interrupted" ? "interrupted" : "active",
+    definition: resolved.definition,
+    context: null,
+    terminalPublicationFailure: snapshot.terminalPublicationFailure,
+    terminalPublicationSucceededAt: snapshot.terminalPublicationSucceededAt,
+    stages: snapshot.stages.map((stage) => ({ ...stage, pipelineId: snapshot.pipelineId })),
+  };
+}
+
+function snapshotHasReachableUndecidedGate(snapshot: PipelineSnapshot): boolean {
+  const pipeline = snapshotPipeline(snapshot);
+  const boundary = pipeline === null ? null : derivePipelineBoundary(pipeline);
+  return boundary?.kind === "awaiting-approval";
+}
+
+function classifyPipelineObservation(snapshot: PipelineSnapshot): PipelineObservationBucket {
+  if (snapshot.state === "awaiting-approval") return "awaitingGate";
+  if (snapshotHasReachableUndecidedGate(snapshot)) return "awaitingGate";
+  if (RUNNING_PIPELINE_STATES.has(snapshot.state)) return "running";
+  if (snapshot.state === "succeeded") return "done";
+  if (FAILED_PIPELINE_STATES.has(snapshot.state)) return "failed";
+  throw new Error(`Unsupported pipeline state: ${snapshot.state}`);
+}
+
+/** Counts distinct retained pipeline observations after resolving contradictory snapshots by precedence. */
+export function pipelineObservationBuckets(state: TuiMonitorState): PipelineObservationBuckets {
+  const bucketByPipelineId = new Map<string, PipelineObservationBucket>();
   for (const snapshot of mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath)) {
-    activeByPipelineId.set(
-      snapshot.pipelineId,
-      (activeByPipelineId.get(snapshot.pipelineId) ?? false) || !TERMINAL_PIPELINE_STATES.has(snapshot.state),
-    );
+    const bucket = classifyPipelineObservation(snapshot);
+    const current = bucketByPipelineId.get(snapshot.pipelineId);
+    if (current === undefined) {
+      bucketByPipelineId.set(snapshot.pipelineId, bucket);
+      continue;
+    }
+    const candidateOutranksCurrent =
+      PIPELINE_OBSERVATION_BUCKET_PRECEDENCE[bucket] > PIPELINE_OBSERVATION_BUCKET_PRECEDENCE[current];
+    if (candidateOutranksCurrent) bucketByPipelineId.set(snapshot.pipelineId, bucket);
   }
-  return [...activeByPipelineId.values()].filter(Boolean).length;
+  const buckets: PipelineObservationBuckets = { running: 0, awaitingGate: 0, failed: 0, done: 0 };
+  for (const bucket of bucketByPipelineId.values()) buckets[bucket] += 1;
+  return buckets;
 }
 
 function sanitizeDockGrapheme(grapheme: string): string {
@@ -260,7 +306,8 @@ function dockStatusLine(state: TuiMonitorState): string {
   if (state.lastCommandResult !== null && state.lastCommandResult !== undefined) {
     feedback += ` · result: ${state.lastCommandResult}`;
   }
-  return `${countActivePipelines(state)} active · ${profile}@${digest} · refresh ${refresh}${feedback}`;
+  const { running, awaitingGate } = pipelineObservationBuckets(state);
+  return `${running + awaitingGate} active · ${profile}@${digest} · refresh ${refresh}${feedback}`;
 }
 
 function dockPrompt(columns: number): string {

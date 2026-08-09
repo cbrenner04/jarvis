@@ -268,6 +268,65 @@ describe("buildMonitorPipelineTreeJoin", () => {
     expect(columnSlice(stageRow, 90, "branch")).toBe("feature".padEnd(TREE_COLUMN_WIDTHS.branch));
   });
 
+  test("two pipelines of one definition label their rows with distinct seed basenames", () => {
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "label: pipelineRowLabel(node.snapshot)," -> "label: node.snapshot.name,"
+    const workRowsNode = {
+      kind: "pipeline" as const,
+      id: "pipe-1",
+      depth: 0,
+      snapshot: pipelineSnapshot({
+        pipelineId: "pipe-1",
+        name: "full-review",
+        seedPath: "v2/spec/seeds/tui-work-row-labels.md",
+      }),
+      project: "demo",
+      stages: [],
+      branches: [],
+    };
+    const attentionSegmentNode = {
+      kind: "pipeline" as const,
+      id: "pipe-2",
+      depth: 0,
+      snapshot: pipelineSnapshot({
+        pipelineId: "pipe-2",
+        name: "full-review",
+        seedPath: "v2/spec/seeds/tui-attention-segment.md",
+      }),
+      project: "demo",
+      stages: [],
+      branches: [],
+    };
+
+    const workRowsLabel = columnSlice(buildPipelineMonitorTreeRow(workRowsNode, null, 90, FILTER_NOW_MS), 90, "label");
+    const attentionSegmentLabel = columnSlice(
+      buildPipelineMonitorTreeRow(attentionSegmentNode, null, 90, FILTER_NOW_MS),
+      90,
+      "label",
+    );
+
+    expect(workRowsLabel.trimEnd()).toBe("tui-work-row-labels");
+    expect(attentionSegmentLabel.trimEnd()).toBe("tui-attention-segment");
+    expect(workRowsLabel).not.toBe(attentionSegmentLabel);
+  });
+
+  test("a pipeline with no recorded seed path labels its row with the definition name and short pipeline id", () => {
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (slug.length > 0) return slug;" -> "if (slug.length >= 0) return slug;"
+    const pipelineId = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
+    const pipelineNode = {
+      kind: "pipeline" as const,
+      id: pipelineId,
+      depth: 0,
+      snapshot: pipelineSnapshot({ pipelineId, name: "full-review" }),
+      project: "demo",
+      stages: [],
+      branches: [],
+    };
+
+    const label = columnSlice(buildPipelineMonitorTreeRow(pipelineNode, null, 90, FILTER_NOW_MS), 90, "label");
+
+    expect(label.trimEnd()).toBe(`full-review ${pipelineId.slice(0, 8)}`);
+  });
+
   test("pins the first stage when two stages in one snapshot share a workflowInvocationId", () => {
     // Mutation checkpoint: negating claimInvocationId duplicate guard in buildStageNodes must turn first-wins pinning RED.
     const sharedInvocation = "inv-shared";

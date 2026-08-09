@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { isPipelineTerminal, type PipelineDerivedState } from "../daemon/pipeline-execution.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
@@ -13,6 +14,7 @@ import {
 import {
   formatTreeCell,
   monitorTreeRun,
+  shortMonitorId,
   TREE_COLUMN_WIDTHS,
   type TreeColumnId,
   visibleColumns,
@@ -164,6 +166,13 @@ function joinPipelineTreeCells(columnValues: Partial<Record<TreeColumnId, string
     .join("");
 }
 
+/** Seed basename sans extension, or `<name> <short pipelineId>` when no seed path was recorded. */
+export function pipelineRowLabel(snapshot: PipelineSnapshot): string {
+  const slug = basename(snapshot.seedPath ?? "").replace(/\.[^.]+$/, "");
+  if (slug.length > 0) return slug;
+  return `${snapshot.name} ${shortMonitorId(snapshot.pipelineId)}`;
+}
+
 export function buildPipelineMonitorTreeRow(
   node: MonitorPipelineTreePipelineNode,
   selectedNodeId: string | null,
@@ -173,7 +182,7 @@ export function buildPipelineMonitorTreeRow(
   return joinPipelineTreeCells(
     {
       marker: node.id === selectedNodeId ? ">" : " ",
-      label: node.snapshot.name,
+      label: pipelineRowLabel(node.snapshot),
       project: node.project,
       state: node.snapshot.state,
       // Mutation checkpoint: passing null for finishedAtMs on terminal pipelines must turn terminal freeze RED.

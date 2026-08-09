@@ -8,6 +8,12 @@ import {
 
 export const MONITOR_TREE_NOT_LIVE_LABEL = "idle";
 
+const SHORT_MONITOR_ID_LENGTH = 8;
+
+export function shortMonitorId(id: string): string {
+  return id.slice(0, SHORT_MONITOR_ID_LENGTH);
+}
+
 export type LayoutMode = "stacked" | "split";
 
 export type TreeColumnId =

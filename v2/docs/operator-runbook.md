@@ -807,7 +807,8 @@ Operators add bullets here; delete when fixed.
   timed-out run leaves its ready-gate `bun test` subprocess tree running. Orphans accumulate across
   sessions (observed three aged 2–3 days), saturate CPU, and drag every concurrent gate — stretching
   debate reviews past 13 min and wedging a publication step at `iteration_started` with no agent
-  process. The auto-mode classifier blocks the operator agent from `kill`/`pkill`, so hand it to the
+  process. **Standing rule: never tolerate these — a single day-old `bun test` orphan is one too many, and three is a hard stop.** Check for them at session start and any time runs turn slow or wedge (`ps -o etime,command -ax | grep "[b]un test"` — anything with a `DD-` day field is an orphan), and clear them *before* launching or diagnosing heavy work; do not grind against a starved machine. The
+  auto-mode classifier blocks the operator agent from `kill`/`pkill`, so hand it to the
   operator's own shell: `pkill -9 -f "bun test"` (nothing live depends on day-old orphans; the live
   gate spawns fresh test procs). Seed:
   `v2/spec/seeds/reap-ready-gate-test-children-on-run-termination.md`. Cleanup: delete this bullet

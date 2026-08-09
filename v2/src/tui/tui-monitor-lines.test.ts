@@ -130,6 +130,10 @@ function workflowRun(
   };
 }
 
+function dockStatus(state: TuiMonitorState): string {
+  return monitorDockLines({ terminalColumns: 245, ...state })[0];
+}
+
 function treeLayout(rows = 72) {
   return computeShellLayout(245, rows, 0);
 }
@@ -1719,6 +1723,140 @@ describe("monitorDockLines", () => {
     expect(pipelineObservationBuckets(state)).toEqual({ running: 1, awaitingGate: 1, failed: 1, done: 1 });
   });
 
+  test("renders running and awaiting-gate counts before dock metadata", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "return `${running} running · ${awaitingGate} awaiting gate · ${failed} failed · ${done} done · ${profile}@${digest} · refresh ${refresh}${feedback}`;" -> "return `${running + awaitingGate} active · ${profile}@${digest} · refresh ${refresh}${feedback}`;"
+    const state = monitorState({
+      machineProfile: "profile",
+      keyedSocketDigest: "digest",
+      pipelineSnapshotsBySocketPath: {
+        "/socket": {
+          pipelines: [
+            pipelineSnapshot({ pipelineId: "parked", state: "awaiting-approval" }),
+            pipelineSnapshot({ pipelineId: "running", state: "running" }),
+          ],
+        },
+      },
+    });
+    const prefix = "1 running · 1 awaiting gate · 0 failed · 0 done";
+    const full = dockStatus(state);
+
+    expect(full).toStartWith(`${prefix} · profile@digest`);
+    expect(full.indexOf(prefix)).toBeLessThan(full.indexOf("profile@digest"));
+    expect(monitorDockLines({ ...state, terminalColumns: Bun.stringWidth(prefix) })[0]).toBe(prefix);
+    expect(full).not.toContain("2 active");
+  });
+
+  test("classifies ad-hoc workflow groups through their terminal rollup", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (workflowGroupHasActiveMember(members) || !isTerminalRunStatus(rollup)) {" -> "if (!workflowGroupHasActiveMember(members) && isTerminalRunStatus(rollup)) {"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (rollup === \"completed\") {" -> "if (rollup !== \"completed\") {"
+    const workflow = (invocationId: string) => ({
+      invocationId,
+      steps: [
+        { stepId: "implement", role: "implement", status: "completed" as const, attemptCount: 1 },
+        { stepId: "review", role: "review", status: "completed" as const, attemptCount: 1 },
+      ],
+    });
+    const member = (
+      invocationId: string,
+      stepId: string,
+      status: DaemonListRunRow["status"],
+      isLive = false,
+    ): DaemonListRunRow =>
+      workflowRun(`${invocationId}-${stepId}`, status, invocationId, {
+        stepId,
+        isLive,
+        workflow: workflow(invocationId),
+      });
+    const activeWorkflow: NonNullable<DaemonListRunRow["workflow"]> = {
+      invocationId: "active",
+      steps: [
+        { stepId: "implement", role: "implement", status: "completed", attemptCount: 1 },
+        { stepId: "review", role: "review", status: "in_progress", attemptCount: 1 },
+      ],
+    };
+    const runs = [
+      workflowRun("active-implement", "completed", "active", {
+        stepId: "implement",
+        isLive: false,
+        workflow: activeWorkflow,
+      }),
+      workflowRun("active-review", "in-progress", "active", {
+        stepId: "review",
+        isLive: false,
+        workflow: activeWorkflow,
+      }),
+      workflowRun("hidden-live-implement", "completed", "hidden-live", {
+        stepId: "implement",
+        isLive: true,
+        workflow: {
+          invocationId: "hidden-live",
+          steps: [{ stepId: "implement", role: "implement", status: "completed", attemptCount: 1 }],
+        },
+      }),
+      member("done", "implement", "completed"),
+      member("done", "review", "completed"),
+      ...(["failed", "blocked", "interrupted", "killed"] as const).flatMap((status) => [
+        member(status, "implement", "completed"),
+        member(status, "review", status),
+      ]),
+    ];
+
+    expect(dockStatus(monitorState({ runs }))).toStartWith(
+      "2 running · 0 awaiting gate · 4 failed · 1 done · unknown@unknown",
+    );
+  });
+
+  test("counts genuine ad-hoc invocations once without duplicating matched pipeline work", () => {
+    const matched = workflowRun("matched", "completed", INVOCATION_MATCHED, { isLive: false });
+    const unmatched = workflowRun("unmatched", "completed", INVOCATION_ORPHAN, { isLive: false });
+    const state = monitorState({
+      runs: [matched, unmatched],
+      pipelineSnapshotsBySocketPath: {
+        "/socket": {
+          pipelines: [pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] })],
+        },
+      },
+    });
+
+    expect(dockStatus(state)).toStartWith("1 running · 0 awaiting gate · 0 failed · 1 done · unknown@unknown");
+  });
+
+  test("counts standalone ad-hoc rows as degenerate groups", () => {
+    const runs: DaemonListRunRow[] = [
+      { runId: "running", project: "demo", branch: "running", createdAt: 0, status: "paused", isLive: false },
+      { runId: "done", project: "demo", branch: "done", createdAt: 0, status: "completed", isLive: false },
+      { runId: "failed", project: "demo", branch: "failed", createdAt: 0, status: "failed", isLive: false },
+    ];
+
+    expect(dockStatus(monitorState({ runs }))).toStartWith(
+      "1 running · 0 awaiting gate · 1 failed · 1 done · unknown@unknown",
+    );
+  });
+
+  test("keeps queued work out of dock counts", () => {
+    const queued: DaemonListRunRow = {
+      runId: "queued",
+      project: "demo",
+      branch: "queued",
+      createdAt: 0,
+      status: "queued",
+      isLive: false,
+    };
+    const completed: DaemonListRunRow = {
+      runId: "completed",
+      project: "demo",
+      branch: "completed",
+      createdAt: 0,
+      status: "completed",
+      isLive: false,
+    };
+    const state = monitorState({ runs: [queued, completed] });
+
+    expect(dockStatus(state)).toStartWith("0 running · 0 awaiting gate · 0 failed · 1 done · unknown@unknown");
+    expect(monitorTextLines(state)).toContain("Queue");
+    expect(monitorTextLines(state)).toContain("  queued demo queued queued waiting: memory headroom");
+  });
+
   test("projects exactly four ordered dock rows from one state snapshot", () => {
     const state = monitorState({
       commandBuffer: "start",
@@ -1727,7 +1865,7 @@ describe("monitorDockLines", () => {
       keyedSocketDigest: "0123456789abcdef",
       refreshIntervalLabel: "2s",
       lastCommandResult: "ready",
-      terminalColumns: 90,
+      terminalColumns: 160,
       pipelineSnapshotsBySocketPath: {
         "/socket": { pipelines: [pipelineSnapshot({ pipelineId: "active" })] },
       },
@@ -1736,13 +1874,13 @@ describe("monitorDockLines", () => {
     const lines = monitorDockLines(state);
 
     expect(lines).toEqual([
-      "1 active · workstation@0123456789abcdef · refresh 2s · result: ready",
+      "1 running · 0 awaiting gate · 0 failed · 0 done · workstation@0123456789abcdef · refresh 2s · result: ready",
       "> start▏",
       "",
       "j/↓ next · ↑ previous · [/] divider · : command · / command · q quit",
     ]);
     expect(lines).toHaveLength(4);
-    expect(lines).not.toEqual(["1 active · refresh 2s", ">", "", ""]);
+    expect(lines).not.toEqual(["1 running · refresh 2s", ">", "", ""]);
   });
 
   test("projects retained pipeline buckets and RPC and command feedback together", () => {
@@ -1760,16 +1898,16 @@ describe("monitorDockLines", () => {
         "/a": { pipelines: [terminal, duplicate, terminalOnly] },
         "/b": { pipelines: [nonTerminal, duplicate] },
       },
-      terminalColumns: 120,
+      terminalColumns: 180,
     });
 
     expect(pipelineObservationBuckets(state)).toEqual({ running: 2, awaitingGate: 0, failed: 1, done: 0 });
     const controlReplacement = "\uFFFD";
     expect(monitorDockLines(state)[0]).toBe(
-      `2 active · profile@digest · refresh 750ms · error: list${controlReplacement}failed · result: retained${controlReplacement}result`,
+      `2 running · 0 awaiting gate · 1 failed · 0 done · profile@digest · refresh 750ms · error: list${controlReplacement}failed · result: retained${controlReplacement}result`,
     );
     expect(monitorDockLines({ ...state, lastRpcError: null })[0]).toBe(
-      `2 active · profile@digest · refresh 750ms · result: retained${controlReplacement}result`,
+      `2 running · 0 awaiting gate · 1 failed · 0 done · profile@digest · refresh 750ms · result: retained${controlReplacement}result`,
     );
     expect(pipelineObservationBuckets({ ...state, lastRpcError: "refresh failed" })).toEqual({
       running: 2,
@@ -1788,9 +1926,9 @@ describe("monitorDockLines", () => {
       refreshIntervalLabel: "750ms",
       lastRpcError: "daemon_error: list failed",
       lastCommandResult: "pipe-admitted",
-      terminalColumns: 120,
+      terminalColumns: 180,
     });
-    const statusPrefix = "0 active · profile@digest · refresh 750ms";
+    const statusPrefix = "0 running · 0 awaiting gate · 0 failed · 0 done · profile@digest · refresh 750ms";
     const bothSuffixes = " · error: daemon_error: list failed · result: pipe-admitted";
     const fullStatus = `${statusPrefix}${bothSuffixes}`;
 

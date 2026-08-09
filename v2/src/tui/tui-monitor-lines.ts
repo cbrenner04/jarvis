@@ -2,7 +2,12 @@ import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { derivePipelineBoundary, type PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import type { PipelineStageArtifact } from "../daemon/pipeline-stage-dispatch.ts";
 import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
-import type { Pipeline, PipelineStageRecord, RunStatus } from "../persistence/state-store.ts";
+import {
+  isTerminalRunStatus,
+  type Pipeline,
+  type PipelineStageRecord,
+  type RunStatus,
+} from "../persistence/state-store.ts";
 import type { PipelineListResult } from "./tui-daemon-client.ts";
 import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
 import {
@@ -20,7 +25,10 @@ import {
   isActiveRunStatus,
   type WorkflowTableRow,
   workflowCollapsedContextSuffix,
+  workflowGroupHasActiveMember,
+  workflowGroupRollupRunStatus,
   workflowRoleLabel,
+  workflowTableRowMembers,
 } from "./tui-monitor-workflow-collapse.ts";
 import type { ShellLayout } from "./tui-shell-layout.ts";
 import { computeShellLayout } from "./tui-shell-layout.ts";
@@ -277,6 +285,28 @@ export function pipelineObservationBuckets(state: TuiMonitorState): PipelineObse
   return buckets;
 }
 
+function dockWorkStatusBuckets(state: TuiMonitorState): PipelineObservationBuckets {
+  const buckets = pipelineObservationBuckets(state);
+  const { adHocNodes } = buildMonitorPipelineTreeJoin(
+    mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath),
+    state.runs,
+  );
+  for (const node of adHocNodes) {
+    const members = workflowTableRowMembers(node.tableRow);
+    const rollup = workflowGroupRollupRunStatus(members);
+    if (workflowGroupHasActiveMember(members) || !isTerminalRunStatus(rollup)) {
+      buckets.running += 1;
+      continue;
+    }
+    if (rollup === "completed") {
+      buckets.done += 1;
+    } else {
+      buckets.failed += 1;
+    }
+  }
+  return buckets;
+}
+
 function sanitizeDockGrapheme(grapheme: string): string {
   if (/^[\p{Cc}\p{Cf}]+$/u.test(grapheme)) return DOCK_CONTROL_REPLACEMENT;
   return grapheme;
@@ -306,8 +336,8 @@ function dockStatusLine(state: TuiMonitorState): string {
   if (state.lastCommandResult !== null && state.lastCommandResult !== undefined) {
     feedback += ` · result: ${state.lastCommandResult}`;
   }
-  const { running, awaitingGate } = pipelineObservationBuckets(state);
-  return `${running + awaitingGate} active · ${profile}@${digest} · refresh ${refresh}${feedback}`;
+  const { running, awaitingGate, failed, done } = dockWorkStatusBuckets(state);
+  return `${running} running · ${awaitingGate} awaiting gate · ${failed} failed · ${done} done · ${profile}@${digest} · refresh ${refresh}${feedback}`;
 }
 
 function dockPrompt(columns: number): string {

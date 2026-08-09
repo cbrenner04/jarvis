@@ -659,7 +659,7 @@ describe("pipelines", () => {
         .prepare(
           `SELECT id, pipeline_id AS pipelineId, stage_id AS stageId, branch_key AS branchKey, position, status,
                   workflow_invocation_id AS workflowInvocationId, started_at AS startedAt, ended_at AS endedAt,
-                  artifact, failure_detail AS failureDetail
+                  artifact, failure_detail AS failureDetail, decided_at AS decidedAt
            FROM pipeline_stages WHERE pipeline_id IN (?, ?)
            ORDER BY pipeline_id, position ASC, ${PIPELINE_STAGE_BRANCH_KEY_TIE_ORDER_SQL}`,
         )
@@ -675,6 +675,7 @@ describe("pipelines", () => {
         endedAt: number | null;
         artifact: string | null;
         failureDetail: string | null;
+        decidedAt: number | null;
       }>;
       expectedById = new Map<string, Pipeline & { stages: PipelineStageRecord[] }>(
         expectedPipelines.map((pipeline) => [
@@ -1322,6 +1323,56 @@ describe("pipelines", () => {
     }
   });
 
+  test("commitApprovalDecision stamps decidedAt on the decided row", () => {
+    const before = Date.now();
+    for (const decision of ["approved", "rejected"] as const) {
+      const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+      const approval = approvalStageRecord(loadPipelineOrThrow(store, pipelineId));
+      store.commitApprovalBoundary({ stageRecordId: approval.id });
+
+      // @mutate v2/src/persistence/state-store.ts "decidedAt: Date.now()," -> "decidedAt: null,"
+      expect(store.commitApprovalDecision({ stageRecordId: approval.id, decision })).toEqual({
+        kind: "applied",
+        stageRecordId: approval.id,
+      });
+
+      const loaded = loadPipelineOrThrow(store, pipelineId);
+      const decided = approvalStageRecord(loaded);
+      expect(typeof decided.decidedAt).toBe("number");
+      expect(decided.decidedAt as number).toBeGreaterThanOrEqual(before);
+      for (const stage of loaded.stages) {
+        if (stage.id !== decided.id) expect(stage.decidedAt).toBeNull();
+      }
+
+      const listed = store.listPipelines().find((pipeline) => pipeline.id === pipelineId);
+      if (!listed) throw new Error("pipeline should be listed");
+      expect(approvalStageRecord(listed).decidedAt).toBe(decided.decidedAt);
+    }
+  });
+
+  test("commitApprovalBoundary leaves decidedAt null on an awaiting row", () => {
+    const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+    const approval = approvalStageRecord(loadPipelineOrThrow(store, pipelineId));
+
+    // @mutate v2/src/persistence/state-store.ts "decidedAt: null," -> "decidedAt: Date.now(),"
+    expect(store.commitApprovalBoundary({ stageRecordId: approval.id })).toEqual({
+      kind: "applied",
+      stageRecordId: approval.id,
+    });
+    const afterBoundary = approvalStageRecord(loadPipelineOrThrow(store, pipelineId));
+    expect(afterBoundary.status).toBe("awaiting");
+    expect(afterBoundary.decidedAt).toBeNull();
+
+    const untouchedPipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+    const untouchedApproval = approvalStageRecord(loadPipelineOrThrow(store, untouchedPipelineId));
+    expect(store.commitApprovalDecision({ stageRecordId: untouchedApproval.id, decision: "approved" })).toEqual({
+      kind: "refused",
+      stageRecordId: untouchedApproval.id,
+      reason: "status_not_awaiting",
+    });
+    expect(approvalStageRecord(loadPipelineOrThrow(store, untouchedPipelineId)).decidedAt).toBeNull();
+  });
+
   test("inverting pending-boundary guard fails approval boundary regression", () => {
     expect(approvalBoundaryAllowsStatus("pending")).toBe(true);
     expect(!approvalBoundaryAllowsStatus("pending")).toBe(false);
@@ -1659,7 +1710,7 @@ describe("pipelines", () => {
 
       const verify = new Database(legacyDbPath);
       const migrationCount = verify.prepare("SELECT COUNT(*) AS total FROM _migrations").get() as { total: number };
-      expect(migrationCount.total).toBe(20);
+      expect(migrationCount.total).toBe(21);
       verify.close();
 
       const pipelineId = migrated.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
@@ -2218,6 +2269,79 @@ describe("failed pipeline reopen", () => {
     expect(succeeded).toEqual(succeededBefore);
   });
 
+  test("reopenFailedPipeline clears decidedAt on the reopened row and its skipped suffix", () => {
+    const pipelineId = store.createPipeline({
+      definition: {
+        name: "reopen-decided-gates",
+        stages: [
+          { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+          { stageId: "gate", kind: "approval" },
+          { stageId: "gate-two", kind: "approval" },
+        ],
+      },
+    });
+    store.updateStage({ pipelineId, stageId: "plan", patch: { status: "succeeded" } });
+    const gate = loadPipelineOrThrow(store, pipelineId).stages.find((stage) => stage.stageId === "gate");
+    const gateTwo = loadPipelineOrThrow(store, pipelineId).stages.find((stage) => stage.stageId === "gate-two");
+    if (!gate || !gateTwo) throw new Error("gate stages should exist");
+    store.commitApprovalBoundary({ stageRecordId: gate.id });
+    store.commitApprovalDecision({ stageRecordId: gate.id, decision: "approved" });
+    store.commitApprovalBoundary({ stageRecordId: gateTwo.id });
+    store.commitApprovalDecision({ stageRecordId: gateTwo.id, decision: "approved" });
+
+    const decidedStages = loadPipelineOrThrow(store, pipelineId).stages;
+    expect(decidedStages.find((stage) => stage.id === gate.id)?.decidedAt).not.toBeNull();
+    expect(decidedStages.find((stage) => stage.id === gateTwo.id)?.decidedAt).not.toBeNull();
+
+    store.updateStage({ pipelineId, stageId: "gate", patch: { status: "failed" } });
+    store.updateStage({ pipelineId, stageId: "gate-two", patch: { status: "skipped" } });
+
+    // @mutate v2/src/persistence/state-store.ts "decided_at = NULL," -> "decided_at = decided_at,"
+    expect(store.reopenFailedPipeline({ pipelineId })).toEqual({ kind: "applied", stageRecordId: gate.id });
+
+    const after = loadPipelineOrThrow(store, pipelineId);
+    const reopenedGate = after.stages.find((stage) => stage.id === gate.id);
+    const reopenedGateTwo = after.stages.find((stage) => stage.id === gateTwo.id);
+    if (!reopenedGate || !reopenedGateTwo) throw new Error("reopened rows should exist");
+    expect(reopenedGate.status).toBe("pending");
+    expect(reopenedGate.decidedAt).toBeNull();
+    expect(reopenedGateTwo.status).toBe("pending");
+    expect(reopenedGateTwo.decidedAt).toBeNull();
+
+    const predecessorPipelineId = store.createPipeline({
+      definition: {
+        name: "reopen-decided-predecessor",
+        stages: [
+          { stageId: "gate", kind: "approval" },
+          { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+        ],
+      },
+    });
+    const predecessorGate = loadPipelineOrThrow(store, predecessorPipelineId).stages.find(
+      (stage) => stage.stageId === "gate",
+    );
+    if (!predecessorGate) throw new Error("predecessor gate should exist");
+    store.commitApprovalBoundary({ stageRecordId: predecessorGate.id });
+    store.commitApprovalDecision({ stageRecordId: predecessorGate.id, decision: "approved" });
+    const predecessorDecidedAt = loadPipelineOrThrow(store, predecessorPipelineId).stages.find(
+      (stage) => stage.id === predecessorGate.id,
+    )?.decidedAt;
+    store.updateStage({ pipelineId: predecessorPipelineId, stageId: "plan", patch: { status: "failed" } });
+    const predecessorPlanId = loadPipelineOrThrow(store, predecessorPipelineId).stages.find(
+      (stage) => stage.stageId === "plan",
+    )?.id;
+    if (!predecessorPlanId) throw new Error("predecessor plan stage should exist");
+
+    expect(store.reopenFailedPipeline({ pipelineId: predecessorPipelineId })).toEqual({
+      kind: "applied",
+      stageRecordId: predecessorPlanId,
+    });
+    expect(
+      loadPipelineOrThrow(store, predecessorPipelineId).stages.find((stage) => stage.id === predecessorGate.id)
+        ?.decidedAt,
+    ).toBe(predecessorDecidedAt);
+  });
+
   test("closing and reopening the store, including after restart reconciliation, retains the continuation point before reopen", async () => {
     const PRIOR_IDENTITY = "11111:1000000";
     const CURRENT_IDENTITY = "22222:2000000";
@@ -2377,6 +2501,7 @@ describe("failed pipeline reopen", () => {
       endedAt: null,
       artifact: null,
       failureDetail: null,
+      decidedAt: null,
     };
     const suffixStage: PipelineStageRecord = {
       id: "suffix-id",
@@ -2390,6 +2515,7 @@ describe("failed pipeline reopen", () => {
       endedAt: null,
       artifact: null,
       failureDetail: null,
+      decidedAt: null,
     };
 
     expect(reopenPredecessorAllowsStatus("succeeded")).toBe(true);
@@ -2430,6 +2556,7 @@ describe("failed pipeline reopen", () => {
       endedAt: null,
       artifact: null,
       failureDetail: null,
+      decidedAt: null,
     };
     const planDefault: PipelineStageRecord = {
       id: "plan-default",
@@ -2443,6 +2570,7 @@ describe("failed pipeline reopen", () => {
       endedAt: null,
       artifact: null,
       failureDetail: null,
+      decidedAt: null,
     };
     const planAlphaFailed: PipelineStageRecord = {
       id: "plan-alpha",
@@ -2456,6 +2584,7 @@ describe("failed pipeline reopen", () => {
       endedAt: 1,
       artifact: null,
       failureDetail: { message: "failed" },
+      decidedAt: null,
     };
     const planBetaSucceeded: PipelineStageRecord = {
       id: "plan-beta",
@@ -2469,6 +2598,7 @@ describe("failed pipeline reopen", () => {
       endedAt: 1,
       artifact: null,
       failureDetail: null,
+      decidedAt: null,
     };
     const implementAlphaSkipped: PipelineStageRecord = {
       id: "implement-alpha",
@@ -2482,6 +2612,7 @@ describe("failed pipeline reopen", () => {
       endedAt: null,
       artifact: null,
       failureDetail: null,
+      decidedAt: null,
     };
 
     expect(

@@ -146,6 +146,7 @@ function pipelineWithStages(
       endedAt: statuses[stage.stageId]?.endedAt ?? null,
       artifact: statuses[stage.stageId]?.artifact ?? null,
       failureDetail: statuses[stage.stageId]?.failureDetail ?? null,
+      decidedAt: statuses[stage.stageId]?.decidedAt ?? null,
     })),
   };
 }
@@ -755,6 +756,7 @@ function fanOutObservationPipeline(
         downstreamInputs: [...FAN_OUT_OBS_DOWNSTREAM],
       },
       failureDetail: null,
+      decidedAt: null,
     },
   ];
 
@@ -778,6 +780,7 @@ function fanOutObservationPipeline(
         endedAt: patch.endedAt ?? null,
         artifact: patch.artifact ?? null,
         failureDetail: patch.failureDetail ?? null,
+        decidedAt: patch.decidedAt ?? null,
       });
     }
   }

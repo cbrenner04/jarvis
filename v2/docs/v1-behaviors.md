@@ -583,6 +583,8 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
 
 ## TUI / observability
 
+- [v2 behavior change] The detail pane groups content into blank-line-separated `Pipeline`, `Stages`, selection-specific `Stage` / `Branch` / `Run`, `Workflow`, and retained steering-feedback sections. A section with no body paints neither its heading nor a separator. Detail fields whose values are `null`, `undefined`, or an empty string do not paint; falsy-but-present values such as `false` and `0` still paint. Sources: `v2/src/tui/tui-monitor-lines.ts`, `v2/docs/operator-runbook.md`
+
 - [v2 additive] `jarvis tui` is an interactive read-only run monitor over daemon
   IPC: prove `health` + `status`, poll `list` for run rows/liveness, preserve
   selection by `runId`, and quit with `q` or Ctrl-C. The ink shell is a split-pane

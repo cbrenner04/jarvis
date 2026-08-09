@@ -75,7 +75,13 @@ export type MonitorLineRow = {
   segments: readonly MonitorSegment[];
 };
 
+type DetailSection = {
+  heading?: string;
+  rows: readonly MonitorLineRow[];
+};
+
 const GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+const SECTION_GAP = " ";
 
 export const RUN_STATUS_TONES: Record<RunStatus, MonitorSegmentTone> = {
   "in-progress": "active",
@@ -478,10 +484,28 @@ function detailValue(value: unknown): string {
   return typeof value === "string" ? value : stableJson(value);
 }
 
+function sectionGapRows(index: number): MonitorLineRow[] {
+  return index === 0 ? [] : [row(untoned(SECTION_GAP))];
+}
+
+function joinDetailSections(sections: readonly DetailSection[]): MonitorLineRow[] {
+  const present = sections.filter((section) => section.rows.length > 0);
+  return present.flatMap((section, index) => [
+    ...sectionGapRows(index),
+    ...(section.heading === undefined ? [] : [row(untoned(section.heading))]),
+    ...section.rows,
+  ]);
+}
+
+function isEmptyDetailValue(value: unknown): boolean {
+  return value === undefined || value === null || value === "";
+}
+
 function detailRows(entries: readonly (readonly [label: string, value: unknown])[]): MonitorLineRow[] {
-  return entries.flatMap(([label, value]) =>
-    value === undefined ? [] : [row(untoned(`${label}: ${detailValue(value)}`))],
-  );
+  return entries.flatMap(([label, value]) => {
+    if (isEmptyDetailValue(value)) return [];
+    return [row(untoned(`${label}: ${detailValue(value)}`))];
+  });
 }
 
 function pipelineProjectRows(snapshot: PipelineSnapshot, runs: readonly DaemonListRunRow[]): MonitorLineRow[] {
@@ -504,95 +528,103 @@ function pipelineContextRows(
   pipeline: MonitorPipelineTreePipelineNode,
   runs: readonly DaemonListRunRow[],
   nowMs: number,
-): MonitorLineRow[] {
+): DetailSection[] {
   const snapshot = pipeline.snapshot;
   return [
-    ...detailRows([
-      ["pipelineId", snapshot.pipelineId],
-      ["name", snapshot.name],
-    ]),
-    ...pipelineProjectRows(snapshot, runs),
-    ...detailRows([
-      ["state", snapshot.state],
-      ["elapsed", formatElapsedWallClock(snapshot.createdAt, snapshot.finishedAtMs, nowMs)],
-      ["createdAt", snapshot.createdAt],
-      ["finishedAtMs", snapshot.finishedAtMs],
-      ["terminalAction", snapshot.terminalAction],
-      ["seedPath", snapshot.seedPath],
-      ["terminalPublicationSucceededAt", snapshot.terminalPublicationSucceededAt],
-      ["terminalPublicationFailure", snapshot.terminalPublicationFailure],
-    ]),
-    row(untoned("Stages")),
-    ...snapshot.stages.map((stage) =>
-      row(
-        untoned(
-          `stage: ${stage.stageId} branch=${stage.branchKey} status=${stage.status} elapsed=${formatElapsedWallClock(stage.startedAt, stage.endedAt, nowMs)}`,
+    {
+      heading: "Pipeline",
+      rows: [
+        ...detailRows([
+          ["pipelineId", snapshot.pipelineId],
+          ["name", snapshot.name],
+        ]),
+        ...pipelineProjectRows(snapshot, runs),
+        ...detailRows([
+          ["state", snapshot.state],
+          ["elapsed", formatElapsedWallClock(snapshot.createdAt, snapshot.finishedAtMs, nowMs)],
+          ["createdAt", snapshot.createdAt],
+          ["finishedAtMs", snapshot.finishedAtMs],
+          ["terminalAction", snapshot.terminalAction],
+          ["seedPath", snapshot.seedPath],
+          ["terminalPublicationSucceededAt", snapshot.terminalPublicationSucceededAt],
+          ["terminalPublicationFailure", snapshot.terminalPublicationFailure],
+        ]),
+      ],
+    },
+    {
+      heading: "Stages",
+      rows: snapshot.stages.map((stage) =>
+        row(
+          untoned(
+            `stage: ${stage.stageId} branch=${stage.branchKey} status=${stage.status} elapsed=${formatElapsedWallClock(stage.startedAt, stage.endedAt, nowMs)}`,
+          ),
         ),
       ),
-    ),
+    },
   ];
 }
 
-function stageDetailRows(stage: PipelineSnapshot["stages"][number] | undefined): MonitorLineRow[] {
+function stageDetailRows(stage: PipelineSnapshot["stages"][number] | undefined): DetailSection[] {
   if (stage === undefined) return [];
   return [
-    row(untoned("Stage")),
-    ...detailRows([
-      ["id", stage.id],
-      ["stageId", stage.stageId],
-      ["branch", stage.branchKey],
-      ["position", stage.position],
-      ["status", stage.status],
-      ["workflowInvocationId", stage.workflowInvocationId],
-      ["artifact", stage.artifact],
-      ["failureDetail", stage.failureDetail],
-      ["startedAt", stage.startedAt],
-      ["endedAt", stage.endedAt],
-    ]),
+    {
+      heading: "Stage",
+      rows: detailRows([
+        ["id", stage.id],
+        ["stageId", stage.stageId],
+        ["branch", stage.branchKey],
+        ["position", stage.position],
+        ["status", stage.status],
+        ["workflowInvocationId", stage.workflowInvocationId],
+        ["artifact", stage.artifact],
+        ["failureDetail", stage.failureDetail],
+        ["startedAt", stage.startedAt],
+        ["endedAt", stage.endedAt],
+      ]),
+    },
   ];
 }
 
-function selectedRunDetailRows(run: DaemonListRunRow): MonitorLineRow[] {
-  const lines = [
-    row(untoned("Run")),
-    ...detailRows([
-      ["runId", run.runId],
-      ["project", run.project],
-      ["branch", run.branch],
-      ["status", run.status],
-      ["isLive", run.isLive],
-      ["createdAt", run.createdAt],
-      ["finishedAtMs", run.finishedAtMs],
-      ["stepId", run.stepId],
-      ["workflowInvocationId", run.workflow?.invocationId],
-    ]),
+function selectedRunDetailRows(run: DaemonListRunRow): DetailSection[] {
+  const sections: DetailSection[] = [
+    {
+      heading: "Run",
+      rows: detailRows([
+        ["runId", run.runId],
+        ["project", run.project],
+        ["branch", run.branch],
+        ["status", run.status],
+        ["isLive", run.isLive],
+        ["createdAt", run.createdAt],
+        ["finishedAtMs", run.finishedAtMs],
+        ["stepId", run.stepId],
+        ["workflowInvocationId", run.workflow?.invocationId],
+        ["loopOutcomeKind", run.loopOutcomeKind],
+        ["iterationsConsumed", run.iterationsConsumed],
+        ["resumable", run.resumable],
+        ["error", run.error],
+        ["reviewPasses", run.reviewPasses],
+        ["reviewBehavior", run.reviewBehavior],
+        ["worktreePath", run.worktreePath],
+        ["prNumber", run.prNumber],
+        ["prUrl", run.prUrl],
+      ]),
+    },
   ];
-  if (run.workflow !== undefined) {
-    lines.push(row(untoned("Workflow")));
+  if (run.workflow !== undefined && run.workflow.steps.length > 0) {
+    const rows: MonitorLineRow[] = [];
     for (const step of run.workflow.steps) {
       const marker = step.status === "in_progress" ? ">" : " ";
       const outcomeSuffix = step.terminalOutcome !== undefined ? ` ${step.terminalOutcome}` : "";
-      lines.push(
+      rows.push(
         row(
           untoned(`${marker} ${step.stepId} ${step.role} ${step.status}${outcomeSuffix} attempts=${step.attemptCount}`),
         ),
       );
     }
+    sections.push({ heading: "Workflow", rows });
   }
-  lines.push(
-    ...detailRows([
-      ["loopOutcomeKind", run.loopOutcomeKind],
-      ["iterationsConsumed", run.iterationsConsumed],
-      ["resumable", run.resumable],
-      ["error", run.error],
-      ["reviewPasses", run.reviewPasses],
-      ["reviewBehavior", run.reviewBehavior],
-      ["worktreePath", run.worktreePath],
-      ["prNumber", run.prNumber],
-      ["prUrl", run.prUrl],
-    ]),
-  );
-  return lines;
+  return sections;
 }
 
 function selectedAncestorPipeline(
@@ -615,7 +647,7 @@ const stageRecordForTreeRow = (
 function unwrappedRightPaneSegmentRows(state: TuiMonitorState, layout: ShellLayout, nowMs: number): MonitorLineRow[] {
   const selected = state.selectedNodeId;
   if (selected === null) {
-    return [row(untoned("No run selected."))];
+    return joinDetailSections([{ rows: [row(untoned("No run selected."))] }]);
   }
 
   const { fullTreeRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
@@ -623,30 +655,33 @@ function unwrappedRightPaneSegmentRows(state: TuiMonitorState, layout: ShellLayo
   const treeRow = fullTreeRows.find((entry) => entry.id === selected);
 
   if (treeRow?.kind === "pipeline") {
-    return pipelineContextRows(treeRow, state.runs, nowMs);
+    return joinDetailSections(pipelineContextRows(treeRow, state.runs, nowMs));
   }
 
   const pipeline = selectedAncestorPipeline(fullTreeRows, treeRow);
-  const pipelineLines = pipeline === undefined ? [] : pipelineContextRows(pipeline, state.runs, nowMs);
+  const pipelineSections = pipeline === undefined ? [] : pipelineContextRows(pipeline, state.runs, nowMs);
 
   if (treeRow?.kind === "stage") {
-    return [...pipelineLines, ...stageDetailRows(stageRecordForTreeRow(pipeline, treeRow))];
+    return joinDetailSections([...pipelineSections, ...stageDetailRows(stageRecordForTreeRow(pipeline, treeRow))]);
   }
 
   if (treeRow?.kind === "branch") {
-    return [...pipelineLines, row(untoned("Branch")), ...detailRows([["branch", treeRow.branchKey]])];
+    return joinDetailSections([
+      ...pipelineSections,
+      { heading: "Branch", rows: detailRows([["branch", treeRow.branchKey]]) },
+    ]);
   }
 
   const selectedRunId = treeRow?.kind === "run" || treeRow?.kind === "adhoc" ? treeRow.id : undefined;
   const selectedRun = state.runs.find((run) => run.runId === selectedRunId);
   if (selectedRun === undefined) {
-    return [row(untoned("No run selected."))];
+    return joinDetailSections([{ rows: [row(untoned("No run selected."))] }]);
   }
-  const lines = [...pipelineLines, ...selectedRunDetailRows(selectedRun)];
+  const sections = [...pipelineSections, ...selectedRunDetailRows(selectedRun)];
   if (state.steeringFeedback !== null) {
-    lines.push(row(untoned(state.steeringFeedback)));
+    sections.push({ rows: [row(untoned(state.steeringFeedback))] });
   }
-  return lines;
+  return joinDetailSections(sections);
 }
 
 /** Pipeline, stage, selected-run, and steering detail for the right pane. */

@@ -1,6 +1,7 @@
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { isPipelineTerminal, type PipelineDerivedState } from "../daemon/pipeline-execution.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
+import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
 import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
 import {
   buildWorkflowTableRows,
@@ -29,6 +30,7 @@ export type MonitorPipelineTreeStageNode = {
   id: string;
   depth: number;
   stageId: string;
+  label: string;
   branchKey: string;
   status: string;
   startedAt: number | null;
@@ -102,6 +104,29 @@ function isElidedPlaceholderStage(stage: PipelineSnapshot["stages"][number], spl
   return stage.position >= splitPosition && stage.branchKey === MONITOR_TREE_DEFAULT_BRANCH_KEY;
 }
 
+/** stageId -> declared kind from the pipeline's registry definition; empty when the name is unregistered. */
+function resolveStageKinds(name: string): Map<string, string> {
+  const resolved = getPipelineDefinition(name);
+  if (!resolved.ok) return new Map();
+  return new Map(resolved.definition.stages.map((stage) => [stage.stageId, stage.kind]));
+}
+
+/** An approval-gate record elides once decided or bypassed; only `awaiting`/`rejected` stay visible. */
+function isElidedGateStage(kind: string | undefined, status: string): boolean {
+  if (kind !== "approval") return false;
+  // Mutation checkpoint: eliding no gate here must turn gate elision RED.
+  return status !== "awaiting" && status !== "rejected";
+}
+
+/** ` → N intents` when the artifact records a fan-out split, else empty. */
+function intentYieldSuffix(artifact: unknown): string {
+  const record = artifact as { downstreamInputs?: unknown } | null | undefined;
+  const inputs = Array.isArray(record?.downstreamInputs) ? record.downstreamInputs : [];
+  // Mutation checkpoint: suffixing artifact-less stages here must turn intent-yield-suffix RED.
+  if (inputs.length === 0) return "";
+  return ` → ${inputs.length} intents`;
+}
+
 /** Strip the longest leading `-`-segment run shared by every sibling; a lone or divergent key keeps its full text. */
 export function strippedBranchLabels(branchKeys: readonly string[]): string[] {
   // Mutation checkpoint: stripping a lone branch with no sibling to share a prefix with must turn label-guard RED.
@@ -120,7 +145,7 @@ export function strippedBranchLabels(branchKeys: readonly string[]): string[] {
 const SATISFIED_BRANCH_STAGE_STATUSES = new Set(["succeeded", "approved", "skipped"]);
 
 /** A branch summarizes as its first unsatisfied post-split stage, or its last stage once every stage settles. */
-function deriveBranchSummary(records: readonly PipelineSnapshot["stages"][number][]): {
+function deriveBranchSummary(records: readonly { stageId: string; status: string }[]): {
   stageId: string;
   status: string;
 } {
@@ -168,7 +193,7 @@ export function buildStageMonitorTreeRow(
     {
       marker: node.id === selectedNodeId ? ">" : " ",
       indent: "  ",
-      label: node.stageId,
+      label: node.label,
       branch: stageBranchCellValue(node.branchKey),
       state: node.status,
       // Mutation checkpoint: passing null for startedAt when unset must turn empty-stage-elapsed RED.
@@ -244,14 +269,15 @@ function buildStageNodes(
   builderRuns: readonly DaemonListRunRow[],
 ): { stages: MonitorPipelineTreeStageNode[]; branches: MonitorPipelineTreeBranchNode[] } {
   const splitPosition = fanOutSplitPosition(snapshot);
+  const stageKinds = resolveStageKinds(snapshot.name);
   const claimedInPipeline = new Set<string>();
   const stages: MonitorPipelineTreeStageNode[] = [];
   const branchStagesByKey = new Map<string, MonitorPipelineTreeStageNode[]>();
-  const branchRecordsByKey = new Map<string, PipelineSnapshot["stages"][number][]>();
   const branchKeyOrder: string[] = [];
 
   for (const stage of snapshot.stages) {
     if (isElidedPlaceholderStage(stage, splitPosition)) continue;
+    if (isElidedGateStage(stageKinds.get(stage.stageId), stage.status)) continue;
 
     const isBranched = splitPosition !== null && stage.position >= splitPosition;
     const stageDepth = isBranched ? 2 : 1;
@@ -269,6 +295,7 @@ function buildStageNodes(
       id: monitorPipelineStageNodeId(snapshot.pipelineId, stage.stageId, stage.branchKey),
       depth: stageDepth,
       stageId: stage.stageId,
+      label: `${stage.stageId}${intentYieldSuffix(stage.artifact)}`,
       branchKey: stage.branchKey,
       status: stage.status,
       startedAt: stage.startedAt,
@@ -283,16 +310,14 @@ function buildStageNodes(
 
     if (!branchStagesByKey.has(stage.branchKey)) {
       branchStagesByKey.set(stage.branchKey, []);
-      branchRecordsByKey.set(stage.branchKey, []);
       branchKeyOrder.push(stage.branchKey);
     }
     branchStagesByKey.get(stage.branchKey)?.push(stageNode);
-    branchRecordsByKey.get(stage.branchKey)?.push(stage);
   }
 
   const strippedLabels = strippedBranchLabels(branchKeyOrder);
   const branches: MonitorPipelineTreeBranchNode[] = branchKeyOrder.map((branchKey, index) => {
-    const summary = deriveBranchSummary(branchRecordsByKey.get(branchKey) ?? []);
+    const summary = deriveBranchSummary(branchStagesByKey.get(branchKey) ?? []);
     return {
       kind: "branch",
       id: monitorPipelineBranchNodeId(snapshot.pipelineId, branchKey),

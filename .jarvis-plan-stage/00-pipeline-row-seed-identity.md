@@ -31,7 +31,7 @@ Authoritative for implement runs: acceptance criteria, documentation updates, an
   - Paint `label: pipelineRowLabel(node.snapshot),` in `buildPipelineMonitorTreeRow` in place of `label: node.snapshot.name,` — that line is the keystone-mutation anchor and must stay on one physical line.
 - Tests — add to `v2/src/tui/tui-monitor-pipeline-tree.test.ts`:
   - `two pipelines of one definition label their rows with distinct seed basenames` — two snapshots with `name: "full-review"` and `seedPath` `v2/spec/seeds/tui-work-row-labels.md` / `v2/spec/seeds/tui-attention-segment.md`; assert the painted `label` cells are `tui-work-row-labels` and `tui-attention-segment` and that they differ. Carries the keystone `// @mutate`.
-  - `a pipeline with no recorded seed path labels its row with the definition name and short pipeline id` — one snapshot with `name: "full-review"`, no `seedPath`, and a UUID-shaped `pipelineId`; assert the painted `label` cell is `full-review ` followed by that id's first eight characters. Carries the slug-guard `// @mutate`.
+  - `a pipeline with no recorded seed path labels its row with the definition name and short pipeline id` — one snapshot with `name: "full-review"`, no `seedPath`, and a UUID-shaped `pipelineId`; assert the painted `label` cell is `full-review` then a space then that id's first eight characters. Carries the slug-guard `// @mutate`.
 - Update `v2/docs/operator-runbook.md` and `v2/docs/v1-behaviors.md` per Documentation updates.
 - Run `bun run typecheck`, `bun run check`, `bun run test:v2`, `bun run test:integration:v2`.
 

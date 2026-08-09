@@ -353,6 +353,8 @@ export type PipelineStageRecord = {
   endedAt: number | null;
   artifact: unknown | null;
   failureDetail: unknown | null;
+  /** Unix epoch ms of the approval decision; `null` until decided. */
+  decidedAt: number | null;
 };
 
 /**
@@ -618,7 +620,7 @@ const PIPELINE_COLUMNS = `id, name, created_at AS createdAt, owner_identity AS o
 
 const STAGE_COLUMNS = `id, pipeline_id AS pipelineId, stage_id AS stageId, branch_key AS branchKey, position, status,
   workflow_invocation_id AS workflowInvocationId, started_at AS startedAt, ended_at AS endedAt,
-  artifact AS artifactJson, failure_detail AS failureDetailJson`;
+  artifact AS artifactJson, failure_detail AS failureDetailJson, decided_at AS decidedAt`;
 
 const INSERT_PIPELINE_STAGE_SQL = `
   INSERT INTO pipeline_stages (
@@ -763,6 +765,7 @@ const SCHEMA_MIGRATIONS = [
     `,
   },
   { id: "023-run-finished-at", up: "ALTER TABLE runs ADD COLUMN finished_at INTEGER" },
+  { id: "024-pipeline-stage-decided-at", up: "ALTER TABLE pipeline_stages ADD COLUMN decided_at INTEGER" },
 ] as const;
 
 const ORPHAN_STATUSES = "'queued', 'in-progress', 'paused', 'budget-soft-stopped'";
@@ -1267,6 +1270,7 @@ class StateStoreImpl implements StateStore {
       requiredStatus: "pending",
       refusalReason: "status_not_pending",
       nextStatus: "awaiting",
+      decidedAt: null,
     });
   }
 
@@ -1279,6 +1283,7 @@ class StateStoreImpl implements StateStore {
       requiredStatus: "awaiting",
       refusalReason: "status_not_awaiting",
       nextStatus: args.decision,
+      decidedAt: Date.now(),
     });
   }
 
@@ -1408,6 +1413,7 @@ class StateStoreImpl implements StateStore {
             started_at = NULL,
             ended_at = NULL,
             artifact = NULL,
+            decided_at = NULL,
             failure_detail = NULL
         WHERE id = ? AND status = ?
       `);
@@ -1475,6 +1481,7 @@ class StateStoreImpl implements StateStore {
     requiredStatus: string;
     refusalReason: Extract<ApprovalRefusalReason, "status_not_pending" | "status_not_awaiting">;
     nextStatus: string;
+    decidedAt: number | null;
   }): ApprovalOperationOutcome {
     const stage = this.loadStageById(args.stageRecordId);
     if (stage === null) {
@@ -1493,8 +1500,8 @@ class StateStoreImpl implements StateStore {
     }
 
     const result = this.db
-      .prepare(`UPDATE pipeline_stages SET status = ? WHERE id = ? AND status = ?`)
-      .run(args.nextStatus, args.stageRecordId, args.requiredStatus);
+      .prepare(`UPDATE pipeline_stages SET status = ?, decided_at = ? WHERE id = ? AND status = ?`)
+      .run(args.nextStatus, args.decidedAt, args.stageRecordId, args.requiredStatus);
     if (result.changes === 0) {
       return { kind: "refused", stageRecordId: args.stageRecordId, reason: args.refusalReason };
     }

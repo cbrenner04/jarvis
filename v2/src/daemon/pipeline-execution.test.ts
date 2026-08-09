@@ -152,6 +152,7 @@ function fakeStore(
     endedAt: null,
     artifact: null,
     failureDetail: null,
+    decidedAt: null,
   }));
 
   let ownerIdentity = options.ownerIdentity ?? options.currentIdentity ?? CURRENT_OWNER;
@@ -209,6 +210,7 @@ function fakeStore(
         endedAt: null,
         artifact: null,
         failureDetail: null,
+        decidedAt: null,
       });
       return id;
     },
@@ -1524,6 +1526,7 @@ describe("derivePipelineState", () => {
         endedAt: null,
         artifact: null,
         failureDetail: null,
+        decidedAt: null,
       })),
     };
   }
@@ -1563,6 +1566,7 @@ describe("derivePipelineState", () => {
         endedAt: null,
         artifact: null,
         failureDetail: null,
+        decidedAt: null,
       })),
     };
     expect(derivePipelineState(pipeline)).toBe("awaiting-approval");
@@ -1599,6 +1603,7 @@ describe("derivePipelineState", () => {
         endedAt: null,
         artifact: null,
         failureDetail: null,
+        decidedAt: null,
       })),
     };
     expect(derivePipelineState(pipeline)).toBe("pending");
@@ -1634,6 +1639,7 @@ describe("derivePipelineState", () => {
         endedAt: null,
         artifact: null,
         failureDetail: null,
+        decidedAt: null,
       })),
     };
     expect(derivePipelineState(pipeline)).toBe("awaiting-approval");
@@ -1669,6 +1675,7 @@ describe("derivePipelineState", () => {
         endedAt: null,
         artifact: null,
         failureDetail: null,
+        decidedAt: null,
       })),
     };
     expect(derivePipelineState(pipeline)).toBe("failed");
@@ -1718,6 +1725,7 @@ describe("derivePipelineState", () => {
           endedAt: null,
           artifact: null,
           failureDetail: null,
+          decidedAt: null,
         },
         {
           id: "row-gate",
@@ -1731,6 +1739,7 @@ describe("derivePipelineState", () => {
           endedAt: null,
           artifact: null,
           failureDetail: null,
+          decidedAt: null,
         },
         {
           id: "row-plan",
@@ -1744,6 +1753,7 @@ describe("derivePipelineState", () => {
           endedAt: null,
           artifact: null,
           failureDetail: null,
+          decidedAt: null,
         },
       ],
     };
@@ -1781,6 +1791,7 @@ describe("derivePipelineState", () => {
         endedAt: null,
         artifact: null,
         failureDetail: null,
+        decidedAt: null,
       })),
     };
     expect(derivePipelineState(pipeline)).toBe("rejected");
@@ -1821,6 +1832,7 @@ describe("derivePipelineState", () => {
           endedAt: null,
           artifact: null,
           failureDetail: null,
+          decidedAt: null,
         },
       ],
     };
@@ -2807,6 +2819,7 @@ function fanOutSuffixRowSeedPipeline(
         downstreamInputs: [...FAN_OUT_DOWNSTREAM],
       },
       failureDetail: null,
+      decidedAt: null,
     },
   ];
 
@@ -2828,6 +2841,7 @@ function fanOutSuffixRowSeedPipeline(
         endedAt: patch.endedAt ?? null,
         artifact: patch.artifact ?? null,
         failureDetail: patch.failureDetail ?? null,
+        decidedAt: patch.decidedAt ?? null,
       });
     }
   }

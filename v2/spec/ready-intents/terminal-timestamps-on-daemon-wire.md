@@ -34,7 +34,7 @@ Terminal runs and stages can reach the wire with no finish time. `list` omits `f
 
 ## Prerequisites
 
-- Fan-out order: lands after `durable-terminal-timestamps`.
+- Predecessor: `terminal-timestamp-persistence` (landed): the state store records run finish, terminal-stage `endedAt`, and approval `decidedAt`.
 - Every durable transition to a terminal run status records a run finish timestamp.
 - Every durable stage write landing a terminal status persists `endedAt`, including `skipped`.
 - Approval decisions persist `decidedAt` on the stage row and it is exposed on loaded stage records.

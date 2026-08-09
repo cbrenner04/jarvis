@@ -597,6 +597,19 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
   (`finishedAtMs`, `endedAt`), not from terminal status alone; a local display tick
   advances active elapsed without extra `list` or `pipeline_list` RPC. Sources:
   `v2/src/tui/tui-entry.tsx`, `v2/docs/write-behavior.md`
+- [v2 additive] The right pane's detail rows are composed as `{ heading?, rows }`
+  sections (`Pipeline`, `Stages`, `Stage`/`Branch`/`Run`, `Workflow`, and a
+  headingless retained-steering-feedback section) joined by one helper: every
+  section after the first is preceded by a single blank row, and a section with
+  zero rows paints neither its heading nor a blank row (a stage-less pipeline
+  shows no `Stages` heading; a workflow-less run shows no `Workflow` heading).
+  Within a section, a field whose value is `undefined`, `null`, or `""` paints no
+  row; `false`, `0`, `[]`, and `{}` still paint — a truthiness check would wrongly
+  drop `isLive: false`, `prNumber: 0`, and `iterationsConsumed: 0`, the rows an
+  operator reads to tell "never published" from "not reported". Suppression
+  applies to individual detail-row fields only; composed rows (the `Stages`
+  roll-up line, a `Workflow` step line) keep their existing text unconditionally.
+  Sources: `v2/src/tui/tui-monitor-lines.ts`
 - [v2-only] The TUI paints a state-driven, fixed four-line dock: active-pipeline
   status with invoking profile/socket key, refresh and RPC/result feedback; prompted
   input with a visible cursor; a fixed continuation row; and selection/focus-specific

@@ -200,6 +200,7 @@ const MONITOR_LINES_FIXTURE_PIN = [
   "status: in-progress",
   "isLive: true",
   "createdAt: 0",
+  " ",
   "daemon_error: paused",
   "Press up/down or j to select; e expands pipeline/stage; q or Ctrl-C to quit.",
 ] as const;
@@ -804,6 +805,7 @@ describe("monitorRightPaneSegmentRows", () => {
   const secondDetailedRun = workflowRun("run-detail-b", "completed", "inv-detail-b", { isLive: false });
   const detailedRuns = [detailedRun, secondDetailedRun];
   const pipelineBlock = [
+    "Pipeline",
     `pipelineId: ${PIPELINE_ID}`,
     "name: feature-pipeline",
     "project: demo",
@@ -814,7 +816,7 @@ describe("monitorRightPaneSegmentRows", () => {
     "terminalAction: ready",
     "seedPath: seeds/intent.md",
     `terminalPublicationSucceededAt: ${pipelineFinishedAt}`,
-    "terminalPublicationFailure: null",
+    " ",
     "Stages",
     "stage: implement branch=default status=succeeded elapsed=1m 0s",
     "stage: implement branch=default status=succeeded elapsed=1m 0s",
@@ -862,6 +864,7 @@ describe("monitorRightPaneSegmentRows", () => {
 
     expect(monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow)).toEqual([
       ...pipelineBlock,
+      " ",
       "Stage",
       "id: record-z",
       "stageId: implement",
@@ -873,6 +876,53 @@ describe("monitorRightPaneSegmentRows", () => {
       `startedAt: ${stageStartedAt}`,
       `endedAt: ${pipelineFinishedAt}`,
     ]);
+  });
+
+  test("pipeline selection separates identity, stage roll-up, and stage detail with blank rows", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "return index === 0 ? [] : [row(untoned(SECTION_GAP))];" -> "return [];"
+    const stageNodeId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
+    const state = monitorState({
+      runs: detailedRuns,
+      selectedNodeId: stageNodeId,
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [detailedSnapshot] } },
+    });
+
+    const lines = monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow);
+
+    expect(lines).toEqual([
+      ...pipelineBlock,
+      " ",
+      "Stage",
+      "id: record-z",
+      "stageId: implement",
+      "branch: default",
+      "position: 9",
+      "status: succeeded",
+      "workflowInvocationId: inv-detail-a",
+      'artifact: {"a":{"a":"","z":false},"z":1}',
+      `startedAt: ${stageStartedAt}`,
+      `endedAt: ${pipelineFinishedAt}`,
+    ]);
+    expect(lines[0]).toBe("Pipeline");
+    expect(lines.at(-1)).not.toBe(" ");
+    const gapIndexes = lines.flatMap((line, index) => (line === " " ? [index] : []));
+    expect(gapIndexes).toEqual([lines.indexOf("Stages") - 1, lines.indexOf("Stage") - 1]);
+    expect(lines.every((line, index) => !(line === " " && lines[index + 1] === " "))).toBe(true);
+  });
+
+  test("a stage-less pipeline renders no Stages heading", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "const present = sections.filter((section) => section.rows.length > 0);" -> "const present = [...sections];"
+    const snapshot = pipelineSnapshot({ pipelineId: "pipe-stageless", stages: [] });
+    const state = monitorState({
+      selectedNodeId: "pipe-stageless",
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
+    });
+
+    const lines = monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow);
+
+    expect(lines).not.toContain("Stages");
+    expect(lines).not.toContain(" ");
+    expect(lines[0]).toBe("Pipeline");
   });
 
   test("stage detail under a branch is that branch's own record", () => {
@@ -923,10 +973,10 @@ describe("monitorRightPaneSegmentRows", () => {
   test("stage artifact and failure values preserve JSON omission and falsy semantics", () => {
     const cases: ReadonlyArray<readonly [unknown, string | undefined]> = [
       [undefined, undefined],
-      [null, "null"],
+      [null, undefined],
       [false, "false"],
       [0, "0"],
-      ["", ""],
+      ["", undefined],
       ["plain", "plain"],
       [{ z: [{ y: 2, a: 1 }], a: false }, '{"a":false,"z":[{"a":1,"y":2}]}'],
     ];
@@ -1060,6 +1110,7 @@ describe("monitorRightPaneSegmentRows", () => {
 
     expect(lines).toEqual([
       ...singleStageBlock,
+      " ",
       "Run",
       "runId: run-detail-a",
       "project: demo",
@@ -1080,9 +1131,8 @@ describe("monitorRightPaneSegmentRows", () => {
       'd","retryable":false}',
       "reviewPasses: 0",
       "reviewBehavior: light",
-      "worktreePath: ",
       "prNumber: 0",
-      "prUrl: ",
+      " ",
       "daemon_error: retained steering",
     ]);
     expect(lines.some((line) => line.includes("conflicting"))).toBe(false);
@@ -1092,7 +1142,8 @@ describe("monitorRightPaneSegmentRows", () => {
     expect(lines).not.toContain("resumable: true");
   });
 
-  test("unattributed run detail preserves null and omits only undefined fields", () => {
+  test("unattributed run detail omits null and empty-string fields", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (isEmptyDetailValue(value)) return [];" -> "if (false) return [];"
     const selectedRun: DaemonListRunRow = {
       runId: "run-unattributed",
       project: "",
@@ -1116,23 +1167,43 @@ describe("monitorRightPaneSegmentRows", () => {
     expect(lines).toEqual([
       "Run",
       "runId: run-unattributed",
-      "project: ",
-      "branch: ",
       "status: paused",
       "isLive: false",
       "createdAt: 0",
       "iterationsConsumed: 0",
       "resumable: false",
-      "error: null",
       "reviewPasses: 0",
-      "worktreePath: ",
       "prNumber: 0",
-      "prUrl: ",
     ]);
     expect(lines.some((line) => line.startsWith("pipelineId:"))).toBe(false);
     expect(lines).not.toContain("Stages");
     expect(lines).not.toContain("Outcome");
     expect(lines.some((line) => line.startsWith("runStatus:"))).toBe(false);
+  });
+
+  test("detail rows keep falsy-but-present values", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "return value === undefined || value === null || value === \"\";" -> "return !value;"
+    const selectedRun: DaemonListRunRow = {
+      runId: "run-falsy",
+      project: "demo",
+      branch: "falsy",
+      status: "paused",
+      isLive: false,
+      createdAt: 0,
+      iterationsConsumed: 0,
+      resumable: false,
+      prNumber: 0,
+    };
+    const lines = monitorRightPaneSegmentRows(
+      monitorState({ runs: [selectedRun], selectedNodeId: selectedRun.runId }),
+      TREE_NOW_MS,
+    ).map(joinMonitorRow);
+
+    expect(lines).toContain("isLive: false");
+    expect(lines).toContain("createdAt: 0");
+    expect(lines).toContain("iterationsConsumed: 0");
+    expect(lines).toContain("resumable: false");
+    expect(lines).toContain("prNumber: 0");
   });
 
   test("ad-hoc run detail omits pipeline context when a pipeline row precedes it", () => {
@@ -1169,7 +1240,8 @@ describe("monitorRightPaneSegmentRows", () => {
     );
 
     expect(lines).not.toContain("No run selected.");
-    expect(lines.slice(0, 4)).toEqual([
+    expect(lines.slice(0, 5)).toEqual([
+      "Pipeline",
       `pipelineId: ${offPanePipelineId}`,
       "name: pipeline-0",
       "project: demo",

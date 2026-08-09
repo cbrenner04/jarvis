@@ -2,12 +2,7 @@ import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { derivePipelineBoundary, type PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import type { PipelineStageArtifact } from "../daemon/pipeline-stage-dispatch.ts";
 import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
-import {
-  isTerminalRunStatus,
-  type Pipeline,
-  type PipelineStageRecord,
-  type RunStatus,
-} from "../persistence/state-store.ts";
+import { isTerminalRunStatus, type RunStatus } from "../persistence/state-store.ts";
 import type { PipelineListResult } from "./tui-daemon-client.ts";
 import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
 import {
@@ -234,27 +229,23 @@ const PIPELINE_OBSERVATION_BUCKET_PRECEDENCE: Record<PipelineObservationBucket, 
   awaitingGate: 3,
 };
 
-function snapshotPipeline(snapshot: PipelineSnapshot): (Pipeline & { stages: PipelineStageRecord[] }) | null {
-  const resolved = getPipelineDefinition(snapshot.name);
-  if (!resolved.ok) return null;
-  return {
-    id: snapshot.pipelineId,
-    name: snapshot.name,
-    createdAt: snapshot.createdAt,
-    ownerIdentity: null,
-    status: snapshot.state === "interrupted" ? "interrupted" : "active",
-    definition: resolved.definition,
-    context: null,
-    terminalPublicationFailure: snapshot.terminalPublicationFailure,
-    terminalPublicationSucceededAt: snapshot.terminalPublicationSucceededAt,
-    stages: snapshot.stages.map((stage) => ({ ...stage, pipelineId: snapshot.pipelineId })),
-  };
-}
-
 function snapshotHasReachableUndecidedGate(snapshot: PipelineSnapshot): boolean {
-  const pipeline = snapshotPipeline(snapshot);
-  const boundary = pipeline === null ? null : derivePipelineBoundary(pipeline);
-  return boundary?.kind === "awaiting-approval";
+  const resolved = getPipelineDefinition(snapshot.name);
+  if (!resolved.ok) return false;
+  return (
+    derivePipelineBoundary({
+      id: snapshot.pipelineId,
+      name: snapshot.name,
+      createdAt: snapshot.createdAt,
+      ownerIdentity: null,
+      status: snapshot.state === "interrupted" ? "interrupted" : "active",
+      definition: resolved.definition,
+      context: null,
+      terminalPublicationFailure: snapshot.terminalPublicationFailure,
+      terminalPublicationSucceededAt: snapshot.terminalPublicationSucceededAt,
+      stages: snapshot.stages.map((stage) => ({ ...stage, pipelineId: snapshot.pipelineId })),
+    })?.kind === "awaiting-approval"
+  );
 }
 
 function classifyPipelineObservation(snapshot: PipelineSnapshot): PipelineObservationBucket {

@@ -12,6 +12,7 @@ import {
   RUN_STATUS_TONES,
 } from "./tui-monitor-lines.ts";
 import {
+  buildBranchMonitorTreeRow,
   buildPipelineMonitorTreeRow,
   buildStageMonitorTreeRow,
   type MonitorPipelineTreeDisplayNode,
@@ -130,6 +131,14 @@ function renderTreeRow(
     case "stage":
       return renderPrebuiltTreeRow(
         buildStageMonitorTreeRow(treeRow, selectedNodeId, leftPaneWidth, nowMs),
+        leftPaneWidth,
+        Text,
+        rowKey,
+        RowBox,
+      );
+    case "branch":
+      return renderPrebuiltTreeRow(
+        buildBranchMonitorTreeRow(treeRow, selectedNodeId, leftPaneWidth),
         leftPaneWidth,
         Text,
         rowKey,

@@ -5,9 +5,11 @@ import type { PipelineListResult } from "./tui-daemon-client.ts";
 import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
 import {
   buildMonitorPipelineTree,
+  buildMonitorPipelineTreeJoin,
+  isExpandablePipelineNodeId,
   type MonitorPipelineTreeDisplayNode,
   type MonitorPipelineTreePipelineNode,
-  monitorPipelineStageNodeId,
+  type MonitorPipelineTreeStageNode,
 } from "./tui-monitor-pipeline-tree.ts";
 import type { TuiMonitorState } from "./tui-monitor-types.ts";
 import {
@@ -331,14 +333,11 @@ function paintDockInputRows(atoms: readonly DockInputAtom[], columns: number): [
 
 function dockHintLine(state: TuiMonitorState): string {
   if ((state.focus ?? "tree") === "command") return "Esc tree · Enter submit";
-  const expandable = mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath).some(
-    (snapshot) =>
-      snapshot.pipelineId === state.selectedNodeId ||
-      snapshot.stages.some(
-        (stage) =>
-          monitorPipelineStageNodeId(snapshot.pipelineId, stage.stageId, stage.branchKey) === state.selectedNodeId,
-      ),
+  const { pipelineNodes } = buildMonitorPipelineTreeJoin(
+    mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath),
+    state.runs,
   );
+  const expandable = state.selectedNodeId !== null && isExpandablePipelineNodeId(pipelineNodes, state.selectedNodeId);
   const selectedRun = state.runs.find((run) => run.runId === state.selectedNodeId);
   const killable =
     selectedRun?.isLive === true &&
@@ -607,6 +606,12 @@ function selectedAncestorPipeline(
     .findLast((entry): entry is MonitorPipelineTreePipelineNode => entry.kind === "pipeline");
 }
 
+const stageRecordForTreeRow = (
+  pipeline: MonitorPipelineTreePipelineNode | undefined,
+  treeRow: MonitorPipelineTreeStageNode,
+): PipelineSnapshot["stages"][number] | undefined =>
+  pipeline?.snapshot.stages.find((stage) => stage.stageId === treeRow.stageId && stage.branchKey === treeRow.branchKey);
+
 function unwrappedRightPaneSegmentRows(state: TuiMonitorState, layout: ShellLayout, nowMs: number): MonitorLineRow[] {
   const selected = state.selectedNodeId;
   if (selected === null) {
@@ -625,8 +630,11 @@ function unwrappedRightPaneSegmentRows(state: TuiMonitorState, layout: ShellLayo
   const pipelineLines = pipeline === undefined ? [] : pipelineContextRows(pipeline, state.runs, nowMs);
 
   if (treeRow?.kind === "stage") {
-    const stage = pipeline?.snapshot.stages[pipeline.stages.indexOf(treeRow)];
-    return [...pipelineLines, ...stageDetailRows(stage)];
+    return [...pipelineLines, ...stageDetailRows(stageRecordForTreeRow(pipeline, treeRow))];
+  }
+
+  if (treeRow?.kind === "branch") {
+    return [...pipelineLines, row(untoned("Branch")), ...detailRows([["branch", treeRow.branchKey]])];
   }
 
   const selectedRunId = treeRow?.kind === "run" || treeRow?.kind === "adhoc" ? treeRow.id : undefined;

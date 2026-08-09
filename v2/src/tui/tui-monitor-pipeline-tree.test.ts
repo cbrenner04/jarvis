@@ -8,10 +8,13 @@ import {
   buildPipelineMonitorTreeRow,
   buildStageMonitorTreeRow,
   flattenMonitorPipelineTree,
+  isExpandablePipelineNodeId,
   type MonitorPipelineTreeDisplayNode,
   type MonitorPipelineTreePipelineNode,
+  monitorPipelineBranchNodeId,
   monitorPipelineStageNodeId,
   stageBranchCellValue,
+  strippedBranchLabels,
 } from "./tui-monitor-pipeline-tree.ts";
 import { buildMonitorTreeRow, TREE_COLUMN_WIDTHS, visibleColumns } from "./tui-shell-layout.ts";
 
@@ -168,38 +171,51 @@ describe("buildMonitorPipelineTreeJoin", () => {
       pipelineSnapshot({
         pipelineId: PIPELINE_ID,
         stages: [
+          snapshotStage({ stageId: "intent", position: 0, status: "succeeded" }),
           snapshotStage({
             stageId: "plan",
+            branchKey: "alpha",
+            position: 1,
             status: "succeeded",
-            workflowInvocationId: "inv-plan-default",
+            workflowInvocationId: "inv-plan-alpha",
           }),
           snapshotStage({
             stageId: "plan",
-            branchKey: "alt",
-            workflowInvocationId: "inv-plan-alt",
+            branchKey: "beta",
+            position: 1,
+            workflowInvocationId: "inv-plan-beta",
           }),
         ],
       }),
     ]);
-    const stages = pipelineNodes[0]?.stages ?? [];
+    const pipeline = pipelineNodes[0];
+    expect(pipeline).toBeDefined();
+    if (pipeline === undefined) throw new Error("expected pipeline node");
+    expect(pipeline.stages).toHaveLength(1);
+    expect(pipeline.branches).toHaveLength(2);
 
-    expect(stages).toHaveLength(2);
-    expect(stages[0]?.id).toBe(monitorPipelineStageNodeId(PIPELINE_ID, "plan", "default"));
-    expect(stages[1]?.id).toBe(monitorPipelineStageNodeId(PIPELINE_ID, "plan", "alt"));
-    expect(stages[0]?.kind).toBe("stage");
-    expect(stages[1]?.kind).toBe("stage");
-    expect(stageBranchCellValue("default")).toBe("");
-    expect(stageBranchCellValue("alt")).toBe("alt");
+    const alphaBranch = pipeline.branches.find((branch) => branch.branchKey === "alpha");
+    const betaBranch = pipeline.branches.find((branch) => branch.branchKey === "beta");
+    expect(alphaBranch).toBeDefined();
+    expect(betaBranch).toBeDefined();
+    if (alphaBranch === undefined || betaBranch === undefined) throw new Error("expected branch nodes");
+    const alphaStage = alphaBranch.stages[0];
+    const betaStage = betaBranch.stages[0];
+    expect(alphaStage).toBeDefined();
+    expect(betaStage).toBeDefined();
+    if (!alphaStage || !betaStage) throw new Error("expected branch stages");
 
-    const defaultStage = stages[0];
-    const altStage = stages[1];
-    expect(defaultStage).toBeDefined();
-    expect(altStage).toBeDefined();
-    if (!defaultStage || !altStage) throw new Error("expected branch stages");
-    const defaultRow = buildStageMonitorTreeRow(defaultStage, null, 90, FILTER_NOW_MS);
-    const altRow = buildStageMonitorTreeRow(altStage, null, 90, FILTER_NOW_MS);
-    expect(columnSlice(defaultRow, 90, "branch").trimEnd()).toBe("");
-    expect(columnSlice(altRow, 90, "branch").trimEnd()).toBe("alt");
+    expect(alphaStage.id).toBe(monitorPipelineStageNodeId(PIPELINE_ID, "plan", "alpha"));
+    expect(betaStage.id).toBe(monitorPipelineStageNodeId(PIPELINE_ID, "plan", "beta"));
+    expect(alphaStage.kind).toBe("stage");
+    expect(betaStage.kind).toBe("stage");
+    expect(stageBranchCellValue("alpha")).toBe("alpha");
+    expect(stageBranchCellValue("beta")).toBe("beta");
+
+    const alphaRow = buildStageMonitorTreeRow(alphaStage, null, 90, FILTER_NOW_MS);
+    const betaRow = buildStageMonitorTreeRow(betaStage, null, 90, FILTER_NOW_MS);
+    expect(columnSlice(alphaRow, 90, "branch").trimEnd()).toBe("alpha");
+    expect(columnSlice(betaRow, 90, "branch").trimEnd()).toBe("beta");
   });
 
   test("derives pipeline project from the first joined run and is empty when none joined", () => {
@@ -228,6 +244,7 @@ describe("buildMonitorPipelineTreeJoin", () => {
       snapshot: pipelineSnapshot({ pipelineId: PIPELINE_ID }),
       project: "demo",
       stages: [],
+      branches: [],
     };
     const stageNode = {
       kind: "stage" as const,
@@ -293,6 +310,163 @@ describe("buildMonitorPipelineTreeJoin", () => {
     expect(adHocNodes.map((node) => node.id)).toEqual(["run-stale-orphan", "run-fresh-orphan"]);
     expect(adHocNodes.some((node) => node.id === "run-matched")).toBe(false);
     expect(adHocNodes.some((node) => node.id === "run-queued")).toBe(false);
+  });
+});
+
+describe("branch-grouped pipeline subtree", () => {
+  const MODEL_BRANCH = "tui-pipeline-tree-model";
+  const MONITOR_BRANCH = "tui-pipeline-tree-monitor";
+
+  test("post-split stages group under one branch node per branchKey after pre-split stages", () => {
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return branchedPositions.length === 0 ? null : Math.min(...branchedPositions);" -> "return null;"
+    const snapshot = pipelineSnapshot({
+      pipelineId: PIPELINE_ID,
+      stages: [
+        snapshotStage({ stageId: "intent", position: 0, status: "succeeded" }),
+        snapshotStage({ stageId: "plan", branchKey: MODEL_BRANCH, position: 2, status: "succeeded" }),
+        snapshotStage({ stageId: "plan", branchKey: MONITOR_BRANCH, position: 2, status: "succeeded" }),
+        snapshotStage({ stageId: "implement", branchKey: MODEL_BRANCH, position: 4, status: "running" }),
+        snapshotStage({ stageId: "implement", branchKey: MONITOR_BRANCH, position: 4, status: "running" }),
+      ],
+    });
+    const pipelineNodes = joinTree([snapshot]);
+    const expanded = new Set([
+      PIPELINE_ID,
+      monitorPipelineBranchNodeId(PIPELINE_ID, MODEL_BRANCH),
+      monitorPipelineBranchNodeId(PIPELINE_ID, MONITOR_BRANCH),
+    ]);
+
+    const displayNodes = flattenJoined(pipelineNodes, expanded, null, 20);
+
+    expect(displayNodes.map((node) => ({ kind: node.kind, id: node.id }))).toEqual([
+      { kind: "pipeline", id: PIPELINE_ID },
+      { kind: "stage", id: monitorPipelineStageNodeId(PIPELINE_ID, "intent", "default") },
+      { kind: "branch", id: monitorPipelineBranchNodeId(PIPELINE_ID, MODEL_BRANCH) },
+      { kind: "stage", id: monitorPipelineStageNodeId(PIPELINE_ID, "plan", MODEL_BRANCH) },
+      { kind: "stage", id: monitorPipelineStageNodeId(PIPELINE_ID, "implement", MODEL_BRANCH) },
+      { kind: "branch", id: monitorPipelineBranchNodeId(PIPELINE_ID, MONITOR_BRANCH) },
+      { kind: "stage", id: monitorPipelineStageNodeId(PIPELINE_ID, "plan", MONITOR_BRANCH) },
+      { kind: "stage", id: monitorPipelineStageNodeId(PIPELINE_ID, "implement", MONITOR_BRANCH) },
+    ]);
+  });
+
+  test("a post-split default placeholder row is absent while a pre-split default stage renders", () => {
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return stage.position >= splitPosition && stage.branchKey === MONITOR_TREE_DEFAULT_BRANCH_KEY;" -> "return false;"
+    const snapshot = pipelineSnapshot({
+      pipelineId: PIPELINE_ID,
+      stages: [
+        snapshotStage({ stageId: "intent", position: 0, status: "succeeded" }),
+        snapshotStage({ stageId: "plan", branchKey: MODEL_BRANCH, position: 2, status: "succeeded" }),
+        snapshotStage({ stageId: "plan", position: 2, status: "skipped" }),
+      ],
+    });
+    const pipelineNodes = joinTree([snapshot]);
+    const pipeline = pipelineNodes[0];
+    if (pipeline === undefined) throw new Error("expected pipeline node");
+    // Expand every branch the join actually produced, including a spurious `default` branch a
+    // disabled elision guard would create, so its placeholder stage would surface if unelided.
+    const expanded = new Set([PIPELINE_ID, ...pipeline.branches.map((branch) => branch.id)]);
+
+    const ids = flattenJoined(pipelineNodes, expanded, null, 20).map((node) => node.id);
+
+    expect(ids).not.toContain(monitorPipelineStageNodeId(PIPELINE_ID, "plan", "default"));
+    expect(ids).toContain(monitorPipelineStageNodeId(PIPELINE_ID, "intent", "default"));
+  });
+
+  test("branch labels strip the prefix shared by siblings and a lone branch keeps its full key", () => {
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (branchKeys.length < 2) return [...branchKeys];" -> "if (branchKeys.length < 0) return [...branchKeys];"
+    expect(strippedBranchLabels(["tui-pipeline-list-poll", MODEL_BRANCH, MONITOR_BRANCH])).toEqual([
+      "list-poll",
+      "tree-model",
+      "tree-monitor",
+    ]);
+    expect(strippedBranchLabels(["only-branch-key"])).toEqual(["only-branch-key"]);
+    expect(strippedBranchLabels(["alpha", "beta"])).toEqual(["alpha", "beta"]);
+  });
+
+  test("a branch summarizes as its first unsatisfied stage and falls back to its last stage status", () => {
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "!SATISFIED_BRANCH_STAGE_STATUSES.has(record.status)" -> "record.status !== \"succeeded\""
+    const branchKey = "model";
+    const midFlight = pipelineSnapshot({
+      pipelineId: "pipe-mid-flight",
+      stages: [
+        snapshotStage({ stageId: "intent", position: 0, status: "succeeded" }),
+        snapshotStage({ stageId: "plan", branchKey, position: 2, status: "succeeded" }),
+        snapshotStage({ stageId: "implement", branchKey, position: 4, status: "running" }),
+      ],
+    });
+    const settled = pipelineSnapshot({
+      pipelineId: "pipe-settled",
+      stages: [
+        snapshotStage({ stageId: "intent", position: 0, status: "succeeded" }),
+        snapshotStage({ stageId: "plan", branchKey, position: 2, status: "succeeded" }),
+        snapshotStage({ stageId: "implement", branchKey, position: 4, status: "approved" }),
+        snapshotStage({ stageId: "cleanup", branchKey, position: 6, status: "skipped" }),
+      ],
+    });
+    const rejected = pipelineSnapshot({
+      pipelineId: "pipe-rejected",
+      stages: [
+        snapshotStage({ stageId: "intent", position: 0, status: "succeeded" }),
+        snapshotStage({ stageId: "approve-plan", branchKey, position: 2, status: "rejected" }),
+      ],
+    });
+
+    const [midFlightNode, settledNode, rejectedNode] = joinTree([midFlight, settled, rejected]);
+
+    expect(midFlightNode?.branches[0]).toMatchObject({ summaryStageId: "implement", summaryStatus: "running" });
+    expect(settledNode?.branches[0]).toMatchObject({ summaryStageId: "cleanup", summaryStatus: "skipped" });
+    expect(rejectedNode?.branches[0]).toMatchObject({ summaryStageId: "approve-plan", summaryStatus: "rejected" });
+  });
+
+  test("selecting a run under a branch expands that branch only and leaves sibling branches collapsed", () => {
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (run.id === selectedNodeId) return new Set([pipeline.id, branch.id, stage.id]);" -> "if (run.id === selectedNodeId) return new Set([pipeline.id, stage.id]);"
+    const snapshot = pipelineSnapshot({
+      pipelineId: PIPELINE_ID,
+      stages: [
+        snapshotStage({ stageId: "intent", position: 0, status: "succeeded" }),
+        implementStage("inv-alpha", { branchKey: "alpha", position: 2 }),
+        implementStage("inv-beta", { branchKey: "beta", position: 2 }),
+      ],
+    });
+    const runs = [
+      workflowRun({ runId: "run-alpha", status: "in-progress" }, "inv-alpha"),
+      workflowRun({ runId: "run-beta", status: "in-progress" }, "inv-beta"),
+    ];
+
+    const displayNodes = flattenJoined(joinTree([snapshot], runs), new Set(), "run-alpha", 20, runs);
+
+    expect(displayNodes.map((node) => node.id)).toEqual([
+      PIPELINE_ID,
+      monitorPipelineStageNodeId(PIPELINE_ID, "intent", "default"),
+      monitorPipelineBranchNodeId(PIPELINE_ID, "alpha"),
+      monitorPipelineStageNodeId(PIPELINE_ID, "implement", "alpha"),
+      "run-alpha",
+      monitorPipelineBranchNodeId(PIPELINE_ID, "beta"),
+    ]);
+  });
+
+  test("a branch node id is expandable and toggling it collapses its stages", () => {
+    const snapshot = pipelineSnapshot({
+      pipelineId: PIPELINE_ID,
+      stages: [
+        snapshotStage({ stageId: "intent", position: 0, status: "succeeded" }),
+        implementStage(INVOCATION_MATCHED, { branchKey: "alt", position: 2 }),
+      ],
+    });
+    const pipelineNodes = joinTree([snapshot]);
+    const branchId = monitorPipelineBranchNodeId(PIPELINE_ID, "alt");
+
+    expect(isExpandablePipelineNodeId(pipelineNodes, branchId)).toBe(true);
+
+    const collapsed = flattenJoined(pipelineNodes, new Set([PIPELINE_ID]), null, 20);
+    const expanded = flattenJoined(pipelineNodes, new Set([PIPELINE_ID, branchId]), null, 20);
+    const collapsedAgain = flattenJoined(pipelineNodes, new Set([PIPELINE_ID]), null, 20);
+
+    const stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "alt");
+    expect(collapsed.some((node) => node.id === stageId)).toBe(false);
+    expect(expanded.some((node) => node.id === stageId)).toBe(true);
+    expect(collapsedAgain.map((node) => node.id)).toEqual(collapsed.map((node) => node.id));
   });
 });
 

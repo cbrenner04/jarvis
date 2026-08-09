@@ -17,7 +17,12 @@ import {
   stageBranchCellValue,
   strippedBranchLabels,
 } from "./tui-monitor-pipeline-tree.ts";
-import { buildMonitorTreeRow, TREE_COLUMN_WIDTHS, visibleColumns } from "./tui-shell-layout.ts";
+import {
+  buildMonitorTreeRow,
+  listMonitorTreeCellsAtDepth,
+  TREE_COLUMN_WIDTHS,
+  visibleColumns,
+} from "./tui-shell-layout.ts";
 
 const FILTER_NOW_MS = 1_700_000_000_000;
 const PIPELINE_ID = "pipe-abc";
@@ -164,6 +169,33 @@ describe("buildMonitorPipelineTreeJoin", () => {
     expect(adHocNodes[0]?.kind).toBe("adhoc");
     expect(adHocNodes[0]?.tableRow.kind).toBe("workflow-collapsed");
     expect(adHocNodes[0]?.id).toBe("run-orphan");
+  });
+
+  test("an ad-hoc top-level row is labeled with its entry run's branch", () => {
+    // @mutate v2/src/tui/tui-shell-layout.ts "if (labelOverride !== undefined) return labelOverride;" -> "if (labelOverride === \"\") return labelOverride;"
+    const branch = "adhoc-work";
+    const run = workflowRun(
+      { runId: "12345678-1234-1234-1234-123456789abc", status: "in-progress", branch },
+      INVOCATION_ORPHAN,
+    );
+    const { adHocNodes } = buildMonitorPipelineTreeJoin([], [run]);
+    const node = adHocNodes[0];
+    if (node === undefined) throw new Error("expected ad-hoc node");
+    const paintedLabel = listMonitorTreeCellsAtDepth(
+      node.tableRow,
+      null,
+      90,
+      node.depth,
+      FILTER_NOW_MS,
+      node.label,
+    ).find((cell) => cell.column === "label");
+    const roleFirstLabel = listMonitorTreeCellsAtDepth(node.tableRow, null, 90, node.depth, FILTER_NOW_MS).find(
+      (cell) => cell.column === "label",
+    );
+
+    expect(paintedLabel?.text.trimEnd()).toBe(branch);
+    expect(node.label).toBe(branch);
+    expect(paintedLabel?.text).not.toBe(roleFirstLabel?.text);
   });
 
   test("fan-out stages with the same stageId but different branchKey get distinct ids and branch cells", () => {

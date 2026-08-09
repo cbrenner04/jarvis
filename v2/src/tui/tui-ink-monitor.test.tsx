@@ -20,7 +20,12 @@ import { monitorDockLines } from "./tui-monitor-lines.ts";
 import { monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
 import { TUI_TERMINAL_WINDOW_MS } from "./tui-monitor-terminal-window.ts";
 import type { TuiMonitorControls, TuiMonitorState } from "./tui-monitor-types.ts";
-import { computeShellLayout, MONITOR_TREE_NOT_LIVE_LABEL, nudgeDividerOffset } from "./tui-shell-layout.ts";
+import {
+  computeShellLayout,
+  MONITOR_TREE_NOT_LIVE_LABEL,
+  nudgeDividerOffset,
+  TREE_COLUMN_WIDTHS,
+} from "./tui-shell-layout.ts";
 
 const TREE_NOW_MS = 1_700_000_000_000;
 
@@ -384,7 +389,7 @@ describe("createMonitorDisplay", () => {
     const rightText = collectInkText(right);
     const dockText = collectInkText(dock);
 
-    expect(leftText).toContain("run-alpha");
+    expect(leftText).toContain("alpha".padEnd(TREE_COLUMN_WIDTHS.label, " "));
     expect(leftText).not.toContain("Outcome");
     expect(leftText).not.toContain("runStatus:");
     expect(rightText).toContain("Run");
@@ -508,6 +513,29 @@ describe("createMonitorDisplay", () => {
     ]);
   });
 
+  test("an ad-hoc top-level row paints its entry run's branch as the label", () => {
+    const branch = "adhoc-work";
+    const run: DaemonListRunRow = {
+      runId: "12345678-1234-1234-1234-123456789abc",
+      project: "demo",
+      branch,
+      createdAt: 0,
+      status: "in-progress",
+      isLive: true,
+      stepId: "implement",
+      workflow: {
+        invocationId: "inv-adhoc",
+        steps: [{ stepId: "implement", role: "implement", status: "in_progress", attemptCount: 1 }],
+      },
+    };
+    const tree = createMonitorDisplay(shellState([run], run.runId), stubText, stubBox, TREE_NOW_MS);
+    const labelCell = branch.padEnd(TREE_COLUMN_WIDTHS.label, " ");
+
+    expect(collectTextNodes(findRegion(tree, MonitorLeftPane), stubText).some((node) => node.text === labelCell)).toBe(
+      true,
+    );
+  });
+
   test("createMonitorDisplay retains unattributed orphans regardless of display clock", () => {
     const freshFinishedAt = TREE_NOW_MS - 60_000;
     const orphanRun: DaemonListRunRow = {
@@ -530,11 +558,11 @@ describe("createMonitorDisplay", () => {
     const outOfWindowTree = createMonitorDisplay(state, stubText, undefined, farFutureMs);
     const displayTickTree = createMonitorDisplay(state, stubText, undefined, farFutureMs);
 
-    expect(collectInkText(inWindowTree)).toContain("run-fresh-orphan");
-    expect(collectInkText(findRegion(outOfWindowTree, MonitorLeftPane))).toContain("run-fresh-orphan");
+    expect(collectInkText(inWindowTree)).toContain("orphan");
+    expect(collectInkText(findRegion(outOfWindowTree, MonitorLeftPane))).toContain("orphan");
     expect(collectInkText(findRegion(outOfWindowTree, MonitorLeftPane))).not.toContain("─ Unattributed");
     expect(collectInkText(findRegion(outOfWindowTree, MonitorRightPane))).toContain("runId: run-fresh-orphan");
-    expect(collectInkText(displayTickTree)).toContain("run-fresh-orphan");
+    expect(collectInkText(displayTickTree)).toContain("orphan");
   });
 });
 
@@ -837,7 +865,7 @@ describe("openInkMonitor", () => {
     expect(idleNodes.length).toBeGreaterThan(0);
     expect(idleNodes.every((node) => node.color === undefined)).toBe(true);
     expect(textNode(nodes, "failed").color).toBe("red");
-    expect(textNode(nodes, "run-live").color).toBeUndefined();
+    expect(textNode(nodes, "a").color).toBeUndefined();
 
     session.close();
   });

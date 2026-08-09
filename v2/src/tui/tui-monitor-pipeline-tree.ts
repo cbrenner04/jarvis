@@ -67,6 +67,7 @@ export type MonitorPipelineTreeAdHocNode = {
   id: string;
   depth: 0;
   tableRow: WorkflowTableRow;
+  label: string;
 };
 
 export type MonitorPipelineTreeDisplayNode =
@@ -415,6 +416,7 @@ export function buildMonitorPipelineTreeJoin(
     id: monitorTreeRun(tableRow).runId,
     depth: 0 as const,
     tableRow,
+    label: monitorTreeRun(tableRow).branch,
   }));
 
   return { pipelineNodes, adHocNodes, builderRuns };

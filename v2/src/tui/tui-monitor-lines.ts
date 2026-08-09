@@ -1,5 +1,6 @@
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
+import type { PipelineStageArtifact } from "../daemon/pipeline-stage-dispatch.ts";
 import type { RunStatus } from "../persistence/state-store.ts";
 import type { PipelineListResult } from "./tui-daemon-client.ts";
 import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
@@ -509,6 +510,58 @@ function detailRows(entries: readonly (readonly [label: string, value: unknown])
   });
 }
 
+function isStageArtifactShape(artifact: unknown): artifact is PipelineStageArtifact {
+  if (typeof artifact !== "object" || artifact === null) return false;
+  const record = artifact as Record<string, unknown>;
+  return typeof record.entryRunId === "string" && typeof record.specPath === "string";
+}
+
+function downstreamInputRows(inputs: readonly string[] | undefined): MonitorLineRow[] {
+  const paths = inputs ?? [];
+  if (paths.length === 0) return [];
+  return [row(untoned("downstreamInputs")), ...paths.map((path) => row(untoned(`  ${path}`)))];
+}
+
+function sortJsonKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortJsonKeys);
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, sortJsonKeys(entry)]),
+  );
+}
+
+function prettyJsonRows(value: unknown): MonitorLineRow[] {
+  const pretty = JSON.stringify(sortJsonKeys(value), null, 2) as string;
+  return pretty.split("\n").map((line) => row(untoned(line)));
+}
+
+function knownArtifactRows(artifact: PipelineStageArtifact): MonitorLineRow[] {
+  return [
+    ...detailRows([
+      ["specPath", artifact.specPath],
+      ["entryRunId", artifact.entryRunId],
+      ["invocationId", artifact.invocationId],
+      ["prNumber", artifact.prNumber],
+      ["prUrl", artifact.prUrl],
+      ["requestedBase", artifact.requestedBase],
+      ["resolvedBase", artifact.resolvedBase],
+    ]),
+    ...downstreamInputRows(artifact.downstreamInputs),
+  ];
+}
+
+function artifactRows(artifact: unknown): MonitorLineRow[] {
+  if (isEmptyDetailValue(artifact)) return [];
+  return isStageArtifactShape(artifact) ? knownArtifactRows(artifact) : prettyJsonRows(artifact);
+}
+
+function stageArtifactSection(artifact: unknown): DetailSection {
+  return { heading: "Artifact", rows: artifactRows(artifact) };
+}
+
 function rollupFields(fields: readonly (readonly [label: string, value: string])[]): string {
   const present = fields.filter(([, value]) => value !== "");
   return present.map(([label, value]) => `${label}=${value}`).join(" ");
@@ -598,6 +651,7 @@ function pipelineContextRows(
 
 function stageDetailRows(stage: PipelineSnapshot["stages"][number] | undefined): DetailSection[] {
   if (stage === undefined) return [];
+  const artifactSection = stageArtifactSection(stage.artifact);
   return [
     {
       heading: "Stage",
@@ -608,12 +662,12 @@ function stageDetailRows(stage: PipelineSnapshot["stages"][number] | undefined):
         ["position", stage.position],
         ["status", stage.status],
         ["workflowInvocationId", stage.workflowInvocationId],
-        ["artifact", stage.artifact],
         ["failureDetail", stage.failureDetail],
         ["startedAt", stage.startedAt],
         ["endedAt", stage.endedAt],
       ]),
     },
+    artifactSection,
   ];
 }
 

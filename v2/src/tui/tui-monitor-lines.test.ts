@@ -17,7 +17,7 @@ import {
   RUN_STATUS_TONES,
   wrapMonitorRows,
 } from "./tui-monitor-lines.ts";
-import { monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
+import { monitorPipelineBranchNodeId, monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
 import { TUI_TERMINAL_WINDOW_MS } from "./tui-monitor-terminal-window.ts";
 import type { TuiMonitorState } from "./tui-monitor-types.ts";
 import { computeShellLayout, listMonitorTreeCellsAtDepth, TREE_COLUMN_WIDTHS } from "./tui-shell-layout.ts";
@@ -855,6 +855,51 @@ describe("monitorRightPaneSegmentRows", () => {
     ]);
   });
 
+  test("stage detail under a branch is that branch's own record", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "pipeline?.snapshot.stages.find((stage) => stage.stageId === treeRow.stageId && stage.branchKey === treeRow.branchKey)" -> "pipeline?.snapshot.stages.find((stage) => stage.stageId === treeRow.stageId)"
+    const snapshot = pipelineSnapshot({
+      pipelineId: PIPELINE_ID,
+      stages: [
+        snapshotStage({ stageId: "intent", position: 0, status: "succeeded" }),
+        snapshotStage({ stageId: "implement", branchKey: "alpha", position: 2, status: "succeeded" }),
+        snapshotStage({ stageId: "implement", branchKey: "beta", position: 2, status: "running" }),
+      ],
+    });
+    const state = monitorState({
+      selectedNodeId: monitorPipelineStageNodeId(PIPELINE_ID, "implement", "beta"),
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
+    });
+
+    const lines = monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow);
+
+    expect(lines).toContain("branch: beta");
+    expect(lines).toContain("status: running");
+    expect(lines).not.toContain("branch: alpha");
+    expect(lines).not.toContain("status: succeeded");
+  });
+
+  test("selecting a branch node renders pipeline context and the full branch key", () => {
+    const branchKey = "tui-pipeline-tree-model";
+    const snapshot = pipelineSnapshot({
+      pipelineId: PIPELINE_ID,
+      stages: [
+        snapshotStage({ stageId: "intent", position: 0, status: "succeeded" }),
+        snapshotStage({ stageId: "implement", branchKey, position: 2, status: "running" }),
+        snapshotStage({ stageId: "implement", branchKey: "tui-pipeline-tree-monitor", position: 2, status: "running" }),
+      ],
+    });
+    const state = monitorState({
+      selectedNodeId: monitorPipelineBranchNodeId(PIPELINE_ID, branchKey),
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
+    });
+
+    const lines = monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow);
+
+    expect(lines).toContain(`pipelineId: ${PIPELINE_ID}`);
+    expect(lines).toContain(`branch: ${branchKey}`);
+    expect(monitorDockLines(state)[3]).toContain("e expand/collapse");
+  });
+
   test("stage artifact and failure values preserve JSON omission and falsy semantics", () => {
     const cases: ReadonlyArray<readonly [unknown, string | undefined]> = [
       [undefined, undefined],
@@ -1472,8 +1517,7 @@ describe("monitorDockLines", () => {
 
   test("shows contextual command-focus hints without multiline editing", () => {
     // @mutate v2/src/tui/tui-monitor-lines.ts "if ((state.focus ?? \"tree\") === \"command\") return \"Esc tree · Enter submit\";" -> "if (false) return \"Esc tree · Enter submit\";"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "snapshot.pipelineId === state.selectedNodeId" -> "false"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "monitorPipelineStageNodeId(snapshot.pipelineId, stage.stageId, stage.branchKey) === state.selectedNodeId" -> "false"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "state.selectedNodeId !== null && isExpandablePipelineNodeId(pipelineNodes, state.selectedNodeId)" -> "false"
     // @mutate v2/src/tui/tui-monitor-lines.ts "state.runs.find((run) => run.runId === state.selectedNodeId)" -> "state.runs.find(() => false)"
     // @mutate v2/src/tui/tui-monitor-lines.ts "    selectedRun?.isLive === true &&" -> "    false &&"
     // @mutate v2/src/tui/tui-monitor-lines.ts "...(expandable ? [\"e expand/collapse\"] : [])" -> "...[]"

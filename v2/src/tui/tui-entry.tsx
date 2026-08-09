@@ -33,6 +33,7 @@ import {
   buildMonitorPipelineTreeJoin,
   isExpandablePipelineNodeId,
   type MonitorPipelineTreeDisplayNode,
+  pipelineStageNodes,
 } from "./tui-monitor-pipeline-tree.ts";
 import type {
   RunTuiEntryDeps,
@@ -197,7 +198,8 @@ function pipelineIdForSelection(
 ): string | null {
   for (const pipeline of pipelineNodes) {
     if (pipeline.id === selectedNodeId) return pipeline.id;
-    for (const stage of pipeline.stages) {
+    if (pipeline.branches.some((branch) => branch.id === selectedNodeId)) return pipeline.id;
+    for (const stage of pipelineStageNodes(pipeline)) {
       if (stage.id === selectedNodeId) return pipeline.id;
     }
   }
@@ -245,7 +247,8 @@ function approveRejectSelectionError(
   const pipelineNodes = pipelineNodesForState(state);
   for (const pipeline of pipelineNodes) {
     if (pipeline.id === selectedNodeId) return "not_awaiting_stage";
-    for (const stage of pipeline.stages) {
+    if (pipeline.branches.some((branch) => branch.id === selectedNodeId)) return "not_awaiting_stage";
+    for (const stage of pipelineStageNodes(pipeline)) {
       if (stage.id !== selectedNodeId) continue;
       // Mutation checkpoint: negating awaiting status check must turn approve/reject eligibility pin RED.
       if (stage.status === "awaiting") return null;
@@ -273,7 +276,8 @@ function resumeSelectionError(
       if (isPipelineTerminal(pipeline.snapshot.state)) return "terminal_pipeline";
       return null;
     }
-    for (const stage of pipeline.stages) {
+    if (pipeline.branches.some((branch) => branch.id === selectedNodeId)) return "not_pipeline";
+    for (const stage of pipelineStageNodes(pipeline)) {
       if (stage.id === selectedNodeId) return "not_pipeline";
     }
   }
@@ -285,7 +289,7 @@ function resolveAwaitingStageTarget(state: TuiMonitorState): PipelineStageMutati
   if (selectedNodeId === null) return null;
   const pipelineNodes = pipelineNodesForState(state);
   for (const pipeline of pipelineNodes) {
-    for (const stage of pipeline.stages) {
+    for (const stage of pipelineStageNodes(pipeline)) {
       if (stage.id === selectedNodeId && stage.status === "awaiting") {
         return { pipelineId: pipeline.id, stageId: stage.stageId, branchKey: stage.branchKey };
       }

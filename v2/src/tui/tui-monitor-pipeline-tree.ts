@@ -36,6 +36,18 @@ export type MonitorPipelineTreeStageNode = {
   runs: MonitorPipelineTreeRunNode[];
 };
 
+export type MonitorPipelineTreeBranchNode = {
+  kind: "branch";
+  id: string;
+  depth: 1;
+  pipelineId: string;
+  branchKey: string;
+  label: string;
+  summaryStageId: string;
+  summaryStatus: string;
+  stages: MonitorPipelineTreeStageNode[];
+};
+
 export type MonitorPipelineTreePipelineNode = {
   kind: "pipeline";
   id: string;
@@ -43,6 +55,7 @@ export type MonitorPipelineTreePipelineNode = {
   snapshot: PipelineSnapshot;
   project: string;
   stages: MonitorPipelineTreeStageNode[];
+  branches: MonitorPipelineTreeBranchNode[];
 };
 
 export type MonitorPipelineTreeAdHocNode = {
@@ -54,16 +67,66 @@ export type MonitorPipelineTreeAdHocNode = {
 
 export type MonitorPipelineTreeDisplayNode =
   | MonitorPipelineTreePipelineNode
+  | MonitorPipelineTreeBranchNode
   | MonitorPipelineTreeStageNode
   | MonitorPipelineTreeRunNode
   | MonitorPipelineTreeAdHocNode;
+
+const MONITOR_TREE_DEFAULT_BRANCH_KEY = "default";
 
 export function monitorPipelineStageNodeId(pipelineId: string, stageId: string, branchKey: string): string {
   return `${pipelineId}:${stageId}:${branchKey}`;
 }
 
+export function monitorPipelineBranchNodeId(pipelineId: string, branchKey: string): string {
+  return `${pipelineId}:${branchKey}`;
+}
+
 export function stageBranchCellValue(branchKey: string): string {
-  return branchKey === "default" ? "" : branchKey;
+  return branchKey === MONITOR_TREE_DEFAULT_BRANCH_KEY ? "" : branchKey;
+}
+
+/** Lowest position carrying a non-default branchKey, or null when the pipeline never fanned out. */
+function fanOutSplitPosition(snapshot: PipelineSnapshot): number | null {
+  const branchedPositions = snapshot.stages
+    .filter((stage) => stage.branchKey !== MONITOR_TREE_DEFAULT_BRANCH_KEY)
+    .map((stage) => stage.position);
+  // Mutation checkpoint: reporting no fan-out here must turn branch-grouping keystone RED.
+  return branchedPositions.length === 0 ? null : Math.min(...branchedPositions);
+}
+
+/** A post-split `default` record is a placeholder every branch superseded; never rendered. */
+function isElidedPlaceholderStage(stage: PipelineSnapshot["stages"][number], splitPosition: number | null): boolean {
+  if (splitPosition === null) return false;
+  // Mutation checkpoint: eliding nothing here must turn placeholder-elision RED.
+  return stage.position >= splitPosition && stage.branchKey === MONITOR_TREE_DEFAULT_BRANCH_KEY;
+}
+
+/** Strip the longest leading `-`-segment run shared by every sibling; a lone or divergent key keeps its full text. */
+export function strippedBranchLabels(branchKeys: readonly string[]): string[] {
+  // Mutation checkpoint: stripping a lone branch with no sibling to share a prefix with must turn label-guard RED.
+  if (branchKeys.length < 2) return [...branchKeys];
+  const segmented = branchKeys.map((key) => key.split("-"));
+  const cap = Math.min(...segmented.map((segments) => segments.length)) - 1;
+  let sharedLength = 0;
+  while (sharedLength < cap) {
+    const candidate = segmented[0]?.[sharedLength];
+    if (candidate === undefined || !segmented.every((segments) => segments[sharedLength] === candidate)) break;
+    sharedLength += 1;
+  }
+  return segmented.map((segments) => segments.slice(sharedLength).join("-"));
+}
+
+const SATISFIED_BRANCH_STAGE_STATUSES = new Set(["succeeded", "approved", "skipped"]);
+
+/** A branch summarizes as its first unsatisfied post-split stage, or its last stage once every stage settles. */
+function deriveBranchSummary(records: readonly PipelineSnapshot["stages"][number][]): {
+  stageId: string;
+  status: string;
+} {
+  const unsatisfied = records.find((record) => !SATISFIED_BRANCH_STAGE_STATUSES.has(record.status));
+  const target = unsatisfied ?? records[records.length - 1];
+  return { stageId: target?.stageId ?? "", status: target?.status ?? "" };
 }
 
 function joinPipelineTreeCells(columnValues: Partial<Record<TreeColumnId, string>>, leftPaneWidth: number): string {
@@ -110,6 +173,23 @@ export function buildStageMonitorTreeRow(
       state: node.status,
       // Mutation checkpoint: passing null for startedAt when unset must turn empty-stage-elapsed RED.
       elapsed: formatElapsedWallClock(node.startedAt, node.endedAt, nowMs),
+    },
+    leftPaneWidth,
+  );
+}
+
+export function buildBranchMonitorTreeRow(
+  node: MonitorPipelineTreeBranchNode,
+  selectedNodeId: string | null,
+  leftPaneWidth: number,
+): string {
+  return joinPipelineTreeCells(
+    {
+      marker: node.id === selectedNodeId ? ">" : " ",
+      indent: "  ",
+      label: node.label,
+      branch: node.summaryStageId,
+      state: node.summaryStatus,
     },
     leftPaneWidth,
   );
@@ -162,11 +242,19 @@ function collectMatchedInvocationIds(snapshots: readonly PipelineSnapshot[]): Se
 function buildStageNodes(
   snapshot: PipelineSnapshot,
   builderRuns: readonly DaemonListRunRow[],
-): MonitorPipelineTreeStageNode[] {
+): { stages: MonitorPipelineTreeStageNode[]; branches: MonitorPipelineTreeBranchNode[] } {
+  const splitPosition = fanOutSplitPosition(snapshot);
   const claimedInPipeline = new Set<string>();
   const stages: MonitorPipelineTreeStageNode[] = [];
+  const branchStagesByKey = new Map<string, MonitorPipelineTreeStageNode[]>();
+  const branchRecordsByKey = new Map<string, PipelineSnapshot["stages"][number][]>();
+  const branchKeyOrder: string[] = [];
 
   for (const stage of snapshot.stages) {
+    if (isElidedPlaceholderStage(stage, splitPosition)) continue;
+
+    const isBranched = splitPosition !== null && stage.position >= splitPosition;
+    const stageDepth = isBranched ? 2 : 1;
     const invocationId = stage.workflowInvocationId;
     let tableRows: WorkflowTableRow[] = [];
 
@@ -176,20 +264,54 @@ function buildStageNodes(
       tableRows = buildWorkflowTableRows(stageRuns, builderRuns, new Set());
     }
 
-    stages.push({
+    const stageNode: MonitorPipelineTreeStageNode = {
       kind: "stage",
       id: monitorPipelineStageNodeId(snapshot.pipelineId, stage.stageId, stage.branchKey),
-      depth: 1,
+      depth: stageDepth,
       stageId: stage.stageId,
       branchKey: stage.branchKey,
       status: stage.status,
       startedAt: stage.startedAt,
       endedAt: stage.endedAt,
-      runs: workflowTableRowsToRunNodes(1, tableRows),
-    });
+      runs: workflowTableRowsToRunNodes(stageDepth, tableRows),
+    };
+
+    if (!isBranched) {
+      stages.push(stageNode);
+      continue;
+    }
+
+    if (!branchStagesByKey.has(stage.branchKey)) {
+      branchStagesByKey.set(stage.branchKey, []);
+      branchRecordsByKey.set(stage.branchKey, []);
+      branchKeyOrder.push(stage.branchKey);
+    }
+    branchStagesByKey.get(stage.branchKey)?.push(stageNode);
+    branchRecordsByKey.get(stage.branchKey)?.push(stage);
   }
 
-  return stages;
+  const strippedLabels = strippedBranchLabels(branchKeyOrder);
+  const branches: MonitorPipelineTreeBranchNode[] = branchKeyOrder.map((branchKey, index) => {
+    const summary = deriveBranchSummary(branchRecordsByKey.get(branchKey) ?? []);
+    return {
+      kind: "branch",
+      id: monitorPipelineBranchNodeId(snapshot.pipelineId, branchKey),
+      depth: 1,
+      pipelineId: snapshot.pipelineId,
+      branchKey,
+      label: strippedLabels[index] ?? branchKey,
+      summaryStageId: summary.stageId,
+      summaryStatus: summary.status,
+      stages: branchStagesByKey.get(branchKey) ?? [],
+    };
+  });
+
+  return { stages, branches };
+}
+
+/** Pre-split stages followed by each branch's post-split stages, in position order. */
+export function pipelineStageNodes(pipeline: MonitorPipelineTreePipelineNode): MonitorPipelineTreeStageNode[] {
+  return [...pipeline.stages, ...pipeline.branches.flatMap((branch) => branch.stages)];
 }
 
 function isAdHocCandidate(run: DaemonListRunRow, matchedInvocationIds: ReadonlySet<string>): boolean {
@@ -216,7 +338,7 @@ export function buildMonitorPipelineTreeJoin(
     depth: 0,
     snapshot,
     project: derivePipelineProject(snapshot, builderRuns),
-    stages: buildStageNodes(snapshot, builderRuns),
+    ...buildStageNodes(snapshot, builderRuns),
   }));
 
   const adHocCandidates = builderRuns.filter((run) => isAdHocCandidate(run, matchedInvocationIds));
@@ -271,6 +393,28 @@ function orderTopLevelNodes(
     .map(({ node }) => node);
 }
 
+function resolveBranchAncestors(
+  pipeline: MonitorPipelineTreePipelineNode,
+  selectedNodeId: string,
+): Set<string> | undefined {
+  for (const branch of pipeline.branches) {
+    if (branch.id === selectedNodeId) return new Set([pipeline.id]);
+
+    for (const stage of branch.stages) {
+      if (stage.id === selectedNodeId) {
+        return new Set([pipeline.id, branch.id]);
+      }
+
+      for (const run of stage.runs) {
+        // Mutation checkpoint: dropping the branch from these ancestors must turn reveal-under-branch RED.
+        if (run.id === selectedNodeId) return new Set([pipeline.id, branch.id, stage.id]);
+      }
+    }
+  }
+
+  return undefined;
+}
+
 function resolveSelectedAncestors(
   pipelineNodes: readonly MonitorPipelineTreePipelineNode[],
   selectedNodeId: string | null,
@@ -291,6 +435,9 @@ function resolveSelectedAncestors(
         }
       }
     }
+
+    const branchAncestors = resolveBranchAncestors(pipeline, selectedNodeId);
+    if (branchAncestors !== undefined) return branchAncestors;
   }
 
   return new Set();
@@ -312,6 +459,21 @@ function stageRunsForExpansion(
   return workflowTableRowsToRunNodes(stage.depth, tableRows);
 }
 
+function pushStageWithRuns(
+  nodes: MonitorPipelineTreeDisplayNode[],
+  pipeline: MonitorPipelineTreePipelineNode,
+  stage: MonitorPipelineTreeStageNode,
+  effectiveExpansion: ReadonlySet<string>,
+  builderRuns: readonly DaemonListRunRow[],
+): void {
+  nodes.push(stage);
+  if (effectiveExpansion.has(stage.id)) {
+    nodes.push(...stageRunsForExpansion(pipeline, stage, builderRuns));
+  } else {
+    nodes.push(...stage.runs);
+  }
+}
+
 function flattenPipelineNode(
   pipeline: MonitorPipelineTreePipelineNode,
   effectiveExpansion: ReadonlySet<string>,
@@ -324,11 +486,14 @@ function flattenPipelineNode(
   }
 
   for (const stage of pipeline.stages) {
-    nodes.push(stage);
-    if (effectiveExpansion.has(stage.id)) {
-      nodes.push(...stageRunsForExpansion(pipeline, stage, builderRuns));
-    } else {
-      nodes.push(...stage.runs);
+    pushStageWithRuns(nodes, pipeline, stage, effectiveExpansion, builderRuns);
+  }
+
+  for (const branch of pipeline.branches) {
+    nodes.push(branch);
+    if (!effectiveExpansion.has(branch.id)) continue;
+    for (const stage of branch.stages) {
+      pushStageWithRuns(nodes, pipeline, stage, effectiveExpansion, builderRuns);
     }
   }
 
@@ -349,8 +514,11 @@ export function isExpandablePipelineNodeId(
 ): boolean {
   for (const pipeline of pipelineNodes) {
     if (pipeline.id === nodeId) return true;
-    for (const stage of pipeline.stages) {
+    for (const stage of pipelineStageNodes(pipeline)) {
       if (stage.id === nodeId) return true;
+    }
+    for (const branch of pipeline.branches) {
+      if (branch.id === nodeId) return true;
     }
   }
   return false;

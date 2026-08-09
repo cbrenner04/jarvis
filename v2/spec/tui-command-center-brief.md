@@ -53,15 +53,17 @@ Dependency order; 1 and 2 are independent starting points; 5–7 in any order af
 
 | # | Seed | Delivers | Depends on | State |
 |---|------|----------|------------|-------|
-| 1 | `pipeline-terminal-timestamps` | Terminal stages/runs always stamped; approval `decidedAt` on wire; failed-before-start shape pinned | — | seeded |
-| 2 | `tui-unified-work-tree` | Pipelines + ad-hoc in one tree; segment/FIFO deleted; uniform selection | — | **shipped** (`20260808T193703Z-tui-unified-work-tree`); running→gated→terminal order **shipped** (`00-three-bucket-top-level-ordering`) |
-| 3 | `tui-intent-branch-subtree` | Branch-grouped subtree; placeholder + satisfied-gate elision; stripped branch labels; intent yield | 2 | **shipped** (`20260808T205837Z-tui-intent-branch-subtree`) |
-| 4 | `tui-work-row-anatomy` | Fill-width labels; seed-slug identity; real indent + ▼/▶; grid + tier table removed | 2, 3 | seeded |
-| 5 | `tui-attention-segment` | Pinned needs-me list + act-in-place; segmented status counts | 1, 2 | seeded |
-| 6 | `tui-work-idle-time` | work/idle aggregation; failed-before-start rendering; frozen finishless display | 1, 3 | seeded |
-| 7 | `tui-detail-pane-structure` | Sections; branch-grouped roll-up; null suppression; semantic artifact | 3 | seeded |
+| 1 | `pipeline-terminal-timestamps` | Terminal stages/runs always stamped; approval `decidedAt` on wire; failed-before-start shape pinned | — | re-decomposed → `terminal-timestamp-persistence` (store) + `terminal-timestamps-on-daemon-wire` (wire). Persistence **shipped** (#2747, #2749, #2752); **wire pending** (plan blocks; seeds 5–6 gate on it) |
+| 2 | `tui-unified-work-tree` | Pipelines + ad-hoc in one tree; segment/FIFO deleted; uniform selection | — | **shipped** (#2745; ordering half #2732) |
+| 3 | `tui-intent-branch-subtree` | Branch-grouped subtree; placeholder + satisfied-gate elision; stripped branch labels; intent yield | 2 | **shipped** (#2748, #2750) |
+| 4 | `tui-work-row-anatomy` | Fill-width labels; seed-slug identity; real indent + ▼/▶; grid + tier table removed | 2, 3 | re-intent → `labels` + `fill-layout` (fill-layout lands after labels). labels-00 **shipped** (#2755); labels-01 + fill-layout **pending** |
+| 5 | `tui-attention-segment` | Pinned needs-me list + act-in-place; segmented status counts | 1, 2 | re-intent → `segment-rows` + `row-act-in-place` + `status-line-work-counts`; **pending** (gated on wire) |
+| 6 | `tui-work-idle-time` | work/idle aggregation; failed-before-start rendering; frozen finishless display | 1, 3 | intented; **pending** (gated on wire) |
+| 7 | `tui-detail-pane-structure` | Sections; branch-grouped roll-up; null suppression; semantic artifact | 3 | subspec 00 implemented (PR #2757 conflict-dirty, unmerged); 01, 02 **pending** |
 
 State legend: seeded → intent #NN → planned #NN → **shipped** #NN (implementation PR). Update the row as each lands.
+
+**Status (paused 2026-08-09).** Seeds 2, 3, and seed 1's store half landed cleanly. Seed 1 was re-decomposed by module surface (store `terminal-timestamp-persistence` shipped; daemon-wire projection pending — its plan blocks and seeds 5–6 gate on it). Seeds 4/5/7 were re-run through the intent stage (per operator: intents come from seeds, split intents run sequentially), yielding dependent sub-intents landed in order. Remaining work is mechanical but slowed by harness friction captured for seeding: leaked test-gate child processes that peg CPU and lock worktrees, `workflow-runner.test.ts` CI-timeout flake, and one-subspec-per-implement-run re-runs.
 
 ## Non-goals
 

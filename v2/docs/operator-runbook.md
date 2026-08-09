@@ -803,6 +803,15 @@ Do not merge to `main` blindly during long in-flight runs; see v1 runbook [Integ
 
 Operators add bullets here; delete when fixed.
 
+- **Leaked ready-gate `bun test` children peg CPU for days (2026-08-09):** a killed, abandoned, or
+  timed-out run leaves its ready-gate `bun test` subprocess tree running. Orphans accumulate across
+  sessions (observed three aged 2–3 days), saturate CPU, and drag every concurrent gate — stretching
+  debate reviews past 13 min and wedging a publication step at `iteration_started` with no agent
+  process. The auto-mode classifier blocks the operator agent from `kill`/`pkill`, so hand it to the
+  operator's own shell: `pkill -9 -f "bun test"` (nothing live depends on day-old orphans; the live
+  gate spawns fresh test procs). Seed:
+  `v2/spec/seeds/reap-ready-gate-test-children-on-run-termination.md`. Cleanup: delete this bullet
+  when the seed merges.
 - **Gate autofix can turn a green tree red, and it never self-heals (2026-08-02):** `bun run fix`
   rewrites `findIndex((x) => x === needle)` into `indexOf(needle)`; when the needle is possibly
   `undefined` the result fails `typecheck`. Reproducible on `main` today. A run hits it as

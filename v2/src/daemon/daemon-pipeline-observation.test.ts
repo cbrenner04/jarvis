@@ -196,7 +196,13 @@ test("pipeline_list reports every admitted pipeline with identity, derived state
     createdAt: loaded.createdAt,
     finishedAtMs: null,
     stages: [
-      projectedStage({ stageId: "plan", branchKey: "default", status: "succeeded", workflowInvocationId: "inv-plan" }),
+      projectedStage({
+        stageId: "plan",
+        branchKey: "default",
+        status: "succeeded",
+        workflowInvocationId: "inv-plan",
+        endedAt: expect.any(Number),
+      }),
       projectedStage({ stageId: "gate", branchKey: "default", status: "awaiting", workflowInvocationId: null }),
       projectedStage({ stageId: "implement", branchKey: "default", status: "pending", workflowInvocationId: null }),
     ],

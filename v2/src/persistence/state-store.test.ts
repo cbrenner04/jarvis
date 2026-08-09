@@ -1158,6 +1158,53 @@ describe("pipelines", () => {
     expect(implement.failureDetail).toBeNull();
   });
 
+  test("updateStage stamps endedAt on a terminal status write", () => {
+    for (const status of ["succeeded", "failed", "interrupted", "skipped"] as const) {
+      const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline(`terminal-${status}`) });
+      const before = Date.now();
+      store.updateStage({ pipelineId, stageId: "plan", patch: { status } });
+
+      const stage = store.loadPipeline(pipelineId)?.stages.find((row) => row.stageId === "plan");
+      if (!stage) throw new Error("plan stage should exist");
+      // @mutate v2/src/persistence/state-store.ts "return { ...patch, endedAt: now };" -> "return patch;"
+      expect(stage.endedAt).not.toBeNull();
+      expect(stage.endedAt).toBeGreaterThanOrEqual(before);
+      expect(stage.startedAt).toBeNull();
+    }
+
+    const startedPipelineId = store.createPipeline({
+      definition: singlePlanStagePipeline("terminal-preserves-started"),
+    });
+    store.updateStage({ pipelineId: startedPipelineId, stageId: "plan", patch: { startedAt: 500 } });
+    store.updateStage({ pipelineId: startedPipelineId, stageId: "plan", patch: { status: "succeeded" } });
+    const startedStage = store.loadPipeline(startedPipelineId)?.stages.find((row) => row.stageId === "plan");
+    if (!startedStage) throw new Error("plan stage should exist");
+    expect(startedStage.startedAt).toBe(500);
+    expect(startedStage.endedAt).not.toBeNull();
+  });
+
+  test("updateStage leaves endedAt null on a non-terminal status write", () => {
+    for (const status of ["awaiting", "running"]) {
+      const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline(`non-terminal-${status}`) });
+      store.updateStage({ pipelineId, stageId: "plan", patch: { status } });
+
+      const stage = store.loadPipeline(pipelineId)?.stages.find((row) => row.stageId === "plan");
+      if (!stage) throw new Error("plan stage should exist");
+      // @mutate v2/src/persistence/state-store.ts "!isTerminalStageStatus(patch.status)" -> "false"
+      expect(stage.endedAt).toBeNull();
+    }
+  });
+
+  test("updateStage preserves a caller-supplied endedAt on a terminal status write", () => {
+    const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline("terminal-caller-endedat") });
+    store.updateStage({ pipelineId, stageId: "plan", patch: { status: "failed", endedAt: 1_700_000_000_000 } });
+
+    const stage = store.loadPipeline(pipelineId)?.stages.find((row) => row.stageId === "plan");
+    if (!stage) throw new Error("plan stage should exist");
+    // @mutate v2/src/persistence/state-store.ts "typeof patch.endedAt === \"number\"" -> "false"
+    expect(stage.endedAt).toBe(1_700_000_000_000);
+  });
+
   function approvalStageRecord(pipeline: Pipeline & { stages: PipelineStageRecord[] }): PipelineStageRecord {
     const stage = pipeline.stages.find((row) => row.stageId === "gate");
     if (!stage) throw new Error("approval stage should exist");

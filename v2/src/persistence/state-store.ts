@@ -799,6 +799,25 @@ export function reconciliationStableStageStatus(status: string): boolean {
   return RECONCILIATION_STABLE_STAGE_STATUSES.has(status);
 }
 
+/** Stage statuses that end a stage run; `updateStage` stamps `ended_at` on these. Decided-approval statuses (`approved`, `rejected`) end a gate decision, not a stage run, and are excluded. */
+const TERMINAL_STAGE_STATUSES: ReadonlySet<string> = new Set(["succeeded", "failed", "interrupted", "skipped"]);
+
+/** True when `status` is a terminal stage-run outcome. */
+export function isTerminalStageStatus(status: string): boolean {
+  return TERMINAL_STAGE_STATUSES.has(status);
+}
+
+/**
+ * Derives `endedAt` for a stage lifecycle patch: a patch whose `status` is terminal and whose
+ * `endedAt` is not already a number lands `endedAt = now`, overriding an explicit `null`.
+ * Non-terminal and decided-approval statuses are unaffected; `startedAt` is never synthesized.
+ */
+export function stageLifecyclePatchWithTerminalFinish(patch: StageLifecyclePatch, now: number): StageLifecyclePatch {
+  if (patch.status === undefined || !isTerminalStageStatus(patch.status)) return patch;
+  if (typeof patch.endedAt === "number") return patch;
+  return { ...patch, endedAt: now };
+}
+
 /** Probes whether the process recorded as a run's owner is still alive. */
 export type OwnerLivenessProbe = (identity: string) => Promise<boolean>;
 
@@ -1492,7 +1511,7 @@ class StateStoreImpl implements StateStore {
 
   updateStage(args: { pipelineId: string; stageId: string; branchKey?: string; patch: StageLifecyclePatch }): void {
     const branchKey = args.branchKey ?? DEFAULT_PIPELINE_STAGE_BRANCH_KEY;
-    const patch = args.patch;
+    const patch = stageLifecyclePatchWithTerminalFinish(args.patch, Date.now());
     const keys = (Object.keys(patch) as (keyof StageLifecyclePatch)[]).filter((key) => patch[key] !== undefined);
     if (keys.length === 0) {
       throw new Error("Stage lifecycle patch must include at least one field");

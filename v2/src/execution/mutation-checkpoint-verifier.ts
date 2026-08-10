@@ -117,7 +117,9 @@ export type MutationCheckpointSeams = {
   changedPaths?: readonly string[];
 };
 
-const COMMENT_DIRECTIVE_LINE = /^\s*\/\/.*@mutate/;
+const COMMENT_DIRECTIVE_LINE = /^\s*\/\/\s*@mutate(?=\s|$)/;
+/** Anchors directive-body parsing to the directive-position `@mutate` token, so a malformed body is never rescued by a later well-formed-looking occurrence on the same line. */
+const DIRECTIVE_LINE_PATTERN = new RegExp(`^\\s*\\/\\/\\s*${DIRECTIVE_PATTERN.source}`);
 const DIRECTIVE_MARKER = "@mutate";
 const PIN_TITLE_PATTERN = /^\s*(?:test|it)(?:\.\w+)?\s*\(\s*(["'`])((?:[^\\]|\\.)*?)\1/;
 const TEST_EACH_OPENER_PATTERN = /^\s*test\.each\s*\(/;
@@ -250,7 +252,7 @@ export function parseMutateDirectives(
   for (const [index, line] of lines.entries()) {
     if (!COMMENT_DIRECTIVE_LINE.test(line)) continue;
     const raw = line.trim();
-    const match = DIRECTIVE_PATTERN.exec(line);
+    const match = DIRECTIVE_LINE_PATTERN.exec(line);
     if (match?.[1] === undefined || match[2] === undefined || match[3] === undefined) {
       unparseable.push({ sourceFile: testFilePath, sourceLine: index + 1, raw, reason: "malformed" });
       continue;

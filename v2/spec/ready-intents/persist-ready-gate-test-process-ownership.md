@@ -22,7 +22,8 @@ Ready-gate test process groups have no durable run ownership, so a daemon that d
 ## Acceptance criteria
 
 - [ ] A forward-only v2 state-store migration and typed API register, enumerate, and compare-and-clear active ready-gate test process-group ownership, including run identity and enough process identity to reject PID or process-group reuse.
-- [ ] State-store regressions round-trip an ownership record, preserve it across store reopen, clear only its matching invocation, and migrate a pre-change database.
+- [ ] `v2/src/persistence/state-store.test.ts` — `persists active ready-gate test ownership across reopen` fails against the baseline, then proves an ownership record round-trips, survives store reopen, and a pre-change database migrates.
+- [ ] `v2/src/persistence/state-store.test.ts` — `clears only the matching ready-gate invocation`; Mutation checkpoint: weakening the exact-invocation guard lets an older completion clear a newer retry record and makes the scoped regression fail.
 - [ ] Ownership persistence does not mutate the owning run's lifecycle status or existing ready-gate repair state.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 

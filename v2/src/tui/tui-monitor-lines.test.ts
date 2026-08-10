@@ -673,7 +673,7 @@ describe("monitorLeftPaneTreeRows", () => {
 
 describe("monitorLeftPaneAttentionRows", () => {
   test("renders the pinned attention segment", () => {
-    // Keystone checkpoint: an in-body `// @mutate` directive disables the complete attention consumer integration.
+    // Keystone checkpoint: an in-body mutation directive disables the complete attention consumer integration.
     // @mutate v2/src/tui/tui-monitor-lines.ts "if (projection.total === 0) return [];" -> "return [];"
     const undatedGate = pipelineSnapshot({
       pipelineId: "pipe-gate",
@@ -725,7 +725,7 @@ describe("monitorLeftPaneAttentionRows", () => {
     );
     const overflowState = monitorState({ runs: eightDatedFailures });
     const overflowLines = monitorLeftPaneAttentionRows(overflowState, TREE_NOW_MS).map(joinMonitorRow);
-    // Mutation checkpoint: in-body `// @mutate` directives invert overflow rendering, empty-segment
+    // Mutation checkpoint: in-body mutation directives invert overflow rendering, empty-segment
     // suppression, durable-age omission, queue order, attention viewport subtraction, and the
     // tree-budget floor; each turns this test red.
     // @mutate v2/src/tui/tui-monitor-lines.ts "projection.overflow > 0 ? [row(untoned(`+${projection.overflow} more`))] : []" -> "[row(untoned(`+${projection.overflow} more`))]"
@@ -917,7 +917,7 @@ describe("monitorSelectableNodeIds", () => {
 
 describe("attention selection target detail", () => {
   test("attention selection resolves target detail beyond collapsed ancestors", () => {
-    // Keystone checkpoint: an in-body `// @mutate` directive disables the complete attention-target resolution.
+    // Keystone checkpoint: an in-body mutation directive disables the complete attention-target resolution.
     // @mutate v2/src/tui/tui-monitor-lines.ts "if (attentionTargetId !== null) {" -> "if (false) {"
     // Mutation checkpoint: suppressing attention-target aliasing here must turn this pin RED.
     // @mutate v2/src/tui/tui-monitor-lines.ts "return projection.rows.find((attentionRow) => attentionRow.id === selected)?.targetId ?? null;" -> "return null;"

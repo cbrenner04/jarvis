@@ -164,7 +164,7 @@ function renderLeftPaneContent(
   const { columns, rows } = shellTerminalSize(state);
   const layout = computeShellLayout(columns, rows, state.dividerOffset ?? 0);
   const rendered: ReactElement[] = [];
-  // Keystone checkpoint: an in-body `// @mutate` directive disables this call to turn the pinned
+  // Keystone checkpoint: an in-body mutation directive disables this call to turn the pinned
   // attention consumer integration RED.
   const attentionRows = monitorLeftPaneAttentionRows(state, nowMs);
   rendered.push(...renderSegmentRows(attentionRows, Text, RowBox, rendered.length));

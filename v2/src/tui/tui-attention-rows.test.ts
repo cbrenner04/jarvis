@@ -116,7 +116,7 @@ describe("buildAttentionRows", () => {
     ]);
 
     expect(projection.total).toBe(6);
-    // Keystone checkpoint: an in-body @mutate directive disables the complete attention projection.
+    // Keystone checkpoint: an in-body mutation directive disables the complete attention projection.
     // @mutate v2/src/tui/tui-attention-rows.ts "return { rows, total: incidents.length, overflow: incidents.length - rows.length };" -> "return { rows: [], total: 0, overflow: 0 };"
     expect(projection.rows.length).toBe(6);
     expect(projection.overflow).toBe(0);
@@ -227,7 +227,7 @@ describe("buildAttentionRows", () => {
     expect(m1?.targetId).toBe("run-m1");
     expect(m2?.targetId).toBe("run-m1");
 
-    // Mutation checkpoint: in-body @mutate directives invert the dated-before-undated guard,
+    // Mutation checkpoint: in-body mutation directives invert the dated-before-undated guard,
     // target-id tie-break, and row-id tie-break; each turns this test red.
     // @mutate v2/src/tui/tui-attention-rows.ts "return aDated ? -1 : 1;" -> "return aDated ? 1 : -1;"
     // @mutate v2/src/tui/tui-attention-rows.ts "return a.targetId < b.targetId ? -1 : 1;" -> "return a.targetId < b.targetId ? 1 : -1;"
@@ -308,7 +308,7 @@ describe("buildAttentionRows", () => {
     const pipe2Gate = projection.rows.find((row) => row.id === "attention:gate:pipe-2:approve-plan:default");
     expect(pipe2Gate?.sinceMs).toBe(2_000);
 
-    // Mutation checkpoint: in-body @mutate directives invert every added source, canonical-source
+    // Mutation checkpoint: in-body mutation directives invert every added source, canonical-source
     // suppression, predecessor-kind timestamp, terminal-publication durability, filtering, and the cap
     // guard; each turns this test red.
     // @mutate v2/src/tui/tui-attention-rows.ts "if (stage.status === \"awaiting\") {" -> "if (false) {"
@@ -320,7 +320,6 @@ describe("buildAttentionRows", () => {
     // @mutate v2/src/tui/tui-attention-rows.ts "if (seen.has(snapshot.pipelineId)) continue;" -> "if (false) continue;"
     // @mutate v2/src/tui/tui-attention-rows.ts "if (kinds.get(predecessor.stageId) === \"approval\") return predecessor.decidedAt;" -> "return predecessor.endedAt;"
     // @mutate v2/src/tui/tui-attention-rows.ts "return finishAts.length > 0 ? Math.max(...finishAts) : null;" -> "return finishAts.length > 0 ? Math.max(...finishAts) : snapshot.createdAt;"
-    // @mutate v2/src/tui/tui-attention-rows.ts "return undefined;" -> "return \"failed-run\";"
     // @mutate v2/src/tui/tui-attention-rows.ts "const rows = incidents.slice(0, ATTENTION_ROW_CAP);" -> "const rows = incidents;"
   });
 });

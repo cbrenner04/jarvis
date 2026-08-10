@@ -9,7 +9,7 @@ Mutation-checkpoint directives in the active subspec's pinning tests do not matc
 
 Active subspec: <ACTIVE_SUBSPEC_PATH>
 
-Retarget each `// @mutate` directive so the quoted original occurs exactly once in the named file:
+Retarget each `// @mutate` directive so the quoted original occurs exactly once in the named file. `@mutate` must be the first token after `//` and optional whitespace — a directive further into the comment (for example `// pin: @mutate ...`) is not recognized and links no directive:
 
 <DIRECTIVE_LIST>
 

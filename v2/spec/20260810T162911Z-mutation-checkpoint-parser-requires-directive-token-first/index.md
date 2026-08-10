@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Require directive token first](./00-require-directive-token-first.md)
+- [x] [00 - Require directive token first](./00-require-directive-token-first.md)

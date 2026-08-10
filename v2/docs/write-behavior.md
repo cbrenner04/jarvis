@@ -449,7 +449,13 @@ The loop classifies and routes results:
      ticked keystone criterion refuses (`Multiple keystone checkpoints`).
      Pinning-test resolution and directive linking read the assembled full bullet block (aligned
      with selection); wrapped pinning-test references and enclosing-test names on continuation
-     lines resolve. Each linked `// @mutate` directive in the named pinning test (path-qualified
+     lines resolve. A directive is recognized only when `@mutate` is the first token after `//`
+     and optional whitespace, with a token boundary (`@mutated`, `@mutateSuffix` do not match); a
+     later `@mutate` mention elsewhere in the comment is ignored (no directive, no unparseable
+     entry). When the directive-position token has an invalid body, the line reports `malformed`
+     even if a well-formed-looking `@mutate <path> "<original>" -> "<replacement>"` sequence
+     appears later on the same line — body parsing anchors to the directive-position token, not a
+     whole-line search. Each linked `// @mutate` directive in the named pinning test (path-qualified
      first, basename only when unambiguous) is applied in the worktree, scoped suites run with
      `AbortSignal` and remaining write-iteration wall budget, and the file is restored (snapshot
      restore on abort, timeout, or throw — abnormal settle does not count as verification). Guard

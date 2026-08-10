@@ -164,6 +164,41 @@ describe("parseMutateDirectives", () => {
     expect(directives).toEqual([]);
     expect(unparseable).toEqual([]);
   });
+
+  test("ignores later prose mentions of a mutation directive", () => {
+    // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "const COMMENT_DIRECTIVE_LINE = /^\\s*\\/\\/\\s*@mutate(?=\\s|$)/;" -> "const COMMENT_DIRECTIVE_LINE = /^\\s*\\/\\/.*@mutate/;"
+    const content = ['test("pin", () => {', "  // later prose mentions @mutate here", "});"].join("\n");
+    const { directives, unparseable } = parseMutateDirectives("/wt/x.test.ts", content);
+    expect(directives).toEqual([]);
+    expect(unparseable).toEqual([]);
+  });
+
+  test("ignores a directive-position lookalike token", () => {
+    // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "@mutate(?=\\s|$)" -> "@mutate"
+    const content = ['test("pin", () => {', '  // @mutated v2/src/thing.ts "a" -> "b"', "});"].join("\n");
+    const { directives, unparseable } = parseMutateDirectives("/wt/x.test.ts", content);
+    expect(directives).toEqual([]);
+    expect(unparseable).toEqual([]);
+  });
+
+  test("a malformed directive-position token is not rescued by a later well-formed-looking occurrence", () => {
+    // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "const match = DIRECTIVE_LINE_PATTERN.exec(line);" -> "const match = DIRECTIVE_PATTERN.exec(line);"
+    const raw = '// @mutate first bad @mutate v2/src/thing.ts "a" -> "b"';
+    const { directives, unparseable } = parseMutateDirectives("/wt/x.test.ts", raw);
+    expect(directives).toEqual([]);
+    expect(unparseable).toHaveLength(1);
+    expect(unparseable[0]?.reason).toBe("malformed");
+    expect(unparseable[0]?.sourceLine).toBe(1);
+    expect(unparseable[0]?.raw).toBe(raw);
+  });
+
+  test("a bare directive-position @mutate with nothing after it is recognized and malformed", () => {
+    // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "@mutate(?=\\s|$)" -> "@mutate(?=\\s)"
+    const { directives, unparseable } = parseMutateDirectives("/wt/x.test.ts", "// @mutate");
+    expect(directives).toEqual([]);
+    expect(unparseable[0]?.reason).toBe("malformed");
+    expect(unparseable[0]?.sourceLine).toBe(1);
+  });
 });
 
 describe("pinningTestReferenceFromCriterion", () => {
@@ -183,7 +218,7 @@ describe("pinningTestReferenceFromCriterion", () => {
 
 describe("verifyMutationCheckpoints", () => {
   test("directive-only criteria receive caught and hollow verification", async () => {
-    // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "markerSource.includes(CRITERION_MARKER) || DIRECTIVE_PATTERN.test(markerSource)" -> "markerSource.includes(CRITERION_MARKER)"
+    // @mutate shared/mutation-checkpoint-criteria.ts "if (DIRECTIVE_PATTERN.test(block)) return true;" -> "if (false) return true;"
     for (const passes of [true, false]) {
       const root = makeWorktree();
       writeAt(root, "v2/src/guard.ts", "export const ok = (a: number) => a > 0;\n");
@@ -516,7 +551,7 @@ describe("verifyMutationCheckpoints", () => {
   });
 
   test("prose @mutate without a directive-shaped occurrence is not selected", async () => {
-    // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "DIRECTIVE_PATTERN.test(markerSource)" -> "markerSource.includes(DIRECTIVE_MARKER)"
+    // @mutate shared/mutation-checkpoint-criteria.ts "if (DIRECTIVE_PATTERN.test(block)) return true;" -> "if (true) return true;"
     const root = makeWorktree();
     writeAt(root, "v2/src/guard.test.ts", 'test("guard pin", () => {});');
     const subspec = writeAt(

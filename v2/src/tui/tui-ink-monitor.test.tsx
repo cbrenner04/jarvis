@@ -667,7 +667,7 @@ describe("createMonitorDisplay", () => {
   });
 
   test("renders and clips pinned attention in the left pane", () => {
-    // Keystone checkpoint: an in-body `// @mutate` directive disables the complete attention consumer
+    // Keystone checkpoint: an in-body mutation directive disables the complete attention consumer
     // integration in tui-ink-monitor.tsx and turns this test red.
     // @mutate v2/src/tui/tui-ink-monitor.tsx "const attentionRows = monitorLeftPaneAttentionRows(state, nowMs);" -> "const attentionRows: MonitorLineRow[] = [];"
     const failedRuns: DaemonListRunRow[] = Array.from({ length: 7 }, (_, index) => ({

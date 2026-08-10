@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Selected collapsed member resolves its own ancestors](./00-selected-collapsed-member-resolves-ancestors.md)
+- [x] [00 - Selected collapsed member resolves its own ancestors](./00-selected-collapsed-member-resolves-ancestors.md)

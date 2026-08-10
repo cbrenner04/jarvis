@@ -2911,12 +2911,17 @@ describe("runTuiEntry", () => {
     expect(revealedState?.expandedPipelineNodeIds ?? []).toEqual(expandedBefore);
     expect(leftPaneTreeRowIds(revealedState)).toContain(stageTargetId);
 
-    // A target id absent from the selectable set (the collapsed non-representative run member) is a no-op.
+    // The failed-run target is a collapsed non-representative workflow member: reveal resolves its
+    // stage ancestor via resolveSelectedAncestors and materializes it as its own row.
     view.selectNode(failedRunId);
     await flush();
+    const expandedBeforeRun = view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? [];
     view.revealSelectedAttentionTarget();
     await flush();
-    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(failedRunId);
+    const revealedRunState = view.monitorStates.at(-1);
+    expect(revealedRunState?.selectedNodeId).toBe("run-implement");
+    expect(revealedRunState?.expandedPipelineNodeIds ?? []).toEqual(expandedBeforeRun);
+    expect(leftPaneTreeRowIds(revealedRunState)).toContain("run-implement");
 
     view.quit();
     expect(await pending).toBe(0);

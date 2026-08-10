@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { RUN_STATUSES } from "../persistence/state-store.ts";
+import { buildAttentionRows } from "./tui-attention-rows.ts";
 import {
   buildTreeRunRow,
   firstSelectableRunId,
@@ -879,6 +880,86 @@ describe("monitorSelectableNodeIds", () => {
       expect(selectableIds).toContain(run.runId);
     }
     expect(treeRows.length).toBeLessThanOrEqual(maxVisibleRows);
+  });
+
+  test("prefixes capped attention ids before every full-flatten tree id and excludes overflow", () => {
+    // Mutation checkpoint: dropping the attention-id prefix, or including the overflow row, must turn this pin RED.
+    // @mutate v2/src/tui/tui-monitor-lines.ts "[...projection.rows.map((attentionRow) => attentionRow.id), ...fullTreeRows.map((row) => row.id)]" -> "fullTreeRows.map((row) => row.id)"
+    const sevenFailures: DaemonListRunRow[] = Array.from({ length: 7 }, (_, index) =>
+      workflowRun(`run-select-${index}`, "failed", `inv-select-${index}`, {
+        finishedAtMs: 1_000 * (index + 1),
+        isLive: false,
+      }),
+    );
+    const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [] });
+    const state = monitorState({
+      runs: sevenFailures,
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
+    });
+
+    const projection = buildAttentionRows(state.pipelineSnapshotsBySocketPath, state.runs);
+    const { fullTreeRows } = monitorLeftPaneTreeRows(state, treeLayout(), TREE_NOW_MS);
+    const ids = monitorSelectableNodeIds(state, TREE_NOW_MS);
+
+    expect(projection.total).toBe(7);
+    expect(projection.overflow).toBe(1);
+    expect(projection.rows).toHaveLength(6);
+    expect(ids.slice(0, 6)).toEqual(projection.rows.map((row) => row.id));
+    expect(ids.slice(6)).toEqual(fullTreeRows.map((row) => row.id));
+    for (const overflowRun of sevenFailures) {
+      const overflowRowId = `attention:failed-run:${overflowRun.runId}`;
+      if (!projection.rows.some((row) => row.id === overflowRowId)) {
+        expect(ids).not.toContain(overflowRowId);
+      }
+    }
+  });
+});
+
+describe("attention selection target detail", () => {
+  test("attention selection resolves target detail beyond collapsed ancestors", () => {
+    // Keystone checkpoint: an in-body `// @mutate` directive disables the complete attention-target resolution.
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (attentionTargetId !== null) {" -> "if (false) {"
+    // Mutation checkpoint: suppressing attention-target aliasing here must turn this pin RED.
+    // @mutate v2/src/tui/tui-monitor-lines.ts "return projection.rows.find((attentionRow) => attentionRow.id === selected)?.targetId ?? null;" -> "return null;"
+    const pipelineId = "pipe-attr";
+    const attributedRun = workflowRun("run-attributed", "failed", "inv-attr", { finishedAtMs: 5_000, isLive: false });
+    const snapshot = pipelineSnapshot({
+      pipelineId,
+      stages: [
+        snapshotStage({ stageId: "implement", position: 0, status: "failed", workflowInvocationId: "inv-attr" }),
+      ],
+    });
+    const adHocActive = workflowRun("run-adhoc-active", "in-progress", "inv-adhoc");
+    const adHocFailed = workflowRun("run-adhoc-failed", "failed", "inv-adhoc", { finishedAtMs: 6_000, isLive: false });
+
+    const state = monitorState({
+      runs: [attributedRun, adHocActive, adHocFailed],
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
+      expandedPipelineNodeIds: [], // pipeline and stage ancestors stay collapsed
+    });
+
+    const projection = buildAttentionRows(state.pipelineSnapshotsBySocketPath, state.runs);
+    const attributedRow = projection.rows.find((row) => row.targetId === "run-attributed");
+    const adHocRow = projection.rows.find((row) => row.kind === "failed-run" && row.targetId !== "run-attributed");
+    expect(attributedRow).toBeDefined();
+    expect(adHocRow).toBeDefined();
+    // The failed ad-hoc member's row targets the group's representative, not itself.
+    expect(adHocRow?.targetId).toBe("run-adhoc-active");
+
+    // Mutation checkpoint: resolving stages against the complete joined model (not painted/expanded rows) here
+    // must turn collapsed-ancestor target resolution RED.
+    // @mutate v2/src/tui/tui-monitor-lines.ts "for (const stage of pipelineStageNodes(pipeline)) {" -> "for (const stage of []) {"
+    const attributedState = { ...state, selectedNodeId: attributedRow?.id ?? null };
+    const attributedLines = monitorRightPaneSegmentRows(attributedState, TREE_NOW_MS).map(joinMonitorRow);
+    expect(attributedState.selectedNodeId).toBe(attributedRow?.id ?? null);
+    expect(attributedLines).not.toContain("No run selected.");
+    expect(attributedLines.some((line) => line.includes("run-attributed"))).toBe(true);
+
+    const adHocState = { ...state, selectedNodeId: adHocRow?.id ?? null };
+    const adHocLines = monitorRightPaneSegmentRows(adHocState, TREE_NOW_MS).map(joinMonitorRow);
+    expect(adHocState.selectedNodeId).toBe(adHocRow?.id ?? null);
+    expect(adHocLines).not.toContain("No run selected.");
+    expect(adHocLines.some((line) => line.includes("run-adhoc-active"))).toBe(true);
   });
 });
 

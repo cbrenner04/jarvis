@@ -317,6 +317,80 @@ function overflowPipelineEntryDeps(view: ReturnType<typeof createViewHost>) {
   };
 }
 
+function attentionSelectionEntryDeps(view: ReturnType<typeof createViewHost>) {
+  const terminalColumns = 80;
+  const terminalRows = 24;
+  const maxVisibleRows = computeShellLayout(terminalColumns, terminalRows, 0).paneHeight;
+  const pipelineCount = maxVisibleRows + 10;
+  const pipelines = Array.from({ length: pipelineCount }, (_, index) => ({
+    pipelineId: `pipe-${index}`,
+    name: `pipeline-${index}`,
+    state: "succeeded" as const,
+    terminalPublicationSucceededAt: null,
+    terminalPublicationFailure: null,
+    createdAt: 1_700_000_000_000 + index,
+    finishedAtMs: 1_700_000_100_000 + index,
+    stages: [
+      {
+        id: `stage-${index}`,
+        stageId: "plan",
+        branchKey: "default",
+        position: 0,
+        status: "succeeded" as const,
+        workflowInvocationId: `inv-${index}`,
+        startedAt: null,
+        endedAt: null,
+        decidedAt: null,
+        artifact: null,
+        failureDetail: null,
+      },
+    ],
+  }));
+  const pipelineRuns = pipelines.map((_, index) => ({
+    runId: `run-${index}`,
+    project: "demo",
+    branch: `branch-${index}`,
+    createdAt: 0,
+    status: "completed" as const,
+    isLive: false,
+    finishedAtMs: TERMINAL_LIST_FINISH_MS,
+    workflow: {
+      invocationId: `inv-${index}`,
+      steps: [{ stepId: "plan", role: "plan", status: "completed" as const, attemptCount: 1 }],
+    },
+  }));
+  const failedRun: DaemonListRunRow = {
+    runId: "run-attention-failed",
+    project: "demo",
+    branch: "attention",
+    createdAt: 0,
+    status: "failed",
+    isLive: false,
+    finishedAtMs: TERMINAL_LIST_FINISH_MS,
+  };
+  const runs = [...pipelineRuns, failedRun];
+  return {
+    deps: entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs }],
+        pipelineListResponses: [{ pipelines }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+        pauseError: new RpcError("run_not_active", "not active"),
+      },
+      {
+        viewHost: view.host,
+        nowMs: () => WORKFLOW_FILTER_NOW_MS,
+        terminalSize: () => ({ columns: terminalColumns, rows: terminalRows }),
+      },
+    ).deps,
+    terminalColumns,
+    terminalRows,
+    pipelineCount,
+    failedRun,
+  };
+}
+
 function pipelineMultiEntryDeps(view: ReturnType<typeof createViewHost>, overrides: Partial<RunTuiEntryDeps> = {}) {
   return entryDeps(
     {
@@ -2543,6 +2617,57 @@ describe("runTuiEntry", () => {
 
     await view.toggleExpansion();
     expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toEqual(startingRowIds);
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("selecting attention preserves stored tree navigation state", async () => {
+    // Mutation checkpoint: writing leftPaneTreeScrollOffset or expandedPipelineNodeIds on attention selection,
+    // or suppressing steering-feedback clearing, must turn this pin RED.
+    // @mutate v2/src/tui/tui-entry.tsx "selectedNodeId: nodeId,\n      steeringFeedback: null," -> "selectedNodeId: nodeId,\n      steeringFeedback: currentState.steeringFeedback,"
+    const view = createViewHost();
+    const { deps, pipelineCount } = attentionSelectionEntryDeps(view);
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    for (let step = 0; step < pipelineCount + 2; step += 1) {
+      view.selectNextRun();
+      await flush();
+    }
+    const lastTreeId = view.monitorStates.at(-1)?.selectedNodeId;
+    if (typeof lastTreeId !== "string" || !lastTreeId.startsWith("pipe-")) {
+      throw new Error("expected the walk to land on a pipeline row");
+    }
+    await view.toggleExpansion();
+    const expandedBefore = view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? [];
+    expect(expandedBefore).toContain(lastTreeId);
+
+    view.selectNode("run-attention-failed");
+    await flush();
+    view.pauseSelected();
+    await flush();
+    const beforeState = view.monitorStates.at(-1);
+    if (beforeState === undefined) throw new Error("expected a painted monitor state");
+    expect(beforeState.steeringFeedback).toBe("run_not_active: not active");
+    const scrollOffsetBefore = beforeState.leftPaneTreeScrollOffset;
+
+    const attentionId = monitorSelectableNodeIds(beforeState, WORKFLOW_FILTER_NOW_MS).find((id) =>
+      id.startsWith("attention:"),
+    );
+    if (attentionId === undefined) throw new Error("expected an attention row id");
+
+    view.selectNode(attentionId);
+    await flush();
+    const afterState = view.monitorStates.at(-1);
+
+    // @mutate v2/src/tui/tui-entry.tsx "selectedNodeId: nodeId,\n      steeringFeedback: null,\n    });" -> "selectedNodeId: nodeId,\n      steeringFeedback: null,\n      expandedPipelineNodeIds: nodeId === null ? currentState.expandedPipelineNodeIds : [...(currentState.expandedPipelineNodeIds ?? []), nodeId],\n    });"
+    expect(afterState?.selectedNodeId).toBe(attentionId);
+    expect(afterState?.leftPaneTreeScrollOffset).toBe(scrollOffsetBefore);
+    expect(afterState?.expandedPipelineNodeIds).toEqual(expandedBefore);
+    expect(afterState?.steeringFeedback).toBeNull();
 
     view.quit();
     expect(await pending).toBe(0);

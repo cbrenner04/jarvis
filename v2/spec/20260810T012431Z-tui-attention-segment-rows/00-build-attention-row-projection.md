@@ -27,19 +27,27 @@ The monitor has durable gate and failure facts but no projection that identifies
 
 ## Acceptance criteria
 
-- [ ] `tui-attention-rows.test.ts` test `builds every attention incident with durable targets and timestamps` fails against the pre-fix code and covers awaiting gate, rejected gate, failed stage, failed run, blocked run, and terminal-publication failure.
-- [ ] Awaiting-gate age uses a workflow predecessor's `endedAt` or an approval predecessor's `decidedAt`; rejected-gate, stage-failure, and run-failure ages use `decidedAt`, `endedAt`, and `finishedAtMs` respectively; publication failure uses only a durable terminal-stage timestamp.
-- [ ] A legacy failed or blocked run without `finishedAtMs` remains projected with `sinceMs: null`; no admission or display timestamp is substituted.
-- [ ] A terminal-publication failure without a durable terminal-stage timestamp remains projected with `sinceMs: null`; pipeline `createdAt` and a fallback `finishedAtMs` never supply its age.
-- [ ] Contradictory duplicate snapshots for one pipeline project incidents from only the first canonical source in ascending socket-path precedence; a later stale source contributes no row.
-- [ ] A failed stage and its failed constituent run both count as rows; multiple failed ad-hoc runs may share one target but have distinct stable attention ids, and total, cap, and overflow count every incident.
-- [ ] Seven actionable incidents project six selectable rows plus overflow count one; gates precede failures, dated rows are oldest first within each group, and equal timestamps and targets resolve by attention id at the cap boundary.
-- [ ] Attention ids are stable and separately namespaced from target ids; pipeline-backed `where` uses `branchKey`, ad-hoc `where` uses its established label, and overflow metadata has no selectable id or target.
-- [ ] `tui-attention-rows.test.ts` — `builds every attention incident with durable targets and timestamps`; Keystone checkpoint: an in-body `// @mutate` directive disables the complete attention projection and turns the scoped test red.
-- [ ] `tui-attention-rows.test.ts` — `sorts undated rows after dated attention`; Mutation checkpoint: in-body `// @mutate` directives invert the dated-before-undated guard, target-id tie-break, and row-id tie-break, and each turns the scoped test red.
-- [ ] `tui-attention-rows.test.ts` — `filters and caps attention sources`; Mutation checkpoint: in-body `// @mutate` directives invert every added source, canonical-source suppression, predecessor-kind timestamp, terminal-publication durability, filtering, and cap guard, including suppressed-effect negatives, and each turns the scoped test red.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `tui-attention-rows.test.ts` test `builds every attention incident with durable targets and timestamps` fails against the pre-fix code and covers awaiting gate, rejected gate, failed stage, failed run, blocked run, and terminal-publication failure.
+- [x] Awaiting-gate age uses a workflow predecessor's `endedAt` or an approval predecessor's `decidedAt`; rejected-gate, stage-failure, and run-failure ages use `decidedAt`, `endedAt`, and `finishedAtMs` respectively; publication failure uses only a durable terminal-stage timestamp.
+- [x] A legacy failed or blocked run without `finishedAtMs` remains projected with `sinceMs: null`; no admission or display timestamp is substituted.
+- [x] A terminal-publication failure without a durable terminal-stage timestamp remains projected with `sinceMs: null`; pipeline `createdAt` and a fallback `finishedAtMs` never supply its age.
+- [x] Contradictory duplicate snapshots for one pipeline project incidents from only the first canonical source in ascending socket-path precedence; a later stale source contributes no row.
+- [x] A failed stage and its failed constituent run both count as rows; multiple failed ad-hoc runs may share one target but have distinct stable attention ids, and total, cap, and overflow count every incident.
+- [x] Seven actionable incidents project six selectable rows plus overflow count one; gates precede failures, dated rows are oldest first within each group, and equal timestamps and targets resolve by attention id at the cap boundary.
+- [x] Attention ids are stable and separately namespaced from target ids; pipeline-backed `where` uses `branchKey`, ad-hoc `where` uses its established label, and overflow metadata has no selectable id or target.
+- [x] `tui-attention-rows.test.ts` — `builds every attention incident with durable targets and timestamps`; Keystone checkpoint: an in-body `// @mutate` directive disables the complete attention projection and turns the scoped test red.
+- [x] `tui-attention-rows.test.ts` — `sorts undated rows after dated attention`; Mutation checkpoint: in-body `// @mutate` directives invert the dated-before-undated guard, target-id tie-break, and row-id tie-break, and each turns the scoped test red.
+- [x] `tui-attention-rows.test.ts` — `filters and caps attention sources`; Mutation checkpoint: in-body `// @mutate` directives invert every added source, canonical-source suppression, predecessor-kind timestamp, terminal-publication durability, filtering, and cap guard, including suppressed-effect negatives, and each turns the scoped test red.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
 None — this subspec adds an internal projection; the painted consumer and durable operator documentation land in 02.
+
+## Blocker
+
+Artifact contract check failed: Unparseable mutation checkpoints:
+- /Users/christopherbrenner/.jarvis/worktrees/jarvis/20260810T012431Z-tui-attention-segment-rows/v2/src/tui/tui-attention-rows.test.ts:119: malformed: // Keystone checkpoint: an in-body @mutate directive disables the complete attention projection.
+- /Users/christopherbrenner/.jarvis/worktrees/jarvis/20260810T012431Z-tui-attention-segment-rows/v2/src/tui/tui-attention-rows.test.ts:230: malformed: // Mutation checkpoint: in-body @mutate directives invert the dated-before-undated guard,
+- /Users/christopherbrenner/.jarvis/worktrees/jarvis/20260810T012431Z-tui-attention-segment-rows/v2/src/tui/tui-attention-rows.test.ts:311: malformed: // Mutation checkpoint: in-body @mutate directives invert every added source, canonical-source
+- /Users/christopherbrenner/.jarvis/worktrees/jarvis/20260810T012431Z-tui-attention-segment-rows/v2/src/tui/tui-attention-rows.test.ts:323: target_ambiguous: // @mutate v2/src/tui/tui-attention-rows.ts "return undefined;" -> "return \"failed-run\";"

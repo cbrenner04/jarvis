@@ -303,12 +303,19 @@ function attributedRunsForStages(
   return builderRuns.filter((run) => run.workflow !== undefined && invocationIds.has(run.workflow.invocationId));
 }
 
-/** Right-aligned to its column; a value too wide for the column (multi-digit/multi-day) is right-clipped to fit. */
+/**
+ * Right-aligned to its column when it fits. Non-compact overflow right-clips (costs at most a label
+ * character). Compact overflow instead keeps the full work value and elides idle to `w<work>/i…`,
+ * left-aligned so it never collides with the running form's right-aligned plain `w<work>`.
+ */
 function formatTreeTiming(timing: WorkIdleTiming, compact: boolean): string {
   const width = compact ? 8 : 20;
   const formatted = formatAggregateTiming(timing.workMs, timing.idleMs, compact);
-  if (formatted.length > width) return formatted.slice(formatted.length - width);
-  return formatted.padStart(width);
+  if (formatted.length <= width) return formatted.padStart(width);
+  if (!compact) return formatted.slice(formatted.length - width);
+  const work = formatAggregateTiming(timing.workMs, null, compact);
+  const elided = `${work}/i…`;
+  return elided.length > width ? work.padEnd(width) : elided.padEnd(width);
 }
 
 function formatPipelineTreeTiming(node: MonitorPipelineTreePipelineNode & { compact: boolean }, nowMs: number): string {

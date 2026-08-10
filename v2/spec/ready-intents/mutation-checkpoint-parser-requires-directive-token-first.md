@@ -21,7 +21,9 @@ name: mutation-checkpoint-parser-requires-directive-token-first
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/mutation-checkpoint-verifier.test.ts` pins that a Keystone-checkpoint prose comment referencing `// @mutate` later in the line yields zero directives and zero unparseable entries; the regression fails against the current token-anywhere gate.
+- [ ] `v2/src/execution/mutation-checkpoint-verifier.test.ts` — `ignores later prose mentions of a mutation directive`; Mutation checkpoint:
+  `// @mutate v2/src/execution/mutation-checkpoint-verifier.ts "const COMMENT_DIRECTIVE_LINE = /^\\s*\\\/\\\/\\s*@mutate(?=\\s|$)/;" -> "const COMMENT_DIRECTIVE_LINE = /^\\s*\\\/\\\/.*@mutate/;"`
+  The test yields zero directives and zero unparseable entries for a Keystone-checkpoint prose comment that references `// @mutate` later in the line; it fails against the current token-anywhere gate.
 - [ ] A well-formed `// @mutate <path> "<orig>" -> "<repl>"` line still parses as one directive.
 - [ ] A directive-position `@mutate` token with a malformed body still reports `malformed`.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.

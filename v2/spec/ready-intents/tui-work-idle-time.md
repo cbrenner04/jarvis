@@ -20,16 +20,16 @@ Pipeline elapsed uses `createdAt`, so stage work and operator wait collapse into
 - Show `idle <age>` on parked and terminal pipeline rows, while running pipeline rows show work without idle. Rules out labeling operator wait as work.
 - Show pipeline and branch work in the tree; keep stage and run rows on their own start-to-end elapsed. Rules out replacing leaf timing with subtree aggregates.
 - Render a terminal stage with no `startedAt` as `failed before start` in the tree and detail. Rules out the current blank elapsed.
-- End a terminal row lacking its terminal timestamp at its latest durable activity rather than the display clock. Rules out finishless terminal rows ticking forever.
-- Keep `createdAt` and created-to-finish wall-clock duration in pipeline detail, and add work plus idle there. Rules out deleting forensic wall-clock timing.
+- End a terminal run lacking `finishedAtMs` at its latest durable activity rather than the display clock. Rules out finishless terminal runs ticking forever.
+- Keep `createdAt` and created-to-finish wall-clock duration in pipeline detail; the wall clock advances to the display clock while the pipeline runs and freezes at finish. Add work plus idle there. Rules out deleting forensic wall-clock timing.
 - Advance running stage and run durations from the existing local display clock without extra daemon requests; completed work remains stable between refreshes. Rules out polling to animate elapsed.
 
 ## Acceptance criteria
 
-- [ ] Pure aggregation pins show branch work as the sum of its stages and pipeline work as the sum of all stages, with running stages contributing display-clock time; a parked pipeline has small work and large idle.
+- [ ] A regression in `v2/src/tui/tui-monitor-pipeline-tree.test.ts` fails against the baseline and pins branch work as the sum of its stages and pipeline work as the sum of all stages, with running stages contributing display-clock time; a parked pipeline has small work and large idle.
 - [ ] Last activity uses the maximum present stage start/end/decision and member-run finish; a pipeline whose last activity was six days ago renders `idle 6d` while work remains the stage sum.
 - [ ] Pipeline rows render work, non-running pipeline rows also render idle, branch rows render branch work, and pipeline age leaves the tree.
-- [ ] Pipeline detail renders work, idle, `createdAt`, and wall-clock duration.
+- [ ] Pipeline detail renders work, idle, `createdAt`, and wall-clock duration, which advances from `createdAt` to the display clock while the pipeline runs and freezes at finish.
 - [ ] A terminal stage with null `startedAt` renders `failed before start` in both tree and detail.
 - [ ] A terminal run with no `finishedAtMs` produces identical elapsed text across renders 60 seconds apart.
 - [ ] Running stage and run elapsed changes across local display ticks without additional `list` or `pipeline_list` requests; parked work does not change.

@@ -5354,7 +5354,7 @@ describe("runTuiEntry", () => {
     // targetId is a stage row that is never itself selected here.
     // @mutate v2/src/tui/tui-entry.tsx "if (attentionRow.kind !== \"awaiting-gate\") return \"not_awaiting_stage\";" -> "if (false) return \"not_awaiting_stage\";"
     // @mutate v2/src/tui/tui-entry.tsx "if (attentionRow !== undefined && attentionRow.kind === \"awaiting-gate\" && attentionRow.gate !== undefined) {" -> "if (false) {"
-    // @mutate v2/src/tui/tui-entry.tsx "const owner = pipelineOwners.get(attentionRow.gate.pipelineId);\n      if (owner === undefined) return \"stale_non_targetable\";" -> "const owner = pipelineOwners.get(attentionRow.gate.pipelineId);\n      if (false) return \"stale_non_targetable\";"
+    // @mutate v2/src/tui/tui-entry.tsx "const owner = pipelineOwners.get(attentionRow.gate.pipelineId);\n      if (owner === undefined) return " -> "const owner = pipelineOwners.get(attentionRow.gate.pipelineId);\n      if (false) return "
     const view = createViewHost();
     const refresh = createIntervalScheduler();
     const approveCalls: PipelineStageMutationParams[] = [];

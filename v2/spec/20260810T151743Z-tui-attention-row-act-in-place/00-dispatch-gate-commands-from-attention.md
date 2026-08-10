@@ -19,15 +19,15 @@
 
 ## Acceptance criteria
 
-- [ ] `approve` on an awaiting-gate attention row issues one `pipeline_approve` through the target pipeline's owning daemon with the row's `pipelineId`, `stageId`, and `branchKey`.
-- [ ] `reject` on an awaiting-gate attention row issues one `pipeline_reject` through the same target resolution.
-- [ ] `approve` and `reject` on `rejected-gate`, `failed-stage`, `failed-run`, `blocked-run`, or `publication-failure` attention rows report `not_awaiting_stage` and issue no RPC.
-- [ ] `approve` and `reject` on an awaiting-gate attention row whose pipeline owner disappears report `stale_non_targetable` and issue no RPC.
-- [ ] Existing selected-tree-stage cases `typed approve issues pipeline_approve for the selected awaiting stage` and `typed reject issues pipeline_reject for the selected awaiting stage` in `v2/src/tui/tui-entry.test.tsx` stay green.
-- [ ] `v2/src/tui/tui-entry.test.tsx` — `attention commands act only on awaiting-gate pins`; Keystone checkpoint: reverting attention selection to the pre-fix tree-only resolution makes the scoped test fail.
-- [ ] `v2/src/tui/tui-entry.test.tsx` — `attention commands act only on awaiting-gate pins`; Mutation checkpoint: inverting each added or modified attention eligibility guard makes the scoped test fail, including the no-RPC negative cases.
-- [ ] `v2/docs/operator-runbook.md` documents gate action from an awaiting attention row and `not_awaiting_stage` refusal for other attention rows; `v2/docs/v1-behaviors.md` records the widened selection contract.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `approve` on an awaiting-gate attention row issues one `pipeline_approve` through the target pipeline's owning daemon with the row's `pipelineId`, `stageId`, and `branchKey`.
+- [x] `reject` on an awaiting-gate attention row issues one `pipeline_reject` through the same target resolution.
+- [x] `approve` and `reject` on `rejected-gate`, `failed-stage`, `failed-run`, `blocked-run`, or `publication-failure` attention rows report `not_awaiting_stage` and issue no RPC.
+- [x] `approve` and `reject` on an awaiting-gate attention row whose pipeline owner disappears report `stale_non_targetable` and issue no RPC.
+- [x] Existing selected-tree-stage cases `typed approve issues pipeline_approve for the selected awaiting stage` and `typed reject issues pipeline_reject for the selected awaiting stage` in `v2/src/tui/tui-entry.test.tsx` stay green.
+- [x] `v2/src/tui/tui-entry.test.tsx` — `attention commands act only on awaiting-gate pins`; Keystone checkpoint: reverting attention selection to the pre-fix tree-only resolution makes the scoped test fail.
+- [x] `v2/src/tui/tui-entry.test.tsx` — `attention commands act only on awaiting-gate pins`; Mutation checkpoint: inverting each added or modified attention eligibility guard makes the scoped test fail, including the no-RPC negative cases.
+- [x] `v2/docs/operator-runbook.md` documents gate action from an awaiting attention row and `not_awaiting_stage` refusal for other attention rows; `v2/docs/v1-behaviors.md` records the widened selection contract.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

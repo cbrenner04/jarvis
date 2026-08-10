@@ -7,6 +7,7 @@ import type { DaemonListResult, DaemonListRunRow } from "../daemon/daemon-wire.t
 import type { PipelineApprovalDecisionOutcome, ResumePipelineOutcome } from "../daemon/pipeline-execution.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
+import { buildAttentionRows } from "./tui-attention-rows.ts";
 import * as tuiCommandParser from "./tui-command-parser.ts";
 import type {
   PipelineListResult,
@@ -188,6 +189,183 @@ const PIPELINE_RUN_AWAITING: DaemonListRunRow = {
     steps: [{ stepId: "gate", role: "actuator", status: "in_progress", attemptCount: 1 }],
   },
 };
+
+const PIPELINE_SNAPSHOT_ATTENTION_GATES: PipelineSnapshot = {
+  pipelineId: "pipe-attn-gates",
+  name: "full-review",
+  state: "awaiting-approval",
+  terminalPublicationSucceededAt: null,
+  terminalPublicationFailure: null,
+  createdAt: 1_700_000_000_000,
+  finishedAtMs: null,
+  stages: [
+    {
+      id: "stage-attn-intent",
+      stageId: "intent",
+      branchKey: "default",
+      position: 0,
+      status: "succeeded",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: 100,
+      decidedAt: null,
+      artifact: null,
+      failureDetail: null,
+    },
+    {
+      id: "stage-attn-approve-intent",
+      stageId: "approve-intent",
+      branchKey: "default",
+      position: 1,
+      status: "rejected",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: null,
+      decidedAt: 1_500,
+      artifact: null,
+      failureDetail: null,
+    },
+    {
+      id: "stage-attn-plan",
+      stageId: "plan",
+      branchKey: "default",
+      position: 2,
+      status: "failed",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: 2_000,
+      decidedAt: null,
+      artifact: null,
+      failureDetail: null,
+    },
+    {
+      id: "stage-attn-approve-plan",
+      stageId: "approve-plan",
+      branchKey: "default",
+      position: 3,
+      status: "awaiting",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: null,
+      decidedAt: null,
+      artifact: null,
+      failureDetail: null,
+    },
+  ],
+};
+
+const PIPELINE_SNAPSHOT_ATTENTION_PUBLISHED: PipelineSnapshot = {
+  pipelineId: "pipe-attn-published",
+  name: "full-review",
+  state: "succeeded",
+  terminalAction: "merge",
+  terminalPublicationSucceededAt: null,
+  terminalPublicationFailure: { terminalAction: "merge", failure: { operation: "merge", message: "conflict" } },
+  createdAt: 1_700_000_000_000,
+  finishedAtMs: 1_700_000_003_000,
+  stages: [
+    {
+      id: "stage-attn-published-intent",
+      stageId: "intent",
+      branchKey: "default",
+      position: 0,
+      status: "succeeded",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: 3_000,
+      decidedAt: null,
+      artifact: null,
+      failureDetail: null,
+    },
+    {
+      id: "stage-attn-published-approve-intent",
+      stageId: "approve-intent",
+      branchKey: "default",
+      position: 1,
+      status: "approved",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: null,
+      decidedAt: 3_100,
+      artifact: null,
+      failureDetail: null,
+    },
+    {
+      id: "stage-attn-published-plan",
+      stageId: "plan",
+      branchKey: "default",
+      position: 2,
+      status: "succeeded",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: 3_200,
+      decidedAt: null,
+      artifact: null,
+      failureDetail: null,
+    },
+    {
+      id: "stage-attn-published-approve-plan",
+      stageId: "approve-plan",
+      branchKey: "default",
+      position: 3,
+      status: "approved",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: null,
+      decidedAt: 3_300,
+      artifact: null,
+      failureDetail: null,
+    },
+    {
+      id: "stage-attn-published-implement",
+      stageId: "implement",
+      branchKey: "default",
+      position: 4,
+      status: "succeeded",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: 3_400,
+      decidedAt: null,
+      artifact: null,
+      failureDetail: null,
+    },
+  ],
+};
+
+const ATTENTION_FAILED_RUN: DaemonListRunRow = {
+  runId: "run-attn-failed",
+  project: "demo",
+  branch: "attn-failed",
+  createdAt: 0,
+  status: "failed",
+  isLive: false,
+  finishedAtMs: TERMINAL_LIST_FINISH_MS,
+};
+
+const ATTENTION_BLOCKED_RUN: DaemonListRunRow = {
+  runId: "run-attn-blocked",
+  project: "demo",
+  branch: "attn-blocked",
+  createdAt: 0,
+  status: "blocked",
+  isLive: false,
+  finishedAtMs: TERMINAL_LIST_FINISH_MS,
+};
+
+function attentionRunsFixture(): DaemonListRunRow[] {
+  return [ATTENTION_FAILED_RUN, ATTENTION_BLOCKED_RUN];
+}
+
+function attentionRowIdByKind(
+  state: TuiMonitorState | undefined,
+  kind: "awaiting-gate" | "rejected-gate" | "failed-stage" | "failed-run" | "blocked-run" | "publication-failure",
+): string {
+  if (state === undefined) throw new Error("expected a painted monitor state");
+  const projection = buildAttentionRows(state.pipelineSnapshotsBySocketPath, state.runs);
+  const row = projection.rows.find((entry) => entry.kind === kind);
+  if (row === undefined) throw new Error(`expected an attention row of kind ${kind}`);
+  return row.id;
+}
 
 const PIPELINE_MULTI_INVOCATION = "inv-multi";
 const PIPELINE_MULTI_STEPS = [
@@ -5163,6 +5341,99 @@ describe("runTuiEntry", () => {
       await flushIntervalTick(refresh);
       view.selectNode("pipe-alpha");
       expectResumeFailure("stale_non_targetable");
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("attention commands act only on awaiting-gate pins", async () => {
+    // Mutation checkpoint: reverting attention selection to the pre-fix tree-only resolution
+    // (removing the attention-row branches added to approveRejectSelectionError and
+    // resolvePipelineSteeringDispatch) makes this test fail, since the awaiting-gate row's
+    // targetId is a stage row that is never itself selected here.
+    // @mutate v2/src/tui/tui-entry.tsx "if (attentionRow.kind !== \"awaiting-gate\") return \"not_awaiting_stage\";" -> "if (false) return \"not_awaiting_stage\";"
+    // @mutate v2/src/tui/tui-entry.tsx "if (attentionRow !== undefined && attentionRow.kind === \"awaiting-gate\" && attentionRow.gate !== undefined) {" -> "if (false) {"
+    // @mutate v2/src/tui/tui-entry.tsx "const owner = pipelineOwners.get(attentionRow.gate.pipelineId);\n      if (owner === undefined) return \"stale_non_targetable\";" -> "const owner = pipelineOwners.get(attentionRow.gate.pipelineId);\n      if (false) return \"stale_non_targetable\";"
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const approveCalls: PipelineStageMutationParams[] = [];
+    const rejectCalls: PipelineStageMutationParams[] = [];
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: attentionRunsFixture() }, { runs: attentionRunsFixture() }],
+        pipelineListResponses: [
+          { pipelines: [PIPELINE_SNAPSHOT_ATTENTION_GATES, PIPELINE_SNAPSHOT_ATTENTION_PUBLISHED] },
+        ],
+        pipelineApproveImpl: async (params) => {
+          approveCalls.push(params);
+          return { kind: "applied", pipelineId: params.pipelineId, stageId: params.stageId, decision: "approved" };
+        },
+        pipelineRejectImpl: async (params) => {
+          rejectCalls.push(params);
+          return { kind: "applied", pipelineId: params.pipelineId, stageId: params.stageId, decision: "rejected" };
+        },
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS, refreshScheduler: refresh.scheduler },
+    );
+    wrapFailingSecondPipelineList(deps);
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      const expectApproveFailure = steeringFailureAsserter(view, clientOptions, "approve", "pipeline_approve");
+      const expectRejectFailure = steeringFailureAsserter(view, clientOptions, "reject", "pipeline_reject");
+
+      const initialState = view.monitorStates.at(-1);
+      const awaitingGateId = attentionRowIdByKind(initialState, "awaiting-gate");
+      const rejectedGateId = attentionRowIdByKind(initialState, "rejected-gate");
+      const failedStageId = attentionRowIdByKind(initialState, "failed-stage");
+      const failedRunId = attentionRowIdByKind(initialState, "failed-run");
+      const blockedRunId = attentionRowIdByKind(initialState, "blocked-run");
+      const publicationFailureId = attentionRowIdByKind(initialState, "publication-failure");
+
+      for (const nonAwaitingId of [rejectedGateId, failedStageId, failedRunId, blockedRunId, publicationFailureId]) {
+        view.selectNode(nonAwaitingId);
+        expectApproveFailure("not_awaiting_stage");
+        view.selectNode(nonAwaitingId);
+        expectRejectFailure("not_awaiting_stage");
+      }
+
+      view.selectNode(awaitingGateId);
+      view.focusCommand();
+      view.insertCommandText("approve");
+      view.submitCommand("approve");
+      await flush();
+      expect(countRpcMethod(clientOptions.methods, "pipeline_approve")).toBe(1);
+      expect(approveCalls).toEqual([{ pipelineId: "pipe-attn-gates", stageId: "approve-plan", branchKey: "default" }]);
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        lastCommandResult: "pipe-attn-gates",
+        commandBuffer: "",
+        commandCursor: 0,
+        focus: "tree",
+      });
+
+      view.selectNode(awaitingGateId);
+      view.focusCommand();
+      view.insertCommandText("reject");
+      view.submitCommand("reject");
+      await flush();
+      expect(countRpcMethod(clientOptions.methods, "pipeline_reject")).toBe(1);
+      expect(rejectCalls).toEqual([{ pipelineId: "pipe-attn-gates", stageId: "approve-plan", branchKey: "default" }]);
+      expect(view.monitorStates.at(-1)).toMatchObject({
+        lastCommandResult: "pipe-attn-gates",
+        commandBuffer: "",
+        commandCursor: 0,
+        focus: "tree",
+      });
+
+      await flushIntervalTick(refresh);
+      view.selectNode(awaitingGateId);
+      expectApproveFailure("stale_non_targetable");
+      view.selectNode(awaitingGateId);
+      expectRejectFailure("stale_non_targetable");
     } finally {
       view.quit();
     }

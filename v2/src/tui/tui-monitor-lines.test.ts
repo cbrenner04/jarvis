@@ -836,6 +836,7 @@ describe("mergePipelineSnapshots", () => {
 
   test("the more-advanced snapshot at the later socket path outranks the earlier, less-advanced one", () => {
     // Mutation checkpoint: collapsing the collision guard to first-encounter-wins turns this test RED.
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (pipelineSnapshotOutranks(snapshot, socketPath, current, currentSocketPath)) {" -> "if (false) {"
     const lessAdvanced = pipelineSnapshot({ pipelineId: "shared", state: "running", finishedAtMs: null, stages: [] });
     const moreAdvanced = pipelineSnapshot({
       pipelineId: "shared",
@@ -855,6 +856,7 @@ describe("mergePipelineSnapshots", () => {
 
   test("the more-advanced snapshot at the earlier socket path outranks the later, less-advanced one", () => {
     // Mutation checkpoint: collapsing the collision guard to unconditional last-wins turns this test RED.
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (pipelineSnapshotOutranks(snapshot, socketPath, current, currentSocketPath)) {" -> "if (true) {"
     const moreAdvanced = pipelineSnapshot({
       pipelineId: "shared",
       state: "succeeded",

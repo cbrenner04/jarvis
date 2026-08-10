@@ -27,16 +27,16 @@ Painted attention rows are not selectable or connected to the existing detail an
 
 ## Acceptance criteria
 
-- [x] `tui-monitor-lines.test.ts` test `attention selection resolves target detail beyond collapsed ancestors` fails against the pre-fix code and proves an attention id remains selected while the existing target detail renders for an attributed run behind collapsed ancestors and a non-representative failed ad-hoc member.
-- [x] Attention ids precede every full-flatten tree id in `monitorSelectableNodeIds`; all capped attention rows remain ordered before tree ids even when clipped, and the overflow row is never selectable.
-- [x] Selecting an attention row resolves the target node's existing right-pane detail from the complete joined model while monitor state retains its attention id.
-- [x] `tui-entry.test.tsx` proves the entry-control seam preserves stored `leftPaneTreeScrollOffset` and explicit `expandedPipelineNodeIds` when it selects an attention id, while applying the established steering-feedback clearing side effect; it does not assert identical effective tree rendering.
-- [x] `tui-monitor-lines.test.ts` — `attention selection resolves target detail beyond collapsed ancestors`; Mutation checkpoint: in-body `// @mutate` directives invert selectable-prefix, overflow exclusion, attention-target aliasing, and complete-model target lookup guards, and each turns the scoped test red.
-- [x] `tui-entry.test.tsx` — `selecting attention preserves stored tree navigation state`; Mutation checkpoint: in-body `// @mutate` directives write the stored scroll offset or explicit expansion during attention selection, or suppress steering-feedback clearing, and each turns the scoped test red.
-- [x] `v2/docs/operator-runbook.md` § Observe documents sources, glyphs, row anatomy, six-row cap, incident total/overflow count, gate-first and oldest-first ordering, undated rows, empty state, Queue order, constrained-pane clipping, selectable order, and target-detail reuse.
-- [x] `v2/docs/v1-behaviors.md` § TUI / observability records separately namespaced attention selection ids, selectable order, collapsed-target detail resolution, and target-node detail reuse.
-- [x] `v2/spec/tui-command-center-brief.md` records attention segment rows as shipped without marking deferred act-in-place behavior complete.
-- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [ ] `tui-monitor-lines.test.ts` test `attention selection resolves target detail beyond collapsed ancestors` fails against the pre-fix code and proves an attention id remains selected while the existing target detail renders for an attributed run behind collapsed ancestors and a non-representative failed ad-hoc member.
+- [ ] Attention ids precede every full-flatten tree id in `monitorSelectableNodeIds`; all capped attention rows remain ordered before tree ids even when clipped, and the overflow row is never selectable.
+- [ ] Selecting an attention row resolves the target node's existing right-pane detail from the complete joined model while monitor state retains its attention id.
+- [ ] `tui-entry.test.tsx` proves the entry-control seam preserves stored `leftPaneTreeScrollOffset` and explicit `expandedPipelineNodeIds` when it selects an attention id, while applying the established steering-feedback clearing side effect; it does not assert identical effective tree rendering.
+- [ ] `tui-monitor-lines.test.ts` — `attention selection resolves target detail beyond collapsed ancestors`; Mutation checkpoint: in-body `// @mutate` directives invert selectable-prefix, overflow exclusion, attention-target aliasing, and complete-model target lookup guards, and each turns the scoped test red.
+- [ ] `tui-entry.test.tsx` — `selecting attention preserves stored tree navigation state`; Mutation checkpoint: in-body `// @mutate` directives write the stored scroll offset or explicit expansion during attention selection, or suppress steering-feedback clearing, and each turns the scoped test red.
+- [ ] `v2/docs/operator-runbook.md` § Observe documents sources, glyphs, row anatomy, six-row cap, incident total/overflow count, gate-first and oldest-first ordering, undated rows, empty state, Queue order, constrained-pane clipping, selectable order, and target-detail reuse.
+- [ ] `v2/docs/v1-behaviors.md` § TUI / observability records separately namespaced attention selection ids, selectable order, collapsed-target detail resolution, and target-node detail reuse.
+- [ ] `v2/spec/tui-command-center-brief.md` records attention segment rows as shipped without marking deferred act-in-place behavior complete.
+- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

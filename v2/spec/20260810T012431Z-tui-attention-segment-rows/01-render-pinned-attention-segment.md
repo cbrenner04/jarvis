@@ -39,8 +39,3 @@ The attention projection is not painted above the work tree or budgeted within a
 ## Documentation updates
 
 None — durable operator documentation lands with the completed navigation behavior in 02.
-
-## Blocker
-
-Artifact contract check failed: Hollow mutation checkpoints (the named mutation left the scoped suite green):
-- /Users/christopherbrenner/.jarvis/worktrees/jarvis/20260810T012431Z-tui-attention-segment-rows/v2/src/tui/tui-monitor-lines.test.ts:730: // @mutate v2/src/tui/tui-monitor-lines.ts "projection.overflow > 0 ? [row(untoned(`+${projection.overflow} more`))] : []" -> "[row(untoned(`+${projection.overflow} more`))]" — scoped suite stayed green under this mutation

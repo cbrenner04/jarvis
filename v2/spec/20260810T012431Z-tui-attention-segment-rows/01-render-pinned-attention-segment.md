@@ -26,15 +26,15 @@ The attention projection is not painted above the work tree or budgeted within a
 
 ## Acceptance criteria
 
-- [ ] `tui-monitor-lines.test.ts` test `renders the pinned attention segment` fails against the pre-fix code and proves the heading and at most six attention rows paint before the work tree, with `+N more` only for overflow.
-- [ ] Seven actionable incidents paint heading count seven, six attention rows, and display-only `+1 more`; dated rows paint `idle <age>` from durable `sinceMs`, while undated legacy rows paint no age.
-- [ ] No actionable item paints no attention heading, row, or overflow summary and consumes no work-tree viewport row.
-- [ ] The existing Queue remains after the work tree; attention and queue reservations reduce the tree viewport no lower than zero without changing the full flattened tree.
-- [ ] `tui-ink-monitor.test.tsx` test `renders and clips pinned attention in the left pane` fails against the pre-fix code and proves the actual Ink left pane clips the attention segment in order on a pane too short for its heading, six rows, and overflow, and paints no tree row when the remaining tree budget is zero.
-- [ ] `tui-ink-monitor.test.tsx` — `renders and clips pinned attention in the left pane`; Keystone checkpoint: an in-body `// @mutate` directive disables the complete attention consumer integration and turns the scoped test red.
-- [ ] `tui-monitor-lines.test.ts` — `clips pinned attention before the work tree`; Mutation checkpoint: in-body `// @mutate` directives invert overflow rendering, empty-segment suppression, durable-age omission, queue order, attention viewport subtraction, and tree-budget floor, and each turns the scoped test red.
-- [ ] `tui-ink-monitor.test.tsx` — `renders and clips pinned attention in the left pane`; Mutation checkpoint: an in-body `// @mutate` directive disables the Ink clipping guard and turns the scoped test red.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `tui-monitor-lines.test.ts` test `renders the pinned attention segment` fails against the pre-fix code and proves the heading and at most six attention rows paint before the work tree, with `+N more` only for overflow.
+- [x] Seven actionable incidents paint heading count seven, six attention rows, and display-only `+1 more`; dated rows paint `idle <age>` from durable `sinceMs`, while undated legacy rows paint no age.
+- [x] No actionable item paints no attention heading, row, or overflow summary and consumes no work-tree viewport row.
+- [x] The existing Queue remains after the work tree; attention and queue reservations reduce the tree viewport no lower than zero without changing the full flattened tree.
+- [x] `tui-ink-monitor.test.tsx` test `renders and clips pinned attention in the left pane` fails against the pre-fix code and proves the actual Ink left pane clips the attention segment in order on a pane too short for its heading, six rows, and overflow, and paints no tree row when the remaining tree budget is zero.
+- [x] `tui-ink-monitor.test.tsx` — `renders and clips pinned attention in the left pane`; Keystone checkpoint: an in-body `// @mutate` directive disables the complete attention consumer integration and turns the scoped test red.
+- [x] `tui-monitor-lines.test.ts` — `clips pinned attention before the work tree`; Mutation checkpoint: in-body `// @mutate` directives invert overflow rendering, empty-segment suppression, durable-age omission, queue order, attention viewport subtraction, and tree-budget floor, and each turns the scoped test red.
+- [x] `tui-ink-monitor.test.tsx` — `renders and clips pinned attention in the left pane`; Mutation checkpoint: an in-body `// @mutate` directive disables the Ink clipping guard and turns the scoped test red.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

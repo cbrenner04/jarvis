@@ -8,6 +8,8 @@ import {
   joinMonitorRow,
   livenessTone,
   monitorDockLines,
+  monitorLeftPaneAttentionRows,
+  monitorLeftPaneQueueRows,
   monitorLeftPaneTreeRows,
   monitorRightPaneSegmentRows,
   monitorSegmentRows,
@@ -665,6 +667,127 @@ describe("monitorLeftPaneTreeRows", () => {
     const { treeRows } = monitorLeftPaneTreeRows(state, treeLayout(), TREE_NOW_MS);
 
     expect(treeRows.filter((row) => row.kind === "pipeline").map((row) => row.id)).toEqual(["pipe-a", "pipe-b"]);
+  });
+});
+
+describe("monitorLeftPaneAttentionRows", () => {
+  test("renders the pinned attention segment", () => {
+    // Keystone checkpoint: an in-body `// @mutate` directive disables the complete attention consumer integration.
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (projection.total === 0) return [];" -> "return [];"
+    const undatedGate = pipelineSnapshot({
+      pipelineId: "pipe-gate",
+      name: "full-review",
+      stages: [snapshotStage({ stageId: "approve-intent", position: 0, status: "awaiting" })],
+    });
+    const failedRuns: DaemonListRunRow[] = Array.from({ length: 6 }, (_, index) =>
+      workflowRun(`run-fail-${index}`, "failed", `inv-fail-${index}`, {
+        finishedAtMs: 1_000 * (index + 1),
+        isLive: false,
+      }),
+    );
+    const state = monitorState({
+      runs: failedRuns,
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [undatedGate] } },
+    });
+
+    const lines = monitorLeftPaneAttentionRows(state, TREE_NOW_MS).map(joinMonitorRow);
+
+    // Seven actionable incidents (one gate, six failed runs): heading reports the pre-cap total,
+    // six selectable rows paint, and the seventh (newest, capped out) shows only as overflow.
+    expect(lines[0]).toBe("── Needs attention (7) ──");
+    expect(lines).toHaveLength(1 + 6 + 1);
+    expect(lines.at(-1)).toBe("+1 more");
+    // The undated gate (no predecessor) paints no age; dated failed runs paint their durable idle age.
+    expect(lines[1]).toContain("approve-intent");
+    expect(lines[1]).not.toContain("idle");
+    expect(lines[2]).toContain("idle");
+  });
+
+  test("clips pinned attention before the work tree", () => {
+    const noIncidents = monitorState({});
+    expect(monitorLeftPaneAttentionRows(noIncidents, TREE_NOW_MS)).toEqual([]);
+    // No actionable incidents: the attention segment consumes zero work-tree viewport rows.
+    const { pipelines: fillerPipelines } = overflowPaneMonitorFixture();
+    const noIncidentTreeState = monitorState({
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: fillerPipelines } },
+    });
+    const smallLayout = treeLayout(10); // paneHeight 6
+    expect(monitorLeftPaneTreeRows(noIncidentTreeState, smallLayout, TREE_NOW_MS).treeRows.length).toBe(
+      smallLayout.paneHeight,
+    );
+
+    const eightDatedFailures: DaemonListRunRow[] = Array.from({ length: 8 }, (_, index) =>
+      workflowRun(`run-overflow-${index}`, "failed", `inv-overflow-${index}`, {
+        finishedAtMs: 1_000 * (index + 1),
+        isLive: false,
+      }),
+    );
+    const overflowState = monitorState({ runs: eightDatedFailures });
+    const overflowLines = monitorLeftPaneAttentionRows(overflowState, TREE_NOW_MS).map(joinMonitorRow);
+    // Mutation checkpoint: in-body `// @mutate` directives invert overflow rendering, empty-segment
+    // suppression, durable-age omission, queue order, attention viewport subtraction, and the
+    // tree-budget floor; each turns this test red.
+    // @mutate v2/src/tui/tui-monitor-lines.ts "projection.overflow > 0 ? [row(untoned(`+${projection.overflow} more`))] : []" -> "[row(untoned(`+${projection.overflow} more`))]"
+    expect(overflowLines).toHaveLength(1 + 6 + 1);
+    expect(overflowLines.at(-1)).toBe("+2 more");
+    expect(overflowLines.slice(1, 7).every((line) => line.includes("idle"))).toBe(true);
+    // The overflow line renders only above the cap: six or fewer incidents paint no `+N more` line,
+    // so inverting the `overflow > 0` guard (painting `+0 more`) turns this red.
+    const fewFailures: DaemonListRunRow[] = Array.from({ length: 3 }, (_, index) =>
+      workflowRun(`run-few-${index}`, "failed", `inv-few-${index}`, {
+        finishedAtMs: 1_000 * (index + 1),
+        isLive: false,
+      }),
+    );
+    const fewState = monitorState({ runs: fewFailures });
+    const fewLines = monitorLeftPaneAttentionRows(fewState, TREE_NOW_MS).map(joinMonitorRow);
+    expect(fewLines).toHaveLength(1 + 3);
+    expect(fewLines.some((line) => line.includes("more"))).toBe(false);
+    // @mutate v2/src/tui/tui-monitor-lines.ts "age === \"\" ? [] : [separator(), untoned(`idle ${age}`)]" -> "[separator(), untoned(`idle ${age}`)]"
+
+    const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] });
+    const matchedRun = workflowRun("run-implement", "in-progress", INVOCATION_MATCHED);
+    const failedA = workflowRun("run-attn-a", "failed", "inv-attn-a", { finishedAtMs: 1_000, isLive: false });
+    const failedB = workflowRun("run-attn-b", "failed", "inv-attn-b", { finishedAtMs: 2_000, isLive: false });
+    const queuedRun: DaemonListRunRow = {
+      runId: "run-queued-attn",
+      project: "demo",
+      branch: "q",
+      createdAt: 0,
+      status: "queued",
+      isLive: false,
+    };
+    const stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
+    const baseState = monitorState({
+      runs: [matchedRun, failedA, failedB, queuedRun],
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
+      expandedPipelineNodeIds: [PIPELINE_ID, stageId],
+    });
+
+    // attentionRowCount = 3 (heading + 2 rows, no overflow); queue reservation = 1.
+    const roomyLayout = treeLayout(76); // paneHeight 72
+    const roomy = monitorLeftPaneTreeRows(baseState, roomyLayout, TREE_NOW_MS);
+    const tightLayout = treeLayout(10); // paneHeight 6
+    const tight = monitorLeftPaneTreeRows(baseState, tightLayout, TREE_NOW_MS);
+    // Full flattened tree is unchanged by pane height or attention/queue reservations.
+    expect(tight.fullTreeRows.map((r) => r.id)).toEqual(roomy.fullTreeRows.map((r) => r.id));
+    expect(roomy.treeRows).toEqual(roomy.fullTreeRows);
+    expect(tight.treeRows.length).toBe(Math.max(0, tightLayout.paneHeight - 1 - 3));
+    // @mutate v2/src/tui/tui-monitor-lines.ts "layout.paneHeight - leftPaneQueueHeadingRowCount(state) - leftPaneAttentionRowCount(state)" -> "layout.paneHeight - leftPaneAttentionRowCount(state)"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "layout.paneHeight - leftPaneQueueHeadingRowCount(state) - leftPaneAttentionRowCount(state)" -> "layout.paneHeight - leftPaneQueueHeadingRowCount(state)"
+
+    // Queue reservation and rows are unaffected by the attention segment (existing Queue stays after the tree).
+    expect(monitorLeftPaneQueueRows(baseState).map(joinMonitorRow)[0]).toBe("Queue");
+
+    // A pane too small for the reservations never yields a negative tree budget.
+    const overwhelmedState = monitorState({
+      runs: [matchedRun, ...eightDatedFailures, queuedRun],
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
+      expandedPipelineNodeIds: [PIPELINE_ID, stageId],
+    });
+    const overwhelmedLayout = treeLayout(7); // paneHeight 3
+    expect(monitorLeftPaneTreeRows(overwhelmedState, overwhelmedLayout, TREE_NOW_MS).treeRows).toEqual([]);
+    // @mutate v2/src/tui/tui-monitor-lines.ts "Math.max(0, layout.paneHeight - leftPaneQueueHeadingRowCount(state) - leftPaneAttentionRowCount(state))" -> "layout.paneHeight - leftPaneQueueHeadingRowCount(state) - leftPaneAttentionRowCount(state)"
   });
 });
 

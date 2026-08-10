@@ -632,6 +632,13 @@ function orderTopLevelNodes(
     .map(({ node }) => node);
 }
 
+function runNodeMatchesSelection(run: MonitorPipelineTreeRunNode, selectedNodeId: string): boolean {
+  // Mutation checkpoint: reverting this to `run.id === selectedNodeId` must turn collapsed-member reveal RED.
+  return (
+    run.id === selectedNodeId || workflowTableRowMembers(run.tableRow).some((member) => member.runId === selectedNodeId)
+  );
+}
+
 function resolveBranchAncestors(
   pipeline: MonitorPipelineTreePipelineNode,
   selectedNodeId: string,
@@ -646,7 +653,7 @@ function resolveBranchAncestors(
 
       for (const run of stage.runs) {
         // Mutation checkpoint: dropping the branch from these ancestors must turn reveal-under-branch RED.
-        if (run.id === selectedNodeId) return new Set([pipeline.id, branch.id, stage.id]);
+        if (runNodeMatchesSelection(run, selectedNodeId)) return new Set([pipeline.id, branch.id, stage.id]);
       }
     }
   }
@@ -669,7 +676,7 @@ function resolveSelectedAncestors(
       }
 
       for (const run of stage.runs) {
-        if (run.id === selectedNodeId) {
+        if (runNodeMatchesSelection(run, selectedNodeId)) {
           return new Set([pipeline.id, stage.id]);
         }
       }

@@ -602,7 +602,7 @@ describe("branch-grouped pipeline subtree", () => {
   });
 
   test("selecting a run under a branch expands that branch only and leaves sibling branches collapsed", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (run.id === selectedNodeId) return new Set([pipeline.id, branch.id, stage.id]);" -> "if (run.id === selectedNodeId) return new Set([pipeline.id, stage.id]);"
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (runNodeMatchesSelection(run, selectedNodeId)) return new Set([pipeline.id, branch.id, stage.id]);" -> "if (runNodeMatchesSelection(run, selectedNodeId)) return new Set([pipeline.id, stage.id]);"
     const snapshot = pipelineSnapshot({
       pipelineId: PIPELINE_ID,
       stages: [
@@ -1662,6 +1662,80 @@ describe("flattenMonitorPipelineTree workflow constituent rows", () => {
 
     expect(collapsed.map((node) => node.id)).toEqual(collapsedAgain.map((node) => node.id));
     expect(collapsed.map((node) => node.id)).not.toEqual(expanded.map((node) => node.id));
+  });
+
+  test("selecting a collapsed non-representative member materializes it as its own row", () => {
+    // Keystone: reverting the member-match arm to identity-only comparison must turn this RED.
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "run.id === selectedNodeId || workflowTableRowMembers(run.tableRow).some((member) => member.runId === selectedNodeId)" -> "run.id === selectedNodeId"
+    const displayNodes = flattenSelectedMultiMemberStage(new Set(), "run-implement");
+
+    expect(
+      displayNodes.filter((node) => node.kind === "run").map((node) => ({ id: node.id, depth: node.depth })),
+    ).toEqual([
+      { id: "run-review", depth: 2 },
+      { id: "run-implement", depth: 3 },
+    ]);
+  });
+
+  test("a branch-nested collapsed member materializes under its branch and stage ancestors", () => {
+    // Mutation checkpoint: neutering the member-match arm at the branch-site call in resolveBranchAncestors must turn this RED.
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (runNodeMatchesSelection(run, selectedNodeId)) return new Set([pipeline.id, branch.id, stage.id]);" -> "if (run.id === selectedNodeId) return new Set([pipeline.id, branch.id, stage.id]);"
+    const branchInvocation = "inv-branch-multi";
+    const branchWorkflow = { invocationId: branchInvocation, steps: [...MULTI_WORKFLOW_STEPS] };
+    const branchKey = "alpha";
+    const branchRuns = [
+      workflowRun({ runId: "run-branch-implement", status: "completed", isLive: false }, branchInvocation),
+      {
+        ...workflowRun({ runId: "run-branch-review", status: "in-progress" }, branchInvocation),
+        stepId: "implement-review",
+        workflow: branchWorkflow,
+      },
+    ];
+    const snapshot = pipelineSnapshot({
+      pipelineId: PIPELINE_ID,
+      stages: [
+        snapshotStage({ stageId: "intent", position: 0, status: "succeeded" }),
+        implementStage(branchInvocation, { branchKey, position: 2 }),
+      ],
+    });
+    const branchId = monitorPipelineBranchNodeId(PIPELINE_ID, branchKey);
+    const stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", branchKey);
+    const displayNodes = flattenJoined(
+      joinTree([snapshot], branchRuns),
+      new Set(),
+      "run-branch-implement",
+      20,
+      branchRuns,
+    );
+
+    expect(displayNodes.map((node) => node.id)).toEqual([
+      PIPELINE_ID,
+      monitorPipelineStageNodeId(PIPELINE_ID, "intent", "default"),
+      branchId,
+      stageId,
+      "run-branch-review",
+      "run-branch-implement",
+    ]);
+  });
+
+  test("revealing a collapsed member leaves the caller expansion set unmodified", () => {
+    const expandedNodeIds = new Set<string>();
+    flattenSelectedMultiMemberStage(expandedNodeIds, "run-implement");
+
+    expect(expandedNodeIds.size).toBe(0);
+  });
+
+  test("selecting a representative or an already-visible member materializes each member row once", () => {
+    const stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
+    const representativeSelected = flattenSelectedMultiMemberStage(new Set(), "run-review");
+    const alreadyExpanded = flattenSelectedMultiMemberStage(new Set([stageId]), "run-implement");
+
+    for (const displayNodes of [representativeSelected, alreadyExpanded]) {
+      expect(displayNodes.filter((node) => node.kind === "run").map((node) => node.id)).toEqual([
+        "run-review",
+        "run-implement",
+      ]);
+    }
   });
 });
 

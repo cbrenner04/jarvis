@@ -52,7 +52,7 @@ Test strategy unchanged: pure functions + injected input hook, no rendered-ink a
 Dependency order; 1 and 2 are independent starting points; 5–7 in any order after their deps.
 
 | # | Seed | Delivers | Depends on | State |
-|---|------|----------|------------|-------|
+| --- | ------ | ---------- | ------------ | ------- |
 | 1 | `pipeline-terminal-timestamps` | Terminal stages/runs always stamped; approval `decidedAt` on wire; failed-before-start shape pinned | — | re-decomposed → `terminal-timestamp-persistence` (store) + `terminal-timestamps-on-daemon-wire` (wire). Persistence **shipped** (#2747, #2749, #2752); **wire pending** (plan blocks; seeds 5–6 gate on it) |
 | 2 | `tui-unified-work-tree` | Pipelines + ad-hoc in one tree; segment/FIFO deleted; uniform selection | — | **shipped** (#2745; ordering half #2732) |
 | 3 | `tui-intent-branch-subtree` | Branch-grouped subtree; placeholder + satisfied-gate elision; stripped branch labels; intent yield | 2 | **shipped** (#2748, #2750) |

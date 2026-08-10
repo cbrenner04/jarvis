@@ -100,24 +100,27 @@ function stripCodeSpans(text: string): string {
   const runPattern = /`+/g;
   let result = "";
   let lastIndex = 0;
-  let openMatch: RegExpExecArray | null;
-  while ((openMatch = runPattern.exec(text)) !== null) {
+  let openMatch = runPattern.exec(text);
+  while (openMatch !== null) {
     const openStart = openMatch.index;
     const openLen = openMatch[0].length;
     const closePattern = /`+/g;
     closePattern.lastIndex = openStart + openLen;
     let closeMatch: RegExpExecArray | null = null;
-    let candidate: RegExpExecArray | null;
-    while ((candidate = closePattern.exec(text)) !== null) {
+    let candidate = closePattern.exec(text);
+    while (candidate !== null) {
       if (candidate[0].length === openLen) {
         closeMatch = candidate;
         break;
       }
+      candidate = closePattern.exec(text);
     }
-    if (closeMatch === null) continue;
-    result += text.slice(lastIndex, openStart);
-    lastIndex = closeMatch.index + closeMatch[0].length;
-    runPattern.lastIndex = lastIndex;
+    if (closeMatch !== null) {
+      result += text.slice(lastIndex, openStart);
+      lastIndex = closeMatch.index + closeMatch[0].length;
+      runPattern.lastIndex = lastIndex;
+    }
+    openMatch = runPattern.exec(text);
   }
   result += text.slice(lastIndex);
   return result;

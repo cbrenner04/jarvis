@@ -52,9 +52,3 @@ Two downstream per-id dedups already sit on top of the current concatenation and
 
 - `v2/docs/operator-runbook.md` § Observe — one sentence: pipeline snapshots merge deduped by id across discovered sockets (merge-level winner: finished-then-progress-then-socket-path among live sockets; disconnected sockets evicted first), so a transient two-daemon window paints each pipeline once.
 - `v2/docs/v1-behaviors.md` — extend the TUI multi-daemon aggregation entry (`§ TUI / observability`) to state pipeline snapshots dedupe by `pipelineId` (not just run IDs by `isLive`), with the same merge-level winner and eviction rule.
-
-## Blocker
-
-Artifact contract check failed: Hollow mutation checkpoints (the named mutation left the scoped suite green):
-- no @mutate directive linked to this criterion; add // @mutate <path> "<original>" -> "<replacement>" on the named pin
-- no @mutate directive linked to this criterion; add // @mutate <path> "<original>" -> "<replacement>" on the named pin

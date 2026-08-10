@@ -15,7 +15,7 @@ type InkUi = {
   usePaste?: InkUsePaste;
 };
 
-type InkText = (props: { children?: ReactNode; color?: string }) => ReactElement;
+type InkText = (props: { children?: ReactNode; color?: string; inverse?: boolean }) => ReactElement;
 
 export type InkUseInput = (
   inputHandler: (

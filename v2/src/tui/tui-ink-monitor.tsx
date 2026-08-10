@@ -19,7 +19,7 @@ import {
 import type { TuiMonitorControls, TuiMonitorSession, TuiMonitorState } from "./tui-monitor-types.ts";
 import { computeShellLayout, nudgeDividerOffset } from "./tui-shell-layout.ts";
 
-type MonitorText = (props: { children?: string; color?: string; key?: number }) => ReactElement;
+type MonitorText = (props: { children?: string; color?: string; key?: number; inverse?: boolean }) => ReactElement;
 type MonitorBox = (props: {
   children?: ReactNode;
   flexDirection?: "column" | "row";
@@ -38,10 +38,18 @@ const TONE_COLORS: Record<MonitorSegmentTone, string> = {
 const DEFAULT_TERMINAL_COLUMNS = 245;
 const DEFAULT_TERMINAL_ROWS = 72;
 
-function renderSegmentRow(line: MonitorLineRow, Text: MonitorText, rowKey: number, RowBox?: MonitorBox): ReactElement {
+function renderSegmentRow(
+  line: MonitorLineRow,
+  Text: MonitorText,
+  rowKey: number,
+  RowBox?: MonitorBox,
+  isSelected = false,
+): ReactElement {
   const cells = line.segments.map((segment, index) => {
-    const props: { key: number; color?: string } = { key: index };
+    const props: { key: number; color?: string; inverse?: boolean } = { key: index };
     if (segment.tone !== undefined) props.color = TONE_COLORS[segment.tone];
+    // Mutation checkpoint: dropping this inverse prop must turn selection-presentation coverage RED.
+    if (isSelected) props.inverse = true;
     return createElement(Text, props, segment.text);
   });
   if (RowBox !== undefined) return createElement(RowBox, { key: rowKey, flexDirection: "row" }, ...cells);
@@ -54,21 +62,35 @@ function renderTreeRow(
   nowMs: number,
   Text: MonitorText,
   rowKey: number,
-  RowBox?: MonitorBox,
+  RowBox: MonitorBox | undefined,
+  isSelected: boolean,
 ): ReactElement {
   switch (treeRow.kind) {
     case "pipeline":
-      return renderSegmentRow(buildPipelineMonitorTreeRow(treeRow, leftPaneWidth, nowMs), Text, rowKey, RowBox);
+      return renderSegmentRow(
+        buildPipelineMonitorTreeRow(treeRow, leftPaneWidth, nowMs),
+        Text,
+        rowKey,
+        RowBox,
+        isSelected,
+      );
     case "stage":
-      return renderSegmentRow(buildStageMonitorTreeRow(treeRow, leftPaneWidth, nowMs), Text, rowKey, RowBox);
+      return renderSegmentRow(buildStageMonitorTreeRow(treeRow, leftPaneWidth, nowMs), Text, rowKey, RowBox, isSelected);
     case "branch":
-      return renderSegmentRow(buildBranchMonitorTreeRow(treeRow, leftPaneWidth, nowMs), Text, rowKey, RowBox);
+      return renderSegmentRow(
+        buildBranchMonitorTreeRow(treeRow, leftPaneWidth, nowMs),
+        Text,
+        rowKey,
+        RowBox,
+        isSelected,
+      );
     case "run":
       return renderSegmentRow(
         buildTreeRunRow(treeRow.tableRow, treeRow.depth, leftPaneWidth, nowMs),
         Text,
         rowKey,
         RowBox,
+        isSelected,
       );
     case "adhoc":
       return renderSegmentRow(
@@ -76,6 +98,7 @@ function renderTreeRow(
         Text,
         rowKey,
         RowBox,
+        isSelected,
       );
   }
 }
@@ -134,7 +157,9 @@ function renderLeftPaneContent(
     rendered.push(renderSegmentRow({ segments: [{ text: "No runs." }] }, Text, 0, RowBox));
   } else {
     for (const [index, treeRow] of treeRows.entries()) {
-      rendered.push(renderTreeRow(treeRow, leftPaneWidth, nowMs, Text, index, RowBox));
+      rendered.push(
+        renderTreeRow(treeRow, leftPaneWidth, nowMs, Text, index, RowBox, treeRow.id === state.selectedNodeId),
+      );
     }
   }
   const queueRows = monitorLeftPaneQueueRows(state);

@@ -1223,7 +1223,7 @@ describe("monitor pipeline tree elapsed cells", () => {
   });
 
   test("pipeline rows hide idle only while running", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (state === \"running\") return work;" -> "if (false) return work;"
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (hidesIdle) return work;" -> "if (false) return work;"
     const nowMs = 1_800_000_000_000;
     const stage = snapshotStage({
       stageId: "stage",

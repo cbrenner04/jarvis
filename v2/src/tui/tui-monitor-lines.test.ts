@@ -731,6 +731,18 @@ describe("monitorLeftPaneAttentionRows", () => {
     expect(overflowLines).toHaveLength(1 + 6 + 1);
     expect(overflowLines.at(-1)).toBe("+2 more");
     expect(overflowLines.slice(1, 7).every((line) => line.includes("idle"))).toBe(true);
+    // The overflow line renders only above the cap: six or fewer incidents paint no `+N more` line,
+    // so inverting the `overflow > 0` guard (painting `+0 more`) turns this red.
+    const fewFailures: DaemonListRunRow[] = Array.from({ length: 3 }, (_, index) =>
+      workflowRun(`run-few-${index}`, "failed", `inv-few-${index}`, {
+        finishedAtMs: 1_000 * (index + 1),
+        isLive: false,
+      }),
+    );
+    const fewState = monitorState({ runs: fewFailures });
+    const fewLines = monitorLeftPaneAttentionRows(fewState, TREE_NOW_MS).map(joinMonitorRow);
+    expect(fewLines).toHaveLength(1 + 3);
+    expect(fewLines.some((line) => line.includes("more"))).toBe(false);
     // @mutate v2/src/tui/tui-monitor-lines.ts "age === \"\" ? [] : [separator(), untoned(`idle ${age}`)]" -> "[separator(), untoned(`idle ${age}`)]"
 
     const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] });

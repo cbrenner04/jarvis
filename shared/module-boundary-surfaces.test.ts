@@ -279,3 +279,107 @@ describe("module boundary surfaces", () => {
     expect(readdirSync(dir).filter((file) => /^\d{2}-.*\.md$/u.test(file))).toEqual([`00-${fixture.parentSlug}.md`]);
   });
 });
+
+describe("keystone admissibility at plan draft", () => {
+  function stageDraft(dir: string, subspecFile: string, acceptanceCriteriaBlock: string): string {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "index.md"), `# Staged plan\n\n- [ ] [Subspec](./${subspecFile})\n`);
+    const sourcePath = join(dir, subspecFile);
+    writeFileSync(sourcePath, `# Preserve this title\n\n## Acceptance criteria\n\n${acceptanceCriteriaBlock}\n`);
+    return sourcePath;
+  }
+
+  function scratchDir(name: string): string {
+    mkdirSync(scratchRoot, { recursive: true });
+    const dir = mkdtempSync(join(scratchRoot, `keystone-${name}-`));
+    tempDirs.push(dir);
+    return dir;
+  }
+
+  const PROSE_KEYSTONE =
+    "- [ ] Keystone checkpoint: inverting the undated-row ordering guard makes the scoped test fail.";
+  const CANONICAL_KEYSTONE =
+    "- [ ] `write.test.ts` — `pins the undated-row ordering`; Keystone checkpoint: inverting the guard makes the scoped test fail.";
+
+  test("a prose-only keystone criterion refuses the staged draft", () => {
+    // @mutate shared/module-boundary-surfaces.ts "const finding = unsatisfiable[0];" -> "const finding = undefined;"
+    const dir = scratchDir("prose");
+    stageDraft(dir, "00-persistence.md", PROSE_KEYSTONE);
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow("00-persistence.md");
+  });
+
+  test("the keystone refusal names the offending subspec file and criterion", () => {
+    // @mutate shared/module-boundary-surfaces.ts "has an unsatisfiable keystone criterion: ${finding.firstLine}" -> "has an unsatisfiable keystone criterion"
+    const dir = scratchDir("names-file");
+    stageDraft(dir, "00-persistence.md", PROSE_KEYSTONE);
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow(
+      "Keystone checkpoint: inverting the undated-row ordering guard makes the scoped test fail.",
+    );
+  });
+
+  test("a single-boundary draft with a prose-only keystone still refuses", () => {
+    const dir = scratchDir("single-boundary");
+    stageDraft(dir, "00-persistence.md", `- [ ] The state-store persists runs atomically.\n${PROSE_KEYSTONE}`);
+
+    expect(moduleBoundariesForAcceptanceCriteria(["The state-store persists runs atomically."])).toEqual([
+      "persistence",
+    ]);
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow("00-persistence.md");
+  });
+
+  test("a canonical keystone criterion is admitted", () => {
+    const dir = scratchDir("canonical");
+    stageDraft(dir, "00-guard.md", CANONICAL_KEYSTONE);
+
+    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
+  });
+
+  test("a canonical keystone criterion is admitted alongside a literal @mutate directive", () => {
+    const dir = scratchDir("canonical-mutate");
+    stageDraft(dir, "00-guard.md", `${CANONICAL_KEYSTONE}\n      // @mutate write.ts "if (invert)" -> "if (!invert)"`);
+
+    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
+  });
+
+  test("a double-backticked keystone mention is admitted", () => {
+    const dir = scratchDir("double-backtick");
+    stageDraft(
+      dir,
+      "00-guard.md",
+      "- [ ] The guidance-sanctioned descriptive mention `` `Keystone checkpoint:` `` documents the marker.",
+    );
+
+    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
+  });
+
+  test("a keystone criterion naming a nonexistent pin is admitted", () => {
+    const dir = scratchDir("nonexistent-pin");
+    stageDraft(
+      dir,
+      "00-guard.md",
+      "- [ ] `nonexistent.test.ts` — `does not exist anywhere`; Keystone checkpoint: inverting a fictional guard fails a fictional test.",
+    );
+
+    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
+  });
+
+  test("a human-only keystone-shaped criterion is admitted", () => {
+    const dir = scratchDir("human-only");
+    stageDraft(dir, "00-guard.md", `${PROSE_KEYSTONE.replace(/\.$/, "")} (Manual).`);
+
+    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
+  });
+
+  test("a tree with no keystone criteria still normalizes", () => {
+    const dir = scratchDir("no-keystone");
+    stageDraft(
+      dir,
+      "00-guard.md",
+      "- [ ] `write.test.ts` — `pins the undated-row ordering`; Mutation checkpoint: inverting the guard makes the scoped test fail.",
+    );
+
+    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
+  });
+});

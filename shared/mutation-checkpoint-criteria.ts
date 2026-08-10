@@ -95,6 +95,63 @@ export function selectKeystoneCheckpointCriteria(
   return selectCheckpointCriteria(content, "keystone", options);
 }
 
+/** Strips CommonMark-style backtick code spans (matching-length backtick runs); non-span text survives. */
+function stripCodeSpans(text: string): string {
+  const runPattern = /`+/g;
+  let result = "";
+  let lastIndex = 0;
+  let openMatch = runPattern.exec(text);
+  while (openMatch !== null) {
+    const openStart = openMatch.index;
+    const openLen = openMatch[0].length;
+    const closePattern = /`+/g;
+    closePattern.lastIndex = openStart + openLen;
+    let closeMatch: RegExpExecArray | null = null;
+    let candidate = closePattern.exec(text);
+    while (candidate !== null) {
+      if (candidate[0].length === openLen) {
+        closeMatch = candidate;
+        break;
+      }
+      candidate = closePattern.exec(text);
+    }
+    if (closeMatch !== null) {
+      result += text.slice(lastIndex, openStart);
+      lastIndex = closeMatch.index + closeMatch[0].length;
+      runPattern.lastIndex = lastIndex;
+    }
+    openMatch = runPattern.exec(text);
+  }
+  result += text.slice(lastIndex);
+  return result;
+}
+
+export type UnsatisfiableKeystoneCriterion = MutationCheckpointCriterion;
+
+/**
+ * Non-human-only acceptance criteria that self-mark as a keystone checkpoint (`Keystone checkpoint:`
+ * outside any backtick span) but are not selectable by `selectKeystoneCheckpointCriteria` — keystone
+ * verification would never pick them up.
+ */
+export function findUnsatisfiableKeystoneCriteria(content: string): UnsatisfiableKeystoneCriterion[] {
+  const blocks = acceptanceCriterionBlocks(content);
+  const admissible = selectKeystoneCheckpointCriteria(content);
+  const remainingAdmissible = [...admissible];
+  const findings: UnsatisfiableKeystoneCriterion[] = [];
+  for (const [index, criterion] of parseSpec(content).acceptanceCriteria.entries()) {
+    if (criterion.humanOnly) continue;
+    const block = blocks[index] ?? criterion.text;
+    if (!stripCodeSpans(block).includes(KEYSTONE_CRITERION_MARKER)) continue;
+    const matchIndex = remainingAdmissible.findIndex((entry) => entry.block === block);
+    if (matchIndex !== -1) {
+      remainingAdmissible.splice(matchIndex, 1);
+      continue;
+    }
+    findings.push({ block, firstLine: criterion.text });
+  }
+  return findings;
+}
+
 function isTestFileReference(token: string): boolean {
   return /\.test\.[cm]?[jt]sx?$/i.test(token) || token.includes(".test.");
 }

@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { findUnsatisfiableKeystoneCriteria } from "./mutation-checkpoint-criteria.ts";
 
 export const MODULE_BOUNDARY_SURFACES = ["persistence", "daemon", "cli", "execution-loop"] as const;
 
@@ -380,6 +381,14 @@ export function normalizePlanDraftSpecDir(specDir: string): void {
     const body = readFileSync(join(specDir, file), "utf8");
     return { body, criteria: acceptanceCriteria(body, file), file };
   });
+
+  for (const draft of drafts) {
+    const unsatisfiable = findUnsatisfiableKeystoneCriteria(draft.body);
+    const finding = unsatisfiable[0];
+    if (finding !== undefined) {
+      throw new Error(`Plan subspec ${draft.file} has an unsatisfiable keystone criterion: ${finding.firstLine}`);
+    }
+  }
 
   const indexPath = join(specDir, "index.md");
   const indexBody = readFileSync(indexPath, "utf8");

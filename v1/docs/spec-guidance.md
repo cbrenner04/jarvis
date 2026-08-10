@@ -223,6 +223,7 @@ Headline behavior changes need a keystone checkpoint alongside guard checkpoints
 - Exactly one ticked `Keystone checkpoint:` criterion per runtime-behavior subspec at completion; plan-draft authors the criterion and pinning-test directive when drafting runtime-behavior subspecs.
 - Keystones are opt-in: a subspec with guard `Mutation checkpoint:` criteria and no `Keystone checkpoint:` criterion completes normally. A declared keystone is verified (a surviving headline revert refuses `Inert headline change`; more than one refuses `Multiple keystone checkpoints`). Requiring a keystone on every guard-checkpoint subspec is deferred until plan-draft authors keystones.
 - Full-diff revert is not the keystone shape: new tests import new exports, so reverting everything yields compile errors rather than red tests.
+- Plan draft refuses a criterion that self-marks as a keystone (`Keystone checkpoint:` outside a backtick span) but lacks the canonical suffix — a prose-only checkpoint is never selected by keystone verification, so plan draft rejects it up front rather than shipping silent dead evidence.
 
 Prose `Mutation checkpoint:` comments remain useful context for a human reader; without a linked directive they are refused and are not the machine contract.
 

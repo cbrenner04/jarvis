@@ -4,6 +4,23 @@ const HOUR_S = 3_600;
 const DAY_S = 86_400;
 const ELAPSED_COLUMN_WIDTH = 8;
 
+export function formatAggregateDuration(durationMs: number): string {
+  if (!Number.isFinite(durationMs)) return "0s";
+  if (durationMs <= 0) return "0s";
+  const totalSeconds = Math.floor(durationMs / SECOND_MS);
+  if (totalSeconds < MINUTE_S) return `${totalSeconds}s`;
+  if (totalSeconds < HOUR_S) return `${Math.floor(totalSeconds / MINUTE_S)}m`;
+  if (totalSeconds < DAY_S) return `${Math.floor(totalSeconds / HOUR_S)}h`;
+  return `${Math.floor(totalSeconds / DAY_S)}d`;
+}
+
+export function formatAggregateTiming(workMs: number, idleMs: number | null, compact: boolean): string {
+  const work = formatAggregateDuration(workMs);
+  if (idleMs === null) return compact ? `w${work}` : `work ${work}`;
+  const idle = formatAggregateDuration(idleMs);
+  return compact ? `w${work}/i${idle}` : `work ${work} · idle ${idle}`;
+}
+
 export function formatElapsedWallClock(startMs: number | null, endMs: number | null, nowMs: number): string {
   if (startMs === null) {
     return "";

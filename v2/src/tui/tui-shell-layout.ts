@@ -1,9 +1,13 @@
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
+import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
 import type { MonitorLineRow, MonitorSegment, MonitorSegmentTone } from "./tui-monitor-lines.ts";
 import {
   type WorkflowTableRow,
   workflowCollapsedContextSuffix,
+  workflowGroupHasActiveMember,
   workflowRoleLabel,
+  workflowRollupFinishedAtMs,
+  workflowTableRowMembers,
 } from "./tui-monitor-workflow-collapse.ts";
 
 export const MONITOR_TREE_NOT_LIVE_LABEL = "idle";
@@ -77,6 +81,30 @@ export function runRowLabel(tableRow: WorkflowTableRow): string {
   const head = runRowLabelHead(monitorTreeRun(tableRow));
   if (tableRow.kind !== "workflow-collapsed") return head;
   return `${head}${workflowCollapsedContextSuffix(tableRow.members)}`;
+}
+
+/**
+ * Workflow row elapsed: an active group grows with the display clock; a terminal group freezes at
+ * its latest retained finish, or its latest admission when no member finished (zero for a
+ * finishless standalone row). Corrupt/reversed boundaries clamp to zero.
+ */
+export function runRowElapsedLabel(tableRow: WorkflowTableRow, nowMs: number): string {
+  const members = workflowTableRowMembers(tableRow);
+  const createdAtValues = members.map((run) => run.createdAt);
+  const startMs = Math.min(...createdAtValues);
+
+  const terminalEndMs = (): number | null => {
+    if (workflowGroupHasActiveMember(members)) return null;
+    const latestFinishedAtMs = workflowRollupFinishedAtMs(members);
+    const latestCreatedAtMs = Math.max(...createdAtValues);
+    const endMs = latestFinishedAtMs ?? latestCreatedAtMs;
+    return endMs;
+  };
+
+  const endMs = terminalEndMs();
+  // A terminal group finishing under a second after admission would otherwise blank like a corrupt interval.
+  if (endMs !== null) return formatElapsedWallClock(startMs, endMs, nowMs) || "0s";
+  return formatElapsedWallClock(startMs, endMs, nowMs);
 }
 
 // ---- Display-width row composition ----

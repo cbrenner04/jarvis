@@ -26,12 +26,12 @@ A legacy terminal run without `finishedAtMs` falls through to the display clock 
 
 ## Acceptance criteria
 
-- [ ] `v2/src/tui/tui-shell-layout.test.ts` — `finishless terminal runs freeze at durable finish or admission fallback` replaces the contradictory baseline test, fails against the baseline, and proves active rows change across display clocks while terminal rows do not; grouped terminal rows use the latest retained `finishedAtMs`, no-finish groups use latest admission, standalone no-finish rows render `0s`, and corrupt boundaries clamp to zero.
-- [ ] `v2/src/tui/tui-shell-layout.test.ts` — `finishless terminal runs freeze at durable finish or admission fallback`; Keystone checkpoint: its test body carries `// @mutate v2/src/tui/tui-shell-layout.ts "const endMs = latestFinishedAtMs ?? latestCreatedAtMs;" -> "const endMs = latestFinishedAtMs ?? nowMs;"`, and the mutation turns the finishless-terminal regression RED.
-- [ ] `v2/src/tui/tui-shell-layout.test.ts` — `finishless terminal runs freeze at durable finish or admission fallback` carries `// @mutate v2/src/tui/tui-shell-layout.ts "if (workflowGroupHasActiveMember(members)) return null;" -> "if (false) return null;"`, and the mutation turns the active-row assertion RED.
-- [ ] `v2/src/tui/tui-monitor-pipeline-tree.test.ts` — `terminal workflow timing is best effort for retained members` fails against the baseline and proves an evicted member cannot manufacture a finish while retained members still select their latest durable finish or admission fallback.
-- [ ] `v2/docs/operator-runbook.md` § Observe and `v2/docs/v1-behaviors.md` § TUI / observability record terminal finishless admission fallback, zero standalone elapsed, active display-clock timing, and capped-member best-effort semantics.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `v2/src/tui/tui-shell-layout.test.ts` — `finishless terminal runs freeze at durable finish or admission fallback` replaces the contradictory baseline test, fails against the baseline, and proves active rows change across display clocks while terminal rows do not; grouped terminal rows use the latest retained `finishedAtMs`, no-finish groups use latest admission, standalone no-finish rows render `0s`, and corrupt boundaries clamp to zero.
+- [x] `v2/src/tui/tui-shell-layout.test.ts` — `finishless terminal runs freeze at durable finish or admission fallback`; Keystone checkpoint: its test body carries `// @mutate v2/src/tui/tui-shell-layout.ts "const endMs = latestFinishedAtMs ?? latestCreatedAtMs;" -> "const endMs = latestFinishedAtMs ?? nowMs;"`, and the mutation turns the finishless-terminal regression RED.
+- [x] `v2/src/tui/tui-shell-layout.test.ts` — `finishless terminal runs freeze at durable finish or admission fallback` carries `// @mutate v2/src/tui/tui-shell-layout.ts "if (workflowGroupHasActiveMember(members)) return null;" -> "if (false) return null;"`, and the mutation turns the active-row assertion RED.
+- [x] `v2/src/tui/tui-monitor-pipeline-tree.test.ts` — `terminal workflow timing is best effort for retained members` fails against the baseline and proves an evicted member cannot manufacture a finish while retained members still select their latest durable finish or admission fallback.
+- [x] `v2/docs/operator-runbook.md` § Observe and `v2/docs/v1-behaviors.md` § TUI / observability record terminal finishless admission fallback, zero standalone elapsed, active display-clock timing, and capped-member best-effort semantics.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

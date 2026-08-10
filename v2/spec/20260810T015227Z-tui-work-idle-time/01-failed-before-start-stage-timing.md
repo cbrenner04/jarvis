@@ -27,11 +27,11 @@ A terminal failed stage with no start timestamp appears to have blank elapsed ti
 
 ## Acceptance criteria
 
-- [ ] `v2/src/tui/tui-monitor-lines.test.ts` — `a failed stage with no start paints failed before start in tree and detail` fails against the baseline and proves the normal tree row, Stages roll-up, and selected Stage detail say `failed before start`; it also proves the compact tree says `failed!` and skipped, interrupted, approval, malformed succeeded, and other non-failed null-start rows remain blank.
-- [ ] `v2/src/tui/tui-monitor-lines.test.ts` — `a failed stage with no start paints failed before start in tree and detail`; Keystone checkpoint: its test body carries `// @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (stage.status === \"failed\" && stage.startedAt === null) return \"failed before start\";" -> "if (false) return \"failed before start\";"`, and the mutation turns the regression RED.
-- [ ] `v2/src/tui/tui-monitor-lines.test.ts` — `a failed stage with no start paints failed before start in tree and detail` carries `// @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return compact ? \"failed!\" : \"failed before start\";" -> "return \"failed before start\";"`, and the mutation turns the compact-width assertion RED.
-- [ ] `v2/docs/operator-runbook.md` § Observe and `v2/docs/v1-behaviors.md` § TUI / observability distinguish failed-before-start from every non-failed null-start stage and record normal versus compact tree wording.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `v2/src/tui/tui-monitor-lines.test.ts` — `a failed stage with no start paints failed before start in tree and detail` fails against the baseline and proves the normal tree row, Stages roll-up, and selected Stage detail say `failed before start`; it also proves the compact tree says `failed!` and skipped, interrupted, approval, malformed succeeded, and other non-failed null-start rows remain blank.
+- [x] `v2/src/tui/tui-monitor-lines.test.ts` — `a failed stage with no start paints failed before start in tree and detail`; Keystone checkpoint: its test body carries `// @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (stage.status === \"failed\" && stage.startedAt === null) return \"failed before start\";" -> "if (false) return \"failed before start\";"`, and the mutation turns the regression RED.
+- [x] `v2/src/tui/tui-monitor-lines.test.ts` — `a failed stage with no start paints failed before start in tree and detail` carries `// @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return compact ? \"failed!\" : \"failed before start\";" -> "return \"failed before start\";"`, and the mutation turns the compact-width assertion RED.
+- [x] `v2/docs/operator-runbook.md` § Observe and `v2/docs/v1-behaviors.md` § TUI / observability distinguish failed-before-start from every non-failed null-start stage and record normal versus compact tree wording.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

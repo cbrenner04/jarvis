@@ -5,7 +5,7 @@ import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
 import { isTerminalRunStatus, type RunStatus } from "../persistence/state-store.ts";
 import { type AttentionRow, buildAttentionRows } from "./tui-attention-rows.ts";
 import type { PipelineListResult } from "./tui-daemon-client.ts";
-import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
+import { formatAggregateDuration, formatElapsedWallClock } from "./tui-elapsed-format.ts";
 import {
   buildMonitorPipelineTree,
   buildMonitorPipelineTreeJoin,
@@ -16,6 +16,8 @@ import {
   type MonitorPipelineTreeStageNode,
   pipelineStageNodes,
   pipelineStageRollupGroups,
+  pipelineWorkIdleTiming,
+  stageElapsedLabel,
 } from "./tui-monitor-pipeline-tree.ts";
 import type { TuiMonitorState } from "./tui-monitor-types.ts";
 import {
@@ -34,6 +36,7 @@ import {
   computeShellLayout,
   MONITOR_TREE_NOT_LIVE_LABEL,
   monitorTreeRun,
+  runRowElapsedLabel,
   runRowLabel,
 } from "./tui-shell-layout.ts";
 
@@ -569,7 +572,7 @@ export function buildTreeRunRow(
       statusTone: RUN_STATUS_TONES[run.status],
       live: run.isLive ? "live" : MONITOR_TREE_NOT_LIVE_LABEL,
       ...(liveTone === undefined ? {} : { liveTone }),
-      elapsed: formatElapsedWallClock(run.createdAt, run.finishedAtMs ?? null, nowMs),
+      elapsed: runRowElapsedLabel(tableRow, nowMs),
     },
     leftPaneWidth,
   );
@@ -726,7 +729,7 @@ function pipelineStageRollupRow(stage: PipelineSnapshot["stages"][number], nowMs
     untoned(
       `stage: ${stage.stageId} ${rollupFields([
         ["status", stage.status],
-        ["elapsed", formatElapsedWallClock(stage.startedAt, stage.endedAt, nowMs)],
+        ["elapsed", stageElapsedLabel(stage, nowMs)],
       ])}`,
     ),
   );
@@ -761,6 +764,7 @@ function pipelineContextRows(
   nowMs: number,
 ): DetailSection[] {
   const snapshot = pipeline.snapshot;
+  const timing = pipelineWorkIdleTiming(pipeline, nowMs);
   return [
     {
       heading: "Pipeline",
@@ -772,7 +776,9 @@ function pipelineContextRows(
         ...pipelineProjectRows(snapshot, runs),
         ...detailRows([
           ["state", snapshot.state],
-          ["elapsed", formatElapsedWallClock(snapshot.createdAt, snapshot.finishedAtMs, nowMs)],
+          ["work", formatAggregateDuration(timing.workMs)],
+          ["idle", timing.idleMs === null ? "" : formatAggregateDuration(timing.idleMs)],
+          ["wallClock", formatElapsedWallClock(snapshot.createdAt, snapshot.finishedAtMs, nowMs)],
           ["createdAt", snapshot.createdAt],
           ["finishedAtMs", snapshot.finishedAtMs],
           ["terminalAction", snapshot.terminalAction],
@@ -789,7 +795,7 @@ function pipelineContextRows(
   ];
 }
 
-function stageDetailRows(stage: PipelineSnapshot["stages"][number] | undefined): DetailSection[] {
+function stageDetailRows(stage: PipelineSnapshot["stages"][number] | undefined, nowMs: number): DetailSection[] {
   if (stage === undefined) return [];
   const artifactSection = stageArtifactSection(stage.artifact);
   return [
@@ -801,6 +807,7 @@ function stageDetailRows(stage: PipelineSnapshot["stages"][number] | undefined):
         ["branch", stage.branchKey],
         ["position", stage.position],
         ["status", stage.status],
+        ["elapsed", stageElapsedLabel(stage, nowMs)],
         ["workflowInvocationId", stage.workflowInvocationId],
         ["failureDetail", stage.failureDetail],
         ["startedAt", stage.startedAt],
@@ -893,7 +900,7 @@ function pipelineStageTargetDetail(
       return {
         sections: [
           ...pipelineContextRows(pipeline, runs, nowMs),
-          ...stageDetailRows(stageRecordForTreeRow(pipeline, stage)),
+          ...stageDetailRows(stageRecordForTreeRow(pipeline, stage), nowMs),
         ],
         isRunTarget: false,
       };
@@ -983,7 +990,10 @@ function unwrappedRightPaneSegmentRows(state: TuiMonitorState, layout: ShellLayo
   const pipelineSections = pipeline === undefined ? [] : pipelineContextRows(pipeline, state.runs, nowMs);
 
   if (treeRow?.kind === "stage") {
-    return joinDetailSections([...pipelineSections, ...stageDetailRows(stageRecordForTreeRow(pipeline, treeRow))]);
+    return joinDetailSections([
+      ...pipelineSections,
+      ...stageDetailRows(stageRecordForTreeRow(pipeline, treeRow), nowMs),
+    ]);
   }
 
   if (treeRow?.kind === "branch") {

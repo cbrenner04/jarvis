@@ -21,7 +21,12 @@ import {
   RUN_STATUS_TONES,
   wrapMonitorRows,
 } from "./tui-monitor-lines.ts";
-import { monitorPipelineBranchNodeId, monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
+import {
+  buildMonitorPipelineTreeJoin,
+  buildStageMonitorTreeRow,
+  monitorPipelineBranchNodeId,
+  monitorPipelineStageNodeId,
+} from "./tui-monitor-pipeline-tree.ts";
 import { TUI_TERMINAL_WINDOW_MS } from "./tui-monitor-terminal-window.ts";
 import type { TuiMonitorState } from "./tui-monitor-types.ts";
 import type { WorkflowTableRow } from "./tui-monitor-workflow-collapse.ts";
@@ -60,6 +65,14 @@ const WORKFLOW_RUN: DaemonListRunRow = {
     ],
   },
 };
+
+/** Composed rows are `indent, marker, gap, label, gap, atom0, gap, atom1, ...`; gaps interleaved are excluded. */
+function clusterAtoms(row: ReturnType<typeof buildStageMonitorTreeRow>): string[] {
+  return row.segments
+    .slice(5)
+    .filter((_, index) => index % 2 === 0)
+    .map((segment) => segment.text);
+}
 
 function monitorState(overrides: Partial<TuiMonitorState> = {}): TuiMonitorState {
   return {
@@ -1007,7 +1020,9 @@ describe("monitorRightPaneSegmentRows", () => {
     "name: feature-pipeline",
     "project: demo",
     "state: succeeded",
-    "elapsed: 2m 0s",
+    "work: 2m",
+    "idle: 5s",
+    "wallClock: 2m 0s",
     `createdAt: ${pipelineCreatedAt}`,
     `finishedAtMs: ${pipelineFinishedAt}`,
     "terminalAction: ready",
@@ -1030,6 +1045,125 @@ describe("monitorRightPaneSegmentRows", () => {
     expect(monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow)).toEqual(pipelineBlock);
   });
 
+  test("pipeline detail separates work idle and wall clock", () => {
+    const createdAt = TREE_NOW_MS - 600_000;
+    const stage = snapshotStage({
+      stageId: "implement",
+      status: "succeeded",
+      startedAt: TREE_NOW_MS - 300_000,
+      endedAt: TREE_NOW_MS - 180_000,
+    });
+    const snapshot = pipelineSnapshot({
+      pipelineId: "pipe-timing-detail",
+      state: "pending",
+      createdAt,
+      stages: [stage],
+    });
+    const state = monitorState({
+      selectedNodeId: snapshot.pipelineId,
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
+    });
+    const current = monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow);
+    const later = monitorRightPaneSegmentRows(state, TREE_NOW_MS + 60_000).map(joinMonitorRow);
+    expect(current).toContain("work: 2m");
+    expect(current).toContain("idle: 3m");
+    expect(current).toContain("wallClock: 10m 0s");
+    expect(current).toContain(`createdAt: ${createdAt}`);
+    expect(later).toContain("work: 2m");
+    expect(later).toContain("idle: 4m");
+    expect(later).toContain("wallClock: 11m 0s");
+
+    const terminal = { ...snapshot, state: "succeeded" as const, finishedAtMs: TREE_NOW_MS - 120_000 };
+    const terminalState = monitorState({
+      selectedNodeId: terminal.pipelineId,
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [terminal] } },
+    });
+    const terminalLines = monitorRightPaneSegmentRows(terminalState, TREE_NOW_MS + 60_000).map(joinMonitorRow);
+    expect(terminalLines).toContain("wallClock: 8m 0s");
+    expect(terminalLines).toContain(`finishedAtMs: ${TREE_NOW_MS - 120_000}`);
+
+    const empty = pipelineSnapshot({ pipelineId: "pipe-no-activity", state: "pending", createdAt, stages: [] });
+    const emptyLines = monitorRightPaneSegmentRows(
+      monitorState({
+        selectedNodeId: empty.pipelineId,
+        pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [empty] } },
+      }),
+      TREE_NOW_MS,
+    ).map(joinMonitorRow);
+    expect(emptyLines).toContain("work: 0s");
+    expect(emptyLines.some((line) => line.startsWith("idle:"))).toBe(false);
+  });
+
+  test("ordinary stage elapsed agrees across tree roll-up and detail", () => {
+    const startedAt = TREE_NOW_MS - 125_000;
+    const snapshot = pipelineSnapshot({
+      pipelineId: "pipe-stage-elapsed",
+      stages: [snapshotStage({ stageId: "implement", status: "running", startedAt })],
+    });
+    const pipeline = buildMonitorPipelineTreeJoin([snapshot], []).pipelineNodes[0];
+    const stage = pipeline?.stages[0];
+    if (stage === undefined) throw new Error("expected stage");
+    expect(buildStageMonitorTreeRow(stage, 120, TREE_NOW_MS).segments.at(-1)?.text).toBe("2m 5s");
+
+    const state = monitorState({
+      selectedNodeId: stage.id,
+      expandedPipelineNodeIds: [snapshot.pipelineId],
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
+    });
+    const lines = monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow);
+    expect(lines).toContain("stage: implement status=running elapsed=2m 5s");
+    expect(lines.filter((line) => line === "elapsed: 2m 5s")).toHaveLength(1);
+  });
+
+  test("a failed stage with no start paints failed before start in tree and detail", () => {
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (stage.status === \"failed\" && stage.startedAt === null) return \"failed before start\";" -> "if (false) return \"failed before start\";"
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return compact ? \"failed!\" : \"failed before start\";" -> "return \"failed before start\";"
+    const failedEndedAt = TREE_NOW_MS - 10_000;
+    const snapshot = pipelineSnapshot({
+      pipelineId: "pipe-failed-before-start",
+      stages: [
+        snapshotStage({ stageId: "implement", position: 0, status: "failed", startedAt: null, endedAt: failedEndedAt }),
+        snapshotStage({ stageId: "plan", position: 1, status: "skipped", startedAt: null }),
+        snapshotStage({ stageId: "review", position: 2, status: "interrupted", startedAt: null }),
+        snapshotStage({ stageId: "approve-plan", position: 3, status: "awaiting", startedAt: null }),
+        snapshotStage({ stageId: "verify", position: 4, status: "succeeded", startedAt: null }),
+        snapshotStage({ stageId: "cleanup", position: 5, status: "pending", startedAt: null }),
+      ],
+    });
+    const pipeline = buildMonitorPipelineTreeJoin([snapshot], []).pipelineNodes[0];
+    const [failedStage, skippedStage, interruptedStage, approvalStage, malformedStage, otherStage] =
+      pipeline?.stages ?? [];
+    if (
+      failedStage === undefined ||
+      skippedStage === undefined ||
+      interruptedStage === undefined ||
+      approvalStage === undefined ||
+      malformedStage === undefined ||
+      otherStage === undefined
+    ) {
+      throw new Error("expected six stages");
+    }
+
+    expect(clusterAtoms(buildStageMonitorTreeRow(failedStage, 120, TREE_NOW_MS)).at(-1)).toBe("failed before start");
+    expect(clusterAtoms(buildStageMonitorTreeRow(failedStage, 90, TREE_NOW_MS)).at(-1)).toBe("failed!");
+    for (const stage of [skippedStage, interruptedStage, approvalStage, malformedStage, otherStage]) {
+      expect(clusterAtoms(buildStageMonitorTreeRow(stage, 120, TREE_NOW_MS))).toEqual([stage.status]);
+      expect(clusterAtoms(buildStageMonitorTreeRow(stage, 90, TREE_NOW_MS))).toEqual([stage.status]);
+    }
+
+    const state = monitorState({
+      selectedNodeId: failedStage.id,
+      expandedPipelineNodeIds: [snapshot.pipelineId],
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
+    });
+    const lines = monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow);
+    expect(lines).toContain("stage: implement status=failed elapsed=failed before start");
+    expect(lines).toContain("elapsed: failed before start");
+    for (const stageId of ["plan", "review", "approve-plan", "verify", "cleanup"]) {
+      expect(lines.some((line) => line.startsWith(`stage: ${stageId} `) && line.includes("elapsed="))).toBe(false);
+    }
+  });
+
   test("pipeline selection separates identity, stage roll-up, and stage detail with blank rows", () => {
     // @mutate v2/src/tui/tui-monitor-lines.ts "return index === 0 ? [] : [row(untoned(SECTION_GAP))];" -> "return [];"
     const stageNodeId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
@@ -1050,6 +1184,7 @@ describe("monitorRightPaneSegmentRows", () => {
       "branch: default",
       "position: 9",
       "status: succeeded",
+      "elapsed: 1m 0s",
       "workflowInvocationId: inv-detail-a",
       `startedAt: ${stageStartedAt}`,
       `endedAt: ${pipelineFinishedAt}`,
@@ -1164,6 +1299,7 @@ describe("monitorRightPaneSegmentRows", () => {
       "branch: default",
       "position: 9",
       "status: succeeded",
+      "elapsed: 1m 0s",
       "workflowInvocationId: inv-detail-a",
       `startedAt: ${stageStartedAt}`,
       `endedAt: ${pipelineFinishedAt}`,
@@ -1502,7 +1638,7 @@ describe("monitorRightPaneSegmentRows", () => {
     });
 
     const lines = monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow);
-    const singleStageBlock = pipelineBlock.slice(0, -1);
+    const singleStageBlock = pipelineBlock.slice(0, -1).map((line) => (line === "work: 2m" ? "work: 1m" : line));
 
     expect(lines).toEqual([
       ...singleStageBlock,
@@ -1644,7 +1780,7 @@ describe("monitorRightPaneSegmentRows", () => {
       "project: demo",
       "state: succeeded",
     ]);
-    expect(lines).toContain("elapsed: 1m 40s");
+    expect(lines).toContain("wallClock: 1m 40s");
     expect(lines).toContain("stage: plan status=succeeded");
   });
 

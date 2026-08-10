@@ -12,6 +12,7 @@ import {
   type ResumePipelineOutcome,
 } from "../daemon/pipeline-execution.ts";
 import { RpcConnectionError, RpcError } from "../ipc/rpc-errors.ts";
+import { type AttentionRow, buildAttentionRows } from "./tui-attention-rows.ts";
 import { parseTuiCommand, type TuiCommandError, type TuiCommandParseResult } from "./tui-command-parser.ts";
 import {
   connectTuiDaemon,
@@ -233,15 +234,32 @@ function pipelineSteeringSharedSelectionError(
   return null;
 }
 
+/** Resolves a selected attention row from its id, independent of tree-node encoding. */
+function selectedAttentionRow(state: TuiMonitorState, selectedNodeId: string): AttentionRow | undefined {
+  const projection = buildAttentionRows(state.pipelineSnapshotsBySocketPath, state.runs);
+  return projection.rows.find((row) => row.id === selectedNodeId);
+}
+
 function approveRejectSelectionError(
   state: TuiMonitorState,
   nowMs: number,
   pipelineOwners: ReadonlyMap<string, TuiDaemonClient>,
 ): ApproveRejectSelectionError | null {
+  const selectedNodeId = state.selectedNodeId;
+  if (selectedNodeId !== null) {
+    const attentionRow = selectedAttentionRow(state, selectedNodeId);
+    if (attentionRow !== undefined) {
+      // Mutation checkpoint: negating awaiting-gate kind check must turn attention eligibility RED.
+      if (attentionRow.kind !== "awaiting-gate") return "not_awaiting_stage";
+      // Owner presence for the resolved gate is checked once, by resolvePipelineSteeringDispatch,
+      // which needs the live client reference and runs immediately after this eligibility check.
+      return null;
+    }
+  }
+
   const shared = pipelineSteeringSharedSelectionError(state, nowMs, pipelineOwners);
   if (shared !== null) return shared;
 
-  const selectedNodeId = state.selectedNodeId;
   if (selectedNodeId === null) return "no_selection";
 
   const pipelineNodes = pipelineNodesForState(state);
@@ -318,6 +336,15 @@ function resolvePipelineSteeringDispatch(
     const owner = pipelineOwners.get(selectedNodeId);
     if (owner === undefined) return "stale_non_targetable";
     return { kind: "resume", owner, pipelineId: selectedNodeId };
+  }
+  const selectedNodeId = state.selectedNodeId;
+  if (selectedNodeId !== null) {
+    const attentionRow = selectedAttentionRow(state, selectedNodeId);
+    if (attentionRow !== undefined && attentionRow.kind === "awaiting-gate" && attentionRow.gate !== undefined) {
+      const owner = pipelineOwners.get(attentionRow.gate.pipelineId);
+      if (owner === undefined) return "stale_non_targetable";
+      return { kind: "stage-mutation", owner, params: attentionRow.gate, command };
+    }
   }
   const target = resolveAwaitingStageTarget(state);
   if (target === null) return "stale_non_targetable";

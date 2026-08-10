@@ -285,7 +285,7 @@ The TUI phase cannot assert painted ink output in CI — headless runners do not
 
 Substitutes for rendered-output assertions:
 
-- **Pure layout functions** — region geometry, column degradation, and tree-cell truncation (`tui-shell-layout.ts`).
+- **Pure layout functions** — region geometry and display-width row composition (`tui-shell-layout.ts`): per-row supported-width floors, full-cluster fit, right-to-left cluster-atom degradation, and grapheme-safe label ellipsis/clipping, in place of the retired fixed-column grid and width-tier table.
 - **Injected input hook** — keybinding and focus behavior without asserting painted frames.
 - **Production monitor state** — poll/dispatch outcomes and selection state the shell wires to ink.
 

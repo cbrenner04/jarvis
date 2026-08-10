@@ -26,6 +26,7 @@ import {
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import type { InjectedInkUi, InkUseInput } from "./tui-ink-runtime.ts";
 import {
+  buildTreeRunRow,
   monitorDockLines,
   monitorLeftPaneTreeRows,
   monitorSelectableNodeIds,
@@ -41,13 +42,7 @@ import type {
   TuiViewHost,
   TuiViewState,
 } from "./tui-monitor-types.ts";
-import {
-  buildMonitorTreeRow,
-  computeShellLayout,
-  monitorTreeRun,
-  TREE_COLUMN_WIDTHS,
-  visibleColumns,
-} from "./tui-shell-layout.ts";
+import { computeShellLayout, monitorTreeRun } from "./tui-shell-layout.ts";
 
 const TERMINAL_LIST_FINISH_MS = 9_000_000_000_000;
 
@@ -815,16 +810,6 @@ async function runAwaitingStageSteeringRefusalTest(
   expect(await pending).toBe(0);
 }
 
-function columnSlice(row: string, leftPaneWidth: number, column: keyof typeof TREE_COLUMN_WIDTHS): string {
-  let offset = 0;
-  for (const entry of visibleColumns(leftPaneWidth)) {
-    const width = TREE_COLUMN_WIDTHS[entry];
-    if (entry === column) return row.slice(offset, offset + width);
-    offset += width;
-  }
-  return "";
-}
-
 function elapsedCellForRun(state: TuiMonitorState | undefined, runId: string, nowMs: number): string {
   if (state === undefined) return "";
   const layout = computeShellLayout(state.terminalColumns ?? 245, state.terminalRows ?? 72, state.dividerOffset ?? 0);
@@ -833,9 +818,9 @@ function elapsedCellForRun(state: TuiMonitorState | undefined, runId: string, no
   const runNode = treeRows.find(
     (row) => (row.kind === "run" || row.kind === "adhoc") && monitorTreeRun(row.tableRow).runId === runId,
   );
-  const tableRow = runNode?.kind === "run" || runNode?.kind === "adhoc" ? runNode.tableRow : undefined;
-  if (tableRow === undefined) return "";
-  return columnSlice(buildMonitorTreeRow(tableRow, null, leftPaneWidth, nowMs), leftPaneWidth, "elapsed").trimEnd();
+  if (runNode?.kind !== "run" && runNode?.kind !== "adhoc") return "";
+  // The elapsed atom is always the rightmost cluster segment at this width.
+  return buildTreeRunRow(runNode.tableRow, runNode.depth, leftPaneWidth, nowMs).segments.at(-1)?.text ?? "";
 }
 
 function dualDaemonEntryDeps(

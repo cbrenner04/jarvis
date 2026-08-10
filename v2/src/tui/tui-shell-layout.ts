@@ -1,5 +1,5 @@
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
-import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
+import type { MonitorLineRow, MonitorSegment, MonitorSegmentTone } from "./tui-monitor-lines.ts";
 import {
   type WorkflowTableRow,
   workflowCollapsedContextSuffix,
@@ -16,18 +16,6 @@ export function shortMonitorId(id: string): string {
 
 export type LayoutMode = "stacked" | "split";
 
-export type TreeColumnId =
-  | "marker"
-  | "indent"
-  | "label"
-  | "project"
-  | "branch"
-  | "state"
-  | "elapsed"
-  | "live"
-  | "agent"
-  | "id";
-
 export type ShellLayout = {
   layoutMode: LayoutMode;
   leftWidth: number;
@@ -36,57 +24,12 @@ export type ShellLayout = {
   dockHeight: number;
 };
 
-export const TREE_COLUMN_WIDTHS: Record<TreeColumnId, number> = {
-  marker: 1,
-  indent: 2,
-  label: 22,
-  project: 10,
-  branch: 14,
-  state: 12,
-  elapsed: 8,
-  live: 5,
-  agent: 10,
-  id: 8,
-};
-
 const STACKED_THRESHOLD = 120;
 const LEFT_FLOOR = 72;
 const LEFT_BASE_FRACTION = 0.38;
 const LEFT_CEILING_FRACTION = 0.4;
 const DOCK_HEIGHT = 4;
 const NUDGE_DELTA = 2;
-
-const TIER_FULL = 90;
-const TIER_NO_AGENT_ID = 72;
-const TIER_NO_BRANCH = 58;
-const TIER_NO_PROJECT = 48;
-
-const FULL_COLUMNS: readonly TreeColumnId[] = [
-  "marker",
-  "indent",
-  "label",
-  "project",
-  "branch",
-  "state",
-  "elapsed",
-  "live",
-  "agent",
-  "id",
-];
-
-const MINIMAL_COLUMNS: readonly TreeColumnId[] = ["marker", "label", "state", "elapsed"];
-
-function columnsWithout(...omit: TreeColumnId[]): readonly TreeColumnId[] {
-  const drop = new Set(omit);
-  return FULL_COLUMNS.filter((column) => !drop.has(column));
-}
-
-const VISIBLE_AT_WIDTH: readonly { min: number; columns: readonly TreeColumnId[] }[] = [
-  { min: TIER_FULL, columns: FULL_COLUMNS },
-  { min: TIER_NO_AGENT_ID, columns: columnsWithout("agent", "id") },
-  { min: TIER_NO_BRANCH, columns: columnsWithout("agent", "id", "branch") },
-  { min: TIER_NO_PROJECT, columns: columnsWithout("agent", "id", "branch", "project") },
-];
 
 function baseLeftWidth(columns: number): number {
   return Math.ceil(columns * LEFT_BASE_FRACTION);
@@ -115,26 +58,6 @@ export function nudgeDividerOffset(columns: number, dividerOffset: number, direc
   return clampLeftWidth(columns, dividerOffset + delta) - baseLeftWidth(columns);
 }
 
-export function visibleColumns(leftPaneWidth: number): readonly TreeColumnId[] {
-  if (leftPaneWidth < TIER_NO_PROJECT) {
-    return MINIMAL_COLUMNS;
-  }
-  for (const tier of VISIBLE_AT_WIDTH) {
-    if (leftPaneWidth >= tier.min) {
-      return tier.columns;
-    }
-  }
-  return MINIMAL_COLUMNS;
-}
-
-export function formatTreeCell(text: string, width: number): string {
-  return text.length <= width ? text : width <= 0 ? "" : `${text.slice(0, width - 1)}…`;
-}
-
-function formatMonitorTreeCell(text: string, width: number): string {
-  return formatTreeCell(text, width).padEnd(width, " ");
-}
-
 export function monitorTreeRun(tableRow: WorkflowTableRow): DaemonListRunRow {
   switch (tableRow.kind) {
     case "standalone":
@@ -149,96 +72,268 @@ function runRowLabelHead(run: DaemonListRunRow): string {
   return `${workflowRoleLabel(run)} ${shortMonitorId(run.runId)}`;
 }
 
-function monitorTreeCellValue(
-  column: TreeColumnId,
-  tableRow: WorkflowTableRow,
-  selectedNodeId: string | null,
-  nowMs: number,
-  labelOverride?: string,
-): string {
-  const run = monitorTreeRun(tableRow);
-  switch (column) {
-    case "marker":
-      return run.runId === selectedNodeId ? ">" : " ";
-    case "indent":
-      return tableRow.kind === "workflow-child" ? "  " : "";
-    case "label": {
-      if (labelOverride !== undefined) return labelOverride;
-      const head = runRowLabelHead(run);
-      if (tableRow.kind !== "workflow-collapsed") return head;
-      return `${head}${workflowCollapsedContextSuffix(tableRow.members)}`;
-    }
-    case "project":
-      return tableRow.kind === "workflow-child" ? "" : run.project;
-    case "branch":
-      return run.branch;
-    case "state":
-      return run.status;
-    case "elapsed":
-      return formatElapsedWallClock(run.createdAt, run.finishedAtMs ?? null, nowMs);
-    case "live":
-      return run.isLive ? "live" : MONITOR_TREE_NOT_LIVE_LABEL;
-    case "agent":
-      return "";
-    case "id":
-      return "";
+/** Role-first run label; workflow-collapsed rows keep their step-context suffix. */
+export function runRowLabel(tableRow: WorkflowTableRow): string {
+  const head = runRowLabelHead(monitorTreeRun(tableRow));
+  if (tableRow.kind !== "workflow-collapsed") return head;
+  return `${head}${workflowCollapsedContextSuffix(tableRow.members)}`;
+}
+
+// ---- Display-width row composition ----
+//
+// Every work-tree row composes as `indent · marker · fill label · right-aligned cluster`.
+// Indent is `2 * depth` columns, marker is one column plus one gap, the label fills every
+// remaining column up to the cluster, and the cluster right-aligns to the pane edge. Below
+// a row's supported floor, composition falls back to one clipped, unpadded line.
+
+/** Minimum label columns a row must retain at or above its supported floor. */
+export const MIN_LABEL_COLUMNS = 4;
+
+const GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+const ELLIPSIS = "…";
+const ROW_GAP = " ";
+const EMPTY_STATUS_PLACEHOLDER = "—";
+
+function graphemes(text: string): string[] {
+  return Array.from(GRAPHEME_SEGMENTER.segment(text), ({ segment }) => segment);
+}
+
+function displayWidth(text: string): number {
+  return Bun.stringWidth(text);
+}
+
+function clipToWidth(text: string, width: number): string {
+  if (width <= 0) return "";
+  let result = "";
+  let used = 0;
+  for (const grapheme of graphemes(text)) {
+    const graphemeWidth = displayWidth(grapheme);
+    // Mutation checkpoint: letting a grapheme overshoot width here must turn grapheme-safe clipping RED.
+    if (used + graphemeWidth > width) break;
+    result += grapheme;
+    used += graphemeWidth;
   }
+  return result;
 }
 
-export function buildMonitorTreeRow(
-  tableRow: WorkflowTableRow,
-  selectedNodeId: string | null,
-  leftPaneWidth: number,
-  nowMs: number,
-): string {
-  return listMonitorTreeCells(tableRow, selectedNodeId, leftPaneWidth, nowMs)
-    .map((cell) => cell.text)
-    .join("");
+/** Ellipsize at a grapheme boundary (when needed) and pad to exactly `width` display columns. */
+function fillLabel(text: string, width: number): string {
+  const textWidth = displayWidth(text);
+  if (textWidth <= width) return text + " ".repeat(width - textWidth);
+  const ellipsisWidth = displayWidth(ELLIPSIS);
+  const truncated = clipToWidth(text, Math.max(0, width - ellipsisWidth));
+  const content = `${truncated}${ELLIPSIS}`;
+  return content + " ".repeat(Math.max(0, width - displayWidth(content)));
 }
 
-export function listMonitorTreeCells(
-  tableRow: WorkflowTableRow,
-  selectedNodeId: string | null,
-  leftPaneWidth: number,
-  nowMs: number,
-  labelOverride?: string,
-): { column: TreeColumnId; text: string }[] {
-  return visibleColumns(leftPaneWidth).map((column) => {
-    const width = TREE_COLUMN_WIDTHS[column];
-    return {
-      column,
-      text: formatMonitorTreeCell(monitorTreeCellValue(column, tableRow, selectedNodeId, nowMs, labelOverride), width),
-    };
-  });
+function compactStatusText(status: string): string {
+  return status.length > 0 ? status : EMPTY_STATUS_PLACEHOLDER;
 }
 
-/** Depth-aware indent: each depth level consumes one two-space indent column slot before label. */
-export function listMonitorTreeCellsAtDepth(
-  tableRow: WorkflowTableRow,
-  selectedNodeId: string | null,
-  leftPaneWidth: number,
+export type MonitorRowClusterAtom = {
+  text: string;
+  droppable: boolean;
+  tone?: MonitorSegmentTone;
+};
+
+type MonitorRowSpec = {
+  depth: number;
+  marker: string;
+  label: string;
+  compactStatus: string;
+  compactStatusTone?: MonitorSegmentTone;
+  clusterAtoms: readonly MonitorRowClusterAtom[];
+};
+
+function hierarchyColumns(depth: number): number {
+  return 2 * depth + 2;
+}
+
+/** Row-specific supported-width floor: hierarchy, label/cluster gap, compact status, minimum label. */
+export function monitorRowFloor(depth: number, compactStatus: string): number {
+  return hierarchyColumns(depth) + 1 + displayWidth(compactStatusText(compactStatus)) + MIN_LABEL_COLUMNS;
+}
+
+function clusterWidth(atoms: readonly MonitorRowClusterAtom[]): number {
+  if (atoms.length === 0) return 0;
+  return atoms.reduce((sum, atom) => sum + displayWidth(atom.text), 0) + (atoms.length - 1);
+}
+
+function clusterFits(atoms: readonly MonitorRowClusterAtom[], depth: number, paneWidth: number): boolean {
+  const gap = atoms.length > 0 ? 1 : 0;
+  // Mutation checkpoint: omitting MIN_LABEL_COLUMNS from the fit budget here must turn full-cluster-fit RED.
+  return hierarchyColumns(depth) + gap + clusterWidth(atoms) + MIN_LABEL_COLUMNS <= paneWidth;
+}
+
+/** Drop the rightmost droppable atom, skipping non-droppable atoms; null when none remain droppable. */
+function dropRightmostDroppable(atoms: readonly MonitorRowClusterAtom[]): MonitorRowClusterAtom[] | null {
+  for (let index = atoms.length - 1; index >= 0; index -= 1) {
+    // Mutation checkpoint: dropping a non-droppable atom here must turn compact-status retention RED.
+    if (atoms[index]?.droppable) return [...atoms.slice(0, index), ...atoms.slice(index + 1)];
+  }
+  return null;
+}
+
+function degradeCluster(
+  fullAtoms: readonly MonitorRowClusterAtom[],
+  compactAtom: MonitorRowClusterAtom,
   depth: number,
-  nowMs: number,
-  labelOverride?: string,
-): { column: TreeColumnId; text: string }[] {
-  const cells = listMonitorTreeCells(tableRow, selectedNodeId, leftPaneWidth, nowMs, labelOverride);
-  let remainingIndent = "  ".repeat(depth);
-  return cells.map((cell) => {
-    if (cell.column === "indent" && remainingIndent.length > 0) {
-      const width = TREE_COLUMN_WIDTHS.indent;
-      const chunk = remainingIndent.slice(0, width).padEnd(width, " ");
-      remainingIndent = remainingIndent.slice(width);
-      return { ...cell, text: chunk };
-    }
-    if (cell.column === "label" && remainingIndent.length > 0) {
-      const width = TREE_COLUMN_WIDTHS.label;
-      const combined = (remainingIndent + cell.text.trimStart()).slice(0, width).padEnd(width, " ");
-      remainingIndent = "";
-      return { ...cell, text: combined };
-    }
-    if (cell.column === "indent") {
-      return { ...cell, text: " ".repeat(TREE_COLUMN_WIDTHS.indent) };
-    }
-    return cell;
+  paneWidth: number,
+): MonitorRowClusterAtom[] {
+  // Mutation checkpoint: keeping empty atoms here must turn empty-atom elision RED.
+  let atoms = fullAtoms.filter((atom) => atom.text.length > 0);
+  while (atoms.length > 0 && !clusterFits(atoms, depth, paneWidth)) {
+    const dropped = dropRightmostDroppable(atoms);
+    if (dropped === null) break;
+    atoms = dropped;
+  }
+  // Mutation checkpoint: skipping the compact-status fallback here must turn cluster-exhaustion fallback RED.
+  if (atoms.length === 0 || !clusterFits(atoms, depth, paneWidth)) return [compactAtom];
+  return atoms;
+}
+
+function interleaveClusterSegments(atoms: readonly MonitorRowClusterAtom[]): MonitorSegment[] {
+  const segments: MonitorSegment[] = [];
+  atoms.forEach((atom, index) => {
+    if (index > 0) segments.push({ text: ROW_GAP });
+    segments.push(atom.tone === undefined ? { text: atom.text } : { text: atom.text, tone: atom.tone });
   });
+  return segments;
+}
+
+function clippedRowLine(spec: MonitorRowSpec, paneWidth: number): MonitorLineRow {
+  const indent = "  ".repeat(spec.depth);
+  const marker = spec.marker.length > 0 ? spec.marker : " ";
+  const naive = `${indent}${marker}${ROW_GAP}${spec.label}${ROW_GAP}${spec.compactStatus}`;
+  // Mutation checkpoint: returning the unclipped naive line here must turn below-floor clipping RED.
+  return { segments: [{ text: clipToWidth(naive, paneWidth) }] };
+}
+
+/** Compose indent · marker · fill label · right-aligned cluster, or a clipped line below the row's floor. */
+function composeMonitorRow(spec: MonitorRowSpec, paneWidth: number): MonitorLineRow {
+  // Mutation checkpoint: comparing against the wrong floor here must turn below-floor clipping RED.
+  if (paneWidth < monitorRowFloor(spec.depth, spec.compactStatus)) {
+    return clippedRowLine(spec, paneWidth);
+  }
+
+  const compactAtom: MonitorRowClusterAtom = {
+    text: spec.compactStatus,
+    droppable: false,
+    ...(spec.compactStatusTone === undefined ? {} : { tone: spec.compactStatusTone }),
+  };
+  const atoms = degradeCluster(spec.clusterAtoms, compactAtom, spec.depth, paneWidth);
+  const labelWidth = paneWidth - hierarchyColumns(spec.depth) - 1 - clusterWidth(atoms);
+  const label = fillLabel(spec.label, labelWidth);
+  const marker = spec.marker.length > 0 ? spec.marker : " ";
+
+  return {
+    segments: [
+      { text: "  ".repeat(spec.depth) },
+      { text: marker },
+      { text: ROW_GAP },
+      { text: label },
+      { text: ROW_GAP },
+      ...interleaveClusterSegments(atoms),
+    ],
+  };
+}
+
+/** Pipeline row: fill label, cluster `definition, attention, elapsed`, compact status is pipeline state. */
+export function composePipelineRow(
+  input: {
+    depth: number;
+    marker: string;
+    label: string;
+    definition: string;
+    attention: string;
+    elapsed: string;
+    status: string;
+  },
+  paneWidth: number,
+): MonitorLineRow {
+  return composeMonitorRow(
+    {
+      depth: input.depth,
+      marker: input.marker,
+      label: input.label,
+      compactStatus: compactStatusText(input.status),
+      clusterAtoms: [
+        { text: input.definition, droppable: true },
+        { text: input.attention, droppable: true },
+        { text: input.elapsed, droppable: true },
+      ],
+    },
+    paneWidth,
+  );
+}
+
+/** Branch row: fill label, cluster `current stage, status, elapsed`; status never drops. */
+export function composeBranchRow(
+  input: { depth: number; marker: string; label: string; currentStage: string; status: string; elapsed: string },
+  paneWidth: number,
+): MonitorLineRow {
+  return composeMonitorRow(
+    {
+      depth: input.depth,
+      marker: input.marker,
+      label: input.label,
+      compactStatus: compactStatusText(input.status),
+      clusterAtoms: [
+        { text: input.currentStage, droppable: true },
+        { text: input.status, droppable: false },
+        { text: input.elapsed, droppable: true },
+      ],
+    },
+    paneWidth,
+  );
+}
+
+/** Stage row: fill label, cluster `status, elapsed`; status never drops. */
+export function composeStageRow(
+  input: { depth: number; marker: string; label: string; status: string; elapsed: string },
+  paneWidth: number,
+): MonitorLineRow {
+  return composeMonitorRow(
+    {
+      depth: input.depth,
+      marker: input.marker,
+      label: input.label,
+      compactStatus: compactStatusText(input.status),
+      clusterAtoms: [
+        { text: input.status, droppable: false },
+        { text: input.elapsed, droppable: true },
+      ],
+    },
+    paneWidth,
+  );
+}
+
+/** Run row: fill label, cluster `status, live, elapsed`; status never drops. Ad-hoc rows reuse this shape. */
+export function composeRunRow(
+  input: {
+    depth: number;
+    label: string;
+    status: string;
+    statusTone?: MonitorSegmentTone;
+    live: string;
+    liveTone?: MonitorSegmentTone;
+    elapsed: string;
+  },
+  paneWidth: number,
+): MonitorLineRow {
+  return composeMonitorRow(
+    {
+      depth: input.depth,
+      marker: "",
+      label: input.label,
+      compactStatus: compactStatusText(input.status),
+      ...(input.statusTone === undefined ? {} : { compactStatusTone: input.statusTone }),
+      clusterAtoms: [
+        { text: input.status, droppable: false, ...(input.statusTone === undefined ? {} : { tone: input.statusTone }) },
+        { text: input.live, droppable: true, ...(input.liveTone === undefined ? {} : { tone: input.liveTone }) },
+        { text: input.elapsed, droppable: true },
+      ],
+    },
+    paneWidth,
+  );
 }

@@ -16,16 +16,16 @@ import {
 } from "./tui-ink-monitor.tsx";
 import type { InjectedInkUi, InkUseInput, InkUsePaste } from "./tui-ink-runtime.ts";
 import { loadInkUi } from "./tui-ink-runtime.ts";
-import { monitorDockLines } from "./tui-monitor-lines.ts";
-import { monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
-import { TUI_TERMINAL_WINDOW_MS } from "./tui-monitor-terminal-window.ts";
-import type { TuiMonitorControls, TuiMonitorState } from "./tui-monitor-types.ts";
+import { mergePipelineSnapshots, monitorDockLines } from "./tui-monitor-lines.ts";
 import {
-  computeShellLayout,
-  MONITOR_TREE_NOT_LIVE_LABEL,
-  nudgeDividerOffset,
-  TREE_COLUMN_WIDTHS,
-} from "./tui-shell-layout.ts";
+  buildMonitorPipelineTreeJoin,
+  isExpandablePipelineNodeId,
+  monitorPipelineBranchNodeId,
+  monitorPipelineStageNodeId,
+} from "./tui-monitor-pipeline-tree.ts";
+import { TUI_TERMINAL_WINDOW_MS } from "./tui-monitor-terminal-window.ts";
+import type { TuiMonitorControls, TuiMonitorSession, TuiMonitorState } from "./tui-monitor-types.ts";
+import { computeShellLayout, MONITOR_TREE_NOT_LIVE_LABEL, nudgeDividerOffset } from "./tui-shell-layout.ts";
 
 const TREE_NOW_MS = 1_700_000_000_000;
 
@@ -60,7 +60,7 @@ function pipelineSnapshot(
   };
 }
 
-type TextCapture = { text: string; color?: string };
+type TextCapture = { text: string; color?: string; inverse?: boolean };
 
 function collectInkText(node: unknown): string {
   if (node === null || node === undefined || typeof node === "boolean") return "";
@@ -83,8 +83,10 @@ function collectTextNodes(node: unknown, TextType: unknown): TextCapture[] {
     const children = element.props?.children;
     const text = typeof children === "string" ? children : collectInkText(children);
     const color = element.props?.color;
+    const inverse = element.props?.inverse;
     const capture: TextCapture = { text };
     if (typeof color === "string") capture.color = color;
+    if (typeof inverse === "boolean") capture.inverse = inverse;
     return [capture];
   }
   if ("props" in element) {
@@ -196,8 +198,11 @@ function stubBox(props: {
   return createElement("monitor-box", props, props.children);
 }
 
-function stubText(props: { children?: string; color?: string }): ReactElement {
-  return createElement("monitor-text", props.color === undefined ? null : { color: props.color }, props.children);
+function stubText(props: { children?: string; color?: string; inverse?: boolean }): ReactElement {
+  const attrs: { color?: string; inverse?: boolean } = {};
+  if (props.color !== undefined) attrs.color = props.color;
+  if (props.inverse !== undefined) attrs.inverse = props.inverse;
+  return createElement("monitor-text", Object.keys(attrs).length > 0 ? attrs : null, props.children);
 }
 
 function renderMonitorOutput(state: TuiMonitorState): string[] {
@@ -390,7 +395,7 @@ describe("createMonitorDisplay", () => {
     const rightText = collectInkText(right);
     const dockText = collectInkText(dock);
 
-    expect(leftText).toContain("alpha".padEnd(TREE_COLUMN_WIDTHS.label, " "));
+    expect(leftText).toContain("in-progress");
     expect(leftText).not.toContain("Outcome");
     expect(leftText).not.toContain("runStatus:");
     expect(rightText).toContain("Run");
@@ -530,11 +535,10 @@ describe("createMonitorDisplay", () => {
       },
     };
     const tree = createMonitorDisplay(shellState([run], run.runId), stubText, stubBox, TREE_NOW_MS);
-    const labelCell = branch.padEnd(TREE_COLUMN_WIDTHS.label, " ");
 
-    expect(collectTextNodes(findRegion(tree, MonitorLeftPane), stubText).some((node) => node.text === labelCell)).toBe(
-      true,
-    );
+    expect(
+      collectTextNodes(findRegion(tree, MonitorLeftPane), stubText).some((node) => node.text.trimEnd() === branch),
+    ).toBe(true);
   });
 
   test("createMonitorDisplay retains unattributed orphans regardless of display clock", () => {
@@ -564,6 +568,102 @@ describe("createMonitorDisplay", () => {
     expect(collectInkText(findRegion(outOfWindowTree, MonitorLeftPane))).not.toContain("─ Unattributed");
     expect(collectInkText(findRegion(outOfWindowTree, MonitorRightPane))).toContain("runId: run-fresh-orphan");
     expect(collectInkText(displayTickTree)).toContain("orphan");
+  });
+
+  test("renders selected tree rows inverse without a caret", () => {
+    const pipelineId = "pipe-row-fill";
+    const invocationId = "inv-row-fill";
+    const modelBranch = "alpha-branch";
+    const monitorBranch = "beta-branch";
+    const branchModelId = monitorPipelineBranchNodeId(pipelineId, modelBranch);
+    const stageImplModelId = monitorPipelineStageNodeId(pipelineId, "implement", modelBranch);
+    const stagePlanModelId = monitorPipelineStageNodeId(pipelineId, "plan", modelBranch);
+    const baseStage = {
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: null,
+      decidedAt: null,
+      artifact: null,
+      failureDetail: null,
+    };
+    const snapshot = pipelineSnapshot({
+      pipelineId,
+      name: "row-fill-pipeline",
+      stages: [
+        { ...baseStage, id: "s-intent", stageId: "intent", branchKey: "default", position: 0, status: "succeeded" },
+        { ...baseStage, id: "s-plan-a", stageId: "plan", branchKey: modelBranch, position: 2, status: "succeeded" },
+        { ...baseStage, id: "s-plan-b", stageId: "plan", branchKey: monitorBranch, position: 2, status: "succeeded" },
+        {
+          ...baseStage,
+          id: "s-impl-a",
+          stageId: "implement",
+          branchKey: modelBranch,
+          position: 4,
+          status: "running",
+          workflowInvocationId: invocationId,
+        },
+        {
+          ...baseStage,
+          id: "s-impl-b",
+          stageId: "implement",
+          branchKey: monitorBranch,
+          position: 4,
+          status: "running",
+        },
+      ],
+    });
+    const pipelineRun: DaemonListRunRow = {
+      runId: "run-model-impl",
+      project: "demo",
+      branch: "model",
+      createdAt: 0,
+      status: "in-progress",
+      isLive: true,
+      workflow: {
+        invocationId,
+        steps: [{ stepId: "implement", role: "implement", status: "in_progress", attemptCount: 1 }],
+      },
+      stepId: "implement",
+    };
+    const adhocRun: DaemonListRunRow = {
+      runId: "run-adhoc",
+      project: "demo",
+      branch: "adhoc-lane",
+      createdAt: 0,
+      status: "completed",
+      isLive: false,
+    };
+    const state = shellState([pipelineRun, adhocRun], null, {
+      pipelineSnapshotsBySocketPath: { "/tmp/row-fill.sock": { pipelines: [snapshot] } },
+      expandedPipelineNodeIds: [pipelineId, branchModelId, stageImplModelId],
+    });
+
+    // Distinguishing, non-overlapping substrings per row: the branch's own "currentStage" cluster atom
+    // can read "implement" too, so the stage case targets the (non-colliding) plan-alpha row instead.
+    const scenarios: Array<[string, string]> = [
+      [pipelineId, "row-fill-pipeline"],
+      [branchModelId, modelBranch],
+      [stagePlanModelId, "plan"],
+      [pipelineRun.runId, "run-mode"],
+      [adhocRun.runId, "adhoc-lane"],
+    ];
+
+    for (const [selectedNodeId, selectedText] of scenarios) {
+      const tree = createMonitorDisplay({ ...state, selectedNodeId }, stubText, stubBox, TREE_NOW_MS);
+      const leftText = collectTextNodes(findRegion(tree, MonitorLeftPane), stubText);
+      // @mutate v2/src/tui/tui-ink-monitor.tsx "if (isSelected) props.inverse = true;" -> "if (!isSelected) props.inverse = true;"
+      const selectedNodes = leftText.filter((node) => node.text.includes(selectedText));
+      expect(selectedNodes.length).toBeGreaterThan(0);
+      expect(selectedNodes.every((node) => node.inverse === true)).toBe(true);
+
+      for (const [, otherText] of scenarios.filter(([, text]) => text !== selectedText)) {
+        for (const node of leftText.filter((entry) => entry.text.includes(otherText))) {
+          expect(node.inverse).not.toBe(true);
+        }
+      }
+
+      expect(leftText.some((node) => node.text.trim() === ">")).toBe(false);
+    }
   });
 });
 
@@ -780,6 +880,87 @@ describe("openInkMonitor", () => {
     await input.press("e");
 
     expect(calls).toEqual(["toggle", "toggle"]);
+    session.close();
+  });
+
+  test("e toggles the selected expandable row glyph", async () => {
+    // @mutate v2/src/tui/tui-ink-monitor.tsx "controls.toggleSelectedWorkflowExpansion();" -> "return;"
+    const pipelineId = "pipe-glyph-toggle";
+    const invocationId = "inv-glyph-toggle";
+    const snapshot = pipelineSnapshot({ pipelineId, stages: [implementStage(invocationId)] });
+    const run: DaemonListRunRow = {
+      runId: "run-glyph-toggle",
+      project: "demo",
+      branch: "main",
+      createdAt: 0,
+      status: "in-progress",
+      isLive: true,
+      workflow: {
+        invocationId,
+        steps: [{ stepId: "implement", role: "implement", status: "in_progress", attemptCount: 1 }],
+      },
+      stepId: "implement",
+    };
+    const initialState = shellState([run], pipelineId, {
+      pipelineSnapshotsBySocketPath: { "/tmp/glyph-toggle.sock": { pipelines: [snapshot] } },
+      expandedPipelineNodeIds: [],
+    });
+
+    const displayStates: TuiMonitorState[] = [initialState];
+    const realCreateMonitorDisplay = inkMonitor.createMonitorDisplay;
+    const spy = spyOn(inkMonitor, "createMonitorDisplay").mockImplementation((state, Text, Box, nowMs) => {
+      displayStates.push({ ...state });
+      return realCreateMonitorDisplay(state, Text, Box, nowMs);
+    });
+
+    let session: TuiMonitorSession | undefined;
+    const controls = noopControls();
+    controls.toggleSelectedWorkflowExpansion = () => {
+      const current = displayStates.at(-1) ?? initialState;
+      const selectedNodeId = current.selectedNodeId;
+      if (selectedNodeId === null) return;
+      const { pipelineNodes } = buildMonitorPipelineTreeJoin(
+        mergePipelineSnapshots(current.pipelineSnapshotsBySocketPath),
+        current.runs,
+      );
+      if (!isExpandablePipelineNodeId(pipelineNodes, selectedNodeId)) return;
+      const expanded = new Set(current.expandedPipelineNodeIds ?? []);
+      if (expanded.has(selectedNodeId)) expanded.delete(selectedNodeId);
+      else expanded.add(selectedNodeId);
+      session?.update({ ...current, expandedPipelineNodeIds: [...expanded] });
+    };
+
+    const input = inputHarness();
+    session = await openInkMonitor(initialState, controls, await input.injection());
+
+    const markerFor = (id: string): string | undefined => {
+      const state = displayStates.at(-1) ?? initialState;
+      const found = monitorLeftPaneContentRows(state, TREE_NOW_MS).treeRows.find((row) => row.id === id);
+      return found !== undefined && "marker" in found ? found.marker : undefined;
+    };
+
+    expect(markerFor(pipelineId)).toBe("▶");
+
+    await input.press("e");
+    expect(markerFor(pipelineId)).toBe("▼");
+
+    await input.press("e");
+    expect(markerFor(pipelineId)).toBe("▶");
+
+    // Leaf negative case: selecting the run row and pressing e changes neither expansion state nor its blank marker.
+    session.update({ ...(displayStates.at(-1) ?? initialState), selectedNodeId: run.runId });
+    const beforeLeaf = displayStates.at(-1) ?? initialState;
+    expect(monitorLeftPaneContentRows(beforeLeaf, TREE_NOW_MS).treeRows.find((row) => row.id === run.runId)?.kind).toBe(
+      "run",
+    );
+    const expandedBeforeLeaf = beforeLeaf.expandedPipelineNodeIds;
+
+    await input.press("e");
+    const afterLeaf = displayStates.at(-1) ?? initialState;
+    expect(afterLeaf.expandedPipelineNodeIds).toEqual(expandedBeforeLeaf);
+    expect(markerFor(run.runId)).toBeUndefined();
+
+    spy.mockRestore();
     session.close();
   });
 

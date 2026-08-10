@@ -1,35 +1,20 @@
 import { describe, expect, test } from "bun:test";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
+import { buildTreeRunRow, type MonitorLineRow } from "./tui-monitor-lines.ts";
 import { workflowCollapsedContextSuffix } from "./tui-monitor-workflow-collapse.ts";
 import {
-  buildMonitorTreeRow,
+  composeBranchRow,
+  composePipelineRow,
+  composeRunRow,
+  composeStageRow,
   computeShellLayout,
-  formatTreeCell,
-  listMonitorTreeCells,
+  MIN_LABEL_COLUMNS,
   MONITOR_TREE_NOT_LIVE_LABEL,
+  monitorRowFloor,
   nudgeDividerOffset,
-  TREE_COLUMN_WIDTHS,
-  visibleColumns,
+  runRowLabel,
 } from "./tui-shell-layout.ts";
-
-const ALL_COLUMNS = [
-  "marker",
-  "indent",
-  "label",
-  "project",
-  "branch",
-  "state",
-  "elapsed",
-  "live",
-  "agent",
-  "id",
-] as const;
-
-function without(...omit: (typeof ALL_COLUMNS)[number][]) {
-  const drop = new Set(omit);
-  return ALL_COLUMNS.filter((column) => !drop.has(column));
-}
 
 describe("computeShellLayout", () => {
   test("reference 245×72 geometry at dividerOffset 0", () => {
@@ -96,70 +81,198 @@ describe("nudgeDividerOffset", () => {
   });
 });
 
-describe("visibleColumns", () => {
-  test("returns the full column set at width >= 90", () => {
-    expect(visibleColumns(90)).toEqual([...ALL_COLUMNS]);
-    expect(visibleColumns(120)).toEqual([...ALL_COLUMNS]);
+/** Composed rows are `indent, marker, gap, label, gap, atom0, gap, atom1, ...`; label is always segment 3. */
+function labelSegment(row: MonitorLineRow): string {
+  return row.segments[3]?.text ?? "";
+}
+
+/** Right-aligned cluster atoms, in order (interleaved gaps excluded). */
+function clusterAtoms(row: MonitorLineRow): string[] {
+  return row.segments
+    .slice(5)
+    .filter((_, index) => index % 2 === 0)
+    .map((segment) => segment.text);
+}
+
+function rowDisplayWidth(row: MonitorLineRow): number {
+  return row.segments.reduce((sum, segment) => sum + Bun.stringWidth(segment.text), 0);
+}
+
+describe("monitorRowFloor", () => {
+  test("is hierarchy + gap + compact status + MIN_LABEL_COLUMNS", () => {
+    expect(monitorRowFloor(0, "running")).toBe(2 + 1 + Bun.stringWidth("running") + MIN_LABEL_COLUMNS);
+    expect(monitorRowFloor(2, "running")).toBe(6 + 1 + Bun.stringWidth("running") + MIN_LABEL_COLUMNS);
   });
 
-  test("drops agent and id at 72–89", () => {
-    const expected = without("agent", "id");
-    expect(visibleColumns(89)).toEqual(expected);
-    expect(visibleColumns(72)).toEqual(expected);
-  });
-
-  test("drops branch at 58–71", () => {
-    const expected = without("agent", "id", "branch");
-    expect(visibleColumns(71)).toEqual(expected);
-    expect(visibleColumns(58)).toEqual(expected);
-  });
-
-  test("drops project at 48–57", () => {
-    const expected = without("agent", "id", "branch", "project");
-    expect(visibleColumns(57)).toEqual(expected);
-    expect(visibleColumns(48)).toEqual(expected);
-  });
-
-  test("returns minimal columns below 48", () => {
-    const expected = ["marker", "label", "state", "elapsed"] as const;
-    expect(visibleColumns(47)).toEqual(expected);
-    expect(visibleColumns(30)).toEqual(expected);
-  });
-
-  // Inversion target: TIER_FULL in tui-shell-layout.ts — lowering the full-tier boundary below 90 turns this test RED.
-  test("tier boundary at 90 and 89", () => {
-    expect(visibleColumns(90)).toContain("agent");
-    expect(visibleColumns(89)).not.toContain("agent");
-  });
-
-  // Inversion target: TIER_NO_AGENT_ID in tui-shell-layout.ts — lowering the 72-tier boundary turns this test RED.
-  test("tier boundary at 72 and 71", () => {
-    expect(visibleColumns(72)).toContain("project");
-    expect(visibleColumns(71)).not.toContain("branch");
-  });
-
-  // Inversion target: TIER_NO_BRANCH in tui-shell-layout.ts — lowering the 58-tier boundary turns this test RED.
-  test("tier boundary at 58 and 57", () => {
-    expect(visibleColumns(58)).toContain("project");
-    expect(visibleColumns(57)).not.toContain("project");
-  });
-
-  // Inversion target: TIER_NO_PROJECT in tui-shell-layout.ts — lowering the 48-tier boundary turns this test RED.
-  test("tier boundary at 48 and 47", () => {
-    expect(visibleColumns(48)).toContain("indent");
-    expect(visibleColumns(47)).not.toContain("indent");
+  test("substitutes the placeholder glyph for empty status", () => {
+    expect(monitorRowFloor(0, "")).toBe(2 + 1 + Bun.stringWidth("—") + MIN_LABEL_COLUMNS);
   });
 });
 
-describe("formatTreeCell", () => {
-  test("truncates overflow to exactly the column width with ellipsis", () => {
-    expect(formatTreeCell("abcdefghij", 5)).toBe("abcd…");
-    expect(formatTreeCell("abcdefghij", 5).length).toBe(5);
+describe("composeMonitorRow", () => {
+  test("composes fill-width labels and per-kind clusters", () => {
+    // Keystone checkpoint: restoring the fixed-width label baseline here must turn this test RED.
+    // @mutate v2/src/tui/tui-shell-layout.ts "const labelWidth = paneWidth - hierarchyColumns(spec.depth) - 1 - clusterWidth(atoms);" -> "const labelWidth = 22;"
+    const cases: { depth: number; row: MonitorLineRow }[] = [
+      {
+        depth: 0,
+        row: composePipelineRow(
+          { depth: 0, marker: "▼", label: "p", definition: "d", attention: "✋1", elapsed: "1m 0s", status: "running" },
+          60,
+        ),
+      },
+      {
+        depth: 1,
+        row: composeBranchRow(
+          { depth: 1, marker: "▶", label: "b", currentStage: "plan", status: "running", elapsed: "2m 0s" },
+          60,
+        ),
+      },
+      {
+        depth: 2,
+        row: composeStageRow({ depth: 2, marker: "", label: "s", status: "running", elapsed: "3m 0s" }, 60),
+      },
+      {
+        depth: 3,
+        row: composeRunRow({ depth: 3, label: "r", status: "in-progress", live: "live", elapsed: "4m 0s" }, 60),
+      },
+      {
+        depth: 0,
+        row: composeRunRow(
+          { depth: 0, label: "a", status: "completed", live: MONITOR_TREE_NOT_LIVE_LABEL, elapsed: "5m 0s" },
+          60,
+        ),
+      },
+    ];
+
+    for (const { depth, row } of cases) {
+      const hierarchyWidth = row.segments.slice(0, 3).reduce((sum, segment) => sum + Bun.stringWidth(segment.text), 0);
+      expect(hierarchyWidth).toBe(2 * depth + 2);
+      expect(rowDisplayWidth(row)).toBe(60);
+    }
+
+    const longLabelRow = composeStageRow(
+      {
+        depth: 0,
+        marker: "",
+        label: "a-very-long-stage-label-that-overflows-the-pane",
+        status: "running",
+        elapsed: "1s",
+      },
+      20,
+    );
+    expect(labelSegment(longLabelRow)).toContain("…");
+    expect(rowDisplayWidth(longLabelRow)).toBe(20);
   });
 
-  test("leaves exact-fit text unchanged", () => {
-    expect(formatTreeCell("abcde", 5)).toBe("abcde");
-    expect(formatTreeCell("ab", 5)).toBe("ab");
+  test("measures and truncates wide, combining, and ZWJ graphemes without splitting one", () => {
+    const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+    const graphemesOf = (text: string): string[] => Array.from(segmenter.segment(text), ({ segment }) => segment);
+
+    const markers = "▼▶✋✗"; // wide/ambiguous-width marker glyphs used elsewhere in the tree
+    const combining = "ééééé"; // "é" as base + combining acute, repeated
+    const zwj = "👨‍👩‍👧‍👦👨‍👩‍👧‍👦"; // family emoji: multiple codepoints joined by ZWJ into one grapheme each
+
+    for (const label of [markers, combining, zwj]) {
+      const originalGraphemes = graphemesOf(label);
+
+      // Ellipsized at/above the floor: the retained prefix is a clean grapheme prefix of the label.
+      const stageRow = composeStageRow({ depth: 0, marker: "", label, status: "running", elapsed: "1s" }, 12);
+      const painted = labelSegment(stageRow).trimEnd();
+      expect(rowDisplayWidth(stageRow)).toBe(12);
+      if (painted.endsWith("…")) {
+        const prefix = painted.slice(0, -1);
+        expect(originalGraphemes.slice(0, graphemesOf(prefix).length).join("")).toBe(prefix);
+      }
+
+      // Below the floor: the clipped line is a clean grapheme prefix too, never exceeding the pane width.
+      const floor = monitorRowFloor(0, "running");
+      const clippedRow = composeStageRow({ depth: 0, marker: "", label, status: "running", elapsed: "" }, floor - 1);
+      const clippedText = clippedRow.segments[0]?.text ?? "";
+      expect(Bun.stringWidth(clippedText)).toBeLessThanOrEqual(floor - 1);
+      expect(graphemesOf(clippedText).join("")).toBe(clippedText);
+    }
+  });
+});
+
+describe("cluster degradation", () => {
+  test("drops optional cluster atoms before shrinking the label", () => {
+    const depth = 0;
+    const hierarchy = 2 * depth + 2;
+    const definition = "type-alpha";
+    const attention = "✋1 ✗2";
+    const elapsed = "12m 3s";
+    const status = "running";
+    const label = "lbl";
+
+    const fitWidth = (atomsWidth: number): number => hierarchy + 1 + atomsWidth + MIN_LABEL_COLUMNS;
+    const fullAtomsWidth = Bun.stringWidth(definition) + Bun.stringWidth(attention) + Bun.stringWidth(elapsed) + 2;
+    const twoAtomsWidth = Bun.stringWidth(definition) + Bun.stringWidth(attention) + 1;
+    const oneAtomWidth = Bun.stringWidth(definition);
+
+    const pipelineInput = { depth, marker: "", label, definition, attention, elapsed, status };
+
+    // A full cluster fits: every declared atom, in order.
+    // Mutation checkpoint: composeMonitorRow's fit-budget guard omitting MIN_LABEL_COLUMNS must turn this RED.
+    // @mutate v2/src/tui/tui-shell-layout.ts "return hierarchyColumns(depth) + gap + clusterWidth(atoms) + MIN_LABEL_COLUMNS <= paneWidth;" -> "return hierarchyColumns(depth) + gap + clusterWidth(atoms) <= paneWidth;"
+    const full = composePipelineRow(pipelineInput, fitWidth(fullAtomsWidth));
+    expect(clusterAtoms(full)).toEqual([definition, attention, elapsed]);
+    expect(Bun.stringWidth(labelSegment(full))).toBe(MIN_LABEL_COLUMNS);
+
+    // One display column less drops exactly the rightmost atom (elapsed) and cleans its separator.
+    // Mutation checkpoint: dropRightmostDroppable dropping a non-droppable atom must turn this RED.
+    // @mutate v2/src/tui/tui-shell-layout.ts "if (atoms[index]?.droppable) return [...atoms.slice(0, index), ...atoms.slice(index + 1)];" -> "return [...atoms.slice(0, index), ...atoms.slice(index + 1)];"
+    const droppedElapsed = composePipelineRow(pipelineInput, fitWidth(fullAtomsWidth) - 1);
+    expect(clusterAtoms(droppedElapsed)).toEqual([definition, attention]);
+    expect(clusterAtoms(droppedElapsed)).not.toContain(elapsed);
+    expect(Bun.stringWidth(labelSegment(droppedElapsed))).toBeGreaterThanOrEqual(MIN_LABEL_COLUMNS);
+
+    // Continuing to shrink drops attention next, per the pipeline's declared right-to-left order.
+    // Mutation checkpoint: degradeCluster keeping empty/exhausted atoms here must turn this RED.
+    // @mutate v2/src/tui/tui-shell-layout.ts "let atoms = fullAtoms.filter((atom) => atom.text.length > 0);" -> "let atoms = [...fullAtoms];"
+    const droppedAttention = composePipelineRow(pipelineInput, fitWidth(twoAtomsWidth) - 1);
+    expect(clusterAtoms(droppedAttention)).toEqual([definition]);
+    expect(clusterAtoms(droppedAttention)).not.toContain(attention);
+    expect(clusterAtoms(droppedAttention)).not.toContain(elapsed);
+
+    // Exhausting every droppable atom substitutes the compact pipeline status.
+    // Mutation checkpoint: degradeCluster skipping the compact-status fallback must turn this RED.
+    // @mutate v2/src/tui/tui-shell-layout.ts "if (atoms.length === 0 || !clusterFits(atoms, depth, paneWidth)) return [compactAtom];" -> "if (false) return [compactAtom];"
+    const compact = composePipelineRow(pipelineInput, fitWidth(oneAtomWidth) - 1);
+    expect(clusterAtoms(compact)).toEqual([status]);
+    expect(Bun.stringWidth(labelSegment(compact))).toBeGreaterThanOrEqual(MIN_LABEL_COLUMNS);
+
+    // Below the floor, composition falls back to one clipped, unpadded line via the same grapheme-safe primitive.
+    // Mutation checkpoint: composeMonitorRow's floor comparison must turn this RED.
+    // @mutate v2/src/tui/tui-shell-layout.ts "if (paneWidth < monitorRowFloor(spec.depth, spec.compactStatus)) {" -> "if (false) {"
+    // Mutation checkpoint: clippedRowLine returning the unclipped naive line must turn this RED.
+    // @mutate v2/src/tui/tui-shell-layout.ts "return { segments: [{ text: clipToWidth(naive, paneWidth) }] };" -> "return { segments: [{ text: naive }] };"
+    const floor = monitorRowFloor(depth, status);
+    const belowFloor = composePipelineRow(pipelineInput, floor - 1);
+    expect(belowFloor.segments).toHaveLength(1);
+    expect(Bun.stringWidth(belowFloor.segments[0]?.text ?? "")).toBeLessThanOrEqual(floor - 1);
+
+    // Grapheme-width guard: a wide/combining grapheme never gets split mid-cluster while clipping.
+    // Mutation checkpoint: letting a grapheme overshoot width here must turn grapheme-safe clipping RED.
+    // @mutate v2/src/tui/tui-shell-layout.ts "if (used + graphemeWidth > width) break;" -> "if (used + graphemeWidth > width + 1) break;"
+    const wideLabelRow = composePipelineRow({ ...pipelineInput, label: "✋".repeat(20) }, floor - 1);
+    const wideLabelText = wideLabelRow.segments[0]?.text ?? "";
+    expect(Bun.stringWidth(wideLabelText)).toBeLessThanOrEqual(floor - 1);
+
+    // Branch compact output retains status only — current stage never survives to the floor.
+    const branchInput = { depth: 1, marker: "", label, currentStage: "plan", status, elapsed };
+    const branchFull = composeBranchRow(branchInput, 200);
+    expect(clusterAtoms(branchFull)).toEqual(["plan", status, elapsed]);
+    const branchCompact = composeBranchRow(branchInput, monitorRowFloor(1, status));
+    expect(clusterAtoms(branchCompact)).toEqual([status]);
+    expect(clusterAtoms(branchCompact)).not.toContain("plan");
+
+    // Ad-hoc rows share the run cluster order (status, live, elapsed) for both full and compact output.
+    const runInput = { depth: 0, label, status, live: "live", elapsed };
+    const runFull = composeRunRow(runInput, 200);
+    expect(clusterAtoms(runFull)).toEqual([status, "live", elapsed]);
+    const runCompact = composeRunRow(runInput, monitorRowFloor(0, status));
+    expect(clusterAtoms(runCompact)).toEqual([status]);
   });
 });
 
@@ -185,98 +298,12 @@ const WORKFLOW_CHILD_RUN: DaemonListRunRow = {
   },
 };
 
-const COLLAPSED_WORKFLOW_REP: DaemonListRunRow = {
-  runId: "run-review",
-  project: "demo",
-  branch: "feature-review",
-  createdAt: 0,
-  status: "in-progress",
-  isLive: true,
-  workflow: {
-    invocationId: "inv-implement-review",
-    steps: [
-      { stepId: "implement", role: "implement", status: "completed", attemptCount: 2 },
-      { stepId: "implement-review", role: "actuator", status: "in_progress", attemptCount: 1 },
-      { stepId: "verify", role: "verify", status: "pending", attemptCount: 0 },
-    ],
-  },
-};
-
-const COLLAPSED_WORKFLOW_MEMBERS: DaemonListRunRow[] = [
-  {
-    ...COLLAPSED_WORKFLOW_REP,
-    runId: "run-implement",
-    branch: "feature",
-    status: "completed",
-    isLive: false,
-  },
-  COLLAPSED_WORKFLOW_REP,
-];
-
-function fullWidthRowLength(): number {
-  return visibleColumns(90).reduce((sum, column) => sum + TREE_COLUMN_WIDTHS[column], 0);
-}
-
-function columnSlice(row: string, leftPaneWidth: number, column: keyof typeof TREE_COLUMN_WIDTHS): string {
-  let offset = 0;
-  for (const id of visibleColumns(leftPaneWidth)) {
-    const width = TREE_COLUMN_WIDTHS[id];
-    if (id === column) {
-      return row.slice(offset, offset + width);
-    }
-    offset += width;
-  }
-  throw new Error(`column ${column} not visible at width ${leftPaneWidth}`);
-}
-
-describe("buildMonitorTreeRow", () => {
-  test("full-width row length matches the sum of reference column widths", () => {
-    const row = buildMonitorTreeRow({ kind: "standalone", run: SAMPLE_RUN }, "run-abc", 90, TEST_NOW_MS);
-    expect(row.length).toBe(fullWidthRowLength());
-    expect(fullWidthRowLength()).toBe(92);
-  });
-
-  // Inversion target: formatMonitorTreeCell in tui-shell-layout.ts — skip or bypass formatTreeCell on overflow turns this test RED.
-  test("truncates overflow with ellipsis at column width", () => {
-    const longBranchRun: DaemonListRunRow = {
-      ...SAMPLE_RUN,
-      branch: "abcdefghijklmnopqrstuvwxyz",
-    };
-    const row = buildMonitorTreeRow({ kind: "standalone", run: longBranchRun }, null, 90, TEST_NOW_MS);
-    const branchCell = columnSlice(row, 90, "branch");
-    expect(branchCell).toBe("abcdefghijklm…");
-    expect(branchCell.length).toBe(TREE_COLUMN_WIDTHS.branch);
-  });
-
-  // Inversion target: formatMonitorTreeCell in tui-shell-layout.ts — omit width padding for absent cell values turns this test RED.
-  test("unpopulated column slots reserve their defined widths", () => {
-    const standalone = buildMonitorTreeRow({ kind: "standalone", run: SAMPLE_RUN }, null, 90, TEST_NOW_MS);
-    const child = buildMonitorTreeRow({ kind: "workflow-child", run: WORKFLOW_CHILD_RUN }, null, 90, TEST_NOW_MS);
-    expect(columnSlice(child, 90, "project")).toBe(" ".repeat(TREE_COLUMN_WIDTHS.project));
-    expect(columnSlice(standalone, 90, "project")).toBe("demo".padEnd(TREE_COLUMN_WIDTHS.project));
-    expect(columnSlice(child, 90, "branch")).toBe("child-branch".padEnd(TREE_COLUMN_WIDTHS.branch));
-  });
-
-  test("drops agent and id at left-pane width 72–89 while state and elapsed remain", () => {
-    const row = buildMonitorTreeRow({ kind: "standalone", run: SAMPLE_RUN }, null, 80, TEST_NOW_MS);
-    const columns = visibleColumns(80);
-    expect(columns).not.toContain("agent");
-    expect(columns).not.toContain("id");
-    expect(columns).toContain("state");
-    expect(columns).toContain("elapsed");
-    expect(row.length).toBe(columns.reduce((sum, column) => sum + TREE_COLUMN_WIDTHS[column], 0));
-    expect(columnSlice(row, 80, "state").trimEnd()).toBe("in-progress");
-    expect(columnSlice(row, 80, "elapsed")).toBe(" ".repeat(TREE_COLUMN_WIDTHS.elapsed));
-  });
-
+describe("run and ad-hoc rows", () => {
   test("run-row elapsed uses createdAt through finishedAtMs or nowMs", () => {
     const runStartMs = 1_700_000_000_000;
     const runEndMs = runStartMs + 125_000;
     const nowMs = runStartMs + 600_000;
-    const activeRun: DaemonListRunRow = {
-      ...SAMPLE_RUN,
-      createdAt: runStartMs,
-    };
+    const activeRun: DaemonListRunRow = { ...SAMPLE_RUN, createdAt: runStartMs };
     const terminalRun: DaemonListRunRow = {
       ...SAMPLE_RUN,
       runId: "run-terminal",
@@ -286,21 +313,13 @@ describe("buildMonitorTreeRow", () => {
       isLive: false,
     };
 
-    const activeElapsed = columnSlice(
-      buildMonitorTreeRow({ kind: "standalone", run: activeRun }, null, 90, nowMs),
-      90,
-      "elapsed",
-    ).trimEnd();
-    const terminalElapsed = columnSlice(
-      buildMonitorTreeRow({ kind: "standalone", run: terminalRun }, null, 90, nowMs),
-      90,
-      "elapsed",
-    ).trimEnd();
-    const frozenLater = columnSlice(
-      buildMonitorTreeRow({ kind: "standalone", run: terminalRun }, null, 90, nowMs + 3_600_000),
-      90,
-      "elapsed",
-    ).trimEnd();
+    const activeElapsed = clusterAtoms(buildTreeRunRow({ kind: "standalone", run: activeRun }, 0, 90, nowMs)).at(-1);
+    const terminalElapsed = clusterAtoms(buildTreeRunRow({ kind: "standalone", run: terminalRun }, 0, 90, nowMs)).at(
+      -1,
+    );
+    const frozenLater = clusterAtoms(
+      buildTreeRunRow({ kind: "standalone", run: terminalRun }, 0, 90, nowMs + 3_600_000),
+    ).at(-1);
 
     expect(activeElapsed).toBe(formatElapsedWallClock(runStartMs, null, nowMs));
     expect(terminalElapsed).toBe(formatElapsedWallClock(runStartMs, runEndMs, runEndMs));
@@ -319,67 +338,24 @@ describe("buildMonitorTreeRow", () => {
       isLive: false,
     };
 
-    const elapsedBefore = columnSlice(
-      buildMonitorTreeRow({ kind: "standalone", run: finishlessRun }, null, 90, nowMs1),
-      90,
-      "elapsed",
-    ).trimEnd();
-    const elapsedAfter = columnSlice(
-      buildMonitorTreeRow({ kind: "standalone", run: finishlessRun }, null, 90, nowMs2),
-      90,
-      "elapsed",
-    ).trimEnd();
+    const elapsedBefore = clusterAtoms(buildTreeRunRow({ kind: "standalone", run: finishlessRun }, 0, 90, nowMs1)).at(
+      -1,
+    );
+    const elapsedAfter = clusterAtoms(buildTreeRunRow({ kind: "standalone", run: finishlessRun }, 0, 90, nowMs2)).at(
+      -1,
+    );
 
     expect(elapsedBefore).toBe(formatElapsedWallClock(runStartMs, null, nowMs1));
     expect(elapsedAfter).toBe(formatElapsedWallClock(runStartMs, null, nowMs2));
     expect(elapsedAfter).not.toBe(elapsedBefore);
   });
 
-  test("workflow children differ by indentation while all run rows use role-first labels", () => {
-    const standalone = buildMonitorTreeRow({ kind: "standalone", run: SAMPLE_RUN }, null, 90, TEST_NOW_MS);
-    const collapsed = buildMonitorTreeRow(
-      { kind: "workflow-collapsed", representative: SAMPLE_RUN, members: [SAMPLE_RUN] },
-      null,
-      90,
-      TEST_NOW_MS,
-    );
-    const child = buildMonitorTreeRow({ kind: "workflow-child", run: WORKFLOW_CHILD_RUN }, null, 90, TEST_NOW_MS);
-
-    expect(columnSlice(standalone, 90, "indent")).toBe(" ".repeat(TREE_COLUMN_WIDTHS.indent));
-    expect(columnSlice(collapsed, 90, "indent")).toBe(" ".repeat(TREE_COLUMN_WIDTHS.indent));
-    expect(columnSlice(child, 90, "indent")).toBe("  ");
-
-    expect(columnSlice(standalone, 90, "label").trimEnd()).toBe("role:unknown run-abc");
-    expect(columnSlice(collapsed, 90, "label").trimEnd()).toBe("role:unknown run-abc");
-    expect(columnSlice(child, 90, "label").trimEnd()).toBe("role:actuator rc");
-  });
-
   test("a run row leads with its role and follows with the short run id", () => {
-    // @mutate v2/src/tui/tui-shell-layout.ts "const head = runRowLabelHead(run);" -> "const head = run.runId;"
-    const run: DaemonListRunRow = {
-      ...WORKFLOW_CHILD_RUN,
-      runId: "12345678-1234-1234-1234-123456789abc",
-    };
-    const label = listMonitorTreeCells({ kind: "workflow-child", run }, null, 90, TEST_NOW_MS).find(
-      (cell) => cell.column === "label",
-    );
+    // @mutate v2/src/tui/tui-shell-layout.ts "const head = runRowLabelHead(monitorTreeRun(tableRow));" -> "const head = monitorTreeRun(tableRow).runId;"
+    const run: DaemonListRunRow = { ...WORKFLOW_CHILD_RUN, runId: "12345678-1234-1234-1234-123456789abc" };
+    const label = runRowLabel({ kind: "workflow-child", run });
 
-    expect(label?.text).toBe("role:actuator 12345678".padEnd(TREE_COLUMN_WIDTHS.label, " "));
-  });
-
-  test("workflow-collapsed appends step context suffix in label via listMonitorTreeCells", () => {
-    const tableRow = {
-      kind: "workflow-collapsed" as const,
-      representative: COLLAPSED_WORKFLOW_REP,
-      members: COLLAPSED_WORKFLOW_MEMBERS,
-    };
-    const expectedLabel = formatTreeCell(
-      `role:unknown run-revi${workflowCollapsedContextSuffix(COLLAPSED_WORKFLOW_MEMBERS)}`,
-      TREE_COLUMN_WIDTHS.label,
-    ).padEnd(TREE_COLUMN_WIDTHS.label, " ");
-    const labelCell = listMonitorTreeCells(tableRow, null, 90, TEST_NOW_MS).find((cell) => cell.column === "label");
-    expect(labelCell?.text).toBe(expectedLabel);
-    expect(buildMonitorTreeRow(tableRow, null, 90, TEST_NOW_MS)).toContain(expectedLabel);
+    expect(label).toBe("role:actuator 12345678");
   });
 
   test("a collapsed workflow row keeps its step context suffix after the role-first head", () => {
@@ -398,61 +374,19 @@ describe("buildMonitorTreeRow", () => {
       },
     };
     const members = [representative];
-    const tableRow = { kind: "workflow-collapsed" as const, representative, members };
     const head = "role:a 87654321";
-    const label = listMonitorTreeCells(tableRow, null, 90, TEST_NOW_MS).find((cell) => cell.column === "label");
-    const expected = formatTreeCell(head + workflowCollapsedContextSuffix(members), TREE_COLUMN_WIDTHS.label).padEnd(
-      TREE_COLUMN_WIDTHS.label,
-      " ",
-    );
-    const headOnly = formatTreeCell(head, TREE_COLUMN_WIDTHS.label).padEnd(TREE_COLUMN_WIDTHS.label, " ");
 
-    expect(label?.text).toBe(expected);
-    expect(label?.text).not.toBe(headOnly);
+    const label = runRowLabel({ kind: "workflow-collapsed", representative, members });
+
+    expect(label).toBe(head + workflowCollapsedContextSuffix(members));
+    expect(label).not.toBe(head);
   });
 
-  test("expanded workflow-child rows render through grid builder alongside collapsed parent", () => {
-    const collapsed = buildMonitorTreeRow(
-      {
-        kind: "workflow-collapsed",
-        representative: COLLAPSED_WORKFLOW_REP,
-        members: COLLAPSED_WORKFLOW_MEMBERS,
-      },
-      "run-review",
-      90,
-      TEST_NOW_MS,
-    );
-    const collapsedMember = COLLAPSED_WORKFLOW_MEMBERS[0];
-    expect(collapsedMember).toBeDefined();
-    if (!collapsedMember) throw new Error("expected collapsed workflow member");
-    const implementChild: DaemonListRunRow = {
-      ...collapsedMember,
-      runId: "run-implement",
-      stepId: "implement",
-    };
-    const child = buildMonitorTreeRow({ kind: "workflow-child", run: implementChild }, null, 90, TEST_NOW_MS);
+  test("workflow-child rows indent by one hierarchy level relative to their standalone run", () => {
+    const standalone = buildTreeRunRow({ kind: "standalone", run: SAMPLE_RUN }, 0, 90, TEST_NOW_MS);
+    const child = buildTreeRunRow({ kind: "workflow-child", run: WORKFLOW_CHILD_RUN }, 1, 90, TEST_NOW_MS);
 
-    expect(columnSlice(collapsed, 90, "label")).toBe(
-      formatTreeCell(
-        `role:unknown run-revi${workflowCollapsedContextSuffix(COLLAPSED_WORKFLOW_MEMBERS)}`,
-        TREE_COLUMN_WIDTHS.label,
-      ).padEnd(TREE_COLUMN_WIDTHS.label, " "),
-    );
-    expect(columnSlice(child, 90, "indent")).toBe("  ");
-    expect(columnSlice(child, 90, "label")).toBe(
-      formatTreeCell("role:implement run-impl", TREE_COLUMN_WIDTHS.label).padEnd(TREE_COLUMN_WIDTHS.label, " "),
-    );
-    expect(columnSlice(child, 90, "project")).toBe(" ".repeat(TREE_COLUMN_WIDTHS.project));
-  });
-
-  test("live column uses a five-character non-live token", () => {
-    const notLiveRun: DaemonListRunRow = { ...SAMPLE_RUN, isLive: false };
-    const liveRow = buildMonitorTreeRow({ kind: "standalone", run: SAMPLE_RUN }, null, 90, TEST_NOW_MS);
-    const idleRow = buildMonitorTreeRow({ kind: "standalone", run: notLiveRun }, null, 90, TEST_NOW_MS);
-
-    expect(MONITOR_TREE_NOT_LIVE_LABEL.length).toBeLessThanOrEqual(TREE_COLUMN_WIDTHS.live);
-    expect(columnSlice(liveRow, 90, "live").trimEnd()).toBe("live");
-    expect(columnSlice(idleRow, 90, "live").trimEnd()).toBe(MONITOR_TREE_NOT_LIVE_LABEL);
-    expect(columnSlice(idleRow, 90, "live").trimEnd()).not.toBe("not-…");
+    expect(standalone.segments[0]?.text).toBe("");
+    expect(child.segments[0]?.text).toBe("  ");
   });
 });

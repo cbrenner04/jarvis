@@ -4,6 +4,7 @@ import { isPipelineTerminal, type PipelineDerivedState } from "../daemon/pipelin
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
 import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
+import type { MonitorLineRow } from "./tui-monitor-lines.ts";
 import {
   buildWorkflowTableRows,
   type WorkflowTableRow,
@@ -12,12 +13,11 @@ import {
   workflowTableRowMembers,
 } from "./tui-monitor-workflow-collapse.ts";
 import {
-  formatTreeCell,
+  composeBranchRow,
+  composePipelineRow,
+  composeStageRow,
   monitorTreeRun,
   shortMonitorId,
-  TREE_COLUMN_WIDTHS,
-  type TreeColumnId,
-  visibleColumns,
 } from "./tui-shell-layout.ts";
 
 export type MonitorPipelineTreeRunNode = {
@@ -38,6 +38,10 @@ export type MonitorPipelineTreeStageNode = {
   startedAt: number | null;
   endedAt: number | null;
   runs: MonitorPipelineTreeRunNode[];
+  /** Structural: nonempty `runs`. Set on flattened display nodes; absent on join-time nodes. */
+  expandable?: boolean;
+  /** `▼`/`▶` when expandable, blank otherwise. Set on flattened display nodes. */
+  marker?: string;
 };
 
 export type MonitorPipelineTreeBranchNode = {
@@ -50,6 +54,12 @@ export type MonitorPipelineTreeBranchNode = {
   summaryStageId: string;
   summaryStatus: string;
   stages: MonitorPipelineTreeStageNode[];
+  /** Earliest non-null `startedAt` among displayable stages, or null when none started. */
+  startedAt: number | null;
+  /** Latest `endedAt` once every displayable stage ended, else null (still running). */
+  endedAt: number | null;
+  expandable?: boolean;
+  marker?: string;
 };
 
 export type MonitorPipelineTreePipelineNode = {
@@ -60,6 +70,10 @@ export type MonitorPipelineTreePipelineNode = {
   project: string;
   stages: MonitorPipelineTreeStageNode[];
   branches: MonitorPipelineTreeBranchNode[];
+  expandable?: boolean;
+  marker?: string;
+  /** `✋<n> ✗<n>` from this pipeline's own displayable records; empty atoms/separators omitted. */
+  attention?: string;
 };
 
 export type MonitorPipelineTreeAdHocNode = {
@@ -152,6 +166,20 @@ function isElidedGateStage(kind: string | undefined, status: string): boolean {
   return status !== "awaiting" && status !== "rejected";
 }
 
+/** `✋<n> ✗<n>` from this pipeline's own displayable stage records; empty atoms and separators omitted. */
+export function pipelineAttentionSummary(pipeline: MonitorPipelineTreePipelineNode): string {
+  const stageKinds = resolveStageKinds(pipeline.snapshot.name);
+  const records = pipelineStageNodes(pipeline);
+  const gateCount = records.filter((record) => stageKinds.get(record.stageId) === "approval").length;
+  const failedCount = records.filter((record) => record.status === "failed").length;
+  const atoms: string[] = [];
+  // Mutation checkpoint: counting a zero gate here must turn attention gate-count RED.
+  if (gateCount > 0) atoms.push(`✋${gateCount}`);
+  // Mutation checkpoint: counting a zero failed count here must turn attention failed-count RED.
+  if (failedCount > 0) atoms.push(`✗${failedCount}`);
+  return atoms.join(" ");
+}
+
 /** ` → N intents` when the artifact records a fan-out split, else empty. */
 function intentYieldSuffix(artifact: unknown): string {
   const record = artifact as { downstreamInputs?: unknown } | null | undefined;
@@ -176,6 +204,19 @@ export function strippedBranchLabels(branchKeys: readonly string[]): string[] {
   return segmented.map((segments) => segments.slice(sharedLength).join("-"));
 }
 
+/** Earliest displayable-stage start and, once every displayable stage ended, the latest end. */
+function branchElapsedBounds(stages: readonly MonitorPipelineTreeStageNode[]): {
+  startedAt: number | null;
+  endedAt: number | null;
+} {
+  const starts = stages.map((stage) => stage.startedAt).filter((value): value is number => value !== null);
+  const startedAt = starts.length === 0 ? null : Math.min(...starts);
+  const allEnded = stages.length > 0 && stages.every((stage) => stage.endedAt !== null);
+  // Mutation checkpoint: freezing before every displayable stage has ended must turn branch-elapsed freeze RED.
+  const endedAt = allEnded ? Math.max(...stages.map((stage) => stage.endedAt as number)) : null;
+  return { startedAt, endedAt };
+}
+
 const SATISFIED_BRANCH_STAGE_STATUSES = new Set(["succeeded", "approved", "skipped"]);
 
 /** A branch summarizes as its first unsatisfied post-split stage, or its last stage once every stage settles. */
@@ -188,16 +229,6 @@ function deriveBranchSummary(records: readonly PipelineSnapshot["stages"][number
   return { stageId: target?.stageId ?? "", status: target?.status ?? "" };
 }
 
-function joinPipelineTreeCells(columnValues: Partial<Record<TreeColumnId, string>>, leftPaneWidth: number): string {
-  return visibleColumns(leftPaneWidth)
-    .map((column) => {
-      const width = TREE_COLUMN_WIDTHS[column];
-      // Mutation checkpoint: omitting width padding in joinPipelineTreeCells / formatTreeCell must turn width reservation RED.
-      return formatTreeCell(columnValues[column] ?? "", width).padEnd(width, " ");
-    })
-    .join("");
-}
-
 /** Seed basename sans extension, or `<name> <short pipelineId>` when no seed path was recorded. */
 export function pipelineRowLabel(snapshot: PipelineSnapshot): string {
   const slug = basename(snapshot.seedPath ?? "").replace(/\.[^.]+$/, "");
@@ -207,18 +238,19 @@ export function pipelineRowLabel(snapshot: PipelineSnapshot): string {
 
 export function buildPipelineMonitorTreeRow(
   node: MonitorPipelineTreePipelineNode,
-  selectedNodeId: string | null,
   leftPaneWidth: number,
   nowMs: number,
-): string {
-  return joinPipelineTreeCells(
+): MonitorLineRow {
+  return composePipelineRow(
     {
-      marker: node.id === selectedNodeId ? ">" : " ",
+      depth: node.depth,
+      marker: node.marker ?? "",
       label: pipelineRowLabel(node.snapshot),
-      project: node.project,
-      state: node.snapshot.state,
+      definition: node.snapshot.name,
+      attention: node.attention ?? "",
       // Mutation checkpoint: passing null for finishedAtMs on terminal pipelines must turn terminal freeze RED.
       elapsed: formatElapsedWallClock(node.snapshot.createdAt, node.snapshot.finishedAtMs, nowMs),
+      status: node.snapshot.state,
     },
     leftPaneWidth,
   );
@@ -226,17 +258,15 @@ export function buildPipelineMonitorTreeRow(
 
 export function buildStageMonitorTreeRow(
   node: MonitorPipelineTreeStageNode,
-  selectedNodeId: string | null,
   leftPaneWidth: number,
   nowMs: number,
-): string {
-  return joinPipelineTreeCells(
+): MonitorLineRow {
+  return composeStageRow(
     {
-      marker: node.id === selectedNodeId ? ">" : " ",
-      indent: "  ",
+      depth: node.depth,
+      marker: node.marker ?? "",
       label: node.label,
-      branch: stageBranchCellValue(node.branchKey),
-      state: node.status,
+      status: node.status,
       // Mutation checkpoint: passing null for startedAt when unset must turn empty-stage-elapsed RED.
       elapsed: formatElapsedWallClock(node.startedAt, node.endedAt, nowMs),
     },
@@ -246,16 +276,17 @@ export function buildStageMonitorTreeRow(
 
 export function buildBranchMonitorTreeRow(
   node: MonitorPipelineTreeBranchNode,
-  selectedNodeId: string | null,
   leftPaneWidth: number,
-): string {
-  return joinPipelineTreeCells(
+  nowMs: number,
+): MonitorLineRow {
+  return composeBranchRow(
     {
-      marker: node.id === selectedNodeId ? ">" : " ",
-      indent: "  ",
+      depth: node.depth,
+      marker: node.marker ?? "",
       label: node.label,
-      branch: node.summaryStageId,
-      state: node.summaryStatus,
+      currentStage: node.summaryStageId,
+      status: node.summaryStatus,
+      elapsed: formatElapsedWallClock(node.startedAt, node.endedAt, nowMs),
     },
     leftPaneWidth,
   );
@@ -362,6 +393,8 @@ function buildStageNodes(
   const strippedLabels = strippedBranchLabels(branchKeyOrder);
   const branches: MonitorPipelineTreeBranchNode[] = branchKeyOrder.map((branchKey, index) => {
     const summary = deriveBranchSummary(branchRecordsByKey.get(branchKey) ?? []);
+    const branchStages = branchStagesByKey.get(branchKey) ?? [];
+    const { startedAt, endedAt } = branchElapsedBounds(branchStages);
     return {
       kind: "branch",
       id: monitorPipelineBranchNodeId(snapshot.pipelineId, branchKey),
@@ -371,7 +404,9 @@ function buildStageNodes(
       label: strippedLabels[index] ?? branchKey,
       summaryStageId: summary.stageId,
       summaryStatus: summary.status,
-      stages: branchStagesByKey.get(branchKey) ?? [],
+      stages: branchStages,
+      startedAt,
+      endedAt,
     };
   });
 
@@ -536,7 +571,7 @@ function pushStageWithRuns(
   effectiveExpansion: ReadonlySet<string>,
   builderRuns: readonly DaemonListRunRow[],
 ): void {
-  nodes.push(stage);
+  nodes.push(withExpansionMarker(stage, effectiveExpansion));
   if (effectiveExpansion.has(stage.id)) {
     nodes.push(...stageRunsForExpansion(pipeline, stage, builderRuns));
   } else {
@@ -549,7 +584,12 @@ function flattenPipelineNode(
   effectiveExpansion: ReadonlySet<string>,
   builderRuns: readonly DaemonListRunRow[],
 ): MonitorPipelineTreeDisplayNode[] {
-  const nodes: MonitorPipelineTreeDisplayNode[] = [pipeline];
+  // Mutation checkpoint: skipping glyph/attention annotation here must turn row-semantic derivation RED.
+  const annotatedPipeline = withExpansionMarker(
+    { ...pipeline, attention: pipelineAttentionSummary(pipeline) },
+    effectiveExpansion,
+  );
+  const nodes: MonitorPipelineTreeDisplayNode[] = [annotatedPipeline];
 
   if (!effectiveExpansion.has(pipeline.id)) {
     return nodes;
@@ -560,7 +600,7 @@ function flattenPipelineNode(
   }
 
   for (const branch of pipeline.branches) {
-    nodes.push(branch);
+    nodes.push(withExpansionMarker(branch, effectiveExpansion));
     if (!effectiveExpansion.has(branch.id)) continue;
     for (const stage of branch.stages) {
       pushStageWithRuns(nodes, pipeline, stage, effectiveExpansion, builderRuns);
@@ -578,17 +618,58 @@ function resolveEffectiveExpansion(
   return new Set([...expandedNodeIds, ...resolveSelectedAncestors(pipelineNodes, selectedNodeId)]);
 }
 
+type MonitorPipelineTreeExpandableNode =
+  | MonitorPipelineTreePipelineNode
+  | MonitorPipelineTreeBranchNode
+  | MonitorPipelineTreeStageNode;
+
+/** A node is expandable exactly when its already-elided structural child collection is nonempty. */
+function isStructurallyExpandableTreeNode(node: MonitorPipelineTreeExpandableNode): boolean {
+  switch (node.kind) {
+    case "pipeline":
+      // Mutation checkpoint: reporting an empty pipeline as expandable must turn empty-pipeline-leaf RED.
+      return node.stages.length > 0 || node.branches.length > 0;
+    case "branch":
+      // Mutation checkpoint: reporting an empty branch as expandable must turn empty-branch-leaf RED.
+      return node.stages.length > 0;
+    case "stage":
+      // Mutation checkpoint: reporting an empty stage as expandable must turn empty-stage-leaf RED.
+      return node.runs.length > 0;
+  }
+}
+
+/** `▼` when an expandable node is in the effective expansion set, `▶` when not, blank for leaves. */
+function monitorTreeNodeMarker(
+  node: MonitorPipelineTreeExpandableNode,
+  effectiveExpansion: ReadonlySet<string>,
+): string {
+  if (!isStructurallyExpandableTreeNode(node)) return "";
+  // Mutation checkpoint: swapping the expanded/collapsed glyphs here must turn glyph derivation RED.
+  return effectiveExpansion.has(node.id) ? "▼" : "▶";
+}
+
+function withExpansionMarker<T extends MonitorPipelineTreeExpandableNode>(
+  node: T,
+  effectiveExpansion: ReadonlySet<string>,
+): T {
+  return {
+    ...node,
+    expandable: isStructurallyExpandableTreeNode(node),
+    marker: monitorTreeNodeMarker(node, effectiveExpansion),
+  };
+}
+
 export function isExpandablePipelineNodeId(
   pipelineNodes: readonly MonitorPipelineTreePipelineNode[],
   nodeId: string,
 ): boolean {
   for (const pipeline of pipelineNodes) {
-    if (pipeline.id === nodeId) return true;
+    if (pipeline.id === nodeId) return isStructurallyExpandableTreeNode(pipeline);
     for (const stage of pipelineStageNodes(pipeline)) {
-      if (stage.id === nodeId) return true;
+      if (stage.id === nodeId) return isStructurallyExpandableTreeNode(stage);
     }
     for (const branch of pipeline.branches) {
-      if (branch.id === nodeId) return true;
+      if (branch.id === nodeId) return isStructurallyExpandableTreeNode(branch);
     }
   }
   return false;

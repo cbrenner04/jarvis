@@ -26,7 +26,13 @@ import {
   workflowTableRowMembers,
 } from "./tui-monitor-workflow-collapse.ts";
 import type { ShellLayout } from "./tui-shell-layout.ts";
-import { computeShellLayout } from "./tui-shell-layout.ts";
+import {
+  composeRunRow,
+  computeShellLayout,
+  MONITOR_TREE_NOT_LIVE_LABEL,
+  monitorTreeRun,
+  runRowLabel,
+} from "./tui-shell-layout.ts";
 
 /** Non-queued runs in display order: active group then terminal group, daemon order within each. */
 export function orderSelectableRuns(runs: readonly DaemonListRunRow[]): DaemonListRunRow[] {
@@ -501,6 +507,30 @@ export function withLeftPaneTreeScrollFollow(state: TuiMonitorState, nowMs = Dat
     ...state,
     leftPaneTreeScrollOffset: reclampLeftPaneTreeScrollOffset(offset, maxVisibleRows, fullTreeRows.length),
   };
+}
+
+/** Run/ad-hoc tree row: fill label plus `status, live, elapsed` cluster; `labelOverride` covers ad-hoc's branch label. */
+export function buildTreeRunRow(
+  tableRow: WorkflowTableRow,
+  depth: number,
+  leftPaneWidth: number,
+  nowMs: number,
+  labelOverride?: string,
+): MonitorLineRow {
+  const run = monitorTreeRun(tableRow);
+  const liveTone = livenessTone(run.isLive);
+  return composeRunRow(
+    {
+      depth,
+      label: labelOverride ?? runRowLabel(tableRow),
+      status: run.status,
+      statusTone: RUN_STATUS_TONES[run.status],
+      live: run.isLive ? "live" : MONITOR_TREE_NOT_LIVE_LABEL,
+      ...(liveTone === undefined ? {} : { liveTone }),
+      elapsed: formatElapsedWallClock(run.createdAt, run.finishedAtMs ?? null, nowMs),
+    },
+    leftPaneWidth,
+  );
 }
 
 /** Pipeline and ad-hoc rows for the ink monitor left pane's unified work tree. */

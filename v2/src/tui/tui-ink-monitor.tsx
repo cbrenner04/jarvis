@@ -75,7 +75,13 @@ function renderTreeRow(
         isSelected,
       );
     case "stage":
-      return renderSegmentRow(buildStageMonitorTreeRow(treeRow, leftPaneWidth, nowMs), Text, rowKey, RowBox, isSelected);
+      return renderSegmentRow(
+        buildStageMonitorTreeRow(treeRow, leftPaneWidth, nowMs),
+        Text,
+        rowKey,
+        RowBox,
+        isSelected,
+      );
     case "branch":
       return renderSegmentRow(
         buildBranchMonitorTreeRow(treeRow, leftPaneWidth, nowMs),

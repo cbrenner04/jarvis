@@ -602,7 +602,14 @@ describe("createMonitorDisplay", () => {
           status: "running",
           workflowInvocationId: invocationId,
         },
-        { ...baseStage, id: "s-impl-b", stageId: "implement", branchKey: monitorBranch, position: 4, status: "running" },
+        {
+          ...baseStage,
+          id: "s-impl-b",
+          stageId: "implement",
+          branchKey: monitorBranch,
+          position: 4,
+          status: "running",
+        },
       ],
     });
     const pipelineRun: DaemonListRunRow = {

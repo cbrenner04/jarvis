@@ -1,0 +1,19 @@
+## Verdict — refinements required
+
+Confirmed at the source (`v2/src/tui/tui-elapsed-format.ts:17-22`, `tui-monitor-pipeline-tree.ts:265-271, 307-312, 409`) before ruling.
+
+1. **Resolve the `w<work>` collision — blocking design defect.** `formatAggregateTiming` already emits exactly `w23h` for the `idleMs === null` case, and `workIdleTiming` returns `idleMs: null` whenever the pipeline/branch is actively running or has no activity timestamp. Under the current decision, a parked pipeline with large idle — the motivating case the feature exists to surface — renders byte-identical to an actively-running one. The spec must either make the over-width compact form visually distinguishable from the running form (an idle-elided marker fits: `w23h/i…` is 7 columns) or state explicitly why the collision is acceptable operator-facing. Decision 2's rationale should be narrowed to what it actually rules out — truncated idle *digits* that misread as a different magnitude (`i10` for `i100d`) — since a magnitude-free elision marker does not have that failure mode.
+
+2. **AC 3's preservation citation must exercise the path it preserves.** The cited test renders a 17-character non-compact string and never reaches the over-width `slice`; the non-compact over-width branch has no coverage at all. Per the refactor-AC citation rule, the preservation criterion needs a test that actually drives the 20-column over-width path (e.g. a 21-character `work …· idle …` case) pinning the retained right-clip.
+
+3. **Remove the instruction conflict around the existing overflow test.** The task checklist retitles and tightens `the compact timing cell right-clips a value too wide for eight columns instead of overflowing`, while AC 3 asserts it "stays green" unchanged. Under the new behavior that test's title is false and its `toHaveLength(8)` assertion is vacuous. The spec must cite the retitled test with its new assertion under the changed-behavior criteria and stop listing it as an unchanged preservation surface.
+
+4. **Pin the exact-8 boundary and the padded cell literal.** The fits-in-width criterion should name a string of exactly eight columns (`w59m/i1m`), where the `>` vs `>=` off-by-one lives; a 7-column example does not exercise it. The changed-behavior criterion should assert the literal right-padded eight-column cell rather than "a right-aligned `w23h`", which also discharges the fixed-column length-8 invariant the cluster layout depends on.
+
+5. **Author the mutation and keystone directives.** The spec names two checkpoints but neither directive line nor anchor. `@mutate` requires a single-line target occurring exactly once in the named file; both anchors must be written verbatim in the spec, with the keystone reverting the compact work-only re-render and the guard checkpoint targeting the width comparison — distinct targets, not the same line.
+
+6. **Record the two unstated rationales, no scope change.** (a) Why the 20-column cell keeps its clip: clipping `work 100d · idle 100d` costs a character of the `work` *label*, leaving every work digit intact, unlike the compact case where the work *value* is corrupted. (b) `formatTreeTiming` is shared with the branch row path (`:409`) at the same width budget, so branch rows get the same behavior — a sentence in Decisions and the doc updates covers it.
+
+No split required: one branch in one function with one co-located test file.
+
+Decision 3 (work-only strings still over eight columns render in full) may stand as a defensive note — it is unreachable given the day-capped duration formatter, and decisions carry no acceptance obligation.

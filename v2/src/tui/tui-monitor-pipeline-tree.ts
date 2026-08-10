@@ -4,6 +4,7 @@ import { isPipelineTerminal, type PipelineDerivedState } from "../daemon/pipelin
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
 import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
+import type { MonitorLineRow } from "./tui-monitor-lines.ts";
 import {
   buildWorkflowTableRows,
   type WorkflowTableRow,
@@ -12,12 +13,11 @@ import {
   workflowTableRowMembers,
 } from "./tui-monitor-workflow-collapse.ts";
 import {
-  formatTreeCell,
+  composeBranchRow,
+  composePipelineRow,
+  composeStageRow,
   monitorTreeRun,
   shortMonitorId,
-  TREE_COLUMN_WIDTHS,
-  type TreeColumnId,
-  visibleColumns,
 } from "./tui-shell-layout.ts";
 
 export type MonitorPipelineTreeRunNode = {
@@ -229,16 +229,6 @@ function deriveBranchSummary(records: readonly PipelineSnapshot["stages"][number
   return { stageId: target?.stageId ?? "", status: target?.status ?? "" };
 }
 
-function joinPipelineTreeCells(columnValues: Partial<Record<TreeColumnId, string>>, leftPaneWidth: number): string {
-  return visibleColumns(leftPaneWidth)
-    .map((column) => {
-      const width = TREE_COLUMN_WIDTHS[column];
-      // Mutation checkpoint: omitting width padding in joinPipelineTreeCells / formatTreeCell must turn width reservation RED.
-      return formatTreeCell(columnValues[column] ?? "", width).padEnd(width, " ");
-    })
-    .join("");
-}
-
 /** Seed basename sans extension, or `<name> <short pipelineId>` when no seed path was recorded. */
 export function pipelineRowLabel(snapshot: PipelineSnapshot): string {
   const slug = basename(snapshot.seedPath ?? "").replace(/\.[^.]+$/, "");
@@ -248,18 +238,19 @@ export function pipelineRowLabel(snapshot: PipelineSnapshot): string {
 
 export function buildPipelineMonitorTreeRow(
   node: MonitorPipelineTreePipelineNode,
-  selectedNodeId: string | null,
   leftPaneWidth: number,
   nowMs: number,
-): string {
-  return joinPipelineTreeCells(
+): MonitorLineRow {
+  return composePipelineRow(
     {
-      marker: node.id === selectedNodeId ? ">" : " ",
+      depth: node.depth,
+      marker: node.marker ?? "",
       label: pipelineRowLabel(node.snapshot),
-      project: node.project,
-      state: node.snapshot.state,
+      definition: node.snapshot.name,
+      attention: node.attention ?? "",
       // Mutation checkpoint: passing null for finishedAtMs on terminal pipelines must turn terminal freeze RED.
       elapsed: formatElapsedWallClock(node.snapshot.createdAt, node.snapshot.finishedAtMs, nowMs),
+      status: node.snapshot.state,
     },
     leftPaneWidth,
   );
@@ -267,17 +258,15 @@ export function buildPipelineMonitorTreeRow(
 
 export function buildStageMonitorTreeRow(
   node: MonitorPipelineTreeStageNode,
-  selectedNodeId: string | null,
   leftPaneWidth: number,
   nowMs: number,
-): string {
-  return joinPipelineTreeCells(
+): MonitorLineRow {
+  return composeStageRow(
     {
-      marker: node.id === selectedNodeId ? ">" : " ",
-      indent: "  ",
+      depth: node.depth,
+      marker: node.marker ?? "",
       label: node.label,
-      branch: stageBranchCellValue(node.branchKey),
-      state: node.status,
+      status: node.status,
       // Mutation checkpoint: passing null for startedAt when unset must turn empty-stage-elapsed RED.
       elapsed: formatElapsedWallClock(node.startedAt, node.endedAt, nowMs),
     },
@@ -287,16 +276,17 @@ export function buildStageMonitorTreeRow(
 
 export function buildBranchMonitorTreeRow(
   node: MonitorPipelineTreeBranchNode,
-  selectedNodeId: string | null,
   leftPaneWidth: number,
-): string {
-  return joinPipelineTreeCells(
+  nowMs: number,
+): MonitorLineRow {
+  return composeBranchRow(
     {
-      marker: node.id === selectedNodeId ? ">" : " ",
-      indent: "  ",
+      depth: node.depth,
+      marker: node.marker ?? "",
       label: node.label,
-      branch: node.summaryStageId,
-      state: node.summaryStatus,
+      currentStage: node.summaryStageId,
+      status: node.summaryStatus,
+      elapsed: formatElapsedWallClock(node.startedAt, node.endedAt, nowMs),
     },
     leftPaneWidth,
   );

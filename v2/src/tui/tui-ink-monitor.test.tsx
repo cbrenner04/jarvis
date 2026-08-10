@@ -20,12 +20,7 @@ import { monitorDockLines } from "./tui-monitor-lines.ts";
 import { monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
 import { TUI_TERMINAL_WINDOW_MS } from "./tui-monitor-terminal-window.ts";
 import type { TuiMonitorControls, TuiMonitorState } from "./tui-monitor-types.ts";
-import {
-  computeShellLayout,
-  MONITOR_TREE_NOT_LIVE_LABEL,
-  nudgeDividerOffset,
-  TREE_COLUMN_WIDTHS,
-} from "./tui-shell-layout.ts";
+import { computeShellLayout, MONITOR_TREE_NOT_LIVE_LABEL, nudgeDividerOffset } from "./tui-shell-layout.ts";
 
 const TREE_NOW_MS = 1_700_000_000_000;
 
@@ -390,7 +385,7 @@ describe("createMonitorDisplay", () => {
     const rightText = collectInkText(right);
     const dockText = collectInkText(dock);
 
-    expect(leftText).toContain("alpha".padEnd(TREE_COLUMN_WIDTHS.label, " "));
+    expect(leftText).toContain("in-progress");
     expect(leftText).not.toContain("Outcome");
     expect(leftText).not.toContain("runStatus:");
     expect(rightText).toContain("Run");
@@ -530,11 +525,10 @@ describe("createMonitorDisplay", () => {
       },
     };
     const tree = createMonitorDisplay(shellState([run], run.runId), stubText, stubBox, TREE_NOW_MS);
-    const labelCell = branch.padEnd(TREE_COLUMN_WIDTHS.label, " ");
 
-    expect(collectTextNodes(findRegion(tree, MonitorLeftPane), stubText).some((node) => node.text === labelCell)).toBe(
-      true,
-    );
+    expect(
+      collectTextNodes(findRegion(tree, MonitorLeftPane), stubText).some((node) => node.text.trimEnd() === branch),
+    ).toBe(true);
   });
 
   test("createMonitorDisplay retains unattributed orphans regardless of display clock", () => {

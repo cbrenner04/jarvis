@@ -3,6 +3,7 @@ import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { RUN_STATUSES } from "../persistence/state-store.ts";
 import {
+  buildTreeRunRow,
   firstSelectableRunId,
   joinMonitorRow,
   livenessTone,
@@ -20,7 +21,8 @@ import {
 import { monitorPipelineBranchNodeId, monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
 import { TUI_TERMINAL_WINDOW_MS } from "./tui-monitor-terminal-window.ts";
 import type { TuiMonitorState } from "./tui-monitor-types.ts";
-import { computeShellLayout, listMonitorTreeCellsAtDepth, TREE_COLUMN_WIDTHS } from "./tui-shell-layout.ts";
+import type { WorkflowTableRow } from "./tui-monitor-workflow-collapse.ts";
+import { computeShellLayout } from "./tui-shell-layout.ts";
 
 const SINGLE_STEP_RUN: DaemonListRunRow = {
   runId: "run-single",
@@ -171,15 +173,9 @@ function overflowPaneMonitorFixture(): {
 
 const TEST_NOW_MS = 0;
 
-function indentColumnText(
-  tableRow: Parameters<typeof listMonitorTreeCellsAtDepth>[0],
-  depth: number,
-  selectedNodeId: string | null = null,
-): string {
-  const cell = listMonitorTreeCellsAtDepth(tableRow, selectedNodeId, 90, depth, TEST_NOW_MS).find(
-    (entry) => entry.column === "indent",
-  );
-  return cell?.text ?? "";
+/** First segment of a composed run/ad-hoc row is always the `2 * depth`-column indent. */
+function indentSegmentText(tableRow: WorkflowTableRow, depth: number): string {
+  return buildTreeRunRow(tableRow, depth, 90, TEST_NOW_MS).segments[0]?.text ?? "";
 }
 
 const MONITOR_LINES_FIXTURE_STATE: TuiMonitorState = {
@@ -589,13 +585,9 @@ describe("monitorLeftPaneTreeRows", () => {
     expect(pipelineRow?.depth).toBe(0);
     expect(stageRow?.depth).toBe(1);
     expect(runRow.depth).toBe(2);
-    expect(indentColumnText({ kind: "standalone", run: matchedRun }, 0).trimEnd()).toBe("");
-    expect(indentColumnText({ kind: "standalone", run: matchedRun }, 1)).toBe("  ".padEnd(TREE_COLUMN_WIDTHS.indent));
-    expect(indentColumnText(runRow.tableRow, 2)).toBe("  ".padEnd(TREE_COLUMN_WIDTHS.indent));
-    const labelCell = listMonitorTreeCellsAtDepth(runRow.tableRow, "run-implement", 90, 2, TEST_NOW_MS).find(
-      (entry) => entry.column === "label",
-    );
-    expect(labelCell?.text.startsWith("  ")).toBe(true);
+    expect(indentSegmentText({ kind: "standalone", run: matchedRun }, 0)).toBe("");
+    expect(indentSegmentText({ kind: "standalone", run: matchedRun }, 1)).toBe("  ");
+    expect(indentSegmentText(runRow.tableRow, 2)).toBe("    ");
   });
 
   test("expanded stage workflow-child rows render at depth 3 with indent column slots", () => {
@@ -633,11 +625,7 @@ describe("monitorLeftPaneTreeRows", () => {
     expect(childRow?.kind === "run" ? childRow.tableRow.kind : "").toBe("workflow-child");
     if (childRow?.kind !== "run") throw new Error("expected run row");
 
-    expect(indentColumnText(childRow.tableRow, 3, "run-implement")).toBe("  ".padEnd(TREE_COLUMN_WIDTHS.indent));
-    const labelCell = listMonitorTreeCellsAtDepth(childRow.tableRow, "run-implement", 90, 3, TEST_NOW_MS).find(
-      (entry) => entry.column === "label",
-    );
-    expect(labelCell?.text.startsWith("  ")).toBe(true);
+    expect(indentSegmentText(childRow.tableRow, 3)).toBe("      ");
   });
 
   test("keeps stage-matched runs out of the ad-hoc top level when they fail the terminal window", () => {

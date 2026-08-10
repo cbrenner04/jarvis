@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
+import { buildTreeRunRow, type MonitorLineRow } from "./tui-monitor-lines.ts";
 import {
   buildMonitorPipelineTree,
   buildMonitorPipelineTreeJoin,
@@ -18,12 +19,6 @@ import {
   stageBranchCellValue,
   strippedBranchLabels,
 } from "./tui-monitor-pipeline-tree.ts";
-import {
-  buildMonitorTreeRow,
-  listMonitorTreeCellsAtDepth,
-  TREE_COLUMN_WIDTHS,
-  visibleColumns,
-} from "./tui-shell-layout.ts";
 
 const FILTER_NOW_MS = 1_700_000_000_000;
 const PIPELINE_ID = "pipe-abc";
@@ -125,20 +120,21 @@ function flattenJoined(
   return flattenMonitorPipelineTree(pipelineNodes, [], expandedNodeIds, selectedNodeId, builderRuns);
 }
 
-function columnSlice(row: string, leftPaneWidth: number, column: keyof typeof TREE_COLUMN_WIDTHS): string {
-  let offset = 0;
-  for (const id of visibleColumns(leftPaneWidth)) {
-    const width = TREE_COLUMN_WIDTHS[id];
-    if (id === column) {
-      return row.slice(offset, offset + width);
-    }
-    offset += width;
-  }
-  throw new Error(`column ${column} not visible at width ${leftPaneWidth}`);
+/** Composed rows are `indent, marker, gap, label, gap, atom0, gap, atom1, ...`; label is always segment 3. */
+function labelSegment(row: MonitorLineRow): string {
+  return row.segments[3]?.text ?? "";
 }
 
-function fullWidthRowLength(leftPaneWidth: number): number {
-  return visibleColumns(leftPaneWidth).reduce((sum, column) => sum + TREE_COLUMN_WIDTHS[column], 0);
+/** Right-aligned cluster atoms, in order (gaps interleaved between them are excluded). */
+function clusterAtoms(row: MonitorLineRow): string[] {
+  return row.segments
+    .slice(5)
+    .filter((_, index) => index % 2 === 0)
+    .map((segment) => segment.text);
+}
+
+function rowDisplayWidth(row: MonitorLineRow): number {
+  return row.segments.reduce((sum, segment) => sum + Bun.stringWidth(segment.text), 0);
 }
 
 describe("buildMonitorPipelineTreeJoin", () => {
@@ -174,7 +170,7 @@ describe("buildMonitorPipelineTreeJoin", () => {
   });
 
   test("an ad-hoc top-level row is labeled with its entry run's branch", () => {
-    // @mutate v2/src/tui/tui-shell-layout.ts "if (labelOverride !== undefined) return labelOverride;" -> "if (labelOverride === \"\") return labelOverride;"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "label: labelOverride ?? runRowLabel(tableRow)," -> "label: runRowLabel(tableRow),"
     const branch = "adhoc-work";
     const run = workflowRun(
       { runId: "12345678-1234-1234-1234-123456789abc", status: "in-progress", branch },
@@ -183,21 +179,12 @@ describe("buildMonitorPipelineTreeJoin", () => {
     const { adHocNodes } = buildMonitorPipelineTreeJoin([], [run]);
     const node = adHocNodes[0];
     if (node === undefined) throw new Error("expected ad-hoc node");
-    const paintedLabel = listMonitorTreeCellsAtDepth(
-      node.tableRow,
-      null,
-      90,
-      node.depth,
-      FILTER_NOW_MS,
-      node.label,
-    ).find((cell) => cell.column === "label");
-    const roleFirstLabel = listMonitorTreeCellsAtDepth(node.tableRow, null, 90, node.depth, FILTER_NOW_MS).find(
-      (cell) => cell.column === "label",
-    );
+    const paintedRow = buildTreeRunRow(node.tableRow, node.depth, 90, FILTER_NOW_MS, node.label);
+    const roleFirstRow = buildTreeRunRow(node.tableRow, node.depth, 90, FILTER_NOW_MS);
 
-    expect(paintedLabel?.text.trimEnd()).toBe(branch);
+    expect(labelSegment(paintedRow).trimEnd()).toBe(branch);
     expect(node.label).toBe(branch);
-    expect(paintedLabel?.text).not.toBe(roleFirstLabel?.text);
+    expect(labelSegment(paintedRow)).not.toBe(labelSegment(roleFirstRow));
   });
 
   test("fan-out stages with the same stageId but different branchKey get distinct ids and branch cells", () => {
@@ -246,11 +233,6 @@ describe("buildMonitorPipelineTreeJoin", () => {
     expect(betaStage.kind).toBe("stage");
     expect(stageBranchCellValue("alpha")).toBe("alpha");
     expect(stageBranchCellValue("beta")).toBe("beta");
-
-    const alphaRow = buildStageMonitorTreeRow(alphaStage, null, 90, FILTER_NOW_MS);
-    const betaRow = buildStageMonitorTreeRow(betaStage, null, 90, FILTER_NOW_MS);
-    expect(columnSlice(alphaRow, 90, "branch").trimEnd()).toBe("alpha");
-    expect(columnSlice(betaRow, 90, "branch").trimEnd()).toBe("beta");
   });
 
   test("derives pipeline project from the first joined run and is empty when none joined", () => {
@@ -270,8 +252,7 @@ describe("buildMonitorPipelineTreeJoin", () => {
     expect(pipelineNodes[1]?.project).toBe("");
   });
 
-  test("pipeline and stage row helpers reserve column widths", () => {
-    // Mutation checkpoint: omitting width padding in joinPipelineTreeCells must turn width reservation RED.
+  test("pipeline and stage row helpers fill the full pane width", () => {
     const pipelineNode = {
       kind: "pipeline" as const,
       id: PIPELINE_ID,
@@ -294,13 +275,11 @@ describe("buildMonitorPipelineTreeJoin", () => {
       runs: [],
     };
 
-    const pipelineRow = buildPipelineMonitorTreeRow(pipelineNode, null, 90, FILTER_NOW_MS);
-    const stageRow = buildStageMonitorTreeRow(stageNode, null, 90, FILTER_NOW_MS);
+    const pipelineRow = buildPipelineMonitorTreeRow(pipelineNode, 90, FILTER_NOW_MS);
+    const stageRow = buildStageMonitorTreeRow(stageNode, 90, FILTER_NOW_MS);
 
-    expect(pipelineRow.length).toBe(fullWidthRowLength(90));
-    expect(stageRow.length).toBe(fullWidthRowLength(90));
-    expect(columnSlice(pipelineRow, 90, "project")).toBe("demo".padEnd(TREE_COLUMN_WIDTHS.project));
-    expect(columnSlice(stageRow, 90, "branch")).toBe("feature".padEnd(TREE_COLUMN_WIDTHS.branch));
+    expect(rowDisplayWidth(pipelineRow)).toBe(90);
+    expect(rowDisplayWidth(stageRow)).toBe(90);
   });
 
   test("two pipelines of one definition label their rows with distinct seed basenames", () => {
@@ -332,12 +311,8 @@ describe("buildMonitorPipelineTreeJoin", () => {
       branches: [],
     };
 
-    const workRowsLabel = columnSlice(buildPipelineMonitorTreeRow(workRowsNode, null, 90, FILTER_NOW_MS), 90, "label");
-    const attentionSegmentLabel = columnSlice(
-      buildPipelineMonitorTreeRow(attentionSegmentNode, null, 90, FILTER_NOW_MS),
-      90,
-      "label",
-    );
+    const workRowsLabel = labelSegment(buildPipelineMonitorTreeRow(workRowsNode, 90, FILTER_NOW_MS));
+    const attentionSegmentLabel = labelSegment(buildPipelineMonitorTreeRow(attentionSegmentNode, 90, FILTER_NOW_MS));
 
     expect(workRowsLabel.trimEnd()).toBe("tui-work-row-labels");
     expect(attentionSegmentLabel.trimEnd()).toBe("tui-attention-segment");
@@ -357,7 +332,7 @@ describe("buildMonitorPipelineTreeJoin", () => {
       branches: [],
     };
 
-    const label = columnSlice(buildPipelineMonitorTreeRow(pipelineNode, null, 90, FILTER_NOW_MS), 90, "label");
+    const label = labelSegment(buildPipelineMonitorTreeRow(pipelineNode, 90, FILTER_NOW_MS));
 
     expect(label.trimEnd()).toBe(`full-review ${pipelineId.slice(0, 8)}`);
   });
@@ -703,11 +678,11 @@ describe("gate elision and intent yield", () => {
     if (intentStage === undefined || planStage === undefined) throw new Error("expected intent and plan stages");
     // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (inputs.length === 0) return \"\";" -> "if (inputs.length < 0) return \"\";"
 
-    const intentRow = buildStageMonitorTreeRow(intentStage, null, 90, FILTER_NOW_MS);
-    const planRow = buildStageMonitorTreeRow(planStage, null, 90, FILTER_NOW_MS);
+    const intentRow = buildStageMonitorTreeRow(intentStage, 90, FILTER_NOW_MS);
+    const planRow = buildStageMonitorTreeRow(planStage, 90, FILTER_NOW_MS);
 
-    expect(columnSlice(intentRow, 90, "label").trimEnd()).toBe("intent → 3 intents");
-    expect(columnSlice(planRow, 90, "label").trimEnd()).toBe("plan");
+    expect(labelSegment(intentRow).trimEnd()).toBe("intent → 3 intents");
+    expect(labelSegment(planRow).trimEnd()).toBe("plan");
   });
 });
 
@@ -898,9 +873,9 @@ describe("monitor pipeline tree elapsed cells", () => {
       throw new Error("expected pipeline, stage, and run nodes");
     }
     return {
-      pipelineElapsed: columnSlice(buildPipelineMonitorTreeRow(pipelineNode, null, 90, nowMs), 90, "elapsed").trimEnd(),
-      stageElapsed: columnSlice(buildStageMonitorTreeRow(stageNode, null, 90, nowMs), 90, "elapsed").trimEnd(),
-      runElapsed: columnSlice(buildMonitorTreeRow(runNode.tableRow, null, 90, nowMs), 90, "elapsed").trimEnd(),
+      pipelineElapsed: clusterAtoms(buildPipelineMonitorTreeRow(pipelineNode, 90, nowMs)).at(-1) ?? "",
+      stageElapsed: clusterAtoms(buildStageMonitorTreeRow(stageNode, 90, nowMs)).at(-1) ?? "",
+      runElapsed: clusterAtoms(buildTreeRunRow(runNode.tableRow, runNode.depth, 90, nowMs)).at(-1) ?? "",
     };
   }
 
@@ -952,22 +927,14 @@ describe("monitor pipeline tree elapsed cells", () => {
 
     const frozenNowMs = ACTIVE_NOW_MS + 3_600_000;
     const atEnd = {
-      pipelineElapsed: columnSlice(
-        buildPipelineMonitorTreeRow(pipelineNode, null, 90, PIPELINE_END_MS),
-        90,
-        "elapsed",
-      ).trimEnd(),
-      stageElapsed: columnSlice(buildStageMonitorTreeRow(stageNode, null, 90, STAGE_END_MS), 90, "elapsed").trimEnd(),
-      runElapsed: columnSlice(buildMonitorTreeRow(runNode.tableRow, null, 90, RUN_END_MS), 90, "elapsed").trimEnd(),
+      pipelineElapsed: clusterAtoms(buildPipelineMonitorTreeRow(pipelineNode, 90, PIPELINE_END_MS)).at(-1) ?? "",
+      stageElapsed: clusterAtoms(buildStageMonitorTreeRow(stageNode, 90, STAGE_END_MS)).at(-1) ?? "",
+      runElapsed: clusterAtoms(buildTreeRunRow(runNode.tableRow, runNode.depth, 90, RUN_END_MS)).at(-1) ?? "",
     };
     const later = {
-      pipelineElapsed: columnSlice(
-        buildPipelineMonitorTreeRow(pipelineNode, null, 90, frozenNowMs),
-        90,
-        "elapsed",
-      ).trimEnd(),
-      stageElapsed: columnSlice(buildStageMonitorTreeRow(stageNode, null, 90, frozenNowMs), 90, "elapsed").trimEnd(),
-      runElapsed: columnSlice(buildMonitorTreeRow(runNode.tableRow, null, 90, frozenNowMs), 90, "elapsed").trimEnd(),
+      pipelineElapsed: clusterAtoms(buildPipelineMonitorTreeRow(pipelineNode, 90, frozenNowMs)).at(-1) ?? "",
+      stageElapsed: clusterAtoms(buildStageMonitorTreeRow(stageNode, 90, frozenNowMs)).at(-1) ?? "",
+      runElapsed: clusterAtoms(buildTreeRunRow(runNode.tableRow, runNode.depth, 90, frozenNowMs)).at(-1) ?? "",
     };
 
     expect(atEnd.pipelineElapsed).toBe(formatElapsedWallClock(PIPELINE_START_MS, PIPELINE_END_MS, PIPELINE_END_MS));
@@ -991,7 +958,8 @@ describe("monitor pipeline tree elapsed cells", () => {
       runs: [],
     };
 
-    expect(columnSlice(buildStageMonitorTreeRow(stageNode, null, 90, ACTIVE_NOW_MS), 90, "elapsed").trimEnd()).toBe("");
+    // No elapsed atom is composed at all; only the status atom remains in the cluster.
+    expect(clusterAtoms(buildStageMonitorTreeRow(stageNode, 90, ACTIVE_NOW_MS))).toEqual(["pending"]);
   });
 
   test("branch elapsed spans its displayable stage records", () => {

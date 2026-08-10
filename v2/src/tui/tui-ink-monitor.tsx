@@ -2,14 +2,13 @@ import { createElement, Fragment, type ReactElement, type ReactNode } from "reac
 import type { InkRender } from "./tui-ink-feedback.tsx";
 import { type InjectedInkUi, type InkUseInput, loadInkUi } from "./tui-ink-runtime.ts";
 import {
-  livenessTone,
+  buildTreeRunRow,
   type MonitorLineRow,
   type MonitorSegmentTone,
   monitorDockLines,
   monitorLeftPaneQueueRows,
   monitorLeftPaneTreeRows,
   monitorRightPaneSegmentRows,
-  RUN_STATUS_TONES,
 } from "./tui-monitor-lines.ts";
 import {
   buildBranchMonitorTreeRow,
@@ -18,16 +17,7 @@ import {
   type MonitorPipelineTreeDisplayNode,
 } from "./tui-monitor-pipeline-tree.ts";
 import type { TuiMonitorControls, TuiMonitorSession, TuiMonitorState } from "./tui-monitor-types.ts";
-import type { WorkflowTableRow } from "./tui-monitor-workflow-collapse.ts";
-import {
-  computeShellLayout,
-  listMonitorTreeCellsAtDepth,
-  monitorTreeRun,
-  nudgeDividerOffset,
-  TREE_COLUMN_WIDTHS,
-  type TreeColumnId,
-  visibleColumns,
-} from "./tui-shell-layout.ts";
+import { computeShellLayout, nudgeDividerOffset } from "./tui-shell-layout.ts";
 
 type MonitorText = (props: { children?: string; color?: string; key?: number }) => ReactElement;
 type MonitorBox = (props: {
@@ -47,14 +37,6 @@ const TONE_COLORS: Record<MonitorSegmentTone, string> = {
 
 const DEFAULT_TERMINAL_COLUMNS = 245;
 const DEFAULT_TERMINAL_ROWS = 72;
-const TONE_COLUMNS = new Set<TreeColumnId>(["state", "live"]);
-
-function gridCellTone(column: TreeColumnId, tableRow: WorkflowTableRow): MonitorSegmentTone | undefined {
-  if (!TONE_COLUMNS.has(column)) return undefined;
-  const run = monitorTreeRun(tableRow);
-  if (column === "state") return RUN_STATUS_TONES[run.status];
-  return livenessTone(run.isLive);
-}
 
 function renderSegmentRow(line: MonitorLineRow, Text: MonitorText, rowKey: number, RowBox?: MonitorBox): ReactElement {
   const cells = line.segments.map((segment, index) => {
@@ -66,54 +48,8 @@ function renderSegmentRow(line: MonitorLineRow, Text: MonitorText, rowKey: numbe
   return createElement(Fragment, { key: rowKey }, ...cells);
 }
 
-function splitPrebuiltTreeRow(row: string, leftPaneWidth: number): { column: TreeColumnId; text: string }[] {
-  let offset = 0;
-  return visibleColumns(leftPaneWidth).map((column) => {
-    const width = TREE_COLUMN_WIDTHS[column];
-    const text = row.slice(offset, offset + width);
-    offset += width;
-    return { column, text };
-  });
-}
-
-function renderPrebuiltTreeRow(
-  row: string,
-  leftPaneWidth: number,
-  Text: MonitorText,
-  rowKey: number,
-  RowBox?: MonitorBox,
-): ReactElement {
-  const cells = splitPrebuiltTreeRow(row, leftPaneWidth);
-  const rendered = cells.map((cell, index) => createElement(Text, { key: index }, cell.text));
-  if (RowBox !== undefined) return createElement(RowBox, { key: rowKey, flexDirection: "row" }, ...rendered);
-  return createElement(Fragment, { key: rowKey }, ...rendered);
-}
-
-function renderRunGridRow(
-  tableRow: WorkflowTableRow,
-  selectedNodeId: string | null,
-  leftPaneWidth: number,
-  depth: number,
-  nowMs: number,
-  Text: MonitorText,
-  rowKey: number,
-  RowBox?: MonitorBox,
-  labelOverride?: string,
-): ReactElement {
-  const cells = listMonitorTreeCellsAtDepth(tableRow, selectedNodeId, leftPaneWidth, depth, nowMs, labelOverride);
-  const rendered = cells.map((cell, index) => {
-    const tone = gridCellTone(cell.column, tableRow);
-    const props: { key: number; color?: string } = { key: index };
-    if (tone !== undefined) props.color = TONE_COLORS[tone];
-    return createElement(Text, props, cell.text);
-  });
-  if (RowBox !== undefined) return createElement(RowBox, { key: rowKey, flexDirection: "row" }, ...rendered);
-  return createElement(Fragment, { key: rowKey }, ...rendered);
-}
-
 function renderTreeRow(
   treeRow: MonitorPipelineTreeDisplayNode,
-  selectedNodeId: string | null,
   leftPaneWidth: number,
   nowMs: number,
   Text: MonitorText,
@@ -122,51 +58,24 @@ function renderTreeRow(
 ): ReactElement {
   switch (treeRow.kind) {
     case "pipeline":
-      return renderPrebuiltTreeRow(
-        buildPipelineMonitorTreeRow(treeRow, selectedNodeId, leftPaneWidth, nowMs),
-        leftPaneWidth,
-        Text,
-        rowKey,
-        RowBox,
-      );
+      return renderSegmentRow(buildPipelineMonitorTreeRow(treeRow, leftPaneWidth, nowMs), Text, rowKey, RowBox);
     case "stage":
-      return renderPrebuiltTreeRow(
-        buildStageMonitorTreeRow(treeRow, selectedNodeId, leftPaneWidth, nowMs),
-        leftPaneWidth,
-        Text,
-        rowKey,
-        RowBox,
-      );
+      return renderSegmentRow(buildStageMonitorTreeRow(treeRow, leftPaneWidth, nowMs), Text, rowKey, RowBox);
     case "branch":
-      return renderPrebuiltTreeRow(
-        buildBranchMonitorTreeRow(treeRow, selectedNodeId, leftPaneWidth),
-        leftPaneWidth,
-        Text,
-        rowKey,
-        RowBox,
-      );
+      return renderSegmentRow(buildBranchMonitorTreeRow(treeRow, leftPaneWidth, nowMs), Text, rowKey, RowBox);
     case "run":
-      return renderRunGridRow(
-        treeRow.tableRow,
-        selectedNodeId,
-        leftPaneWidth,
-        treeRow.depth,
-        nowMs,
+      return renderSegmentRow(
+        buildTreeRunRow(treeRow.tableRow, treeRow.depth, leftPaneWidth, nowMs),
         Text,
         rowKey,
         RowBox,
       );
     case "adhoc":
-      return renderRunGridRow(
-        treeRow.tableRow,
-        selectedNodeId,
-        leftPaneWidth,
-        treeRow.depth,
-        nowMs,
+      return renderSegmentRow(
+        buildTreeRunRow(treeRow.tableRow, treeRow.depth, leftPaneWidth, nowMs, treeRow.label),
         Text,
         rowKey,
         RowBox,
-        treeRow.label,
       );
   }
 }
@@ -225,7 +134,7 @@ function renderLeftPaneContent(
     rendered.push(renderSegmentRow({ segments: [{ text: "No runs." }] }, Text, 0, RowBox));
   } else {
     for (const [index, treeRow] of treeRows.entries()) {
-      rendered.push(renderTreeRow(treeRow, state.selectedNodeId, leftPaneWidth, nowMs, Text, index, RowBox));
+      rendered.push(renderTreeRow(treeRow, leftPaneWidth, nowMs, Text, index, RowBox));
     }
   }
   const queueRows = monitorLeftPaneQueueRows(state);

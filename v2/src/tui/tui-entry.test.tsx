@@ -873,6 +873,9 @@ function createViewHost() {
     selectNode(nodeId: string) {
       controls?.selectNode(nodeId);
     },
+    revealSelectedAttentionTarget() {
+      controls?.revealSelectedAttentionTarget();
+    },
     selectNextRun() {
       controls?.selectNextRun();
     },
@@ -2855,6 +2858,99 @@ describe("runTuiEntry", () => {
     expect(afterState?.leftPaneTreeScrollOffset).toBe(scrollOffsetBefore);
     expect(afterState?.expandedPipelineNodeIds).toEqual(expandedBefore);
     expect(afterState?.steeringFeedback).toBeNull();
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("Enter reveal selects the attention row's target inside the painted viewport", async () => {
+    // Mutation checkpoint: neutering revealSelectedAttentionTarget's dispatch turns this pin RED.
+    // @mutate v2/src/tui/tui-entry.tsx "setSelection(targetId);" -> "return;"
+    const view = createViewHost();
+    const failedImplementRun = pipelineMultiRun({
+      runId: "run-implement",
+      stepId: "implement",
+      status: "failed",
+      isLive: false,
+      finishedAtMs: TERMINAL_LIST_FINISH_MS,
+    });
+    const activeReviewRun = pipelineMultiRun({
+      runId: "run-review",
+      stepId: "implement-review",
+      status: "in-progress",
+    });
+    const { deps } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [failedImplementRun, activeReviewRun] }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ATTENTION_GATES, PIPELINE_SNAPSHOT_MULTI] }],
+        waitImpl: async () => ({ runStatus: "completed" }),
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    const initialState = view.monitorStates.at(-1);
+    const failedStageId = attentionRowIdByKind(initialState, "failed-stage");
+    const failedRunId = attentionRowIdByKind(initialState, "failed-run");
+    const stageTargetId = monitorPipelineStageNodeId("pipe-attn-gates", "plan", "default");
+
+    // Target sits under a collapsed pipeline ancestor and outside the painted viewport.
+    expect(leftPaneTreeRowIds(initialState)).not.toContain(stageTargetId);
+    view.selectNode(failedStageId);
+    await flush();
+    const expandedBefore = view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? [];
+
+    view.revealSelectedAttentionTarget();
+    await flush();
+    const revealedState = view.monitorStates.at(-1);
+    expect(revealedState?.selectedNodeId).toBe(stageTargetId);
+    expect(revealedState?.expandedPipelineNodeIds ?? []).toEqual(expandedBefore);
+    expect(leftPaneTreeRowIds(revealedState)).toContain(stageTargetId);
+
+    // A target id absent from the selectable set (the collapsed non-representative run member) is a no-op.
+    view.selectNode(failedRunId);
+    await flush();
+    view.revealSelectedAttentionTarget();
+    await flush();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(failedRunId);
+
+    view.quit();
+    expect(await pending).toBe(0);
+  });
+
+  test("Enter reveal is inert for a selected pipeline, stage, or run row", async () => {
+    // Mutation checkpoint: deleting the attention-row resolution guard turns this pin RED (throws on a
+    // non-attention selection instead of no-op).
+    // @mutate v2/src/tui/tui-entry.tsx "if (attentionRow === undefined) return;" -> "if (false) return;"
+    const view = createViewHost();
+    const { deps } = pipelineMultiEntryDeps(view);
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+
+    view.selectNode("pipe-multi");
+    await flush();
+    await view.toggleExpansion();
+
+    for (const nodeId of ["pipe-multi", PIPELINE_STAGE_MULTI, "run-review"]) {
+      view.selectNode(nodeId);
+      await flush();
+      const beforeState = view.monitorStates.at(-1);
+      const selectedBefore = beforeState?.selectedNodeId;
+      const expandedBefore = beforeState?.expandedPipelineNodeIds ?? [];
+
+      view.revealSelectedAttentionTarget();
+      await flush();
+      const afterState = view.monitorStates.at(-1);
+
+      expect(afterState?.selectedNodeId).toBe(selectedBefore);
+      expect(afterState?.expandedPipelineNodeIds ?? []).toEqual(expandedBefore);
+    }
 
     view.quit();
     expect(await pending).toBe(0);

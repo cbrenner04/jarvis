@@ -1005,6 +1005,20 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
           if (currentState.selectedNodeId === nodeId) return;
           setSelection(nodeId);
         },
+        revealSelectedAttentionTarget() {
+          const selectedNodeId = currentState.selectedNodeId;
+          if (selectedNodeId === null) return;
+          const attentionRow = selectedAttentionRow(currentState, selectedNodeId);
+          if (attentionRow === undefined) return;
+          const targetId = attentionRow.targetId;
+          // Same selectable-id guard as selectNode, evaluated with the target provisionally selected: a real
+          // tree/unattributed node reveals its own collapsed ancestors via resolveSelectedAncestors, so this
+          // check only rejects ids genuinely absent from the joined model (the deferred collapsed-member case).
+          const provisionalState = { ...currentState, selectedNodeId: targetId };
+          if (!monitorSelectableNodeIds(provisionalState, nowMsFn()).includes(targetId)) return;
+          if (currentState.selectedNodeId === targetId) return;
+          setSelection(targetId);
+        },
         selectNextRun() {
           const nowMs = nowMsFn();
           let state = currentState;

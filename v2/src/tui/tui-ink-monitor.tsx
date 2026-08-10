@@ -374,6 +374,14 @@ export async function openInkMonitor(
         controls.toggleSelectedWorkflowExpansion();
         return;
       }
+      // Operand order (`!key.shift && key.return`) is reversed from the command-focus branch's
+      // `key.return && !key.shift` deliberately, so this directive's anchor text stays distinct from
+      // that branch's two directives — do not normalize the order to match.
+      if (!key.shift && key.return) {
+        // Mutation checkpoint: inverting `!key.shift` here must turn attention reveal RED.
+        controls.revealSelectedAttentionTarget();
+        return;
+      }
       if (input === "[" || input === "]") {
         const { columns } = shellTerminalSize(sessionState.current);
         const currentOffset = sessionState.current.dividerOffset ?? 0;

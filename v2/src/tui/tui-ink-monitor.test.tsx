@@ -286,6 +286,7 @@ function noopControls(): TuiMonitorControls {
       return { kind: "admitted", pipelineId: "noop-pipeline" };
     },
     selectNode() {},
+    revealSelectedAttentionTarget() {},
     selectNextRun() {},
     selectPreviousRun() {},
     toggleSelectedWorkflowExpansion() {},
@@ -810,6 +811,38 @@ describe("openInkMonitor", () => {
     await treeInput.press("", { return: true, shift: true });
     expect(submissions).toEqual(["run status", ""]);
     treeSession.close();
+  });
+
+  test("tree-focus Enter drives the attention reveal control and Shift+Enter is inert", async () => {
+    // @mutate v2/src/tui/tui-ink-monitor.tsx "if (!key.shift && key.return) {" -> "if (key.shift && key.return) {"
+    const calls: string[] = [];
+    const controls = noopControls();
+    controls.revealSelectedAttentionTarget = () => calls.push("reveal");
+    const input = inputHarness();
+    const session = await openInkMonitor(shellState([], null), controls, await input.injection());
+
+    await input.press("", { return: true, shift: true });
+    expect(calls).toEqual([]);
+
+    await input.press("", { return: true });
+    expect(calls).toEqual(["reveal"]);
+
+    session.close();
+  });
+
+  test("tree-focus Enter and Shift+Enter on a non-attention row leave selection and expansion unchanged", async () => {
+    const calls: string[] = [];
+    const controls = noopControls();
+    controls.revealSelectedAttentionTarget = () => calls.push("reveal");
+    const state = shellState([], "pipe-alpha", { expandedPipelineNodeIds: ["pipe-alpha"] });
+    const input = inputHarness();
+    const session = await openInkMonitor(state, controls, await input.injection());
+
+    await input.press("", { return: true, shift: true });
+    await input.press("", { return: true });
+
+    expect(calls).toEqual(["reveal"]);
+    session.close();
   });
 
   test("classifies modified keys and paste before editor insertion", async () => {

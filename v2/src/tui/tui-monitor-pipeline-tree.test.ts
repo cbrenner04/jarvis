@@ -1275,9 +1275,9 @@ describe("monitor pipeline tree elapsed cells", () => {
     expect(pipeline.snapshot.state).toBe("pending");
   });
 
-  test("the compact timing cell right-clips a value too wide for eight columns instead of overflowing", () => {
+  test("the compact timing cell elides idle instead of right-clipping work when the paired form overflows", () => {
     // A double-digit-minute work paired with a double-digit-day idle (`w59m/i10d`, 9 characters) exceeds
-    // the eight-column compact cell; the cell must stay bounded to its column rather than overflow it.
+    // the eight-column compact cell; idle elides to `…` rather than partially rendering a truncated digit.
     const nowMs = 1_800_000_000_000;
     const tenDaysAgo = nowMs - 10 * 86_400_000;
     const pipeline = joinTree([
@@ -1297,8 +1297,82 @@ describe("monitor pipeline tree elapsed cells", () => {
     if (pipeline === undefined) throw new Error("expected pipeline");
     const compact = buildPipelineMonitorTreeRow(pipeline, 99, nowMs);
     const cell = clusterAtoms(compact).at(-1) ?? "";
-    expect(cell).toHaveLength(8);
-    expect(cell.length).toBeLessThanOrEqual(8);
+    expect(cell).toBe("w59m/i… ");
+  });
+
+  test("the compact timing cell keeps full work and elides idle when the paired form overflows", () => {
+    // Keystone: multi-hour work paired with multi-day idle (`w23h/i100d`, 10 chars) is the parked-pipeline
+    // case the work-idle feature exists to surface — the `w` marker and full work value must survive.
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (!compact) return formatted.slice(formatted.length - width);" -> "return formatted.slice(formatted.length - width);"
+    const nowMs = 1_800_000_000_000;
+    const hundredDaysAgo = nowMs - 100 * 86_400_000;
+    const pipeline = joinTree([
+      pipelineSnapshot({
+        pipelineId: "pipe-parked",
+        state: "failed",
+        stages: [
+          snapshotStage({
+            stageId: "stage",
+            status: "succeeded",
+            startedAt: hundredDaysAgo - 23 * 3_600_000,
+            endedAt: hundredDaysAgo,
+          }),
+        ],
+      }),
+    ])[0];
+    if (pipeline === undefined) throw new Error("expected pipeline");
+    const compact = buildPipelineMonitorTreeRow(pipeline, 99, nowMs);
+    const cell = clusterAtoms(compact).at(-1) ?? "";
+    expect(cell).toBe("w23h/i… ");
+  });
+
+  test("a compact timing string that fits eight columns keeps its idle segment", () => {
+    // Mutation checkpoint: an off-by-one in the width comparison must turn this RED.
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (formatted.length <= width) return formatted.padStart(width);" -> "if (formatted.length < width) return formatted.padStart(width);"
+    const nowMs = 1_800_000_000_000;
+    const oneMinuteAgo = nowMs - 60_000;
+    const pipeline = joinTree([
+      pipelineSnapshot({
+        pipelineId: "pipe-fits",
+        state: "failed",
+        stages: [
+          snapshotStage({
+            stageId: "stage",
+            status: "succeeded",
+            startedAt: oneMinuteAgo - 59 * 60_000,
+            endedAt: oneMinuteAgo,
+          }),
+        ],
+      }),
+    ])[0];
+    if (pipeline === undefined) throw new Error("expected pipeline");
+    const compact = buildPipelineMonitorTreeRow(pipeline, 99, nowMs);
+    const cell = clusterAtoms(compact).at(-1) ?? "";
+    expect(cell).toBe("w59m/i1m");
+  });
+
+  test("the non-compact timing cell still right-clips a value too wide for twenty columns", () => {
+    const nowMs = 1_800_000_000_000;
+    const hundredDaysAgo = nowMs - 100 * 86_400_000;
+    const pipeline = joinTree([
+      pipelineSnapshot({
+        pipelineId: "pipe-noncompact-overflow",
+        state: "failed",
+        stages: [
+          snapshotStage({
+            stageId: "stage",
+            status: "succeeded",
+            startedAt: hundredDaysAgo - 100 * 86_400_000,
+            endedAt: hundredDaysAgo,
+          }),
+        ],
+      }),
+    ])[0];
+    if (pipeline === undefined) throw new Error("expected pipeline");
+    const full = buildPipelineMonitorTreeRow(pipeline, 100, nowMs);
+    const cell = clusterAtoms(full).at(-1) ?? "";
+    expect(cell).toHaveLength(20);
+    expect(cell).toBe("ork 100d · idle 100d");
   });
 
   test("stage row elapsed is empty when startedAt is null", () => {

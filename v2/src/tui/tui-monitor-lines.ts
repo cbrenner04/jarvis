@@ -3,6 +3,7 @@ import { derivePipelineBoundary, type PipelineSnapshot } from "../daemon/pipelin
 import type { PipelineStageArtifact } from "../daemon/pipeline-stage-dispatch.ts";
 import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
 import { isTerminalRunStatus, type RunStatus } from "../persistence/state-store.ts";
+import { type AttentionRow, buildAttentionRows } from "./tui-attention-rows.ts";
 import type { PipelineListResult } from "./tui-daemon-client.ts";
 import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
 import {
@@ -472,8 +473,44 @@ function leftPaneQueueHeadingRowCount(state: TuiMonitorState): number {
   return state.runs.some((run) => run.status === "queued") ? 1 : 0;
 }
 
+/** Painted attention segment row count: heading, capped rows, and the overflow line when present. */
+function leftPaneAttentionRowCount(state: TuiMonitorState): number {
+  const projection = buildAttentionRows(state.pipelineSnapshotsBySocketPath, state.runs);
+  if (projection.total === 0) return 0;
+  return 1 + projection.rows.length + (projection.overflow > 0 ? 1 : 0);
+}
+
 function leftPaneTreeMaxVisibleRows(state: TuiMonitorState, layout: ShellLayout): number {
-  return layout.paneHeight - leftPaneQueueHeadingRowCount(state);
+  // Mutation checkpoint: dropping this floor must turn the tree-budget-never-negative guard RED.
+  return Math.max(0, layout.paneHeight - leftPaneQueueHeadingRowCount(state) - leftPaneAttentionRowCount(state));
+}
+
+function attentionRowLine(attentionRow: AttentionRow, selectedNodeId: string | null, nowMs: number): MonitorLineRow {
+  const marker = attentionRow.id === selectedNodeId ? ">" : " ";
+  const age = attentionRow.sinceMs === null ? "" : formatElapsedWallClock(attentionRow.sinceMs, null, nowMs);
+  return row(
+    untoned(marker),
+    separator(),
+    untoned(attentionRow.glyph),
+    separator(),
+    untoned(attentionRow.what),
+    separator(),
+    untoned(attentionRow.where),
+    // Mutation checkpoint: painting idle age for an undated row must turn the durable-age guard RED.
+    ...(age === "" ? [] : [separator(), untoned(`idle ${age}`)]),
+  );
+}
+
+/** Pinned attention segment: heading, up to six capped rows, and a display-only overflow summary. */
+export function monitorLeftPaneAttentionRows(state: TuiMonitorState, nowMs = Date.now()): MonitorLineRow[] {
+  const projection = buildAttentionRows(state.pipelineSnapshotsBySocketPath, state.runs);
+  if (projection.total === 0) return [];
+  return [
+    row(untoned(`── Needs attention (${projection.total}) ──`)),
+    ...projection.rows.map((attentionRow) => attentionRowLine(attentionRow, state.selectedNodeId, nowMs)),
+    // Mutation checkpoint: painting the overflow line without a positive overflow must turn this guard RED.
+    ...(projection.overflow > 0 ? [row(untoned(`+${projection.overflow} more`))] : []),
+  ];
 }
 
 function reclampLeftPaneTreeScrollOffset(offset: number, maxVisibleRows: number, totalTreeRows: number): number {

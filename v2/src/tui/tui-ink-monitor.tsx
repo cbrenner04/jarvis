@@ -6,6 +6,7 @@ import {
   type MonitorLineRow,
   type MonitorSegmentTone,
   monitorDockLines,
+  monitorLeftPaneAttentionRows,
   monitorLeftPaneQueueRows,
   monitorLeftPaneTreeRows,
   monitorRightPaneSegmentRows,
@@ -26,6 +27,7 @@ type MonitorBox = (props: {
   width?: number;
   height?: number;
   overflow?: "hidden" | "visible";
+  flexShrink?: number;
   key?: number;
 }) => ReactElement;
 
@@ -52,7 +54,11 @@ function renderSegmentRow(
     if (isSelected) props.inverse = true;
     return createElement(Text, props, segment.text);
   });
-  if (RowBox !== undefined) return createElement(RowBox, { key: rowKey, flexDirection: "row" }, ...cells);
+  // Mutation checkpoint: dropping flexShrink: 0 lets Yoga squeeze overflowing rows instead of letting
+  // the pane's overflow: "hidden" clip them, and must turn left-pane attention clipping RED.
+  if (RowBox !== undefined) {
+    return createElement(RowBox, { key: rowKey, flexDirection: "row", flexShrink: 0 }, ...cells);
+  }
   return createElement(Fragment, { key: rowKey }, ...cells);
 }
 
@@ -157,14 +163,26 @@ function renderLeftPaneContent(
 ): ReactElement[] {
   const { columns, rows } = shellTerminalSize(state);
   const layout = computeShellLayout(columns, rows, state.dividerOffset ?? 0);
-  const { treeRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
   const rendered: ReactElement[] = [];
-  if (treeRows.length === 0) {
-    rendered.push(renderSegmentRow({ segments: [{ text: "No runs." }] }, Text, 0, RowBox));
+  // Keystone checkpoint: an in-body `// @mutate` directive disables this call to turn the pinned
+  // attention consumer integration RED.
+  const attentionRows = monitorLeftPaneAttentionRows(state, nowMs);
+  rendered.push(...renderSegmentRows(attentionRows, Text, RowBox, rendered.length));
+  const { treeRows, fullTreeRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
+  if (fullTreeRows.length === 0) {
+    rendered.push(renderSegmentRow({ segments: [{ text: "No runs." }] }, Text, rendered.length, RowBox));
   } else {
-    for (const [index, treeRow] of treeRows.entries()) {
+    for (const treeRow of treeRows) {
       rendered.push(
-        renderTreeRow(treeRow, leftPaneWidth, nowMs, Text, index, RowBox, treeRow.id === state.selectedNodeId),
+        renderTreeRow(
+          treeRow,
+          leftPaneWidth,
+          nowMs,
+          Text,
+          rendered.length,
+          RowBox,
+          treeRow.id === state.selectedNodeId,
+        ),
       );
     }
   }
@@ -212,7 +230,7 @@ export function createMonitorDisplay(
             flexDirection: "column",
             width: layout.layoutMode === "split" ? layout.leftWidth : columns,
             height: layout.paneHeight,
-            overflow: "hidden",
+            overflow: "hidden", // clips the left pane (attention segment, tree, queue) to paneHeight
           },
           ...leftContent,
         ),

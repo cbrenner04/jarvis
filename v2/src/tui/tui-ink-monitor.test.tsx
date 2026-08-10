@@ -665,6 +665,50 @@ describe("createMonitorDisplay", () => {
       expect(leftText.some((node) => node.text.trim() === ">")).toBe(false);
     }
   });
+
+  test("renders and clips pinned attention in the left pane", () => {
+    // Keystone checkpoint: an in-body `// @mutate` directive disables the complete attention consumer
+    // integration in tui-ink-monitor.tsx and turns this test red.
+    // @mutate v2/src/tui/tui-ink-monitor.tsx "const attentionRows = monitorLeftPaneAttentionRows(state, nowMs);" -> "const attentionRows: MonitorLineRow[] = [];"
+    const failedRuns: DaemonListRunRow[] = Array.from({ length: 7 }, (_, index) => ({
+      runId: `run-attn-${index}`,
+      project: "demo",
+      branch: `att-${index + 1}`,
+      createdAt: 0,
+      status: "failed",
+      isLive: false,
+      finishedAtMs: 1_000 * (index + 1),
+    }));
+    const treeMarkerRun: DaemonListRunRow = {
+      runId: "run-tree-marker",
+      project: "demo",
+      branch: "tree-marker",
+      createdAt: 0,
+      status: "completed",
+      isLive: false,
+    };
+    const state = shellState([...failedRuns, treeMarkerRun], null, { terminalRows: 9 });
+    const layout = computeShellLayout(245, 9, 0);
+    expect(layout.paneHeight).toBe(5);
+
+    const output = renderMonitorOutput(state);
+    const paneText = output.slice(0, layout.paneHeight).join("\n");
+
+    expect(paneText).toContain("Needs attention (7)");
+    expect(paneText).toContain("att-1");
+    expect(paneText).toContain("att-2");
+    expect(paneText).toContain("att-3");
+    expect(paneText).toContain("att-4");
+    // Mutation checkpoint: dropping `flexShrink: 0` on segment rows in tui-ink-monitor.tsx must turn
+    // this clipping assertion red — Yoga would squeeze every row to fit instead of letting the pane's
+    // overflow: "hidden" clip the tail.
+    // @mutate v2/src/tui/tui-ink-monitor.tsx "return createElement(RowBox, { key: rowKey, flexDirection: \"row\", flexShrink: 0 }, ...cells);" -> "return createElement(RowBox, { key: rowKey, flexDirection: \"row\" }, ...cells);"
+    expect(paneText).not.toContain("att-5");
+    expect(paneText).not.toContain("att-6");
+    expect(paneText).not.toContain("att-7");
+    expect(paneText).not.toContain("more");
+    expect(paneText).not.toContain("tree-marker");
+  });
 });
 
 describe("openInkMonitor", () => {

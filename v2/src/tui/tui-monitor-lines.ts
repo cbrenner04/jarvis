@@ -237,12 +237,6 @@ export type PipelineObservationBuckets = Record<PipelineObservationBucket, numbe
 
 const RUNNING_PIPELINE_STATES: ReadonlySet<PipelineSnapshot["state"]> = new Set(["pending", "running"]);
 const FAILED_PIPELINE_STATES: ReadonlySet<PipelineSnapshot["state"]> = new Set(["failed", "rejected", "interrupted"]);
-const PIPELINE_OBSERVATION_BUCKET_PRECEDENCE: Record<PipelineObservationBucket, number> = {
-  done: 0,
-  failed: 1,
-  running: 2,
-  awaitingGate: 3,
-};
 
 function snapshotHasReachableUndecidedGate(snapshot: PipelineSnapshot): boolean {
   const resolved = getPipelineDefinition(snapshot.name);
@@ -272,22 +266,12 @@ function classifyPipelineObservation(snapshot: PipelineSnapshot): PipelineObserv
   throw new Error(`Unsupported pipeline state: ${snapshot.state}`);
 }
 
-/** Counts distinct retained pipeline observations after resolving contradictory snapshots by precedence. */
+/** Counts merged (already-unique-per-id) pipeline snapshots by observation bucket. */
 export function pipelineObservationBuckets(state: TuiMonitorState): PipelineObservationBuckets {
-  const bucketByPipelineId = new Map<string, PipelineObservationBucket>();
-  for (const snapshot of mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath)) {
-    const bucket = classifyPipelineObservation(snapshot);
-    const current = bucketByPipelineId.get(snapshot.pipelineId);
-    if (current === undefined) {
-      bucketByPipelineId.set(snapshot.pipelineId, bucket);
-      continue;
-    }
-    const candidateOutranksCurrent =
-      PIPELINE_OBSERVATION_BUCKET_PRECEDENCE[bucket] > PIPELINE_OBSERVATION_BUCKET_PRECEDENCE[current];
-    if (candidateOutranksCurrent) bucketByPipelineId.set(snapshot.pipelineId, bucket);
-  }
   const buckets: PipelineObservationBuckets = { running: 0, awaitingGate: 0, failed: 0, done: 0 };
-  for (const bucket of bucketByPipelineId.values()) buckets[bucket] += 1;
+  for (const snapshot of mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath)) {
+    buckets[classifyPipelineObservation(snapshot)] += 1;
+  }
   return buckets;
 }
 
@@ -466,13 +450,50 @@ export function monitorLeftPaneTableRows(state: TuiMonitorState): WorkflowTableR
   return buildWorkflowTableRows(selectableRuns, state.runs, new Set());
 }
 
+function countEndedStages(snapshot: PipelineSnapshot): number {
+  return snapshot.stages.filter((stage) => stage.endedAt !== null).length;
+}
+
+/** True when `candidate` outranks `current` for the same pipelineId: finished beats unfinished, then more ended stages, then earlier socket path. */
+function pipelineSnapshotOutranks(
+  candidate: PipelineSnapshot,
+  candidateSocketPath: string,
+  current: PipelineSnapshot,
+  currentSocketPath: string,
+): boolean {
+  const candidateFinished = candidate.finishedAtMs !== null;
+  const currentFinished = current.finishedAtMs !== null;
+  if (candidateFinished !== currentFinished) return candidateFinished;
+  const candidateEndedCount = countEndedStages(candidate);
+  const currentEndedCount = countEndedStages(current);
+  if (candidateEndedCount !== currentEndedCount) return candidateEndedCount > currentEndedCount;
+  return candidateSocketPath < currentSocketPath;
+}
+
+/** One snapshot per pipelineId, sorted-socket-path emission order, collision winner via `pipelineSnapshotOutranks`. */
 export function mergePipelineSnapshots(
   pipelineSnapshotsBySocketPath: Readonly<Record<string, PipelineListResult>> | undefined,
 ): PipelineSnapshot[] {
   if (pipelineSnapshotsBySocketPath === undefined) return [];
   const merged: PipelineSnapshot[] = [];
+  const indexByPipelineId = new Map<string, number>();
+  const socketPathByPipelineId = new Map<string, string>();
   for (const socketPath of Object.keys(pipelineSnapshotsBySocketPath).sort()) {
-    merged.push(...(pipelineSnapshotsBySocketPath[socketPath]?.pipelines ?? []));
+    for (const snapshot of pipelineSnapshotsBySocketPath[socketPath]?.pipelines ?? []) {
+      const existingIndex = indexByPipelineId.get(snapshot.pipelineId);
+      if (existingIndex === undefined) {
+        indexByPipelineId.set(snapshot.pipelineId, merged.length);
+        socketPathByPipelineId.set(snapshot.pipelineId, socketPath);
+        merged.push(snapshot);
+        continue;
+      }
+      const current = merged[existingIndex]!;
+      const currentSocketPath = socketPathByPipelineId.get(snapshot.pipelineId)!;
+      if (pipelineSnapshotOutranks(snapshot, socketPath, current, currentSocketPath)) {
+        merged[existingIndex] = snapshot;
+        socketPathByPipelineId.set(snapshot.pipelineId, socketPath);
+      }
+    }
   }
   return merged;
 }

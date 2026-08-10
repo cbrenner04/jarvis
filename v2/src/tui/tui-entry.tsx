@@ -620,9 +620,12 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
           }
         }
 
-        const pipelineSnapshotsBySocketPath: Record<string, PipelineListResult> = {
-          ...(currentState.pipelineSnapshotsBySocketPath ?? {}),
-        };
+        // Evict snapshots for sockets no longer live so a vanished daemon's last-observed
+        // snapshot cannot outrank a still-live daemon's in the next merge.
+        const pipelineSnapshotsBySocketPath: Record<string, PipelineListResult> = {};
+        for (const [socketPath, snapshot] of Object.entries(currentState.pipelineSnapshotsBySocketPath ?? {})) {
+          if (clients.has(socketPath)) pipelineSnapshotsBySocketPath[socketPath] = snapshot;
+        }
 
         const liveListResults: Array<[TuiDaemonClient, DaemonListResult]> = [];
         const livePipelineLists: Array<[string, TuiDaemonClient, PipelineListResult]> = [];

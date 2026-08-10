@@ -3738,6 +3738,68 @@ describe("runTuiEntry", () => {
     await pending;
   });
 
+  test("rediscovery: a disconnected socket's retained snapshot is evicted before the next merge", async () => {
+    // A vanished daemon's last-observed snapshot must not outlive its client; otherwise a stale
+    // terminal snapshot could outrank a still-live daemon's running one in the next merge.
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    let discoveryPhase = 0;
+
+    const daemon1Options: FakeClientOptions = {
+      methods: [],
+      listResponses: [{ runs: [] }, { runs: [] }],
+      pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+    };
+    const daemon2Options: FakeClientOptions = {
+      methods: [],
+      listResponses: [{ runs: [] }],
+      pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_BETA] }],
+    };
+
+    const clients = [fakeClient(daemon1Options), fakeClient(daemon2Options)];
+    let clientIndex = 0;
+
+    const { deps } = entryDeps(
+      {},
+      {
+        viewHost: view.host,
+        refreshScheduler: refresh.scheduler,
+        connectTuiDaemon: async () => {
+          const c = clients[clientIndex++];
+          if (!c) throw new Error(`no client at index ${clientIndex - 1}`);
+          return c;
+        },
+        socketDiscovery: async () => {
+          discoveryPhase += 1;
+          if (discoveryPhase === 1) {
+            return [DAEMON1_SOCKET, DAEMON2_SOCKET];
+          }
+          return [DAEMON1_SOCKET];
+        },
+      },
+    );
+
+    const pending = runTuiEntry(deps);
+    await view.waitUntilOpen();
+    await flush();
+    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.[DAEMON2_SOCKET]).toEqual({
+      pipelines: [PIPELINE_SNAPSHOT_BETA],
+    });
+
+    refresh.tick();
+    await flush();
+    await flush();
+    await flush();
+
+    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.[DAEMON2_SOCKET]).toBeUndefined();
+    expect(view.monitorStates.at(-1)?.pipelineSnapshotsBySocketPath?.[DAEMON1_SOCKET]).toEqual({
+      pipelines: [PIPELINE_SNAPSHOT_ALPHA],
+    });
+
+    view.quit();
+    await pending;
+  });
+
   test("rediscovery: superseded and superseding daemons render together while both are live", async () => {
     const view = createViewHost();
     const refresh = createIntervalScheduler();
@@ -3895,11 +3957,13 @@ describe("runTuiEntry", () => {
     await flush();
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-beta");
 
+    // Unlike runs (retained via lastGoodListBySocketPath), pipeline snapshots are evicted when
+    // their socket disconnects, so the selected pipeline disappears and selection clears.
     refresh.tick();
     await flush();
     await flush();
     await flush();
-    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-beta");
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBeNull();
     view.quit();
     await pending;
   });

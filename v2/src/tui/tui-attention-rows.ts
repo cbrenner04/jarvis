@@ -57,20 +57,6 @@ function attentionRowId(...parts: string[]): string {
   return `attention:${parts.join(":")}`;
 }
 
-/** First snapshot per pipeline id wins, in ascending socket-path precedence; later duplicates are discarded. */
-function canonicalPipelineSnapshots(
-  pipelineSnapshotsBySocketPath: Readonly<Record<string, PipelineListResult>> | undefined,
-): PipelineSnapshot[] {
-  const seen = new Set<string>();
-  const canonical: PipelineSnapshot[] = [];
-  for (const snapshot of mergePipelineSnapshots(pipelineSnapshotsBySocketPath)) {
-    if (seen.has(snapshot.pipelineId)) continue;
-    seen.add(snapshot.pipelineId);
-    canonical.push(snapshot);
-  }
-  return canonical;
-}
-
 function stageKindMap(name: string): Map<string, string> {
   const resolved = getPipelineDefinition(name);
   if (!resolved.ok) return new Map();
@@ -276,7 +262,7 @@ export function buildAttentionRows(
   pipelineSnapshotsBySocketPath: Readonly<Record<string, PipelineListResult>> | undefined,
   runs: readonly DaemonListRunRow[],
 ): AttentionProjection {
-  const snapshots = canonicalPipelineSnapshots(pipelineSnapshotsBySocketPath);
+  const snapshots = mergePipelineSnapshots(pipelineSnapshotsBySocketPath);
 
   const incidents = [
     ...snapshots.flatMap(gateAndStageIncidents),

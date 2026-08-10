@@ -72,6 +72,8 @@ export type TuiMonitorControls = {
   admitDetachedPipelineStart(input: PipelineStartAdmissionInput): Promise<PipelineStartAdmissionResult>;
   /** Change selection to the given tree or unattributed row when present in the selectable list. */
   selectNode(nodeId: string): void;
+  /** When the selection is an attention row, move selection to its `targetId` via `selectNode`. No-op otherwise. */
+  revealSelectedAttentionTarget(): void;
   /** Move to the next selectable row in display order. */
   selectNextRun(): void;
   /** Move to the previous selectable row in display order. */

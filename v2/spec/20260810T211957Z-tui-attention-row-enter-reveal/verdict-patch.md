@@ -1,0 +1,16 @@
+## Verdict — fix before landing
+
+**1. AC4's non-attention-row inertness is unpinned; its test cannot fail.**
+`openInkMonitor` never mutates the state object it is handed (every write rebinds `sessionState.current`), and the noop controls fake writes nothing — so `expect(state).toEqual(before)` in `tui-ink-monitor.test.tsx` (`tree-focus Enter and Shift+Enter on a non-attention row leave selection and expansion unchanged`) is vacuous with respect to selection and expansion. Its only live assertion is that Enter dispatches the reveal, which the spec's Decisions *require* on every tree row — the opposite of what AC4 names. AC4 is the sole carrier of the intent's "Enter on a non-attention row is inert" contract, and the plan verdict blocked on exactly this failure mode.
+
+Required outcome: a test where the real controls run — `tui-entry.test.tsx` — must select a genuine tree row (pipeline, stage, or run), invoke the reveal control, and assert `selectedNodeId` and stored `expandedPipelineNodeIds` are unchanged. It must go red if the reveal's attention-row resolution guard in `tui-entry.tsx` is deleted (not merely inverted). Update AC4's cited test title to name the enclosing test that actually carries it. The ink-monitor test may keep its dispatch assertion; drop the inert `toEqual(before)` rather than leave a false pin in the file.
+
+**2. The runbook overstates Shift+Enter inertness.**
+`v2/docs/operator-runbook.md` states two sentences earlier that most terminals send bare `\r` for Shift+Enter, then asserts unconditionally that tree-focus Shift+Enter is inert. On those terminals it arrives as plain Enter and reveals. Required outcome: the runbook sentence carries the same terminal-reporting qualifier the surrounding paragraph already uses, so the doc is true on both terminal classes.
+
+**3. The reversed operand order in the tree-focus Enter guard is load-bearing but unexplained.**
+`if (!key.shift && key.return)` is written that way solely to keep the new `@mutate` anchor distinct from the pre-existing command-focus directive text `if (key.return && !key.shift) {`. The adjacent comment only explains the `!key.shift` checkpoint, so a future normalizing edit would silently make two directives multi-match and break mutation parsing. Required outcome: the comment at that site records that the operand order is deliberate and why.
+
+**Optional, no re-run warranted on their own:** the `if (currentState.selectedNodeId === targetId) return;` line in the reveal control is unreachable (an attention id is separately namespaced from tree node ids and has already matched) — fine to delete; AC3's atom-position clause is satisfied by the code but only `toContain`-asserted; the `?? []` on the post-reveal `expandedPipelineNodeIds` assertion slightly weakens "byte-identical."
+
+**Not upheld:** gating the hint on the selectable-set check (would contradict AC3's spelled-out condition and its mutation anchor, and adds a full flatten per dock render; the deferred collapsed-member seed dissolves the case), and the per-keystroke attention-row rebuild (pre-existing pattern, and the spec explicitly chose helper reuse over a new resolver).

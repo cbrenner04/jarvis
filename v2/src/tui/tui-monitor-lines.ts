@@ -419,6 +419,8 @@ function dockHintLine(state: TuiMonitorState): string {
     selectedRun?.isLive === true &&
     isActiveRunStatus(selectedRun.status) &&
     (state.actionableRunIds?.includes(selectedRun.runId) ?? true);
+  // Mutation checkpoint: forcing this condition true must turn the attention-selection-only reveal hint RED.
+  const revealable = state.selectedNodeId !== null && resolveAttentionTargetId(state, state.selectedNodeId) !== null;
   return [
     "j/↓ next",
     "↑ previous",
@@ -426,6 +428,7 @@ function dockHintLine(state: TuiMonitorState): string {
     ": command",
     "/ command",
     ...(expandable ? ["e expand/collapse"] : []),
+    ...(revealable ? ["Enter reveal"] : []),
     ...(killable ? ["k kill"] : []),
     "q quit",
   ].join(" · ");

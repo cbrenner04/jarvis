@@ -2618,4 +2618,64 @@ describe("monitorDockLines", () => {
     expect(commandHints).not.toContain("expand");
     expect(commandHints).not.toContain(": command");
   });
+
+  test("dock hints advertise Enter reveal only for an attention-row selection", () => {
+    // Mutation checkpoint: forcing the reveal condition true in tui-monitor-lines.ts must turn this pin RED.
+    // @mutate v2/src/tui/tui-monitor-lines.ts "state.selectedNodeId !== null && resolveAttentionTargetId(state, state.selectedNodeId) !== null" -> "true"
+    const branchPipelineId = "pipe-hint-branch";
+    const branchSnapshot = pipelineSnapshot({
+      pipelineId: branchPipelineId,
+      name: "full-review",
+      stages: [
+        snapshotStage({ id: "intent-default", stageId: "intent", position: 0, status: "succeeded" }),
+        snapshotStage({
+          id: "gate-alpha",
+          stageId: "approve-intent",
+          branchKey: "alpha",
+          position: 1,
+          status: "approved",
+        }),
+        snapshotStage({ id: "plan-alpha", stageId: "plan", branchKey: "alpha", position: 2, status: "running" }),
+      ],
+    });
+    const branchId = monitorPipelineBranchNodeId(branchPipelineId, "alpha");
+    const stageId = monitorPipelineStageNodeId(branchPipelineId, "plan", "alpha");
+
+    const runPipelineId = "pipe-hint-run";
+    const runSnapshot = pipelineSnapshot({
+      pipelineId: runPipelineId,
+      stages: [implementStage("inv-hint-run")],
+    });
+    const attributedRun = workflowRun("run-hint-attributed", "in-progress", "inv-hint-run");
+    const adHocRun = workflowRun("run-hint-adhoc", "in-progress", "inv-hint-adhoc");
+    const failedAdHocRun = workflowRun("run-hint-failed", "failed", "inv-hint-failed", {
+      isLive: false,
+      finishedAtMs: 5_000,
+    });
+
+    const state = monitorState({
+      runs: [attributedRun, adHocRun, failedAdHocRun],
+      pipelineSnapshotsBySocketPath: { "/socket": { pipelines: [branchSnapshot, runSnapshot] } },
+      expandedPipelineNodeIds: [branchPipelineId, branchId],
+      terminalColumns: 245,
+    });
+
+    const projection = buildAttentionRows(state.pipelineSnapshotsBySocketPath, state.runs);
+    const attentionId = projection.rows.find((row) => row.kind === "failed-run")?.id;
+    if (attentionId === undefined) throw new Error("expected a failed-run attention row");
+
+    const hints = (selectedNodeId: string | null) => monitorDockLines({ ...state, selectedNodeId })[3];
+
+    expect(hints(null)).not.toContain("Enter reveal");
+    expect(hints(branchPipelineId)).not.toContain("Enter reveal");
+    expect(hints(branchId)).not.toContain("Enter reveal");
+    expect(hints(stageId)).not.toContain("Enter reveal");
+    expect(hints(attributedRun.runId)).not.toContain("Enter reveal");
+    expect(hints(adHocRun.runId)).not.toContain("Enter reveal");
+    expect(hints(attentionId)).toContain("Enter reveal");
+
+    const commandFocusHints = monitorDockLines({ ...state, selectedNodeId: attentionId, focus: "command" })[3];
+    expect(commandFocusHints).toBe("Esc tree · Enter submit");
+    expect(commandFocusHints).not.toContain("Enter reveal");
+  });
 });

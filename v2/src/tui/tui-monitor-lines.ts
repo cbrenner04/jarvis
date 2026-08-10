@@ -10,9 +10,11 @@ import {
   buildMonitorPipelineTree,
   buildMonitorPipelineTreeJoin,
   isExpandablePipelineNodeId,
+  type MonitorPipelineTreeAdHocNode,
   type MonitorPipelineTreeDisplayNode,
   type MonitorPipelineTreePipelineNode,
   type MonitorPipelineTreeStageNode,
+  pipelineStageNodes,
   pipelineStageRollupGroups,
 } from "./tui-monitor-pipeline-tree.ts";
 import type { TuiMonitorState } from "./tui-monitor-types.ts";
@@ -63,13 +65,16 @@ export function firstSelectableNodeId(state: TuiMonitorState, nowMs = Date.now()
   return monitorSelectableNodeIds(state, nowMs)[0] ?? null;
 }
 
-/** Selectable node ids in left-pane order: every full flattened work-tree row. */
+/** Selectable node ids in left-pane order: capped attention ids, then every full flattened work-tree row. */
 export function monitorSelectableNodeIds(state: TuiMonitorState, nowMs = Date.now()): string[] {
   const columns = state.terminalColumns ?? 245;
   const rows = state.terminalRows ?? 72;
   const layout = computeShellLayout(columns, rows, state.dividerOffset ?? 0);
   const { fullTreeRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
-  return fullTreeRows.map((row) => row.id);
+  const projection = buildAttentionRows(state.pipelineSnapshotsBySocketPath, state.runs);
+  // Mutation checkpoint: dropping the attention-id prefix here must turn selectable-prefix-order RED.
+  // Mutation checkpoint: selecting overflow rows here must turn overflow-exclusion RED (projection.rows is already capped).
+  return [...projection.rows.map((attentionRow) => attentionRow.id), ...fullTreeRows.map((row) => row.id)];
 }
 
 /** Initial monitor selection: topmost active run, or first terminal when all are terminal. */
@@ -865,10 +870,105 @@ const stageRecordForTreeRow = (
 ): PipelineSnapshot["stages"][number] | undefined =>
   pipeline?.snapshot.stages.find((stage) => stage.stageId === treeRow.stageId && stage.branchKey === treeRow.branchKey);
 
+/** Maps a selected attention row id to its target node id, or null when `selected` is not an attention row. */
+function resolveAttentionTargetId(state: TuiMonitorState, selected: string): string | null {
+  const projection = buildAttentionRows(state.pipelineSnapshotsBySocketPath, state.runs);
+  // Mutation checkpoint: aliasing a non-attention selection to a target here must turn attention-target-aliasing RED.
+  return projection.rows.find((attentionRow) => attentionRow.id === selected)?.targetId ?? null;
+}
+
+/**
+ * Resolves an attention target's detail sections against the complete joined pipeline/ad-hoc model, independent of
+ * collapsed ancestors and painted expansion. An ad-hoc target resolves via its group node id even when the failed
+ * run is not the group's representative.
+ */
+function pipelineStageTargetDetail(
+  pipeline: MonitorPipelineTreePipelineNode,
+  runs: readonly DaemonListRunRow[],
+  targetId: string,
+  nowMs: number,
+): { sections: DetailSection[]; isRunTarget: boolean } | null {
+  for (const stage of pipelineStageNodes(pipeline)) {
+    if (stage.id === targetId) {
+      return {
+        sections: [
+          ...pipelineContextRows(pipeline, runs, nowMs),
+          ...stageDetailRows(stageRecordForTreeRow(pipeline, stage)),
+        ],
+        isRunTarget: false,
+      };
+    }
+    for (const runNode of stage.runs) {
+      // Match the run node itself or, when it collapses several constituent runs, any member — an
+      // attributed run's target id is its own runId, which need not be the collapsed representative.
+      const matches =
+        runNode.id === targetId ||
+        workflowTableRowMembers(runNode.tableRow).some((member) => member.runId === targetId);
+      if (!matches) continue;
+      const run = runs.find((candidate) => candidate.runId === targetId);
+      if (run === undefined) return { sections: [], isRunTarget: false };
+      return {
+        sections: [...pipelineContextRows(pipeline, runs, nowMs), ...selectedRunDetailRows(run)],
+        isRunTarget: true,
+      };
+    }
+  }
+  return null;
+}
+
+function joinedTargetDetailSections(
+  pipelineNodes: readonly MonitorPipelineTreePipelineNode[],
+  adHocNodes: readonly MonitorPipelineTreeAdHocNode[],
+  runs: readonly DaemonListRunRow[],
+  targetId: string,
+  nowMs: number,
+): { sections: DetailSection[]; isRunTarget: boolean } {
+  for (const pipeline of pipelineNodes) {
+    // Mutation checkpoint: resolving against painted/expanded rows instead of the complete joined model here must
+    // turn collapsed-ancestor target resolution RED.
+    if (pipeline.id === targetId) {
+      return { sections: pipelineContextRows(pipeline, runs, nowMs), isRunTarget: false };
+    }
+
+    const stageMatch = pipelineStageTargetDetail(pipeline, runs, targetId, nowMs);
+    if (stageMatch !== null) return stageMatch;
+  }
+
+  for (const adHoc of adHocNodes) {
+    if (adHoc.id !== targetId) continue;
+    const run = runs.find((candidate) => candidate.runId === adHoc.id);
+    return run === undefined
+      ? { sections: [], isRunTarget: false }
+      : { sections: selectedRunDetailRows(run), isRunTarget: true };
+  }
+
+  return { sections: [], isRunTarget: false };
+}
+
 function unwrappedRightPaneSegmentRows(state: TuiMonitorState, layout: ShellLayout, nowMs: number): MonitorLineRow[] {
   const selected = state.selectedNodeId;
   if (selected === null) {
     return joinDetailSections([{ rows: [row(untoned("No run selected."))] }]);
+  }
+
+  const attentionTargetId = resolveAttentionTargetId(state, selected);
+  if (attentionTargetId !== null) {
+    const snapshots = mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath);
+    const { pipelineNodes, adHocNodes } = buildMonitorPipelineTreeJoin(snapshots, state.runs);
+    const { sections, isRunTarget } = joinedTargetDetailSections(
+      pipelineNodes,
+      adHocNodes,
+      state.runs,
+      attentionTargetId,
+      nowMs,
+    );
+    if (sections.length === 0) {
+      return joinDetailSections([{ rows: [row(untoned("No run selected."))] }]);
+    }
+    if (isRunTarget && state.steeringFeedback !== null) {
+      sections.push({ rows: [row(untoned(state.steeringFeedback))] });
+    }
+    return joinDetailSections(sections);
   }
 
   const { fullTreeRows } = monitorLeftPaneTreeRows(state, layout, nowMs);

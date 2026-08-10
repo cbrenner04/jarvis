@@ -57,7 +57,7 @@ Dependency order; 1 and 2 are independent starting points; 5–7 in any order af
 | 2 | `tui-unified-work-tree` | Pipelines + ad-hoc in one tree; segment/FIFO deleted; uniform selection | — | **shipped** (#2745; ordering half #2732) |
 | 3 | `tui-intent-branch-subtree` | Branch-grouped subtree; placeholder + satisfied-gate elision; stripped branch labels; intent yield | 2 | **shipped** (#2748, #2750) |
 | 4 | `tui-work-row-anatomy` | Fill-width labels; seed-slug identity; real indent + ▼/▶; grid + tier table removed | 2, 3 | seed-slug pipeline identity and role-first run labels **shipped** from `20260809T025859Z-tui-work-row-labels`; fill-width labels, real indent, and ▼/▶ glyphs **pending** |
-| 5 | `tui-attention-segment` | Pinned needs-me list + act-in-place; segmented status counts | 1, 2 | re-intent → `segment-rows` + `row-act-in-place` + `status-line-work-counts`; **pending** (gated on wire) |
+| 5 | `tui-attention-segment` | Pinned needs-me list + act-in-place; segmented status counts | 1, 2 | re-intent → `segment-rows` + `row-act-in-place` + `status-line-work-counts`; `segment-rows` **shipped** by [`20260810T012431Z-tui-attention-segment-rows`](./20260810T012431Z-tui-attention-segment-rows/); `row-act-in-place` and `status-line-work-counts` **pending** |
 | 6 | `tui-work-idle-time` | work/idle aggregation; failed-before-start rendering; frozen finishless display | 1, 3 | intented; **pending** (gated on wire) |
 | 7 | `tui-detail-pane-structure` | Sections; branch-grouped roll-up; null suppression; semantic artifact | 3 | **shipped** by [`20260809T024443Z-tui-detail-pane-structure`](./20260809T024443Z-tui-detail-pane-structure/) |
 

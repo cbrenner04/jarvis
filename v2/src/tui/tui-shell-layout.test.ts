@@ -326,10 +326,21 @@ describe("run and ad-hoc rows", () => {
     expect(frozenLater).toBe(terminalElapsed);
   });
 
-  test("finishless terminal run elapsed keeps advancing when nowMs advances", () => {
+  test("finishless terminal runs freeze at durable finish or admission fallback", () => {
     const runStartMs = 1_700_000_000_000;
     const nowMs1 = runStartMs + 60_000;
     const nowMs2 = runStartMs + 120_000;
+
+    // Active rows still change across display clocks.
+    const activeRun: DaemonListRunRow = { ...SAMPLE_RUN, createdAt: runStartMs };
+    const activeElapsed1 = clusterAtoms(buildTreeRunRow({ kind: "standalone", run: activeRun }, 0, 90, nowMs1)).at(-1);
+    const activeElapsed2 = clusterAtoms(buildTreeRunRow({ kind: "standalone", run: activeRun }, 0, 90, nowMs2)).at(-1);
+    expect(activeElapsed1).toBe(formatElapsedWallClock(runStartMs, null, nowMs1));
+    expect(activeElapsed2).toBe(formatElapsedWallClock(runStartMs, null, nowMs2));
+    expect(activeElapsed2).not.toBe(activeElapsed1);
+
+    // A standalone terminal row with no finish has zero elapsed at its own admission, frozen across clocks.
+    // @mutate v2/src/tui/tui-shell-layout.ts "const endMs = latestFinishedAtMs ?? latestCreatedAtMs;" -> "const endMs = latestFinishedAtMs ?? nowMs;"
     const finishlessRun: DaemonListRunRow = {
       ...SAMPLE_RUN,
       runId: "run-finishless",
@@ -337,17 +348,115 @@ describe("run and ad-hoc rows", () => {
       status: "killed",
       isLive: false,
     };
+    const finishlessElapsed1 = clusterAtoms(
+      buildTreeRunRow({ kind: "standalone", run: finishlessRun }, 0, 90, nowMs1),
+    ).at(-1);
+    const finishlessElapsed2 = clusterAtoms(
+      buildTreeRunRow({ kind: "standalone", run: finishlessRun }, 0, 90, nowMs2),
+    ).at(-1);
+    expect(finishlessElapsed1).toBe("0s");
+    expect(finishlessElapsed2).toBe("0s");
 
-    const elapsedBefore = clusterAtoms(buildTreeRunRow({ kind: "standalone", run: finishlessRun }, 0, 90, nowMs1)).at(
+    // A grouped terminal row uses the latest retained finish among its members.
+    const groupFinishStartMs = runStartMs;
+    const groupMemberA: DaemonListRunRow = {
+      ...SAMPLE_RUN,
+      runId: "run-a",
+      createdAt: groupFinishStartMs,
+      finishedAtMs: groupFinishStartMs + 30_000,
+      status: "completed",
+      isLive: false,
+      workflow: {
+        invocationId: "inv-finish",
+        steps: [{ stepId: "a", role: "actuator", status: "completed", attemptCount: 1 }],
+      },
+      stepId: "a",
+    };
+    const groupMemberB: DaemonListRunRow = {
+      ...SAMPLE_RUN,
+      runId: "run-b",
+      createdAt: groupFinishStartMs + 10_000,
+      finishedAtMs: groupFinishStartMs + 90_000,
+      status: "completed",
+      isLive: false,
+      workflow: {
+        invocationId: "inv-finish",
+        steps: [{ stepId: "a", role: "actuator", status: "completed", attemptCount: 1 }],
+      },
+      stepId: "a",
+    };
+    const groupFinishElapsed = clusterAtoms(
+      buildTreeRunRow(
+        { kind: "workflow-collapsed", representative: groupMemberB, members: [groupMemberA, groupMemberB] },
+        0,
+        90,
+        nowMs2,
+      ),
+    ).at(-1);
+    expect(groupFinishElapsed).toBe(formatElapsedWallClock(groupFinishStartMs, groupFinishStartMs + 90_000, nowMs2));
+
+    // A no-finish group freezes at its latest member admission instead of the display clock.
+    const groupNoFinishA: DaemonListRunRow = {
+      ...SAMPLE_RUN,
+      runId: "run-c",
+      createdAt: runStartMs,
+      status: "killed",
+      isLive: false,
+      workflow: {
+        invocationId: "inv-nofinish",
+        steps: [{ stepId: "c", role: "actuator", status: "stopped", attemptCount: 1 }],
+      },
+      stepId: "c",
+    };
+    const groupNoFinishB: DaemonListRunRow = {
+      ...SAMPLE_RUN,
+      runId: "run-d",
+      createdAt: runStartMs + 45_000,
+      status: "killed",
+      isLive: false,
+      workflow: {
+        invocationId: "inv-nofinish",
+        steps: [{ stepId: "c", role: "actuator", status: "stopped", attemptCount: 1 }],
+      },
+      stepId: "c",
+    };
+    // @mutate v2/src/tui/tui-shell-layout.ts "if (workflowGroupHasActiveMember(members)) return null;" -> "if (false) return null;"
+    const groupNoFinishElapsed = clusterAtoms(
+      buildTreeRunRow(
+        { kind: "workflow-collapsed", representative: groupNoFinishB, members: [groupNoFinishA, groupNoFinishB] },
+        0,
+        90,
+        nowMs2,
+      ),
+    ).at(-1);
+    expect(groupNoFinishElapsed).toBe(formatElapsedWallClock(runStartMs, runStartMs + 45_000, nowMs2));
+
+    // Corrupt/reversed boundaries clamp to zero rather than going negative.
+    const corruptRun: DaemonListRunRow = {
+      ...SAMPLE_RUN,
+      runId: "run-corrupt",
+      createdAt: runStartMs,
+      finishedAtMs: runStartMs - 60_000,
+      status: "completed",
+      isLive: false,
+    };
+    const corruptElapsed = clusterAtoms(buildTreeRunRow({ kind: "standalone", run: corruptRun }, 0, 90, nowMs2)).at(-1);
+    expect(corruptElapsed).toBe("0s");
+
+    // A terminal group finishing under a second after admission renders the same "0s" as a finishless one,
+    // rather than blanking like formatElapsedWallClock does for any other sub-second interval.
+    const subSecondRun: DaemonListRunRow = {
+      ...SAMPLE_RUN,
+      runId: "run-sub-second",
+      createdAt: runStartMs,
+      finishedAtMs: runStartMs + 400,
+      status: "completed",
+      isLive: false,
+    };
+    const subSecondElapsed = clusterAtoms(buildTreeRunRow({ kind: "standalone", run: subSecondRun }, 0, 90, nowMs2)).at(
       -1,
     );
-    const elapsedAfter = clusterAtoms(buildTreeRunRow({ kind: "standalone", run: finishlessRun }, 0, 90, nowMs2)).at(
-      -1,
-    );
-
-    expect(elapsedBefore).toBe(formatElapsedWallClock(runStartMs, null, nowMs1));
-    expect(elapsedAfter).toBe(formatElapsedWallClock(runStartMs, null, nowMs2));
-    expect(elapsedAfter).not.toBe(elapsedBefore);
+    expect(subSecondElapsed).toBe("0s");
   });
 
   test("a run row leads with its role and follows with the short run id", () => {

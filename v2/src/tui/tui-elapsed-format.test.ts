@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
+import { formatAggregateDuration, formatAggregateTiming, formatElapsedWallClock } from "./tui-elapsed-format.ts";
 
 const START_MS = 1_700_000_000_000;
 
@@ -54,4 +54,22 @@ describe("formatElapsedWallClock", () => {
     expect(formatElapsedWallClock(START_MS, endMs, endMs + 3_600_000)).toBe(frozen);
     expect(formatElapsedWallClock(START_MS, endMs, endMs + 86_400_000)).toBe(frozen);
   });
+});
+
+test("aggregate duration formatting is labeled nonnegative and width-aware", () => {
+  // @mutate v2/src/tui/tui-elapsed-format.ts "if (durationMs <= 0) return \"0s\";" -> "if (durationMs <= 0) return \"\";"
+  expect([
+    formatAggregateDuration(-1),
+    formatAggregateDuration(0),
+    formatAggregateDuration(59_999),
+    formatAggregateDuration(60_000),
+    formatAggregateDuration(3_599_999),
+    formatAggregateDuration(3_600_000),
+    formatAggregateDuration(86_399_999),
+    formatAggregateDuration(86_400_000),
+  ]).toEqual(["0s", "0s", "59s", "1m", "59m", "1h", "23h", "1d"]);
+  expect(formatAggregateTiming(60_000, 86_400_000, false)).toBe("work 1m · idle 1d");
+  expect(formatAggregateTiming(60_000, 86_400_000, true)).toBe("w1m/i1d");
+  expect(formatAggregateTiming(0, null, false)).toBe("work 0s");
+  expect(formatAggregateTiming(0, null, true)).toBe("w0s");
 });

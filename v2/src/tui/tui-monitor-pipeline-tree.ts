@@ -3,7 +3,7 @@ import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { isPipelineTerminal, type PipelineDerivedState } from "../daemon/pipeline-execution.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
-import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
+import { formatAggregateTiming, formatElapsedWallClock } from "./tui-elapsed-format.ts";
 import type { MonitorLineRow } from "./tui-monitor-lines.ts";
 import {
   buildWorkflowTableRows,
@@ -54,6 +54,8 @@ export type MonitorPipelineTreeBranchNode = {
   summaryStageId: string;
   summaryStatus: string;
   stages: MonitorPipelineTreeStageNode[];
+  records: PipelineSnapshot["stages"];
+  attributedRuns: DaemonListRunRow[];
   /** Earliest non-null `startedAt` among displayable stages, or null when none started. */
   startedAt: number | null;
   /** Latest `endedAt` once every displayable stage ended, else null (still running). */
@@ -70,6 +72,7 @@ export type MonitorPipelineTreePipelineNode = {
   project: string;
   stages: MonitorPipelineTreeStageNode[];
   branches: MonitorPipelineTreeBranchNode[];
+  attributedRuns: DaemonListRunRow[];
   expandable?: boolean;
   marker?: string;
   /** `✋<n> ✗<n>` from this pipeline's own displayable records; empty atoms/separators omitted. */
@@ -217,6 +220,101 @@ function branchElapsedBounds(stages: readonly MonitorPipelineTreeStageNode[]): {
   return { startedAt, endedAt };
 }
 
+type AggregateTiming = {
+  workMs: number;
+  lastActivityMs: number | null;
+};
+
+function latestActivity(activity: readonly number[]): number | null {
+  return activity.length === 0 ? null : Math.max(...activity);
+}
+
+export type WorkIdleTiming = {
+  workMs: number;
+  idleMs: number | null;
+};
+
+function stageWorkMs(stage: PipelineSnapshot["stages"][number], nowMs: number): number {
+  if (stage.startedAt === null) return 0;
+  const endMs = stage.endedAt ?? (stage.status === "running" ? nowMs : stage.startedAt);
+  if (Number.isNaN(stage.startedAt) || !Number.isFinite(endMs)) return 0;
+  if (stage.startedAt > nowMs || endMs > nowMs) return 0;
+  return Math.max(0, endMs - stage.startedAt);
+}
+
+function aggregateTiming(
+  stages: readonly PipelineSnapshot["stages"][number][],
+  members: readonly DaemonListRunRow[],
+  nowMs: number,
+): AggregateTiming {
+  const activity: number[] = [];
+  for (const stage of stages) {
+    if (stage.startedAt !== null) activity.push(stage.startedAt);
+    if (stage.endedAt !== null) activity.push(stage.endedAt);
+    if (stage.decidedAt !== null) activity.push(stage.decidedAt);
+  }
+  for (const member of members) {
+    if (member.finishedAtMs !== undefined) activity.push(member.finishedAtMs);
+  }
+  return {
+    workMs: stages.reduce((sum, stage) => sum + stageWorkMs(stage, nowMs), 0),
+    lastActivityMs: latestActivity(activity.filter(Number.isFinite)),
+  };
+}
+
+/** `hidesIdle` reflects active execution: the pipeline's own derived state, or any branch member record. */
+function workIdleTiming(hidesIdle: boolean, timing: AggregateTiming, nowMs: number): WorkIdleTiming {
+  const work = { workMs: timing.workMs, idleMs: null };
+  if (hidesIdle) return work;
+  if (timing.lastActivityMs === null) return work;
+  const idleMs = Math.max(0, nowMs - timing.lastActivityMs);
+  return { workMs: timing.workMs, idleMs };
+}
+
+export function pipelineWorkIdleTiming(node: MonitorPipelineTreePipelineNode, nowMs: number): WorkIdleTiming {
+  return workIdleTiming(
+    node.snapshot.state === "running",
+    aggregateTiming(node.snapshot.stages, node.attributedRuns, nowMs),
+    nowMs,
+  );
+}
+
+/** A branch hides idle when any of its member records — not just its summary record — is actively running. */
+function branchHasActiveRecord(records: readonly PipelineSnapshot["stages"][number][]): boolean {
+  return records.some((record) => record.status === "running");
+}
+
+export function branchWorkIdleTiming(node: MonitorPipelineTreeBranchNode, nowMs: number): WorkIdleTiming {
+  return workIdleTiming(
+    branchHasActiveRecord(node.records),
+    aggregateTiming(node.records, node.attributedRuns, nowMs),
+    nowMs,
+  );
+}
+
+/** Runs attributed to any of these stages' workflow invocations. */
+function attributedRunsForStages(
+  stages: readonly PipelineSnapshot["stages"][number][],
+  builderRuns: readonly DaemonListRunRow[],
+): DaemonListRunRow[] {
+  const invocationIds = new Set(
+    stages.flatMap((stage) => (stage.workflowInvocationId === null ? [] : [stage.workflowInvocationId])),
+  );
+  return builderRuns.filter((run) => run.workflow !== undefined && invocationIds.has(run.workflow.invocationId));
+}
+
+/** Right-aligned to its column; a value too wide for the column (multi-digit/multi-day) is right-clipped to fit. */
+function formatTreeTiming(timing: WorkIdleTiming, compact: boolean): string {
+  const width = compact ? 8 : 20;
+  const formatted = formatAggregateTiming(timing.workMs, timing.idleMs, compact);
+  if (formatted.length > width) return formatted.slice(formatted.length - width);
+  return formatted.padStart(width);
+}
+
+function formatPipelineTreeTiming(node: MonitorPipelineTreePipelineNode & { compact: boolean }, nowMs: number): string {
+  return formatTreeTiming(pipelineWorkIdleTiming(node, nowMs), node.compact);
+}
+
 const SATISFIED_BRANCH_STAGE_STATUSES = new Set(["succeeded", "approved", "skipped"]);
 
 /** A branch summarizes as its first unsatisfied post-split stage, or its last stage once every stage settles. */
@@ -237,10 +335,12 @@ export function pipelineRowLabel(snapshot: PipelineSnapshot): string {
 }
 
 export function buildPipelineMonitorTreeRow(
-  node: MonitorPipelineTreePipelineNode,
-  leftPaneWidth: number,
+  pipeline: MonitorPipelineTreePipelineNode,
+  width: number,
   nowMs: number,
 ): MonitorLineRow {
+  const compact = width < 100;
+  const node = { ...pipeline, compact };
   return composePipelineRow(
     {
       depth: node.depth,
@@ -248,12 +348,30 @@ export function buildPipelineMonitorTreeRow(
       label: pipelineRowLabel(node.snapshot),
       definition: node.snapshot.name,
       attention: node.attention ?? "",
-      // Mutation checkpoint: passing null for finishedAtMs on terminal pipelines must turn terminal freeze RED.
-      elapsed: formatElapsedWallClock(node.snapshot.createdAt, node.snapshot.finishedAtMs, nowMs),
+      elapsed: formatPipelineTreeTiming(node, nowMs),
       status: node.snapshot.state,
     },
-    leftPaneWidth,
+    width,
   );
+}
+
+/** Shared stage elapsed projection: a terminal failure with no start renders `failed before start`; else wall-clock. */
+export function stageElapsedLabel(
+  stage: { status: string; startedAt: number | null; endedAt: number | null },
+  nowMs: number,
+): string {
+  if (stage.status === "failed" && stage.startedAt === null) return "failed before start";
+  return formatElapsedWallClock(stage.startedAt, stage.endedAt, nowMs);
+}
+
+/** Tree-only: the compact eight-character timing cell abbreviates failed-before-start as `failed!`. */
+function stageTreeElapsedLabel(
+  stage: { status: string; startedAt: number | null; endedAt: number | null },
+  nowMs: number,
+  compact: boolean,
+): string {
+  if (stage.status === "failed" && stage.startedAt === null) return compact ? "failed!" : "failed before start";
+  return stageElapsedLabel(stage, nowMs);
 }
 
 export function buildStageMonitorTreeRow(
@@ -261,6 +379,7 @@ export function buildStageMonitorTreeRow(
   leftPaneWidth: number,
   nowMs: number,
 ): MonitorLineRow {
+  const compact = leftPaneWidth < 100;
   return composeStageRow(
     {
       depth: node.depth,
@@ -268,7 +387,7 @@ export function buildStageMonitorTreeRow(
       label: node.label,
       status: node.status,
       // Mutation checkpoint: passing null for startedAt when unset must turn empty-stage-elapsed RED.
-      elapsed: formatElapsedWallClock(node.startedAt, node.endedAt, nowMs),
+      elapsed: stageTreeElapsedLabel(node, nowMs, compact),
     },
     leftPaneWidth,
   );
@@ -279,6 +398,7 @@ export function buildBranchMonitorTreeRow(
   leftPaneWidth: number,
   nowMs: number,
 ): MonitorLineRow {
+  const compact = leftPaneWidth < 100;
   return composeBranchRow(
     {
       depth: node.depth,
@@ -286,7 +406,7 @@ export function buildBranchMonitorTreeRow(
       label: node.label,
       currentStage: node.summaryStageId,
       status: node.summaryStatus,
-      elapsed: formatElapsedWallClock(node.startedAt, node.endedAt, nowMs),
+      elapsed: formatTreeTiming(branchWorkIdleTiming(node, nowMs), compact),
     },
     leftPaneWidth,
   );
@@ -350,9 +470,17 @@ function buildStageNodes(
 
   for (const stage of snapshot.stages) {
     if (isElidedPlaceholderStage(stage, splitPosition)) continue;
+    const isBranched = splitPosition !== null && stage.position >= splitPosition;
+    if (isBranched) {
+      if (!branchRecordsByKey.has(stage.branchKey)) {
+        branchRecordsByKey.set(stage.branchKey, []);
+        branchStagesByKey.set(stage.branchKey, []);
+        branchKeyOrder.push(stage.branchKey);
+      }
+      branchRecordsByKey.get(stage.branchKey)?.push(stage);
+    }
     if (isElidedGateStage(stageKinds.get(stage.stageId), stage.status)) continue;
 
-    const isBranched = splitPosition !== null && stage.position >= splitPosition;
     const stageDepth = isBranched ? 2 : 1;
     const invocationId = stage.workflowInvocationId;
     let tableRows: WorkflowTableRow[] = [];
@@ -381,19 +509,15 @@ function buildStageNodes(
       continue;
     }
 
-    if (!branchStagesByKey.has(stage.branchKey)) {
-      branchStagesByKey.set(stage.branchKey, []);
-      branchRecordsByKey.set(stage.branchKey, []);
-      branchKeyOrder.push(stage.branchKey);
-    }
     branchStagesByKey.get(stage.branchKey)?.push(stageNode);
-    branchRecordsByKey.get(stage.branchKey)?.push(stage);
   }
 
-  const strippedLabels = strippedBranchLabels(branchKeyOrder);
-  const branches: MonitorPipelineTreeBranchNode[] = branchKeyOrder.map((branchKey, index) => {
+  const displayBranchKeys = branchKeyOrder.filter((branchKey) => (branchStagesByKey.get(branchKey)?.length ?? 0) > 0);
+  const strippedLabels = strippedBranchLabels(displayBranchKeys);
+  const branches: MonitorPipelineTreeBranchNode[] = displayBranchKeys.map((branchKey, index) => {
     const summary = deriveBranchSummary(branchRecordsByKey.get(branchKey) ?? []);
     const branchStages = branchStagesByKey.get(branchKey) ?? [];
+    const records = branchRecordsByKey.get(branchKey) ?? [];
     const { startedAt, endedAt } = branchElapsedBounds(branchStages);
     return {
       kind: "branch",
@@ -405,6 +529,8 @@ function buildStageNodes(
       summaryStageId: summary.stageId,
       summaryStatus: summary.status,
       stages: branchStages,
+      records,
+      attributedRuns: attributedRunsForStages(records, builderRuns),
       startedAt,
       endedAt,
     };
@@ -442,6 +568,7 @@ export function buildMonitorPipelineTreeJoin(
     depth: 0,
     snapshot,
     project: derivePipelineProject(snapshot, builderRuns),
+    attributedRuns: attributedRunsForStages(snapshot.stages, builderRuns),
     ...buildStageNodes(snapshot, builderRuns),
   }));
 

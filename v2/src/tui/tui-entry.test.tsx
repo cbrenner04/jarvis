@@ -32,7 +32,7 @@ import {
   monitorSelectableNodeIds,
   monitorTextLines,
 } from "./tui-monitor-lines.ts";
-import { monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
+import { buildPipelineMonitorTreeRow, monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
 import type {
   DetachedPipelineStartAdmission,
   RunTuiEntryDeps,
@@ -895,6 +895,15 @@ function elapsedCellForRun(state: TuiMonitorState | undefined, runId: string, no
   if (runNode?.kind !== "run" && runNode?.kind !== "adhoc") return "";
   // The elapsed atom is always the rightmost cluster segment at this width.
   return buildTreeRunRow(runNode.tableRow, runNode.depth, leftPaneWidth, nowMs).segments.at(-1)?.text ?? "";
+}
+
+function timingCellForPipeline(state: TuiMonitorState | undefined, pipelineId: string, nowMs: number): string {
+  if (state === undefined) return "";
+  const layout = computeShellLayout(state.terminalColumns ?? 245, state.terminalRows ?? 72, state.dividerOffset ?? 0);
+  const { fullTreeRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
+  const pipeline = fullTreeRows.find((row) => row.kind === "pipeline" && row.id === pipelineId);
+  if (pipeline?.kind !== "pipeline") return "";
+  return buildPipelineMonitorTreeRow(pipeline, layout.leftWidth, nowMs).segments.at(-1)?.text.trim() ?? "";
 }
 
 function dualDaemonEntryDeps(
@@ -4420,7 +4429,7 @@ describe("runTuiEntry", () => {
     await pending;
   });
 
-  test("display tick advances elapsed without additional list or pipeline_list RPC", async () => {
+  test("display tick advances running work but not parked work without additional list or pipeline_list RPC", async () => {
     const view = createViewHost();
     const refresh = createIntervalScheduler();
     const displayTick = createIntervalScheduler();
@@ -4430,14 +4439,41 @@ describe("runTuiEntry", () => {
       ...PIPELINE_RUN_MATCHED,
       createdAt: runStartMs,
     };
-    const { deps, clientOptions } = pipelineTreeEntryDeps(
-      view,
+    const runningStage = PIPELINE_SNAPSHOT_ALPHA.stages[0];
+    const parkedStage = PIPELINE_SNAPSHOT_BETA.stages[0];
+    if (runningStage === undefined || parkedStage === undefined) throw new Error("expected fixture stages");
+    const runningSnapshot: PipelineSnapshot = {
+      ...PIPELINE_SNAPSHOT_ALPHA,
+      createdAt: runStartMs,
+      stages: [{ ...runningStage, startedAt: runStartMs }],
+    };
+    const parkedSnapshot: PipelineSnapshot = {
+      ...PIPELINE_SNAPSHOT_BETA,
+      pipelineId: "pipe-parked",
+      state: "pending",
+      finishedAtMs: null,
+      createdAt: runStartMs - 600_000,
+      stages: [
+        {
+          ...parkedStage,
+          workflowInvocationId: null,
+          startedAt: runStartMs - 120_000,
+          endedAt: runStartMs - 60_000,
+        },
+      ],
+    };
+    const { deps, clientOptions } = entryDeps(
       {
+        methods: [],
+        listResponses: [{ runs: [run] }],
+        pipelineListResponses: [{ pipelines: [runningSnapshot, parkedSnapshot] }],
+      },
+      {
+        viewHost: view.host,
         refreshScheduler: refresh.scheduler,
         displayTickScheduler: displayTick.scheduler,
         nowMs: () => nowMs,
       },
-      [run],
     );
 
     const pending = runTuiEntry(deps);
@@ -4456,6 +4492,12 @@ describe("runTuiEntry", () => {
     const pipelineListCountBefore = countRpcMethod(clientOptions.methods, "pipeline_list");
     const elapsedBefore = elapsedCellForRun(view.monitorStates.at(-1), "run-matched", nowMs);
     expect(elapsedBefore).toBe(formatElapsedWallClock(runStartMs, null, nowMs));
+    const runningBefore = timingCellForPipeline(view.monitorStates.at(-1), "pipe-alpha", nowMs);
+    const parkedBefore = timingCellForPipeline(view.monitorStates.at(-1), "pipe-parked", nowMs);
+    // The fixture's real left-pane width (~94 columns) stays below the 100-column labeled-form floor,
+    // so this asserts the compact `w<duration>/i<duration>` cell that actually paints at ordinary widths.
+    expect(runningBefore).toBe("w1m");
+    expect(parkedBefore).toBe("w1m/i2m");
 
     nowMs += 60_000;
     // Mutation checkpoint: calling refreshRuns or list/pipeline_list from the display-tick callback must turn display-tick/no-RPC RED.
@@ -4468,6 +4510,11 @@ describe("runTuiEntry", () => {
     const elapsedAfter = elapsedCellForRun(view.monitorStates.at(-1), "run-matched", nowMs);
     expect(elapsedAfter).toBe(formatElapsedWallClock(runStartMs, null, nowMs));
     expect(elapsedAfter).not.toBe(elapsedBefore);
+    const runningAfter = timingCellForPipeline(view.monitorStates.at(-1), "pipe-alpha", nowMs);
+    const parkedAfter = timingCellForPipeline(view.monitorStates.at(-1), "pipe-parked", nowMs);
+    expect(runningAfter).toBe("w2m");
+    expect(runningAfter).not.toBe(runningBefore);
+    expect(parkedAfter).toBe("w1m/i3m");
 
     view.quit();
     await pending;

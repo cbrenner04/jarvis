@@ -38,14 +38,14 @@
 
 ## Acceptance criteria
 
-- [ ] `formatAbsoluteTimestamp` converts a fixed epoch-ms value to UTC `YYYY-MM-DDTHH:MM:SSZ` with no fractional seconds, formats `0` as `1970-01-01T00:00:00Z`, and returns the empty string for `null` and `undefined`; `tui-timestamp-format.test.ts` covers this and fails against raw or locale-dependent formatting.
-- [ ] A non-finite or out-of-range epoch-ms value passed to `formatAbsoluteTimestamp` returns `"invalid"` and never throws; pinned in `tui-timestamp-format.test.ts` and it fails against an unguarded `toISOString()` implementation.
-- [ ] Pipeline `createdAt`, `finishedAtMs`, and `terminalPublicationSucceededAt`, selected-stage `startedAt`, `endedAt`, and `decidedAt`, and selected-run `createdAt` and `finishedAtMs` paint ISO 8601 UTC values in `jarvis tui` detail; `tui-monitor-lines.test.ts` pins that output and fails against the current raw-epoch rendering.
-- [ ] A `null` absolute timestamp paints no detail row at all — never `Invalid Date`, never a fabricated `1970-01-01T00:00:00Z` — pinned in `tui-timestamp-format.test.ts` and in a `tui-monitor-lines.test.ts` case with null stage boundaries.
-- [ ] `tui-monitor-lines.test.ts` — `absent absolute timestamps paint no detail row`; Mutation checkpoint: inverting the absent-value guard turns the scoped suite red.
-- [ ] `tui-monitor-lines.test.ts` — `pipeline detail renders absolute timestamps as ISO 8601 UTC`; Keystone checkpoint: reverting the detail seam to the raw value turns the scoped suite red.
-- [ ] Existing `wallClock`, `elapsed`, `decided` age, `idle`, and `work` assertions in `tui-monitor-lines.test.ts`, `tui-elapsed-format.test.ts`, and `tui-attention-rows.test.ts` stay green with their relative output unchanged.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `formatAbsoluteTimestamp` converts a fixed epoch-ms value to UTC `YYYY-MM-DDTHH:MM:SSZ` with no fractional seconds, formats `0` as `1970-01-01T00:00:00Z`, and returns the empty string for `null` and `undefined`; `tui-timestamp-format.test.ts` covers this and fails against raw or locale-dependent formatting.
+- [x] A non-finite or out-of-range epoch-ms value passed to `formatAbsoluteTimestamp` returns `"invalid"` and never throws; pinned in `tui-timestamp-format.test.ts` and it fails against an unguarded `toISOString()` implementation.
+- [x] Pipeline `createdAt`, `finishedAtMs`, and `terminalPublicationSucceededAt`, selected-stage `startedAt`, `endedAt`, and `decidedAt`, and selected-run `createdAt` and `finishedAtMs` paint ISO 8601 UTC values in `jarvis tui` detail; `tui-monitor-lines.test.ts` pins that output and fails against the current raw-epoch rendering.
+- [x] A `null` absolute timestamp paints no detail row at all — never `Invalid Date`, never a fabricated `1970-01-01T00:00:00Z` — pinned in `tui-timestamp-format.test.ts` and in a `tui-monitor-lines.test.ts` case with null stage boundaries.
+- [x] `tui-monitor-lines.test.ts` — `absent absolute timestamps paint no detail row`; Mutation checkpoint: inverting the absent-value guard turns the scoped suite red.
+- [x] `tui-monitor-lines.test.ts` — `pipeline detail renders absolute timestamps as ISO 8601 UTC`; Keystone checkpoint: reverting the detail seam to the raw value turns the scoped suite red.
+- [x] Existing `wallClock`, `elapsed`, `decided` age, `idle`, and `work` assertions in `tui-monitor-lines.test.ts`, `tui-elapsed-format.test.ts`, and `tui-attention-rows.test.ts` stay green with their relative output unchanged.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

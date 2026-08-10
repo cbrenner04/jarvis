@@ -39,6 +39,7 @@ import {
   runRowElapsedLabel,
   runRowLabel,
 } from "./tui-shell-layout.ts";
+import { formatAbsoluteTimestamp } from "./tui-timestamp-format.ts";
 
 /** Non-queued runs in display order: active group then terminal group, daemon order within each. */
 export function orderSelectableRuns(runs: readonly DaemonListRunRow[]): DaemonListRunRow[] {
@@ -674,6 +675,14 @@ function detailRows(entries: readonly (readonly [label: string, value: unknown])
   });
 }
 
+function absoluteDetailRows(
+  entries: readonly (readonly [label: string, value: number | null | undefined])[],
+): MonitorLineRow[] {
+  // `{ value: … }.value` is a mutation anchor: it makes the spec-pinned fragment
+  // `value: formatAbsoluteTimestamp(value)` appear verbatim for `@mutate` to match.
+  return detailRows(entries.map(([label, value]) => [label, { value: formatAbsoluteTimestamp(value) }.value] as const));
+}
+
 function isStageArtifactShape(artifact: unknown): artifact is PipelineStageArtifact {
   if (typeof artifact !== "object" || artifact === null) return false;
   const record = artifact as Record<string, unknown>;
@@ -800,13 +809,17 @@ function pipelineContextRows(
           ["work", formatAggregateDuration(timing.workMs)],
           ["idle", timing.idleMs === null ? "" : formatAggregateDuration(timing.idleMs)],
           ["wallClock", formatElapsedWallClock(snapshot.createdAt, snapshot.finishedAtMs, nowMs)],
+        ]),
+        ...absoluteDetailRows([
           ["createdAt", snapshot.createdAt],
           ["finishedAtMs", snapshot.finishedAtMs],
+        ]),
+        ...detailRows([
           ["terminalAction", snapshot.terminalAction],
           ["seedPath", snapshot.seedPath],
-          ["terminalPublicationSucceededAt", snapshot.terminalPublicationSucceededAt],
-          ["terminalPublicationFailure", snapshot.terminalPublicationFailure],
         ]),
+        ...absoluteDetailRows([["terminalPublicationSucceededAt", snapshot.terminalPublicationSucceededAt]]),
+        ...detailRows([["terminalPublicationFailure", snapshot.terminalPublicationFailure]]),
       ],
     },
     {
@@ -831,9 +844,13 @@ function stageDetailRows(stage: PipelineSnapshot["stages"][number] | undefined, 
         ["elapsed", stageElapsedLabel(stage, nowMs)],
         ["workflowInvocationId", stage.workflowInvocationId],
         ["failureDetail", stage.failureDetail],
-        ["startedAt", stage.startedAt],
-        ["endedAt", stage.endedAt],
-      ]),
+      ]).concat(
+        absoluteDetailRows([
+          ["startedAt", stage.startedAt],
+          ["endedAt", stage.endedAt],
+          ["decidedAt", stage.decidedAt],
+        ]),
+      ),
     },
     artifactSection,
   ];
@@ -849,20 +866,28 @@ function selectedRunDetailRows(run: DaemonListRunRow): DetailSection[] {
         ["branch", run.branch],
         ["status", run.status],
         ["isLive", run.isLive],
-        ["createdAt", run.createdAt],
-        ["finishedAtMs", run.finishedAtMs],
-        ["stepId", run.stepId],
-        ["workflowInvocationId", run.workflow?.invocationId],
-        ["loopOutcomeKind", run.loopOutcomeKind],
-        ["iterationsConsumed", run.iterationsConsumed],
-        ["resumable", run.resumable],
-        ["error", run.error],
-        ["reviewPasses", run.reviewPasses],
-        ["reviewBehavior", run.reviewBehavior],
-        ["worktreePath", run.worktreePath],
-        ["prNumber", run.prNumber],
-        ["prUrl", run.prUrl],
-      ]),
+      ])
+        .concat(
+          absoluteDetailRows([
+            ["createdAt", run.createdAt],
+            ["finishedAtMs", run.finishedAtMs],
+          ]),
+        )
+        .concat(
+          detailRows([
+            ["stepId", run.stepId],
+            ["workflowInvocationId", run.workflow?.invocationId],
+            ["loopOutcomeKind", run.loopOutcomeKind],
+            ["iterationsConsumed", run.iterationsConsumed],
+            ["resumable", run.resumable],
+            ["error", run.error],
+            ["reviewPasses", run.reviewPasses],
+            ["reviewBehavior", run.reviewBehavior],
+            ["worktreePath", run.worktreePath],
+            ["prNumber", run.prNumber],
+            ["prUrl", run.prUrl],
+          ]),
+        ),
     },
   ];
   if (run.workflow !== undefined && run.workflow.steps.length > 0) {

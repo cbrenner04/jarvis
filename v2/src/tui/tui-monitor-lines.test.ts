@@ -32,6 +32,7 @@ import { TUI_TERMINAL_WINDOW_MS } from "./tui-monitor-terminal-window.ts";
 import type { TuiMonitorState } from "./tui-monitor-types.ts";
 import type { WorkflowTableRow } from "./tui-monitor-workflow-collapse.ts";
 import { computeShellLayout } from "./tui-shell-layout.ts";
+import { formatAbsoluteTimestamp } from "./tui-timestamp-format.ts";
 
 const SINGLE_STEP_RUN: DaemonListRunRow = {
   runId: "run-single",
@@ -217,7 +218,7 @@ const MONITOR_LINES_FIXTURE_PIN = [
   "branch: alpha",
   "status: in-progress",
   "isLive: true",
-  "createdAt: 0",
+  "createdAt: 1970-01-01T00:00:00Z",
   " ",
   "daemon_error: paused",
   "Press up/down or j to select; e expands pipeline/stage; q or Ctrl-C to quit.",
@@ -1145,11 +1146,11 @@ describe("monitorRightPaneSegmentRows", () => {
     "work: 2m",
     "idle: 5s",
     "wallClock: 2m 0s",
-    `createdAt: ${pipelineCreatedAt}`,
-    `finishedAtMs: ${pipelineFinishedAt}`,
+    `createdAt: ${formatAbsoluteTimestamp(pipelineCreatedAt)}`,
+    `finishedAtMs: ${formatAbsoluteTimestamp(pipelineFinishedAt)}`,
     "terminalAction: ready",
     "seedPath: seeds/intent.md",
-    `terminalPublicationSucceededAt: ${pipelineFinishedAt}`,
+    `terminalPublicationSucceededAt: ${formatAbsoluteTimestamp(pipelineFinishedAt)}`,
     " ",
     "Stages",
     "stage: implement status=succeeded elapsed=1m 0s",
@@ -1165,6 +1166,83 @@ describe("monitorRightPaneSegmentRows", () => {
     });
 
     expect(monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow)).toEqual(pipelineBlock);
+  });
+
+  test("pipeline detail renders absolute timestamps as ISO 8601 UTC", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "value: formatAbsoluteTimestamp(value)" -> "value: String(value)"
+    const state = monitorState({
+      runs: detailedRuns,
+      selectedNodeId: PIPELINE_ID,
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [detailedSnapshot] } },
+    });
+
+    const lines = monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow);
+
+    expect(lines).toContain(`createdAt: ${formatAbsoluteTimestamp(pipelineCreatedAt)}`);
+    expect(lines).toContain(`finishedAtMs: ${formatAbsoluteTimestamp(pipelineFinishedAt)}`);
+    expect(lines).toContain(`terminalPublicationSucceededAt: ${formatAbsoluteTimestamp(pipelineFinishedAt)}`);
+    expect(lines.some((line) => line === `createdAt: ${pipelineCreatedAt}`)).toBe(false);
+  });
+
+  test("absent absolute timestamps paint no detail row", () => {
+    // @mutate v2/src/tui/tui-timestamp-format.ts "if (epochMs == null) { return \"\"; }" -> "if (false) { return \"\"; }"
+    const snapshot = pipelineSnapshot({
+      pipelineId: "pipe-no-absolute-timestamps",
+      state: "pending",
+      finishedAtMs: null,
+      stages: [snapshotStage({ stageId: "implement", status: "pending" })],
+    });
+    const state = monitorState({
+      selectedNodeId: snapshot.pipelineId,
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
+    });
+
+    const lines = monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow);
+
+    expect(lines.some((line) => line.startsWith("finishedAtMs:"))).toBe(false);
+    expect(lines.some((line) => line.startsWith("terminalPublicationSucceededAt:"))).toBe(false);
+    expect(lines.some((line) => line.includes("Invalid Date"))).toBe(false);
+
+    // Select the stage node itself (with null startedAt/endedAt/decidedAt) so stageDetailRows runs.
+    const stageNodeId = monitorPipelineStageNodeId("pipe-no-absolute-timestamps", "implement", "default");
+    const stageState = monitorState({
+      selectedNodeId: stageNodeId,
+      expandedPipelineNodeIds: ["pipe-no-absolute-timestamps"],
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
+    });
+    const stageLines = monitorRightPaneSegmentRows(stageState, TREE_NOW_MS).map(joinMonitorRow);
+
+    expect(stageLines).toContain("Stage");
+    expect(stageLines.some((line) => line.startsWith("startedAt:"))).toBe(false);
+    expect(stageLines.some((line) => line.startsWith("endedAt:"))).toBe(false);
+    expect(stageLines.some((line) => line.startsWith("decidedAt:"))).toBe(false);
+    expect(stageLines.some((line) => line.includes("Invalid Date"))).toBe(false);
+  });
+
+  test("a stage with a decided approval instant paints decidedAt as ISO 8601 UTC", () => {
+    const decidedAt = TREE_NOW_MS - 45_000;
+    const snapshot = pipelineSnapshot({
+      pipelineId: "pipe-decided-at",
+      stages: [
+        snapshotStage({
+          stageId: "approve-plan",
+          status: "approved",
+          endedAt: TREE_NOW_MS - 45_000,
+          decidedAt,
+        }),
+      ],
+    });
+    const stageNodeId = monitorPipelineStageNodeId("pipe-decided-at", "approve-plan", "default");
+    const state = monitorState({
+      selectedNodeId: stageNodeId,
+      expandedPipelineNodeIds: ["pipe-decided-at"],
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
+    });
+
+    const lines = monitorRightPaneSegmentRows(state, TREE_NOW_MS).map(joinMonitorRow);
+
+    expect(lines).toContain(`decidedAt: ${formatAbsoluteTimestamp(decidedAt)}`);
+    expect(lines).toContain("decidedAt: 2023-11-14T22:12:35Z");
   });
 
   test("pipeline detail separates work idle and wall clock", () => {
@@ -1190,7 +1268,7 @@ describe("monitorRightPaneSegmentRows", () => {
     expect(current).toContain("work: 2m");
     expect(current).toContain("idle: 3m");
     expect(current).toContain("wallClock: 10m 0s");
-    expect(current).toContain(`createdAt: ${createdAt}`);
+    expect(current).toContain(`createdAt: ${formatAbsoluteTimestamp(createdAt)}`);
     expect(later).toContain("work: 2m");
     expect(later).toContain("idle: 4m");
     expect(later).toContain("wallClock: 11m 0s");
@@ -1202,7 +1280,7 @@ describe("monitorRightPaneSegmentRows", () => {
     });
     const terminalLines = monitorRightPaneSegmentRows(terminalState, TREE_NOW_MS + 60_000).map(joinMonitorRow);
     expect(terminalLines).toContain("wallClock: 8m 0s");
-    expect(terminalLines).toContain(`finishedAtMs: ${TREE_NOW_MS - 120_000}`);
+    expect(terminalLines).toContain(`finishedAtMs: ${formatAbsoluteTimestamp(TREE_NOW_MS - 120_000)}`);
 
     const empty = pipelineSnapshot({ pipelineId: "pipe-no-activity", state: "pending", createdAt, stages: [] });
     const emptyLines = monitorRightPaneSegmentRows(
@@ -1308,8 +1386,8 @@ describe("monitorRightPaneSegmentRows", () => {
       "status: succeeded",
       "elapsed: 1m 0s",
       "workflowInvocationId: inv-detail-a",
-      `startedAt: ${stageStartedAt}`,
-      `endedAt: ${pipelineFinishedAt}`,
+      `startedAt: ${formatAbsoluteTimestamp(stageStartedAt)}`,
+      `endedAt: ${formatAbsoluteTimestamp(pipelineFinishedAt)}`,
       " ",
       "Artifact",
       "{",
@@ -1423,8 +1501,8 @@ describe("monitorRightPaneSegmentRows", () => {
       "status: succeeded",
       "elapsed: 1m 0s",
       "workflowInvocationId: inv-detail-a",
-      `startedAt: ${stageStartedAt}`,
-      `endedAt: ${pipelineFinishedAt}`,
+      `startedAt: ${formatAbsoluteTimestamp(stageStartedAt)}`,
+      `endedAt: ${formatAbsoluteTimestamp(pipelineFinishedAt)}`,
       " ",
       "Artifact",
       "{",
@@ -1771,8 +1849,8 @@ describe("monitorRightPaneSegmentRows", () => {
       "branch: selected-branch",
       "status: completed",
       "isLive: false",
-      "createdAt: 101",
-      "finishedAtMs: 202",
+      `createdAt: ${formatAbsoluteTimestamp(101)}`,
+      `finishedAtMs: ${formatAbsoluteTimestamp(202)}`,
       "stepId: selected-run",
       "workflowInvocationId: inv-detail-a",
       "loopOutcomeKind: complete",
@@ -1824,7 +1902,7 @@ describe("monitorRightPaneSegmentRows", () => {
       "runId: run-unattributed",
       "status: paused",
       "isLive: false",
-      "createdAt: 0",
+      `createdAt: ${formatAbsoluteTimestamp(0)}`,
       "iterationsConsumed: 0",
       "resumable: false",
       "reviewPasses: 0",
@@ -1855,10 +1933,10 @@ describe("monitorRightPaneSegmentRows", () => {
     ).map(joinMonitorRow);
 
     expect(lines).toContain("isLive: false");
-    expect(lines).toContain("createdAt: 0");
     expect(lines).toContain("iterationsConsumed: 0");
     expect(lines).toContain("resumable: false");
     expect(lines).toContain("prNumber: 0");
+    expect(lines).toContain(`createdAt: ${formatAbsoluteTimestamp(0)}`);
   });
 
   test("ad-hoc run detail omits pipeline context when a pipeline row precedes it", () => {

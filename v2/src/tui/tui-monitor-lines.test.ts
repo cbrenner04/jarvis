@@ -8,6 +8,7 @@ import {
   firstSelectableRunId,
   joinMonitorRow,
   livenessTone,
+  mergePipelineSnapshots,
   monitorDockLines,
   monitorLeftPaneAttentionRows,
   monitorLeftPaneQueueRows,
@@ -802,6 +803,127 @@ describe("monitorLeftPaneAttentionRows", () => {
     const overwhelmedLayout = treeLayout(7); // paneHeight 3
     expect(monitorLeftPaneTreeRows(overwhelmedState, overwhelmedLayout, TREE_NOW_MS).treeRows).toEqual([]);
     // @mutate v2/src/tui/tui-monitor-lines.ts "Math.max(0, layout.paneHeight - leftPaneQueueHeadingRowCount(state) - leftPaneAttentionRowCount(state))" -> "layout.paneHeight - leftPaneQueueHeadingRowCount(state) - leftPaneAttentionRowCount(state)"
+  });
+});
+
+describe("mergePipelineSnapshots", () => {
+  test("an empty or undefined socket map merges to no snapshots", () => {
+    expect(mergePipelineSnapshots(undefined)).toEqual([]);
+    expect(mergePipelineSnapshots({})).toEqual([]);
+  });
+
+  test("distinct pipelines from both sockets survive in sorted socket-path order", () => {
+    const onB = pipelineSnapshot({ pipelineId: "b-only", state: "running" });
+    const onA = pipelineSnapshot({ pipelineId: "a-only", state: "running" });
+
+    const merged = mergePipelineSnapshots({ "/b": { pipelines: [onB] }, "/a": { pipelines: [onA] } });
+
+    expect(merged.map((snapshot) => snapshot.pipelineId)).toEqual(["a-only", "b-only"]);
+  });
+
+  test("merging two sockets serving the same pipeline yields one snapshot per pipelineId", () => {
+    // Keystone: reverting the never-seen-pipelineId guard to always-push reproduces the pre-fix
+    // duplicate-row defect (concatenation, one snapshot per socket instead of one per pipelineId).
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (existingIndex === undefined) {" -> "if (true) {"
+    const snapshotA = pipelineSnapshot({ pipelineId: "shared", state: "running" });
+    const snapshotB = pipelineSnapshot({ pipelineId: "shared", state: "running" });
+
+    const merged = mergePipelineSnapshots({ "/a": { pipelines: [snapshotA] }, "/b": { pipelines: [snapshotB] } });
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.pipelineId).toBe("shared");
+  });
+
+  test("the more-advanced snapshot at the later socket path outranks the earlier, less-advanced one", () => {
+    // Mutation checkpoint: collapsing the collision guard to first-encounter-wins turns this test RED.
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (pipelineSnapshotOutranks(snapshot, socketPath, current, currentSocketPath)) {" -> "if (false) {"
+    const lessAdvanced = pipelineSnapshot({ pipelineId: "shared", state: "running", finishedAtMs: null, stages: [] });
+    const moreAdvanced = pipelineSnapshot({
+      pipelineId: "shared",
+      state: "succeeded",
+      finishedAtMs: 10,
+      stages: [snapshotStage({ stageId: "implement", endedAt: 10 })],
+    });
+
+    const merged = mergePipelineSnapshots({
+      "/a": { pipelines: [lessAdvanced] },
+      "/b": { pipelines: [moreAdvanced] },
+    });
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.finishedAtMs).toBe(10);
+  });
+
+  test("the more-advanced snapshot at the earlier socket path outranks the later, less-advanced one", () => {
+    // Mutation checkpoint: collapsing the collision guard to unconditional last-wins turns this test RED.
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (pipelineSnapshotOutranks(snapshot, socketPath, current, currentSocketPath)) {" -> "if (true) {"
+    const moreAdvanced = pipelineSnapshot({
+      pipelineId: "shared",
+      state: "succeeded",
+      finishedAtMs: 10,
+      stages: [snapshotStage({ stageId: "implement", endedAt: 10 })],
+    });
+    const lessAdvanced = pipelineSnapshot({ pipelineId: "shared", state: "running", finishedAtMs: null, stages: [] });
+
+    const merged = mergePipelineSnapshots({
+      "/a": { pipelines: [moreAdvanced] },
+      "/b": { pipelines: [lessAdvanced] },
+    });
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.finishedAtMs).toBe(10);
+  });
+
+  test("two sockets serving an identical expanded pipeline paint no duplicate node ids at any tree depth", () => {
+    const pipelineId = "shared-fan-out";
+    const snapshot = pipelineSnapshot({
+      pipelineId,
+      name: "full-review",
+      state: "running",
+      stages: [
+        snapshotStage({ id: "intent-default", stageId: "intent", position: 0, status: "succeeded" }),
+        snapshotStage({
+          id: "gate-alpha",
+          stageId: "approve-intent",
+          branchKey: "alpha",
+          position: 1,
+          status: "approved",
+        }),
+        snapshotStage({
+          id: "gate-beta",
+          stageId: "approve-intent",
+          branchKey: "beta",
+          position: 1,
+          status: "approved",
+        }),
+        snapshotStage({ id: "plan-alpha", stageId: "plan", branchKey: "alpha", position: 2, status: "running" }),
+        snapshotStage({ id: "plan-beta", stageId: "plan", branchKey: "beta", position: 2, status: "running" }),
+      ],
+    });
+    const branchAlphaId = monitorPipelineBranchNodeId(pipelineId, "alpha");
+    const branchBetaId = monitorPipelineBranchNodeId(pipelineId, "beta");
+    const state = monitorState({
+      pipelineSnapshotsBySocketPath: { "/a": { pipelines: [snapshot] }, "/b": { pipelines: [snapshot] } },
+      expandedPipelineNodeIds: [pipelineId, branchAlphaId, branchBetaId],
+      terminalColumns: 245,
+      terminalRows: 72,
+    });
+
+    const { treeRows } = monitorLeftPaneTreeRows(state, treeLayout(), TREE_NOW_MS);
+    const selectableIds = monitorSelectableNodeIds(state, TREE_NOW_MS);
+    const treeIds = treeRows.map((row) => row.id);
+
+    expect(treeIds.length).toBe(new Set(treeIds).size);
+    expect(selectableIds.length).toBe(new Set(selectableIds).size);
+    expect(treeIds).toEqual(
+      expect.arrayContaining([
+        pipelineId,
+        branchAlphaId,
+        branchBetaId,
+        monitorPipelineStageNodeId(pipelineId, "plan", "alpha"),
+        monitorPipelineStageNodeId(pipelineId, "plan", "beta"),
+      ]),
+    );
   });
 });
 
@@ -2018,37 +2140,18 @@ describe("monitorDockLines", () => {
     });
   });
 
-  test("deduplicates contradictory pipeline snapshots by bucket precedence", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (candidateOutranksCurrent) bucketByPipelineId.set(snapshot.pipelineId, bucket);" -> "if (!candidateOutranksCurrent) bucketByPipelineId.set(snapshot.pipelineId, bucket);"
+  test("counts pipeline observations by the merge-level winner per pipelineId", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "buckets[classifyPipelineObservation(snapshot)] += 1;" -> "buckets[classifyPipelineObservation(snapshot)] += 0;"
+    // "colliding" is running (unfinished) on /a and terminal on /b; the merge winner is /b's
+    // terminal snapshot (finished beats unfinished), so it counts once as "done", not twice.
     const state = monitorState({
       pipelineSnapshotsBySocketPath: {
-        "/a": {
-          pipelines: [
-            pipelineSnapshot({ pipelineId: "gate", state: "succeeded" }),
-            pipelineSnapshot({ pipelineId: "running", state: "succeeded" }),
-            pipelineSnapshot({ pipelineId: "failed", state: "succeeded" }),
-            pipelineSnapshot({ pipelineId: "done", state: "succeeded" }),
-          ],
-        },
-        "/b": {
-          pipelines: [
-            pipelineSnapshot({ pipelineId: "gate", state: "failed" }),
-            pipelineSnapshot({ pipelineId: "running", state: "rejected" }),
-            pipelineSnapshot({ pipelineId: "failed", state: "interrupted" }),
-            pipelineSnapshot({ pipelineId: "done", state: "succeeded" }),
-          ],
-        },
-        "/c": {
-          pipelines: [
-            pipelineSnapshot({ pipelineId: "gate", state: "running" }),
-            pipelineSnapshot({ pipelineId: "running", state: "pending" }),
-          ],
-        },
-        "/d": { pipelines: [pipelineSnapshot({ pipelineId: "gate", state: "awaiting-approval" })] },
+        "/a": { pipelines: [pipelineSnapshot({ pipelineId: "colliding", state: "running" })] },
+        "/b": { pipelines: [pipelineSnapshot({ pipelineId: "colliding", state: "succeeded", finishedAtMs: 10 })] },
       },
     });
 
-    expect(pipelineObservationBuckets(state)).toEqual({ running: 1, awaitingGate: 1, failed: 1, done: 1 });
+    expect(pipelineObservationBuckets(state)).toEqual({ running: 0, awaitingGate: 0, failed: 0, done: 1 });
   });
 
   test("renders running and awaiting-gate counts before dock metadata", () => {
@@ -2212,6 +2315,8 @@ describe("monitorDockLines", () => {
   });
 
   test("projects retained pipeline buckets and RPC and command feedback together", () => {
+    // "contradictory" collides across sockets: /a's terminal snapshot outranks /b's running one
+    // (finished beats unfinished), so it resolves to "done", not the old bucket-precedence "running".
     const terminal = pipelineSnapshot({ pipelineId: "contradictory", state: "succeeded", finishedAtMs: 20 });
     const nonTerminal = pipelineSnapshot({ pipelineId: "contradictory", state: "running", finishedAtMs: null });
     const duplicate = pipelineSnapshot({ pipelineId: "duplicate", state: "pending" });
@@ -2229,19 +2334,19 @@ describe("monitorDockLines", () => {
       terminalColumns: 180,
     });
 
-    expect(pipelineObservationBuckets(state)).toEqual({ running: 2, awaitingGate: 0, failed: 1, done: 0 });
+    expect(pipelineObservationBuckets(state)).toEqual({ running: 1, awaitingGate: 0, failed: 1, done: 1 });
     const controlReplacement = "\uFFFD";
     expect(monitorDockLines(state)[0]).toBe(
-      `2 running · 0 awaiting gate · 1 failed · 0 done · profile@digest · refresh 750ms · error: list${controlReplacement}failed · result: retained${controlReplacement}result`,
+      `1 running · 0 awaiting gate · 1 failed · 1 done · profile@digest · refresh 750ms · error: list${controlReplacement}failed · result: retained${controlReplacement}result`,
     );
     expect(monitorDockLines({ ...state, lastRpcError: null })[0]).toBe(
-      `2 running · 0 awaiting gate · 1 failed · 0 done · profile@digest · refresh 750ms · result: retained${controlReplacement}result`,
+      `1 running · 0 awaiting gate · 1 failed · 1 done · profile@digest · refresh 750ms · result: retained${controlReplacement}result`,
     );
     expect(pipelineObservationBuckets({ ...state, lastRpcError: "refresh failed" })).toEqual({
-      running: 2,
+      running: 1,
       awaitingGate: 0,
       failed: 1,
-      done: 0,
+      done: 1,
     });
   });
 

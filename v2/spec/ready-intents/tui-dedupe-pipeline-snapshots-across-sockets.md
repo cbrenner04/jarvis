@@ -15,7 +15,7 @@ Single module-boundary surface: `mergePipelineSnapshots` in `v2/src/tui/tui-moni
 ## Decisions
 
 - `mergePipelineSnapshots` dedupes by `pipelineId`, one snapshot per id — rules out concatenation that double-counts a pipeline served by two sockets.
-- On collision, prefer the more-advanced snapshot by a deterministic documented rule (finished beats unfinished via `finishedAtMs`, then greater settled-stage count, then sorted socket-path order as the final tiebreak) — rules out first-encounter-wins, which is stale and nondeterministic while two daemons momentarily disagree.
+- On collision, prefer the more-advanced snapshot by a deterministic documented rule (finished beats unfinished via `finishedAtMs`, then greater count of stages with non-null `endedAt`, then sorted socket-path order as the final tiebreak) — rules out first-encounter-wins, which is stale and nondeterministic while two daemons momentarily disagree. `endedAt` is the existing terminal marker read elsewhere for stage completion (e.g. `pipelineStageRollupRow`, `stageDetailRows`).
 - Scope stays inside the merge function; tree builder, selectable-node computation, and attention projection consume the deduped list unchanged — rules out patching duplication downstream in tree/selection code.
 - Iteration order remains sorted socket-path order, first-appearance position per id — rules out a reorder that churns unrelated row-ordering tests.
 

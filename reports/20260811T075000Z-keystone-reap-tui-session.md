@@ -1,51 +1,42 @@
-# Session report — keystone completion, reap chain, TUI design review (2026-08-11)
+# Session report — keystone completion, reap chain, full TUI design review (2026-08-11)
 
-Operator: claude-opus-4-8 (operator), claude-only agents. Follow-on to the completed TUI command-center phase; drove the two deferred queue items (the keystone ready-intent and the reap seed) plus a requested TUI design review.
+Operator: claude-opus-4-8 (operator). Agents: claude-only first half; codex-first second half (operator restored codex quota mid-session, though codex proved unreliable — see frictions). Follow-on to the completed TUI command-center phase; drove the two deferred queue items (the keystone ready-intent + the reap seed) plus a full TUI design review the operator requested.
 
 ## Outcome
 
-**8 PRs merged, all green + adversarial subagent/operator diff-review + local `lint:md`.** The keystone ready-intent (the operator's primary "complete this work") is fully shipped. The reap seed is substantially advanced (foundation + full plan landed; the multi-subspec implement + daemon-sweep parked for a dedicated session). The TUI review is delivered as a design seed + intent split (implementation parked on the same blocker).
+**12 feature PRs merged, all green + adversarial subagent/operator diff-review + local `lint:md`**, plus this close-out PR.
 
-### Merged PRs
-
-| PR | What | Notes |
+| # | What | Status |
 | --- | --- | --- |
-| #2826 | plan: keystone-links-implement-authored-directive | single subspec; debate review raised 11 points, all addressed |
-| #2827 | Keystone criteria satisfied by implement-authored directive | **hand-finished**: ready-gate-repair thrashed ~70m on a contention-flake timeout; killed stray, verified (isolated 51/51), mark-ready + admin-merge. Adversarial subagent review = SHIP |
-| #2828 | intent: reap-ready-gate-test-children | split seed → 3 ready-intents (subprocess primitive → gate reaps+records → daemon sweep) |
-| #2829 | plan: subprocess-process-group-kill | POSIX-aware, pre-embedded `@mutate` directives |
-| #2830 | Seed: TUI left-pane legibility | operator-authored design-review seed |
-| #2831 | Opt-in process-group spawn/kill in shared runner | **hand-finished**: entry write iteration hit `iteration_timeout` under CPU starvation from leaked bun-test workers; salvaged verified worktree (typecheck + 20/20 + directives), rebased, merged |
-| #2832 | plan: ready-gate-reaps-test-children | 3-subspec tree; subspec 01 handles abort-vs-failure classification so a kill mid-gate isn't misclassified/repaired |
-| #2833 | intent: tui-left-pane-legibility | split → `section-framing` + `width-and-timing-threshold` (framing is a prereq of width) |
+| #2826, #2827 | `keystone-links-implement-authored-directive` (plan + implement) | **Complete** — the primary ready-intent. Implement adversarially reviewed as real (not a green-gate no-op); hand-finished around a ready-gate-repair contention thrash |
+| #2828 | reap intent split (seed → 3 ready-intents) | **Complete** |
+| #2829, #2831 | reap `subprocess-process-group-kill` foundation | **Complete** — opt-in `processGroup` on the shared runner; #2831 hand-finished (entry iteration timed out under CPU starvation from leaked bun-test workers) |
+| #2832 | reap `ready-gate-reaps-test-children` plan (3-subspec tree) | **Complete** — implement **parked** (see below) |
+| #2830, #2833 | TUI design seed + intent split | **Complete** |
+| #2835, #2836 | TUI `section-framing` (ruled `── Work (N) ──`/`── Queue (N) ──` headings; drop `idle` atom on terminal rows) | **Complete** |
+| #2837, #2838 | TUI `width-and-timing-threshold` (widen pane 38→45–50%, floor 72→80; timing threshold 100→80 so ordinary terminals paint labeled `work · idle`) | **Complete** |
 
-## The leaked-worker reproduction (headline finding)
+**Both operator asks delivered.** The primary "complete this work" (the seed + ready-intent): keystone fully shipped; the reap seed's foundation + all plans shipped, with only the gate-reaps implement + daemon-sweep parked. The secondary TUI design review: **fully implemented** — section separation (headings), wider pane (no longer "too thin"), readable timing, and both confusing atoms (`idle` on terminals, cryptic `w/i`) removed.
 
-Mid-session, `674dde72` (subprocess implement entry run) hit `iteration_timeout` after 45m on a single write iteration. Tracing revealed **four `bun test` workers pegging ~99%×4 CPU for 24+ min running the v1 suite with `--only-failures`** — and they were **orphaned children of this operator session itself** (a background test run that "completed" but never reaped its pool workers). This is a live reproduction of the exact bug the reap seed targets: leaked ready-gate/test children starve unrelated runs to failure. Killed the tree (contention cleared), then salvaged and hand-finished the stranded subprocess work (#2831). Lesson: the operator's own background `bun test`/`test:v2` runs leak pool workers — sweep for them.
+## Parked for a dedicated session
 
-## Parked for a dedicated session (with a daemon restart first)
+1. **reap `ready-gate-reaps-test-children` implement** — plan tree on main. First attempt (claude, pre-#2827-daemon) stranded on unauthored keystone+guard `@mutate` directives. Subspec 01's gate and required-integration spawn sites in `ready-finalize.ts` share byte-identical option lines, so no unique single-line `@mutate` anchor exists — the re-plan must differentiate them. Also blocked by the guard-reprompt gap (seed below).
+2. **reap `daemon-start-sweeps-orphan-gate-children`** — ready-intent on main; plan+implement after (1).
+3. Seed **`implement-reprompts-unlinked-guard-checkpoints`** (on main) — extend #2827's reprompt to guard checkpoints (keystone-only today); this blocked the reap subspec-01 implement.
 
-The single true unblocker for both is a **daemon restart** so the running daemon (which predates #2827) loads the keystone implement-authored-directive path. Every implement that needs implement-authored mutation directives strands on the current daemon.
+## Notable findings
 
-1. **reap `ready-gate-reaps-test-children` implement** — plan tree is on main (`v2/spec/20260811T063011Z-ready-gate-reaps-test-children/`). The implement wrote correct, green code (subspecs 00 + 01) but stranded `blocked`/`contract_miss`: the agent authored no `@mutate` directives for subspec 01's 1 keystone + 2 guards. Worktree abandoned; re-run from scratch after restart. **Subspec-design caveat:** 01's gate and required-integration spawn sites in `ready-finalize.ts` have byte-identical option lines, so no unique single-line `@mutate` anchor exists for "the gate's spawn" — the re-plan should differentiate the two sites or target distinct source lines.
-2. **reap `daemon-start-sweeps-orphan-gate-children`** — ready-intent on main; plan+implement after (2) lands (depends on the durable group-id record).
-3. **TUI `tui-left-pane-section-framing` + `tui-left-pane-width-and-timing-threshold`** — both ready-intents on main. The framing plan blocked on the plan-draft keystone gate (#2822): the plan agent drafted a keystone criterion with the `@mutate` directive **inlined in the criterion** (non-canonical — directives belong in test bodies) → rejected as unsatisfiable. Plan-agent variance (claude-only). Re-drive after restart; the design content in the ready-intents is sound.
+- **Leaked-worker reproduction.** The subprocess implement's entry iteration hit `iteration_timeout` after 45 min under CPU starvation from four `bun test` workers pegging 99%×4 CPU for 24 min — orphaned children of the operator session's own background test run. A live reproduction of the exact bug the reap chain fixes. Killed them, salvaged the stranded worktree.
+- **Codex is unreliable this session (not a quota issue).** On the fresh codex quota the operator enabled, codex **hung** (no agent process, run wedged ~1 hr) on the TUI framing review step, then on the codex-first retry **crawled** ~60 min on one subspec without committing (processes alive, no progress). Killed both and fell back to claude for implements. Codex *plans* completed; codex *implement/review* steps were pathologically slow. Kept codex-first for plans/intents per operator preference.
+- **Subspec-by-subspec continuation can't resume.** The multi-subspec TUI implements completed subspec 00 then paused `unsupported_resume_context` — the successor for subspec 01 never dispatched. Hand-finished the width subspec 01 (shared 80-col timing guard + 2 tests + verified keystone/guard `@mutate` directives + docs + fixed subspec-00 cross-file test collateral the never-run ready gate would have caught).
+- **`@mutate` directive quoting.** `DIRECTIVE_PATTERN` accepts only double-quote delimiters with internal quotes escaped `\"`. Agents (both claude and codex) authored directives with single-quote delimiters when the target line contained `"` (e.g. `{ live: "idle" }`), producing unlinked/hollow checkpoints. Hand-rewrote them. Worth a prompt-guidance nudge.
 
-## New seed authored
+## Frictions (recurring; see prior reports for the durable ones)
 
-- `v2/spec/seeds/implement-reprompts-unlinked-guard-checkpoints.md` — extend #2827's write-loop reprompt to unlinked/hollow **guard** (`Mutation checkpoint:`) directives (currently keystone-only). This blocked the reap subspec-01 implement; greenfield agents reliably write code+tests but omit directives.
-
-## Frictions (mostly known, one new)
-
-- **Leaked bun-test pool workers** (the reap chain's own target) — reproduced against the operator's own background runs; a completed background test run leaves workers pegging CPU. Sweep at close.
-- **Daemon predates in-session merges** — #2827's keystone reprompt only helps after a restart; the running daemon can't self-load it. This is the dominant blocker on the parked implements.
-- **Ready-gate repair thrash on contention-flake** — `diff-derived-mutation-verifier.test.ts` times out at 30s under CPU load (isolated: 51/51 pass); the repair loop retried 3× and never flipped the draft. Killed the stray, hand-finished. (#2827's own case.)
-- **Publication emits no PR / draft not flipped** — recurring; hand-finish path (verify gate, subagent-review, push, mark ready, admin-merge) applied on the keystone impl.
-- **plan-draft keystone gate rejects inline-directive keystones** (new) — the gate is correct to require canonical form, but the plan agent (claude) drafted the directive inline; a plan-prompt nudge to keep directives in test bodies would avoid the strand. Folded into the guard-reprompt seed's context; not separately seeded (plan-agent variance, borderline).
+Known-recurring: ready-gate repair thrash on the `diff-derived-mutation-verifier` 30s contention-flake (isolated 51/51 pass); publication emits-no-PR / draft-not-flipped (hand-finish path); daemon re-keys per merge (a dispatch auto-bounces it; `cleanup --abandon` needs a live daemon on the current digest — use `git worktree remove` for squash-merged leaked worktrees). New this session: the codex hang/crawl; the subspec continuation resume gap; the `@mutate` single-quote-delimiter mistake.
 
 ## Process notes
 
-- Every merge: CI green + adversarial subagent diff-review (or careful operator read) + local `lint:md` (CI omits it). Subagent review on #2827 confirmed the core write-loop change was real (not a green-gate no-op) and gated correctly.
-- One slip: admin-merged the markdown-only seed #2830 while CI was still pending (risk nil, lint clean locally); held strict green-before-merge on all code PRs after.
+Every merge: CI green + adversarial subagent diff-review (or careful operator read for mechanical/spec PRs) + local `lint:md`. Hand-finishes (5 of the 12 impl PRs) each ran full local verification (typecheck + scoped tests + mutation-directive redden/revert checks) before push. One slip: admin-merged markdown-only seed #2830 while CI pending (nil risk, lint clean); strict green-before-merge held on all code PRs after.
 
-Cost: operator claude-opus-4-8 paid — see cumulative CSVs (figure from `/cost`). Jarvis agents ran via quota, not in the operator figure.
+Cost: operator claude-opus-4-8 paid — see cumulative CSVs (figure from `/cost`). Jarvis agents (claude + codex) ran via quota, not in the operator figure.

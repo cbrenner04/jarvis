@@ -2783,6 +2783,12 @@ describe("runTuiEntry", () => {
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(offPaneId);
     expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toContain(offPaneId);
 
+    // Expanding the selected pipeline shrinks the remaining tree budget further still (the Work
+    // heading already claims one of its rows); the selected row must stay in the painted viewport.
+    await view.toggleExpansion();
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(offPaneId);
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toContain(offPaneId);
+
     view.quit();
     expect(await pending).toBe(0);
   });

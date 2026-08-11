@@ -9,6 +9,7 @@ import {
   monitorLeftPaneAttentionRows,
   monitorLeftPaneQueueRows,
   monitorLeftPaneTreeRows,
+  monitorLeftPaneWorkHeadingRows,
   monitorRightPaneSegmentRows,
 } from "./tui-monitor-lines.ts";
 import {
@@ -168,6 +169,10 @@ function renderLeftPaneContent(
   // attention consumer integration RED.
   const attentionRows = monitorLeftPaneAttentionRows(state, nowMs);
   rendered.push(...renderSegmentRows(attentionRows, Text, RowBox, rendered.length));
+  // Keystone checkpoint: an in-body mutation directive disables this call to turn the pinned
+  // Work-heading consumer integration RED.
+  const workHeadingRows = monitorLeftPaneWorkHeadingRows(state);
+  rendered.push(...renderSegmentRows(workHeadingRows, Text, RowBox, rendered.length));
   const { treeRows, fullTreeRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
   if (fullTreeRows.length === 0) {
     rendered.push(renderSegmentRow({ segments: [{ text: "No runs." }] }, Text, rendered.length, RowBox));

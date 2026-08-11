@@ -3,6 +3,7 @@ import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
 import { buildTreeRunRow, type MonitorLineRow } from "./tui-monitor-lines.ts";
+import { computeShellLayout } from "./tui-shell-layout.ts";
 import {
   branchWorkIdleTiming,
   buildBranchMonitorTreeRow,
@@ -945,7 +946,7 @@ describe("monitor pipeline tree elapsed cells", () => {
       throw new Error("expected pipeline, stage, and run nodes");
     }
     return {
-      pipelineElapsed: clusterAtoms(buildPipelineMonitorTreeRow(pipelineNode, 90, nowMs)).at(-1) ?? "",
+      pipelineElapsed: clusterAtoms(buildPipelineMonitorTreeRow(pipelineNode, 79, nowMs)).at(-1) ?? "",
       stageElapsed: clusterAtoms(buildStageMonitorTreeRow(stageNode, 90, nowMs)).at(-1) ?? "",
       runElapsed: clusterAtoms(buildTreeRunRow(runNode.tableRow, runNode.depth, 90, nowMs)).at(-1) ?? "",
     };
@@ -1251,7 +1252,7 @@ describe("monitor pipeline tree elapsed cells", () => {
   });
 
   test("pipeline timing has full and compact tree representations", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "const compact = width < 100;" -> "const compact = false;"
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "const compact = pipelineBranchTimingCompact(width);" -> "const compact = false;"
     const nowMs = 1_800_000_000_000;
     const pipeline = joinTree([
       pipelineSnapshot({
@@ -1265,7 +1266,7 @@ describe("monitor pipeline tree elapsed cells", () => {
     ])[0];
     if (pipeline === undefined) throw new Error("expected pipeline");
     const full = buildPipelineMonitorTreeRow(pipeline, 100, nowMs);
-    const compact = buildPipelineMonitorTreeRow(pipeline, 99, nowMs);
+    const compact = buildPipelineMonitorTreeRow(pipeline, 79, nowMs);
     expect(clusterAtoms(full).at(-1)).toHaveLength(20);
     expect(clusterAtoms(full).at(-1)?.trim()).toBe("work 1m · idle 1m");
     expect(clusterAtoms(compact).at(-1)).toHaveLength(8);
@@ -1273,6 +1274,78 @@ describe("monitor pipeline tree elapsed cells", () => {
     expect(labelSegment(full).trim()).toBe("width-check");
     expect(labelSegment(compact).trim()).toBe("width-check");
     expect(pipeline.snapshot.state).toBe("pending");
+  });
+
+  test("ordinary split geometry renders labeled pipeline and branch timing", () => {
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return leftPaneWidth < 80;" -> "return leftPaneWidth < 100;"
+    const nowMs = 1_800_000_000_000;
+    const oneMinuteAgo = nowMs - 60_000;
+    const snapshot = pipelineSnapshot({
+      pipelineId: "pipe-ordinary",
+      name: "full-review",
+      state: "failed",
+      stages: [
+        snapshotStage({
+          stageId: "plan",
+          branchKey: "feature",
+          position: 1,
+          status: "succeeded",
+          startedAt: nowMs - 120_000,
+          endedAt: oneMinuteAgo,
+        }),
+      ],
+    });
+    const pipeline = joinTree([snapshot])[0];
+    if (pipeline === undefined) throw new Error("expected pipeline");
+    const branch = pipeline.branches.find((candidate) => candidate.branchKey === "feature");
+    if (branch === undefined) throw new Error("expected branch");
+    // A zero-offset 180-column terminal yields an 80-plus-column left pane after the geometry retune.
+    const leftWidth = computeShellLayout(180, 40, 0).leftWidth;
+    const pipelineCell = clusterAtoms(buildPipelineMonitorTreeRow(pipeline, leftWidth, nowMs)).at(-1);
+    const branchCell = clusterAtoms(buildBranchMonitorTreeRow(branch, leftWidth, nowMs)).at(-1);
+    expect(pipelineCell).toHaveLength(20);
+    expect(pipelineCell?.trim()).toBe("work 1m · idle 1m");
+    expect(branchCell).toHaveLength(20);
+    expect(branchCell?.trim()).toBe("work 1m · idle 1m");
+  });
+
+  test("timing width boundary keeps the narrow compact fallback", () => {
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return leftPaneWidth < 80;" -> "return leftPaneWidth >= 80;"
+    const nowMs = 1_800_000_000_000;
+    const oneMinuteAgo = nowMs - 60_000;
+    const pipeline = joinTree([
+      pipelineSnapshot({
+        pipelineId: "pipe-boundary",
+        state: "failed",
+        stages: [
+          snapshotStage({ stageId: "stage", status: "succeeded", startedAt: nowMs - 120_000, endedAt: oneMinuteAgo }),
+        ],
+      }),
+    ])[0];
+    if (pipeline === undefined) throw new Error("expected pipeline");
+    const at80 = clusterAtoms(buildPipelineMonitorTreeRow(pipeline, 80, nowMs)).at(-1);
+    const at79 = clusterAtoms(buildPipelineMonitorTreeRow(pipeline, 79, nowMs)).at(-1);
+    expect(at80).toHaveLength(20);
+    expect(at80?.trim()).toBe("work 1m · idle 1m");
+    expect(at79).toHaveLength(8);
+    expect(at79?.trim()).toBe("w1m/i1m");
+    // Below the boundary a wide paired form still elides idle rather than clipping work.
+    const parked = joinTree([
+      pipelineSnapshot({
+        pipelineId: "pipe-boundary-overflow",
+        state: "failed",
+        stages: [
+          snapshotStage({
+            stageId: "stage",
+            status: "succeeded",
+            startedAt: nowMs - 100 * 86_400_000 - 23 * 3_600_000,
+            endedAt: nowMs - 100 * 86_400_000,
+          }),
+        ],
+      }),
+    ])[0];
+    if (parked === undefined) throw new Error("expected parked pipeline");
+    expect(clusterAtoms(buildPipelineMonitorTreeRow(parked, 79, nowMs)).at(-1)).toBe("w23h/i… ");
   });
 
   test("the compact timing cell elides idle instead of right-clipping work when the paired form overflows", () => {
@@ -1295,7 +1368,7 @@ describe("monitor pipeline tree elapsed cells", () => {
       }),
     ])[0];
     if (pipeline === undefined) throw new Error("expected pipeline");
-    const compact = buildPipelineMonitorTreeRow(pipeline, 99, nowMs);
+    const compact = buildPipelineMonitorTreeRow(pipeline, 79, nowMs);
     const cell = clusterAtoms(compact).at(-1) ?? "";
     expect(cell).toBe("w59m/i… ");
   });
@@ -1321,7 +1394,7 @@ describe("monitor pipeline tree elapsed cells", () => {
       }),
     ])[0];
     if (pipeline === undefined) throw new Error("expected pipeline");
-    const compact = buildPipelineMonitorTreeRow(pipeline, 99, nowMs);
+    const compact = buildPipelineMonitorTreeRow(pipeline, 79, nowMs);
     const cell = clusterAtoms(compact).at(-1) ?? "";
     expect(cell).toBe("w23h/i… ");
   });
@@ -1346,7 +1419,7 @@ describe("monitor pipeline tree elapsed cells", () => {
       }),
     ])[0];
     if (pipeline === undefined) throw new Error("expected pipeline");
-    const compact = buildPipelineMonitorTreeRow(pipeline, 99, nowMs);
+    const compact = buildPipelineMonitorTreeRow(pipeline, 79, nowMs);
     const cell = clusterAtoms(compact).at(-1) ?? "";
     expect(cell).toBe("w59m/i1m");
   });

@@ -17,24 +17,29 @@ import {
 } from "./tui-shell-layout.ts";
 
 describe("computeShellLayout", () => {
-  test("reference 245×72 geometry at dividerOffset 0", () => {
-    expect(computeShellLayout(245, 72, 0)).toEqual({
-      layoutMode: "split",
-      leftWidth: 94,
-      rightWidth: 151,
-      paneHeight: 68,
-      dockHeight: 4,
-    });
-  });
+  test("ordinary and wide terminals use the retuned left-pane clamp", () => {
+    // @mutate v2/src/tui/tui-shell-layout.ts "const LEFT_BASE_FRACTION = 0.45;" -> "const LEFT_BASE_FRACTION = 0.38;"
+    // @mutate v2/src/tui/tui-shell-layout.ts "const LEFT_FLOOR = 80;" -> "const LEFT_FLOOR = 72;"
+    // @mutate v2/src/tui/tui-shell-layout.ts "const LEFT_CEILING_FRACTION = 0.5;" -> "const LEFT_CEILING_FRACTION = 0.4;"
+    expect(computeShellLayout(180, 50, 0)).toMatchObject({ leftWidth: 81, rightWidth: 99 });
+    expect(computeShellLayout(200, 50, 0)).toMatchObject({ leftWidth: 90, rightWidth: 110 });
+    expect(computeShellLayout(245, 72, 0)).toMatchObject({ leftWidth: 111, rightWidth: 134 });
 
-  test("non-reference 200×50 geometry at dividerOffset 0", () => {
-    expect(computeShellLayout(200, 50, 0)).toEqual({
-      layoutMode: "split",
-      leftWidth: 76,
-      rightWidth: 124,
-      paneHeight: 46,
-      dockHeight: 4,
-    });
+    let floorOffset = 0;
+    let ceilingOffset = 0;
+    for (let step = 0; step < 20; step += 1) {
+      floorOffset = nudgeDividerOffset(245, floorOffset, "[");
+      ceilingOffset = nudgeDividerOffset(245, ceilingOffset, "]");
+    }
+
+    const base = computeShellLayout(245, 72, 0);
+    const floor = computeShellLayout(245, 72, floorOffset);
+    const ceiling = computeShellLayout(245, 72, ceilingOffset);
+    expect(floor.leftWidth).toBe(80);
+    expect(nudgeDividerOffset(245, floorOffset, "[")).toBe(floorOffset);
+    expect(ceiling.leftWidth).toBe(Math.floor(245 * 0.5));
+    expect(nudgeDividerOffset(245, ceilingOffset, "]")).toBe(ceilingOffset);
+    expect(base.leftWidth).toBeLessThanOrEqual(ceiling.leftWidth);
   });
 
   // Inversion target: STACKED_THRESHOLD in tui-shell-layout.ts — changing `< 120` to `<= 120` turns this test RED.
@@ -57,27 +62,6 @@ describe("nudgeDividerOffset", () => {
     expect(narrower).toBe(-2);
     expect(computeShellLayout(245, 72, narrower).leftWidth).toBe(base.leftWidth - 2);
     expect(computeShellLayout(245, 72, narrower).rightWidth).toBe(base.rightWidth + 2);
-  });
-
-  // Inversion target: LEFT_FLOOR in tui-shell-layout.ts — lowering the floor below 72 turns this test RED.
-  test("[ cannot nudge left pane below 72 cols", () => {
-    let offset = 0;
-    for (let step = 0; step < 20; step += 1) {
-      offset = nudgeDividerOffset(245, offset, "[");
-    }
-    expect(computeShellLayout(245, 72, offset).leftWidth).toBe(72);
-    expect(nudgeDividerOffset(245, offset, "[")).toBe(offset);
-  });
-
-  // Inversion target: LEFT_CEILING_FRACTION in tui-shell-layout.ts — raising the ceiling above 40% turns this test RED.
-  test("] cannot nudge left pane above 40% of width", () => {
-    const ceiling = Math.floor(245 * 0.4);
-    let offset = 0;
-    for (let step = 0; step < 20; step += 1) {
-      offset = nudgeDividerOffset(245, offset, "]");
-    }
-    expect(computeShellLayout(245, 72, offset).leftWidth).toBe(ceiling);
-    expect(nudgeDividerOffset(245, offset, "]")).toBe(offset);
   });
 });
 

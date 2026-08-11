@@ -1167,7 +1167,7 @@ describe("openInkMonitor", () => {
       expectedOffset = nudgeDividerOffset(245, expectedOffset, "[");
     }
     expect(displayStates.at(-1)?.dividerOffset).toBe(expectedOffset);
-    expect(computeShellLayout(245, 72, expectedOffset).leftWidth).toBe(72);
+    expect(computeShellLayout(245, 72, expectedOffset).leftWidth).toBe(80);
     expect(nudgeDividerOffset(245, expectedOffset, "[")).toBe(expectedOffset);
 
     spy.mockRestore();

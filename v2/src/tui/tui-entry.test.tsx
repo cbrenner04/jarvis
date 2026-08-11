@@ -4843,10 +4843,10 @@ describe("runTuiEntry", () => {
     expect(elapsedBefore).toBe(formatElapsedWallClock(runStartMs, null, nowMs));
     const runningBefore = timingCellForPipeline(view.monitorStates.at(-1), "pipe-alpha", nowMs);
     const parkedBefore = timingCellForPipeline(view.monitorStates.at(-1), "pipe-parked", nowMs);
-    // The fixture's real left-pane width (~94 columns) stays below the 100-column labeled-form floor,
-    // so this asserts the compact `w<duration>/i<duration>` cell that actually paints at ordinary widths.
-    expect(runningBefore).toBe("w1m");
-    expect(parkedBefore).toBe("w1m/i2m");
+    // The fixture's real left-pane width (~94 columns) is at or above the 80-column labeled-form floor,
+    // so this asserts the labeled `work <duration> · idle <duration>` cell that paints at ordinary widths.
+    expect(runningBefore).toBe("work 1m");
+    expect(parkedBefore).toBe("work 1m · idle 2m");
 
     nowMs += 60_000;
     // Mutation checkpoint: calling refreshRuns or list/pipeline_list from the display-tick callback must turn display-tick/no-RPC RED.
@@ -4861,9 +4861,9 @@ describe("runTuiEntry", () => {
     expect(elapsedAfter).not.toBe(elapsedBefore);
     const runningAfter = timingCellForPipeline(view.monitorStates.at(-1), "pipe-alpha", nowMs);
     const parkedAfter = timingCellForPipeline(view.monitorStates.at(-1), "pipe-parked", nowMs);
-    expect(runningAfter).toBe("w2m");
+    expect(runningAfter).toBe("work 2m");
     expect(runningAfter).not.toBe(runningBefore);
-    expect(parkedAfter).toBe("w1m/i3m");
+    expect(parkedAfter).toBe("work 1m · idle 3m");
 
     view.quit();
     await pending;

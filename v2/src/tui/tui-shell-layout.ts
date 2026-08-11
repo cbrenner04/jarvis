@@ -29,9 +29,9 @@ export type ShellLayout = {
 };
 
 const STACKED_THRESHOLD = 120;
-const LEFT_FLOOR = 72;
-const LEFT_BASE_FRACTION = 0.38;
-const LEFT_CEILING_FRACTION = 0.4;
+const LEFT_FLOOR = 80;
+const LEFT_BASE_FRACTION = 0.45;
+const LEFT_CEILING_FRACTION = 0.5;
 const DOCK_HEIGHT = 4;
 const NUDGE_DELTA = 2;
 

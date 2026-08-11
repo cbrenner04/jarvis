@@ -341,12 +341,17 @@ export function pipelineRowLabel(snapshot: PipelineSnapshot): string {
   return `${snapshot.name} ${shortMonitorId(snapshot.pipelineId)}`;
 }
 
+/** Shared pipeline/branch timing guard: labeled 20-column cell at or above 80 left-pane columns, compact below. Stage timing keeps its own threshold. */
+function pipelineBranchTimingCompact(leftPaneWidth: number): boolean {
+  return leftPaneWidth < 80;
+}
+
 export function buildPipelineMonitorTreeRow(
   pipeline: MonitorPipelineTreePipelineNode,
   width: number,
   nowMs: number,
 ): MonitorLineRow {
-  const compact = width < 100;
+  const compact = pipelineBranchTimingCompact(width);
   const node = { ...pipeline, compact };
   return composePipelineRow(
     {
@@ -405,7 +410,7 @@ export function buildBranchMonitorTreeRow(
   leftPaneWidth: number,
   nowMs: number,
 ): MonitorLineRow {
-  const compact = leftPaneWidth < 100;
+  const compact = pipelineBranchTimingCompact(leftPaneWidth);
   return composeBranchRow(
     {
       depth: node.depth,

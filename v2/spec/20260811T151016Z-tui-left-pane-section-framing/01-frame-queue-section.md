@@ -19,11 +19,11 @@ Queued work is introduced by a bare `Queue` label, so it does not match the rule
 
 ## Acceptance criteria
 
-- [ ] `tui-monitor-lines.test.ts` test `renders ruled Queue heading only for queued rows` fails against the pre-fix code and proves Queue reports its queued-row count, an empty queue paints no heading, and queued rows remain oldest-first with the admission descriptor.
-- [ ] `tui-ink-monitor.test.tsx` test `renders ruled Queue framing in the left pane` fails against the pre-fix code and proves the actual consumer paints Queue after Work/tree rows with no blank spacer.
-- [ ] `tui-monitor-lines.test.ts` — `renders ruled Queue heading only for queued rows`; Keystone checkpoint: an in-body `// @mutate` directive restores the bare `Queue` headline and turns the scoped test red.
-- [ ] `tui-monitor-lines.test.ts` — `renders ruled Queue heading only for queued rows`; Mutation checkpoint: an in-body `// @mutate` directive disables empty-Queue suppression and turns the scoped test red.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `tui-monitor-lines.test.ts` test `renders ruled Queue heading only for queued rows` fails against the pre-fix code and proves Queue reports its queued-row count, an empty queue paints no heading, and queued rows remain oldest-first with the admission descriptor.
+- [x] `tui-ink-monitor.test.tsx` test `renders ruled Queue framing in the left pane` fails against the pre-fix code and proves the actual consumer paints Queue after Work/tree rows with no blank spacer.
+- [x] `tui-monitor-lines.test.ts` — `renders ruled Queue heading only for queued rows`; Keystone checkpoint: an in-body `// @mutate` directive restores the bare `Queue` headline and turns the scoped test red.
+- [x] `tui-monitor-lines.test.ts` — `renders ruled Queue heading only for queued rows`; Mutation checkpoint: an in-body `// @mutate` directive disables empty-Queue suppression and turns the scoped test red.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

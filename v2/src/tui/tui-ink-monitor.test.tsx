@@ -710,6 +710,81 @@ describe("createMonitorDisplay", () => {
     expect(paneText).not.toContain("more");
     expect(paneText).not.toContain("tree-marker");
   });
+
+  test("renders ruled Work framing in the left pane", () => {
+    // Keystone checkpoint: an in-body mutation directive disables the Work-heading consumer
+    // integration in tui-ink-monitor.tsx and turns this test red.
+    // @mutate v2/src/tui/tui-ink-monitor.tsx "const workHeadingRows = monitorLeftPaneWorkHeadingRows(state);" -> "const workHeadingRows: MonitorLineRow[] = [];"
+    const failedRun: DaemonListRunRow = {
+      runId: "run-attn",
+      project: "demo",
+      branch: "attn",
+      createdAt: 0,
+      status: "failed",
+      isLive: false,
+      finishedAtMs: 1_000,
+    };
+    const snapshot = pipelineSnapshot({ pipelineId: "pipe-work", stages: [implementStage("inv-work")] });
+    const matchedRun: DaemonListRunRow = {
+      runId: "run-work",
+      project: "demo",
+      branch: "work",
+      createdAt: 0,
+      status: "in-progress",
+      isLive: true,
+      workflow: {
+        invocationId: "inv-work",
+        steps: [{ stepId: "implement", role: "implement", status: "in_progress", attemptCount: 1 }],
+      },
+      stepId: "implement",
+    };
+    const state = shellState([failedRun, matchedRun], null, {
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
+    });
+
+    const output = renderMonitorOutput(state);
+    const attentionIndex = output.findIndex((line) => line.includes("Needs attention"));
+    const workIndex = output.findIndex((line) => line.includes("── Work ("));
+    const treeIndex = output.findIndex((line) => line.includes("feature-pipeline"));
+
+    expect(attentionIndex).toBeGreaterThanOrEqual(0);
+    // Work follows attention with no blank spacer, and the tree row immediately follows Work.
+    expect(workIndex).toBeGreaterThan(attentionIndex);
+    expect(treeIndex).toBe(workIndex + 1);
+  });
+
+  test("renders ruled Queue framing in the left pane", () => {
+    // Keystone checkpoint: an in-body mutation directive disables the Queue consumer
+    // integration in tui-ink-monitor.tsx and turns this test red.
+    // @mutate v2/src/tui/tui-ink-monitor.tsx "const queueRows = monitorLeftPaneQueueRows(state);" -> "const queueRows: MonitorLineRow[] = [];"
+    const matchedRun: DaemonListRunRow = {
+      runId: "run-work",
+      project: "demo",
+      branch: "work",
+      createdAt: 0,
+      status: "in-progress",
+      isLive: true,
+    };
+    const queuedRun: DaemonListRunRow = {
+      runId: "run-queued",
+      project: "demo",
+      branch: "queued",
+      createdAt: 0,
+      status: "queued",
+      isLive: false,
+    };
+    const state = shellState([matchedRun, queuedRun], null);
+
+    const output = renderMonitorOutput(state);
+    const workIndex = output.findIndex((line) => line.includes("── Work ("));
+    const queueIndex = output.findIndex((line) => line.includes("── Queue ("));
+    const queuedRowIndex = output.findIndex((line) => line.includes("run-queued"));
+
+    expect(queueIndex).toBeGreaterThan(workIndex);
+    // Queue heading follows Work/tree rows directly with no blank spacer, and its row follows the heading.
+    expect(output[queueIndex - 1]).not.toBe("");
+    expect(queuedRowIndex).toBe(queueIndex + 1);
+  });
 });
 
 describe("openInkMonitor", () => {
@@ -1120,9 +1195,7 @@ describe("openInkMonitor", () => {
     expect(textNode(nodes, "in-progress").color).toBe("cyan");
     expect(textNode(nodes, "live").color).toBe("cyan");
     expect(textNode(nodes, "completed").color).toBe("green");
-    const idleNodes = nodes.filter((node) => node.text.trimEnd() === MONITOR_TREE_NOT_LIVE_LABEL);
-    expect(idleNodes.length).toBeGreaterThan(0);
-    expect(idleNodes.every((node) => node.color === undefined)).toBe(true);
+    expect(nodes.some((node) => node.text.trimEnd() === MONITOR_TREE_NOT_LIVE_LABEL)).toBe(false);
     expect(textNode(nodes, "failed").color).toBe("red");
     expect(textNode(nodes, "a").color).toBeUndefined();
 

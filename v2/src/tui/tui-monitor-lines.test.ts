@@ -13,6 +13,7 @@ import {
   monitorLeftPaneAttentionRows,
   monitorLeftPaneQueueRows,
   monitorLeftPaneTreeRows,
+  monitorLeftPaneWorkHeadingRows,
   monitorRightPaneSegmentRows,
   monitorSegmentRows,
   monitorSelectableNodeIds,
@@ -31,7 +32,7 @@ import {
 import { TUI_TERMINAL_WINDOW_MS } from "./tui-monitor-terminal-window.ts";
 import type { TuiMonitorState } from "./tui-monitor-types.ts";
 import type { WorkflowTableRow } from "./tui-monitor-workflow-collapse.ts";
-import { computeShellLayout } from "./tui-shell-layout.ts";
+import { computeShellLayout, monitorTreeRun } from "./tui-shell-layout.ts";
 import { formatAbsoluteTimestamp } from "./tui-timestamp-format.ts";
 
 const SINGLE_STEP_RUN: DaemonListRunRow = {
@@ -167,7 +168,8 @@ function overflowPaneMonitorFixture(): {
   const terminalColumns = 80;
   const terminalRows = 24;
   const layout = computeShellLayout(terminalColumns, terminalRows, 0);
-  const maxVisibleRows = layout.paneHeight;
+  // Fixture's work tree is always non-empty, so the Work heading always claims one row.
+  const maxVisibleRows = layout.paneHeight - 1;
   const pipelines = Array.from({ length: maxVisibleRows + 10 }, (_, index) =>
     pipelineSnapshot({
       pipelineId: `pipe-${index}`,
@@ -210,7 +212,7 @@ const MONITOR_LINES_FIXTURE_PIN = [
   "runId project branch status liveness",
   "> run-alpha demo alpha in-progress live",
   "  run-beta demo beta completed not-live",
-  "Queue",
+  "── Queue (1) ──",
   "  run-queued demo queued queued waiting: memory headroom",
   "Run",
   "runId: run-alpha",
@@ -344,6 +346,51 @@ describe("livenessTone", () => {
   test("live is active and not-live is untoned", () => {
     expect(livenessTone(true)).toBe("active");
     expect(livenessTone(false)).toBeUndefined();
+  });
+});
+
+describe("buildTreeRunRow liveness", () => {
+  test("omits liveness for every not-live run or ad-hoc row while retaining live liveness", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts "...(run.isLive ? { live: \"live\", liveTone: \"active\" as const } : {})," -> "...(run.isLive ? { live: \"live\", liveTone: \"active\" as const } : { live: \"idle\" }),"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "...(run.isLive ? { live: \"live\", liveTone: \"active\" as const } : {})," -> "...(run.isLive ? {} : { live: \"live\", liveTone: \"active\" as const }),"
+    const liveRow: WorkflowTableRow = {
+      kind: "standalone",
+      run: workflowRun("run-live", "in-progress", "inv-live", { isLive: true }),
+    };
+    const terminalNotLiveRow: WorkflowTableRow = {
+      kind: "standalone",
+      run: workflowRun("run-terminal", "completed", "inv-terminal", { isLive: false, finishedAtMs: 5_000 }),
+    };
+    const pausedNotLiveRow: WorkflowTableRow = {
+      kind: "standalone",
+      run: workflowRun("run-paused", "paused", "inv-paused", { isLive: false }),
+    };
+    const orphanRun = workflowRun("run-adhoc", "completed", "inv-adhoc-orphan", { isLive: false, finishedAtMs: 6_000 });
+    const { adHocNodes } = buildMonitorPipelineTreeJoin([], [orphanRun]);
+    const adHocRow = adHocNodes[0];
+    if (adHocRow === undefined) throw new Error("expected an ad-hoc node");
+
+    const cases = [
+      { label: "live", tableRow: liveRow, expectLive: true },
+      { label: "terminal not-live", tableRow: terminalNotLiveRow, expectLive: false },
+      { label: "paused not-live", tableRow: pausedNotLiveRow, expectLive: false },
+      { label: "ad-hoc not-live", tableRow: adHocRow.tableRow, expectLive: false },
+    ];
+
+    for (const { label, tableRow, expectLive } of cases) {
+      const composed = buildTreeRunRow(tableRow, 0, 90, TEST_NOW_MS);
+      const text = joinMonitorRow(composed);
+      const run = monitorTreeRun(tableRow);
+      expect(text, label).toContain(run.status);
+      expect(text, label).not.toContain("idle");
+      const liveSegment = composed.segments.find((segment) => segment.text === "live");
+      if (expectLive) {
+        expect(liveSegment?.tone, label).toBe("active");
+      } else {
+        expect(liveSegment, label).toBeUndefined();
+        expect(text, label).not.toMatch(/\blive\b/);
+      }
+    }
   });
 });
 
@@ -496,13 +543,13 @@ describe("monitorTextLines", () => {
     expect(lines.filter((line) => line.startsWith("> ") && line.includes("step-"))).toHaveLength(0);
   });
 
-  test("no Queue heading when no runs are queued", () => {
-    const lines = monitorTextLines(monitorState({ runs: [SINGLE_STEP_RUN], selectedNodeId: "run-single" }));
+  test("renders ruled Queue heading only for queued rows", () => {
+    // Mutation checkpoint: disabling empty-Queue suppression must turn this assertion RED.
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (queuedRuns.length === 0) return [];" -> "if (false) return [];"
+    // Empty queue: no heading painted at all.
+    const emptyLines = monitorTextLines(monitorState({ runs: [SINGLE_STEP_RUN], selectedNodeId: "run-single" }));
+    expect(emptyLines.some((line) => line.includes("Queue"))).toBe(false);
 
-    expect(lines).not.toContain("Queue");
-  });
-
-  test("queued runs render under a Queue heading, oldest-queued-first, with admission descriptor", () => {
     const queuedNewer: DaemonListRunRow = {
       runId: "run-queued-newer",
       project: "demo",
@@ -525,10 +572,12 @@ describe("monitorTextLines", () => {
       monitorState({ runs: [queuedNewer, queuedOlder, SINGLE_STEP_RUN], selectedNodeId: "run-single" }),
     );
 
-    const queueIndex = lines.indexOf("Queue");
+    const queueIndex = lines.indexOf("── Queue (2) ──");
     const olderIndex = lines.findIndex((line) => line.includes("run-queued-older"));
     const newerIndex = lines.findIndex((line) => line.includes("run-queued-newer"));
 
+    // Keystone checkpoint: reverting to the bare `Queue` label must turn this assertion RED.
+    // @mutate v2/src/tui/tui-monitor-lines.ts "row(untoned(`── Queue (${queuedRuns.length}) ──`))" -> "row(untoned(\"Queue\"))"
     expect(queueIndex).toBeGreaterThan(-1);
     expect(olderIndex).toBeGreaterThan(queueIndex);
     expect(newerIndex).toBeGreaterThan(olderIndex);
@@ -548,7 +597,7 @@ describe("monitorTextLines", () => {
     const lines = monitorTextLines(monitorState({ runs: [queuedRun], selectedNodeId: null }));
 
     expect(lines).toContain("No runs.");
-    expect(lines).toContain("Queue");
+    expect(lines).toContain("── Queue (1) ──");
   });
 });
 
@@ -719,17 +768,18 @@ describe("monitorLeftPaneAttentionRows", () => {
     expect(lines[2]).toContain("idle");
   });
 
-  test("clips pinned attention before the work tree", () => {
+  test("reserves every painted left-pane heading without a negative tree budget", () => {
     const noIncidents = monitorState({});
     expect(monitorLeftPaneAttentionRows(noIncidents, TREE_NOW_MS)).toEqual([]);
     // No actionable incidents: the attention segment consumes zero work-tree viewport rows.
+    // The non-empty Work tree still reserves its own heading row.
     const { pipelines: fillerPipelines } = overflowPaneMonitorFixture();
     const noIncidentTreeState = monitorState({
       pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: fillerPipelines } },
     });
     const smallLayout = treeLayout(10); // paneHeight 6
     expect(monitorLeftPaneTreeRows(noIncidentTreeState, smallLayout, TREE_NOW_MS).treeRows.length).toBe(
-      smallLayout.paneHeight,
+      smallLayout.paneHeight - 1,
     );
 
     const eightDatedFailures: DaemonListRunRow[] = Array.from({ length: 8 }, (_, index) =>
@@ -780,20 +830,21 @@ describe("monitorLeftPaneAttentionRows", () => {
       expandedPipelineNodeIds: [PIPELINE_ID, stageId],
     });
 
-    // attentionRowCount = 3 (heading + 2 rows, no overflow); queue reservation = 1.
+    // attentionRowCount = 3 (heading + 2 rows, no overflow); Work reservation = 1; queue reservation = 1.
     const roomyLayout = treeLayout(76); // paneHeight 72
     const roomy = monitorLeftPaneTreeRows(baseState, roomyLayout, TREE_NOW_MS);
     const tightLayout = treeLayout(10); // paneHeight 6
     const tight = monitorLeftPaneTreeRows(baseState, tightLayout, TREE_NOW_MS);
-    // Full flattened tree is unchanged by pane height or attention/queue reservations.
+    // Full flattened tree is unchanged by pane height or attention/Work/queue reservations.
     expect(tight.fullTreeRows.map((r) => r.id)).toEqual(roomy.fullTreeRows.map((r) => r.id));
     expect(roomy.treeRows).toEqual(roomy.fullTreeRows);
-    expect(tight.treeRows.length).toBe(Math.max(0, tightLayout.paneHeight - 1 - 3));
-    // @mutate v2/src/tui/tui-monitor-lines.ts "layout.paneHeight - leftPaneQueueHeadingRowCount(state) - leftPaneAttentionRowCount(state)" -> "layout.paneHeight - leftPaneAttentionRowCount(state)"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "layout.paneHeight - leftPaneQueueHeadingRowCount(state) - leftPaneAttentionRowCount(state)" -> "layout.paneHeight - leftPaneQueueHeadingRowCount(state)"
+    expect(tight.treeRows.length).toBe(Math.max(0, tightLayout.paneHeight - 3 - 1 - 1));
+    // @mutate v2/src/tui/tui-monitor-lines.ts "leftPaneAttentionRowCount(state) + leftPaneWorkHeadingRowCount(displayNodes) + leftPaneQueueHeadingRowCount(state)" -> "leftPaneWorkHeadingRowCount(displayNodes) + leftPaneQueueHeadingRowCount(state)"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "leftPaneAttentionRowCount(state) + leftPaneWorkHeadingRowCount(displayNodes) + leftPaneQueueHeadingRowCount(state)" -> "leftPaneAttentionRowCount(state) + leftPaneQueueHeadingRowCount(state)"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "leftPaneAttentionRowCount(state) + leftPaneWorkHeadingRowCount(displayNodes) + leftPaneQueueHeadingRowCount(state)" -> "leftPaneAttentionRowCount(state) + leftPaneWorkHeadingRowCount(displayNodes)"
 
-    // Queue reservation and rows are unaffected by the attention segment (existing Queue stays after the tree).
-    expect(monitorLeftPaneQueueRows(baseState).map(joinMonitorRow)[0]).toBe("Queue");
+    // Queue reservation and rows are unaffected by the attention/Work segments (existing Queue stays after the tree).
+    expect(monitorLeftPaneQueueRows(baseState).map(joinMonitorRow)[0]).toBe("── Queue (1) ──");
 
     // A pane too small for the reservations never yields a negative tree budget.
     const overwhelmedState = monitorState({
@@ -803,7 +854,34 @@ describe("monitorLeftPaneAttentionRows", () => {
     });
     const overwhelmedLayout = treeLayout(7); // paneHeight 3
     expect(monitorLeftPaneTreeRows(overwhelmedState, overwhelmedLayout, TREE_NOW_MS).treeRows).toEqual([]);
-    // @mutate v2/src/tui/tui-monitor-lines.ts "Math.max(0, layout.paneHeight - leftPaneQueueHeadingRowCount(state) - leftPaneAttentionRowCount(state))" -> "layout.paneHeight - leftPaneQueueHeadingRowCount(state) - leftPaneAttentionRowCount(state)"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "Math.max(0, layout.paneHeight - reserved)" -> "layout.paneHeight - reserved"
+  });
+});
+
+describe("monitorLeftPaneWorkHeadingRows", () => {
+  test("renders ruled Work heading from the full work model", () => {
+    // Mutation checkpoint: painting Work for a genuinely empty model must turn this guard RED.
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (displayNodes.length === 0) return [];" -> "return [];"
+    const emptyState = monitorState({});
+    expect(monitorLeftPaneWorkHeadingRows(emptyState)).toEqual([]);
+
+    const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] });
+    const matchedRun = workflowRun("run-implement", "in-progress", INVOCATION_MATCHED);
+    const orphanRun = workflowRun("run-orphan", "completed", INVOCATION_ORPHAN, { isLive: false });
+    const stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
+    const state = monitorState({
+      runs: [matchedRun, orphanRun],
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
+      expandedPipelineNodeIds: [PIPELINE_ID, stageId],
+    });
+    // Complete model: the pipeline and the ad-hoc orphan are the only depth-zero nodes (2), even
+    // though the expanded pipeline nests a stage and run row deeper in the same model.
+    expect(monitorLeftPaneWorkHeadingRows(state).map(joinMonitorRow)).toEqual(["── Work (2) ──"]);
+
+    // A non-empty model still paints Work even when its clipped tree-row budget is zero.
+    const zeroVisibleLayout = treeLayout(4); // paneHeight 0
+    expect(monitorLeftPaneTreeRows(state, zeroVisibleLayout, TREE_NOW_MS).treeRows).toEqual([]);
+    expect(monitorLeftPaneWorkHeadingRows(state).map(joinMonitorRow)).toEqual(["── Work (2) ──"]);
   });
 });
 
@@ -2362,7 +2440,7 @@ describe("monitorDockLines", () => {
     const state = monitorState({ runs: [queued, completed] });
 
     expect(dockStatus(state)).toStartWith("0 running · 0 awaiting gate · 0 failed · 1 done · unknown@unknown");
-    expect(monitorTextLines(state)).toContain("Queue");
+    expect(monitorTextLines(state)).toContain("── Queue (1) ──");
     expect(monitorTextLines(state)).toContain("  queued demo queued queued waiting: memory headroom");
   });
 

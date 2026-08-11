@@ -34,7 +34,6 @@ import type { ShellLayout } from "./tui-shell-layout.ts";
 import {
   composeRunRow,
   computeShellLayout,
-  MONITOR_TREE_NOT_LIVE_LABEL,
   monitorTreeRun,
   runRowElapsedLabel,
   runRowLabel,
@@ -513,9 +512,24 @@ function leftPaneAttentionRowCount(state: TuiMonitorState): number {
   return 1 + projection.rows.length + (projection.overflow > 0 ? 1 : 0);
 }
 
+/** Complete, unclipped work-tree model — shared by the Work heading, tree rows, and scroll follow. */
+function leftPaneWorkDisplayNodes(state: TuiMonitorState): readonly MonitorPipelineTreeDisplayNode[] {
+  const snapshots = mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath);
+  const expandedNodeIds = new Set(state.expandedPipelineNodeIds ?? []);
+  return buildMonitorPipelineTree(snapshots, state.runs, expandedNodeIds, state.selectedNodeId);
+}
+
+/** Painted Work heading row count: one row for a non-empty complete model, zero for a genuinely empty one. */
+function leftPaneWorkHeadingRowCount(displayNodes: readonly MonitorPipelineTreeDisplayNode[]): number {
+  return displayNodes.length === 0 ? 0 : 1;
+}
+
 function leftPaneTreeMaxVisibleRows(state: TuiMonitorState, layout: ShellLayout): number {
+  const displayNodes = leftPaneWorkDisplayNodes(state);
+  const reserved =
+    leftPaneAttentionRowCount(state) + leftPaneWorkHeadingRowCount(displayNodes) + leftPaneQueueHeadingRowCount(state);
   // Mutation checkpoint: dropping this floor must turn the tree-budget-never-negative guard RED.
-  return Math.max(0, layout.paneHeight - leftPaneQueueHeadingRowCount(state) - leftPaneAttentionRowCount(state));
+  return Math.max(0, layout.paneHeight - reserved);
 }
 
 function attentionRowLine(attentionRow: AttentionRow, selectedNodeId: string | null, nowMs: number): MonitorLineRow {
@@ -544,6 +558,15 @@ export function monitorLeftPaneAttentionRows(state: TuiMonitorState, nowMs = Dat
     // Mutation checkpoint: painting the overflow line without a positive overflow must turn this guard RED.
     ...(projection.overflow > 0 ? [row(untoned(`+${projection.overflow} more`))] : []),
   ];
+}
+
+/** Work heading: `── Work (N) ──` where N is the complete model's depth-zero count; omitted when the model is empty. */
+export function monitorLeftPaneWorkHeadingRows(state: TuiMonitorState): MonitorLineRow[] {
+  const displayNodes = leftPaneWorkDisplayNodes(state);
+  // Mutation checkpoint: painting Work for a genuinely empty model must turn the empty-Work-suppression guard RED.
+  if (displayNodes.length === 0) return [];
+  const depthZeroCount = displayNodes.filter((node) => node.depth === 0).length;
+  return [row(untoned(`── Work (${depthZeroCount}) ──`))];
 }
 
 function reclampLeftPaneTreeScrollOffset(offset: number, maxVisibleRows: number, totalTreeRows: number): number {
@@ -579,7 +602,10 @@ export function withLeftPaneTreeScrollFollow(state: TuiMonitorState, nowMs = Dat
   };
 }
 
-/** Run/ad-hoc tree row: fill label plus `status, live, elapsed` cluster; `labelOverride` covers ad-hoc's branch label. */
+/**
+ * Run/ad-hoc tree row: fill label plus `status, [live,] elapsed` cluster; `labelOverride` covers ad-hoc's branch
+ * label. `live` is omitted for every not-live run/ad-hoc row.
+ */
 export function buildTreeRunRow(
   tableRow: WorkflowTableRow,
   depth: number,
@@ -588,15 +614,15 @@ export function buildTreeRunRow(
   labelOverride?: string,
 ): MonitorLineRow {
   const run = monitorTreeRun(tableRow);
-  const liveTone = livenessTone(run.isLive);
   return composeRunRow(
     {
       depth,
       label: labelOverride ?? runRowLabel(tableRow),
       status: run.status,
       statusTone: RUN_STATUS_TONES[run.status],
-      live: run.isLive ? "live" : MONITOR_TREE_NOT_LIVE_LABEL,
-      ...(liveTone === undefined ? {} : { liveTone }),
+      // Mutation checkpoint: painting `live` for a not-live run/ad-hoc row here must turn
+      // omits-liveness-for-not-live-rows RED.
+      ...(run.isLive ? { live: "live", liveTone: "active" as const } : {}),
       elapsed: runRowElapsedLabel(tableRow, nowMs),
     },
     leftPaneWidth,
@@ -612,10 +638,8 @@ export function monitorLeftPaneTreeRows(
   treeRows: readonly MonitorPipelineTreeDisplayNode[];
   fullTreeRows: readonly MonitorPipelineTreeDisplayNode[];
 } {
-  const snapshots = mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath);
   const maxVisibleRows = leftPaneTreeMaxVisibleRows(state, layout);
-  const expandedNodeIds = new Set(state.expandedPipelineNodeIds ?? []);
-  const displayNodes = buildMonitorPipelineTree(snapshots, state.runs, expandedNodeIds, state.selectedNodeId);
+  const displayNodes = leftPaneWorkDisplayNodes(state);
   const scrollOffset = reclampLeftPaneTreeScrollOffset(
     state.leftPaneTreeScrollOffset ?? 0,
     maxVisibleRows,
@@ -628,11 +652,11 @@ export function monitorLeftPaneTreeRows(
   };
 }
 
-/** Queue block for the left pane (heading + rows). */
+/** Queue block for the left pane: `── Queue (N) ──` heading plus rows; omitted when the queue is empty. */
 export function monitorLeftPaneQueueRows(state: TuiMonitorState): MonitorLineRow[] {
   const queuedRuns = state.runs.filter((run) => run.status === "queued").toReversed();
   if (queuedRuns.length === 0) return [];
-  return [row(untoned("Queue")), ...queuedRuns.map((run) => queueRow(run))];
+  return [row(untoned(`── Queue (${queuedRuns.length}) ──`)), ...queuedRuns.map((run) => queueRow(run))];
 }
 
 function stableJson(value: unknown): string {

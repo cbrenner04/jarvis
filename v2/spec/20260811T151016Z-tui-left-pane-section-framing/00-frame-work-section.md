@@ -23,15 +23,15 @@ The work tree has no section boundary. Adding one without reserving its row woul
 
 ## Acceptance criteria
 
-- [ ] `tui-monitor-lines.test.ts` test `renders ruled Work heading from the full work model` fails against the pre-fix code and proves the heading reports the complete model's depth-zero count, suppresses only for a genuinely empty model, and still paints when a non-empty model has zero visible tree rows.
-- [ ] `tui-monitor-lines.test.ts` test `lists every full-flatten work-tree row id in pane order` stays green; Work framing leaves the complete tree and selection model unchanged.
-- [ ] `tui-monitor-lines.test.ts` test `reserves every painted left-pane heading without a negative tree budget` fails against the pre-fix code and updates the existing attention/Queue-only assertions and directives to prove independent attention, Work, and Queue reservations, a zero floor, and a zero-row clipped tree below those reservations.
-- [ ] `tui-entry.test.tsx` test `j, k, and off-pane selectNode keep the selected tree row in the painted viewport` stays green after it expands or scrolls a Work-framed tree whose reduced budget would otherwise put the selected row off pane.
-- [ ] `tui-ink-monitor.test.tsx` test `renders ruled Work framing in the left pane` fails against the pre-fix code and proves the actual consumer places Needs attention then Work then tree rows with no blank spacer.
-- [ ] `tui-ink-monitor.test.tsx` — `renders ruled Work framing in the left pane`; Keystone checkpoint: an in-body `// @mutate` directive disables the Work-heading consumer and turns the scoped test red.
-- [ ] `tui-monitor-lines.test.ts` — `renders ruled Work heading from the full work model`; Mutation checkpoint: an in-body `// @mutate` directive inverts empty-Work suppression and turns the scoped test red, including its zero-visible-row case.
-- [ ] `tui-monitor-lines.test.ts` — `reserves every painted left-pane heading without a negative tree budget`; Mutation checkpoint: in-body `// @mutate` directives independently remove attention, Work, and Queue reservations and the zero floor, and each turns the scoped test red.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `tui-monitor-lines.test.ts` test `renders ruled Work heading from the full work model` fails against the pre-fix code and proves the heading reports the complete model's depth-zero count, suppresses only for a genuinely empty model, and still paints when a non-empty model has zero visible tree rows.
+- [x] `tui-monitor-lines.test.ts` test `lists every full-flatten work-tree row id in pane order` stays green; Work framing leaves the complete tree and selection model unchanged.
+- [x] `tui-monitor-lines.test.ts` test `reserves every painted left-pane heading without a negative tree budget` fails against the pre-fix code and updates the existing attention/Queue-only assertions and directives to prove independent attention, Work, and Queue reservations, a zero floor, and a zero-row clipped tree below those reservations.
+- [x] `tui-entry.test.tsx` test `j, k, and off-pane selectNode keep the selected tree row in the painted viewport` stays green after it expands or scrolls a Work-framed tree whose reduced budget would otherwise put the selected row off pane.
+- [x] `tui-ink-monitor.test.tsx` test `renders ruled Work framing in the left pane` fails against the pre-fix code and proves the actual consumer places Needs attention then Work then tree rows with no blank spacer.
+- [x] `tui-ink-monitor.test.tsx` — `renders ruled Work framing in the left pane`; Keystone checkpoint: an in-body `// @mutate` directive disables the Work-heading consumer and turns the scoped test red.
+- [x] `tui-monitor-lines.test.ts` — `renders ruled Work heading from the full work model`; Mutation checkpoint: an in-body `// @mutate` directive inverts empty-Work suppression and turns the scoped test red, including its zero-visible-row case.
+- [x] `tui-monitor-lines.test.ts` — `reserves every painted left-pane heading without a negative tree budget`; Mutation checkpoint: in-body `// @mutate` directives independently remove attention, Work, and Queue reservations and the zero floor, and each turns the scoped test red.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

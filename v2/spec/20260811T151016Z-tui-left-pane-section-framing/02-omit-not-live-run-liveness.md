@@ -18,11 +18,11 @@ Every work-tree run or ad-hoc row with `isLive === false` currently paints `idle
 
 ## Acceptance criteria
 
-- [ ] `tui-monitor-lines.test.ts` test `omits liveness for every not-live run or ad-hoc row while retaining live liveness` fails against the pre-fix code and proves terminal, paused, and ad-hoc `isLive === false` rows retain status and elapsed values but contain no liveness atom, while a live row still contains toned `live`.
-- [ ] `tui-shell-layout.test.ts` tests `composes fill-width labels and per-kind clusters`, `drops optional cluster atoms before shrinking the label`, `run-row elapsed uses createdAt through finishedAtMs or nowMs`, and `a run row leads with its role and follows with the short run id` stay green.
-- [ ] `tui-monitor-lines.test.ts` — `omits liveness for every not-live run or ad-hoc row while retaining live liveness`; Keystone checkpoint: an in-body `// @mutate` directive restores the baseline `idle` atom for a not-live row and turns the scoped test red.
-- [ ] `tui-monitor-lines.test.ts` — `omits liveness for every not-live run or ad-hoc row while retaining live liveness`; Mutation checkpoint: an in-body `// @mutate` directive inverts the live-only liveness condition and turns the scoped test red, including the no-liveness assertions for every not-live state.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `tui-monitor-lines.test.ts` test `omits liveness for every not-live run or ad-hoc row while retaining live liveness` fails against the pre-fix code and proves terminal, paused, and ad-hoc `isLive === false` rows retain status and elapsed values but contain no liveness atom, while a live row still contains toned `live`.
+- [x] `tui-shell-layout.test.ts` tests `composes fill-width labels and per-kind clusters`, `drops optional cluster atoms before shrinking the label`, `run-row elapsed uses createdAt through finishedAtMs or nowMs`, and `a run row leads with its role and follows with the short run id` stay green.
+- [x] `tui-monitor-lines.test.ts` — `omits liveness for every not-live run or ad-hoc row while retaining live liveness`; Keystone checkpoint: an in-body `// @mutate` directive restores the baseline `idle` atom for a not-live row and turns the scoped test red.
+- [x] `tui-monitor-lines.test.ts` — `omits liveness for every not-live run or ad-hoc row while retaining live liveness`; Mutation checkpoint: an in-body `// @mutate` directive inverts the live-only liveness condition and turns the scoped test red, including the no-liveness assertions for every not-live state.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
@@ -32,3 +32,15 @@ Every work-tree run or ad-hoc row with `isLive === false` currently paints `idle
 ## Implementer notes
 
 - Use a unique one-line conditional in the `buildTreeRunRow` input as the mutation anchor. The keystone must restore baseline `idle`; the guard mutation must invert which liveness state emits `live`. Do not add test-only inversion hooks.
+
+## Blocker
+
+Artifact contract check failed: Unlinked keystone checkpoints (no directive linked on the named pin):
+- `tui-monitor-lines.test.ts` — `omits liveness for every not-live run or ad-hoc row while retaining live liveness`; Keystone checkpoint: an in-body `// @mutate` directive restores the baseline `idle` atom for a not-live row and turns the scoped test red. (pin: v2/src/tui/tui-monitor-lines.test.ts) — no @mutate directive linked to this criterion; add // @mutate <path> "<original>" -> "<replacement>" on the named pin
+
+Hollow mutation checkpoints (the named mutation left the scoped suite green):
+- no @mutate directive linked to this criterion; add // @mutate <path> "<original>" -> "<replacement>" on the named pin
+
+Unparseable mutation checkpoints:
+- /Users/christopherbrenner/.jarvis/worktrees/jarvis/20260811T151016Z-tui-left-pane-section-framing/v2/src/tui/tui-monitor-lines.test.ts:354: malformed: // @mutate v2/src/tui/tui-monitor-lines.ts '...(run.isLive ? { live: "live", liveTone: "active" as const } : {}),' -> '...(run.isLive ? { live: "live", liveTone: "active" as const } : { live: "idle" }),'
+- /Users/christopherbrenner/.jarvis/worktrees/jarvis/20260811T151016Z-tui-left-pane-section-framing/v2/src/tui/tui-monitor-lines.test.ts:355: malformed: // @mutate v2/src/tui/tui-monitor-lines.ts '...(run.isLive ? { live: "live", liveTone: "active" as const } : {}),' -> '...(run.isLive ? {} : { live: "live", liveTone: "active" as const }),'

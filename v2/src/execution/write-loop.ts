@@ -1552,8 +1552,9 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           // Mutation checkpoint: inverting isRepromptOnlyKeystoneDirectiveMiss must turn
           // "unlinked keystone checkpoint reprompts before settle" RED.
           if (isRepromptOnlyKeystoneDirectiveMiss(report) && iterationsConsumed < maxIterations) {
-            const entry = report.keystoneUnlinked[0]!;
-            const pinPath = entry.pinPath ?? "";
+            const [entry] = report.keystoneUnlinked;
+            const pinPath = entry?.pinPath ?? "";
+            const criterionText = entry?.criterionText ?? "";
             const outcome = await commitRepromptProgressBoundary(
               args,
               prepared,
@@ -1567,10 +1568,10 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
                 args.logSink?.append(runId, {
                   kind: "keystone_directive_reprompt",
                   attemptId,
-                  criterionText: entry.criterionText,
+                  criterionText,
                   pinPath,
                 });
-                pendingKeystoneDirectiveReprompt = { criterionText: entry.criterionText, pinPath };
+                pendingKeystoneDirectiveReprompt = { criterionText, pinPath };
                 pendingMutationDirectiveReprompt = undefined;
               },
             );

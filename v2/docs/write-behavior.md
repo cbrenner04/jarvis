@@ -428,6 +428,8 @@ For `jarvis run workflow implement`, `complete` means the authored implement wri
 
 **Mutation-directive reprompt pause/resume:** After a repromptable mutation-checkpoint miss, the write loop logs `mutation_directive_reprompt` with structured `directives` and a truncated `display`, commits a `progress` boundary, and continues within `maxIterations`. Reprompt context persists across non-`complete` iterations until mutation checkpoints pass (same pattern as landing reprompt). A paused run after such a miss restores the full directive list from the last `mutation_directive_reprompt` log event for the next `write.mutation-directive-reprompt` iteration.
 
+**Keystone-directive reprompt pause/resume:** When the only blocking finding is an unlinked keystone checkpoint (pin resolved, no directive linked, no hollow/inert-headline/blocking-unparseable finding alongside it), the write loop logs `keystone_directive_reprompt` with the criterion's first line and its resolved repo-relative pin path, commits a `progress` boundary, and continues within `maxIterations`. Prompt selection checks pending mutation-directive-reprompt context first; that fixed order only matters within a single iteration, since a mixed unparseable-plus-unlinked-keystone report hard-blocks instead of reprompting rather than leaving both pending at once. Across iterations, each reprompt arm clears the other's pending context as it records its own, so a context never outlives the miss that produced it: an unparseable-directive reprompt followed by a pure unlinked-keystone miss on the next iteration renders the keystone prompt, not a stale mutation one. Reprompt context clears on contract settle (`complete` or a terminal `contract_miss`) or budget exhaustion, same as before. Budget exhaustion settles `contract_miss` with the `Unlinked keystone checkpoints` blocker naming the criterion and pin path. A paused run restores whichever reprompt context corresponds to the *last* `mutation_directive_reprompt` or `keystone_directive_reprompt` log event — never both — for the next iteration.
+
 ## Loop outcomes
 
 The loop classifies and routes results:
@@ -469,8 +471,14 @@ The loop classifies and routes results:
      hollow checkpoint, no inert-headline checkpoint, no unlinked keystone, and no mixed unparseable
      reasons) reprompt within `maxIterations` via `write.mutation-directive-reprompt` instead of
      terminal `contract_miss`; budget exhaustion still settles `contract_miss` with harness
-     `## Blocker`. Multiple keystone, unlinked keystone, inert headline, and hollow
-     guard checkpoints hard-block without reprompt. Verify-run unrestored directives are tracked;
+     `## Blocker`. An unlinked keystone whose pin resolved, with no hollow checkpoint, no
+     inert-headline checkpoint, and no blocking unparseable directive, reprompts within
+     `maxIterations` via `write.keystone-directive-reprompt` instead (see below) rather than
+     hard-blocking on the first miss. Multiple keystone, inert headline, and hollow
+     guard checkpoints hard-block without reprompt, and a mixed unlinked-keystone-plus-other-finding
+     report (a malformed directive already on the named keystone pin, a hollow guard, or an
+     inert-headline keystone) hard-blocks with every applicable reason appended, not just the
+     keystone one. Verify-run unrestored directives are tracked;
      completion refuses when staged or `HEAD` blob content still carries replacement text without
      the original (including pending-commit resume).
   
@@ -478,8 +486,10 @@ The loop classifies and routes results:
   (`target_absent`, `target_ambiguous` with no hollow checkpoint, no inert-headline checkpoint,
   no unlinked keystone, and no mixed unparseable reasons) reprompt within `maxIterations` via
   `write.mutation-directive-reprompt` instead of appending `## Blocker` and settling terminal
-  `contract_miss`; budget exhaustion still hard-blocks. Multiple keystone,
-  unlinked keystone, inert headline, and hollow guard checkpoints hard-block without reprompt. Other
+  `contract_miss`; budget exhaustion still hard-blocks. A pure unlinked-keystone miss (see above)
+  reprompts the same way via `write.keystone-directive-reprompt`. Multiple keystone,
+  inert headline, and hollow guard checkpoints hard-block without reprompt, as does any mixed
+  unlinked-keystone report. Other
   contract failures append `## Blocker` to the artifact
   (`spec.criteria-ticked` → active subspec; `artifact.exists` → routing index
   for linked runs) and stop (`contract_miss`). A missing terminal

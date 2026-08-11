@@ -4,7 +4,7 @@ import { appendFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSyn
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
-import { executeWrite } from "./write.ts";
+import { executeWrite, isRepromptEligibleMutationCheckpointMiss } from "./write.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 const { roots } = trackedTempRoots();
@@ -1523,5 +1523,19 @@ describe("write behavior: implement-path blocker-text contract", () => {
     });
 
     expect(result.result.kind).toBe("blocked");
+  });
+});
+
+describe("isRepromptEligibleMutationCheckpointMiss", () => {
+  test("unlinked keystone miss is reprompt eligible", () => {
+    // @mutate v2/src/execution/write.ts "failureReason.startsWith(\"Unlinked keystone checkpoints\");" -> "false;"
+    expect(
+      isRepromptEligibleMutationCheckpointMiss(
+        "Unlinked keystone checkpoints (no directive linked on the named pin):\n- criterion",
+      ),
+    ).toBe(true);
+    expect(isRepromptEligibleMutationCheckpointMiss("Unparseable mutation checkpoints:\n- x")).toBe(true);
+    expect(isRepromptEligibleMutationCheckpointMiss("Hollow mutation checkpoints (…):\n- x")).toBe(false);
+    expect(isRepromptEligibleMutationCheckpointMiss(undefined)).toBe(false);
   });
 });

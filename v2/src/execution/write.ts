@@ -22,7 +22,7 @@ import { buildPlanDraftPrompt } from "../../../shared/prompts/plan-draft.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { PromptRenderingError, renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import { hasGenuineBlocker, parseSpec } from "../../../shared/spec-parser.ts";
-import type { MutationDirectiveRepromptContext } from "../persistence/log-stream.ts";
+import type { KeystoneDirectiveRepromptContext, MutationDirectiveRepromptContext } from "../persistence/log-stream.ts";
 import {
   type ExternalWorktreeInput,
   type LockStatus,
@@ -31,6 +31,7 @@ import {
 import {
   blockingUnparseableEntries,
   describeCriterionCheckpoint,
+  describeKeystoneUnlinked,
   describeUnparseable,
   type MutationCheckpointSeams,
   repoRelativeChangedPathsFromBaseRef,
@@ -188,6 +189,8 @@ export type WriteExecuteInput = {
   joinProcessOnIdleStall?: boolean;
   landingContractReprompt?: { violation: string; offendingFile: string };
   mutationDirectiveReprompt?: MutationDirectiveRepromptContext;
+  /** Reprompt context for the next implement iteration after a repromptable unlinked-keystone miss. */
+  keystoneDirectiveReprompt?: KeystoneDirectiveRepromptContext;
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string };
   /** Test seams for mutation-checkpoint verification; production uses real fs and scoped test scripts. */
   mutationCheckpointSeams?: MutationCheckpointSeams;
@@ -414,36 +417,39 @@ async function checkMutationCheckpointsAtCompletion(
     ...(args.signal !== undefined ? { signal: args.signal } : {}),
     ...(args.remainingIterationWallMs !== undefined ? { remainingIterationWallMs: args.remainingIterationWallMs } : {}),
   });
+  const describeInertHeadlineSection = () =>
+    buildListedReason(
+      "Inert headline change (headline revert left the scoped suite green):",
+      report.inertHeadline,
+      describeCriterionCheckpoint,
+    );
+  const describeHollowSection = () =>
+    buildListedReason(
+      "Hollow mutation checkpoints (the named mutation left the scoped suite green):",
+      report.hollow,
+      describeCriterionCheckpoint,
+    );
   if (report.keystoneUnlinked.length > 0) {
-    return {
-      ok: false,
-      reason: buildListedReason(
+    // Mixed with any other blocking finding: report every applicable reason so the
+    // agent (and the exhaustion blocker) sees the full picture, not just the keystone
+    // miss — a malformed directive already on the named pin is not reprompt-eligible.
+    const sections = [
+      buildListedReason(
         "Unlinked keystone checkpoints (no directive linked on the named pin):",
         report.keystoneUnlinked,
-        describeCriterionCheckpoint,
+        describeKeystoneUnlinked,
       ),
-    };
+    ];
+    if (report.inertHeadline.length !== 0) sections.push(describeInertHeadlineSection());
+    if (report.hollow.length > 0) sections.push(describeHollowSection());
+    const blockingUnparseable = blockingUnparseableEntries(report);
+    if (blockingUnparseable.length > 0) {
+      sections.push(buildListedReason("Unparseable mutation checkpoints:", blockingUnparseable, describeUnparseable));
+    }
+    return { ok: false, reason: sections.join("\n\n") };
   }
-  if (report.inertHeadline.length > 0) {
-    return {
-      ok: false,
-      reason: buildListedReason(
-        "Inert headline change (headline revert left the scoped suite green):",
-        report.inertHeadline,
-        describeCriterionCheckpoint,
-      ),
-    };
-  }
-  if (report.hollow.length > 0) {
-    return {
-      ok: false,
-      reason: buildListedReason(
-        "Hollow mutation checkpoints (the named mutation left the scoped suite green):",
-        report.hollow,
-        describeCriterionCheckpoint,
-      ),
-    };
-  }
+  if (report.inertHeadline.length > 0) return { ok: false, reason: describeInertHeadlineSection() };
+  if (report.hollow.length > 0) return { ok: false, reason: describeHollowSection() };
   if (report.unparseable.length === 0) return { ok: true };
   const blockingUnparseable = blockingUnparseableEntries(report);
   if (blockingUnparseable.length > 0) {
@@ -468,9 +474,16 @@ export function isMutationCheckpointCriteriaTickedMiss(failureReason: string | u
   );
 }
 
-/** True when a mutation-checkpoint `spec.criteria-ticked` miss may reprompt instead of terminal settle. */
+/**
+ * True when a mutation-checkpoint `spec.criteria-ticked` miss may reprompt instead of terminal
+ * settle. This is a coarse text pre-filter; the write loop re-verifies the full report to admit
+ * only a pure miss (unparseable-only, or unlinked-keystone-only) — a mixed report still starts
+ * with the same reason text but hard-blocks.
+ */
 export function isRepromptEligibleMutationCheckpointMiss(failureReason: string | undefined): boolean {
-  return failureReason?.startsWith("Unparseable mutation checkpoints:") ?? false;
+  if (failureReason === undefined) return false;
+  if (failureReason.startsWith("Unparseable mutation checkpoints:")) return true;
+  return failureReason.startsWith("Unlinked keystone checkpoints");
 }
 
 export function formatMutationDirectiveRepromptListing(context: MutationDirectiveRepromptContext): string {
@@ -504,6 +517,13 @@ async function executeDefaultWrite(
       prompt = renderArtifactTemplate(loadPromptRegistry().getById("write.mutation-directive-reprompt"), {
         ACTIVE_SUBSPEC_PATH: expectedArtifactPath,
         DIRECTIVE_LIST: formatMutationDirectiveRepromptListing(args.mutationDirectiveReprompt),
+        STEP_RULES: args.stepRules,
+      });
+    } else if (promptId === "patch.prompt.body" && args.keystoneDirectiveReprompt !== undefined) {
+      prompt = renderArtifactTemplate(loadPromptRegistry().getById("write.keystone-directive-reprompt"), {
+        ACTIVE_SUBSPEC_PATH: expectedArtifactPath,
+        CRITERION: args.keystoneDirectiveReprompt.criterionText,
+        PIN_PATH: args.keystoneDirectiveReprompt.pinPath,
         STEP_RULES: args.stepRules,
       });
     } else {

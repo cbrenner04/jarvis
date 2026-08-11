@@ -46,8 +46,8 @@ import {
 import {
   applyOperatorSessionId,
   executeWriteLoop,
+  findDirectiveRepromptFromLog,
   findLandingContractRepromptFromLog,
-  findMutationDirectiveRepromptFromLog,
   findStagedMarkdownLintRepromptFromLog,
   type WriteLoopInput,
 } from "../execution/write-loop.ts";
@@ -547,7 +547,7 @@ function reconstructWriteResume(run: Run, logRecords?: readonly PersistedRecord[
 
   const landingContractReprompt = findLandingContractRepromptFromLog(logRecords);
   const stagedMarkdownLintReprompt = findStagedMarkdownLintRepromptFromLog(logRecords);
-  const mutationDirectiveReprompt = findMutationDirectiveRepromptFromLog(logRecords);
+  const { mutationDirectiveReprompt, keystoneDirectiveReprompt } = findDirectiveRepromptFromLog(logRecords);
 
   return resolveWriteLoopBindings({
     worktree: {
@@ -575,6 +575,7 @@ function reconstructWriteResume(run: Run, logRecords?: readonly PersistedRecord[
     ...(landingContractReprompt !== undefined ? { landingContractReprompt } : {}),
     ...(stagedMarkdownLintReprompt !== undefined ? { stagedMarkdownLintReprompt } : {}),
     ...(mutationDirectiveReprompt !== undefined ? { mutationDirectiveReprompt } : {}),
+    ...(keystoneDirectiveReprompt !== undefined ? { keystoneDirectiveReprompt } : {}),
   });
 }
 

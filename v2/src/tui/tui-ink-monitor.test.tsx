@@ -1195,9 +1195,7 @@ describe("openInkMonitor", () => {
     expect(textNode(nodes, "in-progress").color).toBe("cyan");
     expect(textNode(nodes, "live").color).toBe("cyan");
     expect(textNode(nodes, "completed").color).toBe("green");
-    const idleNodes = nodes.filter((node) => node.text.trimEnd() === MONITOR_TREE_NOT_LIVE_LABEL);
-    expect(idleNodes.length).toBeGreaterThan(0);
-    expect(idleNodes.every((node) => node.color === undefined)).toBe(true);
+    expect(nodes.some((node) => node.text.trimEnd() === MONITOR_TREE_NOT_LIVE_LABEL)).toBe(false);
     expect(textNode(nodes, "failed").color).toBe("red");
     expect(textNode(nodes, "a").color).toBeUndefined();
 

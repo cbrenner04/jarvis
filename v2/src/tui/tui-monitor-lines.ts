@@ -34,7 +34,6 @@ import type { ShellLayout } from "./tui-shell-layout.ts";
 import {
   composeRunRow,
   computeShellLayout,
-  MONITOR_TREE_NOT_LIVE_LABEL,
   monitorTreeRun,
   runRowElapsedLabel,
   runRowLabel,
@@ -603,7 +602,10 @@ export function withLeftPaneTreeScrollFollow(state: TuiMonitorState, nowMs = Dat
   };
 }
 
-/** Run/ad-hoc tree row: fill label plus `status, live, elapsed` cluster; `labelOverride` covers ad-hoc's branch label. */
+/**
+ * Run/ad-hoc tree row: fill label plus `status, [live,] elapsed` cluster; `labelOverride` covers ad-hoc's branch
+ * label. `live` is omitted for every not-live run/ad-hoc row.
+ */
 export function buildTreeRunRow(
   tableRow: WorkflowTableRow,
   depth: number,
@@ -612,15 +614,15 @@ export function buildTreeRunRow(
   labelOverride?: string,
 ): MonitorLineRow {
   const run = monitorTreeRun(tableRow);
-  const liveTone = livenessTone(run.isLive);
   return composeRunRow(
     {
       depth,
       label: labelOverride ?? runRowLabel(tableRow),
       status: run.status,
       statusTone: RUN_STATUS_TONES[run.status],
-      live: run.isLive ? "live" : MONITOR_TREE_NOT_LIVE_LABEL,
-      ...(liveTone === undefined ? {} : { liveTone }),
+      // Mutation checkpoint: painting `live` for a not-live run/ad-hoc row here must turn
+      // omits-liveness-for-not-live-rows RED.
+      ...(run.isLive ? { live: "live", liveTone: "active" as const } : {}),
       elapsed: runRowElapsedLabel(tableRow, nowMs),
     },
     leftPaneWidth,

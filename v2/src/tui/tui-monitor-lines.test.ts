@@ -32,7 +32,7 @@ import {
 import { TUI_TERMINAL_WINDOW_MS } from "./tui-monitor-terminal-window.ts";
 import type { TuiMonitorState } from "./tui-monitor-types.ts";
 import type { WorkflowTableRow } from "./tui-monitor-workflow-collapse.ts";
-import { computeShellLayout } from "./tui-shell-layout.ts";
+import { computeShellLayout, monitorTreeRun } from "./tui-shell-layout.ts";
 import { formatAbsoluteTimestamp } from "./tui-timestamp-format.ts";
 
 const SINGLE_STEP_RUN: DaemonListRunRow = {
@@ -346,6 +346,51 @@ describe("livenessTone", () => {
   test("live is active and not-live is untoned", () => {
     expect(livenessTone(true)).toBe("active");
     expect(livenessTone(false)).toBeUndefined();
+  });
+});
+
+describe("buildTreeRunRow liveness", () => {
+  test("omits liveness for every not-live run or ad-hoc row while retaining live liveness", () => {
+    // @mutate v2/src/tui/tui-monitor-lines.ts '...(run.isLive ? { live: "live", liveTone: "active" as const } : {}),' -> '...(run.isLive ? { live: "live", liveTone: "active" as const } : { live: "idle" }),'
+    // @mutate v2/src/tui/tui-monitor-lines.ts '...(run.isLive ? { live: "live", liveTone: "active" as const } : {}),' -> '...(run.isLive ? {} : { live: "live", liveTone: "active" as const }),'
+    const liveRow: WorkflowTableRow = {
+      kind: "standalone",
+      run: workflowRun("run-live", "in-progress", "inv-live", { isLive: true }),
+    };
+    const terminalNotLiveRow: WorkflowTableRow = {
+      kind: "standalone",
+      run: workflowRun("run-terminal", "completed", "inv-terminal", { isLive: false, finishedAtMs: 5_000 }),
+    };
+    const pausedNotLiveRow: WorkflowTableRow = {
+      kind: "standalone",
+      run: workflowRun("run-paused", "paused", "inv-paused", { isLive: false }),
+    };
+    const orphanRun = workflowRun("run-adhoc", "completed", "inv-adhoc-orphan", { isLive: false, finishedAtMs: 6_000 });
+    const { adHocNodes } = buildMonitorPipelineTreeJoin([], [orphanRun]);
+    const adHocRow = adHocNodes[0];
+    if (adHocRow === undefined) throw new Error("expected an ad-hoc node");
+
+    const cases = [
+      { label: "live", tableRow: liveRow, expectLive: true },
+      { label: "terminal not-live", tableRow: terminalNotLiveRow, expectLive: false },
+      { label: "paused not-live", tableRow: pausedNotLiveRow, expectLive: false },
+      { label: "ad-hoc not-live", tableRow: adHocRow.tableRow, expectLive: false },
+    ];
+
+    for (const { label, tableRow, expectLive } of cases) {
+      const composed = buildTreeRunRow(tableRow, 0, 90, TEST_NOW_MS);
+      const text = joinMonitorRow(composed);
+      const run = monitorTreeRun(tableRow);
+      expect(text, label).toContain(run.status);
+      expect(text, label).not.toContain("idle");
+      const liveSegment = composed.segments.find((segment) => segment.text === "live");
+      if (expectLive) {
+        expect(liveSegment?.tone, label).toBe("active");
+      } else {
+        expect(liveSegment, label).toBeUndefined();
+        expect(text, label).not.toMatch(/\blive\b/);
+      }
+    }
   });
 });
 

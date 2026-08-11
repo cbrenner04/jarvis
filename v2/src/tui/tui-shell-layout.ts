@@ -336,14 +336,14 @@ export function composeStageRow(
   );
 }
 
-/** Run row: fill label, cluster `status, live, elapsed`; status never drops. Ad-hoc rows reuse this shape. */
+/** Run row: fill label, cluster `status, [live,] elapsed`; status never drops. Ad-hoc rows reuse this shape. */
 export function composeRunRow(
   input: {
     depth: number;
     label: string;
     status: string;
     statusTone?: MonitorSegmentTone;
-    live: string;
+    live?: string;
     liveTone?: MonitorSegmentTone;
     elapsed: string;
   },
@@ -358,7 +358,9 @@ export function composeRunRow(
       ...(input.statusTone === undefined ? {} : { compactStatusTone: input.statusTone }),
       clusterAtoms: [
         { text: input.status, droppable: false, ...(input.statusTone === undefined ? {} : { tone: input.statusTone }) },
-        { text: input.live, droppable: true, ...(input.liveTone === undefined ? {} : { tone: input.liveTone }) },
+        ...(input.live === undefined
+          ? []
+          : [{ text: input.live, droppable: true, ...(input.liveTone === undefined ? {} : { tone: input.liveTone }) }]),
         { text: input.elapsed, droppable: true },
       ],
     },

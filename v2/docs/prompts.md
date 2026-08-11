@@ -20,6 +20,10 @@ One-shot re-prompt issued when a `blocked` token misses the blocker-text contrac
 
 Re-prompt issued when implement mutation-checkpoint verification finds only repromptable unparseable directives (`target_absent`, `target_ambiguous`) in opened pinning files. Injects `ACTIVE_SUBSPEC_PATH`, `DIRECTIVE_LIST` (`describeUnparseable` rows), and `STEP_RULES`. Used by the write loop; see [`write-behavior.md`](./write-behavior.md#loop-outcomes).
 
+### `write.keystone-directive-reprompt`
+
+Re-prompt issued when implement mutation-checkpoint verification finds an unlinked keystone checkpoint (pin resolved, no `// @mutate` linked) as the report's only blocking finding. Injects `ACTIVE_SUBSPEC_PATH`, `CRITERION` (the criterion's first line), `PIN_PATH` (resolved repo-relative pin path), and `STEP_RULES`. Used by the write loop; see [`write-behavior.md`](./write-behavior.md#loop-outcomes).
+
 ### `write.landing-contract-reprompt`
 
 Re-prompt issued when `intent.prompt.split` staged output fails landing-shape validation before write-loop completion. Injects `VIOLATION`, `OFFENDING_FILE`, and `STAGING_DIR`. Used by the write loop; see [`write-behavior.md`](./write-behavior.md#intent-split-landing-contracts).

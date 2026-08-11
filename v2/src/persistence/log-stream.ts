@@ -169,6 +169,19 @@ export type MutationDirectiveRepromptEvent = {
   attemptId: string;
 } & MutationDirectiveRepromptContext;
 
+/** Resume/prompt payload for a keystone-directive reprompt: the ticked criterion and its resolved pin. */
+export type KeystoneDirectiveRepromptContext = {
+  criterionText: string;
+  /** Repo-relative path of the criterion's resolved pinning test. */
+  pinPath: string;
+};
+
+/** Emitted when implement mutation-checkpoint verification finds an unlinked keystone as the sole blocking finding. */
+export type KeystoneDirectiveRepromptEvent = {
+  kind: "keystone_directive_reprompt";
+  attemptId: string;
+} & KeystoneDirectiveRepromptContext;
+
 /** Agent stdout excerpt when a rejected `blocked` token still has no blocker text; truncated at append time. */
 export type MissingBlockerDetailEvent = {
   kind: "missing_blocker_detail";
@@ -230,6 +243,7 @@ type LogEventWithoutLoopFinished =
   | LandingContractRepromptEvent
   | StagedMarkdownLintRepromptEvent
   | MutationDirectiveRepromptEvent
+  | KeystoneDirectiveRepromptEvent
   | MissingBlockerDetailEvent
   | ContractMissDetailEvent
   | BlockerTextDetailEvent

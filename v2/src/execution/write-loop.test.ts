@@ -1012,6 +1012,263 @@ describe("write loop", () => {
     });
   });
 
+  describe("keystone directive reprompt", () => {
+    const keystoneRepromptLoopBase = {
+      publishCompletion: false as const,
+      promptId: "patch.prompt.body" as const,
+      artifactPath: "00-subspec.md",
+      mutationCheckpointSeams: { runScopedTests: async () => false },
+    };
+
+    function createKeystoneRepromptWorktree(jarvisRoot: string): string {
+      const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
+      mkdirSync(worktree, { recursive: true });
+      return worktree;
+    }
+
+    function seedUnlinkedKeystoneFixture(worktree: string, extraCriteria = ""): void {
+      writeFileSync(
+        join(worktree, "00-subspec.md"),
+        `## Acceptance criteria\n\n${extraCriteria}- [x] \`keystone.test.ts\` — \`keystone pin\`; Keystone checkpoint: headline revert turns pin red.\n`,
+        "utf8",
+      );
+      writeFileSync(join(worktree, "target.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
+      writeFileSync(join(worktree, "keystone.test.ts"), 'test("keystone pin", () => {\n});\n', "utf8");
+    }
+
+    test("unlinked keystone checkpoint reprompts before settle", async () => {
+      // @mutate v2/src/execution/write-loop.ts "isRepromptOnlyKeystoneDirectiveMiss(report) && iterationsConsumed < maxIterations" -> "false && iterationsConsumed < maxIterations"
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const worktree = createKeystoneRepromptWorktree(jarvisRoot);
+      seedUnlinkedKeystoneFixture(worktree);
+      const sink = new TestLogSink();
+      let invocations = 0;
+      let repromptPrompt = "";
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        logSink: sink,
+        maxIterations: 3,
+        ...keystoneRepromptLoopBase,
+        bindings: [
+          {
+            id: "implement",
+            metadata: { agent: "test-agent", model: "test" },
+            invoke: async ({ cwd, prompt }) => {
+              invocations += 1;
+              if (invocations === 1) {
+                return { kind: "ok", stdout: "done", stderr: "" };
+              }
+              repromptPrompt = prompt;
+              writeFileSync(
+                join(cwd, "keystone.test.ts"),
+                'test("keystone pin", () => {\n  // @mutate target.ts "a > 0" -> "a >= 0"\n});\n',
+                "utf8",
+              );
+              return { kind: "ok", stdout: "done", stderr: "" };
+            },
+          },
+        ],
+      });
+
+      expect(invocations).toBe(2);
+      expect(result.kind).toBe("complete");
+      expect(result.iterationsConsumed).toBe(2);
+      const events = sink.getEventsForRun(result.runId).map((event) => event.kind);
+      expect(events).toContain("keystone_directive_reprompt");
+      expect(events).not.toContain("contract_miss_detail");
+      const subspec = readFileSync(join(worktree, "00-subspec.md"), "utf8");
+      expect(subspec).not.toContain("## Blocker");
+      const reprompt = sink.getEventsForRun(result.runId).find((event) => event.kind === "keystone_directive_reprompt");
+      expect(reprompt).toMatchObject({ kind: "keystone_directive_reprompt" });
+      if (reprompt?.kind !== "keystone_directive_reprompt") throw new Error("expected reprompt event");
+      expect(reprompt.criterionText).toContain("keystone pin");
+      expect(reprompt.pinPath).toBe("keystone.test.ts");
+      expect(repromptPrompt).toContain("Add a `// @mutate` directive");
+      expect(repromptPrompt).toContain(reprompt.criterionText);
+      expect(repromptPrompt).toContain(reprompt.pinPath);
+    });
+
+    test("unlinked keystone budget exhaustion settles contract_miss naming criterion and pin", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const worktree = createKeystoneRepromptWorktree(jarvisRoot);
+      seedUnlinkedKeystoneFixture(worktree);
+      const sink = new TestLogSink();
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        logSink: sink,
+        maxIterations: 1,
+        ...keystoneRepromptLoopBase,
+        bindings: simulatedBindings(["done"], { artifactPath: "00-subspec.md", emitArtifact: false }),
+      });
+
+      expect(result.kind).toBe("contract_miss");
+      expect(result.resumable).toBe(false);
+      const subspec = readFileSync(join(worktree, "00-subspec.md"), "utf8");
+      expect(subspec).toContain("## Blocker");
+      expect(subspec).toContain("Unlinked keystone checkpoints");
+      expect(subspec).toContain("keystone pin");
+      expect(subspec).toContain("keystone.test.ts");
+      const events = sink.getEventsForRun(result.runId).map((event) => event.kind);
+      expect(events).not.toContain("keystone_directive_reprompt");
+      expect(events).toContain("contract_miss_detail");
+    });
+
+    test("mixed hollow and unlinked keystone hard-blocks", async () => {
+      // @mutate v2/src/execution/write-loop.ts "if (report.hollow.length > 0 || report.inertHeadline.length > 0) return false;" -> "if (false) return false;"
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const worktree = createKeystoneRepromptWorktree(jarvisRoot);
+      seedUnlinkedKeystoneFixture(
+        worktree,
+        "- [x] `hollow.test.ts` — `hollow`; Mutation checkpoint: named on that pin.\n",
+      );
+      writeFileSync(
+        join(worktree, "hollow.test.ts"),
+        'test("hollow", () => {\n  // @mutate target.ts "a > 0" -> "a >= 0"\n});\n',
+        "utf8",
+      );
+      const sink = new TestLogSink();
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        logSink: sink,
+        maxIterations: 3,
+        ...keystoneRepromptLoopBase,
+        mutationCheckpointSeams: {
+          runScopedTests: async () => true,
+        },
+        bindings: simulatedBindings(["done"], { artifactPath: "00-subspec.md", emitArtifact: false }),
+      });
+
+      expect(result.kind).toBe("contract_miss");
+      const subspec = readFileSync(join(worktree, "00-subspec.md"), "utf8");
+      expect(subspec).toContain("## Blocker");
+      expect(subspec).toContain("Unlinked keystone checkpoints");
+      expect(subspec).toContain("Hollow mutation checkpoints");
+      const events = sink.getEventsForRun(result.runId).map((event) => event.kind);
+      expect(events).not.toContain("keystone_directive_reprompt");
+      expect(events).toContain("contract_miss_detail");
+    });
+
+    test("malformed directive on named keystone pin hard-blocks without reprompt", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const worktree = createKeystoneRepromptWorktree(jarvisRoot);
+      writeFileSync(
+        join(worktree, "00-subspec.md"),
+        "## Acceptance criteria\n\n- [x] `keystone.test.ts` — `keystone pin`; Keystone checkpoint: headline revert turns pin red.\n",
+        "utf8",
+      );
+      writeFileSync(join(worktree, "target.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
+      writeFileSync(
+        join(worktree, "keystone.test.ts"),
+        'test("keystone pin", () => {\n  // @mutate target.ts oops\n});\n',
+        "utf8",
+      );
+      const sink = new TestLogSink();
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        logSink: sink,
+        maxIterations: 3,
+        ...keystoneRepromptLoopBase,
+        bindings: simulatedBindings(["done"], { artifactPath: "00-subspec.md", emitArtifact: false }),
+      });
+
+      expect(result.kind).toBe("contract_miss");
+      const subspec = readFileSync(join(worktree, "00-subspec.md"), "utf8");
+      expect(subspec).toContain("## Blocker");
+      expect(subspec).toContain("Unlinked keystone checkpoints");
+      expect(subspec).toContain("Unparseable mutation checkpoints:");
+      const events = sink.getEventsForRun(result.runId).map((event) => event.kind);
+      expect(events).not.toContain("keystone_directive_reprompt");
+      expect(events).toContain("contract_miss_detail");
+    });
+  });
+
+  test("a mutation-directive reprompt context does not mask a later pure keystone miss", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
+    mkdirSync(worktree, { recursive: true });
+    writeFileSync(
+      join(worktree, "00-subspec.md"),
+      "## Acceptance criteria\n\n" +
+        "- [x] `pin.test.ts` — `pin`; Mutation checkpoint: named on that pin.\n" +
+        "- [x] `keystone.test.ts` — `keystone caught`; Keystone checkpoint: headline revert turns pin red.\n",
+      "utf8",
+    );
+    writeFileSync(join(worktree, "target.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
+    writeFileSync(
+      join(worktree, "pin.test.ts"),
+      'test("pin", () => {\n  // @mutate target.ts "fn(a, b)" -> "fn()"\n});\n',
+      "utf8",
+    );
+    writeFileSync(
+      join(worktree, "keystone.test.ts"),
+      'test("keystone caught", () => {\n  // @mutate target.ts "a > 0" -> "a >= 0"\n});\n',
+      "utf8",
+    );
+    const sink = new TestLogSink();
+    let invocations = 0;
+    let thirdPrompt = "";
+
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      logSink: sink,
+      maxIterations: 4,
+      publishCompletion: false,
+      promptId: "patch.prompt.body",
+      artifactPath: "00-subspec.md",
+      mutationCheckpointSeams: { runScopedTests: async () => false },
+      bindings: [
+        {
+          id: "implement",
+          metadata: { agent: "test-agent", model: "test" },
+          invoke: async ({ cwd, prompt }) => {
+            invocations += 1;
+            if (invocations === 1) {
+              return { kind: "ok", stdout: "done", stderr: "" };
+            }
+            if (invocations === 2) {
+              // Fix the mutation-directive miss but unlink the keystone directive, so the
+              // next report is a pure unlinked-keystone miss.
+              writeFileSync(
+                join(cwd, "pin.test.ts"),
+                'test("pin", () => {\n  // @mutate target.ts "a > 0" -> "a >= 0"\n});\n',
+                "utf8",
+              );
+              writeFileSync(join(cwd, "keystone.test.ts"), 'test("keystone caught", () => {\n});\n', "utf8");
+              return { kind: "ok", stdout: "done", stderr: "" };
+            }
+            thirdPrompt = prompt;
+            writeFileSync(
+              join(cwd, "keystone.test.ts"),
+              'test("keystone caught", () => {\n  // @mutate target.ts "a > 0" -> "a >= 0"\n});\n',
+              "utf8",
+            );
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    expect(invocations).toBe(3);
+    expect(result.kind).toBe("complete");
+    const events = sink.getEventsForRun(result.runId).map((event) => event.kind);
+    expect(events).toContain("mutation_directive_reprompt");
+    expect(events).toContain("keystone_directive_reprompt");
+    expect(thirdPrompt).toContain("Add a `// @mutate` directive");
+    expect(thirdPrompt).toContain("keystone caught");
+    expect(thirdPrompt).toContain("keystone.test.ts");
+    expect(thirdPrompt).not.toContain("Retarget each `// @mutate` directive");
+    expect(thirdPrompt).not.toContain('// @mutate target.ts "fn(a, b)" -> "fn()"');
+  });
+
   test("contract_miss appends contract_miss_detail to the observability log", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sink = new TestLogSink();

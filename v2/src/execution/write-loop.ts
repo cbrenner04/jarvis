@@ -27,6 +27,8 @@ import { parseSpec } from "../../../shared/spec-parser.ts";
 import { AsyncSubprocessError, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
+  type KeystoneDirectiveRepromptContext,
+  type KeystoneDirectiveRepromptEvent,
   type LandingContractRepromptEvent,
   type LogSink,
   type LoopFinishedEvent,
@@ -278,6 +280,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string };
   /** Reprompt context for the next implement iteration after a repromptable mutation-directive miss. */
   mutationDirectiveReprompt?: MutationDirectiveRepromptContext;
+  /** Reprompt context for the next implement iteration after a repromptable unlinked-keystone miss. */
+  keystoneDirectiveReprompt?: KeystoneDirectiveRepromptContext;
   /** Publication landing contract when invoked from workflow-runner write steps. */
   landing?: PublicationLanding;
   /** Per-project autofix override (`bun run fix` when unset). */
@@ -325,6 +329,13 @@ export function isRepromptOnlyMutationDirectiveMiss(report: MutationCheckpointRe
   return repromptableMutationDirectiveBlocking(report) !== undefined;
 }
 
+/** True when unlinked keystone checkpoints are the report's only blocking finding. */
+export function isRepromptOnlyKeystoneDirectiveMiss(report: MutationCheckpointReport): boolean {
+  if (report.keystoneUnlinked.length === 0) return false;
+  if (report.hollow.length > 0 || report.inertHeadline.length > 0) return false;
+  return blockingUnparseableEntries(report).length === 0;
+}
+
 /** Last in-loop landing-contract reprompt from a run's persisted log tail (resume after pause). */
 export function findLandingContractRepromptFromLog(
   logRecords: readonly PersistedRecord[] | undefined,
@@ -355,20 +366,30 @@ export function findStagedMarkdownLintRepromptFromLog(
     : { ruleId: latest.ruleId, offendingFile: latest.offendingFile, message: latest.violation };
 }
 
-/** Last in-loop mutation-directive reprompt from a run's persisted log tail (resume after pause). */
-export function findMutationDirectiveRepromptFromLog(
-  logRecords: readonly PersistedRecord[] | undefined,
-): MutationDirectiveRepromptContext | undefined {
-  if (logRecords === undefined) return undefined;
-  let latest: MutationDirectiveRepromptEvent | undefined;
+/**
+ * Last in-loop mutation-directive or keystone-directive reprompt from a run's persisted log
+ * tail (resume after pause). The two reprompt arms clear each other's pending context as they
+ * fire (see write-loop.ts), so only the context matching the last such event of either kind is
+ * live; scanning them independently would resurrect a superseded sibling context.
+ */
+export function findDirectiveRepromptFromLog(logRecords: readonly PersistedRecord[] | undefined): {
+  mutationDirectiveReprompt?: MutationDirectiveRepromptContext;
+  keystoneDirectiveReprompt?: KeystoneDirectiveRepromptContext;
+} {
+  if (logRecords === undefined) return {};
+  let latest: MutationDirectiveRepromptEvent | KeystoneDirectiveRepromptEvent | undefined;
   for (const record of logRecords) {
-    if (record.event.kind === "mutation_directive_reprompt") {
+    if (record.event.kind === "mutation_directive_reprompt" || record.event.kind === "keystone_directive_reprompt") {
       latest = record.event;
     }
   }
-  if (latest === undefined) return undefined;
-  const { display, directives } = latest;
-  return { display, directives };
+  if (latest === undefined) return {};
+  if (latest.kind === "mutation_directive_reprompt") {
+    const { display, directives } = latest;
+    return { mutationDirectiveReprompt: { display, directives } };
+  }
+  const { criterionText, pinPath } = latest;
+  return { keystoneDirectiveReprompt: { criterionText, pinPath } };
 }
 
 const DEFAULT_MAX_ITERATIONS = 10;
@@ -1006,6 +1027,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
     let pendingLandingReprompt = args.landingContractReprompt;
     let pendingStagedMarkdownLintReprompt = args.stagedMarkdownLintReprompt;
     let pendingMutationDirectiveReprompt = args.mutationDirectiveReprompt;
+    let pendingKeystoneDirectiveReprompt = args.keystoneDirectiveReprompt;
 
     store.setRunStatus(runId, "in-progress");
 
@@ -1035,6 +1057,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         pendingLandingReprompt,
         pendingStagedMarkdownLintReprompt,
         pendingMutationDirectiveReprompt,
+        pendingKeystoneDirectiveReprompt,
       );
       if (settled.kind === "aborted") {
         closeSessionLog(sessionLog, "abort");
@@ -1464,6 +1487,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
       if (result.kind === "complete") {
         pendingMutationDirectiveReprompt = undefined;
+        pendingKeystoneDirectiveReprompt = undefined;
       }
 
       if (result.kind === "contract_miss") {
@@ -1501,39 +1525,57 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               reason: entry.reason as "target_absent" | "target_ambiguous",
             }));
             const display = blocking.map((entry) => `- ${describeUnparseable(entry)}`).join("\n");
-            try {
-              await checkpointSettledIteration(args, prepared, store, runId, worktreePath, attemptId, result);
-            } catch (error) {
-              return iterationCommitFailed(
-                args,
-                store,
-                runId,
-                attemptId,
-                iterationsConsumed,
-                error instanceof Error ? error : new Error(String(error)),
-              );
-            }
-            store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
-            args.logSink?.append(runId, {
-              kind: "boundary_committed",
+            const outcome = await commitRepromptProgressBoundary(
+              args,
+              prepared,
+              store,
+              runId,
+              worktreePath,
               attemptId,
-              outcomeKind: "progress",
-              runStatus: "in-progress",
-            });
-            args.logSink?.append(runId, {
-              kind: "mutation_directive_reprompt",
+              result,
+              iterationsConsumed,
+              () => {
+                args.logSink?.append(runId, {
+                  kind: "mutation_directive_reprompt",
+                  attemptId,
+                  directives,
+                  display: truncateLogText(display),
+                });
+                pendingMutationDirectiveReprompt = { directives, display };
+                pendingKeystoneDirectiveReprompt = undefined;
+              },
+            );
+            if (outcome !== undefined) return outcome;
+            continue;
+          }
+
+          // Mutation checkpoint: inverting isRepromptOnlyKeystoneDirectiveMiss must turn
+          // "unlinked keystone checkpoint reprompts before settle" RED.
+          if (isRepromptOnlyKeystoneDirectiveMiss(report) && iterationsConsumed < maxIterations) {
+            const [entry] = report.keystoneUnlinked;
+            const pinPath = entry?.pinPath ?? "";
+            const criterionText = entry?.criterionText ?? "";
+            const outcome = await commitRepromptProgressBoundary(
+              args,
+              prepared,
+              store,
+              runId,
+              worktreePath,
               attemptId,
-              directives,
-              display: truncateLogText(display),
-            });
-            pendingMutationDirectiveReprompt = { directives, display };
-            if (args.signal?.aborted) {
-              return finishLoop(args, runId, "progress", iterationsConsumed, true);
-            }
-            if (args.pauseSignal?.aborted) {
-              store.setRunStatus(runId, "paused");
-              return finishLoop(args, runId, "paused", iterationsConsumed, true);
-            }
+              result,
+              iterationsConsumed,
+              () => {
+                args.logSink?.append(runId, {
+                  kind: "keystone_directive_reprompt",
+                  attemptId,
+                  criterionText,
+                  pinPath,
+                });
+                pendingKeystoneDirectiveReprompt = { criterionText, pinPath };
+                pendingMutationDirectiveReprompt = undefined;
+              },
+            );
+            if (outcome !== undefined) return outcome;
             continue;
           }
         }
@@ -1890,6 +1932,7 @@ async function awaitIteration(
   landingContractReprompt?: { violation: string; offendingFile: string },
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string },
   mutationDirectiveReprompt?: MutationDirectiveRepromptContext,
+  keystoneDirectiveReprompt?: KeystoneDirectiveRepromptContext,
 ): Promise<IterationSettlement> {
   const executionController = new AbortController();
   const abortExecution = () => executionController.abort();
@@ -1938,6 +1981,7 @@ async function awaitIteration(
       landingContractReprompt,
       stagedMarkdownLintReprompt,
       mutationDirectiveReprompt,
+      keystoneDirectiveReprompt,
     ),
     remainingIterationWallMs: () => Math.max(0, wallSegmentDeadline - Date.now()),
     ...(onInvocationOutputProgress !== undefined ? { onInvocationOutputProgress } : {}),
@@ -2239,6 +2283,7 @@ function buildWriteExecuteInput(
   landingContractReprompt?: { violation: string; offendingFile: string },
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string },
   mutationDirectiveReprompt?: MutationDirectiveRepromptContext,
+  keystoneDirectiveReprompt?: KeystoneDirectiveRepromptContext,
 ): WriteExecuteInput {
   const telemetry = args.telemetry;
   // An operator-session-only telemetry attachment (no sinkPath/workflow/role) is a
@@ -2291,6 +2336,7 @@ function buildWriteExecuteInput(
     ...(landingContractReprompt !== undefined ? { landingContractReprompt } : {}),
     ...(stagedMarkdownLintReprompt !== undefined ? { stagedMarkdownLintReprompt } : {}),
     ...(mutationDirectiveReprompt !== undefined ? { mutationDirectiveReprompt } : {}),
+    ...(keystoneDirectiveReprompt !== undefined ? { keystoneDirectiveReprompt } : {}),
   };
 }
 
@@ -3559,6 +3605,53 @@ async function checkpointSettledIteration(
       : { skipReason: commitOutcome.skipReason }),
   });
   return commitOutcome;
+}
+
+/**
+ * Shared by the mutation-directive and keystone-directive reprompt arms: commit the current
+ * iteration as a resumable `progress` boundary, let the caller log its reprompt-specific event,
+ * then honor any abort/pause signal. Returns a terminal `WriteLoopResult` to return from the loop,
+ * or `undefined` to `continue` the loop.
+ */
+async function commitRepromptProgressBoundary(
+  args: WriteLoopInput,
+  prepared: { creationTitle?: string },
+  store: StateStore,
+  runId: string,
+  worktreePath: string,
+  attemptId: string,
+  result: StepRunResult,
+  iterationsConsumed: number,
+  emitReprompt: () => void,
+): Promise<WriteLoopResult | undefined> {
+  try {
+    await checkpointSettledIteration(args, prepared, store, runId, worktreePath, attemptId, result);
+  } catch (error) {
+    return iterationCommitFailed(
+      args,
+      store,
+      runId,
+      attemptId,
+      iterationsConsumed,
+      error instanceof Error ? error : new Error(String(error)),
+    );
+  }
+  store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
+  args.logSink?.append(runId, {
+    kind: "boundary_committed",
+    attemptId,
+    outcomeKind: "progress",
+    runStatus: "in-progress",
+  });
+  emitReprompt();
+  if (args.signal?.aborted) {
+    return finishLoop(args, runId, "progress", iterationsConsumed, true);
+  }
+  if (args.pauseSignal?.aborted) {
+    store.setRunStatus(runId, "paused");
+    return finishLoop(args, runId, "paused", iterationsConsumed, true);
+  }
+  return undefined;
 }
 
 function iterationCommitFailed(

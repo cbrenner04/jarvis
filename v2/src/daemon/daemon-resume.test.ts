@@ -2680,6 +2680,160 @@ test("resumes paused implement write loop with mutation-directive reprompt conte
   expect(starts[0]?.promptId).toBe("patch.prompt.body");
 });
 
+test("resumes paused implement write loop with keystone-directive reprompt context from log", async () => {
+  const { jarvisRoot } = createJarvisHome();
+  roots.push(join(jarvisRoot, ".."));
+  const branchName = "implement-paused-keystone-reprompt";
+  const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+  mkdirSync(worktreePath, { recursive: true });
+  const subspecPath = join(worktreePath, "00-subspec.md");
+  writeFileSync(subspecPath, "## Acceptance criteria\n\n- [x] criterion\n", "utf8");
+
+  const runId = stateStore.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath,
+    branch: branchName,
+    specPath: "spec/index.md",
+    stepId: "implement",
+    workflowSnapshot: {
+      invocationId: "implement-paused-keystone-reprompt",
+      steps: [
+        {
+          stepId: "implement",
+          role: "implement",
+          stepRules: "Return exactly one terminal token.",
+          expectedArtifactPath: "00-subspec.md",
+          promptId: "patch.prompt.body",
+          agents: ["codex"],
+          agentModelConfig: AGENT_MODEL_CONFIG,
+        },
+      ],
+    },
+  });
+  stateStore.setRunStatus(runId, "paused");
+
+  const logReader: LogReader = {
+    tail: () => [
+      {
+        runId,
+        seq: 1,
+        ts: "2026-01-01T00:00:00.000Z",
+        event: {
+          kind: "keystone_directive_reprompt",
+          attemptId: "attempt-1",
+          criterionText:
+            "- [x] `keystone.test.ts` — `keystone pin`; Keystone checkpoint: headline revert turns pin red.",
+          pinPath: "keystone.test.ts",
+        },
+      },
+      {
+        runId,
+        seq: 2,
+        ts: "2026-01-01T00:00:01.000Z",
+        event: { kind: "loop_finished", loopOutcomeKind: "paused", iterationsConsumed: 1, resumable: true },
+      },
+    ],
+    async *follow() {},
+  };
+
+  const response = await resumeDirect(createHandlers(logReader), runId);
+
+  expect(response.kind).toBe("response");
+  expect(starts).toHaveLength(1);
+  expect(starts[0]?.keystoneDirectiveReprompt).toEqual({
+    criterionText: "- [x] `keystone.test.ts` — `keystone pin`; Keystone checkpoint: headline revert turns pin red.",
+    pinPath: "keystone.test.ts",
+  });
+  expect(starts[0]?.promptId).toBe("patch.prompt.body");
+});
+
+test("resume restores only the later of a mutation-directive reprompt superseded by a keystone one", async () => {
+  const { jarvisRoot } = createJarvisHome();
+  roots.push(join(jarvisRoot, ".."));
+  const branchName = "implement-paused-superseded-reprompt";
+  const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+  mkdirSync(worktreePath, { recursive: true });
+  const subspecPath = join(worktreePath, "00-subspec.md");
+  writeFileSync(subspecPath, "## Acceptance criteria\n\n- [x] criterion\n", "utf8");
+
+  const runId = stateStore.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath,
+    branch: branchName,
+    specPath: "spec/index.md",
+    stepId: "implement",
+    workflowSnapshot: {
+      invocationId: "implement-paused-superseded-reprompt",
+      steps: [
+        {
+          stepId: "implement",
+          role: "implement",
+          stepRules: "Return exactly one terminal token.",
+          expectedArtifactPath: "00-subspec.md",
+          promptId: "patch.prompt.body",
+          agents: ["codex"],
+          agentModelConfig: AGENT_MODEL_CONFIG,
+        },
+      ],
+    },
+  });
+  stateStore.setRunStatus(runId, "paused");
+
+  const logReader: LogReader = {
+    tail: () => [
+      {
+        runId,
+        seq: 1,
+        ts: "2026-01-01T00:00:00.000Z",
+        event: {
+          kind: "mutation_directive_reprompt",
+          attemptId: "attempt-1",
+          directives: [
+            {
+              pinningFile: "pin-a.test.ts",
+              line: 2,
+              raw: '// @mutate target.ts "missing-a" -> "x"',
+              reason: "target_absent" as const,
+            },
+          ],
+          display: "truncated…",
+        },
+      },
+      {
+        runId,
+        seq: 2,
+        ts: "2026-01-01T00:00:01.000Z",
+        event: {
+          kind: "keystone_directive_reprompt",
+          attemptId: "attempt-2",
+          criterionText:
+            "- [x] `keystone.test.ts` — `keystone pin`; Keystone checkpoint: headline revert turns pin red.",
+          pinPath: "keystone.test.ts",
+        },
+      },
+      {
+        runId,
+        seq: 3,
+        ts: "2026-01-01T00:00:02.000Z",
+        event: { kind: "loop_finished", loopOutcomeKind: "paused", iterationsConsumed: 2, resumable: true },
+      },
+    ],
+    async *follow() {},
+  };
+
+  const response = await resumeDirect(createHandlers(logReader), runId);
+
+  expect(response.kind).toBe("response");
+  expect(starts).toHaveLength(1);
+  expect(starts[0]?.mutationDirectiveReprompt).toBeUndefined();
+  expect(starts[0]?.keystoneDirectiveReprompt).toEqual({
+    criterionText: "- [x] `keystone.test.ts` — `keystone pin`; Keystone checkpoint: headline revert turns pin red.",
+    pinPath: "keystone.test.ts",
+  });
+});
+
 test("exhausted-red eligibility guard inversion: origin evidence", () => {
   const runId = createWorkflowRun({ invocationId: "exhausted-guard-origin" });
   seedDoneAttemptWithCheckpoint(runId);

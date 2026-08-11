@@ -65,6 +65,8 @@ export type CriterionCheckpoint = {
   /** Absent when the criterion linked no directive at all. */
   directive: MutateDirective | undefined;
   detail: string;
+  /** Resolved repo-relative pin path; populated on unlinked keystone checkpoint entries. */
+  pinPath?: string;
 };
 
 export type HollowCheckpoint = CriterionCheckpoint;
@@ -499,7 +501,12 @@ export function describeCriterionCheckpoint(checkpoint: CriterionCheckpoint): st
 
 export const describeHollow = describeCriterionCheckpoint;
 export const describeInertHeadline = describeCriterionCheckpoint;
-export const describeKeystoneUnlinked = describeCriterionCheckpoint;
+
+/** Unlinked-keystone entries always lack a directive; name the criterion and resolved pin path. */
+export function describeKeystoneUnlinked(checkpoint: KeystoneUnlinkedCheckpoint): string {
+  const pin = checkpoint.pinPath !== undefined ? ` (pin: ${checkpoint.pinPath})` : "";
+  return `${checkpoint.criterionText}${pin} — ${checkpoint.detail}`;
+}
 
 /**
  * Verify every ticked, non-human-only criterion that claims a mutation turns a
@@ -636,7 +643,12 @@ function resolveLinkedDirectives(
     // The loophole this contract closes: a prose comment is not evidence.
     const detail = `no ${DIRECTIVE_MARKER} directive linked to this criterion; add ${DIRECTIVE_FORM} on the named pin`;
     if (role === "keystone") {
-      report_.keystoneUnlinked.push({ criterionText, directive: undefined, detail });
+      report_.keystoneUnlinked.push({
+        criterionText,
+        directive: undefined,
+        detail,
+        pinPath: repoRelativePath(worktreeRoot, testPath),
+      });
     } else {
       report_.hollow.push({ criterionText, directive: undefined, detail });
     }

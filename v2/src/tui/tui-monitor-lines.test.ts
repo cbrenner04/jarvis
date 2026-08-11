@@ -212,7 +212,7 @@ const MONITOR_LINES_FIXTURE_PIN = [
   "runId project branch status liveness",
   "> run-alpha demo alpha in-progress live",
   "  run-beta demo beta completed not-live",
-  "Queue",
+  "── Queue (1) ──",
   "  run-queued demo queued queued waiting: memory headroom",
   "Run",
   "runId: run-alpha",
@@ -498,13 +498,13 @@ describe("monitorTextLines", () => {
     expect(lines.filter((line) => line.startsWith("> ") && line.includes("step-"))).toHaveLength(0);
   });
 
-  test("no Queue heading when no runs are queued", () => {
-    const lines = monitorTextLines(monitorState({ runs: [SINGLE_STEP_RUN], selectedNodeId: "run-single" }));
+  test("renders ruled Queue heading only for queued rows", () => {
+    // Mutation checkpoint: disabling empty-Queue suppression must turn this assertion RED.
+    // @mutate v2/src/tui/tui-monitor-lines.ts "if (queuedRuns.length === 0) return [];" -> "if (false) return [];"
+    // Empty queue: no heading painted at all.
+    const emptyLines = monitorTextLines(monitorState({ runs: [SINGLE_STEP_RUN], selectedNodeId: "run-single" }));
+    expect(emptyLines.some((line) => line.includes("Queue"))).toBe(false);
 
-    expect(lines).not.toContain("Queue");
-  });
-
-  test("queued runs render under a Queue heading, oldest-queued-first, with admission descriptor", () => {
     const queuedNewer: DaemonListRunRow = {
       runId: "run-queued-newer",
       project: "demo",
@@ -527,10 +527,12 @@ describe("monitorTextLines", () => {
       monitorState({ runs: [queuedNewer, queuedOlder, SINGLE_STEP_RUN], selectedNodeId: "run-single" }),
     );
 
-    const queueIndex = lines.indexOf("Queue");
+    const queueIndex = lines.indexOf("── Queue (2) ──");
     const olderIndex = lines.findIndex((line) => line.includes("run-queued-older"));
     const newerIndex = lines.findIndex((line) => line.includes("run-queued-newer"));
 
+    // Keystone checkpoint: reverting to the bare `Queue` label must turn this assertion RED.
+    // @mutate v2/src/tui/tui-monitor-lines.ts "row(untoned(`── Queue (${queuedRuns.length}) ──`))" -> "row(untoned(\"Queue\"))"
     expect(queueIndex).toBeGreaterThan(-1);
     expect(olderIndex).toBeGreaterThan(queueIndex);
     expect(newerIndex).toBeGreaterThan(olderIndex);
@@ -550,7 +552,7 @@ describe("monitorTextLines", () => {
     const lines = monitorTextLines(monitorState({ runs: [queuedRun], selectedNodeId: null }));
 
     expect(lines).toContain("No runs.");
-    expect(lines).toContain("Queue");
+    expect(lines).toContain("── Queue (1) ──");
   });
 });
 
@@ -797,7 +799,7 @@ describe("monitorLeftPaneAttentionRows", () => {
     // @mutate v2/src/tui/tui-monitor-lines.ts "leftPaneAttentionRowCount(state) + leftPaneWorkHeadingRowCount(displayNodes) + leftPaneQueueHeadingRowCount(state)" -> "leftPaneAttentionRowCount(state) + leftPaneWorkHeadingRowCount(displayNodes)"
 
     // Queue reservation and rows are unaffected by the attention/Work segments (existing Queue stays after the tree).
-    expect(monitorLeftPaneQueueRows(baseState).map(joinMonitorRow)[0]).toBe("Queue");
+    expect(monitorLeftPaneQueueRows(baseState).map(joinMonitorRow)[0]).toBe("── Queue (1) ──");
 
     // A pane too small for the reservations never yields a negative tree budget.
     const overwhelmedState = monitorState({
@@ -2393,7 +2395,7 @@ describe("monitorDockLines", () => {
     const state = monitorState({ runs: [queued, completed] });
 
     expect(dockStatus(state)).toStartWith("0 running · 0 awaiting gate · 0 failed · 1 done · unknown@unknown");
-    expect(monitorTextLines(state)).toContain("Queue");
+    expect(monitorTextLines(state)).toContain("── Queue (1) ──");
     expect(monitorTextLines(state)).toContain("  queued demo queued queued waiting: memory headroom");
   });
 

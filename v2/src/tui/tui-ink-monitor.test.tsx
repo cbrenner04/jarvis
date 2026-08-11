@@ -752,6 +752,39 @@ describe("createMonitorDisplay", () => {
     expect(workIndex).toBeGreaterThan(attentionIndex);
     expect(treeIndex).toBe(workIndex + 1);
   });
+
+  test("renders ruled Queue framing in the left pane", () => {
+    // Keystone checkpoint: an in-body mutation directive disables the Queue consumer
+    // integration in tui-ink-monitor.tsx and turns this test red.
+    // @mutate v2/src/tui/tui-ink-monitor.tsx "const queueRows = monitorLeftPaneQueueRows(state);" -> "const queueRows: MonitorLineRow[] = [];"
+    const matchedRun: DaemonListRunRow = {
+      runId: "run-work",
+      project: "demo",
+      branch: "work",
+      createdAt: 0,
+      status: "in-progress",
+      isLive: true,
+    };
+    const queuedRun: DaemonListRunRow = {
+      runId: "run-queued",
+      project: "demo",
+      branch: "queued",
+      createdAt: 0,
+      status: "queued",
+      isLive: false,
+    };
+    const state = shellState([matchedRun, queuedRun], null);
+
+    const output = renderMonitorOutput(state);
+    const workIndex = output.findIndex((line) => line.includes("── Work ("));
+    const queueIndex = output.findIndex((line) => line.includes("── Queue ("));
+    const queuedRowIndex = output.findIndex((line) => line.includes("run-queued"));
+
+    expect(queueIndex).toBeGreaterThan(workIndex);
+    // Queue heading follows Work/tree rows directly with no blank spacer, and its row follows the heading.
+    expect(output[queueIndex - 1]).not.toBe("");
+    expect(queuedRowIndex).toBe(queueIndex + 1);
+  });
 });
 
 describe("openInkMonitor", () => {

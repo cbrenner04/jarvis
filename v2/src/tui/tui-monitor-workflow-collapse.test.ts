@@ -65,7 +65,8 @@ function tableBodyLines(state: TuiMonitorState): string[] {
   const lines = monitorTextLines(state);
   const headerIndex = lines.indexOf("runId project branch status liveness");
   const endIndex = lines.findIndex(
-    (line, index) => index > headerIndex && (line === "Workflow" || line === "Queue" || line === "Outcome"),
+    (line, index) =>
+      index > headerIndex && (line === "Workflow" || line.startsWith("── Queue (") || line === "Outcome"),
   );
   const end = endIndex === -1 ? lines.length : endIndex;
   return lines.slice(headerIndex + 1, end).filter((line) => line.includes(" demo "));

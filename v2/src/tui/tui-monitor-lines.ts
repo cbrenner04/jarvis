@@ -650,11 +650,11 @@ export function monitorLeftPaneTreeRows(
   };
 }
 
-/** Queue block for the left pane (heading + rows). */
+/** Queue block for the left pane: `── Queue (N) ──` heading plus rows; omitted when the queue is empty. */
 export function monitorLeftPaneQueueRows(state: TuiMonitorState): MonitorLineRow[] {
   const queuedRuns = state.runs.filter((run) => run.status === "queued").toReversed();
   if (queuedRuns.length === 0) return [];
-  return [row(untoned("Queue")), ...queuedRuns.map((run) => queueRow(run))];
+  return [row(untoned(`── Queue (${queuedRuns.length}) ──`)), ...queuedRuns.map((run) => queueRow(run))];
 }
 
 function stableJson(value: unknown): string {

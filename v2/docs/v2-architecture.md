@@ -433,6 +433,13 @@ The exact columns are grown behind their consumers, not designed ahead of them: 
   attempt. Kill/crash stopped *interrupted* (last attempt still in-progress) →
   resume re-runs the interrupted step over the dirty worktree (same code path as
   crash recovery).
+- **Process-group kill is opt-in.** `shared/subprocess.ts`'s `runAsync` normally
+  kills only the direct child on abort/timeout, which leaves grandchildren (e.g.
+  `bun test` pool workers under a gate command) running. Passing
+  `processGroup: { onGroupId }` spawns the child detached and signals the whole
+  group (SIGTERM→SIGKILL) on abort or timeout instead; the group id is surfaced
+  via `onGroupId` for a caller to record durably and reap later. No caller opts
+  in yet.
 
 ### Blocked runs pause for the operator
 

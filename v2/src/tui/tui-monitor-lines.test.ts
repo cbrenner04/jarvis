@@ -351,8 +351,8 @@ describe("livenessTone", () => {
 
 describe("buildTreeRunRow liveness", () => {
   test("omits liveness for every not-live run or ad-hoc row while retaining live liveness", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts '...(run.isLive ? { live: "live", liveTone: "active" as const } : {}),' -> '...(run.isLive ? { live: "live", liveTone: "active" as const } : { live: "idle" }),'
-    // @mutate v2/src/tui/tui-monitor-lines.ts '...(run.isLive ? { live: "live", liveTone: "active" as const } : {}),' -> '...(run.isLive ? {} : { live: "live", liveTone: "active" as const }),'
+    // @mutate v2/src/tui/tui-monitor-lines.ts "...(run.isLive ? { live: \"live\", liveTone: \"active\" as const } : {})," -> "...(run.isLive ? { live: \"live\", liveTone: \"active\" as const } : { live: \"idle\" }),"
+    // @mutate v2/src/tui/tui-monitor-lines.ts "...(run.isLive ? { live: \"live\", liveTone: \"active\" as const } : {})," -> "...(run.isLive ? {} : { live: \"live\", liveTone: \"active\" as const }),"
     const liveRow: WorkflowTableRow = {
       kind: "standalone",
       run: workflowRun("run-live", "in-progress", "inv-live", { isLive: true }),

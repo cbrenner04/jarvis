@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import {
   branchExistsLocal,
   branchExistsLocalAsync,
@@ -18,6 +19,16 @@ import {
 
 const cwd = process.cwd();
 const utf8Payload = "café 🎉";
+
+/** Reads a pid written by a fixture shell command; returns `undefined` until the file has content. */
+function readPidFile(pidFile: string): number | undefined {
+  try {
+    const contents = readFileSync(pidFile, "utf8").trim();
+    return contents === "" ? undefined : Number(contents);
+  } catch {
+    return undefined;
+  }
+}
 
 function fakeRunner(
   results: Record<string, string | Error>,
@@ -159,6 +170,146 @@ describe("realAsyncSubprocessRunner", () => {
       signal: controller.signal,
     });
     await expect(promise).rejects.toBeInstanceOf(AsyncSubprocessError);
+  }, 5000);
+
+  test("a non-group call leaves its grandchild running", async () => {
+    // @mutate shared/subprocess.ts "const groupMode = options?.processGroup !== undefined;" -> "const groupMode = true;"
+    const controller = new AbortController();
+    const scratchDir = `${cwd}/.scratch`;
+    mkdirSync(scratchDir, { recursive: true });
+    const pidFile = `${scratchDir}/subprocess-test-non-group-${Date.now()}-${Math.random()}.pid`;
+    const promise = realAsyncSubprocessRunner.runAsync(
+      "sh",
+      ["-c", `sleep 100 >/dev/null 2>&1 & echo $! > "${pidFile}"; wait`],
+      cwd,
+      { signal: controller.signal },
+    );
+
+    let grandchildPid: number | undefined;
+    try {
+      for (let i = 0; i < 50; i++) {
+        const contents = readPidFile(pidFile);
+        if (contents !== undefined) {
+          grandchildPid = contents;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      expect(grandchildPid).toBeDefined();
+
+      controller.abort();
+      await expect(promise).rejects.toBeInstanceOf(AsyncSubprocessError);
+
+      // Grandchild survives: non-group abort only kills the direct child.
+      if (grandchildPid !== undefined) {
+        expect(() => process.kill(grandchildPid as number, 0)).not.toThrow();
+      }
+    } finally {
+      if (grandchildPid !== undefined) {
+        try {
+          process.kill(grandchildPid, "SIGKILL");
+        } catch {
+          // already gone
+        }
+      }
+      rmSync(pidFile, { force: true });
+    }
+  }, 5000);
+
+  test("a group-mode call reports its group id via onGroupId", async () => {
+    let reportedPgid: number | undefined;
+    const stdout = await realAsyncSubprocessRunner.runAsync("node", ["-e", "process.stdout.write('ok')"], cwd, {
+      processGroup: {
+        onGroupId: (pgid) => {
+          reportedPgid = pgid;
+        },
+      },
+    });
+    expect(stdout).toBe("ok");
+    expect(reportedPgid).toBeDefined();
+  }, 5000);
+
+  test("aborting a group-mode call kills the group", async () => {
+    const controller = new AbortController();
+    let reportedPgid: number | undefined;
+    const promise = realAsyncSubprocessRunner.runAsync("node", ["-e", "setInterval(() => {}, 1000);"], cwd, {
+      signal: controller.signal,
+      processGroup: {
+        onGroupId: (pgid) => {
+          reportedPgid = pgid;
+        },
+      },
+    });
+    setTimeout(() => controller.abort(), 100);
+    await expect(promise).rejects.toBeInstanceOf(AsyncSubprocessError);
+    expect(reportedPgid).toBeDefined();
+    if (reportedPgid !== undefined) {
+      await new Promise((r) => setTimeout(r, 100));
+      expect(() => process.kill(reportedPgid as number, 0)).toThrow();
+    }
+  }, 5000);
+
+  test("a group-mode call that exceeds timeoutMs rejects with ETIMEDOUT and is killed via the group path", async () => {
+    let reportedPgid: number | undefined;
+    const promise = realAsyncSubprocessRunner.runAsync("node", ["-e", "setInterval(() => {}, 1000);"], cwd, {
+      timeoutMs: 100,
+      processGroup: {
+        onGroupId: (pgid) => {
+          reportedPgid = pgid;
+        },
+      },
+    });
+    await expect(promise).rejects.toBeInstanceOf(AsyncSubprocessError);
+    await expect(promise).rejects.toMatchObject({ code: "ETIMEDOUT" });
+    expect(reportedPgid).toBeDefined();
+    if (reportedPgid !== undefined) {
+      await new Promise((r) => setTimeout(r, 100));
+      expect(() => process.kill(reportedPgid as number, 0)).toThrow();
+    }
+  }, 5000);
+
+  test("a grandchild of a group-mode call is dead after abort", async () => {
+    // @mutate shared/subprocess.ts "const groupMode = options?.processGroup !== undefined;" -> "const groupMode = false;"
+    const controller = new AbortController();
+    const scratchDir = `${cwd}/.scratch`;
+    mkdirSync(scratchDir, { recursive: true });
+    const pidFile = `${scratchDir}/subprocess-test-group-${Date.now()}-${Math.random()}.pid`;
+    const promise = realAsyncSubprocessRunner.runAsync(
+      "sh",
+      ["-c", `sleep 100 >/dev/null 2>&1 & echo $! > "${pidFile}"; wait`],
+      cwd,
+      { signal: controller.signal, processGroup: {} },
+    );
+
+    let grandchildPid: number | undefined;
+    try {
+      for (let i = 0; i < 50; i++) {
+        const contents = readPidFile(pidFile);
+        if (contents !== undefined) {
+          grandchildPid = contents;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      expect(grandchildPid).toBeDefined();
+
+      controller.abort();
+      await expect(promise).rejects.toBeInstanceOf(AsyncSubprocessError);
+
+      await new Promise((r) => setTimeout(r, 100));
+      if (grandchildPid !== undefined) {
+        expect(() => process.kill(grandchildPid as number, 0)).toThrow();
+      }
+    } finally {
+      if (grandchildPid !== undefined) {
+        try {
+          process.kill(grandchildPid, "SIGKILL");
+        } catch {
+          // already gone
+        }
+      }
+      rmSync(pidFile, { force: true });
+    }
   }, 5000);
 });
 

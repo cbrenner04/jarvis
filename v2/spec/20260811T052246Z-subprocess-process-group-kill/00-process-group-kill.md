@@ -26,15 +26,15 @@
 
 ## Acceptance criteria
 
-- [ ] A group-mode `runAsync` call spawns detached and reports its group id: a new test in `shared/subprocess.test.ts` asserts `onGroupId` receives the child's pid; it fails against the pre-fix code.
-- [ ] Aborting a group-mode call signals the whole group, not just the direct child: a new test asserts the spawned process is gone after abort; it fails against the pre-fix code.
-- [ ] A group-mode call that exceeds `timeoutMs` is killed via the group path and its promise rejects with `AsyncSubprocessError` code `"ETIMEDOUT"`: a new test asserts this; it fails against the pre-fix code.
-- [ ] A grandchild of a group-mode call is dead after abort: a new test spawns a fixture that provably forks a distinct intermediate process and a separately-identifiable long-lived grandchild (for example `sh -c 'sleep 100 & echo $! > "$PIDFILE"; wait'`, reading the grandchild pid from `$PIDFILE`), aborts, and asserts the grandchild pid is gone (`process.kill(pid, 0)` throws); it fails against the pre-fix code.
-- [ ] A call without `processGroup` keeps today's spawn options and single-child kill path: a new test asserts no group-id callback fires and that a grandchild of a non-group call is still alive after abort, reaping it unconditionally (`try`/`finally`) so the test never leaks the orphan it creates.
-- [ ] `shared/subprocess.test.ts` — `aborting a running child kills it via SIGTERM`; `escalates to SIGKILL when the child ignores SIGTERM after abort`; `an already-aborted signal kills the child before it can run` stay green (default behavior unchanged by the option).
-- [ ] `shared/subprocess.test.ts` — `a non-group call leaves its grandchild running`; Mutation checkpoint: forcing group mode on for every call turns the default-path test red.
-- [ ] `shared/subprocess.test.ts` — `a grandchild of a group-mode call is dead after abort`; Keystone checkpoint: forcing group mode off leaves the grandchild alive even for an opted-in call and turns the test red.
-- [ ] `bun run typecheck` passes and `bun run test` passes (`shared/**` touched).
+- [x] A group-mode `runAsync` call spawns detached and reports its group id: a new test in `shared/subprocess.test.ts` asserts `onGroupId` receives the child's pid; it fails against the pre-fix code.
+- [x] Aborting a group-mode call signals the whole group, not just the direct child: a new test asserts the spawned process is gone after abort; it fails against the pre-fix code.
+- [x] A group-mode call that exceeds `timeoutMs` is killed via the group path and its promise rejects with `AsyncSubprocessError` code `"ETIMEDOUT"`: a new test asserts this; it fails against the pre-fix code.
+- [x] A grandchild of a group-mode call is dead after abort: a new test spawns a fixture that provably forks a distinct intermediate process and a separately-identifiable long-lived grandchild (for example `sh -c 'sleep 100 & echo $! > "$PIDFILE"; wait'`, reading the grandchild pid from `$PIDFILE`), aborts, and asserts the grandchild pid is gone (`process.kill(pid, 0)` throws); it fails against the pre-fix code.
+- [x] A call without `processGroup` keeps today's spawn options and single-child kill path: a new test asserts no group-id callback fires and that a grandchild of a non-group call is still alive after abort, reaping it unconditionally (`try`/`finally`) so the test never leaks the orphan it creates.
+- [x] `shared/subprocess.test.ts` — `aborting a running child kills it via SIGTERM`; `escalates to SIGKILL when the child ignores SIGTERM after abort`; `an already-aborted signal kills the child before it can run` stay green (default behavior unchanged by the option).
+- [x] `shared/subprocess.test.ts` — `a non-group call leaves its grandchild running`; Mutation checkpoint: forcing group mode on for every call turns the default-path test red.
+- [x] `shared/subprocess.test.ts` — `a grandchild of a group-mode call is dead after abort`; Keystone checkpoint: forcing group mode off leaves the grandchild alive even for an opted-in call and turns the test red.
+- [x] `bun run typecheck` passes and `bun run test` passes (`shared/**` touched).
 
 ## Documentation updates
 

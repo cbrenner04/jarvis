@@ -3,7 +3,6 @@ import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { formatElapsedWallClock } from "./tui-elapsed-format.ts";
 import { buildTreeRunRow, type MonitorLineRow } from "./tui-monitor-lines.ts";
-import { computeShellLayout } from "./tui-shell-layout.ts";
 import {
   branchWorkIdleTiming,
   buildBranchMonitorTreeRow,
@@ -23,6 +22,7 @@ import {
   stageBranchCellValue,
   strippedBranchLabels,
 } from "./tui-monitor-pipeline-tree.ts";
+import { computeShellLayout } from "./tui-shell-layout.ts";
 
 const FILTER_NOW_MS = 1_700_000_000_000;
 const PIPELINE_ID = "pipe-abc";

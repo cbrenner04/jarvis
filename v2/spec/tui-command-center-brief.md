@@ -74,7 +74,7 @@ The TUI command-center phase is done; these are the durable follow-ons left in `
 
 Remaining queue after the 2026-08-11 session (which shipped `keystone-links-implement-authored-directive` and the reap chain's foundation):
 
-**`keystone-links-implement-authored-directive` — DONE** (#2826 plan, #2827 implement). The implement now reprompts to author an unlinked *keystone* directive. **Not yet live on the running daemon** — it predates the merge; a daemon restart is required before it helps any implement.
+**`keystone-links-implement-authored-directive` — DONE** (#2826 plan, #2827 implement). The implement now reprompts to author an unlinked *keystone* directive. The daemon was bounced mid-session on 2026-08-11, so #2827 is live — but the daemon re-keys after each merge, so a next session must first **confirm the daemon is up on current code** (`jarvis daemon status` should report `loaded == current` at `main`'s HEAD; bounce it from the operator shell if not) before any implement that needs implement-authored directives.
 
 1. **reap chain (`#2763`) — partially landed, needs a dedicated session with a daemon restart first.**
    - `subprocess-process-group-kill` foundation **DONE** (#2829 plan, #2831 implement) — opt-in `processGroup` on the shared runner.
@@ -83,7 +83,7 @@ Remaining queue after the 2026-08-11 session (which shipped `keystone-links-impl
 2. **TUI left-pane legibility (design-review follow-on, seed #2830 → intent #2833) — COMPLETE.** `tui-left-pane-section-framing` shipped (#2835 plan, #2836 impl): ruled `── Work (N) ──`/`── Queue (N) ──` headings and no `idle` atom on terminal runs. `tui-left-pane-width-and-timing-threshold` shipped (#2837 plan, #2838 impl): widened the left pane (base 0.45 / ceiling 0.5 / floor 80) and lowered the pipeline/branch timing threshold to 80 columns so ordinary terminals paint the labeled `work · idle` form. Subspec 01 was hand-finished (the subspec-by-subspec continuation can't resume). Section separation, pane width, and the confusing `idle`/cryptic-timing atoms are all addressed.
 3. **`implement-reprompts-unlinked-guard-checkpoints`** (seed on main) — extend #2827's reprompt to unlinked/hollow **guard** checkpoints (keystone-only today); this blocked the reap subspec-01 implement.
 
-**Next session must start with a daemon restart** so #2827 is live — otherwise every implement needing implement-authored directives strands (observed repeatedly this session).
+**Next session must first confirm the daemon is running current code** (`jarvis daemon status` → `loaded == current` at `main`'s HEAD; the daemon re-keys after each merge and can drop to a stale build or report `stopped` against the current digest — bounce it from the operator shell if so). #2827 is only effective on a daemon running the post-merge build; otherwise every implement needing implement-authored directives strands (observed repeatedly this session).
 
 Session detail (all PRs, the leaked-worker reproduction, and the parking rationale): see the `reports/2026081*` session reports.
 

@@ -72,12 +72,20 @@ The TUI command-center phase is done; these are the durable follow-ons left in `
 - **Mutation-checkpoint parser fix** (#2806) — a `//` comment must have `@mutate` as its first token to be a directive; prose *mentions* of the token no longer strand runs.
 - **Plan-draft keystone gate** (#2822) — plan draft now *refuses* a staged tree whose keystone criterion is prose-only (not selectable by `selectKeystoneCheckpointCriteria`). Plans can no longer emit tick-but-never-verified keystones; a keystone criterion must carry the canonical `` `pinFile` — `pinTitle`; Keystone checkpoint: `` suffix.
 
-Remaining queue, both deliberately deferred to focused sessions:
+Remaining queue after the 2026-08-11 session (which shipped `keystone-links-implement-authored-directive` and the reap chain's foundation):
 
-1. **`keystone-links-implement-authored-directive`** (ready-intent on main, the second half of #2775) — lets the *implement* author-and-link a keystone's `// @mutate` directive from the criterion text, closing the greenfield case (pin file created during implement). Re-drive `plan` (the earlier plan drafted clean but hit the publication-emits-no-PR friction), then implement. **Caveat: the implement modifies the core write-loop reprompt/completion contract (`v2/src/execution/write.ts`, `write-loop.ts`) that gates every implement run — review it hard; do it as its own session, not bundled.**
-2. **`reap-ready-gate-test-children-on-run-termination`** (seed on main, #2763) — deep 3-subspec overhaul: state-store ownership persistence + execution-loop process-group reaping on run termination + daemon-start orphan sweep. Modifies the daemon's own machinery; a dedicated-session job. Prior dogfood via a `full-review` pipeline surfaced two fan-out limitations (can't sequence dependent branches; per-branch plan over-absorbs a coherent-feature seed) — drive it as a serial standalone chain (persist → reap-on-termination → sweep), not one pipeline.
+**`keystone-links-implement-authored-directive` — DONE** (#2826 plan, #2827 implement). The implement now reprompts to author an unlinked *keystone* directive. **Not yet live on the running daemon** — it predates the merge; a daemon restart is required before it helps any implement.
 
-Session detail (all ~36 PRs, frictions, and the render-harness technique used to debug the broken TUI): see the `reports/2026081*` session reports.
+1. **reap chain (`#2763`) — partially landed, needs a dedicated session with a daemon restart first.**
+   - `subprocess-process-group-kill` foundation **DONE** (#2829 plan, #2831 implement) — opt-in `processGroup` on the shared runner.
+   - `ready-gate-reaps-test-children` **plan DONE** (#2832, 3-subspec tree); **implement PARKED** — wrote correct green code but stranded on unauthored `@mutate` directives (1 keystone + 2 guards) for subspec 01; worktree abandoned, re-run from scratch. **Subspec-01 caveat:** the gate and required-integration spawn sites in `ready-finalize.ts` share byte-identical option lines, so no unique single-line `@mutate` anchor exists — the re-plan must differentiate the two sites or target distinct source lines.
+   - `daemon-start-sweeps-orphan-gate-children` ready-intent on main — plan+implement after the above (depends on the durable group-id record).
+2. **TUI left-pane legibility (design-review follow-on, seed #2830 → intent #2833) — ready-intents on main, PARKED.** `tui-left-pane-section-framing` (ruled `── Work (N) ──`/`── Queue (N) ──` headings; drop the `idle` atom on terminal runs) and `tui-left-pane-width-and-timing-threshold` (widen the ~38–40% left pane + lower the labeled-timing threshold so `work · idle` renders at ≤200 cols). Framing is a prereq of width. The framing plan blocked on the plan-draft keystone gate (#2822): the plan agent inlined the `@mutate` directive in the criterion instead of the test body — re-drive after a daemon restart.
+3. **`implement-reprompts-unlinked-guard-checkpoints`** (seed on main) — extend #2827's reprompt to unlinked/hollow **guard** checkpoints (keystone-only today); this blocked the reap subspec-01 implement.
+
+**Next session must start with a daemon restart** so #2827 is live — otherwise every implement needing implement-authored directives strands (observed repeatedly this session).
+
+Session detail (all PRs, the leaked-worker reproduction, and the parking rationale): see the `reports/2026081*` session reports.
 
 ### Friction observed this phase (mostly fixed above)
 

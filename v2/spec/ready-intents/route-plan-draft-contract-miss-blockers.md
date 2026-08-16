@@ -12,16 +12,16 @@ Splitting does not apply: contract-miss blocker routing and append safety both b
 
 ## Problem
 
-- A `plan.draft.blocker` miss falls through to the not-yet-created durable spec-directory path, where blocker append creates a bare file that prevents later spec-tree publication and escapes normal cleanup and discovery.
+- A `plan.draft.blocker` miss during `plan.prompt.draft` falls through to the not-yet-created durable spec-directory path, where blocker append creates a bare file that prevents later spec-tree publication and escapes normal cleanup and discovery.
 
 ## Decisions
 
-- Route every `plan.prompt.draft` contract-miss blocker to staged `<expectedArtifactPath>/intent.md`; rules out per-contract routing and writes beneath the durable spec path before publication.
+- Route by the execution-step key `plan.prompt.draft`, with `plan.draft.blocker` identifying the missing contract; send every such plan-draft contract-miss blocker to staged `<expectedArtifactPath>/intent.md`, ruling out per-contract routing and writes beneath the durable spec path before publication.
 - Append a harness blocker only when the resolved target is an existing regular file; otherwise retain contract-miss logging and settlement without creating a path, ruling out materializing a bare file at a missing spec-directory target.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop.test.ts` fails against the pre-fix code, then proves a plan-draft `plan.draft.blocker` miss appends its failure to staged `intent.md` and leaves the durable spec-directory path absent.
+- [ ] `v2/src/execution/write-loop.test.ts` fails against the pre-fix code, then proves a `plan.draft.blocker` miss during `plan.prompt.draft` appends its failure to staged `intent.md` and leaves the durable spec-directory path absent.
 - [ ] `v2/src/execution/write-loop.test.ts` proves a contract miss whose resolved blocker target is absent remains logged and settled without creating the target.
 - [ ] `v2/src/execution/write-loop.test.ts` test `plan-draft normalizer contract_miss appends blocker to staged intent.md` stays green, preserving plan-draft `artifact.exists` routing.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.

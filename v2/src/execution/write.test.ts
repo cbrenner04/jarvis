@@ -347,6 +347,71 @@ describe("write behavior", () => {
     }
   });
 
+  test("guard checkpoint repair findings identify pins and directives", async () => {
+    // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "return directive === undefined ? \"unlinked\" : \"hollow\";" -> "return directive === undefined ? \"hollow\" : \"unlinked\";"
+    const { jarvisRoot } = createJarvisHome();
+    const unlinkedCriterion =
+      "`v2/src/execution/unlinked.test.ts` — `unlinked pin`; Mutation checkpoint: flipping the guard turns this RED.";
+    const hollowCriterion =
+      "`v2/src/execution/guard.test.ts` — `guard pin`; Mutation checkpoint: both linked guards turn this RED.";
+    const subspec = writeImplementSubspec(
+      jarvisRoot,
+      withKeystoneCriteria(`- [x] ${unlinkedCriterion}\n- [x] ${hollowCriterion}\n`),
+    );
+    const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
+    mkdirSync(join(worktree, "v2/src/execution"), { recursive: true });
+    writeFileSync(join(worktree, "v2/src/execution/unlinked.test.ts"), 'test("unlinked pin", () => {});\n', "utf8");
+    writeFileSync(
+      join(worktree, "v2/src/execution/guard.ts"),
+      "export const first = 1;\nexport const second = 2;\n",
+      "utf8",
+    );
+    writeFileSync(join(worktree, "guard.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
+    writeFileSync(
+      join(worktree, "v2/src/execution/guard.test.ts"),
+      [
+        'test("guard pin", () => {',
+        '  // @mutate v2/src/execution/guard.ts "first = 1" -> "first = 0"',
+        '  // @mutate v2/src/execution/guard.ts "second = 2" -> "second = 0"',
+        "});",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    seedKeystoneGuardPin(worktree);
+    let call = 0;
+
+    const result = await runWrite({
+      jarvisRoot,
+      artifactPath: subspec,
+      promptId: "patch.prompt.body",
+      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
+      mutationCheckpointSeams: {
+        runScopedTests: async () => {
+          call += 1;
+          return call === 2;
+        },
+      },
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      const reason = result.result.failureReason ?? "";
+      expect(reason).toContain(
+        `criterion: ${unlinkedCriterion}; kind: guard; pin: v2/src/execution/unlinked.test.ts; reason: unlinked`,
+      );
+      expect(reason).toContain(
+        `criterion: ${hollowCriterion}; kind: guard; pin: v2/src/execution/guard.test.ts; reason: hollow`,
+      );
+      expect(reason).toContain(
+        'directive: v2/src/execution/guard.test.ts:3: // @mutate v2/src/execution/guard.ts "second = 2" -> "second = 0"',
+      );
+      expect(reason).not.toContain(
+        'directive: v2/src/execution/guard.test.ts:2: // @mutate v2/src/execution/guard.ts "first = 1" -> "first = 0"',
+      );
+    }
+  });
+
   test("ticked mutation-checkpoint criterion completes when its directive turns the suite red", async () => {
     // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "report_.caught.push(directive);" -> "report_.hollow.push({ criterionText, directive, detail: \"forced\" });"
     const { jarvisRoot } = createJarvisHome();
@@ -1527,6 +1592,11 @@ describe("write behavior: implement-path blocker-text contract", () => {
 });
 
 describe("isRepromptEligibleMutationCheckpointMiss", () => {
+  test("hollow guard miss is reprompt eligible", () => {
+    // @mutate v2/src/execution/write.ts "if (failureReason.startsWith(\"Hollow mutation checkpoints\")) return true;" -> "if (failureReason.startsWith(\"Hollow mutation checkpoints\")) return false;"
+    expect(isRepromptEligibleMutationCheckpointMiss("Hollow mutation checkpoints (details):\n- guard")).toBe(true);
+  });
+
   test("unlinked keystone miss is reprompt eligible", () => {
     // @mutate v2/src/execution/write.ts "failureReason.startsWith(\"Unlinked keystone checkpoints\");" -> "false;"
     expect(
@@ -1535,7 +1605,7 @@ describe("isRepromptEligibleMutationCheckpointMiss", () => {
       ),
     ).toBe(true);
     expect(isRepromptEligibleMutationCheckpointMiss("Unparseable mutation checkpoints:\n- x")).toBe(true);
-    expect(isRepromptEligibleMutationCheckpointMiss("Hollow mutation checkpoints (…):\n- x")).toBe(false);
+    expect(isRepromptEligibleMutationCheckpointMiss("Hollow mutation checkpoints (…):\n- x")).toBe(true);
     expect(isRepromptEligibleMutationCheckpointMiss(undefined)).toBe(false);
   });
 });

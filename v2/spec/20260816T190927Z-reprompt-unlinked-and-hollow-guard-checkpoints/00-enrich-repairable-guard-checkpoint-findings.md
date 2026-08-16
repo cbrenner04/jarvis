@@ -23,10 +23,10 @@ Every repairable guard finding reports its criterion, checkpoint kind, resolved 
 
 ## Acceptance criteria
 
-- [ ] Completion reports a repairable unlinked guard with its criterion, `guard` kind, resolved repo-relative pin path, and `unlinked` reason, and a hollow guard with the same fields plus the linked directive's repo-relative `path:line` and directive text; test `guard checkpoint repair findings identify pins and directives` in `v2/src/execution/write.test.ts` fails against the pre-fix code and passes after.
-- [ ] When several directives link to one criterion, a hollow finding identifies the directive that was mutated rather than another linked directive; test `guard checkpoint repair findings identify pins and directives` in `v2/src/execution/write.test.ts` covers the ambiguity.
-- [ ] `v2/src/execution/write.test.ts` — `hollow guard miss is reprompt eligible`; Mutation checkpoint: inverting the coarse `Hollow mutation checkpoints` repair-eligibility guard turns this pin red.
-- [ ] `v2/src/execution/write.test.ts` — `guard checkpoint repair findings identify pins and directives`; Mutation checkpoint: directives invert the linked-directive-present classification that maps absent directives to `unlinked` and present green mutations to `hollow`, and the test turns red.
+- [x] Completion reports a repairable unlinked guard with its criterion, `guard` kind, resolved repo-relative pin path, and `unlinked` reason, and a hollow guard with the same fields plus the linked directive's repo-relative `path:line` and directive text; test `guard checkpoint repair findings identify pins and directives` in `v2/src/execution/write.test.ts` fails against the pre-fix code and passes after.
+- [x] When several directives link to one criterion, a hollow finding identifies the directive that was mutated rather than another linked directive; test `guard checkpoint repair findings identify pins and directives` in `v2/src/execution/write.test.ts` covers the ambiguity.
+- [x] `v2/src/execution/write.test.ts` — `hollow guard miss is reprompt eligible`; Mutation checkpoint: inverting the coarse `Hollow mutation checkpoints` repair-eligibility guard turns this pin red.
+- [x] `v2/src/execution/write.test.ts` — `guard checkpoint repair findings identify pins and directives`; Mutation checkpoint: directives invert the linked-directive-present classification that maps absent directives to `unlinked` and present green mutations to `hollow`, and the test turns red.
 
 ## Documentation updates
 

@@ -466,30 +466,11 @@ The loop classifies and routes results:
      headline change` (distinct from hollow guard messaging); keystone caught completes normally.
      A ticked keystone criterion with no linked `// @mutate` on the named pin refuses with `Unlinked
      keystone checkpoints` (distinct from guard hollow). Comment-leading unparseable directives and
-     unresolved pinning-test references settle `contract_miss` with named coordinates. Repromptable
-     unparseable directives (`target_absent`, `target_ambiguous` in opened pinning files with no
-     hollow checkpoint, no inert-headline checkpoint, no unlinked keystone, and no mixed unparseable
-     reasons) reprompt within `maxIterations` via `write.mutation-directive-reprompt` instead of
-     terminal `contract_miss`; budget exhaustion still settles `contract_miss` with harness
-     `## Blocker`. An unlinked keystone whose pin resolved, with no hollow checkpoint, no
-     inert-headline checkpoint, and no blocking unparseable directive, reprompts within
-     `maxIterations` via `write.keystone-directive-reprompt` instead (see below) rather than
-     hard-blocking on the first miss. Multiple keystone, inert headline, and hollow
-     guard checkpoints hard-block without reprompt, and a mixed unlinked-keystone-plus-other-finding
-     report (a malformed directive already on the named keystone pin, a hollow guard, or an
-     inert-headline keystone) hard-blocks with every applicable reason appended, not just the
-     keystone one. Verify-run unrestored directives are tracked;
+     unresolved pinning-test references settle `contract_miss` with named coordinates. A report containing at least one guard checkpoint is repairable only when every guard is `unlinked` or `hollow` and every other blocker is an unlinked keystone. The fresh write loop aggregates that whole set into one process-local `write.guard-checkpoint-reprompt`: every row names its checkpoint kind, criterion, resolved repo-relative pin, and reason; a hollow guard also names its linked directive as `path:line` plus text. An unlinked guard is told to add a linked directive, a hollow guard to repair that directive or the pinning test until the mutation makes the scoped suite fail, and an unlinked keystone to add a headline-revert directive. Guard context precedes a simultaneously pending keystone-only context, and arming any guard, mutation-directive, or keystone-only repair clears the sibling contexts. The next iteration consumes the existing `maxIterations` budget; exhaustion starts no extra iteration and appends the latest normal checkpoint blocker. Terminal settlement clears repair context before its observable boundary and emits no repair prompt. Guard repair context is process-local and is not reconstructed on daemon resume. A guard mixed with `target_absent`, `target_ambiguous`, unresolved or ambiguous pinning, inert headline, blocking malformed or otherwise unparseable directive, or any other real failure remains terminal `contract_miss` without a guard prompt. Pure `target_absent`/`target_ambiguous` reports still reprompt through `write.mutation-directive-reprompt`, and a pure unlinked-keystone report still uses `write.keystone-directive-reprompt`; both retain their existing budget behavior. Verify-run unrestored directives are tracked;
      completion refuses when staged or `HEAD` blob content still carries replacement text without
      the original (including pending-commit resume).
   
-  All contracts pass → success (`complete`). Repromptable mutation-directive misses
-  (`target_absent`, `target_ambiguous` with no hollow checkpoint, no inert-headline checkpoint,
-  no unlinked keystone, and no mixed unparseable reasons) reprompt within `maxIterations` via
-  `write.mutation-directive-reprompt` instead of appending `## Blocker` and settling terminal
-  `contract_miss`; budget exhaustion still hard-blocks. A pure unlinked-keystone miss (see above)
-  reprompts the same way via `write.keystone-directive-reprompt`. Multiple keystone,
-  inert headline, and hollow guard checkpoints hard-block without reprompt, as does any mixed
-  unlinked-keystone report. Other
+  All contracts pass → success (`complete`). Repairable completion-checkpoint misses follow the guard, pure-target, and pure-keystone arms above. Other
   contract failures append `## Blocker` to the artifact
   (`spec.criteria-ticked` → active subspec; `artifact.exists` → routing index
   for linked runs) and stop (`contract_miss`). A missing terminal

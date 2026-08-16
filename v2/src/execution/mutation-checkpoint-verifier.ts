@@ -62,21 +62,19 @@ export type UnparseableDirective = {
 
 export type CriterionCheckpoint = {
   criterionText: string;
+  kind: "guard" | "keystone";
+  reason: "unlinked" | "hollow";
   /** Absent when the criterion linked no directive at all. */
   directive: MutateDirective | undefined;
   detail: string;
-  /** Resolved repo-relative pin path; populated on unlinked keystone checkpoint entries. */
-  pinPath?: string;
+  /** Resolved repo-relative pin path. */
+  pinPath: string;
 };
 
-export type HollowCheckpoint = CriterionCheckpoint;
-export type InertHeadlineCheckpoint = CriterionCheckpoint;
-export type KeystoneUnlinkedCheckpoint = CriterionCheckpoint;
-
 export type MutationCheckpointReport = {
-  hollow: HollowCheckpoint[];
-  inertHeadline: InertHeadlineCheckpoint[];
-  keystoneUnlinked: KeystoneUnlinkedCheckpoint[];
+  hollow: CriterionCheckpoint[];
+  inertHeadline: CriterionCheckpoint[];
+  keystoneUnlinked: CriterionCheckpoint[];
   unparseable: UnparseableDirective[];
   caught: MutateDirective[];
   /** Directives applied during this verify run and not confirmed restored. */
@@ -494,18 +492,17 @@ export function describeUnparseable(directive: UnparseableDirective): string {
 }
 
 export function describeCriterionCheckpoint(checkpoint: CriterionCheckpoint): string {
-  if (checkpoint.directive === undefined) return checkpoint.detail;
+  const prefix = `criterion: ${checkpoint.criterionText}; kind: ${checkpoint.kind}; pin: ${checkpoint.pinPath}; reason: ${checkpoint.reason}`;
+  if (checkpoint.directive === undefined) return `${prefix} — ${checkpoint.detail}`;
   const { sourceFile, sourceLine, raw } = checkpoint.directive;
-  return `${sourceFile}:${sourceLine}: ${raw} — ${checkpoint.detail}`;
+  return `${prefix}; directive: ${sourceFile}:${sourceLine}: ${raw} — ${checkpoint.detail}`;
 }
 
 export const describeHollow = describeCriterionCheckpoint;
 export const describeInertHeadline = describeCriterionCheckpoint;
 
-/** Unlinked-keystone entries always lack a directive; name the criterion and resolved pin path. */
-export function describeKeystoneUnlinked(checkpoint: KeystoneUnlinkedCheckpoint): string {
-  const pin = checkpoint.pinPath !== undefined ? ` (pin: ${checkpoint.pinPath})` : "";
-  return `${checkpoint.criterionText}${pin} — ${checkpoint.detail}`;
+function guardCheckpointReason(directive: MutateDirective | undefined): "unlinked" | "hollow" {
+  return directive === undefined ? "unlinked" : "hollow";
 }
 
 /**
@@ -583,6 +580,7 @@ export async function verifyMutationCheckpoints(
             signal,
             remainingIterationWallMs,
             role,
+            directive.sourceFile,
           );
         }
       }
@@ -626,14 +624,15 @@ function resolveLinkedDirectives(
     return undefined;
   }
   const testPath = resolved.testPath;
+  const pinPath = repoRelativePath(worktreeRoot, testPath);
 
-  if (!report_.openedPinningFiles.includes(testPath)) {
-    report_.openedPinningFiles.push(testPath);
+  if (!report_.openedPinningFiles.includes(pinPath)) {
+    report_.openedPinningFiles.push(pinPath);
   }
 
   let parsed = parsedFiles.get(testPath);
   if (parsed === undefined) {
-    parsed = parseMutateDirectives(testPath, readFile(testPath));
+    parsed = parseMutateDirectives(pinPath, readFile(testPath));
     parsedFiles.set(testPath, parsed);
     report_.unparseable.push(...parsed.unparseable);
   }
@@ -645,12 +644,21 @@ function resolveLinkedDirectives(
     if (role === "keystone") {
       report_.keystoneUnlinked.push({
         criterionText,
+        kind: "keystone",
+        reason: "unlinked",
         directive: undefined,
         detail,
-        pinPath: repoRelativePath(worktreeRoot, testPath),
+        pinPath,
       });
     } else {
-      report_.hollow.push({ criterionText, directive: undefined, detail });
+      report_.hollow.push({
+        criterionText,
+        kind: "guard",
+        reason: guardCheckpointReason(undefined),
+        directive: undefined,
+        detail,
+        pinPath,
+      });
     }
     return undefined;
   }
@@ -673,6 +681,7 @@ async function applyAndClassify(
   signal: AbortSignal | undefined,
   remainingIterationWallMs: (() => number) | undefined,
   role: "guard" | "keystone",
+  pinPath: string,
 ): Promise<void> {
   const resolved = resolveTarget(worktreeRoot, directive, io.readFile);
   if (!resolved.ok) {
@@ -716,11 +725,21 @@ async function applyAndClassify(
     if (role === "keystone") {
       report_.inertHeadline.push({
         criterionText,
+        kind: "keystone",
+        reason: "hollow",
         directive,
         detail: "scoped suite stayed green under headline revert",
+        pinPath,
       });
     } else {
-      report_.hollow.push({ criterionText, directive, detail: "scoped suite stayed green under this mutation" });
+      report_.hollow.push({
+        criterionText,
+        kind: "guard",
+        reason: guardCheckpointReason(directive),
+        directive,
+        detail: "scoped suite stayed green under this mutation",
+        pinPath,
+      });
     }
   } else {
     report_.caught.push(directive);

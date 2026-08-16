@@ -32,7 +32,6 @@
 - [ ] Every added or modified list guard beyond the four named checkpoints is source-inverted from its pinning test and makes the scoped suite fail; no production inversion hook is added.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
-
 ## Documentation updates
 
 - `v2/docs/write-behavior.md` — replace the JSON-default pipeline-list contract with the human rows, filters, empty result, one-shot `pipeline_list` request, and unchanged `--json` snapshot path.

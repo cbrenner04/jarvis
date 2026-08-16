@@ -1389,15 +1389,16 @@ describe("write loop", () => {
       expect(repairPrompt).toContain("repair the linked directive or pinning test");
     });
 
-    test("multiple guard checkpoint repairs aggregate with reasons", async () => {
-      // @mutate v2/src/execution/write-loop.ts "checkpoint.directive === undefined" -> "checkpoint.directive !== undefined"
-      // @mutate v2/src/execution/write.ts "repair.kind === \"keystone\"" -> "repair.kind === \"guard\""
+    test("guard checkpoint repair persists one complete structured event", async () => {
+      // @mutate v2/src/execution/write-loop.ts "guardRepairs !== undefined && iterationsConsumed < maxIterations" -> "guardRepairs === undefined && iterationsConsumed < maxIterations"
+      // @mutate v2/src/execution/write-loop.ts "args.logSink?.append(runId, { kind: \"guard_checkpoint_reprompt\", attemptId, repairs: guardRepairs });" -> "void guardRepairs;"
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       const worktree = createGuardWorktree(jarvisRoot);
       writeGuardSpec(
         worktree,
         "- [x] `missing.test.ts` — `missing guard`; Mutation checkpoint: add evidence.\n" +
-          "- [x] `hollow.test.ts` — `hollow guard`; Mutation checkpoint: repair evidence.\n",
+          "- [x] `hollow.test.ts` — `hollow guard`; Mutation checkpoint: repair evidence.\n" +
+          "- [x] `keystone.test.ts` — `unlinked keystone`; Keystone checkpoint: headline revert turns pin red.\n",
       );
       writeFileSync(join(worktree, "missing.test.ts"), 'test("missing guard", () => {\n});\n', "utf8");
       writeFileSync(
@@ -1405,14 +1406,17 @@ describe("write loop", () => {
         'test("hollow guard", () => {\n  // @mutate target.ts "a > 0" -> "a >= 0"\n});\n',
         "utf8",
       );
+      writeFileSync(join(worktree, "keystone.test.ts"), 'test("unlinked keystone", () => {\n});\n', "utf8");
       let invocations = 0;
       let repaired = false;
       let repairPrompt = "";
+      const sink = new TestLogSink();
 
       const result = await runLoop({
         jarvisRoot,
         stateDbPath,
         maxIterations: 3,
+        logSink: sink,
         ...loopBase,
         mutationCheckpointSeams: { runScopedTests: async () => !repaired },
         bindings: [
@@ -1427,6 +1431,11 @@ describe("write loop", () => {
                 writeFileSync(
                   join(cwd, "missing.test.ts"),
                   'test("missing guard", () => {\n  // @mutate target.ts "a > 0" -> "a >= 0"\n});\n',
+                  "utf8",
+                );
+                writeFileSync(
+                  join(cwd, "keystone.test.ts"),
+                  'test("unlinked keystone", () => {\n  // @mutate target.ts "a > 0" -> "a >= 0"\n});\n',
                   "utf8",
                 );
               }
@@ -1446,6 +1455,42 @@ describe("write loop", () => {
       expect(repairPrompt).toContain('linked directive: hollow.test.ts:2: // @mutate target.ts "a > 0" -> "a >= 0"');
       expect(repairPrompt).toContain("add a linked `// @mutate` directive");
       expect(repairPrompt).toContain("repair the linked directive or pinning test");
+      expect(repairPrompt).toContain("headline-revert `// @mutate` directive");
+
+      const reprompts = sink
+        .getEventsForRun(result.runId)
+        .filter((event) => event.kind === "guard_checkpoint_reprompt");
+      expect(reprompts).toHaveLength(1);
+      const reprompt = reprompts[0];
+      if (reprompt?.kind !== "guard_checkpoint_reprompt") throw new Error("expected guard reprompt event");
+      expect(reprompt.attemptId).toBeString();
+      expect(reprompt.repairs).toEqual([
+        {
+          criterionText: "`missing.test.ts` — `missing guard`; Mutation checkpoint: add evidence.",
+          kind: "guard",
+          pinPath: "missing.test.ts",
+          reason: "unlinked",
+        },
+        {
+          criterionText: "`hollow.test.ts` — `hollow guard`; Mutation checkpoint: repair evidence.",
+          kind: "guard",
+          pinPath: "hollow.test.ts",
+          reason: "hollow",
+          directive: {
+            sourceFile: "hollow.test.ts",
+            sourceLine: 2,
+            raw: '// @mutate target.ts "a > 0" -> "a >= 0"',
+          },
+        },
+        {
+          criterionText:
+            "`keystone.test.ts` — `unlinked keystone`; Keystone checkpoint: headline revert turns pin red.",
+          kind: "keystone",
+          pinPath: "keystone.test.ts",
+          reason: "unlinked",
+        },
+      ]);
+      expect(Object.keys(reprompt).sort()).toEqual(["attemptId", "kind", "repairs"]);
     });
 
     test("guard and unlinked keystone reprompt together", async () => {

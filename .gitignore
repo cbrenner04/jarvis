@@ -9,3 +9,6 @@ coverage/
 .aider*
 running-thoughts.md
 .scratch/
+
+# Harness plan-staging sidecar (never committed; published to v2/spec/)
+.jarvis-plan-stage/

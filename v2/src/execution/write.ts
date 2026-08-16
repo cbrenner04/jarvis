@@ -42,6 +42,18 @@ import { renderStepPrompt } from "./write-prompt.ts";
 
 const DEFAULT_PROMPT_ID = "write.execute";
 
+export type GuardCheckpointRepairEntry = {
+  criterionText: string;
+  kind: "guard" | "keystone";
+  pinPath: string;
+  reason: "unlinked" | "hollow";
+  directive?: { sourceFile: string; sourceLine: number; raw: string };
+};
+
+export type GuardCheckpointRepromptContext = {
+  repairs: GuardCheckpointRepairEntry[];
+};
+
 function readRepoGuidance(worktreePath: string): string {
   const parts: string[] = [];
   for (const name of ["AGENTS.md", "CLAUDE.md"]) {
@@ -188,6 +200,8 @@ export type WriteExecuteInput = {
   joinProcessOnIdleStall?: boolean;
   landingContractReprompt?: { violation: string; offendingFile: string };
   mutationDirectiveReprompt?: MutationDirectiveRepromptContext;
+  /** Process-local repair context for guard checkpoints and accompanying unlinked keystones. */
+  guardCheckpointReprompt?: GuardCheckpointRepromptContext;
   /** Reprompt context for the next implement iteration after a repromptable unlinked-keystone miss. */
   keystoneDirectiveReprompt?: KeystoneDirectiveRepromptContext;
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string };
@@ -492,6 +506,24 @@ export function formatMutationDirectiveRepromptListing(context: MutationDirectiv
   return context.display;
 }
 
+export function formatGuardCheckpointRepromptListing(context: GuardCheckpointRepromptContext): string {
+  return context.repairs
+    .map((repair) => {
+      const directive =
+        repair.directive === undefined
+          ? ""
+          : `; linked directive: ${repair.directive.sourceFile}:${repair.directive.sourceLine}: ${repair.directive.raw}`;
+      const instruction =
+        repair.kind === "keystone"
+          ? "add a headline-revert `// @mutate` directive inside the named pin"
+          : repair.reason === "unlinked"
+            ? "add a linked `// @mutate` directive inside the named pin"
+            : "repair the linked directive or pinning test so applying the mutation makes the scoped suite fail";
+      return `- kind: ${repair.kind}; criterion: ${repair.criterionText}; pin: ${repair.pinPath}; reason: ${repair.reason}${directive}\n  Repair: ${instruction}.`;
+    })
+    .join("\n");
+}
+
 function getUntickedNonHumanOnlyCriteria(artifactPath: string): string[] {
   if (!existsSync(artifactPath)) {
     return [];
@@ -512,7 +544,13 @@ async function executeDefaultWrite(
 ): Promise<StepRunResult> {
   let prompt: string;
   try {
-    if (promptId === "patch.prompt.body" && args.mutationDirectiveReprompt !== undefined) {
+    if (promptId === "patch.prompt.body" && args.guardCheckpointReprompt !== undefined) {
+      prompt = renderArtifactTemplate(loadPromptRegistry().getById("write.guard-checkpoint-reprompt"), {
+        ACTIVE_SUBSPEC_PATH: expectedArtifactPath,
+        REPAIR_LIST: formatGuardCheckpointRepromptListing(args.guardCheckpointReprompt),
+        STEP_RULES: args.stepRules,
+      });
+    } else if (promptId === "patch.prompt.body" && args.mutationDirectiveReprompt !== undefined) {
       prompt = renderArtifactTemplate(loadPromptRegistry().getById("write.mutation-directive-reprompt"), {
         ACTIVE_SUBSPEC_PATH: expectedArtifactPath,
         DIRECTIVE_LIST: formatMutationDirectiveRepromptListing(args.mutationDirectiveReprompt),

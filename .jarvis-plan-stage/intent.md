@@ -50,4 +50,3 @@ name: v2-init-command
 - `README.md` — update installation, quickstart, configuration, and command inventory for `jarvis init`.
 
 ## Prerequisites
-

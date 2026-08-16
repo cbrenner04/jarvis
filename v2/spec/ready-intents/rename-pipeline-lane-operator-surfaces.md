@@ -8,7 +8,7 @@ name: rename-pipeline-lane-operator-surfaces
 
 - State-store lane identity is `laneKey` backed by `lane_key`; legacy `branch_key` stores migrate without row, value, or order changes.
 - Pipeline execution uses lane terminology, preserves lane values, requires `laneKey` for multi-lane approvals, and names valid lanes for a mismatched target.
-- Pipeline RPC emits `laneKey`, accepts current `laneKey` decision targeting, retains the request-only `branchKey` fallback for one release, and refuses omitted multi-lane targeting with `lane_key_required`.
+- Pipeline RPC emits `laneKey`, accepts current `laneKey` decision targeting, retains the request-only `branchKey` fallback only in the release that introduces `laneKey`, removes it in the immediately following release, and refuses omitted multi-lane targeting with `lane_key_required`.
 
 ## Surface
 

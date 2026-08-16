@@ -6,7 +6,7 @@
 
 ## Prerequisites
 
-- The setup and readiness behavior from [00 - Initialize machine and project state](./00-initialize-machine-and-project-state.md) and [01 - Report initialization readiness](./01-report-initialization-readiness.md) is present.
+- Implement after the setup and readiness behavior from [00 - Initialize machine and project state](./00-initialize-machine-and-project-state.md) and [01 - Report initialization readiness](./01-report-initialization-readiness.md); rules out temporary dispatch stubs or duplicated option parsing.
 
 ## Decisions
 

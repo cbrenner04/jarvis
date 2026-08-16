@@ -51,6 +51,3 @@ name: v2-init-command
 
 ## Prerequisites
 
-## Blocker
-
-Artifact contract check failed: Plan subspec 00-add-v2-init-setup-and-readiness-checks.md has a multi-surface ## Decisions bullet: Setup always follows with the same eight-check readiness report used by `--check`: Bun, GitHub authentication, supported agent CLI availability, committed profile resolution, cwd registration, origin, effective spec directory, and daemon status; rules out a setup-only success message that defers readiness.

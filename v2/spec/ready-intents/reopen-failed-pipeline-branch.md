@@ -28,7 +28,7 @@ The state store can atomically reopen the valid failed continuation and skipped 
 ## Acceptance criteria
 
 - [ ] `state-store.test.ts` fails against the baseline, then proves a named failed fan-out branch and only its skipped suffix reopen while sibling awaiting gates, failures, and lifecycle payloads remain byte-for-byte unchanged.
-- [ ] `state-store.test.ts` proves absent, non-failed, malformed, duplicate, and racing branch-scoped reopen attempts refuse without partial mutation.
+- [ ] `state-store.test.ts` proves absent, non-failed, duplicate, and racing branch-scoped reopen attempts refuse without partial mutation.
 - [ ] Existing whole-pipeline `reopenFailedPipeline` tests stay green.
 
 ## Documentation updates

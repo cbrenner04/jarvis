@@ -46,3 +46,7 @@ Unsplit rationale: Parsing, filtering, sorting, and rendering all belong to the 
 - `v2/docs/first-workflow-walkthrough.md` uses the default list table to locate a pipeline id and keeps branch-specific approval guidance accurate for collapsed summaries.
 - `v2/docs/v1-behaviors.md` records the changed v2 CLI default and the preserved JSON compatibility path.
 - `v2/src/cli/usage.ts` and structured command help list the accepted flags.
+
+## Blocker
+
+Artifact contract check failed: Plan subspec 00-render-and-filter-pipeline-list.md has a multi-surface ## Acceptance criteria bullet: `v2/src/commands/pipeline.test.ts` pins unknown flags, invalid or missing `--since` and `--state` values, and extra positionals as `PIPELINE_LIST_USAGE` on stderr with exit `1` and no daemon request.

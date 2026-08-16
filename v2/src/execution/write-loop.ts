@@ -345,20 +345,12 @@ function guardCheckpointRepairs(report: MutationCheckpointReport): GuardCheckpoi
   if (report.inertHeadline.length > 0) return undefined;
   if (blockingUnparseableEntries(report).length > 0) return undefined;
   const checkpoints = [...report.hollow, ...report.keystoneUnlinked];
-  return checkpoints.map((checkpoint) => ({
-    criterionText: checkpoint.criterionText,
-    kind: checkpoint.kind,
-    pinPath: checkpoint.pinPath,
-    reason: checkpoint.reason,
-    ...(checkpoint.directive === undefined
-      ? {}
-      : {
-          directive: {
-            sourceFile: checkpoint.directive.sourceFile,
-            sourceLine: checkpoint.directive.sourceLine,
-            raw: checkpoint.directive.raw,
-          },
-        }),
+  return checkpoints.map(({ criterionText, kind, pinPath, reason, directive }) => ({
+    criterionText,
+    kind,
+    pinPath,
+    reason,
+    ...(directive === undefined ? {} : { directive }),
   }));
 }
 

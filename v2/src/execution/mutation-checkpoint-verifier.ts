@@ -71,14 +71,10 @@ export type CriterionCheckpoint = {
   pinPath: string;
 };
 
-export type HollowCheckpoint = CriterionCheckpoint;
-export type InertHeadlineCheckpoint = CriterionCheckpoint;
-export type KeystoneUnlinkedCheckpoint = CriterionCheckpoint;
-
 export type MutationCheckpointReport = {
-  hollow: HollowCheckpoint[];
-  inertHeadline: InertHeadlineCheckpoint[];
-  keystoneUnlinked: KeystoneUnlinkedCheckpoint[];
+  hollow: CriterionCheckpoint[];
+  inertHeadline: CriterionCheckpoint[];
+  keystoneUnlinked: CriterionCheckpoint[];
   unparseable: UnparseableDirective[];
   caught: MutateDirective[];
   /** Directives applied during this verify run and not confirmed restored. */
@@ -504,10 +500,6 @@ export function describeCriterionCheckpoint(checkpoint: CriterionCheckpoint): st
 
 export const describeHollow = describeCriterionCheckpoint;
 export const describeInertHeadline = describeCriterionCheckpoint;
-
-export function describeKeystoneUnlinked(checkpoint: KeystoneUnlinkedCheckpoint): string {
-  return describeCriterionCheckpoint(checkpoint);
-}
 
 function guardCheckpointReason(directive: MutateDirective | undefined): "unlinked" | "hollow" {
   return directive === undefined ? "unlinked" : "hollow";

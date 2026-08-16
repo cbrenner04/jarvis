@@ -30,9 +30,10 @@ import {
 } from "./external-worktree.ts";
 import {
   blockingUnparseableEntries,
+  type CriterionCheckpoint,
   describeCriterionCheckpoint,
-  describeKeystoneUnlinked,
   describeUnparseable,
+  type MutateDirective,
   type MutationCheckpointSeams,
   repoRelativeChangedPathsFromBaseRef,
   verifyMutationCheckpoints,
@@ -42,12 +43,8 @@ import { renderStepPrompt } from "./write-prompt.ts";
 
 const DEFAULT_PROMPT_ID = "write.execute";
 
-export type GuardCheckpointRepairEntry = {
-  criterionText: string;
-  kind: "guard" | "keystone";
-  pinPath: string;
-  reason: "unlinked" | "hollow";
-  directive?: { sourceFile: string; sourceLine: number; raw: string };
+export type GuardCheckpointRepairEntry = Omit<CriterionCheckpoint, "detail" | "directive"> & {
+  directive?: Pick<MutateDirective, "sourceFile" | "sourceLine" | "raw">;
 };
 
 export type GuardCheckpointRepromptContext = {
@@ -450,7 +447,7 @@ async function checkMutationCheckpointsAtCompletion(
       buildListedReason(
         "Unlinked keystone checkpoints (no directive linked on the named pin):",
         report.keystoneUnlinked,
-        describeKeystoneUnlinked,
+        describeCriterionCheckpoint,
       ),
     ];
     if (report.inertHeadline.length !== 0) sections.push(describeInertHeadlineSection());

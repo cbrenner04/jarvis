@@ -19,10 +19,10 @@ The event participates in the run log's normal per-run sequence ordering. Existi
 
 ## Task checklist
 
-- [ ] Add the structured guard-checkpoint reprompt event to the durable `LogEvent` contract and share its repair-row shape with the producer without duplicating incompatible execution and persistence types.
-- [ ] Append exactly one event when the write loop admits the complete guard repair set; preserve normal run-log sequencing and existing directive-reprompt events.
-- [ ] Add focused producer and log-stream regressions.
-- [ ] Update the durable docs listed below.
+- [x] Add the structured guard-checkpoint reprompt event to the durable `LogEvent` contract and share its repair-row shape with the producer without duplicating incompatible execution and persistence types.
+- [x] Append exactly one event when the write loop admits the complete guard repair set; preserve normal run-log sequencing and existing directive-reprompt events.
+- [x] Add focused producer and log-stream regressions.
+- [x] Update the durable docs listed below.
 
 ## Acceptance criteria
 
@@ -33,13 +33,9 @@ The event participates in the run log's normal per-run sequence ordering. Existi
 - [x] Historical `mutation_directive_reprompt` and `keystone_directive_reprompt` records remain readable with their current payloads, covered by `guard checkpoint reprompts round-trip in directive-event order` in `v2/src/persistence/log-stream.test.ts`.
 - [x] `v2/src/execution/write-loop.test.ts` — `guard checkpoint repair persists one complete structured event`; Keystone checkpoint: removing the guard-event append turns this pin red.
 - [x] `v2/src/execution/write-loop.test.ts` — `guard checkpoint repair persists one complete structured event`; Mutation checkpoint: inverting the repair-admission guard turns this pin red and proves the event is emitted only from an admitted repair branch.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 
 - `v2/docs/write-behavior.md` — canonical durable guard-reprompt event fields (`guard_checkpoint_reprompt`, its complete structured repair array, omission of rendered prose) and stream ordering.
 - `v2/docs/v1-behaviors.md` — parity-catalog link to that contract and preserved existing-event compatibility.
-
-## Blocker
-
-`bun run test:v2` failed twice: `completion-commit.test.ts` and `diff-derived-mutation-verifier.test.ts` each timed out after 30 seconds in nested Bun subprocesses. Focused regressions, mutation checkpoints, `bun run typecheck`, and `bun run test:integration:v2` pass.

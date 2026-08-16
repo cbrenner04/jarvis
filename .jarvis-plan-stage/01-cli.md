@@ -11,7 +11,6 @@
 - `--since` accepts positive `<integer>d|h|m|s` durations relative to the CLI clock or a `Date.parse`-accepted ISO timestamp; `--state` accepts exactly `pending`, `running`, `awaiting-approval`, `succeeded`, `failed`, `rejected`, or `interrupted`, ruling out a new filter grammar.
 - An empty human selection prints `No pipelines.` and exits `0`; invalid, missing, unknown, or incompatible flags print `PIPELINE_LIST_USAGE` and exit `1`, ruling out an empty table or partial parsing.
 
-
 ## Work
 
 - Parse list flags, select and sort snapshots, render human rows and collapsed stage summaries, and preserve the JSON compatibility branch in `v2/src/commands/pipeline.ts`.

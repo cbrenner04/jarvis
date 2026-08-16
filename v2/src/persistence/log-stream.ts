@@ -182,6 +182,30 @@ export type KeystoneDirectiveRepromptEvent = {
   attemptId: string;
 } & KeystoneDirectiveRepromptContext;
 
+/** Structured checkpoint row shared by guard-repair prompting and durable logs. */
+export type GuardCheckpointRepairEntry = {
+  criterionText: string;
+  kind: "guard" | "keystone";
+  /** Resolved repo-relative path of the criterion's pinning test. */
+  pinPath: string;
+  reason: "unlinked" | "hollow";
+  directive?: {
+    sourceFile: string;
+    sourceLine: number;
+    raw: string;
+  };
+};
+
+export type GuardCheckpointRepromptContext = {
+  repairs: GuardCheckpointRepairEntry[];
+};
+
+/** Emitted once when the write loop admits a complete guard-checkpoint repair set. */
+export type GuardCheckpointRepromptEvent = {
+  kind: "guard_checkpoint_reprompt";
+  attemptId: string;
+} & GuardCheckpointRepromptContext;
+
 /** Agent stdout excerpt when a rejected `blocked` token still has no blocker text; truncated at append time. */
 export type MissingBlockerDetailEvent = {
   kind: "missing_blocker_detail";
@@ -244,6 +268,7 @@ type LogEventWithoutLoopFinished =
   | StagedMarkdownLintRepromptEvent
   | MutationDirectiveRepromptEvent
   | KeystoneDirectiveRepromptEvent
+  | GuardCheckpointRepromptEvent
   | MissingBlockerDetailEvent
   | ContractMissDetailEvent
   | BlockerTextDetailEvent

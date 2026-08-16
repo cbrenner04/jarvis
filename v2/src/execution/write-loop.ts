@@ -27,6 +27,8 @@ import { parseSpec } from "../../../shared/spec-parser.ts";
 import { AsyncSubprocessError, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
+  type GuardCheckpointRepairEntry,
+  type GuardCheckpointRepromptContext,
   type KeystoneDirectiveRepromptContext,
   type KeystoneDirectiveRepromptEvent,
   type LandingContractRepromptEvent,
@@ -280,6 +282,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string };
   /** Reprompt context for the next implement iteration after a repromptable mutation-directive miss. */
   mutationDirectiveReprompt?: MutationDirectiveRepromptContext;
+  /** Process-local repair context for the next implement iteration after repairable guard findings. */
+  guardCheckpointReprompt?: GuardCheckpointRepromptContext;
   /** Reprompt context for the next implement iteration after a repromptable unlinked-keystone miss. */
   keystoneDirectiveReprompt?: KeystoneDirectiveRepromptContext;
   /** Publication landing contract when invoked from workflow-runner write steps. */
@@ -334,6 +338,28 @@ export function isRepromptOnlyKeystoneDirectiveMiss(report: MutationCheckpointRe
   if (report.keystoneUnlinked.length === 0) return false;
   if (report.hollow.length > 0 || report.inertHeadline.length > 0) return false;
   return blockingUnparseableEntries(report).length === 0;
+}
+
+function guardCheckpointRepairs(report: MutationCheckpointReport): GuardCheckpointRepairEntry[] | undefined {
+  if (report.hollow.length === 0) return undefined;
+  if (report.inertHeadline.length > 0) return undefined;
+  if (blockingUnparseableEntries(report).length > 0) return undefined;
+  const checkpoints = [...report.hollow, ...report.keystoneUnlinked];
+  return checkpoints.map(({ criterionText, kind, pinPath, reason, directive }) => ({
+    criterionText,
+    kind,
+    pinPath,
+    reason,
+    ...(directive === undefined
+      ? {}
+      : {
+          directive: {
+            sourceFile: directive.sourceFile,
+            sourceLine: directive.sourceLine,
+            raw: directive.raw,
+          },
+        }),
+  }));
 }
 
 /** Last in-loop landing-contract reprompt from a run's persisted log tail (resume after pause). */
@@ -1027,6 +1053,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
     let pendingLandingReprompt = args.landingContractReprompt;
     let pendingStagedMarkdownLintReprompt = args.stagedMarkdownLintReprompt;
     let pendingMutationDirectiveReprompt = args.mutationDirectiveReprompt;
+    let pendingGuardCheckpointReprompt = args.guardCheckpointReprompt;
     let pendingKeystoneDirectiveReprompt = args.keystoneDirectiveReprompt;
 
     store.setRunStatus(runId, "in-progress");
@@ -1057,6 +1084,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         pendingLandingReprompt,
         pendingStagedMarkdownLintReprompt,
         pendingMutationDirectiveReprompt,
+        pendingGuardCheckpointReprompt,
         pendingKeystoneDirectiveReprompt,
       );
       if (settled.kind === "aborted") {
@@ -1485,11 +1513,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         pendingStagedMarkdownLintReprompt = undefined;
       }
 
-      if (result.kind === "complete") {
-        pendingMutationDirectiveReprompt = undefined;
-        pendingKeystoneDirectiveReprompt = undefined;
-      }
-
       if (result.kind === "contract_miss") {
         const reason = result.failureReason ?? result.failedContractId;
         const blockerPath =
@@ -1514,6 +1537,29 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               (await repoRelativeChangedPathsFromBaseRef(worktreePath, args.worktree.baseRef)),
             ...(args.signal !== undefined ? { signal: args.signal } : {}),
           });
+          const guardRepairs = guardCheckpointRepairs(report);
+          // Mutation checkpoint: inverting guard repair admission must turn
+          // "guard checkpoint repair persists one complete structured event" RED.
+          if (guardRepairs !== undefined && iterationsConsumed < maxIterations) {
+            const outcome = await commitRepromptProgressBoundary(
+              args,
+              prepared,
+              store,
+              runId,
+              worktreePath,
+              attemptId,
+              result,
+              iterationsConsumed,
+              () => {
+                args.logSink?.append(runId, { kind: "guard_checkpoint_reprompt", attemptId, repairs: guardRepairs });
+                pendingGuardCheckpointReprompt = { repairs: guardRepairs };
+                pendingMutationDirectiveReprompt = undefined;
+                pendingKeystoneDirectiveReprompt = undefined;
+              },
+            );
+            if (outcome !== undefined) return outcome;
+            continue;
+          }
           // Mutation checkpoint: inverting isRepromptOnlyMutationDirectiveMiss must turn
           // "target_absent mutation directive reprompts before settle" RED.
           if (isRepromptOnlyMutationDirectiveMiss(report) && iterationsConsumed < maxIterations) {
@@ -1542,7 +1588,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
                   display: truncateLogText(display),
                 });
                 pendingMutationDirectiveReprompt = { directives, display };
-                pendingKeystoneDirectiveReprompt = undefined;
+                pendingGuardCheckpointReprompt = pendingKeystoneDirectiveReprompt = undefined;
               },
             );
             if (outcome !== undefined) return outcome;
@@ -1573,6 +1619,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
                 });
                 pendingKeystoneDirectiveReprompt = { criterionText, pinPath };
                 pendingMutationDirectiveReprompt = undefined;
+                pendingGuardCheckpointReprompt = undefined;
               },
             );
             if (outcome !== undefined) return outcome;
@@ -1581,6 +1628,10 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         }
         appendBlockerToSpec(blockerPath, reason);
       }
+
+      pendingMutationDirectiveReprompt = undefined;
+      pendingGuardCheckpointReprompt = undefined;
+      pendingKeystoneDirectiveReprompt = undefined;
 
       // Run coverage advisory for completing implement writes before terminal boundary
       if (result.kind === "complete" && args.promptId === "patch.prompt.body") {
@@ -1932,6 +1983,7 @@ async function awaitIteration(
   landingContractReprompt?: { violation: string; offendingFile: string },
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string },
   mutationDirectiveReprompt?: MutationDirectiveRepromptContext,
+  guardCheckpointReprompt?: GuardCheckpointRepromptContext,
   keystoneDirectiveReprompt?: KeystoneDirectiveRepromptContext,
 ): Promise<IterationSettlement> {
   const executionController = new AbortController();
@@ -1981,6 +2033,7 @@ async function awaitIteration(
       landingContractReprompt,
       stagedMarkdownLintReprompt,
       mutationDirectiveReprompt,
+      guardCheckpointReprompt,
       keystoneDirectiveReprompt,
     ),
     remainingIterationWallMs: () => Math.max(0, wallSegmentDeadline - Date.now()),
@@ -2283,6 +2336,7 @@ function buildWriteExecuteInput(
   landingContractReprompt?: { violation: string; offendingFile: string },
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string },
   mutationDirectiveReprompt?: MutationDirectiveRepromptContext,
+  guardCheckpointReprompt?: GuardCheckpointRepromptContext,
   keystoneDirectiveReprompt?: KeystoneDirectiveRepromptContext,
 ): WriteExecuteInput {
   const telemetry = args.telemetry;
@@ -2336,6 +2390,7 @@ function buildWriteExecuteInput(
     ...(landingContractReprompt !== undefined ? { landingContractReprompt } : {}),
     ...(stagedMarkdownLintReprompt !== undefined ? { stagedMarkdownLintReprompt } : {}),
     ...(mutationDirectiveReprompt !== undefined ? { mutationDirectiveReprompt } : {}),
+    ...(guardCheckpointReprompt !== undefined ? { guardCheckpointReprompt } : {}),
     ...(keystoneDirectiveReprompt !== undefined ? { keystoneDirectiveReprompt } : {}),
   };
 }

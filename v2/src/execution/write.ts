@@ -474,14 +474,14 @@ export function isMutationCheckpointCriteriaTickedMiss(failureReason: string | u
 }
 
 /**
- * True when a mutation-checkpoint `spec.criteria-ticked` miss may reprompt instead of terminal
- * settle. This is a coarse text pre-filter; the write loop re-verifies the full report to admit
- * only a pure miss (unparseable-only, or unlinked-keystone-only) — a mixed report still starts
- * with the same reason text but hard-blocks.
+ * True when a mutation-checkpoint `spec.criteria-ticked` miss should reach structured reprompt
+ * admission. This is a coarse text pre-filter; the write loop re-verifies the full report before
+ * selecting a repair arm, and mixed reports still hard-block.
  */
 export function isRepromptEligibleMutationCheckpointMiss(failureReason: string | undefined): boolean {
   if (failureReason === undefined) return false;
   if (failureReason.startsWith("Unparseable mutation checkpoints:")) return true;
+  if (failureReason.startsWith("Hollow mutation checkpoints")) return true;
   return failureReason.startsWith("Unlinked keystone checkpoints");
 }
 

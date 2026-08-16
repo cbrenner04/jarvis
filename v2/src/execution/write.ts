@@ -22,7 +22,11 @@ import { buildPlanDraftPrompt } from "../../../shared/prompts/plan-draft.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { PromptRenderingError, renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import { hasGenuineBlocker, parseSpec } from "../../../shared/spec-parser.ts";
-import type { KeystoneDirectiveRepromptContext, MutationDirectiveRepromptContext } from "../persistence/log-stream.ts";
+import type {
+  GuardCheckpointRepromptContext,
+  KeystoneDirectiveRepromptContext,
+  MutationDirectiveRepromptContext,
+} from "../persistence/log-stream.ts";
 import {
   type ExternalWorktreeInput,
   type LockStatus,
@@ -30,10 +34,8 @@ import {
 } from "./external-worktree.ts";
 import {
   blockingUnparseableEntries,
-  type CriterionCheckpoint,
   describeCriterionCheckpoint,
   describeUnparseable,
-  type MutateDirective,
   type MutationCheckpointSeams,
   repoRelativeChangedPathsFromBaseRef,
   verifyMutationCheckpoints,
@@ -42,14 +44,6 @@ import { type BlockerTextContract, runStep, type StepContract, type StepRunResul
 import { renderStepPrompt } from "./write-prompt.ts";
 
 const DEFAULT_PROMPT_ID = "write.execute";
-
-export type GuardCheckpointRepairEntry = Omit<CriterionCheckpoint, "detail" | "directive"> & {
-  directive?: Pick<MutateDirective, "sourceFile" | "sourceLine" | "raw">;
-};
-
-export type GuardCheckpointRepromptContext = {
-  repairs: GuardCheckpointRepairEntry[];
-};
 
 function readRepoGuidance(worktreePath: string): string {
   const parts: string[] = [];

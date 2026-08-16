@@ -27,6 +27,8 @@ import { parseSpec } from "../../../shared/spec-parser.ts";
 import { AsyncSubprocessError, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
+  type GuardCheckpointRepairEntry,
+  type GuardCheckpointRepromptContext,
   type KeystoneDirectiveRepromptContext,
   type KeystoneDirectiveRepromptEvent,
   type LandingContractRepromptEvent,
@@ -92,8 +94,6 @@ import { reportUncoveredChangedLines } from "./uncovered-changed-lines.ts";
 import { type BoundaryStamp, boundaryStampFromStoredRun, emitWorkBoundaryRecorded } from "./work-boundary-telemetry.ts";
 import {
   executeWrite,
-  type GuardCheckpointRepairEntry,
-  type GuardCheckpointRepromptContext,
   isMutationCheckpointCriteriaTickedMiss,
   isRepromptEligibleMutationCheckpointMiss,
   type WriteExecuteInput,
@@ -350,7 +350,15 @@ function guardCheckpointRepairs(report: MutationCheckpointReport): GuardCheckpoi
     kind,
     pinPath,
     reason,
-    ...(directive === undefined ? {} : { directive }),
+    ...(directive === undefined
+      ? {}
+      : {
+          directive: {
+            sourceFile: directive.sourceFile,
+            sourceLine: directive.sourceLine,
+            raw: directive.raw,
+          },
+        }),
   }));
 }
 
@@ -1531,7 +1539,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           });
           const guardRepairs = guardCheckpointRepairs(report);
           // Mutation checkpoint: inverting guard repair admission must turn
-          // "unlinked guard checkpoint reprompts before settle" RED.
+          // "guard checkpoint repair persists one complete structured event" RED.
           if (guardRepairs !== undefined && iterationsConsumed < maxIterations) {
             const outcome = await commitRepromptProgressBoundary(
               args,
@@ -1543,6 +1551,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               result,
               iterationsConsumed,
               () => {
+                args.logSink?.append(runId, { kind: "guard_checkpoint_reprompt", attemptId, repairs: guardRepairs });
                 pendingGuardCheckpointReprompt = { repairs: guardRepairs };
                 pendingMutationDirectiveReprompt = undefined;
                 pendingKeystoneDirectiveReprompt = undefined;

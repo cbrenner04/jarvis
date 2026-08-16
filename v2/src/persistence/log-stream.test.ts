@@ -103,6 +103,72 @@ describe("log-stream", () => {
     }
   });
 
+  it("guard checkpoint reprompts round-trip in directive-event order", () => {
+    const sink = openLogSink(storagePath);
+    const reader = openLogReader(storagePath);
+    const mutationEvent: LogEvent = {
+      kind: "mutation_directive_reprompt",
+      attemptId: "attempt-1",
+      directives: [
+        {
+          pinningFile: "mutation.test.ts",
+          line: 4,
+          raw: '// @mutate target.ts "old" -> "new"',
+          reason: "target_absent",
+        },
+      ],
+      display: "legacy mutation display",
+    };
+    const guardEvent: LogEvent = {
+      kind: "guard_checkpoint_reprompt",
+      attemptId: "attempt-2",
+      repairs: [
+        {
+          criterionText: "unlinked guard criterion",
+          kind: "guard",
+          pinPath: "unlinked.test.ts",
+          reason: "unlinked",
+        },
+        {
+          criterionText: "hollow guard criterion",
+          kind: "guard",
+          pinPath: "hollow.test.ts",
+          reason: "hollow",
+          directive: {
+            sourceFile: "hollow.test.ts",
+            sourceLine: 7,
+            raw: '// @mutate target.ts "enabled" -> "disabled"',
+          },
+        },
+        {
+          criterionText: "unlinked keystone criterion",
+          kind: "keystone",
+          pinPath: "keystone.test.ts",
+          reason: "unlinked",
+        },
+      ],
+    };
+    const keystoneEvent: LogEvent = {
+      kind: "keystone_directive_reprompt",
+      attemptId: "attempt-3",
+      criterionText: "legacy keystone criterion",
+      pinPath: "legacy-keystone.test.ts",
+    };
+
+    sink.append("run-1", mutationEvent);
+    sink.append("run-1", guardEvent);
+    sink.append("run-1", keystoneEvent);
+    sink.close();
+
+    const records = reader.tail("run-1");
+    expect(records.map(({ seq, event }) => ({ seq, kind: event.kind }))).toEqual([
+      { seq: 1, kind: "mutation_directive_reprompt" },
+      { seq: 2, kind: "guard_checkpoint_reprompt" },
+      { seq: 3, kind: "keystone_directive_reprompt" },
+    ]);
+    expect(records.map((record) => record.event)).toEqual([mutationEvent, guardEvent, keystoneEvent]);
+  });
+
   it("tail returns only the specified run's events in ascending seq order starting at 1", () => {
     const sink = openLogSink(storagePath);
     const reader = openLogReader(storagePath);

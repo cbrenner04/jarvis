@@ -75,3 +75,4 @@ report,specs_driven,completed_specs,partial_or_blocked,session_active_tokens,ope
 20260809T0335Z-tui-command-center-session,7,4,4,513800,513800,144800000,101.13,101.13,128450,25.28
 20260810T150936Z-tui-command-center-session,7,6,2,732700,732700,173400000,122.87,122.87,122117,20.48
 20260810T205258Z-tui-command-center-completion-session,10,9,1,647400,647400,171200000,116.06,116.06,71933,12.90
+20260816T225338Z-guard-reprompt-trio-and-tui-pipeline-dogfood-session,3,3,0,466920,466920,180800000,109.41,109.41,155640,36.47

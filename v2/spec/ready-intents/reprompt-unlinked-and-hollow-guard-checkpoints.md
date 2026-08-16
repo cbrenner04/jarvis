@@ -41,6 +41,6 @@ Implement completion terminally settles resolvable unlinked and hollow guard che
 
 ## Documentation updates
 
-- `v2/docs/write-behavior.md` — guard admission, unlinked-versus-hollow instructions, shared budget, prompt precedence, and context clearing.
-- `v2/docs/workflow-runner.md` — implement repairs missing or ineffective guard directives before terminal completion.
-- `v2/docs/v1-behaviors.md` — widened fresh-write-loop reprompt behavior and preserved hard blocks.
+- `v2/docs/write-behavior.md` — canonical guard admission, unlinked-versus-hollow instructions, shared budget, prompt precedence, context clearing, and hard blocks.
+- `v2/docs/workflow-runner.md` — cross-link the implement-completion discussion to the canonical guard-repair contract without duplicating loop semantics.
+- `v2/docs/v1-behaviors.md` — parity-catalog entry that links to the canonical contract and records widened fresh-write-loop reprompts and preserved hard blocks.

@@ -36,5 +36,5 @@ Daemon resume currently reconstructs mutation-directive and keystone-directive r
 
 ## Documentation updates
 
-- `v2/docs/write-behavior.md` — pause/resume replay for guard-checkpoint repair and shared-budget continuity.
-- `v2/docs/v1-behaviors.md` — daemon resume restores only the latest directive-reprompt context, including guards.
+- `v2/docs/write-behavior.md` — canonical pause/resume replay contract for guard-checkpoint repair and shared-budget continuity.
+- `v2/docs/v1-behaviors.md` — parity-catalog entry that links to the canonical contract and records newest-context-only daemon resume, including guards.

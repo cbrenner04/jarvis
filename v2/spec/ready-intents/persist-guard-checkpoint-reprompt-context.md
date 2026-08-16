@@ -34,5 +34,5 @@ Guard-checkpoint repair instructions need durable structured evidence so a pause
 
 ## Documentation updates
 
-- `v2/docs/write-behavior.md` — durable guard reprompt event contents.
-- `v2/docs/v1-behaviors.md` — guard reprompt log evidence added without changing existing event compatibility.
+- `v2/docs/write-behavior.md` — canonical durable guard-reprompt event contract, including its findings, reasons, and stream ordering.
+- `v2/docs/v1-behaviors.md` — parity-catalog entry that links to the canonical contract and records preserved existing-event compatibility.

@@ -269,6 +269,9 @@ async function runLoop(args: {
   iterationTimeoutMs?: number;
   mutationCheckpointSeams?: WriteLoopInput["mutationCheckpointSeams"];
   readyGateScopeSeams?: WriteLoopInput["readyGateScopeSeams"];
+  guardCheckpointReprompt?: WriteLoopInput["guardCheckpointReprompt"];
+  mutationDirectiveReprompt?: WriteLoopInput["mutationDirectiveReprompt"];
+  keystoneDirectiveReprompt?: WriteLoopInput["keystoneDirectiveReprompt"];
 }) {
   // Track the parent directory for cleanup
   roots.push(join(args.jarvisRoot, ".."));
@@ -312,6 +315,13 @@ async function runLoop(args: {
     ...(args.runAutofixTypecheck !== undefined ? { runAutofixTypecheck: args.runAutofixTypecheck } : {}),
     ...(args.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: args.iterationTimeoutMs } : {}),
     ...(args.readyGateScopeSeams !== undefined ? { readyGateScopeSeams: args.readyGateScopeSeams } : {}),
+    ...(args.guardCheckpointReprompt !== undefined ? { guardCheckpointReprompt: args.guardCheckpointReprompt } : {}),
+    ...(args.mutationDirectiveReprompt !== undefined
+      ? { mutationDirectiveReprompt: args.mutationDirectiveReprompt }
+      : {}),
+    ...(args.keystoneDirectiveReprompt !== undefined
+      ? { keystoneDirectiveReprompt: args.keystoneDirectiveReprompt }
+      : {}),
   };
   try {
     return await executeWriteLoop(loopInput);
@@ -1267,6 +1277,498 @@ describe("write loop", () => {
     expect(thirdPrompt).toContain("keystone.test.ts");
     expect(thirdPrompt).not.toContain("Retarget each `// @mutate` directive");
     expect(thirdPrompt).not.toContain('// @mutate target.ts "fn(a, b)" -> "fn()"');
+  });
+
+  describe("guard checkpoint reprompt", () => {
+    const loopBase = {
+      publishCompletion: false as const,
+      promptId: "patch.prompt.body" as const,
+      artifactPath: "00-subspec.md",
+    };
+
+    function createGuardWorktree(jarvisRoot: string): string {
+      const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
+      mkdirSync(worktree, { recursive: true });
+      writeFileSync(join(worktree, "target.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
+      return worktree;
+    }
+
+    function writeGuardSpec(worktree: string, criteria: string): void {
+      writeFileSync(join(worktree, "00-subspec.md"), `## Acceptance criteria\n\n${criteria}`, "utf8");
+    }
+
+    test("unlinked guard checkpoint reprompts before settle", async () => {
+      // @mutate v2/src/execution/write-loop.ts "if (report.hollow.length === 0) return undefined;" -> "if (true) return undefined;"
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const worktree = createGuardWorktree(jarvisRoot);
+      writeGuardSpec(
+        worktree,
+        "- [x] `guard.test.ts` — `unlinked guard`; Mutation checkpoint: linked directive catches the guard.\n",
+      );
+      writeFileSync(join(worktree, "guard.test.ts"), 'test("unlinked guard", () => {\n});\n', "utf8");
+      let invocations = 0;
+      let repairPrompt = "";
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        maxIterations: 3,
+        ...loopBase,
+        mutationCheckpointSeams: { runScopedTests: async () => false },
+        bindings: [
+          {
+            id: "implement",
+            metadata: { agent: "test-agent", model: "test" },
+            invoke: async ({ cwd, prompt }) => {
+              invocations += 1;
+              if (invocations === 2) {
+                repairPrompt = prompt;
+                writeFileSync(
+                  join(cwd, "guard.test.ts"),
+                  'test("unlinked guard", () => {\n  // @mutate target.ts "a > 0" -> "a >= 0"\n});\n',
+                  "utf8",
+                );
+              }
+              return { kind: "ok", stdout: "done", stderr: "" };
+            },
+          },
+        ],
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(result.iterationsConsumed).toBe(2);
+      expect(invocations).toBe(2);
+      expect(repairPrompt).toContain("kind: guard");
+      expect(repairPrompt).toContain("reason: unlinked");
+      expect(repairPrompt).toContain("guard.test.ts");
+      expect(repairPrompt).toContain("add a linked `// @mutate` directive");
+    });
+
+    test("hollow guard checkpoint reprompts before settle", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const worktree = createGuardWorktree(jarvisRoot);
+      writeGuardSpec(
+        worktree,
+        "- [x] `guard.test.ts` — `hollow guard`; Mutation checkpoint: linked directive catches the guard.\n",
+      );
+      writeFileSync(
+        join(worktree, "guard.test.ts"),
+        'test("hollow guard", () => {\n  // @mutate target.ts "a > 0" -> "a >= 0"\n});\n',
+        "utf8",
+      );
+      let invocations = 0;
+      let repaired = false;
+      let repairPrompt = "";
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        maxIterations: 3,
+        ...loopBase,
+        mutationCheckpointSeams: { runScopedTests: async () => !repaired },
+        bindings: [
+          {
+            id: "implement",
+            metadata: { agent: "test-agent", model: "test" },
+            invoke: async ({ prompt }) => {
+              invocations += 1;
+              if (invocations === 2) {
+                repairPrompt = prompt;
+                repaired = true;
+              }
+              return { kind: "ok", stdout: "done", stderr: "" };
+            },
+          },
+        ],
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(invocations).toBe(2);
+      expect(repairPrompt).toContain("reason: hollow");
+      expect(repairPrompt).toContain('guard.test.ts:2: // @mutate target.ts "a > 0" -> "a >= 0"');
+      expect(repairPrompt).toContain("repair the linked directive or pinning test");
+    });
+
+    test("guard checkpoint repair persists one complete structured event", async () => {
+      // @mutate v2/src/execution/write-loop.ts "guardRepairs !== undefined && iterationsConsumed < maxIterations" -> "guardRepairs === undefined && iterationsConsumed < maxIterations"
+      // @mutate v2/src/execution/write-loop.ts "args.logSink?.append(runId, { kind: \"guard_checkpoint_reprompt\", attemptId, repairs: guardRepairs });" -> "void guardRepairs;"
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const worktree = createGuardWorktree(jarvisRoot);
+      writeGuardSpec(
+        worktree,
+        "- [x] `missing.test.ts` — `missing guard`; Mutation checkpoint: add evidence.\n" +
+          "- [x] `hollow.test.ts` — `hollow guard`; Mutation checkpoint: repair evidence.\n" +
+          "- [x] `keystone.test.ts` — `unlinked keystone`; Keystone checkpoint: headline revert turns pin red.\n",
+      );
+      writeFileSync(join(worktree, "missing.test.ts"), 'test("missing guard", () => {\n});\n', "utf8");
+      writeFileSync(
+        join(worktree, "hollow.test.ts"),
+        'test("hollow guard", () => {\n  // @mutate target.ts "a > 0" -> "a >= 0"\n});\n',
+        "utf8",
+      );
+      writeFileSync(join(worktree, "keystone.test.ts"), 'test("unlinked keystone", () => {\n});\n', "utf8");
+      let invocations = 0;
+      let repaired = false;
+      let repairPrompt = "";
+      const sink = new TestLogSink();
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        maxIterations: 3,
+        logSink: sink,
+        ...loopBase,
+        mutationCheckpointSeams: { runScopedTests: async () => !repaired },
+        bindings: [
+          {
+            id: "implement",
+            metadata: { agent: "test-agent", model: "test" },
+            invoke: async ({ cwd, prompt }) => {
+              invocations += 1;
+              if (invocations === 2) {
+                repairPrompt = prompt;
+                repaired = true;
+                writeFileSync(
+                  join(cwd, "missing.test.ts"),
+                  'test("missing guard", () => {\n  // @mutate target.ts "a > 0" -> "a >= 0"\n});\n',
+                  "utf8",
+                );
+                writeFileSync(
+                  join(cwd, "keystone.test.ts"),
+                  'test("unlinked keystone", () => {\n  // @mutate target.ts "a > 0" -> "a >= 0"\n});\n',
+                  "utf8",
+                );
+              }
+              return { kind: "ok", stdout: "done", stderr: "" };
+            },
+          },
+        ],
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(repairPrompt).toContain("missing guard");
+      expect(repairPrompt).toContain("missing.test.ts");
+      expect(repairPrompt).toContain("reason: unlinked");
+      expect(repairPrompt).toContain("hollow guard");
+      expect(repairPrompt).toContain("hollow.test.ts");
+      expect(repairPrompt).toContain("reason: hollow");
+      expect(repairPrompt).toContain('linked directive: hollow.test.ts:2: // @mutate target.ts "a > 0" -> "a >= 0"');
+      expect(repairPrompt).toContain("add a linked `// @mutate` directive");
+      expect(repairPrompt).toContain("repair the linked directive or pinning test");
+      expect(repairPrompt).toContain("headline-revert `// @mutate` directive");
+
+      const reprompts = sink
+        .getEventsForRun(result.runId)
+        .filter((event) => event.kind === "guard_checkpoint_reprompt");
+      expect(reprompts).toHaveLength(1);
+      const reprompt = reprompts[0];
+      if (reprompt?.kind !== "guard_checkpoint_reprompt") throw new Error("expected guard reprompt event");
+      expect(reprompt.attemptId).toBeString();
+      expect(reprompt.repairs).toEqual([
+        {
+          criterionText: "`missing.test.ts` — `missing guard`; Mutation checkpoint: add evidence.",
+          kind: "guard",
+          pinPath: "missing.test.ts",
+          reason: "unlinked",
+        },
+        {
+          criterionText: "`hollow.test.ts` — `hollow guard`; Mutation checkpoint: repair evidence.",
+          kind: "guard",
+          pinPath: "hollow.test.ts",
+          reason: "hollow",
+          directive: {
+            sourceFile: "hollow.test.ts",
+            sourceLine: 2,
+            raw: '// @mutate target.ts "a > 0" -> "a >= 0"',
+          },
+        },
+        {
+          criterionText:
+            "`keystone.test.ts` — `unlinked keystone`; Keystone checkpoint: headline revert turns pin red.",
+          kind: "keystone",
+          pinPath: "keystone.test.ts",
+          reason: "unlinked",
+        },
+      ]);
+      expect(Object.keys(reprompt).sort()).toEqual(["attemptId", "kind", "repairs"]);
+    });
+
+    test("guard and unlinked keystone reprompt together", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const worktree = createGuardWorktree(jarvisRoot);
+      writeGuardSpec(
+        worktree,
+        "- [x] `guard.test.ts` — `guard pin`; Mutation checkpoint: add evidence.\n" +
+          "- [x] `keystone.test.ts` — `keystone pin`; Keystone checkpoint: headline revert turns pin red.\n",
+      );
+      writeFileSync(join(worktree, "guard.test.ts"), 'test("guard pin", () => {\n});\n', "utf8");
+      writeFileSync(join(worktree, "keystone.test.ts"), 'test("keystone pin", () => {\n});\n', "utf8");
+      let invocations = 0;
+      let repairPrompt = "";
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        maxIterations: 3,
+        ...loopBase,
+        mutationCheckpointSeams: { runScopedTests: async () => false },
+        bindings: [
+          {
+            id: "implement",
+            metadata: { agent: "test-agent", model: "test" },
+            invoke: async ({ cwd, prompt }) => {
+              invocations += 1;
+              if (invocations === 2) {
+                repairPrompt = prompt;
+                writeFileSync(
+                  join(cwd, "guard.test.ts"),
+                  'test("guard pin", () => {\n  // @mutate target.ts "a > 0" -> "a >= 0"\n});\n',
+                  "utf8",
+                );
+                writeFileSync(
+                  join(cwd, "keystone.test.ts"),
+                  'test("keystone pin", () => {\n  // @mutate target.ts "a > 0" -> "a >= 0"\n});\n',
+                  "utf8",
+                );
+              }
+              return { kind: "ok", stdout: "done", stderr: "" };
+            },
+          },
+        ],
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(repairPrompt).toContain("kind: guard");
+      expect(repairPrompt).toContain("guard.test.ts");
+      expect(repairPrompt).toContain("kind: keystone");
+      expect(repairPrompt).toContain("reason: unlinked");
+      expect(repairPrompt).toContain("keystone.test.ts");
+      expect(repairPrompt).toContain("headline-revert `// @mutate` directive");
+    });
+
+    test("guard checkpoint reprompt rejects mixed real failures", async () => {
+      // @mutate v2/src/execution/write-loop.ts "if (report.inertHeadline.length > 0) return undefined;" -> "if (false) return undefined;"
+      // @mutate v2/src/execution/write-loop.ts "if (blockingUnparseableEntries(report).length > 0) return undefined;" -> "if (false) return undefined;"
+      const cases: Array<{
+        name: string;
+        criterion: string;
+        seed: (worktree: string) => void;
+        changedPaths?: string[];
+        suiteGreen?: boolean;
+      }> = [
+        {
+          name: "unresolved pin",
+          criterion: "- [x] `missing.test.ts` — `missing`; Mutation checkpoint: unresolved.\n",
+          seed: () => {},
+        },
+        {
+          name: "ambiguous pin",
+          criterion: "- [x] `duplicate.test.ts` — `duplicate`; Mutation checkpoint: ambiguous.\n",
+          changedPaths: ["a/duplicate.test.ts", "b/duplicate.test.ts"],
+          seed: (worktree) => {
+            mkdirSync(join(worktree, "a"), { recursive: true });
+            mkdirSync(join(worktree, "b"), { recursive: true });
+            writeFileSync(join(worktree, "a", "duplicate.test.ts"), 'test("duplicate", () => {});\n', "utf8");
+            writeFileSync(join(worktree, "b", "duplicate.test.ts"), 'test("duplicate", () => {});\n', "utf8");
+          },
+        },
+        {
+          name: "target_absent",
+          criterion: "- [x] `bad.test.ts` — `bad`; Mutation checkpoint: absent target.\n",
+          seed: (worktree) =>
+            writeFileSync(
+              join(worktree, "bad.test.ts"),
+              'test("bad", () => {\n  // @mutate target.ts "missing" -> "x"\n});\n',
+              "utf8",
+            ),
+        },
+        {
+          name: "target_ambiguous",
+          criterion: "- [x] `bad.test.ts` — `bad`; Mutation checkpoint: ambiguous target.\n",
+          seed: (worktree) => {
+            writeFileSync(join(worktree, "target.ts"), "const dup = 1;\nconst other = 'dup';\n", "utf8");
+            writeFileSync(
+              join(worktree, "bad.test.ts"),
+              'test("bad", () => {\n  // @mutate target.ts "dup" -> "x"\n});\n',
+              "utf8",
+            );
+          },
+        },
+        {
+          name: "inert headline",
+          criterion: "- [x] `keystone.test.ts` — `keystone`; Keystone checkpoint: headline revert turns pin red.\n",
+          suiteGreen: true,
+          seed: (worktree) =>
+            writeFileSync(
+              join(worktree, "keystone.test.ts"),
+              'test("keystone", () => {\n  // @mutate target.ts "a > 0" -> "a >= 0"\n});\n',
+              "utf8",
+            ),
+        },
+        {
+          name: "malformed directive",
+          criterion: "- [x] `bad.test.ts` — `bad`; Mutation checkpoint: malformed.\n",
+          seed: (worktree) =>
+            writeFileSync(
+              join(worktree, "bad.test.ts"),
+              'test("bad", () => {\n  // @mutate target.ts oops\n});\n',
+              "utf8",
+            ),
+        },
+        {
+          name: "other real failure",
+          criterion: "- [ ] another required behavior remains.\n",
+          seed: () => {},
+        },
+      ];
+
+      for (const fixture of cases) {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const worktree = createGuardWorktree(jarvisRoot);
+        writeGuardSpec(
+          worktree,
+          `- [x] \`guard.test.ts\` — \`guard\`; Mutation checkpoint: unlinked guard.\n${fixture.criterion}`,
+        );
+        writeFileSync(join(worktree, "guard.test.ts"), 'test("guard", () => {\n});\n', "utf8");
+        fixture.seed(worktree);
+        const sink = new TestLogSink();
+        const prompts: string[] = [];
+        const result = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          maxIterations: 3,
+          logSink: sink,
+          ...loopBase,
+          mutationCheckpointSeams: {
+            runScopedTests: async () => fixture.suiteGreen ?? false,
+            ...(fixture.changedPaths !== undefined ? { changedPaths: fixture.changedPaths } : {}),
+          },
+          bindings: [
+            {
+              id: "implement",
+              metadata: { agent: "test-agent", model: "test" },
+              invoke: async ({ prompt }) => {
+                prompts.push(prompt);
+                return { kind: "ok", stdout: "done", stderr: "" };
+              },
+            },
+          ],
+        });
+
+        expect(result.kind, fixture.name).toBe("contract_miss");
+        expect(prompts, fixture.name).toHaveLength(1);
+        expect(prompts[0], fixture.name).not.toContain("Repair every checkpoint below");
+        const progressBoundaries = sink
+          .getEventsForRun(result.runId)
+          .filter((event) => event.kind === "boundary_committed" && event.outcomeKind === "progress");
+        expect(progressBoundaries, fixture.name).toHaveLength(0);
+      }
+    });
+
+    test("guard checkpoint reprompt lifecycle uses shared budget and precedence", async () => {
+      // @mutate v2/src/execution/write-loop.ts "guardRepairs !== undefined && iterationsConsumed < maxIterations" -> "guardRepairs !== undefined && iterationsConsumed <= maxIterations"
+      // @mutate v2/src/execution/write.ts "promptId === \"patch.prompt.body\" && args.guardCheckpointReprompt !== undefined" -> "false"
+      // @mutate v2/src/execution/write-loop.ts "pendingGuardCheckpointReprompt = pendingKeystoneDirectiveReprompt = undefined;" -> "pendingKeystoneDirectiveReprompt = undefined;"
+      const exhaustedHome = createJarvisHome();
+      const exhaustedWorktree = createGuardWorktree(exhaustedHome.jarvisRoot);
+      writeGuardSpec(exhaustedWorktree, "- [x] `guard.test.ts` — `guard`; Mutation checkpoint: unlinked guard.\n");
+      writeFileSync(join(exhaustedWorktree, "guard.test.ts"), 'test("guard", () => {\n});\n', "utf8");
+      let exhaustedInvocations = 0;
+      const exhaustedSink = new TestLogSink();
+      const exhausted = await runLoop({
+        ...exhaustedHome,
+        maxIterations: 1,
+        logSink: exhaustedSink,
+        ...loopBase,
+        mutationCheckpointSeams: { runScopedTests: async () => false },
+        bindings: [
+          {
+            id: "implement",
+            metadata: { agent: "test-agent", model: "test" },
+            invoke: async () => {
+              exhaustedInvocations += 1;
+              return { kind: "ok", stdout: "done", stderr: "" };
+            },
+          },
+        ],
+      });
+      expect(exhausted.kind).toBe("contract_miss");
+      expect(exhaustedInvocations).toBe(1);
+      expect(readFileSync(join(exhaustedWorktree, "00-subspec.md"), "utf8")).toContain("Hollow mutation checkpoints");
+      expect(
+        exhaustedSink
+          .getEventsForRun(exhausted.runId)
+          .filter((event) => event.kind === "boundary_committed" && event.outcomeKind === "progress"),
+      ).toHaveLength(0);
+
+      const precedenceHome = createJarvisHome();
+      const precedenceWorktree = createGuardWorktree(precedenceHome.jarvisRoot);
+      writeGuardSpec(precedenceWorktree, "- [x] complete.\n");
+      const precedencePrompts: string[] = [];
+      const precedence = await runLoop({
+        ...precedenceHome,
+        ...loopBase,
+        guardCheckpointReprompt: {
+          repairs: [{ criterionText: "guard criterion", kind: "guard", pinPath: "guard.test.ts", reason: "unlinked" }],
+        },
+        keystoneDirectiveReprompt: { criterionText: "stale keystone", pinPath: "keystone.test.ts" },
+        bindings: [
+          {
+            id: "implement",
+            invoke: async ({ prompt }) => {
+              precedencePrompts.push(prompt);
+              return { kind: "ok", stdout: "done", stderr: "" };
+            },
+          },
+        ],
+      });
+      expect(precedence.kind).toBe("complete");
+      expect(precedencePrompts).toHaveLength(1);
+      expect(precedencePrompts[0]).toContain("guard criterion");
+      expect(precedencePrompts[0]).not.toContain("stale keystone");
+
+      const rearmHome = createJarvisHome();
+      const rearmWorktree = createGuardWorktree(rearmHome.jarvisRoot);
+      writeGuardSpec(rearmWorktree, "- [x] `bad.test.ts` — `bad`; Mutation checkpoint: target absent.\n");
+      writeFileSync(
+        join(rearmWorktree, "bad.test.ts"),
+        'test("bad", () => {\n  // @mutate target.ts "missing" -> "x"\n});\n',
+        "utf8",
+      );
+      let rearmInvocations = 0;
+      const rearmPrompts: string[] = [];
+      const rearmed = await runLoop({
+        ...rearmHome,
+        maxIterations: 3,
+        ...loopBase,
+        mutationCheckpointSeams: { runScopedTests: async () => false },
+        guardCheckpointReprompt: {
+          repairs: [{ criterionText: "stale guard", kind: "guard", pinPath: "guard.test.ts", reason: "unlinked" }],
+        },
+        bindings: [
+          {
+            id: "implement",
+            metadata: { agent: "test-agent", model: "test" },
+            invoke: async ({ cwd, prompt }) => {
+              rearmInvocations += 1;
+              rearmPrompts.push(prompt);
+              if (rearmInvocations === 2) {
+                writeFileSync(
+                  join(cwd, "bad.test.ts"),
+                  'test("bad", () => {\n  // @mutate target.ts "a > 0" -> "a >= 0"\n});\n',
+                  "utf8",
+                );
+              }
+              return { kind: "ok", stdout: "done", stderr: "" };
+            },
+          },
+        ],
+      });
+      expect(rearmed.kind).toBe("complete");
+      expect(rearmPrompts).toHaveLength(2);
+      expect(rearmPrompts[1]).toContain("target_absent");
+      expect(rearmPrompts[1]).not.toContain("stale guard");
+    });
   });
 
   test("contract_miss appends contract_miss_detail to the observability log", async () => {

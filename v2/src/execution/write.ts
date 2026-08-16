@@ -22,7 +22,11 @@ import { buildPlanDraftPrompt } from "../../../shared/prompts/plan-draft.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { PromptRenderingError, renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import { hasGenuineBlocker, parseSpec } from "../../../shared/spec-parser.ts";
-import type { KeystoneDirectiveRepromptContext, MutationDirectiveRepromptContext } from "../persistence/log-stream.ts";
+import type {
+  GuardCheckpointRepromptContext,
+  KeystoneDirectiveRepromptContext,
+  MutationDirectiveRepromptContext,
+} from "../persistence/log-stream.ts";
 import {
   type ExternalWorktreeInput,
   type LockStatus,
@@ -31,7 +35,6 @@ import {
 import {
   blockingUnparseableEntries,
   describeCriterionCheckpoint,
-  describeKeystoneUnlinked,
   describeUnparseable,
   type MutationCheckpointSeams,
   repoRelativeChangedPathsFromBaseRef,
@@ -188,6 +191,8 @@ export type WriteExecuteInput = {
   joinProcessOnIdleStall?: boolean;
   landingContractReprompt?: { violation: string; offendingFile: string };
   mutationDirectiveReprompt?: MutationDirectiveRepromptContext;
+  /** Process-local repair context for guard checkpoints and accompanying unlinked keystones. */
+  guardCheckpointReprompt?: GuardCheckpointRepromptContext;
   /** Reprompt context for the next implement iteration after a repromptable unlinked-keystone miss. */
   keystoneDirectiveReprompt?: KeystoneDirectiveRepromptContext;
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string };
@@ -436,7 +441,7 @@ async function checkMutationCheckpointsAtCompletion(
       buildListedReason(
         "Unlinked keystone checkpoints (no directive linked on the named pin):",
         report.keystoneUnlinked,
-        describeKeystoneUnlinked,
+        describeCriterionCheckpoint,
       ),
     ];
     if (report.inertHeadline.length !== 0) sections.push(describeInertHeadlineSection());
@@ -474,14 +479,14 @@ export function isMutationCheckpointCriteriaTickedMiss(failureReason: string | u
 }
 
 /**
- * True when a mutation-checkpoint `spec.criteria-ticked` miss may reprompt instead of terminal
- * settle. This is a coarse text pre-filter; the write loop re-verifies the full report to admit
- * only a pure miss (unparseable-only, or unlinked-keystone-only) — a mixed report still starts
- * with the same reason text but hard-blocks.
+ * True when a mutation-checkpoint `spec.criteria-ticked` miss should reach structured reprompt
+ * admission. This is a coarse text pre-filter; the write loop re-verifies the full report before
+ * selecting a repair arm, and mixed reports still hard-block.
  */
 export function isRepromptEligibleMutationCheckpointMiss(failureReason: string | undefined): boolean {
   if (failureReason === undefined) return false;
   if (failureReason.startsWith("Unparseable mutation checkpoints:")) return true;
+  if (failureReason.startsWith("Hollow mutation checkpoints")) return true;
   return failureReason.startsWith("Unlinked keystone checkpoints");
 }
 
@@ -490,6 +495,24 @@ export function formatMutationDirectiveRepromptListing(context: MutationDirectiv
     return context.directives.map((d) => `- ${d.pinningFile}:${d.line}: ${d.reason}: ${d.raw}`).join("\n");
   }
   return context.display;
+}
+
+export function formatGuardCheckpointRepromptListing(context: GuardCheckpointRepromptContext): string {
+  return context.repairs
+    .map((repair) => {
+      const directive =
+        repair.directive === undefined
+          ? ""
+          : `; linked directive: ${repair.directive.sourceFile}:${repair.directive.sourceLine}: ${repair.directive.raw}`;
+      const instruction =
+        repair.kind === "keystone"
+          ? "add a headline-revert `// @mutate` directive inside the named pin"
+          : repair.reason === "unlinked"
+            ? "add a linked `// @mutate` directive inside the named pin"
+            : "repair the linked directive or pinning test so applying the mutation makes the scoped suite fail";
+      return `- kind: ${repair.kind}; criterion: ${repair.criterionText}; pin: ${repair.pinPath}; reason: ${repair.reason}${directive}\n  Repair: ${instruction}.`;
+    })
+    .join("\n");
 }
 
 function getUntickedNonHumanOnlyCriteria(artifactPath: string): string[] {
@@ -512,7 +535,13 @@ async function executeDefaultWrite(
 ): Promise<StepRunResult> {
   let prompt: string;
   try {
-    if (promptId === "patch.prompt.body" && args.mutationDirectiveReprompt !== undefined) {
+    if (promptId === "patch.prompt.body" && args.guardCheckpointReprompt !== undefined) {
+      prompt = renderArtifactTemplate(loadPromptRegistry().getById("write.guard-checkpoint-reprompt"), {
+        ACTIVE_SUBSPEC_PATH: expectedArtifactPath,
+        REPAIR_LIST: formatGuardCheckpointRepromptListing(args.guardCheckpointReprompt),
+        STEP_RULES: args.stepRules,
+      });
+    } else if (promptId === "patch.prompt.body" && args.mutationDirectiveReprompt !== undefined) {
       prompt = renderArtifactTemplate(loadPromptRegistry().getById("write.mutation-directive-reprompt"), {
         ACTIVE_SUBSPEC_PATH: expectedArtifactPath,
         DIRECTIVE_LIST: formatMutationDirectiveRepromptListing(args.mutationDirectiveReprompt),

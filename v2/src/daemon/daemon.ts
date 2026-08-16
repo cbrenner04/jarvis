@@ -527,15 +527,56 @@ function mapImplementRecoverOutcome(
   };
 }
 
+function restoredDirectiveRepromptInput(
+  run: Run,
+  logRecords?: readonly PersistedRecord[],
+): Pick<
+  WriteLoopInput,
+  "mutationDirectiveReprompt" | "guardCheckpointReprompt" | "keystoneDirectiveReprompt" | "initialIterationsConsumed"
+> {
+  const { mutationDirectiveReprompt, guardCheckpointReprompt, keystoneDirectiveReprompt } =
+    findDirectiveRepromptFromLog(logRecords);
+  const terminalRecord = findTerminalLogRecord([...(logRecords ?? [])]);
+  const initialIterationsConsumed =
+    run.status === "paused" &&
+    (mutationDirectiveReprompt !== undefined ||
+      guardCheckpointReprompt !== undefined ||
+      keystoneDirectiveReprompt !== undefined) &&
+    terminalRecord?.event.kind === "loop_finished"
+      ? terminalRecord.event.iterationsConsumed
+      : undefined;
+  return {
+    ...(mutationDirectiveReprompt !== undefined ? { mutationDirectiveReprompt } : {}),
+    ...(guardCheckpointReprompt !== undefined ? { guardCheckpointReprompt } : {}),
+    ...(keystoneDirectiveReprompt !== undefined ? { keystoneDirectiveReprompt } : {}),
+    ...(initialIterationsConsumed !== undefined ? { initialIterationsConsumed } : {}),
+  };
+}
+
+function reconstructDirectWriteResume(run: Run, logRecords?: readonly PersistedRecord[]): ResolvedWriteLoopInput {
+  if (run.status !== "paused") return { ok: false, message: "direct write resume requires a paused run" };
+  const input = run.queuedInput;
+  if (!input) return { ok: false, message: "run has no durable direct-write resume context" };
+  const {
+    mutationDirectiveReprompt: _mutationDirectiveReprompt,
+    guardCheckpointReprompt: _guardCheckpointReprompt,
+    keystoneDirectiveReprompt: _keystoneDirectiveReprompt,
+    initialIterationsConsumed: _initialIterationsConsumed,
+    ...baseInput
+  } = input;
+  return resolveWriteLoopBindings({ ...baseInput, ...restoredDirectiveRepromptInput(run, logRecords) });
+}
+
 function reconstructWriteResume(run: Run, logRecords?: readonly PersistedRecord[]): ResolvedWriteLoopInput {
   const snapshot = run.workflowSnapshot;
+  if (!snapshot) return reconstructDirectWriteResume(run, logRecords);
   const stepId = run.stepId;
   const hiddenShrink = stepId?.endsWith("~shrink") === true;
   const step = snapshot?.steps.find(
     (candidate) => candidate.stepId === stepId || (hiddenShrink && candidate.stepId === stepId.slice(0, -7)),
   );
 
-  if (!snapshot || !stepId || !step) return { ok: false, message: "run has no matching workflow snapshot step" };
+  if (!stepId || !step) return { ok: false, message: "run has no matching workflow snapshot step" };
   if (step.behavior === "review" || step.behavior === "review-debate") {
     return { ok: false, message: `step "${step.stepId}" is not an executable write step` };
   }
@@ -547,8 +588,6 @@ function reconstructWriteResume(run: Run, logRecords?: readonly PersistedRecord[
 
   const landingContractReprompt = findLandingContractRepromptFromLog(logRecords);
   const stagedMarkdownLintReprompt = findStagedMarkdownLintRepromptFromLog(logRecords);
-  const { mutationDirectiveReprompt, keystoneDirectiveReprompt } = findDirectiveRepromptFromLog(logRecords);
-
   return resolveWriteLoopBindings({
     worktree: {
       projectRoot: run.worktreePath,
@@ -574,8 +613,7 @@ function reconstructWriteResume(run: Run, logRecords?: readonly PersistedRecord[
     ...(step.idleOutputMs === undefined ? {} : { idleOutputMs: step.idleOutputMs }),
     ...(landingContractReprompt !== undefined ? { landingContractReprompt } : {}),
     ...(stagedMarkdownLintReprompt !== undefined ? { stagedMarkdownLintReprompt } : {}),
-    ...(mutationDirectiveReprompt !== undefined ? { mutationDirectiveReprompt } : {}),
-    ...(keystoneDirectiveReprompt !== undefined ? { keystoneDirectiveReprompt } : {}),
+    ...restoredDirectiveRepromptInput(run, logRecords),
   });
 }
 
@@ -1277,6 +1315,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       worktreePath,
       branch: key.branch,
       specPath: input.specPath,
+      queuedInput: input,
       ...(input.stepId !== undefined ? { stepId: input.stepId } : {}),
       ...(input.workflowSnapshot !== undefined ? { workflowSnapshot: input.workflowSnapshot } : {}),
     });

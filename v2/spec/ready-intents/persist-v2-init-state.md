@@ -20,8 +20,9 @@ name: persist-v2-init-state
 - Deferred to first consumer: exported API shape and module placement — pin when the `jarvis init` caller needs it.
 - When `agents` is absent, persist `claude,codex,cursor` filtered to executables found on `PATH`, and fail without writing when none are found — rules out unavailable defaults or an empty agent order.
 - When `machineProfile` is absent, require a requested profile whose JSON file exists in the Jarvis checkout's committed `config/machines/` directory; retain any existing value — rules out profile guessing, target-cwd lookup, or overwrite.
-- Register the resolved current directory under the requested key or repository basename, refusing a key already bound to another root and naming both roots — rules out the v1 `~/Work` location constraint and silent rebinding.
+- Resolve a nested Git working directory to its Git top-level; use a non-Git current directory itself as the project root. Derive the default key from that root basename, query `origin` only from a Git root, and refuse a key already bound to another root while naming both roots — rules out the v1 `~/Work` location constraint, nested-directory registrations, and silent rebinding.
 - Persist the `origin` remote when present, omit it when absent, and persist `plan.targetDir` only when requested — rules out fabricated remotes and changing the existing plan-time `spec` default.
+- Accept `targetDir` only as a non-empty, normalized relative descendant of the resolved project root; reject absolute, root, and escaping paths before any write, including scaffolding — rules out writes outside the selected project.
 - Write the machine document through one JSON round trip that preserves unrelated top-level keys, existing project entries, and existing machine values — rules out destructive reconstruction or multi-write partial state.
 - Create only `<targetDir>/seeds/.gitkeep` and `<targetDir>/ready-intents/.gitkeep` when scaffolding is requested; otherwise leave the target repository untouched — rules out implicit repo writes, runbooks, or guidance files.
 
@@ -29,8 +30,11 @@ name: persist-v2-init-state
 
 - [ ] With an absent config, a temp machines directory, stubbed executable discovery, and stubbed git remote lookup, initialization persists the filtered agent order, requested profile, and basename-keyed project root/origin; rerunning produces no file diff.
 - [ ] With an existing config, initialization leaves existing `agents`, `machineProfile`, unrelated top-level keys, and other project entries unchanged while adding only the requested project.
-- [ ] Initialization fails without mutation when no agent CLI is available, a missing profile has no requested value, the requested profile is unknown, or the requested key names another root; profile failures list available profiles and key collisions name both roots.
-- [ ] A requested `v2/spec` target persists `projects.<key>.plan.targetDir`; requested scaffolding creates only the two queue `.gitkeep` files, while initialization without scaffolding leaves the repo tree unchanged.
+- [ ] The `v2/src/config/init-state.test.ts` `rejects unavailable initialization inputs without mutation` regression test fails against the baseline and proves no-agent, missing/unknown-profile, key-collision, and invalid-target cases leave config and repository state unchanged; profile failures list available profiles and collisions name both roots.
+- [ ] The `v2/src/config/init-state.test.ts` `resolves nested Git and non-Git working directories` regression test fails against the baseline and proves nested Git cwd registers its top-level root while a non-Git cwd registers itself without an `origin`.
+- [ ] The `v2/src/config/init-state.test.ts` `persists and scaffolds only an in-root target directory` regression test fails against the baseline and proves `v2/spec` persists as `projects.<key>.plan.targetDir`, rejects absolute/root/escaping targets without mutation, and creates only the two queue `.gitkeep` files when scaffolding is requested.
+- [ ] `v2/src/config/init-state.test.ts` — `rejects unavailable initialization inputs without mutation`; Mutation checkpoint: directives in the test body invert each added availability, profile, collision, and target-scope guard, and each scoped test fails.
+- [ ] `v2/src/config/init-state.test.ts` — `resolves nested Git and non-Git working directories`; Mutation checkpoint: a directive in the test body bypasses Git-top-level resolution, and the scoped test fails.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates

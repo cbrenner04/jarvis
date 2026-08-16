@@ -8,7 +8,7 @@ name: wire-v2-init-command
 
 - Init-state persistence fills an absent agent order from supported CLIs on `PATH` without replacing an existing order.
 - Init-state persistence requires a known committed machine profile only when `machineProfile` is absent and preserves an existing profile.
-- Init-state persistence idempotently registers the resolved current repository, rejects key-to-root collisions, preserves unrelated config, and records optional origin and plan target directory values.
+- Init-state persistence resolves nested Git cwd to its top-level and non-Git cwd to itself, rejects key-to-root collisions, preserves unrelated config, records optional origin, and accepts only an in-root relative plan target directory.
 - Init-state persistence scaffolds only the two spec queue `.gitkeep` files when explicitly requested and otherwise leaves the repository untouched.
 
 ## Surface
@@ -22,6 +22,7 @@ name: wire-v2-init-command
 ## Decisions
 
 - Register non-interactive `jarvis init [--name <key>] [--profile <name>] [--target-dir <dir>] [--scaffold] [--check]` in the command tree and top-level dispatcher — rules out a wizard or hidden command.
+- Run normal init and `--check` against the resolved project root: the Git top-level for a nested Git cwd, otherwise the current directory; reject empty, absolute, root, or escaping `--target-dir` values before state changes — rules out nested-directory registrations and writes outside the selected project.
 - A normal invocation applies the init-state operation and then always prints the preflight report; an already configured rerun reports that state without mutation — rules out separate setup and validation commands.
 - `--check` runs only preflight and performs no config or repository writes — rules out check-mode repair or scaffolding side effects.
 - Print one stdout line per check with `ok`, `missing`, or `warn` for Bun, GitHub CLI authentication, configured agent CLI availability, committed machine-profile resolution, current-project registration, `origin`, resolved spec directory, and daemon status — rules out an opaque aggregate result.
@@ -32,9 +33,13 @@ name: wire-v2-init-command
 ## Acceptance criteria
 
 - [ ] `jarvis help` and dispatch expose `jarvis init`; supported flags reach the init-state service, invalid argument shapes print usage and exit `1`, and no invocation prompts.
+- [ ] The `v2/src/cli.test.ts` `init resolves nested Git and non-Git current directories` regression test fails against the baseline and proves a nested Git invocation registers the top-level root while a non-Git invocation registers its current directory and reports missing `origin`.
 - [ ] A normal fresh invocation with temp home/profile/repository fixtures and stubbed executable/git checks lands the expected setup, prints the complete preflight, exits by required-check status, and a second invocation reports already configured with no file diff.
 - [ ] `--check` writes nothing and exits `1` when GitHub authentication or current-project registration is missing, then exits `0` when every required check passes even if daemon and spec-directory lines warn.
+- [ ] The `v2/src/cli.test.ts` `init rejects invalid target directories before mutation` regression test fails against the baseline and proves empty, absolute, root, and escaping `--target-dir` values print usage, exit `1`, and leave config and repository unchanged.
 - [ ] Every preflight check emits exactly one labeled stdout line with `ok`, `missing`, or `warn`; missing `origin` is reported and remains a required failure.
+- [ ] `v2/src/cli.test.ts` — `init rejects invalid target directories before mutation`; Mutation checkpoint: a directive in the test body bypasses target-directory validation, and the scoped test fails.
+- [ ] `v2/src/cli.test.ts` — `init resolves nested Git and non-Git current directories`; Mutation checkpoint: a directive in the test body bypasses project-root resolution, and the scoped test fails.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates

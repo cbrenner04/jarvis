@@ -17,11 +17,11 @@ import {
   type WriteLoopOutcomeKind,
 } from "../execution/write-loop.ts";
 import type { IpcFrame } from "../ipc/types.ts";
-import type { LogReader, LoopFinishedEvent } from "../persistence/log-stream.ts";
+import type { GuardCheckpointRepairEntry, LogEvent, LogReader, LoopFinishedEvent } from "../persistence/log-stream.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
-import { flushBackgroundRuns, startRunDirect } from "../testing/run-control.ts";
+import { flushBackgroundRuns, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import {
@@ -143,32 +143,25 @@ function createHandlers(logReader?: LogReader): Handlers {
   });
 }
 
-function loopFinishedLogReader(runId: string, event: Omit<LoopFinishedEvent, "kind">): LogReader {
+function logReader(runId: string, events: readonly LogEvent[]): LogReader {
   return {
-    tail: () => [
-      {
+    tail: () =>
+      events.map((event, index) => ({
         runId,
-        seq: 1,
-        ts: "2026-01-01T00:00:00.000Z",
-        event: { kind: "loop_finished", ...event },
-      },
-    ],
+        seq: index + 1,
+        ts: `2026-01-01T00:00:0${index}.000Z`,
+        event,
+      })),
     async *follow() {},
   };
 }
 
+function loopFinishedLogReader(runId: string, event: Omit<LoopFinishedEvent, "kind">): LogReader {
+  return logReader(runId, [{ kind: "loop_finished", ...event }]);
+}
+
 function runExecutionFailedLogReader(runId: string, message: string): LogReader {
-  return {
-    tail: () => [
-      {
-        runId,
-        seq: 1,
-        ts: "2026-01-01T00:00:00.000Z",
-        event: { kind: "run_execution_failed", message },
-      },
-    ],
-    async *follow() {},
-  };
+  return logReader(runId, [{ kind: "run_execution_failed", message }]);
 }
 
 const AGENT_MODEL_CONFIG: AgentModelConfig = {
@@ -2832,6 +2825,354 @@ test("resume restores only the later of a mutation-directive reprompt superseded
     criterionText: "- [x] `keystone.test.ts` — `keystone pin`; Keystone checkpoint: headline revert turns pin red.",
     pinPath: "keystone.test.ts",
   });
+});
+
+function createPausedImplementRepromptRun(branchName: string): {
+  jarvisRoot: string;
+  runId: string;
+} {
+  const { jarvisRoot } = createJarvisHome();
+  roots.push(join(jarvisRoot, ".."));
+  const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+  mkdirSync(worktreePath, { recursive: true });
+  writeFileSync(join(worktreePath, "00-subspec.md"), "## Acceptance criteria\n\n- [x] criterion\n", "utf8");
+  const runId = stateStore.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath,
+    branch: branchName,
+    specPath: "spec/index.md",
+    stepId: "implement",
+    workflowSnapshot: {
+      invocationId: branchName,
+      steps: [
+        {
+          stepId: "implement",
+          role: "implement",
+          stepRules: "Return exactly one terminal token.",
+          expectedArtifactPath: "00-subspec.md",
+          promptId: "patch.prompt.body",
+          agents: ["codex"],
+          agentModelConfig: AGENT_MODEL_CONFIG,
+        },
+      ],
+    },
+  });
+  stateStore.setRunStatus(runId, "paused");
+  return { jarvisRoot, runId };
+}
+
+const GUARD_REPAIRS: GuardCheckpointRepairEntry[] = [
+  {
+    kind: "guard",
+    criterionText: "- [x] unlinked guard criterion",
+    pinPath: "test/unlinked-guard.test.ts",
+    reason: "unlinked",
+  },
+  {
+    kind: "guard",
+    criterionText: "- [x] hollow guard criterion",
+    pinPath: "test/hollow-guard.test.ts",
+    reason: "hollow",
+    directive: {
+      sourceFile: "test/hollow-guard.test.ts",
+      sourceLine: 12,
+      raw: '// @mutate src/guard.ts "value > 0" -> "value >= 0"',
+    },
+  },
+  {
+    kind: "keystone",
+    criterionText: "- [x] unlinked keystone criterion",
+    pinPath: "test/keystone.test.ts",
+    reason: "unlinked",
+  },
+];
+
+test("resumes paused implement write loop with guard-checkpoint reprompt context from log", async () => {
+  // @mutate v2/src/execution/write-loop.ts "record.event.kind === \"guard_checkpoint_reprompt\" ||" -> "false ||"
+  const { runId } = createPausedImplementRepromptRun("implement-paused-guard-reprompt");
+  const reader = logReader(runId, [
+    { kind: "guard_checkpoint_reprompt", attemptId: "attempt-3", repairs: GUARD_REPAIRS },
+    { kind: "loop_finished", loopOutcomeKind: "paused", iterationsConsumed: 3, resumable: true },
+  ]);
+
+  const response = await resumeDirect(createHandlers(reader), runId);
+
+  expect(response.kind).toBe("response");
+  expect(starts).toHaveLength(1);
+  expect(starts[0]?.guardCheckpointReprompt?.repairs).toBe(GUARD_REPAIRS);
+  expect(starts[0]?.mutationDirectiveReprompt).toBeUndefined();
+  expect(starts[0]?.keystoneDirectiveReprompt).toBeUndefined();
+  expect(starts[0]?.promptId).toBe("patch.prompt.body");
+});
+
+test("resume restores only the newest directive-reprompt context across all three kinds", async () => {
+  // @mutate v2/src/execution/write-loop.ts "if (latest.kind === \"guard_checkpoint_reprompt\") {" -> "if (false) {"
+  // @mutate v2/src/execution/write-loop.ts "return { mutationDirectiveReprompt: { display, directives } };" -> "return { mutationDirectiveReprompt: { display, directives }, guardCheckpointReprompt: { repairs: [] } };"
+  // @mutate v2/src/execution/write-loop.ts "return { guardCheckpointReprompt: { repairs: latest.repairs } };" -> "return { guardCheckpointReprompt: { repairs: latest.repairs }, keystoneDirectiveReprompt: { criterionText: \"stale\", pinPath: \"stale\" } };"
+  // @mutate v2/src/execution/write-loop.ts "return { keystoneDirectiveReprompt: { criterionText, pinPath } };" -> "return { keystoneDirectiveReprompt: { criterionText, pinPath }, guardCheckpointReprompt: { repairs: [] } };"
+  const mutation: LogEvent = {
+    kind: "mutation_directive_reprompt",
+    attemptId: "mutation-attempt",
+    directives: [
+      {
+        pinningFile: "pin.test.ts",
+        line: 2,
+        raw: '// @mutate src/target.ts "missing" -> "present"',
+        reason: "target_absent",
+      },
+    ],
+    display: "missing target",
+  };
+  const guard: LogEvent = { kind: "guard_checkpoint_reprompt", attemptId: "guard-attempt", repairs: GUARD_REPAIRS };
+  const keystone: LogEvent = {
+    kind: "keystone_directive_reprompt",
+    attemptId: "keystone-attempt",
+    criterionText: "- [x] keystone criterion",
+    pinPath: "test/keystone.test.ts",
+  };
+  const cases: Array<{
+    branch: string;
+    events: readonly LogEvent[];
+    expected: "mutation" | "guard" | "keystone";
+    loopOutcome: "paused" | "invocation_failure";
+    terminalOutcome?: "invalid_token" | "missing_blocker";
+  }> = [
+    {
+      branch: "guard-after-mutation",
+      events: [mutation, guard],
+      expected: "guard",
+      loopOutcome: "invocation_failure",
+      terminalOutcome: "missing_blocker",
+    },
+    { branch: "guard-after-keystone", events: [keystone, guard], expected: "guard", loopOutcome: "paused" },
+    {
+      branch: "mutation-after-guard",
+      events: [guard, mutation],
+      expected: "mutation",
+      loopOutcome: "invocation_failure",
+      terminalOutcome: "invalid_token",
+    },
+    {
+      branch: "keystone-after-guard",
+      events: [guard, keystone],
+      expected: "keystone",
+      loopOutcome: "invocation_failure",
+      terminalOutcome: "invalid_token",
+    },
+  ];
+
+  for (const { branch, events, expected, loopOutcome, terminalOutcome } of cases) {
+    const { runId } = createPausedImplementRepromptRun(branch);
+    const response = await resumeDirect(
+      createHandlers(
+        logReader(runId, [
+          ...events,
+          ...(terminalOutcome === undefined
+            ? []
+            : [
+                {
+                  kind: "boundary_committed" as const,
+                  attemptId: "terminal-attempt",
+                  outcomeKind: terminalOutcome,
+                  runStatus: "paused" as const,
+                },
+              ]),
+          { kind: "loop_finished", loopOutcomeKind: loopOutcome, iterationsConsumed: 2, resumable: true },
+        ]),
+      ),
+      runId,
+    );
+
+    expect(response.kind).toBe("response");
+    const input = starts.at(-1);
+    expect(input?.mutationDirectiveReprompt !== undefined).toBe(expected === "mutation");
+    expect(input?.guardCheckpointReprompt !== undefined).toBe(expected === "guard");
+    expect(input?.keystoneDirectiveReprompt !== undefined).toBe(expected === "keystone");
+    expect(input?.initialIterationsConsumed).toBe(2);
+  }
+});
+
+test("resumed guard repair retains consumed iteration budget", async () => {
+  // @mutate v2/src/daemon/daemon.ts "run.status === \"paused\" &&" -> "false &&"
+  // @mutate v2/src/daemon/daemon.ts "guardCheckpointReprompt !== undefined ||" -> "false ||"
+  // @mutate v2/src/daemon/daemon.ts "terminalRecord?.event.kind === \"loop_finished\" &&" -> "false &&"
+  // @mutate v2/src/daemon/daemon.ts "terminalRecord.event.loopOutcomeKind === \"paused\"" -> "false"
+  // @mutate v2/src/execution/write-loop.ts "let iterationsConsumed = args.initialIterationsConsumed ?? 0;" -> "let iterationsConsumed = 0;"
+  const { jarvisRoot, runId } = createPausedImplementRepromptRun("implement-paused-guard-budget");
+  const logsPath = join(tmpdir(), `jarvis-guard-budget-${process.pid}-${Date.now()}.jsonl`);
+  const seedSink = openLogSink(logsPath);
+  seedSink.append(runId, { kind: "guard_checkpoint_reprompt", attemptId: "attempt-2", repairs: GUARD_REPAIRS });
+  seedSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "paused",
+    iterationsConsumed: 2,
+    resumable: true,
+  });
+  seedSink.close();
+  let calls = 0;
+  let resumedResult: Awaited<ReturnType<typeof executeWriteLoop>> | undefined;
+  const progressInvocation = {
+    attempts: [],
+    final: { binding: { id: "sim.1", metadata: { agent: "Test Agent" } }, result: { kind: "ok" as const } },
+    telemetryFailures: [] as const,
+  };
+  mock.module("../execution/write.ts", () => ({
+    executeWrite: async (input: WriteExecuteInput) => {
+      calls += 1;
+      expect(input.guardCheckpointReprompt?.repairs).toEqual(GUARD_REPAIRS);
+      return {
+        worktreePath: join(jarvisRoot, "worktrees", "demo", "implement-paused-guard-budget"),
+        worktreeReused: true,
+        lock: { kind: "acquired" as const },
+        result: { kind: "progress" as const, token: "progress" as const, invocation: progressInvocation },
+      };
+    },
+  }));
+  const localHandlers = createRunControlHandlers({
+    stateStore,
+    logReader: openLogReader(logsPath),
+    logsPath,
+    writeLoopExecutor: async (input, signal, pauseSignal) => {
+      expect(input.initialIterationsConsumed).toBe(2);
+      const resumeSink = openLogSink(logsPath);
+      try {
+        resumedResult = await executeWriteLoop({
+          ...input,
+          maxIterations: 3,
+          signal,
+          pauseSignal,
+          stateStore,
+          withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+          sessionsDir: join(jarvisRoot, "sessions"),
+          logSink: resumeSink,
+          publishCompletion: false,
+        });
+      } finally {
+        resumeSink.close();
+      }
+    },
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
+  });
+
+  try {
+    expect((await resumeDirect(localHandlers, runId)).kind).toBe("response");
+    for (let i = 0; resumedResult === undefined && i < 50; i += 1) await flushBackgroundRuns();
+    expect(calls).toBe(1);
+    expect(resumedResult).toMatchObject({ kind: "budget-exhausted", iterationsConsumed: 3 });
+
+    const { runId: softStopRunId } = createPausedImplementRepromptRun("implement-budget-soft-stop");
+    stateStore.setRunStatus(softStopRunId, "budget-soft-stopped");
+    const softStopReader = loopFinishedLogReader(softStopRunId, {
+      loopOutcomeKind: "budget-exhausted",
+      iterationsConsumed: 3,
+      resumable: true,
+    });
+    expect((await resumeDirect(createHandlers(softStopReader), softStopRunId)).kind).toBe("response");
+    expect(starts.at(-1)?.initialIterationsConsumed).toBeUndefined();
+  } finally {
+    rmSync(logsPath, { force: true });
+    mock.module("../execution/write.ts", () => ({ executeWrite: realExecuteWrite }));
+  }
+});
+
+test("resumes a paused direct implement run with guard replay and its original remaining budget", async () => {
+  // @mutate v2/src/daemon/daemon.ts "queuedInput: input," -> ""
+  // @mutate v2/src/daemon/daemon.ts "run.status === \"paused\" &&" -> "false &&"
+  const { jarvisRoot } = createJarvisHome();
+  roots.push(join(jarvisRoot, ".."));
+  const input: WriteLoopInput = {
+    ...mockWriteLoopInput({
+      projectRoot: "/fake",
+      projectName: "direct-replay",
+      branchName: "direct-replay",
+      baseRef: "HEAD",
+      jarvisRoot,
+    }),
+    promptId: "patch.prompt.body",
+    maxIterations: 3,
+    bindings: [],
+    bindingResolution: {
+      role: "implement",
+      agents: ["codex"],
+      agentModelConfig: AGENT_MODEL_CONFIG,
+    },
+  };
+  const runId = await startRunDirect(handlers, input);
+  expect(runId).toBeDefined();
+  if (!runId) return;
+  expect(stateStore.loadRun(runId)?.queuedInput?.maxIterations).toBe(3);
+  stateStore.setRunStatus(runId, "paused");
+
+  const logsPath = join(tmpdir(), `jarvis-direct-replay-${process.pid}-${Date.now()}.jsonl`);
+  const seedSink = openLogSink(logsPath);
+  seedSink.append(runId, { kind: "guard_checkpoint_reprompt", attemptId: "attempt-2", repairs: GUARD_REPAIRS });
+  seedSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "paused",
+    iterationsConsumed: 2,
+    resumable: true,
+  });
+  seedSink.close();
+
+  let calls = 0;
+  let resumedResult: Awaited<ReturnType<typeof executeWriteLoop>> | undefined;
+  const progressInvocation = {
+    attempts: [],
+    final: { binding: { id: "sim.1", metadata: { agent: "Test Agent" } }, result: { kind: "ok" as const } },
+    telemetryFailures: [] as const,
+  };
+  mock.module("../execution/write.ts", () => ({
+    executeWrite: async (writeInput: WriteExecuteInput) => {
+      calls += 1;
+      expect(writeInput.guardCheckpointReprompt?.repairs).toEqual(GUARD_REPAIRS);
+      return {
+        worktreePath: join(jarvisRoot, "worktrees", "direct-replay", "direct-replay"),
+        worktreeReused: true,
+        lock: { kind: "acquired" as const },
+        result: { kind: "progress" as const, token: "progress" as const, invocation: progressInvocation },
+      };
+    },
+  }));
+  const localHandlers = createRunControlHandlers({
+    stateStore,
+    logReader: openLogReader(logsPath),
+    logsPath,
+    writeLoopExecutor: async (resumedInput, signal, pauseSignal) => {
+      const resumeSink = openLogSink(logsPath);
+      try {
+        expect(resumedInput.maxIterations).toBe(3);
+        expect(resumedInput.initialIterationsConsumed).toBe(2);
+        resumedResult = await executeWriteLoop({
+          ...resumedInput,
+          signal,
+          pauseSignal,
+          stateStore,
+          withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+          sessionsDir: join(jarvisRoot, "sessions"),
+          logSink: resumeSink,
+          publishCompletion: false,
+        });
+      } finally {
+        resumeSink.close();
+      }
+    },
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
+  });
+
+  try {
+    expect((await resumeDirect(localHandlers, runId)).kind).toBe("response");
+    for (let i = 0; resumedResult === undefined && i < 50; i += 1) await flushBackgroundRuns();
+    expect(calls).toBe(1);
+    expect(resumedResult).toMatchObject({ kind: "budget-exhausted", iterationsConsumed: 3 });
+  } finally {
+    rmSync(logsPath, { force: true });
+    mock.module("../execution/write.ts", () => ({ executeWrite: realExecuteWrite }));
+  }
 });
 
 test("exhausted-red eligibility guard inversion: origin evidence", () => {

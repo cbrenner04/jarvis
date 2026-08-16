@@ -29,6 +29,7 @@ import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
   type GuardCheckpointRepairEntry,
   type GuardCheckpointRepromptContext,
+  type GuardCheckpointRepromptEvent,
   type KeystoneDirectiveRepromptContext,
   type KeystoneDirectiveRepromptEvent,
   type LandingContractRepromptEvent,
@@ -229,6 +230,8 @@ const defaultWallSegmentSchedule: WallSegmentSchedule = (fire, delayMs) => {
 /** Input for the write loop. Run identity derives from `worktree` (project, branch, base). */
 export type WriteLoopInput = WriteExecuteInput & {
   maxIterations?: number;
+  /** Iterations already spent by a paused directive-reprompt invocation. */
+  initialIterationsConsumed?: number;
   iterationTimeoutMs?: number;
   iterationCeilingMs?: number;
   /**
@@ -393,19 +396,27 @@ export function findStagedMarkdownLintRepromptFromLog(
 }
 
 /**
- * Last in-loop mutation-directive or keystone-directive reprompt from a run's persisted log
- * tail (resume after pause). The two reprompt arms clear each other's pending context as they
- * fire (see write-loop.ts), so only the context matching the last such event of either kind is
- * live; scanning them independently would resurrect a superseded sibling context.
+ * Last in-loop directive reprompt from a run's persisted log tail (resume after pause). The
+ * reprompt arms clear their sibling contexts as they fire, so only the context matching the last
+ * event is live; scanning them independently would resurrect a superseded sibling context.
  */
 export function findDirectiveRepromptFromLog(logRecords: readonly PersistedRecord[] | undefined): {
   mutationDirectiveReprompt?: MutationDirectiveRepromptContext;
+  guardCheckpointReprompt?: GuardCheckpointRepromptContext;
   keystoneDirectiveReprompt?: KeystoneDirectiveRepromptContext;
 } {
   if (logRecords === undefined) return {};
-  let latest: MutationDirectiveRepromptEvent | KeystoneDirectiveRepromptEvent | undefined;
+  let latest:
+    | MutationDirectiveRepromptEvent
+    | GuardCheckpointRepromptEvent
+    | KeystoneDirectiveRepromptEvent
+    | undefined;
   for (const record of logRecords) {
-    if (record.event.kind === "mutation_directive_reprompt" || record.event.kind === "keystone_directive_reprompt") {
+    if (
+      record.event.kind === "mutation_directive_reprompt" ||
+      record.event.kind === "guard_checkpoint_reprompt" ||
+      record.event.kind === "keystone_directive_reprompt"
+    ) {
       latest = record.event;
     }
   }
@@ -413,6 +424,9 @@ export function findDirectiveRepromptFromLog(logRecords: readonly PersistedRecor
   if (latest.kind === "mutation_directive_reprompt") {
     const { display, directives } = latest;
     return { mutationDirectiveReprompt: { display, directives } };
+  }
+  if (latest.kind === "guard_checkpoint_reprompt") {
+    return { guardCheckpointReprompt: { repairs: latest.repairs } };
   }
   const { criterionText, pinPath } = latest;
   return { keystoneDirectiveReprompt: { criterionText, pinPath } };
@@ -1048,7 +1062,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
     }
     const { runId, worktreePath } = prepared;
     args.onRunCreated?.(runId);
-    let iterationsConsumed = 0;
+    let iterationsConsumed = args.initialIterationsConsumed ?? 0;
     let resumedAttemptId = prepared.resumedAttemptId;
     let pendingLandingReprompt = args.landingContractReprompt;
     let pendingStagedMarkdownLintReprompt = args.stagedMarkdownLintReprompt;

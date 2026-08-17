@@ -36,7 +36,11 @@ export type ReadyFinalizeInput = {
   signal?: AbortSignal;
 };
 
-export type ReadyGate = (worktreePath: string, baseRef: string, options?: { signal?: AbortSignal | undefined }) => Promise<void>;
+export type ReadyGate = (
+  worktreePath: string,
+  baseRef: string,
+  options?: { signal?: AbortSignal | undefined },
+) => Promise<void>;
 export type GhReadyFlip = (branch: string, worktreePath: string) => Promise<void>;
 type Delay = (ms: number) => Promise<void>;
 type RetryNotice = (message: string) => void;
@@ -873,7 +877,11 @@ async function deriveReadyGateChildEnv(
 }
 
 function createDefaultRunReadyGate(runner: AsyncSubprocessRunner): ReadyGate {
-  return async (worktreePath: string, baseRef: string, options?: { signal?: AbortSignal | undefined }): Promise<void> => {
+  return async (
+    worktreePath: string,
+    baseRef: string,
+    options?: { signal?: AbortSignal | undefined },
+  ): Promise<void> => {
     const env = await deriveReadyGateChildEnv(runner, worktreePath, baseRef);
     try {
       await runner.runAsync("bun", ["run", "ready"], worktreePath, { env, signal: options?.signal, processGroup: {} });

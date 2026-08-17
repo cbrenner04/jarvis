@@ -30,6 +30,7 @@ import {
 } from "../persistence/log-stream.ts";
 import {
   type Attempt,
+  type OutcomeKind,
   openStateStore,
   type Run,
   type StateStore,
@@ -2839,6 +2840,159 @@ export function hasPopulatedIntentStage(worktreePath: string): boolean {
   } catch {
     return false;
   }
+}
+
+const PLAN_STAGE_DIR = ".jarvis-plan-stage";
+
+/** True when `.jarvis-plan-stage/` exists under `worktreePath` and holds at least one file. */
+export function hasPopulatedPlanStage(worktreePath: string): boolean {
+  const stageDir = join(worktreePath, PLAN_STAGE_DIR);
+  if (!existsSync(stageDir)) return false;
+  try {
+    return readdirSync(stageDir, { withFileTypes: true }).some((entry) => entry.isFile());
+  } catch {
+    return false;
+  }
+}
+
+/** Reason codes an operator recovery request refuses admission with. */
+export type PlanStageRecoveryRefusalCode =
+  | "missing_plan_context"
+  | "stage_identity_mismatch"
+  | "unrelated_plan_stage"
+  | "recovery_requires_git"
+  | "operator_blocker";
+
+/**
+ * Names one stopped plan run to recover: the run identified by `runId` must still resolve to
+ * the persisted `(project, branch, worktreePath, writeStepId)` relationship captured for that
+ * attempt. `steps` are the captured remaining review actuator step(s) to run after admission —
+ * recovery never constructs or invokes a plan-draft step itself.
+ */
+export type PlanStageRecoveryRequest = Omit<WorkflowRunnerInput, "steps"> & {
+  runId: string;
+  project: string;
+  branch: string;
+  worktreePath: string;
+  writeStepId: string;
+  steps: readonly AnyWorkflowStep[];
+  stateStore: StateStore;
+};
+
+export type PlanStageRecoveryOutcome =
+  | ({ ok: true } & WorkflowResult)
+  | { ok: false; code: PlanStageRecoveryRefusalCode; message: string };
+
+/** Exact template `appendBlockerToSpec` (write-loop.ts) writes for a `plan.prompt.draft` contract miss. */
+function harnessPlanBlockerText(reason: string): string {
+  return `\n## Blocker\n\nArtifact contract check failed: ${reason}\n`;
+}
+
+/** The `contract_miss_detail` reason persisted for this run's last attempt, if any. */
+function capturedPlanContractMissReason(logSink: LogSink | undefined, runId: string): string | undefined {
+  const records = priorLogRecordsFromSink(logSink, runId);
+  for (let i = records.length - 1; i >= 0; i -= 1) {
+    const event = records[i]?.event;
+    if (event?.kind === "contract_miss_detail") {
+      return event.failureReason ?? event.failedContractId;
+    }
+  }
+  return undefined;
+}
+
+type PlanBlockerProvenance = { kind: "none" } | { kind: "harness"; text: string } | { kind: "operator" };
+
+/**
+ * Classifies the trailing `## Blocker` (if any) in the staged `intent.md` of a stopped
+ * plan-draft attempt. Only a `contract_miss` attempt can carry harness-authored metadata — the
+ * harness never appends a blocker for a `blocked` outcome, that text is always agent-authored.
+ * Harness authorship requires an exact, trailing match against the template rebuilt from this
+ * run's own captured `contract_miss_detail` reason; anything else (missing reason, changed body,
+ * non-trailing placement) is treated as operator-authored.
+ */
+function resolvePlanBlockerProvenance(
+  worktreePath: string,
+  outcomeKind: OutcomeKind | null,
+  logSink: LogSink | undefined,
+  runId: string,
+): PlanBlockerProvenance {
+  const intentPath = join(worktreePath, PLAN_STAGE_DIR, "intent.md");
+  if (!existsSync(intentPath)) return { kind: "none" };
+  const content = readFileSync(intentPath, "utf8");
+  if (extractBlockerBody(content) === undefined) return { kind: "none" };
+  if (outcomeKind !== "contract_miss") return { kind: "operator" };
+  const reason = capturedPlanContractMissReason(logSink, runId);
+  if (reason === undefined) return { kind: "operator" };
+  const expected = harnessPlanBlockerText(reason);
+  return content.endsWith(expected) ? { kind: "harness", text: expected } : { kind: "operator" };
+}
+
+/**
+ * Recovers a stopped `contract_miss`/`blocked` plan-draft run whose staged subspec was
+ * hand-corrected, without redrafting: verifies the run identified by `runId` still identifies
+ * the captured `(project, branch, worktreePath, writeStepId)` checkout and a populated
+ * `.jarvis-plan-stage/`, admits it independently of `resumable`, strips only a proven
+ * harness-authored blocker, then runs the captured remaining review actuator step(s) and
+ * delegates to the shared landing/completion-publication tail via {@link executeWorkflow}.
+ */
+export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promise<PlanStageRecoveryOutcome> {
+  const store = request.stateStore;
+  const run = store.loadRun(request.runId);
+  if (!run || !run.workflowSnapshot || !run.stepId) {
+    return { ok: false, code: "missing_plan_context", message: "no persisted plan context for this run" };
+  }
+  if (
+    run.project !== request.project ||
+    run.branch !== request.branch ||
+    run.worktreePath !== request.worktreePath ||
+    run.stepId !== request.writeStepId
+  ) {
+    return {
+      ok: false,
+      code: "stage_identity_mismatch",
+      message: "captured plan context does not match the persisted run",
+    };
+  }
+  const writeStep = run.workflowSnapshot.steps.find((candidate) => candidate.stepId === run.stepId);
+  const lastAttempt = run.attempts.at(-1);
+  const outcomeKind = lastAttempt?.outcomeKind ?? null;
+  if (
+    run.status !== "blocked" ||
+    (outcomeKind !== "contract_miss" && outcomeKind !== "blocked") ||
+    writeStep?.expectedArtifactPath !== PLAN_STAGE_DIR ||
+    !hasPopulatedPlanStage(run.worktreePath)
+  ) {
+    return { ok: false, code: "unrelated_plan_stage", message: "no recoverable populated plan stage for this run" };
+  }
+  if (!existsSync(join(run.worktreePath, ".git"))) {
+    return {
+      ok: false,
+      code: "recovery_requires_git",
+      message: "plan-stage recovery requires Git-backed publication mode",
+    };
+  }
+  const provenance = resolvePlanBlockerProvenance(run.worktreePath, outcomeKind, request.logSink, run.id);
+  if (provenance.kind === "operator") {
+    return { ok: false, code: "operator_blocker", message: "staged plan carries an operator-authored blocker" };
+  }
+  if (provenance.kind === "harness") {
+    const intentPath = join(run.worktreePath, PLAN_STAGE_DIR, "intent.md");
+    const content = readFileSync(intentPath, "utf8");
+    writeFileSync(intentPath, content.slice(0, content.length - provenance.text.length), "utf8");
+  }
+
+  const {
+    runId: _runId,
+    project: _project,
+    branch: _branch,
+    worktreePath: _worktreePath,
+    writeStepId: _writeStepId,
+    steps,
+    stateStore: _stateStore,
+    ...forwarded
+  } = request;
+  const result = await executeWorkflow({ ...forwarded, steps: [...steps], stateStore: store });
+  return { ok: true, ...result };
 }
 
 /**

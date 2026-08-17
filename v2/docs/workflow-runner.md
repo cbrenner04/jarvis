@@ -193,6 +193,23 @@ Resume assumes the caller re-supplies the identical `steps` array the killed run
 
 **Fresh dispatch:** When `WorkflowRunnerInput.freshDispatch` is set to `true`, the resume step-idempotence rules are suppressed for the targeted steps: a new workflow invocation is created with a fresh `invocationId`, and any prior `completed` or `failed` runs are replaced by new rows. Within a single execution with `freshDispatch` set, a step touched multiple times (e.g., in a linked-implement loop or after a shrink step) reuses the run row created during that execution, avoiding duplicate rows per step. Without `freshDispatch` set, the normal resume contract applies: prior `completed` runs are reused idempotently and invocationId is inherited from the prior run's snapshot.
 
+## Plan-stage recovery
+
+`recoverPlanStage` (`v2/src/execution/workflow-runner.ts`) recovers a stopped plan-draft run whose operator hand-corrected the staged `.jarvis-plan-stage/` tree, without redrafting. It is a distinct operator request from ordinary `run resume`: it names one stopped run (`runId`) plus the captured plan context (`project`, `branch`, `worktreePath`, `writeStepId`) and the remaining review actuator step(s) to run (`steps`); ordinary resume's own admission and meaning are unchanged.
+
+Admission resolves the named run, then verifies every field of the captured context still identifies the same persisted row before any effect:
+- No persisted run, or it carries no `workflowSnapshot`/`stepId` — refused `missing_plan_context`.
+- The persisted run's `project`, `branch`, `worktreePath`, or `stepId` disagrees with the captured context — refused `stage_identity_mismatch`.
+- The run is not `status: "blocked"` with a last-attempt outcome of `contract_miss` or `blocked`, its snapshot step's `expectedArtifactPath` is not `.jarvis-plan-stage`, or `.jarvis-plan-stage/` is empty or missing — refused `unrelated_plan_stage`.
+
+A populated `contract_miss`/`blocked` stage is admitted regardless of that run's own `resumable` value — recovery does not consult it.
+
+Recovery runs only in Git-backed publication mode: `existsSync(join(worktreePath, ".git"))` false refuses `recovery_requires_git`, before drafting, review, landing, or ready-intent consumption; the stage and ready-intent are untouched.
+
+**Blocker provenance.** A `plan.prompt.draft` contract miss appends a fixed-template `## Blocker` to staged `intent.md` (`write-loop.ts`'s `appendBlockerToSpec`); recovery removes only that exact, trailing text before continuing. Provenance is proven, not assumed: the run's persisted `contract_miss_detail` log record supplies the captured reason, recovery rebuilds the exact harness template from it, and only a byte-exact trailing match is stripped. No blocker present is a no-op. Any other case — a `blocked`-kind stop (the harness never appends one), a changed reason, or non-trailing placement — is treated as operator-authored: retained, refused `operator_blocker`, no durable write.
+
+Once admitted, recovery never invokes plan drafting. It calls `executeWorkflow` with the caller-supplied remaining review step(s) only, so the normal review, staged-Markdown, and landing validation run unchanged and delegate to the same completion-publication tail as an ordinary plan workflow.
+
 ## Per-step attempt history
 
 Each step maintains its own durable `(project, branch, stepId)` run independently:

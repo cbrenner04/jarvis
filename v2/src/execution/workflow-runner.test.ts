@@ -32,7 +32,13 @@ import {
 import { stageArtifactKey } from "../daemon/pipeline-stage-dispatch.ts";
 import { resolveStageWorkflowSteps } from "../daemon/pipeline-stage-resolve.ts";
 import { composeRunOperatorError, findTerminalLogRecord } from "../daemon/run-operator-error.ts";
-import { type LogEvent, type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
+import {
+  type LogEvent,
+  type LogSink,
+  openLogReader,
+  openLogSink,
+  type PersistedRecord,
+} from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import {
   createFakeWithExternalWorktree,
@@ -65,6 +71,7 @@ import {
   LinkedIndexReadError,
   type ReviewDebateWorkflowStep,
   type ReviewWorkflowStep,
+  recoverPlanStage,
   resolveIntentFinalizationResumeContext,
   resolveReviewMutationResumeContext,
   resolveWorkflowPreset,
@@ -91,6 +98,13 @@ class TestLogSink implements LogSink {
 
   getEventsForRun(runId: string): LogEvent[] {
     return this.events.filter((e) => e.runId === runId).map((e) => e.event);
+  }
+
+  /** `LogReader`-shaped read of this run's events, so `priorLogRecordsFromSink` sees them. */
+  tail(runId: string): PersistedRecord[] {
+    return this.events
+      .filter((e) => e.runId === runId)
+      .map((e, index) => ({ runId, seq: index, ts: new Date().toISOString(), event: e.event }));
   }
 }
 const DEFAULT_AGENT_MODEL_CONFIG = {
@@ -10103,6 +10117,577 @@ describe("executeWorkflow plan review dispatch", () => {
     expect(readFileSync(join(reviewDurable, "01-test.md"), "utf8")).toBe("# After review\n");
     expect(readFileSync(join(reviewDurable, "verdict-plan.md"), "utf8")).toBe("apply this fix");
     expect(existsSync(writeDurable)).toBe(false);
+  });
+});
+
+describe("recoverPlanStage", () => {
+  const PLAN_REVIEW_CONFIG: AgentModelConfig = {
+    claude: { critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] } },
+    codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
+  };
+  const PLAN_WRITE_AGENT_MODEL_CONFIG: AgentModelConfig = {
+    claude: { plan: { rungs: [{ adapterModel: "plan", priceKey: "plan" }] } },
+  };
+
+  const harnessPlanBlocker = (reason: string) => `\n## Blocker\n\nArtifact contract check failed: ${reason}\n`;
+
+  function planWorktree(prefix: string): string {
+    return initGitWorkspace(prefix);
+  }
+
+  function noGitPlanWorktree(prefix: string): string {
+    return mkdtempSync(join(tmpdir(), prefix));
+  }
+
+  function planWriteStep(args: {
+    stepId: string;
+    branch: string;
+    worktreePath: string;
+    specPath: string;
+  }): WriteWorkflowStep {
+    return {
+      behavior: "write",
+      stepId: args.stepId,
+      role: "plan",
+      promptId: "plan.prompt.draft",
+      stepRules: "Return exactly one terminal token.",
+      worktree: {
+        projectRoot: args.worktreePath,
+        projectName: "demo",
+        branchName: args.branch,
+        baseRef: "HEAD",
+        git: false,
+        localPath: args.worktreePath,
+      },
+      specPath: args.specPath,
+      expectedArtifactPath: ".jarvis-plan-stage",
+      agents: ["claude"],
+      agentModelConfig: PLAN_WRITE_AGENT_MODEL_CONFIG,
+      createBinding: doneBindingFactory,
+    };
+  }
+
+  function seedBlockedPlanDraftRun(
+    store: ReturnType<typeof openStateStore>,
+    args: {
+      project: string;
+      branch: string;
+      worktreePath: string;
+      specPath: string;
+      stepId: string;
+      invocationId: string;
+      outcomeKind: "contract_miss" | "blocked";
+      expectedArtifactPath?: string;
+    },
+  ): string {
+    const runId = store.createRun({
+      project: args.project,
+      specRef: "HEAD",
+      worktreePath: args.worktreePath,
+      branch: args.branch,
+      specPath: args.specPath,
+      stepId: args.stepId,
+      workflowSnapshot: {
+        invocationId: args.invocationId,
+        steps: [
+          {
+            stepId: args.stepId,
+            role: "plan",
+            expectedArtifactPath: args.expectedArtifactPath ?? ".jarvis-plan-stage",
+          },
+        ],
+      },
+    });
+    const attemptId = store.recordAttemptStart(runId);
+    store.commitCompletionBoundary({ attemptId, runStatus: "blocked", outcomeKind: args.outcomeKind });
+    return runId;
+  }
+
+  function planReviewStep(args: {
+    worktreePath: string;
+    stage: string;
+    durable: string;
+    branch: string;
+    invoke: (agentId: string) => Promise<InvocationResult>;
+    inputs?: { sourceRoot: string; paths: string[]; consumeFrom: "worktree" | "source" };
+  }): ReviewWorkflowStep {
+    return {
+      behavior: "review",
+      stepId: "plan-review",
+      project: "demo",
+      branch: args.branch,
+      cwd: args.worktreePath,
+      prompt: "",
+      verdictPath: join(args.stage, "verdict-plan.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: PLAN_REVIEW_CONFIG,
+      profile: planReviewPromptProfile,
+      profileContext: { specPath: args.stage, worktreePath: args.worktreePath },
+      landing: {
+        kind: "plan-tree",
+        stagingDir: ".jarvis-plan-stage",
+        durablePath: args.durable,
+        ...(args.inputs !== undefined ? { inputs: args.inputs } : {}),
+      },
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        metadata: { agent: agentId, model: agentId },
+        invoke: async () => args.invoke(agentId),
+      }),
+    };
+  }
+
+  function seedSourceReadyIntent(prefix: string): { sourceRoot: string; path: string } {
+    const sourceRoot = mkdtempSync(join(tmpdir(), prefix));
+    mkdirSync(join(sourceRoot, "ready-intents"), { recursive: true });
+    const path = join(sourceRoot, "ready-intents", "test.md");
+    writeFileSync(path, "---\nname: test\n---\n\n## Prerequisites\n", "utf8");
+    return { sourceRoot, path };
+  }
+
+  test("recovers an operator-edited plan stage through publication without redrafting", async () => {
+    const worktreePath = planWorktree("recover-plan-stage-keystone-");
+    const stage = join(worktreePath, ".jarvis-plan-stage");
+    const durable = join(worktreePath, "spec", "2026-recovered-plan");
+    const branch = "recover-plan-stage-keystone";
+    const stepId = "plan";
+    const specPath = "spec/2026-recovered-plan";
+    const reason = "`## Decisions` bullet is outside the allowed union";
+
+    writeLintCleanPlanStage(stage, "00-first.md");
+    writeFileSync(join(stage, "00-first.md"), "# Draft with an out-of-union Decisions bullet\n", "utf8");
+    writeFileSync(join(stage, "intent.md"), `---\nname: test\n---\n${harnessPlanBlocker(reason)}`, "utf8");
+    const { sourceRoot, path: sourceReadyIntent } = seedSourceReadyIntent("recover-plan-stage-keystone-source-");
+
+    const correctedSubspecBody = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md012-clean-subspec.md"), "utf8");
+    const actuatorPrompts: string[] = [];
+
+    await withStateStore(async (store) => {
+      const runId = seedBlockedPlanDraftRun(store, {
+        project: "demo",
+        branch,
+        worktreePath,
+        specPath,
+        stepId,
+        invocationId: "recover-plan-stage-keystone-inv",
+        outcomeKind: "contract_miss",
+      });
+      const logSink = new TestLogSink();
+      logSink.append(runId, {
+        kind: "contract_miss_detail",
+        attemptId: "attempt-1",
+        failedContractId: "plan.decisions-shape",
+        responseText: "done",
+        failureReason: reason,
+      });
+
+      // Operator corrects the staged subspec that tripped the contract miss.
+      writeFileSync(join(stage, "00-first.md"), correctedSubspecBody, "utf8");
+
+      const reviewStep = planReviewStep({
+        worktreePath,
+        stage,
+        durable,
+        branch,
+        invoke: async (agentId) => {
+          if (agentId === "codex") actuatorPrompts.push("actuator");
+          return { kind: "ok", stdout: agentId === "claude" ? "Looks good" : "done", stderr: "" };
+        },
+        inputs: { sourceRoot, paths: [sourceReadyIntent], consumeFrom: "source" },
+      });
+
+      const outcome = await recoverPlanStage({
+        runId,
+        project: "demo",
+        branch,
+        worktreePath,
+        writeStepId: stepId,
+        steps: [reviewStep],
+        stateStore: store,
+        logSink,
+      });
+
+      // @mutate v2/src/execution/workflow-runner.ts "return { ok: true, ...result };" -> "return { ok: false, code: \"missing_plan_context\", message: \"reverted\" };"
+      // @mutate v2/src/execution/workflow-runner.ts "if (!existsSync(join(run.worktreePath, \".git\"))) {" -> "if (true) {"
+      // @mutate v2/src/execution/workflow-runner.ts "return content.endsWith(expected) ? { kind: \"harness\", text: expected } : { kind: \"operator\" };" -> "return { kind: \"operator\" };"
+      expect(outcome.ok).toBe(true);
+      if (!outcome.ok) throw new Error("unreachable");
+      expect(outcome.kind).toBe("complete");
+      expect(actuatorPrompts).toEqual(["actuator"]);
+      expect(readFileSync(join(durable, "00-first.md"), "utf8")).toBe(correctedSubspecBody);
+      expect(readFileSync(join(durable, "intent.md"), "utf8")).not.toContain("## Blocker");
+      expect(existsSync(sourceReadyIntent)).toBe(false);
+
+      const writeRun = store.loadRun(runId);
+      expect(writeRun?.status).toBe("blocked");
+      expect(writeRun?.attempts.length).toBe(1);
+    });
+  });
+
+  test("admits corrected plan stage despite a non-resumable stop", async () => {
+    for (const outcomeKind of ["contract_miss", "blocked"] as const) {
+      const worktreePath = planWorktree(`recover-plan-stage-nonresumable-${outcomeKind}-`);
+      const stage = join(worktreePath, ".jarvis-plan-stage");
+      const durable = join(worktreePath, "spec", `2026-recovered-${outcomeKind}`);
+      const branch = `recover-plan-stage-nonresumable-${outcomeKind}`;
+      const stepId = "plan";
+      const specPath = `spec/2026-recovered-${outcomeKind}`;
+      writeLintCleanPlanStage(stage, "00-first.md");
+
+      await withStateStore(async (store) => {
+        const runId = seedBlockedPlanDraftRun(store, {
+          project: "demo",
+          branch,
+          worktreePath,
+          specPath,
+          stepId,
+          invocationId: `recover-plan-stage-nonresumable-${outcomeKind}-inv`,
+          outcomeKind,
+        });
+
+        // Ordinary resume stays refused: replaying the same write step through `executeWorkflow`
+        // still reports the idempotent terminal outcome with `resumable: false`.
+        const writeStep = planWriteStep({ stepId, branch, worktreePath, specPath });
+        const ordinaryResume = await executeWorkflow({ steps: [writeStep], stateStore: store });
+        expect(ordinaryResume).toMatchObject({ kind: outcomeKind, resumable: false });
+
+        const reviewStep = planReviewStep({
+          worktreePath,
+          stage,
+          durable,
+          branch,
+          invoke: async (agentId) => ({ kind: "ok", stdout: agentId === "claude" ? "ok" : "done", stderr: "" }),
+        });
+
+        // @mutate v2/src/execution/workflow-runner.ts "(outcomeKind !== \"contract_miss\" && outcomeKind !== \"blocked\")" -> "true"
+        // @mutate v2/src/execution/workflow-runner.ts "run.status !== \"blocked\" ||" -> "true ||"
+        const outcome = await recoverPlanStage({
+          runId,
+          project: "demo",
+          branch,
+          worktreePath,
+          writeStepId: stepId,
+          steps: [reviewStep],
+          stateStore: store,
+        });
+
+        expect(outcome.ok).toBe(true);
+        if (outcome.ok) expect(outcome.kind).toBe("complete");
+      });
+    }
+  });
+
+  test("refuses recovery with missing or mismatched plan context", async () => {
+    const worktreePath = planWorktree("recover-plan-stage-refusal-");
+    const stage = join(worktreePath, ".jarvis-plan-stage");
+    const durable = join(worktreePath, "spec", "2026-refusal");
+    const branch = "recover-plan-stage-refusal";
+    const stepId = "plan";
+    const specPath = "spec/2026-refusal";
+    writeLintCleanPlanStage(stage, "00-first.md");
+    const { path: sourceReadyIntent } = seedSourceReadyIntent("recover-plan-stage-refusal-source-");
+
+    const spyReviewStep = (): ReviewWorkflowStep =>
+      planReviewStep({
+        worktreePath,
+        stage,
+        durable,
+        branch,
+        invoke: async () => {
+          throw new Error("review must not run on a refused recovery");
+        },
+      });
+
+    await withStateStore(async (store) => {
+      // Missing captured context: no persisted run for the named runId at all.
+      // @mutate v2/src/execution/workflow-runner.ts "if (!run || !run.workflowSnapshot || !run.stepId) {" -> "if (false) {"
+      const missing = await recoverPlanStage({
+        runId: "does-not-exist",
+        project: "demo",
+        branch,
+        worktreePath,
+        writeStepId: stepId,
+        steps: [spyReviewStep()],
+        stateStore: store,
+      });
+      expect(missing).toMatchObject({ ok: false, code: "missing_plan_context" });
+
+      const runId = seedBlockedPlanDraftRun(store, {
+        project: "demo",
+        branch,
+        worktreePath,
+        specPath,
+        stepId,
+        invocationId: "recover-plan-stage-refusal-inv",
+        outcomeKind: "contract_miss",
+      });
+
+      // Run/step identity mismatch: the captured branch disagrees with the persisted run.
+      // @mutate v2/src/execution/workflow-runner.ts "run.branch !== request.branch ||" -> "false ||"
+      const mismatched = await recoverPlanStage({
+        runId,
+        project: "demo",
+        branch: "some-other-branch",
+        worktreePath,
+        writeStepId: stepId,
+        steps: [spyReviewStep()],
+        stateStore: store,
+      });
+      expect(mismatched).toMatchObject({ ok: false, code: "stage_identity_mismatch" });
+
+      // Unrelated populated stage: a different, also-blocked workflow step's row shares the same
+      // worktree/branch and coincidentally sees the populated plan stage, but its own captured
+      // step never identified a plan-draft artifact.
+      // @mutate v2/src/execution/workflow-runner.ts "writeStep?.expectedArtifactPath !== PLAN_STAGE_DIR" -> "false"
+      const unrelatedRunId = store.createRun({
+        project: "demo",
+        specRef: "HEAD",
+        worktreePath,
+        branch,
+        specPath,
+        stepId: "implement",
+        workflowSnapshot: {
+          invocationId: "unrelated-inv",
+          steps: [{ stepId: "implement", role: "implement", expectedArtifactPath: "proof.txt" }],
+        },
+      });
+      const unrelatedAttemptId = store.recordAttemptStart(unrelatedRunId);
+      store.commitCompletionBoundary({ attemptId: unrelatedAttemptId, runStatus: "blocked", outcomeKind: "blocked" });
+      const unrelated = await recoverPlanStage({
+        runId: unrelatedRunId,
+        project: "demo",
+        branch,
+        worktreePath,
+        writeStepId: "implement",
+        steps: [spyReviewStep()],
+        stateStore: store,
+      });
+      expect(unrelated).toMatchObject({ ok: false, code: "unrelated_plan_stage" });
+
+      expect(existsSync(sourceReadyIntent)).toBe(true);
+      expect(existsSync(stage)).toBe(true);
+      expect(existsSync(durable)).toBe(false);
+    });
+  });
+
+  test("retains operator blockers and removes only captured harness blockers during recovery", async () => {
+    const matchReason = "harness contract reason";
+
+    // A proven, exactly-matching harness blocker is stripped before landing and never blocks
+    // admission.
+    {
+      const worktreePath = planWorktree("recover-plan-stage-blocker-match-");
+      const stage = join(worktreePath, ".jarvis-plan-stage");
+      const durable = join(worktreePath, "spec", "2026-blocker-match");
+      const branch = "recover-plan-stage-blocker-match";
+      const stepId = "plan";
+      const specPath = "spec/2026-blocker-match";
+      writeLintCleanPlanStage(stage, "00-first.md");
+      writeFileSync(join(stage, "intent.md"), `---\nname: test\n---\n${harnessPlanBlocker(matchReason)}`, "utf8");
+
+      await withStateStore(async (store) => {
+        const runId = seedBlockedPlanDraftRun(store, {
+          project: "demo",
+          branch,
+          worktreePath,
+          specPath,
+          stepId,
+          invocationId: "recover-plan-stage-blocker-match-inv",
+          outcomeKind: "contract_miss",
+        });
+        const logSink = new TestLogSink();
+        logSink.append(runId, {
+          kind: "contract_miss_detail",
+          attemptId: "attempt-1",
+          failedContractId: "plan.decisions-shape",
+          responseText: "done",
+          failureReason: matchReason,
+        });
+
+        const reviewStep = planReviewStep({
+          worktreePath,
+          stage,
+          durable,
+          branch,
+          invoke: async (agentId) => ({ kind: "ok", stdout: agentId === "claude" ? "ok" : "done", stderr: "" }),
+        });
+
+        // @mutate v2/src/execution/workflow-runner.ts "if (extractBlockerBody(content) === undefined) return { kind: \"none\" };" -> "return { kind: \"none\" };"
+        const outcome = await recoverPlanStage({
+          runId,
+          project: "demo",
+          branch,
+          worktreePath,
+          writeStepId: stepId,
+          steps: [reviewStep],
+          stateStore: store,
+          logSink,
+        });
+
+        expect(outcome).toMatchObject({ ok: true, kind: "complete" });
+        expect(existsSync(join(durable, "intent.md"))).toBe(true);
+        expect(readFileSync(join(durable, "intent.md"), "utf8")).not.toContain("## Blocker");
+      });
+    }
+
+    // A changed reason no longer proves harness authorship: the blocker is retained and refused.
+    {
+      const worktreePath = planWorktree("recover-plan-stage-blocker-changed-");
+      const stage = join(worktreePath, ".jarvis-plan-stage");
+      const durable = join(worktreePath, "spec", "2026-blocker-changed");
+      const branch = "recover-plan-stage-blocker-changed";
+      const stepId = "plan";
+      const specPath = "spec/2026-blocker-changed";
+      writeLintCleanPlanStage(stage, "00-first.md");
+      const stagedIntent = `---\nname: test\n---\n${harnessPlanBlocker(matchReason)}`;
+      writeFileSync(join(stage, "intent.md"), stagedIntent, "utf8");
+
+      await withStateStore(async (store) => {
+        const runId = seedBlockedPlanDraftRun(store, {
+          project: "demo",
+          branch,
+          worktreePath,
+          specPath,
+          stepId,
+          invocationId: "recover-plan-stage-blocker-changed-inv",
+          outcomeKind: "contract_miss",
+        });
+        const logSink = new TestLogSink();
+        logSink.append(runId, {
+          kind: "contract_miss_detail",
+          attemptId: "attempt-1",
+          failedContractId: "plan.decisions-shape",
+          responseText: "done",
+          failureReason: "a different reason than what is staged",
+        });
+
+        const reviewStep = planReviewStep({
+          worktreePath,
+          stage,
+          durable,
+          branch,
+          invoke: async () => {
+            throw new Error("review must not run on a refused recovery");
+          },
+        });
+
+        // @mutate v2/src/execution/workflow-runner.ts "return content.endsWith(expected) ? { kind: \"harness\", text: expected } : { kind: \"operator\" };" -> "return { kind: \"harness\", text: expected };"
+        const outcome = await recoverPlanStage({
+          runId,
+          project: "demo",
+          branch,
+          worktreePath,
+          writeStepId: stepId,
+          steps: [reviewStep],
+          stateStore: store,
+          logSink,
+        });
+
+        expect(outcome).toMatchObject({ ok: false, code: "operator_blocker" });
+        expect(readFileSync(join(stage, "intent.md"), "utf8")).toBe(stagedIntent);
+        expect(existsSync(durable)).toBe(false);
+      });
+    }
+
+    // A genuinely `blocked`-kind stop never carries harness metadata: any blocker present is
+    // agent/operator-authored, retained and refused.
+    {
+      const worktreePath = planWorktree("recover-plan-stage-blocker-agent-");
+      const stage = join(worktreePath, ".jarvis-plan-stage");
+      const durable = join(worktreePath, "spec", "2026-blocker-agent");
+      const branch = "recover-plan-stage-blocker-agent";
+      const stepId = "plan";
+      const specPath = "spec/2026-blocker-agent";
+      writeLintCleanPlanStage(stage, "00-first.md");
+      const stagedIntent = "---\nname: test\n---\n\n## Blocker\n\nNeed clarification on scope.\n";
+      writeFileSync(join(stage, "intent.md"), stagedIntent, "utf8");
+
+      await withStateStore(async (store) => {
+        const runId = seedBlockedPlanDraftRun(store, {
+          project: "demo",
+          branch,
+          worktreePath,
+          specPath,
+          stepId,
+          invocationId: "recover-plan-stage-blocker-agent-inv",
+          outcomeKind: "blocked",
+        });
+
+        const reviewStep = planReviewStep({
+          worktreePath,
+          stage,
+          durable,
+          branch,
+          invoke: async () => {
+            throw new Error("review must not run on a refused recovery");
+          },
+        });
+
+        const outcome = await recoverPlanStage({
+          runId,
+          project: "demo",
+          branch,
+          worktreePath,
+          writeStepId: stepId,
+          steps: [reviewStep],
+          stateStore: store,
+        });
+
+        expect(outcome).toMatchObject({ ok: false, code: "operator_blocker" });
+        expect(readFileSync(join(stage, "intent.md"), "utf8")).toBe(stagedIntent);
+      });
+    }
+  });
+
+  test("refuses Git-disabled plan-stage recovery", async () => {
+    const worktreePath = noGitPlanWorktree("recover-plan-stage-no-git-");
+    const stage = join(worktreePath, ".jarvis-plan-stage");
+    const durable = join(worktreePath, "spec", "2026-no-git");
+    const branch = "recover-plan-stage-no-git";
+    const stepId = "plan";
+    const specPath = "spec/2026-no-git";
+    writeLintCleanPlanStage(stage, "00-first.md");
+    const { sourceRoot, path: sourceReadyIntent } = seedSourceReadyIntent("recover-plan-stage-no-git-source-");
+
+    await withStateStore(async (store) => {
+      const runId = seedBlockedPlanDraftRun(store, {
+        project: "demo",
+        branch,
+        worktreePath,
+        specPath,
+        stepId,
+        invocationId: "recover-plan-stage-no-git-inv",
+        outcomeKind: "contract_miss",
+      });
+
+      const reviewStep = planReviewStep({
+        worktreePath,
+        stage,
+        durable,
+        branch,
+        invoke: async () => {
+          throw new Error("review must not run when recovery refuses Git-disabled mode");
+        },
+        inputs: { sourceRoot, paths: [sourceReadyIntent], consumeFrom: "source" },
+      });
+
+      // @mutate v2/src/execution/workflow-runner.ts "if (!existsSync(join(run.worktreePath, \".git\"))) {" -> "if (false) {"
+      const outcome = await recoverPlanStage({
+        runId,
+        project: "demo",
+        branch,
+        worktreePath,
+        writeStepId: stepId,
+        steps: [reviewStep],
+        stateStore: store,
+      });
+
+      expect(outcome).toMatchObject({ ok: false, code: "recovery_requires_git" });
+      expect(existsSync(stage)).toBe(true);
+      expect(existsSync(sourceReadyIntent)).toBe(true);
+      expect(existsSync(durable)).toBe(false);
+    });
   });
 });
 

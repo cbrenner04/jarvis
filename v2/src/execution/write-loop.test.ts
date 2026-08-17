@@ -432,6 +432,7 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
     setRunDownstreamInputs: (runId, downstreamInputs) => inner.setRunDownstreamInputs(runId, downstreamInputs),
     clearRunDownstreamInputs: (runId) => inner.clearRunDownstreamInputs(runId),
     setPrEvidence: (runId, prNumber, prUrl) => inner.setPrEvidence(runId, prNumber, prUrl),
+    setReadyGatePgid: (runId, pgid) => inner.setReadyGatePgid(runId, pgid),
     setReadyGateRepairFence: (runId, fence) => inner.setReadyGateRepairFence(runId, fence),
     setRetainedFinalizationCheckpoint: (runId, checkpoint) =>
       inner.setRetainedFinalizationCheckpoint(runId, checkpoint),

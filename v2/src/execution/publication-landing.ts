@@ -71,10 +71,7 @@ function planFiles(stage: string): string[] {
     .filter(
       (entry) =>
         entry.isFile() &&
-        (entry.name === "index.md" ||
-          entry.name === "intent.md" ||
-          entry.name === "verdict-plan.md" ||
-          NUMBERED_SUBSPEC_PATTERN.test(entry.name)),
+        (entry.name === "index.md" || entry.name === "intent.md" || NUMBERED_SUBSPEC_PATTERN.test(entry.name)),
     )
     .map((entry) => entry.name)
     .sort();

@@ -9706,7 +9706,7 @@ describe("executeWorkflow plan review dispatch", () => {
     });
   });
 
-  test("lands a reviewed light plan tree with its final verdict", async () => {
+  test("lands a reviewed light plan tree without publishing its verdict", async () => {
     const root = mkdtempSync(join(tmpdir(), "workflow-reviewed-plan-landing-"));
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed");
@@ -9724,7 +9724,7 @@ describe("executeWorkflow plan review dispatch", () => {
     expect(existsSync(join(durable, "index.md"))).toBe(true);
     expect(existsSync(join(durable, "intent.md"))).toBe(true);
     expect(readFileSync(join(durable, "01-test.md"), "utf8")).toBe("# After review\n");
-    expect(readFileSync(join(durable, "verdict-plan.md"), "utf8")).toBe("Apply edit");
+    expect(existsSync(join(durable, "verdict-plan.md"))).toBe(false);
   });
 
   test("retains the staged plan and verdict when deferred landing fails", async () => {
@@ -9754,7 +9754,7 @@ describe("executeWorkflow plan review dispatch", () => {
     });
 
     expect(existsSync(stage)).toBe(false);
-    expect(readFileSync(join(durable, "verdict-plan.md"), "utf8")).toBe("Keep verdict");
+    expect(existsSync(join(durable, "verdict-plan.md"))).toBe(false);
     expect(criticCalls).toBe(1);
   });
 
@@ -9822,7 +9822,7 @@ describe("executeWorkflow plan review dispatch", () => {
     });
   });
 
-  test("lands a reviewed debate plan tree with its final empty verdict", async () => {
+  test("lands a reviewed debate plan tree without publishing its empty verdict", async () => {
     const root = mkdtempSync(join(tmpdir(), "workflow-reviewed-plan-debate-landing-"));
     roots.push(root);
     const stage = join(root, ".jarvis-plan-stage");
@@ -9848,7 +9848,7 @@ describe("executeWorkflow plan review dispatch", () => {
     expect(existsSync(join(durable, "index.md"))).toBe(true);
     expect(existsSync(join(durable, "intent.md"))).toBe(true);
     expect(readFileSync(join(durable, "01-test.md"), "utf8")).toBe("# Before\n");
-    expect(readFileSync(join(durable, "verdict-plan.md"), "utf8")).toBe("");
+    expect(existsSync(join(durable, "verdict-plan.md"))).toBe(false);
   });
 
   test("lands default plan tree when review passes are omitted", async () => {
@@ -10116,7 +10116,7 @@ describe("executeWorkflow plan review dispatch", () => {
     // Only the review step's deferred landing ran; the write step's landing was never eager-applied.
     expect(existsSync(stage)).toBe(false);
     expect(readFileSync(join(reviewDurable, "01-test.md"), "utf8")).toBe("# After review\n");
-    expect(readFileSync(join(reviewDurable, "verdict-plan.md"), "utf8")).toBe("apply this fix");
+    expect(existsSync(join(reviewDurable, "verdict-plan.md"))).toBe(false);
     expect(existsSync(writeDurable)).toBe(false);
   });
 });
@@ -10133,7 +10133,10 @@ describe("recoverPlanStage", () => {
   const harnessPlanBlocker = (reason: string) => `\n## Blocker\n\nArtifact contract check failed: ${reason}\n`;
 
   function planWorktree(prefix: string): string {
-    return initGitWorkspace(prefix);
+    const worktree = initGitWorkspace(prefix);
+    // Recovery's commit tail needs a real HEAD to commit against.
+    execFileSync("git", ["commit", "--allow-empty", "-qm", "base"], { cwd: worktree });
+    return worktree;
   }
 
   function noGitPlanWorktree(prefix: string): string {
@@ -10318,7 +10321,7 @@ describe("recoverPlanStage", () => {
         logSink,
       });
 
-      // @mutate v2/src/execution/workflow-runner.ts "return { ok: true, ...result };" -> "return { ok: false, code: \"missing_plan_context\", message: \"reverted\" };"
+      // @mutate v2/src/execution/workflow-runner.ts "return { ok: true, ...result, ...(commit.commitSha !== undefined ? { commitSha: commit.commitSha } : {}) };" -> "return { ok: false, code: \"missing_plan_context\", message: \"reverted\" };"
       // @mutate v2/src/execution/workflow-runner.ts "if (!existsSync(join(run.worktreePath, \".git\"))) {" -> "if (true) {"
       // @mutate v2/src/execution/workflow-runner.ts "return content.endsWith(expected) ? { kind: \"harness\", text: expected } : { kind: \"operator\" };" -> "return { kind: \"operator\" };"
       expect(outcome.ok).toBe(true);
@@ -10332,6 +10335,115 @@ describe("recoverPlanStage", () => {
       const writeRun = store.loadRun(runId);
       expect(writeRun?.status).toBe("blocked");
       expect(writeRun?.attempts.length).toBe(1);
+    });
+  });
+
+  test("recovered plan publication commits only durable output", async () => {
+    const worktreePath = planWorktree("recover-plan-stage-commit-clean-");
+    const stage = join(worktreePath, ".jarvis-plan-stage");
+    const durable = join(worktreePath, "spec", "2026-commit-clean");
+    const branch = "recover-plan-stage-commit-clean";
+    const stepId = "plan";
+    const specPath = "spec/2026-commit-clean";
+    const reason = "`## Decisions` bullet is outside the allowed union";
+
+    writeLintCleanPlanStage(stage, "00-first.md");
+    writeFileSync(join(stage, "00-first.md"), "# Draft with an out-of-union Decisions bullet\n", "utf8");
+    writeFileSync(join(stage, "intent.md"), `---\nname: test\n---\n${harnessPlanBlocker(reason)}`, "utf8");
+
+    // Ready-intent lives inside this worktree (not an external source root) so its consumption
+    // deletion lands in the same commit range as the durable landing.
+    mkdirSync(join(worktreePath, "ready-intents"), { recursive: true });
+    const readyIntentPath = join(worktreePath, "ready-intents", "test.md");
+    writeFileSync(readyIntentPath, "---\nname: test\n---\n\n## Prerequisites\n", "utf8");
+    execFileSync("git", ["add", "."], { cwd: worktreePath });
+    execFileSync("git", ["commit", "-qm", "seed ready-intent"], { cwd: worktreePath });
+
+    const correctedSubspecBody = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md012-clean-subspec.md"), "utf8");
+
+    await withStateStore(async (store) => {
+      const runId = seedBlockedPlanDraftRun(store, {
+        project: "demo",
+        branch,
+        worktreePath,
+        specPath,
+        stepId,
+        invocationId: "recover-plan-stage-commit-clean-inv",
+        outcomeKind: "contract_miss",
+      });
+      const logSink = new TestLogSink();
+      logSink.append(runId, {
+        kind: "contract_miss_detail",
+        attemptId: "attempt-1",
+        failedContractId: "plan.decisions-shape",
+        responseText: "done",
+        failureReason: reason,
+      });
+
+      // Operator corrects the staged subspec that tripped the contract miss.
+      writeFileSync(join(stage, "00-first.md"), correctedSubspecBody, "utf8");
+
+      const reviewStep = planReviewStep({
+        worktreePath,
+        stage,
+        durable,
+        branch,
+        invoke: async (agentId) => ({ kind: "ok", stdout: agentId === "claude" ? "Looks good" : "done", stderr: "" }),
+        inputs: { sourceRoot: worktreePath, paths: [readyIntentPath], consumeFrom: "worktree" },
+      });
+
+      const preRunHead = execFileSync("git", ["rev-parse", "HEAD"], { cwd: worktreePath, encoding: "utf8" }).trim();
+
+      // @mutate v2/src/execution/workflow-runner.ts "excludeVerdictFromStaging(resolve(worktreePath, deferred.stagingDir), verdictPath);" -> "if (deferred.kind === \"intent-stage\") excludeVerdictFromStaging(resolve(worktreePath, deferred.stagingDir), verdictPath);"
+      // @mutate v2/src/execution/publication-landing.ts "(entry.name === \"index.md\" || entry.name === \"intent.md\" || NUMBERED_SUBSPEC_PATTERN.test(entry.name))," -> "(entry.name === \"index.md\" || entry.name === \"intent.md\" || entry.name === \"verdict-plan.md\" || NUMBERED_SUBSPEC_PATTERN.test(entry.name)),"
+      // @mutate v2/src/execution/workflow-runner.ts "if (landingStep === undefined || landingStep.landing?.kind !== \"plan-tree\") {" -> "if (true) {"
+      const outcome = await recoverPlanStage({
+        runId,
+        project: "demo",
+        branch,
+        worktreePath,
+        writeStepId: stepId,
+        steps: [reviewStep],
+        stateStore: store,
+        logSink,
+      });
+
+      expect(outcome.ok).toBe(true);
+      if (!outcome.ok) throw new Error("unreachable");
+      expect(outcome.kind).toBe("complete");
+      expect(outcome.commitSha).toBeDefined();
+      expect(readFileSync(join(durable, "00-first.md"), "utf8")).toBe(correctedSubspecBody);
+      expect(readFileSync(join(durable, "intent.md"), "utf8")).not.toContain("## Blocker");
+      expect(existsSync(join(durable, "verdict-plan.md"))).toBe(false);
+      expect(existsSync(readyIntentPath)).toBe(false);
+
+      const commitsInRange = execFileSync("git", ["rev-list", `${preRunHead}..HEAD`], {
+        cwd: worktreePath,
+        encoding: "utf8",
+      })
+        .trim()
+        .split("\n")
+        .filter(Boolean);
+      expect(commitsInRange.length).toBeGreaterThan(0);
+      for (const sha of commitsInRange) {
+        const tracked = execFileSync("git", ["ls-tree", "-r", "--name-only", sha], {
+          cwd: worktreePath,
+          encoding: "utf8",
+        });
+        expect(tracked).not.toContain(".jarvis-plan-stage");
+        expect(tracked).not.toContain("verdict-plan.md");
+        expect(tracked).not.toContain(".owner");
+        expect(tracked).not.toContain(".jarvis-plan-backup");
+      }
+
+      const finalTracked = execFileSync("git", ["ls-tree", "-r", "--name-only", "HEAD"], {
+        cwd: worktreePath,
+        encoding: "utf8",
+      });
+      expect(finalTracked).toContain("spec/2026-commit-clean/00-first.md");
+      expect(finalTracked).toContain("spec/2026-commit-clean/index.md");
+      expect(finalTracked).toContain("spec/2026-commit-clean/intent.md");
+      expect(finalTracked).not.toContain("ready-intents/test.md");
     });
   });
 

@@ -119,7 +119,7 @@ describe("publication landing hooks", () => {
     expect(readFileSync(join(root, "v2/spec/tree/intent.md"), "utf8")).toBe("intent\n");
   });
 
-  test("lands an optional plan verdict verbatim, including an empty verdict", async () => {
+  test("lands a plan tree without its optional verdict, including an empty verdict", async () => {
     const root = repo();
     const cases: Array<[string, string]> = [
       ["findings", "final finding\n"],
@@ -134,8 +134,53 @@ describe("publication landing hooks", () => {
       writeFileSync(join(stage, "00-first.md"), "# First\n");
       writeFileSync(join(stage, "verdict-plan.md"), verdict);
       await landPublication({ kind: "plan-tree", stagingDir: stage, durablePath: durable }, root);
-      expect(readFileSync(join(root, durable, "verdict-plan.md"), "utf8")).toBe(verdict);
+      expect(existsSync(join(root, durable, "verdict-plan.md"))).toBe(false);
     }
+  });
+
+  test("plan landing excludes review sidecars", async () => {
+    // Ordinary landing: a staged verdict never lands as durable content, and the workflow-created
+    // commit built from the landing result carries no sidecar either.
+    const root = repo();
+    const stage = join(root, ".jarvis-plan-stage");
+    mkdirSync(stage);
+    writeFileSync(join(stage, "index.md"), "# Plan\n\n- [ ] [First](./00-first.md)\n");
+    writeFileSync(join(stage, "intent.md"), "intent\n");
+    writeFileSync(join(stage, "00-first.md"), "# First\n");
+    writeFileSync(join(stage, "verdict-plan.md"), "Apply edit\n");
+
+    // @mutate v2/src/execution/publication-landing.ts "(entry.name === \"index.md\" || entry.name === \"intent.md\" || NUMBERED_SUBSPEC_PATTERN.test(entry.name))," -> "(entry.name === \"index.md\" || entry.name === \"intent.md\" || entry.name === \"verdict-plan.md\" || NUMBERED_SUBSPEC_PATTERN.test(entry.name)),"
+    const result = await landPublication(
+      { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: "v2/spec/sidecar-free" },
+      root,
+    );
+    expect(result.files.sort()).toEqual(["00-first.md", "index.md", "intent.md"]);
+    expect(existsSync(join(root, "v2/spec/sidecar-free/verdict-plan.md"))).toBe(false);
+
+    execFileSync("git", ["add", "-A"], { cwd: root });
+    execFileSync("git", ["commit", "-qm", "land"], { cwd: root });
+    const trackedAfterLanding = execFileSync("git", ["ls-tree", "-r", "--name-only", "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+    });
+    expect(trackedAfterLanding).not.toContain("verdict-plan.md");
+    expect(trackedAfterLanding).not.toContain(".jarvis-plan-stage");
+
+    // Recovered landing has no landing code of its own — it resumes through the identical
+    // durable-side fast path (the branch a recovered continuation resumes through), which must
+    // exclude the same sidecar from the durable-file allowlist even when one sits alongside
+    // already-landed durable files.
+    const durable = join(root, "v2/spec/sidecar-free-recovered");
+    mkdirSync(durable, { recursive: true });
+    writeFileSync(join(durable, "index.md"), "# Plan\n\n- [ ] [First](./00-first.md)\n");
+    writeFileSync(join(durable, "intent.md"), "intent\n");
+    writeFileSync(join(durable, "00-first.md"), "# First\n");
+    writeFileSync(join(durable, "verdict-plan.md"), "apply this fix\n");
+    const recovered = await landPublication(
+      { kind: "plan-tree", stagingDir: ".jarvis-plan-stage-missing", durablePath: "v2/spec/sidecar-free-recovered" },
+      root,
+    );
+    expect(recovered.files.sort()).toEqual(["00-first.md", "index.md", "intent.md"]);
   });
 
   test("retains staged plans on shape failure and rejects differing collisions", async () => {

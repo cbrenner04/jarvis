@@ -2553,11 +2553,13 @@ function restoreVerdictSidecars(
 }
 
 /**
- * Intent landing excludes its reserved verdict. Plan landing carries its verdict verbatim.
- * This is the one promotion + verdict-cleanup entry shared by every review-landing call site
- * (light review, review-debate, and the non-durable profile review path); it always runs
- * regardless of whether the review step's actuator ran. Returns `{ ok: true, specPath }` on
- * success or `{ ok: false, message }` on failure.
+ * Both landing kinds exclude their reserved verdict from staging before landing: durable output
+ * is never more than the durable-file allowlist (`index.md`/`intent.md`/index-linked numbered
+ * subspecs for plan-tree; sanitized files for intent-stage) — the verdict, its ownership marker,
+ * and any staging backup are never published. This is the one promotion + verdict-cleanup entry
+ * shared by every review-landing call site (light review, review-debate, and the non-durable
+ * profile review path); it always runs regardless of whether the review step's actuator ran.
+ * Returns `{ ok: true, specPath }` on success or `{ ok: false, message }` on failure.
  */
 export async function landReviewedPublicationOutput(
   worktreePath: string,
@@ -2579,9 +2581,7 @@ export async function landReviewedPublicationOutput(
   const verdict = existsSync(verdictPath) ? readFileSync(verdictPath, "utf8") : undefined;
   const owner = existsSync(ownerPath) ? readFileSync(ownerPath, "utf8") : undefined;
   try {
-    if (deferred.kind === "intent-stage") {
-      excludeVerdictFromStaging(resolve(worktreePath, deferred.stagingDir), verdictPath);
-    }
+    excludeVerdictFromStaging(resolve(worktreePath, deferred.stagingDir), verdictPath);
     if (owner !== undefined) {
       rmSync(ownerPath, { force: true });
     }
@@ -2967,12 +2967,65 @@ function resolvePlanBlockerProvenance(
 }
 
 /**
+ * Commits a recovered plan-tree landing's durable output. `executeWorkflow`'s ordinary completion
+ * tail attributes and commits publication against a paired write step's row, which recovery never
+ * constructs. This reuses the identical commit primitive (`createCompletionCommitter`, the same
+ * one the ordinary tail calls) so recovered and ordinary plan publication share one commit
+ * construction and one durable-file allowlist (`planFiles`); recovery just supplies its own
+ * attribution since it has no write-step row to read it from.
+ */
+async function commitRecoveredPlanLanding(
+  context: { worktreePath: string; project: string; branch: string; baseRef: string; durablePath: string; stepId: string },
+  store: StateStore,
+  completionCommitter: CompletionCommitter | undefined,
+): Promise<{ kind: "complete"; commitSha?: string } | { kind: "completion_commit_failed"; message: string }> {
+  const reviewRun = store.findRunByProjectBranch({
+    project: context.project,
+    branch: context.branch,
+    stepId: context.stepId,
+  });
+  const agent = reviewRun ? reviewCompletionAgent(reviewRun) : undefined;
+  if (agent === undefined) {
+    return {
+      kind: "completion_commit_failed",
+      message: "no completion agent available to attribute the publication commit",
+    };
+  }
+  const title = resolvePublicationTitle(context.worktreePath, context.durablePath);
+  if (reviewRun) store.setCreationTitle(reviewRun.id, title);
+  try {
+    const published = await (completionCommitter ?? createCompletionCommitter())({
+      worktreePath: context.worktreePath,
+      baseRef: context.baseRef,
+      specPath: context.durablePath,
+      agent,
+      title,
+      forceDistinctCommit: true,
+      iterationTimeoutMs: DEFAULT_ITERATION_TIMEOUT_MS,
+    });
+    if (published.commitSha === undefined) {
+      const uncommitted = await getUncommittedPaths(context.worktreePath);
+      if (uncommitted.length > 0) {
+        return { kind: "completion_commit_failed", message: `Uncommitted changes: ${uncommitted.join(", ")}` };
+      }
+    }
+    return { kind: "complete", ...(published.commitSha !== undefined ? { commitSha: published.commitSha } : {}) };
+  } catch (error) {
+    return {
+      kind: "completion_commit_failed",
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
  * Recovers a stopped `contract_miss`/`blocked` plan-draft run whose staged subspec was
  * hand-corrected, without redrafting: verifies the run identified by `runId` still identifies
  * the captured `(project, branch, worktreePath, writeStepId)` checkout and a populated
  * `.jarvis-plan-stage/`, admits it independently of `resumable`, strips only a proven
- * harness-authored blocker, then runs the captured remaining review actuator step(s) and
- * delegates to the shared landing/completion-publication tail via {@link executeWorkflow}.
+ * harness-authored blocker, then runs the captured remaining review actuator step(s) via
+ * {@link executeWorkflow} (shared landing) and, once landing completes, commits the durable
+ * output via {@link commitRecoveredPlanLanding}.
  */
 export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promise<PlanStageRecoveryOutcome> {
   const store = request.stateStore;
@@ -3051,7 +3104,31 @@ export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promi
       : step,
   );
   const result = await executeWorkflow({ ...forwarded, steps: revalidatedSteps, stateStore: store });
-  return { ok: true, ...result };
+  if (result.kind !== "complete") {
+    return { ok: true, ...result };
+  }
+  const landingStep = revalidatedSteps.find(
+    (step) => (step.behavior === "review" || step.behavior === "review-debate") && step.landing?.kind === "plan-tree",
+  );
+  if (landingStep === undefined || landingStep.landing?.kind !== "plan-tree") {
+    return { ok: true, ...result };
+  }
+  const commit = await commitRecoveredPlanLanding(
+    {
+      worktreePath: run.worktreePath,
+      project: run.project,
+      branch: run.branch,
+      baseRef: run.specRef,
+      durablePath: landingStep.landing.durablePath,
+      stepId: landingStep.stepId,
+    },
+    store,
+    request.completionCommitter,
+  );
+  if (commit.kind === "completion_commit_failed") {
+    return { ok: true, ...result, kind: "completion_commit_failed", completionCommitError: commit.message };
+  }
+  return { ok: true, ...result, ...(commit.commitSha !== undefined ? { commitSha: commit.commitSha } : {}) };
 }
 
 /**

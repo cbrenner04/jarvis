@@ -1,6 +1,7 @@
 import {
   appendFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -1529,10 +1530,12 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
       if (result.kind === "contract_miss") {
         const reason = result.failureReason ?? result.failedContractId;
+        // Every plan.prompt.draft contract miss routes to staged intent.md; the failed contract
+        // ID is retained only as failure identity (reason), not as a routing input.
         const blockerPath =
           result.failedContractId === "spec.criteria-ticked"
             ? resolveSpecPath(worktreePath, args.expectedArtifactPath)
-            : args.promptId === "plan.prompt.draft" && result.failedContractId === "artifact.exists"
+            : args.promptId === PLAN_DRAFT_PROMPT_ID
               ? resolveSpecPath(worktreePath, join(args.expectedArtifactPath, "intent.md"))
               : resolveSpecPath(worktreePath, args.specPath);
 
@@ -1640,7 +1643,13 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             continue;
           }
         }
-        appendBlockerToSpec(blockerPath, reason);
+        // Only a direct existing regular file is eligible for a blocker append; an absent,
+        // non-file, or symlinked target is skipped (no create, no fallback), while contract-miss
+        // detail logging and terminal settlement below proceed unchanged. An append failure on an
+        // eligible target propagates uncaught rather than receiving best-effort settlement.
+        if (isEligibleBlockerAppendTarget(blockerPath)) {
+          appendBlockerToSpec(blockerPath, reason);
+        }
       }
 
       pendingMutationDirectiveReprompt = undefined;
@@ -3755,6 +3764,18 @@ function iterationCommitFailed(
 
 function appendBlockerToSpec(specPath: string, reason: string): void {
   appendFileSync(specPath, `\n## Blocker\n\nArtifact contract check failed: ${reason}\n`, "utf8");
+}
+
+/**
+ * Whether `path` is eligible to receive a contract-miss blocker append: a direct existing
+ * regular file. Symlinks (even to a regular file), directories, and absent paths are ineligible.
+ */
+function isEligibleBlockerAppendTarget(path: string): boolean {
+  try {
+    return lstatSync(path).isFile();
+  } catch {
+    return false;
+  }
 }
 
 export function exhaustedRedTerminalLogFields(

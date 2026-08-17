@@ -1012,6 +1012,55 @@ index 1234567..abcdefg 100644
     expect(calls).toEqual(["gate", "integration", "flip"]);
   });
 
+  it("spawns the ready gate in group mode bound to the run signal", async () => {
+    // @mutate v2/src/execution/ready-finalize.ts "[\"run\", \"ready\"], worktreePath, { env, signal: options?.signal, processGroup: {} });" -> "[\"run\", \"ready\"], worktreePath, { env, signal: undefined, processGroup: {} });"
+    const signal = new AbortController().signal;
+    const calls: Array<{ args: readonly string[]; signal?: AbortSignal; processGroup?: unknown }> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, _cwd, options) {
+        if (cmd === "bun") {
+          calls.push({ args: args ?? [], signal: options?.signal, processGroup: options?.processGroup });
+        }
+        return "";
+      },
+    };
+
+    const finalizer = createReadyFinalizer({ asyncSubprocessRunner: mockRunner, ghReadyFlip: async () => {} });
+
+    await finalizer({ ...input, signal });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.args).toEqual(["run", "ready"]);
+    expect(calls[0]?.signal).toBe(signal);
+    expect(calls[0]?.processGroup).toBeDefined();
+  });
+
+  it("spawns required integration in group mode bound to the run signal", async () => {
+    // @mutate v2/src/execution/ready-finalize.ts "[\"run\", scope], worktreePath, { signal: options?.signal, processGroup: {} });" -> "[\"run\", scope], worktreePath, { signal: undefined, processGroup: {} });"
+    const signal = new AbortController().signal;
+    const calls: Array<{ args: readonly string[]; signal?: AbortSignal; processGroup?: unknown }> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, _cwd, options) {
+        if (cmd === "bun" && args?.[1] === "test:integration:v2") {
+          calls.push({ args: args ?? [], signal: options?.signal, processGroup: options?.processGroup });
+        }
+        return "";
+      },
+    };
+
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {},
+      asyncSubprocessRunner: mockRunner,
+      ghReadyFlip: async () => {},
+    });
+
+    await finalizer({ ...input, requiredIntegrationScope: "test:integration:v2", signal });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.signal).toBe(signal);
+    expect(calls[0]?.processGroup).toBeDefined();
+  });
+
   it("skips required integration scope when not specified", async () => {
     let integrationCalls = 0;
     const finalizer = createReadyFinalizer({

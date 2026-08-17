@@ -33,9 +33,10 @@ export type ReadyFinalizeInput = {
   branch: string;
   baseRef: string;
   requiredIntegrationScope?: string;
+  signal?: AbortSignal;
 };
 
-export type ReadyGate = (worktreePath: string, baseRef: string) => Promise<void>;
+export type ReadyGate = (worktreePath: string, baseRef: string, options?: { signal?: AbortSignal }) => Promise<void>;
 export type GhReadyFlip = (branch: string, worktreePath: string) => Promise<void>;
 type Delay = (ms: number) => Promise<void>;
 type RetryNotice = (message: string) => void;
@@ -872,13 +873,10 @@ async function deriveReadyGateChildEnv(
 }
 
 function createDefaultRunReadyGate(runner: AsyncSubprocessRunner): ReadyGate {
-  return async (worktreePath: string, baseRef: string): Promise<void> => {
+  return async (worktreePath: string, baseRef: string, options?: { signal?: AbortSignal }): Promise<void> => {
     const env = await deriveReadyGateChildEnv(runner, worktreePath, baseRef);
     try {
-      await runner.runAsync("bun", ["run", "ready"], worktreePath, {
-        maxBuffer: READY_GATE_MAX_BUFFER,
-        env,
-      });
+      await runner.runAsync("bun", ["run", "ready"], worktreePath, { env, signal: options?.signal, processGroup: {} });
     } catch (error) {
       if (error instanceof AsyncSubprocessError) {
         const output = `${error.stdout}${error.stderr}`;
@@ -891,14 +889,16 @@ function createDefaultRunReadyGate(runner: AsyncSubprocessRunner): ReadyGate {
   };
 }
 
-type RequiredIntegrationRunner = (worktreePath: string, scope: string) => Promise<void>;
+type RequiredIntegrationRunner = (
+  worktreePath: string,
+  scope: string,
+  options?: { signal?: AbortSignal },
+) => Promise<void>;
 
 function createDefaultRunRequiredIntegration(runner: AsyncSubprocessRunner): RequiredIntegrationRunner {
-  return async (worktreePath: string, scope: string): Promise<void> => {
+  return async (worktreePath: string, scope: string, options?: { signal?: AbortSignal }): Promise<void> => {
     try {
-      await runner.runAsync("bun", ["run", scope], worktreePath, {
-        maxBuffer: READY_GATE_MAX_BUFFER,
-      });
+      await runner.runAsync("bun", ["run", scope], worktreePath, { signal: options?.signal, processGroup: {} });
     } catch (error) {
       if (error instanceof AsyncSubprocessError) {
         const output = `${error.stdout}${error.stderr}`;
@@ -948,9 +948,9 @@ export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalize
   const runRuntimeSmokeVerification = seams?.runRuntimeSmokeVerification;
 
   return async (input) => {
-    await runReadyGate(input.worktreePath, input.baseRef);
+    await runReadyGate(input.worktreePath, input.baseRef, { signal: input.signal });
     if (input.requiredIntegrationScope) {
-      await runRequiredIntegration(input.worktreePath, input.requiredIntegrationScope);
+      await runRequiredIntegration(input.worktreePath, input.requiredIntegrationScope, { signal: input.signal });
     }
     if (runMutationVerification) {
       await runMutationVerification(input.worktreePath, input.baseRef);

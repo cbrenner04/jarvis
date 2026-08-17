@@ -317,8 +317,103 @@ function analyzeFailedPipelineReopenShapeOnStages(stages: readonly PipelineStage
   return { kind: "valid", failedStageRecordId: failedStage.id, suffixStageRecordIds };
 }
 
-/** Detect whether ordered stage rows match the in-place failed-continuation reopen shape. */
-export function analyzeFailedPipelineReopenShape(stages: readonly PipelineStageRecord[]): FailedPipelineReopenShape {
+/**
+ * Locate the lowest durable position carrying both a `default` row and a
+ * `branchKey` row — the fan-out point a named branch diverges from. `null`
+ * when the branch never appears alongside a `default` sibling, or the pair
+ * at that position is duplicated or `stageId`-misaligned.
+ */
+function namedBranchContinuationBoundary(
+  stagesByPosition: ReadonlyMap<number, readonly PipelineStageRecord[]>,
+  positions: readonly number[],
+  branchKey: string,
+): number | null {
+  for (const position of positions) {
+    const rows = stagesByPosition.get(position) ?? [];
+    const defaultRows = rows.filter((stage) => stage.branchKey === DEFAULT_PIPELINE_STAGE_BRANCH_KEY);
+    const namedRows = rows.filter((stage) => stage.branchKey === branchKey);
+    if (defaultRows.length === 0 || namedRows.length === 0) continue;
+    if (defaultRows.length > 1 || namedRows.length > 1) return null;
+    const defaultRow = defaultRows[0];
+    const namedRow = namedRows[0];
+    if (!defaultRow || !namedRow || defaultRow.stageId !== namedRow.stageId) return null;
+    return position;
+  }
+  return null;
+}
+
+/**
+ * The shared `default` prefix strictly before the fan-out boundary plus the
+ * named branch's own row at the boundary and every later durable position, in
+ * position order; excludes every `default` row at or after the boundary and
+ * every sibling branch row. `null` when the named branch is absent, a
+ * selected row is missing or duplicated, the boundary pair is
+ * `stageId`-misaligned, or the named continuation is incomplete through the
+ * last durable position.
+ */
+function selectNamedBranchContinuationStages(
+  stages: readonly PipelineStageRecord[],
+  branchKey: string,
+): PipelineStageRecord[] | null {
+  const stagesByPosition = new Map<number, PipelineStageRecord[]>();
+  for (const stage of stages) {
+    const rows = stagesByPosition.get(stage.position);
+    if (rows) {
+      rows.push(stage);
+    } else {
+      stagesByPosition.set(stage.position, [stage]);
+    }
+  }
+  const positions = [...stagesByPosition.keys()].sort((a, b) => a - b);
+
+  const boundaryPosition = namedBranchContinuationBoundary(stagesByPosition, positions, branchKey);
+  if (boundaryPosition === null) return null;
+
+  const continuation: PipelineStageRecord[] = [];
+  for (const position of positions) {
+    const rows = stagesByPosition.get(position) ?? [];
+    if (position < boundaryPosition) {
+      const defaultRows = rows.filter((stage) => stage.branchKey === DEFAULT_PIPELINE_STAGE_BRANCH_KEY);
+      if (defaultRows.length !== 1) return null;
+      const row = defaultRows[0];
+      if (!row) return null;
+      continuation.push(row);
+    } else {
+      const namedRows = rows.filter((stage) => stage.branchKey === branchKey);
+      if (namedRows.length !== 1) return null;
+      const row = namedRows[0];
+      if (!row) return null;
+      continuation.push(row);
+    }
+  }
+  return continuation;
+}
+
+/** Shape analysis for one named branch's continuation, scoped by `selectNamedBranchContinuationStages`. */
+function analyzeNamedBranchReopenShape(
+  stages: readonly PipelineStageRecord[],
+  branchKey: string,
+): FailedPipelineReopenShape {
+  const continuation = selectNamedBranchContinuationStages(stages, branchKey);
+  if (continuation === null) {
+    return { kind: "invalid", reason: "malformed_continuation" };
+  }
+  return analyzeFailedPipelineReopenShapeOnStages(continuation);
+}
+
+/**
+ * Detect whether ordered stage rows match the in-place failed-continuation
+ * reopen shape. Omitted `branchKey` and `"default"` analyze the whole
+ * pipeline (unchanged); a named `branchKey` scopes analysis to that branch's
+ * shared prefix plus its own continuation via `selectNamedBranchContinuationStages`.
+ */
+export function analyzeFailedPipelineReopenShape(
+  stages: readonly PipelineStageRecord[],
+  branchKey?: string,
+): FailedPipelineReopenShape {
+  if (branchKey !== undefined && branchKey !== DEFAULT_PIPELINE_STAGE_BRANCH_KEY) {
+    return analyzeNamedBranchReopenShape(stages, branchKey);
+  }
   const failed = stages.filter((stage) => stage.status === "failed");
   if (failed.length === 0) {
     return { kind: "invalid", reason: "no_failed_stage" };
@@ -510,10 +605,12 @@ export interface StateStore {
 
   /**
    * Atomically reopen one failed continuation row and its contiguous skipped suffix
-   * in place as `pending`, clearing only prior-attempt lifecycle payloads. Returns
-   * the durable `PipelineStageRecord.id` of the failed row on application.
+   * in place as `pending`, clearing only prior-attempt lifecycle payloads. Optional
+   * `branchKey` scopes analysis and reopen to one named fan-out branch; omission and
+   * `branchKey: "default"` retain whole-pipeline analysis. Returns the durable
+   * `PipelineStageRecord.id` of the failed row on application.
    */
-  reopenFailedPipeline(args: { pipelineId: string }): PipelineReopenOutcome;
+  reopenFailedPipeline(args: { pipelineId: string; branchKey?: string }): PipelineReopenOutcome;
 
   /**
    * Atomically record a terminal-publication failure on the pipeline row without mutating
@@ -1387,13 +1484,14 @@ class StateStoreImpl implements StateStore {
     return row?.holderIdentity ?? null;
   }
 
-  reopenFailedPipeline(args: { pipelineId: string }): PipelineReopenOutcome {
+  reopenFailedPipeline(args: { pipelineId: string; branchKey?: string }): PipelineReopenOutcome {
     const pipeline = this.loadPipeline(args.pipelineId);
     if (pipeline === null) {
       return { kind: "refused", pipelineId: args.pipelineId, reason: "pipeline_not_found" };
     }
 
-    const shape = analyzeFailedPipelineReopenShape(pipeline.stages);
+    const branchKey = args.branchKey;
+    const shape = analyzeFailedPipelineReopenShape(pipeline.stages, branchKey);
     if (shape.kind === "invalid") {
       return { kind: "refused", pipelineId: args.pipelineId, reason: shape.reason };
     }
@@ -1401,7 +1499,7 @@ class StateStoreImpl implements StateStore {
     try {
       return this.db.transaction((): PipelineReopenOutcome => {
         const freshStages = this.loadPipelineStages(args.pipelineId);
-        const freshShape = analyzeFailedPipelineReopenShape(freshStages);
+        const freshShape = analyzeFailedPipelineReopenShape(freshStages, branchKey);
         if (freshShape.kind === "invalid") {
           return { kind: "refused", pipelineId: args.pipelineId, reason: freshShape.reason };
         }

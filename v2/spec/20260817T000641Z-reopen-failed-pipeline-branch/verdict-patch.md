@@ -1,0 +1,21 @@
+## Verdict — required outcomes
+
+**1. The `StateStore` test double must honor the widened `reopenFailedPipeline` contract.**
+The fake store in `v2/src/daemon/pipeline-execution.test.ts` (~line 271) declares `reopenFailedPipeline(args: { pipelineId: string })` and calls `analyzeFailedPipelineReopenShape(stages)` with no scope argument. Because the narrower parameter type is still assignable to the interface, this compiles cleanly — so the first caller that passes a `branchKey` silently gets whole-pipeline behavior in tests with no compile error and no red test. Outcome: the double must accept the optional `branchKey` and forward it into shape analysis, so a scoped call through the fake behaves like a scoped call through the real store. This is contract fidelity for an interface this subspec changed, not new consumer wiring.
+
+**2. The in-transaction re-analysis call must carry a mutation directive.**
+`analyzeFailedPipelineReopenShape(freshStages, branchKey)` at `v2/src/persistence/state-store.ts:1502` is a modified, load-bearing guard: dropping its scope argument re-widens the transactional re-analysis and turns the scoped regression red (the keystone fixture's sibling `gamma` failure would refuse). The acceptance criteria require an in-body directive on every added or modified named-scope guard on its real production line; this one is uncovered. Outcome: a directive exists that inverts this line and demonstrably reddens a named-scope test. (Directives are *not* required for the `if (!row) return null;` narrowing artifacts immediately following a `length !== 1` check — those are unreachable by construction.)
+
+**3. The keystone test must assert `decided_at` is cleared on the reopened suffix row.**
+AC 1 promises the reopened target rows become "clean `pending` rows" with lifecycle and payload columns proven. The failed row asserts `decided_at` null; the suffix row does not, even though the reopen SQL clears it for both. Outcome: the suffix assertion covers the same lifecycle column set as the failed row.
+
+**4. The two-handle duplicate test must not read as proof of concurrency.**
+`competing branch-scoped reopen calls admit one transaction` issues two sequential synchronous `bun:sqlite` calls; the second necessarily observes the committed reopen, and the `["reopen_lost", "no_failed_stage"]` acceptance admits that. The test satisfies AC 5 as written, and the deterministic interference/rollback guarantee is genuinely carried by the trigger-based stale-suffix test — but the title implies in-flight contention it does not exercise. Outcome: an in-body comment states plainly that these calls are sequential (single-writer, synchronous driver) and points at the trigger test as the source of the deterministic-interference and rollback evidence. Do not rename the test — AC 5 pins its title.
+
+## Not upheld
+
+- **Divergence between the pre-existing unscoped narrowing (`reopenStagesForFailedBranch`) and the new named-scope selection.** The stricter named path — explicit `(position, stageId)` boundary plus a required complete continuation through the last durable position — is exactly what the plan mandated in place of the ambiguous "earliest durable row as the split" contract, and the decision ledger pins the incomplete-continuation refusal. Altering the unscoped path would breach the stated omission/`"default"` compatibility contract. Verified that real fan-out admission creates a branch row at every position after the split, so the completeness requirement does not falsely refuse well-formed pipelines.
+- **No consumer wired.** The intent scopes the surface to `state-store.ts` and defers refusal vocabulary to the first consumer.
+- **Optional positional `branchKey` on the exported analyzer.** Consistent with the sibling admission APIs; outcome 1 removes the only live hazard.
+- **Duplicate/misaligned refusals covered only at pure-function level.** Those row shapes are unreachable through `createPipeline`/`createPipelineStageBranch`, so there is no store call to snapshot; every case the AC enumerates for raw-record non-mutation is driven through the store.
+- **Doc changes.** `state-store.md` and `v1-behaviors.md` already state the missing/duplicated/misaligned/incomplete refusal and the no-fallback rule alongside the widening framing.

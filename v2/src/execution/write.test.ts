@@ -1352,6 +1352,208 @@ describe("write behavior", () => {
     expect(result.result.kind).not.toBe("complete");
   });
 
+  const PLAN_REDRAFT_INTENT_SEED = "---\nname: test\n---\n\n## Prerequisites\n\nnone\n";
+
+  /** Pre-populates a preserved plan-draft stage (`index.md` + one valid subspec) so the next
+   * `executeWrite` call treats it as a redraft, not a fresh draft. */
+  function seedPreservedPlanDraftStage(jarvisRoot: string, branchName: string): string {
+    const stagePath = join(jarvisRoot, "worktrees", "demo", branchName, ".jarvis-plan-stage");
+    mkdirSync(stagePath, { recursive: true });
+    writeFileSync(join(stagePath, "index.md"), "# Index\n\n- [ ] [00 - One](./00-one.md)\n", "utf8");
+    writeFileSync(join(stagePath, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] x\n", "utf8");
+    return stagePath;
+  }
+
+  function runPreservedPlanDraft(args: {
+    jarvisRoot: string;
+    branchName: string;
+    bindings: readonly InvocationBinding[];
+    stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string };
+  }) {
+    roots.push(join(args.jarvisRoot, ".."));
+    return executeWrite({
+      worktree: {
+        projectRoot: "/fake",
+        projectName: "demo",
+        branchName: args.branchName,
+        baseRef: "HEAD",
+        jarvisRoot: args.jarvisRoot,
+      },
+      specPath: "v2/spec/2099-01-01T00-00-00Z-plan-draft",
+      stepRules: "unused",
+      expectedArtifactPath: ".jarvis-plan-stage",
+      promptId: "plan.prompt.draft",
+      intentSeed: PLAN_REDRAFT_INTENT_SEED,
+      bindings: args.bindings,
+      ...(args.stagedMarkdownLintReprompt !== undefined
+        ? { stagedMarkdownLintReprompt: args.stagedMarkdownLintReprompt }
+        : {}),
+      withExternalWorktree: createFakeWithExternalWorktree(args.jarvisRoot),
+    });
+  }
+
+  test("plan redraft recognizes only reserved harness blocker sections", async () => {
+    // @mutate v2/src/execution/write.ts "if (lines[i] !== BLOCKER_HEADING) continue;" -> "if (false) continue;"
+    // @mutate v2/src/execution/write.ts "return body.startsWith(RESERVED_HARNESS_BLOCKER_MARKER);" -> "return true;"
+    const { jarvisRoot } = createJarvisHome();
+    const branchName = "plan-redraft-recognize-reserved";
+    const stagePath = seedPreservedPlanDraftStage(jarvisRoot, branchName);
+    writeFileSync(
+      join(stagePath, "intent.md"),
+      `${PLAN_REDRAFT_INTENT_SEED}\n### Blocker\n\nnot a real blocker heading\n\n## Not Blocker\n\nArtifact contract check failed: sneaky payload\n\n## Blocker\n\nArtifact contract check failed: reason one\n\n## Blocker\n\nagent authored note\n`,
+      "utf8",
+    );
+
+    let capturedPrompt = "";
+    await runPreservedPlanDraft({
+      jarvisRoot,
+      branchName,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ prompt }) => {
+            capturedPrompt = prompt;
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    const finalIntent = readFileSync(join(stagePath, "intent.md"), "utf8");
+    expect(finalIntent).toContain("### Blocker\n\nnot a real blocker heading");
+    expect(finalIntent).toContain("## Not Blocker\n\nArtifact contract check failed: sneaky payload");
+    expect(finalIntent).toContain("## Blocker\n\nagent authored note");
+    expect(finalIntent).not.toContain("Artifact contract check failed: reason one");
+    expect(capturedPrompt).toContain("reason one");
+    expect(capturedPrompt).not.toContain("sneaky payload");
+  });
+
+  test("plan redraft removes complete harness blocker sections without disturbing agent content", async () => {
+    // @mutate v2/src/execution/write.ts "remaining.splice(section.start, section.end - section.start);" -> "undefined;"
+    const { jarvisRoot } = createJarvisHome();
+    const branchName = "plan-redraft-remove-sections";
+    const stagePath = seedPreservedPlanDraftStage(jarvisRoot, branchName);
+    writeFileSync(
+      join(stagePath, "intent.md"),
+      `${PLAN_REDRAFT_INTENT_SEED}\n## Blocker\n\nArtifact contract check failed: reason A\n\n## Blocker\n\nagent note before\n\n## Blocker\n\nArtifact contract check failed: reason B\n`,
+      "utf8",
+    );
+
+    await runPreservedPlanDraft({
+      jarvisRoot,
+      branchName,
+      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
+    });
+
+    const finalIntent = readFileSync(join(stagePath, "intent.md"), "utf8");
+    expect(finalIntent).toBe(`${PLAN_REDRAFT_INTENT_SEED}\n## Blocker\n\nagent note before\n`);
+  });
+
+  test("plan lint reprompt forwards canonical harness diagnostics", async () => {
+    // @mutate v2/src/execution/write.ts "if (diagnostics.length === 0) return prompt;" -> "if (true) return prompt;"
+    const { jarvisRoot } = createJarvisHome();
+    const branchName = "plan-lint-reprompt-diagnostics";
+    const stagePath = seedPreservedPlanDraftStage(jarvisRoot, branchName);
+    writeFileSync(
+      join(stagePath, "intent.md"),
+      `${PLAN_REDRAFT_INTENT_SEED}\n## Blocker\n\nArtifact contract check failed: lint-adjacent reason\n`,
+      "utf8",
+    );
+
+    let capturedPrompt = "";
+    await runPreservedPlanDraft({
+      jarvisRoot,
+      branchName,
+      stagedMarkdownLintReprompt: {
+        ruleId: "MD013",
+        offendingFile: "00-one.md",
+        message: "line too long",
+      },
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ prompt }) => {
+            capturedPrompt = prompt;
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    expect(capturedPrompt).toContain("Rule: MD013");
+    expect(capturedPrompt).toContain(
+      "## Prior harness normalizer diagnostics\n\n<<<HARNESS_NORMALIZER_DIAGNOSTIC 1 BEGIN>>>\nlint-adjacent reason\n<<<HARNESS_NORMALIZER_DIAGNOSTIC 1 END>>>",
+    );
+    const finalIntent = readFileSync(join(stagePath, "intent.md"), "utf8");
+    expect(finalIntent).not.toContain("Artifact contract check failed");
+  });
+
+  test("plan redraft preserves a non-reserved agent blocker beside harness diagnostics", async () => {
+    // @mutate v2/src/execution/write.ts ".filter((section) => isReservedHarnessBlockerBody(section.body))" -> ".filter(() => true)"
+    const { jarvisRoot } = createJarvisHome();
+    const branchName = "plan-redraft-mixed-blockers";
+    const stagePath = seedPreservedPlanDraftStage(jarvisRoot, branchName);
+    writeFileSync(
+      join(stagePath, "intent.md"),
+      `${PLAN_REDRAFT_INTENT_SEED}\n## Blocker\n\nArtifact contract check failed: normalizer reason\n\n## Blocker\n\nMissing prerequisite X.\n`,
+      "utf8",
+    );
+
+    const result = await runPreservedPlanDraft({
+      jarvisRoot,
+      branchName,
+      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
+    });
+
+    expect(result.result.kind).toBe("contract_miss");
+    if (result.result.kind === "contract_miss") {
+      expect(result.result.failedContractId).toBe("plan.draft.blocker");
+      expect(result.result.failureReason).toBe("plan.draft.blocker");
+    }
+    const finalIntent = readFileSync(join(stagePath, "intent.md"), "utf8");
+    expect(finalIntent).toBe(`${PLAN_REDRAFT_INTENT_SEED}\n## Blocker\n\nMissing prerequisite X.\n`);
+  });
+
+  test("plan redraft diagnostics are one-shot after invocation failure", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const branchName = "plan-redraft-one-shot";
+    const stagePath = seedPreservedPlanDraftStage(jarvisRoot, branchName);
+    writeFileSync(
+      join(stagePath, "intent.md"),
+      `${PLAN_REDRAFT_INTENT_SEED}\n## Blocker\n\nArtifact contract check failed: one-shot reason\n`,
+      "utf8",
+    );
+
+    const failed = await runPreservedPlanDraft({
+      jarvisRoot,
+      branchName,
+      bindings: [{ id: "agent", invoke: async () => ({ kind: "quota", stderr: "quota" }) }],
+    });
+
+    expect(failed.result.kind).toBe("invocation_failure");
+    const intentAfterFailure = readFileSync(join(stagePath, "intent.md"), "utf8");
+    expect(intentAfterFailure).not.toContain("Artifact contract check failed");
+    expect(intentAfterFailure).toBe(PLAN_REDRAFT_INTENT_SEED);
+
+    let secondPrompt = "";
+    await runPreservedPlanDraft({
+      jarvisRoot,
+      branchName,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ prompt }) => {
+            secondPrompt = prompt;
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    expect(secondPrompt).not.toContain("## Prior harness normalizer diagnostics");
+    expect(secondPrompt).not.toContain("one-shot reason");
+  });
+
   test("telemetry append failure is surfaced separately without changing the settled step result", async () => {
     const { jarvisRoot } = createJarvisHome();
     const result = await runWrite({

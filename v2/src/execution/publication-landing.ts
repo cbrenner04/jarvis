@@ -24,8 +24,45 @@ export type PublicationLanding =
 
 export type PublicationLandingResult = { specPath: string; files: string[] };
 
+/**
+ * Pure (no filesystem writes) check that `stage` satisfies the plan-tree landing contract —
+ * reused by plan-stage recovery to revalidate staged bytes immediately before landing, in
+ * addition to the same check `landPlanTree` runs at actual landing time.
+ */
+export function checkPlanTreeLanding(stage: string): { ok: true } | { ok: false; reason: string } {
+  try {
+    planFiles(stage);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 function fail(message: string): never {
   throw new Error(`${message}; rerun to retry pre-publication`);
+}
+
+const NUMBERED_SUBSPEC_PATTERN = /^\d{2}-.*\.md$/u;
+const INDEX_LINK_PATTERN = /^\s*-\s\[[ xX]\]\s+\[[^\]]+\]\((?:\.\/)?([^)]+)\)$/u;
+
+/**
+ * Durable plan content is exactly `index.md`, `intent.md`, and numbered subspec Markdown linked
+ * from the index — a numbered file present on disk but not linked from `index.md` is rejected
+ * rather than silently copied. Applies identically to ordinary and recovered landing, since both
+ * flow through {@link planFiles}.
+ */
+function assertLinkedNumberedSubspecs(stage: string, files: readonly string[]): void {
+  const numbered = files.filter((file) => NUMBERED_SUBSPEC_PATTERN.test(file));
+  if (numbered.length === 0) return;
+  const indexBody = readFileSync(join(stage, "index.md"), "utf8").replace(/\r\n/g, "\n");
+  const linked = new Set<string>();
+  for (const line of indexBody.split("\n")) {
+    const match = line.match(INDEX_LINK_PATTERN);
+    if (match?.[1] !== undefined) linked.add(match[1]);
+  }
+  for (const file of numbered) {
+    if (!linked.has(file)) fail(`plan: unlinked_numbered_subspec: ${file} is not linked from index.md`);
+  }
 }
 
 function planFiles(stage: string): string[] {
@@ -34,19 +71,17 @@ function planFiles(stage: string): string[] {
     .filter(
       (entry) =>
         entry.isFile() &&
-        (entry.name === "index.md" ||
-          entry.name === "intent.md" ||
-          entry.name === "verdict-plan.md" ||
-          /^\d{2}-.*\.md$/u.test(entry.name)),
+        (entry.name === "index.md" || entry.name === "intent.md" || NUMBERED_SUBSPEC_PATTERN.test(entry.name)),
     )
     .map((entry) => entry.name)
     .sort();
   if (
     !files.includes("index.md") ||
     !files.includes("intent.md") ||
-    !files.some((file) => /^\d{2}-.*\.md$/u.test(file))
+    !files.some((file) => NUMBERED_SUBSPEC_PATTERN.test(file))
   )
     fail("plan: staged spec tree has invalid shape");
+  assertLinkedNumberedSubspecs(stage, files);
   return files;
 }
 

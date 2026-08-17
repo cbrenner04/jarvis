@@ -3945,7 +3945,7 @@ describe("pipeline plan stage ready-intent consumption", () => {
 
     const stageDir = join(planWorktree, ".jarvis-plan-stage");
     mkdirSync(stageDir, { recursive: true });
-    writeFileSync(join(stageDir, "index.md"), "# Plan\n", "utf8");
+    writeFileSync(join(stageDir, "index.md"), "# Plan\n\n- [ ] [First](./00-first.md)\n", "utf8");
     writeFileSync(join(stageDir, "intent.md"), intentContent, "utf8");
     writeFileSync(join(stageDir, "00-first.md"), "# First\n", "utf8");
     const verdictPath = join(stageDir, "verdict-plan.md");

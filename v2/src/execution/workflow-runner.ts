@@ -30,6 +30,7 @@ import {
 } from "../persistence/log-stream.ts";
 import {
   type Attempt,
+  type OutcomeKind,
   openStateStore,
   type Run,
   type StateStore,
@@ -48,7 +49,7 @@ import {
   type InvocationFailureKind,
   isExhaustedRoleTimeout,
 } from "./invocation-failure.ts";
-import { landPublication, type PublicationLanding } from "./publication-landing.ts";
+import { checkPlanTreeLanding, landPublication, type PublicationLanding } from "./publication-landing.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
 import {
@@ -88,6 +89,7 @@ import {
 } from "./reviewed-staged-markdown-lint.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
+import { lintStagedMarkdown } from "./staged-markdown-lint.ts";
 import {
   armSuccessorShellIdleWatchdog,
   isSuccessorShellStallOutcome,
@@ -100,6 +102,7 @@ import {
   defaultTelemetrySinkPath,
   emitWorkBoundaryRecorded,
 } from "./work-boundary-telemetry.ts";
+import { checkStagedPlanDraft } from "./write.ts";
 import {
   appendRuntimeSmokeOutcome,
   DEFAULT_ITERATION_TIMEOUT_MS,
@@ -246,6 +249,8 @@ export type ReviewDebateWorkflowStep = Omit<ReviewDebateInput, "bindings" | "onR
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
   landing?: PublicationLanding;
   stagedMarkdownLintMaxReprompts?: number;
+  /** Set only by plan-stage recovery: revalidate staged plan bytes immediately before landing. */
+  revalidateStagedPlanBeforeLanding?: boolean;
 };
 
 /** Per-step critic/actuator review input; bindings are derived at execution. */
@@ -259,6 +264,8 @@ export type ReviewWorkflowStep = Omit<ReviewCycleInput, "bindings" | "onRoleStar
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
   landing?: PublicationLanding;
   stagedMarkdownLintMaxReprompts?: number;
+  /** Set only by plan-stage recovery: revalidate staged plan bytes immediately before landing. */
+  revalidateStagedPlanBeforeLanding?: boolean;
 };
 
 /** Live/terminal progress for a review step's daemon-visible row, tracked in-memory only. */
@@ -2212,7 +2219,12 @@ async function repromptReviewedStagedMarkdownLintOrFail(
 async function landReviewedOutputOrFail(
   step: Pick<
     ReviewDebateWorkflowStep | ReviewWorkflowStep,
-    "cwd" | "verdictPath" | "branch" | "project" | "stagedMarkdownLintMaxReprompts"
+    | "cwd"
+    | "verdictPath"
+    | "branch"
+    | "project"
+    | "stagedMarkdownLintMaxReprompts"
+    | "revalidateStagedPlanBeforeLanding"
   >,
   landing: Exclude<PublicationLanding, { kind: "none" }>,
   attemptId: string,
@@ -2223,6 +2235,19 @@ async function landReviewedOutputOrFail(
   actuatorContext?: ReviewedLandingActuatorRepromptContext,
   options?: { stagedMarkdownLintMaxReprompts?: number },
 ): Promise<ReviewDebateStepOutcome | undefined> {
+  if (step.revalidateStagedPlanBeforeLanding === true && landing.kind === "plan-tree") {
+    const contract = revalidateStagedPlanContract(resolve(step.cwd, landing.stagingDir));
+    if (!contract.ok) {
+      store.commitCompletionBoundary({
+        attemptId,
+        runStatus: "failed",
+        outcomeKind: "invocation_failure",
+        invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: contract.reason },
+      });
+      return { kind: "invocation_failure", runId, iterationsConsumed, resumable: true };
+    }
+  }
+
   const maxReprompts =
     options?.stagedMarkdownLintMaxReprompts ??
     step.stagedMarkdownLintMaxReprompts ??
@@ -2528,11 +2553,13 @@ function restoreVerdictSidecars(
 }
 
 /**
- * Intent landing excludes its reserved verdict. Plan landing carries its verdict verbatim.
- * This is the one promotion + verdict-cleanup entry shared by every review-landing call site
- * (light review, review-debate, and the non-durable profile review path); it always runs
- * regardless of whether the review step's actuator ran. Returns `{ ok: true, specPath }` on
- * success or `{ ok: false, message }` on failure.
+ * Both landing kinds exclude their reserved verdict from staging before landing: durable output
+ * is never more than the durable-file allowlist (`index.md`/`intent.md`/index-linked numbered
+ * subspecs for plan-tree; sanitized files for intent-stage) — the verdict, its ownership marker,
+ * and any staging backup are never published. This is the one promotion + verdict-cleanup entry
+ * shared by every review-landing call site (light review, review-debate, and the non-durable
+ * profile review path); it always runs regardless of whether the review step's actuator ran.
+ * Returns `{ ok: true, specPath }` on success or `{ ok: false, message }` on failure.
  */
 export async function landReviewedPublicationOutput(
   worktreePath: string,
@@ -2554,9 +2581,7 @@ export async function landReviewedPublicationOutput(
   const verdict = existsSync(verdictPath) ? readFileSync(verdictPath, "utf8") : undefined;
   const owner = existsSync(ownerPath) ? readFileSync(ownerPath, "utf8") : undefined;
   try {
-    if (deferred.kind === "intent-stage") {
-      excludeVerdictFromStaging(resolve(worktreePath, deferred.stagingDir), verdictPath);
-    }
+    excludeVerdictFromStaging(resolve(worktreePath, deferred.stagingDir), verdictPath);
     if (owner !== undefined) {
       rmSync(ownerPath, { force: true });
     }
@@ -2839,6 +2864,278 @@ export function hasPopulatedIntentStage(worktreePath: string): boolean {
   } catch {
     return false;
   }
+}
+
+const PLAN_STAGE_DIR = ".jarvis-plan-stage";
+
+/** True when `.jarvis-plan-stage/` exists under `worktreePath` and holds at least one file. */
+export function hasPopulatedPlanStage(worktreePath: string): boolean {
+  const stageDir = join(worktreePath, PLAN_STAGE_DIR);
+  if (!existsSync(stageDir)) return false;
+  try {
+    return readdirSync(stageDir, { withFileTypes: true }).some((entry) => entry.isFile());
+  } catch {
+    return false;
+  }
+}
+
+/** Reason codes an operator recovery request refuses admission with. */
+export type PlanStageRecoveryRefusalCode =
+  | "missing_plan_context"
+  | "stage_identity_mismatch"
+  | "unrelated_plan_stage"
+  | "recovery_requires_git"
+  | "operator_blocker"
+  | "plan_stage_invalid";
+
+/**
+ * Effect-free shape + contract-normalizer + landing-link validation against staged plan bytes.
+ * Recovery runs this before the first review and again (via `revalidateStagedPlanBeforeLanding`)
+ * immediately before landing, so an operator edit or review-mutated stage is never trusted past
+ * either boundary. Staged-Markdown linting before landing is already enforced for every review
+ * landing via `repromptReviewedStagedMarkdownLintOrFail`; recovery additionally lints once at
+ * admission, before any review actuator runs.
+ */
+function revalidateStagedPlanContract(stagingDir: string): { ok: true } | { ok: false; reason: string } {
+  const draft = checkStagedPlanDraft(stagingDir);
+  if (!draft.ok) return draft;
+  return checkPlanTreeLanding(stagingDir);
+}
+
+/**
+ * Names one stopped plan run to recover: the run identified by `runId` must still resolve to
+ * the persisted `(project, branch, worktreePath, writeStepId)` relationship captured for that
+ * attempt. `steps` are the captured remaining review actuator step(s) to run after admission —
+ * recovery never constructs or invokes a plan-draft step itself.
+ */
+export type PlanStageRecoveryRequest = Omit<WorkflowRunnerInput, "steps"> & {
+  runId: string;
+  project: string;
+  branch: string;
+  worktreePath: string;
+  writeStepId: string;
+  steps: readonly AnyWorkflowStep[];
+  stateStore: StateStore;
+};
+
+export type PlanStageRecoveryOutcome =
+  | ({ ok: true } & WorkflowResult)
+  | { ok: false; code: PlanStageRecoveryRefusalCode; message: string };
+
+/** Exact template `appendBlockerToSpec` (write-loop.ts) writes for a `plan.prompt.draft` contract miss. */
+function harnessPlanBlockerText(reason: string): string {
+  return `\n## Blocker\n\nArtifact contract check failed: ${reason}\n`;
+}
+
+/** The `contract_miss_detail` reason persisted for this run's last attempt, if any. */
+function capturedPlanContractMissReason(logSink: LogSink | undefined, runId: string): string | undefined {
+  const records = priorLogRecordsFromSink(logSink, runId);
+  for (let i = records.length - 1; i >= 0; i -= 1) {
+    const event = records[i]?.event;
+    if (event?.kind === "contract_miss_detail") {
+      return event.failureReason ?? event.failedContractId;
+    }
+  }
+  return undefined;
+}
+
+type PlanBlockerProvenance = { kind: "none" } | { kind: "harness"; text: string } | { kind: "operator" };
+
+/**
+ * Classifies the trailing `## Blocker` (if any) in the staged `intent.md` of a stopped
+ * plan-draft attempt. Only a `contract_miss` attempt can carry harness-authored metadata — the
+ * harness never appends a blocker for a `blocked` outcome, that text is always agent-authored.
+ * Harness authorship requires an exact, trailing match against the template rebuilt from this
+ * run's own captured `contract_miss_detail` reason; anything else (missing reason, changed body,
+ * non-trailing placement) is treated as operator-authored.
+ */
+function resolvePlanBlockerProvenance(
+  worktreePath: string,
+  outcomeKind: OutcomeKind | null,
+  logSink: LogSink | undefined,
+  runId: string,
+): PlanBlockerProvenance {
+  const intentPath = join(worktreePath, PLAN_STAGE_DIR, "intent.md");
+  if (!existsSync(intentPath)) return { kind: "none" };
+  const content = readFileSync(intentPath, "utf8");
+  if (extractBlockerBody(content) === undefined) return { kind: "none" };
+  if (outcomeKind !== "contract_miss") return { kind: "operator" };
+  const reason = capturedPlanContractMissReason(logSink, runId);
+  if (reason === undefined) return { kind: "operator" };
+  const expected = harnessPlanBlockerText(reason);
+  return content.endsWith(expected) ? { kind: "harness", text: expected } : { kind: "operator" };
+}
+
+/**
+ * Commits a recovered plan-tree landing's durable output. `executeWorkflow`'s ordinary completion
+ * tail attributes and commits publication against a paired write step's row, which recovery never
+ * constructs. This reuses the identical commit primitive (`createCompletionCommitter`, the same
+ * one the ordinary tail calls) so recovered and ordinary plan publication share one commit
+ * construction and one durable-file allowlist (`planFiles`); recovery just supplies its own
+ * attribution since it has no write-step row to read it from.
+ */
+async function commitRecoveredPlanLanding(
+  context: {
+    worktreePath: string;
+    project: string;
+    branch: string;
+    baseRef: string;
+    durablePath: string;
+    stepId: string;
+  },
+  store: StateStore,
+  completionCommitter: CompletionCommitter | undefined,
+): Promise<{ kind: "complete"; commitSha?: string } | { kind: "completion_commit_failed"; message: string }> {
+  const reviewRun = store.findRunByProjectBranch({
+    project: context.project,
+    branch: context.branch,
+    stepId: context.stepId,
+  });
+  const agent = reviewRun ? reviewCompletionAgent(reviewRun) : undefined;
+  if (agent === undefined) {
+    return {
+      kind: "completion_commit_failed",
+      message: "no completion agent available to attribute the publication commit",
+    };
+  }
+  const title = resolvePublicationTitle(context.worktreePath, context.durablePath);
+  if (reviewRun) store.setCreationTitle(reviewRun.id, title);
+  try {
+    const published = await (completionCommitter ?? createCompletionCommitter())({
+      worktreePath: context.worktreePath,
+      baseRef: context.baseRef,
+      specPath: context.durablePath,
+      agent,
+      title,
+      forceDistinctCommit: true,
+      iterationTimeoutMs: DEFAULT_ITERATION_TIMEOUT_MS,
+    });
+    if (published.commitSha === undefined) {
+      const uncommitted = await getUncommittedPaths(context.worktreePath);
+      if (uncommitted.length > 0) {
+        return { kind: "completion_commit_failed", message: `Uncommitted changes: ${uncommitted.join(", ")}` };
+      }
+    }
+    return { kind: "complete", ...(published.commitSha !== undefined ? { commitSha: published.commitSha } : {}) };
+  } catch (error) {
+    return {
+      kind: "completion_commit_failed",
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
+ * Recovers a stopped `contract_miss`/`blocked` plan-draft run whose staged subspec was
+ * hand-corrected, without redrafting: verifies the run identified by `runId` still identifies
+ * the captured `(project, branch, worktreePath, writeStepId)` checkout and a populated
+ * `.jarvis-plan-stage/`, admits it independently of `resumable`, strips only a proven
+ * harness-authored blocker, then runs the captured remaining review actuator step(s) via
+ * {@link executeWorkflow} (shared landing) and, once landing completes, commits the durable
+ * output via {@link commitRecoveredPlanLanding}.
+ */
+export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promise<PlanStageRecoveryOutcome> {
+  const store = request.stateStore;
+  const run = store.loadRun(request.runId);
+  if (!run || !run.workflowSnapshot || !run.stepId) {
+    return { ok: false, code: "missing_plan_context", message: "no persisted plan context for this run" };
+  }
+  if (
+    run.project !== request.project ||
+    run.branch !== request.branch ||
+    run.worktreePath !== request.worktreePath ||
+    run.stepId !== request.writeStepId
+  ) {
+    return {
+      ok: false,
+      code: "stage_identity_mismatch",
+      message: "captured plan context does not match the persisted run",
+    };
+  }
+  const writeStep = run.workflowSnapshot.steps.find((candidate) => candidate.stepId === run.stepId);
+  const lastAttempt = run.attempts.at(-1);
+  const outcomeKind = lastAttempt?.outcomeKind ?? null;
+  if (
+    run.status !== "blocked" ||
+    (outcomeKind !== "contract_miss" && outcomeKind !== "blocked") ||
+    writeStep?.expectedArtifactPath !== PLAN_STAGE_DIR ||
+    !hasPopulatedPlanStage(run.worktreePath)
+  ) {
+    return { ok: false, code: "unrelated_plan_stage", message: "no recoverable populated plan stage for this run" };
+  }
+  if (!existsSync(join(run.worktreePath, ".git"))) {
+    return {
+      ok: false,
+      code: "recovery_requires_git",
+      message: "plan-stage recovery requires Git-backed publication mode",
+    };
+  }
+  const provenance = resolvePlanBlockerProvenance(run.worktreePath, outcomeKind, request.logSink, run.id);
+  if (provenance.kind === "operator") {
+    return { ok: false, code: "operator_blocker", message: "staged plan carries an operator-authored blocker" };
+  }
+  if (provenance.kind === "harness") {
+    const intentPath = join(run.worktreePath, PLAN_STAGE_DIR, "intent.md");
+    const content = readFileSync(intentPath, "utf8");
+    writeFileSync(intentPath, content.slice(0, content.length - provenance.text.length), "utf8");
+  }
+
+  // Revalidate before the first review: an operator correction never trusted past admission.
+  const stagingDir = join(run.worktreePath, PLAN_STAGE_DIR);
+  const contract = revalidateStagedPlanContract(stagingDir);
+  if (!contract.ok) {
+    return { ok: false, code: "plan_stage_invalid", message: contract.reason };
+  }
+  const lint = await lintStagedMarkdown(PLAN_STAGE_DIR, { worktreePath: run.worktreePath });
+  if (lint.kind === "violation") {
+    return { ok: false, code: "plan_stage_invalid", message: `${lint.ruleId}: ${lint.message} (${lint.filePath})` };
+  }
+  if (lint.kind === "invocation_error") {
+    return { ok: false, code: "plan_stage_invalid", message: lint.message };
+  }
+
+  const {
+    runId: _runId,
+    project: _project,
+    branch: _branch,
+    worktreePath: _worktreePath,
+    writeStepId: _writeStepId,
+    steps,
+    stateStore: _stateStore,
+    ...forwarded
+  } = request;
+  // Revalidate again immediately before landing: a review actuator can still mutate staging.
+  const revalidatedSteps = steps.map((step) =>
+    step.behavior === "review" || step.behavior === "review-debate"
+      ? { ...step, revalidateStagedPlanBeforeLanding: true }
+      : step,
+  );
+  const result = await executeWorkflow({ ...forwarded, steps: revalidatedSteps, stateStore: store });
+  if (result.kind !== "complete") {
+    return { ok: true, ...result };
+  }
+  const landingStep = revalidatedSteps.find(
+    (step) => (step.behavior === "review" || step.behavior === "review-debate") && step.landing?.kind === "plan-tree",
+  );
+  if (landingStep === undefined || landingStep.landing?.kind !== "plan-tree") {
+    return { ok: true, ...result };
+  }
+  const commit = await commitRecoveredPlanLanding(
+    {
+      worktreePath: run.worktreePath,
+      project: run.project,
+      branch: run.branch,
+      baseRef: run.specRef,
+      durablePath: landingStep.landing.durablePath,
+      stepId: landingStep.stepId,
+    },
+    store,
+    request.completionCommitter,
+  );
+  if (commit.kind === "completion_commit_failed") {
+    return { ok: true, ...result, kind: "completion_commit_failed", completionCommitError: commit.message };
+  }
+  return { ok: true, ...result, ...(commit.commitSha !== undefined ? { commitSha: commit.commitSha } : {}) };
 }
 
 /**

@@ -107,7 +107,7 @@ describe("publication landing hooks", () => {
   test("lands a complete plan tree atomically", async () => {
     const root = repo();
     mkdirSync(join(root, ".jarvis-plan-stage"));
-    writeFileSync(join(root, ".jarvis-plan-stage", "index.md"), "# Plan\n");
+    writeFileSync(join(root, ".jarvis-plan-stage", "index.md"), "# Plan\n\n- [ ] [First](./00-first.md)\n");
     writeFileSync(join(root, ".jarvis-plan-stage", "intent.md"), "intent\n");
     writeFileSync(join(root, ".jarvis-plan-stage", "00-first.md"), "# First\n");
     const result = await landPublication(
@@ -129,7 +129,7 @@ describe("publication landing hooks", () => {
       const stage = join(root, `.jarvis-plan-stage-${name}`);
       const durable = `v2/spec/${name}`;
       mkdirSync(stage);
-      writeFileSync(join(stage, "index.md"), "# Plan\n");
+      writeFileSync(join(stage, "index.md"), "# Plan\n\n- [ ] [First](./00-first.md)\n");
       writeFileSync(join(stage, "intent.md"), "intent\n");
       writeFileSync(join(stage, "00-first.md"), "# First\n");
       writeFileSync(join(stage, "verdict-plan.md"), verdict);
@@ -145,6 +145,7 @@ describe("publication landing hooks", () => {
     await expect(
       landPublication({ kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: "v2/spec/tree" }, root),
     ).rejects.toThrow("invalid shape");
+    writeFileSync(join(root, ".jarvis-plan-stage", "index.md"), "# Plan\n\n- [ ] [First](./00-first.md)\n");
     writeFileSync(join(root, ".jarvis-plan-stage", "intent.md"), "intent\n");
     writeFileSync(join(root, ".jarvis-plan-stage", "00-first.md"), "# staged\n");
     mkdirSync(join(root, "v2/spec/tree"), { recursive: true });
@@ -164,7 +165,7 @@ describe("publication landing hooks", () => {
     writeFileSync(join(external, "outside.md"), "outside\n");
     symlinkSync(join(external, "outside.md"), join(source, "ready-intents/escaped.md"));
     mkdirSync(join(workspace, ".jarvis-plan-stage"));
-    writeFileSync(join(workspace, ".jarvis-plan-stage/index.md"), "# Plan\n");
+    writeFileSync(join(workspace, ".jarvis-plan-stage/index.md"), "# Plan\n\n- [ ] [First](./00-first.md)\n");
     writeFileSync(join(workspace, ".jarvis-plan-stage/intent.md"), "safe\n");
     writeFileSync(join(workspace, ".jarvis-plan-stage/00-first.md"), "# First\n");
     const landing = {
@@ -193,5 +194,41 @@ describe("publication landing hooks", () => {
     const root = repo();
     const result = await landPublication({ kind: "none" }, root);
     expect(result).toEqual({ specPath: "", files: [] });
+  });
+
+  test("plan landing rejects unlinked numbered subspecs", async () => {
+    // Ordinary landing: the staging-dir call site rejects a numbered file index.md never links,
+    // retains it in staging, and never places it (or the tree) in durable output.
+    const root = repo();
+    mkdirSync(join(root, ".jarvis-plan-stage"));
+    writeFileSync(join(root, ".jarvis-plan-stage", "index.md"), "# Plan\n\n- [ ] [First](./00-first.md)\n");
+    writeFileSync(join(root, ".jarvis-plan-stage", "intent.md"), "intent\n");
+    writeFileSync(join(root, ".jarvis-plan-stage", "00-first.md"), "# First\n");
+    writeFileSync(join(root, ".jarvis-plan-stage", "01-second.md"), "# Second\n");
+
+    // @mutate v2/src/execution/publication-landing.ts "if (!linked.has(file)) fail(`plan: unlinked_numbered_subspec: ${file} is not linked from index.md`);" -> "if (false) fail(`plan: unlinked_numbered_subspec: ${file} is not linked from index.md`);"
+    // @mutate v2/src/execution/publication-landing.ts "assertLinkedNumberedSubspecs(stage, files);" -> ""
+    await expect(
+      landPublication({ kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: "v2/spec/tree" }, root),
+    ).rejects.toThrow("unlinked_numbered_subspec");
+    expect(existsSync(join(root, ".jarvis-plan-stage", "01-second.md"))).toBe(true);
+    expect(existsSync(join(root, "v2/spec/tree"))).toBe(false);
+
+    // Recovered landing has no landing code of its own — it reuses `landPublication` verbatim, so
+    // the durable-side "already landed" fast path (the branch a recovered continuation resumes
+    // through) enforces the identical contract.
+    const durable = join(root, "v2/spec/tree-recovered");
+    mkdirSync(durable, { recursive: true });
+    writeFileSync(join(durable, "index.md"), "# Plan\n\n- [ ] [First](./00-first.md)\n");
+    writeFileSync(join(durable, "intent.md"), "intent\n");
+    writeFileSync(join(durable, "00-first.md"), "# First\n");
+    writeFileSync(join(durable, "01-second.md"), "# Second\n");
+    await expect(
+      landPublication(
+        { kind: "plan-tree", stagingDir: ".jarvis-plan-stage-missing", durablePath: "v2/spec/tree-recovered" },
+        root,
+      ),
+    ).rejects.toThrow("unlinked_numbered_subspec");
+    expect(existsSync(join(durable, "01-second.md"))).toBe(true);
   });
 });

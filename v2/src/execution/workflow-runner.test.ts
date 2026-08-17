@@ -7,6 +7,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -492,7 +493,7 @@ describe("intent publication input consumption", () => {
       execFileSync("git", ["commit", "-qm", "ready intent"], { cwd: root });
     }
     mkdirSync(join(worktree, ".jarvis-plan-stage"));
-    writeFileSync(join(worktree, ".jarvis-plan-stage/index.md"), "# Plan\n");
+    writeFileSync(join(worktree, ".jarvis-plan-stage/index.md"), "# Plan\n\n- [ ] [First](./00-first.md)\n");
     writeFileSync(join(worktree, ".jarvis-plan-stage/intent.md"), intent);
     writeFileSync(join(worktree, ".jarvis-plan-stage/00-first.md"), "# First\n");
     await landPublication(
@@ -527,14 +528,14 @@ describe("intent publication input consumption", () => {
     await expect(landPublication(landing, workspace)).rejects.toThrow("missing");
     expect(existsSync(intentPath)).toBe(true);
     mkdirSync(join(workspace, ".jarvis-plan-stage"));
-    writeFileSync(join(workspace, ".jarvis-plan-stage/index.md"), "# Plan\n");
+    writeFileSync(join(workspace, ".jarvis-plan-stage/index.md"), "# Plan\n\n- [ ] [First](./00-first.md)\n");
     writeFileSync(join(workspace, ".jarvis-plan-stage/intent.md"), "intent\n");
     writeFileSync(join(workspace, ".jarvis-plan-stage/00-first.md"), "# First\n");
     mkdirSync(join(workspace, "plans/plan"), { recursive: true });
     writeFileSync(join(workspace, "plans/plan/index.md"), "# collision\n");
     await expect(landPublication(landing, workspace)).rejects.toThrow("different contents");
     expect(existsSync(intentPath)).toBe(true);
-    writeFileSync(join(workspace, "plans/plan/index.md"), "# Plan\n");
+    writeFileSync(join(workspace, "plans/plan/index.md"), "# Plan\n\n- [ ] [First](./00-first.md)\n");
     writeFileSync(join(workspace, "plans/plan/intent.md"), "intent\n");
     writeFileSync(join(workspace, "plans/plan/00-first.md"), "# First\n");
     await landPublication(landing, workspace);
@@ -9968,7 +9969,7 @@ describe("executeWorkflow plan review dispatch", () => {
       createBinding: createBindingFactory(async ({ cwd }) => {
         calls += 1;
         mkdirSync(join(cwd, ".jarvis-plan-stage"), { recursive: true });
-        writeFileSync(join(cwd, ".jarvis-plan-stage", "index.md"), "# Index\n", "utf8");
+        writeFileSync(join(cwd, ".jarvis-plan-stage", "index.md"), "# Index\n\n- [ ] [First](./00-first.md)\n", "utf8");
         writeFileSync(join(cwd, ".jarvis-plan-stage", "intent.md"), "Intent\n", "utf8");
         if (calls === 1) return { kind: "ok", stdout: "progress", stderr: "" } as const;
         writeFileSync(join(cwd, ".jarvis-plan-stage", "00-first.md"), "# First\n", "utf8");
@@ -10244,6 +10245,15 @@ describe("recoverPlanStage", () => {
     const path = join(sourceRoot, "ready-intents", "test.md");
     writeFileSync(path, "---\nname: test\n---\n\n## Prerequisites\n", "utf8");
     return { sourceRoot, path };
+  }
+
+  /** Byte-for-byte snapshot of a staging directory's top-level files, for retention assertions. */
+  function readStageFiles(stage: string): Record<string, string> {
+    const result: Record<string, string> = {};
+    for (const name of readdirSync(stage)) {
+      result[name] = readFileSync(join(stage, name), "utf8");
+    }
+    return result;
   }
 
   test("recovers an operator-edited plan stage through publication without redrafting", async () => {
@@ -10685,6 +10695,255 @@ describe("recoverPlanStage", () => {
 
       expect(outcome).toMatchObject({ ok: false, code: "recovery_requires_git" });
       expect(existsSync(stage)).toBe(true);
+      expect(existsSync(sourceReadyIntent)).toBe(true);
+      expect(existsSync(durable)).toBe(false);
+    });
+  });
+
+  test("rejects an uncorrected recovered plan stage without side effects", async () => {
+    const worktreePath = planWorktree("recover-plan-stage-uncorrected-");
+    const stage = join(worktreePath, ".jarvis-plan-stage");
+    const durable = join(worktreePath, "spec", "2026-uncorrected");
+    const branch = "recover-plan-stage-uncorrected";
+    const stepId = "plan";
+    const specPath = "spec/2026-uncorrected";
+    const reason = "`## Decisions` bullet is outside the allowed union";
+
+    writeLintCleanPlanStage(stage, "00-first.md");
+    const rogueBody = "# Extra\n\n## Decisions\n\n- Out-of-union addition\n";
+    writeFileSync(join(stage, "01-second.md"), rogueBody, "utf8");
+    writeFileSync(join(stage, "intent.md"), `---\nname: test\n---\n${harnessPlanBlocker(reason)}`, "utf8");
+    const { sourceRoot, path: sourceReadyIntent } = seedSourceReadyIntent("recover-plan-stage-uncorrected-source-");
+
+    await withStateStore(async (store) => {
+      const runId = seedBlockedPlanDraftRun(store, {
+        project: "demo",
+        branch,
+        worktreePath,
+        specPath,
+        stepId,
+        invocationId: "recover-plan-stage-uncorrected-inv",
+        outcomeKind: "contract_miss",
+      });
+      const logSink = new TestLogSink();
+      logSink.append(runId, {
+        kind: "contract_miss_detail",
+        attemptId: "attempt-1",
+        failedContractId: "plan.decisions-shape",
+        responseText: "done",
+        failureReason: reason,
+      });
+
+      const reviewStep = planReviewStep({
+        worktreePath,
+        stage,
+        durable,
+        branch,
+        invoke: async () => {
+          throw new Error("review must not run on an uncorrected recovered plan stage");
+        },
+        inputs: { sourceRoot, paths: [sourceReadyIntent], consumeFrom: "source" },
+      });
+
+      // @mutate v2/src/execution/workflow-runner.ts "const contract = revalidateStagedPlanContract(stagingDir);" -> "const contract = { ok: true } as const;"
+      // @mutate v2/src/execution/workflow-runner.ts "return { ok: false, code: \"plan_stage_invalid\", message: contract.reason };" -> "return { ok: false, code: \"plan_stage_invalid\", message: \"reverted\" };"
+      const outcome = await recoverPlanStage({
+        runId,
+        project: "demo",
+        branch,
+        worktreePath,
+        writeStepId: stepId,
+        steps: [reviewStep],
+        stateStore: store,
+        logSink,
+      });
+
+      expect(outcome.ok).toBe(false);
+      if (outcome.ok) throw new Error("unreachable");
+      expect(outcome.code).toBe("plan_stage_invalid");
+      expect(outcome.message).toContain("01-second.md");
+      expect(readFileSync(join(stage, "01-second.md"), "utf8")).toBe(rogueBody);
+      expect(existsSync(sourceReadyIntent)).toBe(true);
+      expect(existsSync(durable)).toBe(false);
+
+      const writeRun = store.loadRun(runId);
+      expect(writeRun?.status).toBe("blocked");
+      expect(writeRun?.attempts.length).toBe(1);
+    });
+  });
+
+  test("retains each invalid recovered plan-stage snapshot before effects", async () => {
+    type Scenario = {
+      label: string;
+      setup: (stage: string) => void;
+      reasonContains: string;
+      requiresMarkdownlint?: boolean;
+    };
+    const scenarios: Scenario[] = [
+      {
+        label: "shape",
+        setup: (stage) => {
+          mkdirSync(stage, { recursive: true });
+          writeFileSync(join(stage, "intent.md"), "---\nname: test\n---\n", "utf8");
+        },
+        reasonContains: "plan.draft.shape",
+      },
+      {
+        label: "normalizer",
+        setup: (stage) => {
+          writeLintCleanPlanStage(stage, "00-first.md");
+          writeFileSync(
+            join(stage, "index.md"),
+            "# Index\n\n- [ ] [One](./00-first.md)\n- [ ] [One again](./00-first.md)\n",
+            "utf8",
+          );
+        },
+        reasonContains: "more than once",
+      },
+      {
+        label: "staged-markdown",
+        setup: (stage) => {
+          writeLintCleanPlanStage(stage, "00-first.md");
+          const violationBytes = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md038-violation-subspec.md"), "utf8");
+          writeFileSync(join(stage, "00-first.md"), violationBytes, "utf8");
+        },
+        reasonContains: "MD038",
+        requiresMarkdownlint: true,
+      },
+      {
+        label: "landing",
+        setup: (stage) => {
+          writeLintCleanPlanStage(stage, "00-first.md");
+          rmSync(join(stage, "intent.md"));
+        },
+        reasonContains: "invalid shape",
+      },
+    ];
+
+    for (const scenario of scenarios) {
+      if (
+        scenario.requiresMarkdownlint &&
+        skipReviewWithoutHarnessMarkdownlint(`retains recovered plan-stage snapshot: ${scenario.label}`)
+      ) {
+        continue;
+      }
+
+      const worktreePath = planWorktree(`recover-plan-stage-invalid-${scenario.label}-`);
+      const stage = join(worktreePath, ".jarvis-plan-stage");
+      const durable = join(worktreePath, "spec", `2026-invalid-${scenario.label}`);
+      const branch = `recover-plan-stage-invalid-${scenario.label}`;
+      const stepId = "plan";
+      const specPath = `spec/2026-invalid-${scenario.label}`;
+      scenario.setup(stage);
+      const snapshot = readStageFiles(stage);
+      const { sourceRoot, path: sourceReadyIntent } = seedSourceReadyIntent(
+        `recover-plan-stage-invalid-${scenario.label}-source-`,
+      );
+
+      await withStateStore(async (store) => {
+        const runId = seedBlockedPlanDraftRun(store, {
+          project: "demo",
+          branch,
+          worktreePath,
+          specPath,
+          stepId,
+          invocationId: `recover-plan-stage-invalid-${scenario.label}-inv`,
+          outcomeKind: "contract_miss",
+        });
+
+        const reviewStep = planReviewStep({
+          worktreePath,
+          stage,
+          durable,
+          branch,
+          invoke: async () => {
+            throw new Error("review must not run on an invalid recovered plan stage");
+          },
+          inputs: { sourceRoot, paths: [sourceReadyIntent], consumeFrom: "source" },
+        });
+
+        // @mutate v2/src/execution/workflow-runner.ts "const contract = revalidateStagedPlanContract(stagingDir);" -> "const contract = { ok: true } as const;"
+        // @mutate v2/src/execution/workflow-runner.ts "if (lint.kind === \"violation\") {" -> "if (false) {"
+        const outcome = await recoverPlanStage({
+          runId,
+          project: "demo",
+          branch,
+          worktreePath,
+          writeStepId: stepId,
+          steps: [reviewStep],
+          stateStore: store,
+        });
+
+        expect(outcome.ok).toBe(false);
+        if (outcome.ok) throw new Error("unreachable");
+        expect(outcome.code).toBe("plan_stage_invalid");
+        expect(outcome.message).toContain(scenario.reasonContains);
+      });
+
+      expect(readStageFiles(stage)).toEqual(snapshot);
+      expect(existsSync(sourceReadyIntent)).toBe(true);
+      expect(existsSync(durable)).toBe(false);
+    }
+  });
+
+  test("revalidates a review-mutated recovered plan stage before landing", async () => {
+    const worktreePath = planWorktree("recover-plan-stage-review-mutated-");
+    const stage = join(worktreePath, ".jarvis-plan-stage");
+    const durable = join(worktreePath, "spec", "2026-review-mutated");
+    const branch = "recover-plan-stage-review-mutated";
+    const stepId = "plan";
+    const specPath = "spec/2026-review-mutated";
+
+    writeLintCleanPlanStage(stage, "00-first.md");
+    const { sourceRoot, path: sourceReadyIntent } = seedSourceReadyIntent("recover-plan-stage-review-mutated-source-");
+
+    await withStateStore(async (store) => {
+      const runId = seedBlockedPlanDraftRun(store, {
+        project: "demo",
+        branch,
+        worktreePath,
+        specPath,
+        stepId,
+        invocationId: "recover-plan-stage-review-mutated-inv",
+        outcomeKind: "contract_miss",
+      });
+
+      // The mutated index below duplicates a link rather than dropping one: `landPublication`'s
+      // own unlinked-numbered-subspec guard would already catch a dropped link, so a duplicate
+      // link is what isolates this checkpoint's normalizer re-check from that landing guard.
+      const mutatedIndex = "# Index\n\n- [ ] [One](./00-first.md)\n- [ ] [One again](./00-first.md)\n";
+      const reviewStep = planReviewStep({
+        worktreePath,
+        stage,
+        durable,
+        branch,
+        invoke: async (agentId) => {
+          if (agentId === "codex") {
+            writeFileSync(join(stage, "index.md"), mutatedIndex, "utf8");
+          }
+          return { kind: "ok", stdout: agentId === "claude" ? "Looks good" : "done", stderr: "" };
+        },
+        inputs: { sourceRoot, paths: [sourceReadyIntent], consumeFrom: "source" },
+      });
+
+      // @mutate v2/src/execution/workflow-runner.ts "if (step.revalidateStagedPlanBeforeLanding === true && landing.kind === \"plan-tree\") {" -> "if (false) {"
+      // @mutate v2/src/execution/workflow-runner.ts "? { ...step, revalidateStagedPlanBeforeLanding: true }" -> "? { ...step }"
+      const outcome = await recoverPlanStage({
+        runId,
+        project: "demo",
+        branch,
+        worktreePath,
+        writeStepId: stepId,
+        steps: [reviewStep],
+        stateStore: store,
+      });
+
+      expect(outcome.ok).toBe(true);
+      if (!outcome.ok) throw new Error("unreachable");
+      expect(outcome.kind).toBe("invocation_failure");
+      const failedRun = store.loadRun(outcome.runId);
+      expect(failedRun?.attempts.at(-1)?.invocationFailureDetail?.message).toContain("more than once");
+      expect(readFileSync(join(stage, "index.md"), "utf8")).toBe(mutatedIndex);
       expect(existsSync(sourceReadyIntent)).toBe(true);
       expect(existsSync(durable)).toBe(false);
     });

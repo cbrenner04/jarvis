@@ -49,7 +49,7 @@ import {
   type InvocationFailureKind,
   isExhaustedRoleTimeout,
 } from "./invocation-failure.ts";
-import { landPublication, type PublicationLanding } from "./publication-landing.ts";
+import { checkPlanTreeLanding, landPublication, type PublicationLanding } from "./publication-landing.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
 import {
@@ -89,6 +89,7 @@ import {
 } from "./reviewed-staged-markdown-lint.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
+import { lintStagedMarkdown } from "./staged-markdown-lint.ts";
 import {
   armSuccessorShellIdleWatchdog,
   isSuccessorShellStallOutcome,
@@ -101,6 +102,7 @@ import {
   defaultTelemetrySinkPath,
   emitWorkBoundaryRecorded,
 } from "./work-boundary-telemetry.ts";
+import { checkStagedPlanDraft } from "./write.ts";
 import {
   appendRuntimeSmokeOutcome,
   DEFAULT_ITERATION_TIMEOUT_MS,
@@ -247,6 +249,8 @@ export type ReviewDebateWorkflowStep = Omit<ReviewDebateInput, "bindings" | "onR
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
   landing?: PublicationLanding;
   stagedMarkdownLintMaxReprompts?: number;
+  /** Set only by plan-stage recovery: revalidate staged plan bytes immediately before landing. */
+  revalidateStagedPlanBeforeLanding?: boolean;
 };
 
 /** Per-step critic/actuator review input; bindings are derived at execution. */
@@ -260,6 +264,8 @@ export type ReviewWorkflowStep = Omit<ReviewCycleInput, "bindings" | "onRoleStar
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
   landing?: PublicationLanding;
   stagedMarkdownLintMaxReprompts?: number;
+  /** Set only by plan-stage recovery: revalidate staged plan bytes immediately before landing. */
+  revalidateStagedPlanBeforeLanding?: boolean;
 };
 
 /** Live/terminal progress for a review step's daemon-visible row, tracked in-memory only. */
@@ -2213,7 +2219,12 @@ async function repromptReviewedStagedMarkdownLintOrFail(
 async function landReviewedOutputOrFail(
   step: Pick<
     ReviewDebateWorkflowStep | ReviewWorkflowStep,
-    "cwd" | "verdictPath" | "branch" | "project" | "stagedMarkdownLintMaxReprompts"
+    | "cwd"
+    | "verdictPath"
+    | "branch"
+    | "project"
+    | "stagedMarkdownLintMaxReprompts"
+    | "revalidateStagedPlanBeforeLanding"
   >,
   landing: Exclude<PublicationLanding, { kind: "none" }>,
   attemptId: string,
@@ -2224,6 +2235,19 @@ async function landReviewedOutputOrFail(
   actuatorContext?: ReviewedLandingActuatorRepromptContext,
   options?: { stagedMarkdownLintMaxReprompts?: number },
 ): Promise<ReviewDebateStepOutcome | undefined> {
+  if (step.revalidateStagedPlanBeforeLanding === true && landing.kind === "plan-tree") {
+    const contract = revalidateStagedPlanContract(resolve(step.cwd, landing.stagingDir));
+    if (!contract.ok) {
+      store.commitCompletionBoundary({
+        attemptId,
+        runStatus: "failed",
+        outcomeKind: "invocation_failure",
+        invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: contract.reason },
+      });
+      return { kind: "invocation_failure", runId, iterationsConsumed, resumable: true };
+    }
+  }
+
   const maxReprompts =
     options?.stagedMarkdownLintMaxReprompts ??
     step.stagedMarkdownLintMaxReprompts ??
@@ -2861,7 +2885,22 @@ export type PlanStageRecoveryRefusalCode =
   | "stage_identity_mismatch"
   | "unrelated_plan_stage"
   | "recovery_requires_git"
-  | "operator_blocker";
+  | "operator_blocker"
+  | "plan_stage_invalid";
+
+/**
+ * Effect-free shape + contract-normalizer + landing-link validation against staged plan bytes.
+ * Recovery runs this before the first review and again (via `revalidateStagedPlanBeforeLanding`)
+ * immediately before landing, so an operator edit or review-mutated stage is never trusted past
+ * either boundary. Staged-Markdown linting before landing is already enforced for every review
+ * landing via `repromptReviewedStagedMarkdownLintOrFail`; recovery additionally lints once at
+ * admission, before any review actuator runs.
+ */
+function revalidateStagedPlanContract(stagingDir: string): { ok: true } | { ok: false; reason: string } {
+  const draft = checkStagedPlanDraft(stagingDir);
+  if (!draft.ok) return draft;
+  return checkPlanTreeLanding(stagingDir);
+}
 
 /**
  * Names one stopped plan run to recover: the run identified by `runId` must still resolve to
@@ -2981,6 +3020,20 @@ export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promi
     writeFileSync(intentPath, content.slice(0, content.length - provenance.text.length), "utf8");
   }
 
+  // Revalidate before the first review: an operator correction never trusted past admission.
+  const stagingDir = join(run.worktreePath, PLAN_STAGE_DIR);
+  const contract = revalidateStagedPlanContract(stagingDir);
+  if (!contract.ok) {
+    return { ok: false, code: "plan_stage_invalid", message: contract.reason };
+  }
+  const lint = await lintStagedMarkdown(PLAN_STAGE_DIR, { worktreePath: run.worktreePath });
+  if (lint.kind === "violation") {
+    return { ok: false, code: "plan_stage_invalid", message: `${lint.ruleId}: ${lint.message} (${lint.filePath})` };
+  }
+  if (lint.kind === "invocation_error") {
+    return { ok: false, code: "plan_stage_invalid", message: lint.message };
+  }
+
   const {
     runId: _runId,
     project: _project,
@@ -2991,7 +3044,13 @@ export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promi
     stateStore: _stateStore,
     ...forwarded
   } = request;
-  const result = await executeWorkflow({ ...forwarded, steps: [...steps], stateStore: store });
+  // Revalidate again immediately before landing: a review actuator can still mutate staging.
+  const revalidatedSteps = steps.map((step) =>
+    step.behavior === "review" || step.behavior === "review-debate"
+      ? { ...step, revalidateStagedPlanBeforeLanding: true }
+      : step,
+  );
+  const result = await executeWorkflow({ ...forwarded, steps: revalidatedSteps, stateStore: store });
   return { ok: true, ...result };
 }
 

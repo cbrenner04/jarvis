@@ -2288,7 +2288,6 @@ describe("resumePipeline branch scope", () => {
     // @mutate v2/src/daemon/pipeline-execution.ts "const branchScope = options.branchKey === DEFAULT_PIPELINE_STAGE_BRANCH_KEY ? undefined : options.branchKey;" -> "const branchScope = undefined;"
     // @mutate v2/src/daemon/pipeline-execution.ts "if (branchScope !== undefined) {" -> "if (false) {"
     // @mutate v2/src/daemon/pipeline-execution.ts "const reopen = store.reopenFailedPipeline({ pipelineId, branchKey: branchScope });" -> "const reopen = store.reopenFailedPipeline({ pipelineId });"
-    // @mutate v2/src/daemon/pipeline-execution.ts "const continuation = await continuePipeline(pipelineId, deps, branchScope);" -> "const continuation = await continuePipeline(pipelineId, deps);"
     // @mutate v2/src/daemon/pipeline-execution.ts "if (branchKey.trim() === \"\") return { kind: \"refused\", detail: { reason: \"branch_not_found\" } };" -> "if (true) return { kind: \"refused\", detail: { reason: \"branch_not_found\" } };"
     // @mutate v2/src/daemon/pipeline-execution.ts "if (findFanOutSplit(pipeline) === null) return { kind: \"refused\", detail: { reason: \"branch_not_found\" } };" -> "if (true) return { kind: \"refused\", detail: { reason: \"branch_not_found\" } };"
     // @mutate v2/src/daemon/pipeline-execution.ts "if (boundary === BRANCH_ADMISSION_BOUNDARY_NOT_FOUND) {" -> "if (true) {"
@@ -2328,8 +2327,6 @@ describe("resumePipeline branch scope", () => {
     const dispatchOrder: number[] = [];
     const deps = pipelineTestDeps(store, dispatchOrder);
 
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (branchKey.trim() === \"\") return { kind: \"refused\", detail: { reason: \"branch_not_found\" } };" -> "if (false) return { kind: \"refused\", detail: { reason: \"branch_not_found\" } };"
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (boundary === BRANCH_ADMISSION_BOUNDARY_NOT_FOUND) {" -> "if (false) {"
     // @mutate v2/src/daemon/pipeline-execution.ts "if (scan.kind === \"gate_awaiting\") {" -> "if (scan.kind === \"gate_rejected\") {"
     // @mutate v2/src/daemon/pipeline-execution.ts "if (scan.kind === \"gate_rejected\") {" -> "if (scan.kind === \"gate_awaiting\") {"
     // @mutate v2/src/daemon/pipeline-execution.ts "if (record.status === \"failed\") return { kind: \"resumable\" };" -> "if (true) return { kind: \"resumable\" };"
@@ -2384,7 +2381,6 @@ describe("resumePipeline branch scope", () => {
     noSplit.store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "succeeded" } });
     const noSplitBefore = noSplit.stages().map((stage) => ({ ...stage }));
     const noSplitDispatch: number[] = [];
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (findFanOutSplit(pipeline) === null) return { kind: \"refused\", detail: { reason: \"branch_not_found\" } };" -> "if (false) return { kind: \"refused\", detail: { reason: \"branch_not_found\" } };"
     const noSplitOutcome = await resumePipeline(PIPELINE_ID, pipelineTestDeps(noSplit.store, noSplitDispatch), {
       branchKey: "gamma",
     });

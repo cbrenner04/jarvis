@@ -530,12 +530,18 @@ describe("pipeline start", () => {
 });
 
 describe("pipeline list", () => {
-  test("prints one minified JSON snapshot with ordered stage projection", async () => {
+  const SEC = 1_000;
+  const MIN = 60_000;
+  const HOUR = 3_600_000;
+  const DAY = 86_400_000;
+
+  test("list --json preserves the unmodified pipeline_list snapshot", async () => {
+    // Mutation checkpoint: the human path must not run when --json is given.
     const cap = captureIo();
     const sent: unknown[] = [];
 
     const code = await withFixedUuid([SESSION_UUID, "pipe-list"], () =>
-      main(["pipeline", "list"], cap.io, {
+      main(["pipeline", "list", "--json"], cap.io, {
         ...pipelineDeps(undefined),
         connectIpcClient: async () =>
           makeIpcClient(
@@ -544,6 +550,7 @@ describe("pipeline list", () => {
           ),
       }),
     );
+    // @mutate v2/src/commands/pipeline.ts "if (parsed.json) {" -> "if (false) {"
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({
@@ -556,11 +563,11 @@ describe("pipeline list", () => {
     expect(ipcFramesWithMethod(sent, "pipeline_wait")).toHaveLength(0);
   });
 
-  test("prints an empty pipelines array for an empty store", async () => {
+  test("list --json prints the empty pipelines array unmodified", async () => {
     const cap = captureIo();
 
     const code = await withFixedUuid([SESSION_UUID, "pipe-list-empty"], () =>
-      main(["pipeline", "list"], cap.io, {
+      main(["pipeline", "list", "--json"], cap.io, {
         ...pipelineDeps(undefined),
         connectIpcClient: async () => makeIpcClient([pipelineListFrame("pipe-list-empty", [])]),
       }),
@@ -577,7 +584,7 @@ describe("pipeline list", () => {
     const startedAt = Date.now();
 
     const code = await withFixedUuid([SESSION_UUID, "pipe-list-live"], () =>
-      main(["pipeline", "list"], cap.io, {
+      main(["pipeline", "list", "--json"], cap.io, {
         ...pipelineDeps(undefined),
         connectIpcClient: async () =>
           makeIpcClient([pipelineListFrame("pipe-list-live", [LIVE_RUNNING_SNAPSHOT])], { sent }),
@@ -596,7 +603,7 @@ describe("pipeline list", () => {
     const sent: unknown[] = [];
 
     const code = await withFixedUuid([SESSION_UUID, "pipe-list-fan"], () =>
-      main(["pipeline", "list"], cap.io, {
+      main(["pipeline", "list", "--json"], cap.io, {
         ...pipelineDeps(undefined),
         connectIpcClient: async () =>
           makeIpcClient([pipelineListFrame("pipe-list-fan", [TWO_BRANCH_PIPELINE_SNAPSHOT])], { sent }),
@@ -615,6 +622,275 @@ describe("pipeline list", () => {
     ]);
     expect(new Set(stages.map((row) => row.branchKey)).size).toBeGreaterThan(1);
     expect(ipcFramesWithMethod(sent, "pipeline_list")).toHaveLength(1);
+  });
+
+  test("list renders one human row per pipeline", async () => {
+    // @mutate v2/src/commands/pipeline.ts "io.stdout(renderPipelineListRows(selected, deps.now()));" -> "io.stdout(`${JSON.stringify(snapshot)}\n`);"
+    const NOW_MS = 2_000_000_000_000;
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const glyphPipeline = {
+      pipelineId: "cccccccc-glyphs",
+      name: "glyph-check",
+      state: "awaiting-approval",
+      seedPath: undefined,
+      createdAt: NOW_MS - 3 * SEC,
+      stages: [
+        { stageId: "st-interrupted", branchKey: "default", position: 0, status: "interrupted" },
+        { stageId: "st-rejected", branchKey: "default", position: 1, status: "rejected" },
+        { stageId: "st-failed", branchKey: "default", position: 2, status: "failed" },
+        { stageId: "st-running", branchKey: "default", position: 3, status: "running" },
+        { stageId: "st-awaiting", branchKey: "default", position: 4, status: "awaiting" },
+        { stageId: "st-pending", branchKey: "default", position: 5, status: "pending" },
+        { stageId: "st-skipped", branchKey: "default", position: 6, status: "skipped" },
+        { stageId: "st-approved", branchKey: "default", position: 7, status: "approved" },
+        { stageId: "st-succeeded", branchKey: "default", position: 8, status: "succeeded" },
+        { stageId: "fan", branchKey: "default", position: 9, status: "skipped" },
+        { stageId: "fan", branchKey: "alpha", position: 9, status: "running" },
+        { stageId: "fan", branchKey: "beta", position: 9, status: "pending" },
+      ],
+    };
+    const zeroPipeline = {
+      pipelineId: "00000000-zero",
+      name: "zero-age",
+      state: "running",
+      seedPath: "seeds/zero.md",
+      createdAt: NOW_MS,
+      stages: [{ stageId: "only", branchKey: "default", position: 0, status: "succeeded" }],
+    };
+    const secPipeline = {
+      pipelineId: "11111111-sec",
+      name: "sec-age",
+      state: "succeeded",
+      seedPath: undefined,
+      createdAt: NOW_MS - 7 * SEC,
+      stages: [{ stageId: "only", branchKey: "default", position: 0, status: "succeeded" }],
+    };
+    const tieA = {
+      pipelineId: "22222222-tie",
+      name: "tie-a",
+      state: "succeeded",
+      seedPath: "a.md",
+      createdAt: NOW_MS - 5 * MIN,
+      stages: [{ stageId: "only", branchKey: "default", position: 0, status: "succeeded" }],
+    };
+    const tieB = {
+      pipelineId: "33333333-tie",
+      name: "tie-b",
+      state: "succeeded",
+      seedPath: "b.md",
+      createdAt: NOW_MS - 5 * MIN,
+      stages: [{ stageId: "only", branchKey: "default", position: 0, status: "succeeded" }],
+    };
+    const minPipeline = {
+      pipelineId: "44444444-min",
+      name: "min-age",
+      state: "failed",
+      seedPath: "min.md",
+      createdAt: NOW_MS - (42 * MIN + 10 * SEC),
+      stages: [{ stageId: "only", branchKey: "default", position: 0, status: "failed" }],
+    };
+    const hourPipeline = {
+      pipelineId: "55555555-hour",
+      name: "hour-age",
+      state: "interrupted",
+      seedPath: undefined,
+      createdAt: NOW_MS - (5 * HOUR + 40 * MIN),
+      stages: [{ stageId: "only", branchKey: "default", position: 0, status: "interrupted" }],
+    };
+    const dayPipeline = {
+      pipelineId: "66666666-day",
+      name: "day-age",
+      state: "rejected",
+      seedPath: "day.md",
+      createdAt: NOW_MS - (3 * DAY + 5 * HOUR),
+      stages: [{ stageId: "only", branchKey: "default", position: 0, status: "rejected" }],
+    };
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-list-human"], () =>
+      main(["pipeline", "list"], cap.io, {
+        ...pipelineDeps(undefined),
+        now: () => NOW_MS,
+        connectIpcClient: async () =>
+          makeIpcClient(
+            [
+              pipelineListFrame("pipe-list-human", [
+                dayPipeline,
+                minPipeline,
+                tieB,
+                secPipeline,
+                hourPipeline,
+                tieA,
+                zeroPipeline,
+                glyphPipeline,
+              ]),
+            ],
+            { sent },
+          ),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read().stdout).toBe(
+      [
+        "00000000\tzero-age\trunning\tzero.md\t0s\t✓only",
+        "cccccccc\tglyph-check\tawaiting-approval\t-\t3s\t" +
+          "!st-interrupted ✗st-rejected ✗st-failed ●st-running ?st-awaiting ·st-pending –st-skipped ✓st-approved ✓st-succeeded ●fan×3",
+        "11111111\tsec-age\tsucceeded\t-\t7s\t✓only",
+        "22222222\ttie-a\tsucceeded\ta.md\t5m\t✓only",
+        "33333333\ttie-b\tsucceeded\tb.md\t5m\t✓only",
+        "44444444\tmin-age\tfailed\tmin.md\t42m\t✗only",
+        "55555555\thour-age\tinterrupted\t-\t5h\t!only",
+        "66666666\tday-age\trejected\tday.md\t3d\t✗only",
+        "",
+      ].join("\n"),
+    );
+    expect(cap.read().stderr).toBe("");
+    expect(ipcFramesWithMethod(sent, "pipeline_list")).toHaveLength(1);
+  });
+
+  test("list filters human output by cutoff and exact pipeline state", async () => {
+    // @mutate v2/src/commands/pipeline.ts "return pipeline.createdAt >= cutoff && (state === undefined || pipeline.state === state);" -> "return true;"
+    const NOW_MS = 3_000_000_000_000;
+    const cutoffIso = new Date(NOW_MS - HOUR).toISOString();
+
+    const p1 = {
+      pipelineId: "p1",
+      name: "p1",
+      state: "running",
+      createdAt: NOW_MS - 30 * MIN,
+      stages: [],
+    };
+    const p2 = {
+      pipelineId: "p2",
+      name: "p2",
+      state: "succeeded",
+      createdAt: NOW_MS - 2 * HOUR,
+      stages: [],
+    };
+    const p3 = {
+      pipelineId: "p3",
+      name: "p3",
+      state: "running",
+      createdAt: NOW_MS - 25 * HOUR,
+      stages: [],
+    };
+    const p4 = {
+      pipelineId: "p4",
+      name: "p4",
+      state: "failed",
+      createdAt: NOW_MS - 10 * MIN,
+      stages: [],
+    };
+    const p5 = {
+      pipelineId: "p5",
+      name: "p5",
+      state: "succeeded",
+      createdAt: NOW_MS - HOUR,
+      stages: [],
+    };
+    const pipelines = [p1, p2, p3, p4, p5];
+
+    async function runFiltered(argv: readonly string[]): Promise<string[]> {
+      const cap = captureIo();
+      const code = await withFixedUuid([SESSION_UUID, `pipe-list-filter-${argv.join("-")}`], () =>
+        main(["pipeline", "list", ...argv], cap.io, {
+          ...pipelineDeps(undefined),
+          now: () => NOW_MS,
+          connectIpcClient: async () =>
+            makeIpcClient([pipelineListFrame(`pipe-list-filter-${argv.join("-")}`, pipelines)]),
+        }),
+      );
+      expect(code).toBe(0);
+      return cap
+        .read()
+        .stdout.trim()
+        .split("\n")
+        .map((line) => line.split("\t")[1] ?? "");
+    }
+
+    expect(await runFiltered(["--since", "1h"])).toEqual(["p4", "p1", "p5"]);
+    expect(await runFiltered(["--since", cutoffIso])).toEqual(["p4", "p1", "p5"]);
+    expect(await runFiltered(["--state", "failed"])).toEqual(["p4"]);
+    expect(await runFiltered(["--since", "1h", "--state", "running"])).toEqual(["p1"]);
+    expect(await runFiltered([])).toEqual(["p4", "p1", "p5", "p2", "p3"]);
+  });
+
+  test.each([
+    ["unknown flag", ["pipeline", "list", "--bogus"]],
+    ["missing --since value", ["pipeline", "list", "--since"]],
+    ["invalid --since value", ["pipeline", "list", "--since", "not-a-time"]],
+    ["non-positive --since duration", ["pipeline", "list", "--since", "0d"]],
+    ["missing --state value", ["pipeline", "list", "--state"]],
+    ["invalid --state value", ["pipeline", "list", "--state", "bogus"]],
+    ["extra positional", ["pipeline", "list", "extra"]],
+  ] as const)("list usage error (%s) prints usage before daemon connect", async (_label, argv) => {
+    const cap = captureIo();
+    let contacted = false;
+
+    const code = await main([...argv], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: async () => {
+        contacted = true;
+        throw new Error("should not contact daemon");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(contacted).toBe(false);
+    expect(cap.read()).toEqual({ stdout: "", stderr: PIPELINE_LIST_USAGE });
+  });
+
+  test("list rejects json combined with human filters", async () => {
+    // @mutate v2/src/commands/pipeline.ts "if (parsed.json && (parsed.since !== undefined || parsed.state !== undefined)) {" -> "if (false) {"
+    for (const argv of [
+      ["pipeline", "list", "--json", "--since", "1h"],
+      ["pipeline", "list", "--json", "--state", "running"],
+    ]) {
+      const cap = captureIo();
+      let contacted = false;
+
+      const code = await main(argv, cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () => {
+          contacted = true;
+          throw new Error("should not contact daemon");
+        },
+      });
+
+      expect(code).toBe(1);
+      expect(contacted).toBe(false);
+      expect(cap.read()).toEqual({ stdout: "", stderr: PIPELINE_LIST_USAGE });
+    }
+  });
+
+  test("list reports no pipelines for an empty human selection", async () => {
+    // @mutate v2/src/commands/pipeline.ts "if (selected.length === 0) {" -> "if (false) {"
+    const emptyStoreCap = captureIo();
+    const emptyStoreCode = await withFixedUuid([SESSION_UUID, "pipe-list-empty-human"], () =>
+      main(["pipeline", "list"], emptyStoreCap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () => makeIpcClient([pipelineListFrame("pipe-list-empty-human", [])]),
+      }),
+    );
+    expect(emptyStoreCode).toBe(0);
+    expect(emptyStoreCap.read()).toEqual({ stdout: "No pipelines.\n", stderr: "" });
+
+    const filteredCap = captureIo();
+    const filteredCode = await withFixedUuid([SESSION_UUID, "pipe-list-filtered-empty"], () =>
+      main(["pipeline", "list", "--state", "failed"], filteredCap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () =>
+          makeIpcClient([
+            pipelineListFrame("pipe-list-filtered-empty", [
+              { pipelineId: "p1", name: "p1", state: "running", createdAt: 1, stages: [] },
+            ]),
+          ]),
+      }),
+    );
+    expect(filteredCode).toBe(0);
+    expect(filteredCap.read()).toEqual({ stdout: "No pipelines.\n", stderr: "" });
   });
 });
 
@@ -807,7 +1083,7 @@ describe("pipeline approve and reject", () => {
 
     const listCap = captureIo();
     const listCode = await withFixedUuid([SESSION_UUID, "pipe-list-after-approve"], () =>
-      main(["pipeline", "list"], listCap.io, {
+      main(["pipeline", "list", "--json"], listCap.io, {
         ...pipelineDeps(undefined),
         connectIpcClient: async () =>
           makeIpcClient([
@@ -860,7 +1136,7 @@ describe("pipeline approve and reject", () => {
 
     const listCap = captureIo();
     const listCode = await withFixedUuid([SESSION_UUID, "pipe-list-after-reject"], () =>
-      main(["pipeline", "list"], listCap.io, {
+      main(["pipeline", "list", "--json"], listCap.io, {
         ...pipelineDeps(undefined),
         connectIpcClient: async () =>
           makeIpcClient([
@@ -914,7 +1190,7 @@ describe("pipeline approve and reject", () => {
 
     const listCap = captureIo();
     const listCode = await withFixedUuid([SESSION_UUID, "pipe-list-wrong-branch"], () =>
-      main(["pipeline", "list"], listCap.io, {
+      main(["pipeline", "list", "--json"], listCap.io, {
         ...pipelineDeps(undefined),
         connectIpcClient: async () =>
           makeIpcClient([pipelineListFrame("pipe-list-wrong-branch", [TWO_BRANCH_AWAITING_SNAPSHOT])]),
@@ -1116,13 +1392,17 @@ describe("pipeline help", () => {
     expect(output).toContain("resume\tResume a failed or awaiting-approval pipeline.");
   });
 
-  test("help pipeline list matches list usage", async () => {
+  test("help pipeline list matches list usage and shows filter flags", async () => {
     const cap = captureIo();
 
     const code = await main(["help", "pipeline", "list"], cap.io);
 
     expect(code).toBe(0);
-    expect(cap.read().stdout).toContain(PIPELINE_LIST_USAGE.trim());
+    const output = cap.read().stdout;
+    expect(output).toContain(PIPELINE_LIST_USAGE.trim());
+    expect(output).toContain("--json");
+    expect(output).toContain("--since");
+    expect(output).toContain("--state");
   });
 
   test("help pipeline wait matches wait usage", async () => {

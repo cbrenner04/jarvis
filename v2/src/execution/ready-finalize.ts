@@ -36,7 +36,7 @@ export type ReadyFinalizeInput = {
   signal?: AbortSignal;
 };
 
-export type ReadyGate = (worktreePath: string, baseRef: string, options?: { signal?: AbortSignal }) => Promise<void>;
+export type ReadyGate = (worktreePath: string, baseRef: string, options?: { signal?: AbortSignal | undefined }) => Promise<void>;
 export type GhReadyFlip = (branch: string, worktreePath: string) => Promise<void>;
 type Delay = (ms: number) => Promise<void>;
 type RetryNotice = (message: string) => void;
@@ -873,7 +873,7 @@ async function deriveReadyGateChildEnv(
 }
 
 function createDefaultRunReadyGate(runner: AsyncSubprocessRunner): ReadyGate {
-  return async (worktreePath: string, baseRef: string, options?: { signal?: AbortSignal }): Promise<void> => {
+  return async (worktreePath: string, baseRef: string, options?: { signal?: AbortSignal | undefined }): Promise<void> => {
     const env = await deriveReadyGateChildEnv(runner, worktreePath, baseRef);
     try {
       await runner.runAsync("bun", ["run", "ready"], worktreePath, { env, signal: options?.signal, processGroup: {} });
@@ -892,11 +892,11 @@ function createDefaultRunReadyGate(runner: AsyncSubprocessRunner): ReadyGate {
 type RequiredIntegrationRunner = (
   worktreePath: string,
   scope: string,
-  options?: { signal?: AbortSignal },
+  options?: { signal?: AbortSignal | undefined },
 ) => Promise<void>;
 
 function createDefaultRunRequiredIntegration(runner: AsyncSubprocessRunner): RequiredIntegrationRunner {
-  return async (worktreePath: string, scope: string, options?: { signal?: AbortSignal }): Promise<void> => {
+  return async (worktreePath: string, scope: string, options?: { signal?: AbortSignal | undefined }): Promise<void> => {
     try {
       await runner.runAsync("bun", ["run", scope], worktreePath, { signal: options?.signal, processGroup: {} });
     } catch (error) {

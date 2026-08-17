@@ -15,7 +15,7 @@ export type AsyncSubprocessOptions = {
   /** Environment variables for the child process; unset preserves inherited env. */
   env?: NodeJS.ProcessEnv;
   /** When aborted, kills the child with SIGTERM then SIGKILL after a short grace period. */
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
   /**
    * Opt-in process-group mode: spawns the child detached (its own process group) so abort and
    * timeout signal the whole group (`-pgid`, SIGTERM then SIGKILL) instead of only the direct

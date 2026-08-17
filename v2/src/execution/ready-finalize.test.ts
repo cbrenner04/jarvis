@@ -1015,7 +1015,7 @@ index 1234567..abcdefg 100644
   it("spawns the ready gate in group mode bound to the run signal", async () => {
     // @mutate v2/src/execution/ready-finalize.ts "[\"run\", \"ready\"], worktreePath, { env, signal: options?.signal, processGroup: {} });" -> "[\"run\", \"ready\"], worktreePath, { env, signal: undefined, processGroup: {} });"
     const signal = new AbortController().signal;
-    const calls: Array<{ args: readonly string[]; signal?: AbortSignal; processGroup?: unknown }> = [];
+    const calls: Array<{ args: readonly string[]; signal?: AbortSignal | undefined; processGroup?: unknown }> = [];
     const mockRunner: AsyncSubprocessRunner = {
       async runAsync(cmd, args, _cwd, options) {
         if (cmd === "bun") {
@@ -1038,7 +1038,7 @@ index 1234567..abcdefg 100644
   it("spawns required integration in group mode bound to the run signal", async () => {
     // @mutate v2/src/execution/ready-finalize.ts "[\"run\", scope], worktreePath, { signal: options?.signal, processGroup: {} });" -> "[\"run\", scope], worktreePath, { signal: undefined, processGroup: {} });"
     const signal = new AbortController().signal;
-    const calls: Array<{ args: readonly string[]; signal?: AbortSignal; processGroup?: unknown }> = [];
+    const calls: Array<{ args: readonly string[]; signal?: AbortSignal | undefined; processGroup?: unknown }> = [];
     const mockRunner: AsyncSubprocessRunner = {
       async runAsync(cmd, args, _cwd, options) {
         if (cmd === "bun" && args?.[1] === "test:integration:v2") {

@@ -21,7 +21,7 @@ const DEFAULT_AGENT_CANDIDATES = ["claude", "codex", "cursor"] as const;
 const PROJECT_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 export const MACHINE_PROFILES_DIR = join(import.meta.dir, "..", "..", "..", "config", "machines");
 
-type GitRunner = (cwd: string, args: readonly string[]) => string | undefined;
+type GitRunner = (cwd: string, args: readonly string[]) => string | undefined | Promise<string | undefined>;
 
 export type InitCommandDeps = {
   machineConfigPath?: string;
@@ -204,14 +204,14 @@ type ProjectRegistration = {
   existingProject: Record<string, unknown> | undefined;
 };
 
-function resolveProjectRegistration(
+async function resolveProjectRegistration(
   existing: Record<string, unknown>,
   requestedName: string | undefined,
   cwd: string,
   git: GitRunner,
-): ProjectRegistration {
+): Promise<ProjectRegistration> {
   const resolvedCwd = resolve(cwd);
-  const discoveredRoot = git(resolvedCwd, ["rev-parse", "--show-toplevel"]);
+  const discoveredRoot = await git(resolvedCwd, ["rev-parse", "--show-toplevel"]);
   if (discoveredRoot === undefined || discoveredRoot.length === 0) {
     throw new Error(`current directory '${resolvedCwd}' is not a Git worktree`);
   }
@@ -248,11 +248,11 @@ function resolveProjectRegistration(
   return { projectRoot, projectKey, projects, existingProject: existingProject as Record<string, unknown> | undefined };
 }
 
-function prepareProjectConfig(
+async function prepareProjectConfig(
   existing: Record<string, unknown>,
   registration: ProjectRegistration,
   git: GitRunner,
-): Record<string, unknown> | undefined {
+): Promise<Record<string, unknown> | undefined> {
   const { projectRoot, projectKey, projects, existingProject } = registration;
   const nextProject = { ...(existingProject ?? {}) };
   let changed = false;
@@ -261,7 +261,7 @@ function prepareProjectConfig(
     changed = true;
   }
   if (nextProject.origin === undefined) {
-    const origin = git(projectRoot, ["remote", "get-url", "origin"]);
+    const origin = await git(projectRoot, ["remote", "get-url", "origin"]);
     if (origin !== undefined && origin.length > 0) {
       nextProject.origin = origin;
       changed = true;
@@ -397,10 +397,11 @@ function scaffoldQueueDirs(projectRoot: string, targetDir: string, writeQueueSen
   }
 }
 
-function defaultGit(cwd: string, args: readonly string[]): string | undefined {
-  const result = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
-  if (result.exitCode !== 0) return undefined;
-  return result.stdout.toString().trim();
+async function defaultGit(cwd: string, args: readonly string[]): Promise<string | undefined> {
+  const proc = Bun.spawn(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+  const [stdout, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+  if (exitCode !== 0) return undefined;
+  return stdout.trim();
 }
 
 function readinessDeps(injected: InitCommandDeps, git: NonNullable<InitCommandDeps["git"]>) {
@@ -427,8 +428,8 @@ export async function runInitCommand(argv: readonly string[], io: Io, injected: 
     const machineBootstrap = prepareMachineConfig(options.profile, existing, machinesDir, isExecutable);
     const machineConfig = machineBootstrap.config ?? existing;
 
-    const registration = resolveProjectRegistration(machineConfig, options.name, cwd, git);
-    const preparedProjectConfig = prepareProjectConfig(machineConfig, registration, git);
+    const registration = await resolveProjectRegistration(machineConfig, options.name, cwd, git);
+    const preparedProjectConfig = await prepareProjectConfig(machineConfig, registration, git);
     const afterRegistration = preparedProjectConfig ?? machineConfig;
     const registeredProjects = isRecord(afterRegistration.projects)
       ? (afterRegistration.projects as Record<string, unknown>)

@@ -224,14 +224,20 @@ function parsePipelineListStateValue(value: string): PipelineDerivedState | unde
   return PIPELINE_LIST_STATE_VALUES.has(value) ? (value as PipelineDerivedState) : undefined;
 }
 
-const PIPELINE_LIST_SINCE_UNIT_MS = { d: 86_400_000, h: 3_600_000, m: 60_000, s: 1_000 } as const;
+const PIPELINE_LIST_TIME_UNITS = [
+  { unit: "d", ms: 86_400_000 },
+  { unit: "h", ms: 3_600_000 },
+  { unit: "m", ms: 60_000 },
+  { unit: "s", ms: 1_000 },
+] as const;
 
 function parsePipelineListSince(value: string, nowMs: number): number | undefined {
   const durationMatch = /^(\d+)([dhms])$/.exec(value);
   if (durationMatch !== null) {
     const amount = Number(durationMatch[1]);
-    if (!Number.isInteger(amount) || amount <= 0) return undefined;
-    return nowMs - amount * PIPELINE_LIST_SINCE_UNIT_MS[durationMatch[2] as keyof typeof PIPELINE_LIST_SINCE_UNIT_MS];
+    const unit = PIPELINE_LIST_TIME_UNITS.find((candidate) => candidate.unit === durationMatch[2]);
+    if (!Number.isInteger(amount) || amount <= 0 || unit === undefined) return undefined;
+    return nowMs - amount * unit.ms;
   }
   const parsed = Date.parse(value);
   return Number.isNaN(parsed) ? undefined : parsed;
@@ -290,49 +296,30 @@ function selectPipelines(
     );
 }
 
-const PIPELINE_LIST_AGE_UNITS: ReadonlyArray<{ unit: string; ms: number }> = [
-  { unit: "d", ms: 86_400_000 },
-  { unit: "h", ms: 3_600_000 },
-  { unit: "m", ms: 60_000 },
-  { unit: "s", ms: 1_000 },
-];
-
 function formatPipelineCreatedAge(createdAt: number, nowMs: number): string {
   const elapsedMs = Math.max(0, nowMs - createdAt);
-  for (const { unit, ms } of PIPELINE_LIST_AGE_UNITS) {
+  for (const { unit, ms } of PIPELINE_LIST_TIME_UNITS) {
     const amount = Math.floor(elapsedMs / ms);
     if (amount > 0) return `${amount}${unit}`;
   }
   return "0s";
 }
 
-const STAGE_STATUS_PRECEDENCE = [
-  "interrupted",
-  "rejected",
-  "failed",
-  "running",
-  "awaiting",
-  "pending",
-  "skipped",
-  "approved",
-  "succeeded",
+const STAGE_STATUS_GLYPHS = [
+  ["interrupted", "!"],
+  ["rejected", "✗"],
+  ["failed", "✗"],
+  ["running", "●"],
+  ["awaiting", "?"],
+  ["pending", "·"],
+  ["skipped", "–"],
+  ["approved", "✓"],
+  ["succeeded", "✓"],
 ] as const;
 
-const STAGE_STATUS_GLYPH: Record<(typeof STAGE_STATUS_PRECEDENCE)[number], string> = {
-  interrupted: "!",
-  rejected: "✗",
-  failed: "✗",
-  running: "●",
-  awaiting: "?",
-  pending: "·",
-  skipped: "–",
-  approved: "✓",
-  succeeded: "✓",
-};
-
 function stageGroupGlyph(statuses: readonly string[]): string {
-  for (const status of STAGE_STATUS_PRECEDENCE) {
-    if (statuses.includes(status)) return STAGE_STATUS_GLYPH[status];
+  for (const [status, glyph] of STAGE_STATUS_GLYPHS) {
+    if (statuses.includes(status)) return glyph;
   }
   return "?";
 }

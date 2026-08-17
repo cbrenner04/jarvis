@@ -2975,7 +2975,14 @@ function resolvePlanBlockerProvenance(
  * attribution since it has no write-step row to read it from.
  */
 async function commitRecoveredPlanLanding(
-  context: { worktreePath: string; project: string; branch: string; baseRef: string; durablePath: string; stepId: string },
+  context: {
+    worktreePath: string;
+    project: string;
+    branch: string;
+    baseRef: string;
+    durablePath: string;
+    stepId: string;
+  },
   store: StateStore,
   completionCommitter: CompletionCommitter | undefined,
 ): Promise<{ kind: "complete"; commitSha?: string } | { kind: "completion_commit_failed"; message: string }> {

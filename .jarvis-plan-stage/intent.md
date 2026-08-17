@@ -33,7 +33,7 @@ Unsplit rationale: Parsing, filtering, sorting, and rendering all belong to the 
 - [ ] `v2/src/commands/pipeline.test.ts` pins `--since` and exact `--state` filtering, accepted duration and ISO cutoffs, and unknown, invalid, or missing flag usage errors.
 - [ ] `v2/src/commands/pipeline.test.ts` test `list filters human output by cutoff and exact pipeline state` contains `// @mutate v2/src/commands/pipeline.ts "return pipeline.createdAt >= cutoff && (state === undefined || pipeline.state === state);" -> "return true;"` and fails when applied.
 - [ ] `v2/src/commands/pipeline.test.ts` asserts `jarvis pipeline list --json` stdout is byte-for-byte the current serialized stubbed `pipeline_list` result, and rejects `--json` combined with a human filter using `PIPELINE_LIST_USAGE` and exit `1`.
-- [ ] `v2/src/commands/pipeline.test.ts` test `list --json preserves the unmodified daemon snapshot` contains `// @mutate v2/src/commands/pipeline.ts "if (parsed.json) {" -> "if (false) {"` and fails when applied.
+- [ ] `v2/src/commands/pipeline.test.ts` test `list --json preserves the unmodified pipeline_list snapshot` contains `// @mutate v2/src/commands/pipeline.ts "if (parsed.json) {" -> "if (false) {"` and fails when applied.
 - [ ] `v2/src/commands/pipeline.test.ts` test `list rejects json combined with human filters` contains `// @mutate v2/src/commands/pipeline.ts "if (parsed.json && (parsed.since !== undefined || parsed.state !== undefined)) {" -> "if (false) {"` and fails when applied.
 - [ ] `v2/src/commands/pipeline.test.ts` asserts an empty human result prints `No pipelines.` with exit `0`, while parse failures print `PIPELINE_LIST_USAGE` and exit `1`.
 - [ ] `v2/src/commands/pipeline.test.ts` test `list reports no pipelines for an empty human selection` contains `// @mutate v2/src/commands/pipeline.ts "if (selected.length === 0) {" -> "if (false) {"` and fails when applied.
@@ -46,7 +46,3 @@ Unsplit rationale: Parsing, filtering, sorting, and rendering all belong to the 
 - `v2/docs/first-workflow-walkthrough.md` uses the default list table to locate a pipeline id and keeps branch-specific approval guidance accurate for collapsed summaries.
 - `v2/docs/v1-behaviors.md` records the changed v2 CLI default and the preserved JSON compatibility path.
 - `v2/src/cli/usage.ts` and structured command help list the accepted flags.
-
-## Blocker
-
-Artifact contract check failed: Plan subspec 00-render-and-filter-pipeline-list.md has a multi-surface ## Acceptance criteria bullet: `v2/src/commands/pipeline.test.ts` pins unknown flags, invalid or missing `--since` and `--state` values, and extra positionals as `PIPELINE_LIST_USAGE` on stderr with exit `1` and no daemon request.

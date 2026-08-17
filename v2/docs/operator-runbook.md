@@ -10,9 +10,9 @@ Scope: **Jarvis-on-Jarvis v2 workflows** — daemon-backed `jarvis run …`, wor
 
 | Concern | Binary | Notes |
 | --- | --- | --- |
-| Project registry (`jarvis1 init`, `jarvis1 config`) | `jarvis1` | v2 reads the same `~/.jarvis/config.json` |
+| Machine and project setup (`jarvis init`) | `jarvis` | Run from the Git worktree top level; registration merges into `~/.jarvis/config.json` without replacing an existing origin or unrelated config |
 | Triage, review-feedback, prompt, runbook add | `jarvis1` | `triage --merge` gates spec-backed and spec-less PRs; see [v1 operator runbook](../../v1/docs/operator-runbook.md) |
-| v1 patch runs (`jarvis1 run <spec>`) + their log server | `jarvis1` | Fallback only; `jarvis1 cleanup` owns v1 worktrees/specs |
+| v1 init, patch runs (`jarvis1 run <spec>`) + their log server | `jarvis1` | Maintenance fallback only; `jarvis1 cleanup` owns v1 worktrees/specs |
 
 Orientation: [`onboarding.md`](./onboarding.md). Install path: [`install-and-config.md`](./install-and-config.md).
 
@@ -95,7 +95,7 @@ Template for a new gotcha:
 1. `jarvis daemon status` — start with `jarvis daemon start` if stopped.
 2. `jarvis config show` — agents listed; `machineProfile` hand-edited in
    `~/.jarvis/config.json` (see [`install-and-config.md`](./install-and-config.md)).
-3. Register the jarvis repo if needed: `jarvis1 init` from the project root.
+3. Initialize the machine and register the repo if needed: `jarvis init --profile home` from the Git worktree root; use `--name <key>` only to select a safe explicit registry key.
 4. Review open work in `v2/spec/seeds/` and `v2/spec/ready-intents/`.
 5. Sweep open [harness-suggestion issues](https://github.com/cbrenner04/jarvis/issues?q=label%3Aharness-suggestion+is%3Aopen)
    — **and read their comments.**
@@ -168,19 +168,17 @@ Chained implement stages stack draft PRs on the plan stage branch (`prior.branch
 After a detached start, poll progress with list or block on boundaries with wait:
 
 ```sh
-jarvis pipeline list                              # human rows; does not follow live work
-jarvis pipeline list --since 1h --state running   # filter by cutoff and exact state
-jarvis pipeline list --json                       # unmodified daemon snapshot
+jarvis pipeline list                              # one JSON snapshot; does not follow live work
 jarvis pipeline wait <pipeline-id>                # block until terminal or awaiting-approval
 ```
 
-`jarvis pipeline list` defaults to headerless tab-separated rows, one per pipeline, columns `id name state seed created stages`: `id` is the first 8 characters of `pipelineId` (display-only — get the full ID from start output, `pipeline wait`, or `--json` before using it in a control command), `state` is the daemon-returned value verbatim, `seed` is the `seedPath` basename or `-`, `created` is floored elapsed time as `Nd`/`Nh`/`Nm`/`Ns` (`0s` under a second), and `stages` collapses each `stageId` group (durable-`position` order) to `<glyph><stageId>`, with `×N` when a fan-out group holds multiple branch rows. Glyph by status precedence: `interrupted`→`!`, `rejected`/`failed`→`✗`, `running`→`●`, `awaiting`→`?`, `pending`→`·`, `skipped`→`–`, `approved`/`succeeded`→`✓` (first match in that order wins when a group mixes statuses). `--since` (positive `<n>d|h|m|s` duration or a `Date.parse`-accepted timestamp — no numeric epochs) and `--state` (one of the seven daemon states) filter inclusively (`createdAt >= cutoff`, exact state) and compose; rows sort by `createdAt` descending, `pipelineId` ascending as tie break. An empty selection prints `No pipelines.` and exits `0`. `--json` prints daemon `pipeline_list` unmodified as one minified JSON line and cannot combine with `--since`/`--state`; pipeline rows there include identity, derived state, optional admitted `terminalAction`, optional unchanged durable admission `seedPath`, and nullable terminal-publication success/failure. A relative `seedPath` remains relative to admission `cwd`; the snapshot does not expose `cwd`. Ordered stages include durable `id`/authored `position`, lifecycle fields, `artifact`, and `failureDetail`, preserving nullable and falsy JSON diagnostics. A terminal `failed` workflow stage never names a still-live entry run in `workflowInvocationId`; terminal rows may retain the settled entry-run id. Either form issues a single non-blocking snapshot RPC with no client-side polling — use it for point-in-time snapshots, not completion tracking. Typical end-to-end latency stays within the daemon's **500ms** snapshot bound even when pipelines are still running (`daemon-pipeline-observation.test.ts`); the CLI does not enforce that ceiling by waiting or polling.
+`jarvis pipeline list` mirrors daemon `pipeline_list` in one stdout line. Pipeline rows include identity, derived state, optional admitted `terminalAction`, optional unchanged durable admission `seedPath`, and nullable terminal-publication success/failure. A relative `seedPath` remains relative to admission `cwd`; the snapshot does not expose `cwd`. Ordered stages include durable `id`/authored `position`, lifecycle fields, `artifact`, and `failureDetail`, preserving nullable and falsy JSON diagnostics. A terminal `failed` workflow stage never names a still-live entry run in `workflowInvocationId`; terminal rows may retain the settled entry-run id. The CLI issues a single non-blocking snapshot RPC with no client-side polling — use it for point-in-time snapshots, not completion tracking. Typical end-to-end latency stays within the daemon's **500ms** snapshot bound even when pipelines are still running (`daemon-pipeline-observation.test.ts`); the CLI does not enforce that ceiling by waiting or polling.
 
 `jarvis pipeline wait` prints one boundary JSON line per invocation. Exit **`0`** on `awaiting-approval` or terminal `succeeded`; non-zero on other terminal states. Approval boundaries name `{kind:"awaiting-approval",stageId,branchKey}`. On fan-out pipelines, wait may stay non-terminal while a sibling branch workflow is still `running` or a reachable gate remains undecided — terminal `failed`/`rejected` return only after every branch has settled. Re-run wait after approving a gate; attached start loops internally instead. Operator abort (SIGINT) during wait follows the same pattern as `jarvis run wait`: stderr connection detail, non-zero exit, no boundary JSON on stdout.
 
 ### Pipeline approve and reject
 
-Read the deciding `stageId` and `branchKey` from `pipeline wait` boundary JSON (`{kind:"awaiting-approval",stageId,branchKey}`) or from `pipeline list --json` stage rows (`status: "awaiting"`) — the default human summary collapses branch rows to one glyph per `stageId` and does not carry `branchKey`. Admit or reject the named branch gate:
+Read the deciding `stageId` and `branchKey` from `pipeline wait` boundary JSON (`{kind:"awaiting-approval",stageId,branchKey}`) or from `pipeline list` stage rows (`status: "awaiting"`). Admit or reject the named branch gate:
 
 ```sh
 jarvis pipeline approve <pipeline-id> <stage-id> <branch-key>

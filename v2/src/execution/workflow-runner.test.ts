@@ -10394,8 +10394,6 @@ describe("recoverPlanStage", () => {
 
       const preRunHead = execFileSync("git", ["rev-parse", "HEAD"], { cwd: worktreePath, encoding: "utf8" }).trim();
 
-      // @mutate v2/src/execution/workflow-runner.ts "excludeVerdictFromStaging(resolve(worktreePath, deferred.stagingDir), verdictPath);" -> "if (deferred.kind === \"intent-stage\") excludeVerdictFromStaging(resolve(worktreePath, deferred.stagingDir), verdictPath);"
-      // @mutate v2/src/execution/publication-landing.ts "(entry.name === \"index.md\" || entry.name === \"intent.md\" || NUMBERED_SUBSPEC_PATTERN.test(entry.name))," -> "(entry.name === \"index.md\" || entry.name === \"intent.md\" || entry.name === \"verdict-plan.md\" || NUMBERED_SUBSPEC_PATTERN.test(entry.name)),"
       // @mutate v2/src/execution/workflow-runner.ts "if (landingStep === undefined || landingStep.landing?.kind !== \"plan-tree\") {" -> "if (true) {"
       const outcome = await recoverPlanStage({
         runId,

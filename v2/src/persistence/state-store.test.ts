@@ -107,6 +107,8 @@ describe("StateStore", () => {
 
   test("records and replaces the in-flight ready-gate group id", () => {
     const runId = seedRun(store);
+    // Keystone checkpoint: baseline read semantics must turn this test RED.
+    // @mutate v2/src/persistence/state-store.ts "    ...run," -> "    ...run, readyGatePgid: null,"
 
     store.setReadyGatePgid(runId, 4242);
     expect(loadRunOrThrow(store, runId).readyGatePgid).toBe(4242);
@@ -118,9 +120,10 @@ describe("StateStore", () => {
   test("clears the in-flight ready-gate group id on settlement", () => {
     const runId = seedRun(store);
     store.setReadyGatePgid(runId, 4242);
+    // Mutation checkpoint: setReadyGatePgid's pgid === null branch (its own UPDATE ... SET ready_gate_pgid = NULL)
+    // @mutate v2/src/persistence/state-store.ts "if (pgid === null) {" -> "if (false) {"
 
     store.setReadyGatePgid(runId, null);
-    // Mutation checkpoint: setReadyGatePgid's pgid === null branch (its own UPDATE ... SET ready_gate_pgid = NULL)
     expect(loadRunOrThrow(store, runId).readyGatePgid ?? null).toBeNull();
   });
 

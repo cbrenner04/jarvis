@@ -109,7 +109,7 @@ function publicationBaseRetargetFromLogRecords(
   return undefined;
 }
 
-function stageArtifactFromEntryRun(
+export function stageArtifactFromEntryRun(
   entryRunId: string,
   entryRun: NonNullable<ReturnType<StateStore["loadRun"]>>,
   invocationId?: string,

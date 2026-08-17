@@ -34,6 +34,7 @@ import {
   LinkedIndexReadError,
   REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS,
   type ReviewProgress,
+  recoverPlanStage,
   resolveExhaustedRedResumeContext,
   resolveIntentFinalizationResumeContext,
   resolveReviewMutationLineageContext,
@@ -90,6 +91,11 @@ import {
   waitForPipelineBoundary,
 } from "./pipeline-observation.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
+import {
+  admitAndRecoverPipelineBranchStage,
+  type PipelineStageRecoveryAttempt,
+  resolveBlockedPlanStageRecoveryTarget,
+} from "./pipeline-stage-recovery.ts";
 import { type PipelineContext, resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
 import {
   composeRunOperatorError,
@@ -130,6 +136,10 @@ type ActiveRun =
     }
   | {
       kind: "finalization";
+      runId: string;
+    }
+  | {
+      kind: "recovery";
       runId: string;
     };
 
@@ -777,6 +787,8 @@ export type RunControlHandlerDeps = {
   pipelineDispatch?: PipelineWorkflowDispatch;
   /** Test seam replacing the daemon's workflow wait closure for pipeline stages. */
   pipelineWait?: PipelineWorkflowWait;
+  /** Test seam for `pipeline_recover`'s attempt; defaults to `recoverPlanStage`. */
+  recoveryAttempt?: PipelineStageRecoveryAttempt;
   /** Test seam for pipeline terminal publication settlement. */
   executeTerminalPublication?: (input: TerminalPublicationInput) => Promise<TerminalPublicationResult>;
   /**
@@ -2016,6 +2028,96 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     return { kind: "response", result: outcome };
   };
 
+  /**
+   * Admits branch-scoped blocked plan-stage recovery and detaches it: resolves the target
+   * (`resolveBlockedPlanStageRecoveryTarget`), claims the linked entry run's `(project, branch)`
+   * worktree ownership and a `recovery`-kind `activeRuns` entry before admitting — refusing
+   * `worktree_claimed` when that key is already held — then always passes
+   * `detachContinuation: true` to `admitAndRecoverPipelineBranchStage`: the attempt re-invokes
+   * review agents, so the client connection is never held for it. `releaseRecovery` (the worktree
+   * claim, the `activeRuns` entry, and the log sink) fires exactly once, via
+   * `admitAndRecoverPipelineBranchStage`'s `onSettled` hook once the full detached chain — attempt,
+   * settlement, and any success continuation — has actually finished, or here directly on a
+   * resolution/durable-claim refusal or an exception thrown before the attempt ever ran (`onSettled`
+   * never registers in either case). The outcome is not carried on the response — it is observable
+   * on the stage row via `pipeline_list`.
+   */
+  const handlePipelineRecoverHandler: RpcHandler = async (frame) => {
+    // `=== true` (not the bare `if (retiring)` every sibling handler uses) only so the
+    // `@mutate` checkpoint in daemon-pipeline-recover.test.ts has a unique line to match —
+    // do not "normalize" this back to the bare form without updating that directive.
+    if (retiring === true) {
+      return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
+    }
+    const params = frame.params as { pipelineId?: string; branchKey?: string } | undefined;
+    if (
+      typeof params?.pipelineId !== "string" ||
+      params.pipelineId.length === 0 ||
+      typeof params?.branchKey !== "string" ||
+      params.branchKey.length === 0
+    ) {
+      return { kind: "error", code: "invalid_params", message: "pipelineId and branchKey required" };
+    }
+    const { pipelineId, branchKey } = params;
+
+    const resolution = await resolveBlockedPlanStageRecoveryTarget({ pipelineId, branchKey }, { store, resolveStage });
+    if (!resolution.ok) {
+      return {
+        kind: "response",
+        result: {
+          kind: "resolution_refused",
+          pipelineId,
+          branchKey,
+          reason: resolution.reason,
+          message: resolution.message,
+        },
+      };
+    }
+    const { target } = resolution;
+    const key: OwnershipKey = { project: target.project, branch: target.branch };
+
+    const recoveryClaimError = checkWorktreeClaimed(_registry, key);
+    if (recoveryClaimError) return recoveryClaimError;
+
+    _registry.claim(key, { runId: target.runId, worktreePath: target.worktreePath });
+    const activeKey = ownershipKeyString(key);
+    activeRuns.set(activeKey, { kind: "recovery", runId: target.runId });
+    const logSink = logsPath !== undefined ? openLogSink(logsPath) : undefined;
+
+    let released = false;
+    const releaseRecovery = (): void => {
+      if (released) return;
+      released = true;
+      activeRuns.delete(activeKey);
+      logSink?.close();
+      _registry.release(key);
+    };
+
+    const wrappedAttempt: PipelineStageRecoveryAttempt = (request) =>
+      (deps.recoveryAttempt ?? recoverPlanStage)(request);
+
+    let outcome: Awaited<ReturnType<typeof admitAndRecoverPipelineBranchStage>>;
+    try {
+      outcome = await admitAndRecoverPipelineBranchStage(
+        { pipelineId, branchKey },
+        { ...pipelineExecutionDeps(), attempt: wrappedAttempt, ...(logSink !== undefined ? { logSink } : {}) },
+        { detachContinuation: true, onSettled: releaseRecovery },
+      );
+    } catch (err) {
+      // Thrown before the attempt ever ran (e.g. a store error in resolution or the durable stage
+      // claim) — `onSettled` never registered, so nothing else releases the claim/activeRuns/log
+      // sink acquired above.
+      releaseRecovery();
+      throw err;
+    }
+    // A resolution or durable stage-claim refusal never starts the detached chain, so `onSettled`
+    // never registered for it — release here instead.
+    if (outcome.kind !== "admitted") {
+      releaseRecovery();
+    }
+    return { kind: "response", result: outcome };
+  };
+
   const handlePipelineListHandler: RpcHandler = () => {
     return { kind: "response", result: { pipelines: store.listPipelines().map(projectPipelineSnapshot) } };
   };
@@ -2063,6 +2165,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     pipeline_approve: handlePipelineApproveHandler,
     pipeline_reject: handlePipelineRejectHandler,
     pipeline_resume: handlePipelineResumeHandler,
+    pipeline_recover: handlePipelineRecoverHandler,
     pipeline_list: handlePipelineListHandler,
     pipeline_wait: handlePipelineWaitHandler,
     continueContinuablePipelines: async () => recoverContinuablePipelines(store, pipelineExecutionDeps()),

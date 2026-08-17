@@ -824,7 +824,7 @@ export async function recoverContinuablePipelines(
   return { continued };
 }
 
-function findStageRecord(
+export function findStageRecord(
   stages: readonly PipelineStageRecord[],
   stageId: string,
   branchKey: string = DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
@@ -989,7 +989,7 @@ function admitFanOutBranches(
   return { ok: true, branchKeys };
 }
 
-function buildBranchStageArtifacts(
+export function buildBranchStageArtifacts(
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
   split: FanOutSplit,
   branchKey: string,

@@ -10,17 +10,9 @@ The walkthrough uses an ad-hoc `jarvis run start` run (direct write mode) so liv
 
 ## Prerequisites
 
-Before starting:
+Before starting, run `jarvis init --profile <profile>` from the Git worktree top level (add `--name <key>` for an explicit registry key, `--target-dir <dir> --scaffold` to configure and scaffold the planning directory). It bootstraps `machineProfile`/`agents` in `~/.jarvis/config.json` (see [`agent-model-config.md`](./agent-model-config.md)), registers the current repo (see [`install-and-config.md`](./install-and-config.md)), and prints a readiness report — one `bun`/`github-auth`/`agents`/`machine-profile`/`project-registration`/`origin`/`spec-directory`/`daemon` line each, in that order. `bun`, `github-auth`, `agents`, `machine-profile`, `project-registration`, and `origin` are required and exit `1` on any non-`ok`; `spec-directory` and `daemon` are warnings only. Re-run `jarvis init` at any time to re-verify readiness without repeating setup.
 
-1. **Agents and models** — `machineProfile` set in `~/.jarvis/config.json`, a
-   matching `config/machines/<profile>.json` with role bindings, and agent
-   fallback order configured (`jarvis config show`). See
-   [`agent-model-config.md`](./agent-model-config.md).
-2. **Project flags** — `--project-root` is the path to the target repo;
-   `--project` is a free-text label. No prior registration is required.
-3. **GitHub CLI** — `gh auth status` succeeds (completion publishing gates on it).
-4. **`origin` remote** — target repo has a GitHub `origin` remote; completion
-   pushes with `git push -u origin <branch>` when upstream is unset.
+`--project-root` on `jarvis run start` is the path to the target repo; `--project` is the registered project key.
 
 Have a spec with unchecked tasks ready. Paths below are relative to the worktree Jarvis creates under `~/.jarvis/worktrees/<project>/<branch>/`.
 

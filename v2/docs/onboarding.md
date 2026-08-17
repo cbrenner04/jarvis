@@ -39,9 +39,14 @@ Definitions and the layered model live in [`v2/docs/`](./):
 
 1. **Install** — prerequisites and symlink setup in the
    [README Installation](../../README.md#installation) section.
-2. **First run** — [`install-and-config.md`](./install-and-config.md), then the
+2. **Set up and verify** — from the target repo's Git worktree root, run
+   `jarvis init --profile <name>` to configure this machine and register the
+   repo; it ends with a readiness report. Re-run with `--check` any time to
+   verify readiness without writing. Full contract:
+   [`install-and-config.md`](./install-and-config.md#jarvis-init).
+3. **First run** — the
    [`first-workflow-walkthrough.md`](./first-workflow-walkthrough.md) happy
    path.
-3. **Go deeper** — operator reference in
+4. **Go deeper** — operator reference in
    [`operator-runbook.md`](./operator-runbook.md); v1 fallback reference in
    [`v1/docs/`](../../v1/docs/).

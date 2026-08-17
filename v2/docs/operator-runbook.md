@@ -95,7 +95,7 @@ Template for a new gotcha:
 1. `jarvis daemon status` — start with `jarvis daemon start` if stopped.
 2. `jarvis config show` — agents listed; `machineProfile` hand-edited in
    `~/.jarvis/config.json` (see [`install-and-config.md`](./install-and-config.md)).
-3. Initialize the machine and register the repo if needed: `jarvis init --profile home` from the Git worktree root; use `--name <key>` only to select a safe explicit registry key.
+3. Verify readiness: `jarvis init --profile home` from the Git worktree root (idempotent — safe to rerun; use `--name <key>` only to select a safe explicit registry key). It bootstraps/registers as needed, then prints one `bun`/`github-auth`/`agents`/`machine-profile`/`project-registration`/`origin`/`spec-directory`/`daemon` line and exits `1` on a required check's failure — treat that report as the session-start go/no-go before starting a run.
 4. Review open work in `v2/spec/seeds/` and `v2/spec/ready-intents/`.
 5. Sweep open [harness-suggestion issues](https://github.com/cbrenner04/jarvis/issues?q=label%3Aharness-suggestion+is%3Aopen)
    — **and read their comments.**

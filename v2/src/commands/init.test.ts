@@ -13,6 +13,15 @@ import {
 import { join, relative } from "node:path";
 import { captureIo } from "../testing/cli-test-helpers.ts";
 import { type InitCommandDeps, MACHINE_PROFILES_DIR, runInitCommand } from "./init.ts";
+import {
+  evaluateReadiness,
+  isReadinessCheckRequired,
+  READINESS_CHECK_ORDER,
+  type ReadinessContext,
+  type ReadinessProbes,
+  readinessExitCode,
+  renderReadinessReport,
+} from "./init-readiness.ts";
 
 type Fixture = {
   root: string;
@@ -752,5 +761,426 @@ describe("init planning directory", () => {
     const preflightResult = await run(preflightAtomicity, ["--target-dir", "blocked", "--scaffold"], ["claude"]);
     expect(preflightResult.code).toBe(1);
     expect(readFileSync(preflightAtomicity.configPath, "utf8")).toBe(preflightBytes);
+  });
+});
+
+describe("init readiness", () => {
+  test("setup renders the complete stable readiness report", async () => {
+    // @mutate v2/src/commands/init.ts "io.stdout(renderReadinessReport(readinessResults));" -> ""
+    const fx = fixture();
+    mkdirSync(join(fx.projectRoot, "spec"));
+    const result = await run(fx, ["--profile", "home"], ["claude"], undefined, {
+      checkDaemon: async () => ({ state: "running" }),
+    });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe(
+      [
+        "bun ok",
+        "github-auth ok",
+        "agents ok",
+        "machine-profile ok",
+        "project-registration ok",
+        "origin ok",
+        "spec-directory ok",
+        "daemon ok",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  test("readiness distinguishes required checks from warnings", async () => {
+    const bunMissing = fixture();
+    expect(
+      (
+        await run(bunMissing, ["--profile", "home"], ["claude"], undefined, {
+          checkBunRuntime: async () => ({ ok: false, detail: "bun probe timed out" }),
+        })
+      ).code,
+    ).toBe(1);
+
+    const authMissing = fixture();
+    expect(
+      (
+        await run(authMissing, ["--profile", "home"], ["claude"], undefined, {
+          checkGithubAuth: async () => ({ ok: false, detail: "not logged in" }),
+        })
+      ).code,
+    ).toBe(1);
+
+    const noOrigin = fixture();
+    expect(
+      (
+        await run(noOrigin, ["--profile", "home"], ["claude"], undefined, {
+          git: (_cwd, args) => (args[0] === "rev-parse" ? noOrigin.projectRoot : undefined),
+        })
+      ).code,
+    ).toBe(1);
+
+    const driftedOrigin = fixture();
+    seedConfig(driftedOrigin, {
+      agents: ["claude"],
+      machineProfile: "home",
+      projects: { project: { root: driftedOrigin.projectRoot, origin: "git@example.test:project.git" } },
+    });
+    expect(
+      (
+        await run(driftedOrigin, [], ["claude"], undefined, {
+          git: (_cwd, args) => (args[0] === "rev-parse" ? driftedOrigin.projectRoot : "git@example.test:changed.git"),
+        })
+      ).code,
+    ).toBe(1);
+
+    const fx = fixture();
+    const baseContext: ReadinessContext = {
+      machinesDir: fx.machinesDir,
+      profile: "home",
+      agents: ["claude"],
+      isExecutable: () => true,
+      projectRoot: fx.projectRoot,
+      projectRegistered: true,
+      storedOrigin: "origin",
+      targetDir: "spec",
+    };
+    const okProbes: ReadinessProbes = {
+      checkBunRuntime: async () => ({ ok: true }),
+      checkGithubAuth: async () => ({ ok: true }),
+      currentOrigin: async () => "origin",
+      directoryExists: () => true,
+      checkDaemon: async () => ({ state: "running" }),
+    };
+    expect(readinessExitCode(await evaluateReadiness({ ...baseContext, isExecutable: () => false }, okProbes))).toBe(1);
+    expect(readinessExitCode(await evaluateReadiness({ ...baseContext, profile: "work" }, okProbes))).toBe(1);
+    expect(readinessExitCode(await evaluateReadiness({ ...baseContext, projectRegistered: false }, okProbes))).toBe(1);
+
+    const specDirMissingAlone = fixture();
+    expect(
+      (
+        await run(specDirMissingAlone, ["--profile", "home"], ["claude"], undefined, {
+          checkDaemon: async () => ({ state: "running" }),
+        })
+      ).code,
+    ).toBe(0);
+
+    const daemonStoppedAlone = fixture();
+    mkdirSync(join(daemonStoppedAlone.projectRoot, "spec"));
+    expect((await run(daemonStoppedAlone, ["--profile", "home"], ["claude"])).code).toBe(0);
+  });
+
+  test("readiness normalizes bounded probes and origin drift", async () => {
+    const timeoutFx = fixture();
+    const timeoutResult = await run(timeoutFx, ["--profile", "home"], ["claude"], undefined, {
+      checkGithubAuth: async () => {
+        throw new Error("gh auth status timed out\nwith extra diagnostic lines");
+      },
+    });
+    expect(timeoutResult.code).toBe(1);
+    expect(timeoutResult.stdout).toContain("github-auth missing: gh auth status timed out\n");
+    expect(timeoutResult.stdout).not.toContain("with extra diagnostic lines");
+
+    const exceptionFx = fixture();
+    const exceptionResult = await run(exceptionFx, ["--profile", "home"], ["claude"], undefined, {
+      checkBunRuntime: async () => {
+        throw new Error("bun probe crashed");
+      },
+    });
+    expect(exceptionResult.code).toBe(1);
+    expect(exceptionResult.stdout).toContain("bun missing: bun probe crashed\n");
+
+    const driftFx = fixture();
+    const driftBytes = seedConfig(driftFx, {
+      agents: ["claude"],
+      machineProfile: "home",
+      projects: { project: { root: driftFx.projectRoot, origin: "git@example.test:project.git" } },
+    });
+    const driftResult = await run(driftFx, [], ["claude"], undefined, {
+      git: (_cwd, args) => (args[0] === "rev-parse" ? driftFx.projectRoot : "git@example.test:changed.git"),
+    });
+    expect(driftResult.code).toBe(1);
+    expect(driftResult.stdout).toContain(
+      "origin warn: stored origin 'git@example.test:project.git' does not match current 'git@example.test:changed.git'\n",
+    );
+    expect(readFileSync(driftFx.configPath, "utf8")).toBe(driftBytes);
+  });
+
+  test("setup retains state after readiness failure", async () => {
+    const fx = fixture();
+    const result = await run(fx, ["--profile", "home", "--scaffold"], ["claude"], undefined, {
+      checkGithubAuth: async () => ({ ok: false, detail: "not logged in" }),
+    });
+    expect(result.code).toBe(1);
+    expect(JSON.parse(readFileSync(fx.configPath, "utf8"))).toMatchObject({
+      machineProfile: "home",
+      agents: ["claude"],
+    });
+    expect(existsSync(join(fx.projectRoot, "spec", "seeds", ".gitkeep"))).toBe(true);
+    expect(existsSync(join(fx.projectRoot, "spec", "ready-intents", ".gitkeep"))).toBe(true);
+  });
+
+  test("readiness evaluator guard inversions expose false admission", async () => {
+    // @mutate v2/src/commands/init-readiness.ts "const ordered = orderReadinessResults(results);" -> "const ordered = results;"
+    // @mutate v2/src/commands/init-readiness.ts "return results.some((result) => isReadinessCheckRequired(result.id) && result.status !== \"ok\") ? 1 : 0;" -> "return 0;"
+    // @mutate v2/src/commands/init-readiness.ts "const unrunnable = context.agents.filter((agent) => !context.isExecutable(agent));" -> "const unrunnable: string[] = [];"
+    // @mutate v2/src/commands/init-readiness.ts "const originMatches = current === context.storedOrigin;" -> "const originMatches = true;"
+    // @mutate v2/src/commands/init-readiness.ts "const line = value.split(/\\r?\\n/).find((part) => part.trim().length > 0) ?? \"\";" -> "const line = value;"
+    // @mutate v2/src/commands/init-readiness.ts "return REQUIRED_READINESS_CHECKS.has(id);" -> "return true;"
+    const fx = fixture();
+    const baseContext: ReadinessContext = {
+      machinesDir: fx.machinesDir,
+      profile: "home",
+      agents: ["claude"],
+      isExecutable: () => true,
+      projectRoot: fx.projectRoot,
+      projectRegistered: true,
+      storedOrigin: "origin",
+      targetDir: "spec",
+    };
+    const okProbes: ReadinessProbes = {
+      checkBunRuntime: async () => ({ ok: true }),
+      checkGithubAuth: async () => ({ ok: true }),
+      currentOrigin: async () => "origin",
+      directoryExists: () => true,
+      checkDaemon: async () => ({ state: "running" }),
+    };
+
+    // report order: the renderer must restore canonical order even from scrambled evaluation output.
+    const scrambled = [
+      { id: "daemon", status: "ok" },
+      { id: "bun", status: "ok" },
+      { id: "github-auth", status: "ok" },
+      { id: "agents", status: "ok" },
+      { id: "machine-profile", status: "ok" },
+      { id: "project-registration", status: "ok" },
+      { id: "origin", status: "ok" },
+      { id: "spec-directory", status: "ok" },
+    ] as const;
+    expect(renderReadinessReport(scrambled)).toBe(`${READINESS_CHECK_ORDER.map((id) => `${id} ok`).join("\n")}\n`);
+
+    // requiredness: a required failure must drive exit code 1.
+    expect(readinessExitCode([{ id: "bun", status: "missing" }])).toBe(1);
+
+    // configured-agent runnable binding: an unrunnable configured agent fails "agents".
+    const unrunnable = await evaluateReadiness({ ...baseContext, isExecutable: () => false }, okProbes);
+    expect(unrunnable.find((result) => result.id === "agents")?.status).toBe("missing");
+
+    // origin consistency: a drifted stored origin must not read as ok.
+    const drifted = await evaluateReadiness(baseContext, { ...okProbes, currentOrigin: async () => "different" });
+    expect(drifted.find((result) => result.id === "origin")?.status).not.toBe("ok");
+
+    // bounded-probe normalization: multiline probe detail collapses to its first line.
+    const multiline = await evaluateReadiness(baseContext, {
+      ...okProbes,
+      checkBunRuntime: async () => ({ ok: false, detail: "line one\nline two" }),
+    });
+    expect(multiline.find((result) => result.id === "bun")?.detail).toBe("line one");
+
+    // warning guard: spec-directory and daemon stay non-required.
+    expect(isReadinessCheckRequired("spec-directory")).toBe(false);
+    expect(isReadinessCheckRequired("daemon")).toBe(false);
+  });
+});
+
+describe("init read-only check", () => {
+  test("setup and check share the complete readiness report", async () => {
+    // @mutate v2/src/commands/init.ts "io.stdout(renderReadinessReport(checkResults));" -> ""
+    const fx = fixture();
+    mkdirSync(join(fx.projectRoot, "spec"));
+    seedConfig(fx, { agents: ["claude"], machineProfile: "home", ...registeredProject(fx) });
+    const writes = { count: 0 };
+    const result = await run(fx, ["--check"], ["claude"], writes, { checkDaemon: async () => ({ state: "running" }) });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe(
+      [
+        "bun ok",
+        "github-auth ok",
+        "agents ok",
+        "machine-profile ok",
+        "project-registration ok",
+        "origin ok",
+        "spec-directory ok",
+        "daemon ok",
+        "",
+      ].join("\n"),
+    );
+    expect(writes.count).toBe(0);
+    expect(listFiles(fx.projectRoot)).toEqual([]);
+  });
+
+  test("check selectors do not establish setup state", async () => {
+    const unregisteredName = fixture();
+    seedConfig(unregisteredName, { agents: ["claude"], machineProfile: "home" });
+    const writesA = { count: 0 };
+    const resultA = await run(unregisteredName, ["--check", "--name", "demo"], ["claude"], writesA);
+    expect(resultA.code).toBe(1);
+    expect(resultA.stdout).toContain("project-registration missing");
+    expect(writesA.count).toBe(0);
+
+    const unconfiguredProfile = fixture();
+    seedConfig(unconfiguredProfile, { agents: ["claude"], ...registeredProject(unconfiguredProfile) });
+    const writesB = { count: 0 };
+    const resultB = await run(unconfiguredProfile, ["--check", "--profile", "home"], ["claude"], writesB);
+    expect(resultB.code).toBe(1);
+    expect(resultB.stdout).toContain("machine-profile missing");
+    expect(writesB.count).toBe(0);
+    expect(JSON.parse(readFileSync(unconfiguredProfile.configPath, "utf8")).machineProfile).toBeUndefined();
+
+    const explicitTargetDir = fixture();
+    seedConfig(explicitTargetDir, {
+      agents: ["claude"],
+      machineProfile: "home",
+      modes: { plan: { targetDir: "legacy/spec" } },
+      projects: {
+        project: {
+          root: explicitTargetDir.projectRoot,
+          origin: "git@example.test:project.git",
+          plan: { targetDir: "owned/spec" },
+        },
+      },
+    });
+    mkdirSync(join(explicitTargetDir.projectRoot, "explicit", "spec"), { recursive: true });
+    const writesC = { count: 0 };
+    const resultC = await run(explicitTargetDir, ["--check", "--target-dir", "explicit/spec"], ["claude"], writesC, {
+      checkDaemon: async () => ({ state: "running" }),
+    });
+    expect(resultC.code).toBe(0);
+    expect(resultC.stdout).toContain("spec-directory ok");
+    expect(writesC.count).toBe(0);
+    expect(JSON.parse(readFileSync(explicitTargetDir.configPath, "utf8")).projects.project.plan.targetDir).toBe(
+      "owned/spec",
+    );
+
+    const matchingSelectors = fixture();
+    seedConfig(matchingSelectors, {
+      agents: ["claude"],
+      machineProfile: "home",
+      ...registeredProject(matchingSelectors),
+    });
+    mkdirSync(join(matchingSelectors.projectRoot, "spec"));
+    const writesD = { count: 0 };
+    const resultD = await run(
+      matchingSelectors,
+      ["--check", "--profile", "home", "--name", "project"],
+      ["claude"],
+      writesD,
+      { checkDaemon: async () => ({ state: "running" }) },
+    );
+    expect(resultD.code).toBe(0);
+    expect(writesD.count).toBe(0);
+  });
+
+  test("check rejects unsafe or conflicting selectors", async () => {
+    const conflict = fixture();
+    const conflictBytes = seedConfig(conflict, {
+      agents: ["claude"],
+      machineProfile: "home",
+      ...registeredProject(conflict),
+    });
+    const conflictResult = await run(conflict, ["--check", "--profile", "work"], ["claude"]);
+    expect(conflictResult.code).toBe(1);
+    expect(conflictResult.stderr).toContain("conflicts with --profile");
+    expect(readFileSync(conflict.configPath, "utf8")).toBe(conflictBytes);
+
+    const unsafeName = fixture();
+    const unsafeBytes = seedConfig(unsafeName, { agents: ["claude"], machineProfile: "home" });
+    const unsafeResult = await run(unsafeName, ["--check", "--name", "bad/name"], ["claude"]);
+    expect(unsafeResult.code).toBe(1);
+    expect(unsafeResult.stderr).toContain("must match");
+    expect(readFileSync(unsafeName.configPath, "utf8")).toBe(unsafeBytes);
+
+    const unknownProfile = fixture();
+    const unknownBytes = seedConfig(unknownProfile, { agents: ["claude"], machineProfile: "home" });
+    const unknownResult = await run(unknownProfile, ["--check", "--profile", "missing"], ["claude"]);
+    expect(unknownResult.code).toBe(1);
+    expect(unknownResult.stderr).toBe("init: unknown machine profile 'missing'; choose one of: home, work\n");
+    expect(readFileSync(unknownProfile.configPath, "utf8")).toBe(unknownBytes);
+
+    const malformedProfile = fixture();
+    const malformedBytes = seedConfig(malformedProfile, { agents: ["claude"], machineProfile: 7 });
+    const malformedResult = await run(malformedProfile, ["--check"], ["claude"]);
+    expect(malformedResult.code).toBe(1);
+    expect(malformedResult.stderr).toStartWith("init: Machine config");
+    expect(readFileSync(malformedProfile.configPath, "utf8")).toBe(malformedBytes);
+
+    const scaffoldRejected = fixture();
+    const scaffoldBytes = seedConfig(scaffoldRejected, {
+      agents: ["claude"],
+      machineProfile: "home",
+      ...registeredProject(scaffoldRejected),
+    });
+    const scaffoldResult = await run(scaffoldRejected, ["--check", "--scaffold"], ["claude"]);
+    expect(scaffoldResult.code).toBe(1);
+    expect(scaffoldResult.stderr).toContain("--scaffold");
+    expect(readFileSync(scaffoldRejected.configPath, "utf8")).toBe(scaffoldBytes);
+    expect(listFiles(scaffoldRejected.projectRoot)).toEqual([]);
+  });
+
+  test("check mode guard inversions expose implicit repair", async () => {
+    // @mutate v2/src/commands/init.ts "if (options.check === true) {" -> "if (false) {"
+    // read-only dispatch: --check must never fall through to setup's mutating path.
+    const dispatch = fixture();
+    const dispatchBytes = seedConfig(dispatch, { agents: ["claude"], machineProfile: "home" });
+    const writesDispatch = { count: 0 };
+    const dispatchResult = await run(dispatch, ["--check", "--name", "demo"], ["claude"], writesDispatch, {
+      git: (_cwd, args) => (args[0] === "rev-parse" ? dispatch.projectRoot : "git@example.test:demo.git"),
+    });
+    expect(dispatchResult.code).toBe(1);
+    expect(writesDispatch.count).toBe(0);
+    expect(readFileSync(dispatch.configPath, "utf8")).toBe(dispatchBytes);
+
+    // @mutate v2/src/commands/init.ts "return requestedTargetDir ?? owned ?? legacyModePlanTargetDir(existing) ?? \"spec\";" -> "return \"spec\";"
+    // selector precedence: an explicit --target-dir must win over the stored owned target dir.
+    const precedence = fixture();
+    seedConfig(precedence, {
+      agents: ["claude"],
+      machineProfile: "home",
+      projects: {
+        project: {
+          root: precedence.projectRoot,
+          origin: "git@example.test:project.git",
+          plan: { targetDir: "owned/spec" },
+        },
+      },
+    });
+    mkdirSync(join(precedence.projectRoot, "explicit", "spec"), { recursive: true });
+    const precedenceResult = await run(
+      precedence,
+      ["--check", "--target-dir", "explicit/spec"],
+      ["claude"],
+      undefined,
+      {
+        checkDaemon: async () => ({ state: "running" }),
+      },
+    );
+    expect(precedenceResult.stdout).toContain("spec-directory ok");
+
+    // @mutate v2/src/commands/init-readiness.ts "if (context.profileConfigured === false) return missing(\"machine profile is not configured\");" -> ""
+    // missing-configured-state: an unconfigured profile must not read as ok even when the roster binds.
+    const unconfigured = fixture();
+    seedConfig(unconfigured, { agents: ["claude"], ...registeredProject(unconfigured) });
+    const unconfiguredResult = await run(unconfigured, ["--check", "--profile", "home"], ["claude"]);
+    expect(unconfiguredResult.stdout).toContain("machine-profile missing");
+
+    // @mutate v2/src/commands/init.ts "if (requestedProfile !== undefined && configuredProfile !== undefined && requestedProfile !== configuredProfile) {" -> "if (false) {"
+    // profile conflict: a selector conflicting with the configured profile must reject, not silently pick one.
+    const conflict = fixture();
+    seedConfig(conflict, { agents: ["claude"], machineProfile: "home", ...registeredProject(conflict) });
+    const conflictResult = await run(conflict, ["--check", "--profile", "work"], ["claude"]);
+    expect(conflictResult.code).toBe(1);
+    expect(conflictResult.stderr).toContain("conflicts with --profile");
+
+    // @mutate v2/src/commands/init.ts "if (projectKey === undefined || !PROJECT_KEY_PATTERN.test(projectKey)) {" -> "if (false) {"
+    // selector validation: an unsafe --name must reject before any probe runs.
+    const unsafe = fixture();
+    seedConfig(unsafe, { agents: ["claude"], machineProfile: "home" });
+    const unsafeResult = await run(unsafe, ["--check", "--name", "bad/name"], ["claude"]);
+    expect(unsafeResult.code).toBe(1);
+    expect(unsafeResult.stderr).toContain("must match");
+
+    // @mutate v2/src/commands/init.ts "if (options.scaffold === true) throw new Error(\"--check does not accept --scaffold\");" -> ""
+    // scaffold-rejection: `--check --scaffold` must reject before any writes or probes.
+    const scaffold = fixture();
+    seedConfig(scaffold, { agents: ["claude"], machineProfile: "home", ...registeredProject(scaffold) });
+    const scaffoldResult = await run(scaffold, ["--check", "--scaffold"], ["claude"]);
+    expect(scaffoldResult.code).toBe(1);
+    expect(listFiles(scaffold.projectRoot)).toEqual([]);
   });
 });

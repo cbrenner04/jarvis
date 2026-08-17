@@ -27,14 +27,14 @@
 
 ## Acceptance criteria
 
-- [ ] Successful setup reports `bun`, `github-auth`, `agents`, `machine-profile`, `project-registration`, `origin`, `spec-directory`, and `daemon` exactly once in that order, with one single line and an `ok`, `missing`, or `warn` status for each. `v2/src/commands/init.test.ts` — `setup renders the complete stable readiness report`; fails against the pre-fix code.
-- [ ] `v2/src/commands/init.test.ts` — `setup renders the complete stable readiness report`; Keystone checkpoint: its body carries one `// @mutate` directive that removes shared report evaluation after setup, and the mutation turns the named pin RED.
-- [ ] Missing Bun, GitHub authentication, any configured profile-bound executable, resolved configured profile, cwd registration, current origin, or stored-origin match exits `1`; a missing spec directory or stopped daemon alone exits `0`. `v2/src/commands/init.test.ts` — `readiness distinguishes required checks from warnings`; fails against the pre-fix code.
-- [ ] Timeout, exception, and multiline probe diagnostics appear only as the corresponding bounded single-line result, and a changed remote origin produces a required non-`ok` origin result without rewriting stored origin. `v2/src/commands/init.test.ts` — `readiness normalizes bounded probes and origin drift`; fails against the pre-fix code.
-- [ ] A post-setup required readiness failure retains the safely written configuration and any already-valid scaffold state. `v2/src/commands/init.test.ts` — `setup retains state after readiness failure`; fails against the pre-fix code.
-- [ ] `v2/src/commands/init.test.ts` — `readiness evaluator guard inversions expose false admission`; Mutation checkpoint: its body carries distinct `// @mutate` directives for report order, requiredness, configured-agent runnable binding, origin consistency, bounded-probe normalization, and warning guards, and each mutation turns the named pin RED.
-- [ ] `v2/docs/first-workflow-walkthrough.md` routes prerequisites through setup and readiness verification; `v2/docs/operator-runbook.md` uses the report for session-start readiness.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] Successful setup reports `bun`, `github-auth`, `agents`, `machine-profile`, `project-registration`, `origin`, `spec-directory`, and `daemon` exactly once in that order, with one single line and an `ok`, `missing`, or `warn` status for each. `v2/src/commands/init.test.ts` — `setup renders the complete stable readiness report`; fails against the pre-fix code.
+- [x] `v2/src/commands/init.test.ts` — `setup renders the complete stable readiness report`; Keystone checkpoint: its body carries one `// @mutate` directive that removes shared report evaluation after setup, and the mutation turns the named pin RED.
+- [x] Missing Bun, GitHub authentication, any configured profile-bound executable, resolved configured profile, cwd registration, current origin, or stored-origin match exits `1`; a missing spec directory or stopped daemon alone exits `0`. `v2/src/commands/init.test.ts` — `readiness distinguishes required checks from warnings`; fails against the pre-fix code.
+- [x] Timeout, exception, and multiline probe diagnostics appear only as the corresponding bounded single-line result, and a changed remote origin produces a required non-`ok` origin result without rewriting stored origin. `v2/src/commands/init.test.ts` — `readiness normalizes bounded probes and origin drift`; fails against the pre-fix code.
+- [x] A post-setup required readiness failure retains the safely written configuration and any already-valid scaffold state. `v2/src/commands/init.test.ts` — `setup retains state after readiness failure`; fails against the pre-fix code.
+- [x] `v2/src/commands/init.test.ts` — `readiness evaluator guard inversions expose false admission`; Mutation checkpoint: its body carries distinct `// @mutate` directives for report order, requiredness, configured-agent runnable binding, origin consistency, bounded-probe normalization, and warning guards, and each mutation turns the named pin RED.
+- [x] `v2/docs/first-workflow-walkthrough.md` routes prerequisites through setup and readiness verification; `v2/docs/operator-runbook.md` uses the report for session-start readiness.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

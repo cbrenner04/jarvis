@@ -39,8 +39,14 @@ export function readinessExitCode(results: readonly ReadinessResult[]): number {
   return results.some((result) => isReadinessCheckRequired(result.id) && result.status !== "ok") ? 1 : 0;
 }
 
+/** Restores canonical `READINESS_CHECK_ORDER` regardless of the order evaluation produced results in. */
+function orderReadinessResults(results: readonly ReadinessResult[]): ReadinessResult[] {
+  return READINESS_CHECK_ORDER.flatMap((id) => results.filter((result) => result.id === id));
+}
+
 export function renderReadinessReport(results: readonly ReadinessResult[]): string {
-  return results
+  const ordered = orderReadinessResults(results);
+  return ordered
     .map((result) =>
       result.detail === undefined ? `${result.id} ${result.status}` : `${result.id} ${result.status}: ${result.detail}`,
     )
@@ -88,6 +94,10 @@ async function safeCheck(id: ReadinessCheckId, run: () => Promise<CheckOutcome>)
 export type ReadinessContext = {
   machinesDir: string;
   profile: string;
+  /** Whether a machine profile is actually configured (persisted), distinct from a `--check`
+   * selector merely identifying one to probe. Defaults to configured (`true`) when omitted, since
+   * setup always writes or already has one before evaluating readiness. */
+  profileConfigured?: boolean;
   agents: readonly string[];
   isExecutable: (name: string) => boolean;
   projectRoot: string;
@@ -189,6 +199,7 @@ export async function evaluateReadiness(
 
   results.push(
     await safeCheck("machine-profile", async () => {
+      if (context.profileConfigured === false) return missing("machine profile is not configured");
       const modelConfig = loadMachineProfileModels(context.profile, context.agents, {
         machinesDir: context.machinesDir,
       });
@@ -210,9 +221,8 @@ export async function evaluateReadiness(
       const current = await currentOrigin(context.projectRoot);
       if (current === undefined) return missing("no current origin configured");
       if (context.storedOrigin === undefined) return missing("no stored origin registered");
-      return current === context.storedOrigin
-        ? ok()
-        : warn(`stored origin '${context.storedOrigin}' does not match current '${current}'`);
+      const originMatches = current === context.storedOrigin;
+      return originMatches ? ok() : warn(`stored origin '${context.storedOrigin}' does not match current '${current}'`);
     }),
   );
 

@@ -6,6 +6,7 @@ import {
 import {
   CLEANUP_PARSE_ARG_OPTIONS,
   DAEMON_LOG_PARSE_ARG_OPTIONS,
+  INIT_PARSE_ARG_OPTIONS,
   PIPELINE_LIST_PARSE_ARG_OPTIONS,
   PIPELINE_START_PARSE_ARG_OPTIONS,
   parityFlagsFromParseOptions,
@@ -15,6 +16,7 @@ import {
 import { type CommandFlag, type CommandNode, commandTree, resolveHelpPath } from "./command-tree.ts";
 
 const PARITY_PATHS = [
+  ["init"],
   ["write"],
   ["run", "start"],
   ["cleanup"],
@@ -34,6 +36,8 @@ function parseOptionKeysToLongFlags(keys: readonly string[]): readonly string[] 
 export function parserAcceptedLongFlags(path: readonly string[]): readonly string[] {
   const key = path.join(" ");
   switch (key) {
+    case "init":
+      return parityFlagsFromParseOptions(INIT_PARSE_ARG_OPTIONS);
     case "write":
     case "run start":
       return parseOptionKeysToLongFlags(Object.keys(WRITE_PARSE_ARG_OPTIONS));

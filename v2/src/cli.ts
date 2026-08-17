@@ -14,6 +14,7 @@ import { WRITE_USAGE } from "./cli/usage.ts";
 import { runCleanupCliCommand } from "./commands/cleanup-cli.ts";
 import { runConfigCommand } from "./commands/config.ts";
 import { runDaemonCommand } from "./commands/daemon.ts";
+import { runInitCommand } from "./commands/init.ts";
 import { runPipelineCommand } from "./commands/pipeline.ts";
 import { runRunCommand } from "./commands/run.ts";
 import { runTuiCommand } from "./commands/tui.ts";
@@ -59,6 +60,12 @@ async function runWriteCommand(
   return exitCodeForWriteResult(loopResult.kind);
 }
 
+/** Non-interactive: forwards argv and the two `CliDeps` fields `runInitCommand` accepts; every
+ * other dependency (machine profiles, git, agent probes) uses its own production default. */
+function runInitCliCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
+  return runInitCommand(argv, io, { machineConfigPath: deps.machineConfigPath, cwd: deps.cwd() });
+}
+
 function renderHelp(out: Io, path: readonly string[]): number {
   const rendered = renderHelpNode(commandTree, path);
   if (rendered !== undefined) {
@@ -97,6 +104,7 @@ function commandEntry(name: string, handler: CommandHandler): CommandEntry {
 }
 
 const commandEntries: readonly CommandEntry[] = [
+  commandEntry("init", runInitCliCommand),
   commandEntry("write", runWriteCommand),
   commandEntry("daemon", runDaemonCommand),
   commandEntry("config", runConfigCommand),

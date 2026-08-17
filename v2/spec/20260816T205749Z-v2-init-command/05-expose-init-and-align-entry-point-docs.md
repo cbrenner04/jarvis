@@ -24,12 +24,12 @@
 
 ## Acceptance criteria
 
-- [ ] Public `jarvis init` dispatch and help expose all five options, direct help and `--help` agree, invalid operands print init usage to stderr and exit `1`, and no route prompts. `v2/src/cli.test.ts` — `init dispatch and help expose the non-interactive contract`; fails against the pre-fix code.
-- [ ] `v2/src/cli.test.ts` — `init dispatch and help expose the non-interactive contract`; Keystone checkpoint: its body carries one `// @mutate` directive that removes top-level init registration, and the mutation turns the named pin RED.
-- [ ] Parser/help parity covers every init long option so a parser-only or help-only option fails the suite. `v2/src/cli/help-flags-parity.test.ts` — `init parser and help flags stay aligned`; fails against the pre-fix code.
-- [ ] `v2/src/cli.test.ts` — `init routing guard inversions expose hidden or invalid routes`; Mutation checkpoint: its body carries distinct `// @mutate` directives for every dispatch, invalid-operand, and help-routing guard, and each mutation turns the named pin RED.
-- [ ] `README.md` uses `jarvis init` in installation, configuration, quickstart, and command inventory; `v2/docs/onboarding.md` includes setup and readiness verification before the first run.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] Public `jarvis init` dispatch and help expose all five options, direct help and `--help` agree, invalid operands print init usage to stderr and exit `1`, and no route prompts. `v2/src/cli.test.ts` — `init dispatch and help expose the non-interactive contract`; fails against the pre-fix code.
+- [x] `v2/src/cli.test.ts` — `init dispatch and help expose the non-interactive contract`; Keystone checkpoint: its body carries one `// @mutate` directive that removes top-level init registration, and the mutation turns the named pin RED.
+- [x] Parser/help parity covers every init long option so a parser-only or help-only option fails the suite. `v2/src/cli/help-flags-parity.test.ts` — `init parser and help flags stay aligned`; fails against the pre-fix code.
+- [x] `v2/src/cli.test.ts` — `init routing guard inversions expose hidden or invalid routes`; Mutation checkpoint: its body carries distinct `// @mutate` directives for every dispatch, invalid-operand, and help-routing guard, and each mutation turns the named pin RED.
+- [x] `README.md` uses `jarvis init` in installation, configuration, quickstart, and command inventory; `v2/docs/onboarding.md` includes setup and readiness verification before the first run.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

@@ -1,6 +1,7 @@
 import {
   CLEANUP_HELP_FLAGS,
   DAEMON_LOG_HELP_FLAGS,
+  INIT_HELP_FLAGS,
   PIPELINE_LIST_HELP_FLAGS,
   PIPELINE_START_HELP_FLAGS,
   RUN_LIST_HELP_FLAGS,
@@ -16,6 +17,7 @@ import {
   DAEMON_LOG_USAGE,
   DAEMON_USAGE,
   HELP_USAGE,
+  INIT_USAGE,
   PIPELINE_APPROVE_USAGE,
   PIPELINE_LIST_USAGE,
   PIPELINE_REJECT_USAGE,
@@ -57,6 +59,12 @@ export const commandTree: CommandNode = {
   name: "jarvis",
   summary: "Jarvis coding-agent harness.",
   subcommands: [
+    {
+      name: "init",
+      summary: "Configure this machine and register the current repository.",
+      usage: INIT_USAGE,
+      flags: INIT_HELP_FLAGS,
+    },
     {
       name: "write",
       summary: "Run an in-process write loop.",

@@ -2000,12 +2000,19 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     if (retiring) {
       return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
     }
-    const params = frame.params as { pipelineId?: string } | undefined;
+    const params = frame.params as { pipelineId?: string; branchKey?: unknown } | undefined;
     if (!params?.pipelineId) {
       return { kind: "error", code: "invalid_params", message: "pipelineId required" };
     }
+    if (params.branchKey !== undefined && (typeof params.branchKey !== "string" || params.branchKey.trim() === "")) {
+      return { kind: "error", code: "invalid_params", message: "branchKey must be a non-blank string" };
+    }
     const { pipelineId } = params;
-    const outcome = await resumePipeline(pipelineId, pipelineExecutionDeps(), { detachContinuation: true });
+    const branchKey = params.branchKey as string | undefined;
+    const outcome = await resumePipeline(pipelineId, pipelineExecutionDeps(), {
+      detachContinuation: true,
+      ...(branchKey !== undefined ? { branchKey } : {}),
+    });
     return { kind: "response", result: outcome };
   };
 

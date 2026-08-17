@@ -3037,7 +3037,7 @@ async function commitRecoveredPlanLanding(
 export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promise<PlanStageRecoveryOutcome> {
   const store = request.stateStore;
   const run = store.loadRun(request.runId);
-  if (!run || !run.workflowSnapshot || !run.stepId) {
+  if (!run?.workflowSnapshot || !run.stepId) {
     return { ok: false, code: "missing_plan_context", message: "no persisted plan context for this run" };
   }
   if (

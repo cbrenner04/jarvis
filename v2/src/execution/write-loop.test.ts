@@ -2,9 +2,12 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import {
   appendFileSync,
+  chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -59,6 +62,7 @@ import {
   type WallSegmentSchedule,
   type WriteLoopInput,
   type WriteLoopOutcomeKind,
+  type WriteLoopResult,
 } from "./write-loop.ts";
 
 const { roots } = trackedTempRoots();
@@ -67,6 +71,39 @@ const PLAN_DRAFT_INTENT_SEED = "---\nname: test\n---\n\n## Prerequisites\n\nnone
 const PLAN_DRAFT_SPEC_PATH = "v2/spec/2099-01-01T00-00-00Z-plan-draft";
 const MULTI_SURFACE_BULLET =
   "The state-store persists completed runs atomically, and the CLI validates run flags before dispatch.";
+
+/** Dispatches a plan.prompt.draft run whose agent appends a genuine `## Blocker` section to
+ * staged intent.md, tripping the plan.draft.blocker prerequisite contract. */
+function runPlanDraftAgentBlocker(
+  jarvisRoot: string,
+  stateDbPath: string,
+  branchName: string,
+  logSink: TestLogSink,
+): Promise<WriteLoopResult> {
+  return runLoop({
+    jarvisRoot,
+    stateDbPath,
+    branchName,
+    artifactPath: ".jarvis-plan-stage",
+    specPath: PLAN_DRAFT_SPEC_PATH,
+    promptId: "plan.prompt.draft",
+    intentSeed: PLAN_DRAFT_INTENT_SEED,
+    logSink,
+    bindings: [
+      {
+        id: "agent",
+        invoke: async ({ cwd }) => {
+          writeFileSync(
+            join(cwd, ".jarvis-plan-stage", "intent.md"),
+            `${PLAN_DRAFT_INTENT_SEED}\n## Blocker\n\nAgent got stuck.\n`,
+            "utf8",
+          );
+          return { kind: "ok", stdout: "done", stderr: "" };
+        },
+      },
+    ],
+  });
+}
 
 function writeMultiSurfacePlanDraftStage(stagePath: string, subspecFile = "00-one.md"): void {
   mkdirSync(stagePath, { recursive: true });
@@ -568,9 +605,41 @@ describe("write loop", () => {
     expect(result.kind).toBe("contract_miss");
     expect(result.iterationsConsumed).toBe(1);
 
+    // spec.md is a direct existing regular file, so it's an eligible append target and the
+    // blocker lands rather than the append being skipped.
     const spec = readFileSync(join(jarvisRoot, "worktrees", "demo", "write-run", "spec.md"), "utf8");
     expect(spec).toContain("## Blocker");
     expect(spec).toContain("artifact.exists");
+  });
+
+  test("contract_miss propagates append failure for eligible blocker target", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const branchName = "contract-miss-append-failure";
+    const worktree = join(jarvisRoot, "worktrees", "demo", branchName);
+    mkdirSync(worktree, { recursive: true });
+    const specMdPath = join(worktree, "spec.md");
+    writeFileSync(specMdPath, "- [ ] work\n", "utf8");
+    chmodSync(specMdPath, 0o444);
+    const sink = new TestLogSink();
+
+    try {
+      await expect(
+        runLoop({
+          jarvisRoot,
+          stateDbPath,
+          branchName,
+          logSink: sink,
+          bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: false }),
+        }),
+      ).rejects.toThrow();
+    } finally {
+      chmodSync(specMdPath, 0o644);
+    }
+
+    // The append failure propagates before terminal settlement: no contract_miss_detail and no
+    // loop_finished were ever logged for this run.
+    expect(sink.events.some((e) => e.event.kind === "contract_miss_detail")).toBe(false);
+    expect(sink.events.some((e) => e.event.kind === "loop_finished")).toBe(false);
   });
 
   test("hollow mutation checkpoint blocks on the active subspec and logs the detail", async () => {
@@ -1940,6 +2009,220 @@ describe("write loop", () => {
     const specPath = join(jarvisRoot, "worktrees", "demo", "plan-draft-normalizer-blocker", PLAN_DRAFT_SPEC_PATH);
     if (existsSync(specPath)) {
       expect(readFileSync(specPath, "utf8")).not.toContain("## Blocker");
+    }
+  });
+
+  test("plan-draft blocker contract_miss appends plan.draft.blocker to staged intent.md", async () => {
+    // Keystone checkpoint: reverting the all-contract plan.prompt.draft route to the prior
+    // artifact.exists-only route must turn this pin RED.
+    // @mutate v2/src/execution/write-loop.ts ": args.promptId === PLAN_DRAFT_PROMPT_ID" -> ": args.promptId === PLAN_DRAFT_PROMPT_ID && result.failedContractId === \"artifact.exists\""
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const branchName = "plan-draft-blocker-contract-route";
+    const sink = new TestLogSink();
+
+    const result = await runPlanDraftAgentBlocker(jarvisRoot, stateDbPath, branchName, sink);
+
+    expect(result.kind).toBe("contract_miss");
+    const detail = sink.getEventsForRun(result.runId).find((event) => event.kind === "contract_miss_detail");
+    expect(detail).toMatchObject({ kind: "contract_miss_detail", failedContractId: "plan.draft.blocker" });
+
+    const intentPath = join(jarvisRoot, "worktrees", "demo", branchName, ".jarvis-plan-stage", "intent.md");
+    const intent = readFileSync(intentPath, "utf8");
+    expect(intent).toContain("Artifact contract check failed: plan.draft.blocker");
+    expect(intent.split("## Blocker").length - 1).toBe(2);
+
+    const durableSpecPath = join(jarvisRoot, "worktrees", "demo", branchName, PLAN_DRAFT_SPEC_PATH);
+    expect(existsSync(durableSpecPath)).toBe(false);
+  });
+
+  test("plan-draft blocker contract_miss routes every failed contract to staged intent.md", async () => {
+    // Mutation checkpoint: inverting the plan.prompt.draft routing guard must turn this pin RED.
+    // @mutate v2/src/execution/write-loop.ts ": args.promptId === PLAN_DRAFT_PROMPT_ID" -> ": args.promptId !== PLAN_DRAFT_PROMPT_ID"
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+
+    const blockerSink = new TestLogSink();
+    const blockerBranch = "plan-draft-route-blocker-id";
+    const blockerResult = await runPlanDraftAgentBlocker(jarvisRoot, stateDbPath, blockerBranch, blockerSink);
+    expect(blockerResult.kind).toBe("contract_miss");
+    const blockerDetail = blockerSink
+      .getEventsForRun(blockerResult.runId)
+      .find((event) => event.kind === "contract_miss_detail");
+    expect(blockerDetail).toMatchObject({ kind: "contract_miss_detail", failedContractId: "plan.draft.blocker" });
+    const blockerIntentPath = join(jarvisRoot, "worktrees", "demo", blockerBranch, ".jarvis-plan-stage", "intent.md");
+    expect(readFileSync(blockerIntentPath, "utf8")).toContain("Artifact contract check failed: plan.draft.blocker");
+
+    const shapeSink = new TestLogSink();
+    const shapeBranch = "plan-draft-route-shape-id";
+    const shapeResult = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      branchName: shapeBranch,
+      artifactPath: ".jarvis-plan-stage",
+      specPath: PLAN_DRAFT_SPEC_PATH,
+      promptId: "plan.prompt.draft",
+      intentSeed: PLAN_DRAFT_INTENT_SEED,
+      logSink: shapeSink,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }),
+        },
+      ],
+    });
+    expect(shapeResult.kind).toBe("contract_miss");
+    const shapeDetail = shapeSink
+      .getEventsForRun(shapeResult.runId)
+      .find((event) => event.kind === "contract_miss_detail");
+    expect(shapeDetail).toMatchObject({ kind: "contract_miss_detail", failedContractId: "artifact.exists" });
+    const shapeIntentPath = join(jarvisRoot, "worktrees", "demo", shapeBranch, ".jarvis-plan-stage", "intent.md");
+    expect(readFileSync(shapeIntentPath, "utf8")).toContain("Artifact contract check failed: plan.draft.shape");
+  });
+
+  test("contract_miss skips absent, directory, or symlink blocker append target", async () => {
+    // Exercises `isEligibleBlockerAppendTarget`, the guard shared by every promptId's
+    // contract-miss blocker append, directly against the target the default write path
+    // resolves (`specPath`) rather than through plan-draft-specific routing.
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+
+    const cases: Array<{
+      branchName: string;
+      prepare: (targetPath: string, worktree: string) => void;
+      assertUnchanged: (targetPath: string, worktree: string) => void;
+    }> = [
+      {
+        branchName: "contract-miss-target-absent",
+        prepare: (targetPath) => unlinkSync(targetPath),
+        assertUnchanged: (targetPath) => expect(existsSync(targetPath)).toBe(false),
+      },
+      {
+        branchName: "contract-miss-target-dir",
+        prepare: (targetPath) => {
+          unlinkSync(targetPath);
+          mkdirSync(targetPath);
+        },
+        assertUnchanged: (targetPath) => {
+          expect(lstatSync(targetPath).isDirectory()).toBe(true);
+          expect(readdirSync(targetPath)).toEqual([]);
+        },
+      },
+      {
+        branchName: "contract-miss-target-symlink",
+        prepare: (targetPath, worktree) => {
+          const real = join(worktree, "spec-real.md");
+          writeFileSync(real, "real spec\n", "utf8");
+          unlinkSync(targetPath);
+          symlinkSync(real, targetPath);
+        },
+        assertUnchanged: (targetPath, worktree) => {
+          expect(lstatSync(targetPath).isSymbolicLink()).toBe(true);
+          expect(readFileSync(join(worktree, "spec-real.md"), "utf8")).toBe("real spec\n");
+        },
+      },
+    ];
+
+    for (const { branchName, prepare, assertUnchanged } of cases) {
+      const sink = new TestLogSink();
+      const worktree = join(jarvisRoot, "worktrees", "demo", branchName);
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        branchName,
+        logSink: sink,
+        bindings: [
+          {
+            id: "sim.1",
+            invoke: async ({ cwd }) => {
+              prepare(join(cwd, "spec.md"), cwd);
+              return { kind: "ok", stdout: "done", stderr: "" };
+            },
+          },
+        ],
+      });
+
+      expect(result.kind).toBe("contract_miss");
+      const detail = sink.getEventsForRun(result.runId).find((event) => event.kind === "contract_miss_detail");
+      expect(detail).toMatchObject({ kind: "contract_miss_detail", failedContractId: "artifact.exists" });
+
+      assertUnchanged(join(worktree, "spec.md"), worktree);
+    }
+  });
+
+  test("plan-draft blocker contract_miss skips absent or non-file staged intent.md", async () => {
+    // Mutation checkpoint: inverting the direct-existing-regular-file append guard must turn this
+    // pin RED by allowing a suppressed append.
+    // @mutate v2/src/execution/write-loop.ts "if (isEligibleBlockerAppendTarget(blockerPath)) {" -> "if (!isEligibleBlockerAppendTarget(blockerPath)) {"
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const blockedIntent = `${PLAN_DRAFT_INTENT_SEED}\n## Blocker\n\nAgent got stuck.\n`;
+
+    const cases: Array<{
+      branchName: string;
+      expectedFailedContractId: string;
+      invoke: (cwd: string) => void;
+      assertUnchanged: (intentPath: string, worktree: string) => void;
+    }> = [
+      {
+        // Symlinking staged intent.md to a file whose content trips the genuine-blocker check
+        // fails the `plan.draft.blocker` contract at an ineligible (symlink) target.
+        branchName: "plan-draft-blocker-target-symlink",
+        expectedFailedContractId: "plan.draft.blocker",
+        invoke: (cwd) => {
+          const stagedIntent = join(cwd, ".jarvis-plan-stage", "intent.md");
+          const real = join(cwd, "intent-real.md");
+          writeFileSync(real, blockedIntent, "utf8");
+          unlinkSync(stagedIntent);
+          symlinkSync(real, stagedIntent);
+        },
+        assertUnchanged: (intentPath, worktree) => {
+          expect(lstatSync(intentPath).isSymbolicLink()).toBe(true);
+          expect(readFileSync(join(worktree, "intent-real.md"), "utf8")).toBe(blockedIntent);
+        },
+      },
+      {
+        // An absent staged intent.md passes the `plan.draft.blocker` contract (nothing to read)
+        // and instead fails shape (`artifact.exists`) at an absent target.
+        branchName: "plan-draft-blocker-target-absent",
+        expectedFailedContractId: "artifact.exists",
+        invoke: (cwd) => {
+          unlinkSync(join(cwd, ".jarvis-plan-stage", "intent.md"));
+        },
+        assertUnchanged: (intentPath) => {
+          expect(existsSync(intentPath)).toBe(false);
+        },
+      },
+    ];
+
+    for (const { branchName, expectedFailedContractId, invoke, assertUnchanged } of cases) {
+      const sink = new TestLogSink();
+      const worktree = join(jarvisRoot, "worktrees", "demo", branchName);
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        branchName,
+        artifactPath: ".jarvis-plan-stage",
+        specPath: PLAN_DRAFT_SPEC_PATH,
+        promptId: "plan.prompt.draft",
+        intentSeed: PLAN_DRAFT_INTENT_SEED,
+        logSink: sink,
+        bindings: [
+          {
+            id: "agent",
+            invoke: async ({ cwd }) => {
+              invoke(cwd);
+              return { kind: "ok", stdout: "done", stderr: "" };
+            },
+          },
+        ],
+      });
+
+      expect(result.kind).toBe("contract_miss");
+      const detail = sink.getEventsForRun(result.runId).find((event) => event.kind === "contract_miss_detail");
+      expect(detail).toMatchObject({ kind: "contract_miss_detail", failedContractId: expectedFailedContractId });
+
+      const intentPath = join(worktree, ".jarvis-plan-stage", "intent.md");
+      assertUnchanged(intentPath, worktree);
+
+      const durableSpecPath = join(worktree, PLAN_DRAFT_SPEC_PATH);
+      expect(existsSync(durableSpecPath)).toBe(false);
     }
   });
 

@@ -174,6 +174,8 @@ All four placeholders are mandatory; a missing placeholder fails the render.
 
 **Harness blocker clearing on redraft:** `Artifact contract check failed:` is a reserved harness-only marker — the exact text `appendBlockerToSpec` prefixes a normalizer rejection message with when it appends a `## Blocker` section to staged `intent.md`. Immediately before either preserved-attempt prompt renders (a redraft when `.jarvis-plan-stage/index.md` already exists, or a `write.staged-markdown-lint-reprompt` reprompt), the write step scans staged `intent.md` for every exact `## Blocker` section whose trimmed body starts with that marker and removes each one (heading and full body); non-matching `## Blocker` sections (agent-authored) and all other content are left byte-for-byte intact. A fresh draft (no preserved stage) never runs this scan. Each removed section's diagnostic payload — the text after the marker, trimmed at both ends with interior whitespace and newlines preserved — is collected in source order and, when at least one was collected, rendered as one `## Prior harness normalizer diagnostics` section (a numbered `<<<HARNESS_NORMALIZER_DIAGNOSTIC n BEGIN>>>`/`...END>>>` data zone per payload, separated by a blank line) appended to that attempt's prompt; the section is omitted entirely when nothing was removed. Clearing is one-shot: it runs only immediately before that attempt's prompt renders, so if the attempt itself fails (prompt rendering or invocation), the cleared stage bytes stay cleared but those diagnostics are not replayed on a later attempt — a later normalizer rejection appends and forwards only its own new blocker. This scan runs before the `plan.draft.blocker` prerequisite gate above, but the gate's `intentBefore` baseline and evaluation are unchanged: a non-reserved (agent-authored) `## Blocker` section still settles `plan.draft.blocker`, including when it sat beside a stripped harness section.
 
+This clearing-and-forwarding mechanic is not normalizer-specific: it runs for a harness `## Blocker` appended by *any* `plan.prompt.draft` contract miss, since every such miss routes its append to staged `intent.md`. A `plan.draft.blocker` or bare-missing-tree `plan.draft.shape` miss appends the same reserved marker, but with the bare failed contract ID as payload rather than a normalizer message; a preserved-stage follow-up clears and forwards that payload the same way, still under the `## Prior harness normalizer diagnostics` heading. Because stage preservation requires `.jarvis-plan-stage/index.md`, a blocker or missing-tree miss with no staged tree wipes the stage instead of preserving it, so this recycling is reachable only when the agent had produced a full tree before the contract miss.
+
 ## Intent split landing contracts
 
 `intent.prompt.split` write loops validate staged ready-intent shape before accepting `done`, using the same `validateIntentStage` pipeline as deferred landing (prefix normalize → content repair → filename validation → content validation), the same rogue-path source (`findIntentLandingRoguePaths` over `listWorktreeChangedPaths`) as `landIntentWorkflowOutput`, and the same `.jarvis-intent-stage/` modified-path subset for shape validation.
@@ -245,7 +247,7 @@ Unlike generic review's reusable verdict-only actuator, intent review's composed
 
 Plan light review is a specialized read-only-critic / write-actuator cycle over the materialized post-draft spec tree. Generic `review` forwards only a verdict to its actuator; plan light review renders `plan.prompt.review.critic` and `plan.prompt.review-actuator` against the built worktree state: spec files under `<spec-dir>/`, seeded `intent.md`, jarvis-bundled spec guidance, and the critic's stdout verdict. Builder-time metadata is not part of the live render context.
 
-Review `cwd` and `<spec-dir>/verdict-plan.md` resolve from the draft step's published worktree and timestamped spec directory. The executor clears `verdict-plan.md` before each critic invocation, writes the critic stdout verbatim on success, and skips the actuator when the trimmed verdict is empty. After the final cycle, the review completion seam re-lints staged plan Markdown before promotion (same post-actuator gate as intent review; see [`workflow-runner.md`](./workflow-runner.md#review-dispatch)), then plan landing publishes `verdict-plan.md` at the durable spec root, including zero-byte no-findings verdicts; landing retries reuse the review checkpoint, while a fresh dispatch runs review again.
+Review `cwd` and `<spec-dir>/verdict-plan.md` resolve from the draft step's published worktree and timestamped spec directory. The executor clears `verdict-plan.md` before each critic invocation, writes the critic stdout verbatim on success, and skips the actuator when the trimmed verdict is empty. After the final cycle, the review completion seam re-lints staged plan Markdown before promotion (same post-actuator gate as intent review; see [`workflow-runner.md`](./workflow-runner.md#review-dispatch)), then plan landing excludes `verdict-plan.md` from staging and never publishes it — the durable spec root never carries the verdict, zero-byte or otherwise; landing retries reuse the review checkpoint, while a fresh dispatch runs review again.
 
 **Role boundary:** the critic is advisory-only. After each critic invocation the executor snapshots the worktree and fails the cycle when any filesystem change occurred; unauthorized edits are restored before the actuator runs. The actuator is the sole mutator of the spec tree. Actuator prompts carry the unchanged verdict plus the same materialized draft context as the critic.
 
@@ -476,8 +478,16 @@ The loop classifies and routes results:
   
   All contracts pass → success (`complete`). Repairable completion-checkpoint misses follow the guard, pure-target, and pure-keystone arms above. Other
   contract failures append `## Blocker` to the artifact
-  (`spec.criteria-ticked` → active subspec; `artifact.exists` → routing index
-  for linked runs) and stop (`contract_miss`). A missing terminal
+  (`spec.criteria-ticked` → active subspec; every `plan.prompt.draft` contract
+  miss, regardless of which contract failed → staged
+  `<expectedArtifactPath>/intent.md`, never the unpublished durable spec
+  directory; `artifact.exists` on other prompts → routing index for linked
+  runs) and stop (`contract_miss`). The append target must be a direct
+  existing regular file (`lstat`-checked; an absent path, a directory, or a
+  symlink — even to a regular file — is ineligible); an ineligible target is
+  skipped without being created or replaced, `contract_miss_detail` logging
+  and terminal settlement proceed unchanged, and an append failure on an
+  eligible target propagates uncaught before that settlement. A missing terminal
   token after the one re-prompt uses the same contract checks: all pass →
   `complete` (token `done`); any fail → `invalid_token` (no `## Blocker`
   append).

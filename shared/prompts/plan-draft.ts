@@ -4,6 +4,23 @@ import { enforceDelimiterPolicy, renderTemplateWithDeclarations } from "./render
 
 export const PLAN_DRAFT_PROMPT_ID = "plan.prompt.draft";
 
+const HARNESS_NORMALIZER_DIAGNOSTICS_HEADING = "## Prior harness normalizer diagnostics";
+
+/**
+ * Canonical ordered `## Prior harness normalizer diagnostics` section for a preserved plan-draft
+ * redraft prompt: one numbered `<<<HARNESS_NORMALIZER_DIAGNOSTIC n BEGIN>>>`/`...END>>>` data zone
+ * per payload, in source order, separated by one blank line. Callers only invoke this with a
+ * non-empty list; the section is omitted entirely when no diagnostics were collected.
+ */
+export function buildHarnessNormalizerDiagnosticsSection(diagnostics: readonly string[]): string {
+  const records = diagnostics.map((payload, index) => {
+    const n = index + 1;
+    const trimmed = payload.trim();
+    return `<<<HARNESS_NORMALIZER_DIAGNOSTIC ${n} BEGIN>>>\n${trimmed}\n<<<HARNESS_NORMALIZER_DIAGNOSTIC ${n} END>>>`;
+  });
+  return `${HARNESS_NORMALIZER_DIAGNOSTICS_HEADING}\n\n${records.join("\n\n")}`;
+}
+
 export function buildPlanDraftPrompt(opts: {
   name: string;
   intent: string;
@@ -13,6 +30,7 @@ export function buildPlanDraftPrompt(opts: {
   flatSpecLayout?: boolean;
   specDir?: string;
   stepRules?: string;
+  harnessNormalizerDiagnostics?: readonly string[];
 }): string {
   const registry = loadPromptRegistry();
   const artifact = registry.getById(PLAN_DRAFT_PROMPT_ID);
@@ -67,6 +85,10 @@ export function buildPlanDraftPrompt(opts: {
     sections.push(`## Step completion
 
 ${opts.stepRules.trim()}`);
+  }
+
+  if (opts.harnessNormalizerDiagnostics !== undefined && opts.harnessNormalizerDiagnostics.length > 0) {
+    sections.push(buildHarnessNormalizerDiagnosticsSection(opts.harnessNormalizerDiagnostics));
   }
 
   return sections.join("\n\n");

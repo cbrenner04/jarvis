@@ -18,7 +18,7 @@ import {
   INTENT_SPLIT_PROMPT_ID,
   listIntentStageMarkdownFiles,
 } from "../../../shared/prompts/intent-split.ts";
-import { buildPlanDraftPrompt } from "../../../shared/prompts/plan-draft.ts";
+import { buildHarnessNormalizerDiagnosticsSection, buildPlanDraftPrompt } from "../../../shared/prompts/plan-draft.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { PromptRenderingError, renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import { hasGenuineBlocker, parseSpec } from "../../../shared/spec-parser.ts";
@@ -240,6 +240,89 @@ function runWriteStep(
   });
 }
 
+/** Reserved marker `appendBlockerToSpec` writes; identifies a harness-authored `## Blocker`. */
+const RESERVED_HARNESS_BLOCKER_MARKER = "Artifact contract check failed:";
+const BLOCKER_HEADING = "## Blocker";
+const LEVEL_TWO_HEADING_PATTERN = /^##\s/;
+
+type BlockerSection = { start: number; end: number; body: string };
+
+/** Every exact `## Blocker` section (heading through the next level-two heading, or EOF). */
+function findBlockerSections(lines: readonly string[]): BlockerSection[] {
+  const sections: BlockerSection[] = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    if (lines[i] !== BLOCKER_HEADING) continue;
+    let end = lines.length;
+    for (let j = i + 1; j < lines.length; j += 1) {
+      if (LEVEL_TWO_HEADING_PATTERN.test(lines[j] ?? "")) {
+        end = j;
+        break;
+      }
+    }
+    sections.push({
+      start: i,
+      end,
+      body: lines
+        .slice(i + 1, end)
+        .join("\n")
+        .trim(),
+    });
+    i = end - 1;
+  }
+  return sections;
+}
+
+function isReservedHarnessBlockerBody(body: string): boolean {
+  return body.startsWith(RESERVED_HARNESS_BLOCKER_MARKER);
+}
+
+/**
+ * Remove reserved harness-marker `## Blocker` sections from staged plan-draft `intent.md`,
+ * collecting their diagnostic payloads (text after the marker, trimmed) in source order.
+ * Non-reserved `## Blocker` sections (agent-authored) and all other content are left
+ * byte-for-byte intact.
+ */
+function stripReservedHarnessBlockerSections(content: string): { content: string; diagnostics: string[] } {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const allSections = findBlockerSections(lines);
+  const reserved = allSections.filter((section) => isReservedHarnessBlockerBody(section.body));
+  if (reserved.length === 0) {
+    return { content, diagnostics: [] };
+  }
+
+  const remaining = lines.slice();
+  for (const section of [...reserved].reverse()) {
+    remaining.splice(section.start, section.end - section.start);
+  }
+
+  return {
+    content: remaining.join("\n"),
+    diagnostics: reserved.map((section) => section.body.slice(RESERVED_HARNESS_BLOCKER_MARKER.length).trim()),
+  };
+}
+
+/**
+ * On a preserved plan-draft attempt, clear reserved harness normalizer blockers from staged
+ * `intent.md` and return their diagnostic payloads in source order. One-shot: this only reads
+ * and rewrites the file immediately before the attempt's prompt renders, so a later attempt
+ * never replays diagnostics already forwarded (or dropped) here.
+ */
+function collectAndClearHarnessDiagnostics(intentPath: string): string[] {
+  if (!existsSync(intentPath)) return [];
+  const current = readFileSync(intentPath, "utf8");
+  const { content, diagnostics } = stripReservedHarnessBlockerSections(current);
+  if (diagnostics.length > 0) {
+    writeFileSync(intentPath, content, "utf8");
+  }
+  return diagnostics;
+}
+
+/** Appends the canonical harness-diagnostics section to `prompt` when there is any to forward. */
+function appendHarnessDiagnosticsSection(prompt: string, diagnostics: readonly string[]): string {
+  if (diagnostics.length === 0) return prompt;
+  return `${prompt}\n\n${buildHarnessNormalizerDiagnosticsSection(diagnostics)}`;
+}
+
 async function executePlanDraftWrite(
   args: WriteExecuteInput,
   worktreePath: string,
@@ -257,6 +340,8 @@ async function executePlanDraftWrite(
     writeFileSync(intentPath, args.intentSeed ?? "", "utf8");
   }
 
+  const harnessDiagnostics = preserveStage ? collectAndClearHarnessDiagnostics(intentPath) : [];
+
   const name = getSpecDirName(args.specPath);
   const targetDir = getTargetDir(args.specPath);
   const specGuidance = readFileSync(getSpecGuidancePath(), "utf8");
@@ -265,12 +350,15 @@ async function executePlanDraftWrite(
   try {
     prompt =
       reprompt !== undefined
-        ? renderArtifactTemplate(loadPromptRegistry().getById("write.staged-markdown-lint-reprompt"), {
-            RULE_ID: reprompt.ruleId,
-            OFFENDING_FILE: reprompt.offendingFile,
-            STAGING_DIR: args.expectedArtifactPath,
-            VIOLATION: reprompt.message,
-          })
+        ? appendHarnessDiagnosticsSection(
+            renderArtifactTemplate(loadPromptRegistry().getById("write.staged-markdown-lint-reprompt"), {
+              RULE_ID: reprompt.ruleId,
+              OFFENDING_FILE: reprompt.offendingFile,
+              STAGING_DIR: args.expectedArtifactPath,
+              VIOLATION: reprompt.message,
+            }),
+            harnessDiagnostics,
+          )
         : buildPlanDraftPrompt({
             name,
             intent: args.intentSeed ?? "",
@@ -279,6 +367,7 @@ async function executePlanDraftWrite(
             targetDir,
             specDir,
             stepRules: args.stepRules,
+            harnessNormalizerDiagnostics: harnessDiagnostics,
           });
   } catch (err) {
     if (err instanceof PromptRenderingError) {

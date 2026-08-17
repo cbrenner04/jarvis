@@ -2211,14 +2211,41 @@ describe("failed pipeline reopen", () => {
         stages: stageSeeds.map((_, index) => ({ stageId: `stage-${index}`, kind: "approval" })),
       },
     });
+    rawSeedStages(
+      pipelineId,
+      stageSeeds.map((seed, index) => ({ ...seed, stageId: `stage-${index}` })),
+    );
+    const pipeline = loadPipelineOrThrow(store, pipelineId);
+    return { pipelineId, stages: pipeline.stages };
+  }
+
+  type BranchStageSeed = StageSeed & { stageId: string; branchKey?: string };
+
+  /** Admit a fan-out pipeline: one authored `approval` stage per `stageId`, plus one branch row per admission. */
+  function createFanOutPipeline(
+    name: string,
+    stageIds: string[],
+    branchAdmissions: Array<{ stageId: string; branchKey: string }>,
+  ): string {
+    const pipelineId = store.createPipeline({
+      definition: { name, stages: stageIds.map((stageId) => ({ stageId, kind: "approval" })) },
+    });
+    for (const admission of branchAdmissions) {
+      store.createPipelineStageBranch({ pipelineId, stageId: admission.stageId, branchKey: admission.branchKey });
+    }
+    return pipelineId;
+  }
+
+  /** Raw-seed lifecycle fields on rows keyed by `(stageId, branchKey)`; `branchKey` omitted defaults to `"default"`. */
+  function rawSeedStages(pipelineId: string, seeds: BranchStageSeed[]): void {
     const raw = new Database(TEST_DB_PATH);
     try {
-      stageSeeds.forEach((seed, index) => {
+      for (const seed of seeds) {
         raw
           .prepare(
             `UPDATE pipeline_stages
              SET status = ?, workflow_invocation_id = ?, started_at = ?, ended_at = ?, artifact = ?, failure_detail = ?
-             WHERE pipeline_id = ? AND stage_id = ?`,
+             WHERE pipeline_id = ? AND stage_id = ? AND branch_key = ?`,
           )
           .run(
             seed.status,
@@ -2228,14 +2255,44 @@ describe("failed pipeline reopen", () => {
             seed.artifact === undefined ? null : JSON.stringify(seed.artifact),
             seed.failureDetail === undefined ? null : JSON.stringify(seed.failureDetail),
             pipelineId,
-            `stage-${index}`,
+            seed.stageId,
+            seed.branchKey ?? "default",
           );
-      });
+      }
     } finally {
       raw.close();
     }
-    const pipeline = loadPipelineOrThrow(store, pipelineId);
-    return { pipelineId, stages: pipeline.stages };
+  }
+
+  type RawPipelineStageRow = {
+    id: string;
+    pipeline_id: string;
+    stage_id: string;
+    branch_key: string;
+    position: number;
+    status: string;
+    workflow_invocation_id: string | null;
+    started_at: number | null;
+    ended_at: number | null;
+    artifact: string | null;
+    failure_detail: string | null;
+    decided_at: number | null;
+  };
+
+  /** Every raw `pipeline_stages` column for one pipeline, ordered by durable `id` for stable diffing. */
+  function rawStageRows(pipelineId: string): RawPipelineStageRow[] {
+    const raw = new Database(TEST_DB_PATH);
+    try {
+      return raw
+        .prepare(
+          `SELECT id, pipeline_id, stage_id, branch_key, position, status, workflow_invocation_id, started_at,
+                  ended_at, artifact, failure_detail, decided_at
+           FROM pipeline_stages WHERE pipeline_id = ? ORDER BY id`,
+        )
+        .all(pipelineId) as RawPipelineStageRow[];
+    } finally {
+      raw.close();
+    }
   }
 
   test("reopens a valid failed-plus-skipped-suffix pipeline in place and returns the failed row durable id", () => {
@@ -2651,6 +2708,528 @@ describe("failed pipeline reopen", () => {
       failedStageRecordId: "plan-alpha",
       suffixStageRecordIds: ["implement-alpha"],
     });
+  });
+
+  test("reopens only the named failed fan-out branch while sibling rows stay unchanged", () => {
+    const pipelineId = createFanOutPipeline(
+      "reopen-branch-scoped",
+      ["stage-0", "stage-1", "stage-2"],
+      [
+        { stageId: "stage-1", branchKey: "alpha" },
+        { stageId: "stage-1", branchKey: "beta" },
+        { stageId: "stage-1", branchKey: "gamma" },
+        { stageId: "stage-1", branchKey: "delta" },
+        { stageId: "stage-2", branchKey: "alpha" },
+        { stageId: "stage-2", branchKey: "beta" },
+      ],
+    );
+    rawSeedStages(pipelineId, [
+      {
+        stageId: "stage-0",
+        status: "succeeded",
+        workflowInvocationId: "wf-0",
+        startedAt: 10,
+        endedAt: 20,
+        artifact: { entryRunId: "run-0" },
+      },
+      { stageId: "stage-1", status: "skipped", artifact: { note: "fan-out placeholder" } },
+      {
+        stageId: "stage-1",
+        branchKey: "alpha",
+        status: "failed",
+        workflowInvocationId: "wf-1-alpha",
+        startedAt: 30,
+        endedAt: 40,
+        artifact: { entryRunId: "run-1-alpha" },
+        failureDetail: { code: "dispatch_refused", message: "boom" },
+      },
+      {
+        stageId: "stage-1",
+        branchKey: "beta",
+        status: "succeeded",
+        workflowInvocationId: "wf-1-beta",
+        startedAt: 31,
+        endedAt: 41,
+        artifact: { entryRunId: "run-1-beta" },
+      },
+      {
+        stageId: "stage-1",
+        branchKey: "gamma",
+        status: "failed",
+        workflowInvocationId: "wf-1-gamma",
+        startedAt: 32,
+        endedAt: 42,
+        artifact: { entryRunId: "run-1-gamma" },
+        failureDetail: { message: "gamma failed" },
+      },
+      { stageId: "stage-1", branchKey: "delta", status: "awaiting" },
+      { stageId: "stage-2", status: "skipped" },
+      {
+        stageId: "stage-2",
+        branchKey: "alpha",
+        status: "skipped",
+        startedAt: 50,
+        endedAt: 60,
+        artifact: { note: "blocked-alpha" },
+      },
+      {
+        stageId: "stage-2",
+        branchKey: "beta",
+        status: "succeeded",
+        workflowInvocationId: "wf-2-beta",
+        startedAt: 51,
+        endedAt: 61,
+        artifact: { entryRunId: "run-2-beta" },
+      },
+    ]);
+
+    const before = rawStageRows(pipelineId);
+    const failedRow = before.find((row) => row.stage_id === "stage-1" && row.branch_key === "alpha");
+    const suffixRow = before.find((row) => row.stage_id === "stage-2" && row.branch_key === "alpha");
+    if (!failedRow || !suffixRow) throw new Error("target rows should exist");
+
+    // Keystone checkpoint: forcing whole-pipeline selection hits gamma's sibling failure too and refuses.
+    // @mutate v2/src/persistence/state-store.ts "const branchKey = args.branchKey;" -> "const branchKey = undefined;"
+    // Mutation checkpoint: disabling the named-scope dispatch falls back to whole-pipeline analysis.
+    // @mutate v2/src/persistence/state-store.ts "if (branchKey !== undefined && branchKey !== DEFAULT_PIPELINE_STAGE_BRANCH_KEY) {" -> "if (false) {"
+    // Mutation checkpoint: disabling the boundary membership skip aborts the search at stage-0 (no alpha row there).
+    // @mutate v2/src/persistence/state-store.ts "if (defaultRows.length === 0 || namedRows.length === 0) continue;" -> "if (false) continue;"
+    // Mutation checkpoint: dropping the scope from the in-transaction re-analysis re-widens it to whole-pipeline,
+    // which hits gamma's sibling failure and refuses.
+    // @mutate v2/src/persistence/state-store.ts "analyzeFailedPipelineReopenShape(freshStages, branchKey)" -> "analyzeFailedPipelineReopenShape(freshStages)"
+    expect(store.reopenFailedPipeline({ pipelineId, branchKey: "alpha" })).toEqual({
+      kind: "applied",
+      stageRecordId: failedRow.id,
+    });
+
+    const after = rawStageRows(pipelineId);
+    const afterById = new Map(after.map((row) => [row.id, row]));
+
+    const reopenedFailed = afterById.get(failedRow.id);
+    if (!reopenedFailed) throw new Error("failed row should exist");
+    expect(reopenedFailed.status).toBe("pending");
+    expect(reopenedFailed.workflow_invocation_id).toBeNull();
+    expect(reopenedFailed.started_at).toBeNull();
+    expect(reopenedFailed.ended_at).toBeNull();
+    expect(reopenedFailed.artifact).toBeNull();
+    expect(reopenedFailed.failure_detail).toBeNull();
+    expect(reopenedFailed.decided_at).toBeNull();
+
+    const reopenedSuffix = afterById.get(suffixRow.id);
+    if (!reopenedSuffix) throw new Error("suffix row should exist");
+    expect(reopenedSuffix.status).toBe("pending");
+    expect(reopenedSuffix.workflow_invocation_id).toBeNull();
+    expect(reopenedSuffix.started_at).toBeNull();
+    expect(reopenedSuffix.ended_at).toBeNull();
+    expect(reopenedSuffix.artifact).toBeNull();
+    expect(reopenedSuffix.failure_detail).toBeNull();
+    expect(reopenedSuffix.decided_at).toBeNull();
+
+    const targetIds = new Set([failedRow.id, suffixRow.id]);
+    for (const beforeRow of before) {
+      if (targetIds.has(beforeRow.id)) continue;
+      expect(afterById.get(beforeRow.id)).toEqual(beforeRow);
+    }
+    expect(after).toHaveLength(before.length);
+  });
+
+  test("branch-scoped reopen refuses absent, non-failed, and malformed continuations without mutation", () => {
+    const pipelineId = createFanOutPipeline(
+      "reopen-branch-refusals",
+      ["stage-0", "stage-1", "stage-2"],
+      [
+        { stageId: "stage-1", branchKey: "alpha" },
+        { stageId: "stage-2", branchKey: "alpha" },
+        { stageId: "stage-1", branchKey: "beta" },
+        { stageId: "stage-2", branchKey: "beta" },
+        { stageId: "stage-1", branchKey: "delta" },
+        { stageId: "stage-2", branchKey: "delta" },
+        { stageId: "stage-2", branchKey: "epsilon" },
+        { stageId: "stage-1", branchKey: "zeta" },
+        { stageId: "stage-2", branchKey: "zeta" },
+        { stageId: "stage-1", branchKey: "eta" },
+      ],
+    );
+    rawSeedStages(pipelineId, [
+      { stageId: "stage-0", status: "succeeded" },
+      // alpha: a genuinely replayable sibling failure a malformed scope must never fall back to.
+      { stageId: "stage-1", branchKey: "alpha", status: "failed" },
+      { stageId: "stage-2", branchKey: "alpha", status: "skipped" },
+      // beta: complete, non-failed continuation.
+      { stageId: "stage-1", branchKey: "beta", status: "succeeded" },
+      { stageId: "stage-2", branchKey: "beta", status: "succeeded" },
+      // delta: two failures within its own continuation.
+      { stageId: "stage-1", branchKey: "delta", status: "failed" },
+      { stageId: "stage-2", branchKey: "delta", status: "failed" },
+      // epsilon: diverges only at stage-2; its stage-1 default predecessor is left "pending" (invalid).
+      { stageId: "stage-2", branchKey: "epsilon", status: "failed" },
+      // zeta: failed row followed by a non-skipped suffix.
+      { stageId: "stage-1", branchKey: "zeta", status: "failed" },
+      { stageId: "stage-2", branchKey: "zeta", status: "pending" },
+      // eta: diverges at stage-1 but never admitted at stage-2 (incomplete continuation).
+      { stageId: "stage-1", branchKey: "eta", status: "failed" },
+    ]);
+
+    const before = rawStageRows(pipelineId);
+
+    expect(store.reopenFailedPipeline({ pipelineId, branchKey: "gamma" }).kind).toBe("refused");
+    expect(store.reopenFailedPipeline({ pipelineId, branchKey: "beta" }).kind).toBe("refused");
+    expect(store.reopenFailedPipeline({ pipelineId, branchKey: "delta" })).toEqual({
+      kind: "refused",
+      pipelineId,
+      reason: "multiple_failed_stages",
+    });
+    expect(store.reopenFailedPipeline({ pipelineId, branchKey: "epsilon" })).toEqual({
+      kind: "refused",
+      pipelineId,
+      reason: "malformed_continuation",
+    });
+    expect(store.reopenFailedPipeline({ pipelineId, branchKey: "zeta" })).toEqual({
+      kind: "refused",
+      pipelineId,
+      reason: "malformed_continuation",
+    });
+    expect(store.reopenFailedPipeline({ pipelineId, branchKey: "eta" })).toEqual({
+      kind: "refused",
+      pipelineId,
+      reason: "malformed_continuation",
+    });
+
+    const after = rawStageRows(pipelineId);
+    expect(after).toEqual(before);
+    // alpha's replayable failure specifically must never have been touched by any of the above.
+    expect(after.find((row) => row.stage_id === "stage-1" && row.branch_key === "alpha")?.status).toBe("failed");
+
+    // Fixture-level guard coverage for shapes unreachable through the store's own admission API
+    // (duplicated/misaligned rows never occur via createPipeline/createPipelineStageBranch).
+    const base = {
+      pipelineId: "fixture-pipeline",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: null,
+      artifact: null,
+      failureDetail: null,
+      decidedAt: null,
+    };
+    const prefix0: PipelineStageRecord = {
+      ...base,
+      id: "prefix-0",
+      stageId: "stage-0",
+      branchKey: "default",
+      position: 0,
+      status: "succeeded",
+    };
+
+    // Mutation checkpoint: allowing >1 rows on either side of the boundary lets the first duplicate silently win.
+    // @mutate v2/src/persistence/state-store.ts "if (defaultRows.length > 1 || namedRows.length > 1) return null;" -> "if (false) return null;"
+    const dupDefaultA: PipelineStageRecord = {
+      ...base,
+      id: "dup-default-a",
+      stageId: "stage-1a",
+      branchKey: "default",
+      position: 1,
+      status: "pending",
+    };
+    const dupDefaultB: PipelineStageRecord = {
+      ...base,
+      id: "dup-default-b",
+      stageId: "stage-1b",
+      branchKey: "default",
+      position: 1,
+      status: "pending",
+    };
+    const namedAtDup: PipelineStageRecord = {
+      ...base,
+      id: "named-dup",
+      stageId: "stage-1a",
+      branchKey: "target",
+      position: 1,
+      status: "failed",
+    };
+    expect(analyzeFailedPipelineReopenShape([prefix0, dupDefaultA, dupDefaultB, namedAtDup], "target")).toEqual({
+      kind: "invalid",
+      reason: "malformed_continuation",
+    });
+
+    // Mutation checkpoint: dropping the stageId comparison lets a misaligned pair pass as the boundary.
+    // @mutate v2/src/persistence/state-store.ts "if (!defaultRow || !namedRow || defaultRow.stageId !== namedRow.stageId) return null;" -> "if (!defaultRow || !namedRow) return null;"
+    const misalignedDefault: PipelineStageRecord = {
+      ...base,
+      id: "misaligned-default",
+      stageId: "stage-1-default",
+      branchKey: "default",
+      position: 1,
+      status: "pending",
+    };
+    const misalignedNamed: PipelineStageRecord = {
+      ...base,
+      id: "misaligned-named",
+      stageId: "stage-1-other",
+      branchKey: "target",
+      position: 1,
+      status: "failed",
+    };
+    expect(analyzeFailedPipelineReopenShape([prefix0, misalignedDefault, misalignedNamed], "target")).toEqual({
+      kind: "invalid",
+      reason: "malformed_continuation",
+    });
+
+    // Mutation checkpoint: skipping the null-boundary refusal lets an all-named row set (no `default` anywhere) pass.
+    // @mutate v2/src/persistence/state-store.ts "if (boundaryPosition === null) return null;" -> "if (false) return null;"
+    const onlyNamed0: PipelineStageRecord = {
+      ...base,
+      id: "only-named-0",
+      stageId: "stage-0",
+      branchKey: "target",
+      position: 0,
+      status: "succeeded",
+    };
+    const onlyNamed1: PipelineStageRecord = {
+      ...base,
+      id: "only-named-1",
+      stageId: "stage-1",
+      branchKey: "target",
+      position: 1,
+      status: "failed",
+    };
+    expect(analyzeFailedPipelineReopenShape([onlyNamed0, onlyNamed1], "target")).toEqual({
+      kind: "invalid",
+      reason: "malformed_continuation",
+    });
+
+    // Mutation checkpoint: allowing a duplicated prefix row through lets the first duplicate silently win.
+    // @mutate v2/src/persistence/state-store.ts "if (defaultRows.length !== 1) return null;" -> "if (false) return null;"
+    const prefixDup1a: PipelineStageRecord = {
+      ...base,
+      id: "prefix-dup-1a",
+      stageId: "stage-1a",
+      branchKey: "default",
+      position: 1,
+      status: "succeeded",
+    };
+    const prefixDup1b: PipelineStageRecord = {
+      ...base,
+      id: "prefix-dup-1b",
+      stageId: "stage-1b",
+      branchKey: "default",
+      position: 1,
+      status: "succeeded",
+    };
+    const boundaryDefault2: PipelineStageRecord = {
+      ...base,
+      id: "boundary-default-2",
+      stageId: "stage-2",
+      branchKey: "default",
+      position: 2,
+      status: "pending",
+    };
+    const namedAt2: PipelineStageRecord = {
+      ...base,
+      id: "named-2",
+      stageId: "stage-2",
+      branchKey: "target",
+      position: 2,
+      status: "failed",
+    };
+    expect(
+      analyzeFailedPipelineReopenShape([prefix0, prefixDup1a, prefixDup1b, boundaryDefault2, namedAt2], "target"),
+    ).toEqual({ kind: "invalid", reason: "malformed_continuation" });
+
+    // Mutation checkpoint: allowing a duplicated continuation row through lets the first duplicate silently win.
+    // @mutate v2/src/persistence/state-store.ts "if (namedRows.length !== 1) return null;" -> "if (false) return null;"
+    const boundaryDefault1: PipelineStageRecord = {
+      ...base,
+      id: "boundary-default-1",
+      stageId: "stage-1",
+      branchKey: "default",
+      position: 1,
+      status: "pending",
+    };
+    const boundaryNamed1: PipelineStageRecord = {
+      ...base,
+      id: "boundary-named-1",
+      stageId: "stage-1",
+      branchKey: "target",
+      position: 1,
+      status: "failed",
+    };
+    const dupNamed2a: PipelineStageRecord = {
+      ...base,
+      id: "dup-named-2a",
+      stageId: "stage-2",
+      branchKey: "target",
+      position: 2,
+      status: "skipped",
+    };
+    const dupNamed2b: PipelineStageRecord = {
+      ...base,
+      id: "dup-named-2b",
+      stageId: "stage-2",
+      branchKey: "target",
+      position: 2,
+      status: "skipped",
+    };
+    expect(
+      analyzeFailedPipelineReopenShape([prefix0, boundaryDefault1, boundaryNamed1, dupNamed2a, dupNamed2b], "target"),
+    ).toEqual({ kind: "invalid", reason: "malformed_continuation" });
+  });
+
+  test("branchKey default aliases the unscoped reopen contract", () => {
+    const seeds: StageSeed[] = [
+      { status: "succeeded", workflowInvocationId: "wf-0", artifact: { entryRunId: "run-0" } },
+      { status: "failed", workflowInvocationId: "wf-1", failureDetail: { message: "boom" } },
+      { status: "skipped" },
+    ];
+    const omitted = seedContinuationPipeline(seeds);
+    const explicitDefault = seedContinuationPipeline(seeds);
+
+    const omittedResult = store.reopenFailedPipeline({ pipelineId: omitted.pipelineId });
+    const explicitResult = store.reopenFailedPipeline({
+      pipelineId: explicitDefault.pipelineId,
+      branchKey: "default",
+    });
+    expect(omittedResult.kind).toBe("applied");
+    expect(explicitResult.kind).toBe("applied");
+
+    const normalize = (pipelineId: string) =>
+      rawStageRows(pipelineId)
+        .map(({ id: _id, pipeline_id: _pipelineId, ...rest }) => rest)
+        .sort((a, b) => a.stage_id.localeCompare(b.stage_id));
+    expect(normalize(omitted.pipelineId)).toEqual(normalize(explicitDefault.pipelineId));
+
+    // A sibling branch failure invalidates whole-pipeline shape; the alias must refuse exactly
+    // like omission rather than narrowing to one branch.
+    const siblingFailurePipelineId = createFanOutPipeline(
+      "reopen-alias-sibling-failure",
+      ["stage-0", "stage-1"],
+      [{ stageId: "stage-1", branchKey: "alpha" }],
+    );
+    rawSeedStages(siblingFailurePipelineId, [
+      { stageId: "stage-0", status: "succeeded" },
+      { stageId: "stage-1", status: "failed" },
+      { stageId: "stage-1", branchKey: "alpha", status: "failed" },
+    ]);
+
+    expect(store.reopenFailedPipeline({ pipelineId: siblingFailurePipelineId })).toEqual({
+      kind: "refused",
+      pipelineId: siblingFailurePipelineId,
+      reason: "multiple_failed_stages",
+    });
+    expect(store.reopenFailedPipeline({ pipelineId: siblingFailurePipelineId, branchKey: "default" })).toEqual({
+      kind: "refused",
+      pipelineId: siblingFailurePipelineId,
+      reason: "multiple_failed_stages",
+    });
+  });
+
+  test("branch-scoped reopen rolls back deterministic stale-suffix interference", () => {
+    const pipelineId = createFanOutPipeline(
+      "reopen-branch-stale-interference",
+      ["stage-0", "stage-1", "stage-2"],
+      [
+        { stageId: "stage-1", branchKey: "alpha" },
+        { stageId: "stage-2", branchKey: "alpha" },
+      ],
+    );
+    rawSeedStages(pipelineId, [
+      { stageId: "stage-0", status: "succeeded" },
+      { stageId: "stage-1", branchKey: "alpha", status: "failed" },
+      { stageId: "stage-2", branchKey: "alpha", status: "skipped" },
+    ]);
+
+    const before = rawStageRows(pipelineId);
+    const failedRow = before.find((row) => row.stage_id === "stage-1" && row.branch_key === "alpha");
+    const suffixRow = before.find((row) => row.stage_id === "stage-2" && row.branch_key === "alpha");
+    if (!failedRow || !suffixRow) throw new Error("target rows should exist");
+
+    // Test-local trigger: the moment the failed row's conditional write lands (status -> 'pending'),
+    // stale-mutate the target suffix row out from under the in-flight transaction's second write.
+    const triggerConn = new Database(TEST_DB_PATH);
+    try {
+      triggerConn.run(
+        `CREATE TRIGGER reopen_stale_suffix_interference
+         AFTER UPDATE OF status ON pipeline_stages
+         WHEN NEW.id = '${failedRow.id}' AND NEW.status = 'pending'
+         BEGIN
+           UPDATE pipeline_stages SET status = 'pending' WHERE id = '${suffixRow.id}';
+         END;`,
+      );
+    } finally {
+      triggerConn.close();
+    }
+
+    // Mutation checkpoint: dropping the conditional-write status guard lets the failed-row write land
+    // even though the trigger already moved the suffix row out from under it, masking the interference.
+    // @mutate v2/src/persistence/state-store.ts "        WHERE id = ? AND status = ?" -> "        WHERE id = ?"
+    expect(store.reopenFailedPipeline({ pipelineId, branchKey: "alpha" })).toEqual({
+      kind: "refused",
+      pipelineId,
+      reason: "reopen_lost",
+    });
+
+    const after = rawStageRows(pipelineId);
+    expect(after).toEqual(before);
+  });
+
+  test("competing branch-scoped reopen calls admit one transaction", () => {
+    const pipelineId = createFanOutPipeline(
+      "reopen-branch-race",
+      ["stage-0", "stage-1", "stage-2"],
+      [
+        { stageId: "stage-1", branchKey: "alpha" },
+        { stageId: "stage-2", branchKey: "alpha" },
+        { stageId: "stage-1", branchKey: "beta" },
+      ],
+    );
+    rawSeedStages(pipelineId, [
+      { stageId: "stage-0", status: "succeeded" },
+      { stageId: "stage-1", branchKey: "alpha", status: "failed" },
+      { stageId: "stage-2", branchKey: "alpha", status: "skipped" },
+      { stageId: "stage-1", branchKey: "beta", status: "succeeded" },
+    ]);
+
+    const before = rawStageRows(pipelineId);
+    const failedRow = before.find((row) => row.stage_id === "stage-1" && row.branch_key === "alpha");
+    if (!failedRow) throw new Error("failed row should exist");
+
+    // These two calls run sequentially through bun:sqlite's synchronous, single-writer driver — this proves
+    // the second handle observes the first's committed reopen and duplicate calls stay admitted-once, not
+    // in-flight contention. Deterministic interference and rollback evidence live in the trigger-based
+    // "branch-scoped reopen rolls back deterministic stale-suffix interference" test above.
+    const storeA = openStateStore(TEST_DB_PATH);
+    const storeB = openStateStore(TEST_DB_PATH);
+    try {
+      const first = storeA.reopenFailedPipeline({ pipelineId, branchKey: "alpha" });
+      const second = storeB.reopenFailedPipeline({ pipelineId, branchKey: "alpha" });
+      const outcomes = [first, second];
+      expect(outcomes.filter((outcome) => outcome.kind === "applied")).toHaveLength(1);
+      expect(outcomes.filter((outcome) => outcome.kind === "refused")).toHaveLength(1);
+      const applied = outcomes.find((outcome) => outcome.kind === "applied");
+      if (!applied || applied.kind !== "applied") throw new Error("expected applied outcome");
+      expect(applied.stageRecordId).toBe(failedRow.id);
+      const refused = outcomes.find((outcome) => outcome.kind === "refused");
+      if (!refused || refused.kind !== "refused") throw new Error("expected refused outcome");
+      expect(refused.pipelineId).toBe(pipelineId);
+      expect(["reopen_lost", "no_failed_stage"]).toContain(refused.reason);
+
+      const duplicate = store.reopenFailedPipeline({ pipelineId, branchKey: "alpha" });
+      expect(duplicate.kind).toBe("refused");
+
+      const after = rawStageRows(pipelineId);
+      const afterById = new Map(after.map((row) => [row.id, row]));
+      expect(afterById.get(failedRow.id)?.status).toBe("pending");
+      const suffixBefore = before.find((row) => row.stage_id === "stage-2" && row.branch_key === "alpha");
+      if (!suffixBefore) throw new Error("suffix row should exist");
+      expect(afterById.get(suffixBefore.id)?.status).toBe("pending");
+
+      for (const beforeRow of before) {
+        if (beforeRow.id === failedRow.id || beforeRow.id === suffixBefore.id) continue;
+        expect(afterById.get(beforeRow.id)).toEqual(beforeRow);
+      }
+    } finally {
+      storeA.close();
+      storeB.close();
+    }
   });
 });
 

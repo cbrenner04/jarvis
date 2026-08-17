@@ -268,11 +268,11 @@ function fakeStore(
       const pipeline = store.loadPipeline(PIPELINE_ID);
       return pipeline ? [pipeline] : [];
     },
-    reopenFailedPipeline: (args: { pipelineId: string }) => {
+    reopenFailedPipeline: (args: { pipelineId: string; branchKey?: string }) => {
       if (args.pipelineId !== PIPELINE_ID) {
         return { kind: "refused" as const, pipelineId: args.pipelineId, reason: "pipeline_not_found" as const };
       }
-      const shape = analyzeFailedPipelineReopenShape(stages);
+      const shape = analyzeFailedPipelineReopenShape(stages, args.branchKey);
       if (shape.kind === "invalid") {
         return { kind: "refused" as const, pipelineId: args.pipelineId, reason: shape.reason };
       }

@@ -6,6 +6,7 @@ import {
 import {
   CLEANUP_PARSE_ARG_OPTIONS,
   DAEMON_LOG_PARSE_ARG_OPTIONS,
+  PIPELINE_LIST_PARSE_ARG_OPTIONS,
   PIPELINE_START_PARSE_ARG_OPTIONS,
   parityFlagsFromParseOptions,
   RUN_LIST_PARSE_ARG_OPTIONS,
@@ -20,6 +21,7 @@ const PARITY_PATHS = [
   ["run", "list"],
   ["daemon", "log"],
   ["pipeline", "start"],
+  ["pipeline", "list"],
   ["run", "workflow", "intent"],
   ["run", "workflow", "plan"],
   ["run", "workflow", "implement"],
@@ -43,6 +45,8 @@ export function parserAcceptedLongFlags(path: readonly string[]): readonly strin
       return parseOptionKeysToLongFlags(Object.keys(DAEMON_LOG_PARSE_ARG_OPTIONS));
     case "pipeline start":
       return parityFlagsFromParseOptions(PIPELINE_START_PARSE_ARG_OPTIONS);
+    case "pipeline list":
+      return parseOptionKeysToLongFlags(Object.keys(PIPELINE_LIST_PARSE_ARG_OPTIONS));
     case "run workflow intent":
       return parseOptionKeysToLongFlags(Object.keys(INTENT_WORKFLOW_PARSE_OPTIONS));
     case "run workflow plan":

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { WRITE_HELP_FLAGS, WRITE_PARSE_ARG_OPTIONS } from "./command-help-flags.ts";
+import { PIPELINE_LIST_PARSE_ARG_OPTIONS, WRITE_HELP_FLAGS, WRITE_PARSE_ARG_OPTIONS } from "./command-help-flags.ts";
 import { helpFlagsParityGaps, missingParserFlagsInHelp, parserAcceptedLongFlags } from "./help-flags-parity.ts";
 
 function writeParserLongFlags(): string[] {
@@ -15,6 +15,12 @@ describe("help flag parser parity", () => {
     const parserFlags = writeParserLongFlags();
     const registered = WRITE_HELP_FLAGS.filter((flag) => flag.name !== "--spec");
     expect(missingParserFlagsInHelp(parserFlags, registered)).toEqual(["--spec"]);
+  });
+
+  test("pipeline list parser flags match its registered help flags", () => {
+    expect(parserAcceptedLongFlags(["pipeline", "list"])).toEqual(
+      Object.keys(PIPELINE_LIST_PARSE_ARG_OPTIONS).map((key) => `--${key}`),
+    );
   });
 
   test("excluding a parser flag from the comparison set fails the guard", () => {

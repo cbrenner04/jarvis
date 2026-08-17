@@ -268,11 +268,11 @@ function fakeStore(
       const pipeline = store.loadPipeline(PIPELINE_ID);
       return pipeline ? [pipeline] : [];
     },
-    reopenFailedPipeline: (args: { pipelineId: string }) => {
+    reopenFailedPipeline: (args: { pipelineId: string; branchKey?: string }) => {
       if (args.pipelineId !== PIPELINE_ID) {
         return { kind: "refused" as const, pipelineId: args.pipelineId, reason: "pipeline_not_found" as const };
       }
-      const shape = analyzeFailedPipelineReopenShape(stages);
+      const shape = analyzeFailedPipelineReopenShape(stages, args.branchKey);
       if (shape.kind === "invalid") {
         return { kind: "refused" as const, pipelineId: args.pipelineId, reason: shape.reason };
       }
@@ -2161,6 +2161,303 @@ describe("resumePipeline", () => {
   });
 });
 
+describe("resumePipeline branch scope", () => {
+  const RESUME_BRANCH_FAILED = "resume-target";
+  const RESUME_BRANCH_AWAITING = "resume-awaiting";
+  const RESUME_BRANCH_RUNNING = "resume-running";
+  const RESUME_BRANCH_REJECTED = "resume-rejected";
+  const RESUME_BRANCH_KEYS = [
+    RESUME_BRANCH_FAILED,
+    RESUME_BRANCH_AWAITING,
+    RESUME_BRANCH_RUNNING,
+    RESUME_BRANCH_REJECTED,
+  ] as const;
+
+  /**
+   * Production-shaped fan-out fixture: a branch row (gate included) at every post-split
+   * position for four siblings — the target branch has a replayable `failed` implement row,
+   * one sibling sits at its own `awaiting` gate, one is mid-`implement` (`running`), and one
+   * has its own gate `rejected`. `setupFanOutAlphaLiveLinked` cannot express this shape (its
+   * gate row stays default-keyed and pending).
+   */
+  function setupBranchResumeFixture(store: StateStore): void {
+    const intentArtifact: PipelineStageArtifact = {
+      entryRunId: "run-intent",
+      specPath: "ready-intents",
+      downstreamInputs: RESUME_BRANCH_KEYS.map((key) => `ready-intents/${key}.md`),
+    };
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      patch: { status: "succeeded", artifact: intentArtifact, workflowInvocationId: "run-intent" },
+    });
+    for (const branchKey of RESUME_BRANCH_KEYS) {
+      store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey });
+      store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "plan", branchKey });
+      store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "implement", branchKey });
+    }
+    for (const stageId of ["gate", "plan", "implement"] as const) {
+      store.updateStage({ pipelineId: PIPELINE_ID, stageId, branchKey: "default", patch: { status: "skipped" } });
+    }
+
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "gate",
+      branchKey: RESUME_BRANCH_FAILED,
+      patch: { status: "approved" },
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "plan",
+      branchKey: RESUME_BRANCH_FAILED,
+      patch: { status: "succeeded", artifact: { entryRunId: "run-target-plan", specPath: "spec/target/plan.md" } },
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "implement",
+      branchKey: RESUME_BRANCH_FAILED,
+      patch: { status: "failed" },
+    });
+
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "gate",
+      branchKey: RESUME_BRANCH_AWAITING,
+      patch: { status: "awaiting" },
+    });
+
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "gate",
+      branchKey: RESUME_BRANCH_RUNNING,
+      patch: { status: "approved" },
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "plan",
+      branchKey: RESUME_BRANCH_RUNNING,
+      patch: { status: "succeeded", artifact: { entryRunId: "run-running-plan", specPath: "spec/running/plan.md" } },
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "implement",
+      branchKey: RESUME_BRANCH_RUNNING,
+      patch: { status: "running", workflowInvocationId: "run-running-implement" },
+    });
+
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "gate",
+      branchKey: RESUME_BRANCH_REJECTED,
+      patch: { status: "rejected" },
+    });
+  }
+
+  test("branch-scoped resume reopens and dispatches only the named failed branch", async () => {
+    const { store, stages } = fakeStore(
+      FAN_OUT_PIPELINE_DEFINITION,
+      { "run-target-implement": { specPath: "spec/target/implement.md" } },
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+    );
+    setupBranchResumeFixture(store);
+    const before = stages().map((stage) => ({ ...stage }));
+
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const dispatch: PipelineWorkflowDispatch = async (steps) => {
+      const step = steps[0] as unknown as { stageId: string; branchKey?: string };
+      dispatchLog.push({ stageId: step.stageId, branchKey: step.branchKey ?? "default" });
+      return { ok: true, entryRunId: "run-target-implement", invocationId: "inv-target-implement" };
+    };
+    const wait: PipelineWorkflowWait = async (entryRunId) => {
+      if (entryRunId === "run-target-implement") return "completed";
+      throw new Error(`unexpected wait for ${entryRunId}`);
+    };
+    const resolveStage = async (
+      _definition: PipelineDefinition,
+      stageIndex: number,
+      _context: PipelineContext,
+      _stageArtifacts: ReadonlyMap<string, PipelineStageArtifact>,
+      deps?: PipelineStageResolveDeps,
+    ): Promise<PipelineStageResolutionResult> => ({
+      ok: true,
+      steps: [
+        {
+          behavior: "write",
+          stageId: "implement",
+          stageIndex,
+          branchKey: deps?.branchKey,
+        } as unknown as AnyWorkflowStep,
+      ],
+    });
+
+    // Keystone checkpoint: rebinding branchScope to undefined restores whole-pipeline admission on the aggregate
+    // fan-out state (a live `running` sibling), which refuses the whole resume instead of admitting this branch.
+    // @mutate v2/src/daemon/pipeline-execution.ts "const branchScope = options.branchKey === DEFAULT_PIPELINE_STAGE_BRANCH_KEY ? undefined : options.branchKey;" -> "const branchScope = undefined;"
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (branchScope !== undefined) {" -> "if (false) {"
+    // @mutate v2/src/daemon/pipeline-execution.ts "const reopen = store.reopenFailedPipeline({ pipelineId, branchKey: branchScope });" -> "const reopen = store.reopenFailedPipeline({ pipelineId });"
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (branchKey.trim() === \"\") return { kind: \"refused\", detail: { reason: \"branch_not_found\" } };" -> "if (true) return { kind: \"refused\", detail: { reason: \"branch_not_found\" } };"
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (findFanOutSplit(pipeline) === null) return { kind: \"refused\", detail: { reason: \"branch_not_found\" } };" -> "if (true) return { kind: \"refused\", detail: { reason: \"branch_not_found\" } };"
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (boundary === BRANCH_ADMISSION_BOUNDARY_NOT_FOUND) {" -> "if (true) {"
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (!branchSuffixRowsPresent(pipeline, boundary, branchKey)) {" -> "if (true) {"
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (hasDefault && hasNamed) return position;" -> "if (true) return position;"
+    const outcome = await resumePipeline(
+      PIPELINE_ID,
+      { store, dispatch, wait, resolveStage },
+      { branchKey: RESUME_BRANCH_FAILED },
+    );
+
+    expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+    expect(dispatchLog).toEqual([{ stageId: "implement", branchKey: RESUME_BRANCH_FAILED }]);
+
+    const after = stages();
+    for (const snapshot of before) {
+      if (snapshot.stageId === "implement" && snapshot.branchKey === RESUME_BRANCH_FAILED) continue;
+      expect(after.find((stage) => stage.id === snapshot.id)).toEqual(snapshot);
+    }
+    const implementAfter = stageRecord(after, "implement", RESUME_BRANCH_FAILED);
+    expect(implementAfter?.status).toBe("succeeded");
+    expect(implementAfter?.artifact).toEqual({
+      entryRunId: "run-target-implement",
+      invocationId: "inv-target-implement",
+      specPath: "spec/target/implement.md",
+    });
+  });
+
+  test("branch-scoped resume refuses the named branch gate, an unknown branch, and a branch without a replayable failure", async () => {
+    const { store, stages } = fakeStore(
+      FAN_OUT_PIPELINE_DEFINITION,
+      {},
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+    );
+    setupBranchResumeFixture(store);
+    const before = stages().map((stage) => ({ ...stage }));
+    const dispatchOrder: number[] = [];
+    const deps = pipelineTestDeps(store, dispatchOrder);
+
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (scan.kind === \"gate_awaiting\") {" -> "if (scan.kind === \"gate_rejected\") {"
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (scan.kind === \"gate_rejected\") {" -> "if (scan.kind === \"gate_awaiting\") {"
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (record.status === \"failed\") return { kind: \"resumable\" };" -> "if (true) return { kind: \"resumable\" };"
+    // @mutate v2/src/daemon/pipeline-execution.ts "return { kind: \"not_resumable\", status: record.status };" -> "return { kind: \"resumable\" };"
+    const awaitingOutcome = await resumePipeline(PIPELINE_ID, deps, { branchKey: RESUME_BRANCH_AWAITING });
+    expect(awaitingOutcome).toEqual({
+      kind: "refused",
+      pipelineId: PIPELINE_ID,
+      branchKey: RESUME_BRANCH_AWAITING,
+      reason: "branch_awaiting_approval",
+      stageId: "gate",
+    });
+
+    const rejectedOutcome = await resumePipeline(PIPELINE_ID, deps, { branchKey: RESUME_BRANCH_REJECTED });
+    expect(rejectedOutcome).toEqual({
+      kind: "refused",
+      pipelineId: PIPELINE_ID,
+      branchKey: RESUME_BRANCH_REJECTED,
+      reason: "branch_rejected",
+      stageId: "gate",
+    });
+
+    const unknownOutcome = await resumePipeline(PIPELINE_ID, deps, { branchKey: "unknown-branch" });
+    expect(unknownOutcome).toEqual({
+      kind: "refused",
+      pipelineId: PIPELINE_ID,
+      branchKey: "unknown-branch",
+      reason: "branch_not_found",
+    });
+
+    const whitespaceOutcome = await resumePipeline(PIPELINE_ID, deps, { branchKey: "   " });
+    expect(whitespaceOutcome).toEqual({
+      kind: "refused",
+      pipelineId: PIPELINE_ID,
+      branchKey: "   ",
+      reason: "branch_not_found",
+    });
+
+    const runningOutcome = await resumePipeline(PIPELINE_ID, deps, { branchKey: RESUME_BRANCH_RUNNING });
+    expect(runningOutcome).toEqual({
+      kind: "refused",
+      pipelineId: PIPELINE_ID,
+      branchKey: RESUME_BRANCH_RUNNING,
+      reason: "branch_not_resumable",
+      status: "running",
+    });
+
+    expect(dispatchOrder).toEqual([]);
+    expect(stages().map((stage) => ({ ...stage }))).toEqual(before);
+
+    const noSplit = fakeStore(APPROVAL_GATE_DEFINITION, {}, { context: persistedContext, ownerIdentity: PRIOR_OWNER });
+    noSplit.store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "succeeded" } });
+    const noSplitBefore = noSplit.stages().map((stage) => ({ ...stage }));
+    const noSplitDispatch: number[] = [];
+    const noSplitOutcome = await resumePipeline(PIPELINE_ID, pipelineTestDeps(noSplit.store, noSplitDispatch), {
+      branchKey: "gamma",
+    });
+    expect(noSplitOutcome).toEqual({
+      kind: "refused",
+      pipelineId: PIPELINE_ID,
+      branchKey: "gamma",
+      reason: "branch_not_found",
+    });
+    expect(noSplitDispatch).toEqual([]);
+    expect(noSplit.stages().map((stage) => ({ ...stage }))).toEqual(noSplitBefore);
+  });
+
+  test("resume branchKey default aliases the unscoped path", async () => {
+    const aliasDefinition: PipelineDefinition = {
+      name: "p",
+      stages: [
+        { stageId: "s1", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "s2", kind: "workflow", workflow: "plan", review: "none" },
+        { stageId: "s3", kind: "workflow", workflow: "implement", review: "light" },
+      ],
+    };
+
+    function buildFailed() {
+      const { store, stages } = fakeStore(
+        aliasDefinition,
+        { "run-1": { specPath: "spec/s2.md" }, "run-2": { specPath: "spec/s3.md" } },
+        { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+      );
+      store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "succeeded" } });
+      store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s2", patch: { status: "failed" } });
+      store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s3", patch: { status: "skipped" } });
+      return { store, stages };
+    }
+
+    const omittedFailed = buildFailed();
+    const outcomeOmittedFailed = await resumePipeline(PIPELINE_ID, pipelineTestDeps(omittedFailed.store, []));
+    const defaultFailed = buildFailed();
+    const outcomeDefaultFailed = await resumePipeline(PIPELINE_ID, pipelineTestDeps(defaultFailed.store, []), {
+      branchKey: "default",
+    });
+    expect(outcomeDefaultFailed).toEqual(outcomeOmittedFailed);
+    expect(defaultFailed.stages()).toEqual(omittedFailed.stages());
+
+    function buildAwaiting() {
+      const { store, stages } = fakeStore(
+        APPROVAL_GATE_DEFINITION,
+        {},
+        { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+      );
+      store.updateStage({
+        pipelineId: PIPELINE_ID,
+        stageId: "s1",
+        patch: { status: "succeeded", workflowInvocationId: "inv-1" },
+      });
+      store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", patch: { status: "awaiting" } });
+      return { store, stages };
+    }
+
+    const omittedAwaiting = buildAwaiting();
+    const outcomeOmittedAwaiting = await resumePipeline(PIPELINE_ID, pipelineTestDeps(omittedAwaiting.store, []));
+    const defaultAwaiting = buildAwaiting();
+    const outcomeDefaultAwaiting = await resumePipeline(PIPELINE_ID, pipelineTestDeps(defaultAwaiting.store, []), {
+      branchKey: "default",
+    });
+    expect(outcomeDefaultAwaiting).toEqual(outcomeOmittedAwaiting);
+    expect(defaultAwaiting.stages()).toEqual(omittedAwaiting.stages());
+  });
+});
+
 const REAL_STORE_DB_PATH = join(tmpdir(), `jarvis-pipeline-activation-${process.pid}.sqlite`);
 
 describe("post-reconcile activation on real store", () => {
@@ -3945,7 +4242,7 @@ describe("pipeline plan stage ready-intent consumption", () => {
 
     const stageDir = join(planWorktree, ".jarvis-plan-stage");
     mkdirSync(stageDir, { recursive: true });
-    writeFileSync(join(stageDir, "index.md"), "# Plan\n", "utf8");
+    writeFileSync(join(stageDir, "index.md"), "# Plan\n\n- [ ] [First](./00-first.md)\n", "utf8");
     writeFileSync(join(stageDir, "intent.md"), intentContent, "utf8");
     writeFileSync(join(stageDir, "00-first.md"), "# First\n", "utf8");
     const verdictPath = join(stageDir, "verdict-plan.md");

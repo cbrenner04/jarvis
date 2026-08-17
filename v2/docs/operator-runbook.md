@@ -10,9 +10,9 @@ Scope: **Jarvis-on-Jarvis v2 workflows** — daemon-backed `jarvis run …`, wor
 
 | Concern | Binary | Notes |
 | --- | --- | --- |
-| Project registry (`jarvis1 init`, `jarvis1 config`) | `jarvis1` | v2 reads the same `~/.jarvis/config.json` |
+| Machine and project setup (`jarvis init`) | `jarvis` | Run from the Git worktree top level; registration merges into `~/.jarvis/config.json` without replacing an existing origin or unrelated config |
 | Triage, review-feedback, prompt, runbook add | `jarvis1` | `triage --merge` gates spec-backed and spec-less PRs; see [v1 operator runbook](../../v1/docs/operator-runbook.md) |
-| v1 patch runs (`jarvis1 run <spec>`) + their log server | `jarvis1` | Fallback only; `jarvis1 cleanup` owns v1 worktrees/specs |
+| v1 init, patch runs (`jarvis1 run <spec>`) + their log server | `jarvis1` | Maintenance fallback only; `jarvis1 cleanup` owns v1 worktrees/specs |
 
 Orientation: [`onboarding.md`](./onboarding.md). Install path: [`install-and-config.md`](./install-and-config.md).
 
@@ -95,7 +95,7 @@ Template for a new gotcha:
 1. `jarvis daemon status` — start with `jarvis daemon start` if stopped.
 2. `jarvis config show` — agents listed; `machineProfile` hand-edited in
    `~/.jarvis/config.json` (see [`install-and-config.md`](./install-and-config.md)).
-3. Register the jarvis repo if needed: `jarvis1 init` from the project root.
+3. Initialize the machine and register the repo if needed: `jarvis init --profile home` from the Git worktree root; use `--name <key>` only to select a safe explicit registry key.
 4. Review open work in `v2/spec/seeds/` and `v2/spec/ready-intents/`.
 5. Sweep open [harness-suggestion issues](https://github.com/cbrenner04/jarvis/issues?q=label%3Aharness-suggestion+is%3Aopen)
    — **and read their comments.**

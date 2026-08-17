@@ -26,14 +26,14 @@
 
 ## Acceptance criteria
 
-- [ ] Handler-level init with `--target-dir v2/spec --scaffold` replaces any selected-project target directory and creates only `v2/spec/seeds/.gitkeep` and `v2/spec/ready-intents/.gitkeep`; without `--scaffold`, it does not modify the repository tree. `v2/src/commands/init.test.ts` — `scaffold writes only contained queue sentinels`; fails against the pre-fix code.
-- [ ] `v2/src/commands/init.test.ts` — `scaffold writes only contained queue sentinels`; Keystone checkpoint: its body carries one `// @mutate` directive that removes the headline sentinel write, and the mutation turns the named pin RED.
-- [ ] Omitted `--target-dir` preserves a selected-project value and otherwise uses legacy `modes.plan.targetDir` read-only before `spec`; explicit target directories replace the project value and use the same precedence in setup, scaffold preparation, readiness, and check mode. `v2/src/commands/init.test.ts` — `init target directory precedence matches workflow routing`; fails against the pre-fix code.
-- [ ] Absolute, empty, traversing, malformed owned `plan` or `targetDir`, and symlink-escaping target paths exit `1` before config or repository mutation; sentinels can never resolve outside the repository root. `v2/src/commands/init.test.ts` — `scaffold containment rejects lexical and physical escapes`; fails against the pre-fix code.
-- [ ] Existing sentinels are not overwritten, and all anticipated config or scaffold failures leave both owned destinations byte-unchanged; a subsequent readiness failure retains otherwise successful setup state. `v2/src/commands/init.test.ts` — `scaffold preflight avoids partial owned state`; fails against the pre-fix code.
-- [ ] `v2/src/commands/init.test.ts` — `scaffold guard inversions expose escaping or partial writes`; Mutation checkpoint: its body carries distinct `// @mutate` directives for target precedence, explicit replacement, physical containment, sentinel non-overwrite, no-ordinary-write, and preflight-atomicity guards, and each mutation turns the named pin RED.
-- [ ] `v2/docs/v2-architecture.md` narrows the no-project-artifacts rule only for explicit contained queue scaffolding.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] Handler-level init with `--target-dir v2/spec --scaffold` replaces any selected-project target directory and creates only `v2/spec/seeds/.gitkeep` and `v2/spec/ready-intents/.gitkeep`; without `--scaffold`, it does not modify the repository tree. `v2/src/commands/init.test.ts` — `scaffold writes only contained queue sentinels`; fails against the pre-fix code.
+- [x] `v2/src/commands/init.test.ts` — `scaffold writes only contained queue sentinels`; Keystone checkpoint: its body carries one `// @mutate` directive that removes the headline sentinel write, and the mutation turns the named pin RED.
+- [x] Omitted `--target-dir` preserves a selected-project value and otherwise uses legacy `modes.plan.targetDir` read-only before `spec`; explicit target directories replace the project value and use the same precedence in setup, scaffold preparation, readiness, and check mode. `v2/src/commands/init.test.ts` — `init target directory precedence matches workflow routing`; fails against the pre-fix code.
+- [x] Absolute, empty, traversing, malformed owned `plan` or `targetDir`, and symlink-escaping target paths exit `1` before config or repository mutation; sentinels can never resolve outside the repository root. `v2/src/commands/init.test.ts` — `scaffold containment rejects lexical and physical escapes`; fails against the pre-fix code.
+- [x] Existing sentinels are not overwritten, and all anticipated config or scaffold failures leave both owned destinations byte-unchanged; a subsequent readiness failure retains otherwise successful setup state. `v2/src/commands/init.test.ts` — `scaffold preflight avoids partial owned state`; fails against the pre-fix code.
+- [x] `v2/src/commands/init.test.ts` — `scaffold guard inversions expose escaping or partial writes`; Mutation checkpoint: its body carries distinct `// @mutate` directives for target precedence, explicit replacement, physical containment, sentinel non-overwrite, no-ordinary-write, and preflight-atomicity guards, and each mutation turns the named pin RED.
+- [x] `v2/docs/v2-architecture.md` narrows the no-project-artifacts rule only for explicit contained queue scaffolding.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

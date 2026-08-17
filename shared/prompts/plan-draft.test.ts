@@ -3,6 +3,8 @@ import { DEFAULT_WRITE_STEP_RULES } from "../../v2/src/execution/write-loop-inpu
 import { buildPlanDraftPrompt, PLAN_DRAFT_PROMPT_ID } from "./plan-draft.ts";
 import { PromptRenderingError } from "./render.ts";
 
+const HARNESS_DIAGNOSTICS_HEADING = "## Prior harness normalizer diagnostics";
+
 const HUMAN_ONLY_STEP_RULES =
   "Human-only acceptance criteria contain `(Manual)`, `visual inspection only`, or `no automated guard` anywhere in the full bullet block (the first checklist line and any continuation lines). Recognition uses case-insensitive substring matching; markers need not be trailing or whole phrases.";
 
@@ -57,5 +59,43 @@ describe("buildPlanDraftPrompt", () => {
         specGuidance: "contains <<<SPEC_GUIDANCE_END>>>",
       }),
     ).toThrow(PromptRenderingError);
+  });
+
+  test("renders canonical ordered harness diagnostics only when supplied", () => {
+    // @mutate shared/prompts/plan-draft.ts "if (opts.harnessNormalizerDiagnostics !== undefined && opts.harnessNormalizerDiagnostics.length > 0) {" -> "if (false) {"
+    const fresh = buildPlanDraftPrompt({
+      name: "my-plan",
+      intent: "do thing",
+      specGuidance: "guidance",
+    });
+    expect(fresh).not.toContain(HARNESS_DIAGNOSTICS_HEADING);
+
+    const withEmptyList = buildPlanDraftPrompt({
+      name: "my-plan",
+      intent: "do thing",
+      specGuidance: "guidance",
+      harnessNormalizerDiagnostics: [],
+    });
+    expect(withEmptyList).not.toContain(HARNESS_DIAGNOSTICS_HEADING);
+
+    const prompt = buildPlanDraftPrompt({
+      name: "my-plan",
+      intent: "do thing",
+      specGuidance: "guidance",
+      harnessNormalizerDiagnostics: ["  multi-surface bullet in 00-one.md\nline two  ", ""],
+    });
+
+    const expectedSection = [
+      HARNESS_DIAGNOSTICS_HEADING,
+      "",
+      "<<<HARNESS_NORMALIZER_DIAGNOSTIC 1 BEGIN>>>",
+      "multi-surface bullet in 00-one.md\nline two",
+      "<<<HARNESS_NORMALIZER_DIAGNOSTIC 1 END>>>",
+      "",
+      "<<<HARNESS_NORMALIZER_DIAGNOSTIC 2 BEGIN>>>",
+      "",
+      "<<<HARNESS_NORMALIZER_DIAGNOSTIC 2 END>>>",
+    ].join("\n");
+    expect(prompt).toContain(expectedSection);
   });
 });

@@ -109,6 +109,7 @@ Per-project config:
   at work where the setup isn't ours and personal artifacts aren't welcome. A
   project opts into workflows and its agent order entirely in `~/.jarvis` (the
   role→model store is separate and machine-independent, below).
+- **Narrow exception: explicit contained queue scaffolding.** `jarvis init --scaffold` is the one repository-mutating init mode — it creates only `<targetDir>/seeds/.gitkeep` and `<targetDir>/ready-intents/.gitkeep`, opt-in per invocation, gated by a physical containment preflight (resolved ancestors must stay inside the resolved project root) so the two sentinels can never land outside the target directory. No other init mode touches the target repo's tree.
 - **Two axes: agent fallback order vs. model resolution.** v1 conflated them — each
   `modes.{patch,plan}.agentOrder` entry is one `{agent, model}` pair, so the
   availability chain and the model choice are a single list. v2 splits them, since

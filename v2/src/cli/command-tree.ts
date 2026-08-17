@@ -1,6 +1,7 @@
 import {
   CLEANUP_HELP_FLAGS,
   DAEMON_LOG_HELP_FLAGS,
+  PIPELINE_LIST_HELP_FLAGS,
   PIPELINE_START_HELP_FLAGS,
   RUN_LIST_HELP_FLAGS,
   RUN_LOG_HELP_FLAGS,
@@ -199,6 +200,7 @@ export const commandTree: CommandNode = {
           name: "list",
           summary: "Snapshot admitted pipelines and stage progress.",
           usage: PIPELINE_LIST_USAGE,
+          flags: PIPELINE_LIST_HELP_FLAGS,
         },
         {
           name: "wait",

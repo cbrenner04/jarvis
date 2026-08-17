@@ -403,6 +403,15 @@ function defaultGit(cwd: string, args: readonly string[]): string | undefined {
   return result.stdout.toString().trim();
 }
 
+function readinessDeps(injected: InitCommandDeps, git: NonNullable<InitCommandDeps["git"]>) {
+  return {
+    ...(injected.checkBunRuntime !== undefined ? { checkBunRuntime: injected.checkBunRuntime } : {}),
+    ...(injected.checkGithubAuth !== undefined ? { checkGithubAuth: injected.checkGithubAuth } : {}),
+    ...(injected.checkDaemon !== undefined ? { checkDaemon: injected.checkDaemon } : {}),
+    currentOrigin: async (root: string) => git(root, ["remote", "get-url", "origin"]),
+  };
+}
+
 export async function runInitCommand(argv: readonly string[], io: Io, injected: InitCommandDeps = {}): Promise<number> {
   const configPath = injected.machineConfigPath ?? MACHINE_CONFIG_PATH;
   const machinesDir = injected.machinesDir ?? MACHINE_PROFILES_DIR;
@@ -467,12 +476,7 @@ export async function runInitCommand(argv: readonly string[], io: Io, injected: 
         storedOrigin: typeof registeredProject?.origin === "string" ? registeredProject.origin : undefined,
         targetDir,
       },
-      {
-        ...(injected.checkBunRuntime !== undefined ? { checkBunRuntime: injected.checkBunRuntime } : {}),
-        ...(injected.checkGithubAuth !== undefined ? { checkGithubAuth: injected.checkGithubAuth } : {}),
-        ...(injected.checkDaemon !== undefined ? { checkDaemon: injected.checkDaemon } : {}),
-        currentOrigin: async (root) => git(root, ["remote", "get-url", "origin"]),
-      },
+      readinessDeps(injected, git),
     );
     io.stdout(renderReadinessReport(readinessResults));
     return readinessExitCode(readinessResults);

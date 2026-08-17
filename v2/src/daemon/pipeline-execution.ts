@@ -123,7 +123,11 @@ export type PipelineResumeRefusalReason =
 
 export type ResumePipelineOutcome =
   | { kind: "resumed"; pipelineId: string }
-  | { kind: "refused"; pipelineId: string; reason: Exclude<PipelineResumeRefusalReason, PipelineBranchResumeRefusalReason> }
+  | {
+      kind: "refused";
+      pipelineId: string;
+      reason: Exclude<PipelineResumeRefusalReason, PipelineBranchResumeRefusalReason>;
+    }
   | {
       kind: "refused";
       pipelineId: string;

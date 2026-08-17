@@ -2280,7 +2280,14 @@ describe("resumePipeline branch scope", () => {
       deps?: PipelineStageResolveDeps,
     ): Promise<PipelineStageResolutionResult> => ({
       ok: true,
-      steps: [{ behavior: "write", stageId: "implement", stageIndex, branchKey: deps?.branchKey } as unknown as AnyWorkflowStep],
+      steps: [
+        {
+          behavior: "write",
+          stageId: "implement",
+          stageIndex,
+          branchKey: deps?.branchKey,
+        } as unknown as AnyWorkflowStep,
+      ],
     });
 
     // Keystone checkpoint: rebinding branchScope to undefined restores whole-pipeline admission on the aggregate
@@ -2417,16 +2424,11 @@ describe("resumePipeline branch scope", () => {
     }
 
     const omittedFailed = buildFailed();
-    const outcomeOmittedFailed = await resumePipeline(
-      PIPELINE_ID,
-      pipelineTestDeps(omittedFailed.store, []),
-    );
+    const outcomeOmittedFailed = await resumePipeline(PIPELINE_ID, pipelineTestDeps(omittedFailed.store, []));
     const defaultFailed = buildFailed();
-    const outcomeDefaultFailed = await resumePipeline(
-      PIPELINE_ID,
-      pipelineTestDeps(defaultFailed.store, []),
-      { branchKey: "default" },
-    );
+    const outcomeDefaultFailed = await resumePipeline(PIPELINE_ID, pipelineTestDeps(defaultFailed.store, []), {
+      branchKey: "default",
+    });
     expect(outcomeDefaultFailed).toEqual(outcomeOmittedFailed);
     expect(defaultFailed.stages()).toEqual(omittedFailed.stages());
 
@@ -2446,16 +2448,11 @@ describe("resumePipeline branch scope", () => {
     }
 
     const omittedAwaiting = buildAwaiting();
-    const outcomeOmittedAwaiting = await resumePipeline(
-      PIPELINE_ID,
-      pipelineTestDeps(omittedAwaiting.store, []),
-    );
+    const outcomeOmittedAwaiting = await resumePipeline(PIPELINE_ID, pipelineTestDeps(omittedAwaiting.store, []));
     const defaultAwaiting = buildAwaiting();
-    const outcomeDefaultAwaiting = await resumePipeline(
-      PIPELINE_ID,
-      pipelineTestDeps(defaultAwaiting.store, []),
-      { branchKey: "default" },
-    );
+    const outcomeDefaultAwaiting = await resumePipeline(PIPELINE_ID, pipelineTestDeps(defaultAwaiting.store, []), {
+      branchKey: "default",
+    });
     expect(outcomeDefaultAwaiting).toEqual(outcomeOmittedAwaiting);
     expect(defaultAwaiting.stages()).toEqual(omittedAwaiting.stages());
   });

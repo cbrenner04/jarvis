@@ -307,8 +307,9 @@ export async function executeReviewCycleEnforced(args: {
 }
 
 /**
- * Exclude the verdict file from intent validation/landing.
- * Called before landIntentWorkflowOutput to remove the verdict file from staging.
+ * Exclude the verdict file from review-landing validation/promotion.
+ * Called before every landing (intent-stage and plan-tree alike) to remove the verdict file
+ * from staging, so no landing kind ever publishes it as durable output.
  */
 export function excludeVerdictFromStaging(_stagingDir: string, verdictPath: string): void {
   if (existsSync(verdictPath)) {

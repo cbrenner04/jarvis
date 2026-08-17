@@ -1942,6 +1942,98 @@ describe("write loop", () => {
     }
   });
 
+  test("plan redraft clears normalizer blockers and forwards canonical diagnostics", async () => {
+    // @mutate v2/src/execution/write.ts "const harnessDiagnostics = preserveStage ? collectAndClearHarnessDiagnostics(intentPath) : [];" -> "const harnessDiagnostics: string[] = [];"
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const branchName = "plan-redraft-clears-harness-blockers";
+    const subspecFile = "00-one.md";
+    const capturedPrompts: string[] = [];
+    // A top-level heading after frontmatter (unlike PLAN_DRAFT_INTENT_SEED) so the eventual
+    // valid draft's staged intent.md clears the real post-actuator markdown lint gate (MD041).
+    const intentSeed = "---\nname: test\n---\n\n# Test\n\n## Prerequisites\n\nnone\n";
+
+    const rejectedDraftBinding: InvocationBinding = {
+      id: "agent",
+      invoke: async ({ cwd, prompt }) => {
+        capturedPrompts.push(prompt);
+        // Same-shape multi-surface bullet on every rejected attempt; the normalizer keeps
+        // rejecting it deterministically until the final, valid-draft attempt below.
+        writeFileSync(
+          join(cwd, ".jarvis-plan-stage", "index.md"),
+          `# Index\n\n- [ ] [00 - One](./${subspecFile})\n`,
+          "utf8",
+        );
+        writeFileSync(
+          join(cwd, ".jarvis-plan-stage", subspecFile),
+          `# One\n\n## Acceptance criteria\n\n- [ ] ${MULTI_SURFACE_BULLET}\n`,
+          "utf8",
+        );
+        return { kind: "ok", stdout: "done", stderr: "" };
+      },
+    };
+
+    const runArgs = {
+      jarvisRoot,
+      stateDbPath,
+      branchName,
+      artifactPath: ".jarvis-plan-stage",
+      specPath: PLAN_DRAFT_SPEC_PATH,
+      promptId: "plan.prompt.draft",
+      intentSeed,
+    };
+
+    const first = await runLoop({ ...runArgs, bindings: [rejectedDraftBinding] });
+    expect(first.kind).toBe("contract_miss");
+
+    // Each subsequent dispatch simulates the operator re-running `plan` against the same
+    // worktree after a blocked contract_miss (`freshDispatch` bypasses the cached terminal
+    // result instead of replaying it); the staged `.jarvis-plan-stage/` tree persists across.
+    const second = await runLoop({ ...runArgs, freshDispatch: true, bindings: [rejectedDraftBinding] });
+    expect(second.kind).toBe("contract_miss");
+
+    const third = await runLoop({
+      ...runArgs,
+      freshDispatch: true,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ cwd, prompt }) => {
+            capturedPrompts.push(prompt);
+            writeFileSync(
+              join(cwd, ".jarvis-plan-stage", "index.md"),
+              `# Index\n\n- [ ] [00 - One](./${subspecFile})\n`,
+              "utf8",
+            );
+            writeFileSync(
+              join(cwd, ".jarvis-plan-stage", subspecFile),
+              "# One\n\n## Acceptance criteria\n\n- [ ] valid single-surface criterion.\n",
+              "utf8",
+            );
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    expect(third.kind).toBe("complete");
+
+    const intentPath = join(jarvisRoot, "worktrees", "demo", branchName, ".jarvis-plan-stage", "intent.md");
+    const finalIntent = readFileSync(intentPath, "utf8");
+    expect(finalIntent).not.toContain("Artifact contract check failed");
+    expect(finalIntent).not.toContain("## Blocker");
+
+    expect(capturedPrompts).toHaveLength(3);
+    expect(capturedPrompts[0]).not.toContain("## Prior harness normalizer diagnostics");
+    expect(capturedPrompts[1]).toContain("## Prior harness normalizer diagnostics");
+    expect(capturedPrompts[1]).toContain("<<<HARNESS_NORMALIZER_DIAGNOSTIC 1 BEGIN>>>");
+    expect(capturedPrompts[1]).not.toContain("<<<HARNESS_NORMALIZER_DIAGNOSTIC 2 BEGIN>>>");
+    expect(capturedPrompts[1]).toContain(subspecFile);
+    expect(capturedPrompts[1]).toContain(MULTI_SURFACE_BULLET);
+    expect(capturedPrompts[2]).toContain("## Prior harness normalizer diagnostics");
+    expect(capturedPrompts[2]).toContain("<<<HARNESS_NORMALIZER_DIAGNOSTIC 1 BEGIN>>>");
+    expect(capturedPrompts[2]).not.toContain("<<<HARNESS_NORMALIZER_DIAGNOSTIC 2 BEGIN>>>");
+  });
+
   test("blocked with blocker text stops immediately with distinct outcome", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
 

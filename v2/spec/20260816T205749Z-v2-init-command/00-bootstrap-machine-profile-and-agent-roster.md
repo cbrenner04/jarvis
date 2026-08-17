@@ -23,13 +23,13 @@
 
 ## Acceptance criteria
 
-- [ ] From isolated machine and profile directories, handler-level init with `--profile home` and only `claude` available writes `agents: ["claude"]` and `machineProfile: "home"`; a matching second invocation preserves config bytes. `v2/src/commands/init.test.ts` — `fresh init bootstraps a compatible machine idempotently`; fails against the pre-fix code.
-- [ ] `v2/src/commands/init.test.ts` — `fresh init bootstraps a compatible machine idempotently`; Keystone checkpoint: its body carries one `// @mutate` directive that removes the headline roster write, and the mutation turns the named pin RED.
-- [ ] Existing compatible machine state is preserved, while bootstrap rejects absent profile selection, a conflicting or unknown profile, a malformed `agents` or `machineProfile`, no default candidate, a profile-unbound configured agent, or a configured CLI absent from `PATH` before config writes; diagnostics list exact committed choices. `v2/src/commands/init.test.ts` — `machine bootstrap rejects incompatible or malformed state without mutation`; fails against the pre-fix code.
-- [ ] Every committed profile is exercised: supported home rosters pass; `work` accepts an existing runnable `opencode` roster and a fresh default-candidate bootstrap fails without mutation because no default candidate is profile-bound. `v2/src/commands/init.test.ts` — `profile bindings govern bootstrap and runnable roster`; fails against the pre-fix code.
-- [ ] `v2/src/commands/init.test.ts` — `machine bootstrap guard inversions expose unsafe state`; Mutation checkpoint: its body carries distinct `// @mutate` directives for profile enumeration, profile conflict, roster compatibility, executable, malformed-state, and idempotence guards, and each mutation turns the named pin RED.
-- [ ] `v2/docs/v1-behaviors.md` records v2 `init` machine ownership while retaining `jarvis1 init` as maintenance-only behavior.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] From isolated machine and profile directories, handler-level init with `--profile home` and only `claude` available writes `agents: ["claude"]` and `machineProfile: "home"`; a matching second invocation preserves config bytes. `v2/src/commands/init.test.ts` — `fresh init bootstraps a compatible machine idempotently`; fails against the pre-fix code.
+- [x] `v2/src/commands/init.test.ts` — `fresh init bootstraps a compatible machine idempotently`; Keystone checkpoint: its body carries one `// @mutate` directive that removes the headline roster write, and the mutation turns the named pin RED.
+- [x] Existing compatible machine state is preserved, while bootstrap rejects absent profile selection, a conflicting or unknown profile, a malformed `agents` or `machineProfile`, no default candidate, a profile-unbound configured agent, or a configured CLI absent from `PATH` before config writes; diagnostics list exact committed choices. `v2/src/commands/init.test.ts` — `machine bootstrap rejects incompatible or malformed state without mutation`; fails against the pre-fix code.
+- [x] Every committed profile is exercised: supported home rosters pass; `work` accepts an existing runnable `opencode` roster and a fresh default-candidate bootstrap fails without mutation because no default candidate is profile-bound. `v2/src/commands/init.test.ts` — `profile bindings govern bootstrap and runnable roster`; fails against the pre-fix code.
+- [x] `v2/src/commands/init.test.ts` — `machine bootstrap guard inversions expose unsafe state`; Mutation checkpoint: its body carries distinct `// @mutate` directives for profile enumeration, profile conflict, roster compatibility, executable, malformed-state, and idempotence guards, and each mutation turns the named pin RED.
+- [x] `v2/docs/v1-behaviors.md` records v2 `init` machine ownership while retaining `jarvis1 init` as maintenance-only behavior.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

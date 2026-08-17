@@ -27,13 +27,13 @@
 
 ## Acceptance criteria
 
-- [ ] Handler-level init registers the resolved Git top-level under `--name` or its basename, adds a discovered origin only when absent, preserves a stored origin on rerun, and does not require an origin to write setup state. `v2/src/commands/init.test.ts` — `project registration is additive and idempotent`; fails against the pre-fix code.
-- [ ] `v2/src/commands/init.test.ts` — `project registration is additive and idempotent`; Keystone checkpoint: its body carries one `// @mutate` directive that removes the resolved-root registration write, and the mutation turns the named pin RED.
-- [ ] Existing agents, profile, unrelated top-level keys, other projects, and unrelated selected-project fields remain byte-preserved while missing registration state is added. `v2/src/commands/init.test.ts` — `project registration merge preserves unrelated config`; fails against the pre-fix code.
-- [ ] A non-Git cwd, a worktree subdirectory, an unsafe key, a key bound to another root, a duplicate cwd under a differing supplied name, or any malformed owned project ancestor or field exits `1` before config or repository mutation; root and alias diagnostics identify both values. `v2/src/commands/init.test.ts` — `project registration refuses unsafe identity and malformed config`; fails against the pre-fix code.
-- [ ] `v2/src/commands/init.test.ts` — `project registration guard inversions expose unsafe mutation`; Mutation checkpoint: its body carries distinct `// @mutate` directives for worktree-root, safe-key, duplicate-identity, key-root conflict, origin-preservation, malformed-config, and merge-preservation guards, and each mutation turns the named pin RED.
-- [ ] `v2/docs/operator-runbook.md` assigns v2 project registration to `jarvis init`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] Handler-level init registers the resolved Git top-level under `--name` or its basename, adds a discovered origin only when absent, preserves a stored origin on rerun, and does not require an origin to write setup state. `v2/src/commands/init.test.ts` — `project registration is additive and idempotent`; fails against the pre-fix code.
+- [x] `v2/src/commands/init.test.ts` — `project registration is additive and idempotent`; Keystone checkpoint: its body carries one `// @mutate` directive that removes the resolved-root registration write, and the mutation turns the named pin RED.
+- [x] Existing agents, profile, unrelated top-level keys, other projects, and unrelated selected-project fields remain byte-preserved while missing registration state is added. `v2/src/commands/init.test.ts` — `project registration merge preserves unrelated config`; fails against the pre-fix code.
+- [x] A non-Git cwd, a worktree subdirectory, an unsafe key, a key bound to another root, a duplicate cwd under a differing supplied name, or any malformed owned project ancestor or field exits `1` before config or repository mutation; root and alias diagnostics identify both values. `v2/src/commands/init.test.ts` — `project registration refuses unsafe identity and malformed config`; fails against the pre-fix code.
+- [x] `v2/src/commands/init.test.ts` — `project registration guard inversions expose unsafe mutation`; Mutation checkpoint: its body carries distinct `// @mutate` directives for worktree-root, safe-key, duplicate-identity, key-root conflict, origin-preservation, malformed-config, and merge-preservation guards, and each mutation turns the named pin RED.
+- [x] `v2/docs/operator-runbook.md` assigns v2 project registration to `jarvis init`.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -318,6 +318,7 @@ Sources: `v1/src/commands/plan.ts`, `v1/src/modes/plan/draft.ts`, `v1/src/modes/
 
 ### Config storage and bootstrap
 
+- **[v2 behavior change]** `jarvis init` owns v2 machine setup: it selects an exact committed `config/machines/*.json` profile, preserves an existing matching profile and valid agent roster, or discovers runnable `claude`, `codex`, and `cursor` CLIs in fallback order. It refuses unknown or conflicting profiles, malformed owned fields, profile-unbound agents, and missing configured CLIs before atomically merging `machineProfile` and `agents` into `~/.jarvis/config.json`; unrelated top-level fields are preserved. `jarvis1 init` remains maintenance-only project registration and runbook scaffolding. Sources: `v2/src/commands/init.ts`, `v1/src/commands/init.ts`
 - Jarvis stores state under `~/.jarvis/` with `config.json`, and configuration is auto-bootstrapped on first run rather than requiring manual initialization. Sources: `v1/src/config.ts`, `v1/docs/config.md`
 - The config defaults to schema version 2 with mode-specific agent order blocks (`modes.patch.agentOrder` and `modes.plan.agentOrder`) and project registry storage under `projects`. Sources: `v1/src/config.ts`, `v1/docs/config.md`
 - The config exposes behavior knobs beyond agent order (quota policy, timeouts, log server, telemetry, git toggle, worktree symlinks); see the [Configuration field reference](#configuration-field-reference) below for the full enumeration and defaults. Sources: `v1/src/config.ts`, `v1/docs/config.md`

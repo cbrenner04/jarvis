@@ -1,11 +1,13 @@
+import { basename } from "node:path";
 import { parseArgs } from "node:util";
-import { PIPELINE_START_PARSE_ARG_OPTIONS } from "../cli/command-help-flags.ts";
+import { PIPELINE_LIST_PARSE_ARG_OPTIONS, PIPELINE_START_PARSE_ARG_OPTIONS } from "../cli/command-help-flags.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { formatConnectionError, formatRpcError, request, withRunClient } from "../cli/ipc.ts";
 import { connectWithAutoStart } from "../cli/stale-dispatch.ts";
 import {
   PIPELINE_APPROVE_USAGE,
+  PIPELINE_LIST_USAGE,
   PIPELINE_REJECT_USAGE,
   PIPELINE_RESUME_USAGE,
   PIPELINE_START_USAGE,
@@ -13,7 +15,12 @@ import {
   PIPELINE_WAIT_USAGE,
 } from "../cli/usage.ts";
 import { loadMachineConfig, readProjectConfigRecord } from "../config/machine-config-loader.ts";
-import type { PipelineBoundaryResult, PipelineTerminalState } from "../daemon/pipeline-observation.ts";
+import type { PipelineDerivedState } from "../daemon/pipeline-execution.ts";
+import type {
+  PipelineBoundaryResult,
+  PipelineSnapshot,
+  PipelineTerminalState,
+} from "../daemon/pipeline-observation.ts";
 import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
 import { resolveProjectPipeline } from "../execution/project-pipeline-resolution.ts";
 import type { IpcClient } from "../ipc/client.ts";
@@ -197,7 +204,189 @@ async function runPipelineStartCommand(argv: readonly string[], io: Io, deps: Cl
   }
 }
 
-async function runPipelineListCommand(io: Io, deps: CliDeps): Promise<number> {
+type PipelineListDeps = CliDeps & { now: () => number };
+
+type PipelineListCliInput =
+  | { ok: true; json: boolean; since: number | undefined; state: PipelineDerivedState | undefined }
+  | { ok: false };
+
+const PIPELINE_LIST_STATE_VALUES: ReadonlySet<string> = new Set([
+  "pending",
+  "running",
+  "awaiting-approval",
+  "succeeded",
+  "failed",
+  "rejected",
+  "interrupted",
+]);
+
+function parsePipelineListStateValue(value: string): PipelineDerivedState | undefined {
+  return PIPELINE_LIST_STATE_VALUES.has(value) ? (value as PipelineDerivedState) : undefined;
+}
+
+const PIPELINE_LIST_SINCE_UNIT_MS = { d: 86_400_000, h: 3_600_000, m: 60_000, s: 1_000 } as const;
+
+function parsePipelineListSince(value: string, nowMs: number): number | undefined {
+  const durationMatch = /^(\d+)([dhms])$/.exec(value);
+  if (durationMatch !== null) {
+    const amount = Number(durationMatch[1]);
+    if (!Number.isInteger(amount) || amount <= 0) return undefined;
+    return nowMs - amount * PIPELINE_LIST_SINCE_UNIT_MS[durationMatch[2] as keyof typeof PIPELINE_LIST_SINCE_UNIT_MS];
+  }
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? undefined : parsed;
+}
+
+function parsePipelineListArgs(argv: readonly string[], nowMs: number): PipelineListCliInput {
+  let values: Record<string, string | boolean | undefined>;
+  let positionals: string[];
+  try {
+    const parsed = parseArgs({
+      args: [...argv],
+      allowPositionals: true,
+      strict: true,
+      options: PIPELINE_LIST_PARSE_ARG_OPTIONS,
+    });
+    values = parsed.values;
+    positionals = parsed.positionals;
+  } catch {
+    return { ok: false };
+  }
+  if (positionals.length !== 0) return { ok: false };
+
+  const json = values.json === true;
+
+  let since: number | undefined;
+  if (values.since !== undefined) {
+    if (typeof values.since !== "string") return { ok: false };
+    const parsedSince = parsePipelineListSince(values.since, nowMs);
+    if (parsedSince === undefined) return { ok: false };
+    since = parsedSince;
+  }
+
+  let state: PipelineDerivedState | undefined;
+  if (values.state !== undefined) {
+    if (typeof values.state !== "string") return { ok: false };
+    const parsedState = parsePipelineListStateValue(values.state);
+    if (parsedState === undefined) return { ok: false };
+    state = parsedState;
+  }
+
+  return { ok: true, json, since, state };
+}
+
+function selectPipelines(
+  pipelines: readonly PipelineSnapshot[],
+  cutoff: number,
+  state: PipelineDerivedState | undefined,
+): PipelineSnapshot[] {
+  return pipelines
+    .filter((pipeline) => {
+      // Mutation checkpoint: returning true unconditionally must turn the cutoff/state filter tests RED.
+      return pipeline.createdAt >= cutoff && (state === undefined || pipeline.state === state);
+    })
+    .sort((a, b) =>
+      a.createdAt !== b.createdAt ? b.createdAt - a.createdAt : a.pipelineId.localeCompare(b.pipelineId),
+    );
+}
+
+const PIPELINE_LIST_AGE_UNITS: ReadonlyArray<{ unit: string; ms: number }> = [
+  { unit: "d", ms: 86_400_000 },
+  { unit: "h", ms: 3_600_000 },
+  { unit: "m", ms: 60_000 },
+  { unit: "s", ms: 1_000 },
+];
+
+function formatPipelineCreatedAge(createdAt: number, nowMs: number): string {
+  const elapsedMs = Math.max(0, nowMs - createdAt);
+  for (const { unit, ms } of PIPELINE_LIST_AGE_UNITS) {
+    const amount = Math.floor(elapsedMs / ms);
+    if (amount > 0) return `${amount}${unit}`;
+  }
+  return "0s";
+}
+
+const STAGE_STATUS_PRECEDENCE = [
+  "interrupted",
+  "rejected",
+  "failed",
+  "running",
+  "awaiting",
+  "pending",
+  "skipped",
+  "approved",
+  "succeeded",
+] as const;
+
+const STAGE_STATUS_GLYPH: Record<(typeof STAGE_STATUS_PRECEDENCE)[number], string> = {
+  interrupted: "!",
+  rejected: "✗",
+  failed: "✗",
+  running: "●",
+  awaiting: "?",
+  pending: "·",
+  skipped: "–",
+  approved: "✓",
+  succeeded: "✓",
+};
+
+function stageGroupGlyph(statuses: readonly string[]): string {
+  for (const status of STAGE_STATUS_PRECEDENCE) {
+    if (statuses.includes(status)) return STAGE_STATUS_GLYPH[status];
+  }
+  return "?";
+}
+
+function renderStageSummary(stages: PipelineSnapshot["stages"]): string {
+  const groups = new Map<string, { position: number; statuses: string[] }>();
+  for (const stage of stages) {
+    const group = groups.get(stage.stageId);
+    if (group === undefined) {
+      groups.set(stage.stageId, { position: stage.position, statuses: [stage.status] });
+    } else {
+      group.statuses.push(stage.status);
+      group.position = Math.min(group.position, stage.position);
+    }
+  }
+  return [...groups.entries()]
+    .sort(([, a], [, b]) => a.position - b.position)
+    .map(([stageId, group]) => {
+      const suffix = group.statuses.length > 1 ? `×${group.statuses.length}` : "";
+      return `${stageGroupGlyph(group.statuses)}${stageId}${suffix}`;
+    })
+    .join(" ");
+}
+
+function seedBasename(seedPath: string | undefined): string {
+  return seedPath === undefined ? "-" : basename(seedPath);
+}
+
+function renderPipelineListRows(pipelines: readonly PipelineSnapshot[], nowMs: number): string {
+  return `${pipelines
+    .map((pipeline) =>
+      [
+        pipeline.pipelineId.slice(0, 8),
+        pipeline.name,
+        pipeline.state,
+        seedBasename(pipeline.seedPath),
+        formatPipelineCreatedAge(pipeline.createdAt, nowMs),
+        renderStageSummary(pipeline.stages),
+      ].join("\t"),
+    )
+    .join("\n")}\n`;
+}
+
+async function runPipelineListCommand(argv: readonly string[], io: Io, deps: PipelineListDeps): Promise<number> {
+  const parsed = parsePipelineListArgs(argv, deps.now());
+  if (!parsed.ok) {
+    io.stderr(PIPELINE_LIST_USAGE);
+    return 1;
+  }
+  if (parsed.json && (parsed.since !== undefined || parsed.state !== undefined)) {
+    io.stderr(PIPELINE_LIST_USAGE);
+    return 1;
+  }
+
   return withRunClient(io, deps, async (client) => {
     try {
       const result: unknown = await request(client, "pipeline_list");
@@ -206,7 +395,19 @@ async function runPipelineListCommand(io: Io, deps: CliDeps): Promise<number> {
         io.stderr("invalid daemon response\n");
         return 1;
       }
-      io.stdout(`${JSON.stringify(snapshot)}\n`);
+
+      if (parsed.json) {
+        io.stdout(`${JSON.stringify(snapshot)}\n`);
+        return 0;
+      }
+
+      const cutoff = parsed.since ?? -Infinity;
+      const selected = selectPipelines(snapshot.pipelines as PipelineSnapshot[], cutoff, parsed.state);
+      if (selected.length === 0) {
+        io.stdout("No pipelines.\n");
+        return 0;
+      }
+      io.stdout(renderPipelineListRows(selected, deps.now()));
       return 0;
     } catch (error) {
       if (error instanceof RpcError) {
@@ -284,8 +485,8 @@ export async function runPipelineCommand(argv: readonly string[], io: Io, deps: 
   if (subcommand === "start") {
     return runPipelineStartCommand(argv.slice(1), io, deps);
   }
-  if (subcommand === "list" && argv.length === 1) {
-    return runPipelineListCommand(io, deps);
+  if (subcommand === "list") {
+    return runPipelineListCommand(argv.slice(1), io, { ...deps, now: deps.now ?? (() => Date.now()) });
   }
   if (subcommand === "wait") {
     const pipelineId = argv[1];

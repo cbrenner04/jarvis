@@ -166,6 +166,34 @@ export const PIPELINE_START_HELP_FLAGS: readonly CommandFlag[] = [
   },
 ];
 
+/** `parseArgs` options for `parsePipelineListArgs` / `jarvis pipeline list`. */
+export const PIPELINE_LIST_PARSE_ARG_OPTIONS = {
+  json: { type: "boolean" },
+  since: { type: "string" },
+  state: { type: "string" },
+} as const satisfies Record<string, { type: "boolean" | "string" }>;
+
+/** Flags accepted by `parsePipelineListArgs`, in help declaration order. */
+export const PIPELINE_LIST_HELP_FLAGS: readonly CommandFlag[] = [
+  {
+    name: "--json",
+    argumentShape: "",
+    description: "Print the unmodified pipeline_list snapshot; cannot combine with --since or --state.",
+  },
+  {
+    name: "--since",
+    argumentShape: "<duration|timestamp>",
+    description:
+      "Only list pipelines created at or after the cutoff: a positive <n>d|h|m|s duration or a Date.parse-accepted timestamp.",
+  },
+  {
+    name: "--state",
+    argumentShape: "<pipeline-state>",
+    description:
+      "Only list pipelines with the exact state: pending, running, awaiting-approval, succeeded, failed, rejected, or interrupted.",
+  },
+];
+
 export const WORKFLOW_IMPLEMENT_HELP_FLAGS: readonly CommandFlag[] = [
   { name: "--branch", argumentShape: "<name>", description: "Implementation branch name." },
   { name: "--base", argumentShape: "<ref>", description: "Base git ref for the branch." },

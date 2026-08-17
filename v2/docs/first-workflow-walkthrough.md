@@ -396,7 +396,7 @@ jarvis pipeline list
 jarvis pipeline wait <pipeline-id>
 ```
 
-**Approval gates:** when `pipeline wait` prints `{kind:"awaiting-approval",stageId,branchKey}`, approve the named gate (`approve-intent`, then `approve-plan` on `full-review`). After an intent split, `pipeline list` shows one row per branch (`branchKey` per row); read `branchKey` from wait boundary JSON or list rows before approving:
+**Approval gates:** when `pipeline wait` prints `{kind:"awaiting-approval",stageId,branchKey}`, approve the named gate (`approve-intent`, then `approve-plan` on `full-review`). The default `pipeline list` row collapses a fan-out `stageId` group to one glyph (`×N` for its branch count); after an intent split, `pipeline list --json` shows one stage row per branch (`branchKey` per row) — read `branchKey` from wait boundary JSON or `--json` list rows before approving:
 
 ```bash
 jarvis pipeline approve <pipeline-id> <stage-id> <branch-key>

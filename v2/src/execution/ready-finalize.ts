@@ -34,12 +34,13 @@ export type ReadyFinalizeInput = {
   baseRef: string;
   requiredIntegrationScope?: string;
   signal?: AbortSignal;
+  onGateGroupId?: (pgid: number | null) => void;
 };
 
 export type ReadyGate = (
   worktreePath: string,
   baseRef: string,
-  options?: { signal?: AbortSignal | undefined },
+  options?: { signal?: AbortSignal | undefined; onGroupId?: ((pgid: number | null) => void) | undefined },
 ) => Promise<void>;
 export type GhReadyFlip = (branch: string, worktreePath: string) => Promise<void>;
 type Delay = (ms: number) => Promise<void>;
@@ -876,15 +877,32 @@ async function deriveReadyGateChildEnv(
   return { ...process.env, JARVIS_READY_TIER: "full", JARVIS_READY_TEST_SCOPE: testScope };
 }
 
+/**
+ * Wraps a caller-supplied group-id recorder so a throw (e.g. a closed store handle) can neither
+ * leave a just-spawned group unbound from the abort signal nor, from the settlement clear inside
+ * a `finally`, replace an in-flight gate failure with a misattributed one.
+ */
+function guardedOnGroupId(onGroupId: ((pgid: number | null) => void) | undefined): (pgid: number | null) => void {
+  return (pgid) => {
+    try {
+      onGroupId?.(pgid);
+    } catch {
+      // recorder failures must not unbind an already-spawned group or override the gate outcome
+    }
+  };
+}
+
 function createDefaultRunReadyGate(runner: AsyncSubprocessRunner): ReadyGate {
   return async (
     worktreePath: string,
     baseRef: string,
-    options?: { signal?: AbortSignal | undefined },
+    gateOptions?: { signal?: AbortSignal | undefined; onGroupId?: ((pgid: number | null) => void) | undefined },
   ): Promise<void> => {
     const env = await deriveReadyGateChildEnv(runner, worktreePath, baseRef);
+    const recordGroupId = guardedOnGroupId(gateOptions?.onGroupId);
+    const processGroup = { onGroupId: (pgid: number) => recordGroupId(pgid) };
     try {
-      await runner.runAsync("bun", ["run", "ready"], worktreePath, { env, signal: options?.signal, processGroup: {} });
+      await runner.runAsync("bun", ["run", "ready"], worktreePath, { env, signal: gateOptions?.signal, processGroup });
     } catch (error) {
       if (error instanceof AsyncSubprocessError) {
         const output = `${error.stdout}${error.stderr}`;
@@ -893,6 +911,8 @@ function createDefaultRunReadyGate(runner: AsyncSubprocessRunner): ReadyGate {
       }
       const detail = error instanceof Error ? error.message : String(error);
       throw new ReadyGateError("bun run ready", undefined, detail);
+    } finally {
+      recordGroupId(null);
     }
   };
 }
@@ -900,13 +920,19 @@ function createDefaultRunReadyGate(runner: AsyncSubprocessRunner): ReadyGate {
 type RequiredIntegrationRunner = (
   worktreePath: string,
   scope: string,
-  options?: { signal?: AbortSignal | undefined },
+  options?: { signal?: AbortSignal | undefined; onGroupId?: ((pgid: number | null) => void) | undefined },
 ) => Promise<void>;
 
 function createDefaultRunRequiredIntegration(runner: AsyncSubprocessRunner): RequiredIntegrationRunner {
-  return async (worktreePath: string, scope: string, options?: { signal?: AbortSignal | undefined }): Promise<void> => {
+  return async (
+    worktreePath: string,
+    scope: string,
+    integrationOptions?: { signal?: AbortSignal | undefined; onGroupId?: ((pgid: number | null) => void) | undefined },
+  ): Promise<void> => {
+    const recordIntegrationGroupId = guardedOnGroupId(integrationOptions?.onGroupId);
+    const processGroup = { onGroupId: (pgid: number) => recordIntegrationGroupId(pgid) };
     try {
-      await runner.runAsync("bun", ["run", scope], worktreePath, { signal: options?.signal, processGroup: {} });
+      await runner.runAsync("bun", ["run", scope], worktreePath, { signal: integrationOptions?.signal, processGroup });
     } catch (error) {
       if (error instanceof AsyncSubprocessError) {
         const output = `${error.stdout}${error.stderr}`;
@@ -915,6 +941,8 @@ function createDefaultRunRequiredIntegration(runner: AsyncSubprocessRunner): Req
       }
       const detail = error instanceof Error ? error.message : String(error);
       throw new ReadyGateError(scope, undefined, detail);
+    } finally {
+      recordIntegrationGroupId(null);
     }
   };
 }
@@ -956,9 +984,15 @@ export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalize
   const runRuntimeSmokeVerification = seams?.runRuntimeSmokeVerification;
 
   return async (input) => {
-    await runReadyGate(input.worktreePath, input.baseRef, { signal: input.signal });
+    await runReadyGate(input.worktreePath, input.baseRef, {
+      signal: input.signal,
+      onGroupId: input.onGateGroupId,
+    });
     if (input.requiredIntegrationScope) {
-      await runRequiredIntegration(input.worktreePath, input.requiredIntegrationScope, { signal: input.signal });
+      await runRequiredIntegration(input.worktreePath, input.requiredIntegrationScope, {
+        signal: input.signal,
+        onGroupId: input.onGateGroupId,
+      });
     }
     if (runMutationVerification) {
       await runMutationVerification(input.worktreePath, input.baseRef);

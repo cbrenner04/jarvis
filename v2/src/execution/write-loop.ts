@@ -2909,6 +2909,7 @@ async function enforceRepairIterationFence(
 
 async function commitRepairAndRepublish(
   args: WriteLoopInput,
+  store: StateStore,
   input: CompletionPublishInput,
   result: WriteLoopResult,
   iterationsConsumed: number,
@@ -2932,7 +2933,8 @@ async function commitRepairAndRepublish(
         ...(options?.readyGateAttribution !== undefined ? { readyGateAttribution: options.readyGateAttribution } : {}),
       });
     }
-    let outcome = await publishCompletionArtifacts(args, input);
+    const onGateGroupId = (pgid: number | null): void => store.setReadyGatePgid(result.runId, pgid);
+    let outcome = await publishCompletionArtifacts(args, input, onGateGroupId);
     if (outcome.kind !== "success") {
       outcome = await classifyReadyGatePublishFailure(outcome, input, args.readyGateScopeSeams);
     }
@@ -3010,7 +3012,7 @@ async function runReadyGateRepairLoop(
     );
     if (fenceFailure !== undefined) return { kind: "early", result: fenceFailure };
 
-    const republish = await commitRepairAndRepublish(args, input, result, currentIterations);
+    const republish = await commitRepairAndRepublish(args, store, input, result, currentIterations);
     if (republish.kind === "failure") return { kind: "early", result: republish.result };
     currentOutcome = republish.outcome;
   }
@@ -3197,7 +3199,8 @@ export async function publishWithReadyRepair(
   iterationsConsumed: number,
   input: CompletionPublishInput,
 ): Promise<ReadyRepairPublishResult> {
-  let outcome = await publishCompletionArtifacts(args, input);
+  const onGateGroupId = (pgid: number | null): void => store.setReadyGatePgid(result.runId, pgid);
+  let outcome = await publishCompletionArtifacts(args, input, onGateGroupId);
   if (outcome.kind !== "success") {
     outcome = await classifyReadyGatePublishFailure(outcome, input, args.readyGateScopeSeams);
   }
@@ -3284,7 +3287,7 @@ export async function publishWithReadyRepair(
     return autofixFenceFailure;
   }
 
-  const autofixRepublish = await commitRepairAndRepublish(args, input, result, iterationsConsumed, {
+  const autofixRepublish = await commitRepairAndRepublish(args, store, input, result, iterationsConsumed, {
     readyGateAttribution: "autofix",
   });
   if (autofixRepublish.kind === "failure") {
@@ -3336,6 +3339,7 @@ async function runPublisher(
 async function runReadyFinalizer(
   seams: CompletionPublicationSeams,
   input: { worktreePath: string; baseRef: string; branch: string; requiredIntegrationScope?: string },
+  onGateGroupId?: (pgid: number | null) => void,
 ): Promise<SmokePass | undefined> {
   const readyFinalizer =
     seams.readyFinalizer ??
@@ -3368,6 +3372,7 @@ async function runReadyFinalizer(
     baseRef: input.baseRef,
     ...(input.requiredIntegrationScope ? { requiredIntegrationScope: input.requiredIntegrationScope } : {}),
     ...(seams.signal !== undefined ? { signal: seams.signal } : {}),
+    ...(onGateGroupId !== undefined ? { onGateGroupId } : {}),
   };
   return (await readyFinalizer(finalInput))?.runtimeSmokeOutcome;
 }
@@ -3445,6 +3450,7 @@ export async function publishCompletionArtifacts(
     specTemplate?: boolean;
     requiredIntegrationScope?: string;
   },
+  onGateGroupId?: (pgid: number | null) => void,
 ): Promise<CompletionPublishFailure | (CompletionPublishSuccess & { kind: "success" })> {
   let publisherResult: Awaited<ReturnType<CompletionPublisher>> | undefined;
   let runtimeSmokeOutcome: SmokePass | undefined;
@@ -3468,12 +3474,16 @@ export async function publishCompletionArtifacts(
   }
   try {
     if (!seams.skipReadyFinalization) {
-      runtimeSmokeOutcome = await runReadyFinalizer(seams, {
-        worktreePath: input.worktreePath,
-        baseRef: input.baseRef,
-        branch: input.branch,
-        ...(input.requiredIntegrationScope ? { requiredIntegrationScope: input.requiredIntegrationScope } : {}),
-      });
+      runtimeSmokeOutcome = await runReadyFinalizer(
+        seams,
+        {
+          worktreePath: input.worktreePath,
+          baseRef: input.baseRef,
+          branch: input.branch,
+          ...(input.requiredIntegrationScope ? { requiredIntegrationScope: input.requiredIntegrationScope } : {}),
+        },
+        onGateGroupId,
+      );
     }
   } catch (finalizeError) {
     const err = finalizeError instanceof Error ? finalizeError : new Error(String(finalizeError));

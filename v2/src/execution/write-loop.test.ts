@@ -3580,7 +3580,7 @@ describe("write loop", () => {
               stateStore: store,
               withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
               sessionsDir: join(jarvisRoot, "sessions"),
-              maxIterations: 0,
+              maxIterations: 3,
               completionCommitter: completionHooks.completionCommitter,
               completionPublisher: completionHooks.completionPublisher,
               runFixCommand: async () => {

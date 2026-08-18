@@ -8,6 +8,7 @@ import { connectWithAutoStart } from "../cli/stale-dispatch.ts";
 import {
   PIPELINE_APPROVE_USAGE,
   PIPELINE_LIST_USAGE,
+  PIPELINE_RECOVER_USAGE,
   PIPELINE_REJECT_USAGE,
   PIPELINE_RESUME_USAGE,
   PIPELINE_START_USAGE,
@@ -105,6 +106,17 @@ function parsePipelineResumeArgs(
   const branchKey = argv[1];
   if (branchKey === undefined) return { ok: true, pipelineId };
   if (branchKey.trim().length === 0) return { ok: false };
+  return { ok: true, pipelineId, branchKey };
+}
+
+function parsePipelineRecoverArgs(
+  argv: readonly string[],
+): { ok: true; pipelineId: string; branchKey: string } | { ok: false } {
+  if (argv.length !== 2) return { ok: false };
+  const pipelineId = argv[0];
+  const branchKey = argv[1];
+  if (pipelineId === undefined || branchKey === undefined) return { ok: false };
+  if (pipelineId.trim().length === 0 || branchKey.trim().length === 0) return { ok: false };
   return { ok: true, pipelineId, branchKey };
 }
 
@@ -446,6 +458,20 @@ async function runPipelineWaitCommand(pipelineId: string, io: Io, deps: CliDeps)
   });
 }
 
+async function requestPipelineRpc(
+  client: IpcClient,
+  method: string,
+  params: Record<string, string>,
+  io: Io,
+): Promise<{ ok: true; response: unknown } | { ok: false }> {
+  try {
+    return { ok: true, response: await request(client, method, params) };
+  } catch (error) {
+    io.stderr(error instanceof RpcError ? formatRpcError(error) : formatConnectionError(error));
+    return { ok: false };
+  }
+}
+
 async function runPipelineMutationCommand(
   method: "pipeline_approve" | "pipeline_reject" | "pipeline_resume",
   params: Record<string, string>,
@@ -454,18 +480,9 @@ async function runPipelineMutationCommand(
   deps: CliDeps,
 ): Promise<number> {
   return withRunClient(io, deps, async (client) => {
-    let response: unknown;
-    try {
-      response = await request(client, method, params);
-    } catch (error) {
-      if (error instanceof RpcError) {
-        io.stderr(formatRpcError(error));
-        return 1;
-      }
-      io.stderr(formatConnectionError(error));
-      return 1;
-    }
-    const outcome = parsePipelineMutationOutcome(response, successKind);
+    const result = await requestPipelineRpc(client, method, params, io);
+    if (!result.ok) return 1;
+    const outcome = parsePipelineMutationOutcome(result.response, successKind);
     if (outcome === undefined) {
       io.stderr("invalid daemon response\n");
       return 1;
@@ -476,6 +493,68 @@ async function runPipelineMutationCommand(
     // Mutation checkpoint: returning 0 unconditionally must turn the refused-decision
     // exit-code tests RED.
     return outcome.kind === successKind ? 0 : 1;
+  });
+}
+
+export type PipelineRecoverOutcome =
+  | { kind: "admitted"; pipelineId: string; branchKey: string; stageId: string; entryRunId: string }
+  | { kind: "resolution_refused"; pipelineId: string; branchKey: string; reason: string; message: string }
+  | { kind: "stage_claimed"; pipelineId: string; branchKey: string; stageId: string };
+
+const PIPELINE_RECOVER_RESULT_KINDS: ReadonlySet<string> = new Set(["admitted", "resolution_refused", "stage_claimed"]);
+
+function isNonEmptyString(field: unknown): field is string {
+  return typeof field === "string" && field.length > 0;
+}
+
+function parsePipelineRecoverOutcome(value: unknown): PipelineRecoverOutcome | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const record = value as {
+    kind?: unknown;
+    pipelineId?: unknown;
+    branchKey?: unknown;
+    stageId?: unknown;
+    entryRunId?: unknown;
+    reason?: unknown;
+    message?: unknown;
+  };
+  if (typeof record.kind !== "string" || !PIPELINE_RECOVER_RESULT_KINDS.has(record.kind)) return undefined;
+  if (!isNonEmptyString(record.pipelineId) || !isNonEmptyString(record.branchKey)) return undefined;
+  if (record.kind === "admitted" && (!isNonEmptyString(record.stageId) || !isNonEmptyString(record.entryRunId))) {
+    return undefined;
+  }
+  if (record.kind === "resolution_refused" && (!isNonEmptyString(record.reason) || !isNonEmptyString(record.message))) {
+    return undefined;
+  }
+  if (record.kind === "stage_claimed" && !isNonEmptyString(record.stageId)) return undefined;
+  return record as PipelineRecoverOutcome;
+}
+
+async function runPipelineRecoverCommand(
+  pipelineId: string,
+  branchKey: string,
+  io: Io,
+  deps: CliDeps,
+): Promise<number> {
+  return withRunClient(io, deps, async (client) => {
+    const result = await requestPipelineRpc(client, "pipeline_recover", { pipelineId, branchKey }, io);
+    if (!result.ok) return 1;
+    const outcome = parsePipelineRecoverOutcome(result.response);
+    if (outcome === undefined) {
+      io.stderr("invalid daemon response\n");
+      return 1;
+    }
+    if (outcome.kind === "resolution_refused") {
+      io.stderr(`${outcome.reason}: ${outcome.message}\n`);
+    }
+    if (outcome.kind === "stage_claimed") {
+      io.stderr(`pipeline recover: stage ${outcome.stageId} is claimed by another operation\n`);
+    }
+    if (outcome.kind === "admitted") {
+      io.stdout(`${JSON.stringify(outcome)}\n`);
+    }
+    // Mutation checkpoint: returning 0 unconditionally must turn the refusal exit-code tests RED.
+    return outcome.kind === "admitted" ? 0 : 1;
   });
 }
 
@@ -525,6 +604,14 @@ export async function runPipelineCommand(argv: readonly string[], io: Io, deps: 
       io,
       deps,
     );
+  }
+  if (subcommand === "recover") {
+    const parsed = parsePipelineRecoverArgs(argv.slice(1));
+    if (!parsed.ok) {
+      io.stderr(PIPELINE_RECOVER_USAGE);
+      return 1;
+    }
+    return runPipelineRecoverCommand(parsed.pipelineId, parsed.branchKey, io, deps);
   }
   io.stderr(PIPELINE_USAGE);
   return 1;

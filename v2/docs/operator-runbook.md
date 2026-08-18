@@ -199,6 +199,22 @@ Use **`pipeline resume`** (not `pipeline start` or `jarvis run resume`) when a p
 
 Add the branch key when a single approved branch's stage failed on a fan-out pipeline while sibling branches still sit at their own gates — the unscoped form only derives `awaiting-approval` on such a pipeline and never reopens the failed branch. Branch-scoped resume touches only that branch's rows; sibling gates and stages are untouched. The CLI prints only the daemon `reason` string, not `branchKey`/`stageId`; a `branch_awaiting_approval` refusal means resume raced an unresolved decision on that branch — look up the gate's stage ID via `pipeline list` or `pipeline wait` boundary JSON, approve or reject it, then resume or `pipeline wait` again. Omitting the branch key keeps whole-pipeline resume unchanged.
 
+### Pipeline recover
+
+Revalidate a hand-corrected blocked branch plan stage without redrafting it:
+
+```sh
+jarvis pipeline recover <pipeline-id> <branch-key>
+```
+
+1. Read the blocked branch's stage row and its `workflowInvocationId` from `jarvis pipeline list --json` — the row must be a `failed` `plan` stage.
+2. Look up that run's `worktreePath` from `jarvis run list` or `jarvis run wait <run-id>`.
+3. Correct `<worktreePath>/.jarvis-plan-stage/` by hand, and remove any operator-authored `## Blocker` section from the staged tree — recovery always refuses `operator_blocker` when one remains.
+4. Run `jarvis pipeline recover <pipeline-id> <branch-key>`.
+5. Read the settled outcome afterward from `jarvis pipeline list --json` (`status`, `artifact`, `failureDetail`) on the same stage row — the command returns at admission, before the attempt runs.
+
+Use **`pipeline recover`** (not `pipeline resume`) when the blocked stage's staged tree is already correct and you want the daemon to revalidate and land it as-is. `pipeline resume` instead reopens the row and redispatches the stage through its ordinary write step — it redrafts, discarding the correction. `pipeline recover` is also distinct from `pipeline approve`/`reject`, which admit gate decisions rather than revalidate a stage. Exit **`0`** on `kind: "admitted"` means the correction was accepted for detached revalidation, not that recovery succeeded. `resolution_refused` (`<reason>: <message>` on stderr — for example `no_failed_stage`, `stage_not_plan`, `stage_not_linked`; see [`daemon-host.md`](./daemon-host.md#branch-scoped-blocked-plan-stage-recovery) for the full reason list) and `stage_claimed` (another recovery or dispatch already holds the stage) both refuse before any attempt runs; `operator_blocker` is instead `recoverPlanStage`'s own attempt-time refusal (step 3 above) — it lands after admission and settles the stage row `failed` in place, visible only via step 5, not on the command's exit. Recovery only touches the target branch's own rows; sibling branches and their gates are untouched.
+
 Append **`--detach`** to any preset invocation when the shell should not block on workflow completion. Detach runs the same admission path as the default attached launch; stdout is the workflow **entry** run ID only and exit **`0` means admitted**, not that the workflow succeeded. Use `jarvis run wait <run-id>`, `jarvis run list`, or `jarvis tui` on that ID for progress and terminal outcome. Attached mode (no `--detach`) keeps the shell open through entry-terminal `wait`; exit `0` there means the workflow finished.
 
 `--spec` is resolved from the caller's cwd, then checked at its resolved project-relative path in `--base` before daemon contact. If it is unavailable, commit or select a base ref that contains the spec and retry; launching from a project subdirectory is supported.

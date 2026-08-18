@@ -21,9 +21,9 @@ describe("computeShellLayout", () => {
     // @mutate v2/src/tui/tui-shell-layout.ts "const LEFT_BASE_FRACTION = 0.45;" -> "const LEFT_BASE_FRACTION = 0.38;"
     // @mutate v2/src/tui/tui-shell-layout.ts "const LEFT_FLOOR = 80;" -> "const LEFT_FLOOR = 72;"
     // @mutate v2/src/tui/tui-shell-layout.ts "const LEFT_CEILING_FRACTION = 0.5;" -> "const LEFT_CEILING_FRACTION = 0.4;"
-    expect(computeShellLayout(180, 50, 0)).toMatchObject({ leftWidth: 81, rightWidth: 99 });
-    expect(computeShellLayout(200, 50, 0)).toMatchObject({ leftWidth: 90, rightWidth: 110 });
-    expect(computeShellLayout(245, 72, 0)).toMatchObject({ leftWidth: 111, rightWidth: 134 });
+    expect(computeShellLayout(180, 50, 0)).toMatchObject({ leftWidth: 81, rightWidth: 98 });
+    expect(computeShellLayout(200, 50, 0)).toMatchObject({ leftWidth: 90, rightWidth: 109 });
+    expect(computeShellLayout(245, 72, 0)).toMatchObject({ leftWidth: 111, rightWidth: 133 });
 
     let floorOffset = 0;
     let ceilingOffset = 0;
@@ -46,6 +46,35 @@ describe("computeShellLayout", () => {
   test("width 119 is stacked and width 120 is split", () => {
     expect(computeShellLayout(119, 72, 0)).toMatchObject({ layoutMode: "stacked", dockHeight: 4 });
     expect(computeShellLayout(120, 72, 0).layoutMode).toBe("split");
+  });
+
+  test("split layout reserves a divider column between left and right widths", () => {
+    // Keystone checkpoint: computing rightWidth without subtracting dividerWidth must turn this test RED.
+    // @mutate v2/src/tui/tui-shell-layout.ts "rightWidth: columns - leftWidth - dividerWidth," -> "rightWidth: columns - leftWidth,"
+    for (const { columns, leftWidth, rightWidth } of [
+      { columns: 180, leftWidth: 81, rightWidth: 98 },
+      { columns: 200, leftWidth: 90, rightWidth: 109 },
+      { columns: 245, leftWidth: 111, rightWidth: 133 },
+    ]) {
+      const layout = computeShellLayout(columns, 72, 0);
+      expect(layout).toMatchObject({ leftWidth, dividerWidth: 1, rightWidth });
+      expect(layout.leftWidth + layout.dividerWidth + layout.rightWidth).toBe(columns);
+    }
+
+    // Mutation checkpoint: always charging a divider column in the stacked branch must turn this test RED.
+    // @mutate v2/src/tui/tui-shell-layout.ts "const dividerWidth = layoutMode === \"split\" ? 1 : 0;" -> "const dividerWidth = 1;"
+    expect(computeShellLayout(119, 72, 0)).toMatchObject({ layoutMode: "stacked", dividerWidth: 0, rightWidth: 39 });
+
+    let floorOffset = 0;
+    let ceilingOffset = 0;
+    for (let step = 0; step < 20; step += 1) {
+      floorOffset = nudgeDividerOffset(245, floorOffset, "[");
+      ceilingOffset = nudgeDividerOffset(245, ceilingOffset, "]");
+    }
+    const floor = computeShellLayout(245, 72, floorOffset);
+    const ceiling = computeShellLayout(245, 72, ceilingOffset);
+    expect(floor.leftWidth + floor.dividerWidth + floor.rightWidth).toBe(245);
+    expect(ceiling.leftWidth + ceiling.dividerWidth + ceiling.rightWidth).toBe(245);
   });
 });
 

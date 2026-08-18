@@ -484,6 +484,32 @@ describe("createMonitorDisplay", () => {
     expect(paneContainerFlexDirection(splitTree, splitLayout.paneHeight)).toBe("row");
   });
 
+  test("split layout paints a pane divider column and stacked layout paints none", () => {
+    // Mutation checkpoint: forcing the divider-inclusion guard false must turn this test RED (split loses its divider).
+    // @mutate v2/src/tui/tui-ink-monitor.tsx "const includeDivider = layout.dividerWidth > 0;" -> "const includeDivider = false;"
+    // Mutation checkpoint: forcing the divider-inclusion guard true must turn this test RED (stacked gains a divider).
+    // @mutate v2/src/tui/tui-ink-monitor.tsx "const includeDivider = layout.dividerWidth > 0;" -> "const includeDivider = true;"
+    const runs: DaemonListRunRow[] = [
+      { runId: "run-alpha", project: "demo", branch: "alpha", createdAt: 0, status: "in-progress", isLive: true },
+    ];
+
+    const splitLayout = computeShellLayout(245, 72, 0);
+    const splitOutput = renderMonitorOutput(shellState(runs, "run-alpha"));
+    const splitPaneRows = splitOutput.slice(0, splitLayout.paneHeight);
+    const splitDockRows = splitOutput.slice(splitLayout.paneHeight);
+
+    expect(splitPaneRows).toHaveLength(splitLayout.paneHeight);
+    for (const row of splitPaneRows) {
+      const dividerIndex = row.indexOf("│");
+      expect(dividerIndex).toBeGreaterThanOrEqual(0);
+      expect(Bun.stringWidth(row.slice(0, dividerIndex))).toBe(splitLayout.leftWidth);
+    }
+    expect(splitDockRows.every((row) => !row.includes("│"))).toBe(true);
+
+    const stackedOutput = renderMonitorOutput(shellState(runs, "run-alpha", { terminalColumns: 119 }));
+    expect(stackedOutput.every((row) => !row.includes("│"))).toBe(true);
+  });
+
   test("left-pane row source reads from tree derivation with pipeline, stage, and run ids", () => {
     // Mutation checkpoint: using monitorLeftPaneTableRows for the tree segment in tui-ink-monitor.tsx must turn left-pane tree derivation RED.
     const pipelineId = "pipe-ink";

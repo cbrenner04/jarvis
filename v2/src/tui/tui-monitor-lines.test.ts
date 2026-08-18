@@ -8,6 +8,7 @@ import {
   firstSelectableRunId,
   joinMonitorRow,
   livenessTone,
+  type MonitorLineRow,
   mergePipelineSnapshots,
   monitorDockLines,
   monitorLeftPaneAttentionRows,
@@ -1934,8 +1935,8 @@ describe("monitorRightPaneSegmentRows", () => {
       "loopOutcomeKind: complete",
       "iterationsConsumed: 0",
       "resumable: false",
-      'error: {"nextAction":"inspect_spec","publicationFailure":{"exitCode":0,"message":"failed","operation":"publish","stdoutTail":""},"reas',
-      'on":"agent_blocked","retryable":false}',
+      'error: {"nextAction":"inspect_spec","publicationFailure":{"exitCode":0,"message":"failed","operation":"publish","stdoutTail":""},"rea',
+      'son":"agent_blocked","retryable":false}',
       "reviewPasses: 0",
       "reviewBehavior: light",
       "prNumber: 0",
@@ -2120,6 +2121,27 @@ describe("monitorRightPaneSegmentRows", () => {
     });
   }
 
+  // All-narrow (plain-ASCII) fixture: the wide/combining wrappingRun above tops out around 129 display columns
+  // and can't cross the 134/133 pre-fix/post-fix thresholds below; this one exceeds both comfortably.
+  const narrowWrappingRun: DaemonListRunRow = {
+    runId: "run-narrow-wrap",
+    project: "demo",
+    branch: "wrap-narrow",
+    status: "failed",
+    isLive: false,
+    createdAt: 0,
+    worktreePath: `/workspace/${"n".repeat(200)}`,
+  };
+
+  function narrowWrappingState(terminalColumns: number): TuiMonitorState {
+    return monitorState({
+      runs: [narrowWrappingRun],
+      selectedNodeId: narrowWrappingRun.runId,
+      terminalColumns,
+      terminalRows: 72,
+    });
+  }
+
   test("split detail wraps losslessly by display columns without ellipsis", () => {
     // @mutate v2/src/tui/tui-monitor-lines.ts "wrapMonitorRows(rows, effectiveRightPaneWidth(layout, columns))" -> "rows"
     const columns = 120;
@@ -2129,6 +2151,30 @@ describe("monitorRightPaneSegmentRows", () => {
 
     expect(rows.length).toBeGreaterThan(unwrapped.length);
     expect(rows.every((line) => Bun.stringWidth(joinMonitorRow(line)) <= width)).toBe(true);
+    expect(rows.map(joinMonitorRow).join("")).toBe(unwrapped.map(joinMonitorRow).join(""));
+    expect(rows.some((line) => joinMonitorRow(line).includes("…"))).toBe(false);
+  });
+
+  test("split detail wraps one column narrower for the pane divider", () => {
+    const columns = 245;
+    const layout = computeShellLayout(columns, 72, 0);
+    const preFixWidth = columns - layout.leftWidth; // pre-fix rightWidth: no divider column reserved
+    expect(preFixWidth).toBe(134);
+    expect(layout.rightWidth).toBe(133);
+
+    const unwrapped = monitorRightPaneSegmentRows(narrowWrappingState(10_000), TREE_NOW_MS);
+    const target = unwrapped.find((line) => joinMonitorRow(line).startsWith("worktreePath:"));
+    expect(target).toBeDefined();
+    const targetText = target === undefined ? "" : joinMonitorRow(target);
+    expect(Bun.stringWidth(targetText)).toBeGreaterThan(preFixWidth);
+
+    const wrappedPreFix = wrapMonitorRows([target as MonitorLineRow], preFixWidth);
+    const wrappedPostFix = wrapMonitorRows([target as MonitorLineRow], layout.rightWidth);
+    expect(Bun.stringWidth(joinMonitorRow(wrappedPreFix[0] as MonitorLineRow))).toBe(134);
+    expect(Bun.stringWidth(joinMonitorRow(wrappedPostFix[0] as MonitorLineRow))).toBe(133);
+
+    const rows = monitorRightPaneSegmentRows(narrowWrappingState(columns), TREE_NOW_MS);
+    expect(rows.every((line) => Bun.stringWidth(joinMonitorRow(line)) <= layout.rightWidth)).toBe(true);
     expect(rows.map(joinMonitorRow).join("")).toBe(unwrapped.map(joinMonitorRow).join(""));
     expect(rows.some((line) => joinMonitorRow(line).includes("…"))).toBe(false);
   });

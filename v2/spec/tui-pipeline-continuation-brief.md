@@ -25,16 +25,28 @@ Two clusters: **recovery** (make a blocked/failed pipeline survivable) and **fan
 
 **Concrete payoff:** the operator's real pipeline `22041e31` (seed `pipeline-terminal-settlement-supersedes-mid-stage-prs`) is parked on exactly this cluster — a blocked plan stage it cannot recover. It stays parked until `pipeline-stage-recoverable-after-blocker` lands, then resumes. This cluster is not hypothetical; it is unblocking live work.
 
-### Landed 2026-08-17 → 18 (this session)
+### Recovery cluster COMPLETE (2026-08-18)
 
-The two plan-draft root causes shipped in full; both pipeline-recovery seeds are partly landed (foundation + daemon layers in, operator CLI layers remain):
+**The P0 recovery cluster is fully landed.** A blocked pipeline stage is now survivable end-to-end from the operator CLI — the "pipelines are dead in the water" problem is closed.
 
-- `plan-draft-harness-blocker-survives-redraft` — **DONE**, shipped as "Clear plan-draft harness blockers before redraft" (#2879).
-- `plan-draft-blocker-append-creates-bare-spec-file` — **DONE**, shipped as "Route plan-draft contract-miss blockers" (#2888).
-- `branch-scoped-pipeline-resume` — **partial**: state-store reopen (#2880), orchestration (#2889), daemon RPC (#2894) merged; the CLI form `pipeline resume <id> <branch-key>` (`expose-branch-scoped-pipeline-resume-cli`) is the last layer — its plan blocked three times on the normalizer's single-surface check flagging a legit CLI-prints-daemon-reason bullet; hand-finish that small spec next session (see `plan-normalizer-honors-declared-single-surface`).
-- `pipeline-stage-recoverable-after-blocker` — **partial**: the revalidate-and-continue execution foundation (#2891) and the branch-scoped daemon recovery (`recover-one-blocked-pipeline-branch-stage`, PR #2895 — left CONFLICTING and unreviewed, carry over) landed/are staged; the operator CLI (`expose-pipeline-stage-recovery-command`) remains and depends on #2895 merging first.
+- `plan-draft-harness-blocker-survives-redraft` — **DONE** (#2879).
+- `plan-draft-blocker-append-creates-bare-spec-file` — **DONE** (#2888).
+- `branch-scoped-pipeline-resume` — **DONE**: state-store (#2880), orchestration (#2889), daemon RPC (#2894), and the CLI `jarvis pipeline resume <id> [<branch-key>]` (#2904, hand-finished — the plan blocked 3× on the normalizer).
+- `pipeline-stage-recoverable-after-blocker` — **DONE**: execution foundation (#2891), branch-scoped daemon recovery (#2895), and the operator CLI `jarvis pipeline recover <id> <branch-key>` (#2906).
 
-New seed from this session: `heavy-daemon-agent-tests-flake-under-ci-concurrency` — `workflow-runner.test.ts` and `daemon-resume.test.ts` pass in isolation but flake (agent-timeout / socket races) under CI's concurrent full-suite run, red-gating roughly half of all PRs and forcing manual re-runs. **Highest-leverage next fix** — it is blocking the operator's own PRs and every implement's CI; land and implement it before finishing the CLI layers.
+`heavy-daemon-agent-tests-flake-under-ci-concurrency` — **DONE** (#2900, the "no-co-runner lane" — `workflow-runner.test.ts` + `daemon-resume.test.ts` isolated). Full-suite CI now passes first-try; the ~44% red-gating is fixed. Subspec 01 (budget-margin derivation) deferred as over-build (its empirical per-file measurement blew the implement's iteration budget); the other 3 flake ready-intents appear unneeded now the fix holds. Seed consumed.
+
+Also landed this session: v2-init (#2890), TUI pane divider (#2901), ready-gate-reaps 01+02 (#2903 — spec complete), and the 8-spec `completed/` archival (#2905).
+
+### Next priorities (re-prioritized 2026-08-18, post-P0)
+
+1. **`plan-normalizer-honors-declared-single-surface`** (seed) — **NEW TOP.** The plan-draft normalizer's single-surface check false-positives on a legit acceptance-criterion bullet that names multiple file paths / RPC frames in one classification; it blocked **three** plans this session (resume-CLI, flake foundation, stage-recovery), each forcing a manual hand-finish. Fixing it removes that toil from every future plan — highest remaining leverage.
+2. **TUI P1s** — `tui-attention-segment-suppresses-stale-terminal-incidents` + `tui-stage-run-duplicated-as-top-level` (below). Highest-friction TUI defects, independent of everything else.
+3. **Pipeline display hygiene P2s** — retention + dismiss + **stale-run termination** (bumped: a daemon death mid-session this session orphaned a completion run that stays `in-progress` and un-killable — exactly what `operator-terminates-stale-nonactive-runs` addresses).
+4. **Fan-out correctness P1** — still gated on the operator's `configure-pipeline-supersede-policy` landing first.
+5. Dock grammar, remaining TUI polish, and `distinguish-jarvis-commit-steps` (its ~14 hollow `@mutate` checkpoints were repair-drafted this session — apply + implement).
+
+New seed this session: `harness-publication-push-uses-explicit-refspec` — the completion step's bare `git push` fails when the implement branch tracks a differently-named upstream (e.g. from `--base origin/main`), stranding publication; an explicit `git push origin HEAD:<branch>` is robust to branch upstream config. See `v2/spec/seeds/`.
 
 ### Fan-out correctness (P1)
 
@@ -66,17 +78,17 @@ New seed from this session: `heavy-daemon-agent-tests-flake-under-ci-concurrency
 
 ## Recommended ordering
 
-1. **Recovery cluster (P0)** — the whole pipeline story depends on it, and two of the seeds are the *root causes* of the plan-block loop this session hit repeatedly. Sequence within the cluster: `plan-draft-harness-blocker-survives-redraft` **first** (until a redraft can succeed, no recovery path helps), then `plan-draft-blocker-append-creates-bare-spec-file`, then the operator-facing `pipeline-stage-recoverable-after-blocker` + `branch-scoped-pipeline-resume`. Co-plan as one surface.
-2. **Fan-out correctness (P1)** — `pipeline-fan-out-per-lane-terminal-settlement` (fan-outs currently always read `failed`) then `pipeline-fan-out-lanes-serial-chained-bases`. Independent of the recovery cluster; can run in parallel.
+1. **Recovery cluster (P0)** — ✅ **COMPLETE (2026-08-18).** See "Next priorities" above for the current ordering; the list below is superseded by it and kept for the P1/P2/P3 detail.
+2. **Fan-out correctness (P1)** — `pipeline-fan-out-per-lane-terminal-settlement` (fan-outs currently always read `failed`) then `pipeline-fan-out-lanes-serial-chained-bases`. Independent of the recovery cluster; gated on the operator's `configure-pipeline-supersede-policy`.
 3. **TUI attention + stage-doubling (P1s)** — the two highest-friction TUI defects; independent of the pipeline chains, run in parallel.
 4. **Pipeline display hygiene (P2s)** — retention + dismiss + stale-run termination; a cluster, plan together.
 5. **Dock grammar (P2)** — high value but a larger, standalone redesign; sequence after the P1 defects.
 6. **TUI polish (P3s)** — down-arrow expansion and the pane divider; lowest urgency.
 
-If only one thing ships from this brief, it is **`plan-draft-harness-blocker-survives-redraft`** — it is the smallest fix with the largest unblocking effect, and every pipeline/plan re-run today is silently defeated by it.
+With the recovery cluster done, the single highest-leverage remaining fix is **`plan-normalizer-honors-declared-single-surface`** — it silently defeats plan drafting the same way the harness blocker used to defeat re-runs (three hand-finishes this session), so fixing it removes the recurring manual-plan-finish toil.
 
 Test strategy unchanged: pure functions + injected input hook, no rendered-ink assertions (`v2/docs/test-writing.md` § TUI test strategy); daemon/state tests for the pipeline items.
 
 ## Also open, outside this brief's scope
 
-Non-TUI/pipeline harness work still queued (from the prior session's plan, not dogfooding): the **reap chain** (`20260811T063011Z-ready-gate-reaps-test-children`, implement parked — subspec 01 needs a re-plan for the byte-identical `@mutate` anchor problem) and the **`daemon-start-sweeps-orphan-gate-children`** ready-intent. Tracked here only so they aren't forgotten; they belong to the reap/test-hygiene line, not this brief.
+Non-TUI/pipeline harness work still queued (from the prior session's plan, not dogfooding): the **reap chain** (`20260811T063011Z-ready-gate-reaps-test-children`) is now **DONE** — subspec 00 shipped in #2884 and 01+02 in #2903 (the anticipated byte-identical `@mutate` anchor problem did not materialize). The **`daemon-start-sweeps-orphan-gate-children`** ready-intent remains queued; it belongs to the reap/test-hygiene line, not this brief.

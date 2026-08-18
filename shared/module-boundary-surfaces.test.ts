@@ -278,6 +278,150 @@ describe("module boundary surfaces", () => {
     expect(readFileSync(sourcePath, "utf8")).toContain(outOfUnion);
     expect(readdirSync(dir).filter((file) => /^\d{2}-.*\.md$/u.test(file))).toEqual([`00-${fixture.parentSlug}.md`]);
   });
+
+  describe("declared single-surface staged plans", () => {
+    const MULTI_SURFACE_BULLET =
+      "- [ ] The state-store persists completed runs atomically,\n      and the CLI exposes the same completed run.";
+    const DECLARED_SURFACE = "shared/module-boundary-surfaces.ts";
+    const RATIONALE =
+      "Unsplit rationale: Reading and suppressing the split both sit on the plan-draft normalization path, so splitting does not apply.";
+
+    function declarationIntent(): string {
+      return [
+        "# Declared single-surface intent",
+        "",
+        "## Primary implementation surface",
+        "",
+        DECLARED_SURFACE,
+        "",
+        RATIONALE,
+        "",
+      ].join("\n");
+    }
+
+    function stageK2WithMultiSurfaceBullet(): { dir: string; sourcePath: string } {
+      const dir = stagedFixture("k2");
+      const sourcePath = join(dir, "00-phase-1-state-cli.md");
+      const source = readFileSync(sourcePath, "utf8").replace(
+        "- [ ] The state-store persists completed runs atomically.",
+        MULTI_SURFACE_BULLET,
+      );
+      writeFileSync(sourcePath, source);
+      return { dir, sourcePath };
+    }
+
+    test("a declared single-surface staged plan normalizes without splitting", () => {
+      // @mutate shared/module-boundary-surfaces.ts "if (declaresSingleSurface(specDir)) return;" -> "if (false) return;"
+      const { dir } = stageK2WithMultiSurfaceBullet();
+      writeFileSync(join(dir, "intent.md"), declarationIntent());
+      const beforeFiles = readdirSync(dir).sort();
+      const beforeBytes = beforeFiles.map((file) => readFileSync(join(dir, file)));
+
+      normalizePlanDraftSpecDir(dir);
+
+      const afterFiles = readdirSync(dir).sort();
+      expect(afterFiles).toEqual(beforeFiles);
+      expect(afterFiles.map((file) => readFileSync(join(dir, file)))).toEqual(beforeBytes);
+    });
+
+    test("a staged plan missing either half of the declaration still splits", () => {
+      // @mutate shared/module-boundary-surfaces.ts "return hasRationale && surfaceLines.length === 1;" -> "return hasRationale || surfaceLines.length === 1;"
+      const variants: Array<(dir: string) => void> = [
+        (dir) => rmSync(join(dir, "intent.md")),
+        (dir) =>
+          writeFileSync(
+            join(dir, "intent.md"),
+            [
+              "# Declared single-surface intent",
+              "",
+              "## Primary implementation surface",
+              "",
+              DECLARED_SURFACE,
+              "",
+            ].join("\n"),
+          ),
+        (dir) =>
+          writeFileSync(
+            join(dir, "intent.md"),
+            [
+              "# Declared single-surface intent",
+              "",
+              "## Primary implementation surface",
+              "",
+              DECLARED_SURFACE,
+              "",
+              "Unsplit rationale:",
+              "",
+            ].join("\n"),
+          ),
+        (dir) =>
+          writeFileSync(join(dir, "intent.md"), ["# Declared single-surface intent", "", RATIONALE, ""].join("\n")),
+        (dir) =>
+          writeFileSync(
+            join(dir, "intent.md"),
+            [
+              "# Declared single-surface intent",
+              "",
+              "## Primary implementation surface",
+              "",
+              DECLARED_SURFACE,
+              "shared/other-surface.ts",
+              "",
+              RATIONALE,
+              "",
+            ].join("\n"),
+          ),
+      ];
+
+      for (const applyVariant of variants) {
+        const { dir } = stageK2WithMultiSurfaceBullet();
+        applyVariant(dir);
+
+        expect(() => normalizePlanDraftSpecDir(dir)).toThrow("multi-surface ## Acceptance criteria bullet");
+      }
+    });
+
+    test("a declaration only in a subspec body does not suppress the split", () => {
+      const { dir, sourcePath } = stageK2WithMultiSurfaceBullet();
+      writeFileSync(join(dir, "intent.md"), "# Persist runs and expose them through the CLI\n");
+      const source = readFileSync(sourcePath, "utf8");
+      writeFileSync(
+        sourcePath,
+        `${source}\n## Primary implementation surface\n\n${DECLARED_SURFACE}\n\n${RATIONALE}\n`,
+      );
+
+      expect(() => normalizePlanDraftSpecDir(dir)).toThrow("multi-surface ## Acceptance criteria bullet");
+    });
+
+    test("a declared staged plan still refuses a broken index link and an unsatisfiable keystone criterion", () => {
+      const { dir: linkDir } = stageK2WithMultiSurfaceBullet();
+      writeFileSync(join(linkDir, "intent.md"), declarationIntent());
+      writeFileSync(
+        join(linkDir, "index.md"),
+        readFileSync(join(linkDir, "index.md"), "utf8").replace("00-phase-1-state-cli.md", "00-does-not-exist.md"),
+      );
+      expect(() => normalizePlanDraftSpecDir(linkDir)).toThrow("Plan index links unknown subspec");
+
+      mkdirSync(scratchRoot, { recursive: true });
+      const keystoneDir = mkdtempSync(join(scratchRoot, "module-boundary-declared-keystone-"));
+      tempDirs.push(keystoneDir);
+      writeFileSync(join(keystoneDir, "index.md"), "# Staged plan\n\n- [ ] [00 - Guard](./00-guard.md)\n");
+      writeFileSync(
+        join(keystoneDir, "00-guard.md"),
+        [
+          "# Preserve this title",
+          "",
+          "## Acceptance criteria",
+          "",
+          "- [ ] Keystone checkpoint: inverting the undated-row ordering guard makes the scoped test fail.",
+          "",
+        ].join("\n"),
+      );
+      writeFileSync(join(keystoneDir, "intent.md"), declarationIntent());
+
+      expect(() => normalizePlanDraftSpecDir(keystoneDir)).toThrow("unsatisfiable keystone criterion");
+    });
+  });
 });
 
 describe("keystone admissibility at plan draft", () => {

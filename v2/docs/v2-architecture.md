@@ -439,8 +439,11 @@ The exact columns are grown behind their consumers, not designed ahead of them: 
   `bun test` pool workers under a gate command) running. Passing
   `processGroup: { onGroupId }` spawns the child detached and signals the whole
   group (SIGTERM→SIGKILL) on abort or timeout instead; the group id is surfaced
-  via `onGroupId` for a caller to record durably and reap later. No caller opts
-  in yet.
+  via `onGroupId` for a caller to record durably and reap later. The ready gate
+  (`bun run ready`) and required-integration invocations (`ready-finalize.ts`)
+  opt in, binding the spawn to the run's termination `AbortSignal` so a
+  killed/abandoned/timed-out run's gate process group is signaled on
+  termination.
 
 ### Blocked runs pause for the operator
 

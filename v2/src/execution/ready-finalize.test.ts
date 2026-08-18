@@ -1013,7 +1013,7 @@ index 1234567..abcdefg 100644
   });
 
   it("spawns the ready gate in group mode bound to the run signal", async () => {
-    // @mutate v2/src/execution/ready-finalize.ts "[\"run\", \"ready\"], worktreePath, { env, signal: options?.signal, processGroup: {} });" -> "[\"run\", \"ready\"], worktreePath, { env, signal: undefined, processGroup: {} });"
+    // @mutate v2/src/execution/ready-finalize.ts "[\"run\", \"ready\"], worktreePath, { env, signal: gateOptions?.signal, processGroup });" -> "[\"run\", \"ready\"], worktreePath, { env, signal: undefined, processGroup });"
     const signal = new AbortController().signal;
     const calls: Array<{ args: readonly string[]; signal?: AbortSignal | undefined; processGroup?: unknown }> = [];
     const mockRunner: AsyncSubprocessRunner = {
@@ -1036,7 +1036,7 @@ index 1234567..abcdefg 100644
   });
 
   it("spawns required integration in group mode bound to the run signal", async () => {
-    // @mutate v2/src/execution/ready-finalize.ts "[\"run\", scope], worktreePath, { signal: options?.signal, processGroup: {} });" -> "[\"run\", scope], worktreePath, { signal: undefined, processGroup: {} });"
+    // @mutate v2/src/execution/ready-finalize.ts "[\"run\", scope], worktreePath, { signal: integrationOptions?.signal, processGroup });" -> "[\"run\", scope], worktreePath, { signal: undefined, processGroup });"
     const signal = new AbortController().signal;
     const calls: Array<{ args: readonly string[]; signal?: AbortSignal | undefined; processGroup?: unknown }> = [];
     const mockRunner: AsyncSubprocessRunner = {
@@ -1074,6 +1074,160 @@ index 1234567..abcdefg 100644
     await finalizer(input);
 
     expect(integrationCalls).toBe(0);
+  });
+
+  it("records the ready-gate group id at spawn and clears it when the gate succeeds", async () => {
+    const recorded: Array<number | null> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, _cwd, options) {
+        if (cmd === "bun" && args?.[1] === "ready") {
+          options?.processGroup?.onGroupId?.(4242);
+        }
+        return "";
+      },
+    };
+    const finalizer = createReadyFinalizer({ asyncSubprocessRunner: mockRunner, ghReadyFlip: async () => {} });
+
+    await finalizer({ ...input, onGateGroupId: (pgid) => recorded.push(pgid) });
+
+    expect(recorded).toEqual([4242, null]);
+  });
+
+  it("clears the recorded ready-gate group id when the gate fails", async () => {
+    // @mutate v2/src/execution/ready-finalize.ts "recordGroupId(null);" -> ""
+    // Mutation checkpoint: dropping the gate's finally clear leaves its pgid recorded after
+    // failure; the assertion below only passes when the clear actually runs.
+    const recorded: Array<number | null> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, _cwd, options) {
+        if (cmd === "bun" && args?.[1] === "ready") {
+          options?.processGroup?.onGroupId?.(4242);
+          throw new AsyncSubprocessError("ready failed", 1, "stdout failure\n", "stderr failure\n", undefined);
+        }
+        return "";
+      },
+    };
+    const finalizer = createReadyFinalizer({ asyncSubprocessRunner: mockRunner });
+
+    await expect(finalizer({ ...input, onGateGroupId: (pgid) => recorded.push(pgid) })).rejects.toThrow(
+      "ready gate failed",
+    );
+
+    expect(recorded).toEqual([4242, null]);
+  });
+
+  it("records the required-integration group id independently after the gate clears", async () => {
+    const recorded: Array<number | null> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, _cwd, options) {
+        if (cmd === "bun" && args?.[1] === "ready") {
+          options?.processGroup?.onGroupId?.(1111);
+        } else if (cmd === "bun" && args?.[1] === "test:integration:v2") {
+          options?.processGroup?.onGroupId?.(2222);
+        }
+        return "";
+      },
+    };
+    const finalizer = createReadyFinalizer({ asyncSubprocessRunner: mockRunner, ghReadyFlip: async () => {} });
+
+    await finalizer({
+      ...input,
+      requiredIntegrationScope: "test:integration:v2",
+      onGateGroupId: (pgid) => recorded.push(pgid),
+    });
+
+    expect(recorded).toEqual([1111, null, 2222, null]);
+  });
+
+  it("clears the recorded group id when required integration fails", async () => {
+    // @mutate v2/src/execution/ready-finalize.ts "recordIntegrationGroupId(null);" -> ""
+    // Mutation checkpoint: dropping required integration's finally clear leaves its pgid
+    // recorded after failure, independent of the gate's own checkpoint above.
+    const recorded: Array<number | null> = [];
+    let flipCalls = 0;
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, _cwd, options) {
+        if (cmd === "bun" && args?.[1] === "ready") {
+          options?.processGroup?.onGroupId?.(1111);
+          return "";
+        }
+        if (cmd === "bun" && args?.[1] === "test:integration:v2") {
+          options?.processGroup?.onGroupId?.(2222);
+          throw new AsyncSubprocessError("integration failed", 1, "stdout failure\n", "stderr failure\n", undefined);
+        }
+        return "";
+      },
+    };
+    const finalizer = createReadyFinalizer({
+      asyncSubprocessRunner: mockRunner,
+      ghReadyFlip: async () => {
+        flipCalls += 1;
+      },
+    });
+
+    await expect(
+      finalizer({
+        ...input,
+        requiredIntegrationScope: "test:integration:v2",
+        onGateGroupId: (pgid) => recorded.push(pgid),
+      }),
+    ).rejects.toThrow("stdout failure");
+
+    expect(recorded).toEqual([1111, null, 2222, null]);
+    expect(flipCalls).toBe(0);
+  });
+
+  it("a throwing group-id recorder does not stop the gate from spawning or settling", async () => {
+    let calls = 0;
+    const throwingRecorder = (): void => {
+      calls += 1;
+      throw new Error("store closed");
+    };
+    let flipCalls = 0;
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, _cwd, options) {
+        if (cmd === "bun" && args?.[1] === "ready") {
+          options?.processGroup?.onGroupId?.(4242);
+        }
+        return "";
+      },
+    };
+    const finalizer = createReadyFinalizer({
+      asyncSubprocessRunner: mockRunner,
+      ghReadyFlip: async () => {
+        flipCalls += 1;
+      },
+    });
+
+    await finalizer({ ...input, onGateGroupId: throwingRecorder });
+
+    expect(calls).toBe(2);
+    expect(flipCalls).toBe(1);
+  });
+
+  it("a throwing settlement-clear recorder does not replace an in-flight gate failure", async () => {
+    const throwingRecorder = (): void => {
+      throw new Error("store closed");
+    };
+    let flipCalls = 0;
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, _cwd, options) {
+        if (cmd === "bun" && args?.[1] === "ready") {
+          options?.processGroup?.onGroupId?.(4242);
+          throw new AsyncSubprocessError("ready failed", 1, "stdout failure\n", "stderr failure\n", undefined);
+        }
+        return "";
+      },
+    };
+    const finalizer = createReadyFinalizer({
+      asyncSubprocessRunner: mockRunner,
+      ghReadyFlip: async () => {
+        flipCalls += 1;
+      },
+    });
+
+    await expect(finalizer({ ...input, onGateGroupId: throwingRecorder })).rejects.toThrow(ReadyGateError);
+    expect(flipCalls).toBe(0);
   });
 
   it("appends dual-constraint clause only when both timer callback and guarded root apply", () => {

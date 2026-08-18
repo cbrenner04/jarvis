@@ -192,10 +192,12 @@ Single-default-branch pipelines use `branchKey: "default"`. After an intent spli
 Re-enter a failed or `awaiting-approval` pipeline without starting a new one:
 
 ```sh
-jarvis pipeline resume <pipeline-id>
+jarvis pipeline resume <pipeline-id> [<branch-key>]
 ```
 
 Use **`pipeline resume`** (not `pipeline start` or `jarvis run resume`) when a pipeline stalled at a failed stage or an approval gate and you want the daemon to reopen or claim continuation from persisted admission context. Exit **`0`** on `kind: "resumed"` means the daemon admitted detached continuation, not that the pipeline finished — pair with `pipeline wait` or `pipeline list` for progress. Terminal pipelines (`pipeline_terminal_succeeded`, `pipeline_terminal_rejected`) and other refusals print the daemon `reason` verbatim on stderr and exit non-zero. Failed resume replays from the failed stage (preserving predecessor invocation IDs); awaiting resume claims the pipeline without dispatching past the gate — approve the gate separately, then `pipeline wait`.
+
+Add the branch key when a single approved branch's stage failed on a fan-out pipeline while sibling branches still sit at their own gates — the unscoped form only derives `awaiting-approval` on such a pipeline and never reopens the failed branch. Branch-scoped resume touches only that branch's rows; sibling gates and stages are untouched. The CLI prints only the daemon `reason` string, not `branchKey`/`stageId`; a `branch_awaiting_approval` refusal means resume raced an unresolved decision on that branch — look up the gate's stage ID via `pipeline list` or `pipeline wait` boundary JSON, approve or reject it, then resume or `pipeline wait` again. Omitting the branch key keeps whole-pipeline resume unchanged.
 
 Append **`--detach`** to any preset invocation when the shell should not block on workflow completion. Detach runs the same admission path as the default attached launch; stdout is the workflow **entry** run ID only and exit **`0` means admitted**, not that the workflow succeeded. Use `jarvis run wait <run-id>`, `jarvis run list`, or `jarvis tui` on that ID for progress and terminal outcome. Attached mode (no `--detach`) keeps the shell open through entry-terminal `wait`; exit `0` there means the workflow finished.
 

@@ -1321,6 +1321,28 @@ describe("pipeline resume", () => {
     expect(ipcFramesWithMethod(sent, "pipeline_resume")).toEqual([expect.objectContaining({ params: { pipelineId } })]);
   });
 
+  test("pipeline resume forwards the branch positional as branchKey", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-resume-branch"], () =>
+      main(["pipeline", "resume", "pipe-1", " alpha "], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () =>
+          makeIpcClient([pipelineWaitFrame("pipe-resume-branch", { kind: "resumed", pipelineId: "pipe-1" })], {
+            sent,
+          }),
+      }),
+    );
+    // @mutate v2/src/commands/pipeline.ts "{ pipelineId: parsed.pipelineId, ...(parsed.branchKey !== undefined ? { branchKey: parsed.branchKey } : {}) }," -> "{ pipelineId: parsed.pipelineId },"
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "" });
+    expect(ipcFramesWithMethod(sent, "pipeline_resume")).toEqual([
+      expect.objectContaining({ params: { pipelineId: "pipe-1", branchKey: " alpha " } }),
+    ]);
+  });
+
   test.each([
     ["pipe-resume-done", "pipe-done", "pipeline_terminal_succeeded"],
     ["pipe-resume-rej", "pipe-rej", "pipeline_terminal_rejected"],
@@ -1339,9 +1361,31 @@ describe("pipeline resume", () => {
     expect(cap.read()).toEqual({ stdout: "", stderr: `${reason}\n` });
   });
 
+  test("pipeline resume prints a branch-scoped refusal verbatim on stderr", async () => {
+    const cap = captureIo();
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-resume-branch-refused"], () =>
+      main(["pipeline", "resume", "pipe-fan", "alpha"], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () =>
+          makeIpcClient([
+            pipelineWaitFrame("pipe-resume-branch-refused", {
+              kind: "refused",
+              pipelineId: "pipe-fan",
+              branchKey: "alpha",
+              stageId: "gate",
+              reason: "branch_awaiting_approval",
+            }),
+          ]),
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "branch_awaiting_approval\n" });
+  });
+
   test.each([
     [PIPELINE_RESUME_USAGE, ["pipeline", "resume"]],
-    [PIPELINE_RESUME_USAGE, ["pipeline", "resume", "pipe-1", "extra"]],
     [PIPELINE_RESUME_USAGE, ["pipeline", "resume", "   "]],
   ] as const)("resume usage error %p prints usage before daemon connect", async (usage, argv) => {
     const cap = captureIo();
@@ -1358,6 +1402,41 @@ describe("pipeline resume", () => {
     expect(code).toBe(1);
     expect(contacted).toBe(false);
     expect(cap.read()).toEqual({ stdout: "", stderr: usage });
+  });
+
+  test("pipeline resume usage errors reject malformed branch arity before daemon connect", async () => {
+    const tooManyArgsCap = captureIo();
+    let tooManyArgsContacted = false;
+
+    const tooManyArgsCode = await main(["pipeline", "resume", "pipe-1", "alpha", "extra"], tooManyArgsCap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: async () => {
+        tooManyArgsContacted = true;
+        throw new Error("should not contact daemon");
+      },
+    });
+    // @mutate v2/src/commands/pipeline.ts "if (argv.length < 1 || argv.length > 2) return { ok: false };" -> "if (argv.length < 1) return { ok: false };"
+
+    expect(tooManyArgsCode).toBe(1);
+    expect(tooManyArgsContacted).toBe(false);
+    expect(tooManyArgsCap.read()).toEqual({ stdout: "", stderr: PIPELINE_RESUME_USAGE });
+    expect(PIPELINE_RESUME_USAGE).toContain("[<branch-key>]");
+
+    const blankBranchCap = captureIo();
+    let blankBranchContacted = false;
+
+    const blankBranchCode = await main(["pipeline", "resume", "pipe-1", "   "], blankBranchCap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: async () => {
+        blankBranchContacted = true;
+        throw new Error("should not contact daemon");
+      },
+    });
+    // @mutate v2/src/commands/pipeline.ts "if (branchKey.trim().length === 0) return { ok: false };" -> "if (branchKey.length === 0) return { ok: false };"
+
+    expect(blankBranchCode).toBe(1);
+    expect(blankBranchContacted).toBe(false);
+    expect(blankBranchCap.read()).toEqual({ stdout: "", stderr: PIPELINE_RESUME_USAGE });
   });
 
   test("pipeline resume prints invalid daemon response for malformed envelope", async () => {

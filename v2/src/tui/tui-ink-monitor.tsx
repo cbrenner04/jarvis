@@ -205,7 +205,6 @@ function renderDockContent(state: TuiMonitorState, Text: MonitorText, Box: Monit
 }
 
 const DIVIDER_GLYPH = "│";
-const DIVIDER_COLUMN_WIDTH = 1;
 
 function renderDividerContent(paneHeight: number, Text: MonitorText, Box: MonitorBox): ReactElement[] {
   return Array.from({ length: Math.max(0, paneHeight) }, (_, key) =>
@@ -297,7 +296,7 @@ export function createMonitorDisplay(
         Box,
         {
           flexDirection: "column",
-          width: DIVIDER_COLUMN_WIDTH,
+          width: layout.dividerWidth,
           height: layout.paneHeight,
           overflow: "hidden",
           flexShrink: 0,

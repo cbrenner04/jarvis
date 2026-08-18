@@ -16,6 +16,17 @@ import {
   runRowLabel,
 } from "./tui-shell-layout.ts";
 
+/** Repeatedly nudging the divider to each clamp extreme; both tests below pin arithmetic at these extremes. */
+function clampExtremeOffsets(columns: number): { floorOffset: number; ceilingOffset: number } {
+  let floorOffset = 0;
+  let ceilingOffset = 0;
+  for (let step = 0; step < 20; step += 1) {
+    floorOffset = nudgeDividerOffset(columns, floorOffset, "[");
+    ceilingOffset = nudgeDividerOffset(columns, ceilingOffset, "]");
+  }
+  return { floorOffset, ceilingOffset };
+}
+
 describe("computeShellLayout", () => {
   test("ordinary and wide terminals use the retuned left-pane clamp", () => {
     // @mutate v2/src/tui/tui-shell-layout.ts "const LEFT_BASE_FRACTION = 0.45;" -> "const LEFT_BASE_FRACTION = 0.38;"
@@ -25,12 +36,7 @@ describe("computeShellLayout", () => {
     expect(computeShellLayout(200, 50, 0)).toMatchObject({ leftWidth: 90, rightWidth: 109 });
     expect(computeShellLayout(245, 72, 0)).toMatchObject({ leftWidth: 111, rightWidth: 133 });
 
-    let floorOffset = 0;
-    let ceilingOffset = 0;
-    for (let step = 0; step < 20; step += 1) {
-      floorOffset = nudgeDividerOffset(245, floorOffset, "[");
-      ceilingOffset = nudgeDividerOffset(245, ceilingOffset, "]");
-    }
+    const { floorOffset, ceilingOffset } = clampExtremeOffsets(245);
 
     const base = computeShellLayout(245, 72, 0);
     const floor = computeShellLayout(245, 72, floorOffset);
@@ -65,12 +71,7 @@ describe("computeShellLayout", () => {
     // @mutate v2/src/tui/tui-shell-layout.ts "const dividerWidth = layoutMode === \"split\" ? 1 : 0;" -> "const dividerWidth = 1;"
     expect(computeShellLayout(119, 72, 0)).toMatchObject({ layoutMode: "stacked", dividerWidth: 0, rightWidth: 39 });
 
-    let floorOffset = 0;
-    let ceilingOffset = 0;
-    for (let step = 0; step < 20; step += 1) {
-      floorOffset = nudgeDividerOffset(245, floorOffset, "[");
-      ceilingOffset = nudgeDividerOffset(245, ceilingOffset, "]");
-    }
+    const { floorOffset, ceilingOffset } = clampExtremeOffsets(245);
     const floor = computeShellLayout(245, 72, floorOffset);
     const ceiling = computeShellLayout(245, 72, ceilingOffset);
     expect(floor.leftWidth + floor.dividerWidth + floor.rightWidth).toBe(245);

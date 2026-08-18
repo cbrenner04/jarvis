@@ -37,3 +37,7 @@ CLI.
 
 - `v2/docs/operator-runbook.md` — locate and edit the blocked branch worktree's `.jarvis-plan-stage/`, invoke recovery for that branch, and distinguish recovery from ordinary branch-scoped resume and approval decisions.
 - `v2/docs/v1-behaviors.md` — additive operator command for branch-scoped blocked-stage recovery.
+
+## Blocker
+
+Artifact contract check failed: Plan subspec 00-recover-blocked-branch-stage-from-the-cli.md has a multi-surface ## Acceptance criteria bullet: `pipeline.test.ts` — `pipeline recover admits a branch-scoped recovery request`; Keystone checkpoint: an in-body `// @mutate` directive replacing the `recover` dispatch branch's call to the recover command with the baseline usage path (`io.stderr(PIPELINE_USAGE); return 1;`) makes the CLI print usage and contact no daemon, turning this test red on the sent-frame and stdout assertions.

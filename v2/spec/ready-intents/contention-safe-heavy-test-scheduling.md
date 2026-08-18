@@ -23,7 +23,7 @@ Test-suite runner (`scripts/run-v2-tests.ts`, `scripts/test-slice.ts`).
 ## Decisions
 
 - Extend the existing `isLoadSensitive`/`LOAD_SENSITIVE_FILES` seam rather than adding a second scheduling concept; rules out a parallel lane mechanism with its own semantics.
-- Size the per-file budget from a measured loaded runtime plus a stated margin; rules out bumping `SUPPORTED_HEALTHY_FILE_BUDGET_MS` to whatever makes today's timeout stop firing.
+- Size the per-file budget from the slowest audited daemon file's measured loaded runtime plus a stated margin — `workflow-runner.test.ts` is the deliberate outlier `workflow-runner-test-concurrent-load-isolation` brings inside this budget by splitting it, so its current over-budget runtime does not anchor the number; rules out bumping `SUPPORTED_HEALTHY_FILE_BUDGET_MS` to whatever makes today's timeout stop firing.
 - Keep aggregate `bun run test` wall clock within the documented regression bar, or re-measure and update that bar in this change; rules out an unbudgeted lane that silently doubles suite time.
 - Membership is an operator policy list, not ready-gate repair time; rules out the gate mutating lane membership to go green.
 

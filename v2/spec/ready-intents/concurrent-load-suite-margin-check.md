@@ -13,7 +13,7 @@ name: concurrent-load-suite-margin-check
 
 ## Surface
 
-Test tooling and CI scope (`scripts/`, `.github/workflows/ci.yml`).
+Test tooling (`scripts/`); operator/scheduled invocation, not `.github/workflows/ci.yml`, per the decision below.
 
 ## Problem
 

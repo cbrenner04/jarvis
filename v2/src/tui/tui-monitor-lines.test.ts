@@ -2111,14 +2111,22 @@ describe("monitorRightPaneSegmentRows", () => {
     worktreePath: `/workspace/${"long-segment/".repeat(8)}`,
   };
 
-  function wrappingState(terminalColumns: number, steeringFeedback: string | null = null): TuiMonitorState {
+  function stateForRun(
+    run: DaemonListRunRow,
+    terminalColumns: number,
+    steeringFeedback: string | null = null,
+  ): TuiMonitorState {
     return monitorState({
-      runs: [wrappingRun],
-      selectedNodeId: wrappingRun.runId,
+      runs: [run],
+      selectedNodeId: run.runId,
       steeringFeedback,
       terminalColumns,
       terminalRows: 72,
     });
+  }
+
+  function wrappingState(terminalColumns: number, steeringFeedback: string | null = null): TuiMonitorState {
+    return stateForRun(wrappingRun, terminalColumns, steeringFeedback);
   }
 
   // All-narrow (plain-ASCII) fixture: the wide/combining wrappingRun above tops out around 129 display columns
@@ -2134,12 +2142,7 @@ describe("monitorRightPaneSegmentRows", () => {
   };
 
   function narrowWrappingState(terminalColumns: number): TuiMonitorState {
-    return monitorState({
-      runs: [narrowWrappingRun],
-      selectedNodeId: narrowWrappingRun.runId,
-      terminalColumns,
-      terminalRows: 72,
-    });
+    return stateForRun(narrowWrappingRun, terminalColumns);
   }
 
   test("split detail wraps losslessly by display columns without ellipsis", () => {

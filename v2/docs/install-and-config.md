@@ -21,6 +21,63 @@ ln -s "$(pwd)/bin/jarvis1" <dir-on-PATH>/jarvis1
 
 Verify: `jarvis config path` prints an absolute path (see [Config](#config)).
 
+## `jarvis init`
+
+Primary machine and project setup and preflight command. Run from the Git worktree top level; idempotent, safe to re-run any time to re-verify readiness. The hand-edit schema tables under [Config](#config) remain the reference for manual inspection or repair — `jarvis init` merges into that same file, it does not replace hand-editing.
+
+```bash
+jarvis init --profile home
+```
+
+| Flag | Effect |
+| --- | --- |
+| `--profile <name>` | Selects a committed `config/machines/<name>.json` profile; required only when no `machineProfile` is configured yet |
+| `--name <key>` | Explicit project registry key; defaults to a uniquely-matching already-registered key for this root, else the worktree's directory name |
+| `--target-dir <dir>` | Planning directory, relative to the project root — see [Target-directory precedence](#target-directory-precedence) |
+| `--scaffold` | Additionally creates `<targetDir>/seeds/.gitkeep` and `<targetDir>/ready-intents/.gitkeep` — see [Optional contained scaffolding](#optional-contained-scaffolding) |
+| `--check` | Read-only: same readiness report, no config or repository writes — see [Read-only `--check`](#read-only-check) |
+
+### Merge and idempotence
+
+`jarvis init` never overwrites a value that is already configured or registered correctly, and never rewrites bytes when nothing changed. It writes `~/.jarvis/config.json` atomically (temp file, then rename) only when machine bootstrap, project registration, or target-directory selection actually adds or changes a field. Re-running with the same arguments against already-valid state reproduces the file byte-for-byte.
+
+### Profile and agent compatibility
+
+An explicit `--profile` and an already-configured `machineProfile` must name the same committed profile (`config/machines/<name>.json`); a mismatch is a conflict error, not a merge. Neither present is an error only when no `machineProfile` is configured yet. `agents` uses the already-configured roster when present; otherwise it probes `claude`, `codex`, `cursor` in order and takes every runnable one, failing if none are runnable. Every configured agent must both be runnable on `PATH` and bound in the selected profile's `models` map, checked before any write.
+
+### Project fields
+
+Registration is additive: it fills in `root` and, when available, `origin` on the resolved project key, and never touches other fields on that project object or on unrelated projects. The project key is `--name`, else the single existing key already registered to this root, else the worktree's directory name; it must match `[A-Za-z0-9][A-Za-z0-9_-]*`. The resolved key must not already be bound to a different root, and the current root must not already be registered under a different key.
+
+### Target-directory precedence
+
+`--target-dir`, then the project's own `plan.targetDir`, then the legacy (read-only) `modes.plan.targetDir`, then `spec`. Every candidate must be a relative, non-traversing path, and every resolved ancestor (symlinks included) must stay inside the project root. An explicit `--target-dir` that differs from the project's own stored value is written to `projects.<key>.plan.targetDir`.
+
+### Optional contained scaffolding
+
+`--scaffold` is the only init mode that touches the target repository. It creates exactly `<targetDir>/seeds/.gitkeep` and `<targetDir>/ready-intents/.gitkeep`, preflighted for physical containment before any write, and never overwrites an existing sentinel or directory.
+
+### Readiness report
+
+Every invocation, including `--check`, ends with one line per check, in this fixed order, each `ok`, `missing`, or `warn`:
+
+| Check | Required | Meaning |
+| --- | --- | --- |
+| `bun` | yes | `bun` on `PATH` |
+| `github-auth` | yes | `gh auth status` succeeds |
+| `agents` | yes | Every configured agent is runnable on `PATH` |
+| `machine-profile` | yes | Selected profile binds every configured agent |
+| `project-registration` | yes | Current root is registered under the resolved key |
+| `origin` | yes | Current `origin` matches the stored project origin |
+| `spec-directory` | no | Resolved target directory exists |
+| `daemon` | no | Daemon is running (`warn` when its loaded revision is stale) |
+
+Any required check not `ok` exits `1`; `spec-directory` and `daemon` alone never affect the exit code.
+
+### Read-only `--check`
+
+`--check` runs the same evaluator and renderer as setup but performs no config, scaffold, or repository writes, and rejects `--scaffold` up front. Selectors resolve which state to probe without establishing it: `--name`/cwd basename, `--profile`/stored `machineProfile`, and `--target-dir`/stored value/legacy value/`spec` use the same precedence as setup, but read-only. A selector only identifies what to probe, never repairs it — `--profile` naming a valid profile does not turn a missing configured `machineProfile` into `ok`, and `--name` identifying an unregistered key does not turn `project-registration` into `ok`. Invalid selectors (unsafe `--name`, unknown `--profile`, a selector conflicting with configured state) and malformed config exit `1` before any probe runs, same as setup.
+
 ## Config
 
 Two layers — do not conflate them:

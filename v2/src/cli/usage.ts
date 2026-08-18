@@ -1,3 +1,5 @@
+export const INIT_USAGE =
+  "usage: jarvis init [--profile <name>] [--name <key>] [--target-dir <dir>] [--scaffold] [--check]\n";
 export const DAEMON_USAGE = "usage: jarvis daemon <start|stop|status|log>\n";
 export const DAEMON_LOG_USAGE = "usage: jarvis daemon log [--follow]\n";
 export const CONFIG_USAGE = "usage: jarvis config <show|path|set-agents> [args]\n";

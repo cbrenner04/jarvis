@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   CLEANUP_HELP_FLAGS,
   DAEMON_LOG_HELP_FLAGS,
+  INIT_HELP_FLAGS,
   RUN_LIST_HELP_FLAGS,
   WORKFLOW_IMPLEMENT_HELP_FLAGS,
   WORKFLOW_INTENT_HELP_FLAGS,
@@ -16,6 +17,7 @@ import {
   DAEMON_LOG_USAGE,
   DAEMON_USAGE,
   HELP_USAGE,
+  INIT_USAGE,
   PIPELINE_USAGE,
   RUN_LIST_USAGE,
   RUN_USAGE,
@@ -29,7 +31,7 @@ import {
 import { enumerateCommands, findCommand, resolveHelpFlagAlias } from "./cli.ts";
 import { captureIo, cliMain as main, tempPaths, writeMachineConfig } from "./testing/cli-test-helpers.ts";
 
-const commandNames = "write, daemon, config, run, tui, pipeline, cleanup, help";
+const commandNames = "init, write, daemon, config, run, tui, pipeline, cleanup, help";
 
 function helpStdoutWithFlags(
   usage: string,
@@ -62,7 +64,7 @@ describe("v2 cli dispatch", () => {
   });
 
   test.each([
-    ["unique deletion", "writ", "write"],
+    ["unique deletion", "wrte", "write"],
     ["insertion", "writex", "write"],
     ["substitution", "wrote", "write"],
     ["distance two", "wte", "write"],
@@ -103,6 +105,7 @@ describe("v2 cli dispatch", () => {
     expect(code).toBe(0);
     expect(cap.read()).toEqual({
       stdout:
+        "init\tConfigure this machine and register the current repository.\n" +
         "write\tRun an in-process write loop.\n" +
         "daemon\tManage the background daemon.\n" +
         "config\tShow or update machine configuration.\n" +
@@ -407,6 +410,7 @@ describe("v2 cli dispatch", () => {
 
     expect(entries.map(({ name }) => name).join(", ")).toBe(commandNames);
     expect(entries.map(({ usage }) => usage)).toEqual([
+      INIT_USAGE,
       WRITE_USAGE,
       DAEMON_USAGE,
       CONFIG_USAGE,
@@ -569,6 +573,70 @@ describe("v2 cli dispatch", () => {
     expect(output).not.toEqual(helpOutput);
     expect(output.stdout).toBe("");
     expect(output.stderr).toMatch(/^intent:/);
+  });
+
+  test("init dispatch and help expose the non-interactive contract", async () => {
+    // @mutate v2/src/cli.ts "commandEntry(\"init\", runInitCliCommand)," -> ""
+    const helpCap = captureIo();
+    const helpCode = await main(["help", "init"], helpCap.io);
+
+    expect(helpCode).toBe(0);
+    expect(helpCap.read()).toEqual({ stdout: helpStdoutWithFlags(INIT_USAGE, INIT_HELP_FLAGS), stderr: "" });
+
+    for (const flag of ["--help", "-h"] as const) {
+      const aliasCap = captureIo();
+      const aliasCode = await main(["init", flag], aliasCap.io);
+
+      expect(aliasCode).toBe(helpCode);
+      expect(aliasCap.read()).toEqual(helpCap.read());
+    }
+
+    // All five parser flags reach the handler unrejected: routed as far as its own --check /
+    // --scaffold conflict, not stopped earlier as an unrecognized flag.
+    const configPath = writeMachineConfig({});
+    const flagsCap = captureIo();
+    const flagsCode = await main(
+      ["init", "--profile", "home", "--name", "proj", "--target-dir", "dir", "--scaffold", "--check"],
+      flagsCap.io,
+      { machineConfigPath: configPath },
+    );
+
+    expect(flagsCode).toBe(1);
+    expect(flagsCap.read()).toEqual({ stdout: "", stderr: "init: --check does not accept --scaffold\n" });
+
+    // Invalid operand: init's own usage on stderr, exit 1; no route prompts for input.
+    const badCap = captureIo();
+    const badCode = await main(["init", "--bogus", "value"], badCap.io, { machineConfigPath: configPath });
+
+    expect(badCode).toBe(1);
+    expect(badCap.read()).toEqual({
+      stdout: "",
+      stderr: "init: expected [--profile <name>] [--name <key>] [--target-dir <dir>] [--scaffold] [--check]\n",
+    });
+  });
+
+  test("init routing guard inversions expose hidden or invalid routes", async () => {
+    // @mutate v2/src/cli.ts "if (entry !== undefined) return entry.handler(argv.slice(1), out, runtimeDeps, operatorSessionId);" -> "if (false) return entry.handler(argv.slice(1), out, runtimeDeps, operatorSessionId);"
+    // @mutate v2/src/commands/init.ts "else throw new Error(USAGE);" -> "else {}"
+    // @mutate v2/src/cli.ts "if (unknown === undefined || unknown.pathSoFar.length === 0) return candidate;" -> "if (false) return candidate;"
+    const configPath = writeMachineConfig({});
+
+    const dispatchCap = captureIo();
+    const dispatchCode = await main(["init", "--bogus", "value"], dispatchCap.io, { machineConfigPath: configPath });
+
+    expect(dispatchCode).toBe(1);
+    expect(dispatchCap.read()).toEqual({
+      stdout: "",
+      stderr: "init: expected [--profile <name>] [--name <key>] [--target-dir <dir>] [--scaffold] [--check]\n",
+    });
+
+    const aliasCap = captureIo();
+    const aliasCode = await main(["init", "--help"], aliasCap.io);
+    const helpCap = captureIo();
+    const helpCode = await main(["help", "init"], helpCap.io);
+
+    expect(aliasCode).toBe(helpCode);
+    expect(aliasCap.read()).toEqual(helpCap.read());
   });
 
   describe("dispatch-coverage: every tree path is dispatchable", () => {

@@ -33,17 +33,21 @@ ln -s ~/code/jarvis/bin/jarvis1 /usr/local/bin/jarvis1
 
 The shims run `bun v2/src/cli.ts` and `bun v1/src/cli.ts` from this checkout, so keep the checkout at a stable path. If `/usr/local/bin` is not writable, symlink into another `PATH` directory such as `~/.local/bin`.
 
+From a target repo's Git worktree root, run `jarvis init --profile <name>` to configure this machine and register the project (see [Configuration](#configuration)); re-run with `--check` any time to verify readiness.
+
 ## v2 (`jarvis`)
 
 v2 is the primary engine: a host-agnostic write loop, a long-running daemon, durable run state in SQLite (`~/.jarvis/state/v2.sqlite`), Unix-socket IPC, workflow presets, review behaviors, draft-PR publication, cleanup, and an ink TUI are all implemented. Remaining gaps are listed under [Status](#status).
 
 ### Configuration
 
-v2 splits configuration into two layers:
+`jarvis init --profile <name>` is the primary setup and preflight command: run from the target repo's Git worktree root, it bootstraps `agents` and `machineProfile`, registers the current repo, and reports readiness. Safe to re-run any time; `--check` reports readiness without writing. Full flag reference and merge semantics: [v2/docs/install-and-config.md](v2/docs/install-and-config.md).
+
+v2 splits configuration into two layers, still hand-editable as the underlying reference:
 
 - `~/.jarvis/config.json` (per machine): `agents` — the ordered agent
   fallback chain, edited via `jarvis config set-agents` — plus a required
-  hand-edited `machineProfile` selector and an optional `projects` registry.
+  `machineProfile` selector and an optional `projects` registry.
 - `config/machines/<profile>.json` (committed): the role→model store mapping
   each `(agent, role)` pair to an ordered list of model rungs. Profiles
   `home` and `work` are seeded.
@@ -53,8 +57,7 @@ Both loops — outer agent order, inner rung escalation — advance on quota exh
 ### Quickstart
 
 ```sh
-jarvis config set-agents claude,codex,cursor
-# hand-edit ~/.jarvis/config.json to add "machineProfile": "home"
+jarvis init --profile home
 jarvis daemon start
 jarvis run start --project-root <repo> --project <label> --branch <branch> \
   --base main --spec <spec-path> --artifact <artifact-path>
@@ -74,6 +77,9 @@ jarvis run workflow implement --base main --spec <index.md> [--branch <name>] [.
 ### Commands
 
 ```text
+jarvis init [--profile <name>] [--name <key>] [--target-dir <dir>] [--scaffold] [--check]
+                            Configure this machine and register the current
+                            repository; reports readiness. `--check` is read-only.
 jarvis write ...            In-process ad-hoc write loop (no daemon); same
                             flags as `run start`; prints a JSON result.
 jarvis daemon start|stop|status|log [--follow]

@@ -41,6 +41,7 @@ type InitOptions = {
   name?: string;
   targetDir?: string;
   scaffold?: boolean;
+  check?: boolean;
 };
 
 function machineProfileNames(machinesDir: string): string[] {
@@ -55,7 +56,7 @@ function choices(names: readonly string[]): string {
   return names.join(", ");
 }
 
-const USAGE = "expected [--profile <name>] [--name <key>] [--target-dir <dir>] [--scaffold]";
+const USAGE = "expected [--profile <name>] [--name <key>] [--target-dir <dir>] [--scaffold] [--check]";
 
 function parseOptions(argv: readonly string[]): InitOptions {
   const options: InitOptions = {};
@@ -64,6 +65,11 @@ function parseOptions(argv: readonly string[]): InitOptions {
     const flag = argv[i];
     if (flag === "--scaffold" && options.scaffold === undefined) {
       options.scaffold = true;
+      i += 1;
+      continue;
+    }
+    if (flag === "--check" && options.check === undefined) {
+      options.check = true;
       i += 1;
       continue;
     }
@@ -98,11 +104,13 @@ function validateConfiguredProfile(value: unknown): string | undefined {
   return value;
 }
 
-function selectProfile(
+/** Shared by setup and `--check`: an out-of-enumeration or conflicting `--profile` selector is
+ * always invalid, whether or not a machine profile is already configured. */
+function assertProfileSelectorValid(
   requestedProfile: string | undefined,
   configuredProfile: string | undefined,
   profileNames: readonly string[],
-): string {
+): void {
   const exactChoices = choices(profileNames);
   if (requestedProfile !== undefined && !profileNames.includes(requestedProfile)) {
     throw new Error(`unknown machine profile '${requestedProfile}'; choose one of: ${exactChoices}`);
@@ -115,10 +123,37 @@ function selectProfile(
       `machine profile '${configuredProfile}' conflicts with --profile '${requestedProfile}'; choose one of: ${exactChoices}`,
     );
   }
+}
+
+function selectProfile(
+  requestedProfile: string | undefined,
+  configuredProfile: string | undefined,
+  profileNames: readonly string[],
+): string {
+  assertProfileSelectorValid(requestedProfile, configuredProfile, profileNames);
   if (configuredProfile === undefined && requestedProfile === undefined) {
-    throw new Error(`--profile is required; choose one of: ${exactChoices}`);
+    throw new Error(`--profile is required; choose one of: ${choices(profileNames)}`);
   }
   return configuredProfile ?? (requestedProfile as string);
+}
+
+/** Read-only counterpart for `--check`: resolves the same selector precedence without requiring
+ * either side, and reports whether a machine profile is actually configured (never established by
+ * the selector alone). */
+function resolveCheckProfile(
+  requestedProfile: string | undefined,
+  configuredProfile: string | undefined,
+  profileNames: readonly string[],
+): { profile: string; profileConfigured: boolean } {
+  assertProfileSelectorValid(requestedProfile, configuredProfile, profileNames);
+  return { profile: requestedProfile ?? configuredProfile ?? "", profileConfigured: configuredProfile !== undefined };
+}
+
+/** Read-only counterpart to `resolveAgents`: never throws when no agent is runnable, so an empty
+ * roster is reported by the "agents" readiness check instead of aborting the check early. */
+function resolveCheckAgents(existing: Record<string, unknown>, isExecutable: (name: string) => boolean): string[] {
+  const configuredAgents = existing.agents as string[] | undefined;
+  return configuredAgents ?? DEFAULT_AGENT_CANDIDATES.filter(isExecutable);
 }
 
 function resolveAgents(existing: Record<string, unknown>, isExecutable: (name: string) => boolean): string[] {
@@ -404,6 +439,49 @@ async function defaultGit(cwd: string, args: readonly string[]): Promise<string 
   return stdout.trim();
 }
 
+/** `--check`: same shared evaluator and renderer as setup, but strictly read-only. Selectors
+ * (`--name`, `--profile`, `--target-dir`) resolve which probes to run without persisting anything
+ * or establishing state that isn't already configured or registered. */
+async function runCheckMode(
+  options: InitOptions,
+  io: Io,
+  configPath: string,
+  machinesDir: string,
+  isExecutable: (name: string) => boolean,
+  cwd: string,
+  git: GitRunner,
+  injected: InitCommandDeps,
+): Promise<number> {
+  if (options.scaffold === true) throw new Error("--check does not accept --scaffold");
+
+  const existing = readMachineConfigDocument(configPath) ?? {};
+  const configuredProfile = validateConfiguredProfile(existing.machineProfile);
+  const profileNames = machineProfileNames(machinesDir);
+  const { profile, profileConfigured } = resolveCheckProfile(options.profile, configuredProfile, profileNames);
+  const agents = resolveCheckAgents(existing, isExecutable);
+
+  const registration = await resolveProjectRegistration(existing, options.name, cwd, git);
+  const targetDir = resolveTargetDir(options.targetDir, existing, registration.existingProject);
+
+  const checkResults = await evaluateReadiness(
+    {
+      machinesDir,
+      profile,
+      profileConfigured,
+      agents,
+      isExecutable,
+      projectRoot: registration.projectRoot,
+      projectRegistered: registration.existingProject !== undefined,
+      storedOrigin:
+        typeof registration.existingProject?.origin === "string" ? registration.existingProject.origin : undefined,
+      targetDir,
+    },
+    readinessDeps(injected, git),
+  );
+  io.stdout(renderReadinessReport(checkResults));
+  return readinessExitCode(checkResults);
+}
+
 function readinessDeps(injected: InitCommandDeps, git: NonNullable<InitCommandDeps["git"]>) {
   return {
     ...(injected.checkBunRuntime !== undefined ? { checkBunRuntime: injected.checkBunRuntime } : {}),
@@ -424,6 +502,9 @@ export async function runInitCommand(argv: readonly string[], io: Io, injected: 
 
   try {
     const options = parseOptions(argv);
+    if (options.check === true) {
+      return await runCheckMode(options, io, configPath, machinesDir, isExecutable, cwd, git, injected);
+    }
     const existing = readMachineConfigDocument(configPath) ?? {};
     const machineBootstrap = prepareMachineConfig(options.profile, existing, machinesDir, isExecutable);
     const machineConfig = machineBootstrap.config ?? existing;

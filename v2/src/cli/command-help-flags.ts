@@ -1,5 +1,23 @@
 import type { CommandFlag } from "./command-tree.ts";
 
+/** `parseArgs` options for `runInitCommand` / `jarvis init`. */
+export const INIT_PARSE_ARG_OPTIONS = {
+  profile: { type: "string" },
+  name: { type: "string" },
+  "target-dir": { type: "string" },
+  scaffold: { type: "boolean" },
+  check: { type: "boolean" },
+} as const satisfies Record<string, { type: "boolean" | "string" }>;
+
+/** Flags accepted by `runInitCommand`, in help declaration order. */
+export const INIT_HELP_FLAGS: readonly CommandFlag[] = [
+  { name: "--profile", argumentShape: "<name>", description: "Committed machine profile to select or verify." },
+  { name: "--name", argumentShape: "<key>", description: "Project registry key; defaults to the worktree name." },
+  { name: "--target-dir", argumentShape: "<dir>", description: "Planning directory, relative to the project root." },
+  { name: "--scaffold", argumentShape: "", description: "Also create empty seeds/ and ready-intents/ directories." },
+  { name: "--check", argumentShape: "", description: "Read-only: report readiness without writing config or repo." },
+];
+
 /** `parseArgs` options for `parseWriteArgs` / `jarvis write` and `jarvis run start`. */
 export const WRITE_PARSE_ARG_OPTIONS = {
   "project-root": { type: "string" },

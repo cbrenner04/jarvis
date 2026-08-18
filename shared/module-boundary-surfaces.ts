@@ -372,6 +372,26 @@ function assertNoSplitResidue(outputs: readonly EmittedSubspec[], indexBody: str
   }
 }
 
+const UNSPLIT_RATIONALE_PREFIX = "Unsplit rationale:";
+
+/** True when staged intent.md carries the split prompt's single-surface declaration pair. */
+function declaresSingleSurface(specDir: string): boolean {
+  let intentBody: string;
+  try {
+    intentBody = readFileSync(join(specDir, "intent.md"), "utf8");
+  } catch {
+    return false;
+  }
+  const rationaleLines = parseBodyLines(intentBody).filter((line) => line.startsWith(UNSPLIT_RATIONALE_PREFIX));
+  const hasRationale =
+    rationaleLines.length === 1 && (rationaleLines[0] ?? "").slice(UNSPLIT_RATIONALE_PREFIX.length).trim().length > 0;
+  const surfaceLines = sectionText(intentBody, "## Primary implementation surface")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith(UNSPLIT_RATIONALE_PREFIX));
+  return hasRationale && surfaceLines.length === 1;
+}
+
 /** Split and contiguously renumber a staged plan draft by acceptance-criterion module boundary. */
 export function normalizePlanDraftSpecDir(specDir: string): void {
   const sourceFiles = readdirSync(specDir)
@@ -393,6 +413,7 @@ export function normalizePlanDraftSpecDir(specDir: string): void {
   const indexPath = join(specDir, "index.md");
   const indexBody = readFileSync(indexPath, "utf8");
   assertIndexLinks(indexBody, sourceFiles);
+  if (declaresSingleSurface(specDir)) return;
   if (!drafts.some((draft) => spansMultipleModuleBoundaries(draft.criteria.map((criterion) => criterion.text)))) return;
 
   let emittedIndex = 0;

@@ -25,6 +25,17 @@ Two clusters: **recovery** (make a blocked/failed pipeline survivable) and **fan
 
 **Concrete payoff:** the operator's real pipeline `22041e31` (seed `pipeline-terminal-settlement-supersedes-mid-stage-prs`) is parked on exactly this cluster — a blocked plan stage it cannot recover. It stays parked until `pipeline-stage-recoverable-after-blocker` lands, then resumes. This cluster is not hypothetical; it is unblocking live work.
 
+### Landed 2026-08-17 → 18 (this session)
+
+The two plan-draft root causes shipped in full; both pipeline-recovery seeds are partly landed (foundation + daemon layers in, operator CLI layers remain):
+
+- `plan-draft-harness-blocker-survives-redraft` — **DONE**, shipped as "Clear plan-draft harness blockers before redraft" (#2879).
+- `plan-draft-blocker-append-creates-bare-spec-file` — **DONE**, shipped as "Route plan-draft contract-miss blockers" (#2888).
+- `branch-scoped-pipeline-resume` — **partial**: state-store reopen (#2880), orchestration (#2889), daemon RPC (#2894) merged; the CLI form `pipeline resume <id> <branch-key>` (`expose-branch-scoped-pipeline-resume-cli`) is the last layer — its plan blocked three times on the normalizer's single-surface check flagging a legit CLI-prints-daemon-reason bullet; hand-finish that small spec next session (see `plan-normalizer-honors-declared-single-surface`).
+- `pipeline-stage-recoverable-after-blocker` — **partial**: the revalidate-and-continue execution foundation (#2891) and the branch-scoped daemon recovery (`recover-one-blocked-pipeline-branch-stage`, PR #2895 — left CONFLICTING and unreviewed, carry over) landed/are staged; the operator CLI (`expose-pipeline-stage-recovery-command`) remains and depends on #2895 merging first.
+
+New seed from this session: `heavy-daemon-agent-tests-flake-under-ci-concurrency` — `workflow-runner.test.ts` and `daemon-resume.test.ts` pass in isolation but flake (agent-timeout / socket races) under CI's concurrent full-suite run, red-gating roughly half of all PRs and forcing manual re-runs. **Highest-leverage next fix** — it is blocking the operator's own PRs and every implement's CI; land and implement it before finishing the CLI layers.
+
 ### Fan-out correctness (P1)
 
 **Dependency:** both fan-out seeds require the operator's `configure-pipeline-supersede-policy` ready-intent to **land first** (it introduces the pipeline-supersede config these build on). Then plan them in this order:

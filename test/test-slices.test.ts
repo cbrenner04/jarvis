@@ -115,6 +115,16 @@ describe("Test slice boundaries", () => {
     expect(isLoadSensitive("v2/src/daemon/daemon-lifecycle.sandbox-unrunnable.test.ts")).toBeTrue();
   });
 
+  it("audited heavy files are classified load-sensitive", () => {
+    // @mutate scripts/test-slice.ts "v2/src/daemon/daemon-resume.test.ts" -> "v2/src/daemon/daemon-resume-pooled.test.ts"
+    expect(isLoadSensitive("v2/src/daemon/daemon-resume.test.ts")).toBeTrue();
+    expect(isLoadSensitive("v2/src/execution/workflow-runner.test.ts")).toBeTrue();
+
+    // Audited candidates that stayed pooled: survived two concurrent-load rounds with no observed
+    // failure, so they carry no dated evidence to join the lane (2026-08-18 audit).
+    expect(isLoadSensitive("v2/src/daemon/daemon-process-log.test.ts")).toBeFalse();
+  });
+
   it("isLoadSensitive is distinct from isSandboxUnrunnable", () => {
     const suffixMatchedNotListed = "v2/example/other.sandbox-unrunnable.test.ts";
     expect(isSandboxUnrunnable(suffixMatchedNotListed)).toBeTrue();

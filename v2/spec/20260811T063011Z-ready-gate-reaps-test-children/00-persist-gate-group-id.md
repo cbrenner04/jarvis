@@ -21,13 +21,13 @@ A run's ready gate spawns a test process tree that outlives the harness when the
 
 ## Acceptance criteria
 
-- [ ] A run's in-flight ready-gate group id is recorded durably and a recorded id replaces the prior value for that run; a new test `records and replaces the in-flight ready-gate group id` in `v2/src/persistence/state-store.test.ts` records a group id, reloads the run, records a second id, and reloads again — it fails against the pre-fix code (no such field or setter exists).
-- [ ] Clearing the group id reads back as absent; a new test `clears the in-flight ready-gate group id on settlement` in `v2/src/persistence/state-store.test.ts` records a group id, clears it, and reloads — it fails against the pre-fix code.
-- [ ] A run created without a gate in flight reads back no group id.
-- [ ] Existing `v2/src/persistence/state-store.test.ts` and `v2/src/persistence/state-store-on-disk.test.ts` stay green (schema growth is additive; no existing column or reader changes).
-- [ ] Clearing writes NULL rather than leaving the prior value: replacing the setter's `pgid === null` branch with `if (false)` leaves the recorded id set after a clear, without affecting the record path. `v2/src/persistence/state-store.test.ts` — `clears the in-flight ready-gate group id on settlement`; Mutation checkpoint: the clear branch's suppressed effect is proven absent by the reload assertion, and the record test above stays green under the same mutation.
-- [ ] The recorded id survives a reload rather than being synthesized on read. `v2/src/persistence/state-store.test.ts` — `records and replaces the in-flight ready-gate group id`; Keystone checkpoint: mapping `readyGatePgid` to a constant `null` in `mapRunRow` (baseline read semantics) turns this test red.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] A run's in-flight ready-gate group id is recorded durably and a recorded id replaces the prior value for that run; a new test `records and replaces the in-flight ready-gate group id` in `v2/src/persistence/state-store.test.ts` records a group id, reloads the run, records a second id, and reloads again — it fails against the pre-fix code (no such field or setter exists).
+- [x] Clearing the group id reads back as absent; a new test `clears the in-flight ready-gate group id on settlement` in `v2/src/persistence/state-store.test.ts` records a group id, clears it, and reloads — it fails against the pre-fix code.
+- [x] A run created without a gate in flight reads back no group id.
+- [x] Existing `v2/src/persistence/state-store.test.ts` and `v2/src/persistence/state-store-on-disk.test.ts` stay green (schema growth is additive; no existing column or reader changes).
+- [x] Clearing writes NULL rather than leaving the prior value: replacing the setter's `pgid === null` branch with `if (false)` leaves the recorded id set after a clear, without affecting the record path. `v2/src/persistence/state-store.test.ts` — `clears the in-flight ready-gate group id on settlement`; Mutation checkpoint: the clear branch's suppressed effect is proven absent by the reload assertion, and the record test above stays green under the same mutation.
+- [x] The recorded id survives a reload rather than being synthesized on read. `v2/src/persistence/state-store.test.ts` — `records and replaces the in-flight ready-gate group id`; Keystone checkpoint: mapping `readyGatePgid` to a constant `null` in `mapRunRow` (baseline read semantics) turns this test red.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

@@ -2552,7 +2552,7 @@ function withBoundaryTelemetry(
 
 export type CompletionPublicationSeams = Pick<
   WriteLoopInput,
-  "completionPublisher" | "readyFinalizer" | "skipReadyFinalization"
+  "completionPublisher" | "readyFinalizer" | "skipReadyFinalization" | "signal"
 >;
 
 export type CompletionPublishFailure = {
@@ -3205,6 +3205,7 @@ export async function publishWithReadyRepair(
     appendReadyGateTimeoutLog(args, result.runId, outcome);
     return buildReadyRepairPublishResult(outcome, iterationsConsumed);
   }
+  if (args.signal?.aborted) return buildReadyRepairPublishResult(outcome, iterationsConsumed);
 
   let frozenRepairAllowset = loadPersistedRepairAllowset(store, result.runId);
   if (frozenRepairAllowset === "corrupt") {
@@ -3366,6 +3367,7 @@ async function runReadyFinalizer(
     branch: input.branch,
     baseRef: input.baseRef,
     ...(input.requiredIntegrationScope ? { requiredIntegrationScope: input.requiredIntegrationScope } : {}),
+    ...(seams.signal !== undefined ? { signal: seams.signal } : {}),
   };
   return (await readyFinalizer(finalInput))?.runtimeSmokeOutcome;
 }

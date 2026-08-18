@@ -102,6 +102,29 @@ describe("StateStore", () => {
     expect(run.attemptCount).toBe(0);
     expect(run.createdAt).toBeGreaterThan(0);
     expect(run.attempts).toEqual([]);
+    expect(run.readyGatePgid ?? null).toBeNull();
+  });
+
+  test("records and replaces the in-flight ready-gate group id", () => {
+    const runId = seedRun(store);
+    // Keystone checkpoint: baseline read semantics must turn this test RED.
+    // @mutate v2/src/persistence/state-store.ts "    ...run," -> "    ...run, readyGatePgid: null,"
+
+    store.setReadyGatePgid(runId, 4242);
+    expect(loadRunOrThrow(store, runId).readyGatePgid).toBe(4242);
+
+    store.setReadyGatePgid(runId, 5353);
+    expect(loadRunOrThrow(store, runId).readyGatePgid).toBe(5353);
+  });
+
+  test("clears the in-flight ready-gate group id on settlement", () => {
+    const runId = seedRun(store);
+    store.setReadyGatePgid(runId, 4242);
+    // Mutation checkpoint: setReadyGatePgid's pgid === null branch (its own UPDATE ... SET ready_gate_pgid = NULL)
+    // @mutate v2/src/persistence/state-store.ts "if (pgid === null) {" -> "if (false) {"
+
+    store.setReadyGatePgid(runId, null);
+    expect(loadRunOrThrow(store, runId).readyGatePgid ?? null).toBeNull();
   });
 
   test("clearRunDownstreamInputs removes a persisted multi-file handoff from the run row", () => {
@@ -1710,7 +1733,7 @@ describe("pipelines", () => {
 
       const verify = new Database(legacyDbPath);
       const migrationCount = verify.prepare("SELECT COUNT(*) AS total FROM _migrations").get() as { total: number };
-      expect(migrationCount.total).toBe(21);
+      expect(migrationCount.total).toBe(22);
       verify.close();
 
       const pipelineId = migrated.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });

@@ -469,6 +469,7 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
     setRunDownstreamInputs: (runId, downstreamInputs) => inner.setRunDownstreamInputs(runId, downstreamInputs),
     clearRunDownstreamInputs: (runId) => inner.clearRunDownstreamInputs(runId),
     setPrEvidence: (runId, prNumber, prUrl) => inner.setPrEvidence(runId, prNumber, prUrl),
+    setReadyGatePgid: (runId, pgid) => inner.setReadyGatePgid(runId, pgid),
     setReadyGateRepairFence: (runId, fence) => inner.setReadyGateRepairFence(runId, fence),
     setRetainedFinalizationCheckpoint: (runId, checkpoint) =>
       inner.setRetainedFinalizationCheckpoint(runId, checkpoint),
@@ -3517,6 +3518,95 @@ describe("write loop", () => {
           expect(gateCalls).toBe(2);
           expect(agentInvocations).toBe(0);
           expect(publication.iterationsConsumed).toBe(0);
+        } finally {
+          store.close();
+        }
+      });
+
+      test("an aborted signal short-circuits ready-gate repair without spending an iteration", async () => {
+        // @mutate v2/src/execution/write-loop.ts "if (args.signal?.aborted) return buildReadyRepairPublishResult(outcome, iterationsConsumed);" -> ""
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        roots.push(join(jarvisRoot, ".."));
+        const store = openStateStore(stateDbPath);
+        const branchName = "repair-aborted-short-circuit";
+        const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+        mkdirSync(worktreePath, { recursive: true });
+        writeFileSync(join(worktreePath, "proof.txt"), "ok\n", "utf8");
+        writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
+        const runId = store.createRun({
+          project: "demo",
+          specRef: "HEAD",
+          worktreePath,
+          branch: branchName,
+          specPath: "spec.md",
+        });
+        const attemptId = store.recordAttemptStart(runId);
+        store.commitCompletionBoundary({
+          attemptId,
+          runStatus: "completed",
+          outcomeKind: "done",
+          completionAgent: "codex",
+        });
+        let gateCalls = 0;
+        let fixCalls = 0;
+        let agentInvocations = 0;
+        const controller = new AbortController();
+        controller.abort();
+
+        try {
+          const publication = await publishWithReadyRepair(
+            {
+              worktree: {
+                projectRoot: "/fake",
+                projectName: "demo",
+                branchName,
+                baseRef: "HEAD",
+                jarvisRoot,
+              },
+              specPath: "spec.md",
+              stepRules: "repair",
+              expectedArtifactPath: "proof.txt",
+              signal: controller.signal,
+              bindings: [
+                {
+                  id: "repair-agent",
+                  metadata: { agent: "codex", model: "test" },
+                  invoke: async () => {
+                    agentInvocations += 1;
+                    return { kind: "ok", stdout: "done", stderr: "" } as const;
+                  },
+                },
+              ],
+              stateStore: store,
+              withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+              sessionsDir: join(jarvisRoot, "sessions"),
+              maxIterations: 0,
+              completionCommitter: completionHooks.completionCommitter,
+              completionPublisher: completionHooks.completionPublisher,
+              runFixCommand: async () => {
+                fixCalls += 1;
+              },
+              readyFinalizer: async () => {
+                gateCalls += 1;
+                throw new ReadyGateError("bun run ready", 1, "red");
+              },
+            },
+            store,
+            { kind: "complete", runId, iterationsConsumed: 0, resumable: false, completionAgent: "codex" },
+            0,
+            {
+              worktreePath,
+              baseRef: "HEAD",
+              specPath: "spec.md",
+              branch: branchName,
+            },
+          );
+
+          expect(publication.failure?.kind).toBe("ready_gate_failed");
+          expect(publication.iterationsConsumed).toBe(0);
+          expect(gateCalls).toBe(1);
+          expect(fixCalls).toBe(0);
+          expect(agentInvocations).toBe(0);
         } finally {
           store.close();
         }

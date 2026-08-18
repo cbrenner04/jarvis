@@ -603,6 +603,59 @@ describe("load-sensitive isolation", () => {
     expect(calls).toEqual(["failing.sandbox-unrunnable.test.ts"]);
     expect(results.find((r) => r.file === "failing.sandbox-unrunnable.test.ts")?.status).toBe(1);
   });
+
+  test("every audited heavy file runs with no co-runner in either direction", async () => {
+    // @mutate scripts/test-slice.ts "v2/src/execution/workflow-runner.test.ts" -> "v2/src/execution/workflow-runner-pooled.test.ts"
+    spyOn(process.stdout, "write").mockImplementation(() => true);
+    spyOn(process.stderr, "write").mockImplementation(() => true);
+    const auditedFiles = [
+      "v2/src/daemon/daemon-workflow-start.test.ts",
+      "v2/src/execution/runtime-smoke-verifier.test.ts",
+      "v2/src/daemon/daemon-resume.test.ts",
+      "v2/src/execution/workflow-runner.test.ts",
+    ];
+    const pooledFillers = ["filler-a.test.ts", "filler-b.test.ts", "filler-c.test.ts", "filler-d.test.ts"];
+    let seq = 0;
+    const windows = new Map<string, [number, number]>();
+    const recordingSpawn = async (_cmd: string, args: string[]) => {
+      const file = args[1] ?? "";
+      const start = seq++;
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      const end = seq++;
+      windows.set(file, [start, end]);
+      return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
+    };
+
+    const results = await runV2TestFiles("agent", [...auditedFiles, ...pooledFillers], recordingSpawn, "v2", 3);
+
+    expect(results).toHaveLength(auditedFiles.length + pooledFillers.length);
+    const intersects = (a: [number, number], b: [number, number]) => a[0] < b[1] && b[0] < a[1];
+    for (const auditedFile of auditedFiles) {
+      const auditedWindow = windows.get(auditedFile);
+      if (auditedWindow === undefined) {
+        throw new Error(`missing recorded window for ${auditedFile}`);
+      }
+      for (const [otherFile, otherWindow] of windows) {
+        if (otherFile !== auditedFile) {
+          expect(intersects(auditedWindow, otherWindow)).toBe(false);
+        }
+      }
+    }
+
+    let maxFillerOverlap = 0;
+    for (const fillerA of pooledFillers) {
+      const windowA = windows.get(fillerA);
+      if (windowA === undefined) {
+        throw new Error(`missing recorded window for ${fillerA}`);
+      }
+      const overlap = pooledFillers.filter((fillerB) => {
+        const windowB = windows.get(fillerB);
+        return windowB !== undefined && (fillerB === fillerA || intersects(windowA, windowB));
+      }).length;
+      maxFillerOverlap = Math.max(maxFillerOverlap, overlap);
+    }
+    expect(maxFillerOverlap).toBeGreaterThan(1);
+  });
 });
 
 describe("aggregateExitCode", () => {

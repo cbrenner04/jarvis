@@ -18,6 +18,13 @@ export const LOAD_SENSITIVE_FILES: readonly string[] = [
   // Real git/bun/daemon subprocess probes exceed the 10s runtime-smoke wall clock when co-runners
   // load the machine; isolated, the same file finishes in ~12s (2026-07-27).
   "v2/src/execution/runtime-smoke-verifier.test.ts",
+  // Passes 0-fail across four straight isolated runs (~6s) but produced 106 failures / 354 when
+  // co-run with the execution-loop workflow-runner test under load (2026-08-17).
+  "v2/src/daemon/daemon-resume.test.ts",
+  // One ~216-test file whose loaded runtime scales with contention; tipped over the per-file agent
+  // wall-clock budget, red-gating two live PRs and post-merge main the same day, each passing an
+  // unchanged re-run (2026-08-17).
+  "v2/src/execution/workflow-runner.test.ts",
 ];
 
 /**

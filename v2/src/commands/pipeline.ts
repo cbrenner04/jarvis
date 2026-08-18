@@ -96,6 +96,18 @@ function parsePipelineDecisionArgs(
   return { ok: true, pipelineId, stageId, branchKey };
 }
 
+function parsePipelineResumeArgs(
+  argv: readonly string[],
+): { ok: true; pipelineId: string; branchKey?: string } | { ok: false } {
+  if (argv.length < 1 || argv.length > 2) return { ok: false };
+  const pipelineId = argv[0];
+  if (pipelineId === undefined || pipelineId.trim().length === 0) return { ok: false };
+  const branchKey = argv[1];
+  if (branchKey === undefined) return { ok: true, pipelineId };
+  if (branchKey.trim().length === 0) return { ok: false };
+  return { ok: true, pipelineId, branchKey };
+}
+
 function parsePipelineStartArgs(argv: readonly string[]): PipelineStartCliInput {
   let values: Record<string, string | boolean | undefined>;
   let positionals: string[];
@@ -500,12 +512,19 @@ export async function runPipelineCommand(argv: readonly string[], io: Io, deps: 
     );
   }
   if (subcommand === "resume") {
-    const pipelineId = argv[1];
-    if (argv.length !== 2 || pipelineId === undefined || pipelineId.trim().length === 0) {
+    const parsed = parsePipelineResumeArgs(argv.slice(1));
+    if (!parsed.ok) {
       io.stderr(PIPELINE_RESUME_USAGE);
       return 1;
     }
-    return runPipelineMutationCommand("pipeline_resume", { pipelineId }, "resumed", io, deps);
+    return runPipelineMutationCommand(
+      "pipeline_resume",
+      // Mutation checkpoint: dropping `branchKey` here must turn the branch-scoped resume RPC test RED.
+      { pipelineId: parsed.pipelineId, ...(parsed.branchKey !== undefined ? { branchKey: parsed.branchKey } : {}) },
+      "resumed",
+      io,
+      deps,
+    );
   }
   io.stderr(PIPELINE_USAGE);
   return 1;

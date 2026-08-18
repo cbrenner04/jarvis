@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import {
   PIPELINE_APPROVE_USAGE,
   PIPELINE_LIST_USAGE,
+  PIPELINE_RECOVER_USAGE,
   PIPELINE_REJECT_USAGE,
   PIPELINE_RESUME_USAGE,
   PIPELINE_START_USAGE,
@@ -1375,6 +1376,150 @@ describe("pipeline resume", () => {
   });
 });
 
+describe("pipeline recover", () => {
+  test("pipeline recover admits a branch-scoped recovery request", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const result = {
+      kind: "admitted",
+      pipelineId: "pipe-1",
+      branchKey: " alpha ",
+      stageId: "plan",
+      entryRunId: "run-9",
+    };
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-recover"], () =>
+      main(["pipeline", "recover", "pipe-1", " alpha "], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () => makeIpcClient([pipelineWaitFrame("pipe-recover", result)], { sent }),
+      }),
+    );
+    // @mutate v2/src/commands/pipeline.ts "return runPipelineRecoverCommand(parsed.pipelineId, parsed.branchKey, io, deps);" -> "io.stderr(PIPELINE_USAGE); return 1;"
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: `${JSON.stringify(result)}\n`, stderr: "" });
+    expect(ipcFramesWithMethod(sent, "pipeline_recover")).toEqual([
+      expect.objectContaining({ params: { pipelineId: "pipe-1", branchKey: " alpha " } }),
+    ]);
+  });
+
+  test("pipeline recover reports daemon refusals without admitting", async () => {
+    const refusedCap = captureIo();
+    const refusedCode = await withFixedUuid([SESSION_UUID, "pipe-recover-refused"], () =>
+      main(["pipeline", "recover", "pipe-1", "alpha"], refusedCap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () =>
+          makeIpcClient([
+            pipelineWaitFrame("pipe-recover-refused", {
+              kind: "resolution_refused",
+              pipelineId: "pipe-1",
+              branchKey: "alpha",
+              reason: "no_failed_stage",
+              message: "branch alpha carries no failed workflow stage row",
+            }),
+          ]),
+      }),
+    );
+    // @mutate v2/src/commands/pipeline.ts "return outcome.kind === \"admitted\" ? 0 : 1;" -> "return 0;"
+    expect(refusedCode).toBe(1);
+    expect(refusedCap.read()).toEqual({
+      stdout: "",
+      stderr: "no_failed_stage: branch alpha carries no failed workflow stage row\n",
+    });
+
+    const claimedCap = captureIo();
+    const claimedCode = await withFixedUuid([SESSION_UUID, "pipe-recover-claimed"], () =>
+      main(["pipeline", "recover", "pipe-1", "alpha"], claimedCap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () =>
+          makeIpcClient([
+            pipelineWaitFrame("pipe-recover-claimed", {
+              kind: "stage_claimed",
+              pipelineId: "pipe-1",
+              branchKey: "alpha",
+              stageId: "plan",
+            }),
+          ]),
+      }),
+    );
+    expect(claimedCode).toBe(1);
+    expect(claimedCap.read()).toEqual({
+      stdout: "",
+      stderr: "pipeline recover: stage plan is claimed by another operation\n",
+    });
+
+    const unknownCap = captureIo();
+    const unknownCode = await withFixedUuid([SESSION_UUID, "pipe-recover-unknown"], () =>
+      main(["pipeline", "recover", "pipe-1", "alpha"], unknownCap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () => makeIpcClient([pipelineWaitFrame("pipe-recover-unknown", { kind: "unknown" })]),
+      }),
+    );
+    // @mutate v2/src/commands/pipeline.ts "if (typeof record.kind !== \"string\" || !PIPELINE_RECOVER_RESULT_KINDS.has(record.kind)) return undefined;" -> "if (typeof record.kind !== \"string\") return undefined;"
+    expect(unknownCode).toBe(1);
+    expect(unknownCap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
+
+    const malformedCap = captureIo();
+    const malformedCode = await withFixedUuid([SESSION_UUID, "pipe-recover-malformed"], () =>
+      main(["pipeline", "recover", "pipe-1", "alpha"], malformedCap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () =>
+          makeIpcClient([
+            pipelineWaitFrame("pipe-recover-malformed", {
+              kind: "admitted",
+              pipelineId: "pipe-1",
+              branchKey: "alpha",
+              stageId: "plan",
+              // entryRunId missing: an admitted envelope stripped of its handles must not admit.
+            }),
+          ]),
+      }),
+    );
+    expect(malformedCode).toBe(1);
+    expect(malformedCap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
+  });
+
+  test("pipeline recover rejects malformed arity before daemon connect", async () => {
+    async function expectUsage(argv: readonly string[]): Promise<void> {
+      const cap = captureIo();
+      let contacted = false;
+      const code = await main([...argv], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () => {
+          contacted = true;
+          throw new Error("should not contact daemon");
+        },
+      });
+      expect(code).toBe(1);
+      expect(contacted).toBe(false);
+      expect(cap.read()).toEqual({ stdout: "", stderr: PIPELINE_RECOVER_USAGE });
+    }
+
+    await expectUsage(["pipeline", "recover", "pipe-1"]);
+    await expectUsage(["pipeline", "recover", "pipe-1", "alpha", "extra"]);
+    await expectUsage(["pipeline", "recover", "pipe-1", "   "]);
+    // @mutate v2/src/commands/pipeline.ts "if (argv.length !== 2) return { ok: false };" -> "if (argv.length < 2) return { ok: false };"
+    // @mutate v2/src/commands/pipeline.ts "if (pipelineId.trim().length === 0 || branchKey.trim().length === 0) return { ok: false };" -> "if (pipelineId.length === 0 || branchKey.length === 0) return { ok: false };"
+  });
+
+  test("help pipeline recover matches recover usage", async () => {
+    const cap = captureIo();
+
+    const code = await main(["help", "pipeline", "recover"], cap.io);
+
+    expect(code).toBe(0);
+    expect(cap.read().stdout).toContain(PIPELINE_RECOVER_USAGE.trim());
+
+    const familyCap = captureIo();
+    const familyCode = await main(["help", "pipeline"], familyCap.io);
+
+    expect(familyCode).toBe(0);
+    const familyOutput = familyCap.read().stdout;
+    expect(familyOutput).toContain(PIPELINE_USAGE.trim());
+    expect(familyOutput).toContain("recover\tRevalidate a corrected blocked branch stage.");
+  });
+});
+
 describe("pipeline help", () => {
   test("help pipeline exposes the full family with list and wait semantics", async () => {
     const cap = captureIo();
@@ -1390,6 +1535,7 @@ describe("pipeline help", () => {
     expect(output).toContain("approve\tAdmit an approval decision on a named gate.");
     expect(output).toContain("reject\tReject an approval gate and settle the pipeline.");
     expect(output).toContain("resume\tResume a failed or awaiting-approval pipeline.");
+    expect(output).toContain("recover\tRevalidate a corrected blocked branch stage.");
   });
 
   test("help pipeline list matches list usage and shows filter flags", async () => {

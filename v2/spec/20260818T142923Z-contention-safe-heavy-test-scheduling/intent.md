@@ -36,3 +36,7 @@ Test-suite runner (`scripts/run-v2-tests.ts`, `scripts/test-slice.ts`).
 ## Documentation updates
 
 - `v2/docs/test-writing.md` — the concurrency contract: lane membership rule (when a file must join rather than run in the default pool), the agent per-file budget and its margin, and the refreshed aggregate wall-clock figures.
+
+## Blocker
+
+Artifact contract check failed: Plan subspec 00-audited-heavy-files-run-without-co-runners.md has a multi-surface ## Acceptance criteria bullet: `test/test-slices.test.ts` test `audited heavy files are classified load-sensitive` fails against the pre-fix code and passes after: `isLoadSensitive` returns true for `v2/src/daemon/daemon-resume.test.ts`, `v2/src/execution/workflow-runner.test.ts`, and every other path the audit added, and returns false for at least one audited candidate that stayed pooled.

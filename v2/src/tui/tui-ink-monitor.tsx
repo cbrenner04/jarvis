@@ -204,6 +204,27 @@ function renderDockContent(state: TuiMonitorState, Text: MonitorText, Box: Monit
   );
 }
 
+const DIVIDER_GLYPH = "│";
+
+function renderDividerContent(paneHeight: number, Text: MonitorText, Box: MonitorBox): ReactElement[] {
+  return Array.from({ length: Math.max(0, paneHeight) }, (_, key) =>
+    createElement(
+      Box,
+      { key, flexDirection: "row", height: 1, overflow: "hidden" },
+      createElement(Text, null, DIVIDER_GLYPH),
+    ),
+  );
+}
+
+/** `leftPane, [divider,] rightPane`; divider absent when `null`, keeping split and stacked composition identical. */
+function paneRowChildren(
+  leftPane: ReactElement,
+  rightPane: ReactElement,
+  divider: ReactElement | null,
+): ReactElement[] {
+  return divider === null ? [leftPane, rightPane] : [leftPane, divider, rightPane];
+}
+
 /** Ink tree for one monitor snapshot; shared by the session host and render tests. */
 export function createMonitorDisplay(
   state: TuiMonitorState,
@@ -268,6 +289,22 @@ export function createMonitorDisplay(
     return createElement(Fragment, null, leftPane, rightPane, dock);
   }
 
+  // Mutation checkpoint: forcing this guard must turn split-divider inclusion or stacked-divider suppression RED.
+  const includeDivider = layout.dividerWidth > 0;
+  const divider = includeDivider
+    ? createElement(
+        Box,
+        {
+          flexDirection: "column",
+          width: layout.dividerWidth,
+          height: layout.paneHeight,
+          overflow: "hidden",
+          flexShrink: 0,
+        },
+        ...renderDividerContent(layout.paneHeight, Text, Box),
+      )
+    : null;
+
   if (layout.layoutMode === "stacked") {
     return createElement(
       Box,
@@ -275,8 +312,7 @@ export function createMonitorDisplay(
       createElement(
         Box,
         { flexDirection: "column", height: layout.paneHeight, overflow: "hidden" },
-        leftPane,
-        rightPane,
+        ...paneRowChildren(leftPane, rightPane, divider),
       ),
       dock,
     );
@@ -285,7 +321,11 @@ export function createMonitorDisplay(
   return createElement(
     Box,
     { flexDirection: "column" },
-    createElement(Box, { flexDirection: "row", height: layout.paneHeight, overflow: "hidden" }, leftPane, rightPane),
+    createElement(
+      Box,
+      { flexDirection: "row", height: layout.paneHeight, overflow: "hidden" },
+      ...paneRowChildren(leftPane, rightPane, divider),
+    ),
     dock,
   );
 }

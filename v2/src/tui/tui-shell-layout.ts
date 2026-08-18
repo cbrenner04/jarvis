@@ -23,6 +23,7 @@ export type LayoutMode = "stacked" | "split";
 export type ShellLayout = {
   layoutMode: LayoutMode;
   leftWidth: number;
+  dividerWidth: number;
   rightWidth: number;
   paneHeight: number;
   dockHeight: number;
@@ -48,10 +49,13 @@ function clampLeftWidth(columns: number, dividerOffset: number): number {
 
 export function computeShellLayout(columns: number, rows: number, dividerOffset: number): ShellLayout {
   const leftWidth = clampLeftWidth(columns, dividerOffset);
+  const layoutMode: LayoutMode = columns < STACKED_THRESHOLD ? "stacked" : "split";
+  const dividerWidth = layoutMode === "split" ? 1 : 0;
   return {
-    layoutMode: columns < STACKED_THRESHOLD ? "stacked" : "split",
+    layoutMode,
     leftWidth,
-    rightWidth: columns - leftWidth,
+    dividerWidth,
+    rightWidth: columns - leftWidth - dividerWidth,
     paneHeight: rows - DOCK_HEIGHT,
     dockHeight: DOCK_HEIGHT,
   };

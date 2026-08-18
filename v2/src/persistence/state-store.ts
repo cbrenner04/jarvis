@@ -143,6 +143,8 @@ export type Run = {
   reconciledAt?: number | null;
   /** Unix epoch ms of the last durable terminal status write outside a completion boundary. */
   finishedAt?: number | null;
+  /** Process group id of the run's in-flight ready-gate test tree; null when no gate is in flight. */
+  readyGatePgid?: number | null;
   readyGateRepairFence?: ReadyGateRepairFenceProvenance | null;
   /** True when a non-null fence column could not be parsed into a valid allowset. */
   readyGateRepairFenceCorrupt?: boolean;
@@ -510,6 +512,9 @@ export interface StateStore {
   /** Record the confirmed PR number and URL after successful publication. */
   setPrEvidence(runId: string, prNumber: number, prUrl: string): void;
 
+  /** Record or clear (`null`) the process group id of the run's in-flight ready-gate test tree. */
+  setReadyGatePgid(runId: string, pgid: number | null): void;
+
   /** Persist ready-gate repair fence provenance for restart-safe recovery. */
   setReadyGateRepairFence(runId: string, fence: ReadyGateRepairFenceProvenance): void;
 
@@ -706,6 +711,7 @@ const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, 
   downstream_inputs AS downstreamInputsJson, step_id AS stepId,
   workflow_snapshot AS workflowSnapshotJson, queued_input AS queuedInputJson, creation_title AS creationTitle,
   pr_number AS prNumber, pr_url AS prUrl, reconciled_at AS reconciledAt, finished_at AS finishedAt,
+  ready_gate_pgid AS readyGatePgid,
   ready_gate_repair_fence AS readyGateRepairFenceJson,
   retained_finalization_checkpoint AS retainedFinalizationCheckpointJson`;
 
@@ -863,6 +869,7 @@ const SCHEMA_MIGRATIONS = [
   },
   { id: "023-run-finished-at", up: "ALTER TABLE runs ADD COLUMN finished_at INTEGER" },
   { id: "024-pipeline-stage-decided-at", up: "ALTER TABLE pipeline_stages ADD COLUMN decided_at INTEGER" },
+  { id: "025-run-ready-gate-pgid", up: "ALTER TABLE runs ADD COLUMN ready_gate_pgid INTEGER" },
 ] as const;
 
 const ORPHAN_STATUSES = "'queued', 'in-progress', 'paused', 'budget-soft-stopped'";
@@ -1211,6 +1218,15 @@ class StateStoreImpl implements StateStore {
 
   setPrEvidence(runId: string, prNumber: number, prUrl: string): void {
     this.db.prepare("UPDATE runs SET pr_number = ?, pr_url = ? WHERE id = ?").run(prNumber, prUrl, runId);
+  }
+
+  setReadyGatePgid(runId: string, pgid: number | null): void {
+    if (pgid === null) {
+      this.db.prepare("UPDATE runs SET ready_gate_pgid = NULL WHERE id = ?").run(runId);
+    }
+    if (pgid !== null) {
+      this.db.prepare("UPDATE runs SET ready_gate_pgid = ? WHERE id = ?").run(pgid, runId);
+    }
   }
 
   setReadyGateRepairFence(runId: string, fence: ReadyGateRepairFenceProvenance): void {

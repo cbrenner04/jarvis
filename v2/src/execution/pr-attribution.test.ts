@@ -161,7 +161,7 @@ describe("renderAttribution", () => {
   });
 
   test("suppresses invalid and single-kind step counts", async () => {
-    // @mutate v2/src/execution/pr-attribution.ts "if (kindsPresent.length <= 1) {" -> "if (kindsPresent.length < 1) {"
+    // @mutate v2/src/execution/pr-attribution.ts "if (kindsPresent.length <= 1) {\n      continue;\n    }" -> "if (kindsPresent.length < 1) {\n      continue;\n    }"
     commitWithMessage("a.txt", "First\n\nSpec: spec/foo/00-first.md\n\nJarvis-Agent: X");
     commitWithMessage("b.txt", "Second\n\nSpec: spec/foo/01-second.md\n\nJarvis-Agent: X\nJarvis-Step: bogus-step");
     commitWithMessage(

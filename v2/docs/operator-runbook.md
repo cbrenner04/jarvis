@@ -281,6 +281,17 @@ Two kinds of `1` exit come out of this path, and they are not the same state:
   auto-started when none was listening — stop it with `jarvis daemon stop` if you
   did not want one up.
 
+### Pipeline dismiss and undismiss
+
+Hide a pipeline you no longer want listed, without deleting it:
+
+```sh
+jarvis pipeline dismiss <pipeline-id>
+jarvis pipeline undismiss <pipeline-id>
+```
+
+Dismissal only hides the pipeline from `pipeline list`'s default output — it does not delete the durable row. `pipeline resume`, `pipeline recover`, and daemon-restart recovery still reach a dismissed pipeline the same as before. Dismissing a live (`pending`, `running`, or `awaiting-approval`) pipeline succeeds and prints a stderr warning naming the pipeline and its state; dismissal does not stop it. `undismiss` never warns. Refusals (for example an unknown pipeline ID) print the daemon `reason` verbatim on stderr and exit non-zero, with no confirmation. A dismissed pipeline also disappears from `jarvis tui`; there is no TUI-side way back yet (tracked by the `dismiss-pipeline-tui-display` ready intent). Dismissal is a display filter, not retention — see the `pipeline-list-display-retention` seed for the separate unbounded-row-growth concern.
+
 ### Ad-hoc write loop (live pause/kill)
 
 `jarvis run start` with explicit worktree fields — supports `pause` / `kill` / `resume` on the active run. Workflow-started implement supports live `kill` only; `pause` / `resume` remain write-loop-only. See [first-workflow-walkthrough § Workflow-started implement](./first-workflow-walkthrough.md#workflow-started-implement) and [`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workflow-started-runs).
@@ -675,7 +686,7 @@ Reach for `jarvis run kill --force <run-id>` only after `run resume <run-id>` re
 
 `run kill` does not auto-start the daemon (unlike `run resume`): a stale row plus a stopped daemon yields a connection error, not a kill. After a daemon restart, a stale row's owner is a dead prior incarnation — run reconciliation settles that on its own (see [Orphaned non-terminal runs after daemon restart](#orphaned-non-terminal-runs-after-daemon-restart)); a forced kill isn't needed there.
 
-This clears the run row only. Pipeline/stage display rows are a separate concern tracked by the `dismiss-pipeline-*` ready intents.
+This clears the run row only. Pipeline/stage display rows are a separate concern — see [Pipeline dismiss and undismiss](#pipeline-dismiss-and-undismiss).
 
 ### Wedged run, no agent activity
 

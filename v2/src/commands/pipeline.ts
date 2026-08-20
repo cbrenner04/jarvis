@@ -7,16 +7,18 @@ import { formatConnectionError, formatRpcError, request, withRunClient } from ".
 import { connectWithAutoStart } from "../cli/stale-dispatch.ts";
 import {
   PIPELINE_APPROVE_USAGE,
+  PIPELINE_DISMISS_USAGE,
   PIPELINE_LIST_USAGE,
   PIPELINE_RECOVER_USAGE,
   PIPELINE_REJECT_USAGE,
   PIPELINE_RESUME_USAGE,
   PIPELINE_START_USAGE,
+  PIPELINE_UNDISMISS_USAGE,
   PIPELINE_USAGE,
   PIPELINE_WAIT_USAGE,
 } from "../cli/usage.ts";
 import { loadMachineConfig, readProjectConfigRecord } from "../config/machine-config-loader.ts";
-import type { PipelineDerivedState } from "../daemon/pipeline-execution.ts";
+import { isPipelineTerminal, type PipelineDerivedState } from "../daemon/pipeline-execution.ts";
 import type {
   PipelineBoundaryResult,
   PipelineSnapshot,
@@ -558,6 +560,62 @@ async function runPipelineRecoverCommand(
   });
 }
 
+export type PipelineDismissalOutcome =
+  | { kind: "applied"; pipelineId: string; state: PipelineDerivedState }
+  | { kind: "refused"; pipelineId: string; reason: string };
+
+function parsePipelineDismissalArgs(argv: readonly string[]): { ok: true; pipelineId: string } | { ok: false } {
+  if (argv.length !== 1) return { ok: false };
+  const pipelineId = argv[0];
+  if (pipelineId === undefined || pipelineId.trim().length === 0) return { ok: false };
+  return { ok: true, pipelineId };
+}
+
+function parsePipelineDismissalOutcome(value: unknown): PipelineDismissalOutcome | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const record = value as { kind?: unknown; pipelineId?: unknown; state?: unknown; reason?: unknown };
+  if (!isNonEmptyString(record.pipelineId)) return undefined;
+  if (record.kind === "applied") {
+    if (typeof record.state !== "string") return undefined;
+    const state = parsePipelineListStateValue(record.state);
+    if (state === undefined) return undefined;
+    return { kind: "applied", pipelineId: record.pipelineId, state };
+  }
+  if (record.kind === "refused" && typeof record.reason === "string") {
+    return { kind: "refused", pipelineId: record.pipelineId, reason: record.reason };
+  }
+  return undefined;
+}
+
+async function runPipelineDismissalCommand(
+  mode: "dismiss" | "undismiss",
+  pipelineId: string,
+  io: Io,
+  deps: CliDeps,
+): Promise<number> {
+  return withRunClient(io, deps, async (client) => {
+    const method = mode === "dismiss" ? "pipeline_dismiss" : "pipeline_undismiss";
+    const result = await requestPipelineRpc(client, method, { pipelineId }, io);
+    if (!result.ok) return 1;
+    const outcome = parsePipelineDismissalOutcome(result.response);
+    if (outcome === undefined) {
+      io.stderr("invalid daemon response\n");
+      return 1;
+    }
+    if (outcome.kind !== "applied") {
+      io.stderr(`${outcome.reason}\n`);
+      return 1;
+    }
+    // Mutation checkpoint: neutering this guard to `if (false)` must drop the live-state
+    // warning, turning the live-pipeline-dismissal test RED.
+    if (mode === "dismiss" && !isPipelineTerminal(outcome.state)) {
+      io.stderr(`pipeline dismiss: ${outcome.pipelineId} is ${outcome.state} and now hidden from listings\n`);
+    }
+    io.stdout(`pipeline ${mode}: ${outcome.pipelineId}\n`);
+    return 0;
+  });
+}
+
 export async function runPipelineCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
   const subcommand = argv[0];
   if (subcommand === "start") {
@@ -590,6 +648,17 @@ export async function runPipelineCommand(argv: readonly string[], io: Io, deps: 
       deps,
     );
   }
+  return runPipelineControlSubcommand(subcommand, argv, io, deps);
+}
+
+/** Tail of the pipeline dispatcher: resume/recover/dismiss/undismiss and the usage fallback,
+ * split out of {@link runPipelineCommand} to keep each under the cognitive-complexity budget. */
+async function runPipelineControlSubcommand(
+  subcommand: string | undefined,
+  argv: readonly string[],
+  io: Io,
+  deps: CliDeps,
+): Promise<number> {
   if (subcommand === "resume") {
     const parsed = parsePipelineResumeArgs(argv.slice(1));
     if (!parsed.ok) {
@@ -612,6 +681,14 @@ export async function runPipelineCommand(argv: readonly string[], io: Io, deps: 
       return 1;
     }
     return runPipelineRecoverCommand(parsed.pipelineId, parsed.branchKey, io, deps);
+  }
+  if (subcommand === "dismiss" || subcommand === "undismiss") {
+    const parsed = parsePipelineDismissalArgs(argv.slice(1));
+    if (!parsed.ok) {
+      io.stderr(subcommand === "dismiss" ? PIPELINE_DISMISS_USAGE : PIPELINE_UNDISMISS_USAGE);
+      return 1;
+    }
+    return runPipelineDismissalCommand(subcommand, parsed.pipelineId, io, deps);
   }
   io.stderr(PIPELINE_USAGE);
   return 1;

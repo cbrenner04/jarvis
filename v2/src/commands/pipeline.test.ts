@@ -4,11 +4,13 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
   PIPELINE_APPROVE_USAGE,
+  PIPELINE_DISMISS_USAGE,
   PIPELINE_LIST_USAGE,
   PIPELINE_RECOVER_USAGE,
   PIPELINE_REJECT_USAGE,
   PIPELINE_RESUME_USAGE,
   PIPELINE_START_USAGE,
+  PIPELINE_UNDISMISS_USAGE,
   PIPELINE_USAGE,
   PIPELINE_WAIT_USAGE,
 } from "../cli/usage.ts";
@@ -1599,6 +1601,157 @@ describe("pipeline recover", () => {
   });
 });
 
+describe("pipeline dismiss", () => {
+  test("dismiss issues pipeline_dismiss and confirms the pipeline", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-dismiss"], () =>
+      main(["pipeline", "dismiss", "pipe-1"], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () =>
+          makeIpcClient(
+            [pipelineWaitFrame("pipe-dismiss", { kind: "applied", pipelineId: "pipe-1", state: "failed" })],
+            {
+              sent,
+            },
+          ),
+      }),
+    );
+    // @mutate v2/src/commands/pipeline.ts "const method = mode === \"dismiss\" ? \"pipeline_dismiss\" : \"pipeline_undismiss\";" -> "const method = \"pipeline_undismiss\";"
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "pipeline dismiss: pipe-1\n", stderr: "" });
+    expect(ipcFramesWithMethod(sent, "pipeline_dismiss")).toEqual([
+      expect.objectContaining({ params: { pipelineId: "pipe-1" } }),
+    ]);
+  });
+
+  test("undismiss issues pipeline_undismiss and confirms the pipeline", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-undismiss"], () =>
+      main(["pipeline", "undismiss", "pipe-1"], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () =>
+          makeIpcClient(
+            [pipelineWaitFrame("pipe-undismiss", { kind: "applied", pipelineId: "pipe-1", state: "failed" })],
+            { sent },
+          ),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "pipeline undismiss: pipe-1\n", stderr: "" });
+    expect(ipcFramesWithMethod(sent, "pipeline_undismiss")).toEqual([
+      expect.objectContaining({ params: { pipelineId: "pipe-1" } }),
+    ]);
+  });
+
+  test("dismiss and undismiss refuse an unknown pipeline id", async () => {
+    async function expectRefusal(argv: readonly string[], rpcId: string): Promise<void> {
+      const cap = captureIo();
+      const code = await withFixedUuid([SESSION_UUID, rpcId], () =>
+        main([...argv], cap.io, {
+          ...pipelineDeps(undefined),
+          connectIpcClient: async () =>
+            makeIpcClient([
+              pipelineWaitFrame(rpcId, { kind: "refused", pipelineId: "pipe-1", reason: "pipeline_not_found" }),
+            ]),
+        }),
+      );
+      expect(code).toBe(1);
+      expect(cap.read()).toEqual({ stdout: "", stderr: "pipeline_not_found\n" });
+    }
+
+    await expectRefusal(["pipeline", "dismiss", "pipe-1"], "pipe-dismiss-refused");
+    await expectRefusal(["pipeline", "undismiss", "pipe-1"], "pipe-undismiss-refused");
+    // @mutate v2/src/commands/pipeline.ts "if (outcome.kind !== \"applied\") {" -> "if (false) {"
+  });
+
+  test("dismissing a live pipeline warns naming its state", async () => {
+    async function expectWarning(state: string, rpcId: string): Promise<void> {
+      const cap = captureIo();
+      const code = await withFixedUuid([SESSION_UUID, rpcId], () =>
+        main(["pipeline", "dismiss", "pipe-1"], cap.io, {
+          ...pipelineDeps(undefined),
+          connectIpcClient: async () =>
+            makeIpcClient([pipelineWaitFrame(rpcId, { kind: "applied", pipelineId: "pipe-1", state })]),
+        }),
+      );
+      expect(code).toBe(0);
+      const output = cap.read();
+      expect(output.stdout).toBe("pipeline dismiss: pipe-1\n");
+      expect(output.stderr).toBe(`pipeline dismiss: pipe-1 is ${state} and now hidden from listings\n`);
+    }
+
+    await expectWarning("running", "pipe-dismiss-running");
+    await expectWarning("awaiting-approval", "pipe-dismiss-awaiting");
+    // @mutate v2/src/commands/pipeline.ts "if (mode === \"dismiss\" && !isPipelineTerminal(outcome.state)) {" -> "if (false) {"
+  });
+
+  test("dismissing a terminal pipeline prints no warning", async () => {
+    const cap = captureIo();
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-dismiss-terminal"], () =>
+      main(["pipeline", "dismiss", "pipe-1"], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () =>
+          makeIpcClient([
+            pipelineWaitFrame("pipe-dismiss-terminal", { kind: "applied", pipelineId: "pipe-1", state: "failed" }),
+          ]),
+      }),
+    );
+    // @mutate v2/src/commands/pipeline.ts "mode === \"dismiss\" && !isPipelineTerminal(outcome.state)" -> "mode === \"dismiss\""
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "pipeline dismiss: pipe-1\n", stderr: "" });
+  });
+
+  test("dismiss and undismiss reject bad arity before contacting the daemon", async () => {
+    async function expectUsage(argv: readonly string[], usage: string): Promise<void> {
+      const cap = captureIo();
+      let contacted = false;
+      const code = await main([...argv], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () => {
+          contacted = true;
+          throw new Error("should not contact daemon");
+        },
+      });
+      expect(code).toBe(1);
+      expect(contacted).toBe(false);
+      expect(cap.read()).toEqual({ stdout: "", stderr: usage });
+    }
+
+    await expectUsage(["pipeline", "dismiss"], PIPELINE_DISMISS_USAGE);
+    await expectUsage(["pipeline", "dismiss", "   "], PIPELINE_DISMISS_USAGE);
+    await expectUsage(["pipeline", "dismiss", "pipe-1", "extra"], PIPELINE_DISMISS_USAGE);
+    await expectUsage(["pipeline", "undismiss"], PIPELINE_UNDISMISS_USAGE);
+    await expectUsage(["pipeline", "undismiss", "   "], PIPELINE_UNDISMISS_USAGE);
+    await expectUsage(["pipeline", "undismiss", "pipe-1", "extra"], PIPELINE_UNDISMISS_USAGE);
+    // @mutate v2/src/commands/pipeline.ts "if (argv.length !== 1) return { ok: false };" -> "if (false) return { ok: false };"
+  });
+
+  test("dismiss prints invalid daemon response for a malformed envelope", async () => {
+    async function expectInvalid(response: unknown, rpcId: string): Promise<void> {
+      const cap = captureIo();
+      const code = await withFixedUuid([SESSION_UUID, rpcId], () =>
+        main(["pipeline", "dismiss", "pipe-1"], cap.io, {
+          ...pipelineDeps(undefined),
+          connectIpcClient: async () => makeIpcClient([pipelineWaitFrame(rpcId, response)]),
+        }),
+      );
+      expect(code).toBe(1);
+      expect(cap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
+    }
+
+    await expectInvalid({ kind: "unknown" }, "pipe-dismiss-bad-kind");
+    await expectInvalid({ kind: "applied", pipelineId: "pipe-1", state: "not-a-real-state" }, "pipe-dismiss-bad-state");
+  });
+});
+
 describe("pipeline help", () => {
   test("help pipeline exposes the full family with list and wait semantics", async () => {
     const cap = captureIo();
@@ -1615,6 +1768,8 @@ describe("pipeline help", () => {
     expect(output).toContain("reject\tReject an approval gate and settle the pipeline.");
     expect(output).toContain("resume\tResume a failed or awaiting-approval pipeline.");
     expect(output).toContain("recover\tRevalidate a corrected blocked branch stage.");
+    expect(output).toContain("dismiss\tHide a pipeline from listings without deleting it.");
+    expect(output).toContain("undismiss\tRestore a dismissed pipeline to listings.");
   });
 
   test("help pipeline list matches list usage and shows filter flags", async () => {
@@ -1664,6 +1819,24 @@ describe("pipeline help", () => {
 
     expect(code).toBe(0);
     expect(cap.read().stdout).toContain(PIPELINE_RESUME_USAGE.trim());
+  });
+
+  test("help pipeline dismiss matches dismiss usage", async () => {
+    const cap = captureIo();
+
+    const code = await main(["help", "pipeline", "dismiss"], cap.io);
+
+    expect(code).toBe(0);
+    expect(cap.read().stdout).toContain(PIPELINE_DISMISS_USAGE.trim());
+  });
+
+  test("help pipeline undismiss matches undismiss usage", async () => {
+    const cap = captureIo();
+
+    const code = await main(["help", "pipeline", "undismiss"], cap.io);
+
+    expect(code).toBe(0);
+    expect(cap.read().stdout).toContain(PIPELINE_UNDISMISS_USAGE.trim());
   });
 
   test("help pipeline start matches start usage and detach behavior", async () => {

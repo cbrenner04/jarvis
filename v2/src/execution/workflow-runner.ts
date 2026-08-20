@@ -3394,6 +3394,22 @@ async function settleIntentResumeUncommittedFailure(
   );
 }
 
+/**
+ * Committer title + optional `step` field for a review/review-debate publication: an undefined
+ * `reviewPass` keeps the bare title and no step (unclassified write); a reached mutating pass
+ * prefixes the subject and carries the matching `Jarvis-Step`. Folds the classify-then-apply
+ * branching into one call so its callers stay under the cognitive-complexity budget.
+ */
+function reviewStepCommitFields(
+  behavior: "review" | "review-debate",
+  reviewPass: number | undefined,
+  title: string,
+): { title: string; step?: CompletionStepMetadata } {
+  if (reviewPass === undefined) return { title };
+  const step: CompletionStepMetadata = { kind: behavior, pass: reviewPass };
+  return { title: renderStepCommitTitle(step, title), step };
+}
+
 async function runIntentResumeCommitAndPublish(
   context: IntentFinalizationResumeContext,
   store: StateStore,
@@ -3402,8 +3418,6 @@ async function runIntentResumeCommitAndPublish(
 ): Promise<IntentFinalizationResumeOutcome> {
   const creationTitle = resolvePublicationTitle(context.worktreePath, context.durableDir, context.creationTitleHint);
   store.setCreationTitle(context.runId, creationTitle);
-  const commitStep: CompletionStepMetadata | undefined =
-    context.reviewPass !== undefined ? { kind: context.behavior, pass: context.reviewPass } : undefined;
   const committer = deps.completionCommitter ?? createCompletionCommitter();
   let published: Awaited<ReturnType<CompletionCommitter>>;
   try {
@@ -3412,10 +3426,9 @@ async function runIntentResumeCommitAndPublish(
       baseRef: context.baseRef,
       specPath: context.durableDir,
       agent: context.completionAgent as string,
-      title: commitStep !== undefined ? renderStepCommitTitle(commitStep, creationTitle) : creationTitle,
+      ...reviewStepCommitFields(context.behavior, context.reviewPass, creationTitle),
       forceDistinctCommit: true,
       iterationTimeoutMs: DEFAULT_ITERATION_TIMEOUT_MS,
-      ...(commitStep !== undefined ? { step: commitStep } : {}),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

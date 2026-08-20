@@ -29,8 +29,11 @@ async function pauseDirect(h: Handlers, runId: string) {
   return h.pause({ kind: "request", id: "p1", method: "pause", params: { runId } }, new AbortController().signal);
 }
 
-async function killDirect(h: Handlers, runId: string) {
-  return h.kill({ kind: "request", id: "k1", method: "kill", params: { runId } }, new AbortController().signal);
+async function killDirect(h: Handlers, runId: string, force?: boolean) {
+  return h.kill(
+    { kind: "request", id: "k1", method: "kill", params: { runId, ...(force !== undefined ? { force } : {}) } },
+    new AbortController().signal,
+  );
 }
 
 async function waitDirect(h: Handlers, runId: string) {
@@ -1093,4 +1096,144 @@ test("kill still sets killed on a paused run", async () => {
   const killResponse = await killDirect(handlers, runId);
   expect(killResponse.kind).toBe("response");
   expect(loadRunOrThrow(stateStore, runId).status).toBe("killed");
+});
+
+test("kill with force settles a non-active paused run", async () => {
+  // @mutate v2/src/daemon/daemon.ts "if (await forceSettleAdmitsRun(store, runId, run.status, params?.force)) {" -> "if (false) {"
+  const runId = seedRun({ status: "paused" });
+
+  const killResponse = await killDirect(handlers, runId, true);
+  expect(killResponse.kind).toBe("response");
+  if (killResponse.kind === "response") {
+    expect((killResponse.result as { ok?: boolean } | undefined)?.ok).toBe(true);
+  }
+
+  const run = loadRunOrThrow(stateStore, runId);
+  expect(run.status).toBe("killed");
+  expect(run.finishedAt).not.toBeNull();
+});
+
+test("kill without force still rejects a non-active paused run", async () => {
+  // @mutate v2/src/daemon/daemon.ts "if (force !== true) return false;" -> "if (false) return false;"
+  const runId = seedRun({ status: "paused" });
+
+  const killResponse = await killDirect(handlers, runId);
+  expect(killResponse.kind).toBe("error");
+  if (killResponse.kind === "error") {
+    expect(killResponse.code).toBe("run_not_active");
+  }
+
+  const run = loadRunOrThrow(stateStore, runId);
+  expect(run.status).toBe("paused");
+  expect(run.finishedAt).toBeFalsy();
+});
+
+test("kill with force on an active run still takes the abort path", async () => {
+  // @mutate v2/src/daemon/daemon.ts "if (activeRunAcceptsKill(activeRun, runId)) {" -> "if (activeRunAcceptsKill(activeRun, runId) && params?.force !== true) {"
+  const runId = await startRunDirect(handlers);
+  if (!runId) return;
+
+  const killResponse = await killDirect(handlers, runId, true);
+  expect(killResponse.kind).toBe("response");
+  expect(fakeExecutor.isAbortSignalTriggered()).toBe(true);
+  expect(loadRunOrThrow(stateStore, runId).status).toBe("killed");
+});
+
+test("kill with force leaves terminal rows unchanged", async () => {
+  // @mutate v2/src/daemon/daemon.ts "if (!forceSettleStatusAdmitsRun(status)) return false;" -> "if (false) return false;"
+  for (const status of ["completed", "blocked", "failed"] as const) {
+    const runId = seedRun({ status: "in-progress" });
+    stateStore.setRunStatus(runId, status);
+    const finishedAtBefore = loadRunOrThrow(stateStore, runId).finishedAt;
+
+    const killResponse = await killDirect(handlers, runId, true);
+    expect(killResponse.kind).toBe("error");
+    if (killResponse.kind === "error") {
+      expect(killResponse.code).toBe("run_not_active");
+    }
+
+    const run = loadRunOrThrow(stateStore, runId);
+    expect(run.status).toBe(status);
+    expect(run.finishedAt).toBe(finishedAtBefore);
+  }
+
+  const killedRunId = seedRun({ status: "in-progress" });
+  stateStore.commitGuardedKill(killedRunId);
+  const finishedAtBefore = loadRunOrThrow(stateStore, killedRunId).finishedAt;
+  await new Promise((resolve) => setTimeout(resolve, 5));
+
+  const killResponse = await killDirect(handlers, killedRunId, true);
+  expect(killResponse.kind).toBe("error");
+  if (killResponse.kind === "error") {
+    expect(killResponse.code).toBe("run_not_active");
+  }
+
+  const killedRun = loadRunOrThrow(stateStore, killedRunId);
+  expect(killedRun.status).toBe("killed");
+  expect(killedRun.finishedAt).toBe(finishedAtBefore);
+});
+
+test("kill with force settles a row owned by a dead foreign process", async () => {
+  const foreignIdentity = "77777:1000000";
+  const seedStore = openStateStore(stateStorePath, { currentIdentity: foreignIdentity });
+  const runId = seedStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/worktree",
+    branch: `branch-${crypto.randomUUID()}`,
+    specPath: "spec.md",
+    status: "paused",
+  });
+  seedStore.close();
+
+  const localStore = openStateStore(stateStorePath, { isOwnerAlive: async () => false });
+  const localHandlers = createRunControlHandlers({
+    stateStore: localStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => memoryHeadroom,
+    settleDelayMs: 0,
+  });
+
+  const killResponse = await killDirect(localHandlers, runId, true);
+  expect(killResponse.kind).toBe("response");
+  const run = loadRunOrThrow(localStore, runId);
+  expect(run.status).toBe("killed");
+  expect(run.finishedAt).not.toBeNull();
+  localStore.close();
+});
+
+test("kill with force refuses a row owned by a live foreign process", async () => {
+  // @mutate v2/src/daemon/daemon.ts "return store.forceKillOwnerAdmits(runId);" -> "return true;"
+  const foreignIdentity = "88888:1000000";
+  const seedStore = openStateStore(stateStorePath, { currentIdentity: foreignIdentity });
+  const runId = seedStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/worktree",
+    branch: `branch-${crypto.randomUUID()}`,
+    specPath: "spec.md",
+    status: "paused",
+  });
+  seedStore.close();
+
+  const localStore = openStateStore(stateStorePath, { isOwnerAlive: async () => true });
+  const localHandlers = createRunControlHandlers({
+    stateStore: localStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => memoryHeadroom,
+    settleDelayMs: 0,
+  });
+
+  const killResponse = await killDirect(localHandlers, runId, true);
+  expect(killResponse.kind).toBe("error");
+  if (killResponse.kind === "error") {
+    expect(killResponse.code).toBe("run_not_active");
+  }
+
+  const run = loadRunOrThrow(localStore, runId);
+  expect(run.status).toBe("paused");
+  expect(run.finishedAt).toBeFalsy();
+  localStore.close();
 });

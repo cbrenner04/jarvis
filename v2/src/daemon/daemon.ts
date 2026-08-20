@@ -165,6 +165,27 @@ export function activeRunAcceptsKill(
   return activeRun.kind === "write-loop" || activeRun.kind === "workflow";
 }
 
+/** Whether `kill`'s force path may settle `status`: any non-terminal status, `killed` included. */
+export function forceSettleStatusAdmitsRun(status: RunStatus): boolean {
+  return !isTerminalRunStatus(status);
+}
+
+/**
+ * Whether `kill`'s force path may settle a row: `force` must be set, the row must be
+ * non-terminal, and its owner must be this process or provably dead — refuses a
+ * different still-live owner.
+ */
+async function forceSettleAdmitsRun(
+  store: StateStore,
+  runId: string,
+  status: RunStatus,
+  force: boolean | undefined,
+): Promise<boolean> {
+  if (force !== true) return false;
+  if (!forceSettleStatusAdmitsRun(status)) return false;
+  return store.forceKillOwnerAdmits(runId);
+}
+
 export class DaemonDoubleClaimError extends Error {
   constructor(key: OwnershipKey) {
     super(worktreeClaimedMessage(key));
@@ -1547,8 +1568,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     return { kind: "error", code: "run_not_active", message: `Run ${runId} is not currently active` };
   };
 
-  const killHandler: RpcHandler = (frame) => {
-    const params = frame.params as { runId?: string } | undefined;
+  const killHandler: RpcHandler = async (frame) => {
+    const params = frame.params as { runId?: string; force?: boolean } | undefined;
     if (!params?.runId) {
       return { kind: "error", code: "invalid_params", message: "Missing runId" };
     }
@@ -1567,6 +1588,11 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         activeRun.pendingKill = true;
         return { kind: "response", result: { ok: true } };
       }
+      store.commitGuardedKill(runId);
+      return { kind: "response", result: { ok: true } };
+    }
+
+    if (await forceSettleAdmitsRun(store, runId, run.status, params?.force)) {
       store.commitGuardedKill(runId);
       return { kind: "response", result: { ok: true } };
     }

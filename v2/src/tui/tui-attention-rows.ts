@@ -7,6 +7,8 @@ import type { PipelineListResult } from "./tui-daemon-client.ts";
 import { mergePipelineSnapshots } from "./tui-monitor-lines.ts";
 import {
   buildMonitorPipelineTreeJoin,
+  isHiddenDismissedPipeline,
+  type MonitorPipelineDisplayOptions,
   monitorPipelineStageNodeId,
   pipelineRowLabel,
   pipelineStageNodes,
@@ -182,8 +184,31 @@ function runAttentionKind(status: DaemonListRunRow["status"]): AttentionRowKind 
   return undefined;
 }
 
-function runIncidents(snapshots: readonly PipelineSnapshot[], runs: readonly DaemonListRunRow[]): AttentionRow[] {
-  const { pipelineNodes, adHocNodes } = buildMonitorPipelineTreeJoin(snapshots, runs);
+/** A hidden pipeline's attributed runs leave the attention segment with the rest of its subtree. */
+function isHiddenPipelineRun(run: DaemonListRunRow, hiddenInvocationIds: ReadonlySet<string>): boolean {
+  const invocationId = run.workflow?.invocationId;
+  // Mutation checkpoint: reporting no run as hidden here must turn hidden-pipeline-run suppression RED.
+  return invocationId !== undefined && hiddenInvocationIds.has(invocationId);
+}
+
+function hiddenPipelineInvocationIds(snapshots: readonly PipelineSnapshot[], showDismissed: boolean): Set<string> {
+  const hidden = new Set<string>();
+  for (const snapshot of snapshots) {
+    if (!isHiddenDismissedPipeline(snapshot, showDismissed)) continue;
+    for (const stage of snapshot.stages) {
+      if (stage.workflowInvocationId !== null) hidden.add(stage.workflowInvocationId);
+    }
+  }
+  return hidden;
+}
+
+function runIncidents(
+  snapshots: readonly PipelineSnapshot[],
+  runs: readonly DaemonListRunRow[],
+  options: MonitorPipelineDisplayOptions,
+): AttentionRow[] {
+  const { pipelineNodes, adHocNodes } = buildMonitorPipelineTreeJoin(snapshots, runs, options);
+  const hiddenInvocationIds = hiddenPipelineInvocationIds(snapshots, options.showDismissed === true);
 
   const attribution = new Map<string, { snapshot: PipelineSnapshot; branchKey: string }>();
   for (const pipeline of pipelineNodes) {
@@ -206,29 +231,42 @@ function runIncidents(snapshots: readonly PipelineSnapshot[], runs: readonly Dae
 
   const rows: AttentionRow[] = [];
   for (const run of runs) {
-    const kind = runAttentionKind(run.status);
-    if (kind === undefined) continue;
-
-    const pipelineAttribution = attribution.get(run.runId);
-    const adHoc = adHocInfo.get(run.runId);
-    const targetId = pipelineAttribution !== undefined ? run.runId : (adHoc?.targetId ?? run.runId);
-    const where =
-      pipelineAttribution !== undefined
-        ? pipelineTargetLabel(pipelineAttribution.snapshot, pipelineAttribution.branchKey)
-        : (adHoc?.label ?? run.branch);
-
-    rows.push({
-      id: attentionRowId(kind, run.runId),
-      kind,
-      targetId,
-      sinceMs: run.finishedAtMs ?? null,
-      glyph: FAILURE_GLYPH,
-      what: workflowRoleLabel(run),
-      where,
-    });
+    const row = buildRunIncidentRow(run, attribution, adHocInfo, hiddenInvocationIds);
+    if (row !== undefined) rows.push(row);
   }
 
   return rows;
+}
+
+/** One run's failure/blocked attention row, or `undefined` when the run is not an incident or is
+ * hidden. Split out of {@link runIncidents} to keep that function under the complexity budget. */
+function buildRunIncidentRow(
+  run: DaemonListRunRow,
+  attribution: ReadonlyMap<string, { snapshot: PipelineSnapshot; branchKey: string }>,
+  adHocInfo: ReadonlyMap<string, { targetId: string; label: string }>,
+  hiddenInvocationIds: ReturnType<typeof hiddenPipelineInvocationIds>,
+): AttentionRow | undefined {
+  const kind = runAttentionKind(run.status);
+  if (kind === undefined) return undefined;
+  if (isHiddenPipelineRun(run, hiddenInvocationIds)) return undefined;
+
+  const pipelineAttribution = attribution.get(run.runId);
+  const adHoc = adHocInfo.get(run.runId);
+  const targetId = pipelineAttribution !== undefined ? run.runId : (adHoc?.targetId ?? run.runId);
+  const where =
+    pipelineAttribution !== undefined
+      ? pipelineTargetLabel(pipelineAttribution.snapshot, pipelineAttribution.branchKey)
+      : (adHoc?.label ?? run.branch);
+
+  return {
+    id: attentionRowId(kind, run.runId),
+    kind,
+    targetId,
+    sinceMs: run.finishedAtMs ?? null,
+    glyph: FAILURE_GLYPH,
+    what: workflowRoleLabel(run),
+    where,
+  };
 }
 
 function groupRank(kind: AttentionRowKind): number {
@@ -261,13 +299,16 @@ function compareAttentionRows(a: AttentionRow, b: AttentionRow): number {
 export function buildAttentionRows(
   pipelineSnapshotsBySocketPath: Readonly<Record<string, PipelineListResult>> | undefined,
   runs: readonly DaemonListRunRow[],
+  options: MonitorPipelineDisplayOptions = {},
 ): AttentionProjection {
   const snapshots = mergePipelineSnapshots(pipelineSnapshotsBySocketPath);
+  const showDismissed = options.showDismissed === true;
+  const displayedSnapshots = snapshots.filter((snapshot) => !isHiddenDismissedPipeline(snapshot, showDismissed));
 
   const incidents = [
-    ...snapshots.flatMap(gateAndStageIncidents),
-    ...snapshots.flatMap(publicationFailureIncidents),
-    ...runIncidents(snapshots, runs),
+    ...displayedSnapshots.flatMap(gateAndStageIncidents),
+    ...displayedSnapshots.flatMap(publicationFailureIncidents),
+    ...runIncidents(snapshots, runs, options),
   ].sort(compareAttentionRows);
 
   const rows = incidents.slice(0, ATTENTION_ROW_CAP);

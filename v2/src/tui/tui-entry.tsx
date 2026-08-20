@@ -27,6 +27,7 @@ import {
   firstSelectableNodeId,
   mergePipelineSnapshots,
   monitorLeftPaneTreeRows,
+  monitorPipelineDisplayOptions,
   monitorSelectableNodeIds,
   withLeftPaneTreeScrollFollow,
 } from "./tui-monitor-lines.ts";
@@ -164,7 +165,7 @@ function monitorShellState(
 
 function pipelineNodesForState(state: TuiMonitorState) {
   const snapshots = mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath);
-  return buildMonitorPipelineTreeJoin(snapshots, state.runs).pipelineNodes;
+  return buildMonitorPipelineTreeJoin(snapshots, state.runs, monitorPipelineDisplayOptions(state)).pipelineNodes;
 }
 
 export function commandSubmissionBlockedByPendingAdmission(admissionPending: boolean): boolean {
@@ -236,7 +237,11 @@ function pipelineSteeringSharedSelectionError(
 
 /** Resolves a selected attention row from its id, independent of tree-node encoding. */
 function selectedAttentionRow(state: TuiMonitorState, selectedNodeId: string): AttentionRow | undefined {
-  const projection = buildAttentionRows(state.pipelineSnapshotsBySocketPath, state.runs);
+  const projection = buildAttentionRows(
+    state.pipelineSnapshotsBySocketPath,
+    state.runs,
+    monitorPipelineDisplayOptions(state),
+  );
   return projection.rows.find((row) => row.id === selectedNodeId);
 }
 

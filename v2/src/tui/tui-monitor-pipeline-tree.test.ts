@@ -289,7 +289,7 @@ describe("buildMonitorPipelineTreeJoin", () => {
   });
 
   test("two pipelines of one definition label their rows with distinct seed basenames", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "label: pipelineRowLabel(node.snapshot)," -> "label: node.snapshot.name,"
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "label: dismissedPipelineLabel(node.snapshot, pipelineRowLabel(node.snapshot))," -> "label: node.snapshot.name,"
     const workRowsNode = {
       kind: "pipeline" as const,
       id: "pipe-1",
@@ -389,6 +389,132 @@ describe("buildMonitorPipelineTreeJoin", () => {
     expect(adHocNodes.map((node) => node.id)).toEqual(["run-stale-orphan", "run-fresh-orphan"]);
     expect(adHocNodes.some((node) => node.id === "run-matched")).toBe(false);
     expect(adHocNodes.some((node) => node.id === "run-queued")).toBe(false);
+  });
+});
+
+describe("dismissed pipeline exclusion", () => {
+  const DISMISSED_PIPELINE_ID = "pipe-dismissed";
+  const LIVE_PIPELINE_ID = "pipe-live";
+  const DISMISSED_ALPHA_INVOCATION = "inv-dismissed-alpha";
+  const DISMISSED_BETA_INVOCATION = "inv-dismissed-beta";
+
+  function dismissedFixture(): { snapshots: PipelineSnapshot[]; runs: DaemonListRunRow[] } {
+    const dismissed = pipelineSnapshot({
+      pipelineId: DISMISSED_PIPELINE_ID,
+      dismissedAt: 1_700_000_500_000,
+      stages: [
+        snapshotStage({ stageId: "intent", position: 0, status: "succeeded" }),
+        snapshotStage({
+          stageId: "plan",
+          branchKey: "alpha",
+          position: 1,
+          status: "succeeded",
+          workflowInvocationId: DISMISSED_ALPHA_INVOCATION,
+        }),
+        snapshotStage({
+          stageId: "plan",
+          branchKey: "beta",
+          position: 1,
+          workflowInvocationId: DISMISSED_BETA_INVOCATION,
+        }),
+      ],
+    });
+    const dismissedRuns = [
+      workflowRun({ runId: "run-dismissed-alpha", status: "in-progress" }, DISMISSED_ALPHA_INVOCATION),
+      workflowRun({ runId: "run-dismissed-beta", status: "in-progress" }, DISMISSED_BETA_INVOCATION),
+    ];
+    const live = pipelineWithStageAndRun(LIVE_PIPELINE_ID, "inv-live", "run-live");
+    return { snapshots: [dismissed, live.snapshot], runs: [...dismissedRuns, live.run] };
+  }
+
+  const DISMISSED_NODE_IDS = [
+    DISMISSED_PIPELINE_ID,
+    monitorPipelineStageNodeId(DISMISSED_PIPELINE_ID, "intent", "default"),
+    monitorPipelineBranchNodeId(DISMISSED_PIPELINE_ID, "alpha"),
+    monitorPipelineBranchNodeId(DISMISSED_PIPELINE_ID, "beta"),
+    monitorPipelineStageNodeId(DISMISSED_PIPELINE_ID, "plan", "alpha"),
+    monitorPipelineStageNodeId(DISMISSED_PIPELINE_ID, "plan", "beta"),
+    "run-dismissed-alpha",
+    "run-dismissed-beta",
+  ];
+
+  test("a dismissed pipeline and its stage, branch, and run rows leave the default work tree", () => {
+    // Keystone checkpoint: an in-body mutation directive restores baseline semantics (every snapshot paints).
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return snapshot.dismissedAt !== null && !showDismissed;" -> "return false;"
+    const { snapshots, runs } = dismissedFixture();
+    const { pipelineNodes, adHocNodes, builderRuns } = buildMonitorPipelineTreeJoin(snapshots, runs);
+    const expandedNodeIds = new Set(
+      pipelineNodes.flatMap((pipeline) => [pipeline.id, ...pipeline.branches.map((branch) => branch.id)]),
+    );
+    const ids = flattenMonitorPipelineTree(pipelineNodes, adHocNodes, expandedNodeIds, null, builderRuns).map(
+      (node) => node.id,
+    );
+
+    for (const dismissedId of DISMISSED_NODE_IDS) {
+      expect(ids).not.toContain(dismissedId);
+    }
+    expect(ids).toContain(LIVE_PIPELINE_ID);
+    expect(ids).toContain(monitorPipelineStageNodeId(LIVE_PIPELINE_ID, "implement", "default"));
+    expect(ids).toContain("run-live");
+  });
+
+  test("a dismissed pipeline's full subtree paints when the projection shows dismissed pipelines", () => {
+    const { snapshots, runs } = dismissedFixture();
+    const { pipelineNodes, adHocNodes, builderRuns } = buildMonitorPipelineTreeJoin(snapshots, runs, {
+      showDismissed: true,
+    });
+    const expandedNodeIds = new Set(
+      pipelineNodes.flatMap((pipeline) => [pipeline.id, ...pipeline.branches.map((branch) => branch.id)]),
+    );
+    const ids = flattenMonitorPipelineTree(pipelineNodes, adHocNodes, expandedNodeIds, null, builderRuns).map(
+      (node) => node.id,
+    );
+
+    for (const dismissedId of DISMISSED_NODE_IDS) {
+      expect(ids).toContain(dismissedId);
+    }
+  });
+
+  test("a dismissed pipeline's attributed runs never resurface as ad-hoc top-level rows", () => {
+    // Mutation checkpoint: computing matchedInvocationIds off the filtered snapshot list turns this RED — the
+    // dismissed pipeline's attributed runs would then read as unmatched and repaint as ad-hoc rows.
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "const matchedInvocationIds = collectMatchedInvocationIds(snapshots);" -> "const matchedInvocationIds = collectMatchedInvocationIds(displayedSnapshots);"
+    const { snapshots, runs } = dismissedFixture();
+    const { adHocNodes } = buildMonitorPipelineTreeJoin(snapshots, runs);
+
+    expect(adHocNodes.some((node) => node.id === "run-dismissed-alpha")).toBe(false);
+    expect(adHocNodes.some((node) => node.id === "run-dismissed-beta")).toBe(false);
+  });
+
+  test("a shown dismissed pipeline row is labeled dismissed", () => {
+    // Mutation checkpoint: removing the marker helper's early return drops the marker and turns this test red.
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (snapshot.dismissedAt === null) return label;" -> "if (false) return label;"
+    const dismissedNode = {
+      kind: "pipeline" as const,
+      id: DISMISSED_PIPELINE_ID,
+      depth: 0,
+      snapshot: pipelineSnapshot({ pipelineId: DISMISSED_PIPELINE_ID, dismissedAt: 1_700_000_500_000 }),
+      project: "demo",
+      stages: [],
+      branches: [],
+      attributedRuns: [],
+    };
+    const liveNode = {
+      kind: "pipeline" as const,
+      id: LIVE_PIPELINE_ID,
+      depth: 0,
+      snapshot: pipelineSnapshot({ pipelineId: LIVE_PIPELINE_ID }),
+      project: "demo",
+      stages: [],
+      branches: [],
+      attributedRuns: [],
+    };
+
+    const dismissedLabel = labelSegment(buildPipelineMonitorTreeRow(dismissedNode, 90, FILTER_NOW_MS));
+    const liveLabel = labelSegment(buildPipelineMonitorTreeRow(liveNode, 90, FILTER_NOW_MS));
+
+    expect(dismissedLabel.trimEnd().endsWith("(dismissed)")).toBe(true);
+    expect(liveLabel.trimEnd().endsWith("(dismissed)")).toBe(false);
   });
 });
 

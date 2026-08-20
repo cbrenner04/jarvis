@@ -29,3 +29,8 @@ The attribution footer has chronological commit bullets and one combined author 
 ## Documentation updates
 
 - `v1/docs/worktrees-and-commits.md` documents `Jarvis-Step` values, subject prefixes, normalization, duplicate handling, eligibility, and conditional per-agent footer counts.
+
+## Blocker
+
+Artifact contract check failed: Unparseable mutation checkpoints:
+- v2/src/execution/pr-attribution.test.ts:164: target_absent: // @mutate v2/src/execution/pr-attribution.ts "    if (kindsPresent.length <= 1) {\n      continue;\n    }" -> "    if (kindsPresent.length < 1) {\n      continue;\n    }"

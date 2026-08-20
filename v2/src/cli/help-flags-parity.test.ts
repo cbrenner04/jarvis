@@ -3,6 +3,8 @@ import {
   INIT_HELP_FLAGS,
   INIT_PARSE_ARG_OPTIONS,
   PIPELINE_LIST_PARSE_ARG_OPTIONS,
+  RUN_KILL_HELP_FLAGS,
+  RUN_KILL_PARSE_ARG_OPTIONS,
   WRITE_HELP_FLAGS,
   WRITE_PARSE_ARG_OPTIONS,
 } from "./command-help-flags.ts";
@@ -45,5 +47,13 @@ describe("help flag parser parity", () => {
 
     const missingScaffold = INIT_HELP_FLAGS.filter((flag) => flag.name !== "--scaffold");
     expect(missingParserFlagsInHelp(parserFlags, missingScaffold)).toEqual(["--scaffold"]);
+  });
+
+  test("run kill parser and help flags stay aligned", () => {
+    const parserFlags = parserAcceptedLongFlags(["run", "kill"]);
+    expect(parserFlags).toEqual(["--force"]);
+    expect(parserFlags).toEqual(Object.keys(RUN_KILL_PARSE_ARG_OPTIONS).map((key) => `--${key}`));
+    // @mutate v2/src/cli/command-help-flags.ts "name: \"--force\"," -> "name: \"--not-force\","
+    expect(missingParserFlagsInHelp(parserFlags, RUN_KILL_HELP_FLAGS)).toEqual([]);
   });
 });

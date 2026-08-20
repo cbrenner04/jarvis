@@ -10,6 +10,7 @@ import {
   PIPELINE_LIST_PARSE_ARG_OPTIONS,
   PIPELINE_START_PARSE_ARG_OPTIONS,
   parityFlagsFromParseOptions,
+  RUN_KILL_PARSE_ARG_OPTIONS,
   RUN_LIST_PARSE_ARG_OPTIONS,
   WRITE_PARSE_ARG_OPTIONS,
 } from "./command-help-flags.ts";
@@ -21,6 +22,7 @@ const PARITY_PATHS = [
   ["run", "start"],
   ["cleanup"],
   ["run", "list"],
+  ["run", "kill"],
   ["daemon", "log"],
   ["pipeline", "start"],
   ["pipeline", "list"],
@@ -45,6 +47,8 @@ export function parserAcceptedLongFlags(path: readonly string[]): readonly strin
       return parityFlagsFromParseOptions(CLEANUP_PARSE_ARG_OPTIONS);
     case "run list":
       return parseOptionKeysToLongFlags(Object.keys(RUN_LIST_PARSE_ARG_OPTIONS));
+    case "run kill":
+      return parseOptionKeysToLongFlags(Object.keys(RUN_KILL_PARSE_ARG_OPTIONS));
     case "daemon log":
       return parseOptionKeysToLongFlags(Object.keys(DAEMON_LOG_PARSE_ARG_OPTIONS));
     case "pipeline start":

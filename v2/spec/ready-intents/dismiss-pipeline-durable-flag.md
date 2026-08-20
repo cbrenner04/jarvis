@@ -4,6 +4,12 @@ name: dismiss-pipeline-durable-flag
 
 # Dismiss Pipeline Durable Flag
 
+## Primary implementation surface
+
+`v2/src/persistence/state-store.ts`
+
+Unsplit rationale: The whole change is one additive nullable column plus its migration and the dismiss/undismiss store operations on a single persistence module; there is no second module boundary to split across.
+
 ## Prerequisites
 
 - None. This is the store-layer foundation the `dismiss-pipeline-rpc`, `dismiss-pipeline-cli`, and `dismiss-pipeline-tui-display` intents depend on.

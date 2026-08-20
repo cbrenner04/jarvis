@@ -443,6 +443,7 @@ test("pipelineList sends one correlated IPC request and parses ordered PipelineS
     terminalPublicationFailure: null,
     createdAt: 1_700_000_000_000,
     finishedAtMs: null,
+    dismissedAt: null,
     stages: [
       {
         id: "stage-plan",

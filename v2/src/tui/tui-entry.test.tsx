@@ -107,6 +107,7 @@ const PIPELINE_SNAPSHOT_ALPHA: PipelineSnapshot = {
   terminalPublicationFailure: null,
   createdAt: 1_700_000_000_000,
   finishedAtMs: null,
+  dismissedAt: null,
   stages: [
     {
       id: "stage-alpha-plan",
@@ -132,6 +133,7 @@ const PIPELINE_SNAPSHOT_BETA: PipelineSnapshot = {
   terminalPublicationFailure: null,
   createdAt: 1_700_000_001_000,
   finishedAtMs: 1_700_000_002_000,
+  dismissedAt: null,
   stages: [
     {
       id: "stage-beta-s1",
@@ -160,6 +162,7 @@ const PIPELINE_SNAPSHOT_AWAITING: PipelineSnapshot = {
   terminalPublicationFailure: null,
   createdAt: 1_700_000_000_000,
   finishedAtMs: null,
+  dismissedAt: null,
   stages: [
     {
       id: "stage-await-gate",
@@ -198,6 +201,7 @@ const PIPELINE_SNAPSHOT_ATTENTION_GATES: PipelineSnapshot = {
   terminalPublicationFailure: null,
   createdAt: 1_700_000_000_000,
   finishedAtMs: null,
+  dismissedAt: null,
   stages: [
     {
       id: "stage-attn-intent",
@@ -263,6 +267,7 @@ const PIPELINE_SNAPSHOT_ATTENTION_PUBLISHED: PipelineSnapshot = {
   terminalPublicationFailure: { terminalAction: "merge", failure: { operation: "merge", message: "conflict" } },
   createdAt: 1_700_000_000_000,
   finishedAtMs: 1_700_000_003_000,
+  dismissedAt: null,
   stages: [
     {
       id: "stage-attn-published-intent",
@@ -381,6 +386,7 @@ const PIPELINE_SNAPSHOT_MULTI: PipelineSnapshot = {
   terminalPublicationFailure: null,
   createdAt: 1_700_000_000_000,
   finishedAtMs: null,
+  dismissedAt: null,
   stages: [
     {
       id: "stage-multi-implement",
@@ -444,6 +450,7 @@ function overflowPipelineEntryDeps(view: ReturnType<typeof createViewHost>) {
     terminalPublicationFailure: null,
     createdAt: 1_700_000_000_000 + index,
     finishedAtMs: 1_700_000_100_000 + index,
+    dismissedAt: null,
     stages: [
       {
         id: `stage-${index}`,
@@ -508,6 +515,7 @@ function attentionSelectionEntryDeps(view: ReturnType<typeof createViewHost>) {
     terminalPublicationFailure: null,
     createdAt: 1_700_000_000_000 + index,
     finishedAtMs: 1_700_000_100_000 + index,
+    dismissedAt: null,
     stages: [
       {
         id: `stage-${index}`,

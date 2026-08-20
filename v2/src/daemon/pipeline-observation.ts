@@ -142,6 +142,7 @@ export type PipelineSnapshot = {
   terminalPublicationFailure: Pipeline["terminalPublicationFailure"];
   createdAt: number;
   finishedAtMs: number | null;
+  dismissedAt: number | null;
   stages: Array<{
     id: string;
     stageId: string;
@@ -184,6 +185,7 @@ export function projectPipelineSnapshot(pipeline: Pipeline & { stages: PipelineS
     terminalPublicationFailure: pipeline.terminalPublicationFailure,
     createdAt: pipeline.createdAt,
     finishedAtMs: derivePipelineFinishedAtMs(pipeline, state),
+    dismissedAt: pipeline.dismissedAt,
     stages: pipeline.stages.map((stage) => ({
       id: stage.id,
       stageId: stage.stageId,

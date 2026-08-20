@@ -77,6 +77,7 @@ import {
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
 import {
   applyPipelineApprovalDecision,
+  derivePipelineState,
   type PipelineExecutionDeps,
   recoverContinuablePipelines,
   resumePipeline,
@@ -2144,8 +2145,31 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     return { kind: "response", result: outcome };
   };
 
-  const handlePipelineListHandler: RpcHandler = () => {
-    return { kind: "response", result: { pipelines: store.listPipelines().map(projectPipelineSnapshot) } };
+  const handlePipelineDismissalHandler =
+    (mode: "dismiss" | "undismiss"): RpcHandler =>
+    (frame) => {
+      const params = frame.params as { pipelineId?: unknown } | undefined;
+      const pipelineId = typeof params?.pipelineId === "string" ? params.pipelineId : "";
+      if (pipelineId.length === 0) {
+        return { kind: "error", code: "invalid_params", message: "pipelineId required" };
+      }
+      const outcome =
+        mode === "dismiss" ? store.dismissPipeline({ pipelineId }) : store.undismissPipeline({ pipelineId });
+      if (outcome.kind === "refused") {
+        return { kind: "response", result: outcome };
+      }
+      const pipeline = store.loadPipeline(pipelineId)!;
+      return { kind: "response", result: { ...outcome, state: derivePipelineState(pipeline) } };
+    };
+
+  const handlePipelineDismissHandler = handlePipelineDismissalHandler("dismiss");
+  const handlePipelineUndismissHandler = handlePipelineDismissalHandler("undismiss");
+
+  const handlePipelineListHandler: RpcHandler = (frame) => {
+    const params = frame.params as { includeDismissed?: unknown } | undefined;
+    const includeDismissed = params?.includeDismissed === true;
+    const pipelines = store.listPipelines().filter((pipeline) => includeDismissed || pipeline.dismissedAt === null);
+    return { kind: "response", result: { pipelines: pipelines.map(projectPipelineSnapshot) } };
   };
 
   const handlePipelineWaitHandler: RpcHandler = async (frame, signal) => {
@@ -2192,6 +2216,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     pipeline_reject: handlePipelineRejectHandler,
     pipeline_resume: handlePipelineResumeHandler,
     pipeline_recover: handlePipelineRecoverHandler,
+    pipeline_dismiss: handlePipelineDismissHandler,
+    pipeline_undismiss: handlePipelineUndismissHandler,
     pipeline_list: handlePipelineListHandler,
     pipeline_wait: handlePipelineWaitHandler,
     continueContinuablePipelines: async () => recoverContinuablePipelines(store, pipelineExecutionDeps()),

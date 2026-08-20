@@ -32,7 +32,7 @@ describe("deriveSpecRunBodySummary", () => {
       baseRef: "main",
       git: async (_cwd, args) =>
         args[0] === "log"
-          ? "a\x1folder subject\x1f\x1f\x1eb\x1fnew subject\x1f\x1f\x1e"
+          ? "a\x1folder subject\x1f\x1f\x1f\x1eb\x1fnew subject\x1f\x1f\x1f\x1e"
           : "10\t2\tv2/src/a.ts\n-\t-\tv2/assets/logo.bin\n3\t1\tv2/docs/a.md\n",
     });
     expect(summary).toContain(

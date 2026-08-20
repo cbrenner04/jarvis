@@ -70,6 +70,24 @@ Stamping `WIP:` commits as well as subspec commits keeps the data shape uniform 
 
 When a clean-tree no-op skips the commit entirely, there is no jarvis-authored commit and therefore no `Jarvis-Agent` trailer for that subspec. In that case the work remains only in the agent's own commit and drops out of the rendered PR attribution footer.
 
+### Jarvis-Step trailer
+
+Every completion commit also carries a `Jarvis-Step` trailer classifying its workflow purpose, alongside `Jarvis-Agent`.
+
+- **Values**: `write`, `review <n>`, `review-debate <n>` (`<n>` a positive decimal review pass), `mutation-repair`, `ready-gate`.
+- **Subject prefix**: a matching `review(<n>):`, `review-debate(<n>):`, `mutation-repair:`, or `ready-gate:` prefix on the subject; a `write` step keeps the bare title.
+- **Default**: a direct write/completion commit defaults to `write` when the caller omits a step. A legacy trailer-less pending commit is upgraded once to `write` on resume; a pending commit that already carries a valid `Jarvis-Step` is retried verbatim (retry-time metadata cannot reclassify it).
+- **Ownership**: a review commit belongs to the latest review pass that left the tracked mutation included in that publication, and to that pass's mutating actuator agent; a later non-mutating approval cannot take ownership.
+
+### Attribution footer step counts
+
+The PR body attribution footer (below) can render a `<Label> — Steps: ...` line per agent, counting each agent's classified subspec commits by normalized step kind.
+
+- **Eligibility**: only commits already eligible for attribution (first non-trailer body line starts with `Spec:`) contribute.
+- **Classification**: a commit's `Jarvis-Step` trailer(s) are filtered to recognized values (the exact grammar above); duplicate identical values collapse to one. Exactly one distinct recognized value classifies the commit; zero (missing or only unrecognized values) or more than one distinct recognized value (including conflicting review pass numbers) leaves the commit unclassified and it contributes no count. Review and review-debate values normalize to `review`/`review-debate` for counting (the pass number does not appear in the footer).
+- **Per-agent crediting**: on a classified commit, each distinct non-empty `Jarvis-Agent` trailer (duplicates count once) receives one count for that commit's normalized kind.
+- **Rendering**: immediately below `Written by <labels> through Jarvis.`, one line per agent whose classified commits span more than one normalized kind, in first-appearance order: `<Label> — Steps: write <n>, review <n>, review-debate <n>, mutation-repair <n>, ready-gate <n>`, in that fixed order, omitting zero counts. An agent with commits in only one kind (or zero classified commits) gets no line.
+
 ## Push cadence
 
 Each subspec commit is pushed immediately:

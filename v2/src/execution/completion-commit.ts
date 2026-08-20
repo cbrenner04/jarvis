@@ -17,6 +17,15 @@ import {
 } from "./mutation-checkpoint-verifier.ts";
 import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 
+/** Workflow purpose classification rendered as the `Jarvis-Step` trailer. Defaults to `write`
+ * when the caller omits it; a pass number is a positive decimal (review cycle count). */
+export type CompletionStepMetadata =
+  | { kind: "write" }
+  | { kind: "review"; pass: number }
+  | { kind: "review-debate"; pass: number }
+  | { kind: "mutation-repair" }
+  | { kind: "ready-gate" };
+
 export type CompletionCommitInput = {
   worktreePath: string;
   baseRef: string;
@@ -32,6 +41,10 @@ export type CompletionCommitInput = {
   iterationTimeoutMs?: number;
   /** Test seam: verify-run unrestored directives; when absent, loaded from git state. */
   unrestoredDirectives?: readonly MutateDirective[];
+  /** Workflow step for the `Jarvis-Step` trailer; defaults to `write`. Only consulted while
+   * preparing a new pending commit — a retry of an already-prepared pending commit ignores
+   * this and keeps the stored message's own step classification. */
+  step?: CompletionStepMetadata;
 };
 export type CompletionCommitResult = { commitSha?: string; filesChanged?: number };
 export type CompletionCommitter = (input: CompletionCommitInput) => Promise<CompletionCommitResult>;
@@ -121,6 +134,35 @@ type PendingCommit = {
   timestamp: string;
   commitSha?: string;
 };
+
+function renderJarvisStepTrailer(step: CompletionStepMetadata): string {
+  switch (step.kind) {
+    case "write":
+      return "Jarvis-Step: write";
+    case "review":
+      return `Jarvis-Step: review ${step.pass}`;
+    case "review-debate":
+      return `Jarvis-Step: review-debate ${step.pass}`;
+    case "mutation-repair":
+      return "Jarvis-Step: mutation-repair";
+    case "ready-gate":
+      return "Jarvis-Step: ready-gate";
+  }
+}
+
+const JARVIS_STEP_TRAILER_PRESENT = /^Jarvis-Step: /m;
+
+/** Legacy pending messages predate the `Jarvis-Step` trailer. Upgrade them once by appending
+ * `Jarvis-Step: write`; a message that already carries any `Jarvis-Step` trailer is a prepared
+ * message and is authoritative on retry — it is returned untouched, never re-rendered from
+ * retry-time input. */
+function upgradeLegacyPendingStepTrailer(pending: PendingCommit, pendingPath: string): PendingCommit {
+  if (JARVIS_STEP_TRAILER_PRESENT.test(pending.message)) return pending;
+  // Single newline joins the existing trailer paragraph, same as a freshly prepared message.
+  const upgraded: PendingCommit = { ...pending, message: `${pending.message}\nJarvis-Step: write` };
+  writeFileSync(pendingPath, `${JSON.stringify(upgraded)}\n`, "utf8");
+  return upgraded;
+}
 
 function git(cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -237,13 +279,17 @@ async function preparePendingCommit(
         : {},
     };
   }
+  const step = input.step ?? { kind: "write" as const };
   const pending: PendingCommit = {
     baseHead: head,
     tree,
     branchRef: await runGit(input.worktreePath, ["symbolic-ref", "HEAD"]),
+    // Jarvis-Step joins the same trailer paragraph as Jarvis-Agent (single newline, no blank
+    // line) — git's `%(trailers:...)` only recognizes the message's final contiguous paragraph
+    // as the trailer block, so a blank line here would hide Jarvis-Agent from attribution.
     message: `${subject}\n\nSpec: ${normalizePublicationSpecPath(input.worktreePath, input.specPath)}\n\nJarvis-Agent: ${agent}${
       input.readyGateAttribution === "autofix" ? "\n\nJarvis-Ready-Gate: autofix" : ""
-    }`,
+    }\n${renderJarvisStepTrailer(step)}`,
     agent,
     timestamp: new Date().toISOString(),
   };
@@ -273,7 +319,10 @@ export function createCompletionCommitter(
           : loadUnrestoredDirectives(input.worktreePath);
       let pending: PendingCommit;
       if (existsSync(pendingPath)) {
-        pending = JSON.parse(readFileSync(pendingPath, "utf8")) as PendingCommit;
+        pending = upgradeLegacyPendingStepTrailer(
+          JSON.parse(readFileSync(pendingPath, "utf8")) as PendingCommit,
+          pendingPath,
+        );
         await refuseStrandedMutationsInTrees(runGit, input.worktreePath, pending.tree, pending.baseHead, unrestored);
       } else {
         const prepared = await preparePendingCommit(runGit, input, subprocessRunner, {

@@ -42,7 +42,3 @@
 - `hasSurfaceContract` in the regression suite already gates the rationale line on `INTENT_SPLIT_SURFACE_PIN` plus the unsplit pin; add the new pin there and move the section emission in `intent()`/`writeSingleSurfaceStage` behind the same condition.
 - `preChangeContract` must strip the new pin too, or the pre-change test asserts against a prompt that still carries it.
 - Add no test-only inversion hooks; the directive must delete real prompt bytes.
-
-## Blocker
-
-`bun run test` exits 1: `v1/test/idle-hang-fixtures.sandbox-unrunnable.test.ts` fails 2 of 2 tests with `no processes matching .../idle-hang.sh within 2000ms`, because the sandbox blocks spawning/polling the real helper process that test needs. Both targeted suites for this subspec (`shared/prompts/intent-split.test.ts`, `v2/src/execution/intent-split-regression.test.ts`) and `bun run typecheck` are green; this failure is unrelated to the change and pre-existing sandbox blindness, but it means the acceptance criterion "`bun run typecheck` and `bun run test` pass" cannot be verified true from inside this sandboxed session.

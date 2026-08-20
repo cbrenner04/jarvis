@@ -4,6 +4,12 @@ name: daemon-force-settles-stale-nonactive-run
 
 # Daemon force-settles a stale non-active run to `killed`
 
+## Primary implementation surface
+
+`v2/src/daemon/daemon.ts`
+
+Unsplit rationale: The whole change is one force branch on the daemon `kill` RPC reusing the existing `commitGuardedKill` state transition; there is no second module boundary to split across.
+
 ## Problem
 
 `killHandler` (`v2/src/daemon/daemon.ts`) only acts on a row tracked in `activeRuns`; every other row gets `run_not_active`. A `paused` row that `resume` refuses with `unsupported_resume_context` has no in-memory loop, so it is neither resumable nor killable. `paused` is not terminal, so `retainListedRuns` never ages it out of the 50-newest-terminal window and it paints in `run list` and the tui work tree indefinitely (observed 2026-08-16 on two 2026-08-11 rows for `20260811T173344Z-tui-left-pane-width-and-timing-threshold`).

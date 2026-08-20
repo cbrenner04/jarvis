@@ -4,6 +4,12 @@ name: dismiss-pipeline-cli
 
 # Dismiss Pipeline CLI
 
+## Primary implementation surface
+
+`v2/src/commands/pipeline.ts`
+
+Unsplit rationale: The whole change is the `pipeline dismiss`/`undismiss` subcommands and the `pipeline list --all` flag on the pipeline CLI module, all riding the already-landed daemon RPCs; there is no second module boundary to split across.
+
 ## Prerequisites
 
 - A pipeline carries a nullable durable dismissal timestamp that survives reopening the state store, with dismiss/undismiss store operations that leave stage records and derived state untouched.

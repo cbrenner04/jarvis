@@ -4,6 +4,12 @@ name: dismiss-pipeline-rpc
 
 # Dismiss Pipeline RPC
 
+## Primary implementation surface
+
+`v2/src/daemon/daemon.ts`
+
+Unsplit rationale: The whole change is the `pipeline_dismiss`/`pipeline_undismiss` handlers plus the default-excluding `pipeline_list` projection on the daemon RPC module, all backed by the already-landed store operations; there is no second module boundary to split across.
+
 ## Prerequisites
 
 - A pipeline carries a nullable durable dismissal timestamp that survives reopening the state store, with dismiss/undismiss store operations that leave stage records and derived state untouched.

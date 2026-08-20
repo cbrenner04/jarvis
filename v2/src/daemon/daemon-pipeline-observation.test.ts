@@ -138,6 +138,7 @@ function pipelineWithStages(
     context: pipelineOverrides.context ?? null,
     terminalPublicationFailure: pipelineOverrides.terminalPublicationFailure ?? null,
     terminalPublicationSucceededAt: pipelineOverrides.terminalPublicationSucceededAt ?? null,
+    dismissedAt: pipelineOverrides.dismissedAt ?? null,
     ...pipelineOverrides,
     stages: definition.stages.map((stage, index) => ({
       id: `row-${index}`,
@@ -910,6 +911,7 @@ function fanOutObservationPipeline(
     context: null,
     terminalPublicationFailure: null,
     terminalPublicationSucceededAt: null,
+    dismissedAt: null,
     stages,
   };
 }

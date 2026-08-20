@@ -1514,6 +1514,7 @@ describe("derivePipelineState", () => {
       context: null,
       terminalPublicationFailure: null,
       terminalPublicationSucceededAt: null,
+      dismissedAt: null,
       stages: definition.stages.map((stage, index) => ({
         id: `row-${index}`,
         pipelineId: PIPELINE_ID,
@@ -1554,6 +1555,7 @@ describe("derivePipelineState", () => {
       context: null,
       terminalPublicationFailure: null,
       terminalPublicationSucceededAt: null,
+      dismissedAt: null,
       stages: definition.stages.map((stage, index) => ({
         id: `row-${index}`,
         pipelineId: PIPELINE_ID,
@@ -1591,6 +1593,7 @@ describe("derivePipelineState", () => {
       context: null,
       terminalPublicationFailure: null,
       terminalPublicationSucceededAt: null,
+      dismissedAt: null,
       stages: definition.stages.map((stage, index) => ({
         id: `row-${index}`,
         pipelineId: PIPELINE_ID,
@@ -1627,6 +1630,7 @@ describe("derivePipelineState", () => {
       context: null,
       terminalPublicationFailure: null,
       terminalPublicationSucceededAt: null,
+      dismissedAt: null,
       stages: definition.stages.map((stage, index) => ({
         id: `row-${index}`,
         pipelineId: PIPELINE_ID,
@@ -1663,6 +1667,7 @@ describe("derivePipelineState", () => {
       context: null,
       terminalPublicationFailure: null,
       terminalPublicationSucceededAt: null,
+      dismissedAt: null,
       stages: definition.stages.map((stage, index) => ({
         id: `row-${index}`,
         pipelineId: PIPELINE_ID,
@@ -1712,6 +1717,7 @@ describe("derivePipelineState", () => {
       context: null,
       terminalPublicationFailure: null,
       terminalPublicationSucceededAt: null,
+      dismissedAt: null,
       stages: [
         {
           id: "row-implement",
@@ -1779,6 +1785,7 @@ describe("derivePipelineState", () => {
       context: null,
       terminalPublicationFailure: null,
       terminalPublicationSucceededAt: null,
+      dismissedAt: null,
       stages: definition.stages.map((stage, index) => ({
         id: `row-${index}`,
         pipelineId: PIPELINE_ID,
@@ -1819,6 +1826,7 @@ describe("derivePipelineState", () => {
       context: null,
       terminalPublicationFailure: null,
       terminalPublicationSucceededAt: null,
+      dismissedAt: null,
       stages: [
         {
           id: "row-0",
@@ -3153,6 +3161,7 @@ function fanOutSuffixRowSeedPipeline(
     context: null,
     terminalPublicationFailure: null,
     terminalPublicationSucceededAt: null,
+    dismissedAt: null,
     stages,
   };
 }

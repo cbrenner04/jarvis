@@ -187,6 +187,8 @@ export type Pipeline = {
   terminalPublicationFailure: PipelineTerminalPublicationFailure | null;
   /** Unix epoch ms when terminal publication succeeded; `null` until settled. */
   terminalPublicationSucceededAt: number | null;
+  /** Unix epoch ms when an operator dismissed this pipeline from display; `null` when not dismissed. */
+  dismissedAt: number | null;
 };
 
 export type ApprovalDecision = "approved" | "rejected";
@@ -207,6 +209,12 @@ export type PipelineContinuationRefusalReason = "pipeline_not_found" | "not_acti
 export type PipelineContinuationOutcome =
   | { kind: "applied"; pipelineId: string }
   | { kind: "refused"; pipelineId: string; reason: PipelineContinuationRefusalReason };
+
+export type PipelineDismissalRefusalReason = "pipeline_not_found";
+
+export type PipelineDismissalOutcome =
+  | { kind: "applied"; pipelineId: string }
+  | { kind: "refused"; pipelineId: string; reason: PipelineDismissalRefusalReason };
 
 export type PipelineReopenRefusalReason =
   | "pipeline_not_found"
@@ -635,6 +643,18 @@ export interface StateStore {
   /** Atomically record terminal-publication success on the pipeline row. Idempotent when already set. */
   commitTerminalPublicationSuccess(args: { pipelineId: string }): void;
 
+  /**
+   * Mark a pipeline dismissed from display. Preserves the first dismissal timestamp on
+   * repeat calls; refuses on an unknown pipeline id. Does not touch stage rows or lifecycle.
+   */
+  dismissPipeline(args: { pipelineId: string }): PipelineDismissalOutcome;
+
+  /**
+   * Clear a pipeline's dismissal, restoring default display. A no-op success when the
+   * pipeline was never dismissed; refuses on an unknown pipeline id.
+   */
+  undismissPipeline(args: { pipelineId: string }): PipelineDismissalOutcome;
+
   /** Insert an `in-progress` attempt row; returns its ID. */
   recordAttemptStart(runId: string): string;
 
@@ -731,7 +751,7 @@ const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, s
   outcome_kind AS outcomeKind, completed_at AS completedAt, invocation_failure_detail AS invocationFailureDetailJson,
   completion_agent AS completionAgent, completion_review_pass AS completionReviewPass`;
 
-const PIPELINE_COLUMNS = `id, name, created_at AS createdAt, owner_identity AS ownerIdentity, status, definition AS definitionJson, context AS contextJson, terminal_publication_failure AS terminalPublicationFailureJson, terminal_publication_succeeded_at AS terminalPublicationSucceededAt`;
+const PIPELINE_COLUMNS = `id, name, created_at AS createdAt, owner_identity AS ownerIdentity, status, definition AS definitionJson, context AS contextJson, terminal_publication_failure AS terminalPublicationFailureJson, terminal_publication_succeeded_at AS terminalPublicationSucceededAt, dismissed_at AS dismissedAt`;
 
 const STAGE_COLUMNS = `id, pipeline_id AS pipelineId, stage_id AS stageId, branch_key AS branchKey, position, status,
   workflow_invocation_id AS workflowInvocationId, started_at AS startedAt, ended_at AS endedAt,
@@ -883,6 +903,7 @@ const SCHEMA_MIGRATIONS = [
   { id: "024-pipeline-stage-decided-at", up: "ALTER TABLE pipeline_stages ADD COLUMN decided_at INTEGER" },
   { id: "025-run-ready-gate-pgid", up: "ALTER TABLE runs ADD COLUMN ready_gate_pgid INTEGER" },
   { id: "026-attempts-completion-review-pass", up: "ALTER TABLE attempts ADD COLUMN completion_review_pass INTEGER" },
+  { id: "027-pipeline-dismissed-at", up: "ALTER TABLE pipelines ADD COLUMN dismissed_at INTEGER" },
 ] as const;
 
 const ORPHAN_STATUSES = "'queued', 'in-progress', 'paused', 'budget-soft-stopped'";
@@ -1132,6 +1153,7 @@ function mapPipelineRow(row: PipelineRow): Pipeline {
         ? null
         : (JSON.parse(terminalPublicationFailureJson) as PipelineTerminalPublicationFailure),
     terminalPublicationSucceededAt: pipeline.terminalPublicationSucceededAt ?? null,
+    dismissedAt: pipeline.dismissedAt ?? null,
   };
 }
 
@@ -1601,6 +1623,29 @@ class StateStoreImpl implements StateStore {
            AND terminal_publication_failure IS NULL`,
       )
       .run(Date.now(), args.pipelineId);
+  }
+
+  private pipelineRowExists(pipelineId: string): boolean {
+    return this.db.prepare("SELECT 1 FROM pipelines WHERE id = ?").get(pipelineId) !== null;
+  }
+
+  dismissPipeline(args: { pipelineId: string }): PipelineDismissalOutcome {
+    if (!this.pipelineRowExists(args.pipelineId)) {
+      return { kind: "refused", pipelineId: args.pipelineId, reason: "pipeline_not_found" };
+    }
+    const dismissedAt = Date.now();
+    this.db
+      .prepare("UPDATE pipelines SET dismissed_at = ? WHERE id = ? AND dismissed_at IS NULL")
+      .run(dismissedAt, args.pipelineId);
+    return { kind: "applied", pipelineId: args.pipelineId };
+  }
+
+  undismissPipeline(args: { pipelineId: string }): PipelineDismissalOutcome {
+    if (!this.pipelineRowExists(args.pipelineId)) {
+      return { kind: "refused", pipelineId: args.pipelineId, reason: "pipeline_not_found" };
+    }
+    this.db.prepare("UPDATE pipelines SET dismissed_at = NULL WHERE id = ?").run(args.pipelineId);
+    return { kind: "applied", pipelineId: args.pipelineId };
   }
 
   private commitApprovalTransition(args: {

@@ -4,6 +4,10 @@ name: dismiss-pipeline-durable-flag
 
 # Dismiss Pipeline Durable Flag
 
+## Prerequisites
+
+- None. This is the store-layer foundation the `dismiss-pipeline-rpc`, `dismiss-pipeline-cli`, and `dismiss-pipeline-tui-display` intents depend on.
+
 ## Surface
 
 State store.

@@ -22,13 +22,13 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/intent-split-regression.test.ts` test `the split contract requires the single-surface declaration pair` fails against the pre-fix prompt, then proves the rendered `intent.prompt.split` prompt requires, for a single-surface intent, a non-empty `Unsplit rationale:` line and a `## Primary implementation surface` section naming exactly one entry.
-- [ ] `v2/src/execution/intent-split-regression.test.ts` — `single-surface seed stays whole through the production split write`; Keystone checkpoint: an in-body `// @mutate` directive deleting the declaration rule from `prompts/intent/split.md` makes the splitter stub emit an intent without the primary-surface section, turning this test red on the staging oracle.
-- [ ] `v2/src/execution/intent-split-regression.test.ts` test `pre-change contract fails both staging oracles` stays green with the declaration requirement stripped alongside the existing projections, and still fails the single-surface oracle.
-- [ ] `shared/prompts/intent-split.test.ts` stays green — `intent split prompt requires single-surface unsplit`, `intent split prompt pins surface fan-out rule`, `intent split artifact has no examples or thresholds`, `intent split artifact growth stays within budget`, and `intent split artifact revision bumped past baseline` all hold with the added rule in place.
-- [ ] `v1/docs/spec-guidance.md` records that a single-surface intent's `Unsplit rationale:` line and `## Primary implementation surface` section are load-bearing downstream — the plan-draft normalizer reads them to suppress boundary splitting — not review prose.
-- [ ] `v2/docs/v1-behaviors.md` intent-split entry records the required declaration pair for single-surface intents.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `v2/src/execution/intent-split-regression.test.ts` test `the split contract requires the single-surface declaration pair` fails against the pre-fix prompt, then proves the rendered `intent.prompt.split` prompt requires, for a single-surface intent, a non-empty `Unsplit rationale:` line and a `## Primary implementation surface` section naming exactly one entry.
+- [x] `v2/src/execution/intent-split-regression.test.ts` — `single-surface seed stays whole through the production split write`; Keystone checkpoint: an in-body `// @mutate` directive deleting the declaration rule from `prompts/intent/split.md` makes the splitter stub emit an intent without the primary-surface section, turning this test red on the staging oracle.
+- [x] `v2/src/execution/intent-split-regression.test.ts` test `pre-change contract fails both staging oracles` stays green with the declaration requirement stripped alongside the existing projections, and still fails the single-surface oracle.
+- [x] `shared/prompts/intent-split.test.ts` stays green — `intent split prompt requires single-surface unsplit`, `intent split prompt pins surface fan-out rule`, `intent split artifact has no examples or thresholds`, `intent split artifact growth stays within budget`, and `intent split artifact revision bumped past baseline` all hold with the added rule in place.
+- [x] `v1/docs/spec-guidance.md` records that a single-surface intent's `Unsplit rationale:` line and `## Primary implementation surface` section are load-bearing downstream — the plan-draft normalizer reads them to suppress boundary splitting — not review prose.
+- [x] `v2/docs/v1-behaviors.md` intent-split entry records the required declaration pair for single-surface intents.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

@@ -7,7 +7,11 @@ import {
   validateIntentStageContent,
 } from "../../../shared/intent-stage.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
-import { INTENT_SPLIT_SURFACE_PIN } from "../../../shared/prompts/intent-split.ts";
+import {
+  buildIntentSplitPrompt,
+  INTENT_SPLIT_DECLARATION_PIN,
+  INTENT_SPLIT_SURFACE_PIN,
+} from "../../../shared/prompts/intent-split.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { buildIntentWorkflowSteps } from "./publication-workflow-steps.ts";
 import type { LoadedWorkflowStep, WorkflowSourceStep } from "./workflow-loader.ts";
@@ -55,7 +59,11 @@ function normalize(text: string): string {
 
 function hasSurfaceContract(prompt: string): boolean {
   const normalized = normalize(prompt);
-  return normalized.includes(INTENT_SPLIT_SURFACE_PIN) && normalized.includes(SINGLE_SURFACE_PIN);
+  return (
+    normalized.includes(INTENT_SPLIT_SURFACE_PIN) &&
+    normalized.includes(SINGLE_SURFACE_PIN) &&
+    normalized.includes(INTENT_SPLIT_DECLARATION_PIN.toLowerCase())
+  );
 }
 
 function intent(
@@ -65,17 +73,21 @@ function intent(
   body: string,
   prerequisites = "",
 ): string {
+  const primarySurfaceSection =
+    primarySurfaces.length === 0
+      ? ""
+      : `
+
+## Primary implementation surface
+
+${primarySurfaces.join("\n")}`;
   return `---
 name: ${name}
 ---
 
 # ${title}
 
-${body}
-
-## Primary implementation surface
-
-${primarySurfaces.join("\n")}
+${body}${primarySurfaceSection}
 
 ## Prerequisites
 
@@ -136,7 +148,7 @@ function writeSingleSurfaceStage(stage: string, revised: boolean): void {
     intent(
       "settle-exhausted-write-attempts",
       "Settle Exhausted Write Attempts",
-      [EXECUTION_LOOP_SURFACE],
+      revised ? [EXECUTION_LOOP_SURFACE] : [],
       [
         "Record the final attempt reason, classify exhausted retries, and return the terminal result.",
         ...(revised ? ["Unsplit rationale: All concerns belong to the execution-loop implementation boundary."] : []),
@@ -189,7 +201,8 @@ function preChangeContract(prompt: string): string {
     .replace(
       SINGLE_SURFACE_PIN,
       "if the seed is already one independently observable behavior, emit exactly one intent",
-    );
+    )
+    .replace(INTENT_SPLIT_DECLARATION_PIN.toLowerCase(), "");
 }
 
 async function executeSeed(
@@ -299,6 +312,17 @@ function assertSingleSurfaceStage(stage: string): void {
 }
 
 describe("intent split production write regression", () => {
+  test("the split contract requires the single-surface declaration pair", () => {
+    const prompt = buildIntentSplitPrompt({
+      workdir: "/tmp/worktree",
+      seedLabel: "inline",
+      seedContent: "Split reporting",
+      stagingDir: ".jarvis-intent-stage",
+    });
+
+    expect(normalize(prompt)).toContain(INTENT_SPLIT_DECLARATION_PIN.toLowerCase());
+  });
+
   test("multi-surface seed fans out by surface through the production split write", async () => {
     const result = await executeSeed(MULTI_SURFACE_SEED);
 
@@ -307,6 +331,7 @@ describe("intent split production write regression", () => {
   });
 
   test("single-surface seed stays whole through the production split write", async () => {
+    // @mutate prompts/intent/split.md "- Write that line as an `Unsplit rationale:` line, and give that intent a `## Primary implementation surface` section naming exactly one entry." -> ""
     const result = await executeSeed(SINGLE_SURFACE_SEED);
 
     expect(result.resultKind).toBe("complete");
@@ -322,6 +347,8 @@ describe("intent split production write regression", () => {
     expect(() => assertMultiSurfaceStage(multi.stage)).toThrow(
       "expected exactly one primary implementation surface, got 3",
     );
-    expect(() => assertSingleSurfaceStage(single.stage)).toThrow("expected one non-empty one-line unsplit rationale");
+    expect(() => assertSingleSurfaceStage(single.stage)).toThrow(
+      "expected exactly one primary implementation surface, got 0",
+    );
   });
 });

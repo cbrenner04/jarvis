@@ -22,7 +22,7 @@ name: daemon-force-settles-stale-nonactive-run
 - [ ] `kill` with `force` on a `paused` row that has no `activeRuns` entry responds ok and leaves the durable row `killed` with a non-null `finished_at`, pinned by a daemon test.
 - [ ] `kill` without `force` on that same row still responds `run_not_active`, pinned by a test.
 - [ ] `kill` with `force` on an active run takes the normal abort path (loop aborted, durable `killed`) and does not bypass it, pinned by a test.
-- [ ] `kill` with `force` on a boundary-terminal row (`completed`/`blocked`/`failed`) leaves the recorded status and `finished_at` unchanged, pinned by a test.
+- [ ] `kill` with `force` on a boundary-terminal row (`completed`/`blocked`/`failed`) responds `run_not_active` and leaves the recorded status and `finished_at` unchanged, pinned by a test.
 - [ ] A force-settled row is excluded from `list` once 50 newer terminal rows exist, pinned by a retention test.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 

@@ -372,10 +372,12 @@ When the daemon is not reachable, start it with [`jarvis daemon start`](#daemon-
 | `jarvis run log <run-id> --follow` | Run ID | Same replay, then follows new records until the daemon closes the stream on its own once the followed run settles (or the client disconnects) | `0` on stream end/client close |
 | `jarvis run pause <run-id>` | Run ID | `paused <run-id>` | `0` on success |
 | `jarvis run resume <run-id>` | Run ID | `resumed <run-id>` | `0` on success |
-| `jarvis run kill <run-id>` | Run ID | `killed <run-id>` | `0` on success |
+| `jarvis run kill <run-id> [--force]` | Run ID, optional `--force`. `--force` rides the `kill` request only when passed (`{ runId, force: true }`); a plain kill sends `{ runId }` with no `force` key. An active run whose active kind is `write-loop`/`workflow` still takes the ordinary abort path regardless of `--force`; see the `kill` RPC row in [`daemon-host.md`](./daemon-host.md#rpc-methods-transport-slice) for daemon-side admissibility | `killed <run-id>` on both the abort and force-settle paths | `0` on success |
 | `jarvis run wait <run-id>` | Run ID | One minified JSON line: `{runStatus, loopOutcomeKind?, iterationsConsumed?, resumable?, error?, worktreePath?}` — `error` may include nested fields such as `completionCommitError` (see [`daemon-host.md`](./daemon-host.md#operator-error-on-list-and-wait)); only present optional fields included | See [wait exit codes](#wait-exit-codes) |
 
 `jarvis run log` on an unknown run ID prints no output and exits `0` (pre-existing, unmasked by this behavior — not caused by it).
+
+`run pause`, `run resume`, and `run kill` strict-parse their argv (`node:util` `parseArgs` with `strict: true`): an unrecognized flag is a usage error before daemon connect, rather than being consumed as the run-id positional. `--force` is recognized only on `kill`; `jarvis run pause --force <id>` and `jarvis run resume --force <id>` now exit `1` with `RUN_USAGE` on stderr instead of sending `--force` through as the run ID.
 
 ## Pipeline CLI
 

@@ -116,6 +116,19 @@ export const RUN_LOG_HELP_FLAGS: readonly CommandFlag[] = [
   { name: "--follow", argumentShape: "", description: "Keep tailing new records after the replay." },
 ];
 
+/** `parseArgs` options for `runActionCommand` (`kill`) / `jarvis run kill`. */
+export const RUN_KILL_PARSE_ARG_OPTIONS = {
+  force: { type: "boolean" },
+} as const satisfies Record<string, { type: "boolean" }>;
+
+export const RUN_KILL_HELP_FLAGS: readonly CommandFlag[] = [
+  {
+    name: "--force",
+    argumentShape: "",
+    description: "Force-settle a stale non-active run that resume refuses; bypasses the ordinary abort path.",
+  },
+];
+
 const WORKFLOW_STALE_RESET_OVERRIDE_FLAG: CommandFlag = {
   name: "--reset-despite-dirty",
   argumentShape: "",

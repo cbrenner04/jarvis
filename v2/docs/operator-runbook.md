@@ -667,6 +667,16 @@ Durable non-terminal rows from a prior daemon are reconciled to `killed` with re
   and `nextAction: "stop"`. Fix the persisted context or re-run the spec rather than treating that
   row as a config-binding failure.
 
+### Clearing a stale non-active run with `run kill --force`
+
+Reach for `jarvis run kill --force <run-id>` only after `run resume <run-id>` refuses (`unsupported_resume_context` or similar), or the row has no resumable write context at all — a stale `paused` row is the common case, since `paused` is not boundary-terminal and never ages out of the default retention window on its own. Do **not** force a row whose owning daemon is mid-`finalization` or mid-`recovery`: the force path only takes the safe abort branch for a live `write-loop`/`workflow` active kind (see the `kill` RPC row in [`daemon-host.md`](./daemon-host.md#rpc-methods-transport-slice)); forcing a mid-finalization or mid-recovery row stamps it `killed` while that work keeps running underneath.
+
+`--force` settles the durable row `killed` with a finish timestamp — it does not delete the row. A force-settled workflow step stays listed until every non-terminal sibling under its `invocationId` is also settled, so clearing a stale workflow means forcing each non-terminal sibling, not just the one row you noticed.
+
+`run kill` does not auto-start the daemon (unlike `run resume`): a stale row plus a stopped daemon yields a connection error, not a kill. After a daemon restart, a stale row's owner is a dead prior incarnation — run reconciliation settles that on its own (see [Orphaned non-terminal runs after daemon restart](#orphaned-non-terminal-runs-after-daemon-restart)); a forced kill isn't needed there.
+
+This clears the run row only. Pipeline/stage display rows are a separate concern tracked by the `dismiss-pipeline-*` ready intents.
+
 ### Wedged run, no agent activity
 
 Check `~/.jarvis/daemon.log` and `jarvis run log <run-id>`. Plan draft stalls historically threw before agent invoke (fixed in shipped PRs); similar failures may still exit without `iteration_started` follow-up until `write-loop-iteration-timeout-on-stall` lands.

@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { RUN_USAGE } from "../cli/usage.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
 import {
   absentMachineConfigPath,
@@ -592,6 +593,129 @@ describe("run control", () => {
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "", stderr: "unknown_run: Run run-404 not found\n" });
+  });
+
+  test("run kill --force forwards the force param", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000012";
+
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "kill", "--force", "run-123"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient([{ kind: "response", id: requestId, result: { ok: true } }], { sent }),
+      }),
+    );
+
+    // @mutate v2/src/commands/run.ts "const params = values.force === true ? { runId, force: true } : { runId };" -> "const params = { runId };"
+    expect(code).toBe(0);
+    expect(sent).toEqual([
+      { kind: "request", id: requestId, method: "kill", params: { runId: "run-123", force: true } },
+    ]);
+    expect(cap.read()).toEqual({ stdout: "killed run-123\n", stderr: "" });
+  });
+
+  test("run kill without --force sends no force param", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000013";
+
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "kill", "run-123"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient([{ kind: "response", id: requestId, result: { ok: true } }], { sent }),
+      }),
+    );
+
+    // @mutate v2/src/commands/run.ts "const params = values.force === true ? { runId, force: true } : { runId };" -> "const params = { runId, force: true };"
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ kind: "request", id: requestId, method: "kill", params: { runId: "run-123" } }]);
+    expect(cap.read()).toEqual({ stdout: "killed run-123\n", stderr: "" });
+  });
+
+  test("run kill run-123 --force also sends force after the run id", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000014";
+
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "kill", "run-123", "--force"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient([{ kind: "response", id: requestId, result: { ok: true } }], { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([
+      { kind: "request", id: requestId, method: "kill", params: { runId: "run-123", force: true } },
+    ]);
+    expect(cap.read()).toEqual({ stdout: "killed run-123\n", stderr: "" });
+  });
+
+  test("run kill --force with no run id is a usage error", async () => {
+    const cap = captureIo();
+
+    const code = await main(["run", "kill", "--force"], cap.io, {
+      connectIpcClient: async () => {
+        throw new Error("must not connect: usage error");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "usage: jarvis run kill <run-id> [--force]\n" });
+  });
+
+  test("run kill --force passes through run_not_active refusals", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000015";
+
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "kill", "--force", "run-123"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient(
+            [
+              {
+                kind: "error",
+                id: requestId,
+                code: "run_not_active",
+                message: "Run run-123 is not currently active",
+              },
+            ],
+            { sent },
+          ),
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(sent).toEqual([
+      { kind: "request", id: requestId, method: "kill", params: { runId: "run-123", force: true } },
+    ]);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "run_not_active: Run run-123 is not currently active\n",
+    });
+  });
+
+  test("pause and resume reject --force as a usage error", async () => {
+    // @mutate v2/src/commands/run.ts "const options = subcommand === \"kill\" ? RUN_KILL_PARSE_ARG_OPTIONS : {};" -> "const options = RUN_KILL_PARSE_ARG_OPTIONS;"
+    for (const argv of [
+      ["run", "pause", "--force", "run-123"],
+      ["run", "resume", "--force", "run-123"],
+      ["run", "pause", "--force"],
+      ["run", "resume", "--force"],
+    ]) {
+      const cap = captureIo();
+
+      const code = await main(argv, cap.io, {
+        connectIpcClient: async () => {
+          throw new Error("must not connect: usage error");
+        },
+      });
+
+      expect(code).toBe(1);
+      expect(cap.read()).toEqual({ stdout: "", stderr: RUN_USAGE });
+    }
   });
 
   test("run-control commands print terse connection errors when the socket is unavailable", async () => {

@@ -3,6 +3,7 @@ import {
   CLEANUP_HELP_FLAGS,
   DAEMON_LOG_HELP_FLAGS,
   INIT_HELP_FLAGS,
+  RUN_KILL_HELP_FLAGS,
   RUN_LIST_HELP_FLAGS,
   WORKFLOW_IMPLEMENT_HELP_FLAGS,
   WORKFLOW_INTENT_HELP_FLAGS,
@@ -19,6 +20,7 @@ import {
   HELP_USAGE,
   INIT_USAGE,
   PIPELINE_USAGE,
+  RUN_KILL_USAGE,
   RUN_LIST_USAGE,
   RUN_USAGE,
   TUI_USAGE,
@@ -189,6 +191,7 @@ describe("v2 cli dispatch", () => {
       ["run start", ["help", "run", "start"], WRITE_USAGE, WRITE_HELP_FLAGS],
       ["cleanup", ["help", "cleanup"], CLEANUP_USAGE, CLEANUP_HELP_FLAGS],
       ["run list", ["help", "run", "list"], RUN_LIST_USAGE, RUN_LIST_HELP_FLAGS],
+      ["run kill", ["help", "run", "kill"], RUN_KILL_USAGE, RUN_KILL_HELP_FLAGS],
       ["daemon log", ["help", "daemon", "log"], DAEMON_LOG_USAGE, DAEMON_LOG_HELP_FLAGS],
     ] as const;
 

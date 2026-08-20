@@ -4,6 +4,7 @@ import {
   INIT_HELP_FLAGS,
   PIPELINE_LIST_HELP_FLAGS,
   PIPELINE_START_HELP_FLAGS,
+  RUN_KILL_HELP_FLAGS,
   RUN_LIST_HELP_FLAGS,
   RUN_LOG_HELP_FLAGS,
   WORKFLOW_IMPLEMENT_HELP_FLAGS,
@@ -26,6 +27,7 @@ import {
   PIPELINE_START_USAGE,
   PIPELINE_USAGE,
   PIPELINE_WAIT_USAGE,
+  RUN_KILL_USAGE,
   RUN_LIST_USAGE,
   RUN_LOG_USAGE,
   RUN_USAGE,
@@ -150,6 +152,8 @@ export const commandTree: CommandNode = {
         {
           name: "kill",
           summary: "Kill a run.",
+          usage: RUN_KILL_USAGE,
+          flags: RUN_KILL_HELP_FLAGS,
         },
         {
           name: "wait",

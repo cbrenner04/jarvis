@@ -1,11 +1,11 @@
 import { parseArgs } from "node:util";
-import { RUN_LIST_PARSE_ARG_OPTIONS } from "../cli/command-help-flags.ts";
+import { RUN_KILL_PARSE_ARG_OPTIONS, RUN_LIST_PARSE_ARG_OPTIONS } from "../cli/command-help-flags.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { formatRpcError, parseStreamPayload, request, withRunClient } from "../cli/ipc.ts";
 import { waitForRunCompletion } from "../cli/run-completion.ts";
 import { withConnectDispatch } from "../cli/stale-dispatch.ts";
-import { RUN_LIST_USAGE, RUN_LOG_USAGE, RUN_USAGE, WRITE_USAGE } from "../cli/usage.ts";
+import { RUN_KILL_USAGE, RUN_LIST_USAGE, RUN_LOG_USAGE, RUN_USAGE, WRITE_USAGE } from "../cli/usage.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { parseStartResult } from "../daemon/daemon-wire.ts";
 import { mergeRunLists } from "../daemon/merge-run-lists.ts";
@@ -303,9 +303,21 @@ async function runActionCommand(
   io: Io,
   deps: CliDeps,
 ): Promise<number> {
-  const runId = argv[0];
-  if (argv.length !== 1 || runId === undefined) {
-    io.stderr(RUN_USAGE);
+  const usage = subcommand === "kill" ? RUN_KILL_USAGE : RUN_USAGE;
+  let values: { force?: boolean };
+  let positionals: string[];
+  try {
+    const options = subcommand === "kill" ? RUN_KILL_PARSE_ARG_OPTIONS : {};
+    const parsed = parseArgs({ args: [...argv], allowPositionals: true, strict: true, options });
+    values = parsed.values;
+    positionals = parsed.positionals;
+  } catch {
+    io.stderr(usage);
+    return 1;
+  }
+  const runId = positionals[0];
+  if (positionals.length !== 1 || runId === undefined) {
+    io.stderr(usage);
     return 1;
   }
   if (subcommand === "resume") {
@@ -317,7 +329,8 @@ async function runActionCommand(
   }
   return withRunClient(io, deps, async (client) => {
     try {
-      await request(client, subcommand, { runId });
+      const params = values.force === true ? { runId, force: true } : { runId };
+      await request(client, subcommand, params);
     } catch (error) {
       if (error instanceof RpcError) {
         io.stderr(formatRpcError(error));

@@ -8,7 +8,6 @@ name: dismiss-pipeline-tui-display
 
 - A pipeline carries a nullable durable dismissal timestamp that survives reopening the state store, with dismiss/undismiss store operations that leave stage records and derived state untouched.
 - The daemon accepts `pipeline_dismiss` and `pipeline_undismiss`, excludes dismissed pipelines from the default `pipeline_list` projection, and includes them with `dismissedAt` under an explicit opt-in parameter.
-- `jarvis pipeline dismiss|undismiss <pipeline-id>` records and clears dismissal, and `jarvis pipeline list --all` is the opt-in that shows dismissed pipelines.
 
 ## Surface
 

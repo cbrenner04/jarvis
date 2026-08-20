@@ -4,10 +4,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { WorkflowSnapshot } from "../persistence/state-store.ts";
 import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
-import { listRunsDirect, workflowSnapshot } from "../testing/run-control.ts";
+import { listRunsDirect, loadRunOrThrow, workflowSnapshot } from "../testing/run-control.ts";
 import { createRunControlHandlers } from "./daemon.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
+
+async function killDirect(h: Handlers, runId: string, force?: boolean) {
+  return h.kill(
+    { kind: "request", id: "k1", method: "kill", params: { runId, ...(force !== undefined ? { force } : {}) } },
+    new AbortController().signal,
+  );
+}
 
 let dbPath: string;
 let stateStore: StateStore;
@@ -188,4 +195,47 @@ test("created_at ties resolve deterministically across repeated list calls", asy
     expect(firstTerminalIds.includes(retiredId)).toBe(false);
     expect(secondTerminalIds.includes(retiredId)).toBe(false);
   }
+});
+
+test("a force-settled workflow step ages out only once every sibling in its invocation is settled", async () => {
+  const snapshot: WorkflowSnapshot = workflowSnapshot("wf-1", [
+    { stepId: "step-1", role: "implement" },
+    { stepId: "step-2", role: "review" },
+  ]);
+  const step1Id = seedRun(stateStore, {
+    status: "paused",
+    createdAt: 1,
+    project: "wf",
+    branch: "wf-br",
+    stepId: "step-1",
+    workflowSnapshot: snapshot,
+  });
+  const step2Id = seedRun(stateStore, {
+    status: "paused",
+    createdAt: 2,
+    project: "wf",
+    branch: "wf-br",
+    stepId: "step-2",
+    workflowSnapshot: snapshot,
+  });
+
+  for (let index = 0; index < 50; index++) {
+    seedRun(stateStore, { status: "completed", createdAt: 100 + index, project: "noise" });
+  }
+
+  const killStep1 = await killDirect(handlers, step1Id, true);
+  expect(killStep1.kind).toBe("response");
+  expect(loadRunOrThrow(stateStore, step1Id).status).toBe("killed");
+
+  let runs = await listRunsDirect(handlers);
+  expect(runs?.some((row) => row.runId === step1Id)).toBe(true);
+  expect(runs?.some((row) => row.runId === step2Id)).toBe(true);
+
+  const killStep2 = await killDirect(handlers, step2Id, true);
+  expect(killStep2.kind).toBe("response");
+  expect(loadRunOrThrow(stateStore, step2Id).status).toBe("killed");
+
+  runs = await listRunsDirect(handlers);
+  expect(runs?.some((row) => row.runId === step1Id)).toBe(false);
+  expect(runs?.some((row) => row.runId === step2Id)).toBe(false);
 });

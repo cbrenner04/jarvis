@@ -660,6 +660,14 @@ export interface StateStore {
   /** Set `killed` unless the row is already boundary-terminal (`completed`, `blocked`, `failed`). */
   commitGuardedKill(runId: string): void;
 
+  /**
+   * Whether a forced kill may settle `runId`'s owner: admits when `owner_identity` is
+   * `NULL`, matches the current process, or names a dead prior process; refuses a
+   * different still-live owner. Backs daemon `kill`'s force path — a second internal
+   * consumer of `owner_identity` alongside {@link beginRunReconciliation}.
+   */
+  forceKillOwnerAdmits(runId: string): Promise<boolean>;
+
   beginRunReconciliation(): Promise<string[]>;
 
   /** Mark a persisted reconciliation event as complete. */
@@ -1746,6 +1754,14 @@ class StateStoreImpl implements StateStore {
       const finishedAt = Date.now();
       this.db.prepare("UPDATE runs SET status = 'killed', finished_at = ? WHERE id = ?").run(finishedAt, runId);
     })();
+  }
+
+  async forceKillOwnerAdmits(runId: string): Promise<boolean> {
+    const row = this.db.prepare("SELECT owner_identity AS ownerIdentity FROM runs WHERE id = ?").get(runId) as {
+      ownerIdentity: string | null;
+    } | null;
+    if (!row || row.ownerIdentity === null || row.ownerIdentity === this.currentIdentity) return true;
+    return !(await this.isOwnerAliveProbe(row.ownerIdentity));
   }
 
   async beginRunReconciliation(): Promise<string[]> {

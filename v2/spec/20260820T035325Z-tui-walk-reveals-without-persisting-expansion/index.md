@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Walk reveals collapsed nodes for paint](./00-walk-reveals-collapsed-nodes-for-paint.md)
+- [x] [00 - Walk reveals collapsed nodes for paint](./00-walk-reveals-collapsed-nodes-for-paint.md)

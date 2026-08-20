@@ -29,6 +29,6 @@ Workflow callers do not identify review and repair commits, so review passes, re
 - [x] Interrupted pending commits and publication/finalization resumes retain review, mutation-repair, and ready-gate subjects and steps rather than falling back to write. `v2/src/execution/workflow-runner.test.ts` — `retains workflow step across publication and finalization resume`; Mutation checkpoint:
 - [x] `bun run typecheck` and `bun run test:v2` pass.
 
-
+## Documentation updates
 
 - `v2/docs/v1-behaviors.md` records the widened v2 Jarvis-authored trailer set and step-aware review and repair behavior.

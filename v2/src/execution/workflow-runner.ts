@@ -37,7 +37,12 @@ import {
   type WorkflowSnapshot,
   type WorkflowSnapshotStep,
 } from "../persistence/state-store.ts";
-import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
+import {
+  type CompletionCommitter,
+  type CompletionStepMetadata,
+  createCompletionCommitter,
+  renderStepCommitTitle,
+} from "./completion-commit.ts";
 import type { CompletionPublisher } from "./completion-publisher.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 import { getExternalWorktreePath, withExternalWorktree as realWithExternalWorktree } from "./external-worktree.ts";
@@ -398,6 +403,9 @@ type WorkflowStepOutcome = {
   /** False when linked implement completed without routing to an active subspec. */
   implementReviewEligible?: boolean;
   completionAgent?: string;
+  /** 1-indexed reached review/review-debate pass whose actuator produced the tracked mutation;
+   * absent for non-review outcomes and for a review dispatch that never mutated. */
+  reviewPass?: number;
 };
 
 /** Dispatch one step to its behavior-specific executor and normalize the result. */
@@ -973,14 +981,24 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             stepId: completionStep.stepId,
           });
           if (completionRun !== null) store.setCreationTitle(completionRun.id, creationTitle);
+          // A review commit belongs to the latest pass that left the tracked mutation in this
+          // publication; a non-mutating later pass (approval, no actuator) never reassigns it.
+          const commitStep: CompletionStepMetadata | undefined =
+            isReviewLastStep && lastResult.reviewPass !== undefined
+              ? {
+                  kind: lastStep?.behavior === "review-debate" ? "review-debate" : "review",
+                  pass: lastResult.reviewPass,
+                }
+              : undefined;
           const published = await (args.completionCommitter ?? createCompletionCommitter())({
             worktreePath,
             baseRef: worktree.baseRef,
             specPath: publicationPath,
             agent: publicationAgent,
-            title: creationTitle,
+            title: commitStep !== undefined ? renderStepCommitTitle(commitStep, creationTitle) : creationTitle,
             forceDistinctCommit: true,
             iterationTimeoutMs: completionStep.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
+            ...(commitStep !== undefined ? { step: commitStep } : {}),
           });
           if (published.commitSha === undefined) {
             const uncommitted = await getUncommittedPaths(worktreePath);
@@ -1707,6 +1725,9 @@ type ReviewDebateStepOutcome =
       iterationsConsumed: number;
       resumable: false;
       completionAgent?: string;
+      /** 1-indexed reached pass whose actuator produced the tracked mutation; absent when no
+       * cycle in this dispatch ever mutated. */
+      reviewPass?: number;
     }
   | {
       kind: "landing_failed";
@@ -1735,24 +1756,48 @@ type ReviewedLandingActuatorRepromptContext = {
 
 type ReviewStepOutcome = WorkflowStepOutcome & { kind: "complete" | "invocation_failure" | "landing_failed" };
 
+/**
+ * A review commit belongs to the latest pass whose actuator produced the tracked mutation, and
+ * to that pass's actuator agent — a later non-mutating pass (critic approval, no actuator
+ * invocation) cannot reassign either. Returns `undefined` when no cycle in `cycles` ever
+ * mutated. `actuatorAgent` extracts the agent label from a `"completed"`-kind cycle; callers
+ * supply it because the debate and light-review cycle shapes key `roleResults` by different
+ * role unions.
+ */
+function lastMutatingReviewPass<C extends { kind: string; actuatorRan?: boolean }>(
+  cycles: readonly C[],
+  actuatorAgent: (cycle: Extract<C, { kind: "completed" }>) => string | undefined,
+): { pass: number; agent: string | undefined } | undefined {
+  for (let index = cycles.length - 1; index >= 0; index -= 1) {
+    const cycle = cycles[index];
+    if (cycle !== undefined && cycle.kind === "completed" && cycle.actuatorRan) {
+      return { pass: index + 1, agent: actuatorAgent(cycle as Extract<C, { kind: "completed" }>) };
+    }
+  }
+  return undefined;
+}
+
 function reviewDebateResultOutcome(result: Awaited<ReturnType<typeof executeReviewDebate>>): {
   kind: "complete" | "invocation_failure";
   failureKind: InvocationFailureKind | undefined;
   terminalRole: ReviewDebateRole;
   completionAgent: string | undefined;
+  reviewPass: number | undefined;
 } {
   const lastCycle = result.cycles.at(-1);
   const kind = lastCycle?.kind === "role_failed" ? "invocation_failure" : "complete";
   const failureKind = lastCycle?.kind === "role_failed" ? lastCycle.failureKind : undefined;
   const terminalRole: ReviewDebateRole =
     lastCycle?.kind === "role_failed" ? lastCycle.failedRole : lastCycle?.actuatorRan ? "actuator" : "adjudicator";
-  const actuatorExecution =
-    lastCycle?.kind === "completed" && lastCycle.actuatorRan ? lastCycle.roleResults?.actuator?.final : undefined;
-  const completionAgent =
-    kind === "complete" && actuatorExecution?.result.kind === "ok"
-      ? actuatorExecution.binding.metadata?.agent?.trim()
+  const mutating =
+    kind === "complete"
+      ? lastMutatingReviewPass(result.cycles, (cycle) =>
+          cycle.roleResults.actuator?.final?.result.kind === "ok"
+            ? cycle.roleResults.actuator.final.binding.metadata?.agent?.trim()
+            : undefined,
+        )
       : undefined;
-  return { kind, failureKind, terminalRole, completionAgent };
+  return { kind, failureKind, terminalRole, completionAgent: mutating?.agent, reviewPass: mutating?.pass };
 }
 
 function buildReviewRoleTelemetryFields(
@@ -1880,7 +1925,15 @@ async function runReviewDebateStep(
     const checkpoint = findReviewLandingCheckpoint(store, step);
     if (checkpoint !== undefined) {
       onStepRunCreated?.(stepIndex, checkpoint.id);
-      return finishReviewedLanding(step, landing, checkpoint.id, store, reviewCompletionAgent(checkpoint), logSink);
+      return finishReviewedLanding(
+        step,
+        landing,
+        checkpoint.id,
+        store,
+        reviewCompletionAgent(checkpoint),
+        reviewCompletionPass(checkpoint),
+        logSink,
+      );
     }
   }
 
@@ -1957,7 +2010,7 @@ async function runReviewDebateStep(
 
   const result = debateOutcome;
 
-  const { kind, terminalRole, completionAgent } = reviewDebateResultOutcome(result);
+  const { kind, terminalRole, completionAgent, reviewPass } = reviewDebateResultOutcome(result);
 
   onProgress?.(invocationId, stepId, {
     status: kind === "complete" ? "completed" : "stopped",
@@ -1989,7 +2042,7 @@ async function runReviewDebateStep(
       ? buildReviewInvocationFailureDetail(failed.failureKind, failed.failedRole, failed.roleResults[failed.failedRole])
       : undefined;
 
-  commitReviewDebateOutcome(store, attemptId, kind, failureDetail, completionAgent);
+  commitReviewDebateOutcome(store, attemptId, kind, failureDetail, completionAgent, reviewPass);
 
   const retryableFailure =
     kind === "invocation_failure" &&
@@ -2002,6 +2055,7 @@ async function runReviewDebateStep(
     iterationsConsumed: result.cycles.length,
     resumable: retryableFailure,
     ...(completionAgent ? { completionAgent } : {}),
+    ...(reviewPass !== undefined ? { reviewPass } : {}),
   };
 }
 
@@ -2011,6 +2065,7 @@ function commitReviewDebateOutcome(
   kind: "complete" | "invocation_failure",
   failureDetail: InvocationFailureDetail | undefined,
   completionAgent: string | undefined,
+  reviewPass: number | undefined,
 ): void {
   if (kind === "invocation_failure") {
     store.commitCompletionBoundary({
@@ -2026,6 +2081,7 @@ function commitReviewDebateOutcome(
     runStatus: "completed",
     outcomeKind: "done",
     ...(completionAgent ? { completionAgent } : {}),
+    ...(reviewPass !== undefined ? { completionReviewPass: reviewPass } : {}),
   });
 }
 
@@ -2479,11 +2535,13 @@ async function tryActuatorOnlyReviewDebateRetry(
     }
   }
 
+  // Single-cycle admission (guarded above) makes this always pass 1 by construction.
   store.commitCompletionBoundary({
     attemptId,
     runStatus: "completed",
     outcomeKind: "done",
     ...(completionAgent ? { completionAgent } : {}),
+    completionReviewPass: 1,
   });
 
   return {
@@ -2492,6 +2550,7 @@ async function tryActuatorOnlyReviewDebateRetry(
     iterationsConsumed: 1,
     resumable: false,
     ...(completionAgent ? { completionAgent } : {}),
+    reviewPass: 1,
   };
 }
 
@@ -2614,6 +2673,15 @@ function reviewCompletionAgent(run: NonNullable<ReturnType<StateStore["findRunBy
   return undefined;
 }
 
+/** Durable counterpart to {@link reviewCompletionAgent}: the mutating pass persisted alongside it. */
+function reviewCompletionPass(run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>): number | undefined {
+  for (let index = run.attempts.length - 1; index >= 0; index -= 1) {
+    const pass = run.attempts[index]?.completionReviewPass;
+    if (pass !== undefined && pass !== null) return pass;
+  }
+  return undefined;
+}
+
 function buildCheckpointReviewLandingActuatorContext(
   step: ReviewDebateWorkflowStep | ReviewWorkflowStep,
   landing: Exclude<PublicationLanding, { kind: "none" }>,
@@ -2644,6 +2712,7 @@ async function finishReviewedLanding(
   runId: string,
   store: StateStore,
   completionAgent: string | undefined,
+  reviewPass: number | undefined,
   logSink?: LogSink,
 ): Promise<ReviewStepOutcome> {
   const attemptId = store.recordAttemptStart(runId);
@@ -2684,6 +2753,7 @@ async function finishReviewedLanding(
     runStatus: "completed",
     outcomeKind: "done",
     ...(completionAgent ? { completionAgent } : {}),
+    ...(reviewPass !== undefined ? { completionReviewPass: reviewPass } : {}),
   });
   const outcome: ReviewStepOutcome = {
     kind: "complete",
@@ -2691,6 +2761,7 @@ async function finishReviewedLanding(
     iterationsConsumed: 0,
     resumable: false,
     ...(completionAgent ? { completionAgent } : {}),
+    ...(reviewPass !== undefined ? { reviewPass } : {}),
   };
   logSink?.append(runId, {
     kind: "loop_finished",
@@ -2716,6 +2787,8 @@ export type IntentFinalizationResumeContext = {
   landing: Extract<PublicationLanding, { kind: "intent-stage" }>;
   completionAgent: string | undefined;
   creationTitleHint: string | undefined;
+  behavior: "review" | "review-debate";
+  reviewPass: number | undefined;
 };
 
 export type IntentFinalizationResumeResolution =
@@ -2792,6 +2865,8 @@ type ReviewRowHead = {
   writeStep: WorkflowSnapshotStep | undefined;
   writeRun: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>;
   completionAgent: string | undefined;
+  behavior: "review" | "review-debate";
+  reviewPass: number | undefined;
 };
 
 type ReviewRowHeadResolution = { ok: true; head: ReviewRowHead } | { ok: false; message: string };
@@ -2821,7 +2896,8 @@ function resolveReviewRowHead(
   if (!writeRun) return { ok: false, message: "durable write step row not found" };
   const writeStep = snapshot.steps.find((candidate) => candidate.stepId === writeStepId);
   const completionAgent = reviewCompletionAgent(run) ?? reviewCompletionAgent(writeRun) ?? writeStep?.agents?.[0];
-  return { ok: true, head: { snapshot, writeStep, writeRun, completionAgent } };
+  const reviewPass = reviewCompletionPass(run);
+  return { ok: true, head: { snapshot, writeStep, writeRun, completionAgent, behavior: step.behavior, reviewPass } };
 }
 
 /**
@@ -2852,7 +2928,12 @@ function resolveReviewMutationRowHead(run: Run, store: StateStore): ReviewRowHea
   if (!writeRun) return { ok: false, message: "durable write step row not found" };
   const writeStep = snapshot.steps.find((candidate) => candidate.stepId === writeStepId);
   const completionAgent = reviewCompletionAgent(writeRun) ?? writeStep?.agents?.[0];
-  return { ok: true, head: { snapshot, writeStep, writeRun, completionAgent } };
+  // The review-mutation resume tail commits ahead of re-verification unclassified (default
+  // `write`), so this head never carries a reviewPass regardless of the row's own.
+  return {
+    ok: true,
+    head: { snapshot, writeStep, writeRun, completionAgent, behavior: step.behavior, reviewPass: undefined },
+  };
 }
 
 /** True when `.jarvis-intent-stage/` exists under `worktreePath` and holds at least one file. */
@@ -2982,6 +3063,7 @@ async function commitRecoveredPlanLanding(
     baseRef: string;
     durablePath: string;
     stepId: string;
+    behavior: "review" | "review-debate";
   },
   store: StateStore,
   completionCommitter: CompletionCommitter | undefined,
@@ -2998,6 +3080,9 @@ async function commitRecoveredPlanLanding(
       message: "no completion agent available to attribute the publication commit",
     };
   }
+  const reviewPass = reviewRun ? reviewCompletionPass(reviewRun) : undefined;
+  const commitStep: CompletionStepMetadata | undefined =
+    reviewPass !== undefined ? { kind: context.behavior, pass: reviewPass } : undefined;
   const title = resolvePublicationTitle(context.worktreePath, context.durablePath);
   if (reviewRun) store.setCreationTitle(reviewRun.id, title);
   try {
@@ -3006,9 +3091,10 @@ async function commitRecoveredPlanLanding(
       baseRef: context.baseRef,
       specPath: context.durablePath,
       agent,
-      title,
+      title: commitStep !== undefined ? renderStepCommitTitle(commitStep, title) : title,
       forceDistinctCommit: true,
       iterationTimeoutMs: DEFAULT_ITERATION_TIMEOUT_MS,
+      ...(commitStep !== undefined ? { step: commitStep } : {}),
     });
     if (published.commitSha === undefined) {
       const uncommitted = await getUncommittedPaths(context.worktreePath);
@@ -3128,6 +3214,7 @@ export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promi
       baseRef: run.specRef,
       durablePath: landingStep.landing.durablePath,
       stepId: landingStep.stepId,
+      behavior: landingStep.behavior as "review" | "review-debate",
     },
     store,
     request.completionCommitter,
@@ -3151,7 +3238,7 @@ export function resolveIntentFinalizationResumeContext(
 ): IntentFinalizationResumeResolution {
   const head = resolveReviewRowHead(run, store);
   if (!head.ok) return head;
-  const { snapshot, writeRun, completionAgent } = head.head;
+  const { snapshot, writeRun, completionAgent, behavior, reviewPass } = head.head;
   const lastAttempt = run.attempts.at(-1);
   if (!isReviewLandingRecoveryAttempt(lastAttempt)) {
     return { ok: false, message: "run did not fail at landing" };
@@ -3182,6 +3269,8 @@ export function resolveIntentFinalizationResumeContext(
       },
       completionAgent,
       creationTitleHint: snapshot.creationTitle,
+      behavior,
+      reviewPass,
     },
   };
 }
@@ -3305,6 +3394,22 @@ async function settleIntentResumeUncommittedFailure(
   );
 }
 
+/**
+ * Committer title + optional `step` field for a review/review-debate publication: an undefined
+ * `reviewPass` keeps the bare title and no step (unclassified write); a reached mutating pass
+ * prefixes the subject and carries the matching `Jarvis-Step`. Folds the classify-then-apply
+ * branching into one call so its callers stay under the cognitive-complexity budget.
+ */
+function reviewStepCommitFields(
+  behavior: "review" | "review-debate",
+  reviewPass: number | undefined,
+  title: string,
+): { title: string; step?: CompletionStepMetadata } {
+  if (reviewPass === undefined) return { title };
+  const step: CompletionStepMetadata = { kind: behavior, pass: reviewPass };
+  return { title: renderStepCommitTitle(step, title), step };
+}
+
 async function runIntentResumeCommitAndPublish(
   context: IntentFinalizationResumeContext,
   store: StateStore,
@@ -3321,7 +3426,7 @@ async function runIntentResumeCommitAndPublish(
       baseRef: context.baseRef,
       specPath: context.durableDir,
       agent: context.completionAgent as string,
-      title: creationTitle,
+      ...reviewStepCommitFields(context.behavior, context.reviewPass, creationTitle),
       forceDistinctCommit: true,
       iterationTimeoutMs: DEFAULT_ITERATION_TIMEOUT_MS,
     });
@@ -3936,15 +4041,17 @@ async function runMutationRepairAttempt(
 
   store.setRunStatus(context.runId, "in-progress");
   const creationTitle = resolvePublicationTitle(context.worktreePath, context.specPath, context.creationTitleHint);
+  const mutationRepairStep: CompletionStepMetadata = { kind: "mutation-repair" };
   try {
     await (deps.completionCommitter ?? createCompletionCommitter())({
       worktreePath: context.worktreePath,
       baseRef: context.baseRef,
       specPath: context.specPath,
       agent: context.completionAgent ?? "",
-      title: creationTitle,
+      title: renderStepCommitTitle(mutationRepairStep, creationTitle),
       forceDistinctCommit: true,
       iterationTimeoutMs: deps.mutationRepair?.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
+      step: mutationRepairStep,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -4538,10 +4645,12 @@ async function finalizeStandardReviewStep(
   logSink?: LogSink,
   shellIdle?: { signal?: AbortSignal; onActuatorStart?: () => void },
 ): Promise<ReviewStepOutcome> {
-  const completionAgent =
-    result.cycles.at(-1)?.kind === "completed"
-      ? result.cycles.at(-1)?.roleResults.actuator?.final?.binding.metadata?.agent?.trim()
-      : undefined;
+  const mutating = lastMutatingReviewPass(result.cycles, (cycle) =>
+    cycle.roleResults.actuator?.final?.result.kind === "ok"
+      ? cycle.roleResults.actuator.final.binding.metadata?.agent?.trim()
+      : undefined,
+  );
+  const completionAgent = mutating?.agent;
   if (landing !== undefined && landing.kind !== "none") {
     const lastCycle = result.cycles.at(-1);
     const actuatorRan = lastCycle?.kind === "completed" && lastCycle.actuatorRan;
@@ -4586,6 +4695,7 @@ async function finalizeStandardReviewStep(
     runStatus: "completed",
     outcomeKind: "done",
     ...(completionAgent ? { completionAgent } : {}),
+    ...(mutating?.pass !== undefined ? { completionReviewPass: mutating.pass } : {}),
   });
   return {
     kind: "complete",
@@ -4593,22 +4703,39 @@ async function finalizeStandardReviewStep(
     iterationsConsumed: result.cycles.length,
     resumable: false,
     ...(completionAgent ? { completionAgent } : {}),
+    ...(mutating?.pass !== undefined ? { reviewPass: mutating.pass } : {}),
   };
 }
 
-function resolveProfileReviewCompletion(lastCycle: ReviewCycleOutcome | undefined): {
+function resolveProfileReviewCompletion(
+  lastCycle: ReviewCycleOutcome | undefined,
+  cycles: readonly ReviewCycleOutcome[],
+): {
   kind: "complete" | "invocation_failure";
   terminalRole: ReviewCycleRole;
   completionAgent: string | undefined;
+  reviewPass: number | undefined;
 } {
   if (lastCycle?.kind === "role_failed") {
-    return { kind: "invocation_failure", terminalRole: lastCycle.failedRole, completionAgent: undefined };
+    return {
+      kind: "invocation_failure",
+      terminalRole: lastCycle.failedRole,
+      completionAgent: undefined,
+      reviewPass: undefined,
+    };
   }
   const actuatorRan = lastCycle?.kind === "completed" && lastCycle.actuatorRan;
-  const actuatorExecution = actuatorRan ? lastCycle.roleResults?.actuator?.final : undefined;
-  const completionAgent =
-    actuatorExecution?.result.kind === "ok" ? actuatorExecution.binding.metadata?.agent?.trim() : undefined;
-  return { kind: "complete", terminalRole: actuatorRan ? "actuator" : "critic", completionAgent };
+  const mutating = lastMutatingReviewPass(cycles, (cycle) =>
+    cycle.roleResults.actuator?.final?.result.kind === "ok"
+      ? cycle.roleResults.actuator.final.binding.metadata?.agent?.trim()
+      : undefined,
+  );
+  return {
+    kind: "complete",
+    terminalRole: actuatorRan ? "actuator" : "critic",
+    completionAgent: mutating?.agent,
+    reviewPass: mutating?.pass,
+  };
 }
 
 function resolveProfileReviewRetryable(result: ReviewCycleResult, lastCycle: ReviewCycleOutcome | undefined): boolean {
@@ -4655,7 +4782,7 @@ async function runProfileReviewStep(
   });
 
   const lastCycle = result.cycles[result.cycles.length - 1];
-  const { kind, terminalRole, completionAgent } = resolveProfileReviewCompletion(lastCycle);
+  const { kind, terminalRole, completionAgent, reviewPass } = resolveProfileReviewCompletion(lastCycle, result.cycles);
 
   onProgress?.(invocationId, stepId, {
     status: kind === "complete" ? "completed" : "stopped",
@@ -4683,6 +4810,7 @@ async function runProfileReviewStep(
     iterationsConsumed: result.cycles.length,
     resumable: resolveProfileReviewRetryable(result, lastCycle),
     ...(completionAgent ? { completionAgent } : {}),
+    ...(reviewPass !== undefined ? { reviewPass } : {}),
   };
 }
 
@@ -4788,6 +4916,7 @@ async function runReviewDispatch(
         checkpoint.id,
         store,
         reviewCompletionAgent(checkpoint),
+        reviewCompletionPass(checkpoint),
         logSink,
       );
     }

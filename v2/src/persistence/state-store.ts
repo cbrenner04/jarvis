@@ -479,6 +479,9 @@ export type Attempt = {
   completedAt: number | null;
   invocationFailureDetail: InvocationFailureDetail | null;
   completionAgent?: string | null;
+  /** Reached review-cycle pass whose actuator produced the tracked mutation, when this attempt
+   * settled a review/review-debate step; absent for every other attempt kind. */
+  completionReviewPass?: number | null;
 };
 
 /** Repository-style durable state API, keyed by IDs; no generic SQL surface. */
@@ -647,6 +650,7 @@ export interface StateStore {
     outcomeKind: OutcomeKind;
     invocationFailureDetail?: InvocationFailureDetail;
     completionAgent?: string;
+    completionReviewPass?: number;
     beforeRunUpdate?: () => void;
   }): void;
 
@@ -717,7 +721,7 @@ const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, 
 
 const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, started_at AS startedAt, status,
   outcome_kind AS outcomeKind, completed_at AS completedAt, invocation_failure_detail AS invocationFailureDetailJson,
-  completion_agent AS completionAgent`;
+  completion_agent AS completionAgent, completion_review_pass AS completionReviewPass`;
 
 const PIPELINE_COLUMNS = `id, name, created_at AS createdAt, owner_identity AS ownerIdentity, status, definition AS definitionJson, context AS contextJson, terminal_publication_failure AS terminalPublicationFailureJson, terminal_publication_succeeded_at AS terminalPublicationSucceededAt`;
 
@@ -870,6 +874,7 @@ const SCHEMA_MIGRATIONS = [
   { id: "023-run-finished-at", up: "ALTER TABLE runs ADD COLUMN finished_at INTEGER" },
   { id: "024-pipeline-stage-decided-at", up: "ALTER TABLE pipeline_stages ADD COLUMN decided_at INTEGER" },
   { id: "025-run-ready-gate-pgid", up: "ALTER TABLE runs ADD COLUMN ready_gate_pgid INTEGER" },
+  { id: "026-attempts-completion-review-pass", up: "ALTER TABLE attempts ADD COLUMN completion_review_pass INTEGER" },
 ] as const;
 
 const ORPHAN_STATUSES = "'queued', 'in-progress', 'paused', 'budget-soft-stopped'";
@@ -1691,6 +1696,7 @@ class StateStoreImpl implements StateStore {
     outcomeKind: OutcomeKind;
     invocationFailureDetail?: InvocationFailureDetail;
     completionAgent?: string;
+    completionReviewPass?: number;
     beforeRunUpdate?: () => void;
   }): void {
     this.db.transaction(() => {
@@ -1708,9 +1714,16 @@ class StateStoreImpl implements StateStore {
 
       this.db
         .prepare(
-          "UPDATE attempts SET status = 'completed', outcome_kind = ?, completed_at = ?, invocation_failure_detail = ?, completion_agent = ? WHERE id = ?",
+          "UPDATE attempts SET status = 'completed', outcome_kind = ?, completed_at = ?, invocation_failure_detail = ?, completion_agent = ?, completion_review_pass = ? WHERE id = ?",
         )
-        .run(args.outcomeKind, Date.now(), detailJson, args.completionAgent?.trim() || null, args.attemptId);
+        .run(
+          args.outcomeKind,
+          Date.now(),
+          detailJson,
+          args.completionAgent?.trim() || null,
+          args.completionReviewPass ?? null,
+          args.attemptId,
+        );
 
       args.beforeRunUpdate?.();
 

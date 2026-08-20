@@ -52,7 +52,7 @@ import {
   type StateStore,
   type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
-import { type CompletionCommitter, createCompletionCommitter } from "./completion-commit.ts";
+import { type CompletionCommitter, createCompletionCommitter, renderStepCommitTitle } from "./completion-commit.ts";
 import { type CompletionPublisher, createCompletionPublisher } from "./completion-publisher.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
@@ -2927,9 +2927,13 @@ async function commitRepairAndRepublish(
         baseRef: input.baseRef,
         specPath: input.specPath,
         agent: result.completionAgent ?? "",
-        title: resolvePublicationTitle(input.worktreePath, input.specPath, input.creationTitle),
+        title: renderStepCommitTitle(
+          { kind: "ready-gate" },
+          resolvePublicationTitle(input.worktreePath, input.specPath, input.creationTitle),
+        ),
         forceDistinctCommit: true,
         iterationTimeoutMs: args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
+        step: { kind: "ready-gate" },
         ...(options?.readyGateAttribution !== undefined ? { readyGateAttribution: options.readyGateAttribution } : {}),
       });
     }

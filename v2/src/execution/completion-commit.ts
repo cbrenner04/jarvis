@@ -150,6 +150,22 @@ function renderJarvisStepTrailer(step: CompletionStepMetadata): string {
   }
 }
 
+/** Commit subject prefix matching `step`'s `Jarvis-Step` trailer; a write step keeps the bare title. */
+export function renderStepCommitTitle(step: CompletionStepMetadata, title: string): string {
+  switch (step.kind) {
+    case "write":
+      return title;
+    case "review":
+      return `review(${step.pass}): ${title}`;
+    case "review-debate":
+      return `review-debate(${step.pass}): ${title}`;
+    case "mutation-repair":
+      return `mutation-repair: ${title}`;
+    case "ready-gate":
+      return `ready-gate: ${title}`;
+  }
+}
+
 const JARVIS_STEP_TRAILER_PRESENT = /^Jarvis-Step: /m;
 
 /** Legacy pending messages predate the `Jarvis-Step` trailer. Upgrade them once by appending

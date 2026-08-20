@@ -4611,6 +4611,65 @@ describe("executeWorkflow implement patch review", () => {
     });
   });
 
+  test("labels debate review commits by workflow pass", async () => {
+    // @mutate v2/src/execution/completion-commit.ts "return `review-debate(${step.pass}): ${title}`;" -> "return title;"
+    const implementStep = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName: "debate-review-labels-pass",
+    });
+    const worktreePath = join(
+      implementStep.worktree.jarvisRoot ?? "",
+      "worktrees",
+      implementStep.worktree.projectName,
+      implementStep.worktree.branchName,
+    );
+
+    const reviewStep = createPatchReviewDebateStep({
+      branchName: implementStep.worktree.branchName,
+      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
+      verdictPath: join(worktreePath, "verdict-patch.md"),
+      cwd: worktreePath,
+      createBinding: createDebateBindingFactory(async ({ adapterModel }) => {
+        if (adapterModel === "ACT") {
+          writeFileSync(join(worktreePath, "review-edit.txt"), "applied\n", "utf8");
+        }
+        return {
+          kind: "ok",
+          stdout: adapterModel === "ADJ" ? "apply review edit" : "done",
+          stderr: "",
+        } as const;
+      }),
+    });
+    reviewStep.profileContext = {
+      specPath: "spec.md",
+      cwd: reviewStep.cwd,
+      baseBranch: "HEAD",
+      passNumber: 1,
+      totalPasses: 1,
+    };
+
+    const commits: Array<{ title: string; step: unknown }> = [];
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        completionCommitter: async (input) => {
+          commits.push({ title: input.title, step: input.step });
+          return { commitSha: "review-commit", filesChanged: 1 };
+        },
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result).toMatchObject({ kind: "complete", commitSha: "review-commit" });
+      expect(commits.at(-1)).toEqual({
+        title: "review-debate(1): spec.md",
+        step: { kind: "review-debate", pass: 1 },
+      });
+    });
+  });
+
   test("settles a surviving-mutation failure on the durable review-debate step's own row, not the implement step's", async () => {
     const implementStep = createStep({
       stepId: "implement",
@@ -5456,6 +5515,47 @@ describe("executeWorkflow implement patch light review", () => {
     });
   });
 
+  test("labels a light review mutation commit by workflow pass", async () => {
+    // @mutate v2/src/execution/workflow-runner.ts "isReviewLastStep && lastResult.reviewPass !== undefined" -> "false"
+    const implementStep = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName: "light-review-labels-pass",
+    });
+    const worktreePath = join(
+      implementStep.worktree.jarvisRoot ?? "",
+      "worktrees",
+      implementStep.worktree.projectName,
+      implementStep.worktree.branchName,
+    );
+    const reviewStep = createPatchLightReviewStep({
+      branchName: implementStep.worktree.branchName,
+      verdictPath: join(worktreePath, "verdict-patch.md"),
+      cwd: worktreePath,
+      createBinding: createLightReviewBindingFactory(async ({ adapterModel }) => {
+        if (adapterModel === "CRIT") return { kind: "ok", stdout: "fix it", stderr: "" } as const;
+        return { kind: "ok", stdout: "done", stderr: "" } as const;
+      }),
+    });
+
+    const commits: Array<{ title: string; step: unknown }> = [];
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        completionCommitter: async (input) => {
+          commits.push({ title: input.title, step: input.step });
+          return { commitSha: "review-commit", filesChanged: 1 };
+        },
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result).toMatchObject({ kind: "complete", commitSha: "review-commit" });
+      expect(commits.at(-1)).toEqual({ title: "review(1): spec.md", step: { kind: "review", pass: 1 } });
+    });
+  });
+
   test("skips patch light review when linked index is already complete", async () => {
     const reviewCalls: string[] = [];
     const branchName = "implement-light-review-skip";
@@ -5718,6 +5818,121 @@ describe("executeWorkflow implement patch light review", () => {
       expect(shrinkRun).not.toBeNull();
       expect(shrinkRun?.id).toBe(result.runId);
       expect(store.loadRun(result.runId)?.status).toBe("completed");
+    });
+  });
+
+  test("labels only review passes that commit changes", async () => {
+    // @mutate v2/src/execution/workflow-runner.ts "isReviewLastStep && lastResult.reviewPass !== undefined" -> "isReviewLastStep"
+    const implementStep = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName: "light-review-no-label-approval",
+    });
+    const worktreePath = join(
+      implementStep.worktree.jarvisRoot ?? "",
+      "worktrees",
+      implementStep.worktree.projectName,
+      implementStep.worktree.branchName,
+    );
+    const reviewStep = createPassingLightReviewStep(implementStep.worktree.branchName, worktreePath);
+    const reviewCommits: Array<{ title: string; step: unknown }> = [];
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        completionCommitter: async (input) => {
+          reviewCommits.push({ title: input.title, step: input.step });
+          return { commitSha: "commit-1" };
+        },
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(reviewCommits.at(-1)).toEqual({ title: "spec.md", step: undefined });
+    });
+
+    const writeOnlyStep = createStep({
+      stepId: "write",
+      role: "implement",
+      branchName: "light-review-no-label-write-only",
+      suppressShrink: true,
+    });
+    const writeOnlyCommits: Array<{ title: string; step: unknown }> = [];
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [writeOnlyStep],
+        stateStore: store,
+        completionCommitter: async (input) => {
+          writeOnlyCommits.push({ title: input.title, step: input.step });
+          return { commitSha: "commit-2" };
+        },
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(writeOnlyCommits.at(-1)).toEqual({ title: "spec.md", step: undefined });
+    });
+  });
+
+  test("attributes a delayed review publication to its last mutating pass", async () => {
+    // @mutate v2/src/execution/workflow-runner.ts "return { pass: index + 1, agent: actuatorAgent(cycle as Extract<C, { kind: \"completed\" }>) };" -> "return { pass: cycles.length, agent: actuatorAgent(cycle as Extract<C, { kind: \"completed\" }>) };"
+    const implementStep = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName: "light-review-delayed-attribution",
+    });
+    const worktreePath = join(
+      implementStep.worktree.jarvisRoot ?? "",
+      "worktrees",
+      implementStep.worktree.projectName,
+      implementStep.worktree.branchName,
+    );
+    const reviewStep = createPatchLightReviewStep({
+      branchName: implementStep.worktree.branchName,
+      verdictPath: join(worktreePath, "verdict-patch.md"),
+      cwd: worktreePath,
+      maxCycles: 2,
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        invoke: (() => {
+          let criticCalls = 0;
+          return async ({ prompt, cwd }: { prompt: string; cwd: string }) => {
+            if (adapterModel === "CRIT") {
+              criticCalls += 1;
+              if (criticCalls === 1) {
+                writeFileSync(join(cwd, "critic-edit.txt"), "oops\n", "utf8");
+                return { kind: "ok", stdout: "fix it", stderr: "" } as const;
+              }
+              return { kind: "ok", stdout: "", stderr: "" } as const;
+            }
+            return { kind: "ok", stdout: "done", stderr: "" } as const;
+          };
+        })(),
+        metadata: { agent: adapterModel === "ACT" ? "pass-1-actuator" : agentId, model: adapterModel },
+      }),
+    });
+
+    const commits: Array<{ title: string; step: unknown; agent: string }> = [];
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        completionCommitter: async (input) => {
+          commits.push({ title: input.title, step: input.step, agent: input.agent });
+          return { commitSha: "review-commit", filesChanged: 1 };
+        },
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result).toMatchObject({ kind: "complete", commitSha: "review-commit" });
+      expect(commits.at(-1)).toEqual({
+        title: "review(1): spec.md",
+        step: { kind: "review", pass: 1 },
+        agent: "pass-1-actuator",
+      });
     });
   });
 });
@@ -7346,6 +7561,82 @@ describe("executeWorkflow review dispatch", () => {
     });
   });
 
+  test("retains workflow step across publication and finalization resume", async () => {
+    // @mutate v2/src/execution/workflow-runner.ts "const reviewPass = reviewCompletionPass(run);" -> "const reviewPass = undefined;"
+    const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-resume-step-"));
+    mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
+    writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"), "example.md");
+    mkdirSync(join(workspace, "ready-intents"), { recursive: true });
+
+    await withStateStore(async (store) => {
+      const base = {
+        project: "demo",
+        specRef: "main",
+        worktreePath: workspace,
+        branch: "intent/finalize-resume-step",
+        workflowSnapshot: {
+          invocationId: "intent-finalize-resume-step",
+          creationTitle: "intent: finalize-resume-step",
+          steps: [
+            {
+              stepId: "intent",
+              role: "plan",
+              durable: true,
+              expectedArtifactPath: ".jarvis-intent-stage",
+              agents: ["claude"],
+            },
+            { stepId: "review", role: "", durable: true, behavior: "review" as const },
+          ],
+        },
+      };
+      store.createRun({ ...base, specPath: "ready-intents", stepId: "intent" });
+      const reviewRunId = store.createRun({ ...base, specPath: ".jarvis-intent-stage", stepId: "review" });
+
+      // An earlier dispatch's mutating pass 1 landed and persisted its classification durably.
+      const firstAttemptId = store.recordAttemptStart(reviewRunId);
+      store.commitCompletionBoundary({
+        attemptId: firstAttemptId,
+        runStatus: "completed",
+        outcomeKind: "done",
+        completionAgent: "claude",
+        completionReviewPass: 1,
+      });
+
+      // A later, separate dispatch on the same row fails at landing; the row demotes to failed,
+      // but the earlier mutating pass's classification remains on record for recovery to read.
+      store.setRunStatus(reviewRunId, "failed");
+      const secondAttemptId = store.recordAttemptStart(reviewRunId);
+      store.commitCompletionBoundary({
+        attemptId: secondAttemptId,
+        runStatus: "failed",
+        outcomeKind: "invocation_failure",
+        invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: "landing failed" },
+      });
+
+      const run = store.loadRun(reviewRunId);
+      if (!run) throw new Error("expected review run");
+
+      const resolved = resolveIntentFinalizationResumeContext(run, store);
+      expect(resolved).toMatchObject({ ok: true, context: { behavior: "review", reviewPass: 1 } });
+
+      const commits: Array<{ title: string; step: unknown }> = [];
+      const outcome = await resumePopulatedIntentPublication(run, store, {
+        completionCommitter: async (input) => {
+          commits.push({ title: input.title, step: input.step });
+          return { commitSha: "commit-1" };
+        },
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(outcome).toMatchObject({ ok: true });
+      expect(commits.at(-1)).toEqual({
+        title: "review(1): intent: finalize-resume-step",
+        step: { kind: "review", pass: 1 },
+      });
+    });
+  });
+
   test("intent-resume publication push failure logs the same completionCommitError as the resume outcome", async () => {
     const workspace = initGitWorkspace("intent-finalize-resume-pub-fail-");
     writeFileSync(join(workspace, "README"), "base\n", "utf8");
@@ -7944,6 +8235,97 @@ describe("executeWorkflow review dispatch", () => {
           retryable: false,
           nextAction: "inspect_spec",
         });
+      });
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  test("labels mutation-repair commits", async () => {
+    // @mutate v2/src/execution/workflow-runner.ts "step: mutationRepairStep," -> ""
+    const workspace = initGitWorkspace("review-mutation-repair-label-");
+    const logsPath = join(workspace, "resume.jsonl");
+    try {
+      writeFileSync(join(workspace, "spec.md"), "# Spec\n\n## Acceptance criteria\n\n- [x] complete\n", "utf8");
+      execFileSync("git", ["add", "spec.md"], { cwd: workspace });
+      execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
+      execFileSync("git", ["branch", "-M", "main"], { cwd: workspace });
+      await withStateStore(async (store) => {
+        const snapshot = reviewMutationWorkflowSnapshot("mutation-repair-label", "implement: label");
+        const base = {
+          project: "demo",
+          specRef: "main",
+          worktreePath: workspace,
+          branch: "mutation-repair-label",
+          specPath: "spec.md",
+          workflowSnapshot: snapshot,
+        };
+        const writeRunId = store.createRun({ ...base, stepId: "implement" });
+        const writeAttemptId = store.recordAttemptStart(writeRunId);
+        store.commitCompletionBoundary({
+          attemptId: writeAttemptId,
+          runStatus: "completed",
+          outcomeKind: "done",
+          completionAgent: "codex",
+        });
+        const reviewRunId = store.createRun({ ...base, stepId: "implement-review" });
+        const reviewAttemptId = store.recordAttemptStart(reviewRunId);
+        store.commitCompletionBoundary({
+          attemptId: reviewAttemptId,
+          runStatus: "failed",
+          outcomeKind: "invocation_failure",
+          invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message: "prior mutation" },
+        });
+        const seedSink = openLogSink(logsPath);
+        seedSink.append(reviewRunId, {
+          kind: "loop_finished",
+          loopOutcomeKind: "surviving_mutation_failed",
+          iterationsConsumed: 0,
+          resumable: true,
+          survivingMutation: "operator-flip: === → !==",
+          survivingMutationSourceFile: "src/guard.ts",
+          survivingMutationSourceLine: 17,
+        });
+        seedSink.close();
+        const run = store.loadRun(reviewRunId);
+        if (!run) throw new Error("expected review run");
+        const terminalRecord = findTerminalLogRecord(openLogReader(logsPath).tail(reviewRunId));
+
+        const commits: Array<{ title: string; step: unknown }> = [];
+        let finalizerCalls = 0;
+        const outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, {
+          completionCommitter: async (input) => {
+            commits.push({ title: input.title, step: input.step });
+            return createCompletionCommitter()(input);
+          },
+          completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" }),
+          readyFinalizer: async () => {
+            finalizerCalls += 1;
+            if (finalizerCalls === 1) throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
+            return undefined;
+          },
+          runFixCommand: async () => {},
+          mutationRepair: {
+            bindings: [
+              {
+                id: "current-implement-binding",
+                metadata: { agent: "current-agent", model: "current-model" },
+                invoke: async ({ cwd }) => {
+                  writeFileSync(join(cwd, "repair-proof.txt"), "repaired\n", "utf8");
+                  return { kind: "ok", stdout: "done", stderr: "" };
+                },
+              },
+            ],
+            stepRules: "repair rules",
+            iterationTimeoutMs: 1_000,
+            iterationCeilingMs: 2_000,
+          },
+        });
+
+        expect(outcome).toMatchObject({ ok: true });
+        const repairCommit = commits.find((c) => c.step !== undefined);
+        expect(repairCommit?.step).toEqual({ kind: "mutation-repair" });
+        expect((repairCommit?.title as string).startsWith("mutation-repair: ")).toBe(true);
       });
     } finally {
       rmSync(workspace, { recursive: true, force: true });

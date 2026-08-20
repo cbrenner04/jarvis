@@ -80,6 +80,7 @@ function makePipeline(
     context,
     terminalPublicationFailure: null,
     terminalPublicationSucceededAt: null,
+    dismissedAt: null,
     stages,
   };
 }

@@ -252,6 +252,7 @@ function snapshotHasReachableUndecidedGate(snapshot: PipelineSnapshot): boolean 
       context: null,
       terminalPublicationFailure: snapshot.terminalPublicationFailure,
       terminalPublicationSucceededAt: snapshot.terminalPublicationSucceededAt,
+      dismissedAt: null,
       stages: snapshot.stages.map((stage) => ({ ...stage, pipelineId: snapshot.pipelineId })),
     })?.kind === "awaiting-approval"
   );

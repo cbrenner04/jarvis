@@ -709,6 +709,7 @@ describe("pipelines", () => {
             context: pipeline.context === null ? null : (JSON.parse(pipeline.context) as PipelineContext),
             terminalPublicationFailure: null,
             terminalPublicationSucceededAt: null,
+            dismissedAt: null,
             stages: expectedStages
               .filter((stage) => stage.pipelineId === pipeline.id)
               .map((stage) => ({
@@ -887,6 +888,81 @@ describe("pipelines", () => {
       };
       expect(row.context).toBeNull();
       verify.close();
+      migrated.close();
+    } finally {
+      removeOrchestrationStore(legacyDbPath);
+    }
+  });
+
+  test("a pre-027-migration database opens successfully and loads dismissedAt as null", () => {
+    const legacyDbPath = join(tmpdir(), "jarvis-test-state-legacy-dismissed-at.sqlite");
+    removeOrchestrationStore(legacyDbPath);
+    try {
+      const raw = new Database(legacyDbPath);
+      raw.exec(`
+        CREATE TABLE pipelines (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          definition TEXT NOT NULL,
+          owner_identity TEXT,
+          status TEXT NOT NULL DEFAULT 'active',
+          context TEXT,
+          terminal_publication_failure TEXT,
+          terminal_publication_succeeded_at INTEGER
+        );
+        CREATE TABLE pipeline_stages (
+          id TEXT PRIMARY KEY,
+          pipeline_id TEXT NOT NULL REFERENCES pipelines(id),
+          stage_id TEXT NOT NULL,
+          branch_key TEXT NOT NULL DEFAULT 'default',
+          position INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          workflow_invocation_id TEXT,
+          started_at INTEGER,
+          ended_at INTEGER,
+          artifact TEXT,
+          failure_detail TEXT,
+          decided_at INTEGER,
+          UNIQUE (pipeline_id, stage_id, branch_key)
+        );
+        CREATE TABLE _migrations (
+          id TEXT PRIMARY KEY,
+          applied_at INTEGER NOT NULL
+        );
+      `);
+      for (const id of [
+        "013-pipelines-and-stages",
+        "014-pipeline-owner-identity-and-status",
+        "015-pipeline-context",
+        "018-pipeline-terminal-publication",
+        "020-pipeline-stage-branch-key",
+        "024-pipeline-stage-decided-at",
+      ]) {
+        raw.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(id, Date.now());
+      }
+      const pipelineId = "pre-027-pipeline";
+      raw
+        .prepare(
+          "INSERT INTO pipelines (id, name, created_at, owner_identity, status, definition) VALUES (?, ?, ?, ?, 'active', ?)",
+        )
+        .run(pipelineId, "pre-027-pipeline", Date.now(), "legacy-owner:1", JSON.stringify(SAMPLE_PIPELINE_DEFINITION));
+      raw
+        .prepare(
+          `INSERT INTO pipeline_stages (id, pipeline_id, stage_id, branch_key, position, status, workflow_invocation_id, started_at, ended_at, artifact, failure_detail, decided_at)
+           VALUES (?, ?, 'plan', 'default', 0, 'pending', NULL, NULL, NULL, NULL, NULL, NULL)`,
+        )
+        .run("pre-027-stage", pipelineId);
+      raw.close();
+
+      const migrated = openStateStore(legacyDbPath);
+      const pipeline = migrated.loadPipeline(pipelineId);
+      if (!pipeline) throw new Error("Pipeline should exist");
+      expect(pipeline.dismissedAt).toBeNull();
+      expect(pipeline.stages).toHaveLength(1);
+      const listed = migrated.listPipelines();
+      expect(listed).toHaveLength(1);
+      expect(listed[0]?.dismissedAt).toBeNull();
       migrated.close();
     } finally {
       removeOrchestrationStore(legacyDbPath);
@@ -1733,7 +1809,7 @@ describe("pipelines", () => {
 
       const verify = new Database(legacyDbPath);
       const migrationCount = verify.prepare("SELECT COUNT(*) AS total FROM _migrations").get() as { total: number };
-      expect(migrationCount.total).toBe(23);
+      expect(migrationCount.total).toBe(24);
       verify.close();
 
       const pipelineId = migrated.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
@@ -3431,5 +3507,129 @@ describe("terminal publication commits", () => {
       storeA.close();
       storeB.close();
     }
+  });
+});
+
+describe("pipeline dismissal", () => {
+  let store: StateStore;
+
+  beforeEach(() => {
+    removeOrchestrationStore(TEST_DB_PATH);
+    store = openStateStore(TEST_DB_PATH);
+  });
+
+  afterEach(() => {
+    store.close();
+    removeOrchestrationStore(TEST_DB_PATH);
+  });
+
+  test("dismissPipeline persists dismissedAt across reopen", () => {
+    // @mutate v2/src/persistence/state-store.ts ".run(dismissedAt, args.pipelineId)" -> ".run(null, args.pipelineId)"
+    const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline("dismiss-reopen") });
+    const before = Date.now();
+
+    expect(store.dismissPipeline({ pipelineId })).toEqual({ kind: "applied", pipelineId });
+    expect(loadPipelineOrThrow(store, pipelineId).dismissedAt).toBeGreaterThanOrEqual(before);
+    const listed = store.listPipelines().find((pipeline) => pipeline.id === pipelineId);
+    expect(listed?.dismissedAt).toBeGreaterThanOrEqual(before);
+
+    store.close();
+    store = openStateStore(TEST_DB_PATH);
+    expect(loadPipelineOrThrow(store, pipelineId).dismissedAt).toBeGreaterThanOrEqual(before);
+  });
+
+  test("undismissPipeline clears dismissedAt back to null", () => {
+    const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline("undismiss") });
+    store.dismissPipeline({ pipelineId });
+
+    // @mutate v2/src/persistence/state-store.ts "SET dismissed_at = NULL WHERE id = ?" -> "SET dismissed_at = dismissed_at WHERE id = ?"
+    expect(store.undismissPipeline({ pipelineId })).toEqual({ kind: "applied", pipelineId });
+    expect(loadPipelineOrThrow(store, pipelineId).dismissedAt).toBeNull();
+
+    store.close();
+    store = openStateStore(TEST_DB_PATH);
+    expect(loadPipelineOrThrow(store, pipelineId).dismissedAt).toBeNull();
+  });
+
+  test("undismissPipeline on a never-dismissed pipeline is a no-op success", () => {
+    const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline("never-dismissed") });
+
+    expect(store.undismissPipeline({ pipelineId })).toEqual({ kind: "applied", pipelineId });
+    expect(loadPipelineOrThrow(store, pipelineId).dismissedAt).toBeNull();
+  });
+
+  test("dismiss and undismiss only affect the targeted pipeline row", () => {
+    // @mutate v2/src/persistence/state-store.ts "UPDATE pipelines SET dismissed_at = ? WHERE id = ? AND dismissed_at IS NULL" -> "UPDATE pipelines SET dismissed_at = ? WHERE dismissed_at IS NULL"
+    // @mutate v2/src/persistence/state-store.ts "UPDATE pipelines SET dismissed_at = NULL WHERE id = ?" -> "UPDATE pipelines SET dismissed_at = NULL"
+    const pipelineA = store.createPipeline({ definition: singlePlanStagePipeline("dismiss-scope-a") });
+    const pipelineB = store.createPipeline({ definition: singlePlanStagePipeline("dismiss-scope-b") });
+
+    store.dismissPipeline({ pipelineId: pipelineA });
+    expect(loadPipelineOrThrow(store, pipelineB).dismissedAt).toBeNull();
+
+    store.dismissPipeline({ pipelineId: pipelineB });
+    store.undismissPipeline({ pipelineId: pipelineA });
+    expect(loadPipelineOrThrow(store, pipelineA).dismissedAt).toBeNull();
+    expect(loadPipelineOrThrow(store, pipelineB).dismissedAt).not.toBeNull();
+  });
+
+  test("dismiss and undismiss leave stage records and pipeline lifecycle untouched", () => {
+    const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+    store.updateStage({
+      pipelineId,
+      stageId: "plan",
+      patch: { status: "succeeded", workflowInvocationId: "workflow-plan", startedAt: 100, endedAt: 200 },
+    });
+    const before = loadPipelineOrThrow(store, pipelineId);
+    const gate = before.stages.find((stage) => stage.stageId === "gate");
+    if (!gate) throw new Error("gate stage should exist");
+    store.commitApprovalBoundary({ stageRecordId: gate.id });
+    store.commitApprovalDecision({ stageRecordId: gate.id, decision: "approved" });
+
+    const beforeDismiss = loadPipelineOrThrow(store, pipelineId);
+    store.dismissPipeline({ pipelineId });
+    store.undismissPipeline({ pipelineId });
+    const after = loadPipelineOrThrow(store, pipelineId);
+
+    expect(after.stages).toEqual(beforeDismiss.stages);
+    expect(after.name).toBe(beforeDismiss.name);
+    expect(after.createdAt).toBe(beforeDismiss.createdAt);
+    expect(after.definition).toEqual(beforeDismiss.definition);
+    expect(after.context).toEqual(beforeDismiss.context);
+    expect(after.status).toBe(beforeDismiss.status);
+    expect(after.ownerIdentity).toBe(beforeDismiss.ownerIdentity);
+    expect(after.terminalPublicationFailure).toEqual(beforeDismiss.terminalPublicationFailure);
+    expect(after.terminalPublicationSucceededAt).toBe(beforeDismiss.terminalPublicationSucceededAt);
+  });
+
+  test("dismissPipeline and undismissPipeline refuse an unknown pipeline id", () => {
+    // @mutate v2/src/persistence/state-store.ts "this.db.prepare(\"SELECT 1 FROM pipelines WHERE id = ?\").get(pipelineId) !== null;" -> "true;"
+    const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline("unknown-refusal") });
+
+    expect(store.dismissPipeline({ pipelineId: "no-such-pipeline" })).toEqual({
+      kind: "refused",
+      pipelineId: "no-such-pipeline",
+      reason: "pipeline_not_found",
+    });
+    expect(store.undismissPipeline({ pipelineId: "no-such-pipeline" })).toEqual({
+      kind: "refused",
+      pipelineId: "no-such-pipeline",
+      reason: "pipeline_not_found",
+    });
+    expect(loadPipelineOrThrow(store, pipelineId).dismissedAt).toBeNull();
+  });
+
+  test("re-dismissing a dismissed pipeline preserves the first dismissal timestamp", () => {
+    // @mutate v2/src/persistence/state-store.ts "UPDATE pipelines SET dismissed_at = ? WHERE id = ? AND dismissed_at IS NULL" -> "UPDATE pipelines SET dismissed_at = ? WHERE id = ?"
+    const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline("dismiss-idempotent") });
+    const raw = new Database(TEST_DB_PATH);
+    try {
+      raw.prepare("UPDATE pipelines SET dismissed_at = 1000 WHERE id = ?").run(pipelineId);
+    } finally {
+      raw.close();
+    }
+
+    expect(store.dismissPipeline({ pipelineId })).toEqual({ kind: "applied", pipelineId });
+    expect(loadPipelineOrThrow(store, pipelineId).dismissedAt).toBe(1000);
   });
 });

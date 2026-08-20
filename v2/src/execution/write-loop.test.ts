@@ -491,6 +491,8 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
     reopenFailedPipeline: (args) => inner.reopenFailedPipeline(args),
     commitTerminalPublicationFailure: (args) => inner.commitTerminalPublicationFailure(args),
     commitTerminalPublicationSuccess: (args) => inner.commitTerminalPublicationSuccess(args),
+    dismissPipeline: (args) => inner.dismissPipeline(args),
+    undismissPipeline: (args) => inner.undismissPipeline(args),
     recordAttemptStart: (runId) => inner.recordAttemptStart(runId),
     setRunStatus: (runId, status) => inner.setRunStatus(runId, status),
     commitGuardedKill: (runId) => inner.commitGuardedKill(runId),

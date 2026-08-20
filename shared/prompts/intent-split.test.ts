@@ -3,6 +3,7 @@ import { DEFAULT_WRITE_STEP_RULES } from "../../v2/src/execution/write-loop-inpu
 import {
   buildIntentSplitPrompt,
   INTENT_SPLIT_BASELINE_BODY_LENGTH,
+  INTENT_SPLIT_DECLARATION_PIN,
   INTENT_SPLIT_MAX_BODY_GROWTH,
   INTENT_SPLIT_PROMPT_ID,
   INTENT_SPLIT_SURFACE_PIN,
@@ -77,6 +78,7 @@ describe("buildIntentSplitPrompt", () => {
 
     expect(normalized).toContain("touches exactly one module-boundary surface");
     expect(normalized).toContain("state in one line in that intent's body why splitting does not apply");
+    expect(normalized).toContain(INTENT_SPLIT_DECLARATION_PIN);
     expect(normalized).not.toContain("already one independently observable behavior");
   });
 

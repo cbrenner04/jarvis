@@ -13,11 +13,20 @@ export const INTENT_SPLIT_PROMPT_ID = "intent.prompt.split";
  */
 export const INTENT_SPLIT_SURFACE_PIN = "one terse behavior-level intent per surface, in dependency order";
 
+/**
+ * Pinned substring requiring the single-surface declaration pair — an `Unsplit rationale:` line
+ * plus a `## Primary implementation surface` section naming exactly one entry — that the
+ * plan-draft normalizer reads to suppress boundary splitting. Kept in sync with
+ * `prompts/intent/split.md`.
+ */
+export const INTENT_SPLIT_DECLARATION_PIN =
+  "Write that line as an `Unsplit rationale:` line, and give that intent a `## Primary implementation surface` section naming exactly one entry";
+
 /** Pre-change (revision 1) `intent.prompt.split` artifact body length, for the growth budget. */
 export const INTENT_SPLIT_BASELINE_BODY_LENGTH = 1359;
 
 /** Max characters the artifact body may grow beyond `INTENT_SPLIT_BASELINE_BODY_LENGTH`. */
-export const INTENT_SPLIT_MAX_BODY_GROWTH = 200;
+export const INTENT_SPLIT_MAX_BODY_GROWTH = 300;
 
 export function buildIntentSplitPrompt(opts: {
   workdir: string;

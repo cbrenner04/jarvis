@@ -120,6 +120,8 @@ Fresh plan runs require a seed. File and inline seeds both enter the same flow: 
 
 When a seed is too broad for one spec/PR, split it into authored intents first. Intents are split by touched module-boundary surface (persistence, daemon request handling, CLI admission, execution loop, comparable seams), not by symptom, one intent per surface in dependency order. Use these size boundaries:
 
+When a seed touches exactly one module-boundary surface, the emitted intent's `Unsplit rationale:` line and `## Primary implementation surface` section (naming exactly one entry) are not review prose — the plan-draft normalizer reads that declared pair from `intent.md` to suppress boundary splitting on the resulting spec.
+
 - A **subspec** is commit-sized: one atomic, independently testable change.
 - An **intent** is behavior-sized: one independently observable behavior that
   can later draft into one spec.

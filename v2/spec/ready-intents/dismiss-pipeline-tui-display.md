@@ -4,6 +4,12 @@ name: dismiss-pipeline-tui-display
 
 # Dismiss Pipeline TUI Display
 
+## Primary implementation surface
+
+`v2/src/tui/tui-monitor-pipeline-tree.ts`
+
+Unsplit rationale: The whole change is one cohesive TUI display-layer concern — filtering dismissed pipelines out of the pure work-tree and needs-attention projections plus a session-only show-dismissed toggle that switches the `pipeline_list` request; it reads the already-landed `dismissedAt`/`includeDismissed` surface and adds no new module boundary worth splitting across.
+
 ## Prerequisites
 
 - A pipeline carries a nullable durable dismissal timestamp that survives reopening the state store, with dismiss/undismiss store operations that leave stage records and derived state untouched.

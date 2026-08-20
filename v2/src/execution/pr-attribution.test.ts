@@ -109,6 +109,77 @@ describe("renderAttribution", () => {
     const out = await renderAttribution({ cwd: dir, base: "base" });
     expect(out.split("\n")[0]).toBe(`- ${sha} First \u2014 Claude Opus 4.8, Codex GPT-5.3`);
   });
+
+  test("renders ordered mixed step counts per agent", async () => {
+    // @mutate v2/src/execution/pr-attribution.ts "agentCounts.set(kind, (agentCounts.get(kind) ?? 0) + 1);" -> "agentCounts.set(kind, 1);"
+    commitWithMessage(
+      "a.txt",
+      "First\n\nSpec: spec/foo/00-first.md\n\nJarvis-Agent: Claude Opus 4.8\nJarvis-Step: write",
+    );
+    commitWithMessage(
+      "b.txt",
+      "Second\n\nSpec: spec/foo/01-second.md\n\nJarvis-Agent: Claude Opus 4.8\nJarvis-Step: mutation-repair",
+    );
+    commitWithMessage(
+      "c.txt",
+      "Third\n\nSpec: spec/foo/02-third.md\n\nJarvis-Agent: Claude Opus 4.8\nJarvis-Step: review 1",
+    );
+    commitWithMessage(
+      "d.txt",
+      "Fourth\n\nSpec: spec/foo/03-fourth.md\n\nJarvis-Agent: Claude Opus 4.8\nJarvis-Step: review 2",
+    );
+    const out = await renderAttribution({ cwd: dir, base: "base" });
+    const lines = out.split("\n");
+    const summaryIndex = lines.indexOf("Written by Claude Opus 4.8 through Jarvis.");
+    expect(summaryIndex).toBeGreaterThan(-1);
+    expect(lines[summaryIndex + 1]).toBe("Claude Opus 4.8 \u2014 Steps: write 1, review 2, mutation-repair 1");
+  });
+
+  test("normalizes review steps and deduplicates trailers per commit", async () => {
+    // @mutate v2/src/execution/pr-attribution.ts "const distinctAgents = new Set(commit.jarvisAgentTrailers.filter((agent) => agent !== \"\"));" -> "const distinctAgents = commit.jarvisAgentTrailers.filter((agent) => agent !== \"\");"
+    commitWithMessage(
+      "a.txt",
+      [
+        "First",
+        "",
+        "Spec: spec/foo/00-first.md",
+        "",
+        "Jarvis-Agent: Claude Opus 4.8",
+        "Jarvis-Agent: Claude Opus 4.8",
+        "Jarvis-Agent: Codex GPT-5.3",
+        "Jarvis-Step: review 1",
+        "Jarvis-Step: review 1",
+      ].join("\n"),
+    );
+    commitWithMessage(
+      "b.txt",
+      "Second\n\nSpec: spec/foo/01-second.md\n\nJarvis-Agent: Claude Opus 4.8\nJarvis-Step: write",
+    );
+    const out = await renderAttribution({ cwd: dir, base: "base" });
+    expect(out).toContain("Claude Opus 4.8 \u2014 Steps: write 1, review 1");
+    expect(out).not.toContain("Codex GPT-5.3 \u2014 Steps");
+  });
+
+  test("suppresses invalid and single-kind step counts", async () => {
+    // @mutate v2/src/execution/pr-attribution.ts "if (kindsPresent.length <= 1) {\n      continue;\n    }" -> "if (kindsPresent.length < 1) {\n      continue;\n    }"
+    commitWithMessage("a.txt", "First\n\nSpec: spec/foo/00-first.md\n\nJarvis-Agent: X");
+    commitWithMessage("b.txt", "Second\n\nSpec: spec/foo/01-second.md\n\nJarvis-Agent: X\nJarvis-Step: bogus-step");
+    commitWithMessage(
+      "c.txt",
+      "Third\n\nSpec: spec/foo/02-third.md\n\nJarvis-Agent: X\nJarvis-Step: write\nJarvis-Step: mutation-repair",
+    );
+    commitWithMessage("d.txt", "Fourth\n\nSpec: spec/foo/03-fourth.md\n\nJarvis-Agent: Y\nJarvis-Step: ready-gate");
+    const out = await renderAttribution({ cwd: dir, base: "base" });
+    expect(out).not.toContain("Steps:");
+  });
+
+  test("excludes non-subspec commits from step counts", async () => {
+    // @mutate v2/src/execution/pr-attribution.ts "return commits.filter((c) => c.firstBodyLine.startsWith(SUBSPEC_FIRST_BODY_LINE_PREFIX));" -> "return commits.filter(() => true);"
+    commitWithMessage("a.txt", "First\n\nSpec: spec/foo/00-first.md\n\nJarvis-Agent: Z\nJarvis-Step: write");
+    commitWithMessage("b.txt", "WIP: progress\n\nNo Spec: line here\n\nJarvis-Agent: Z\nJarvis-Step: review 1");
+    const out = await renderAttribution({ cwd: dir, base: "base" });
+    expect(out).not.toContain("Steps:");
+  });
 });
 
 describe("readBranchCommits with injected git", () => {
@@ -117,7 +188,7 @@ describe("readBranchCommits with injected git", () => {
     const recordSep = "\x1e";
     const _trailerSep = "\x02";
     const logOutput = [
-      `abc1234${fieldSep}jarvis: complete run${fieldSep}Claude Opus 4.8${fieldSep}Spec: v2/spec/test/index.md\n\nJarvis-Agent: Claude Opus 4.8${recordSep}`,
+      `abc1234${fieldSep}jarvis: complete run${fieldSep}Claude Opus 4.8${fieldSep}write${fieldSep}Spec: v2/spec/test/index.md\n\nJarvis-Agent: Claude Opus 4.8\nJarvis-Step: write${recordSep}`,
     ].join("");
 
     const commits = await readBranchCommits({
@@ -132,6 +203,7 @@ describe("readBranchCommits with injected git", () => {
     expect(commits).toHaveLength(1);
     expect(commits[0]?.firstBodyLine).toBe("Spec: v2/spec/test/index.md");
     expect(commits[0]?.jarvisAgentTrailers).toEqual(["Claude Opus 4.8"]);
+    expect(commits[0]?.jarvisStepTrailers).toEqual(["write"]);
   });
 
   test("propagates rejected git read", async () => {

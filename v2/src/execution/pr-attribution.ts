@@ -10,7 +10,32 @@ export type CommitInfo = {
   subject: string;
   firstBodyLine: string;
   jarvisAgentTrailers: string[];
+  jarvisStepTrailers: string[];
 };
+
+/** Normalized `Jarvis-Step` kinds, in the fixed footer render order. */
+const STEP_KIND_ORDER = ["write", "review", "review-debate", "mutation-repair", "ready-gate"] as const;
+type StepKind = (typeof STEP_KIND_ORDER)[number];
+
+/** Matches a trimmed `Jarvis-Step` value recognized for attribution counting. */
+const RECOGNIZED_STEP_RE = /^(write|review [1-9][0-9]*|review-debate [1-9][0-9]*|mutation-repair|ready-gate)$/;
+
+function normalizeStepKind(raw: string): StepKind {
+  if (raw.startsWith("review-debate ")) return "review-debate";
+  if (raw.startsWith("review ")) return "review";
+  return raw as StepKind;
+}
+
+/** Classify a commit's step trailers into one normalized kind, or `undefined` when the
+ * trailers are missing, unrecognized, or conflict (more than one distinct recognized value). */
+function classifyStep(rawTrailers: readonly string[]): StepKind | undefined {
+  const recognized = new Set(rawTrailers.filter((value) => RECOGNIZED_STEP_RE.test(value)));
+  if (recognized.size !== 1) {
+    return undefined;
+  }
+  const [only] = recognized;
+  return normalizeStepKind(only as string);
+}
 
 type Git = (cwd: string, args: readonly string[]) => Promise<string>;
 
@@ -29,7 +54,7 @@ export async function readBranchCommits(opts: { cwd: string; base: string; git?:
   const output = await git(opts.cwd, [
     "log",
     "--reverse",
-    `--format=%h${COMMIT_FIELD_SEP}%s${COMMIT_FIELD_SEP}%(trailers:key=Jarvis-Agent,valueonly=true,separator=%x02)${COMMIT_FIELD_SEP}%b${COMMIT_RECORD_SEP}`,
+    `--format=%h${COMMIT_FIELD_SEP}%s${COMMIT_FIELD_SEP}%(trailers:key=Jarvis-Agent,valueonly=true,separator=%x02)${COMMIT_FIELD_SEP}%(trailers:key=Jarvis-Step,valueonly=true,separator=%x02)${COMMIT_FIELD_SEP}%b${COMMIT_RECORD_SEP}`,
     `${opts.base}..HEAD`,
   ]);
 
@@ -41,21 +66,26 @@ export async function readBranchCommits(opts: { cwd: string; base: string; git?:
       continue;
     }
     const fields = record.split(COMMIT_FIELD_SEP);
-    if (fields.length < 4) {
+    if (fields.length < 5) {
       continue;
     }
     const shortSha = fields[0] ?? "";
     const subject = fields[1] ?? "";
-    const trailerField = fields[2] ?? "";
-    const body = fields[3] ?? "";
-    const trailers = trailerField === "" ? [] : trailerField.split(TRAILER_VALUE_SEP).map((s) => s.trim());
+    const agentTrailerField = fields[2] ?? "";
+    const stepTrailerField = fields[3] ?? "";
+    const body = fields[4] ?? "";
+    const jarvisAgentTrailers =
+      agentTrailerField === "" ? [] : agentTrailerField.split(TRAILER_VALUE_SEP).map((s) => s.trim());
+    const jarvisStepTrailers =
+      stepTrailerField === "" ? [] : stepTrailerField.split(TRAILER_VALUE_SEP).map((s) => s.trim());
     const bodyWithoutTrailers = stripTrailerBlock(body);
     const firstBodyLine = firstNonEmptyLine(bodyWithoutTrailers);
     commits.push({
       shortSha,
       subject,
       firstBodyLine,
-      jarvisAgentTrailers: trailers,
+      jarvisAgentTrailers,
+      jarvisStepTrailers,
     });
   }
   return commits;
@@ -129,6 +159,42 @@ export async function renderAttribution(opts: { cwd: string; base: string; git?:
   if (labelOrder.length > 0) {
     lines.push("");
     lines.push(`Written by ${labelOrder.join(", ")} through Jarvis.`);
+    for (const stepLine of renderStepLines(subspecCommits, labelOrder)) {
+      lines.push(stepLine);
+    }
   }
   return lines.join("\n");
+}
+
+/** Per-agent `<Label> — Steps: ...` lines for agents whose classified commits span more than
+ * one normalized step kind, in first-appearance order. */
+function renderStepLines(subspecCommits: readonly CommitInfo[], labelOrder: readonly string[]): string[] {
+  const counts = new Map<string, Map<StepKind, number>>();
+  for (const commit of subspecCommits) {
+    const kind = classifyStep(commit.jarvisStepTrailers);
+    if (kind === undefined) {
+      continue;
+    }
+    const distinctAgents = new Set(commit.jarvisAgentTrailers.filter((agent) => agent !== ""));
+    for (const agent of distinctAgents) {
+      const agentCounts = counts.get(agent) ?? new Map<StepKind, number>();
+      agentCounts.set(kind, (agentCounts.get(kind) ?? 0) + 1);
+      counts.set(agent, agentCounts);
+    }
+  }
+
+  const lines: string[] = [];
+  for (const label of labelOrder) {
+    const agentCounts = counts.get(label);
+    if (agentCounts === undefined) {
+      continue;
+    }
+    const kindsPresent = STEP_KIND_ORDER.filter((kind) => (agentCounts.get(kind) ?? 0) > 0);
+    if (kindsPresent.length <= 1) {
+      continue;
+    }
+    const parts = kindsPresent.map((kind) => `${kind} ${agentCounts.get(kind)}`);
+    lines.push(`${label} — Steps: ${parts.join(", ")}`);
+  }
+  return lines;
 }

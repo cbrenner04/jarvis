@@ -174,7 +174,7 @@ test("a repeat dismiss stays applied and leaves the original dismissedAt unchang
 test("an unknown pipeline id is refused on dismiss and undismiss", async () => {
   const realPipelineId = stateStore.createPipeline({ definition: SINGLE_WORKFLOW("real") });
 
-  // @mutate v2/src/daemon/daemon.ts "if (outcome.kind === \"refused\") {\n        return { kind: \"response\", result: outcome };\n      }" -> "if (false) {\n        return { kind: \"response\", result: outcome };\n      }"
+  // @mutate v2/src/daemon/daemon.ts "if (outcome.kind === \"refused\") {" -> "if (false) {"
   const dismissResponse = await handlers.pipeline_dismiss(
     requestFrame("d", "pipeline_dismiss", { pipelineId: "no-such-pipeline" }),
     new AbortController().signal,

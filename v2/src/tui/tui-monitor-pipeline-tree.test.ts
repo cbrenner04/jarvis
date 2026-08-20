@@ -66,6 +66,7 @@ function pipelineSnapshot(
     ...overrides,
     terminalPublicationSucceededAt: overrides.terminalPublicationSucceededAt ?? null,
     terminalPublicationFailure: overrides.terminalPublicationFailure ?? null,
+    dismissedAt: overrides.dismissedAt ?? null,
   };
 }
 

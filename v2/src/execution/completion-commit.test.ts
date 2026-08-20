@@ -398,6 +398,205 @@ describe("createCompletionCommitter", () => {
     expect(result).toEqual({ commitSha: "existing-commit", filesChanged: 1 });
   });
 
+  test("defaults absent and legacy pending step metadata to write", async () => {
+    // @mutate v2/src/execution/completion-commit.ts "}\n${renderJarvisStepTrailer(step)}`," -> "}`,"
+    // Fresh direct completion: bare title, `Jarvis-Step: write` added beside `Jarvis-Agent`.
+    const { worktreePath, gitDir } = setupWorktree("v2/spec/test/index.md");
+    const calls: GitCall[] = [];
+    const runGit = async (_cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> => {
+      calls.push({ args, env });
+      if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return "base-head";
+      if (args[0] === "write-tree") return "new-tree";
+      if (args[0] === "rev-parse" && args[1] === "base-head^{tree}") return "base-tree";
+      if (args[0] === "symbolic-ref") return "refs/heads/feature";
+      if (args[0] === "commit-tree") return "new-commit";
+      if (args[0] === "diff-tree") return "src/a.ts";
+      return "";
+    };
+
+    await createCompletionCommitter(runGit)({
+      worktreePath,
+      baseRef: "main",
+      specPath: "v2/spec/test/index.md",
+      agent: "claude",
+      title: "Test Spec Title",
+    });
+
+    const commitCall = calls.find((c) => c.args[0] === "commit-tree");
+    const message = commitCall?.args[commitCall.args.indexOf("-m") + 1];
+    expect(message).toBe("Test Spec Title\n\nSpec: v2/spec/test/index.md\n\nJarvis-Agent: claude\nJarvis-Step: write");
+
+    // Legacy pending commit predating Jarvis-Step resumes with the same write classification.
+    const { worktreePath: legacyWorktree, gitDir: legacyGitDir } = setupWorktree("v2/spec/test/index.md");
+    const legacyPendingPath = join(legacyGitDir, "jarvis-completion-pending.json");
+    const legacyMessage = "Test Spec Title\n\nSpec: v2/spec/test/index.md\n\nJarvis-Agent: claude";
+    writeFileSync(
+      legacyPendingPath,
+      `${JSON.stringify({
+        baseHead: "base-head",
+        tree: "pending-tree",
+        branchRef: "refs/heads/feature",
+        message: legacyMessage,
+        agent: "claude",
+        timestamp: "2026-01-01T00:00:00.000Z",
+      })}\n`,
+      "utf8",
+    );
+    const legacyCalls: GitCall[] = [];
+    const legacyRunGit = async (
+      _cwd: string,
+      args: readonly string[],
+      env?: Record<string, string>,
+    ): Promise<string> => {
+      legacyCalls.push({ args, env });
+      if (args[0] === "rev-parse" && args[1] === "--git-dir") return legacyGitDir;
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return "base-head";
+      if (args[0] === "commit-tree") return "legacy-commit";
+      if (args[0] === "diff-tree") return "src/a.ts";
+      return "";
+    };
+
+    await createCompletionCommitter(legacyRunGit)({
+      worktreePath: legacyWorktree,
+      baseRef: "main",
+      specPath: "v2/spec/test/index.md",
+      agent: "claude",
+      title: "Test Spec Title",
+    });
+
+    const legacyCommitCall = legacyCalls.find((c) => c.args[0] === "commit-tree");
+    const legacyResumedMessage = legacyCommitCall?.args[legacyCommitCall.args.indexOf("-m") + 1];
+    expect(legacyResumedMessage).toBe(`${legacyMessage}\nJarvis-Step: write`);
+  });
+
+  test("preserves prepared pending step message on retry", async () => {
+    // @mutate v2/src/execution/completion-commit.ts "if (JARVIS_STEP_TRAILER_PRESENT.test(pending.message)) return pending;" -> "if (false) return pending;"
+    const { worktreePath, gitDir } = setupWorktree("v2/spec/test/index.md");
+    const pendingPath = join(gitDir, "jarvis-completion-pending.json");
+    const preparedMessage =
+      "ready-gate: Test Spec Title\n\nSpec: v2/spec/test/index.md\n\nJarvis-Agent: claude\n\nJarvis-Step: ready-gate";
+    writeFileSync(
+      pendingPath,
+      `${JSON.stringify({
+        baseHead: "base-head",
+        tree: "pending-tree",
+        branchRef: "refs/heads/feature",
+        message: preparedMessage,
+        agent: "claude",
+        timestamp: "2026-01-01T00:00:00.000Z",
+      })}\n`,
+      "utf8",
+    );
+
+    const calls: GitCall[] = [];
+    const runGit = async (_cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> => {
+      calls.push({ args, env });
+      if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return "base-head";
+      if (args[0] === "commit-tree") return "new-commit";
+      if (args[0] === "diff-tree") return "src/a.ts";
+      return "";
+    };
+
+    await createCompletionCommitter(runGit)({
+      worktreePath,
+      baseRef: "main",
+      specPath: "v2/spec/test/index.md",
+      agent: "claude",
+      title: "Test Spec Title",
+      // Retry supplies different metadata; the prepared message stays authoritative.
+      step: { kind: "mutation-repair" },
+    });
+
+    const commitCall = calls.find((c) => c.args[0] === "commit-tree");
+    const message = commitCall?.args[commitCall.args.indexOf("-m") + 1];
+    expect(message).toBe(preparedMessage);
+  });
+
+  test("upgrades only trailerless legacy pending messages", async () => {
+    // @mutate v2/src/execution/completion-commit.ts "if (JARVIS_STEP_TRAILER_PRESENT.test(pending.message)) return pending;" -> "if (false) return pending;"
+    // Trailer-less legacy pending message: upgraded once with `Jarvis-Step: write` appended.
+    const { worktreePath, gitDir } = setupWorktree("v2/spec/test/index.md");
+    const pendingPath = join(gitDir, "jarvis-completion-pending.json");
+    const legacyMessage = "Test Spec Title\n\nSpec: v2/spec/test/index.md\n\nJarvis-Agent: claude";
+    writeFileSync(
+      pendingPath,
+      `${JSON.stringify({
+        baseHead: "base-head",
+        tree: "pending-tree",
+        branchRef: "refs/heads/feature",
+        message: legacyMessage,
+        agent: "claude",
+        timestamp: "2026-01-01T00:00:00.000Z",
+      })}\n`,
+      "utf8",
+    );
+
+    const calls: GitCall[] = [];
+    const runGit = async (_cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> => {
+      calls.push({ args, env });
+      if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return "base-head";
+      if (args[0] === "commit-tree") return "new-commit";
+      if (args[0] === "diff-tree") return "src/a.ts";
+      return "";
+    };
+
+    await createCompletionCommitter(runGit)({
+      worktreePath,
+      baseRef: "main",
+      specPath: "v2/spec/test/index.md",
+      agent: "claude",
+      title: "Test Spec Title",
+    });
+
+    const commitCall = calls.find((c) => c.args[0] === "commit-tree");
+    const message = commitCall?.args[commitCall.args.indexOf("-m") + 1];
+    expect(message).toBe(`${legacyMessage}\nJarvis-Step: write`);
+    expect(message?.match(/Jarvis-Step:/g)?.length).toBe(1);
+
+    // A prepared message with one valid Jarvis-Step trailer is retained, not rewritten or duplicated.
+    const { worktreePath: worktreePath2, gitDir: gitDir2 } = setupWorktree("v2/spec/test/index.md");
+    const pendingPath2 = join(gitDir2, "jarvis-completion-pending.json");
+    const preparedMessage =
+      "mutation-repair: Test Spec Title\n\nSpec: v2/spec/test/index.md\n\nJarvis-Agent: claude\n\nJarvis-Step: mutation-repair";
+    writeFileSync(
+      pendingPath2,
+      `${JSON.stringify({
+        baseHead: "base-head",
+        tree: "pending-tree",
+        branchRef: "refs/heads/feature",
+        message: preparedMessage,
+        agent: "claude",
+        timestamp: "2026-01-01T00:00:00.000Z",
+      })}\n`,
+      "utf8",
+    );
+    const calls2: GitCall[] = [];
+    const runGit2 = async (_cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> => {
+      calls2.push({ args, env });
+      if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir2;
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return "base-head";
+      if (args[0] === "commit-tree") return "new-commit-2";
+      if (args[0] === "diff-tree") return "src/a.ts";
+      return "";
+    };
+
+    await createCompletionCommitter(runGit2)({
+      worktreePath: worktreePath2,
+      baseRef: "main",
+      specPath: "v2/spec/test/index.md",
+      agent: "claude",
+      title: "Test Spec Title",
+    });
+
+    const commitCall2 = calls2.find((c) => c.args[0] === "commit-tree");
+    const message2 = commitCall2?.args[commitCall2.args.indexOf("-m") + 1];
+    expect(message2).toBe(preparedMessage);
+    expect(message2?.match(/Jarvis-Step:/g)?.length).toBe(1);
+  });
+
   test("shouldReuseHeadWithoutNewCommit blocks spurious commits when trees match (inverted guard would commit)", () => {
     const tree = "same-tree";
     const headTree = "same-tree";

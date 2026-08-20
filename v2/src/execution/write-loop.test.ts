@@ -3303,6 +3303,89 @@ describe("write loop", () => {
     }
 
     describe("ready-gate repair autofix", () => {
+      test("labels ready-gate repair commits", async () => {
+        // @mutate v2/src/execution/write-loop.ts "step: { kind: \"ready-gate\" }," -> ""
+        // Autofix commits through git for real: `enumerateRepairCompletionCandidates` short-circuits
+        // to `[]` without a `.git` dir, which would mask the recommit under a fake committer.
+        const autofixHome = createJarvisHome();
+        const autofixBranch = "repair-autofix-labels-step";
+        const autofixWorktree = join(autofixHome.jarvisRoot, "worktrees", "demo", autofixBranch);
+        mkdirSync(autofixWorktree, { recursive: true });
+        execFileSync("git", ["init", autofixWorktree], { stdio: "pipe" });
+        execFileSync("git", ["-C", autofixWorktree, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+        execFileSync("git", ["-C", autofixWorktree, "config", "user.name", "Test User"], { stdio: "pipe" });
+        writeFileSync(join(autofixWorktree, "spec.md"), "- [ ] work\n", "utf8");
+        execFileSync("git", ["-C", autofixWorktree, "add", "-A"], { stdio: "pipe" });
+        execFileSync("git", ["-C", autofixWorktree, "commit", "-m", "seed"], { stdio: "pipe" });
+        const autofixBaseRef = execFileSync("git", ["-C", autofixWorktree, "rev-parse", "HEAD"], {
+          encoding: "utf8",
+          stdio: "pipe",
+        }).trim();
+
+        const autofixResult = await runLoop({
+          jarvisRoot: autofixHome.jarvisRoot,
+          stateDbPath: autofixHome.stateDbPath,
+          branchName: autofixBranch,
+          baseRef: autofixBaseRef,
+          bindings: [
+            {
+              id: "sim.1",
+              metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+              invoke: async ({ cwd }) => {
+                writeFileSync(join(cwd, "proof.txt"), "ok", "utf8");
+                return { kind: "ok", stdout: "done", stderr: "" } as const;
+              },
+            },
+          ],
+          completionCommitter: createCompletionCommitter(),
+          completionPublisher: completionHooks.completionPublisher,
+          runFixCommand: proofFormattingFixCommand(),
+          readyFinalizer: proofFormattingReadyFinalizer(() => {}),
+        });
+
+        expect(autofixResult.kind).toBe("complete");
+        const autofixLog = execFileSync("git", ["-C", autofixWorktree, "log", "--format=%s%x00%b%x00==="], {
+          encoding: "utf8",
+        });
+        const autofixCommit = autofixLog.split("===\n").find((entry) => entry.startsWith("ready-gate: "));
+        expect(autofixCommit).toBeDefined();
+        expect(autofixCommit).toContain("Jarvis-Step: ready-gate");
+        expect(autofixCommit).toContain("Jarvis-Ready-Gate: autofix");
+
+        const repairHome = createJarvisHome();
+        const repairCommits: Array<{ title: string; step: unknown }> = [];
+        let invocations = 0;
+        const result = await runLoop({
+          jarvisRoot: repairHome.jarvisRoot,
+          stateDbPath: repairHome.stateDbPath,
+          bindings: [
+            {
+              id: "sim.1",
+              metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+              invoke: async ({ cwd }) => {
+                invocations += 1;
+                writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+                return { kind: "ok", stdout: "done", stderr: "" } as const;
+              },
+            },
+          ],
+          completionCommitter: async (input) => {
+            repairCommits.push({ title: input.title, step: input.step });
+            return completionHooks.completionCommitter();
+          },
+          completionPublisher: completionHooks.completionPublisher,
+          runFixCommand: completionHooks.runFixCommand,
+          readyFinalizer: async () => {
+            if (invocations === 1) throw new ReadyGateError("bun run ready", 1, "tests failed");
+          },
+        });
+
+        expect(result.kind).toBe("complete");
+        const agentRepairCommit = repairCommits.find((c) => c.step !== undefined);
+        expect(agentRepairCommit?.step).toEqual({ kind: "ready-gate" });
+        expect((agentRepairCommit?.title as string).startsWith("ready-gate: ")).toBe(true);
+      });
+
       test("ready-gate repair autofix greens a formatter-only red gate without repair iterations", async () => {
         // Mutation checkpoint: remove the ready-gate repair autofix block in `publishWithReadyRepair`.
         const { jarvisRoot, stateDbPath } = createJarvisHome();

@@ -399,7 +399,7 @@ describe("createCompletionCommitter", () => {
   });
 
   test("defaults absent and legacy pending step metadata to write", async () => {
-    // @mutate v2/src/execution/completion-commit.ts "}\\n${renderJarvisStepTrailer(step)}`," -> "}`,"
+    // @mutate v2/src/execution/completion-commit.ts "}\n${renderJarvisStepTrailer(step)}`," -> "}`,"
     // Fresh direct completion: bare title, `Jarvis-Step: write` added beside `Jarvis-Agent`.
     const { worktreePath, gitDir } = setupWorktree("v2/spec/test/index.md");
     const calls: GitCall[] = [];

@@ -29,5 +29,8 @@ export const PIPELINE_APPROVE_USAGE = "usage: jarvis pipeline approve <pipeline-
 export const PIPELINE_REJECT_USAGE = "usage: jarvis pipeline reject <pipeline-id> <stage-id> <branch-key>\n";
 export const PIPELINE_RESUME_USAGE = "usage: jarvis pipeline resume <pipeline-id> [<branch-key>]\n";
 export const PIPELINE_RECOVER_USAGE = "usage: jarvis pipeline recover <pipeline-id> <branch-key>\n";
-export const PIPELINE_USAGE = "usage: jarvis pipeline <start|list|wait|approve|reject|resume|recover> [args]\n";
+export const PIPELINE_DISMISS_USAGE = "usage: jarvis pipeline dismiss <pipeline-id>\n";
+export const PIPELINE_UNDISMISS_USAGE = "usage: jarvis pipeline undismiss <pipeline-id>\n";
+export const PIPELINE_USAGE =
+  "usage: jarvis pipeline <start|list|wait|approve|reject|resume|recover|dismiss|undismiss> [args]\n";
 export const HELP_USAGE = "usage: jarvis help\n";

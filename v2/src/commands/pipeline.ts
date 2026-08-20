@@ -233,7 +233,7 @@ async function runPipelineStartCommand(argv: readonly string[], io: Io, deps: Cl
 type PipelineListDeps = CliDeps & { now: () => number };
 
 type PipelineListCliInput =
-  | { ok: true; json: boolean; since: number | undefined; state: PipelineDerivedState | undefined }
+  | { ok: true; json: boolean; all: boolean; since: number | undefined; state: PipelineDerivedState | undefined }
   | { ok: false };
 
 const PIPELINE_LIST_STATE_VALUES: ReadonlySet<string> = new Set([
@@ -287,6 +287,7 @@ function parsePipelineListArgs(argv: readonly string[], nowMs: number): Pipeline
   if (positionals.length !== 0) return { ok: false };
 
   const json = values.json === true;
+  const all = values.all === true;
 
   let since: number | undefined;
   if (values.since !== undefined) {
@@ -304,7 +305,7 @@ function parsePipelineListArgs(argv: readonly string[], nowMs: number): Pipeline
     state = parsedState;
   }
 
-  return { ok: true, json, since, state };
+  return { ok: true, json, all, since, state };
 }
 
 function selectPipelines(
@@ -374,7 +375,7 @@ function seedBasename(seedPath: string | undefined): string {
   return seedPath === undefined ? "-" : basename(seedPath);
 }
 
-function renderPipelineListRows(pipelines: readonly PipelineSnapshot[], nowMs: number): string {
+function renderPipelineListRows(pipelines: readonly PipelineSnapshot[], nowMs: number, showDismissal: boolean): string {
   return `${pipelines
     .map((pipeline) =>
       [
@@ -384,6 +385,10 @@ function renderPipelineListRows(pipelines: readonly PipelineSnapshot[], nowMs: n
         seedBasename(pipeline.seedPath),
         formatPipelineCreatedAge(pipeline.createdAt, nowMs),
         renderStageSummary(pipeline.stages),
+        // Mutation checkpoint: replacing this conditional spread with `...[]` must turn the
+        // --all dismissal-marker test RED; replacing it with an unconditional spread must
+        // turn the without-`--all` no-marker test RED.
+        ...(showDismissal ? [typeof pipeline.dismissedAt === "number" ? "dismissed" : "-"] : []),
       ].join("\t"),
     )
     .join("\n")}\n`;
@@ -402,7 +407,7 @@ async function runPipelineListCommand(argv: readonly string[], io: Io, deps: Pip
 
   return withRunClient(io, deps, async (client) => {
     try {
-      const result: unknown = await request(client, "pipeline_list");
+      const result = await request(client, "pipeline_list", parsed.all ? { includeDismissed: true } : undefined);
       const snapshot = readPipelineListResult(result);
       if (snapshot === undefined) {
         io.stderr("invalid daemon response\n");
@@ -420,7 +425,7 @@ async function runPipelineListCommand(argv: readonly string[], io: Io, deps: Pip
         io.stdout("No pipelines.\n");
         return 0;
       }
-      io.stdout(renderPipelineListRows(selected, deps.now()));
+      io.stdout(renderPipelineListRows(selected, deps.now(), parsed.all));
       return 0;
     } catch (error) {
       if (error instanceof RpcError) {

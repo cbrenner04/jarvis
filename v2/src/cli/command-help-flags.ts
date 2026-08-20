@@ -200,6 +200,7 @@ export const PIPELINE_START_HELP_FLAGS: readonly CommandFlag[] = [
 /** `parseArgs` options for `parsePipelineListArgs` / `jarvis pipeline list`. */
 export const PIPELINE_LIST_PARSE_ARG_OPTIONS = {
   json: { type: "boolean" },
+  all: { type: "boolean" },
   since: { type: "string" },
   state: { type: "string" },
 } as const satisfies Record<string, { type: "boolean" | "string" }>;
@@ -210,6 +211,11 @@ export const PIPELINE_LIST_HELP_FLAGS: readonly CommandFlag[] = [
     name: "--json",
     argumentShape: "",
     description: "Print the unmodified pipeline_list snapshot; cannot combine with --since or --state.",
+  },
+  {
+    name: "--all",
+    argumentShape: "",
+    description: "Include dismissed pipelines (requests includeDismissed: true); marks them in the human listing.",
   },
   {
     name: "--since",

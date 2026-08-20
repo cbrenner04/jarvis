@@ -895,6 +895,209 @@ describe("pipeline list", () => {
     expect(filteredCode).toBe(0);
     expect(filteredCap.read()).toEqual({ stdout: "No pipelines.\n", stderr: "" });
   });
+
+  test("list --all requests dismissed pipelines", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-list-all"], () =>
+      main(["pipeline", "list", "--all"], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () => makeIpcClient([pipelineListFrame("pipe-list-all", [])], { sent }),
+      }),
+    );
+    // @mutate v2/src/commands/pipeline.ts "parsed.all ? { includeDismissed: true } : undefined" -> "undefined"
+
+    expect(code).toBe(0);
+    expect(ipcFramesWithMethod(sent, "pipeline_list")).toEqual([
+      expect.objectContaining({ method: "pipeline_list", params: { includeDismissed: true } }),
+    ]);
+  });
+
+  test("list without --all requests the parameterless snapshot", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-list-default"], () =>
+      main(["pipeline", "list"], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () => makeIpcClient([pipelineListFrame("pipe-list-default", [])], { sent }),
+      }),
+    );
+    // @mutate v2/src/commands/pipeline.ts "parsed.all ? { includeDismissed: true } : undefined" -> "{ includeDismissed: true }"
+
+    expect(code).toBe(0);
+    const frames = ipcFramesWithMethod(sent, "pipeline_list");
+    expect(frames).toHaveLength(1);
+    expect(frames[0]).not.toHaveProperty("params");
+  });
+
+  test("list --all marks dismissed rows in the human listing", async () => {
+    const NOW_MS = 1_700_000_200_000;
+    const cap = captureIo();
+    const dismissed = {
+      pipelineId: "dddddddd-dismissed",
+      name: "dismissed-one",
+      state: "succeeded",
+      createdAt: NOW_MS - 50_000,
+      dismissedAt: NOW_MS - 10_000,
+      stages: [{ stageId: "only", branchKey: "default", position: 0, status: "succeeded" }],
+    };
+    const live = {
+      pipelineId: "eeeeeeee-live",
+      name: "live-one",
+      state: "running",
+      createdAt: NOW_MS - 200_000,
+      dismissedAt: null,
+      stages: [{ stageId: "only", branchKey: "default", position: 0, status: "running" }],
+    };
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-list-all-human"], () =>
+      main(["pipeline", "list", "--all"], cap.io, {
+        ...pipelineDeps(undefined),
+        now: () => NOW_MS,
+        connectIpcClient: async () => makeIpcClient([pipelineListFrame("pipe-list-all-human", [dismissed, live])]),
+      }),
+    );
+
+    // @mutate v2/src/commands/pipeline.ts "...(showDismissal ? [typeof pipeline.dismissedAt === \"number\" ? \"dismissed\" : \"-\"] : [])," -> "...[],"
+
+    expect(code).toBe(0);
+    expect(cap.read().stdout).toBe(
+      [
+        "dddddddd\tdismissed-one\tsucceeded\t-\t50s\t✓only\tdismissed",
+        "eeeeeeee\tlive-one\trunning\t-\t3m\t●only\t-",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  test("list without --all renders no dismissal column", async () => {
+    const NOW_MS = 1_700_000_300_000;
+    const cap = captureIo();
+    const dismissed = {
+      pipelineId: "dddddddd-dismissed",
+      name: "dismissed-one",
+      state: "succeeded",
+      createdAt: NOW_MS - 50_000,
+      dismissedAt: NOW_MS - 10_000,
+      stages: [{ stageId: "only", branchKey: "default", position: 0, status: "succeeded" }],
+    };
+    const live = {
+      pipelineId: "eeeeeeee-live",
+      name: "live-one",
+      state: "running",
+      createdAt: NOW_MS - 200_000,
+      dismissedAt: null,
+      stages: [{ stageId: "only", branchKey: "default", position: 0, status: "running" }],
+    };
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-list-no-all-human"], () =>
+      main(["pipeline", "list"], cap.io, {
+        ...pipelineDeps(undefined),
+        now: () => NOW_MS,
+        connectIpcClient: async () => makeIpcClient([pipelineListFrame("pipe-list-no-all-human", [dismissed, live])]),
+      }),
+    );
+
+    // @mutate v2/src/commands/pipeline.ts "...(showDismissal ? [typeof pipeline.dismissedAt === \"number\" ? \"dismissed\" : \"-\"] : [])," -> "...[typeof pipeline.dismissedAt === \"number\" ? \"dismissed\" : \"-\"],"
+
+    expect(code).toBe(0);
+    const lines = cap.read().stdout.trim().split("\n");
+    expect(lines).toHaveLength(2);
+    for (const line of lines) {
+      expect(line.split("\t")).toHaveLength(6);
+    }
+  });
+
+  test("list --json --all passes the widened snapshot through unmodified", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const pipeline = {
+      pipelineId: "pipe-dismissed",
+      name: "dismissed-json",
+      state: "succeeded",
+      createdAt: 1_700_000_005_000,
+      dismissedAt: 1_700_000_006_000,
+      stages: [],
+    };
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-list-json-all"], () =>
+      main(["pipeline", "list", "--json", "--all"], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () => makeIpcClient([pipelineListFrame("pipe-list-json-all", [pipeline])], { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({
+      stdout: `${JSON.stringify({ pipelines: [pipeline] })}\n`,
+      stderr: "",
+    });
+    expect(ipcFramesWithMethod(sent, "pipeline_list")).toEqual([
+      expect.objectContaining({ params: { includeDismissed: true } }),
+    ]);
+  });
+
+  test("list --all composes with --since and --state on the widened set", async () => {
+    const HOUR = 3_600_000;
+    const MIN = 60_000;
+    const NOW_MS = 1_800_000_000_000;
+    const cap = captureIo();
+
+    const p1 = {
+      pipelineId: "p1",
+      name: "p1",
+      state: "running",
+      createdAt: NOW_MS - 30 * MIN,
+      dismissedAt: NOW_MS - 20 * MIN,
+      stages: [],
+    };
+    const p2 = {
+      pipelineId: "p2",
+      name: "p2",
+      state: "running",
+      createdAt: NOW_MS - 2 * HOUR,
+      dismissedAt: null,
+      stages: [],
+    };
+    const p3 = {
+      pipelineId: "p3",
+      name: "p3",
+      state: "failed",
+      createdAt: NOW_MS - 10 * MIN,
+      dismissedAt: null,
+      stages: [],
+    };
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-list-all-filter"], () =>
+      main(["pipeline", "list", "--all", "--since", "1h", "--state", "running"], cap.io, {
+        ...pipelineDeps(undefined),
+        now: () => NOW_MS,
+        connectIpcClient: async () => makeIpcClient([pipelineListFrame("pipe-list-all-filter", [p1, p2, p3])]),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read().stdout).toBe("p1\tp1\trunning\t-\t30m\t\tdismissed\n");
+  });
+
+  test("list --json --all --since keeps the json+filter refusal", async () => {
+    const cap = captureIo();
+    let contacted = false;
+
+    const code = await main(["pipeline", "list", "--json", "--all", "--since", "1h"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: async () => {
+        contacted = true;
+        throw new Error("should not contact daemon");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(contacted).toBe(false);
+    expect(cap.read()).toEqual({ stdout: "", stderr: PIPELINE_LIST_USAGE });
+  });
 });
 
 describe("pipeline wait", () => {
@@ -1781,6 +1984,7 @@ describe("pipeline help", () => {
     const output = cap.read().stdout;
     expect(output).toContain(PIPELINE_LIST_USAGE.trim());
     expect(output).toContain("--json");
+    expect(output).toContain("--all");
     expect(output).toContain("--since");
     expect(output).toContain("--state");
   });

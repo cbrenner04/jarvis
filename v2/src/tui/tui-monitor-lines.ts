@@ -451,6 +451,7 @@ function dockHintLine(state: TuiMonitorState): string {
     ...(expandable ? ["e expand/collapse"] : []),
     ...(revealable ? ["Enter reveal"] : []),
     ...(killable ? ["k kill"] : []),
+    "D dismissed",
     "q quit",
   ].join(" · ");
 }

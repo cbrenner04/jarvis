@@ -61,7 +61,7 @@ function healthyTuiDaemonClient(): TuiDaemonClient {
     async list() {
       return { runs: [] };
     },
-    async pipelineList() {
+    async pipelineList(_params: { includeDismissed: boolean }) {
       return { pipelines: [] };
     },
     async start() {

@@ -291,6 +291,7 @@ function noopControls(): TuiMonitorControls {
     selectNextRun() {},
     selectPreviousRun() {},
     toggleSelectedWorkflowExpansion() {},
+    toggleShowDismissed() {},
     pauseSelected() {},
     resumeSelected() {},
     killSelected() {},
@@ -1059,6 +1060,26 @@ describe("openInkMonitor", () => {
     await input.press("e");
 
     expect(calls).toEqual(["toggle", "toggle"]);
+    session.close();
+  });
+
+  test("D toggles show-dismissed", async () => {
+    // @mutate v2/src/tui/tui-ink-monitor.tsx "controls.toggleShowDismissed();" -> "return;"
+    const calls: string[] = [];
+    const editorCalls: string[] = [];
+    const controls = noopControls();
+    controls.toggleShowDismissed = () => calls.push("toggle-dismissed");
+    controls.insertCommandText = (text) => editorCalls.push(`insert:${text}`);
+    const input = inputHarness();
+    const session = await openInkMonitor(shellState([], null), controls, await input.injection());
+
+    await input.press("D");
+    expect(calls).toEqual(["toggle-dismissed"]);
+
+    session.update({ ...shellState([], null), focus: "command" });
+    await input.press("D");
+    expect(editorCalls).toEqual(["insert:D"]);
+    expect(calls).toEqual(["toggle-dismissed"]);
     session.close();
   });
 

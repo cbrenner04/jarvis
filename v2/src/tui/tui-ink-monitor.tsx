@@ -419,6 +419,10 @@ export async function openInkMonitor(
         controls.toggleSelectedWorkflowExpansion();
         return;
       }
+      if (input === "D") {
+        controls.toggleShowDismissed();
+        return;
+      }
       // Operand order (`!key.shift && key.return`) is reversed from the command-focus branch's
       // `key.return && !key.shift` deliberately, so this directive's anchor text stays distinct from
       // that branch's two directives — do not normalize the order to match.

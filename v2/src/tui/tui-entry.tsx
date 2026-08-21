@@ -681,7 +681,9 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
           }
 
           try {
-            const pipelineResult = await client.pipelineList();
+            const pipelineResult = await client.pipelineList({
+              includeDismissed: currentState.showDismissed === true,
+            });
             pipelineSnapshotsBySocketPath[socketPath] = pipelineResult;
             livePipelineLists.push([socketPath, client, pipelineResult]);
           } catch (error) {
@@ -1099,6 +1101,14 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
             expandedPipelineNodeIds: [...expanded],
             steeringFeedback: null,
           });
+        },
+        toggleShowDismissed() {
+          setState({
+            ...currentState,
+            showDismissed: currentState.showDismissed !== true,
+            steeringFeedback: null,
+          });
+          void refreshRuns().catch(() => {});
         },
         pauseSelected() {
           runSteeringAction("pause");

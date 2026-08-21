@@ -246,7 +246,7 @@ function fakeClient(listResponses: DaemonListResult[]): TuiDaemonClient {
       listIndex += 1;
       return response ?? { runs: [] };
     },
-    async pipelineList() {
+    async pipelineList(_params: { includeDismissed: boolean }) {
       return { pipelines: [] };
     },
     async start() {

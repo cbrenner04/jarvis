@@ -2514,7 +2514,7 @@ describe("monitorDockLines", () => {
       "1 running · 0 awaiting gate · 0 failed · 0 done · workstation@0123456789abcdef · refresh 2s · result: ready",
       "> start▏",
       "",
-      "j/↓ next · ↑ previous · [/] divider · : command · / command · q quit",
+      "j/↓ next · ↑ previous · [/] divider · : command · / command · D dismissed · q quit",
     ]);
     expect(lines).toHaveLength(4);
     expect(lines).not.toEqual(["1 running · refresh 2s", ">", "", ""]);
@@ -2725,6 +2725,7 @@ describe("monitorDockLines", () => {
 
     expect(hints(null)).toContain(": command");
     expect(hints(null)).toContain("/ command");
+    expect(hints(null)).toContain("D dismissed");
     expect(hints(null)).not.toContain("newline");
     expect(hints(null)).not.toContain("expand/collapse");
     expect(hints(null)).not.toContain("kill");
@@ -2744,6 +2745,7 @@ describe("monitorDockLines", () => {
     expect(commandHints).not.toContain("newline");
     expect(commandHints).not.toContain("kill");
     expect(commandHints).not.toContain("expand");
+    expect(commandHints).not.toContain("D dismissed");
     expect(commandHints).not.toContain(": command");
   });
 

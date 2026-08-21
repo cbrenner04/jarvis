@@ -82,6 +82,8 @@ export type TuiMonitorControls = {
   selectPreviousRun(): void;
   /** Expand or collapse the selected pipeline or stage tree node. */
   toggleSelectedWorkflowExpansion(): void;
+  /** Show or hide dismissed pipelines for this session and refresh immediately. */
+  toggleShowDismissed(): void;
   /** Signals pause via daemon `pause`. */
   pauseSelected(): void;
   /** Resumes via daemon `resume`. */

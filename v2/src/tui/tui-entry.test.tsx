@@ -151,6 +151,32 @@ const PIPELINE_SNAPSHOT_BETA: PipelineSnapshot = {
   ],
 };
 
+const PIPELINE_SNAPSHOT_DISMISSED: PipelineSnapshot = {
+  pipelineId: "pipe-dismissed",
+  name: "dismissed-pipeline",
+  state: "running",
+  terminalPublicationSucceededAt: null,
+  terminalPublicationFailure: null,
+  createdAt: 1_700_000_500_000,
+  finishedAtMs: null,
+  dismissedAt: 1_700_000_600_000,
+  stages: [
+    {
+      id: "stage-dismissed-plan",
+      stageId: "plan",
+      branchKey: "default",
+      position: 0,
+      status: "running",
+      workflowInvocationId: "inv-dismissed",
+      startedAt: null,
+      endedAt: null,
+      decidedAt: null,
+      artifact: null,
+      failureDetail: null,
+    },
+  ],
+};
+
 const PIPELINE_STAGE_ALPHA = monitorPipelineStageNodeId("pipe-alpha", "plan", "default");
 
 const PIPELINE_AWAITING_INVOCATION = "inv-await";
@@ -926,8 +952,15 @@ function createViewHost() {
     toggleSelectedWorkflowExpansion() {
       controls?.toggleSelectedWorkflowExpansion();
     },
+    toggleShowDismissed() {
+      controls?.toggleShowDismissed();
+    },
     async toggleExpansion() {
       controls?.toggleSelectedWorkflowExpansion();
+      await flush();
+    },
+    async toggleShowDismissedAndFlush() {
+      controls?.toggleShowDismissed();
       await flush();
     },
     quit() {
@@ -983,9 +1016,9 @@ function wrapFailingSecondPipelineList(deps: RunTuiEntryDeps): void {
     const originalPipelineList = client.pipelineList.bind(client);
     return {
       ...client,
-      async pipelineList() {
+      async pipelineList(params: { includeDismissed: boolean }) {
         pipelineListCalls += 1;
-        if (pipelineListCalls === 1) return originalPipelineList();
+        if (pipelineListCalls === 1) return originalPipelineList(params);
         throw new RpcConnectionError("pipeline_list failed");
       },
     };
@@ -1125,6 +1158,8 @@ type FakeClientOptions = {
   listResponses?: DaemonListResult[];
   listError?: Error;
   pipelineListResponses?: PipelineListResult[];
+  pipelineListResponsesWithDismissed?: PipelineListResult[];
+  pipelineListRequests?: Array<{ includeDismissed: boolean }>;
   pipelineListError?: Error;
   waitImpl?: (runId: string) => Promise<WaitRunCompletionResult>;
   pauseError?: Error;
@@ -1201,10 +1236,16 @@ function fakeClient(options: FakeClientOptions = {}): TuiDaemonClient {
       listIndex = nextIndex;
       return response ?? { runs: [] };
     },
-    async pipelineList() {
+    async pipelineList(params: { includeDismissed: boolean }) {
       methods.push("pipeline_list");
+      options.pipelineListRequests ??= [];
+      options.pipelineListRequests.push(params);
       if (options.pipelineListError !== undefined) throw options.pipelineListError;
-      const [response, nextIndex] = nextFakeResponse(options.pipelineListResponses, pipelineListIndex);
+      const responses =
+        params.includeDismissed === true
+          ? (options.pipelineListResponsesWithDismissed ?? options.pipelineListResponses)
+          : options.pipelineListResponses;
+      const [response, nextIndex] = nextFakeResponse(responses, pipelineListIndex);
       pipelineListIndex = nextIndex;
       return response ?? { pipelines: [] };
     },
@@ -1242,6 +1283,22 @@ function fakeClient(options: FakeClientOptions = {}): TuiDaemonClient {
       methods.push("close");
     },
   };
+}
+
+function showDismissedToggleEntryDeps(
+  view: ReturnType<typeof createViewHost>,
+  refresh: ReturnType<typeof createIntervalScheduler> = createIntervalScheduler(),
+) {
+  return entryDeps(
+    {
+      methods: [],
+      listResponses: [{ runs: [RUN_ALPHA] }],
+      pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
+      pipelineListResponsesWithDismissed: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA, PIPELINE_SNAPSHOT_DISMISSED] }],
+      pipelineListRequests: [],
+    },
+    { viewHost: view.host, refreshScheduler: refresh.scheduler },
+  );
 }
 
 function entryDeps(
@@ -1874,12 +1931,12 @@ describe("runTuiEntry", () => {
     };
     let pipelineListCalls = 0;
     const pipelineList = client.pipelineList.bind(client);
-    client.pipelineList = async () => {
+    client.pipelineList = async (params) => {
       pipelineListCalls += 1;
       if (pipelineListCalls === 3) {
         throw new RpcConnectionError("pipeline observation failed");
       }
-      return pipelineList();
+      return pipelineList(params);
     };
     let discoveryCalls = 0;
     const { deps } = entryDeps(
@@ -3463,7 +3520,7 @@ describe("runTuiEntry", () => {
         }
         return refreshList.promise;
       },
-      async pipelineList() {
+      async pipelineList(_params: { includeDismissed: boolean }) {
         return { pipelines: [] };
       },
       async start() {
@@ -4727,9 +4784,9 @@ describe("runTuiEntry", () => {
       waitImpl: async () => ({ runStatus: "completed" }),
     });
     const succeedPipelineList = client.pipelineList.bind(client);
-    client.pipelineList = async () => {
+    client.pipelineList = async (params) => {
       pipelineListCalls += 1;
-      if (pipelineListCalls === 1) return succeedPipelineList();
+      if (pipelineListCalls === 1) return succeedPipelineList(params);
       throw new RpcConnectionError("pipeline observation failed");
     };
 
@@ -4796,10 +4853,10 @@ describe("runTuiEntry", () => {
 
     let client2PipelineListCalls = 0;
     const client2PipelineList = client2.pipelineList.bind(client2);
-    client2.pipelineList = async () => {
+    client2.pipelineList = async (params) => {
       client2PipelineListCalls += 1;
       if (client2PipelineListCalls === 2) throw new RpcConnectionError("pipeline_list failed");
-      return client2PipelineList();
+      return client2PipelineList(params);
     };
 
     let client2ListCalls = 0;
@@ -5995,6 +6052,93 @@ describe("runTuiEntry", () => {
         decision: "approved",
       });
       await flush();
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("the show-dismissed toggle requests the opt-in pipeline_list snapshot", async () => {
+    // @mutate v2/src/tui/tui-entry.tsx "const pipelineResult = await client.pipelineList({ includeDismissed: currentState.showDismissed === true });" -> "const pipelineResult = await client.pipelineList();"
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const { deps, clientOptions } = showDismissedToggleEntryDeps(view, refresh);
+    const pending = runTuiEntry(deps);
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      expect(clientOptions.pipelineListRequests).toEqual([{ includeDismissed: false }]);
+      await view.toggleShowDismissedAndFlush();
+      expect(clientOptions.pipelineListRequests).toEqual([{ includeDismissed: false }, { includeDismissed: true }]);
+      expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toContain("pipe-dismissed");
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("toggling show-dismissed off returns to the default pipeline_list request", async () => {
+    // @mutate v2/src/tui/tui-entry.tsx "showDismissed: currentState.showDismissed !== true" -> "showDismissed: true"
+    const view = createViewHost();
+    const { deps, clientOptions } = showDismissedToggleEntryDeps(view);
+    const pending = runTuiEntry(deps);
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      await view.toggleShowDismissedAndFlush();
+      expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toContain("pipe-dismissed");
+      await view.toggleShowDismissedAndFlush();
+      expect(clientOptions.pipelineListRequests?.at(-1)).toEqual({ includeDismissed: false });
+      expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).not.toContain("pipe-dismissed");
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("the show-dismissed toggle refreshes immediately", async () => {
+    // @mutate v2/src/tui/tui-entry.tsx "void refreshRuns().catch(() => {});" -> "return;"
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const { deps, clientOptions } = showDismissedToggleEntryDeps(view, refresh);
+    const pending = runTuiEntry(deps);
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      const countBefore = clientOptions.pipelineListRequests?.length ?? 0;
+      view.toggleShowDismissed();
+      await flush();
+      expect(clientOptions.pipelineListRequests?.length).toBe(countBefore + 1);
+      expect(clientOptions.pipelineListRequests?.at(-1)).toEqual({ includeDismissed: true });
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("with show-dismissed on the dismissed pipeline paints with a dismissed marker", async () => {
+    const view = createViewHost();
+    const { deps } = showDismissedToggleEntryDeps(view);
+    const pending = runTuiEntry(deps);
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      await view.toggleShowDismissedAndFlush();
+      const state = view.monitorStates.at(-1);
+      expect(state).toBeDefined();
+      if (state === undefined) return;
+      const layout = computeShellLayout(
+        state.terminalColumns ?? 245,
+        state.terminalRows ?? 72,
+        state.dividerOffset ?? 0,
+      );
+      const { fullTreeRows } = monitorLeftPaneTreeRows(state, layout, WORKFLOW_FILTER_NOW_MS);
+      const pipeline = fullTreeRows.find((row) => row.kind === "pipeline" && row.id === "pipe-dismissed");
+      expect(pipeline?.kind).toBe("pipeline");
+      if (pipeline?.kind !== "pipeline") return;
+      const label =
+        buildPipelineMonitorTreeRow(pipeline, layout.leftWidth, WORKFLOW_FILTER_NOW_MS).segments[3]?.text ?? "";
+      expect(label.trimEnd().endsWith("(dismissed)")).toBe(true);
     } finally {
       view.quit();
     }

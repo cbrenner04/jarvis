@@ -484,8 +484,10 @@ test("pipelineList sends one correlated IPC request and parses ordered PipelineS
         ),
     });
 
-    await expect(client.pipelineList()).resolves.toEqual({ pipelines: [pipelineSnapshot] });
-    expect(sent).toEqual([{ kind: "request", id: PIPELINE_LIST_REQUEST_ID, method: "pipeline_list" }]);
+    await expect(client.pipelineList({ includeDismissed: false })).resolves.toEqual({ pipelines: [pipelineSnapshot] });
+    expect(sent).toEqual([
+      { kind: "request", id: PIPELINE_LIST_REQUEST_ID, method: "pipeline_list", params: { includeDismissed: false } },
+    ]);
     client.close();
   });
 });

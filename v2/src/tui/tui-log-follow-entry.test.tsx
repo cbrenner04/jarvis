@@ -80,7 +80,7 @@ function makeMockDaemon(list: () => Promise<DaemonListResult>): TuiDaemonClient 
     health: async () => ({ ok: true }),
     status: async () => ({ state: "running" }),
     list,
-    pipelineList: async () => ({ pipelines: [] }),
+    pipelineList: async (_params: { includeDismissed: boolean }) => ({ pipelines: [] }),
     start: async () => ({ runId: "" }),
     pause: async () => ({ ok: true }),
     resume: async () => ({ ok: true }),

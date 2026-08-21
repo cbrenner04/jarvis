@@ -323,4 +323,72 @@ describe("buildAttentionRows", () => {
     // @mutate v2/src/tui/tui-attention-rows.ts "return finishAts.length > 0 ? Math.max(...finishAts) : null;" -> "return finishAts.length > 0 ? Math.max(...finishAts) : snapshot.createdAt;"
     // @mutate v2/src/tui/tui-attention-rows.ts "const rows = incidents.slice(0, ATTENTION_ROW_CAP);" -> "const rows = incidents;"
   });
+
+  test("a dismissed pipeline's gate, failed-stage, and publication-failure incidents leave the attention segment", () => {
+    const dismissed = pipelineSnapshot({
+      pipelineId: "pipe-dismissed",
+      dismissedAt: 1_700_000_500_000,
+      terminalAction: "merge",
+      stages: [
+        snapshotStage({ stageId: "intent", position: 0, status: "succeeded", endedAt: 100 }),
+        snapshotStage({ stageId: "approve-plan", position: 1, status: "awaiting" }),
+        snapshotStage({ stageId: "implement", position: 2, status: "failed", endedAt: 500 }),
+      ],
+      terminalPublicationFailure: {
+        terminalAction: "merge",
+        failure: { operation: "merge", message: "conflict" },
+      },
+    });
+
+    const live = pipelineSnapshot({
+      pipelineId: "pipe-live",
+      stages: [
+        snapshotStage({ stageId: "intent", position: 0, status: "succeeded", endedAt: 100 }),
+        snapshotStage({ stageId: "approve-intent", position: 1, status: "rejected", decidedAt: 200 }),
+      ],
+    });
+
+    const projection = buildAttentionRows({ socket: socketSnapshots([dismissed, live]) }, []);
+
+    expect(projection.rows.some((row) => row.id.startsWith("attention:gate:pipe-dismissed"))).toBe(false);
+    expect(projection.rows.some((row) => row.id.startsWith("attention:stage:pipe-dismissed"))).toBe(false);
+    expect(projection.rows.some((row) => row.id === "attention:publication:pipe-dismissed")).toBe(false);
+    expect(projection.total).toBe(1);
+    expect(projection.overflow).toBe(0);
+    expect(projection.rows).toMatchObject([{ id: "attention:gate:pipe-live:approve-intent:default" }]);
+  });
+
+  test("a failed run attributed to a dismissed pipeline contributes no attention row", () => {
+    // Negative case: proves the suppressed run row is absent, not merely re-targeted.
+    // @mutate v2/src/tui/tui-attention-rows.ts "return invocationId !== undefined && hiddenInvocationIds.has(invocationId);" -> "return false;"
+    const dismissed = pipelineSnapshot({
+      pipelineId: "pipe-dismissed",
+      dismissedAt: 1_700_000_500_000,
+      stages: [
+        snapshotStage({
+          stageId: "implement",
+          position: 0,
+          status: "failed",
+          endedAt: 500,
+          workflowInvocationId: "inv-dismissed-implement",
+        }),
+      ],
+    });
+    const failedRun = listRun({
+      runId: "run-dismissed-fail",
+      status: "failed",
+      finishedAtMs: 600,
+      stepId: "implement",
+      workflow: {
+        invocationId: "inv-dismissed-implement",
+        steps: [{ stepId: "implement", role: "implement", status: "completed", attemptCount: 1 }],
+      },
+    });
+
+    const projection = buildAttentionRows({ socket: socketSnapshots([dismissed]) }, [failedRun]);
+
+    expect(projection.rows.some((row) => row.targetId === "run-dismissed-fail")).toBe(false);
+    expect(projection.rows.map((row) => row.id)).not.toContain("attention:failed-run:run-dismissed-fail");
+    expect(projection.total).toBe(0);
+  });
 });

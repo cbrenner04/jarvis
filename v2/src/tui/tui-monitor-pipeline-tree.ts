@@ -99,6 +99,22 @@ export type PipelineStageRollupGroup = {
   records: readonly PipelineSnapshot["stages"][number][];
 };
 
+/** Session-local dismissed-pipeline display toggle shared by every TUI projection. */
+export type MonitorPipelineDisplayOptions = { showDismissed?: boolean };
+
+/** A dismissed pipeline leaves every TUI projection unless the session opts into showing it. */
+export function isHiddenDismissedPipeline(snapshot: PipelineSnapshot, showDismissed: boolean): boolean {
+  // Mutation checkpoint: reporting no dismissed pipeline as hidden here must turn the hide-dismissed-pipeline keystone RED.
+  return snapshot.dismissedAt !== null && !showDismissed;
+}
+
+/** A shown dismissed pipeline row is marked so it never reads as live work. */
+function dismissedPipelineLabel(snapshot: PipelineSnapshot, label: string): string {
+  // Mutation checkpoint: dropping this early return must turn the dismissed-row-marker guard RED.
+  if (snapshot.dismissedAt === null) return label;
+  return `${label} (dismissed)`;
+}
+
 const MONITOR_TREE_DEFAULT_BRANCH_KEY = "default";
 
 export function monitorPipelineStageNodeId(pipelineId: string, stageId: string, branchKey: string): string {
@@ -357,7 +373,7 @@ export function buildPipelineMonitorTreeRow(
     {
       depth: node.depth,
       marker: node.marker ?? "",
-      label: pipelineRowLabel(node.snapshot),
+      label: dismissedPipelineLabel(node.snapshot, pipelineRowLabel(node.snapshot)),
       definition: node.snapshot.name,
       attention: node.attention ?? "",
       elapsed: formatPipelineTreeTiming(node, nowMs),
@@ -566,15 +582,19 @@ function isAdHocCandidate(run: DaemonListRunRow, matchedInvocationIds: ReadonlyS
 export function buildMonitorPipelineTreeJoin(
   snapshots: readonly PipelineSnapshot[],
   runs: readonly DaemonListRunRow[],
+  options: MonitorPipelineDisplayOptions = {},
 ): {
   pipelineNodes: MonitorPipelineTreePipelineNode[];
   adHocNodes: MonitorPipelineTreeAdHocNode[];
   builderRuns: DaemonListRunRow[];
 } {
   const builderRuns = runs.filter((run) => run.status !== "queued");
+  const showDismissed = options.showDismissed === true;
+  const displayedSnapshots = snapshots.filter((snapshot) => !isHiddenDismissedPipeline(snapshot, showDismissed));
+  // Mutation checkpoint: computing this off the filtered list here must turn ad-hoc-resurfacing suppression RED.
   const matchedInvocationIds = collectMatchedInvocationIds(snapshots);
 
-  const pipelineNodes = snapshots.map((snapshot) => ({
+  const pipelineNodes = displayedSnapshots.map((snapshot) => ({
     kind: "pipeline" as const,
     id: snapshot.pipelineId,
     depth: 0,
@@ -839,7 +859,8 @@ export function buildMonitorPipelineTree(
   runs: readonly DaemonListRunRow[],
   expandedNodeIds: ReadonlySet<string>,
   selectedNodeId: string | null,
+  options: MonitorPipelineDisplayOptions = {},
 ): MonitorPipelineTreeDisplayNode[] {
-  const { pipelineNodes, adHocNodes, builderRuns } = buildMonitorPipelineTreeJoin(snapshots, runs);
+  const { pipelineNodes, adHocNodes, builderRuns } = buildMonitorPipelineTreeJoin(snapshots, runs, options);
   return flattenMonitorPipelineTree(pipelineNodes, adHocNodes, expandedNodeIds, selectedNodeId, builderRuns);
 }

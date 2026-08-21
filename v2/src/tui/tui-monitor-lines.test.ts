@@ -2807,3 +2807,36 @@ describe("monitorDockLines", () => {
     expect(commandFocusHints).not.toContain("Enter reveal");
   });
 });
+
+describe("dismissed pipeline exclusion", () => {
+  test("a dismissed pipeline retained in pipelineSnapshotsBySocketPath leaves the work tree, Work heading, attention segment, and dock counts", () => {
+    const dismissed = pipelineSnapshot({
+      pipelineId: "pipe-dismissed",
+      dismissedAt: TREE_NOW_MS + 500,
+      name: "full-review",
+      state: "awaiting-approval",
+      stages: [
+        snapshotStage({ stageId: "intent", position: 0, status: "succeeded", endedAt: 100 }),
+        snapshotStage({ stageId: "approve-plan", position: 1, status: "awaiting" }),
+      ],
+    });
+    const live = pipelineSnapshot({ pipelineId: "pipe-live", stages: [implementStage(INVOCATION_MATCHED)] });
+    const runs = [workflowRun("run-live", "in-progress", INVOCATION_MATCHED)];
+
+    const state = monitorState({
+      runs,
+      pipelineSnapshotsBySocketPath: { "/last-good.sock": { pipelines: [dismissed, live] } },
+    });
+
+    const layout = treeLayout();
+    const { fullTreeRows } = monitorLeftPaneTreeRows(state, layout, TREE_NOW_MS);
+    expect(fullTreeRows.some((row) => row.id === "pipe-dismissed")).toBe(false);
+    expect(fullTreeRows.some((row) => row.id === "pipe-live")).toBe(true);
+
+    expect(monitorLeftPaneWorkHeadingRows(state).map(joinMonitorRow)).toEqual(["── Work (1) ──"]);
+
+    expect(monitorLeftPaneAttentionRows(state, TREE_NOW_MS)).toEqual([]);
+
+    expect(pipelineObservationBuckets(state)).toEqual({ running: 1, awaitingGate: 0, failed: 0, done: 0 });
+  });
+});

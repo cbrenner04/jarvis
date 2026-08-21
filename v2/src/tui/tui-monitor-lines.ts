@@ -10,6 +10,8 @@ import {
   buildMonitorPipelineTree,
   buildMonitorPipelineTreeJoin,
   isExpandablePipelineNodeId,
+  isHiddenDismissedPipeline,
+  type MonitorPipelineDisplayOptions,
   type MonitorPipelineTreeAdHocNode,
   type MonitorPipelineTreeDisplayNode,
   type MonitorPipelineTreePipelineNode,
@@ -39,6 +41,11 @@ import {
   runRowLabel,
 } from "./tui-shell-layout.ts";
 import { formatAbsoluteTimestamp } from "./tui-timestamp-format.ts";
+
+/** Dismissed-pipeline visibility options threaded from session state into every projection. */
+export function monitorPipelineDisplayOptions(state: TuiMonitorState): MonitorPipelineDisplayOptions {
+  return { showDismissed: state.showDismissed === true };
+}
 
 /** Non-queued runs in display order: active group then terminal group, daemon order within each. */
 export function orderSelectableRuns(runs: readonly DaemonListRunRow[]): DaemonListRunRow[] {
@@ -74,7 +81,11 @@ export function monitorSelectableNodeIds(state: TuiMonitorState, nowMs = Date.no
   const rows = state.terminalRows ?? 72;
   const layout = computeShellLayout(columns, rows, state.dividerOffset ?? 0);
   const { fullTreeRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
-  const projection = buildAttentionRows(state.pipelineSnapshotsBySocketPath, state.runs);
+  const projection = buildAttentionRows(
+    state.pipelineSnapshotsBySocketPath,
+    state.runs,
+    monitorPipelineDisplayOptions(state),
+  );
   // Mutation checkpoint: dropping the attention-id prefix here must turn selectable-prefix-order RED.
   // Mutation checkpoint: selecting overflow rows here must turn overflow-exclusion RED (projection.rows is already capped).
   return [...projection.rows.map((attentionRow) => attentionRow.id), ...fullTreeRows.map((row) => row.id)];
@@ -267,10 +278,18 @@ function classifyPipelineObservation(snapshot: PipelineSnapshot): PipelineObserv
   throw new Error(`Unsupported pipeline state: ${snapshot.state}`);
 }
 
-/** Counts merged (already-unique-per-id) pipeline snapshots by observation bucket. */
+/** Snapshots displayed by the session's dismissed-pipeline visibility toggle. */
+export function displayedPipelineSnapshots(state: TuiMonitorState): PipelineSnapshot[] {
+  const showDismissed = state.showDismissed === true;
+  return mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath).filter(
+    (snapshot) => !isHiddenDismissedPipeline(snapshot, showDismissed),
+  );
+}
+
+/** Counts displayed pipeline snapshots by observation bucket. */
 export function pipelineObservationBuckets(state: TuiMonitorState): PipelineObservationBuckets {
   const buckets: PipelineObservationBuckets = { running: 0, awaitingGate: 0, failed: 0, done: 0 };
-  for (const snapshot of mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath)) {
+  for (const snapshot of displayedPipelineSnapshots(state)) {
     buckets[classifyPipelineObservation(snapshot)] += 1;
   }
   return buckets;
@@ -281,6 +300,7 @@ function dockWorkStatusBuckets(state: TuiMonitorState): PipelineObservationBucke
   const { adHocNodes } = buildMonitorPipelineTreeJoin(
     mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath),
     state.runs,
+    monitorPipelineDisplayOptions(state),
   );
   for (const node of adHocNodes) {
     const members = workflowTableRowMembers(node.tableRow);
@@ -412,6 +432,7 @@ function dockHintLine(state: TuiMonitorState): string {
   const { pipelineNodes } = buildMonitorPipelineTreeJoin(
     mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath),
     state.runs,
+    monitorPipelineDisplayOptions(state),
   );
   const expandable = state.selectedNodeId !== null && isExpandablePipelineNodeId(pipelineNodes, state.selectedNodeId);
   const selectedRun = state.runs.find((run) => run.runId === state.selectedNodeId);
@@ -508,7 +529,11 @@ function leftPaneQueueHeadingRowCount(state: TuiMonitorState): number {
 
 /** Painted attention segment row count: heading, capped rows, and the overflow line when present. */
 function leftPaneAttentionRowCount(state: TuiMonitorState): number {
-  const projection = buildAttentionRows(state.pipelineSnapshotsBySocketPath, state.runs);
+  const projection = buildAttentionRows(
+    state.pipelineSnapshotsBySocketPath,
+    state.runs,
+    monitorPipelineDisplayOptions(state),
+  );
   if (projection.total === 0) return 0;
   return 1 + projection.rows.length + (projection.overflow > 0 ? 1 : 0);
 }
@@ -517,7 +542,13 @@ function leftPaneAttentionRowCount(state: TuiMonitorState): number {
 function leftPaneWorkDisplayNodes(state: TuiMonitorState): readonly MonitorPipelineTreeDisplayNode[] {
   const snapshots = mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath);
   const expandedNodeIds = new Set(state.expandedPipelineNodeIds ?? []);
-  return buildMonitorPipelineTree(snapshots, state.runs, expandedNodeIds, state.selectedNodeId);
+  return buildMonitorPipelineTree(
+    snapshots,
+    state.runs,
+    expandedNodeIds,
+    state.selectedNodeId,
+    monitorPipelineDisplayOptions(state),
+  );
 }
 
 /** Painted Work heading row count: one row for a non-empty complete model, zero for a genuinely empty one. */
@@ -551,7 +582,11 @@ function attentionRowLine(attentionRow: AttentionRow, selectedNodeId: string | n
 
 /** Pinned attention segment: heading, up to six capped rows, and a display-only overflow summary. */
 export function monitorLeftPaneAttentionRows(state: TuiMonitorState, nowMs = Date.now()): MonitorLineRow[] {
-  const projection = buildAttentionRows(state.pipelineSnapshotsBySocketPath, state.runs);
+  const projection = buildAttentionRows(
+    state.pipelineSnapshotsBySocketPath,
+    state.runs,
+    monitorPipelineDisplayOptions(state),
+  );
   if (projection.total === 0) return [];
   return [
     row(untoned(`── Needs attention (${projection.total}) ──`)),
@@ -953,7 +988,11 @@ const stageRecordForTreeRow = (
 
 /** Maps a selected attention row id to its target node id, or null when `selected` is not an attention row. */
 function resolveAttentionTargetId(state: TuiMonitorState, selected: string): string | null {
-  const projection = buildAttentionRows(state.pipelineSnapshotsBySocketPath, state.runs);
+  const projection = buildAttentionRows(
+    state.pipelineSnapshotsBySocketPath,
+    state.runs,
+    monitorPipelineDisplayOptions(state),
+  );
   // Mutation checkpoint: aliasing a non-attention selection to a target here must turn attention-target-aliasing RED.
   return projection.rows.find((attentionRow) => attentionRow.id === selected)?.targetId ?? null;
 }
@@ -1035,7 +1074,11 @@ function unwrappedRightPaneSegmentRows(state: TuiMonitorState, layout: ShellLayo
   const attentionTargetId = resolveAttentionTargetId(state, selected);
   if (attentionTargetId !== null) {
     const snapshots = mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath);
-    const { pipelineNodes, adHocNodes } = buildMonitorPipelineTreeJoin(snapshots, state.runs);
+    const { pipelineNodes, adHocNodes } = buildMonitorPipelineTreeJoin(
+      snapshots,
+      state.runs,
+      monitorPipelineDisplayOptions(state),
+    );
     const { sections, isRunTarget } = joinedTargetDetailSections(
       pipelineNodes,
       adHocNodes,

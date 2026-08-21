@@ -52,6 +52,8 @@ export type TuiMonitorState = {
   keyedSocketDigest?: string;
   /** Last-good per-daemon `pipeline_list` snapshots keyed by socket path. */
   pipelineSnapshotsBySocketPath?: Readonly<Record<string, PipelineListResult>>;
+  /** When true, dismissed pipelines paint alongside live work instead of leaving every projection. */
+  showDismissed?: boolean;
 };
 
 /**

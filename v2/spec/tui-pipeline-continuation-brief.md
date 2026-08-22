@@ -38,13 +38,13 @@ Two clusters: **recovery** (make a blocked/failed pipeline survivable) and **fan
 
 Also landed this session: v2-init (#2890), TUI pane divider (#2901), ready-gate-reaps 01+02 (#2903 — spec complete), and the 8-spec `completed/` archival (#2905).
 
-### Next priorities (re-prioritized 2026-08-18, post-P0)
+### Next priorities (re-prioritized 2026-08-18; landings marked 2026-08-21)
 
-1. **`plan-normalizer-honors-declared-single-surface`** (seed) — **NEW TOP.** The plan-draft normalizer's single-surface check false-positives on a legit acceptance-criterion bullet that names multiple file paths / RPC frames in one classification; it blocked **three** plans this session (resume-CLI, flake foundation, stage-recovery), each forcing a manual hand-finish. Fixing it removes that toil from every future plan — highest remaining leverage.
-2. **TUI P1s** — `tui-attention-segment-suppresses-stale-terminal-incidents` + `tui-stage-run-duplicated-as-top-level` (below). Highest-friction TUI defects, independent of everything else.
-3. **Pipeline display hygiene P2s** — retention + dismiss + **stale-run termination** (bumped: a daemon death mid-session this session orphaned a completion run that stays `in-progress` and un-killable — exactly what `operator-terminates-stale-nonactive-runs` addresses).
+1. ~~**`plan-normalizer-honors-declared-single-surface`**~~ — **DONE 2026-08-21** (subspec 01 #2925 atop subspec 00 #2910; spec complete). The intent split now emits the `Unsplit rationale:` + `## Primary implementation surface` declaration pair the normalizer honors, so the single-surface false-positive no longer blocks plans. Existing pre-fix intents still need the pair hand-added (operator declarations #2924/#2930/#2933/#2937 did this for the terminate/dismiss chains).
+2. **TUI P1s** — `tui-attention-segment-suppresses-stale-terminal-incidents` + `tui-stage-run-duplicated-as-top-level` (below). **STILL OPEN — top remaining priority.** Highest-friction TUI defects, independent of everything else.
+3. **Pipeline display hygiene P2s** — `operator-dismisses-pipelines-from-display` **DONE 2026-08-21** (store #2932, rpc #2935, cli #2938/#2940, tui #2942/#2943) and `operator-terminates-stale-nonactive-runs` **DONE 2026-08-21** (daemon force-settle on `kill` #2927, `jarvis run kill --force` #2929). `pipeline-list-display-retention` **still open**. Gap surfaced dogfooding the dismiss feature: it is pipeline-scoped only — standalone terminal ad-hoc `run workflow` rows still fill the TUI/`run list` and have no dismiss analog; they only age out of the 50-newest-terminal window (candidate seed: a `jarvis run dismiss` mirror of pipeline dismiss).
 4. **Fan-out correctness P1** — still gated on the operator's `configure-pipeline-supersede-policy` landing first.
-5. Dock grammar, remaining TUI polish, and `distinguish-jarvis-commit-steps` (its ~14 hollow `@mutate` checkpoints were repair-drafted this session — apply + implement).
+5. `distinguish-jarvis-commit-steps` **DONE 2026-08-21** (#2919/#2920/#2921, all three subspecs; the hollow `@mutate` checkpoints were re-authored by the implementing agent and hand-verified — the prior session's repair-draft was never persisted). **Still open:** dock grammar (`tui-dock-command-grammar-mirrors-cli`) and `tui-typed-run-steering-clears-command-input`.
 
 New seed this session: `harness-publication-push-uses-explicit-refspec` — the completion step's bare `git push` fails when the implement branch tracks a differently-named upstream (e.g. from `--base origin/main`), stranding publication; an explicit `git push origin HEAD:<branch>` is robust to branch upstream config. See `v2/spec/seeds/`.
 
@@ -73,7 +73,7 @@ New seed this session: `harness-publication-push-uses-explicit-refspec` — the 
 | **P1** | `tui-stage-run-duplicated-as-top-level` | A run belonging to a pipeline stage nests under it, never doubling as a top-level ad-hoc row (branch-aware attribution) | Correctness/legibility: confirmed with a distinct same-branch invocation (`1c65481a` recorded vs `f900c104` leaked). |
 | **P2** | `tui-dock-command-grammar-mirrors-cli` | Dock verbs mirror the CLI minus `jarvis` (`pipeline start`, `run kill`, …) instead of the bespoke set | Big usability win (operator drove the dock like a shell and it rejected the CLI grammar); larger change — decide selection-vs-explicit-id coexistence. |
 | **P2** | `tui-typed-run-steering-clears-command-input` | Typed `kill`/`pause`/`resume-run` clear the input like every other verb; the `start` arm catches a thrown admission instead of vanishing silently | Two small confirmed dock-submit bugs. |
-| **P3** | `tui-down-arrow-reveals-without-persisting-expansion` | ↓/`j` reveal-for-paint without persisting expansion; only `e`/`expand` persist | Scrolling past collapsed nodes currently auto-expands each one. |
+| ~~P3~~ **DONE** | `tui-down-arrow-reveals-without-persisting-expansion` | ↓/`j` reveal-for-paint without persisting expansion; only `e`/`expand` persist | **DONE 2026-08-21 (#2922)** — `selectNextRun` descends via a throwaway `revealState` fed only to `monitorSelectableNodeIds`, never persisting expansion. |
 | **P3** | `tui-left-right-pane-divider` | A painted vertical divider between the two split-layout panes | Visual polish; the panes currently run together. |
 
 ## Recommended ordering
@@ -85,7 +85,7 @@ New seed this session: `harness-publication-push-uses-explicit-refspec` — the 
 5. **Dock grammar (P2)** — high value but a larger, standalone redesign; sequence after the P1 defects.
 6. **TUI polish (P3s)** — down-arrow expansion and the pane divider; lowest urgency.
 
-With the recovery cluster done, the single highest-leverage remaining fix is **`plan-normalizer-honors-declared-single-surface`** — it silently defeats plan drafting the same way the harness blocker used to defeat re-runs (three hand-finishes this session), so fixing it removes the recurring manual-plan-finish toil.
+With the recovery cluster done, `plan-normalizer-honors-declared-single-surface` **landed 2026-08-21** (#2925) — plan drafting is no longer silently defeated by the single-surface false-positive. The single highest-leverage remaining fix is now the **TUI P1 pair** (`tui-attention-segment-suppresses-stale-terminal-incidents` + `tui-stage-run-duplicated-as-top-level`).
 
 Test strategy unchanged: pure functions + injected input hook, no rendered-ink assertions (`v2/docs/test-writing.md` § TUI test strategy); daemon/state tests for the pipeline items.
 

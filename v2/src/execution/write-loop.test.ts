@@ -496,6 +496,8 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
     recordAttemptStart: (runId) => inner.recordAttemptStart(runId),
     setRunStatus: (runId, status) => inner.setRunStatus(runId, status),
     commitGuardedKill: (runId) => inner.commitGuardedKill(runId),
+    dismissRun: (runId) => inner.dismissRun(runId),
+    undismissRun: (runId) => inner.undismissRun(runId),
     forceKillOwnerAdmits: (runId) => inner.forceKillOwnerAdmits(runId),
     beginRunReconciliation: () => inner.beginRunReconciliation(),
     finishRunReconciliation: (runId) => inner.finishRunReconciliation(runId),

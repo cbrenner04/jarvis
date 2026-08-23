@@ -453,6 +453,80 @@ describe("StateStore", () => {
     }
   });
 
+  test("a pre-migration database migrates dismissed_at onto existing runs as null", () => {
+    const legacyDbPath = join(tmpdir(), "jarvis-test-state-legacy-dismissed-at.sqlite");
+    removeOrchestrationStore(legacyDbPath);
+    try {
+      const raw = new Database(legacyDbPath);
+      raw.exec(`
+        CREATE TABLE runs (
+          id TEXT PRIMARY KEY,
+          project TEXT NOT NULL,
+          spec_ref TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          worktree_path TEXT NOT NULL,
+          branch TEXT NOT NULL,
+          spec_path TEXT NOT NULL,
+          step_id TEXT,
+          workflow_snapshot TEXT,
+          queued_input TEXT,
+          creation_title TEXT,
+          reconciliation_pending INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE attempts (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL,
+          attempt_number INTEGER NOT NULL,
+          started_at INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          outcome_kind TEXT,
+          completed_at INTEGER,
+          invocation_failure_detail TEXT,
+          completion_agent TEXT,
+          FOREIGN KEY (run_id) REFERENCES runs(id)
+        );
+        CREATE TABLE _migrations (
+          id TEXT PRIMARY KEY,
+          applied_at INTEGER NOT NULL
+        );
+      `);
+      for (const id of [
+        "004-invocation-failure-detail",
+        "005-run-step-id",
+        "006-run-workflow-snapshot",
+        "007-run-queued-input",
+        "008-attempt-completion-agent",
+        "009-run-creation-title",
+        "010-run-reconciliation-pending",
+      ]) {
+        raw.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(id, Date.now());
+      }
+      const runId = "legacy-run-dismissed-at";
+      raw
+        .prepare(
+          `INSERT INTO runs (id, project, spec_ref, created_at, status, attempt_count, worktree_path, branch, spec_path)
+           VALUES (?, 'legacy-project', 'main', ?, 'in-progress', 0, '/tmp/legacy', 'legacy-branch', 'spec.md')`,
+        )
+        .run(runId, Date.now());
+      raw.close();
+
+      const migrated = openStateStore(legacyDbPath);
+      expect(loadRunOrThrow(migrated, runId).dismissedAt).toBeNull();
+
+      const verify = new Database(legacyDbPath);
+      const row = verify.prepare("SELECT dismissed_at AS dismissedAt FROM runs WHERE id = ?").get(runId) as {
+        dismissedAt: number | null;
+      };
+      expect(row.dismissedAt).toBeNull();
+      verify.close();
+      migrated.close();
+    } finally {
+      removeOrchestrationStore(legacyDbPath);
+    }
+  });
+
   test("findRunsByInvocationId returns all runs with matching invocationId", () => {
     const snapshot = { invocationId: "inv-123", steps: [{ stepId: "step-1", role: "implement" }] };
     const run1Id = seedRun(store, { stepId: "step-1", workflowSnapshot: snapshot });
@@ -1809,7 +1883,7 @@ describe("pipelines", () => {
 
       const verify = new Database(legacyDbPath);
       const migrationCount = verify.prepare("SELECT COUNT(*) AS total FROM _migrations").get() as { total: number };
-      expect(migrationCount.total).toBe(24);
+      expect(migrationCount.total).toBe(25);
       verify.close();
 
       const pipelineId = migrated.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
@@ -1945,6 +2019,28 @@ describe("pipeline reconciliation", () => {
     expect(loadRunOrThrow(sweepStore, idempotentRunId).reconciledAt).toBe(afterFirst.reconciledAt);
 
     expect(loadRunOrThrow(sweepStore, alreadyKilledRunId).reconciledAt).toBe(1_600_000_000_000);
+
+    sweepStore.close();
+  });
+
+  test("a dismissed run stays loadable and keeps its lifecycle", async () => {
+    const sweepStore = openSweepStore(async () => false);
+
+    const runId = seedOrphanRun({ branch: "dismissed-branch" });
+    seedStore.dismissRun(runId);
+
+    expect(loadRunOrThrow(seedStore, runId).dismissedAt).not.toBeNull();
+    expect(seedStore.listRuns().find((run) => run.id === runId)?.dismissedAt).not.toBeNull();
+    expect(
+      seedStore.findRunByProjectBranch({ project: "test-project", branch: "dismissed-branch", stepId: null })
+        ?.dismissedAt,
+    ).not.toBeNull();
+
+    await sweepStore.beginRunReconciliation();
+
+    const swept = loadRunOrThrow(sweepStore, runId);
+    expect(swept.status).toBe("killed");
+    expect(swept.dismissedAt).not.toBeNull();
 
     sweepStore.close();
   });
@@ -3631,5 +3727,130 @@ describe("pipeline dismissal", () => {
 
     expect(store.dismissPipeline({ pipelineId })).toEqual({ kind: "applied", pipelineId });
     expect(loadPipelineOrThrow(store, pipelineId).dismissedAt).toBe(1000);
+  });
+});
+
+describe("run dismissal", () => {
+  let store: StateStore;
+
+  beforeEach(() => {
+    removeOrchestrationStore(TEST_DB_PATH);
+    store = openStateStore(TEST_DB_PATH);
+  });
+
+  afterEach(() => {
+    store.close();
+    removeOrchestrationStore(TEST_DB_PATH);
+  });
+
+  test("dismissRun persists dismissedAt across reopen", () => {
+    // @mutate v2/src/persistence/state-store.ts ".run(dismissedAt, runId)" -> ".run(null, runId)"
+    const runId = seedRun(store);
+    const before = Date.now();
+
+    expect(store.dismissRun(runId)).toEqual({ kind: "applied", runId });
+    expect(loadRunOrThrow(store, runId).dismissedAt).toBeGreaterThanOrEqual(before);
+    const listed = store.listRuns().find((run) => run.id === runId);
+    expect(listed?.dismissedAt).toBeGreaterThanOrEqual(before);
+
+    store.close();
+    store = openStateStore(TEST_DB_PATH);
+    expect(loadRunOrThrow(store, runId).dismissedAt).toBeGreaterThanOrEqual(before);
+  });
+
+  test("undismissRun clears dismissedAt back to null", () => {
+    const runId = seedRun(store);
+    store.dismissRun(runId);
+
+    // @mutate v2/src/persistence/state-store.ts "UPDATE runs SET dismissed_at = NULL WHERE id = ?" -> "UPDATE runs SET dismissed_at = dismissed_at WHERE id = ?"
+    expect(store.undismissRun(runId)).toEqual({ kind: "applied", runId });
+    expect(loadRunOrThrow(store, runId).dismissedAt).toBeNull();
+
+    store.close();
+    store = openStateStore(TEST_DB_PATH);
+    expect(loadRunOrThrow(store, runId).dismissedAt).toBeNull();
+  });
+
+  test("undismissRun on a never-dismissed run is a no-op success", () => {
+    const runId = seedRun(store);
+
+    expect(store.undismissRun(runId)).toEqual({ kind: "applied", runId });
+    expect(loadRunOrThrow(store, runId).dismissedAt).toBeNull();
+  });
+
+  test("re-dismissing a dismissed run preserves the first dismissal timestamp", () => {
+    // @mutate v2/src/persistence/state-store.ts "UPDATE runs SET dismissed_at = ? WHERE id = ? AND dismissed_at IS NULL" -> "UPDATE runs SET dismissed_at = ? WHERE id = ?"
+    const runId = seedRun(store);
+    const raw = new Database(TEST_DB_PATH);
+    try {
+      raw.prepare("UPDATE runs SET dismissed_at = 1000 WHERE id = ?").run(runId);
+    } finally {
+      raw.close();
+    }
+
+    expect(store.dismissRun(runId)).toEqual({ kind: "applied", runId });
+    expect(loadRunOrThrow(store, runId).dismissedAt).toBe(1000);
+  });
+
+  test("dismiss and undismiss only affect the targeted run row", () => {
+    // @mutate v2/src/persistence/state-store.ts "UPDATE runs SET dismissed_at = ? WHERE id = ? AND dismissed_at IS NULL" -> "UPDATE runs SET dismissed_at = ? WHERE (id = ? OR 1 = 1) AND dismissed_at IS NULL"
+    // @mutate v2/src/persistence/state-store.ts "UPDATE runs SET dismissed_at = NULL WHERE id = ?" -> "UPDATE runs SET dismissed_at = NULL"
+    const runA = seedRun(store, { branch: "dismiss-scope-a" });
+    const runB = seedRun(store, { branch: "dismiss-scope-b" });
+
+    store.dismissRun(runA);
+    expect(loadRunOrThrow(store, runB).dismissedAt).toBeNull();
+
+    store.dismissRun(runB);
+    store.undismissRun(runA);
+    expect(loadRunOrThrow(store, runA).dismissedAt).toBeNull();
+    expect(loadRunOrThrow(store, runB).dismissedAt).not.toBeNull();
+  });
+
+  test("dismiss and undismiss leave run status attempts and workflow snapshot untouched", () => {
+    const snapshot = { invocationId: "inv-dismiss", steps: [{ stepId: "step-1", role: "implement" }] };
+    const runId = seedRun(store, { stepId: "step-1", workflowSnapshot: snapshot });
+    const attemptId = store.recordAttemptStart(runId);
+    store.commitCompletionBoundary({
+      attemptId,
+      runStatus: "completed",
+      outcomeKind: "done",
+      completionAgent: "claude",
+    });
+    store.setPrEvidence(runId, 42, "https://github.com/example/pr/42");
+
+    const beforeDismiss = loadRunOrThrow(store, runId);
+    store.dismissRun(runId);
+    store.undismissRun(runId);
+    const after = loadRunOrThrow(store, runId);
+
+    expect(after.status).toBe(beforeDismiss.status);
+    expect(after.attemptCount).toBe(beforeDismiss.attemptCount);
+    expect(after.workflowSnapshot).toEqual(beforeDismiss.workflowSnapshot);
+    expect(after.stepId).toBe(beforeDismiss.stepId);
+    expect(after.finishedAt).toBe(beforeDismiss.finishedAt);
+    expect(after.reconciledAt).toBe(beforeDismiss.reconciledAt);
+    expect(after.prNumber).toBe(beforeDismiss.prNumber);
+    expect(after.prUrl).toBe(beforeDismiss.prUrl);
+    expect(after.worktreePath).toBe(beforeDismiss.worktreePath);
+    expect(after.branch).toBe(beforeDismiss.branch);
+    expect(after.attempts).toEqual(beforeDismiss.attempts);
+  });
+
+  test("dismissRun and undismissRun refuse an unknown run id", () => {
+    // @mutate v2/src/persistence/state-store.ts "return this.db.prepare(\"SELECT 1 FROM runs WHERE id = ?\").get(runId) !== null;" -> "return true;"
+    const runId = seedRun(store);
+
+    expect(store.dismissRun("no-such-run")).toEqual({
+      kind: "refused",
+      runId: "no-such-run",
+      reason: "run_not_found",
+    });
+    expect(store.undismissRun("no-such-run")).toEqual({
+      kind: "refused",
+      runId: "no-such-run",
+      reason: "run_not_found",
+    });
+    expect(loadRunOrThrow(store, runId).dismissedAt).toBeNull();
   });
 });

@@ -33,7 +33,11 @@ import {
   monitorSelectableNodeIds,
   monitorTextLines,
 } from "./tui-monitor-lines.ts";
-import { buildPipelineMonitorTreeRow, monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
+import {
+  buildPipelineMonitorTreeRow,
+  monitorPipelineBranchNodeId,
+  monitorPipelineStageNodeId,
+} from "./tui-monitor-pipeline-tree.ts";
 import type {
   DetachedPipelineStartAdmission,
   RunTuiEntryDeps,
@@ -431,6 +435,58 @@ const PIPELINE_SNAPSHOT_MULTI: PipelineSnapshot = {
 };
 
 const PIPELINE_STAGE_MULTI = monitorPipelineStageNodeId("pipe-multi", "implement", "default");
+
+const PIPELINE_SNAPSHOT_BRANCH: PipelineSnapshot = {
+  pipelineId: "pipe-branch",
+  name: "branch-pipeline",
+  state: "running",
+  terminalPublicationSucceededAt: null,
+  terminalPublicationFailure: null,
+  createdAt: 1_700_000_000_000,
+  finishedAtMs: null,
+  dismissedAt: null,
+  stages: [
+    {
+      id: "stage-branch-intent",
+      stageId: "intent",
+      branchKey: "default",
+      position: 0,
+      status: "succeeded",
+      workflowInvocationId: null,
+      startedAt: null,
+      endedAt: null,
+      decidedAt: null,
+      artifact: null,
+      failureDetail: null,
+    },
+    {
+      id: "stage-branch-plan-alpha",
+      stageId: "plan",
+      branchKey: "alpha",
+      position: 1,
+      status: "running",
+      workflowInvocationId: "inv-branch-alpha",
+      startedAt: null,
+      endedAt: null,
+      decidedAt: null,
+      artifact: null,
+      failureDetail: null,
+    },
+    {
+      id: "stage-branch-plan-beta",
+      stageId: "plan",
+      branchKey: "beta",
+      position: 1,
+      status: "running",
+      workflowInvocationId: "inv-branch-beta",
+      startedAt: null,
+      endedAt: null,
+      decidedAt: null,
+      artifact: null,
+      failureDetail: null,
+    },
+  ],
+};
 
 function pipelineMultiRun(
   overrides: Partial<DaemonListRunRow> & Pick<DaemonListRunRow, "runId" | "stepId" | "status">,
@@ -2606,8 +2662,7 @@ describe("runTuiEntry", () => {
   });
 
   test("drives row navigation through the injected input hook", async () => {
-    // Mutation checkpoint: selection-driven list collapse during the ↑ walk must turn this pin RED.
-    // @mutate v2/src/tui/tui-entry.tsx "ids = monitorSelectableNodeIds(revealState, nowMs);" -> "ids = monitorSelectableNodeIds(state, nowMs);"
+    // @mutate v2/src/tui/tui-entry.tsx "if (next !== undefined && next !== activeId) setSelection(next);" -> "if (next !== undefined && next !== activeId) { setState({ ...state, expandedPipelineNodeIds: [...(state.expandedPipelineNodeIds ?? []), activeId] }); setSelection(next); }"
     const view = createViewHost();
     const { deps } = pipelineTreeEntryDeps(view, {
       terminalSize: () => ({ columns: 245, rows: 72 }),
@@ -2624,25 +2679,12 @@ describe("runTuiEntry", () => {
 
     view.selectNextRun();
     await flush();
-    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(PIPELINE_STAGE_ALPHA);
-    expect(expanded()).toEqual([]);
-
-    view.selectNextRun();
-    await flush();
-    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-matched");
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-orphan");
     expect(expanded()).toEqual([]);
 
     view.selectNextRun();
     await flush();
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-orphan");
-    expect(expanded()).toEqual([]);
-
-    // run-orphan sits outside pipe-alpha's subtree (an unattributed sibling row), so ↑ from here is not a
-    // retrace step: pipe-alpha's walk-revealed stage/run rows are already gone from the painted tree, and ↑
-    // lands directly on the still-collapsed pipe-alpha row.
-    view.selectPreviousRun();
-    await flush();
-    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-alpha");
     expect(expanded()).toEqual([]);
 
     view.selectPreviousRun();
@@ -2654,8 +2696,8 @@ describe("runTuiEntry", () => {
     expect(await pending).toBe(0);
   });
 
-  test("j into a collapsed pipeline selects its first stage and records no expansion", async () => {
-    // @mutate v2/src/tui/tui-entry.tsx "ids = monitorSelectableNodeIds(revealState, nowMs);" -> "ids = monitorSelectableNodeIds(revealState, nowMs); setState(revealState);"
+  test("j on a collapsed pipeline selects the next top-level row, not its first stage", async () => {
+    // @mutate v2/src/tui/tui-entry.tsx "const ids = monitorSelectableNodeIds(state, nowMs);" -> "const ids = monitorSelectableNodeIds(state.selectedNodeId !== null && isExpandablePipelineNodeId(pipelineNodesForState(state), state.selectedNodeId) && !(state.expandedPipelineNodeIds ?? []).includes(state.selectedNodeId) ? { ...state, expandedPipelineNodeIds: [...(state.expandedPipelineNodeIds ?? []), state.selectedNodeId] } : state, nowMs);"
     const view = createViewHost();
     const { deps } = pipelineTreeEntryDeps(view, {
       terminalSize: () => ({ columns: 245, rows: 72 }),
@@ -2671,14 +2713,15 @@ describe("runTuiEntry", () => {
 
     view.selectNextRun();
     await flush();
-    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(PIPELINE_STAGE_ALPHA);
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-orphan");
+    expect(view.monitorStates.at(-1)?.selectedNodeId).not.toBe(PIPELINE_STAGE_ALPHA);
     expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).toEqual(before);
 
     view.quit();
     expect(await pending).toBe(0);
   });
 
-  test("j into a collapsed stage reveals its run rows and records no expansion", async () => {
+  test("j from a collapsed pipeline never paints its stage or run rows", async () => {
     const view = createViewHost();
     const { deps } = pipelineMultiEntryDeps(view);
 
@@ -2687,34 +2730,36 @@ describe("runTuiEntry", () => {
     await flush();
 
     const expanded = (): readonly string[] => view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? [];
+    const paintedContains = (id: string): boolean => leftPaneTreeRowIds(view.monitorStates.at(-1)).includes(id);
 
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-multi");
     expect(expanded()).toEqual([]);
+    expect(paintedContains(PIPELINE_STAGE_MULTI)).toBe(false);
+    expect(paintedContains("run-review")).toBe(false);
+    expect(paintedContains("run-implement")).toBe(false);
 
     view.selectNextRun();
     await flush();
-    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(PIPELINE_STAGE_MULTI);
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-orphan");
     expect(expanded()).toEqual([]);
-
-    view.selectNextRun();
-    await flush();
-    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-review");
-    expect(expanded()).toEqual([]);
-    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toEqual(
-      expect.arrayContaining(["run-review", "run-implement"]),
-    );
+    expect(paintedContains(PIPELINE_STAGE_MULTI)).toBe(false);
+    expect(paintedContains("run-review")).toBe(false);
+    expect(paintedContains("run-implement")).toBe(false);
 
     view.quit();
     expect(await pending).toBe(0);
   });
 
-  test("walking past a revealed pipeline drops its descendant rows from the painted tree", async () => {
+  test("j from a collapsed branch never paints its stage rows", async () => {
+    const alphaBranchId = monitorPipelineBranchNodeId("pipe-branch", "alpha");
+    const betaBranchId = monitorPipelineBranchNodeId("pipe-branch", "beta");
+    const alphaStageId = monitorPipelineStageNodeId("pipe-branch", "plan", "alpha");
     const view = createViewHost();
     const { deps } = entryDeps(
       {
         methods: [],
-        listResponses: [{ runs: pipelineTreeListFixture() }],
-        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA, PIPELINE_SNAPSHOT_BETA] }],
+        listResponses: [{ runs: [] }],
+        pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_BRANCH] }],
       },
       { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS, terminalSize: () => ({ columns: 245, rows: 72 }) },
     );
@@ -2723,23 +2768,20 @@ describe("runTuiEntry", () => {
     await view.waitUntilOpen();
     await flush();
 
-    view.selectNode("pipe-alpha");
+    // Expand the pipeline (durable, via `e`) so its branch rows paint; then select the still-collapsed
+    // alpha branch directly — resolveSelectedAncestors reveals only the pipeline for it, not its own stage,
+    // so alpha's plan stage stays unpainted.
+    await expandPipelineAndSelect(view, "pipe-branch", alphaBranchId);
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(alphaBranchId);
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).not.toContain(alphaStageId);
+    const before = view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? [];
+
+    view.selectNextRun();
     await flush();
-
-    const alphaSubtree = new Set(["pipe-alpha", PIPELINE_STAGE_ALPHA, "run-matched"]);
-    let left = false;
-    for (let step = 0; step < 6 && !left; step += 1) {
-      view.selectNextRun();
-      await flush();
-      const selected = view.monitorStates.at(-1)?.selectedNodeId ?? null;
-      if (selected !== null && !alphaSubtree.has(selected)) left = true;
-    }
-    expect(left).toBe(true);
-
-    const finalRows = leftPaneTreeRowIds(view.monitorStates.at(-1));
-    expect(finalRows).toContain("pipe-alpha");
-    expect(finalRows).not.toContain(PIPELINE_STAGE_ALPHA);
-    expect(finalRows).not.toContain("run-matched");
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(betaBranchId);
+    expect(view.monitorStates.at(-1)?.selectedNodeId).not.toBe(alphaStageId);
+    expect(view.monitorStates.at(-1)?.expandedPipelineNodeIds ?? []).toEqual(before);
+    expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).not.toContain(alphaStageId);
 
     view.quit();
     expect(await pending).toBe(0);
@@ -2855,7 +2897,7 @@ describe("runTuiEntry", () => {
     expect(await pending).toBe(0);
   });
 
-  test("overflow fixture backward walk retraces the open subtree then top-level pipeline rows only", async () => {
+  test("overflow fixture backward walk exactly retraces the forward walk", async () => {
     // Mutation checkpoint: reintroducing `ids[0]` fallthrough when `indexOf` is `-1` in selectNextRun/selectPreviousRun turns this pin RED.
     const view = createViewHost();
     const { deps, pipelineCount, pipelines } = overflowPipelineEntryDeps(view);
@@ -2889,20 +2931,19 @@ describe("runTuiEntry", () => {
     }
     expect(backwardOrder.length).toBeGreaterThan(1);
 
-    // The walk never durably expanded anything, so backward retraces only while selection still sits
-    // inside the last walk-revealed subtree (one exact hop to its parent); every step after that sees no
-    // revealed descendants and moves through top-level pipeline rows only, in reverse visit order.
+    // No expansion is ever written, so the selectable list never widens: the backward walk exactly
+    // retraces the forward walk in reverse, dropping the row the forward walk ended on (that's where the
+    // backward walk starts from), with no stage or run id interleaved.
     const pipelineIds = new Set(pipelines.map((pipeline) => pipeline.pipelineId));
-    const topLevelForward = forwardOrder.filter((id) => pipelineIds.has(id));
-    expect(topLevelForward.length).toBeGreaterThan(0);
-    expect(backwardOrder[0]).toBe(forwardOrder[forwardOrder.length - 2]);
-    expect(backwardOrder.slice(1)).toEqual([...topLevelForward].reverse());
+    expect(forwardOrder.every((id) => pipelineIds.has(id))).toBe(true);
+    expect(backwardOrder.every((id) => pipelineIds.has(id))).toBe(true);
+    expect(backwardOrder).toEqual([...forwardOrder.slice(0, -1)].reverse());
 
     view.quit();
     expect(await pending).toBe(0);
   });
 
-  test("j on the first painted pipeline row selects its first child, not ids[0] via fallthrough", async () => {
+  test("j on the first painted pipeline row selects the next top-level row, not ids[0] via fallthrough", async () => {
     // Mutation checkpoint: reintroducing `ids[0]` (and backward fallthrough) in selectNextRun/selectPreviousRun turns this pin RED.
     const view = createViewHost();
     const { deps } = pipelineTreeEntryDeps(view, {
@@ -2916,7 +2957,7 @@ describe("runTuiEntry", () => {
     expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("pipe-alpha");
     view.selectNextRun();
     await flush();
-    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe(PIPELINE_STAGE_ALPHA);
+    expect(view.monitorStates.at(-1)?.selectedNodeId).toBe("run-orphan");
 
     view.quit();
     expect(await pending).toBe(0);

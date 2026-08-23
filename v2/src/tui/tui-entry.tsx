@@ -1030,30 +1030,13 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
         selectNextRun() {
           const nowMs = nowMsFn();
           const state = currentState;
-          let ids = monitorSelectableNodeIds(state, nowMs);
-          const selectedNodeId = state.selectedNodeId;
+          const ids = monitorSelectableNodeIds(state, nowMs);
           if (ids.length === 0) return;
-          if (
-            selectedNodeId !== null &&
-            isExpandablePipelineNodeId(pipelineNodesForState(state), selectedNodeId) &&
-            !(state.expandedPipelineNodeIds ?? []).includes(selectedNodeId)
-          ) {
-            // Reveal-only: descend into a collapsed node without persisting its expansion. revealState feeds
-            // only monitorSelectableNodeIds below; it is never passed to setState/setSelection, so the walk
-            // paints via resolveSelectedAncestors but leaves the durable expandedPipelineNodeIds store untouched.
-            const revealState = {
-              ...state,
-              expandedPipelineNodeIds: [...(state.expandedPipelineNodeIds ?? []), selectedNodeId],
-            };
-            // Mutation checkpoint: committing revealState here (restoring the walk-time expansion write) turns
-            // "j into a collapsed pipeline selects its first stage and records no expansion" RED.
-            ids = monitorSelectableNodeIds(revealState, nowMs);
-          }
           const activeId = state.selectedNodeId;
           const selectedIndex = activeId === null ? -1 : ids.indexOf(activeId);
           if (selectedIndex < 0) {
             // Mutation checkpoint: reintroducing `ids[0]` fallthrough when `indexOf` is `-1` in selectNextRun/selectPreviousRun
-            // turns "overflow fixture backward walk retraces the open subtree then top-level pipeline rows only" RED.
+            // turns "overflow fixture backward walk exactly retraces the forward walk" RED.
             if (activeId !== null) {
               setState(state);
               return;
@@ -1063,7 +1046,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
             return;
           }
           // Mutation checkpoint: reintroducing `ids[0]` (and backward fallthrough) in selectNextRun/selectPreviousRun turns
-          // "j on the first painted pipeline row selects its first child, not ids[0] via fallthrough" RED.
+          // "j on the first painted pipeline row selects the next top-level row, not ids[0] via fallthrough" RED.
           const next = ids[Math.min(selectedIndex + 1, ids.length - 1)];
           if (next !== undefined && next !== activeId) setSelection(next);
         },

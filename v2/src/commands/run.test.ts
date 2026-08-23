@@ -56,18 +56,20 @@ function waitError(code: string, message: string): unknown {
   return { kind: "error", id: WAIT_REQUEST_ID, code, message };
 }
 
-async function runSoloList(runs: Record<string, unknown>[]) {
+async function runSoloList(runs: Record<string, unknown>[], extraArgv: readonly string[] = []) {
   const cap = captureIo();
+  const sent: unknown[] = [];
   const code = await withFixedUuid(SOLO_LIST_ROW_REQUEST_ID, () =>
-    main(["run", "list"], cap.io, {
+    main(["run", "list", ...extraArgv], cap.io, {
       connectIpcClient: async () =>
-        makeIpcClient([{ kind: "response", id: SOLO_LIST_ROW_REQUEST_ID, result: { runs } }]),
+        makeIpcClient([{ kind: "response", id: SOLO_LIST_ROW_REQUEST_ID, result: { runs } }], { sent }),
     }),
   );
   const stdout = cap.read().stdout;
   return {
     code,
     stdout,
+    sent,
     row: () => stdout.trimEnd().split("\t"),
     rows: () =>
       stdout
@@ -1183,6 +1185,62 @@ describe("run control", () => {
     expect(stdout.trimEnd().split("\n")).toHaveLength(1);
     expect(row()[15]).toBe(JSON.stringify(completionCommitError));
     // @mutate v2/src/commands/run.ts "e?.completionCommitError === undefined ? \"-\" : JSON.stringify(e.completionCommitError)," -> "e?.completionCommitError ?? \"-\","
+  });
+
+  test("run list --all requests dismissed runs", async () => {
+    const { code, sent } = await runSoloList([soloDaemonListRow("solo-run")], ["--all"]);
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([
+      { kind: "request", id: SOLO_LIST_ROW_REQUEST_ID, method: "list", params: { includeDismissed: true } },
+    ]);
+    // @mutate v2/src/commands/run.ts "if (values.all === true) params.includeDismissed = true;" -> "if (false) params.includeDismissed = true;"
+  });
+
+  test("run list without --all omits the includeDismissed opt-in", async () => {
+    const { code, sent } = await runSoloList([soloDaemonListRow("solo-run")]);
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ kind: "request", id: SOLO_LIST_ROW_REQUEST_ID, method: "list" }]);
+    // @mutate v2/src/commands/run.ts "if (values.all === true) params.includeDismissed = true;" -> "params.includeDismissed = true;"
+  });
+
+  test("run list --all marks dismissed rows", async () => {
+    const { code, rows } = await runSoloList(
+      [
+        { ...soloDaemonListRow("dismissed-run"), dismissedAt: 123 },
+        { ...soloDaemonListRow("live-run"), dismissedAt: null },
+      ],
+      ["--all"],
+    );
+
+    expect(code).toBe(0);
+    const [dismissed, notDismissed] = rows();
+    expect(dismissed?.[16]).toBe("dismissed");
+    expect(notDismissed?.[16]).toBe("-");
+    // @mutate v2/src/commands/run.ts "...(showDismissal ? [typeof run.dismissedAt === \"number\" ? \"dismissed\" : \"-\"] : [])," -> "...[],"
+  });
+
+  test("run list without --all renders no dismissal column", async () => {
+    const { code, row } = await runSoloList([{ ...soloDaemonListRow("dismissed-run"), dismissedAt: 123 }]);
+
+    expect(code).toBe(0);
+    expect(row()).toHaveLength(16);
+    // @mutate v2/src/commands/run.ts "...(showDismissal ? [typeof run.dismissedAt === \"number\" ? \"dismissed\" : \"-\"] : [])," -> "...[typeof run.dismissedAt === \"number\" ? \"dismissed\" : \"-\"],"
+  });
+
+  test("run list --all --since <duration> --project <name> composes the opt-in with dimension filters", async () => {
+    const { code, sent } = await runSoloList(
+      [soloDaemonListRow("solo-run")],
+      ["--all", "--since", "1h", "--project", "demo"],
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toHaveLength(1);
+    const frame = sent[0] as { params?: { includeDismissed?: boolean; sinceMs?: number; project?: string } };
+    expect(frame.params?.includeDismissed).toBe(true);
+    expect(frame.params?.project).toBe("demo");
+    expect(typeof frame.params?.sinceMs).toBe("number");
   });
 
   test("run wait passes through error.completionCommitError for completion_commit_failed", async () => {

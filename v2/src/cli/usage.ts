@@ -10,7 +10,7 @@ export const RUN_KILL_USAGE = "usage: jarvis run kill <run-id> [--force]\n";
 export const RUN_DISMISS_USAGE = "usage: jarvis run dismiss <run-id>\n";
 export const RUN_UNDISMISS_USAGE = "usage: jarvis run undismiss <run-id>\n";
 export const RUN_LIST_USAGE =
-  "usage: jarvis run list [--since <duration|timestamp>] [--limit <positive-integer>] [--project <name>] [--branch <name>] [--spec <path>] [--status <terminal-status>]\n";
+  "usage: jarvis run list [--since <duration|timestamp>] [--limit <positive-integer>] [--project <name>] [--branch <name>] [--spec <path>] [--status <terminal-status>] [--all]\n";
 export const TUI_USAGE = "usage: jarvis tui\n";
 export const TUI_LOG_USAGE = "usage: jarvis tui log <run-id>\n";
 export const WRITE_USAGE =

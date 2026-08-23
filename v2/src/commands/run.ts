@@ -24,7 +24,7 @@ import { type ListRpcParams, resolveListRpcRequest } from "./run-list-rpc.ts";
 import { runWorkflowCommand } from "./workflow.ts";
 import { parseWriteCliInput } from "./write.ts";
 
-function formatListRunRow(run: DaemonListRunRow): string {
+function formatListRunRow(run: DaemonListRunRow, showDismissal: boolean): string {
   const e = run.error;
   const columns = [
     run.runId,
@@ -43,6 +43,7 @@ function formatListRunRow(run: DaemonListRunRow): string {
     run.prNumber !== undefined ? String(run.prNumber) : "-",
     run.prUrl ?? "-",
     e?.completionCommitError === undefined ? "-" : JSON.stringify(e.completionCommitError),
+    ...(showDismissal ? [typeof run.dismissedAt === "number" ? "dismissed" : "-"] : []),
   ];
   return `${columns.join("\t")}\n`;
 }
@@ -209,6 +210,7 @@ function parseListArgv(
     }
     params.status = status;
   }
+  if (values.all === true) params.includeDismissed = true;
 
   return { ok: true, params };
 }
@@ -268,7 +270,8 @@ async function runListSubcommand(rest: readonly string[], io: Io, deps: CliDeps)
 
   const { rows } = mergeRunLists(listResults);
   rows.sort((a, b) => a.runId.localeCompare(b.runId));
-  for (const run of rows) io.stdout(formatListRunRow(run));
+  const showDismissal = parsed.params.includeDismissed === true;
+  for (const run of rows) io.stdout(formatListRunRow(run, showDismissal));
   return 0;
 }
 

@@ -86,7 +86,8 @@ export const RUN_LIST_PARSE_ARG_OPTIONS = {
   branch: { type: "string" },
   spec: { type: "string" },
   status: { type: "string" },
-} as const satisfies Record<string, { type: "string" }>;
+  all: { type: "boolean" },
+} as const satisfies Record<string, { type: "boolean" | "string" }>;
 
 /** Flags accepted by `parseListArgv`, in help declaration order. */
 export const RUN_LIST_HELP_FLAGS: readonly CommandFlag[] = [
@@ -100,6 +101,7 @@ export const RUN_LIST_HELP_FLAGS: readonly CommandFlag[] = [
     argumentShape: "<terminal-status>",
     description: "Only list runs with the exact terminal durable status.",
   },
+  { name: "--all", argumentShape: "", description: "Also include dismissed runs; adds a trailing dismissed column." },
 ];
 
 /** `parseArgs` options for `jarvis daemon log`. */

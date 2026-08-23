@@ -2,7 +2,7 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - `run dismiss` / `undismiss` subcommands](./00-run-dismiss-undismiss-subcommands.md)
+- [x] [00 - `run dismiss` / `undismiss` subcommands](./00-run-dismiss-undismiss-subcommands.md)
 - [ ] [01 - `run list --all` includes dismissed runs](./01-run-list-all-flag.md)
 
 Scope note: CLI surface only — `v2/src/commands/run.ts` plus its usage strings (`v2/src/cli/usage.ts`), command tree (`v2/src/cli/command-tree.ts`), and flag declarations (`v2/src/cli/command-help-flags.ts`). The durable `dismissed_at` column, `dismissRun`/`undismissRun` store operations, and the `dismiss` / `undismiss` / default-excluding `list` RPCs already landed (`dismiss-run-durable-flag`, `dismiss-run-rpc`); no daemon, store, or TUI change lands here — TUI filtering is the `dismiss-run-tui-display` ready intent. The two subspecs are independently testable against a stubbed daemon client: 00 adds the subcommands, 01 adds the listing opt-in.

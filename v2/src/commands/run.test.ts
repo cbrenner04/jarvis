@@ -936,6 +936,55 @@ describe("run list multi-daemon", () => {
     expect(cap.read().stdout).toBe(`${JSON.stringify(record)}\n`);
   });
 
+  test("run log routes to a dismissed run's owning daemon, sending includeDismissed on both list requests", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const listSent: unknown[] = [];
+    const record = logRecord(1, "iteration_started");
+    record.runId = "dismissed-remote-run";
+    let connectCount = 0;
+
+    const code = await withFixedUuid(
+      [OPERATOR_SESSION_ID, LIST_REQUEST_INVOKING, LIST_REQUEST_OTHER, STREAM_REQUEST_ID],
+      () =>
+        main(["run", "log", "dismissed-remote-run"], cap.io, {
+          socketPath: INVOKING_SOCKET,
+          socketDiscovery: async () => [OTHER_SOCKET],
+          connectIpcClient: async (socketPath) => {
+            connectCount += 1;
+            if (connectCount <= 2) {
+              const id = connectCount === 1 ? LIST_REQUEST_INVOKING : LIST_REQUEST_OTHER;
+              const runs =
+                socketPath === OTHER_SOCKET
+                  ? [{ ...listRow("dismissed-remote-run", "in-progress", true), dismissedAt: 1234 }]
+                  : [];
+              return makeIpcClient([{ kind: "response", id, result: { runs } }], { sent: listSent });
+            }
+            if (socketPath !== OTHER_SOCKET) {
+              throw new Error(`stream must use owner socket, got ${socketPath}`);
+            }
+            return makeIpcClient(
+              [
+                { kind: "stream-data", streamId: STREAM_REQUEST_ID, payload: JSON.stringify(record) },
+                { kind: "stream-end", streamId: STREAM_REQUEST_ID },
+              ],
+              { sent },
+            );
+          },
+        }),
+    );
+
+    expect(code).toBe(0);
+    expect(listSent).toEqual([
+      { kind: "request", id: LIST_REQUEST_INVOKING, method: "list", params: { includeDismissed: true } },
+      { kind: "request", id: LIST_REQUEST_OTHER, method: "list", params: { includeDismissed: true } },
+    ]);
+    expect(sent).toEqual([
+      { kind: "stream-open", streamId: STREAM_REQUEST_ID, payload: { runId: "dismissed-remote-run", afterSeq: 0 } },
+    ]);
+    expect(cap.read().stdout).toBe(`${JSON.stringify(record)}\n`);
+  });
+
   test("run log falls back to invoking socket when run is absent everywhere", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];

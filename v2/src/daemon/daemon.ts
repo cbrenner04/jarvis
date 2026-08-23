@@ -1515,28 +1515,43 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       ...(reportedStatus === "blocked" ? { worktreePath: run.worktreePath } : {}),
       ...runListPrEvidence(run),
       ...(finishedAtMs !== undefined ? { finishedAtMs } : {}),
+      dismissedAt: run.dismissedAt ?? null,
     };
   };
 
   const listHandler: RpcHandler = (frame) => {
     const listParams = frame.params as ListRpcParams | undefined;
-    let durableRuns = store.listRuns();
-    if (listRpcRequestIsFiltered(listParams)) {
-      durableRuns = durableRuns
-        .filter((run) => runMatchesListRpcParams(run, listParams))
-        .slice(0, listParams?.limit ?? FILTERED_LIST_DEFAULT_LIMIT);
-    } else {
-      durableRuns = retainListedRuns(durableRuns);
-    }
+    const includeDismissed = listParams?.includeDismissed === true;
+    const isNotDismissed = (run: Run): boolean => includeDismissed || (run.dismissedAt ?? null) === null;
+    const applyRetention = (runs: Run[]): Run[] =>
+      listRpcRequestIsFiltered(listParams)
+        ? runs
+            .filter((run) => runMatchesListRpcParams(run, listParams))
+            .slice(0, listParams?.limit ?? FILTERED_LIST_DEFAULT_LIMIT)
+        : retainListedRuns(runs);
+    // Dismissal filter runs ahead of retention/filtered slicing: a dismissed run must not
+    // consume a terminal-retention slot or a filtered-limit slot.
+    const projectedRuns = applyRetention(store.listRuns().filter(isNotDismissed));
     const liveRunIds = new Set<string>();
 
     for (const activeRun of activeRuns.values()) {
       liveRunIds.add(activeRun.runId);
     }
 
-    const { fullRuns, workflowRuns } = indexListedRuns(durableRuns);
+    // Fold in dismissed siblings so the workflow index sees a complete invocation even when one
+    // step run was filtered out above; siblings are indexed, not themselves listed.
+    const indexInputRuns = new Map(projectedRuns.map((run) => [run.id, run]));
+    for (const run of projectedRuns) {
+      const fullRun = store.loadRun(run.id);
+      const invocationId = fullRun?.workflowSnapshot?.invocationId;
+      if (invocationId === undefined) continue;
+      for (const sibling of store.findRunsByInvocationId(invocationId)) {
+        if (!indexInputRuns.has(sibling.id)) indexInputRuns.set(sibling.id, sibling);
+      }
+    }
+    const { fullRuns, workflowRuns } = indexListedRuns([...indexInputRuns.values()]);
 
-    const runList = durableRuns.map((run) => {
+    const runList = projectedRuns.map((run) => {
       const fullRun = fullRuns.get(run.id);
       const isLive = run.status === "in-progress" && liveRunIds.has(run.id);
       const reportedStatus = reportedRunStatus(run, fullRun);
@@ -1546,6 +1561,25 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
     return { kind: "response", result: { runs: runList } };
   };
+
+  const handleRunDismissalHandler =
+    (mode: "dismiss" | "undismiss"): RpcHandler =>
+    (frame) => {
+      const params = frame.params as { runId?: unknown } | undefined;
+      const runId = typeof params?.runId === "string" ? params.runId : "";
+      if (runId.length === 0) {
+        return { kind: "error", code: "invalid_params", message: "runId required" };
+      }
+      const dismissal = mode === "dismiss" ? store.dismissRun(runId) : store.undismissRun(runId);
+      if (dismissal.kind === "refused") {
+        return { kind: "response", result: dismissal };
+      }
+      const run = store.loadRun(runId)!;
+      return { kind: "response", result: { ...dismissal, status: run.status } };
+    };
+
+  const dismissRunHandler = handleRunDismissalHandler("dismiss");
+  const undismissRunHandler = handleRunDismissalHandler("undismiss");
 
   const pauseHandler: RpcHandler = (frame) => {
     const params = frame.params as { runId?: string } | undefined;
@@ -2211,6 +2245,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     resume: resumeHandler,
     kill: killHandler,
     wait: waitHandler,
+    dismiss: dismissRunHandler,
+    undismiss: undismissRunHandler,
     pipeline_start: handlePipelineStartHandler,
     pipeline_approve: handlePipelineApproveHandler,
     pipeline_reject: handlePipelineRejectHandler,

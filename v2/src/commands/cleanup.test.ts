@@ -1135,6 +1135,51 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(existsSync(worktreePath)).toBe(true);
   });
 
+  test("a dismissed live run still makes a merged worktree ineligible, via includeDismissed on every list call", async () => {
+    const branch = "dismissed-live";
+    const worktreePath = await createWorktree(branch);
+    const invokingSocket = join(jarvisRoot, "daemon-dismissed-live.sock");
+    const sent: unknown[] = [];
+    const bulkDeps = {
+      socketPath: invokingSocket,
+      socketDiscovery: async () => [],
+      connectIpcClient: async () =>
+        makeIpcClient([], {
+          sent,
+          staleResetPreflight: {
+            listRuns: [
+              { runId: "live-run", project: "project", branch, status: "in-progress", isLive: true, dismissedAt: 1234 },
+            ],
+          },
+        }),
+    };
+
+    const { client: daemonClient } = await createBulkCleanupDaemonClient(bulkDeps);
+
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { dryRun: true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      ghRunnerForPr("MERGED"),
+      daemonClient,
+      { listRuns: () => [] } as unknown as StateStore,
+      { stdout: (text) => (stdout += text), stderr: () => {} },
+    );
+
+    expect(code).toBe(0);
+    expect(stdout).not.toContain(`Skipped merged worktree: ${worktreePath}`);
+    expect(stdout).toContain("No eligible worktrees or stranded artifacts");
+    expect(stdout).not.toContain(worktreePath);
+    expect(existsSync(worktreePath)).toBe(true);
+
+    const listRequests = sent.filter((frame) => (frame as { method?: string }).method === "list");
+    expect(listRequests.length).toBeGreaterThan(0);
+    for (const frame of listRequests) {
+      expect((frame as { params?: unknown }).params).toEqual({ includeDismissed: true });
+    }
+  });
+
   test("one dead socket in query set does not blank eligibility when another reports live run", async () => {
     // Inversion target: createBulkCleanupDaemonClient skipOnFailure in cleanup.ts — treating connect failures as empty list results turns this test RED.
     const branch = "dead-socket-peer-live";

@@ -162,7 +162,7 @@ export function createAbsentDaemonClient(): DaemonClient {
 
 export function createStaleResetDaemonClient(client: IpcClient): DaemonClient {
   const listRuns = async (project: string, branch: string) => {
-    const result = await request(client, "list");
+    const result = await request(client, "list", { includeDismissed: true });
     const list = parseListRuns(result);
     if (list === undefined) throw new Error(DAEMON_UNREACHABLE_REASON);
     return list.runs.filter((r) => r.project === project && r.branch === branch).map((r) => ({ isLive: r.isLive }));
@@ -187,7 +187,7 @@ export async function createBulkCleanupDaemonClient(deps: QueryDaemonListsDeps):
   hasAnsweringDaemon: boolean;
   firstError: unknown;
 }> {
-  const queryLists = async () => queryDaemonListsFromSockets(deps, undefined, { skipOnFailure: true });
+  const queryLists = async () => queryDaemonListsFromSockets(deps, { includeDismissed: true }, { skipOnFailure: true });
 
   const initial = await queryLists();
   const hasAnsweringDaemon = initial.listResults.some(([, result]) => result !== undefined);

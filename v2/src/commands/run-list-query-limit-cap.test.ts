@@ -96,6 +96,7 @@ test("resolveListRpcRequest and listRpcRequestIsFiltered", () => {
     [{ specPath: "/tmp/spec.md" }, { specPath: "/tmp/spec.md" }, true],
     [{ status: "completed" }, { status: "completed" }, true],
     [{ project: "demo", status: "failed", limit: 3 }, { project: "demo", status: "failed", limit: 3 }, true],
+    [{ includeDismissed: true }, { includeDismissed: true }, false],
   ];
   for (const [input, params, filtered] of cases) {
     expect(resolveListRpcRequest(input)).toEqual(params);

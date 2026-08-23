@@ -206,7 +206,7 @@ function parseListArgv(
 }
 
 async function resolveRunOwnerSocket(runId: string, deps: CliDeps): Promise<string> {
-  const { listResults } = await queryDaemonListsFromSockets(deps, undefined);
+  const { listResults } = await queryDaemonListsFromSockets(deps, { includeDismissed: true });
   const { owners } = mergeRunLists(listResults);
   return owners.get(runId) ?? deps.socketPath;
 }

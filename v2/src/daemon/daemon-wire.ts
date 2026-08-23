@@ -47,6 +47,8 @@ export type DaemonListRunRow = {
   finishedAtMs?: number;
   /** Durable run admission timestamp (ms since epoch). */
   createdAt: number;
+  /** Dismissal timestamp (ms since epoch), or `null` when not dismissed. Always present on the wire. */
+  dismissedAt?: number | null;
 };
 
 /** Successful daemon `list` wire payload. */

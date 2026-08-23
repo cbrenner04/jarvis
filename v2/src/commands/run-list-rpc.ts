@@ -9,6 +9,7 @@ export type ListRpcParams = {
   branch?: string;
   specPath?: string;
   status?: RunStatus;
+  includeDismissed?: boolean;
 };
 
 const LIST_RPC_PARAM_KEYS = [
@@ -18,6 +19,7 @@ const LIST_RPC_PARAM_KEYS = [
   "branch",
   "specPath",
   "status",
+  "includeDismissed",
 ] as const satisfies ReadonlyArray<keyof ListRpcParams>;
 
 export function resolveListRpcRequest(input: ListRpcParams): ListRpcParams | undefined {

@@ -738,7 +738,8 @@ describe("run list multi-daemon", () => {
 
   type RunsBySocket = Record<
     string,
-    Array<{ runId: string; project: string; branch: string; status: string; isLive: boolean }> | Error
+    | Array<{ runId: string; project: string; branch: string; status: string; isLive: boolean; dismissedAt?: number }>
+    | Error
   >;
 
   function listRow(runId: string, status: string, isLive: boolean) {
@@ -866,10 +867,12 @@ describe("run list multi-daemon", () => {
   const STREAM_REQUEST_ID = "00000000-0000-4000-8000-000000000032";
   const LIST_IDS: [string, string] = [LIST_REQUEST_INVOKING, LIST_REQUEST_OTHER];
 
-  function runsForRemoteOwner(runId: string): RunsBySocket {
+  function runsForRemoteOwner(runId: string, dismissedAt?: number): RunsBySocket {
     return {
       [INVOKING_SOCKET]: [],
-      [OTHER_SOCKET]: [listRow(runId, "in-progress", true)],
+      [OTHER_SOCKET]: [
+        { ...listRow(runId, "in-progress", true), ...(dismissedAt !== undefined ? { dismissedAt } : {}) },
+      ],
     };
   }
 
@@ -878,6 +881,7 @@ describe("run list multi-daemon", () => {
     runsBySocket: RunsBySocket,
     connectSockets: string[],
     then: (socketPath: string) => ReturnType<typeof makeIpcClient> | Promise<ReturnType<typeof makeIpcClient>>,
+    listSent?: unknown[],
   ) {
     let connectCount = 0;
     return async (socketPath: string) => {
@@ -888,7 +892,7 @@ describe("run list multi-daemon", () => {
       if (runs === undefined) throw new Error(`unexpected socket: ${socketPath}`);
       if (connectCount <= 2) {
         const id = connectCount === 1 ? listIds[0] : listIds[1];
-        return makeIpcClient([{ kind: "response", id, result: { runs } }]);
+        return makeIpcClient([{ kind: "response", id, result: { runs } }], listSent ? { sent: listSent } : undefined);
       }
       return then(socketPath);
     };
@@ -942,7 +946,6 @@ describe("run list multi-daemon", () => {
     const listSent: unknown[] = [];
     const record = logRecord(1, "iteration_started");
     record.runId = "dismissed-remote-run";
-    let connectCount = 0;
 
     const code = await withFixedUuid(
       [OPERATOR_SESSION_ID, LIST_REQUEST_INVOKING, LIST_REQUEST_OTHER, STREAM_REQUEST_ID],
@@ -950,27 +953,24 @@ describe("run list multi-daemon", () => {
         main(["run", "log", "dismissed-remote-run"], cap.io, {
           socketPath: INVOKING_SOCKET,
           socketDiscovery: async () => [OTHER_SOCKET],
-          connectIpcClient: async (socketPath) => {
-            connectCount += 1;
-            if (connectCount <= 2) {
-              const id = connectCount === 1 ? LIST_REQUEST_INVOKING : LIST_REQUEST_OTHER;
-              const runs =
-                socketPath === OTHER_SOCKET
-                  ? [{ ...listRow("dismissed-remote-run", "in-progress", true), dismissedAt: 1234 }]
-                  : [];
-              return makeIpcClient([{ kind: "response", id, result: { runs } }], { sent: listSent });
-            }
-            if (socketPath !== OTHER_SOCKET) {
-              throw new Error(`stream must use owner socket, got ${socketPath}`);
-            }
-            return makeIpcClient(
-              [
-                { kind: "stream-data", streamId: STREAM_REQUEST_ID, payload: JSON.stringify(record) },
-                { kind: "stream-end", streamId: STREAM_REQUEST_ID },
-              ],
-              { sent },
-            );
-          },
+          connectIpcClient: connectForTwoListsThen(
+            LIST_IDS,
+            runsForRemoteOwner("dismissed-remote-run", 1234),
+            [],
+            (socketPath) => {
+              if (socketPath !== OTHER_SOCKET) {
+                throw new Error(`stream must use owner socket, got ${socketPath}`);
+              }
+              return makeIpcClient(
+                [
+                  { kind: "stream-data", streamId: STREAM_REQUEST_ID, payload: JSON.stringify(record) },
+                  { kind: "stream-end", streamId: STREAM_REQUEST_ID },
+                ],
+                { sent },
+              );
+            },
+            listSent,
+          ),
         }),
     );
 

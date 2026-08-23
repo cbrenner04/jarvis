@@ -29,9 +29,11 @@ import {
   PIPELINE_UNDISMISS_USAGE,
   PIPELINE_USAGE,
   PIPELINE_WAIT_USAGE,
+  RUN_DISMISS_USAGE,
   RUN_KILL_USAGE,
   RUN_LIST_USAGE,
   RUN_LOG_USAGE,
+  RUN_UNDISMISS_USAGE,
   RUN_USAGE,
   TUI_LOG_USAGE,
   TUI_USAGE,
@@ -156,6 +158,16 @@ export const commandTree: CommandNode = {
           summary: "Kill a run.",
           usage: RUN_KILL_USAGE,
           flags: RUN_KILL_HELP_FLAGS,
+        },
+        {
+          name: "dismiss",
+          summary: "Hide a run from listings without deleting it.",
+          usage: RUN_DISMISS_USAGE,
+        },
+        {
+          name: "undismiss",
+          summary: "Restore a dismissed run to listings.",
+          usage: RUN_UNDISMISS_USAGE,
         },
         {
           name: "wait",

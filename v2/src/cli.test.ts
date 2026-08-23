@@ -164,7 +164,7 @@ describe("v2 cli dispatch", () => {
     const code = await main(["help", "run", "pause"], cap.io);
 
     expect(code).toBe(0);
-    expect(cap.read().stdout).toBe("usage: jarvis run <start|list|log|pause|resume|kill|wait|workflow> [args]\n");
+    expect(cap.read().stdout).toBe(RUN_USAGE);
   });
 
   test("help run start prints WRITE_USAGE", async () => {

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { RUN_USAGE } from "../cli/usage.ts";
+import { RUN_DISMISS_USAGE, RUN_UNDISMISS_USAGE, RUN_USAGE } from "../cli/usage.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
 import {
   absentMachineConfigPath,
@@ -1290,5 +1290,176 @@ describe("run control", () => {
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "", stderr: "unknown_run: Run run-404 not found\n" });
+  });
+});
+
+describe("run dismiss", () => {
+  function dismissalResponse(requestId: string, result: unknown) {
+    return { kind: "response" as const, id: requestId, result };
+  }
+
+  test("dismiss issues the dismiss request and confirms the run", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000040";
+
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "dismiss", "run-123"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient([dismissalResponse(requestId, { kind: "applied", runId: "run-123", status: "completed" })], {
+            sent,
+          }),
+      }),
+    );
+    // Keystone checkpoint: rewriting the RPC call to always send "undismiss" turns this test
+    // red while the undismiss test below stays green.
+    // @mutate v2/src/commands/run.ts "response = await request(client, method, { runId });" -> "response = await request(client, \"undismiss\", { runId });"
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ kind: "request", id: requestId, method: "dismiss", params: { runId: "run-123" } }]);
+    expect(cap.read()).toEqual({ stdout: "dismissed run-123\n", stderr: "" });
+  });
+
+  test("undismiss issues the undismiss request and confirms the run", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000041";
+
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "undismiss", "run-123"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient([dismissalResponse(requestId, { kind: "applied", runId: "run-123", status: "completed" })], {
+            sent,
+          }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(sent).toEqual([{ kind: "request", id: requestId, method: "undismiss", params: { runId: "run-123" } }]);
+    expect(cap.read()).toEqual({ stdout: "undismissed run-123\n", stderr: "" });
+  });
+
+  test("dismissing a live run warns naming its status", async () => {
+    async function expectWarning(status: string, requestId: string): Promise<void> {
+      const cap = captureIo();
+      const code = await withFixedUuid(requestId, () =>
+        main(["run", "dismiss", "run-123"], cap.io, {
+          connectIpcClient: async () =>
+            makeIpcClient([dismissalResponse(requestId, { kind: "applied", runId: "run-123", status })]),
+        }),
+      );
+      expect(code).toBe(0);
+      const output = cap.read();
+      expect(output.stdout).toBe("dismissed run-123\n");
+      expect(output.stderr).toBe(`run dismiss: run-123 is ${status} and now hidden from listings\n`);
+    }
+
+    await expectWarning("in-progress", "00000000-0000-4000-8000-000000000042");
+    await expectWarning("paused", "00000000-0000-4000-8000-000000000043");
+    await expectWarning("queued", "00000000-0000-4000-8000-000000000044");
+    await expectWarning("budget-soft-stopped", "00000000-0000-4000-8000-000000000045");
+    // Mutation checkpoint: neutering the live-status warning guard to `if (false)` drops the
+    // warning, turning this test red.
+    // @mutate v2/src/commands/run.ts "if (mode === \"dismiss\" && !isTerminalRunStatus(outcome.status)) {" -> "if (false) {"
+  });
+
+  test("dismissing a terminal run prints no warning", async () => {
+    const cap = captureIo();
+    const requestId = "00000000-0000-4000-8000-000000000046";
+
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "dismiss", "run-123"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient([dismissalResponse(requestId, { kind: "applied", runId: "run-123", status: "completed" })]),
+      }),
+    );
+    // Mutation checkpoint: dropping the terminal-status term from the same guard makes a
+    // terminal dismissal emit the live warning, turning this test red — proves the guard
+    // suppresses the warning rather than the warning never firing.
+    // @mutate v2/src/commands/run.ts "mode === \"dismiss\" && !isTerminalRunStatus(outcome.status)" -> "mode === \"dismiss\""
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "dismissed run-123\n", stderr: "" });
+  });
+
+  test("undismiss never warns on a non-terminal status", async () => {
+    const cap = captureIo();
+    const requestId = "00000000-0000-4000-8000-000000000047";
+
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "undismiss", "run-123"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient([dismissalResponse(requestId, { kind: "applied", runId: "run-123", status: "in-progress" })]),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "undismissed run-123\n", stderr: "" });
+  });
+
+  test("dismiss and undismiss refuse an unknown run id", async () => {
+    async function expectRefusal(argv: readonly string[], requestId: string): Promise<void> {
+      const cap = captureIo();
+      const code = await withFixedUuid(requestId, () =>
+        main([...argv], cap.io, {
+          connectIpcClient: async () =>
+            makeIpcClient([
+              dismissalResponse(requestId, { kind: "refused", runId: "run-404", reason: "run_not_found" }),
+            ]),
+        }),
+      );
+      expect(code).toBe(1);
+      expect(cap.read()).toEqual({ stdout: "", stderr: "run_not_found\n" });
+    }
+
+    await expectRefusal(["run", "dismiss", "run-404"], "00000000-0000-4000-8000-000000000048");
+    await expectRefusal(["run", "undismiss", "run-404"], "00000000-0000-4000-8000-000000000049");
+    // Mutation checkpoint: neutering the refusal branch to `if (false)` makes a refusal print
+    // the success confirmation on stdout and exit 0, turning this test red.
+    // @mutate v2/src/commands/run.ts "if (outcome.kind === \"refused\") {" -> "if (false) {"
+  });
+
+  test("dismiss and undismiss reject bad arity before contacting the daemon", async () => {
+    async function expectUsage(argv: readonly string[], usage: string): Promise<void> {
+      const cap = captureIo();
+      const code = await main([...argv], cap.io, {
+        connectIpcClient: async () => {
+          throw new Error("should not contact daemon");
+        },
+      });
+      expect(code).toBe(1);
+      expect(cap.read()).toEqual({ stdout: "", stderr: usage });
+    }
+
+    await expectUsage(["run", "dismiss"], RUN_DISMISS_USAGE);
+    await expectUsage(["run", "dismiss", "   "], RUN_DISMISS_USAGE);
+    await expectUsage(["run", "dismiss", "run-123", "extra"], RUN_DISMISS_USAGE);
+    await expectUsage(["run", "undismiss"], RUN_UNDISMISS_USAGE);
+    await expectUsage(["run", "undismiss", "   "], RUN_UNDISMISS_USAGE);
+    await expectUsage(["run", "undismiss", "run-123", "extra"], RUN_UNDISMISS_USAGE);
+    // Mutation checkpoint: neutering the argument-count check in parseRunDismissalArgs to
+    // `if (false)` makes an extra positional connect and issue an RPC instead of printing
+    // usage, turning this test red.
+    // @mutate v2/src/commands/run.ts "if (argv.length !== 1) return { ok: false };" -> "if (false) return { ok: false };"
+  });
+
+  test("dismiss and undismiss print invalid daemon response for an unparsable envelope", async () => {
+    async function expectInvalid(argv: readonly string[], requestId: string, result: unknown): Promise<void> {
+      const cap = captureIo();
+      const code = await withFixedUuid(requestId, () =>
+        main([...argv], cap.io, {
+          connectIpcClient: async () => makeIpcClient([dismissalResponse(requestId, result)]),
+        }),
+      );
+      expect(code).toBe(1);
+      expect(cap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
+    }
+
+    await expectInvalid(["run", "dismiss", "run-123"], "00000000-0000-4000-8000-000000000050", { ok: true });
+    await expectInvalid(["run", "undismiss", "run-123"], "00000000-0000-4000-8000-000000000051", {
+      kind: "applied",
+      runId: "run-123",
+      status: "not-a-status",
+    });
   });
 });

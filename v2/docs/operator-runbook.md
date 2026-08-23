@@ -294,6 +294,23 @@ jarvis pipeline undismiss <pipeline-id>
 
 Dismissal only hides the pipeline from `pipeline list`'s default output — it does not delete the durable row; see it again with `jarvis pipeline list --all`. `pipeline resume`, `pipeline recover`, and daemon-restart recovery still reach a dismissed pipeline the same as before. Dismissing a live (`pending`, `running`, or `awaiting-approval`) pipeline succeeds and prints a stderr warning naming the pipeline and its state; dismissal does not stop it. `undismiss` never warns. Refusals (for example an unknown pipeline ID) print the daemon `reason` verbatim on stderr and exit non-zero, with no confirmation. In `jarvis tui`, dismissed pipelines are hidden by default; press **`D`** in tree focus to show them for this session only — the monitor immediately re-requests `pipeline_list` with `includeDismissed: true`, dismissed rows paint with a `(dismissed)` marker, and **`D`** again hides them without waiting for snapshot eviction. The toggle is not persisted; every new monitor session starts hidden. Dismiss via `jarvis pipeline dismiss` above. Dismissal is a display filter, not retention — see the `pipeline-list-display-retention` seed for the separate unbounded-row-growth concern.
 
+### Run dismiss and undismiss
+
+Hide a dead ad-hoc or workflow-entry run you no longer want listed, without deleting it:
+
+```sh
+jarvis run dismiss <run-id>
+jarvis run undismiss <run-id>
+```
+
+Both connect on the invoking digest's socket only — no cross-daemon owner discovery like `run log` / `run wait` — so dismiss/undismiss a run through the operator's own reachable daemon, same as `pause`/`resume`/`kill`. Every keyed daemon opens the same durable state store, so this reaches the same row regardless of which daemon started the run.
+
+Dismissal only hides the run from `run list`'s default output — it does not delete the durable row, and does not stop it. `run wait`, `run kill`, `run pause`, `run resume`, `run log`, `jarvis cleanup`'s daemon-list safety reads, and reconciliation all still reach a dismissed run; a dismissed but live run stays invisible in `run list` while still blocking worktree retirement the same as an undismissed one. Dismissing a live (`in-progress`, `budget-soft-stopped`, `paused`, or `queued`) run succeeds and prints a stderr warning naming the run and its status; `undismiss` never warns. Refusals (for example an unknown run ID) print the daemon `reason` verbatim on stderr and exit non-zero, with no confirmation.
+
+A workflow-entry run's step rows each carry their own `dismissedAt` — dismissing the entry row does not dismiss its steps, so shedding a whole invocation means dismissing each row individually; dismissed step rows are still folded back in when the daemon indexes listed runs for invocation display.
+
+A dismissed run stops being returned by the daemon's default `list` RPC, but the TUI's last-good snapshot merge can keep painting it until the `dismiss-run-tui-display` ready intent lands. See [Pipeline dismiss and undismiss](#pipeline-dismiss-and-undismiss) above for the pipeline-side equivalent, and the `pipeline-list-display-retention` seed for the separate unbounded-row-growth concern (dismissal is a display filter, not retention, on both sides).
+
 ### Ad-hoc write loop (live pause/kill)
 
 `jarvis run start` with explicit worktree fields — supports `pause` / `kill` / `resume` on the active run. Workflow-started implement supports live `kill` only; `pause` / `resume` remain write-loop-only. See [first-workflow-walkthrough § Workflow-started implement](./first-workflow-walkthrough.md#workflow-started-implement) and [`daemon-host.md` § Live controls](./daemon-host.md#live-controls-on-workflow-started-runs).

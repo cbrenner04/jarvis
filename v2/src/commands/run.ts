@@ -5,13 +5,21 @@ import type { Io } from "../cli/io.ts";
 import { formatRpcError, parseStreamPayload, request, withRunClient } from "../cli/ipc.ts";
 import { waitForRunCompletion } from "../cli/run-completion.ts";
 import { withConnectDispatch } from "../cli/stale-dispatch.ts";
-import { RUN_KILL_USAGE, RUN_LIST_USAGE, RUN_LOG_USAGE, RUN_USAGE, WRITE_USAGE } from "../cli/usage.ts";
+import {
+  RUN_DISMISS_USAGE,
+  RUN_KILL_USAGE,
+  RUN_LIST_USAGE,
+  RUN_LOG_USAGE,
+  RUN_UNDISMISS_USAGE,
+  RUN_USAGE,
+  WRITE_USAGE,
+} from "../cli/usage.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { parseStartResult } from "../daemon/daemon-wire.ts";
 import { mergeRunLists } from "../daemon/merge-run-lists.ts";
 import { queryDaemonListsFromSockets } from "../daemon/query-daemon-lists-from-sockets.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
-import { isRunStatus, type RunStatus, TERMINAL_RUN_STATUSES } from "../persistence/state-store.ts";
+import { isRunStatus, isTerminalRunStatus, type RunStatus, TERMINAL_RUN_STATUSES } from "../persistence/state-store.ts";
 import { type ListRpcParams, resolveListRpcRequest } from "./run-list-rpc.ts";
 import { runWorkflowCommand } from "./workflow.ts";
 import { parseWriteCliInput } from "./write.ts";
@@ -344,6 +352,72 @@ async function runActionCommand(
   });
 }
 
+type RunDismissalOutcome =
+  | { kind: "applied"; runId: string; status: RunStatus }
+  | { kind: "refused"; runId: string; reason: string };
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+function parseRunDismissalArgs(argv: readonly string[]): { ok: true; runId: string } | { ok: false } {
+  if (argv.length !== 1) return { ok: false };
+  const runId = argv[0];
+  if (runId === undefined || runId.trim().length === 0) return { ok: false };
+  return { ok: true, runId };
+}
+
+function parseRunDismissalOutcome(value: unknown): RunDismissalOutcome | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const record = value as { kind?: unknown; runId?: unknown; status?: unknown; reason?: unknown };
+  if (!isNonEmptyString(record.runId)) return undefined;
+  if (record.kind === "applied") {
+    if (typeof record.status !== "string" || !isRunStatus(record.status)) return undefined;
+    return { kind: "applied", runId: record.runId, status: record.status };
+  }
+  if (record.kind === "refused" && typeof record.reason === "string") {
+    return { kind: "refused", runId: record.runId, reason: record.reason };
+  }
+  return undefined;
+}
+
+async function runRunDismissalCommand(
+  mode: "dismiss" | "undismiss",
+  runId: string,
+  io: Io,
+  deps: CliDeps,
+): Promise<number> {
+  return withRunClient(io, deps, async (client) => {
+    const method = mode === "dismiss" ? "dismiss" : "undismiss";
+    let response: unknown;
+    try {
+      response = await request(client, method, { runId });
+    } catch (error) {
+      if (error instanceof RpcError) {
+        io.stderr(formatRpcError(error));
+        return 1;
+      }
+      throw error;
+    }
+    const outcome = parseRunDismissalOutcome(response);
+    if (outcome === undefined) {
+      io.stderr("invalid daemon response\n");
+      return 1;
+    }
+    if (outcome.kind === "refused") {
+      io.stderr(`${outcome.reason}\n`);
+      return 1;
+    }
+    // Mutation checkpoint: neutering this guard to `if (false)` must drop the live-status
+    // warning, turning the live-run-dismissal test RED.
+    if (mode === "dismiss" && !isTerminalRunStatus(outcome.status)) {
+      io.stderr(`run dismiss: ${outcome.runId} is ${outcome.status} and now hidden from listings\n`);
+    }
+    io.stdout(`${mode === "dismiss" ? "dismissed" : "undismissed"} ${outcome.runId}\n`);
+    return 0;
+  });
+}
+
 export async function runRunCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
   const subcommand = argv[0];
 
@@ -373,6 +447,15 @@ export async function runRunCommand(argv: readonly string[], io: Io, deps: CliDe
       return 1;
     }
     return runLogSubcommand(runId, logValues.follow === true, io, deps);
+  }
+
+  if (subcommand === "dismiss" || subcommand === "undismiss") {
+    const parsed = parseRunDismissalArgs(argv.slice(1));
+    if (!parsed.ok) {
+      io.stderr(subcommand === "dismiss" ? RUN_DISMISS_USAGE : RUN_UNDISMISS_USAGE);
+      return 1;
+    }
+    return runRunDismissalCommand(subcommand, parsed.runId, io, deps);
   }
 
   if (isRunAction(subcommand)) return runActionCommand(subcommand, argv.slice(1), io, deps);

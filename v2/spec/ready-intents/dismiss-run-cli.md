@@ -14,6 +14,7 @@ Unsplit rationale: The whole change is the `run dismiss`/`undismiss` subcommands
 
 - A run carries a nullable durable dismissal timestamp that survives reopening the state store, with dismiss/undismiss run store operations that leave status, attempts, and workflow snapshot untouched.
 - The daemon accepts run dismiss/undismiss requests, excludes dismissed runs from the default `list` projection, and includes them with `dismissedAt` under `includeDismissed: true`.
+- `jarvis pipeline dismiss`/`undismiss` exist as CLI subcommands with established argument and refusal conventions, as the shape to mirror.
 
 ## Surface
 

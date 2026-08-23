@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Walk the persisted-expansion tree only](./00-walk-persisted-expansion-only.md)
+- [x] [00 - Walk the persisted-expansion tree only](./00-walk-persisted-expansion-only.md)

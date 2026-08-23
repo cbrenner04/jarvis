@@ -151,6 +151,8 @@ export type Run = {
   retainedFinalizationCheckpoint?: RetainedFinalizationCheckpoint | null;
   /** True when a non-null checkpoint column could not be parsed. */
   retainedFinalizationCheckpointCorrupt?: boolean;
+  /** Unix epoch ms when an operator dismissed this run from display; `null`/absent when not dismissed. */
+  dismissedAt?: number | null;
 };
 
 export type PipelineStatus = "active" | "interrupted";
@@ -215,6 +217,12 @@ export type PipelineDismissalRefusalReason = "pipeline_not_found";
 export type PipelineDismissalOutcome =
   | { kind: "applied"; pipelineId: string }
   | { kind: "refused"; pipelineId: string; reason: PipelineDismissalRefusalReason };
+
+export type RunDismissalRefusalReason = "run_not_found";
+
+export type RunDismissalOutcome =
+  | { kind: "applied"; runId: string }
+  | { kind: "refused"; runId: string; reason: RunDismissalRefusalReason };
 
 export type PipelineReopenRefusalReason =
   | "pipeline_not_found"
@@ -681,6 +689,18 @@ export interface StateStore {
   commitGuardedKill(runId: string): void;
 
   /**
+   * Mark a run dismissed from display. Preserves the first dismissal timestamp on
+   * repeat calls; refuses on an unknown run id. Does not touch attempt rows or lifecycle.
+   */
+  dismissRun(runId: string): RunDismissalOutcome;
+
+  /**
+   * Clear a run's dismissal, restoring default display. A no-op success when the
+   * run was never dismissed; refuses on an unknown run id.
+   */
+  undismissRun(runId: string): RunDismissalOutcome;
+
+  /**
    * Whether a forced kill may settle `runId`'s owner: admits when `owner_identity` is
    * `NULL`, matches the current process, or names a dead prior process; refuses a
    * different still-live owner. Backs daemon `kill`'s force path — a second internal
@@ -745,7 +765,8 @@ const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, 
   pr_number AS prNumber, pr_url AS prUrl, reconciled_at AS reconciledAt, finished_at AS finishedAt,
   ready_gate_pgid AS readyGatePgid,
   ready_gate_repair_fence AS readyGateRepairFenceJson,
-  retained_finalization_checkpoint AS retainedFinalizationCheckpointJson`;
+  retained_finalization_checkpoint AS retainedFinalizationCheckpointJson,
+  dismissed_at AS dismissedAt`;
 
 const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, started_at AS startedAt, status,
   outcome_kind AS outcomeKind, completed_at AS completedAt, invocation_failure_detail AS invocationFailureDetailJson,
@@ -904,6 +925,7 @@ const SCHEMA_MIGRATIONS = [
   { id: "025-run-ready-gate-pgid", up: "ALTER TABLE runs ADD COLUMN ready_gate_pgid INTEGER" },
   { id: "026-attempts-completion-review-pass", up: "ALTER TABLE attempts ADD COLUMN completion_review_pass INTEGER" },
   { id: "027-pipeline-dismissed-at", up: "ALTER TABLE pipelines ADD COLUMN dismissed_at INTEGER" },
+  { id: "028-run-dismissed-at", up: "ALTER TABLE runs ADD COLUMN dismissed_at INTEGER" },
 ] as const;
 
 const ORPHAN_STATUSES = "'queued', 'in-progress', 'paused', 'budget-soft-stopped'";
@@ -1799,6 +1821,27 @@ class StateStoreImpl implements StateStore {
       const finishedAt = Date.now();
       this.db.prepare("UPDATE runs SET status = 'killed', finished_at = ? WHERE id = ?").run(finishedAt, runId);
     })();
+  }
+
+  private runRowExists(runId: string): boolean {
+    return this.db.prepare("SELECT 1 FROM runs WHERE id = ?").get(runId) !== null;
+  }
+
+  dismissRun(runId: string): RunDismissalOutcome {
+    if (!this.runRowExists(runId)) {
+      return { kind: "refused", runId, reason: "run_not_found" };
+    }
+    const dismissedAt = Date.now();
+    this.db.prepare("UPDATE runs SET dismissed_at = ? WHERE id = ? AND dismissed_at IS NULL").run(dismissedAt, runId);
+    return { kind: "applied", runId };
+  }
+
+  undismissRun(runId: string): RunDismissalOutcome {
+    if (!this.runRowExists(runId)) {
+      return { kind: "refused", runId, reason: "run_not_found" };
+    }
+    this.db.prepare("UPDATE runs SET dismissed_at = NULL WHERE id = ?").run(runId);
+    return { kind: "applied", runId };
   }
 
   async forceKillOwnerAdmits(runId: string): Promise<boolean> {

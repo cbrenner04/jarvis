@@ -3,7 +3,7 @@ import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { buildAttentionRows } from "./tui-attention-rows.ts";
 import type { PipelineListResult } from "./tui-daemon-client.ts";
-import { monitorPipelineStageNodeId } from "./tui-monitor-pipeline-tree.ts";
+import { monitorPipelineStageNodeId, pipelineRowLabel } from "./tui-monitor-pipeline-tree.ts";
 
 function pipelineSnapshot(
   overrides: Partial<PipelineSnapshot> & Pick<PipelineSnapshot, "pipelineId">,
@@ -390,5 +390,43 @@ describe("buildAttentionRows", () => {
     expect(projection.rows.some((row) => row.targetId === "run-dismissed-fail")).toBe(false);
     expect(projection.rows.map((row) => row.id)).not.toContain("attention:failed-run:run-dismissed-fail");
     expect(projection.total).toBe(0);
+  });
+
+  test("a run branch-attributed to a pipeline stage projects an attention row targeting the pipeline, not its own branch", () => {
+    const branch = "plan/attention-branch";
+    const snapshot = pipelineSnapshot({
+      pipelineId: "pipe-branch-attr",
+      stages: [
+        snapshotStage({ stageId: "implement", position: 0, status: "running", workflowInvocationId: "inv-stage" }),
+      ],
+    });
+    const stageRun = listRun({
+      runId: "run-stage-own",
+      status: "in-progress",
+      branch,
+      workflow: {
+        invocationId: "inv-stage",
+        steps: [{ stepId: "implement", role: "implement", status: "in_progress", attemptCount: 1 }],
+      },
+      stepId: "implement",
+    });
+    const leakedFailedRun = listRun({
+      runId: "run-leaked-fail",
+      status: "failed",
+      branch,
+      finishedAtMs: 5_000,
+      workflow: {
+        invocationId: "inv-leak",
+        steps: [{ stepId: "implement", role: "implement", status: "completed", attemptCount: 1 }],
+      },
+      stepId: "implement",
+    });
+
+    const projection = buildAttentionRows({ socket: socketSnapshots([snapshot]) }, [stageRun, leakedFailedRun]);
+    const row = projection.rows.find((candidate) => candidate.id === "attention:failed-run:run-leaked-fail");
+
+    expect(row).toBeDefined();
+    expect(row?.where).toBe(pipelineRowLabel(snapshot));
+    expect(row?.where).not.toBe(branch);
   });
 });

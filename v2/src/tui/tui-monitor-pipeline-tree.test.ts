@@ -22,6 +22,7 @@ import {
   stageBranchCellValue,
   strippedBranchLabels,
 } from "./tui-monitor-pipeline-tree.ts";
+import { workflowTableRowMembers } from "./tui-monitor-workflow-collapse.ts";
 import { computeShellLayout } from "./tui-shell-layout.ts";
 
 const FILTER_NOW_MS = 1_700_000_000_000;
@@ -279,6 +280,7 @@ describe("buildMonitorPipelineTreeJoin", () => {
       startedAt: null,
       endedAt: null,
       runs: [],
+      claimedRunIds: [],
     };
 
     const pipelineRow = buildPipelineMonitorTreeRow(pipelineNode, 90, FILTER_NOW_MS);
@@ -369,17 +371,33 @@ describe("buildMonitorPipelineTreeJoin", () => {
 
   test("excludes stage-matched and queued runs from ad-hoc candidates", () => {
     // Mutation checkpoint: negating matchedInvocationIds exclusion in isAdHocCandidate must turn ad-hoc filtering RED.
+    // Orphan runs sit on a (project, branch) pair distinct from the matched stage's own so they are
+    // genuinely unattributed, not swallowed by branch attribution.
     const { pipelineNodes, adHocNodes } = buildMonitorPipelineTreeJoin(
       [pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] })],
       [
         workflowRun({ runId: "run-matched", status: "in-progress" }, INVOCATION_MATCHED),
         workflowRun({ runId: "run-queued", status: "queued", isLive: false }, "inv-queued"),
         workflowRun(
-          { runId: "run-stale-orphan", status: "completed", isLive: false, finishedAtMs: FILTER_NOW_MS - 3_600_001 },
+          {
+            runId: "run-stale-orphan",
+            status: "completed",
+            isLive: false,
+            finishedAtMs: FILTER_NOW_MS - 3_600_001,
+            project: "orphan-project",
+            branch: "orphan-branch",
+          },
           INVOCATION_ORPHAN,
         ),
         workflowRun(
-          { runId: "run-fresh-orphan", status: "completed", isLive: false, finishedAtMs: FILTER_NOW_MS - 60_000 },
+          {
+            runId: "run-fresh-orphan",
+            status: "completed",
+            isLive: false,
+            finishedAtMs: FILTER_NOW_MS - 60_000,
+            project: "orphan-project",
+            branch: "orphan-branch",
+          },
           "inv-fresh",
         ),
       ],
@@ -390,6 +408,209 @@ describe("buildMonitorPipelineTreeJoin", () => {
     expect(adHocNodes.some((node) => node.id === "run-matched")).toBe(false);
     expect(adHocNodes.some((node) => node.id === "run-queued")).toBe(false);
   });
+
+  test("a run sharing a stage's branch under a different invocation nests under that stage and emits no ad-hoc row", () => {
+    // Keystone checkpoint: an in-body directive replacing the claim-collection call with an empty
+    // claim list restores baseline invocation-id-only attribution and turns this test red.
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "const stageBranchClaims = collectStageBranchClaims(displayedSnapshots, builderRuns);" -> "const stageBranchClaims: StageBranchClaim[] = [];"
+    const branch = "plan/x";
+    const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] });
+    const runA = workflowRun({ runId: "run-a", status: "in-progress", branch }, INVOCATION_MATCHED);
+    const runB = workflowRun({ runId: "run-b", status: "in-progress", branch }, INVOCATION_ORPHAN);
+
+    const { pipelineNodes, adHocNodes } = buildMonitorPipelineTreeJoin([snapshot], [runA, runB]);
+    const stage = pipelineNodes[0]?.stages[0];
+
+    expect(stage?.claimedRunIds.slice().sort()).toEqual(["run-a", "run-b"]);
+    expect(adHocNodes).toHaveLength(0);
+  });
+
+  test("a same-branch run from a different project is not attributed and stays a top-level ad-hoc row", () => {
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return `${project} ${branch}`;" -> "return branch;"
+    const branch = "shared-branch";
+    const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] });
+    const stageRun = workflowRun(
+      { runId: "run-stage", status: "in-progress", branch, project: "demo" },
+      INVOCATION_MATCHED,
+    );
+    const crossProjectRun = workflowRun(
+      { runId: "run-cross-project", status: "in-progress", branch, project: "other" },
+      INVOCATION_ORPHAN,
+    );
+
+    const { pipelineNodes, adHocNodes } = buildMonitorPipelineTreeJoin([snapshot], [stageRun, crossProjectRun]);
+    const stage = pipelineNodes[0]?.stages[0];
+
+    expect(stage?.claimedRunIds).toEqual(["run-stage"]);
+    expect(adHocNodes.map((node) => node.id)).toEqual(["run-cross-project"]);
+  });
+
+  test("an unmatched invocation is claimed as a unit even when only one of its member runs matches the stage's branch", () => {
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return members.some((member) => memberMatchesClaim(member, claim));" -> "return memberMatchesClaim(members[0] as DaemonListRunRow, claim);"
+    const branch = "plan/x";
+    const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] });
+    const stageRun = workflowRun({ runId: "run-stage", status: "in-progress", branch }, INVOCATION_MATCHED);
+    const leakInvocation = "inv-leak";
+    const matchingMember = workflowRun(
+      { runId: "run-leak-match", status: "completed", isLive: false, branch },
+      leakInvocation,
+    );
+    const blankBranchMember = workflowRun(
+      { runId: "run-leak-blank", status: "in-progress", branch: "" },
+      leakInvocation,
+    );
+
+    // The non-matching member sorts first (partitionRunsByWorkflowInvocation preserves run order), so a
+    // members[0]-only check would find no match and fail this test's assertions.
+    const { pipelineNodes, adHocNodes } = buildMonitorPipelineTreeJoin(
+      [snapshot],
+      [stageRun, blankBranchMember, matchingMember],
+    );
+    const stage = pipelineNodes[0]?.stages[0];
+    const leakRow = stage?.runs.find(
+      (node) =>
+        node.id !== "run-stage" &&
+        workflowTableRowMembers(node.tableRow).some((member) => member.runId === "run-leak-match"),
+    );
+    if (leakRow === undefined) throw new Error("expected the leaked invocation's collapsed row");
+
+    expect(leakRow.tableRow.kind).toBe("workflow-collapsed");
+    expect(
+      workflowTableRowMembers(leakRow.tableRow)
+        .map((member) => member.runId)
+        .sort(),
+    ).toEqual(["run-leak-blank", "run-leak-match"]);
+    expect(adHocNodes).toHaveLength(0);
+  });
+
+  test("a workflow run on a branch no stage owns still renders as a top-level ad-hoc row", () => {
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (invocationId !== undefined && branchAttribution.has(invocationId)) return false;" -> "if (invocationId !== undefined && !branchAttribution.has(invocationId)) return false;"
+    const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] });
+    const stageRun = workflowRun({ runId: "run-stage", status: "in-progress" }, INVOCATION_MATCHED);
+    const unrelatedRun = workflowRun(
+      { runId: "run-unrelated", status: "in-progress", branch: "totally-unrelated-branch" },
+      "inv-unrelated",
+    );
+
+    const { adHocNodes } = buildMonitorPipelineTreeJoin([snapshot], [stageRun, unrelatedRun]);
+
+    expect(adHocNodes.map((node) => node.id)).toEqual(["run-unrelated"]);
+  });
+
+  test("a blank branch never attributes a run to a stage", () => {
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return trimmed.length === 0 ? null : trimmed;" -> "return branch;"
+    const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] });
+    const stageRun = workflowRun({ runId: "run-stage", status: "in-progress", branch: "" }, INVOCATION_MATCHED);
+    const blankBranchLeak = workflowRun(
+      { runId: "run-leak-blank-branch", status: "in-progress", branch: "" },
+      "inv-leak-blank-branch",
+    );
+
+    const { pipelineNodes, adHocNodes } = buildMonitorPipelineTreeJoin([snapshot], [stageRun, blankBranchLeak]);
+    const stage = pipelineNodes[0]?.stages[0];
+
+    expect(stage?.claimedRunIds).toEqual(["run-stage"]);
+    expect(adHocNodes.map((node) => node.id)).toEqual(["run-leak-blank-branch"]);
+  });
+
+  test("a run carrying no workflow invocation is never branch-attributed", () => {
+    // Structural invariant: an invocation-less run has no invocation for collectBranchAttributedInvocations
+    // to claim, so there is no reachable single-line mutation guarding this exclusion.
+    const branch = "plan/standalone";
+    const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] });
+    const stageRun = workflowRun({ runId: "run-stage", status: "in-progress", branch }, INVOCATION_MATCHED);
+    const standaloneRun = listRun({ runId: "run-standalone", status: "in-progress", branch });
+
+    const { adHocNodes } = buildMonitorPipelineTreeJoin([snapshot], [stageRun, standaloneRun]);
+
+    expect(adHocNodes.map((node) => node.id)).toEqual(["run-standalone"]);
+    expect(adHocNodes[0]?.tableRow.kind).toBe("standalone");
+  });
+
+  test("a same-branch invocation attributes to the most recently started stage only", () => {
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (best === undefined || startedAtRank(claim) >= startedAtRank(best)) best = claim;" -> "if (best === undefined) best = claim;"
+    const branch = "plan/tie-break";
+    const earlyPipelineId = "pipe-early";
+    const latePipelineId = "pipe-late";
+    const earlyInvocation = "inv-early";
+    const lateInvocation = "inv-late";
+    const earlySnapshot = pipelineSnapshot({
+      pipelineId: earlyPipelineId,
+      stages: [implementStage(earlyInvocation, { startedAt: 1_000 })],
+    });
+    const lateSnapshot = pipelineSnapshot({
+      pipelineId: latePipelineId,
+      stages: [implementStage(lateInvocation, { startedAt: 2_000 })],
+    });
+    const earlyRun = workflowRun({ runId: "run-early", status: "in-progress", branch }, earlyInvocation);
+    const lateRun = workflowRun({ runId: "run-late", status: "in-progress", branch }, lateInvocation);
+    const leakRun = workflowRun({ runId: "run-leak-tiebreak", status: "in-progress", branch }, "inv-leak-tiebreak");
+
+    const { pipelineNodes, adHocNodes } = buildMonitorPipelineTreeJoin(
+      [earlySnapshot, lateSnapshot],
+      [earlyRun, lateRun, leakRun],
+    );
+    const earlyStage = pipelineNodes.find((pipeline) => pipeline.id === earlyPipelineId)?.stages[0];
+    const lateStage = pipelineNodes.find((pipeline) => pipeline.id === latePipelineId)?.stages[0];
+
+    expect(lateStage?.claimedRunIds).toContain("run-leak-tiebreak");
+    expect(earlyStage?.claimedRunIds).not.toContain("run-leak-tiebreak");
+    expect(adHocNodes.some((node) => node.id === "run-leak-tiebreak")).toBe(false);
+  });
+
+  test("a stage with entry, review, and publication runs also claims a same-branch leaked invocation, with its own runs first", () => {
+    const branch = "plan/multi";
+    const ownInvocation = INVOCATION_MATCHED;
+    const ownSteps = [
+      { stepId: "implement", role: "implement", status: "completed", attemptCount: 1 },
+      { stepId: "implement-review", role: "actuator", status: "completed", attemptCount: 1 },
+      { stepId: "publish", role: "publisher", status: "in_progress", attemptCount: 1 },
+    ] as const;
+    const ownWorkflow = { invocationId: ownInvocation, steps: [...ownSteps] };
+    const entryRun = {
+      ...workflowRun({ runId: "run-entry", status: "completed", isLive: false, branch }, ownInvocation),
+      stepId: "implement",
+      workflow: ownWorkflow,
+    };
+    const reviewRun = {
+      ...workflowRun({ runId: "run-review", status: "completed", isLive: false, branch }, ownInvocation),
+      stepId: "implement-review",
+      workflow: ownWorkflow,
+    };
+    const pubRun = {
+      ...workflowRun({ runId: "run-pub", status: "in-progress", branch }, ownInvocation),
+      stepId: "publish",
+      workflow: ownWorkflow,
+    };
+    const leakInvocation = "inv-leak-multi";
+    const leakRunA = workflowRun({ runId: "run-leak-a", status: "in-progress", branch }, leakInvocation);
+    const leakRunB = workflowRun({ runId: "run-leak-b", status: "completed", isLive: false, branch }, leakInvocation);
+
+    const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(ownInvocation)] });
+    const { pipelineNodes, adHocNodes } = buildMonitorPipelineTreeJoin(
+      [snapshot],
+      [entryRun, reviewRun, pubRun, leakRunA, leakRunB],
+    );
+    const stage = pipelineNodes[0]?.stages[0];
+    if (stage === undefined) throw new Error("expected stage");
+
+    expect(stage.claimedRunIds.slice().sort()).toEqual(
+      ["run-entry", "run-review", "run-pub", "run-leak-a", "run-leak-b"].sort(),
+    );
+    expect(adHocNodes).toHaveLength(0);
+    const [ownGroup, leakGroup] = stage.runs;
+    if (ownGroup === undefined || leakGroup === undefined) throw new Error("expected two collapsed groups");
+    expect(
+      workflowTableRowMembers(ownGroup.tableRow)
+        .map((member) => member.runId)
+        .sort(),
+    ).toEqual(["run-entry", "run-pub", "run-review"].sort());
+    expect(
+      workflowTableRowMembers(leakGroup.tableRow)
+        .map((member) => member.runId)
+        .sort(),
+    ).toEqual(["run-leak-a", "run-leak-b"].sort());
+  });
 });
 
 describe("dismissed pipeline exclusion", () => {
@@ -398,7 +619,10 @@ describe("dismissed pipeline exclusion", () => {
   const DISMISSED_ALPHA_INVOCATION = "inv-dismissed-alpha";
   const DISMISSED_BETA_INVOCATION = "inv-dismissed-beta";
 
-  function dismissedFixture(): { snapshots: PipelineSnapshot[]; runs: DaemonListRunRow[] } {
+  function dismissedFixture(alphaRunOverrides: Partial<DaemonListRunRow> = {}): {
+    snapshots: PipelineSnapshot[];
+    runs: DaemonListRunRow[];
+  } {
     const dismissed = pipelineSnapshot({
       pipelineId: DISMISSED_PIPELINE_ID,
       dismissedAt: 1_700_000_500_000,
@@ -420,7 +644,10 @@ describe("dismissed pipeline exclusion", () => {
       ],
     });
     const dismissedRuns = [
-      workflowRun({ runId: "run-dismissed-alpha", status: "in-progress" }, DISMISSED_ALPHA_INVOCATION),
+      workflowRun(
+        { runId: "run-dismissed-alpha", status: "in-progress", ...alphaRunOverrides },
+        DISMISSED_ALPHA_INVOCATION,
+      ),
       workflowRun({ runId: "run-dismissed-beta", status: "in-progress" }, DISMISSED_BETA_INVOCATION),
     ];
     const live = pipelineWithStageAndRun(LIVE_PIPELINE_ID, "inv-live", "run-live");
@@ -484,6 +711,20 @@ describe("dismissed pipeline exclusion", () => {
 
     expect(adHocNodes.some((node) => node.id === "run-dismissed-alpha")).toBe(false);
     expect(adHocNodes.some((node) => node.id === "run-dismissed-beta")).toBe(false);
+  });
+
+  test("a claim from a dismissed pipeline's stage never attributes a run", () => {
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "const stageBranchClaims = collectStageBranchClaims(displayedSnapshots, builderRuns);" -> "const stageBranchClaims = collectStageBranchClaims(snapshots, builderRuns);"
+    const branch = "dismissed-plan-branch";
+    const { snapshots, runs } = dismissedFixture({ branch });
+    const leakedRun = workflowRun(
+      { runId: "run-leak-hidden-claim", status: "in-progress", branch },
+      "inv-leak-hidden-claim",
+    );
+
+    const { adHocNodes } = buildMonitorPipelineTreeJoin(snapshots, [...runs, leakedRun]);
+
+    expect(adHocNodes.map((node) => node.id)).toContain("run-leak-hidden-claim");
   });
 
   test("a shown dismissed pipeline row is labeled dismissed", () => {
@@ -1588,6 +1829,7 @@ describe("monitor pipeline tree elapsed cells", () => {
       startedAt: null,
       endedAt: null,
       runs: [],
+      claimedRunIds: [],
     };
 
     // No elapsed atom is composed at all; only the status atom remains in the cluster.
@@ -1936,6 +2178,56 @@ describe("flattenMonitorPipelineTree workflow constituent rows", () => {
         "run-implement",
       ]);
     }
+  });
+});
+
+describe("flattenMonitorPipelineTree branch-attributed invocation coverage", () => {
+  test("no run id appears both under an expanded pipeline subtree and as a top-level ad-hoc node", () => {
+    const branch = "plan/x";
+    const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] });
+    const runA = workflowRun({ runId: "run-a", status: "in-progress", branch }, INVOCATION_MATCHED);
+    const runB = workflowRun({ runId: "run-b", status: "in-progress", branch }, INVOCATION_ORPHAN);
+    const stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
+
+    const displayNodes = buildMonitorPipelineTree([snapshot], [runA, runB], new Set([PIPELINE_ID, stageId]), null);
+
+    const topLevelRunIds = new Set(
+      displayNodes
+        .filter((node) => node.kind === "adhoc")
+        .flatMap((node) => workflowTableRowMembers(node.tableRow).map((member) => member.runId)),
+    );
+    const nestedRunIds = new Set(
+      displayNodes
+        .filter((node) => node.kind === "run")
+        .flatMap((node) => workflowTableRowMembers(node.tableRow).map((member) => member.runId)),
+    );
+
+    expect(topLevelRunIds.size).toBe(0);
+    expect(nestedRunIds).toEqual(new Set(["run-a", "run-b"]));
+  });
+
+  test("expanding a stage keeps a branch-attributed invocation's group present and materializes its non-representative members, with the stage's own group first", () => {
+    const branch = "plan/expand";
+    const ownInvocation = INVOCATION_MATCHED;
+    const ownRun = workflowRun({ runId: "run-own", status: "in-progress", branch }, ownInvocation);
+    const leakInvocation = "inv-leak-expand";
+    const leakActive = workflowRun({ runId: "run-leak-active", status: "in-progress", branch }, leakInvocation);
+    const leakChild = {
+      ...workflowRun({ runId: "run-leak-child", status: "completed", isLive: false, branch }, leakInvocation),
+      stepId: "implement-review",
+    };
+    const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(ownInvocation)] });
+    const stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
+
+    const displayNodes = buildMonitorPipelineTree(
+      [snapshot],
+      [ownRun, leakActive, leakChild],
+      new Set([PIPELINE_ID, stageId]),
+      null,
+    );
+    const runNodeIds = displayNodes.filter((node) => node.kind === "run").map((node) => node.id);
+
+    expect(runNodeIds).toEqual(["run-own", "run-leak-active", "run-leak-child"]);
   });
 });
 

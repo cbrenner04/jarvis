@@ -112,6 +112,20 @@ function pipelineTestDeps(store: StateStore, dispatchOrder: number[]) {
   };
 }
 
+/**
+ * Collapse numeric wall-clock fields to a sentinel while preserving null-vs-number,
+ * so structural stage comparisons don't flake when two builds straddle a millisecond.
+ */
+function normalizeStageClocks(stages: PipelineStageRecord[]): PipelineStageRecord[] {
+  const mark = (value: number | null) => (typeof value === "number" ? -1 : value);
+  return stages.map((stage) => ({
+    ...stage,
+    startedAt: mark(stage.startedAt),
+    endedAt: mark(stage.endedAt),
+    decidedAt: mark(stage.decidedAt),
+  }));
+}
+
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((res) => {
@@ -2438,7 +2452,10 @@ describe("resumePipeline branch scope", () => {
       branchKey: "default",
     });
     expect(outcomeDefaultFailed).toEqual(outcomeOmittedFailed);
-    expect(defaultFailed.stages()).toEqual(omittedFailed.stages());
+    // Normalize wall-clock timestamps: the two builds run ~1ms apart, so exact
+    // startedAt/endedAt values can straddle a millisecond boundary. Alias equality
+    // is structural, not temporal.
+    expect(normalizeStageClocks(defaultFailed.stages())).toEqual(normalizeStageClocks(omittedFailed.stages()));
 
     function buildAwaiting() {
       const { store, stages } = fakeStore(
@@ -2462,7 +2479,7 @@ describe("resumePipeline branch scope", () => {
       branchKey: "default",
     });
     expect(outcomeDefaultAwaiting).toEqual(outcomeOmittedAwaiting);
-    expect(defaultAwaiting.stages()).toEqual(omittedAwaiting.stages());
+    expect(normalizeStageClocks(defaultAwaiting.stages())).toEqual(normalizeStageClocks(omittedAwaiting.stages()));
   });
 });
 

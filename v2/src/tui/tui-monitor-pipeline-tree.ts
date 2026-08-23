@@ -7,6 +7,7 @@ import { formatAggregateTiming, formatElapsedWallClock } from "./tui-elapsed-for
 import type { MonitorLineRow } from "./tui-monitor-lines.ts";
 import {
   buildWorkflowTableRows,
+  partitionRunsByWorkflowInvocation,
   type WorkflowTableRow,
   workflowGroupHasActiveMember,
   workflowRollupFinishedAtMs,
@@ -38,6 +39,8 @@ export type MonitorPipelineTreeStageNode = {
   startedAt: number | null;
   endedAt: number | null;
   runs: MonitorPipelineTreeRunNode[];
+  /** Union of this stage's own recorded-invocation run ids and every branch-attributed invocation's member run ids. */
+  claimedRunIds: string[];
   /** Structural: nonempty `runs`. Set on flattened display nodes; absent on join-time nodes. */
   expandable?: boolean;
   /** `▼`/`▶` when expandable, blank otherwise. Set on flattened display nodes. */
@@ -484,9 +487,109 @@ function collectMatchedInvocationIds(snapshots: readonly PipelineSnapshot[]): Se
   return matched;
 }
 
+/** A blank branch never participates in branch attribution: it would collapse unrelated runs onto one stage. */
+function attributableBranch(branch: string): string | null {
+  const trimmed = branch.trim();
+  // Mutation checkpoint: returning the untrimmed branch here must turn blank-branch exclusion RED.
+  return trimmed.length === 0 ? null : trimmed;
+}
+
+function claimKey(project: string, branch: string): string {
+  // Mutation checkpoint: dropping project from this key must turn cross-project exclusion RED.
+  return `${project} ${branch}`;
+}
+
+/** Distinct (project, branch) claim keys of the runs joined to one stage's recorded invocation id. */
+function stageClaimKeys(invocationId: string, builderRuns: readonly DaemonListRunRow[]): Set<string> {
+  const keys = new Set<string>();
+  for (const run of builderRuns) {
+    if (run.workflow?.invocationId !== invocationId) continue;
+    const branch = attributableBranch(run.branch);
+    if (branch !== null) keys.add(claimKey(run.project, branch));
+  }
+  return keys;
+}
+
+type StageBranchClaim = { stageNodeId: string; startedAt: number | null; keys: ReadonlySet<string> };
+
+/**
+ * One claim per stage that displays its own invocation's runs, restricted to displayed pipelines and
+ * mirroring buildStageNodes' elisions and dedup so a claim never names a stage that does not render.
+ */
+function collectStageBranchClaims(
+  displayedSnapshots: readonly PipelineSnapshot[],
+  builderRuns: readonly DaemonListRunRow[],
+): StageBranchClaim[] {
+  const claims: StageBranchClaim[] = [];
+  for (const snapshot of displayedSnapshots) {
+    const splitPosition = fanOutSplitPosition(snapshot);
+    const stageKinds = resolveStageKinds(snapshot.name);
+    const claimedInPipeline = new Set<string>();
+    for (const stage of snapshot.stages) {
+      if (isElidedPlaceholderStage(stage, splitPosition)) continue;
+      if (isElidedGateStage(stageKinds.get(stage.stageId), stage.status)) continue;
+      const invocationId = stage.workflowInvocationId;
+      if (!claimInvocationId(claimedInPipeline, invocationId)) continue;
+      const keys = stageClaimKeys(invocationId, builderRuns);
+      if (keys.size === 0) continue;
+      claims.push({
+        stageNodeId: monitorPipelineStageNodeId(snapshot.pipelineId, stage.stageId, stage.branchKey),
+        startedAt: stage.startedAt,
+        keys,
+      });
+    }
+  }
+  return claims;
+}
+
+function startedAtRank(claim: StageBranchClaim): number {
+  return claim.startedAt ?? Number.NEGATIVE_INFINITY;
+}
+
+/** Last-started claim wins; an unstarted stage loses to any started one and later listing order breaks equal starts. */
+function mostRecentlyStartedClaim(claims: readonly StageBranchClaim[]): StageBranchClaim | undefined {
+  let best: StageBranchClaim | undefined;
+  for (const claim of claims) {
+    // Mutation checkpoint: reducing this to first-match-wins must turn the tie-break test RED.
+    if (best === undefined || startedAtRank(claim) >= startedAtRank(best)) best = claim;
+  }
+  return best;
+}
+
+function memberMatchesClaim(member: DaemonListRunRow, claim: StageBranchClaim): boolean {
+  const branch = attributableBranch(member.branch);
+  return branch !== null && claim.keys.has(claimKey(member.project, branch));
+}
+
+/** A claim matches an invocation when any one of its member runs — not just a representative — hits the claim's keys. */
+function invocationMatchesClaim(members: readonly DaemonListRunRow[], claim: StageBranchClaim): boolean {
+  return members.some((member) => memberMatchesClaim(member, claim));
+}
+
+/**
+ * invocationId -> stage node id, for invocations no stage records but that share a claimed (project,
+ * branch) via at least one member run.
+ */
+function collectBranchAttributedInvocations(
+  claims: readonly StageBranchClaim[],
+  builderRuns: readonly DaemonListRunRow[],
+  matchedInvocationIds: ReadonlySet<string>,
+): Map<string, string> {
+  const { byInvocation } = partitionRunsByWorkflowInvocation(builderRuns);
+  const attributed = new Map<string, string>();
+  for (const [invocationId, members] of byInvocation) {
+    if (matchedInvocationIds.has(invocationId)) continue;
+    const candidates = claims.filter((claim) => invocationMatchesClaim(members, claim));
+    const claim = mostRecentlyStartedClaim(candidates);
+    if (claim !== undefined) attributed.set(invocationId, claim.stageNodeId);
+  }
+  return attributed;
+}
+
 function buildStageNodes(
   snapshot: PipelineSnapshot,
   builderRuns: readonly DaemonListRunRow[],
+  branchAttribution: ReadonlyMap<string, string>,
 ): { stages: MonitorPipelineTreeStageNode[]; branches: MonitorPipelineTreeBranchNode[] } {
   const splitPosition = fanOutSplitPosition(snapshot);
   const stageKinds = resolveStageKinds(snapshot.name);
@@ -511,17 +614,25 @@ function buildStageNodes(
 
     const stageDepth = isBranched ? 2 : 1;
     const invocationId = stage.workflowInvocationId;
-    let tableRows: WorkflowTableRow[] = [];
+    const stageNodeId = monitorPipelineStageNodeId(snapshot.pipelineId, stage.stageId, stage.branchKey);
+    let stageRuns: DaemonListRunRow[] = [];
 
     if (claimInvocationId(claimedInPipeline, invocationId)) {
-      const stageRuns = builderRuns.filter((run) => run.workflow?.invocationId === invocationId);
       // Mutation checkpoint: negating the invocationId equality guard must turn stage join RED.
-      tableRows = buildWorkflowTableRows(stageRuns, builderRuns, new Set());
+      const ownRuns = builderRuns.filter((run) => run.workflow?.invocationId === invocationId);
+      const branchRuns = builderRuns.filter(
+        (run) =>
+          run.workflow?.invocationId !== undefined &&
+          run.workflow.invocationId !== invocationId &&
+          branchAttribution.get(run.workflow.invocationId) === stageNodeId,
+      );
+      stageRuns = [...ownRuns, ...branchRuns];
     }
+    const tableRows = buildWorkflowTableRows(stageRuns, builderRuns, new Set());
 
     const stageNode: MonitorPipelineTreeStageNode = {
       kind: "stage",
-      id: monitorPipelineStageNodeId(snapshot.pipelineId, stage.stageId, stage.branchKey),
+      id: stageNodeId,
       depth: stageDepth,
       stageId: stage.stageId,
       label: `${stage.stageId}${intentYieldSuffix(stage.artifact)}`,
@@ -529,6 +640,7 @@ function buildStageNodes(
       status: stage.status,
       startedAt: stage.startedAt,
       endedAt: stage.endedAt,
+      claimedRunIds: stageRuns.map((run) => run.runId),
       runs: workflowTableRowsToRunNodes(stageDepth, tableRows),
     };
 
@@ -572,9 +684,14 @@ export function pipelineStageNodes(pipeline: MonitorPipelineTreePipelineNode): M
   return [...pipeline.stages, ...pipeline.branches.flatMap((branch) => branch.stages)];
 }
 
-function isAdHocCandidate(run: DaemonListRunRow, matchedInvocationIds: ReadonlySet<string>): boolean {
+function isAdHocCandidate(
+  run: DaemonListRunRow,
+  matchedInvocationIds: ReadonlySet<string>,
+  branchAttribution: ReadonlyMap<string, string>,
+): boolean {
   const invocationId = run.workflow?.invocationId;
   if (invocationId === undefined) return true;
+  if (invocationId !== undefined && branchAttribution.has(invocationId)) return false;
   // Mutation checkpoint: negating matchedInvocationIds exclusion must turn ad-hoc filtering RED.
   return !matchedInvocationIds.has(invocationId);
 }
@@ -593,6 +710,8 @@ export function buildMonitorPipelineTreeJoin(
   const displayedSnapshots = snapshots.filter((snapshot) => !isHiddenDismissedPipeline(snapshot, showDismissed));
   // Mutation checkpoint: computing this off the filtered list here must turn ad-hoc-resurfacing suppression RED.
   const matchedInvocationIds = collectMatchedInvocationIds(snapshots);
+  const stageBranchClaims = collectStageBranchClaims(displayedSnapshots, builderRuns);
+  const branchAttribution = collectBranchAttributedInvocations(stageBranchClaims, builderRuns, matchedInvocationIds);
 
   const pipelineNodes = displayedSnapshots.map((snapshot) => ({
     kind: "pipeline" as const,
@@ -601,10 +720,10 @@ export function buildMonitorPipelineTreeJoin(
     snapshot,
     project: derivePipelineProject(snapshot, builderRuns),
     attributedRuns: attributedRunsForStages(snapshot.stages, builderRuns),
-    ...buildStageNodes(snapshot, builderRuns),
+    ...buildStageNodes(snapshot, builderRuns, branchAttribution),
   }));
 
-  const adHocCandidates = builderRuns.filter((run) => isAdHocCandidate(run, matchedInvocationIds));
+  const adHocCandidates = builderRuns.filter((run) => isAdHocCandidate(run, matchedInvocationIds, branchAttribution));
   const adHocNodes = buildWorkflowTableRows(adHocCandidates, builderRuns, new Set()).map((tableRow) => ({
     kind: "adhoc" as const,
     id: monitorTreeRun(tableRow).runId,
@@ -714,32 +833,31 @@ function resolveSelectedAncestors(
   return new Set();
 }
 
+/** Expands every invocation among the stage's claimed runs, not just its own recorded invocation. */
 function stageRunsForExpansion(
-  pipeline: MonitorPipelineTreePipelineNode,
   stage: MonitorPipelineTreeStageNode,
   builderRuns: readonly DaemonListRunRow[],
 ): MonitorPipelineTreeRunNode[] {
-  const snapshotStage = pipeline.snapshot.stages.find(
-    (candidate) => candidate.stageId === stage.stageId && candidate.branchKey === stage.branchKey,
-  );
-  const invocationId = snapshotStage?.workflowInvocationId;
-  if (invocationId === null || invocationId === undefined) return stage.runs;
+  const claimed = new Set(stage.claimedRunIds);
+  if (claimed.size === 0) return stage.runs;
 
-  const stageRuns = builderRuns.filter((run) => run.workflow?.invocationId === invocationId);
-  const tableRows = buildWorkflowTableRows(stageRuns, builderRuns, new Set([invocationId]));
+  const stageRuns = builderRuns.filter((run) => claimed.has(run.runId));
+  const expandedInvocationIds = new Set(
+    stageRuns.flatMap((run) => (run.workflow === undefined ? [] : [run.workflow.invocationId])),
+  );
+  const tableRows = buildWorkflowTableRows(stageRuns, builderRuns, expandedInvocationIds);
   return workflowTableRowsToRunNodes(stage.depth, tableRows);
 }
 
 function pushStageWithRuns(
   nodes: MonitorPipelineTreeDisplayNode[],
-  pipeline: MonitorPipelineTreePipelineNode,
   stage: MonitorPipelineTreeStageNode,
   effectiveExpansion: ReadonlySet<string>,
   builderRuns: readonly DaemonListRunRow[],
 ): void {
   nodes.push(withExpansionMarker(stage, effectiveExpansion));
   if (effectiveExpansion.has(stage.id)) {
-    nodes.push(...stageRunsForExpansion(pipeline, stage, builderRuns));
+    nodes.push(...stageRunsForExpansion(stage, builderRuns));
   } else {
     nodes.push(...stage.runs);
   }
@@ -762,14 +880,14 @@ function flattenPipelineNode(
   }
 
   for (const stage of pipeline.stages) {
-    pushStageWithRuns(nodes, pipeline, stage, effectiveExpansion, builderRuns);
+    pushStageWithRuns(nodes, stage, effectiveExpansion, builderRuns);
   }
 
   for (const branch of pipeline.branches) {
     nodes.push(withExpansionMarker(branch, effectiveExpansion));
     if (!effectiveExpansion.has(branch.id)) continue;
     for (const stage of branch.stages) {
-      pushStageWithRuns(nodes, pipeline, stage, effectiveExpansion, builderRuns);
+      pushStageWithRuns(nodes, stage, effectiveExpansion, builderRuns);
     }
   }
 

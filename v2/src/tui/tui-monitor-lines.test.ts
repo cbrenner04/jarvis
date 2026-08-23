@@ -611,7 +611,12 @@ describe("monitorLeftPaneTreeRows", () => {
       stages: [implementStage(INVOCATION_MATCHED)],
     });
     const matchedRun = workflowRun("run-implement", "in-progress", INVOCATION_MATCHED);
-    const orphanRun = workflowRun("run-orphan", "completed", INVOCATION_ORPHAN, { isLive: false });
+    // Distinct (project, branch) from matchedRun's so this invocation stays genuinely unattributed.
+    const orphanRun = workflowRun("run-orphan", "completed", INVOCATION_ORPHAN, {
+      isLive: false,
+      project: "orphan-project",
+      branch: "orphan-branch",
+    });
     const stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
     const state = monitorState({
       runs: [matchedRun, orphanRun],
@@ -869,7 +874,12 @@ describe("monitorLeftPaneWorkHeadingRows", () => {
 
     const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] });
     const matchedRun = workflowRun("run-implement", "in-progress", INVOCATION_MATCHED);
-    const orphanRun = workflowRun("run-orphan", "completed", INVOCATION_ORPHAN, { isLive: false });
+    // Distinct (project, branch) from matchedRun's so this invocation stays genuinely unattributed.
+    const orphanRun = workflowRun("run-orphan", "completed", INVOCATION_ORPHAN, {
+      isLive: false,
+      project: "orphan-project",
+      branch: "orphan-branch",
+    });
     const stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
     const state = monitorState({
       runs: [matchedRun, orphanRun],
@@ -1015,7 +1025,12 @@ describe("monitorSelectableNodeIds", () => {
       stages: [implementStage(INVOCATION_MATCHED)],
     });
     const matchedRun = workflowRun("run-implement", "in-progress", INVOCATION_MATCHED);
-    const orphanRun = workflowRun("run-orphan", "completed", INVOCATION_ORPHAN, { isLive: false });
+    // Distinct (project, branch) from matchedRun's so this invocation stays genuinely unattributed.
+    const orphanRun = workflowRun("run-orphan", "completed", INVOCATION_ORPHAN, {
+      isLive: false,
+      project: "orphan-project",
+      branch: "orphan-branch",
+    });
     const stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
     const state = monitorState({
       runs: [matchedRun, orphanRun],
@@ -1145,8 +1160,17 @@ describe("attention selection target detail", () => {
         snapshotStage({ stageId: "implement", position: 0, status: "failed", workflowInvocationId: "inv-attr" }),
       ],
     });
-    const adHocActive = workflowRun("run-adhoc-active", "in-progress", "inv-adhoc");
-    const adHocFailed = workflowRun("run-adhoc-failed", "failed", "inv-adhoc", { finishedAtMs: 6_000, isLive: false });
+    // Distinct (project, branch) from attributedRun's so this invocation stays genuinely unattributed.
+    const adHocActive = workflowRun("run-adhoc-active", "in-progress", "inv-adhoc", {
+      project: "adhoc-project",
+      branch: "adhoc-branch",
+    });
+    const adHocFailed = workflowRun("run-adhoc-failed", "failed", "inv-adhoc", {
+      finishedAtMs: 6_000,
+      isLive: false,
+      project: "adhoc-project",
+      branch: "adhoc-branch",
+    });
 
     const state = monitorState({
       runs: [attributedRun, adHocActive, adHocFailed],
@@ -2023,7 +2047,12 @@ describe("monitorRightPaneSegmentRows", () => {
     // @mutate v2/src/tui/tui-monitor-lines.ts "if (treeRow === undefined || treeRow.kind === \"adhoc\") return undefined;" -> "if (treeRow === undefined) return undefined;"
     const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] });
     const matchedRun = workflowRun("run-implement", "in-progress", INVOCATION_MATCHED);
-    const orphanRun = workflowRun("run-orphan", "completed", INVOCATION_ORPHAN, { isLive: false });
+    // Distinct (project, branch) from matchedRun's so this invocation stays genuinely unattributed.
+    const orphanRun = workflowRun("run-orphan", "completed", INVOCATION_ORPHAN, {
+      isLive: false,
+      project: "orphan-project",
+      branch: "orphan-branch",
+    });
     const state = monitorState({
       runs: [matchedRun, orphanRun],
       selectedNodeId: "run-orphan",
@@ -2445,7 +2474,12 @@ describe("monitorDockLines", () => {
 
   test("counts genuine ad-hoc invocations once without duplicating matched pipeline work", () => {
     const matched = workflowRun("matched", "completed", INVOCATION_MATCHED, { isLive: false });
-    const unmatched = workflowRun("unmatched", "completed", INVOCATION_ORPHAN, { isLive: false });
+    // Distinct (project, branch) from matched's so this invocation stays genuinely unattributed.
+    const unmatched = workflowRun("unmatched", "completed", INVOCATION_ORPHAN, {
+      isLive: false,
+      project: "orphan-project",
+      branch: "orphan-branch",
+    });
     const state = monitorState({
       runs: [matched, unmatched],
       pipelineSnapshotsBySocketPath: {

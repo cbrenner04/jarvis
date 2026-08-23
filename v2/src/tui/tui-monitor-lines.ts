@@ -9,6 +9,7 @@ import { formatAggregateDuration, formatElapsedWallClock } from "./tui-elapsed-f
 import {
   buildMonitorPipelineTree,
   buildMonitorPipelineTreeJoin,
+  dismissedRunLabel,
   isExpandablePipelineNodeId,
   isHiddenDismissedPipeline,
   type MonitorPipelineDisplayOptions,
@@ -654,7 +655,7 @@ export function buildTreeRunRow(
   return composeRunRow(
     {
       depth,
-      label: labelOverride ?? runRowLabel(tableRow),
+      label: dismissedRunLabel(run, labelOverride ?? runRowLabel(tableRow)),
       status: run.status,
       statusTone: RUN_STATUS_TONES[run.status],
       // Mutation checkpoint: painting `live` for a not-live run/ad-hoc row here must turn

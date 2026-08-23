@@ -118,6 +118,17 @@ function dismissedPipelineLabel(snapshot: PipelineSnapshot, label: string): stri
   return `${label} (dismissed)`;
 }
 
+/** A dismissed run leaves the work tree unless the session opts into showing dismissed work. */
+export function isHiddenDismissedRun(run: DaemonListRunRow, showDismissed: boolean): boolean {
+  return (run.dismissedAt ?? null) !== null && !showDismissed;
+}
+
+/** A shown dismissed run row is marked so it never reads as live work. */
+export function dismissedRunLabel(run: DaemonListRunRow, label: string): string {
+  if ((run.dismissedAt ?? null) === null) return label;
+  return `${label} (dismissed)`;
+}
+
 const MONITOR_TREE_DEFAULT_BRANCH_KEY = "default";
 
 export function monitorPipelineStageNodeId(pipelineId: string, stageId: string, branchKey: string): string {
@@ -705,8 +716,8 @@ export function buildMonitorPipelineTreeJoin(
   adHocNodes: MonitorPipelineTreeAdHocNode[];
   builderRuns: DaemonListRunRow[];
 } {
-  const builderRuns = runs.filter((run) => run.status !== "queued");
   const showDismissed = options.showDismissed === true;
+  const builderRuns = runs.filter((run) => run.status !== "queued" && !isHiddenDismissedRun(run, showDismissed));
   const displayedSnapshots = snapshots.filter((snapshot) => !isHiddenDismissedPipeline(snapshot, showDismissed));
   // Mutation checkpoint: computing this off the filtered list here must turn ad-hoc-resurfacing suppression RED.
   const matchedInvocationIds = collectMatchedInvocationIds(snapshots);

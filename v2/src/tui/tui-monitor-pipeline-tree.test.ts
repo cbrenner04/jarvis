@@ -22,7 +22,7 @@ import {
   stageBranchCellValue,
   strippedBranchLabels,
 } from "./tui-monitor-pipeline-tree.ts";
-import { workflowTableRowMembers } from "./tui-monitor-workflow-collapse.ts";
+import { workflowGroupRollupRunStatus, workflowTableRowMembers } from "./tui-monitor-workflow-collapse.ts";
 import { computeShellLayout } from "./tui-shell-layout.ts";
 
 const FILTER_NOW_MS = 1_700_000_000_000;
@@ -756,6 +756,191 @@ describe("dismissed pipeline exclusion", () => {
 
     expect(dismissedLabel.trimEnd().endsWith("(dismissed)")).toBe(true);
     expect(liveLabel.trimEnd().endsWith("(dismissed)")).toBe(false);
+  });
+});
+
+describe("dismissed run exclusion", () => {
+  const DISMISSED_GROUP_INVOCATION = "inv-dismissed-group";
+  const LIVE_PIPELINE_ID = "pipe-run-exclusion-live";
+
+  function dismissedRunGroupFixture(): {
+    snapshots: PipelineSnapshot[];
+    runs: DaemonListRunRow[];
+    dismissedEntryRunId: string;
+    dismissedSecondRunId: string;
+    undismissedRunId: string;
+  } {
+    const dismissedEntryRunId = "run-dismissed-group-entry";
+    const dismissedSecondRunId = "run-dismissed-group-second";
+    const undismissedRunId = "run-undismissed-adhoc";
+    const dismissedRuns = [
+      workflowRun(
+        {
+          runId: dismissedEntryRunId,
+          status: "in-progress",
+          dismissedAt: 1_700_000_900_000,
+          branch: "dismissed-group-branch",
+        },
+        DISMISSED_GROUP_INVOCATION,
+      ),
+      workflowRun(
+        {
+          runId: dismissedSecondRunId,
+          status: "in-progress",
+          dismissedAt: 1_700_000_900_000,
+          stepId: "review",
+          branch: "dismissed-group-branch",
+        },
+        DISMISSED_GROUP_INVOCATION,
+      ),
+    ];
+    const undismissedRun = listRun({ runId: undismissedRunId, status: "in-progress" });
+    const live = pipelineWithStageAndRun(LIVE_PIPELINE_ID, "inv-run-exclusion-live", "run-run-exclusion-live");
+    return {
+      snapshots: [live.snapshot],
+      runs: [...dismissedRuns, undismissedRun, live.run],
+      dismissedEntryRunId,
+      dismissedSecondRunId,
+      undismissedRunId,
+    };
+  }
+
+  test("a dismissed ad-hoc run group leaves the default work tree", () => {
+    // Keystone checkpoint: an in-body mutation directive restores baseline semantics (every non-queued run paints).
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return (run.dismissedAt ?? null) !== null && !showDismissed;" -> "return false;"
+    const { snapshots, runs, dismissedEntryRunId, dismissedSecondRunId, undismissedRunId } = dismissedRunGroupFixture();
+    const { pipelineNodes, adHocNodes, builderRuns } = buildMonitorPipelineTreeJoin(snapshots, runs);
+    const expandedNodeIds = new Set(pipelineNodes.map((pipeline) => pipeline.id));
+    const ids = flattenMonitorPipelineTree(pipelineNodes, adHocNodes, expandedNodeIds, null, builderRuns).map(
+      (node) => node.id,
+    );
+
+    expect(ids).not.toContain(dismissedEntryRunId);
+    const dismissedSecondLeaked = adHocNodes.some((node) =>
+      workflowTableRowMembers(node.tableRow).some((member) => member.runId === dismissedSecondRunId),
+    );
+    expect(dismissedSecondLeaked).toBe(false);
+    expect(ids).toContain(undismissedRunId);
+    expect(ids).toContain(LIVE_PIPELINE_ID);
+    expect(ids).toContain(monitorPipelineStageNodeId(LIVE_PIPELINE_ID, "implement", "default"));
+    expect(ids).toContain("run-run-exclusion-live");
+  });
+
+  test("a dismissed ad-hoc run group paints when the projection shows dismissed runs", () => {
+    // Mutation checkpoint: dropping the `!showDismissed` term hides the group in both modes — the negative
+    // case proving suppression is conditional on the session option, not unconditional.
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return (run.dismissedAt ?? null) !== null && !showDismissed;" -> "return (run.dismissedAt ?? null) !== null;"
+    const { snapshots, runs, dismissedEntryRunId, dismissedSecondRunId } = dismissedRunGroupFixture();
+    const { adHocNodes } = buildMonitorPipelineTreeJoin(snapshots, runs, { showDismissed: true });
+
+    const group = adHocNodes.find((node) => node.id === dismissedEntryRunId);
+    expect(group).toBeDefined();
+    if (group === undefined) throw new Error("expected dismissed group node");
+    const memberIds = workflowTableRowMembers(group.tableRow).map((member) => member.runId);
+    expect(memberIds).toContain(dismissedEntryRunId);
+    expect(memberIds).toContain(dismissedSecondRunId);
+  });
+
+  test("a dismissed run leaf leaves its pipeline stage while the stage row survives", () => {
+    const pipelineId = "pipe-stage-run-dismissed";
+    const invA = "inv-stage-run-dismissed-a";
+    const invB = "inv-stage-run-dismissed-b";
+    const snapshot = pipelineSnapshot({
+      pipelineId,
+      stages: [
+        snapshotStage({ stageId: "intent", position: 0, workflowInvocationId: invA }),
+        snapshotStage({ stageId: "implement", position: 1, workflowInvocationId: invB }),
+      ],
+    });
+    const dismissedRun = workflowRun(
+      { runId: "run-stage-dismissed", status: "in-progress", dismissedAt: 1_700_001_000_000 },
+      invA,
+    );
+    const liveRun = workflowRun({ runId: "run-stage-live-sibling", status: "in-progress" }, invB);
+
+    const { pipelineNodes, adHocNodes, builderRuns } = buildMonitorPipelineTreeJoin(
+      [snapshot],
+      [dismissedRun, liveRun],
+    );
+    const pipeline = pipelineNodes[0];
+    if (pipeline === undefined) throw new Error("expected pipeline node");
+    const stageA = pipeline.stages.find((stage) => stage.stageId === "intent");
+    const stageB = pipeline.stages.find((stage) => stage.stageId === "implement");
+    if (stageA === undefined || stageB === undefined) throw new Error("expected both stage nodes");
+
+    expect(stageA.runs).toHaveLength(0);
+    expect(stageB.runs.map((run) => run.id)).toEqual(["run-stage-live-sibling"]);
+
+    const flattened = flattenMonitorPipelineTree(pipelineNodes, adHocNodes, new Set([pipeline.id]), null, builderRuns);
+    const stageARow = flattened.find((node) => node.id === stageA.id);
+    if (stageARow === undefined || stageARow.kind !== "stage") throw new Error("expected stage row");
+    expect(stageARow.expandable).toBe(false);
+    expect(stageARow.marker).toBe("");
+  });
+
+  test("a dismissed, failed entry run drops out of its workflow group, leaving the completed survivor as representative", () => {
+    const invocationId = "inv-collapse-status";
+    const entryRun = listRun({
+      runId: "run-entry-failed-dismissed",
+      status: "failed",
+      isLive: false,
+      stepId: "intent",
+      dismissedAt: 1_700_001_100_000,
+      workflow: {
+        invocationId,
+        steps: [
+          { stepId: "intent", role: "intent", status: "completed" as const, attemptCount: 1 },
+          { stepId: "implement", role: "implement", status: "completed" as const, attemptCount: 1 },
+        ],
+      },
+    });
+    // The survivor's own recorded step list names only its own step: rollup status is derived from the
+    // representative's workflow field, so once the entry drops out this is what the rollup actually reads.
+    const survivorRun = listRun({
+      runId: "run-second-completed",
+      status: "completed",
+      isLive: false,
+      stepId: "implement",
+      workflow: {
+        invocationId,
+        steps: [{ stepId: "implement", role: "implement", status: "completed" as const, attemptCount: 1 }],
+      },
+    });
+
+    const { adHocNodes } = buildMonitorPipelineTreeJoin([], [entryRun, survivorRun]);
+
+    expect(adHocNodes).toHaveLength(1);
+    const node = adHocNodes[0];
+    if (node === undefined) throw new Error("expected ad-hoc node");
+    expect(node.id).toBe("run-second-completed");
+    expect(node.tableRow.kind).toBe("workflow-collapsed");
+    if (node.tableRow.kind !== "workflow-collapsed") throw new Error("expected collapsed row");
+    expect(node.tableRow.representative.runId).toBe("run-second-completed");
+    expect(workflowGroupRollupRunStatus(node.tableRow.members)).toBe("completed");
+  });
+
+  test("a stage whose only recorded-invocation run is dismissed loses its branch claim", () => {
+    // Mirrors "a claim from a dismissed pipeline's stage never attributes a run" at the run level.
+    const pipelineId = "pipe-claim-owner-run-dismissed";
+    const ownerInvocation = "inv-claim-owner-run-dismissed";
+    const branch = "dismissed-run-claim-branch";
+    const snapshot = pipelineSnapshot({
+      pipelineId,
+      stages: [snapshotStage({ stageId: "plan", position: 0, workflowInvocationId: ownerInvocation })],
+    });
+    const dismissedOwnerRun = workflowRun(
+      { runId: "run-claim-owner-dismissed", status: "in-progress", branch, dismissedAt: 1_700_001_200_000 },
+      ownerInvocation,
+    );
+    const separateRun = workflowRun(
+      { runId: "run-claim-leak", status: "in-progress", branch },
+      "inv-claim-leak-run-dismissed",
+    );
+
+    const { pipelineNodes, adHocNodes } = buildMonitorPipelineTreeJoin([snapshot], [dismissedOwnerRun, separateRun]);
+
+    expect(pipelineNodes[0]?.stages[0]?.runs).toHaveLength(0);
+    expect(adHocNodes.map((node) => node.id)).toContain("run-claim-leak");
   });
 });
 

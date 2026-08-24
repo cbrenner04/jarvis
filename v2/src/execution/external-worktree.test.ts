@@ -182,6 +182,12 @@ function makeInput(
   };
 }
 
+async function expectFreshWorktreeHasNoNodeModules(nodeModules: "none" | "file"): Promise<void> {
+  const { repoRoot, jarvisRoot, runner } = setupMockRepo({ nodeModules });
+  const result = await withExternalWorktree(makeInput(jarvisRoot, repoRoot), (worktree) => worktree.path, runner);
+  expect(lstatSync(join(result.worktree.path, "node_modules"), { throwIfNoEntry: false })).toBeUndefined();
+}
+
 describe("external worktree helper", () => {
   test("provisions project dependencies before the first callback", async () => {
     // Mutation checkpoint: inverting the directory guard to always-false must turn this RED.
@@ -203,19 +209,11 @@ describe("external worktree helper", () => {
   test("a project without node_modules leaves the fresh worktree root free of it", async () => {
     // Keystone checkpoint: restoring the baseline unconditional symlink must turn this RED.
     // @mutate v2/src/execution/external-worktree.ts "statSync(projectNodeModules, { throwIfNoEntry: false })?.isDirectory()" -> "true"
-    const { repoRoot, jarvisRoot, runner } = setupMockRepo({ nodeModules: "none" });
-
-    const result = await withExternalWorktree(makeInput(jarvisRoot, repoRoot), (worktree) => worktree.path, runner);
-
-    expect(lstatSync(join(result.worktree.path, "node_modules"), { throwIfNoEntry: false })).toBeUndefined();
+    await expectFreshWorktreeHasNoNodeModules("none");
   });
 
   test("a project whose node_modules is a regular file leaves the fresh worktree root free of it", async () => {
-    const { repoRoot, jarvisRoot, runner } = setupMockRepo({ nodeModules: "file" });
-
-    const result = await withExternalWorktree(makeInput(jarvisRoot, repoRoot), (worktree) => worktree.path, runner);
-
-    expect(lstatSync(join(result.worktree.path, "node_modules"), { throwIfNoEntry: false })).toBeUndefined();
+    await expectFreshWorktreeHasNoNodeModules("file");
   });
 
   test("materializes from --base when only a stale remote-tracking ref exists", async () => {

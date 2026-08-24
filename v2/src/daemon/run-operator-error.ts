@@ -52,6 +52,7 @@ export type RunOperatorError = {
   reason: RunOperatorErrorReason;
   retryable: boolean;
   nextAction: RunOperatorNextAction;
+  message?: string;
   publicationFailure?: PublicationFailure;
   completionCommitError?: string;
   survivingMutation?: string;
@@ -192,7 +193,10 @@ function mapFromLoopFinished(
 
   switch (event.loopOutcomeKind) {
     case "landing_failed":
-      return op("landing_failed", "resume", true);
+      return {
+        ...op("landing_failed", "resume", true),
+        ...(typeof event.message === "string" ? { message: event.message } : {}),
+      };
     case "completion_commit_failed":
       return {
         ...op(event.loopOutcomeKind, "resume", true),

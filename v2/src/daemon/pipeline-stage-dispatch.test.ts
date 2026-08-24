@@ -667,16 +667,17 @@ describe("dispatchPipelineStage", () => {
   });
 
   test("non-success settlement mirrors composeRunOperatorError from terminal log context", async () => {
-    const entryRunId = "entry-commit-fail";
-    const terminalRecord = loopFinished(entryRunId, "completion_commit_failed", { resumable: true });
+    const entryRunId = "entry-landing-fail";
+    const message = "intent: splitter wrote outside .jarvis-intent-stage/: rogue.txt";
+    const terminalRecord = loopFinished(entryRunId, "landing_failed", { resumable: true, message });
     const dispatch: PipelineWorkflowDispatch = async () => ({
       ok: true,
       entryRunId,
-      invocationId: "inv-commit-fail",
+      invocationId: "inv-landing-fail",
     });
     const wait: PipelineWorkflowWait = async () => "failed";
     const { store, patches } = fakeStore({
-      [entryRunId]: { specPath: "spec/commit-fail.md", status: "failed" },
+      [entryRunId]: { specPath: "spec/landing-fail.md", status: "failed" },
     });
 
     await dispatchPipelineStage({
@@ -695,6 +696,12 @@ describe("dispatchPipelineStage", () => {
     expect(terminalPatch?.patch.failureDetail).toEqual(
       composeRunOperatorError(entryRun, terminalRecord as TerminalLogRecord),
     );
+    expect(terminalPatch?.patch.failureDetail).toEqual({
+      reason: "landing_failed",
+      retryable: true,
+      nextAction: "resume",
+      message,
+    });
     // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "composeRunOperatorError(entryRun, terminalRecord, logRecords)" -> "composeRunOperatorError(entryRun)"
   });
 

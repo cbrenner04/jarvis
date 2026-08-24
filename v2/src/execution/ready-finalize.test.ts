@@ -1043,6 +1043,28 @@ index 1234567..abcdefg 100644
     expect(calls).toEqual([{ cmd: "bun", args: ["run", "ready"] }]);
   });
 
+  it("stamps a gate failure's command as the configured ready command", async () => {
+    const finalizer = createReadyFinalizer({
+      asyncSubprocessRunner: {
+        async runAsync(cmd) {
+          if (cmd !== "git") {
+            throw new AsyncSubprocessError("ready failed", 1, "tests failed\n", "", undefined);
+          }
+          return "";
+        },
+      },
+      ghReadyFlip: async () => {},
+    });
+
+    try {
+      await finalizer({ ...input, readyCommand: "npm run verify" });
+      expect.unreachable();
+    } catch (error) {
+      const gateError = error as InstanceType<typeof ReadyGateError>;
+      expect(gateError.command).toBe("npm run verify");
+    }
+  });
+
   it("rejects required v2 integration scope failure before publisher finalization", async () => {
     let flipCalls = 0;
     const finalizer = createReadyFinalizer({

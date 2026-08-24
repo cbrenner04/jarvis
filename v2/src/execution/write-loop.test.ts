@@ -2856,7 +2856,8 @@ describe("write loop", () => {
       runFixCommand: async () => {},
     };
 
-    test("passes the configured readyCommand to the ready finalizer", async () => {
+    test("passes the configured ready command to the ready finalizer", async () => {
+      // @mutate v2/src/execution/write-loop.ts "...(seams.readyCommand !== undefined ? { readyCommand: seams.readyCommand } : {})," -> "...({}),"
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       let observedReadyCommand: string | undefined;
       const result = await runLoop({

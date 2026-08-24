@@ -185,23 +185,7 @@ Rules the harness enforces:
 
 - A ticked non-human-only guard criterion is selected by canonical suffix `` `pinFile` — `pinTitle`; Mutation checkpoint:`` (preferred authoring contract), prefix-first shape `` Mutation checkpoint: in `pinFile` test `pinTitle` ``, or a directive-shaped `@mutate` occurrence (`// @mutate <path> "<original>" -> "<replacement>"`). Functional AC may mention `@mutate`, `Mutation checkpoint:`, or `Keystone checkpoint:` descriptively without selecting. Bare `@mutate` prose mentions are safe and do not select. Successful verification still requires a valid linked directive.
 - Wrapping a pinning-test reference or enclosing-test name onto a continuation line still parses, but authored markdown should keep `@mutate` directives on one physical line (see [Authored markdown style](#authored-markdown-style)).
-- The criterion names the pinning test file in backticks. When the basename is
-  not unique in the worktree, use a repo-relative path (for example
-  `` `v2/src/execution/write.test.ts` ``) so resolution does not depend on
-  basename search. A bare basename must resolve to exactly one file; when
-  multiple on-disk files share the basename, implement completion disambiguates
-  via parent-directory overlap with repo-relative `git diff --name-only <baseRef>`
-  changed paths (untracked excluded). When overlap cannot pick exactly one
-  candidate, completion refuses `ambiguous_pinning_basename` with `candidates:`
-  listing every matching repo-relative path (not `unresolved_pinning_test`).
-  When the criterion names a bare basename whose extension differs from the
-  on-disk file (for example `foo.test.tsx` when the file is `foo.test.ts`),
-  basename lookup retries `.test.ts`/`.test.tsx`/`.test.js`/`.test.jsx` only
-  when the primary name matches zero files and exactly one file matches across
-  the primary name plus alternates; path-qualified references do not fall back
-  to alternate extensions; `.test.mts`/`.test.cts` are outside the tolerance
-  set; zero primary matches with zero or multiple alternates still refuse with
-  `unresolved_pinning_test`.
+- The criterion names a pinning test whose basename matches the fixed [checkpoint pin filename patterns](../../v2/docs/test-writing.md#checkpoint-pin-filenames). When the basename is not unique, use a repo-relative path (for example `` `v2/src/execution/write.test.ts` ``). A bare basename must resolve to exactly one file; completion disambiguates multiple matches via parent-directory overlap with repo-relative `git diff --name-only <baseRef>` changed paths (untracked excluded), otherwise refusing `ambiguous_pinning_basename` with every candidate. Separately, a bare JavaScript basename with zero primary matches retries `.test.ts`/`.test.tsx`/`.test.js`/`.test.jsx` alternates and resolves only one match; path-qualified references do not retry, `.test.mts`/`.test.cts` are outside this alternate-extension tolerance, and zero or multiple matches refuse `unresolved_pinning_test`.
 - Place `// @mutate` inside the enclosing test body (below the `test("…", …) => {` line). A directive on the line immediately above the `test`/`it` declaration (next physical line, no blank line or intervening comment) is verifier-tolerated but inside-the-body is preferred. Multiline `test.each([...])("title", …)` continuation titles on the `])("title", …)` line above the callback are resolvable via opener-anchored forward scan; the criterion must still name that title.
 - Every mutation-checkpoint criterion must include the enclosing `test()` title (pin title / `directive.pinTitle`). Linker matching is case-sensitive `criterionText.includes(directive.pinTitle)` with no all-directives-in-file fallback — a substring of the full title suffices; different casing does not match. Loose references go `hollow`. Bad: "on the pinned-argv test in `write.test.ts`". Good: embed `pinned argv passes through unchanged` from `test("pinned argv passes through unchanged", …)`.
 - The directive's target text must occur **exactly once** in the named path. Zero or
@@ -225,7 +209,7 @@ Headline behavior changes need a keystone checkpoint alongside guard checkpoints
 - Exactly one ticked `Keystone checkpoint:` criterion per runtime-behavior subspec at completion; plan-draft authors the criterion and pinning-test directive when drafting runtime-behavior subspecs.
 - Keystones are opt-in: a subspec with guard `Mutation checkpoint:` criteria and no `Keystone checkpoint:` criterion completes normally. A declared keystone is verified (a surviving headline revert refuses `Inert headline change`; more than one refuses `Multiple keystone checkpoints`). Requiring a keystone on every guard-checkpoint subspec is deferred until plan-draft authors keystones.
 - Full-diff revert is not the keystone shape: new tests import new exports, so reverting everything yields compile errors rather than red tests.
-- Plan draft refuses a criterion that self-marks as a keystone (`Keystone checkpoint:` outside a backtick span) but lacks the canonical suffix — a prose-only checkpoint is never selected by keystone verification, so plan draft rejects it up front rather than shipping silent dead evidence.
+- Plan draft refuses a criterion that self-marks as a keystone (`Keystone checkpoint:` outside a backtick span) but lacks the canonical suffix; a canonical suffix whose pin misses the [recognized filename patterns](../../v2/docs/test-writing.md#checkpoint-pin-filenames) receives a filename-pattern-specific refusal. Prose-only and otherwise malformed checkpoints retain the generic refusal.
 
 Prose `Mutation checkpoint:` comments remain useful context for a human reader; without a linked directive they are refused and are not the machine contract.
 

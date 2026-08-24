@@ -3,6 +3,7 @@ import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { classifyChangedPaths } from "../../../scripts/ci-test-scope.ts";
 import {
   DIRECTIVE_PATTERN,
+  isCheckpointTestFileReference,
   selectKeystoneCheckpointCriteria,
   selectMutationCheckpointCriteria,
 } from "../../../shared/mutation-checkpoint-criteria.ts";
@@ -272,10 +273,6 @@ export function parseMutateDirectives(
   return { directives, unparseable };
 }
 
-function isTestFileName(name: string): boolean {
-  return name.includes(".test.");
-}
-
 /** Files under `root` whose basename matches `target`, skipping heavy directories. */
 function findByBasename(root: string, target: string, found: string[] = [], dir = root): string[] {
   let entries: Dirent[];
@@ -303,7 +300,7 @@ export function pinningTestReferenceFromCriterion(criterionText: string): string
     const candidate = match[1];
     if (candidate === undefined) continue;
     const name = basename(candidate);
-    if (isTestFileName(name)) return candidate;
+    if (isCheckpointTestFileReference(name)) return candidate;
   }
   return undefined;
 }

@@ -1,0 +1,79 @@
+import { describe, expect, test } from "bun:test";
+import {
+  detectAtRiskHollowPinsInMarkdown,
+  isCheckpointTestFileReference,
+  selectKeystoneCheckpointCriteria,
+  selectMutationCheckpointCriteria,
+} from "./mutation-checkpoint-criteria.ts";
+
+function specWithCriterion(criterion: string): string {
+  return `# Spec\n\n## Acceptance criteria\n\n- [ ] ${criterion}\n`;
+}
+
+describe("checkpoint pin-file recognition", () => {
+  test("recognizes language-neutral checkpoint pin files", () => {
+    // @mutate shared/mutation-checkpoint-criteria.ts "return LANGUAGE_NEUTRAL_CHECKPOINT_TEST_FILE_PATTERN.test(name);" -> "return false;"
+    const recognized = [
+      "ChessPracticeTests/RootContentTest.swift",
+      "ChessPracticeTests/RootContentTests.swift",
+      "RootContentTest.m",
+      "RootContentTests.m",
+      "RootContentTest.kt",
+      "RootContentTests.kt",
+      "RootContentTest.java",
+      "RootContentTests.java",
+      "foo_test.go",
+      "foo_test.py",
+      "test_foo.py",
+      "foo_test.rb",
+      "foo_spec.rb",
+      "foo_test.exs",
+      "foo.test.ts",
+      "foo.test.mts",
+      "foo.test.custom",
+      "FOO.TEST.TSX",
+      "Test.swift",
+      "_test.go",
+      "test_.py",
+    ];
+
+    for (const reference of recognized) {
+      expect(isCheckpointTestFileReference(reference)).toBe(true);
+      const guard = specWithCriterion(`\`${reference}\` — \`pin\`; Mutation checkpoint: mutation turns red.`);
+      const keystone = specWithCriterion(
+        `\`${reference}\` — \`pin\`; Keystone checkpoint: baseline restore turns red.`,
+      );
+      const pinOnly = specWithCriterion(
+        `\`${reference}\`; // @mutate shared/example.ts "before" -> "after" requires evidence.`,
+      );
+      expect(selectMutationCheckpointCriteria(guard)).toHaveLength(1);
+      expect(selectKeystoneCheckpointCriteria(keystone)).toHaveLength(1);
+      expect(detectAtRiskHollowPinsInMarkdown(pinOnly)).toHaveLength(1);
+    }
+
+    for (const reference of [
+      "src/main.swift",
+      "latest.swift",
+      "contest.go",
+      "mytest.py",
+      "spec_helper.rb",
+      "RootContentTest.swift.bak",
+      "RootContenttest.swift",
+      "foo_Test.go",
+      "Test_Foo.py",
+      "tests.test.ts/latest.swift",
+    ]) {
+      expect(isCheckpointTestFileReference(reference)).toBe(false);
+      expect(
+        selectMutationCheckpointCriteria(
+          specWithCriterion(`\`${reference}\` — \`pin\`; Mutation checkpoint: mutation turns red.`),
+        ),
+      ).toEqual([]);
+      expect(
+        selectKeystoneCheckpointCriteria(
+          specWithCriterion(`\`${reference}\` — \`pin\`; Keystone checkpoint: baseline restore turns red.`),
+        ),
+      ).toEqual([]);
+    }
+  });
+});

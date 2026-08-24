@@ -75,7 +75,7 @@ function immediateTail(records: readonly PersistedRecord[] = []): TuiLogTailClie
   };
 }
 
-function makeMockDaemon(list: () => Promise<DaemonListResult>): TuiDaemonClient {
+function makeMockDaemon(list: (params?: { includeDismissed: boolean }) => Promise<DaemonListResult>): TuiDaemonClient {
   return {
     health: async () => ({ ok: true }),
     status: async () => ({ state: "running" }),
@@ -99,8 +99,8 @@ function makeMockDaemon(list: () => Promise<DaemonListResult>): TuiDaemonClient 
   };
 }
 
-function runRow(isLive: boolean): DaemonListResult["runs"][number] {
-  return { runId: "run-123", project: "test", branch: "main", createdAt: 0, status: "completed", isLive };
+function runRow(isLive: boolean, dismissedAt: number | null = null): DaemonListResult["runs"][number] {
+  return { runId: "run-123", project: "test", branch: "main", createdAt: 0, status: "completed", isLive, dismissedAt };
 }
 
 function createBlockingTail(initial: readonly PersistedRecord[] = []) {
@@ -560,6 +560,39 @@ describe("runTuiLogFollow", () => {
     });
 
     expect(daemonListCalls).toContain("/tmp/other.sock");
+    expect(seenPath).toBe("/tmp/other.sock");
+    expect(code).toBe(0);
+    expect(view.lines).toHaveLength(1);
+  });
+
+  test("resolveOwningSocket resolves a dismissed run's owner", async () => {
+    // @mutate v2/src/tui/tui-log-follow-entry.tsx "const result = await client.list({ includeDismissed: true });" -> "const result = await client.list();"
+    const view = createViewHost();
+    const records = [logRecord(1, "iteration_started")];
+    const tail = immediateTail(records);
+    let seenPath: string | undefined;
+    const listRequests: Array<{ includeDismissed: boolean } | undefined> = [];
+
+    const connectDaemon = async (options: { socketPath: string }): Promise<TuiDaemonClient> =>
+      makeMockDaemon(async (params) => {
+        listRequests.push(params);
+        return { runs: options.socketPath === "/tmp/other.sock" ? [runRow(true, 1_700_000_600_000)] : [] };
+      });
+
+    const code = await runTuiLogFollow("run-123", {
+      socketPath: "/tmp/invoking.sock",
+      viewHost: view.host,
+      connectTuiLogTail: async (_runId, options) => {
+        seenPath = options.socketPath;
+        return tail;
+      },
+      socketDiscovery: async () => ["/tmp/other.sock"],
+      connectTuiDaemon: connectDaemon,
+      tailRetry: { maxAttempts: 0 },
+    });
+
+    expect(listRequests.length).toBeGreaterThan(0);
+    expect(listRequests.every((params) => params?.includeDismissed === true)).toBe(true);
     expect(seenPath).toBe("/tmp/other.sock");
     expect(code).toBe(0);
     expect(view.lines).toHaveLength(1);

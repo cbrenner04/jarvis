@@ -35,7 +35,12 @@
         ]
       },
       "critic": {
-        "rungs": [{ "adapterModel": "claude-sonnet-5", "priceKey": "claude-sonnet-5" }]
+        "rungs": [
+          {
+            "adapterModel": "claude-sonnet-5",
+            "priceKey": "claude-sonnet-5"
+          }
+        ]
       },
       "advocate": {
         "rungs": [
@@ -100,7 +105,12 @@
         ]
       },
       "critic": {
-        "rungs": [{ "adapterModel": "gpt-5.6-terra", "priceKey": "gpt-5.6-terra" }]
+        "rungs": [
+          {
+            "adapterModel": "gpt-5.6-terra",
+            "priceKey": "gpt-5.6-terra"
+          }
+        ]
       },
       "advocate": {
         "rungs": [
@@ -161,7 +171,12 @@
         ]
       },
       "critic": {
-        "rungs": [{ "adapterModel": "Composer 2.5", "priceKey": "Composer 2.5" }]
+        "rungs": [
+          {
+            "adapterModel": "Composer 2.5",
+            "priceKey": "Composer 2.5"
+          }
+        ]
       },
       "advocate": {
         "rungs": [
@@ -184,6 +199,72 @@
           {
             "adapterModel": "Composer 2.5",
             "priceKey": "Composer 2.5"
+          }
+        ]
+      }
+    },
+    "opencode": {
+      "plan": {
+        "rungs": [
+          {
+            "adapterModel": "opencode/deepseek-v4-flash-free",
+            "priceKey": "opencode/deepseek-v4-flash-free"
+          }
+        ]
+      },
+      "implement": {
+        "rungs": [
+          {
+            "adapterModel": "opencode/deepseek-v4-flash-free",
+            "priceKey": "opencode/deepseek-v4-flash-free"
+          }
+        ]
+      },
+      "shrink": {
+        "rungs": [
+          {
+            "adapterModel": "opencode/deepseek-v4-flash-free",
+            "priceKey": "opencode/deepseek-v4-flash-free"
+          }
+        ]
+      },
+      "adversary": {
+        "rungs": [
+          {
+            "adapterModel": "opencode/deepseek-v4-flash-free",
+            "priceKey": "opencode/deepseek-v4-flash-free"
+          }
+        ]
+      },
+      "critic": {
+        "rungs": [
+          {
+            "adapterModel": "opencode/deepseek-v4-flash-free",
+            "priceKey": "opencode/deepseek-v4-flash-free"
+          }
+        ]
+      },
+      "advocate": {
+        "rungs": [
+          {
+            "adapterModel": "opencode/deepseek-v4-flash-free",
+            "priceKey": "opencode/deepseek-v4-flash-free"
+          }
+        ]
+      },
+      "adjudicator": {
+        "rungs": [
+          {
+            "adapterModel": "opencode/deepseek-v4-flash-free",
+            "priceKey": "opencode/deepseek-v4-flash-free"
+          }
+        ]
+      },
+      "actuator": {
+        "rungs": [
+          {
+            "adapterModel": "opencode/deepseek-v4-flash-free",
+            "priceKey": "opencode/deepseek-v4-flash-free"
           }
         ]
       }

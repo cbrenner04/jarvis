@@ -214,7 +214,17 @@ function mapFromLoopFinished(
         ...(event.publicationFailure !== undefined ? { publicationFailure: event.publicationFailure } : {}),
       };
     case "ready_gate_failed":
-      return op("ready_gate_failed", "resume", true);
+      return {
+        ...op("ready_gate_failed", "resume", true),
+        ...(event.readyGateCommand !== undefined
+          ? {
+              message:
+                event.readyGateOutput === undefined
+                  ? `Ready gate failed: ${event.readyGateCommand}`
+                  : `Ready gate failed: ${event.readyGateCommand}\n${event.readyGateOutput}`,
+            }
+          : {}),
+      };
     case "ready_gate_out_of_scope":
       return event.resumable
         ? {

@@ -2467,6 +2467,12 @@ describe("executeWorkflow completion publication", () => {
           loopOutcomeKind: testCase.kind,
           resumable: testCase.expectedResumable,
         });
+        if (testCase.kind === "ready_gate_failed") {
+          expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
+            readyGateCommand: "bun run ready",
+            readyGateOutput: "red",
+          });
+        }
         if (testCase.kind === "completion_commit_failed" || testCase.kind === "ready_gate_failed") {
           expect(store.loadRun(result.runId)?.status).toBe("failed");
         }
@@ -7682,6 +7688,40 @@ describe("executeWorkflow review dispatch", () => {
     }
   });
 
+  test("intent-finalization resume retains ready gate terminal evidence", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-resume-ready-gate-"));
+    mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
+    writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"), "example.md");
+    mkdirSync(join(workspace, "ready-intents"), { recursive: true });
+
+    await withStateStore(async (store) => {
+      const reviewRunId = seedFailedIntentReviewResumeRun(store, workspace, {
+        branch: "intent/ready-gate",
+        invocationId: "intent-ready-gate",
+      });
+      const run = store.loadRun(reviewRunId);
+      if (!run) throw new Error("expected review run");
+      const logSink = new TestLogSink();
+      const outcome = await resumePopulatedIntentPublication(run, store, {
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        runFixCommand: async () => {},
+        readyFinalizer: async () => {
+          throw new ReadyGateError("bun run intent-ready", 1, "intent gate red");
+        },
+      });
+
+      expect(outcome).toMatchObject({ ok: false });
+      expect(logSink.getEventsForRun(reviewRunId).findLast((event) => event.kind === "loop_finished")).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "ready_gate_failed",
+        readyGateCommand: "bun run intent-ready",
+        readyGateOutput: "intent gate red",
+      });
+    });
+  });
+
   test("review-last light intent completion records file handoff on the step-0 entry run", async () => {
     const { workspace, withExternalWorktree } = createIntentWorktreeHarness("intent-file-handoff-review-last");
     const invocationId = "intent-file-handoff-review-last";
@@ -8965,6 +9005,60 @@ describe("executeWorkflow review dispatch", () => {
     store.setRunStatus(reviewRunId, "failed");
     return { writeRunId, reviewRunId, run: store.loadRun(reviewRunId) };
   }
+
+  test("review-mutation resume retains ready gate terminal evidence", async () => {
+    const workspace = initGitWorkspace("review-mutation-ready-gate-");
+    try {
+      writeFileSync(join(workspace, "spec.md"), "# Spec\n", "utf8");
+      execFileSync("git", ["add", "spec.md"], { cwd: workspace });
+      execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
+      const baseRef = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
+      await withStateStore(async (store) => {
+        const snapshot = reviewMutationWorkflowSnapshot("review-mutation-ready-gate", "implement: ready gate");
+        const base = {
+          project: "demo",
+          specRef: baseRef,
+          worktreePath: workspace,
+          branch: "review-mutation/ready-gate",
+          specPath: "spec.md",
+          workflowSnapshot: snapshot,
+        };
+        const writeRunId = store.createRun({ ...base, stepId: "implement" });
+        const writeAttemptId = store.recordAttemptStart(writeRunId);
+        store.commitCompletionBoundary({
+          attemptId: writeAttemptId,
+          runStatus: "completed",
+          outcomeKind: "done",
+          completionAgent: "codex",
+        });
+        const reviewRunId = store.createRun({ ...base, stepId: "implement-review" });
+        store.setRunStatus(reviewRunId, "failed");
+        const run = store.loadRun(reviewRunId);
+        if (!run) throw new Error("expected review run");
+        const terminalRecord = survivingMutationTerminalRecord(reviewRunId);
+        const logSink = new TestLogSink();
+        const outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, {
+          logSink,
+          completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
+          completionPublisher: async () => ({}),
+          runFixCommand: async () => {},
+          readyFinalizer: async () => {
+            throw new ReadyGateError("bun run review-ready", 1, "review gate red");
+          },
+        });
+
+        expect(outcome).toMatchObject({ ok: false });
+        expect(logSink.getEventsForRun(reviewRunId).at(-1)).toMatchObject({
+          kind: "loop_finished",
+          loopOutcomeKind: "ready_gate_failed",
+          readyGateCommand: "bun run review-ready",
+          readyGateOutput: "review gate red",
+        });
+      });
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
 
   test("rejects admission when the only write-step sibling is a linked pass that never completed", async () => {
     await withStateStore(async (store) => {

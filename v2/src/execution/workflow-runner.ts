@@ -60,6 +60,7 @@ import type { ReadyFinalizer } from "./ready-finalize.ts";
 import {
   isResumableOutOfScopeTerminalEvidence,
   outOfScopeSettlementResumable,
+  readyGateFailureLogFields,
   readyGateOutOfScopeLogFields,
   SurvivingMutationError,
   survivingMutationLogFields,
@@ -1122,6 +1123,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 resumable: publicationResumable,
                 ...survivingMutationLogFields(publication.failure.error),
                 ...gateOutOfScopeFields,
+                ...readyGateFailureLogFields(publication.failure.kind, publication.failure.error),
                 ...exhaustedRedTerminalLogFields(publication.readyGateOrigin),
                 ...(publicationFailure !== undefined ? { publicationFailure } : {}),
               };
@@ -3484,6 +3486,7 @@ async function runIntentResumeCommitAndPublish(
       resumable: !isFlip,
       ...survivingMutationLogFields(failure.error),
       ...readyGateOutOfScopeLogFields(failure.error),
+      ...readyGateFailureLogFields(failure.kind, failure.error),
       ...(publicationFailure !== undefined ? { publicationFailure } : {}),
       ...(failure.kind === "completion_commit_failed"
         ? { completionCommitError: intentResumePublicationCommitError }
@@ -4208,6 +4211,7 @@ async function settleFailedReviewMutationPublication(
           : true,
     ...survivingMutationLogFields(failure.error),
     ...readyGateOutOfScopeLogFields(failure.error),
+    ...readyGateFailureLogFields(failure.kind, failure.error),
     ...exhaustedFields,
     ...(publicationFailure !== undefined ? { publicationFailure } : {}),
     ...(failure.kind === "completion_commit_failed"

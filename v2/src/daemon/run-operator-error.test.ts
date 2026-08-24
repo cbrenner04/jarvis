@@ -408,6 +408,34 @@ test("composeRunOperatorError maps exhausted-red terminal evidence as ready_gate
   expect(error).not.toHaveProperty("readyGateRepairCount");
 });
 
+test("composeRunOperatorError names ready gate command and output", () => {
+  expect(
+    composeRunOperatorError(
+      runWith("failed"),
+      loopFinished("ready_gate_failed", {
+        resumable: true,
+        readyGateCommand: "bun run configured-ready",
+        readyGateOutput: 'Script not found "ready"',
+      }),
+    ),
+  ).toEqual({
+    reason: "ready_gate_failed",
+    retryable: true,
+    nextAction: "resume",
+    message: 'Ready gate failed: bun run configured-ready\nScript not found "ready"',
+  });
+});
+
+test("composeRunOperatorError omits ready gate message without command evidence", () => {
+  // @mutate v2/src/daemon/run-operator-error.ts "event.readyGateCommand !== undefined" -> "event.readyGateCommand === undefined"
+  expect(
+    composeRunOperatorError(
+      runWith("failed"),
+      loopFinished("ready_gate_failed", { resumable: true, readyGateOutput: 'Script not found "ready"' }),
+    ),
+  ).toEqual(err("ready_gate_failed", "resume", true));
+});
+
 test("composeRunOperatorError maps unchanged-path ready_gate_out_of_scope as terminal stop", () => {
   const outsidePath = "v2/src/untouched.test.ts";
   const detail = `ready gate failing paths also reproduce on baseRef: ${outsidePath}`;
@@ -424,6 +452,7 @@ test("composeRunOperatorError maps unchanged-path ready_gate_out_of_scope as ter
     readyGateOutsidePaths: [outsidePath],
     readyGateOutOfScopeDetail: detail,
   });
+  expect(composeRunOperatorError(runWith("failed"), event)).not.toHaveProperty("message");
   expect(
     resolveFailedBlockedAttemptPrecedence(
       attempt("blocked"),

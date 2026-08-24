@@ -160,6 +160,26 @@ export class ReadyGateError extends Error {
   }
 }
 
+export type ReadyGateFailureLogFields = Pick<LoopFinishedEvent, "readyGateCommand" | "readyGateOutput">;
+
+export function readyGateFailureLogFields(
+  loopOutcomeKind: LoopFinishedEvent["loopOutcomeKind"],
+  source: Error | undefined,
+): ReadyGateFailureLogFields {
+  if (
+    loopOutcomeKind !== "ready_gate_failed" ||
+    !(source instanceof ReadyGateError) ||
+    source.gateFailureKind !== loopOutcomeKind
+  ) {
+    return {};
+  }
+  const output = source.output.trim().slice(-4096);
+  return {
+    readyGateCommand: source.command,
+    ...(output.length > 0 ? { readyGateOutput: output } : {}),
+  };
+}
+
 /** Normalize and validate a repo-relative path; reject absolute, escaping, empty, or malformed values. */
 export function validateRepoRelativePath(path: string): string | undefined {
   if (path.length === 0 || path.trim() !== path) {

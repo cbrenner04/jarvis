@@ -389,6 +389,13 @@ test("composeRunOperatorError keeps landing_failed distinct from completion_comm
   expect(landingError?.reason).not.toEqual(commitError?.reason);
 });
 
+test("composeRunOperatorError omits message for cause-less landing_failed", () => {
+  // @mutate v2/src/daemon/run-operator-error.ts "typeof event.message === \"string\"" -> "typeof event.message !== \"string\""
+  const error = composeRunOperatorError(runWith("failed"), loopFinished("landing_failed", { resumable: true }));
+  expect(error).toEqual(err("landing_failed", "resume", true));
+  expect(error).not.toHaveProperty("message");
+});
+
 test("composeRunOperatorError maps exhausted-red terminal evidence as ready_gate_failed without origin on the operator error", () => {
   const event = loopFinished("ready_gate_failed", {
     resumable: true,

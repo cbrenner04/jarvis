@@ -1256,6 +1256,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               loopOutcomeKind: "landing_failed",
               iterationsConsumed,
               resumable: true,
+              message: truncateLogText(gate.error),
             });
             return {
               kind: "landing_failed",

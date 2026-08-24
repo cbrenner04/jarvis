@@ -43,6 +43,7 @@ export type LoopFinishedEvent = {
   loopOutcomeKind: WriteLoopOutcomeKind;
   iterationsConsumed: number;
   resumable: boolean;
+  message?: string;
   publicationFailure?: PublicationFailure;
   prNumber?: number;
   prUrl?: string;

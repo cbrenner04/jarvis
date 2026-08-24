@@ -455,6 +455,32 @@ test("list and wait project dirty no-work refusal with uncommitted paths", async
   });
 });
 
+test("list and wait expose the same terminal landing message", async () => {
+  const runId = createImplementRun();
+  const message = "intent: splitter wrote outside .jarvis-intent-stage/: rogue.txt";
+  stateStore.setRunStatus(runId, "failed");
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "landing_failed",
+    iterationsConsumed: 1,
+    resumable: true,
+    message,
+  });
+  const expectedError = { reason: "landing_failed", retryable: true, nextAction: "resume", message };
+
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; status: string; error?: unknown; resumable?: boolean }>).find(
+    (candidate) => candidate.runId === runId,
+  );
+  expect(row).toMatchObject({ status: "failed", resumable: true, error: expectedError });
+  expect(await expectResponse(await waitDirect("landing-message", runId))).toMatchObject({
+    runStatus: "failed",
+    loopOutcomeKind: "landing_failed",
+    resumable: true,
+    error: expectedError,
+  });
+});
+
 test("list and wait project resumable iteration_timeout as resume", async () => {
   const runId = createImplementRun();
   stateStore.setRunStatus(runId, "failed");

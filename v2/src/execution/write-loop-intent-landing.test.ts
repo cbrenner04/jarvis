@@ -3,7 +3,13 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
-import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
+import { composeRunOperatorError, type TerminalLogRecord } from "../daemon/run-operator-error.ts";
+import {
+  INVALID_TOKEN_LOG_MAX_CHARS,
+  type LogEvent,
+  type LogSink,
+  truncateLogText,
+} from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import type { ExternalWorktree, withExternalWorktree } from "./external-worktree.ts";
@@ -164,6 +170,7 @@ describe("intent split landing-contract pre-completion gate", () => {
 
   test("intent split landing-contract budget exhaustion settles landing_failed", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const sink = new TestLogSink();
     const branchName = `intent-landing-exhausted-${Date.now()}`;
     const violationBytes = `---
 name: bad-intent
@@ -181,6 +188,7 @@ Still prose after every attempt.
       stateDbPath,
       branchName,
       maxIterations: 2,
+      logSink: sink,
       bindings: [
         {
           id: "split",
@@ -200,10 +208,16 @@ Still prose after every attempt.
     expect(result.resumable).toBe(true);
     expect(result.iterationsConsumed).toBe(2);
     expect(readFileSync(stageFile, "utf8")).toBe(violationBytes);
+    expect(sink.getEventsForRun(result.runId).find((event) => event.kind === "loop_finished")).toMatchObject({
+      kind: "loop_finished",
+      loopOutcomeKind: "landing_failed",
+      message: expect.stringContaining("must list prerequisites as one bullet per line"),
+    });
     // Mutation checkpoint: inverting the budget-exhaustion landing_failed branch to contract_miss or blocked must turn this test RED.
   });
 
-  test("rogue path outside stage settles landing_failed without reprompt", async () => {
+  test("rogue path outside stage settles landing_failed without reprompt and names its cause", async () => {
+    // @mutate v2/src/execution/write-loop.ts "message: truncateLogText(gate.error)," -> ""
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sink = new TestLogSink();
     const branchName = `intent-landing-rogue-${Date.now()}`;
@@ -232,8 +246,78 @@ Still prose after every attempt.
     expect(result.kind).toBe("landing_failed");
     expect(result.resumable).toBe(true);
     expect(result.iterationsConsumed).toBe(1);
-    const events = sink.getEventsForRun(result.runId).map((event) => event.kind);
+    const runEvents = sink.getEventsForRun(result.runId);
+    const events = runEvents.map((event) => event.kind);
     expect(events).not.toContain("landing_contract_reprompt");
+    const terminalEvent = runEvents.find((event) => event.kind === "loop_finished");
+    expect(terminalEvent).toMatchObject({
+      kind: "loop_finished",
+      loopOutcomeKind: "landing_failed",
+    });
+    if (terminalEvent?.kind !== "loop_finished") throw new Error("expected terminal event");
+    expect(terminalEvent.message).toContain("splitter wrote outside .jarvis-intent-stage/");
+    expect(terminalEvent.message).toContain("rogue.txt");
+    const terminalRecord: TerminalLogRecord = {
+      runId: result.runId,
+      seq: 1,
+      ts: "2026-01-01T00:00:00.000Z",
+      event: terminalEvent,
+    };
+    if (typeof terminalEvent.message !== "string") throw new Error("expected terminal cause");
+    expect(composeRunOperatorError({ status: "failed" }, terminalRecord)).toEqual({
+      reason: "landing_failed",
+      retryable: true,
+      nextAction: "resume",
+      message: terminalEvent.message,
+    });
+  });
+
+  test("non-repromptable landing cause truncates oversized rogue path lists", async () => {
+    // @mutate v2/src/execution/write-loop.ts "message: truncateLogText(gate.error)," -> "message: gate.error,"
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const sink = new TestLogSink();
+    const branchName = `intent-landing-rogue-truncated-${Date.now()}`;
+    const roguePaths = Array.from(
+      { length: 30 },
+      (_, index) => `rogue-${String(index).padStart(2, "0")}-${"x".repeat(20)}.txt`,
+    );
+
+    const result = await runIntentSplitLoop({
+      jarvisRoot,
+      stateDbPath,
+      branchName,
+      maxIterations: 3,
+      logSink: sink,
+      bindings: [
+        {
+          id: "split",
+          metadata: { agent: "test-agent", model: "test" },
+          invoke: async ({ cwd }) => {
+            const stage = join(cwd, ".jarvis-intent-stage");
+            mkdirSync(stage, { recursive: true });
+            prerequisitesProseIntent(join(stage, "bad-intent.md"));
+            for (const path of roguePaths) writeFileSync(join(cwd, path), "outside stage\n", "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    expect(result.kind).toBe("landing_failed");
+    const rawViolation = `intent: splitter wrote outside .jarvis-intent-stage/: ${roguePaths.join(", ")}`;
+    expect(rawViolation.length).toBeGreaterThan(INVALID_TOKEN_LOG_MAX_CHARS);
+    const terminalEvent = sink.getEventsForRun(result.runId).find((event) => event.kind === "loop_finished");
+    expect(terminalEvent).toMatchObject({ message: truncateLogText(rawViolation) });
+    if (terminalEvent?.kind !== "loop_finished") throw new Error("expected terminal event");
+    expect(terminalEvent.message?.length).toBe(INVALID_TOKEN_LOG_MAX_CHARS + 1);
+    expect(terminalEvent.message).not.toContain(roguePaths.at(-1));
+    const terminalRecord: TerminalLogRecord = {
+      runId: result.runId,
+      seq: 1,
+      ts: "2026-01-01T00:00:00.000Z",
+      event: terminalEvent,
+    };
+    expect(composeRunOperatorError({ status: "failed" }, terminalRecord)?.message).toBe(terminalEvent.message);
   });
 
   test("landing-contract reprompt preserves valid sibling staged intents", async () => {

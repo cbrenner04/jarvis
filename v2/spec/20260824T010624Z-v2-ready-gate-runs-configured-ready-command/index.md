@@ -3,7 +3,7 @@
 repo: cbrenner04/jarvis
 
 - [x] [00 - CLI](./00-cli.md)
-- [ ] [01 - Execution loop](./01-execution-loop.md)
+- [x] [01 - Execution loop](./01-execution-loop.md)
 
 Scope note: one behavior, one PR — resolve `projects.<key>.readyCommand` at CLI write-step admission, carry it across IPC on the write step, and spawn it (instead of `bun run ready`) at the completion ready gate, with gate-failure classification, `ReadyGateError.command`, and the repair prompt's `GATE_COMMAND` all keyed off the resolved command. Touched surfaces: `v2/src/config/machine-config-loader.ts`, `v2/src/commands/workflow.ts`, `v2/src/execution/workflow-runner.ts`, `v2/src/execution/write-loop.ts`, `v2/src/execution/ready-finalize.ts`. No v1 change; no config-schema change (`readyCommand` is already validated in `v1/src/config.ts`).
 

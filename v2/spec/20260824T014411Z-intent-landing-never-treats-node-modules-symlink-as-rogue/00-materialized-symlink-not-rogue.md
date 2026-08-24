@@ -34,3 +34,7 @@
 
 - `v2/docs/workflow-runner.md` — replace the trailing "This addresses only the no-`node_modules` case of issue #2954…" sentence of the worktree-materialization paragraph with the new invariant: the symlink is a harness artifact, never agent output, and never rogue.
 - `v2/docs/v1-behaviors.md` — extend the existing v2 `node_modules` symlink bullet with the landing-classification behavior.
+
+## Blocker
+
+`bun run test:integration:v2` repeatedly fails the unrelated `write-loop-ready-gate-reap.sandbox-unrunnable.test.ts` because `.ready-gate-trap-installed` does not appear within 5000 ms. A retry also failed an unrelated `daemon-lifecycle.sandbox-unrunnable.test.ts` timeout; `bun run typecheck`, `bun run test:v2`, the scoped intent-output tests, Biome, and markdownlint pass.

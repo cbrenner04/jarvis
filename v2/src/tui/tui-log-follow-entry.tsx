@@ -25,7 +25,7 @@ async function resolveOwningSocket(
     try {
       const client = await connectFn({ socketPath });
       try {
-        const result = await client.list();
+        const result = await client.list({ includeDismissed: true });
         const runRow = result.runs.find((r) => r.runId === runId);
         if (runRow?.isLive) {
           return socketPath;

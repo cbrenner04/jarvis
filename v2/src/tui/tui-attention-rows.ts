@@ -8,6 +8,7 @@ import { mergePipelineSnapshots } from "./tui-monitor-lines.ts";
 import {
   buildMonitorPipelineTreeJoin,
   isHiddenDismissedPipeline,
+  isHiddenDismissedRun,
   type MonitorPipelineDisplayOptions,
   monitorPipelineStageNodeId,
   pipelineRowLabel,
@@ -231,6 +232,7 @@ function runIncidents(
 
   const rows: AttentionRow[] = [];
   for (const run of runs) {
+    if (isHiddenDismissedRun(run, options.showDismissed === true)) continue;
     const row = buildRunIncidentRow(run, attribution, adHocInfo, hiddenInvocationIds);
     if (row !== undefined) rows.push(row);
   }

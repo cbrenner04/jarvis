@@ -2876,3 +2876,71 @@ describe("dismissed pipeline exclusion", () => {
     expect(pipelineObservationBuckets(state)).toEqual({ running: 1, awaitingGate: 0, failed: 0, done: 0 });
   });
 });
+
+describe("dismissed run exclusion", () => {
+  test("a dismissed run retained in state.runs leaves the work tree and Work heading count", () => {
+    const runs: DaemonListRunRow[] = [
+      workflowRun("run-dismissed-retained", "failed", "inv-dismissed-retained", {
+        dismissedAt: TREE_NOW_MS + 500,
+        isLive: false,
+      }),
+      workflowRun("run-live-retained", "in-progress", "inv-live-retained"),
+    ];
+    const state = monitorState({ runs });
+    const layout = treeLayout();
+    const { fullTreeRows } = monitorLeftPaneTreeRows(state, layout, TREE_NOW_MS);
+
+    expect(fullTreeRows.some((row) => row.id === "run-dismissed-retained")).toBe(false);
+    expect(fullTreeRows.some((row) => row.id === "run-live-retained")).toBe(true);
+    expect(monitorLeftPaneWorkHeadingRows(state).map(joinMonitorRow)).toEqual(["── Work (1) ──"]);
+  });
+
+  test("a shown dismissed run row is labeled dismissed", () => {
+    // Mutation checkpoint: removing the run marker helper's early return drops the marker and turns this test red.
+    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if ((run.dismissedAt ?? null) === null) return label;" -> "if (false) return label;"
+    const dismissedRun = workflowRun("run-dismissed-stage-leaf", "in-progress", "inv-dismissed-stage-leaf", {
+      dismissedAt: TREE_NOW_MS + 500,
+    });
+    const liveRun = workflowRun("run-live-stage-leaf", "in-progress", "inv-live-stage-leaf");
+    const snapshot = pipelineSnapshot({
+      pipelineId: "pipe-dismissed-run-label",
+      stages: [
+        snapshotStage({ stageId: "stage-a", position: 0, workflowInvocationId: "inv-dismissed-stage-leaf" }),
+        snapshotStage({ stageId: "stage-b", position: 1, workflowInvocationId: "inv-live-stage-leaf" }),
+      ],
+    });
+    const { pipelineNodes } = buildMonitorPipelineTreeJoin([snapshot], [dismissedRun, liveRun], {
+      showDismissed: true,
+    });
+    const stageA = pipelineNodes[0]?.stages.find((stage) => stage.stageId === "stage-a");
+    const stageB = pipelineNodes[0]?.stages.find((stage) => stage.stageId === "stage-b");
+    const dismissedRunNode = stageA?.runs[0];
+    const liveRunNode = stageB?.runs[0];
+    if (dismissedRunNode === undefined || liveRunNode === undefined) throw new Error("expected run nodes");
+
+    const dismissedAdHocRun = workflowRun("run-dismissed-adhoc-label", "in-progress", "inv-dismissed-adhoc-label", {
+      dismissedAt: TREE_NOW_MS + 500,
+      branch: "adhoc-branch",
+    });
+    const { adHocNodes } = buildMonitorPipelineTreeJoin([], [dismissedAdHocRun], { showDismissed: true });
+    const adHocNode = adHocNodes[0];
+    if (adHocNode === undefined) throw new Error("expected ad-hoc node");
+
+    // Wide pane: the workflow-step context suffix on a collapsed row's label is long enough to clip
+    // the marker at 90 columns, which would hide the assertion behind an ellipsis rather than test it.
+    const wideWidth = 220;
+    const dismissedStageText = joinMonitorRow(
+      buildTreeRunRow(dismissedRunNode.tableRow, dismissedRunNode.depth, wideWidth, TEST_NOW_MS),
+    );
+    const liveStageText = joinMonitorRow(
+      buildTreeRunRow(liveRunNode.tableRow, liveRunNode.depth, wideWidth, TEST_NOW_MS),
+    );
+    const dismissedAdHocText = joinMonitorRow(
+      buildTreeRunRow(adHocNode.tableRow, adHocNode.depth, wideWidth, TEST_NOW_MS, adHocNode.label),
+    );
+
+    expect(dismissedStageText).toContain("(dismissed)");
+    expect(liveStageText).not.toContain("(dismissed)");
+    expect(dismissedAdHocText).toContain("(dismissed)");
+  });
+});

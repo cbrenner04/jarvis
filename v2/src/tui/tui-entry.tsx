@@ -665,7 +665,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
         let firstError: unknown;
         for (const [socketPath, client] of [...clients.entries()]) {
           try {
-            const result = await client.list();
+            const result = await client.list({ includeDismissed: currentState.showDismissed === true });
             lastGoodListBySocketPath.set(socketPath, result);
             liveListResults.push([client, result]);
             allClientsFailed = false;

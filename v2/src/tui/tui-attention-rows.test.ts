@@ -429,4 +429,23 @@ describe("buildAttentionRows", () => {
     expect(row?.where).toBe(pipelineRowLabel(snapshot));
     expect(row?.where).not.toBe(branch);
   });
+
+  test("a dismissed run's own attention row is suppressed", () => {
+    // Mutation checkpoint: dropping the hidden-run guard restores baseline semantics (a dismissed run's
+    // incident row survives with an unresolvable target) and turns this test red.
+    // @mutate v2/src/tui/tui-attention-rows.ts "if (isHiddenDismissedRun(run, options.showDismissed === true)) continue;" -> "if (false) continue;"
+    const dismissedFailedRun = listRun({
+      runId: "run-dismissed-own-attention",
+      status: "failed",
+      finishedAtMs: 900,
+      dismissedAt: 1_700_000_800_000,
+    });
+
+    const defaultProjection = buildAttentionRows(undefined, [dismissedFailedRun]);
+    expect(defaultProjection.rows.some((row) => row.targetId === "run-dismissed-own-attention")).toBe(false);
+    expect(defaultProjection.total).toBe(0);
+
+    const shownProjection = buildAttentionRows(undefined, [dismissedFailedRun], { showDismissed: true });
+    expect(shownProjection.rows).toMatchObject([{ targetId: "run-dismissed-own-attention" }]);
+  });
 });

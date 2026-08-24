@@ -38,7 +38,7 @@ export type PipelineResumeParams = { pipelineId: string };
 export type TuiDaemonClient = {
   health(): Promise<TuiDaemonHealthResult>;
   status(): Promise<TuiDaemonStatusResult>;
-  list(): Promise<DaemonListResult>;
+  list(params?: { includeDismissed: boolean }): Promise<DaemonListResult>;
   pipelineList(params: { includeDismissed: boolean }): Promise<PipelineListResult>;
   start(input: WriteLoopInput): Promise<TuiDaemonStartResult>;
   /** Signal graceful pause for an active run at the next iteration boundary; rejects with `unknown_run`/`run_not_active`. */
@@ -116,8 +116,8 @@ export async function connectTuiDaemon(options: ConnectTuiDaemonOptions): Promis
         "malformed RPC reply: invalid status result",
       );
     },
-    async list() {
-      return parseListRuns(await transport.request("list")) as DaemonListResult;
+    async list(params) {
+      return parseListRuns(await transport.request("list", params)) as DaemonListResult;
     },
     async pipelineList(params) {
       return parseOrThrow(

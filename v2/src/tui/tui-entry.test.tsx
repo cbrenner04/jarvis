@@ -103,6 +103,17 @@ const RUN_QUEUED: DaemonListRunRow = {
   isLive: false,
 };
 
+const RUN_DISMISSED: DaemonListRunRow = {
+  runId: "run-dismissed",
+  project: "demo",
+  branch: "dismissed",
+  createdAt: 0,
+  status: "completed",
+  isLive: false,
+  finishedAtMs: TERMINAL_LIST_FINISH_MS,
+  dismissedAt: 1_700_000_600_000,
+};
+
 const PIPELINE_SNAPSHOT_ALPHA: PipelineSnapshot = {
   pipelineId: "pipe-alpha",
   name: "alpha-pipeline",
@@ -1212,6 +1223,8 @@ type FakeClientOptions = {
   healthError?: RpcError;
   statusError?: RpcError;
   listResponses?: DaemonListResult[];
+  listResponsesWithDismissed?: DaemonListResult[];
+  listRequests?: Array<{ includeDismissed: boolean } | undefined>;
   listError?: Error;
   pipelineListResponses?: PipelineListResult[];
   pipelineListResponsesWithDismissed?: PipelineListResult[];
@@ -1285,10 +1298,16 @@ function fakeClient(options: FakeClientOptions = {}): TuiDaemonClient {
       if (options.statusError !== undefined) throw options.statusError;
       return { state: "running" };
     },
-    async list() {
+    async list(params?: { includeDismissed: boolean }) {
       methods.push("list");
+      options.listRequests ??= [];
+      options.listRequests.push(params);
       if (options.listError !== undefined) throw options.listError;
-      const [response, nextIndex] = nextFakeResponse(options.listResponses, listIndex);
+      const responses =
+        params?.includeDismissed === true
+          ? (options.listResponsesWithDismissed ?? options.listResponses)
+          : options.listResponses;
+      const [response, nextIndex] = nextFakeResponse(responses, listIndex);
       listIndex = nextIndex;
       return response ?? { runs: [] };
     },
@@ -1349,6 +1368,8 @@ function showDismissedToggleEntryDeps(
     {
       methods: [],
       listResponses: [{ runs: [RUN_ALPHA] }],
+      listResponsesWithDismissed: [{ runs: [RUN_ALPHA, RUN_DISMISSED] }],
+      listRequests: [],
       pipelineListResponses: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA] }],
       pipelineListResponsesWithDismissed: [{ pipelines: [PIPELINE_SNAPSHOT_ALPHA, PIPELINE_SNAPSHOT_DISMISSED] }],
       pipelineListRequests: [],
@@ -6180,6 +6201,108 @@ describe("runTuiEntry", () => {
       const label =
         buildPipelineMonitorTreeRow(pipeline, layout.leftWidth, WORKFLOW_FILTER_NOW_MS).segments[3]?.text ?? "";
       expect(label.trimEnd().endsWith("(dismissed)")).toBe(true);
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("the show-dismissed toggle requests the opt-in run list snapshot", async () => {
+    // @mutate v2/src/tui/tui-entry.tsx "const result = await client.list({ includeDismissed: currentState.showDismissed === true });" -> "const result = await client.list();"
+    const view = createViewHost();
+    const refresh = createIntervalScheduler();
+    const { deps, clientOptions } = showDismissedToggleEntryDeps(view, refresh);
+    const pending = runTuiEntry(deps);
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      expect(clientOptions.listRequests).toEqual([{ includeDismissed: false }]);
+      await view.toggleShowDismissedAndFlush();
+      expect(clientOptions.listRequests).toEqual([{ includeDismissed: false }, { includeDismissed: true }]);
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("toggling show-dismissed off returns to the default run list request", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = showDismissedToggleEntryDeps(view);
+    const pending = runTuiEntry(deps);
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      await view.toggleShowDismissedAndFlush();
+      expect(leftPaneTreeRowIds(view.monitorStates.at(-1))).toContain("run-dismissed");
+      await view.toggleShowDismissedAndFlush();
+      expect(clientOptions.listRequests?.at(-1)).toEqual({ includeDismissed: false });
+      const rowIds = leftPaneTreeRowIds(view.monitorStates.at(-1));
+      expect(rowIds).not.toContain("run-dismissed");
+      expect(rowIds).toContain("run-alpha");
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("with show-dismissed on the dismissed run paints with a dismissed marker", async () => {
+    const view = createViewHost();
+    const { deps } = showDismissedToggleEntryDeps(view);
+    const pending = runTuiEntry(deps);
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      await view.toggleShowDismissedAndFlush();
+      const state = view.monitorStates.at(-1);
+      expect(state).toBeDefined();
+      if (state === undefined) return;
+      const layout = computeShellLayout(
+        state.terminalColumns ?? 245,
+        state.terminalRows ?? 72,
+        state.dividerOffset ?? 0,
+      );
+      const { fullTreeRows } = monitorLeftPaneTreeRows(state, layout, WORKFLOW_FILTER_NOW_MS);
+      const runRow = fullTreeRows.find((row) => row.kind === "adhoc" && row.id === "run-dismissed");
+      expect(runRow?.kind).toBe("adhoc");
+      if (runRow?.kind !== "adhoc") return;
+      const rowLabel =
+        buildTreeRunRow(runRow.tableRow, runRow.depth, layout.leftWidth, WORKFLOW_FILTER_NOW_MS, runRow.label)
+          .segments[3]?.text ?? "";
+      expect(rowLabel.trimEnd().endsWith("(dismissed)")).toBe(true);
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("the show-dismissed toggle widens both list and pipeline_list requests", async () => {
+    const view = createViewHost();
+    const { deps, clientOptions } = showDismissedToggleEntryDeps(view);
+    const pending = runTuiEntry(deps);
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      await view.toggleShowDismissedAndFlush();
+      expect(clientOptions.listRequests?.at(-1)).toEqual({ includeDismissed: true });
+      expect(clientOptions.pipelineListRequests?.at(-1)).toEqual({ includeDismissed: true });
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("a fresh monitor session requests the default run list snapshot", async () => {
+    // @mutate v2/src/tui/tui-entry.tsx "const result = await client.list({ includeDismissed: currentState.showDismissed === true });" -> "const result = await client.list({ includeDismissed: true });"
+    const view = createViewHost();
+    const { deps, clientOptions } = entryDeps(
+      { methods: [], listResponses: [{ runs: [RUN_ALPHA] }], listRequests: [] },
+      { viewHost: view.host },
+    );
+    const pending = runTuiEntry(deps);
+    try {
+      await view.waitUntilOpen();
+      await flush();
+      expect(clientOptions.listRequests?.[0]).toEqual({ includeDismissed: false });
     } finally {
       view.quit();
     }

@@ -12,6 +12,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { isGitRepoAsync } from "../../../shared/git.ts";
 import { validateIntentStage } from "../../../shared/intent-stage.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { isMaterializedNodeModulesPath } from "./external-worktree.ts";
 
 export type IntentOutputConfig = {
   durableDir: string;
@@ -184,6 +185,7 @@ export async function findIntentLandingRoguePaths(input: {
   const ownershipRelPath = relative(input.worktreePath, ownershipFile).replace(/\\/g, "/");
   const allPaths = await listWorktreeChangedPaths(input.worktreePath, input.baseRef, runner);
   return allPaths.filter((path) => {
+    if (isMaterializedNodeModulesPath(input.worktreePath, path)) return false;
     if (path === stageRel || path.startsWith(`${stageRel}/`)) return false;
     if (path === ownershipRelPath) return false;
     if (path === INTENT_REVIEW_VERDICT_PATH || path === INTENT_REVIEW_VERDICT_OWNER_PATH) return false;

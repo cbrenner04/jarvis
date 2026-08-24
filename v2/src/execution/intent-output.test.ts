@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { intentHandoffSpecPath, landIntentWorkflowOutput } from "./intent-output.ts";
+import { isMaterializedNodeModulesPath } from "./external-worktree.ts";
+import { findIntentLandingRoguePaths, intentHandoffSpecPath, landIntentWorkflowOutput } from "./intent-output.ts";
 
 function createRepo(): string {
   const repo = mkdtempSync(join(tmpdir(), "jarvis-intent-output-"));
@@ -23,6 +24,12 @@ function stage(repo: string, names: string[] = ["one"]): string {
     writeFileSync(join(dir, `${name}.md`), `---\nname: ${name}\n---\n\n# ${name}\n\n## Prerequisites\n`, "utf8");
   }
   return dir;
+}
+
+function materializeNodeModulesSymlink(repo: string): void {
+  const target = join(repo, ".git", "node_modules");
+  mkdirSync(target);
+  symlinkSync(target, join(repo, "node_modules"), "dir");
 }
 
 describe("landIntentWorkflowOutput", () => {
@@ -160,6 +167,64 @@ describe("landIntentWorkflowOutput", () => {
       landIntentWorkflowOutput({ worktreePath: repo, baseRef: "HEAD", output: { durableDir: "ready-intents" } }),
     ).rejects.toThrow("rogue");
     expect(readFileSync(join(repo, ".jarvis-intent-stage", "one.md"), "utf8")).toContain("name: one");
+  });
+
+  test("landing with a harness-created node_modules symlink reports no rogue path", async () => {
+    // @mutate v2/src/execution/intent-output.ts "if (isMaterializedNodeModulesPath(input.worktreePath, path)) return false;" -> "if (false) return false;"
+    const repo = createRepo();
+    stage(repo);
+    materializeNodeModulesSymlink(repo);
+    expect(
+      await findIntentLandingRoguePaths({
+        worktreePath: repo,
+        baseRef: "HEAD",
+        stagingDir: ".jarvis-intent-stage",
+        durableDir: "ready-intents",
+      }),
+    ).toEqual([]);
+    const result = await landIntentWorkflowOutput({
+      worktreePath: repo,
+      baseRef: "HEAD",
+      output: { durableDir: "ready-intents" },
+    });
+    expect(result.files).toEqual(["one.md"]);
+    expect(readFileSync(join(repo, "ready-intents", "one.md"), "utf8")).toContain("# one");
+  });
+
+  test("an untracked real node_modules directory is still rogue intent output", async () => {
+    // @mutate v2/src/execution/external-worktree.ts "return lstatSync(join(worktreePath, MATERIALIZED_NODE_MODULES_PATH), { throwIfNoEntry: false })?.isSymbolicLink() === true;" -> "return true;"
+    const repo = createRepo();
+    stage(repo);
+    mkdirSync(join(repo, "node_modules"));
+    writeFileSync(join(repo, "node_modules", "index.js"), "export {};\n", "utf8");
+    expect(isMaterializedNodeModulesPath(repo, "node_modules")).toBe(false);
+    expect(
+      await findIntentLandingRoguePaths({
+        worktreePath: repo,
+        baseRef: "HEAD",
+        stagingDir: ".jarvis-intent-stage",
+        durableDir: "ready-intents",
+      }),
+    ).toEqual(["node_modules/index.js"]);
+    await expect(
+      landIntentWorkflowOutput({ worktreePath: repo, baseRef: "HEAD", output: { durableDir: "ready-intents" } }),
+    ).rejects.toThrow("node_modules/index.js");
+  });
+
+  test("a different untracked worktree-root path is still rogue intent output", async () => {
+    // @mutate v2/src/execution/external-worktree.ts "if (path !== MATERIALIZED_NODE_MODULES_PATH) return false;" -> "if (false) return false;"
+    const repo = createRepo();
+    stage(repo);
+    materializeNodeModulesSymlink(repo);
+    writeFileSync(join(repo, "rogue"), "no\n", "utf8");
+    expect(
+      await findIntentLandingRoguePaths({
+        worktreePath: repo,
+        baseRef: "HEAD",
+        stagingDir: ".jarvis-intent-stage",
+        durableDir: "ready-intents",
+      }),
+    ).toEqual(["rogue"]);
   });
 
   test("rejects differing collisions without overwrite", async () => {

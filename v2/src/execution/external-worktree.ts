@@ -1,9 +1,17 @@
-import { existsSync, mkdirSync, rmSync, statSync, symlinkSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, rmSync, statSync, symlinkSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { branchExistsLocalAsync, branchExistsOnOriginAsync, getCurrentBranchAsync } from "../../../shared/git.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { acquireLock, releaseLock, type WorktreeLock } from "../../../shared/worktree-lock.ts";
 import { jarvisHome } from "../paths.ts";
+
+export const MATERIALIZED_NODE_MODULES_PATH = "node_modules";
+
+export function isMaterializedNodeModulesPath(worktreePath: string, path: string): boolean {
+  if (path !== MATERIALIZED_NODE_MODULES_PATH) return false;
+  // biome-ignore format: Preserve the mutation-checkpoint anchor.
+  return lstatSync(join(worktreePath, MATERIALIZED_NODE_MODULES_PATH), { throwIfNoEntry: false })?.isSymbolicLink() === true;
+}
 
 /** Naming and git inputs for materialization. */
 export type ExternalWorktreeInput = {
@@ -178,9 +186,9 @@ async function ensureExternalWorktree(
     }
     await assertReusableWorktreeMatches(args, worktreePath, runner);
     throwIfAborted(signal);
-    const projectNodeModules = join(args.projectRoot, "node_modules");
+    const projectNodeModules = join(args.projectRoot, MATERIALIZED_NODE_MODULES_PATH);
     if (statSync(projectNodeModules, { throwIfNoEntry: false })?.isDirectory()) {
-      symlinkSync(projectNodeModules, join(worktreePath, "node_modules"), "dir");
+      symlinkSync(projectNodeModules, join(worktreePath, MATERIALIZED_NODE_MODULES_PATH), "dir");
     }
     return { path: worktreePath, reused: false };
   } catch (error) {

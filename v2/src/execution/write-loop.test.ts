@@ -3159,7 +3159,7 @@ describe("write loop", () => {
       // @mutate v2/src/execution/ready-finalize.ts "!(source instanceof ReadyGateError)" -> "source instanceof ReadyGateError"
       // @mutate v2/src/execution/ready-finalize.ts "source.gateFailureKind !== loopOutcomeKind" -> "source.gateFailureKind === loopOutcomeKind"
       // @mutate v2/src/execution/ready-finalize.ts ".slice(-4096)" -> ".slice(4096)"
-      // @mutate v2/src/execution/ready-finalize.ts "output.length > 0" -> "output.length === 0"
+      // @mutate v2/src/execution/ready-finalize.ts "...(output.length > 0 ? { readyGateOutput: output } : {})" -> "...(output.length === 0 ? { readyGateOutput: output } : {})"
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       const logSink = new TestLogSink();
       const discardedPrefix = "discarded-prefix-".repeat(300);

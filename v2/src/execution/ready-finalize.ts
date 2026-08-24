@@ -160,12 +160,10 @@ export class ReadyGateError extends Error {
   }
 }
 
-export type ReadyGateFailureLogFields = Pick<LoopFinishedEvent, "readyGateCommand" | "readyGateOutput">;
-
 export function readyGateFailureLogFields(
   loopOutcomeKind: LoopFinishedEvent["loopOutcomeKind"],
   source: Error | undefined,
-): ReadyGateFailureLogFields {
+) {
   if (
     loopOutcomeKind !== "ready_gate_failed" ||
     !(source instanceof ReadyGateError) ||

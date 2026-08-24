@@ -35,7 +35,7 @@ Execution loop: ready-gate failure classification and the repair loop.
 
 ## Documentation updates
 
-- `v2/docs/install-and-config.md` — a missing gate command settles named with no repair; fix the config, do not resume. Closes #2957.
+- `v2/docs/install-and-config.md` — a missing gate command settles named with no repair; fix the config, do not resume.
 - `v2/docs/operator-runbook.md` — recovery for the named missing-command outcome.
 - `v2/docs/write-behavior.md` — ready finalization skips autofix and repair for missing-command failures.
 - `v2/docs/v1-behaviors.md` — missing gate command is no longer a repairable red gate.

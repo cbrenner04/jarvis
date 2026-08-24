@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, statSync, symlinkSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { branchExistsLocalAsync, branchExistsOnOriginAsync, getCurrentBranchAsync } from "../../../shared/git.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
@@ -178,7 +178,10 @@ async function ensureExternalWorktree(
     }
     await assertReusableWorktreeMatches(args, worktreePath, runner);
     throwIfAborted(signal);
-    symlinkSync(join(args.projectRoot, "node_modules"), join(worktreePath, "node_modules"), "dir");
+    const projectNodeModules = join(args.projectRoot, "node_modules");
+    if (statSync(projectNodeModules, { throwIfNoEntry: false })?.isDirectory()) {
+      symlinkSync(projectNodeModules, join(worktreePath, "node_modules"), "dir");
+    }
     return { path: worktreePath, reused: false };
   } catch (error) {
     throw new WorktreeMaterializationError(worktreePath, error);

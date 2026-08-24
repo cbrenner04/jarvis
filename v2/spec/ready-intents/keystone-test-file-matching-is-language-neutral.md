@@ -19,21 +19,21 @@ Unsplit rationale: Test-file recognition, checkpoint selection, and plan-draft r
 
 ## Behavior
 
-- Guard and keystone criteria accept existing JavaScript `.test.*` forms plus `*Test`/`*Tests` files for Swift, Objective-C, Kotlin, and Java, `*_test` files for Go, Python, Ruby, Elixir, and ElixirScript, Python `test_*` files, and Ruby `*_spec` files.
+- Guard and keystone criteria accept existing JavaScript `.test.*` forms plus `*Test.swift`/`*Tests.swift`, `*Test.m`/`*Tests.m`, `*Test.kt`/`*Tests.kt`, `*Test.java`/`*Tests.java`, `*_test.go`, `*_test.py`, `test_*.py`, `*_test.rb`, `*_spec.rb`, and `*_test.exs` (Elixir and ElixirScript).
 - A canonical criterion naming `ChessPracticeTests/RootContentTests.swift` is selected and is not classified as an unsatisfiable keystone.
 - A canonical keystone naming a path outside the recognized test-file patterns is still rejected early, and the operator-facing error identifies the filename-pattern mismatch.
 
 ## Decisions
 
 - Use one fixed, language-neutral recognized-pattern set for guard selection, keystone selection, and hollow-pin title detection; rules out divergent classifiers that admit a pin in one checkpoint path but reject it in another.
-- Preserve existing JavaScript forms while adding the named ecosystem conventions; rules out replacing compatibility behavior or adding per-project pattern configuration.
+- Preserve existing JavaScript forms while adding exactly the listed filename patterns; rules out replacing compatibility behavior, accepting unspecified extensions, or adding per-project pattern configuration.
 - Preserve plan-draft rejection of self-marked but unselectable keystones; rules out allowing silent dead evidence.
 - Keep downstream `@mutate` execution and toolchain assumptions unchanged; rules out expanding this fix into non-JavaScript mutation execution.
 - Name the unrecognized test filename condition in the rejection; rules out a generic criterion echo that requires a source dive.
 
 ## Required verification
 
-- A table-driven shared criteria test covers `ChessPracticeTests/RootContentTests.swift`, `foo_test.go`, `test_foo.py`, `foo_spec.rb`, `FooKtTest.kt`, equivalent accepted spellings, existing `foo.test.ts` and `.test.` forms, and a plain non-test path; it fails against the JavaScript-only classifier.
+- Shared criteria tests demonstrate acceptance of `ChessPracticeTests/RootContentTest.swift`, `ChessPracticeTests/RootContentTests.swift`, `RootContentTest.m`, `RootContentTests.m`, `RootContentTest.kt`, `RootContentTests.kt`, `RootContentTest.java`, `RootContentTests.java`, `foo_test.go`, `foo_test.py`, `test_foo.py`, `foo_test.rb`, `foo_spec.rb`, and `foo_test.exs`; they preserve existing `foo.test.ts` and `.test.` forms and reject a plain non-test path, failing against the JavaScript-only classifier.
 - A plan-draft normalization test proves a canonical Swift keystone selects and avoids `findUnsatisfiableKeystoneCriteria`; it fails against the pre-fix classifier.
 - A plan-draft normalization test proves an unrecognized filename is rejected with text stating that it does not match a recognized test-file pattern.
 - `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` pass.

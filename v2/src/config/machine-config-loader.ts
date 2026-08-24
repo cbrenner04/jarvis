@@ -161,6 +161,15 @@ export function readProjectFixCommand(
   return typeof fixCommand === "string" && fixCommand.trim() !== "" ? fixCommand : undefined;
 }
 
+/** Reads a registered project's `readyCommand` when set to a non-empty string. */
+export function readProjectReadyCommand(
+  projectKey: string,
+  configPath: string = MACHINE_CONFIG_PATH,
+): string | undefined {
+  const readyCommand = readProjectConfigRecord(projectKey, configPath)?.readyCommand;
+  return typeof readyCommand === "string" && readyCommand.trim() !== "" ? readyCommand : undefined;
+}
+
 /** Reads the raw pipeline fragment without changing the project-registry projection. */
 export function readProjectPipelineConfig(
   projectKey: string,

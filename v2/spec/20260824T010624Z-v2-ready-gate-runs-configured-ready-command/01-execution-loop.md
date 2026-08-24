@@ -28,9 +28,9 @@ Gate-failure classification is keyed off the same literal (`error.command !== "b
 
 ## Acceptance criteria
 
-- [ ] A ready-gate test whose configured command exits non-zero asserts the thrown `ReadyGateError.command` is the configured command, not `bun run ready`; it fails against the pre-fix hardcode. `v2/src/execution/write-loop.ts:2633` already renders the ready-repair prompt's `GATE_COMMAND` from `gateError.command`, so the repair prompt names the command the run actually ran.
-- [ ] A write-loop test with a stubbed `readyFinalizer` asserts a `WriteLoopInput.readyCommand` reaches the finalizer input at completion publication; it fails against the pre-fix input, which has no such field.
-- [ ] `v2/src/execution/write-loop.test.ts` — `passes the configured ready command to the ready finalizer`; Mutation checkpoint: its test body carries `// @mutate v2/src/execution/write-loop.ts "...(seams.readyCommand !== undefined ? { readyCommand: seams.readyCommand } : {})," -> "...({}),"`, dropping the finalizer hop, and the mutation turns that test RED.
+- [x] A ready-gate test whose configured command exits non-zero asserts the thrown `ReadyGateError.command` is the configured command, not `bun run ready`; it fails against the pre-fix hardcode. `v2/src/execution/write-loop.ts:2633` already renders the ready-repair prompt's `GATE_COMMAND` from `gateError.command`, so the repair prompt names the command the run actually ran.
+- [x] A write-loop test with a stubbed `readyFinalizer` asserts a `WriteLoopInput.readyCommand` reaches the finalizer input at completion publication; it fails against the pre-fix input, which has no such field.
+- [x] `v2/src/execution/write-loop.test.ts` — `passes the configured ready command to the ready finalizer`; Mutation checkpoint: its test body carries `// @mutate v2/src/execution/write-loop.ts "...(seams.readyCommand !== undefined ? { readyCommand: seams.readyCommand } : {})," -> "...({}),"`, dropping the finalizer hop, and the mutation turns that test RED.
 
 ## Documentation updates
 

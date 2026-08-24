@@ -35,12 +35,29 @@ export type ReadyFinalizeInput = {
   requiredIntegrationScope?: string;
   signal?: AbortSignal;
   onGateGroupId?: (pgid: number | null) => void;
+  /** Per-project ready command override (`bun run ready` when unset). */
+  readyCommand?: string;
 };
+
+const DEFAULT_READY_COMMAND = "bun run ready";
+
+/** Spawn tokens plus the display string used for `ReadyGateError.command`, gate-failure
+ *  classification, and the repair prompt's `GATE_COMMAND`. */
+export function resolveReadyGateCommand(readyCommand?: string): { head: string; args: string[]; display: string } {
+  const tokens = (readyCommand ?? DEFAULT_READY_COMMAND).trim().split(/\s+/);
+  const head = tokens[0] ?? "bun";
+  const args = tokens.slice(1);
+  return { head, args, display: [head, ...args].join(" ") };
+}
 
 export type ReadyGate = (
   worktreePath: string,
   baseRef: string,
-  options?: { signal?: AbortSignal | undefined; onGroupId?: ((pgid: number | null) => void) | undefined },
+  options?: {
+    signal?: AbortSignal | undefined;
+    onGroupId?: ((pgid: number | null) => void) | undefined;
+    readyCommand?: string | undefined;
+  },
 ) => Promise<void>;
 export type GhReadyFlip = (branch: string, worktreePath: string) => Promise<void>;
 type Delay = (ms: number) => Promise<void>;
@@ -91,6 +108,8 @@ export type ReadyGateScopeInput = {
   worktreePath: string;
   baseRef: string;
   specPath: string;
+  /** Per-project ready command override, for matching `ReadyGateError.command` at classification. */
+  readyCommand?: string;
 };
 
 export type BaseRefProbeResult = "pass" | "fail" | { kind: "error"; message: string };
@@ -446,7 +465,7 @@ export async function classifyReadyGateFailure(
   seams?: ReadyGateScopeSeams,
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
 ): Promise<ReadyGateClassification> {
-  if (error.timedOut || error.command !== "bun run ready") {
+  if (error.timedOut || error.command !== resolveReadyGateCommand(scope?.readyCommand).display) {
     return { kind: "ready_gate_failed" };
   }
   if (failingPaths === undefined || allowedPaths === undefined || failingPaths.length === 0) {
@@ -896,21 +915,30 @@ function createDefaultRunReadyGate(runner: AsyncSubprocessRunner): ReadyGate {
   return async (
     worktreePath: string,
     baseRef: string,
-    gateOptions?: { signal?: AbortSignal | undefined; onGroupId?: ((pgid: number | null) => void) | undefined },
+    gateOptions?: {
+      signal?: AbortSignal | undefined;
+      onGroupId?: ((pgid: number | null) => void) | undefined;
+      readyCommand?: string | undefined;
+    },
   ): Promise<void> => {
     const env = await deriveReadyGateChildEnv(runner, worktreePath, baseRef);
     const recordGroupId = guardedOnGroupId(gateOptions?.onGroupId);
     const processGroup = { onGroupId: (pgid: number) => recordGroupId(pgid) };
+    const command = resolveReadyGateCommand(gateOptions?.readyCommand);
     try {
-      await runner.runAsync("bun", ["run", "ready"], worktreePath, { env, signal: gateOptions?.signal, processGroup });
+      await runner.runAsync(command.head, command.args, worktreePath, {
+        env,
+        signal: gateOptions?.signal,
+        processGroup,
+      });
     } catch (error) {
       if (error instanceof AsyncSubprocessError) {
         const output = `${error.stdout}${error.stderr}`;
         const timedOut = isDeadlineKilledGate(error.status, output);
-        throw new ReadyGateError("bun run ready", error.status, output, timedOut);
+        throw new ReadyGateError(command.display, error.status, output, timedOut);
       }
       const detail = error instanceof Error ? error.message : String(error);
-      throw new ReadyGateError("bun run ready", undefined, detail);
+      throw new ReadyGateError(command.display, undefined, detail);
     } finally {
       recordGroupId(null);
     }
@@ -987,6 +1015,7 @@ export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalize
     await runReadyGate(input.worktreePath, input.baseRef, {
       signal: input.signal,
       onGroupId: input.onGateGroupId,
+      readyCommand: input.readyCommand,
     });
     if (input.requiredIntegrationScope) {
       await runRequiredIntegration(input.worktreePath, input.requiredIntegrationScope, {

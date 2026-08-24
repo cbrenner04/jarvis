@@ -386,6 +386,37 @@ describe("ready gate untouched-path classification", () => {
     expect(integration.gateFailureKind).toBe("ready_gate_failed");
   });
 
+  it("classifies a configured-command failure as out of scope", async () => {
+    // @mutate v2/src/execution/ready-finalize.ts "error.command !== resolveReadyGateCommand(scope?.readyCommand).display" -> "error.command !== \"bun run ready\""
+    const configuredScope = { ...scope, readyCommand: "bun run ready:ci" };
+    const output = gateOutput({
+      completions: [
+        { stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 1 },
+        { stepId: "2", attemptId: "2.2", command: "bun run test:v2", status: 1 },
+      ],
+      failingFiles: [{ attemptId: "2.2", path: "v2/src/untouched.test.ts" }],
+    });
+    const error = new ReadyGateError("bun run ready:ci", 1, output);
+    const classified = await classifyReadyGateError(error, configuredScope, allowedSeams);
+    expect(classified.gateFailureKind).toBe("ready_gate_out_of_scope");
+    expect(classified.outsidePaths).toEqual(["v2/src/untouched.test.ts"]);
+  });
+
+  it("keeps a required-integration failure unclassified", async () => {
+    // @mutate v2/src/execution/ready-finalize.ts "if (error.timedOut || error.command !== resolveReadyGateCommand(scope?.readyCommand).display) {" -> "if (error.timedOut) {"
+    const configuredScope = { ...scope, readyCommand: "bun run ready:ci" };
+    const error = new ReadyGateError(
+      "bun run test:integration:v2",
+      1,
+      gateOutput({
+        completions: [{ stepId: "1", attemptId: "1.1", command: "bun run test:integration:v2", status: 1 }],
+        failingFiles: [{ attemptId: "1.1", path: "v2/src/untouched.test.ts" }],
+      }),
+    );
+    const classified = await classifyReadyGateError(error, configuredScope, allowedSeams);
+    expect(classified.gateFailureKind).toBe("ready_gate_failed");
+  });
+
   it("formats out-of-scope detail from base-ref reproduction semantics", () => {
     expect(formatReadyGateOutOfScopeDetail(["v2/src/untouched.test.ts"], "main")).toBe(
       "ready gate failing paths also reproduce on main: v2/src/untouched.test.ts",
@@ -975,6 +1006,43 @@ index 1234567..abcdefg 100644
     expect(calls[0]?.env?.JARVIS_READY_TEST_SCOPE).toBe("full");
   });
 
+  it("runs the configured ready command as the ready gate", async () => {
+    // @mutate v2/src/execution/ready-finalize.ts "resolveReadyGateCommand(gateOptions?.readyCommand)" -> "resolveReadyGateCommand(undefined)"
+    const calls: Array<{ cmd: string; args: readonly string[] }> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args) {
+        if (cmd !== "git") {
+          calls.push({ cmd, args: args ?? [] });
+        }
+        return "";
+      },
+    };
+
+    const finalizer = createReadyFinalizer({ asyncSubprocessRunner: mockRunner, ghReadyFlip: async () => {} });
+
+    await finalizer({ ...input, readyCommand: "npm run verify" });
+
+    expect(calls).toEqual([{ cmd: "npm", args: ["run", "verify"] }]);
+  });
+
+  it("falls back to bun run ready without a configured readyCommand", async () => {
+    const calls: Array<{ cmd: string; args: readonly string[] }> = [];
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args) {
+        if (cmd !== "git") {
+          calls.push({ cmd, args: args ?? [] });
+        }
+        return "";
+      },
+    };
+
+    const finalizer = createReadyFinalizer({ asyncSubprocessRunner: mockRunner, ghReadyFlip: async () => {} });
+
+    await finalizer(input);
+
+    expect(calls).toEqual([{ cmd: "bun", args: ["run", "ready"] }]);
+  });
+
   it("rejects required v2 integration scope failure before publisher finalization", async () => {
     let flipCalls = 0;
     const finalizer = createReadyFinalizer({
@@ -1013,7 +1081,7 @@ index 1234567..abcdefg 100644
   });
 
   it("spawns the ready gate in group mode bound to the run signal", async () => {
-    // @mutate v2/src/execution/ready-finalize.ts "[\"run\", \"ready\"], worktreePath, { env, signal: gateOptions?.signal, processGroup });" -> "[\"run\", \"ready\"], worktreePath, { env, signal: undefined, processGroup });"
+    // @mutate v2/src/execution/ready-finalize.ts "command.head, command.args, worktreePath, { env, signal: gateOptions?.signal, processGroup });" -> "command.head, command.args, worktreePath, { env, signal: undefined, processGroup });"
     const signal = new AbortController().signal;
     const calls: Array<{ args: readonly string[]; signal?: AbortSignal | undefined; processGroup?: unknown }> = [];
     const mockRunner: AsyncSubprocessRunner = {

@@ -8,6 +8,7 @@ import {
   readMachineConfigDocument,
   readProjectImplementReviewBehavior,
   readProjectImplementReviewPasses,
+  readProjectReadyCommand,
   readProjectRegistry,
   readReviewRoleTimeoutMs,
   resolveMachineProfile,
@@ -286,5 +287,26 @@ describe("readProjectRegistry", () => {
   test("returns an empty registry when projects is absent or not an object", () => {
     expect(readProjectRegistry(writeConfig({ agents: ["claude"] }))).toEqual({});
     expect(readProjectRegistry(writeConfig({ projects: [] }))).toEqual({});
+  });
+});
+
+describe("readProjectReadyCommand", () => {
+  test("reads a configured readyCommand", () => {
+    const configPath = writeConfig({ projects: { demo: { root: "/tmp/repo", readyCommand: "npm run verify" } } });
+    expect(readProjectReadyCommand("demo", configPath)).toBe("npm run verify");
+  });
+
+  test("readProjectReadyCommand ignores a blank or non-string readyCommand", () => {
+    // @mutate v2/src/config/machine-config-loader.ts "typeof readyCommand === \"string\" && readyCommand.trim() !== \"\"" -> "typeof readyCommand === \"string\""
+    const blankPath = writeConfig({ projects: { demo: { root: "/tmp/repo", readyCommand: "   " } } });
+    expect(readProjectReadyCommand("demo", blankPath)).toBeUndefined();
+
+    const nonStringPath = writeConfig({ projects: { demo: { root: "/tmp/repo", readyCommand: 123 } } });
+    expect(readProjectReadyCommand("demo", nonStringPath)).toBeUndefined();
+  });
+
+  test("returns undefined when the project or readyCommand is absent", () => {
+    expect(readProjectReadyCommand("demo", writeConfig({ projects: { demo: { root: "/tmp/repo" } } }))).toBeUndefined();
+    expect(readProjectReadyCommand("missing", writeConfig({ projects: {} }))).toBeUndefined();
   });
 });

@@ -294,6 +294,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   landing?: PublicationLanding;
   /** Per-project autofix override (`bun run fix` when unset). */
   fixCommand?: string;
+  /** Per-project ready gate override (`bun run ready` when unset). */
+  readyCommand?: string;
   /** Test seam overriding shared `runFixCommand` during ready-gate repair autofix. */
   runFixCommand?: (opts: RunFixCommandOpts) => Promise<void>;
   /** Test seam overriding post-autofix `bun run typecheck` verification. */
@@ -2552,7 +2554,7 @@ function withBoundaryTelemetry(
 
 export type CompletionPublicationSeams = Pick<
   WriteLoopInput,
-  "completionPublisher" | "readyFinalizer" | "skipReadyFinalization" | "signal"
+  "completionPublisher" | "readyFinalizer" | "skipReadyFinalization" | "signal" | "readyCommand"
 >;
 
 export type CompletionPublishFailure = {
@@ -2726,6 +2728,7 @@ export async function runMutationRepairIteration(
 async function classifyReadyGatePublishFailure(
   failure: CompletionPublishFailure,
   input: CompletionPublishInput,
+  readyCommand?: string,
   seams?: ReadyGateScopeSeams,
 ): Promise<CompletionPublishFailure> {
   if (failure.kind !== "ready_gate_failed" || !(failure.error instanceof ReadyGateError)) {
@@ -2737,6 +2740,7 @@ async function classifyReadyGatePublishFailure(
       worktreePath: input.worktreePath,
       baseRef: input.baseRef,
       specPath: input.specPath,
+      ...(readyCommand !== undefined ? { readyCommand } : {}),
     },
     seams,
   );
@@ -2940,7 +2944,7 @@ async function commitRepairAndRepublish(
     const onGateGroupId = (pgid: number | null): void => store.setReadyGatePgid(result.runId, pgid);
     let outcome = await publishCompletionArtifacts(args, input, onGateGroupId);
     if (outcome.kind !== "success") {
-      outcome = await classifyReadyGatePublishFailure(outcome, input, args.readyGateScopeSeams);
+      outcome = await classifyReadyGatePublishFailure(outcome, input, args.readyCommand, args.readyGateScopeSeams);
     }
     return { kind: "success", outcome };
   } catch (error) {
@@ -3206,7 +3210,7 @@ export async function publishWithReadyRepair(
   const onGateGroupId = (pgid: number | null): void => store.setReadyGatePgid(result.runId, pgid);
   let outcome = await publishCompletionArtifacts(args, input, onGateGroupId);
   if (outcome.kind !== "success") {
-    outcome = await classifyReadyGatePublishFailure(outcome, input, args.readyGateScopeSeams);
+    outcome = await classifyReadyGatePublishFailure(outcome, input, args.readyCommand, args.readyGateScopeSeams);
   }
   if (!isActiveReadyGateFailure(outcome)) {
     appendReadyGateTimeoutLog(args, result.runId, outcome);
@@ -3377,6 +3381,7 @@ async function runReadyFinalizer(
     ...(input.requiredIntegrationScope ? { requiredIntegrationScope: input.requiredIntegrationScope } : {}),
     ...(seams.signal !== undefined ? { signal: seams.signal } : {}),
     ...(onGateGroupId !== undefined ? { onGateGroupId } : {}),
+    ...(seams.readyCommand !== undefined ? { readyCommand: seams.readyCommand } : {}),
   };
   return (await readyFinalizer(finalInput))?.runtimeSmokeOutcome;
 }

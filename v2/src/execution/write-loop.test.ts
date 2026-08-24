@@ -301,6 +301,7 @@ async function runLoop(args: {
   publishCompletion?: boolean;
   freshDispatch?: boolean;
   fixCommand?: WriteLoopInput["fixCommand"];
+  readyCommand?: WriteLoopInput["readyCommand"];
   runFixCommand?: WriteLoopInput["runFixCommand"];
   runAutofixTypecheck?: WriteLoopInput["runAutofixTypecheck"];
   iterationTimeoutMs?: number;
@@ -348,6 +349,7 @@ async function runLoop(args: {
     ...(args.publishCompletion !== undefined ? { publishCompletion: args.publishCompletion } : {}),
     ...(args.freshDispatch === true ? { freshDispatch: true } : {}),
     ...(args.fixCommand !== undefined ? { fixCommand: args.fixCommand } : {}),
+    ...(args.readyCommand !== undefined ? { readyCommand: args.readyCommand } : {}),
     ...(args.runFixCommand !== undefined ? { runFixCommand: args.runFixCommand } : {}),
     ...(args.runAutofixTypecheck !== undefined ? { runAutofixTypecheck: args.runAutofixTypecheck } : {}),
     ...(args.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: args.iterationTimeoutMs } : {}),
@@ -2853,6 +2855,24 @@ describe("write loop", () => {
       completionPublisher: async () => ({}),
       runFixCommand: async () => {},
     };
+
+    test("passes the configured readyCommand to the ready finalizer", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      let observedReadyCommand: string | undefined;
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        ...completionHooks,
+        readyCommand: "npm run verify",
+        readyFinalizer: async (finalizeInput) => {
+          observedReadyCommand = finalizeInput.readyCommand;
+        },
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(observedReadyCommand).toBe("npm run verify");
+    });
 
     test.each([
       { terminal: "completed", expectedKind: "complete", expectedResumable: false },

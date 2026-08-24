@@ -10,6 +10,7 @@ import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
   readConfiguredIdleOutputTimeoutMs,
   readProjectFixCommand,
+  readProjectReadyCommand,
   readReviewRoleTimeoutMs,
   resolveWritePathIterationBounds,
 } from "../config/machine-config-loader.ts";
@@ -255,10 +256,12 @@ async function prepareWorkflowSteps(
         : step;
     }
     const fixCommand = readProjectFixCommand(step.worktree.projectName, machineConfigPath);
+    const readyCommand = readProjectReadyCommand(step.worktree.projectName, machineConfigPath);
     return {
       ...step,
       ...bounds,
       ...(fixCommand !== undefined ? { fixCommand } : {}),
+      ...(readyCommand !== undefined ? { readyCommand } : {}),
     };
   });
   return { ok: true, steps, built };

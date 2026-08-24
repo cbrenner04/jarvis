@@ -136,6 +136,10 @@ Per-project implement defaults:
 | --- | --- | --- | --- |
 | `projects.<key>.implement.reviewPasses` | non-negative integer | `1` when absent | Rejected at implement launch when present but fractional, negative, or non-integer |
 | `projects.<key>.implement.reviewBehavior` | `"debate"` or `"light"` | `"debate"` when absent | Rejected at implement launch when present but not `"debate"` or `"light"` |
+| `projects.<key>.fixCommand` | non-empty string | `bun run fix` when absent | A blank or non-string value reads as absent, not an error |
+| `projects.<key>.readyCommand` | non-empty string | `bun run ready` when absent | A blank or non-string value reads as absent, not an error |
+
+`fixCommand` and `readyCommand` are resolved once per write step at `run workflow` CLI admission (mirroring each other) and carried on the step through the daemon; they are not re-read inside the daemon-hosted gate. The resolved `readyCommand` is what the ready gate spawns in place of `bun run ready`, and it is what appears in `ReadyGateError.command`, gate-failure-classification output, and the ready-repair prompt's `GATE_COMMAND` placeholder. Terminal-publication settlement (the standalone gate outside a write step) does not consume either override.
 
 Each registered project may configure a source-owned pipeline for `jarvis pipeline start` only (`jarvis run workflow implement` ignores `projects.<key>.pipeline` entirely; absence admits legacy implement with no `pipelineDefinition` and refuses `jarvis pipeline start`):
 

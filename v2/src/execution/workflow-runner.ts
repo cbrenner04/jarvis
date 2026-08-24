@@ -18,7 +18,7 @@ import {
   resolveInvocationBindings,
 } from "../config/agent-model-config.ts";
 import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
-import { readProjectFixCommand } from "../config/machine-config-loader.ts";
+import { readProjectFixCommand, readProjectReadyCommand } from "../config/machine-config-loader.ts";
 import {
   type IntentFinalizationEvent,
   type LogSink,
@@ -3348,6 +3348,7 @@ function inertResumeWriteLoopInput(
   deps: IntentFinalizationResumeDeps,
 ): WriteLoopInput {
   const fixCommand = readProjectFixCommand(context.project);
+  const readyCommand = readProjectReadyCommand(context.project);
   return {
     worktree: {
       projectRoot: context.worktreePath,
@@ -3361,6 +3362,7 @@ function inertResumeWriteLoopInput(
     bindings: [],
     maxIterations: 0,
     ...(fixCommand !== undefined ? { fixCommand } : {}),
+    ...(readyCommand !== undefined ? { readyCommand } : {}),
     ...(deps.completionCommitter !== undefined ? { completionCommitter: deps.completionCommitter } : {}),
     ...(deps.completionPublisher !== undefined ? { completionPublisher: deps.completionPublisher } : {}),
     ...(deps.readyFinalizer !== undefined ? { readyFinalizer: deps.readyFinalizer } : {}),

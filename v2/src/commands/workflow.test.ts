@@ -1565,6 +1565,60 @@ describe("review-role timeout resolution", () => {
   });
 });
 
+describe("readyCommand admission", () => {
+  test("stamps the configured readyCommand onto write steps", async () => {
+    // @mutate v2/src/commands/workflow.ts "...(readyCommand !== undefined ? { readyCommand } : {})," -> "...({}),"
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const configPath = writeMachineConfig({ projects: { demo: { readyCommand: "npm run verify" } } });
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main([...IMPLEMENT_ARGS], cap.io, {
+        cwd: () => fx.repoSub,
+        machineConfigPath: configPath,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          implement: () => ({ ok: true, steps: fx.fakeImplementSteps }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "run-ready-command-configured", COMPLETED_WAIT_RESULT), {
+            sent,
+          }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    const sentSteps = (sent[0] as { params: { steps: AnyWorkflowStep[] } }).params.steps;
+    expect(sentSteps[0]).toMatchObject({ readyCommand: "npm run verify" });
+  });
+
+  test.each([
+    ["absent", {}],
+    ["whitespace-only", { readyCommand: "   " }],
+  ] as const)("leaves readyCommand unstamped when %s", async (_label, projectFields) => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const configPath = writeMachineConfig({ projects: { demo: projectFields } });
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main([...IMPLEMENT_ARGS], cap.io, {
+        cwd: () => fx.repoSub,
+        machineConfigPath: configPath,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          implement: () => ({ ok: true, steps: fx.fakeImplementSteps }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "run-ready-command-unset", COMPLETED_WAIT_RESULT), { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    const sentSteps = (sent[0] as { params: { steps: AnyWorkflowStep[] } }).params.steps;
+    expect(sentSteps[0]).not.toHaveProperty("readyCommand");
+  });
+});
+
 describe("implement spec and artifact validation", () => {
   test("run workflow implement derives branch from spec parent dirname when branch is omitted", async () => {
     const cap = captureIo();

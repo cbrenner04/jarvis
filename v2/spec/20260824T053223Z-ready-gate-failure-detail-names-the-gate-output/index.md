@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Name the red gate in stage failure detail](./00-name-red-gate-stage-failure-detail.md)
+- [x] [00 - Name the red gate in stage failure detail](./00-name-red-gate-stage-failure-detail.md)

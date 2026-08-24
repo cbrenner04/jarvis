@@ -8,6 +8,7 @@ name: landing-failed-names-its-cause
 
 - Intent landing validation produces a violation message naming the offending paths and already surfaces it on the repromptable path as a `landing_contract_reprompt` log record.
 - `composeRunOperatorError` maps a terminal `landing_failed` onto the operator error that pipeline stages persist as `failureDetail`.
+- Same-seam sibling: shares `v2/src/execution/write-loop.ts` with `intent-landing-never-treats-node-modules-symlink-as-rogue` — plan/run this intent after that one lands, not in parallel off the same base.
 
 ## Surface
 

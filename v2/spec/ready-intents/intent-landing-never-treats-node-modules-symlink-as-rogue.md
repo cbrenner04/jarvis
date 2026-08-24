@@ -6,9 +6,9 @@ name: intent-landing-never-treats-node-modules-symlink-as-rogue
 
 ## Prerequisites
 
-- External worktree materialization creates the root `node_modules` symlink only when the registered project has a `node_modules` directory.
 - Intent landing lists untracked worktree paths (`git status --short --untracked-files=all`) and refuses paths outside the configured stage directory as rogue splitter output.
 - The settled-iteration checkpoint commit stages the whole worktree, so any untracked root entry enters the intent branch.
+- Same-seam sibling: shares `v2/src/execution/write-loop.ts` with `landing-failed-names-its-cause` — plan/run these two serially (this one first), not fanned out in parallel off the same base.
 
 ## Surface
 

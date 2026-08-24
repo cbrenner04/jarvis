@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
@@ -141,13 +141,19 @@ function createWorktreeRunner(state: FakeGitState): AsyncSubprocessRunner {
   };
 }
 
-function setupMockRepo(): { repoRoot: string; jarvisRoot: string; runner: AsyncSubprocessRunner } {
+function setupMockRepo(options: { nodeModules?: "dir" | "file" | "none" } = {}): {
+  repoRoot: string;
+  jarvisRoot: string;
+  runner: AsyncSubprocessRunner;
+} {
+  const { nodeModules = "dir" } = options;
   const root = mkdtempSync(join(tmpdir(), "jarvis-v2-worktree-mock-"));
   roots.push(root);
   const repoRoot = join(root, "repo");
   const jarvisRoot = join(root, "jarvis-home");
   mkdirSync(repoRoot, { recursive: true });
-  mkdirSync(join(repoRoot, "node_modules"));
+  if (nodeModules === "dir") mkdirSync(join(repoRoot, "node_modules"));
+  if (nodeModules === "file") writeFileSync(join(repoRoot, "node_modules"), "not a directory");
   const state = createFakeGitState();
   registerRepo(state, repoRoot);
   return { repoRoot, jarvisRoot, runner: createWorktreeRunner(state) };
@@ -176,8 +182,16 @@ function makeInput(
   };
 }
 
+async function expectFreshWorktreeHasNoNodeModules(nodeModules: "none" | "file"): Promise<void> {
+  const { repoRoot, jarvisRoot, runner } = setupMockRepo({ nodeModules });
+  const result = await withExternalWorktree(makeInput(jarvisRoot, repoRoot), (worktree) => worktree.path, runner);
+  expect(lstatSync(join(result.worktree.path, "node_modules"), { throwIfNoEntry: false })).toBeUndefined();
+}
+
 describe("external worktree helper", () => {
   test("provisions project dependencies before the first callback", async () => {
+    // Mutation checkpoint: inverting the directory guard to always-false must turn this RED.
+    // @mutate v2/src/execution/external-worktree.ts "statSync(projectNodeModules, { throwIfNoEntry: false })?.isDirectory()" -> "false"
     const { repoRoot, jarvisRoot, runner } = setupMockRepo();
     let callbackLink: string | undefined;
 
@@ -190,6 +204,16 @@ describe("external worktree helper", () => {
     );
 
     expect(callbackLink).toBe(join(repoRoot, "node_modules"));
+  });
+
+  test("a project without node_modules leaves the fresh worktree root free of it", async () => {
+    // Keystone checkpoint: restoring the baseline unconditional symlink must turn this RED.
+    // @mutate v2/src/execution/external-worktree.ts "statSync(projectNodeModules, { throwIfNoEntry: false })?.isDirectory()" -> "true"
+    await expectFreshWorktreeHasNoNodeModules("none");
+  });
+
+  test("a project whose node_modules is a regular file leaves the fresh worktree root free of it", async () => {
+    await expectFreshWorktreeHasNoNodeModules("file");
   });
 
   test("materializes from --base when only a stale remote-tracking ref exists", async () => {

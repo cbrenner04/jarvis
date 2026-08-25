@@ -6,7 +6,7 @@ name: split-workflow-runner-test-suite
 
 ## Prerequisites
 
-Unsplit rationale: The execution-loop test suite and its per-file scheduling policy form one health contract; separate intents could not independently restore the supported budget while preserving and timing the complete inventory.
+- Unsplit rationale: The execution-loop test suite and its per-file scheduling policy form one health contract; separate intents could not independently restore the supported budget while preserving and timing the complete inventory.
 
 ## Primary implementation surface
 

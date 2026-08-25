@@ -28,3 +28,4 @@ A workflow stage settles through the live entry-run boundary. When the daemon di
 
 - `v2/docs/daemon-host.md` — startup reconciliation of deferred pipeline settlement, its ordering against run/pipeline reconciliation and continuation, and the durable-entry-run-derivable settlement guarantee.
 - `v2/docs/operator-runbook.md` — a daemon restart now recovers a mid-settlement pipeline.
+- `v2/docs/v1-behaviors.md` — the deferred-settlement re-settlement catalog entry, adding the daemon-startup sweep as a path alongside `continuePipeline`, adopt paths, and `pipeline_resume`.

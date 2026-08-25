@@ -10,13 +10,14 @@ import type { Io } from "../cli/io.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import type { PipelineDefinition, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
 import { PIPELINE_REGISTRY } from "../execution/pipeline-registry.ts";
+import { ReadyGateError } from "../execution/ready-finalize.ts";
 import { TerminalPublicationError } from "../execution/terminal-publication.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import type { AnyWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
-import { landReviewedPublicationOutput } from "../execution/workflow-runner.ts";
+import { executeWorkflow, landReviewedPublicationOutput } from "../execution/workflow-runner.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
-import { openLogReader, type PersistedRecord } from "../persistence/log-stream.ts";
+import { openLogReader, openLogSink, type PersistedRecord } from "../persistence/log-stream.ts";
 import type {
   Pipeline,
   PipelineContext,
@@ -389,6 +390,61 @@ function resolveStageStub(): (
 }
 
 describe("runPipeline", () => {
+  test("red ready gate settlement names the gate command and bounded output", async () => {
+    // @mutate v2/src/daemon/run-operator-error.ts "...(event.readyGateCommand !== undefined" -> "...(false"
+    const definition: PipelineDefinition = {
+      name: "ready-gate-detail",
+      stages: [{ stageId: "s1", kind: "workflow", workflow: "implement", review: "none" }],
+    };
+    const store = openStateStore(":memory:");
+    const pipelineId = store.createPipeline({ definition, context: baseContext });
+    const logDir = mkdtempSync(join(tmpdir(), "pipeline-ready-gate-detail-"));
+    const logsPath = join(logDir, "logs.jsonl");
+    const logSink = openLogSink(logsPath);
+    const step = createWriteStep("implement", "ready-gate-detail", doneWithArtifactBindingFactory, {
+      readyCommand: "bun run ready",
+      maxIterations: 1,
+    });
+    let entryRunId: string | undefined;
+
+    try {
+      await runPipeline(pipelineId, {
+        store,
+        context: baseContext,
+        resolveStage: async () => ({ ok: true, steps: [step] }),
+        dispatch: async (steps) => {
+          const result = await executeWorkflow({
+            steps,
+            stateStore: store,
+            logSink,
+            completionCommitter: async () => ({ commitSha: "commit-1" }),
+            completionPublisher: async () => ({}),
+            runFixCommand: async () => {},
+            readyFinalizer: async (input) => {
+              expect(input.readyCommand).toBe("bun run ready");
+              throw new ReadyGateError("bun run ready", 1, 'Script not found "ready"');
+            },
+          });
+          entryRunId = result.runId;
+          return { ok: true, entryRunId: result.runId, invocationId: "ready-gate-detail" };
+        },
+        wait: async (runId) => store.loadRun(runId)?.status ?? "failed",
+        loadLogRecords: (runId) => openLogReader(logsPath).tail(runId),
+      });
+
+      expect(entryRunId).toBeDefined();
+      const stage = store.loadPipeline(pipelineId)?.stages.find((candidate) => candidate.stageId === "s1");
+      expect(stage?.status).toBe("failed");
+      const message = (stage?.failureDetail as { message?: string } | null)?.message;
+      expect(message).toContain("bun run ready");
+      expect(message).toContain('Script not found "ready"');
+    } finally {
+      logSink.close();
+      store.close();
+      rmSync(logDir, { recursive: true, force: true });
+    }
+  });
+
   test("dispatches workflow stages in authored order, only after the preceding stage succeeds", async () => {
     const definition: PipelineDefinition = {
       name: "p",

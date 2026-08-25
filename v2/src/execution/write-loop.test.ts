@@ -3149,7 +3149,43 @@ describe("write loop", () => {
         kind: "loop_finished",
         loopOutcomeKind: "ready_gate_failed",
         resumable: true,
+        readyGateCommand: "bun run ready",
+        readyGateOutput: "tests failed",
       });
+    });
+
+    test("ready gate terminal evidence truncates oversized output to its tail", async () => {
+      // @mutate v2/src/execution/ready-finalize.ts "loopOutcomeKind !== \"ready_gate_failed\"" -> "loopOutcomeKind === \"ready_gate_failed\""
+      // @mutate v2/src/execution/ready-finalize.ts "!(source instanceof ReadyGateError)" -> "source instanceof ReadyGateError"
+      // @mutate v2/src/execution/ready-finalize.ts "source.gateFailureKind !== loopOutcomeKind" -> "source.gateFailureKind === loopOutcomeKind"
+      // @mutate v2/src/execution/ready-finalize.ts ".slice(-4096)" -> ".slice(4096)"
+      // @mutate v2/src/execution/ready-finalize.ts "...(output.length > 0 ? { readyGateOutput: output } : {})" -> "...(output.length === 0 ? { readyGateOutput: output } : {})"
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      const discardedPrefix = "discarded-prefix-".repeat(300);
+      const retainedTail = "terminal-diagnostic-".repeat(256).slice(-4096);
+      const oversizedOutput = `  ${discardedPrefix}${retainedTail}  `;
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        logSink,
+        ...completionHooks,
+        readyFinalizer: async () => {
+          throw new ReadyGateError("bun run configured-ready", 1, oversizedOutput);
+        },
+      });
+
+      const terminal = logSink.getEventsForRun(result.runId).at(-1);
+      expect(terminal).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "ready_gate_failed",
+        readyGateCommand: "bun run configured-ready",
+        readyGateOutput: oversizedOutput.trim().slice(-4096),
+      });
+      expect((terminal as { readyGateOutput?: string } | undefined)?.readyGateOutput).toHaveLength(4096);
+      expect(JSON.stringify(terminal)).not.toContain(discardedPrefix);
+      expect(JSON.stringify(terminal)).not.toContain(oversizedOutput);
     });
 
     test("repairs a red ready gate through a write iteration", async () => {

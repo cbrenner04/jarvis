@@ -127,11 +127,14 @@ When a run is not a clean in-progress or success terminal, `list` rows and `wait
 
 No stderr, exit codes, or attempt transcripts appear in this contract.
 
+For `ready_gate_failed`, terminal command evidence adds optional `message`: it names the resolved gate command and includes the bounded terminal output when present, and pipeline settlement persists the same composed object in stage `failureDetail`. Legacy terminal rows without command evidence keep the reason/retryability/action-only shape; `ready_gate_out_of_scope` keeps its existing outside-path fields, resumability, and no `message`.
+
 | Field | Meaning |
 | --- | --- |
 | `reason` | Closed stop category (not raw `failureKind` or `loopOutcomeKind`) |
 | `retryable` | Whether the operator may retry/resume without fixing underlying state |
 | `nextAction` | Closed remediation hint (`resume` \| `inspect_spec` \| `fix_config` \| `retry_later` \| `stop`) |
+| `message` | Optional bounded diagnostic for `ready_gate_failed` terminal command evidence |
 
 | `reason` | Typical inputs | `retryable` | `nextAction` |
 | --- | --- | --- | --- |

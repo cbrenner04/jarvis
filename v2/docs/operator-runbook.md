@@ -62,15 +62,7 @@ Adapted from v1; v2 session close-out is the same obligation:
    PR.
 5. **Maintain this runbook** (branch → PR → merge). Operators add gotchas and remove
    entries when the structural fix ships.
-6. **End-of-session cleanup** — `jarvis cleanup` retires merged v2 worktrees, prunes eligible merged
-   local heads and local `origin` tracking refs (never a remote branch), and scans each registered
-   `v2/spec/` home for completed stranded specs (`--dry-run` to preview, `[y/N]` to confirm). When the
-   owning worktree is retired in the same apply run, open-home stranded specs archive in that pass.
-   It retains
-   unmerged/leaked worktrees for manual recovery (see [Recovery](#recovery)). A stranded spec is owned only by
-   a discovered managed worktree in the same registered project on its recorded implementation branch; primary
-   checkouts and other resolved branches do not own it. Cleanup rechecks ownership immediately before archival,
-   and refuses archival when a same-project managed worktree has an unresolved or detached branch.
+6. **End-of-session cleanup** — run `jarvis cleanup <project>` during concurrent project activity; it retires that registered project's merged v2 worktrees, prunes its eligible merged local heads and local `origin` tracking refs (never a remote branch), and scans its `v2/spec/` home for completed stranded specs (`--dry-run` to preview, `[y/N]` to confirm). Reserve bare `jarvis cleanup` for intentional all-registered-project maintenance. When the owning worktree is retired in the same apply run, open-home stranded specs archive in that pass. It retains unmerged/leaked worktrees for manual recovery (see [Recovery](#recovery)). A stranded spec is owned only by a discovered managed worktree in the same registered project on its recorded implementation branch; primary checkouts and other resolved branches do not own it. Cleanup rechecks ownership immediately before archival, and refuses archival when a same-project managed worktree has an unresolved or detached branch.
 
 ## Runbook maintenance
 
@@ -750,13 +742,13 @@ Responsive-daemon specs and seed `nonblocking-ready-gate-and-guard` address sync
 
 ### Cleanup: eligibility gate
 
-`jarvis cleanup` runs four independent slices in one invocation: merged-worktree retirement, worktree-independent merged-branch ref pruning, stranded open-home spec archival, and dead daemon-socket reaping. Each slice previews in `--dry-run`, shares the apply confirmation prompt, and continues after partial failure in another slice unless noted below.
+`jarvis cleanup [<project>]` runs four independent slices in one invocation: merged-worktree retirement, worktree-independent merged-branch ref pruning, stranded open-home spec archival, and dead daemon-socket reaping. A named project scopes the first three project-owned slices through one filtered registry; dead daemon-socket discovery and reaping remain global because sockets are not project-owned. Bare cleanup intentionally scopes the project-owned slices to every registered project. An unknown project is refused before daemon discovery or cleanup survey. The positional project and `--abandon <name>` are mutually exclusive. Each slice previews in `--dry-run`, shares the apply confirmation prompt, and continues after partial failure in another slice unless noted below.
 
 **Local-only ref scope.** Bulk cleanup never deletes a branch on the remote repository. It may delete exact local refs only: `refs/heads/<branch>` and, when present, exact `refs/remotes/origin/<branch>`. `--abandon` is the path that deletes the remote branch.
 
 #### Merged-worktree retirement
 
-`jarvis cleanup` retires merged v2 worktrees discovered under `~/.jarvis/worktrees/<project>/`. The eligibility gate decides whether a worktree is safe to remove.
+`jarvis cleanup <project>` retires merged v2 worktrees discovered under `~/.jarvis/worktrees/<project>/`; use bare `jarvis cleanup` only to survey every registered project. The eligibility gate decides whether a worktree is safe to remove.
 
 After Git retires a workspace, cleanup resolves its durable workflow or ad-hoc spec identity and archives an eligible completed artifact to `completed/` in the same cleanup invocation; this path needs no rerun. It prunes `ready-intents/<spec-name>.md` only when it byte-matches `intent.md`. `--dry-run` lists the worktree, archive destination, and that proven prune without changing worktrees, branches, specs, intents, or run rows. A failed retirement does not inspect or move its artifact. If archival is refused (incomplete criteria, an open matching PR, or another materialized owner), retirement remains successful and stdout names the artifact and refusal; resolve that condition, then rerun cleanup.
 
@@ -800,7 +792,7 @@ Successfully retired merged worktrees use this same path immediately after workt
   worktree (unless that worktree is retired in the same apply invocation).
 - Local heads whose PR is not merged, is ambiguous, or cannot be verified (`gh` failure).
 - Orphan `origin/<branch>` tracking refs with no matching local head.
-- Branches with a non-terminal durable run or a live daemon run for the owning project.
+- Branches with a non-terminal durable run or a live daemon run for any registered project sharing the repository's Git common directory. Named cleanup still discovers ref candidates only for the selected project, but refuses an ambiguous shared-ref prune rather than mutating another project's live branch.
 
 **Preview and apply reporting** (project identity on every line):
 
@@ -1165,9 +1157,7 @@ Operators add bullets here; delete when fixed.
   `process.env` and then overwrites the key with `"full"`, so setting it locally does nothing. The
   full aggregate gate is ~85% of a v2 workflow's wall clock (~13 of ~15 min on a two-file markdown
   plan spec). Seed: `ready-gate-tier-is-not-configurable`. Cleanup: delete when it ships.
-- **`jarvis cleanup` archives completed v2 specs (shipped 2026-07-17):** run it at session end
-  (`jarvis cleanup --dry-run` to preview, then `jarvis cleanup`, `[y/N]`; use `--yes` for scripted apply) to retire merged worktrees,
-  prune eligible merged local heads and local `origin` tracking refs, and archive eligible open-home specs under `v2/spec/completed/`.
+- **`jarvis cleanup` archives completed v2 specs (shipped 2026-07-17):** during concurrent project activity run `jarvis cleanup <project> --dry-run`, then `jarvis cleanup <project>` (`[y/N]`; use `--yes` for scripted apply) to retire that project's merged worktrees, prune its eligible merged local heads and local `origin` tracking refs, and archive its eligible open-home specs under `v2/spec/completed/`. Reserve bare cleanup for intentional all-project maintenance; dead-socket reaping remains global in either form.
   Unmerged/leaked worktrees use `jarvis cleanup --abandon <name>` (see [Recovery § Branch / worktree collision](#branch--worktree-collision)).
   `jarvis1 cleanup` remains blind to the v2 home; use `jarvis cleanup`.
 

@@ -74,7 +74,7 @@ export const CLEANUP_HELP_FLAGS: readonly CommandFlag[] = [
   {
     name: "--abandon",
     argumentShape: "<name>",
-    description: "Retire a named worktree without the normal completion gate.",
+    description: "Retire a named worktree without the normal completion gate; mutually exclusive with <project>.",
   },
 ];
 

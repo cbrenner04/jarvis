@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { IpcClient } from "../ipc/client.ts";
+import { openStateStore } from "../persistence/state-store.ts";
 import { captureIo, cliMain, makeIpcClient } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import { createPromptFunction, runCleanupCliCommand } from "./cleanup-cli.ts";
@@ -140,14 +141,410 @@ describe("runCleanupCliCommand argument parsing", () => {
     }
   });
 
-  test("unrecognized arguments print usage and exit 1", async () => {
-    for (const argv of [["bogus"], ["--dry-run", "bogus"], ["--abandon", "name", "extra"]]) {
+  test("invalid syntax prints usage and exits 1", async () => {
+    for (const argv of [["--bogus"], ["--abandon", "name", "extra"], ["one", "two"]]) {
       const cap = captureIo();
       const code = await runCleanupCliCommand(argv, cap.io, makeDeps());
 
       expect(code).toBe(1);
       expect(cap.read().stderr).toContain("usage: jarvis cleanup");
     }
+  });
+});
+
+type ScopedProject = {
+  branch: string;
+  root: string;
+  spec: string;
+  worktree: string;
+};
+
+type ScopedCleanupFixture = {
+  calls: Array<{ args: string[]; cmd: string; cwd: string | undefined }>;
+  deadSocket: string;
+  jarvisRoot: string;
+  other: ScopedProject;
+  root: string;
+  runner: AsyncSubprocessRunner;
+  selected: ScopedProject;
+};
+
+async function makeScopedCleanupFixture(label: string): Promise<ScopedCleanupFixture> {
+  const root = mkdtempSync(join(tmpdir(), `jarvis-cleanup-scope-${label}-`));
+  const jarvisRoot = join(root, "jarvis-home");
+  const calls: ScopedCleanupFixture["calls"] = [];
+
+  async function makeProject(project: "selected" | "other"): Promise<ScopedProject> {
+    const projectRoot = join(root, project);
+    mkdirSync(projectRoot, { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["init"], projectRoot);
+    writeFileSync(join(projectRoot, "README.md"), "# Test\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["-c", "user.email=t@t.com", "-c", "user.name=T", "commit", "-m", "Initial"],
+      projectRoot,
+    );
+    const branch = `${project}-merged`;
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
+    const worktree = join(jarvisRoot, "worktrees", project, branch);
+    mkdirSync(dirname(worktree), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktree, branch], projectRoot);
+    const spec = join(projectRoot, "v2", "spec", `${project}-spec`);
+    mkdirSync(spec, { recursive: true });
+    writeFileSync(join(spec, "index.md"), `# ${project}\n\n## Acceptance criteria\n\n- [x] done\n`);
+    return { branch, root: projectRoot, spec, worktree };
+  }
+
+  const selected = await makeProject("selected");
+  const other = await makeProject("other");
+  const runner: AsyncSubprocessRunner = {
+    runAsync: async (cmd, args, cwd, options) => {
+      calls.push({ cmd, args: [...args], cwd });
+      if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+        return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
+      }
+      if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+        if (args.includes("--state") && args[args.indexOf("--state") + 1] === "open") return "[]";
+        const branch = args[args.indexOf("--head") + 1];
+        if (branch === undefined) throw new Error("missing --head branch");
+        const oid = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd)).trim();
+        return JSON.stringify([{ number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid }]);
+      }
+      return realAsyncSubprocessRunner.runAsync(cmd, args, cwd, options);
+    },
+  };
+  const deadSocket = join(jarvisRoot, "daemon-deadbeefdeadbeef.sock");
+  mkdirSync(jarvisRoot, { recursive: true });
+  writeFileSync(deadSocket, "");
+  return { calls, deadSocket, jarvisRoot, other, root, runner, selected };
+}
+
+function scopedCleanupDeps(
+  fixture: ScopedCleanupFixture,
+  promptConfirm: (message: string) => Promise<boolean>,
+): CliDeps {
+  return {
+    readProjectRegistry: () => ({ selected: { root: fixture.selected.root }, other: { root: fixture.other.root } }),
+    jarvisRoot: fixture.jarvisRoot,
+    socketPath: join(fixture.jarvisRoot, "invoking.sock"),
+    socketDiscovery: async () => [],
+    connectIpcClient: async () => makeIpcClient([], { staleResetPreflight: { listRuns: [] } }),
+    subprocessRunner: fixture.runner,
+    promptConfirm,
+  } as unknown as CliDeps;
+}
+
+function seedScopedCleanupStore(fixture: ScopedCleanupFixture): void {
+  const store = openStateStore();
+  for (const [project, item] of Object.entries({ selected: fixture.selected, other: fixture.other })) {
+    store.createRun({
+      project,
+      specRef: `${project}-spec`,
+      worktreePath: item.worktree,
+      branch: item.branch,
+      specPath: `v2/spec/${project}-spec/index.md`,
+      status: "completed",
+    });
+  }
+  store.close();
+}
+
+async function refExists(project: ScopedProject): Promise<boolean> {
+  try {
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["show-ref", "--verify", `refs/heads/${project.branch}`],
+      project.root,
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function expectOtherProjectUntouched(fixture: ScopedCleanupFixture): void {
+  expect(existsSync(fixture.other.worktree)).toBe(true);
+  expect(existsSync(fixture.other.spec)).toBe(true);
+  expect(existsSync(join(fixture.other.root, "v2", "spec", "completed", "other-spec"))).toBe(false);
+  const projectOwnedCalls = fixture.calls.filter(
+    (call) =>
+      (call.cwd === fixture.other.root || call.cwd === fixture.other.worktree) &&
+      !(call.cmd === "git" && call.args[0] === "rev-parse"),
+  );
+  expect(projectOwnedCalls).toEqual([]);
+}
+
+async function withScopedCleanupFixture(
+  label: string,
+  test: (fixture: ScopedCleanupFixture) => Promise<void>,
+): Promise<void> {
+  const fixture = await makeScopedCleanupFixture(label);
+  const previousHome = process.env.JARVIS_HOME;
+  process.env.JARVIS_HOME = fixture.jarvisRoot;
+  try {
+    seedScopedCleanupStore(fixture);
+    fixture.calls.length = 0;
+    await test(fixture);
+  } finally {
+    if (previousHome === undefined) delete process.env.JARVIS_HOME;
+    else process.env.JARVIS_HOME = previousHome;
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+}
+
+describe("named cleanup project scope", () => {
+  test("named cleanup scopes project-owned preview and apply to one registered project", async () => {
+    // @mutate v2/src/commands/cleanup-cli.ts ": Object.fromEntries(Object.entries(registry).filter(([name]) => name === projectName));" -> ": registry;"
+    for (const scenario of [
+      { name: "dry-run", argv: ["selected", "--dry-run"], apply: false, interactive: false },
+      { name: "interactive", argv: ["selected"], apply: true, interactive: true },
+      { name: "yes", argv: ["selected", "--yes"], apply: true, interactive: false },
+      { name: "short-yes", argv: ["selected", "-y"], apply: true, interactive: false },
+    ] as const) {
+      let promptCalls = 0;
+      await withScopedCleanupFixture(scenario.name, async (fixture) => {
+        const cap = captureIo();
+        const code = await runCleanupCliCommand(
+          scenario.argv,
+          cap.io,
+          scopedCleanupDeps(fixture, async () => {
+            promptCalls += 1;
+            return true;
+          }),
+        );
+
+        expect(code).toBe(0);
+        expect(cap.read().stdout).toContain(fixture.selected.worktree);
+        expect(cap.read().stdout).toContain(fixture.selected.spec);
+        expect(cap.read().stdout).toContain(`refs/heads/${fixture.selected.branch}`);
+        expect(cap.read().stdout).not.toContain(fixture.other.root);
+        expectOtherProjectUntouched(fixture);
+        expect(await refExists(fixture.other)).toBe(true);
+        expect(promptCalls).toBe(scenario.interactive ? 1 : 0);
+        if (scenario.apply) {
+          expect(existsSync(fixture.selected.worktree)).toBe(false);
+          expect(await refExists(fixture.selected)).toBe(false);
+          expect(existsSync(fixture.selected.spec)).toBe(false);
+          expect(existsSync(join(fixture.selected.root, "v2", "spec", "completed", "selected-spec"))).toBe(true);
+          expect(existsSync(fixture.deadSocket)).toBe(false);
+        } else {
+          expect(existsSync(fixture.selected.worktree)).toBe(true);
+          expect(await refExists(fixture.selected)).toBe(true);
+          expect(existsSync(fixture.selected.spec)).toBe(true);
+          expect(existsSync(fixture.deadSocket)).toBe(true);
+        }
+      });
+    }
+  });
+
+  test("declined named cleanup leaves the selected project untouched", async () => {
+    await withScopedCleanupFixture("decline", async (fixture) => {
+      const cap = captureIo();
+      const code = await runCleanupCliCommand(
+        ["selected"],
+        cap.io,
+        scopedCleanupDeps(fixture, async () => false),
+      );
+
+      expect(code).toBe(0);
+      expect(cap.read().stdout).toContain("Cancelled");
+      expect(cap.read().stdout).toContain(fixture.selected.worktree);
+      expect(cap.read().stdout).not.toContain(fixture.other.root);
+      expect(existsSync(fixture.selected.worktree)).toBe(true);
+      expect(existsSync(fixture.selected.spec)).toBe(true);
+      expect(await refExists(fixture.selected)).toBe(true);
+      expectOtherProjectUntouched(fixture);
+      expect(await refExists(fixture.other)).toBe(true);
+    });
+  });
+
+  test("named dry-run reports global dead sockets without reaping them", async () => {
+    await withScopedCleanupFixture("socket-preview", async (fixture) => {
+      const cap = captureIo();
+      const code = await runCleanupCliCommand(
+        ["selected", "--dry-run"],
+        cap.io,
+        scopedCleanupDeps(fixture, async () => {
+          throw new Error("dry-run must not prompt");
+        }),
+      );
+
+      expect(code).toBe(0);
+      expect(cap.read().stdout).toContain(fixture.deadSocket);
+      expect(existsSync(fixture.deadSocket)).toBe(true);
+      expect(existsSync(fixture.selected.worktree)).toBe(true);
+      expect(existsSync(fixture.selected.spec)).toBe(true);
+      expect(await refExists(fixture.selected)).toBe(true);
+      expectOtherProjectUntouched(fixture);
+    });
+  });
+
+  test("bare cleanup keeps every registered project in scope", async () => {
+    await withScopedCleanupFixture("bare", async (fixture) => {
+      const cap = captureIo();
+      const code = await runCleanupCliCommand(
+        ["--dry-run"],
+        cap.io,
+        scopedCleanupDeps(fixture, async () => {
+          throw new Error("dry-run must not prompt");
+        }),
+      );
+
+      expect(code).toBe(0);
+      expect(cap.read().stdout).toContain(fixture.selected.worktree);
+      expect(cap.read().stdout).toContain(fixture.other.worktree);
+      expect(fixture.calls.some((call) => call.cwd === fixture.selected.root)).toBe(true);
+      expect(fixture.calls.some((call) => call.cwd === fixture.other.root)).toBe(true);
+    });
+  });
+
+  test("named cleanup spares a shared ref held by another registered project", async () => {
+    const root = mkdtempSync(join(tmpdir(), "jarvis-cleanup-shared-ref-"));
+    const selectedRoot = join(root, "selected");
+    const otherRoot = join(root, "other");
+    const jarvisRoot = join(root, "jarvis-home");
+    try {
+      mkdirSync(selectedRoot, { recursive: true });
+      await realAsyncSubprocessRunner.runAsync("git", ["init"], selectedRoot);
+      writeFileSync(join(selectedRoot, "README.md"), "# Test\n");
+      await realAsyncSubprocessRunner.runAsync("git", ["add", "."], selectedRoot);
+      await realAsyncSubprocessRunner.runAsync(
+        "git",
+        ["-c", "user.email=t@t.com", "-c", "user.name=T", "commit", "-m", "Initial"],
+        selectedRoot,
+      );
+      const branch = "shared-merged";
+      await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], selectedRoot);
+      await realAsyncSubprocessRunner.runAsync("git", ["branch", "other-root"], selectedRoot);
+      await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", otherRoot, "other-root"], selectedRoot);
+
+      const runner: AsyncSubprocessRunner = {
+        runAsync: async (cmd, args, cwd, options) => {
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
+            if (args.includes("--state") && args[args.indexOf("--state") + 1] === "open") return "[]";
+            const oid = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd)).trim();
+            return JSON.stringify([{ number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid }]);
+          }
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd, options);
+        },
+      };
+      const cap = captureIo();
+      const code = await runCleanupCliCommand(["selected", "--yes"], cap.io, {
+        readProjectRegistry: () => ({ selected: { root: selectedRoot }, other: { root: otherRoot } }),
+        jarvisRoot,
+        socketPath: join(jarvisRoot, "invoking.sock"),
+        socketDiscovery: async () => [],
+        connectIpcClient: async () =>
+          makeIpcClient([], {
+            staleResetPreflight: {
+              listRuns: [{ runId: "other-live", project: "other", branch, status: "in-progress", isLive: true }],
+            },
+          }),
+        subprocessRunner: runner,
+        promptConfirm: async () => {
+          throw new Error("--yes must not prompt");
+        },
+      } as unknown as CliDeps);
+
+      expect(code).toBe(0);
+      expect(cap.read().stdout).toContain(`Skipped ref prune: selected refs/heads/${branch} — daemon reports live run`);
+      expect(
+        await realAsyncSubprocessRunner.runAsync(
+          "git",
+          ["rev-parse", "--verify", `refs/heads/${branch}`],
+          selectedRoot,
+        ),
+      ).toBeTruthy();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("cleanup rejects an unknown project before daemon discovery or cleanup survey", async () => {
+    // @mutate v2/src/commands/cleanup-cli.ts "if (projectName !== undefined && !Object.hasOwn(registry, projectName)) {" -> "if (false) {"
+    const root = mkdtempSync(join(tmpdir(), "jarvis-cleanup-unknown-"));
+    const socket = join(root, "daemon-dead.sock");
+    writeFileSync(socket, "");
+    const calls = { registry: 0, sockets: 0, connect: 0, subprocess: 0, prompt: 0 };
+    const cap = captureIo();
+    const code = await runCleanupCliCommand(["missing"], cap.io, {
+      readProjectRegistry: () => {
+        calls.registry += 1;
+        return { selected: { root } };
+      },
+      socketDiscovery: async () => {
+        calls.sockets += 1;
+        return [];
+      },
+      connectIpcClient: async () => {
+        calls.connect += 1;
+        return makeIpcClient([]);
+      },
+      subprocessRunner: {
+        runAsync: async () => {
+          calls.subprocess += 1;
+          return "";
+        },
+      },
+      promptConfirm: async () => {
+        calls.prompt += 1;
+        return true;
+      },
+      jarvisRoot: root,
+    } as unknown as CliDeps);
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toContain("missing");
+    expect(calls).toEqual({ registry: 1, sockets: 0, connect: 0, subprocess: 0, prompt: 0 });
+    expect(existsSync(socket)).toBe(true);
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("cleanup rejects a project combined with abandon before registry access", async () => {
+    // @mutate v2/src/commands/cleanup-cli.ts "if (projectName !== undefined && abandonName !== undefined) {" -> "if (false) {"
+    for (const project of ["selected", "unknown"]) {
+      let registryCalls = 0;
+      let daemonCalls = 0;
+      const cap = captureIo();
+      const code = await runCleanupCliCommand([project, "--abandon", "workspace"], cap.io, {
+        readProjectRegistry: () => {
+          registryCalls += 1;
+          return { selected: { root: "/selected" } };
+        },
+        connectIpcClient: async () => {
+          daemonCalls += 1;
+          return makeIpcClient([]);
+        },
+      } as unknown as CliDeps);
+
+      expect(code).toBe(1);
+      expect(cap.read().stderr).toContain("usage: jarvis cleanup [<project>]");
+      expect(registryCalls).toBe(0);
+      expect(daemonCalls).toBe(0);
+    }
+  });
+
+  test("cleanup rejects more than one positional project before reading the registry", async () => {
+    // @mutate v2/src/commands/cleanup-cli.ts "if (positionals.length > 1) {" -> "if (false) {"
+    let registryCalls = 0;
+    let daemonCalls = 0;
+    const cap = captureIo();
+    const code = await runCleanupCliCommand(["selected", "other"], cap.io, {
+      readProjectRegistry: () => {
+        registryCalls += 1;
+        return {};
+      },
+      connectIpcClient: async () => {
+        daemonCalls += 1;
+        return makeIpcClient([]);
+      },
+    } as unknown as CliDeps);
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toContain("usage: jarvis cleanup [<project>]");
+    expect(registryCalls).toBe(0);
+    expect(daemonCalls).toBe(0);
   });
 });
 
@@ -379,7 +776,7 @@ describe("cleanup command through main", () => {
   test("cleanup with invalid arguments prints usage and exits 1", async () => {
     const cap = captureIo();
 
-    const code = await cliMain(["cleanup", "invalid"], cap.io, {
+    const code = await cliMain(["cleanup", "invalid", "extra"], cap.io, {
       readProjectRegistry: () => ({ project: { root: cleanupProjectRoot } }),
       jarvisRoot: cleanupJarvisRoot,
       connectIpcClient: async () => makeIpcClient([]),

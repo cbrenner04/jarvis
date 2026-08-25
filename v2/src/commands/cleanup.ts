@@ -307,10 +307,13 @@ export type UnusableRegisteredProject = {
 
 export type DiscoverMergedBranchRefCandidatesResult = {
   candidates: MergedBranchRefCandidate[];
+  ownerProjectsByRepositoryRoot: ReadonlyMap<string, readonly string[]>;
   unusableProjects: UnusableRegisteredProject[];
 };
 
 export type DiscoverMergedBranchRefCandidatesOptions = {
+  /** Registered projects used to find every key sharing a Git common directory. */
+  ownershipRegistry?: Record<string, ProjectRegistryEntry>;
   runner?: AsyncSubprocessRunner;
   /** Branch names retired successfully earlier in this cleanup invocation. */
   retiredBranches?: ReadonlySet<string>;
@@ -402,11 +405,11 @@ async function mapRegisteredProjectsToDistinctRepos(
   registry: Record<string, ProjectRegistryEntry>,
   runner: AsyncSubprocessRunner,
 ): Promise<{
-  repoProjects: Map<string, { root: string; project: string }>;
+  repoProjects: Map<string, { roots: Map<string, string> }>;
   unusableProjects: UnusableRegisteredProject[];
 }> {
   const unusableProjects: UnusableRegisteredProject[] = [];
-  const repoProjects = new Map<string, { root: string; project: string }>();
+  const repoProjects = new Map<string, { roots: Map<string, string> }>();
 
   for (const [project, entry] of Object.entries(registry)) {
     const root = entry.root;
@@ -429,9 +432,9 @@ async function mapRegisteredProjectsToDistinctRepos(
       });
       continue;
     }
-    if (!repoProjects.has(commonDir)) {
-      repoProjects.set(commonDir, { root, project });
-    }
+    const repo = repoProjects.get(commonDir) ?? { roots: new Map<string, string>() };
+    repo.roots.set(project, root);
+    repoProjects.set(commonDir, repo);
   }
 
   return { repoProjects, unusableProjects };
@@ -480,14 +483,28 @@ export async function discoverMergedBranchRefCandidates(
 ): Promise<DiscoverMergedBranchRefCandidatesResult> {
   const runner = options.runner ?? realAsyncSubprocessRunner;
   const retiredBranches = options.retiredBranches ?? new Set<string>();
-  const { repoProjects, unusableProjects } = await mapRegisteredProjectsToDistinctRepos(registry, runner);
+  const ownershipRegistry = options.ownershipRegistry ?? registry;
+  const { repoProjects, unusableProjects } = await mapRegisteredProjectsToDistinctRepos(ownershipRegistry, runner);
   const candidates: MergedBranchRefCandidate[] = [];
+  const ownerProjectsByRepositoryRoot = new Map<string, readonly string[]>();
 
-  for (const { root, project } of repoProjects.values()) {
-    candidates.push(...(await discoverMergedBranchRefCandidatesForRepo(root, project, retiredBranches, runner)));
+  for (const { roots } of repoProjects.values()) {
+    const scopedProject = [...roots.keys()].find((project) => Object.hasOwn(registry, project));
+    if (scopedProject === undefined) continue;
+    const root = roots.get(scopedProject);
+    if (root === undefined) continue;
+    const ownerProjects = [...roots.keys()];
+    for (const projectRoot of roots.values()) {
+      ownerProjectsByRepositoryRoot.set(projectRoot, ownerProjects);
+    }
+    candidates.push(...(await discoverMergedBranchRefCandidatesForRepo(root, scopedProject, retiredBranches, runner)));
   }
 
-  return { candidates, unusableProjects };
+  return {
+    candidates,
+    ownerProjectsByRepositoryRoot,
+    unusableProjects: unusableProjects.filter((entry) => Object.hasOwn(registry, entry.project)),
+  };
 }
 
 /** Resolve an exact fully qualified ref to its OID, or undefined when absent. */
@@ -533,10 +550,10 @@ export async function revalidateMergedBranchRefCandidate(
   daemonClient: DaemonClient,
   store: StateStore,
   retiredBranches: ReadonlySet<string>,
+  ownerProjects: readonly string[] = [candidate.project],
 ): Promise<EligibilityResult> {
   const root = candidate.repositoryRoot;
   const branch = candidate.branch;
-  const project = candidate.project;
 
   const currentHeadOid = await resolveExactRefOid(root, `refs/heads/${branch}`, runner);
   if (currentHeadOid === undefined) {
@@ -579,15 +596,19 @@ export async function revalidateMergedBranchRefCandidate(
 
   const run = store
     .listRuns()
-    .find((entry) => entry.project === project && entry.branch === branch && !isTerminalRunStatus(entry.status));
+    .find(
+      (entry) => ownerProjects.includes(entry.project) && entry.branch === branch && !isTerminalRunStatus(entry.status),
+    );
   if (run !== undefined) {
     return { status: "ineligible", reason: `non-terminal run exists: status=${run.status}` };
   }
 
   try {
-    const daemonRuns = await daemonClient(project, branch);
-    if (daemonRuns.some((entry) => entry.isLive)) {
-      return { status: "ineligible", reason: "daemon reports live run" };
+    for (const ownerProject of ownerProjects) {
+      const daemonRuns = await daemonClient(ownerProject, branch);
+      if (daemonRuns.some((entry) => entry.isLive)) {
+        return { status: "ineligible", reason: "daemon reports live run" };
+      }
     }
   } catch {
     return { status: "ineligible", reason: DAEMON_UNREACHABLE_REASON };
@@ -650,6 +671,7 @@ async function hasHeadOnlyDaemonUnreachableSkip(
   daemonClient: DaemonClient,
   store: StateStore,
   retiredBranches: ReadonlySet<string>,
+  ownerProjectsByRepositoryRoot: ReadonlyMap<string, readonly string[]>,
 ): Promise<boolean> {
   for (const candidate of candidates) {
     const eligibility = await revalidateMergedBranchRefCandidate(
@@ -658,6 +680,7 @@ async function hasHeadOnlyDaemonUnreachableSkip(
       daemonClient,
       store,
       retiredBranches,
+      ownerProjectsByRepositoryRoot.get(candidate.repositoryRoot),
     );
     if (eligibility.status === "ineligible" && eligibility.reason === DAEMON_UNREACHABLE_REASON) {
       return true;
@@ -672,6 +695,7 @@ async function applyMergedBranchRefPrunes(
   daemonClient: DaemonClient,
   store: StateStore,
   retiredBranches: ReadonlySet<string>,
+  ownerProjectsByRepositoryRoot: ReadonlyMap<string, readonly string[]>,
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
 ): Promise<number> {
   let exit = 0;
@@ -682,6 +706,7 @@ async function applyMergedBranchRefPrunes(
       daemonClient,
       store,
       retiredBranches,
+      ownerProjectsByRepositoryRoot.get(candidate.repositoryRoot),
     );
     if (eligibility.status === "ineligible") {
       io.stdout(`Skipped ref prune: ${candidate.project} refs/heads/${candidate.branch} — ${eligibility.reason}\n`);
@@ -972,6 +997,7 @@ async function retireEligibleWorktrees(
   refPruneSnapshots: ReadonlyMap<string, MergedBranchRefSnapshot>,
   daemonClient: DaemonClient,
   retiredBranches: Set<string>,
+  ownerProjectsByRepositoryRoot: ReadonlyMap<string, readonly string[]>,
 ): Promise<number> {
   if (candidates.length === 0) return 0;
   return performWorktreeRemovals(
@@ -993,7 +1019,14 @@ async function retireEligibleWorktrees(
           repositoryRoot: projectRoot,
         };
         if (snapshot.trackingRefOid !== undefined) refCandidate.trackingRefOid = snapshot.trackingRefOid;
-        return revalidateMergedBranchRefCandidate(refCandidate, runner, daemonClient, store, retiredBranches);
+        return revalidateMergedBranchRefCandidate(
+          refCandidate,
+          runner,
+          daemonClient,
+          store,
+          retiredBranches,
+          ownerProjectsByRepositoryRoot.get(projectRoot),
+        );
       },
       retiredBranches,
     },
@@ -1109,13 +1142,14 @@ type CleanupDiscoveryContext = {
 
 async function gatherCleanupDiscoveryContext(
   registry: Record<string, ProjectRegistryEntry>,
+  ownershipRegistry: Record<string, ProjectRegistryEntry>,
   jarvisRoot: string,
   runner: AsyncSubprocessRunner,
   daemonClient: DaemonClient,
   store: StateStore,
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
 ): Promise<CleanupDiscoveryContext> {
-  const branchRefDiscovery = await discoverMergedBranchRefCandidates(registry, { runner });
+  const branchRefDiscovery = await discoverMergedBranchRefCandidates(registry, { runner, ownershipRegistry });
   const discoveryExit = reportUnusableProjects(branchRefDiscovery.unusableProjects, io);
   const discovered = await discoverMaterializedWorktrees(registry, jarvisRoot, runner);
   const { candidates, daemonUnreachable } = await findEligibleWorktreeCandidates(
@@ -1226,6 +1260,7 @@ async function executeConfirmedCleanup(
     ctx.worktreeRefSnapshots,
     daemonClient,
     retiredBranches,
+    ctx.branchRefDiscovery.ownerProjectsByRepositoryRoot,
   );
   const branchRefExit = await applyMergedBranchRefPrunes(
     ctx.branchRefDiscovery.candidates,
@@ -1233,6 +1268,7 @@ async function executeConfirmedCleanup(
     daemonClient,
     store,
     retiredBranches,
+    ctx.branchRefDiscovery.ownerProjectsByRepositoryRoot,
     io,
   );
   const socketRemoval = removeDeadDaemonSockets(ctx.reaperResult.dead, io);
@@ -1274,8 +1310,17 @@ export async function runCleanupCommand(
   daemonClient: DaemonClient,
   store: StateStore,
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
+  ownershipRegistry: Record<string, ProjectRegistryEntry> = registry,
 ): Promise<number> {
-  const ctx = await gatherCleanupDiscoveryContext(registry, jarvisRoot, runner, daemonClient, store, io);
+  const ctx = await gatherCleanupDiscoveryContext(
+    registry,
+    ownershipRegistry,
+    jarvisRoot,
+    runner,
+    daemonClient,
+    store,
+    io,
+  );
 
   for (const worktree of ctx.daemonUnreachable) {
     io.stdout(`Skipped merged worktree: ${worktree.path} — ${DAEMON_UNREACHABLE_REASON}\n`);
@@ -1294,6 +1339,7 @@ export async function runCleanupCommand(
     daemonClient,
     store,
     new Set<string>(),
+    ctx.branchRefDiscovery.ownerProjectsByRepositoryRoot,
   ))
     ? 1
     : 0;

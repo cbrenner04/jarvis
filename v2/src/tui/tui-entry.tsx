@@ -236,11 +236,12 @@ function pipelineSteeringSharedSelectionError(
 }
 
 /** Resolves a selected attention row from its id, independent of tree-node encoding. */
-function selectedAttentionRow(state: TuiMonitorState, selectedNodeId: string): AttentionRow | undefined {
+function selectedAttentionRow(state: TuiMonitorState, selectedNodeId: string, nowMs: number): AttentionRow | undefined {
   const projection = buildAttentionRows(
     state.pipelineSnapshotsBySocketPath,
     state.runs,
     monitorPipelineDisplayOptions(state),
+    nowMs,
   );
   return projection.rows.find((row) => row.id === selectedNodeId);
 }
@@ -252,7 +253,7 @@ function approveRejectSelectionError(
 ): ApproveRejectSelectionError | null {
   const selectedNodeId = state.selectedNodeId;
   if (selectedNodeId !== null) {
-    const attentionRow = selectedAttentionRow(state, selectedNodeId);
+    const attentionRow = selectedAttentionRow(state, selectedNodeId, nowMs);
     if (attentionRow !== undefined) {
       // Mutation checkpoint: negating awaiting-gate kind check must turn attention eligibility RED.
       if (attentionRow.kind !== "awaiting-gate") return "not_awaiting_stage";
@@ -334,6 +335,7 @@ function resolvePipelineSteeringDispatch(
   state: TuiMonitorState,
   command: "approve" | "reject" | "resume",
   pipelineOwners: ReadonlyMap<string, TuiDaemonClient>,
+  nowMs: number,
 ): PipelineSteeringDispatch | "stale_non_targetable" {
   if (command === "resume") {
     const selectedNodeId = state.selectedNodeId;
@@ -344,7 +346,7 @@ function resolvePipelineSteeringDispatch(
   }
   const selectedNodeId = state.selectedNodeId;
   if (selectedNodeId !== null) {
-    const attentionRow = selectedAttentionRow(state, selectedNodeId);
+    const attentionRow = selectedAttentionRow(state, selectedNodeId, nowMs);
     if (attentionRow !== undefined && attentionRow.kind === "awaiting-gate" && attentionRow.gate !== undefined) {
       const owner = pipelineOwners.get(attentionRow.gate.pipelineId);
       if (owner === undefined) return "stale_non_targetable";
@@ -869,7 +871,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
               return;
             }
 
-            const dispatch = resolvePipelineSteeringDispatch(currentState, command, pipelineOwners);
+            const dispatch = resolvePipelineSteeringDispatch(currentState, command, pipelineOwners, nowMs);
             if (dispatch === "stale_non_targetable") {
               setState({
                 ...currentState,
@@ -1015,7 +1017,7 @@ export async function runTuiEntry(deps: RunTuiEntryDeps): Promise<number> {
         revealSelectedAttentionTarget() {
           const selectedNodeId = currentState.selectedNodeId;
           if (selectedNodeId === null) return;
-          const attentionRow = selectedAttentionRow(currentState, selectedNodeId);
+          const attentionRow = selectedAttentionRow(currentState, selectedNodeId, nowMsFn());
           if (attentionRow === undefined) return;
           const targetId = attentionRow.targetId;
           // Same selectable-id guard as selectNode, evaluated with the target provisionally selected: a real

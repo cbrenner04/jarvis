@@ -706,7 +706,8 @@ describe("createMonitorDisplay", () => {
       createdAt: 0,
       status: "failed",
       isLive: false,
-      finishedAtMs: 1_000 * (index + 1),
+      // Oldest (att-1) first, newest (att-7) last, so the sort keeps the original visible order.
+      finishedAtMs: TREE_NOW_MS - (7 - index) * 1_000,
     }));
     const treeMarkerRun: DaemonListRunRow = {
       runId: "run-tree-marker",
@@ -750,7 +751,7 @@ describe("createMonitorDisplay", () => {
       createdAt: 0,
       status: "failed",
       isLive: false,
-      finishedAtMs: 1_000,
+      finishedAtMs: TREE_NOW_MS - 1_000,
     };
     const snapshot = pipelineSnapshot({ pipelineId: "pipe-work", stages: [implementStage("inv-work")] });
     const matchedRun: DaemonListRunRow = {

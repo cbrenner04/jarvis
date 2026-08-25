@@ -76,7 +76,8 @@ export function firstSelectableNodeId(state: TuiMonitorState, nowMs = Date.now()
   return monitorSelectableNodeIds(state, nowMs)[0] ?? null;
 }
 
-/** Selectable node ids in left-pane order: capped attention ids, then every full flattened work-tree row. */
+/** Selectable node ids in left-pane order: attention ids (uncapped gates, capped failures), then every
+ * full flattened work-tree row. */
 export function monitorSelectableNodeIds(state: TuiMonitorState, nowMs = Date.now()): string[] {
   const columns = state.terminalColumns ?? 245;
   const rows = state.terminalRows ?? 72;
@@ -86,9 +87,11 @@ export function monitorSelectableNodeIds(state: TuiMonitorState, nowMs = Date.no
     state.pipelineSnapshotsBySocketPath,
     state.runs,
     monitorPipelineDisplayOptions(state),
+    nowMs,
   );
   // Mutation checkpoint: dropping the attention-id prefix here must turn selectable-prefix-order RED.
-  // Mutation checkpoint: selecting overflow rows here must turn overflow-exclusion RED (projection.rows is already capped).
+  // Mutation checkpoint: selecting overflow rows here must turn overflow-exclusion RED (overflow rows are
+  // never in projection.rows: gates are uncapped, and only the failure suffix is capped).
   return [...projection.rows.map((attentionRow) => attentionRow.id), ...fullTreeRows.map((row) => row.id)];
 }
 
@@ -428,7 +431,7 @@ function paintDockInputRows(atoms: readonly DockInputAtom[], columns: number): [
   return [`${prompt}${first.content}`, second.content];
 }
 
-function dockHintLine(state: TuiMonitorState): string {
+function dockHintLine(state: TuiMonitorState, nowMs: number): string {
   if ((state.focus ?? "tree") === "command") return "Esc tree · Enter submit";
   const { pipelineNodes } = buildMonitorPipelineTreeJoin(
     mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath),
@@ -442,7 +445,8 @@ function dockHintLine(state: TuiMonitorState): string {
     isActiveRunStatus(selectedRun.status) &&
     (state.actionableRunIds?.includes(selectedRun.runId) ?? true);
   // Mutation checkpoint: forcing this condition true must turn the attention-selection-only reveal hint RED.
-  const revealable = state.selectedNodeId !== null && resolveAttentionTargetId(state, state.selectedNodeId) !== null;
+  const revealable =
+    state.selectedNodeId !== null && resolveAttentionTargetId(state, state.selectedNodeId, nowMs) !== null;
   return [
     "j/↓ next",
     "↑ previous",
@@ -458,7 +462,7 @@ function dockHintLine(state: TuiMonitorState): string {
 }
 
 /** Fixed status, input, continuation, and contextual-hint dock rows. */
-export function monitorDockLines(state: TuiMonitorState): [string, string, string, string] {
+export function monitorDockLines(state: TuiMonitorState, nowMs = Date.now()): [string, string, string, string] {
   const columns = Math.max(1, state.terminalColumns ?? DEFAULT_DOCK_COLUMNS);
   const buffer = state.commandBuffer ?? "";
   const cursor = state.commandCursor ?? 0;
@@ -467,7 +471,7 @@ export function monitorDockLines(state: TuiMonitorState): [string, string, strin
     fitDockRow(dockStatusLine(state), columns),
     fitDockRow(input, columns),
     fitDockRow(continuation, columns),
-    fitDockRow(dockHintLine(state), columns),
+    fitDockRow(dockHintLine(state, nowMs), columns),
   ];
 }
 
@@ -529,12 +533,14 @@ function leftPaneQueueHeadingRowCount(state: TuiMonitorState): number {
   return state.runs.some((run) => run.status === "queued") ? 1 : 0;
 }
 
-/** Painted attention segment row count: heading, capped rows, and the overflow line when present. */
-function leftPaneAttentionRowCount(state: TuiMonitorState): number {
+/** Painted attention segment row count: heading, uncapped gate rows plus capped failure rows, and the
+ * overflow line when present. */
+function leftPaneAttentionRowCount(state: TuiMonitorState, nowMs: number): number {
   const projection = buildAttentionRows(
     state.pipelineSnapshotsBySocketPath,
     state.runs,
     monitorPipelineDisplayOptions(state),
+    nowMs,
   );
   if (projection.total === 0) return 0;
   return 1 + projection.rows.length + (projection.overflow > 0 ? 1 : 0);
@@ -558,10 +564,12 @@ function leftPaneWorkHeadingRowCount(displayNodes: readonly MonitorPipelineTreeD
   return displayNodes.length === 0 ? 0 : 1;
 }
 
-function leftPaneTreeMaxVisibleRows(state: TuiMonitorState, layout: ShellLayout): number {
+function leftPaneTreeMaxVisibleRows(state: TuiMonitorState, layout: ShellLayout, nowMs: number): number {
   const displayNodes = leftPaneWorkDisplayNodes(state);
   const reserved =
-    leftPaneAttentionRowCount(state) + leftPaneWorkHeadingRowCount(displayNodes) + leftPaneQueueHeadingRowCount(state);
+    leftPaneAttentionRowCount(state, nowMs) +
+    leftPaneWorkHeadingRowCount(displayNodes) +
+    leftPaneQueueHeadingRowCount(state);
   // Mutation checkpoint: dropping this floor must turn the tree-budget-never-negative guard RED.
   return Math.max(0, layout.paneHeight - reserved);
 }
@@ -582,12 +590,14 @@ function attentionRowLine(attentionRow: AttentionRow, selectedNodeId: string | n
   );
 }
 
-/** Pinned attention segment: heading, up to six capped rows, and a display-only overflow summary. */
+/** Pinned attention segment: heading, uncapped gate rows, up to six capped failure rows, and a
+ * display-only overflow summary. */
 export function monitorLeftPaneAttentionRows(state: TuiMonitorState, nowMs = Date.now()): MonitorLineRow[] {
   const projection = buildAttentionRows(
     state.pipelineSnapshotsBySocketPath,
     state.runs,
     monitorPipelineDisplayOptions(state),
+    nowMs,
   );
   if (projection.total === 0) return [];
   return [
@@ -617,7 +627,7 @@ export function withLeftPaneTreeScrollFollow(state: TuiMonitorState, nowMs = Dat
   const columns = state.terminalColumns ?? 245;
   const rows = state.terminalRows ?? 72;
   const layout = computeShellLayout(columns, rows, state.dividerOffset ?? 0);
-  const maxVisibleRows = leftPaneTreeMaxVisibleRows(state, layout);
+  const maxVisibleRows = leftPaneTreeMaxVisibleRows(state, layout, nowMs);
   const { fullTreeRows } = monitorLeftPaneTreeRows(state, layout, nowMs);
   const currentOffset = state.leftPaneTreeScrollOffset ?? 0;
   const selectedId = state.selectedNodeId;
@@ -671,12 +681,12 @@ export function buildTreeRunRow(
 export function monitorLeftPaneTreeRows(
   state: TuiMonitorState,
   layout: ShellLayout,
-  _nowMs: number,
+  nowMs: number,
 ): {
   treeRows: readonly MonitorPipelineTreeDisplayNode[];
   fullTreeRows: readonly MonitorPipelineTreeDisplayNode[];
 } {
-  const maxVisibleRows = leftPaneTreeMaxVisibleRows(state, layout);
+  const maxVisibleRows = leftPaneTreeMaxVisibleRows(state, layout, nowMs);
   const displayNodes = leftPaneWorkDisplayNodes(state);
   const scrollOffset = reclampLeftPaneTreeScrollOffset(
     state.leftPaneTreeScrollOffset ?? 0,
@@ -989,11 +999,12 @@ const stageRecordForTreeRow = (
   pipeline?.snapshot.stages.find((stage) => stage.stageId === treeRow.stageId && stage.branchKey === treeRow.branchKey);
 
 /** Maps a selected attention row id to its target node id, or null when `selected` is not an attention row. */
-function resolveAttentionTargetId(state: TuiMonitorState, selected: string): string | null {
+function resolveAttentionTargetId(state: TuiMonitorState, selected: string, nowMs: number): string | null {
   const projection = buildAttentionRows(
     state.pipelineSnapshotsBySocketPath,
     state.runs,
     monitorPipelineDisplayOptions(state),
+    nowMs,
   );
   // Mutation checkpoint: aliasing a non-attention selection to a target here must turn attention-target-aliasing RED.
   return projection.rows.find((attentionRow) => attentionRow.id === selected)?.targetId ?? null;
@@ -1073,7 +1084,7 @@ function unwrappedRightPaneSegmentRows(state: TuiMonitorState, layout: ShellLayo
     return joinDetailSections([{ rows: [row(untoned("No run selected."))] }]);
   }
 
-  const attentionTargetId = resolveAttentionTargetId(state, selected);
+  const attentionTargetId = resolveAttentionTargetId(state, selected, nowMs);
   if (attentionTargetId !== null) {
     const snapshots = mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath);
     const { pipelineNodes, adHocNodes } = buildMonitorPipelineTreeJoin(

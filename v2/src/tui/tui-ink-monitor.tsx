@@ -196,8 +196,13 @@ function renderLeftPaneContent(
   return rendered;
 }
 
-function renderDockContent(state: TuiMonitorState, Text: MonitorText, Box: MonitorBox | undefined): ReactElement[] {
-  const rows = monitorDockLines(state).map((text, key) => createElement(Text, { key }, text));
+function renderDockContent(
+  state: TuiMonitorState,
+  Text: MonitorText,
+  Box: MonitorBox | undefined,
+  nowMs: number,
+): ReactElement[] {
+  const rows = monitorDockLines(state, nowMs).map((text, key) => createElement(Text, { key }, text));
   if (Box === undefined) return rows;
   return rows.map((row, index) =>
     createElement(Box, { key: index, flexDirection: "row", height: 1, overflow: "hidden" }, row),
@@ -243,7 +248,7 @@ export function createMonitorDisplay(
     nowMs,
   );
   const rightContent = renderSegmentRows(monitorRightPaneSegmentRows(state, nowMs), Text, Box);
-  const dockContent = renderDockContent(state, Text, Box);
+  const dockContent = renderDockContent(state, Text, Box, nowMs);
 
   const leftPane = createElement(
     MonitorLeftPane,

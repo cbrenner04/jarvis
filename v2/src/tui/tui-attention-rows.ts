@@ -43,9 +43,9 @@ export type AttentionRow = {
 
 export type AttentionProjection = {
   rows: readonly AttentionRow[];
-  /** Total actionable incidents before the cap. */
+  /** Surfaced incidents after the recency filter, before the failure cap. */
   total: number;
-  /** Rows dropped by the cap; display-only, never selectable. */
+  /** Failure rows dropped by the cap; gates are never dropped. Display-only, never selectable. */
   overflow: number;
 };
 
@@ -53,6 +53,15 @@ const GATE_GLYPH = "✋";
 const FAILURE_GLYPH = "✗";
 const ATTENTION_ROW_CAP = 6;
 const GATE_KINDS = new Set<AttentionRowKind>(["awaiting-gate", "rejected-gate"]);
+/** Terminal incidents older than this against the caller's clock are suppressed from the attention segment. */
+export const ATTENTION_TERMINAL_RECENCY_MS = 12 * 60 * 60 * 1000;
+
+/** Gates surface at any age; a terminal incident surfaces only when dated and within the recency window. */
+function isSurfacedIncident(row: AttentionRow, nowMs: number): boolean {
+  if (GATE_KINDS.has(row.kind)) return true;
+  if (row.sinceMs === null) return false;
+  return nowMs - row.sinceMs <= ATTENTION_TERMINAL_RECENCY_MS;
+}
 
 type StageRecord = PipelineSnapshot["stages"][number];
 
@@ -286,7 +295,9 @@ function compareAttentionRows(a: AttentionRow, b: AttentionRow): number {
   }
   if (aDated && bDated) {
     const sinceDelta = (a.sinceMs as number) - (b.sinceMs as number);
-    if (sinceDelta !== 0) return sinceDelta;
+    // Gates sort newest-reached-first; failures keep oldest-idle-first.
+    const oriented = GATE_KINDS.has(a.kind) ? -sinceDelta : sinceDelta;
+    if (oriented !== 0) return oriented;
   }
   if (a.targetId !== b.targetId) {
     return a.targetId < b.targetId ? -1 : 1;
@@ -295,13 +306,15 @@ function compareAttentionRows(a: AttentionRow, b: AttentionRow): number {
 }
 
 /**
- * Projects durable pipeline gates/failures and run failures into capped, ordered operator-attention rows.
- * Gates before failures; dated rows oldest-first within each group; undated rows by target id then row id.
+ * Projects durable pipeline gates/failures and run failures into ordered operator-attention rows.
+ * Gates before failures, uncapped and newest-reached-first; failures capped and oldest-idle-first;
+ * undated rows sort after dated rows in their group, then by target id then row id.
  */
 export function buildAttentionRows(
   pipelineSnapshotsBySocketPath: Readonly<Record<string, PipelineListResult>> | undefined,
   runs: readonly DaemonListRunRow[],
-  options: MonitorPipelineDisplayOptions = {},
+  options: MonitorPipelineDisplayOptions,
+  nowMs: number,
 ): AttentionProjection {
   const snapshots = mergePipelineSnapshots(pipelineSnapshotsBySocketPath);
   const showDismissed = options.showDismissed === true;
@@ -311,8 +324,14 @@ export function buildAttentionRows(
     ...displayedSnapshots.flatMap(gateAndStageIncidents),
     ...displayedSnapshots.flatMap(publicationFailureIncidents),
     ...runIncidents(snapshots, runs, options),
-  ].sort(compareAttentionRows);
+  ]
+    .filter((row) => isSurfacedIncident(row, nowMs))
+    .sort(compareAttentionRows);
 
-  const rows = incidents.slice(0, ATTENTION_ROW_CAP);
+  // Gates are exempt from the cap — an unresolved gate must always stay selectable — so only the
+  // failure group is capped; the heading total/overflow arithmetic is unchanged.
+  const gates = incidents.filter((row) => GATE_KINDS.has(row.kind));
+  const failures = incidents.filter((row) => !GATE_KINDS.has(row.kind));
+  const rows = [...gates, ...failures.slice(0, ATTENTION_ROW_CAP)];
   return { rows, total: incidents.length, overflow: incidents.length - rows.length };
 }

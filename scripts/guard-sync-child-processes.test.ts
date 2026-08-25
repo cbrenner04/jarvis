@@ -38,6 +38,7 @@ describe("sync child-process guard", () => {
     const source = 'import { execFileSync } from "node:child_process"; execFileSync("git");';
     expect(violations(source, "shared/subprocess.ts")).toEqual([]);
     expect(violations(source, "v2/src/example.test.ts")).toEqual([]);
+    expect(violations(source, "v2/src/execution/workflow-runner.test-support.ts")).toEqual([]);
     expect(violations(source, "v2/src/testing/process.ts")).toEqual([]);
   });
 

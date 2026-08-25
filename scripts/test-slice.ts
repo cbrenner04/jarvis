@@ -21,10 +21,10 @@ export const LOAD_SENSITIVE_FILES: readonly string[] = [
   // Passes 0-fail across four straight isolated runs (~6s) but produced 106 failures / 354 when
   // co-run with the execution-loop workflow-runner test under load (2026-08-17).
   "v2/src/daemon/daemon-resume.test.ts",
-  // One ~216-test file whose loaded runtime scales with contention; tipped over the per-file agent
-  // wall-clock budget, red-gating two live PRs and post-merge main the same day, each passing an
-  // unchanged re-run (2026-08-17).
-  "v2/src/execution/workflow-runner.test.ts",
+  // The former ~216-test workflow-runner.test.ts monolith was split into concern-grouped
+  // workflow-runner-*.test.ts files (durable #2181 fix); each is well under the per-file budget, so
+  // they run pooled. Isolate a specific split file here (with dated loaded-red/idle-green evidence) if
+  // one proves load-sensitive.
 ];
 
 /**

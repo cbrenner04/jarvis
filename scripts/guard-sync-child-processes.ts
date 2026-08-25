@@ -25,6 +25,7 @@ function guarded(file: string): boolean {
   return (
     (file.startsWith("v2/") || file.startsWith("shared/")) &&
     !file.endsWith(".test.ts") &&
+    !file.endsWith(".test-support.ts") &&
     !file.startsWith("v2/src/testing/")
   );
 }

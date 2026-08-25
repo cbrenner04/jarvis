@@ -21,11 +21,11 @@
 
 ## Acceptance criteria
 
-- [ ] The co-located workflow-runner test files group cases by execution concern, and resume-path cases live in a dedicated resume or recovery file.
-- [ ] A merge-base-to-branch inventory comparison reports equal case counts and unchanged test titles, assertion expressions, `// @mutate` directives, and keystone directives across `v2/src/execution/workflow-runner.test.ts` and every resulting `workflow-runner-*.test.ts` file.
-- [ ] An isolated wall-clock measurement reports at most 150 seconds for every resulting file and at most 120 seconds for the resume-path file.
-- [ ] Relocated helper guards are unchanged; if implementation requires any added or modified guard, an in-body `// @mutate` checkpoint in its owning `workflow-runner-*.test.ts` test turns that test red when the guard is inverted.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass with the split inventory.
+- [x] The co-located workflow-runner test files group cases by execution concern, and resume-path cases live in a dedicated resume or recovery file.
+- [x] A merge-base-to-branch inventory comparison reports equal case counts and unchanged test titles, assertion expressions, `// @mutate` directives, and keystone directives across `v2/src/execution/workflow-runner.test.ts` and every resulting `workflow-runner-*.test.ts` file.
+- [x] An isolated wall-clock measurement reports at most 150 seconds for every resulting file and at most 120 seconds for the resume-path file.
+- [x] Relocated helper guards are unchanged; if implementation requires any added or modified guard, an in-body `// @mutate` checkpoint in its owning `workflow-runner-*.test.ts` test turns that test red when the guard is inverted.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass with the split inventory.
 
 ## Documentation updates
 

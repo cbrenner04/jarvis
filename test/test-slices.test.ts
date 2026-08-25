@@ -118,7 +118,9 @@ describe("Test slice boundaries", () => {
   it("audited heavy files are classified load-sensitive", () => {
     // @mutate scripts/test-slice.ts "v2/src/daemon/daemon-resume.test.ts" -> "v2/src/daemon/daemon-resume-pooled.test.ts"
     expect(isLoadSensitive("v2/src/daemon/daemon-resume.test.ts")).toBeTrue();
-    expect(isLoadSensitive("v2/src/execution/workflow-runner.test.ts")).toBeTrue();
+    // The former workflow-runner.test.ts monolith was split into pooled workflow-runner-*.test.ts
+    // files (durable #2181 fix); no split file is load-sensitive without dated evidence.
+    expect(isLoadSensitive("v2/src/execution/workflow-runner-core.test.ts")).toBeFalse();
 
     // Audited candidates that stayed pooled: survived two concurrent-load rounds with no observed
     // failure, so they carry no dated evidence to join the lane (2026-08-18 audit).
@@ -186,8 +188,7 @@ describe("Test slice boundaries", () => {
     const runV2TestsScript = await Bun.file("scripts/run-v2-tests.ts").text();
     const runTestsScript = await Bun.file("scripts/run-tests.ts").text();
 
-    // TEMPORARY STOPGAP (#2181): budget raised to 420_000; reverts to 180_000 with the workflow-runner.test.ts split.
-    expect(runV2TestsScript).toContain("SUPPORTED_HEALTHY_FILE_BUDGET_MS = 420_000");
+    expect(runV2TestsScript).toContain("SUPPORTED_HEALTHY_FILE_BUDGET_MS = 180_000");
     expect(runV2TestsScript).toContain("PER_FILE_TIMEOUT_MS = SUPPORTED_HEALTHY_FILE_BUDGET_MS");
     expect(runV2TestsScript).toContain('spawn("bun", ["test", file]');
     expect(runV2TestsScript).toContain("timeout: PER_FILE_TIMEOUT_MS");

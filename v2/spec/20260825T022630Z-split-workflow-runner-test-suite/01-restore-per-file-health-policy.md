@@ -26,14 +26,14 @@
 
 ## Acceptance criteria
 
-- [ ] Production-runner-policy evidence records every resulting workflow-runner file's wall clock at the restored threshold; each is at most 150 seconds, and the resume-path file is at most 120 seconds.
-- [ ] `LOAD_SENSITIVE_FILES`, `test/test-slices.test.ts`, and `scripts/run-v2-tests.test.ts` agree on each resulting file's evidence-based lane; isolated files run with no co-runner, while files lacking dated loaded-red/idle-green evidence remain pooled.
-- [ ] The updated parity test fails against the pre-fix 420-second baseline and pins `SUPPORTED_HEALTHY_FILE_BUDGET_MS = 180_000` in `test/test-slices.test.ts` (`policy parity: aggregate and v2 files share per-file timeout and subprocess isolation`).
-- [ ] The restored timeout accepts 180,000ms and rejects 179,999ms in `scripts/run-v2-tests.test.ts`.
-- [ ] `v2/docs/test-writing.md` replaces the monolith audit with the resulting files, dated lane decisions, measured production-policy margins, and the rule to split a file before it reaches 150 seconds under the 180-second health budget.
+- [x] Production-runner-policy evidence records every resulting workflow-runner file's wall clock at the restored threshold; each is at most 150 seconds, and the resume-path file is at most 120 seconds.
+- [x] `LOAD_SENSITIVE_FILES`, `test/test-slices.test.ts`, and `scripts/run-v2-tests.test.ts` agree on each resulting file's evidence-based lane; isolated files run with no co-runner, while files lacking dated loaded-red/idle-green evidence remain pooled.
+- [x] The updated parity test fails against the pre-fix 420-second baseline and pins `SUPPORTED_HEALTHY_FILE_BUDGET_MS = 180_000` in `test/test-slices.test.ts` (`policy parity: aggregate and v2 files share per-file timeout and subprocess isolation`).
+- [x] The restored timeout accepts 180,000ms and rejects 179,999ms in `scripts/run-v2-tests.test.ts`.
+- [x] `v2/docs/test-writing.md` replaces the monolith audit with the resulting files, dated lane decisions, measured production-policy margins, and the rule to split a file before it reaches 150 seconds under the 180-second health budget.
 - [ ] `v2/docs/test-cost-baseline.txt` and the measured aggregate-cost section in `v2/docs/test-writing.md` report the refreshed roster and serial `bun run test:cost` results without conflating them with production-runner timing.
-- [ ] `v2/docs/v1-behaviors.md` records the restored 180-second scheduler budget and evidence-based isolation behavior.
-- [ ] `bun run typecheck` and `bun run test` pass at the restored threshold.
+- [x] `v2/docs/v1-behaviors.md` records the restored 180-second scheduler budget and evidence-based isolation behavior.
+- [x] `bun run typecheck` and `bun run test` pass at the restored threshold.
 
 ## Documentation updates
 

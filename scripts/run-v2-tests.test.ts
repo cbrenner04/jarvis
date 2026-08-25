@@ -605,14 +605,13 @@ describe("load-sensitive isolation", () => {
   });
 
   test("every audited heavy file runs with no co-runner in either direction", async () => {
-    // @mutate scripts/test-slice.ts "v2/src/execution/workflow-runner.test.ts" -> "v2/src/execution/workflow-runner-pooled.test.ts"
+    // @mutate scripts/test-slice.ts "v2/src/daemon/daemon-resume.test.ts" -> "v2/src/daemon/daemon-resume-pooled.test.ts"
     spyOn(process.stdout, "write").mockImplementation(() => true);
     spyOn(process.stderr, "write").mockImplementation(() => true);
     const auditedFiles = [
       "v2/src/daemon/daemon-workflow-start.test.ts",
       "v2/src/execution/runtime-smoke-verifier.test.ts",
       "v2/src/daemon/daemon-resume.test.ts",
-      "v2/src/execution/workflow-runner.test.ts",
     ];
     const pooledFillers = ["filler-a.test.ts", "filler-b.test.ts", "filler-c.test.ts", "filler-d.test.ts"];
     let seq = 0;

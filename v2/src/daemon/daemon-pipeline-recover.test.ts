@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
+import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
-import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
+import { type AnyWorkflowStep, type ReviewWorkflowStep, recoverPlanStage } from "../execution/workflow-runner.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns } from "../testing/run-control.ts";
 import { createBindingFactory, writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
@@ -42,6 +46,17 @@ const SINGLE_DEFINITION: PipelineDefinition = {
 };
 
 const BRANCH_KEYS = ["branch-a", "branch-b", "branch-c"];
+const PLAN_REVIEW_CONFIG: AgentModelConfig = {
+  claude: { critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] } },
+  codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
+};
+const RECOVERY_MD_LINT_FIXTURES = join(
+  import.meta.dir,
+  "..",
+  "execution",
+  "fixtures",
+  "write-loop-staged-markdown-lint",
+);
 
 /** Durable run row for a branch's blocked plan-draft — the shape a recovery target's linked entry run resolves to. */
 function seedBlockedPlanDraftRun(
@@ -125,6 +140,57 @@ function planReviewStep(args: { worktreePath: string; durable: string; branch: s
   } as unknown as AnyWorkflowStep;
 }
 
+function realPlanReviewStep(args: {
+  worktreePath: string;
+  stage: string;
+  durable: string;
+  branch: string;
+}): ReviewWorkflowStep {
+  return {
+    behavior: "review",
+    stepId: "plan-review",
+    project: "demo",
+    branch: args.branch,
+    cwd: args.worktreePath,
+    prompt: "",
+    verdictPath: join(args.stage, "verdict-plan.md"),
+    maxCycles: 1,
+    agents: { critic: ["claude"], actuator: ["codex"] },
+    agentModelConfig: PLAN_REVIEW_CONFIG,
+    profile: planReviewPromptProfile,
+    profileContext: { specPath: args.stage, worktreePath: args.worktreePath },
+    landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: args.durable },
+    createBinding: ({ agentId }) => ({
+      id: agentId,
+      metadata: { agent: agentId, model: agentId },
+      invoke: async () => ({
+        kind: "ok" as const,
+        stdout: agentId === "claude" ? "Looks good" : "done",
+        stderr: "",
+      }),
+    }),
+  };
+}
+
+function createPlanWorktree(prefix: string): string {
+  const worktreePath = mkdtempSync(join(tmpdir(), prefix));
+  execFileSync("git", ["init", "-q"], { cwd: worktreePath });
+  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: worktreePath });
+  execFileSync("git", ["config", "user.name", "Test"], { cwd: worktreePath });
+  execFileSync("git", ["commit", "--allow-empty", "-qm", "base"], { cwd: worktreePath });
+  return worktreePath;
+}
+
+function writeCorrectedPlanStage(stage: string): string {
+  const subspecFile = "00-first.md";
+  const correctedBody = readFileSync(join(RECOVERY_MD_LINT_FIXTURES, "plan-md012-clean-subspec.md"), "utf8");
+  mkdirSync(stage, { recursive: true });
+  writeFileSync(join(stage, "intent.md"), "---\nname: test\n---\n", "utf8");
+  writeFileSync(join(stage, "index.md"), `# Index\n\n- [ ] [One](./${subspecFile})\n`, "utf8");
+  writeFileSync(join(stage, subspecFile), correctedBody, "utf8");
+  return correctedBody;
+}
+
 function completeOutcome(entryRunId: string) {
   return {
     ok: true as const,
@@ -161,6 +227,104 @@ afterEach(async () => {
   }
 });
 
+test("pipeline_recover admits and lands a corrected non-first fan-out branch without redrafting", async () => {
+  const worktreePath = createPlanWorktree("jarvis-pipeline-recover-branch-b-");
+  const stage = join(worktreePath, ".jarvis-plan-stage");
+  const correctedBody = writeCorrectedPlanStage(stage);
+  const specPath = "spec/2026-recover-branch-b";
+  const durable = join(worktreePath, specPath);
+  const branch = "plan/recover-branch-b";
+  const entryRunId = seedBlockedPlanDraftRun(stateStore, {
+    project: "demo",
+    branch,
+    worktreePath,
+    specPath,
+    stepId: "plan",
+    invocationId: "recover-branch-b-inv",
+  });
+  const pipelineId = seedFanOutPipeline(stateStore, { targetBranchKey: "branch-b", entryRunId });
+  const before = stateStore.loadPipeline(pipelineId);
+  const siblingRowsBefore = before?.stages.filter(
+    (stageRow) => stageRow.branchKey === "branch-a" || stageRow.branchKey === "branch-c",
+  );
+
+  const draftAgentInvocations: string[] = [];
+  const dispatchCalls: AnyWorkflowStep[][] = [];
+  let settleAttempt!: () => void;
+  const attemptSettled = new Promise<void>((resolve) => {
+    settleAttempt = resolve;
+  });
+  const recoverHandlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    pipelineDispatch: async (steps) => {
+      dispatchCalls.push(steps);
+      return { ok: true, entryRunId: "unexpected-run", invocationId: "unexpected-inv" };
+    },
+    pipelineWait: async () => "completed",
+    recoveryAttempt: async (request) => {
+      try {
+        return await recoverPlanStage(request);
+      } finally {
+        settleAttempt();
+      }
+    },
+    resolveStage: async () => ({
+      ok: true,
+      results: BRANCH_KEYS.map((branchKey) => ({
+        steps: [
+          createWriteStep(
+            `plan-${branchKey}`,
+            `plan/${branchKey}`,
+            createBindingFactory(async () => {
+              draftAgentInvocations.push(branchKey);
+              return { kind: "ok", stdout: "done", stderr: "" };
+            }),
+          ),
+          branchKey === "branch-b"
+            ? realPlanReviewStep({ worktreePath, stage, durable, branch })
+            : planReviewStep({
+                worktreePath: `${worktreePath}-${branchKey}`,
+                durable: `${durable}-${branchKey}`,
+                branch: `plan/${branchKey}`,
+              }),
+        ],
+      })),
+    }),
+  });
+
+  const response = await recoverHandlers.pipeline_recover(
+    requestFrame("r", "pipeline_recover", { pipelineId, branchKey: "branch-b" }),
+    new AbortController().signal,
+  );
+
+  expect(response).toEqual({
+    kind: "response",
+    result: { kind: "admitted", pipelineId, branchKey: "branch-b", stageId: "plan", entryRunId },
+  });
+  await attemptSettled;
+  await flushBackgroundRuns(5);
+  expect(recoverHandlers.hasActiveRuns()).toBe(false);
+  expect(draftAgentInvocations).toEqual([]);
+  expect(dispatchCalls).toEqual([]);
+  expect(readFileSync(join(durable, "00-first.md"), "utf8")).toBe(correctedBody);
+
+  const pipeline = stateStore.loadPipeline(pipelineId);
+  const planRow = pipeline?.stages.find((stageRow) => stageRow.stageId === "plan" && stageRow.branchKey === "branch-b");
+  expect(planRow?.status).toBe("succeeded");
+  expect(planRow?.workflowInvocationId).toBe(entryRunId);
+  const approvePlanRow = pipeline?.stages.find(
+    (stageRow) => stageRow.stageId === "approve-plan" && stageRow.branchKey === "branch-b",
+  );
+  expect(approvePlanRow?.status).toBe("awaiting");
+  const siblingRowsAfter = pipeline?.stages.filter(
+    (stageRow) => stageRow.branchKey === "branch-a" || stageRow.branchKey === "branch-c",
+  );
+  expect(siblingRowsAfter).toEqual(siblingRowsBefore);
+});
+
 test("pipeline_recover admits one branch and advances it without redrafting", async () => {
   const draftAgentInvocations: string[] = [];
   const worktreePath = "/fake/worktree/branch-a";
@@ -191,17 +355,19 @@ test("pipeline_recover admits one branch and advances it without redrafting", as
     wait: async () => "completed",
     resolveStage: async () => ({
       ok: true,
-      steps: [
-        createWriteStep(
-          "plan",
-          branch,
-          createBindingFactory(async () => {
-            draftAgentInvocations.push("claude");
-            return { kind: "ok", stdout: "done", stderr: "" };
-          }),
-        ),
-        planReviewStep({ worktreePath, durable, branch }),
-      ],
+      results: BRANCH_KEYS.map(() => ({
+        steps: [
+          createWriteStep(
+            "plan",
+            branch,
+            createBindingFactory(async () => {
+              draftAgentInvocations.push("claude");
+              return { kind: "ok", stdout: "done", stderr: "" };
+            }),
+          ),
+          planReviewStep({ worktreePath, durable, branch }),
+        ],
+      })),
     }),
     attempt: async () => completeOutcome(entryRunId),
   };
@@ -313,10 +479,12 @@ test("pipeline_recover refuses invalid params, an unresolvable target, and a ret
     },
     resolveStage: async () => ({
       ok: true,
-      steps: [
-        createWriteStep("plan", branch),
-        planReviewStep({ worktreePath, durable: join(worktreePath, specPath), branch }),
-      ],
+      results: BRANCH_KEYS.map(() => ({
+        steps: [
+          createWriteStep("plan", branch),
+          planReviewStep({ worktreePath, durable: join(worktreePath, specPath), branch }),
+        ],
+      })),
     }),
   });
 
@@ -354,6 +522,75 @@ test("pipeline_recover refuses invalid params, an unresolvable target, and a ret
   expect(planRowAfterRetiring?.status).toBe("failed");
 });
 
+test("pipeline_recover preserves an operator blocker on the named fan-out branch", async () => {
+  const worktreePath = "/fake/worktree/operator-blocker-branch-b";
+  const branch = "plan/operator-blocker-branch-b";
+  const specPath = "spec/2026-operator-blocker-branch-b";
+  const entryRunId = seedBlockedPlanDraftRun(stateStore, {
+    project: "demo",
+    branch,
+    worktreePath,
+    specPath,
+    stepId: "plan",
+    invocationId: "operator-blocker-branch-b-inv",
+  });
+  const pipelineId = seedFanOutPipeline(stateStore, { targetBranchKey: "branch-b", entryRunId });
+  const before = stateStore.loadPipeline(pipelineId);
+  const siblingRowsBefore = before?.stages.filter(
+    (stageRow) => stageRow.branchKey === "branch-a" || stageRow.branchKey === "branch-c",
+  );
+  const dispatchCalls: AnyWorkflowStep[][] = [];
+  const blockerHandlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    pipelineDispatch: async (steps) => {
+      dispatchCalls.push(steps);
+      return { ok: true, entryRunId: "unexpected-run", invocationId: "unexpected-inv" };
+    },
+    pipelineWait: async () => "completed",
+    resolveStage: async () => ({
+      ok: true,
+      results: BRANCH_KEYS.map(() => ({
+        steps: [
+          createWriteStep("plan", branch),
+          planReviewStep({ worktreePath, durable: join(worktreePath, specPath), branch }),
+        ],
+      })),
+    }),
+    recoveryAttempt: async () => ({
+      ok: false,
+      code: "operator_blocker",
+      message: "staged plan carries an operator-authored blocker",
+    }),
+  });
+
+  const response = await blockerHandlers.pipeline_recover(
+    requestFrame("r", "pipeline_recover", { pipelineId, branchKey: "branch-b" }),
+    new AbortController().signal,
+  );
+  expect(response).toEqual({
+    kind: "response",
+    result: { kind: "admitted", pipelineId, branchKey: "branch-b", stageId: "plan", entryRunId },
+  });
+  await flushBackgroundRuns(5);
+
+  const pipeline = stateStore.loadPipeline(pipelineId);
+  const planRow = pipeline?.stages.find((stageRow) => stageRow.stageId === "plan" && stageRow.branchKey === "branch-b");
+  expect(planRow?.status).toBe("failed");
+  expect(planRow?.workflowInvocationId).toBe(entryRunId);
+  expect(planRow?.failureDetail).toEqual({
+    code: "operator_blocker",
+    message: "staged plan carries an operator-authored blocker",
+  });
+  expect(dispatchCalls).toEqual([]);
+  const siblingRowsAfter = pipeline?.stages.filter(
+    (stageRow) => stageRow.branchKey === "branch-a" || stageRow.branchKey === "branch-c",
+  );
+  expect(siblingRowsAfter).toEqual(siblingRowsBefore);
+});
+
 test("a retiring daemon waits for an in-flight detached recovery", async () => {
   const worktreePath = "/fake/worktree/branch-a";
   const branch = "plan/wait-recovery";
@@ -382,10 +619,12 @@ test("a retiring daemon waits for an in-flight detached recovery", async () => {
     recoveryAttempt,
     resolveStage: async () => ({
       ok: true,
-      steps: [
-        createWriteStep("plan", branch),
-        planReviewStep({ worktreePath, durable: join(worktreePath, specPath), branch }),
-      ],
+      results: BRANCH_KEYS.map(() => ({
+        steps: [
+          createWriteStep("plan", branch),
+          planReviewStep({ worktreePath, durable: join(worktreePath, specPath), branch }),
+        ],
+      })),
     }),
   });
 

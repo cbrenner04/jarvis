@@ -101,6 +101,10 @@ function stubResolveSteps(steps: AnyWorkflowStep[]) {
   return async () => ({ ok: true as const, steps });
 }
 
+function stubResolveFanOut(results: AnyWorkflowStep[][]) {
+  return async () => ({ ok: true as const, results: results.map((steps) => ({ steps })) });
+}
+
 function stubResolveError(error: string) {
   return async () => ({ ok: false as const, error });
 }
@@ -123,6 +127,122 @@ function reviewDebateStep(args: { cwd: string; durablePath: string; branch?: str
 }
 
 describe("resolveBlockedPlanStageRecoveryTarget", () => {
+  test("selects the named non-first fan-out result for plan recovery", async () => {
+    // @mutate v2/src/daemon/pipeline-stage-recovery.ts "resolution.results[branchIndex]?.steps" -> "resolution.results[0]?.steps"
+    const branchKeys = ["branch-a", "branch-b", "branch-c"];
+    const stages: PipelineStageRecord[] = [
+      stageRow({
+        stageId: "intent",
+        branchKey: "default",
+        position: 0,
+        status: "succeeded",
+        workflowInvocationId: "run-intent",
+        artifact: {
+          entryRunId: "run-intent",
+          specPath: "ready-intents/index.md",
+          downstreamInputs: branchKeys.map((key) => `ready-intents/${key}.md`),
+        },
+      }),
+      ...branchKeys.flatMap((branchKey) => [
+        stageRow({ stageId: "approve-intent", branchKey, position: 1, status: "approved" }),
+        stageRow({
+          stageId: "plan",
+          branchKey,
+          position: 2,
+          status: branchKey === "branch-b" ? "failed" : "pending",
+          workflowInvocationId: branchKey === "branch-b" ? "run-plan-b" : null,
+        }),
+      ]),
+    ];
+    const entryRun: Partial<Run> = {
+      project: "demo",
+      branch: "plan/branch-b",
+      worktreePath: "/worktrees/demo/plan/branch-b",
+      specPath: "specs/demo/plan/branch-b-plan.md",
+      stepId: "plan",
+    };
+    const store = makeStore({ [PIPELINE_ID]: makePipeline(FAN_OUT_DEFINITION, stages) }, { "run-plan-b": entryRun });
+    const writeSteps = branchKeys.map(
+      (branchKey) => ({ behavior: "write", stepId: `plan-${branchKey}` }) as unknown as AnyWorkflowStep,
+    );
+    const reviewSteps = branchKeys.map((branchKey) =>
+      reviewDebateStep({
+        cwd: `/worktrees/demo/plan/${branchKey}`,
+        durablePath: `/fresh/${branchKey}`,
+        branch: `plan/${branchKey}`,
+      }),
+    );
+
+    const result = await resolveBlockedPlanStageRecoveryTarget(
+      { pipelineId: PIPELINE_ID, branchKey: "branch-b" },
+      {
+        store,
+        resolveStage: stubResolveFanOut(
+          branchKeys.map((_, index) => [writeSteps[index] as AnyWorkflowStep, reviewSteps[index] as AnyWorkflowStep]),
+        ),
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected an admitted recovery target");
+    expect(result.target.runId).toBe("run-plan-b");
+    expect(result.target.steps).toHaveLength(1);
+    expect(result.target.steps[0]?.stepId).toBe("review-debate");
+    expect((result.target.steps[0] as ReviewDebateWorkflowStep).branch).toBe("plan/branch-b");
+    expect((result.target.steps[0] as ReviewDebateWorkflowStep).cwd).toBe(entryRun.worktreePath as string);
+    expect((result.target.steps[0] as ReviewDebateWorkflowStep).landing).toMatchObject({
+      kind: "plan-tree",
+      durablePath: entryRun.specPath,
+    });
+    expect(result.target.steps).not.toContain(writeSteps[1]);
+    expect(result.target.steps).not.toContain(reviewSteps[0]);
+    expect(result.target.steps).not.toContain(reviewSteps[2]);
+  });
+
+  test("refuses fan-out recovery when the named branch has no paired result", async () => {
+    // @mutate v2/src/daemon/pipeline-stage-recovery.ts "if (resolvedSteps === undefined) {" -> "if (false) {"
+    const stages: PipelineStageRecord[] = [
+      stageRow({
+        stageId: "intent",
+        branchKey: "default",
+        position: 0,
+        status: "succeeded",
+        workflowInvocationId: "run-intent",
+        artifact: {
+          entryRunId: "run-intent",
+          specPath: "ready-intents/index.md",
+          downstreamInputs: ["ready-intents/branch-a.md", "ready-intents/branch-b.md", "ready-intents/branch-c.md"],
+        },
+      }),
+      stageRow({ stageId: "approve-intent", branchKey: "branch-c", position: 1, status: "approved" }),
+      stageRow({
+        stageId: "plan",
+        branchKey: "branch-c",
+        position: 2,
+        status: "failed",
+        workflowInvocationId: "run-plan-c",
+      }),
+    ];
+    const entryRun: Partial<Run> = {
+      project: "demo",
+      branch: "plan/branch-c",
+      worktreePath: "/worktrees/demo/plan/branch-c",
+      specPath: "specs/demo/plan/branch-c-plan.md",
+      stepId: "plan",
+    };
+
+    const result = await resolveBlockedPlanStageRecoveryTarget(
+      { pipelineId: PIPELINE_ID, branchKey: "branch-c" },
+      {
+        store: makeStore({ [PIPELINE_ID]: makePipeline(FAN_OUT_DEFINITION, stages) }, { "run-plan-c": entryRun }),
+        resolveStage: stubResolveFanOut([[WRITE_STEP], [WRITE_STEP]]),
+      },
+    );
+
+    expect(result).toEqual(expect.objectContaining({ ok: false, reason: "stage_resolution_failed" }));
+    expect("target" in result).toBe(false);
+  });
+
   test("resolves a branch blocked plan stage into a recovery request pinned to the linked run", async () => {
     // Fan-out pipeline: intent splits into branch-a/branch-b; branch-a's plan stage failed.
     const fanOutStages: PipelineStageRecord[] = [
@@ -162,13 +282,23 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
       { pipelineId: PIPELINE_ID, branchKey: "branch-a" },
       {
         store: fanOutStore,
-        resolveStage: stubResolveSteps([
-          WRITE_STEP,
-          reviewDebateStep({
-            cwd: fanOutEntryRun.worktreePath as string,
-            durablePath: staleDurablePath,
-            branch: "plan/branch-a",
-          }),
+        resolveStage: stubResolveFanOut([
+          [
+            WRITE_STEP,
+            reviewDebateStep({
+              cwd: fanOutEntryRun.worktreePath as string,
+              durablePath: staleDurablePath,
+              branch: "plan/branch-a",
+            }),
+          ],
+          [
+            WRITE_STEP,
+            reviewDebateStep({
+              cwd: "/worktrees/demo/plan/branch-b",
+              durablePath: "/stale/branch-b",
+              branch: "plan/branch-b",
+            }),
+          ],
         ]),
       },
     );
@@ -398,7 +528,11 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
         resolveStage: stubResolveError("pipeline-stage-resolve: boom"),
       },
     );
-    expect(resolutionFailedResult).toEqual(expect.objectContaining({ ok: false, reason: "stage_resolution_failed" }));
+    expect(resolutionFailedResult).toEqual({
+      ok: false,
+      reason: "stage_resolution_failed",
+      message: "pipeline-stage-resolve: boom",
+    });
 
     // A `review: "none"` plan stage: re-resolution lands only the write step, no review step.
     const noReviewResult = await resolveBlockedPlanStageRecoveryTarget(
@@ -430,7 +564,7 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
     // @mutate v2/src/daemon/pipeline-stage-recovery.ts "if (!failed) {" -> "if (false) {"
     // @mutate v2/src/daemon/pipeline-stage-recovery.ts "if (stage.workflow !== \"plan\") {" -> "if (false) {"
     // @mutate v2/src/daemon/pipeline-stage-recovery.ts "if (entryRunId === null || entryRun === null || !entryRun.stepId) {" -> "if (false) {"
-    // @mutate v2/src/daemon/pipeline-stage-recovery.ts "if (!resolution.ok || isFanOutStageResolution(resolution)) {" -> "if (false) {"
+    // @mutate v2/src/daemon/pipeline-stage-recovery.ts "if (resolution.ok === false) {" -> "if (false) {"
     // @mutate v2/src/daemon/pipeline-stage-recovery.ts "if (reviewStep === undefined) {" -> "if (false) {"
     // @mutate v2/src/daemon/pipeline-stage-recovery.ts "if (reviewStep.cwd !== entryRun.worktreePath) {" -> "if (false) {"
   });
@@ -685,10 +819,23 @@ describe("recoverPipelineBranchStage", () => {
       wait,
       resolveStage: async () => ({
         ok: true,
-        steps: [
-          planWriteStep({ branch, worktreePath, specPath }, draftAgentInvocations),
-          planReviewStep({ worktreePath, stage, durable, branch }),
-        ],
+        results: BRANCH_KEYS.map((branchKey) => ({
+          steps:
+            branchKey === args.targetBranchKey
+              ? [
+                  planWriteStep({ branch, worktreePath, specPath }, draftAgentInvocations),
+                  planReviewStep({ worktreePath, stage, durable, branch }),
+                ]
+              : [
+                  { behavior: "write", stepId: `plan-${branchKey}` } as unknown as AnyWorkflowStep,
+                  planReviewStep({
+                    worktreePath: `${worktreePath}-${branchKey}`,
+                    stage: `${stage}-${branchKey}`,
+                    durable: `${durable}-${branchKey}`,
+                    branch: `plan/${branchKey}`,
+                  }),
+                ],
+        })),
       }),
       logSink,
     };
@@ -706,16 +853,20 @@ describe("recoverPipelineBranchStage", () => {
     };
   }
 
-  test("recovers a corrected branch plan stage through publication and advances only that branch", async () => {
+  test("recovers a corrected non-first fan-out branch and leaves siblings unchanged", async () => {
     await withStateStore(async (store) => {
       const setup = setUpRealRecoveryFixture(store, {
         prefix: "recover-branch-keystone",
-        targetBranchKey: "branch-a",
+        targetBranchKey: "branch-b",
         correct: true,
       });
+      const before = store.loadPipeline(setup.pipelineId);
+      const siblingRowsBefore = before?.stages.filter(
+        (stage) => stage.branchKey === "branch-a" || stage.branchKey === "branch-c",
+      );
 
       const outcome = await recoverPipelineBranchStage(
-        { pipelineId: setup.pipelineId, branchKey: "branch-a" },
+        { pipelineId: setup.pipelineId, branchKey: "branch-b" },
         setup.deps,
       );
 
@@ -729,7 +880,7 @@ describe("recoverPipelineBranchStage", () => {
       expect(readFileSync(join(setup.durable, "intent.md"), "utf8")).not.toContain("## Blocker");
 
       const pipeline = store.loadPipeline(setup.pipelineId);
-      const planRow = pipeline?.stages.find((s) => s.stageId === "plan" && s.branchKey === "branch-a");
+      const planRow = pipeline?.stages.find((s) => s.stageId === "plan" && s.branchKey === "branch-b");
       expect(planRow?.status).toBe("succeeded");
       expect(planRow?.workflowInvocationId).toBe(setup.entryRunId);
       const artifact = planRow?.artifact as { entryRunId: string; specPath: string } | null;
@@ -738,11 +889,15 @@ describe("recoverPipelineBranchStage", () => {
       expect(artifact !== null && "prNumber" in artifact).toBe(false);
       expect(artifact !== null && "prUrl" in artifact).toBe(false);
 
-      // Continuation moves only branch-a's own next gate; no downstream workflow stage dispatches.
-      const approvePlanRow = pipeline?.stages.find((s) => s.stageId === "approve-plan" && s.branchKey === "branch-a");
+      // Continuation moves only branch-b's own next gate; no downstream workflow stage dispatches.
+      const approvePlanRow = pipeline?.stages.find((s) => s.stageId === "approve-plan" && s.branchKey === "branch-b");
       expect(approvePlanRow?.status).toBe("awaiting");
-      const implementRow = pipeline?.stages.find((s) => s.stageId === "implement" && s.branchKey === "branch-a");
+      const implementRow = pipeline?.stages.find((s) => s.stageId === "implement" && s.branchKey === "branch-b");
       expect(implementRow?.status).toBe("pending");
+      const siblingRowsAfter = pipeline?.stages.filter(
+        (stage) => stage.branchKey === "branch-a" || stage.branchKey === "branch-c",
+      );
+      expect(siblingRowsAfter).toEqual(siblingRowsBefore);
 
       // Continue-only-on-success checkpoint: skipping continuation on a successful settlement
       // leaves approve-plan `pending` instead of `awaiting` — must go RED.
@@ -777,10 +932,12 @@ describe("recoverPipelineBranchStage", () => {
         wait: async () => "completed",
         resolveStage: async () => ({
           ok: true,
-          steps: [
-            { behavior: "write", stepId: "plan" } as unknown as AnyWorkflowStep,
-            planReviewStep({ worktreePath, stage, durable, branch }),
-          ],
+          results: BRANCH_KEYS.map(() => ({
+            steps: [
+              { behavior: "write", stepId: "plan" } as unknown as AnyWorkflowStep,
+              planReviewStep({ worktreePath, stage, durable, branch }),
+            ],
+          })),
         }),
         attempt: async () => ({
           ok: true,
@@ -905,6 +1062,51 @@ describe("recoverPipelineBranchStage", () => {
     });
   });
 
+  test("operator blocker leaves the named fan-out branch failed", async () => {
+    await withStateStore(async (store) => {
+      const setup = setUpRealRecoveryFixture(store, {
+        prefix: "recover-branch-operator-blocker",
+        targetBranchKey: "branch-b",
+        correct: true,
+      });
+      const before = store.loadPipeline(setup.pipelineId);
+      const siblingRowsBefore = before?.stages.filter(
+        (stage) => stage.branchKey === "branch-a" || stage.branchKey === "branch-c",
+      );
+
+      const outcome = await recoverPipelineBranchStage(
+        { pipelineId: setup.pipelineId, branchKey: "branch-b" },
+        {
+          ...setup.deps,
+          attempt: async () => ({
+            ok: false,
+            code: "operator_blocker",
+            message: "staged plan carries an operator-authored blocker",
+          }),
+        },
+      );
+
+      expect(outcome.kind).toBe("not_recovered");
+      if (outcome.kind !== "not_recovered") throw new Error("expected not_recovered");
+      expect(outcome.failureDetail).toEqual({
+        code: "operator_blocker",
+        message: "staged plan carries an operator-authored blocker",
+      });
+      expect(setup.dispatchCalls).toEqual([]);
+      expect(setup.draftAgentInvocations).toEqual([]);
+
+      const pipeline = store.loadPipeline(setup.pipelineId);
+      const planRow = pipeline?.stages.find((stage) => stage.stageId === "plan" && stage.branchKey === "branch-b");
+      expect(planRow?.status).toBe("failed");
+      expect(planRow?.workflowInvocationId).toBe(setup.entryRunId);
+      expect(planRow?.failureDetail).toEqual(outcome.failureDetail);
+      const siblingRowsAfter = pipeline?.stages.filter(
+        (stage) => stage.branchKey === "branch-a" || stage.branchKey === "branch-c",
+      );
+      expect(siblingRowsAfter).toEqual(siblingRowsBefore);
+    });
+  });
+
   test("recovery refuses a stage whose admission claim is held", async () => {
     await withStateStore(async (store) => {
       const worktreePath = "/fake/worktree/branch-a";
@@ -937,10 +1139,12 @@ describe("recoverPipelineBranchStage", () => {
         wait: async () => "completed",
         resolveStage: async () => ({
           ok: true,
-          steps: [
-            { behavior: "write", stepId: "plan" } as unknown as AnyWorkflowStep,
-            planReviewStep({ worktreePath, stage, durable, branch }),
-          ],
+          results: BRANCH_KEYS.map(() => ({
+            steps: [
+              { behavior: "write", stepId: "plan" } as unknown as AnyWorkflowStep,
+              planReviewStep({ worktreePath, stage, durable, branch }),
+            ],
+          })),
         }),
         attempt: async () => {
           throw new Error("recovery attempt must not run while the stage admission claim is held");

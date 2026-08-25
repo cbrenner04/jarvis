@@ -150,17 +150,33 @@ export async function resolveBlockedPlanStageRecoveryTarget(
     ...(split !== null ? { splitPosition: split.splitPosition } : {}),
   });
 
-  if (!resolution.ok || isFanOutStageResolution(resolution)) {
+  if (resolution.ok === false) {
     return {
       ok: false,
       reason: "stage_resolution_failed",
-      message: !resolution.ok ? resolution.error : "pipeline-stage-recovery: fan-out resolution is not recoverable",
+      message: resolution.error,
     };
   }
 
-  // Drop the leading write step (subspec `00`'s "minus the leading write step" decision — recovery
-  // never re-runs it) and fail safe if the resolution is ever off-shape enough to have none.
-  const [, ...remainingSteps] = singleStageResolutionSteps(resolution);
+  const branchIndex = split?.branchKeys.indexOf(branchKey) ?? -1;
+  const resolvedSteps =
+    branchKey === "default"
+      ? isFanOutStageResolution(resolution)
+        ? undefined
+        : singleStageResolutionSteps(resolution)
+      : isFanOutStageResolution(resolution)
+        ? resolution.results[branchIndex]?.steps
+        : undefined;
+  if (resolvedSteps === undefined) {
+    return {
+      ok: false,
+      reason: "stage_resolution_failed",
+      message: `pipeline-stage-recovery: branch "${branchKey}" has no paired stage resolution`,
+    };
+  }
+
+  // Recovery never re-runs the leading write step.
+  const [, ...remainingSteps] = resolvedSteps;
   const reviewStep = remainingSteps.find(isPlanTreeReviewStep);
   if (reviewStep === undefined) {
     return {

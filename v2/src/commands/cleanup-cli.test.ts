@@ -178,11 +178,13 @@ async function makeScopedCleanupFixture(label: string): Promise<ScopedCleanupFix
     const projectRoot = join(root, project);
     mkdirSync(projectRoot, { recursive: true });
     await realAsyncSubprocessRunner.runAsync("git", ["init"], projectRoot);
-    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.email", "t@t.com"], projectRoot);
-    await realAsyncSubprocessRunner.runAsync("git", ["config", "user.name", "T"], projectRoot);
     writeFileSync(join(projectRoot, "README.md"), "# Test\n");
     await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
-    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "Initial"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["-c", "user.email=t@t.com", "-c", "user.name=T", "commit", "-m", "Initial"],
+      projectRoot,
+    );
     const branch = `${project}-merged`;
     await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
     const worktree = join(jarvisRoot, "worktrees", project, branch);
@@ -205,7 +207,8 @@ async function makeScopedCleanupFixture(label: string): Promise<ScopedCleanupFix
       if (cmd === "gh" && args[0] === "pr" && args[1] === "list") {
         if (args.includes("--state") && args[args.indexOf("--state") + 1] === "open") return "[]";
         const branch = args[args.indexOf("--head") + 1];
-        const oid = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch!], cwd)).trim();
+        if (branch === undefined) throw new Error("missing --head branch");
+        const oid = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", branch], cwd)).trim();
         return JSON.stringify([{ number: 1, state: "MERGED", mergedAt: "2026-01-01T00:00:00Z", headRefOid: oid }]);
       }
       return realAsyncSubprocessRunner.runAsync(cmd, args, cwd, options);
@@ -292,7 +295,7 @@ async function withScopedCleanupFixture(
 
 describe("named cleanup project scope", () => {
   test("named cleanup scopes project-owned preview and apply to one registered project", async () => {
-    // @mutate v2/src/commands/cleanup-cli.ts "const cleanupRegistry = projectName === undefined ? registry : { [projectName]: registry[projectName]! };" -> "const cleanupRegistry = registry;"
+    // @mutate v2/src/commands/cleanup-cli.ts ": Object.fromEntries(Object.entries(registry).filter(([name]) => name === projectName));" -> ": registry;"
     for (const scenario of [
       { name: "dry-run", argv: ["selected", "--dry-run"], apply: false, interactive: false },
       { name: "interactive", argv: ["selected"], apply: true, interactive: true },
@@ -404,11 +407,13 @@ describe("named cleanup project scope", () => {
     try {
       mkdirSync(selectedRoot, { recursive: true });
       await realAsyncSubprocessRunner.runAsync("git", ["init"], selectedRoot);
-      await realAsyncSubprocessRunner.runAsync("git", ["config", "user.email", "t@t.com"], selectedRoot);
-      await realAsyncSubprocessRunner.runAsync("git", ["config", "user.name", "T"], selectedRoot);
       writeFileSync(join(selectedRoot, "README.md"), "# Test\n");
       await realAsyncSubprocessRunner.runAsync("git", ["add", "."], selectedRoot);
-      await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "Initial"], selectedRoot);
+      await realAsyncSubprocessRunner.runAsync(
+        "git",
+        ["-c", "user.email=t@t.com", "-c", "user.name=T", "commit", "-m", "Initial"],
+        selectedRoot,
+      );
       const branch = "shared-merged";
       await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], selectedRoot);
       await realAsyncSubprocessRunner.runAsync("git", ["branch", "other-root"], selectedRoot);

@@ -107,7 +107,10 @@ export async function runCleanupCliCommand(argv: readonly string[], io: Io, deps
     io.stderr(`Unknown project: ${projectName}\n`);
     return 1;
   }
-  const cleanupRegistry = projectName === undefined ? registry : { [projectName]: registry[projectName]! };
+  const cleanupRegistry =
+    projectName === undefined
+      ? registry
+      : Object.fromEntries(Object.entries(registry).filter(([name]) => name === projectName));
   const options = dryRun
     ? { dryRun: true }
     : { promptConfirm: yes ? async () => true : (deps.promptConfirm ?? createPromptFunction()) };

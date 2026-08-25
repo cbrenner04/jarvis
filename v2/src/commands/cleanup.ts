@@ -491,7 +491,8 @@ export async function discoverMergedBranchRefCandidates(
   for (const { roots } of repoProjects.values()) {
     const scopedProject = [...roots.keys()].find((project) => Object.hasOwn(registry, project));
     if (scopedProject === undefined) continue;
-    const root = roots.get(scopedProject)!;
+    const root = roots.get(scopedProject);
+    if (root === undefined) continue;
     const ownerProjects = [...roots.keys()];
     for (const projectRoot of roots.values()) {
       ownerProjectsByRepositoryRoot.set(projectRoot, ownerProjects);

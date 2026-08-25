@@ -406,6 +406,11 @@ export function normalizePlanDraftSpecDir(specDir: string): void {
     const unsatisfiable = findUnsatisfiableKeystoneCriteria(draft.body);
     const finding = unsatisfiable[0];
     if (finding !== undefined) {
+      if (finding.reason === "unrecognized_test_file") {
+        throw new Error(
+          `Plan subspec ${draft.file} has an unsatisfiable keystone criterion because its filename does not match a recognized test-file pattern: ${finding.firstLine}`,
+        );
+      }
       throw new Error(`Plan subspec ${draft.file} has an unsatisfiable keystone criterion: ${finding.firstLine}`);
     }
   }

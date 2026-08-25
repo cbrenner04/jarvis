@@ -66,6 +66,14 @@ describe("plan review premise-falsification pass", () => {
     expect(renderPlanReviewDebateRolePrompt("adversary", context)).not.toContain(PREMISE_SIGNAL);
   });
 
+  test("recognizes a Swift checkpoint test reference as reachability evidence", () => {
+    const criterion =
+      "- [ ] `ChessPracticeTests/RootContentTests.swift` — `rejects duplicate root content`; duplicate root content may never be admitted.";
+    const markdown = ["# Spec", "", "## Acceptance criteria", "", criterion, ""].join("\n");
+
+    expect(detectUnfalsifiablePremisesInMarkdown(markdown)).toEqual([]);
+  });
+
   test("does not flag ordinary behavioral criteria that contain must not without invariant framing", () => {
     const markdown = ["# Spec", "", "## Acceptance criteria", "", ORDINARY_MUST_NOT, ""].join("\n");
     expect(detectUnfalsifiablePremisesInMarkdown(markdown)).toEqual([]);

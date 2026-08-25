@@ -217,6 +217,27 @@ describe("pinningTestReferenceFromCriterion", () => {
 });
 
 describe("verifyMutationCheckpoints", () => {
+  test("a Swift pin resolves at completion", async () => {
+    const root = makeWorktree();
+    const pinFile = "ChessPracticeTests/RootContentTests.swift";
+    const pinTitle = "rejects duplicate root content";
+    writeAt(root, "v2/src/guard.ts", GUARD_SOURCE);
+    writeAt(
+      root,
+      pinFile,
+      [`test("${pinTitle}", () => {`, '  // @mutate v2/src/guard.ts "a > 0" -> "a >= 0"', "});"].join("\n"),
+    );
+    const criterion = `\`${pinFile}\` — \`${pinTitle}\`; Mutation checkpoint: changing the guard turns red.`;
+    const subspec = writeAt(root, "spec/00.md", subspecWithCriteria([`- [x] ${criterion}`]));
+
+    expect(pinningTestReferenceFromCriterion(criterion)).toBe(pinFile);
+    const report = await verifyMutationCheckpoints(root, subspec, { runScopedTests: scopedRunner(false).run });
+
+    expectSingleCatch(report);
+    expect(report.openedPinningFiles).toEqual([pinFile]);
+    expect(report.unparseable.some((entry) => entry.reason === "unresolved_pinning_test")).toBe(false);
+  });
+
   test("directive-only criteria receive caught and hollow verification", async () => {
     // @mutate shared/mutation-checkpoint-criteria.ts "if (DIRECTIVE_PATTERN.test(block)) return true;" -> "if (false) return true;"
     for (const passes of [true, false]) {

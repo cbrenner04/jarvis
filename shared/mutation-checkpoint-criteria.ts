@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import { parseSpec } from "./spec-parser.ts";
 
 export const CRITERION_MARKER = "Mutation checkpoint:";
@@ -126,7 +127,9 @@ function stripCodeSpans(text: string): string {
   return result;
 }
 
-export type UnsatisfiableKeystoneCriterion = MutationCheckpointCriterion;
+export type UnsatisfiableKeystoneCriterion = MutationCheckpointCriterion & {
+  reason: "malformed" | "unrecognized_test_file";
+};
 
 /**
  * Non-human-only acceptance criteria that self-mark as a keystone checkpoint (`Keystone checkpoint:`
@@ -147,14 +150,27 @@ export function findUnsatisfiableKeystoneCriteria(content: string): Unsatisfiabl
       remainingAdmissible.splice(matchIndex, 1);
       continue;
     }
-    findings.push({ block, firstLine: criterion.text });
+    const canonical = CANONICAL_KEYSTONE_SUFFIX_PATTERN.exec(block);
+    findings.push({
+      block,
+      firstLine: criterion.text,
+      reason: canonical === null ? "malformed" : "unrecognized_test_file",
+    });
   }
   return findings;
 }
 
-function isTestFileReference(token: string): boolean {
-  return /\.test\.[cm]?[jt]sx?$/i.test(token) || token.includes(".test.");
+const LANGUAGE_NEUTRAL_CHECKPOINT_TEST_FILE_PATTERN =
+  /^(?:.*Tests?\.(?:swift|m|kt|java)|.*_test\.(?:go|py|rb)|test_.*\.py|.*_spec\.rb|.*_test\.exs)$/;
+
+/** Fixed basename classifier shared by checkpoint admission, review, and completion. */
+export function isCheckpointTestFileReference(reference: string): boolean {
+  const name = basename(reference);
+  if (/\.test\.[cm]?[jt]sx?$/i.test(name) || name.includes(".test.")) return true;
+  return LANGUAGE_NEUTRAL_CHECKPOINT_TEST_FILE_PATTERN.test(name);
 }
+
+const isTestFileReference = isCheckpointTestFileReference;
 
 /** True when criterion text backtick- or quote-names a plausible pin title beyond pinning file and directive. */
 function criterionNamesPinTitle(block: string): boolean {

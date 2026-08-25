@@ -10,6 +10,7 @@ import {
   spansMultipleModuleBoundaries,
   splitResiduePattern,
 } from "./module-boundary-surfaces.ts";
+import { findUnsatisfiableKeystoneCriteria, selectKeystoneCheckpointCriteria } from "./mutation-checkpoint-criteria.ts";
 
 const PHRASE_FIXTURES = [
   ["The state-store persists run status atomically.", ["persistence"]],
@@ -478,6 +479,30 @@ describe("keystone admissibility at plan draft", () => {
     stageDraft(dir, "00-guard.md", CANONICAL_KEYSTONE);
 
     expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
+  });
+
+  test("a canonical Swift keystone is admitted", () => {
+    const dir = scratchDir("swift");
+    const criterion =
+      "- [ ] `ChessPracticeTests/RootContentTests.swift` — `pins root content`; Keystone checkpoint: restoring baseline behavior makes the scoped test fail.";
+    const sourcePath = stageDraft(dir, "00-guard.md", criterion);
+    const body = readFileSync(sourcePath, "utf8");
+
+    expect(selectKeystoneCheckpointCriteria(body)).toHaveLength(1);
+    expect(findUnsatisfiableKeystoneCriteria(body)).toEqual([]);
+    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
+  });
+
+  test("an unrecognized keystone pin names the filename-pattern mismatch", () => {
+    // @mutate shared/module-boundary-surfaces.ts "if (finding.reason === \"unrecognized_test_file\")" -> "if (finding.reason !== \"unrecognized_test_file\")"
+    const dir = scratchDir("unrecognized-pin");
+    stageDraft(
+      dir,
+      "00-guard.md",
+      "- [ ] `ChessPractice/Sources/RootContent.swift` — `pins root content`; Keystone checkpoint: restoring baseline behavior makes the scoped test fail.",
+    );
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow("filename does not match a recognized test-file pattern");
   });
 
   test("a canonical keystone criterion is admitted alongside a literal @mutate directive", () => {

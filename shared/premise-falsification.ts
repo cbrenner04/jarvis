@@ -1,4 +1,4 @@
-import { acceptanceCriterionBlocks } from "./mutation-checkpoint-criteria.ts";
+import { acceptanceCriterionBlocks, isCheckpointTestFileReference } from "./mutation-checkpoint-criteria.ts";
 import { parseSpec } from "./spec-parser.ts";
 
 export const UNFALSIFIABLE_PREMISES_SECTION = "## Unfalsifiable premises";
@@ -20,12 +20,8 @@ export function isPremiseBearingCriterion(block: string): boolean {
   return /\bmust not\b/i.test(block) && MUST_NOT_INVARIANT.test(block);
 }
 
-function isTestFileReference(token: string): boolean {
-  return /\.test\.[cm]?[jt]sx?$/i.test(token) || token.includes(".test.");
-}
-
 function isProductionPath(token: string): boolean {
-  return /\.(ts|tsx|js|jsx|mjs|cjs)$/i.test(token) && !isTestFileReference(token);
+  return /\.(ts|tsx|js|jsx|mjs|cjs)$/i.test(token) && !isCheckpointTestFileReference(token);
 }
 
 function hasReachabilityPhrase(block: string): boolean {
@@ -33,14 +29,14 @@ function hasReachabilityPhrase(block: string): boolean {
 }
 
 function testPathNamesFailureScenario(block: string, token: string): boolean {
-  if (!isTestFileReference(token)) return false;
+  if (!isCheckpointTestFileReference(token)) return false;
   const backtickTokens = [...block.matchAll(/`([^`]+)`/g)].map((match) => match[1] ?? "");
   for (const candidate of backtickTokens) {
-    if (candidate === token || isTestFileReference(candidate)) continue;
+    if (candidate === token || isCheckpointTestFileReference(candidate)) continue;
     if (candidate.trim().length > 0) return true;
   }
   const quoteTokens = [...block.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((match) => match[1] ?? "");
-  return quoteTokens.some((candidate) => candidate.trim().length > 0 && !isTestFileReference(candidate));
+  return quoteTokens.some((candidate) => candidate.trim().length > 0 && !isCheckpointTestFileReference(candidate));
 }
 
 function productionPathHasViolationHook(block: string, token: string): boolean {

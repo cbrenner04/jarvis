@@ -1,9 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
-import { buildAttentionRows } from "./tui-attention-rows.ts";
+import { ATTENTION_TERMINAL_RECENCY_MS, buildAttentionRows } from "./tui-attention-rows.ts";
 import type { PipelineListResult } from "./tui-daemon-client.ts";
 import { monitorPipelineStageNodeId, pipelineRowLabel } from "./tui-monitor-pipeline-tree.ts";
+
+// Fixture sinceMs values in this file are small offsets, not real epoch ms; this clock keeps them
+// all within the recency window without asserting anything about wall-clock time.
+const NOW_MS = 10_000;
 
 function pipelineSnapshot(
   overrides: Partial<PipelineSnapshot> & Pick<PipelineSnapshot, "pipelineId">,
@@ -111,10 +115,12 @@ describe("buildAttentionRows", () => {
     const adHocFailedRun = listRun({ runId: "run-adhoc-fail", status: "failed", finishedAtMs: 2_700 });
 
     // This scenario holds exactly six dated incidents (below the cap), so every incident below is a row.
-    const projection = buildAttentionRows({ socket: socketSnapshots([pipeGates, pipePublished]) }, [
-      attributedFailedRun,
-      adHocFailedRun,
-    ]);
+    const projection = buildAttentionRows(
+      { socket: socketSnapshots([pipeGates, pipePublished]) },
+      [attributedFailedRun, adHocFailedRun],
+      {},
+      NOW_MS,
+    );
 
     expect(projection.total).toBe(6);
     // Keystone checkpoint: an in-body mutation directive disables the complete attention projection.
@@ -168,22 +174,38 @@ describe("buildAttentionRows", () => {
       what: "merge",
     });
 
-    // Legacy blocked run with no durable finish timestamp: sinceMs stays null, not admission/display time.
+    // Legacy blocked run with no durable finish timestamp: sinceMs stays null, so the undated terminal
+    // incident is suppressed rather than surfaced.
     const legacyBlockedRun = listRun({ runId: "run-legacy-blocked", status: "blocked" });
-    const legacyBlockedProjection = buildAttentionRows(undefined, [legacyBlockedRun]);
-    expect(legacyBlockedProjection.rows).toMatchObject([
-      { kind: "blocked-run", targetId: "run-legacy-blocked", sinceMs: null },
-    ]);
+    const legacyBlockedProjection = buildAttentionRows(undefined, [legacyBlockedRun], {}, NOW_MS);
+    expect(legacyBlockedProjection.rows).toEqual([]);
+    expect(legacyBlockedProjection.total).toBe(0);
 
-    // Publication failure with no settled stage: no durable terminal finish, so sinceMs stays null.
-    const legacyPublicationProjection = buildAttentionRows({ socket: socketSnapshots([pipePublishedLegacy]) }, []);
-    expect(legacyPublicationProjection.rows).toMatchObject([{ kind: "publication-failure", sinceMs: null }]);
+    // Publication failure with no settled stage: no durable terminal finish, so sinceMs stays null and
+    // the undated incident is suppressed.
+    const legacyPublicationProjection = buildAttentionRows(
+      { socket: socketSnapshots([pipePublishedLegacy]) },
+      [],
+      {},
+      NOW_MS,
+    );
+    expect(legacyPublicationProjection.rows).toEqual([]);
+    expect(legacyPublicationProjection.total).toBe(0);
   });
 
   test("sorts undated rows after dated attention", () => {
+    // A terminal incident with sinceMs null is suppressed (see the recency-window tests below), so the
+    // undated case here uses an undated gate — the only kind that still projects without a timestamp.
+    const pipeGateDated = pipelineSnapshot({
+      pipelineId: "pipe-gate-dated",
+      stages: [snapshotStage({ stageId: "approve-intent", position: 0, status: "rejected", decidedAt: 1_500 })],
+    });
+    const pipeGateUndated = pipelineSnapshot({
+      pipelineId: "pipe-gate-undated",
+      stages: [snapshotStage({ stageId: "approve-plan", position: 0, status: "awaiting" })],
+    });
+
     const runs: DaemonListRunRow[] = [
-      listRun({ runId: "run-b", status: "failed", finishedAtMs: 1_000 }),
-      listRun({ runId: "run-a", status: "blocked" }),
       listRun({ runId: "run-zzz", status: "failed", finishedAtMs: 2_000 }),
       listRun({ runId: "run-aaa", status: "failed", finishedAtMs: 2_000 }),
       listRun({
@@ -208,15 +230,20 @@ describe("buildAttentionRows", () => {
       }),
     ];
 
-    const projection = buildAttentionRows(undefined, runs);
+    const projection = buildAttentionRows(
+      { socket: socketSnapshots([pipeGateDated, pipeGateUndated]) },
+      runs,
+      {},
+      NOW_MS,
+    );
 
     expect(projection.rows.map((row) => row.id)).toEqual([
-      "attention:failed-run:run-b",
+      "attention:gate:pipe-gate-dated:approve-intent:default",
+      "attention:gate:pipe-gate-undated:approve-plan:default",
       "attention:failed-run:run-aaa",
       "attention:failed-run:run-zzz",
       "attention:failed-run:run-m1",
       "attention:failed-run:run-m2",
-      "attention:blocked-run:run-a",
     ]);
     expect(projection.total).toBe(6);
     expect(projection.overflow).toBe(0);
@@ -235,7 +262,7 @@ describe("buildAttentionRows", () => {
     // @mutate v2/src/tui/tui-attention-rows.ts "return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;" -> "return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;"
   });
 
-  test("filters and caps attention sources", () => {
+  test("filters attention sources", () => {
     // pipe-1: an awaiting gate whose nearest predecessor is itself a decided approval gate.
     const pipe1 = pipelineSnapshot({
       pipelineId: "pipe-1",
@@ -284,7 +311,7 @@ describe("buildAttentionRows", () => {
     });
     pipe2.stages[4] = { ...pipe2.stages[4]!, workflowInvocationId: "inv-2-implement" };
 
-    const blockedRun = listRun({ runId: "run-adhoc-blocked", status: "blocked" });
+    const blockedRun = listRun({ runId: "run-adhoc-blocked", status: "blocked", finishedAtMs: 3_500 });
 
     // Non-actionable statuses: filtered out entirely, never counted toward total.
     const completedRun = listRun({ runId: "run-completed", status: "completed", finishedAtMs: 10 });
@@ -296,13 +323,15 @@ describe("buildAttentionRows", () => {
         b: socketSnapshots([pipe1Stale]),
       },
       [failedRun, blockedRun, completedRun, inProgressRun],
+      {},
+      NOW_MS,
     );
 
     expect(projection.total).toBe(7);
-    expect(projection.rows.length).toBe(6);
-    expect(projection.overflow).toBe(1);
-    // The undated blocked-run incident sorts last and is the one dropped by the cap.
-    expect(projection.rows.map((row) => row.id)).not.toContain("attention:blocked-run:run-adhoc-blocked");
+    expect(projection.rows.length).toBe(7);
+    expect(projection.overflow).toBe(0);
+    // Below the failure cap, so nothing is dropped; the dedicated cap test covers overflow.
+    expect(projection.rows.map((row) => row.id)).toContain("attention:blocked-run:run-adhoc-blocked");
 
     const pipe1Gate = projection.rows.find((row) => row.id === "attention:gate:pipe-1:approve-plan:default");
     expect(pipe1Gate?.sinceMs).toBe(500);
@@ -310,8 +339,8 @@ describe("buildAttentionRows", () => {
     expect(pipe2Gate?.sinceMs).toBe(2_000);
 
     // Mutation checkpoint: in-body mutation directives invert every added source, canonical-source
-    // suppression, predecessor-kind timestamp, terminal-publication durability, filtering, and the cap
-    // guard; each turns this test red.
+    // suppression, predecessor-kind timestamp, terminal-publication durability, and filtering; each
+    // turns this test red.
     // @mutate v2/src/tui/tui-attention-rows.ts "if (stage.status === \"awaiting\") {" -> "if (false) {"
     // @mutate v2/src/tui/tui-attention-rows.ts "} else if (stage.status === \"rejected\") {" -> "} else if (false) {"
     // @mutate v2/src/tui/tui-attention-rows.ts "if (stage.status === \"failed\") {" -> "if (false) {"
@@ -321,7 +350,88 @@ describe("buildAttentionRows", () => {
     // @mutate v2/src/tui/tui-attention-rows.ts "if (seen.has(snapshot.pipelineId)) continue;" -> "if (false) continue;"
     // @mutate v2/src/tui/tui-attention-rows.ts "if (kinds.get(predecessor.stageId) === \"approval\") return predecessor.decidedAt;" -> "return predecessor.endedAt;"
     // @mutate v2/src/tui/tui-attention-rows.ts "return finishAts.length > 0 ? Math.max(...finishAts) : null;" -> "return finishAts.length > 0 ? Math.max(...finishAts) : snapshot.createdAt;"
-    // @mutate v2/src/tui/tui-attention-rows.ts "const rows = incidents.slice(0, ATTENTION_ROW_CAP);" -> "const rows = incidents;"
+  });
+
+  test("every awaiting gate stays selectable when gates exceed the failure cap", () => {
+    const gatePipelines = Array.from({ length: 7 }, (_, i) =>
+      pipelineSnapshot({
+        pipelineId: `pipe-gate-${i}`,
+        stages: [snapshotStage({ stageId: "approve-intent", position: 0, status: "awaiting" })],
+      }),
+    );
+
+    const projection = buildAttentionRows({ socket: socketSnapshots(gatePipelines) }, [], {}, NOW_MS);
+
+    expect(projection.total).toBe(7);
+    expect(projection.rows.length).toBe(7);
+    expect(projection.overflow).toBe(0);
+    for (const pipeline of gatePipelines) {
+      expect(projection.rows.map((row) => row.id)).toContain(
+        `attention:gate:${pipeline.pipelineId}:approve-intent:default`,
+      );
+    }
+    // Keystone checkpoint: an in-body mutation directive restores the pre-fix shared six-row cap.
+    // @mutate v2/src/tui/tui-attention-rows.ts "const rows = [...gates, ...failures.slice(0, ATTENTION_ROW_CAP)];" -> "const rows = incidents.slice(0, ATTENTION_ROW_CAP);"
+  });
+
+  test("the newest awaiting gate sorts ahead of a stale gate backlog", () => {
+    const gatePipelines = Array.from({ length: 7 }, (_, i) =>
+      pipelineSnapshot({
+        pipelineId: `pipe-gate-${i}`,
+        stages: [
+          snapshotStage({ stageId: "intent", position: 0, status: "succeeded", endedAt: (i + 1) * 1_000 }),
+          snapshotStage({ stageId: "approve-intent", position: 1, status: "awaiting" }),
+        ],
+      }),
+    );
+    const newest = gatePipelines[6]!;
+
+    const projection = buildAttentionRows({ socket: socketSnapshots(gatePipelines) }, [], {}, NOW_MS);
+
+    expect(projection.rows[0]?.id).toBe(`attention:gate:${newest.pipelineId}:approve-intent:default`);
+    // Mutation checkpoint: an in-body mutation directive reverting gate orientation turns this test red.
+    // @mutate v2/src/tui/tui-attention-rows.ts "const oriented = GATE_KINDS.has(a.kind) ? -sinceDelta : sinceDelta;" -> "const oriented = sinceDelta;"
+  });
+
+  test("failures still sort oldest-idle-first behind every gate", () => {
+    const gatePipeline = pipelineSnapshot({
+      pipelineId: "pipe-gate-behind",
+      stages: [snapshotStage({ stageId: "approve-intent", position: 0, status: "awaiting" })],
+    });
+    const olderFailure = listRun({ runId: "run-older-fail", status: "failed", finishedAtMs: 1_000 });
+    const newerFailure = listRun({ runId: "run-newer-fail", status: "failed", finishedAtMs: 2_000 });
+
+    const projection = buildAttentionRows(
+      { socket: socketSnapshots([gatePipeline]) },
+      [olderFailure, newerFailure],
+      {},
+      NOW_MS,
+    );
+
+    expect(projection.rows.map((row) => row.id)).toEqual([
+      "attention:gate:pipe-gate-behind:approve-intent:default",
+      "attention:failed-run:run-older-fail",
+      "attention:failed-run:run-newer-fail",
+    ]);
+    // Mutation checkpoint: an in-body mutation directive reorienting failures to newest-first turns
+    // this negative case red.
+    // @mutate v2/src/tui/tui-attention-rows.ts "const oriented = GATE_KINDS.has(a.kind) ? -sinceDelta : sinceDelta;" -> "const oriented = -sinceDelta;"
+  });
+
+  test("failures beyond the cap stay in display-only overflow", () => {
+    const failures = Array.from({ length: 7 }, (_, i) =>
+      listRun({ runId: `run-fail-${i}`, status: "failed", finishedAtMs: (i + 1) * 1_000 }),
+    );
+
+    const projection = buildAttentionRows(undefined, failures, {}, NOW_MS);
+
+    expect(projection.total).toBe(7);
+    expect(projection.rows.length).toBe(6);
+    expect(projection.overflow).toBe(1);
+    // Oldest-idle-first keeps run-fail-0..5; the newest-sorted failure is dropped by the cap.
+    expect(projection.rows.map((row) => row.id)).not.toContain("attention:failed-run:run-fail-6");
+    // Mutation checkpoint: an in-body mutation directive dropping the failure cap turns this test red.
+    // @mutate v2/src/tui/tui-attention-rows.ts "const rows = [...gates, ...failures.slice(0, ATTENTION_ROW_CAP)];" -> "const rows = [...gates, ...failures];"
   });
 
   test("a dismissed pipeline's gate, failed-stage, and publication-failure incidents leave the attention segment", () => {
@@ -348,7 +458,7 @@ describe("buildAttentionRows", () => {
       ],
     });
 
-    const projection = buildAttentionRows({ socket: socketSnapshots([dismissed, live]) }, []);
+    const projection = buildAttentionRows({ socket: socketSnapshots([dismissed, live]) }, [], {}, NOW_MS);
 
     expect(projection.rows.some((row) => row.id.startsWith("attention:gate:pipe-dismissed"))).toBe(false);
     expect(projection.rows.some((row) => row.id.startsWith("attention:stage:pipe-dismissed"))).toBe(false);
@@ -385,7 +495,7 @@ describe("buildAttentionRows", () => {
       },
     });
 
-    const projection = buildAttentionRows({ socket: socketSnapshots([dismissed]) }, [failedRun]);
+    const projection = buildAttentionRows({ socket: socketSnapshots([dismissed]) }, [failedRun], {}, NOW_MS);
 
     expect(projection.rows.some((row) => row.targetId === "run-dismissed-fail")).toBe(false);
     expect(projection.rows.map((row) => row.id)).not.toContain("attention:failed-run:run-dismissed-fail");
@@ -422,7 +532,12 @@ describe("buildAttentionRows", () => {
       stepId: "implement",
     });
 
-    const projection = buildAttentionRows({ socket: socketSnapshots([snapshot]) }, [stageRun, leakedFailedRun]);
+    const projection = buildAttentionRows(
+      { socket: socketSnapshots([snapshot]) },
+      [stageRun, leakedFailedRun],
+      {},
+      NOW_MS,
+    );
     const row = projection.rows.find((candidate) => candidate.id === "attention:failed-run:run-leaked-fail");
 
     expect(row).toBeDefined();
@@ -441,11 +556,97 @@ describe("buildAttentionRows", () => {
       dismissedAt: 1_700_000_800_000,
     });
 
-    const defaultProjection = buildAttentionRows(undefined, [dismissedFailedRun]);
+    const defaultProjection = buildAttentionRows(undefined, [dismissedFailedRun], {}, NOW_MS);
     expect(defaultProjection.rows.some((row) => row.targetId === "run-dismissed-own-attention")).toBe(false);
     expect(defaultProjection.total).toBe(0);
 
-    const shownProjection = buildAttentionRows(undefined, [dismissedFailedRun], { showDismissed: true });
+    const shownProjection = buildAttentionRows(undefined, [dismissedFailedRun], { showDismissed: true }, NOW_MS);
     expect(shownProjection.rows).toMatchObject([{ targetId: "run-dismissed-own-attention" }]);
+  });
+
+  test("a terminal failure older than the recency window is not surfaced", () => {
+    const nowMs = 100_000_000;
+    const staleFailedRun = listRun({
+      runId: "run-stale-fail",
+      status: "failed",
+      finishedAtMs: nowMs - ATTENTION_TERMINAL_RECENCY_MS - 1,
+    });
+
+    const projection = buildAttentionRows(undefined, [staleFailedRun], {}, nowMs);
+
+    expect(projection.rows.some((row) => row.targetId === "run-stale-fail")).toBe(false);
+    expect(projection.total).toBe(0);
+    // Keystone checkpoint: an in-body mutation directive restores baseline always-surface semantics.
+    // @mutate v2/src/tui/tui-attention-rows.ts "if (GATE_KINDS.has(row.kind)) return true;" -> "return true;"
+  });
+
+  test("a terminal failure inside the recency window is still surfaced", () => {
+    const nowMs = 100_000_000;
+    const freshFailedRun = listRun({
+      runId: "run-fresh-fail",
+      status: "failed",
+      finishedAtMs: nowMs - ATTENTION_TERMINAL_RECENCY_MS + 1,
+    });
+
+    const projection = buildAttentionRows(undefined, [freshFailedRun], {}, nowMs);
+
+    expect(projection.rows.map((row) => row.targetId)).toContain("run-fresh-fail");
+    expect(projection.total).toBe(1);
+    // Mutation checkpoint: an in-body mutation directive replaces the window comparison with an
+    // always-stale return, turning this positive case red.
+    // @mutate v2/src/tui/tui-attention-rows.ts "return nowMs - row.sinceMs <= ATTENTION_TERMINAL_RECENCY_MS;" -> "return false;"
+  });
+
+  test("an awaiting or rejected gate is surfaced regardless of age", () => {
+    const nowMs = 2_000_000_000; // ~weeks past the gates' decision/predecessor timestamps below.
+    const ancientGates = pipelineSnapshot({
+      pipelineId: "pipe-ancient-gate",
+      stages: [
+        snapshotStage({ stageId: "intent", position: 0, status: "succeeded", endedAt: 0 }),
+        snapshotStage({ stageId: "approve-intent", position: 1, status: "rejected", decidedAt: 0 }),
+        snapshotStage({ stageId: "approve-plan", position: 2, status: "awaiting" }),
+      ],
+    });
+
+    const projection = buildAttentionRows({ socket: socketSnapshots([ancientGates]) }, [], {}, nowMs);
+
+    expect(projection.rows.map((row) => row.kind).sort()).toEqual(["awaiting-gate", "rejected-gate"]);
+    expect(projection.total).toBe(2);
+    // Mutation checkpoint: an in-body mutation directive inverts the gate bypass, turning this test red.
+    // @mutate v2/src/tui/tui-attention-rows.ts "if (GATE_KINDS.has(row.kind)) return true;" -> "if (GATE_KINDS.has(row.kind)) return false;"
+  });
+
+  test("a terminal incident with no durable timestamp is not surfaced", () => {
+    const nowMs = 100_000_000;
+    const undatedStagePipeline = pipelineSnapshot({
+      pipelineId: "pipe-undated-stage",
+      stages: [snapshotStage({ stageId: "implement", position: 0, status: "failed" })],
+    });
+    const undatedFailedRun = listRun({ runId: "run-undated-fail", status: "failed" });
+
+    const projection = buildAttentionRows(
+      { socket: socketSnapshots([undatedStagePipeline]) },
+      [undatedFailedRun],
+      {},
+      nowMs,
+    );
+
+    expect(projection.rows).toEqual([]);
+    expect(projection.total).toBe(0);
+    // Mutation checkpoint: an in-body mutation directive inverts the undated guard, turning this test red.
+    // @mutate v2/src/tui/tui-attention-rows.ts "if (row.sinceMs === null) return false;" -> "if (row.sinceMs === null) return true;"
+  });
+
+  test("recency is evaluated against the caller's clock, not wall-clock time", () => {
+    const nowMs = 1_000; // years behind real wall-clock time
+    const freshFailedRun = listRun({ runId: "run-clock-fresh", status: "failed", finishedAtMs: 500 });
+
+    const projection = buildAttentionRows(undefined, [freshFailedRun], {}, nowMs);
+
+    expect(projection.rows.map((row) => row.targetId)).toContain("run-clock-fresh");
+    expect(projection.total).toBe(1);
+    // Mutation checkpoint: an in-body mutation directive swaps the threaded clock for wall time,
+    // turning this test red.
+    // @mutate v2/src/tui/tui-attention-rows.ts "isSurfacedIncident(row, nowMs)" -> "isSurfacedIncident(row, Date.now())"
   });
 });

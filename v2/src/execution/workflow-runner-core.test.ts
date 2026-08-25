@@ -1,130 +1,38 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import {
-  appendFileSync,
-  cpSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type {
-  InvocationBinding,
-  InvocationCompletedRecord,
-  InvocationResult,
-} from "../../../shared/invocation/execute.ts";
-import { resolveHarnessRoot } from "../../../shared/markdownlint-repair.ts";
 import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
-import { intentReviewPromptProfile } from "../../../shared/prompts/review-intent.ts";
-import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
-import { exitCodeForWriteResult } from "../cli/run-completion.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
-import {
-  createRunControlHandlers,
-  resetWriteLoopBindingSourceDepsForTests,
-  setWriteLoopBindingSourceDepsForTests,
-} from "../daemon/daemon.ts";
-import { stageArtifactKey } from "../daemon/pipeline-stage-dispatch.ts";
-import { resolveStageWorkflowSteps } from "../daemon/pipeline-stage-resolve.ts";
-import { composeRunOperatorError, findTerminalLogRecord } from "../daemon/run-operator-error.ts";
-import {
-  type LogEvent,
-  type LogSink,
-  openLogReader,
-  openLogSink,
-  type PersistedRecord,
-} from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
-import {
-  createFakeWithExternalWorktree,
-  createJarvisHome,
-  trackedTempRoots,
-  withStateStore,
-} from "../testing/write-fixtures.ts";
-import { createCompletionCommitter } from "./completion-commit.ts";
-import { createCompletionPublisher } from "./completion-publisher.ts";
-import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
+import { createFakeWithExternalWorktree, createJarvisHome, withStateStore } from "../testing/write-fixtures.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
-import { configuredIntentDurableDir, intentHandoffSpecPath } from "./intent-output.ts";
-import type { InvocationFailureKind } from "./invocation-failure.ts";
-import type { PipelineDefinition } from "./pipeline-definition.ts";
-import { landPublication, type PublicationLanding } from "./publication-landing.ts";
-import { buildPlanWorkflowSteps, validateReadyIntent } from "./publication-workflow-steps.ts";
-import { baseRefProbeFailsSeam, gateFailureOutput, initGateScopeWorktree } from "./ready-finalize.test.ts";
+import { landPublication } from "./publication-landing.ts";
 import {
-  formatReadyGateOutOfScopeDetail,
-  ReadyFlipError,
-  ReadyGateError,
-  SurvivingMutationError,
-} from "./ready-finalize.ts";
-import { nonEmptyDiscoveryReason } from "./runtime-smoke-verifier.ts";
-import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
-import type { LoadedWorkflowStep, WorkflowSourceStep } from "./workflow-loader.ts";
-import {
-  config,
   createBindingFactory,
-  createDebateBindingFactory,
-  createDebateStep,
   createImplementBodySummaryStep,
   createIntentWorktreeHarness,
   createLazyIntentWorktreeHarness,
-  createReviewDebateActuatorFailureBindingFactory,
   createShrinkTestStep,
   createStep,
   createStepInput,
-  DEBATE_AGENT_MODEL_CONFIG,
   DEFAULT_AGENT_MODEL_CONFIG,
-  debateVerdictPath,
   doneBindingFactory,
   errorBindingFactory,
-  externalWorktreeBinding,
-  hasHarnessMarkdownlintForReview,
   IMPLEMENT_BODY_SPEC_PATH,
-  initGitWorkspace,
-  installWorkflowRunnerResumeProfile,
-  LINT_CLEAN_INTENT_EXAMPLE_MD,
   loadTelemetryRows,
-  loadWorkBoundaryRows,
-  MISSING_CODEX_IMPLEMENT_CONFIG,
-  NO_STEP_ROLES_CONFIG,
   okTokenBindingFactory,
-  REVIEW_MD_LINT_FIXTURES,
-  REVIEW_MD_LINT_HARNESS_ROOT,
-  reviewedIntentStep,
   roots,
-  seedCompletedWriteRun,
-  seedFailedIntentReviewResumeRun,
-  seedLandedIntentFiles,
-  skipReviewWithoutHarnessMarkdownlint,
-  stageReviewedIntent,
   TestLogSink,
   TWO_AGENTS,
-  VALID_TWO_AGENT_CONFIG,
-  writeLintCleanIntentStageFile,
-  writeLintCleanPlanStage,
 } from "./workflow-runner.test-support.ts";
 import {
   executeWorkflow,
-  isPostCommitReviewRetryableFailureKind,
-  LinkedIndexReadError,
-  type ReviewDebateWorkflowStep,
   type ReviewWorkflowStep,
-  recoverPlanStage,
-  resolveIntentFinalizationResumeContext,
-  resolveReviewMutationResumeContext,
   resolveWorkflowPreset,
-  resumePopulatedIntentPublication,
-  resumeReviewMutationFinalization,
-  type WorkflowStepInput,
   type WriteWorkflowStep,
 } from "./workflow-runner.ts";
-import { findFirstMarkdownOnlyFenceViolation } from "./write-loop.ts";
 
 describe("intent publication input consumption", () => {
   test("keeps the registered file through failures, maps Git deletion into its completion diff, and consumes no-Git sources", async () => {

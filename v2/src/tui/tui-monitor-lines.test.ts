@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { RUN_STATUSES } from "../persistence/state-store.ts";
-import { buildAttentionRows } from "./tui-attention-rows.ts";
+import { ATTENTION_TERMINAL_RECENCY_MS, buildAttentionRows } from "./tui-attention-rows.ts";
 import {
   buildTreeRunRow,
   firstSelectableRunId,
@@ -751,9 +751,9 @@ describe("monitorLeftPaneAttentionRows", () => {
       name: "full-review",
       stages: [snapshotStage({ stageId: "approve-intent", position: 0, status: "awaiting" })],
     });
-    const failedRuns: DaemonListRunRow[] = Array.from({ length: 6 }, (_, index) =>
+    const failedRuns: DaemonListRunRow[] = Array.from({ length: 7 }, (_, index) =>
       workflowRun(`run-fail-${index}`, "failed", `inv-fail-${index}`, {
-        finishedAtMs: 1_000 * (index + 1),
+        finishedAtMs: TREE_NOW_MS - 1_000 * (index + 1),
         isLive: false,
       }),
     );
@@ -764,15 +764,53 @@ describe("monitorLeftPaneAttentionRows", () => {
 
     const lines = monitorLeftPaneAttentionRows(state, TREE_NOW_MS).map(joinMonitorRow);
 
-    // Seven actionable incidents (one gate, six failed runs): heading reports the pre-cap total,
-    // six selectable rows paint, and the seventh (newest, capped out) shows only as overflow.
-    expect(lines[0]).toBe("── Needs attention (7) ──");
-    expect(lines).toHaveLength(1 + 6 + 1);
+    // Eight actionable incidents (one gate, seven failed runs): heading reports the pre-cap total,
+    // the uncapped gate plus six failure rows paint, and the seventh (newest) failure shows only as
+    // overflow — the cap bounds failures only, so the gate is never at risk of it.
+    expect(lines[0]).toBe("── Needs attention (8) ──");
+    expect(lines).toHaveLength(1 + 7 + 1);
     expect(lines.at(-1)).toBe("+1 more");
     // The undated gate (no predecessor) paints no age; dated failed runs paint their durable idle age.
     expect(lines[1]).toContain("approve-intent");
     expect(lines[1]).not.toContain("idle");
     expect(lines[2]).toContain("idle");
+  });
+
+  test("Needs attention heading counts only surfaced incidents", () => {
+    const freshFailure = workflowRun("run-fresh-count", "failed", "inv-fresh-count", {
+      isLive: false,
+      finishedAtMs: TREE_NOW_MS - 1_000,
+    });
+    const staleFailure = workflowRun("run-stale-count", "failed", "inv-stale-count", {
+      isLive: false,
+      finishedAtMs: TREE_NOW_MS - ATTENTION_TERMINAL_RECENCY_MS - 1,
+    });
+
+    const mixedState = monitorState({ runs: [freshFailure, staleFailure] });
+    const mixedLines = monitorLeftPaneAttentionRows(mixedState, TREE_NOW_MS).map(joinMonitorRow);
+    // The heading counts only the surfaced (within-window) incident; the pre-fix, pre-suppression
+    // projection would report "(2)" here.
+    expect(mixedLines[0]).toBe("── Needs attention (1) ──");
+    expect(mixedLines).toHaveLength(2);
+    expect(mixedLines.some((line) => line.includes("run-stale-count"))).toBe(false);
+
+    // A state whose every incident is stale paints no heading, rows, or overflow line.
+    const allStaleState = monitorState({ runs: [staleFailure] });
+    expect(monitorLeftPaneAttentionRows(allStaleState, TREE_NOW_MS)).toEqual([]);
+
+    // ...and reserves no left-pane height: the tree budget matches the zero-incident case exactly.
+    const { pipelines: fillerPipelines } = overflowPaneMonitorFixture();
+    const allStaleTreeState = monitorState({
+      runs: [staleFailure],
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: fillerPipelines } },
+    });
+    const zeroIncidentTreeState = monitorState({
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: fillerPipelines } },
+    });
+    const smallLayout = treeLayout(10); // paneHeight 6
+    expect(monitorLeftPaneTreeRows(allStaleTreeState, smallLayout, TREE_NOW_MS).treeRows.length).toBe(
+      monitorLeftPaneTreeRows(zeroIncidentTreeState, smallLayout, TREE_NOW_MS).treeRows.length,
+    );
   });
 
   test("reserves every painted left-pane heading without a negative tree budget", () => {
@@ -791,7 +829,7 @@ describe("monitorLeftPaneAttentionRows", () => {
 
     const eightDatedFailures: DaemonListRunRow[] = Array.from({ length: 8 }, (_, index) =>
       workflowRun(`run-overflow-${index}`, "failed", `inv-overflow-${index}`, {
-        finishedAtMs: 1_000 * (index + 1),
+        finishedAtMs: TREE_NOW_MS - 1_000 * (index + 1),
         isLive: false,
       }),
     );
@@ -808,7 +846,7 @@ describe("monitorLeftPaneAttentionRows", () => {
     // so inverting the `overflow > 0` guard (painting `+0 more`) turns this red.
     const fewFailures: DaemonListRunRow[] = Array.from({ length: 3 }, (_, index) =>
       workflowRun(`run-few-${index}`, "failed", `inv-few-${index}`, {
-        finishedAtMs: 1_000 * (index + 1),
+        finishedAtMs: TREE_NOW_MS - 1_000 * (index + 1),
         isLive: false,
       }),
     );
@@ -820,8 +858,14 @@ describe("monitorLeftPaneAttentionRows", () => {
 
     const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] });
     const matchedRun = workflowRun("run-implement", "in-progress", INVOCATION_MATCHED);
-    const failedA = workflowRun("run-attn-a", "failed", "inv-attn-a", { finishedAtMs: 1_000, isLive: false });
-    const failedB = workflowRun("run-attn-b", "failed", "inv-attn-b", { finishedAtMs: 2_000, isLive: false });
+    const failedA = workflowRun("run-attn-a", "failed", "inv-attn-a", {
+      finishedAtMs: TREE_NOW_MS - 1_000,
+      isLive: false,
+    });
+    const failedB = workflowRun("run-attn-b", "failed", "inv-attn-b", {
+      finishedAtMs: TREE_NOW_MS - 2_000,
+      isLive: false,
+    });
     const queuedRun: DaemonListRunRow = {
       runId: "run-queued-attn",
       project: "demo",
@@ -862,6 +906,33 @@ describe("monitorLeftPaneAttentionRows", () => {
     const overwhelmedLayout = treeLayout(7); // paneHeight 3
     expect(monitorLeftPaneTreeRows(overwhelmedState, overwhelmedLayout, TREE_NOW_MS).treeRows).toEqual([]);
     // @mutate v2/src/tui/tui-monitor-lines.ts "Math.max(0, layout.paneHeight - reserved)" -> "layout.paneHeight - reserved"
+  });
+
+  test("a gate set alone exceeding the pane height floors the tree budget at zero and keeps every gate selectable", () => {
+    // 01's ledger accepts that an uncapped gate group can shrink the tree viewport to its zero
+    // floor and let Ink clip the segment prefix; every gate must still stay selectable.
+    const manyGatePipelines: PipelineSnapshot[] = Array.from({ length: 10 }, (_, index) =>
+      pipelineSnapshot({
+        pipelineId: `pipe-gate-overflow-${index}`,
+        name: "full-review",
+        stages: [snapshotStage({ stageId: "approve-intent", position: 0, status: "awaiting" })],
+      }),
+    );
+    const state = monitorState({
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: manyGatePipelines } },
+      terminalColumns: 245,
+      terminalRows: 10,
+    });
+    const tinyLayout = treeLayout(10); // paneHeight 6, less than the ten reserved gate rows
+    expect(monitorLeftPaneTreeRows(state, tinyLayout, TREE_NOW_MS).treeRows).toEqual([]);
+
+    const projection = buildAttentionRows(state.pipelineSnapshotsBySocketPath, state.runs, {}, TREE_NOW_MS);
+    expect(projection.rows).toHaveLength(10);
+    expect(projection.overflow).toBe(0);
+    const selectableIds = monitorSelectableNodeIds(state, TREE_NOW_MS);
+    for (const gateRow of projection.rows) {
+      expect(selectableIds).toContain(gateRow.id);
+    }
   });
 });
 
@@ -1118,7 +1189,7 @@ describe("monitorSelectableNodeIds", () => {
     // @mutate v2/src/tui/tui-monitor-lines.ts "[...projection.rows.map((attentionRow) => attentionRow.id), ...fullTreeRows.map((row) => row.id)]" -> "fullTreeRows.map((row) => row.id)"
     const sevenFailures: DaemonListRunRow[] = Array.from({ length: 7 }, (_, index) =>
       workflowRun(`run-select-${index}`, "failed", `inv-select-${index}`, {
-        finishedAtMs: 1_000 * (index + 1),
+        finishedAtMs: TREE_NOW_MS - 1_000 * (index + 1),
         isLive: false,
       }),
     );
@@ -1128,7 +1199,7 @@ describe("monitorSelectableNodeIds", () => {
       pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [snapshot] } },
     });
 
-    const projection = buildAttentionRows(state.pipelineSnapshotsBySocketPath, state.runs);
+    const projection = buildAttentionRows(state.pipelineSnapshotsBySocketPath, state.runs, {}, TREE_NOW_MS);
     const { fullTreeRows } = monitorLeftPaneTreeRows(state, treeLayout(), TREE_NOW_MS);
     const ids = monitorSelectableNodeIds(state, TREE_NOW_MS);
 
@@ -1144,6 +1215,29 @@ describe("monitorSelectableNodeIds", () => {
       }
     }
   });
+
+  test("monitorSelectableNodeIds omits stale attention incidents at the frame clock", () => {
+    const freshFailure = workflowRun("run-fresh-select", "failed", "inv-fresh-select", {
+      isLive: false,
+      finishedAtMs: TREE_NOW_MS - 1_000,
+    });
+    const staleFailure = workflowRun("run-stale-select", "failed", "inv-stale-select", {
+      isLive: false,
+      finishedAtMs: TREE_NOW_MS - ATTENTION_TERMINAL_RECENCY_MS - 1,
+    });
+    const state = monitorState({ runs: [freshFailure, staleFailure] });
+
+    const projection = buildAttentionRows(state.pipelineSnapshotsBySocketPath, state.runs, {}, TREE_NOW_MS);
+    const ids = monitorSelectableNodeIds(state, TREE_NOW_MS);
+    const staleAttentionId = "attention:failed-run:run-stale-select";
+
+    // The stale incident's attention id is unreachable by j/↓/↑, though the run itself stays selectable
+    // as a plain (non-pinned) tree row.
+    expect(ids).not.toContain(staleAttentionId);
+    expect(ids).toContain("run-stale-select");
+    // The selectable attention prefix equals the painted attention rows for the same clock.
+    expect(ids.slice(0, projection.rows.length)).toEqual(projection.rows.map((row) => row.id));
+  });
 });
 
 describe("attention selection target detail", () => {
@@ -1153,7 +1247,10 @@ describe("attention selection target detail", () => {
     // Mutation checkpoint: suppressing attention-target aliasing here must turn this pin RED.
     // @mutate v2/src/tui/tui-monitor-lines.ts "return projection.rows.find((attentionRow) => attentionRow.id === selected)?.targetId ?? null;" -> "return null;"
     const pipelineId = "pipe-attr";
-    const attributedRun = workflowRun("run-attributed", "failed", "inv-attr", { finishedAtMs: 5_000, isLive: false });
+    const attributedRun = workflowRun("run-attributed", "failed", "inv-attr", {
+      finishedAtMs: TREE_NOW_MS - 5_000,
+      isLive: false,
+    });
     const snapshot = pipelineSnapshot({
       pipelineId,
       stages: [
@@ -1166,7 +1263,7 @@ describe("attention selection target detail", () => {
       branch: "adhoc-branch",
     });
     const adHocFailed = workflowRun("run-adhoc-failed", "failed", "inv-adhoc", {
-      finishedAtMs: 6_000,
+      finishedAtMs: TREE_NOW_MS - 6_000,
       isLive: false,
       project: "adhoc-project",
       branch: "adhoc-branch",
@@ -1178,7 +1275,7 @@ describe("attention selection target detail", () => {
       expandedPipelineNodeIds: [], // pipeline and stage ancestors stay collapsed
     });
 
-    const projection = buildAttentionRows(state.pipelineSnapshotsBySocketPath, state.runs);
+    const projection = buildAttentionRows(state.pipelineSnapshotsBySocketPath, state.runs, {}, TREE_NOW_MS);
     const attributedRow = projection.rows.find((row) => row.targetId === "run-attributed");
     const adHocRow = projection.rows.find((row) => row.kind === "failed-run" && row.targetId !== "run-attributed");
     expect(attributedRow).toBeDefined();
@@ -2814,7 +2911,7 @@ describe("monitorDockLines", () => {
     const adHocRun = workflowRun("run-hint-adhoc", "in-progress", "inv-hint-adhoc");
     const failedAdHocRun = workflowRun("run-hint-failed", "failed", "inv-hint-failed", {
       isLive: false,
-      finishedAtMs: 5_000,
+      finishedAtMs: TREE_NOW_MS - 5_000,
     });
 
     const state = monitorState({
@@ -2824,11 +2921,11 @@ describe("monitorDockLines", () => {
       terminalColumns: 245,
     });
 
-    const projection = buildAttentionRows(state.pipelineSnapshotsBySocketPath, state.runs);
+    const projection = buildAttentionRows(state.pipelineSnapshotsBySocketPath, state.runs, {}, TREE_NOW_MS);
     const attentionId = projection.rows.find((row) => row.kind === "failed-run")?.id;
     if (attentionId === undefined) throw new Error("expected a failed-run attention row");
 
-    const hints = (selectedNodeId: string | null) => monitorDockLines({ ...state, selectedNodeId })[3];
+    const hints = (selectedNodeId: string | null) => monitorDockLines({ ...state, selectedNodeId }, TREE_NOW_MS)[3];
 
     expect(hints(null)).not.toContain("Enter reveal");
     expect(hints(branchPipelineId)).not.toContain("Enter reveal");

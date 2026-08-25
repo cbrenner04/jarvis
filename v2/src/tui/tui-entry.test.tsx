@@ -50,6 +50,10 @@ import type {
 import { computeShellLayout, monitorTreeRun } from "./tui-shell-layout.ts";
 
 const TERMINAL_LIST_FINISH_MS = 9_000_000_000_000;
+// Recent-past relative to the entry frame clock (WORKFLOW_FILTER_NOW_MS, 1_700_000_000_000) and inside
+// the 12-hour attention recency window — for fixtures the attention projection must actually surface
+// through the window comparison, not the future-dated escape hatch.
+const ATTENTION_RECENT_FINISH_MS = 1_700_000_000_000 - 5_000;
 
 const noopDetachedAdmission: DetachedPipelineStartAdmission = async () => ({
   kind: "admitted",
@@ -234,13 +238,15 @@ const PIPELINE_RUN_AWAITING: DaemonListRunRow = {
   },
 };
 
+// Stage timestamps sit 8-10s before WORKFLOW_FILTER_NOW_MS (1_700_000_000_000): recent-past incidents
+// inside the 12-hour recency window, not future-dated ones surfacing only via the clock-skew escape hatch.
 const PIPELINE_SNAPSHOT_ATTENTION_GATES: PipelineSnapshot = {
   pipelineId: "pipe-attn-gates",
   name: "full-review",
   state: "awaiting-approval",
   terminalPublicationSucceededAt: null,
   terminalPublicationFailure: null,
-  createdAt: 1_700_000_000_000,
+  createdAt: 1_699_999_990_000,
   finishedAtMs: null,
   dismissedAt: null,
   stages: [
@@ -252,7 +258,7 @@ const PIPELINE_SNAPSHOT_ATTENTION_GATES: PipelineSnapshot = {
       status: "succeeded",
       workflowInvocationId: null,
       startedAt: null,
-      endedAt: 100,
+      endedAt: 1_699_999_990_100,
       decidedAt: null,
       artifact: null,
       failureDetail: null,
@@ -266,7 +272,7 @@ const PIPELINE_SNAPSHOT_ATTENTION_GATES: PipelineSnapshot = {
       workflowInvocationId: null,
       startedAt: null,
       endedAt: null,
-      decidedAt: 1_500,
+      decidedAt: 1_699_999_991_500,
       artifact: null,
       failureDetail: null,
     },
@@ -278,7 +284,7 @@ const PIPELINE_SNAPSHOT_ATTENTION_GATES: PipelineSnapshot = {
       status: "failed",
       workflowInvocationId: null,
       startedAt: null,
-      endedAt: 2_000,
+      endedAt: 1_699_999_992_000,
       decidedAt: null,
       artifact: null,
       failureDetail: null,
@@ -306,8 +312,8 @@ const PIPELINE_SNAPSHOT_ATTENTION_PUBLISHED: PipelineSnapshot = {
   terminalAction: "merge",
   terminalPublicationSucceededAt: null,
   terminalPublicationFailure: { terminalAction: "merge", failure: { operation: "merge", message: "conflict" } },
-  createdAt: 1_700_000_000_000,
-  finishedAtMs: 1_700_000_003_000,
+  createdAt: 1_699_999_990_000,
+  finishedAtMs: 1_699_999_993_000,
   dismissedAt: null,
   stages: [
     {
@@ -318,7 +324,7 @@ const PIPELINE_SNAPSHOT_ATTENTION_PUBLISHED: PipelineSnapshot = {
       status: "succeeded",
       workflowInvocationId: null,
       startedAt: null,
-      endedAt: 3_000,
+      endedAt: 1_699_999_993_000,
       decidedAt: null,
       artifact: null,
       failureDetail: null,
@@ -332,7 +338,7 @@ const PIPELINE_SNAPSHOT_ATTENTION_PUBLISHED: PipelineSnapshot = {
       workflowInvocationId: null,
       startedAt: null,
       endedAt: null,
-      decidedAt: 3_100,
+      decidedAt: 1_699_999_993_100,
       artifact: null,
       failureDetail: null,
     },
@@ -344,7 +350,7 @@ const PIPELINE_SNAPSHOT_ATTENTION_PUBLISHED: PipelineSnapshot = {
       status: "succeeded",
       workflowInvocationId: null,
       startedAt: null,
-      endedAt: 3_200,
+      endedAt: 1_699_999_993_200,
       decidedAt: null,
       artifact: null,
       failureDetail: null,
@@ -358,7 +364,7 @@ const PIPELINE_SNAPSHOT_ATTENTION_PUBLISHED: PipelineSnapshot = {
       workflowInvocationId: null,
       startedAt: null,
       endedAt: null,
-      decidedAt: 3_300,
+      decidedAt: 1_699_999_993_300,
       artifact: null,
       failureDetail: null,
     },
@@ -370,7 +376,7 @@ const PIPELINE_SNAPSHOT_ATTENTION_PUBLISHED: PipelineSnapshot = {
       status: "succeeded",
       workflowInvocationId: null,
       startedAt: null,
-      endedAt: 3_400,
+      endedAt: 1_699_999_993_400,
       decidedAt: null,
       artifact: null,
       failureDetail: null,
@@ -385,7 +391,7 @@ const ATTENTION_FAILED_RUN: DaemonListRunRow = {
   createdAt: 0,
   status: "failed",
   isLive: false,
-  finishedAtMs: TERMINAL_LIST_FINISH_MS,
+  finishedAtMs: ATTENTION_RECENT_FINISH_MS,
 };
 
 const ATTENTION_BLOCKED_RUN: DaemonListRunRow = {
@@ -395,7 +401,7 @@ const ATTENTION_BLOCKED_RUN: DaemonListRunRow = {
   createdAt: 0,
   status: "blocked",
   isLive: false,
-  finishedAtMs: TERMINAL_LIST_FINISH_MS,
+  finishedAtMs: ATTENTION_RECENT_FINISH_MS,
 };
 
 function attentionRunsFixture(): DaemonListRunRow[] {
@@ -407,7 +413,7 @@ function attentionRowIdByKind(
   kind: "awaiting-gate" | "rejected-gate" | "failed-stage" | "failed-run" | "blocked-run" | "publication-failure",
 ): string {
   if (state === undefined) throw new Error("expected a painted monitor state");
-  const projection = buildAttentionRows(state.pipelineSnapshotsBySocketPath, state.runs);
+  const projection = buildAttentionRows(state.pipelineSnapshotsBySocketPath, state.runs, {}, WORKFLOW_FILTER_NOW_MS);
   const row = projection.rows.find((entry) => entry.kind === kind);
   if (row === undefined) throw new Error(`expected an attention row of kind ${kind}`);
   return row.id;
@@ -600,14 +606,16 @@ function attentionSelectionEntryDeps(view: ReturnType<typeof createViewHost>) {
   const terminalRows = 24;
   const maxVisibleRows = computeShellLayout(terminalColumns, terminalRows, 0).paneHeight;
   const pipelineCount = maxVisibleRows + 10;
+  // Dated well before ATTENTION_RECENT_FINISH_MS so the ad-hoc failed run — the newest terminal
+  // node — still sorts ahead of every pipeline row, as the walk below assumes.
   const pipelines = Array.from({ length: pipelineCount }, (_, index) => ({
     pipelineId: `pipe-${index}`,
     name: `pipeline-${index}`,
     state: "succeeded" as const,
     terminalPublicationSucceededAt: null,
     terminalPublicationFailure: null,
-    createdAt: 1_700_000_000_000 + index,
-    finishedAtMs: 1_700_000_100_000 + index,
+    createdAt: 1_699_990_000_000 + index,
+    finishedAtMs: 1_699_990_100_000 + index,
     dismissedAt: null,
     stages: [
       {
@@ -645,7 +653,7 @@ function attentionSelectionEntryDeps(view: ReturnType<typeof createViewHost>) {
     createdAt: 0,
     status: "failed",
     isLive: false,
-    finishedAtMs: TERMINAL_LIST_FINISH_MS,
+    finishedAtMs: ATTENTION_RECENT_FINISH_MS,
   };
   const runs = [...pipelineRuns, failedRun];
   return {
@@ -3151,7 +3159,7 @@ describe("runTuiEntry", () => {
       stepId: "implement",
       status: "failed",
       isLive: false,
-      finishedAtMs: TERMINAL_LIST_FINISH_MS,
+      finishedAtMs: ATTENTION_RECENT_FINISH_MS,
     });
     const activeReviewRun = pipelineMultiRun({
       runId: "run-review",
@@ -5878,6 +5886,90 @@ describe("runTuiEntry", () => {
       expectApproveFailure("stale_non_targetable");
       view.selectNode(awaitingGateId);
       expectRejectFailure("stale_non_targetable");
+    } finally {
+      view.quit();
+    }
+    expect(await pending).toBe(0);
+  });
+
+  test("approve reaches the newest gate behind a stale gate backlog", async () => {
+    // A shared six-row cap buries the newest gate in display-only overflow; only a gates-are-uncapped
+    // projection keeps every one of these seven awaiting gates selectable.
+    const gatePipelines: PipelineSnapshot[] = Array.from({ length: 7 }, (_, i) => ({
+      pipelineId: `pipe-gate-stack-${i}`,
+      name: "full-review",
+      state: "awaiting-approval",
+      terminalPublicationSucceededAt: null,
+      terminalPublicationFailure: null,
+      createdAt: 1_700_000_000_000,
+      finishedAtMs: null,
+      dismissedAt: null,
+      stages: [
+        {
+          id: `stage-gate-stack-${i}-intent`,
+          stageId: "intent",
+          branchKey: "default",
+          position: 0,
+          status: "succeeded",
+          workflowInvocationId: null,
+          startedAt: null,
+          endedAt: 1_000 * (i + 1),
+          decidedAt: null,
+          artifact: null,
+          failureDetail: null,
+        },
+        {
+          id: `stage-gate-stack-${i}-approve-intent`,
+          stageId: "approve-intent",
+          branchKey: "default",
+          position: 1,
+          status: "awaiting",
+          workflowInvocationId: null,
+          startedAt: null,
+          endedAt: null,
+          decidedAt: null,
+          artifact: null,
+          failureDetail: null,
+        },
+      ],
+    }));
+    const newestPipeline = gatePipelines[6]!;
+
+    const view = createViewHost();
+    const approveCalls: PipelineStageMutationParams[] = [];
+    const { deps, clientOptions } = entryDeps(
+      {
+        methods: [],
+        listResponses: [{ runs: [] }],
+        pipelineListResponses: [{ pipelines: gatePipelines }],
+        pipelineApproveImpl: async (params) => {
+          approveCalls.push(params);
+          return { kind: "applied", pipelineId: params.pipelineId, stageId: params.stageId, decision: "approved" };
+        },
+      },
+      { viewHost: view.host, nowMs: () => WORKFLOW_FILTER_NOW_MS },
+    );
+    const pending = runTuiEntry(deps);
+
+    try {
+      await view.waitUntilOpen();
+      await flush();
+
+      // Gates sort newest-reached-first and are exempt from the failure cap, so the first
+      // "awaiting-gate" row is the newest gate — reusing the same helper other attention
+      // tests in this file use to resolve a row id.
+      const newestGateId = attentionRowIdByKind(view.monitorStates.at(-1), "awaiting-gate");
+
+      view.selectNode(newestGateId);
+      view.focusCommand();
+      view.insertCommandText("approve");
+      view.submitCommand("approve");
+      await flush();
+
+      expect(countRpcMethod(clientOptions.methods, "pipeline_approve")).toBe(1);
+      expect(approveCalls).toEqual([
+        { pipelineId: newestPipeline.pipelineId, stageId: "approve-intent", branchKey: "default" },
+      ]);
     } finally {
       view.quit();
     }

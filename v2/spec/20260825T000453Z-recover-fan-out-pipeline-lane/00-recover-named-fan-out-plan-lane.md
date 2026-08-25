@@ -14,11 +14,11 @@
 
 ## Tasks
 
-- [ ] Update `v2/src/daemon/pipeline-stage-recovery.ts` to accept a successful fan-out resolution, derive `branchIndex` from `split?.branchKeys.indexOf(branchKey) ?? -1`, select `resolution.results[branchIndex]?.steps`, and retain the single-result path for `branchKey: "default"`; keep that selection expression unique for the keystone directive.
-- [ ] Refuse `stage_resolution_failed` when resolution itself fails or a fan-out result is absent at the selected branch index; use uniquely mutable real-guard anchors and no test-only inversion hooks.
-- [ ] Extend `v2/src/daemon/pipeline-stage-recovery.test.ts` with a non-first branch selection regression, mismatched-result refusal, real corrected-tree recovery, sibling byte-for-byte isolation, and preserved refusal coverage.
-- [ ] Extend `v2/src/daemon/daemon-pipeline-recover.test.ts` so `pipeline_recover` admits a non-first named branch from a production-shaped fan-out resolution, lands the corrected tree through review, never invokes the plan write step, and preserves attempt-time and parameter refusals.
-- [ ] Update the durable docs listed below.
+- [x] Update `v2/src/daemon/pipeline-stage-recovery.ts` to accept a successful fan-out resolution, derive `branchIndex` from `split?.branchKeys.indexOf(branchKey) ?? -1`, select `resolution.results[branchIndex]?.steps`, and retain the single-result path for `branchKey: "default"`; keep that selection expression unique for the keystone directive.
+- [x] Refuse `stage_resolution_failed` when resolution itself fails or a fan-out result is absent at the selected branch index; use uniquely mutable real-guard anchors and no test-only inversion hooks.
+- [x] Extend `v2/src/daemon/pipeline-stage-recovery.test.ts` with a non-first branch selection regression, mismatched-result refusal, real corrected-tree recovery, sibling byte-for-byte isolation, and preserved refusal coverage.
+- [x] Extend `v2/src/daemon/daemon-pipeline-recover.test.ts` so `pipeline_recover` admits a non-first named branch from a production-shaped fan-out resolution, lands the corrected tree through review, never invokes the plan write step, and preserves attempt-time and parameter refusals.
+- [x] Update the durable docs listed below.
 
 ## Acceptance criteria
 

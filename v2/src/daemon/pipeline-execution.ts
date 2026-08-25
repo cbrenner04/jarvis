@@ -32,6 +32,7 @@ import {
   type PipelineStageArtifact,
   type PipelineWorkflowDispatch,
   type PipelineWorkflowWait,
+  redrivableDeferredSettlementEntryRunId,
   settlementLinkedEntryRunId,
   shouldStopForInFlightStageRow,
   stageArtifactKey,
@@ -808,14 +809,36 @@ async function settlePipelineTerminalPublication(
   }
 }
 
+/**
+ * True when a pipeline carries a `running` stage row whose deferred-settlement marker is
+ * redrivable and whose linked entry run was not reconciled by this same daemon start — that
+ * case is left to `recoverReconciledRuns` instead, so the sweep doesn't fail the stage out
+ * from under a run that reconciliation is independently resuming.
+ */
+export function hasRedrivableDeferredSettlement(
+  store: StateStore,
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  reconciledEntryRunIds: ReadonlySet<string>,
+): boolean {
+  for (const stage of pipeline.stages) {
+    const deferredEntryRunId = redrivableDeferredSettlementEntryRunId(store, stage);
+    if (deferredEntryRunId === undefined) continue;
+    if (reconciledEntryRunIds.has(deferredEntryRunId)) return false;
+    return true;
+  }
+  return false;
+}
+
 export async function recoverContinuablePipelines(
   store: StateStore,
   pipelineDeps: Omit<PipelineExecutionDeps, "context">,
   isOwnerAliveProbe: OwnerLivenessProbe = isOwnerAlive,
+  reconciledEntryRunIds: ReadonlySet<string> = new Set(),
 ): Promise<{ continued: number }> {
   let continued = 0;
   for (const pipeline of store.listPipelines()) {
-    if (!isPipelineContinuable(pipeline)) continue;
+    // biome-ignore format: mutation checkpoint requires this exact single-line guard
+    if (!isPipelineContinuable(pipeline) && !hasRedrivableDeferredSettlement(store, pipeline, reconciledEntryRunIds)) continue;
     const owner = pipeline.ownerIdentity;
     if (owner !== null && (await isOwnerAliveProbe(owner))) continue;
     const outcome = await continuePipeline(pipeline.id, pipelineDeps);

@@ -823,6 +823,8 @@ export type RunControlHandlerDeps = {
   connectStaleResetClient?: (socketPath: string) => Promise<IpcClient>;
   /** Test seam for the stale-reset preflight's `CliDeps` (only `jarvisRoot`/`subprocessRunner` are read). */
   staleResetCliDeps?: CliDeps;
+  /** Entry run ids reconciled by this same daemon start; excludes their stages from the deferred-settlement redrive. */
+  reconciledRunIds?: readonly string[];
 };
 
 export type WaitRunCompletionResult = {
@@ -2256,7 +2258,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     pipeline_undismiss: handlePipelineUndismissHandler,
     pipeline_list: handlePipelineListHandler,
     pipeline_wait: handlePipelineWaitHandler,
-    continueContinuablePipelines: async () => recoverContinuablePipelines(store, pipelineExecutionDeps()),
+    continueContinuablePipelines: async () =>
+      recoverContinuablePipelines(store, pipelineExecutionDeps(), undefined, new Set(deps.reconciledRunIds ?? [])),
     /** Non-RPC seam: exposes the built pipeline-execution deps so tests can assert stale-reset wiring. */
     pipelineExecutionDeps,
     /** Records a review step's currently-executing or terminal role/outcome. */
@@ -2598,6 +2601,7 @@ export async function startDaemonRuntime(
     // stale-reset preflight. Removing it silently reverts the daemon to constructing no bundle
     // (the historical no-op); the unit test injects `daemonSocketPath` directly and cannot catch that.
     daemonSocketPath: socketPath,
+    reconciledRunIds,
   });
 
   const supersedHandler: RpcHandler = () => {

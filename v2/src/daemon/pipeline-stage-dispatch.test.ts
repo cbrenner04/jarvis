@@ -11,6 +11,7 @@ import {
   dispatchPipelineStage,
   type PipelineWorkflowDispatch,
   type PipelineWorkflowWait,
+  redrivableDeferredSettlementEntryRunId,
   shouldStopForInFlightStageRow,
 } from "./pipeline-stage-dispatch.ts";
 import type { TerminalLogRecord } from "./run-operator-error.ts";
@@ -278,6 +279,78 @@ describe("shouldStopForInFlightStageRow", () => {
   });
 });
 
+describe("redrivableDeferredSettlementEntryRunId", () => {
+  const deferredDetail = (entryRunId: string) => ({
+    code: "settlement_deferred",
+    reason: "entry_run_still_live",
+    entryRunId,
+    rollupStatus: "failed",
+  });
+
+  test("not a running row", () => {
+    const { store } = fakeStore();
+    expect(redrivableDeferredSettlementEntryRunId(store, stageRecord({ status: "pending" }))).toBeUndefined();
+  });
+
+  test("running with no deferred marker", () => {
+    const { store } = fakeStore({ "entry-x": { status: "completed" } });
+    expect(
+      redrivableDeferredSettlementEntryRunId(
+        store,
+        stageRecord({ status: "running", workflowInvocationId: "entry-x" }),
+      ),
+    ).toBeUndefined();
+  });
+
+  test("running with a differently-shaped failureDetail", () => {
+    const { store } = fakeStore({ "entry-x": { status: "completed" } });
+    expect(
+      redrivableDeferredSettlementEntryRunId(
+        store,
+        stageRecord({
+          status: "running",
+          workflowInvocationId: "entry-x",
+          failureDetail: { code: "harness_failure", reason: "entry_run_still_live" },
+        }),
+      ),
+    ).toBeUndefined();
+  });
+
+  test("running with the deferred marker but a still-live entry run", () => {
+    const { store } = fakeStore({ "entry-x": { status: "in-progress" } });
+    expect(
+      redrivableDeferredSettlementEntryRunId(
+        store,
+        stageRecord({ status: "running", workflowInvocationId: "entry-x", failureDetail: deferredDetail("entry-x") }),
+      ),
+    ).toBeUndefined();
+  });
+
+  test("running with the deferred marker and a durably terminal entry run redrives", () => {
+    const { store } = fakeStore({ "entry-x": { status: "completed" } });
+    expect(
+      redrivableDeferredSettlementEntryRunId(
+        store,
+        stageRecord({ status: "running", workflowInvocationId: "entry-x", failureDetail: deferredDetail("entry-x") }),
+      ),
+    ).toBe("entry-x");
+  });
+
+  test("running with the deferred marker and an absent entry run row redrives", () => {
+    const { store } = fakeStore();
+    expect(
+      redrivableDeferredSettlementEntryRunId(
+        store,
+        stageRecord({
+          status: "running",
+          workflowInvocationId: "entry-missing",
+          failureDetail: deferredDetail("entry-missing"),
+        }),
+      ),
+    ).toBe("entry-missing");
+  });
+});
+
 describe("dispatchPipelineStage refused claim", () => {
   test("returns early without dispatch or release when the stage row is still pending", async () => {
     let dispatchCalled = false;
@@ -337,6 +410,41 @@ describe("dispatchPipelineStage refused claim", () => {
 
     expect(dispatchCalled).toBe(false);
     expect(patches.some((p) => p.patch.status === "failed")).toBe(true);
+  });
+
+  test("adopts and settles a deferred running stage into succeeded, clearing the deferred failureDetail", async () => {
+    let dispatchCalled = false;
+    const dispatch: PipelineWorkflowDispatch = async () => {
+      dispatchCalled = true;
+      return { ok: true, entryRunId: "entry-clear" };
+    };
+    const wait: PipelineWorkflowWait = async () => "completed";
+    const entryRunId = "entry-clear";
+    const { store, patches } = fakeStore({
+      [entryRunId]: { specPath: "spec/clear.md", status: "completed" },
+    });
+    store.claimPipelineStageAdmission = () => ({ kind: "refused", reason: "claim_lost" });
+    store.loadPipeline = () =>
+      ({
+        stages: [
+          stageRecord({
+            status: "running",
+            workflowInvocationId: entryRunId,
+            failureDetail: {
+              code: "settlement_deferred",
+              reason: "entry_run_still_live",
+              entryRunId,
+              rollupStatus: "in-progress",
+            },
+          }),
+        ],
+      }) as ReturnType<StateStore["loadPipeline"]>;
+
+    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+
+    expect(dispatchCalled).toBe(false);
+    const successPatch = patches.find((p) => p.patch.status === "succeeded");
+    expect(successPatch?.patch.failureDetail).toBeNull();
   });
 
   test("adopts and settles when the stage row is running with a live entry run", async () => {

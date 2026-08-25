@@ -62,6 +62,20 @@ export function settlementLinkedEntryRunId(
   return entryRunId ?? undefined;
 }
 
+/** Linked entry run when a `running` stage row carries a deferred-settlement marker whose entry run is now durably terminal — redrivable by a fresh sweep. */
+export function redrivableDeferredSettlementEntryRunId(
+  store: StateStore,
+  record: PipelineStageRecord | undefined,
+): string | undefined {
+  if (record?.status !== "running") return undefined;
+  const detail = record.failureDetail as { code?: string; reason?: string } | null | undefined;
+  if (detail?.code !== "settlement_deferred" || detail.reason !== "entry_run_still_live") return undefined;
+  const deferredEntryRunId = settlementLinkedEntryRunId(store, record);
+  if (deferredEntryRunId === undefined) return undefined;
+  if (isLiveEntryRun(store, deferredEntryRunId)) return undefined;
+  return deferredEntryRunId;
+}
+
 /** True when a post-dispatch stage row is still in flight and must not be terminalized. */
 export function shouldStopForInFlightStageRow(store: StateStore, record: PipelineStageRecord | undefined): boolean {
   if (record?.status === "pending") return true;
@@ -167,6 +181,7 @@ function applyEntryRunSettlement(args: {
       patch: {
         status: "succeeded",
         endedAt: Date.now(),
+        failureDetail: null,
         artifact: stageArtifactFromEntryRun(
           entryRunId,
           entryRun,

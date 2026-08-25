@@ -2,15 +2,8 @@ import { spawn as nodeSpawn, type SpawnSyncReturns } from "node:child_process";
 import { availableParallelism } from "node:os";
 import { isLoadSensitive, sliceTestFiles, type TestSliceMode, walkTestFiles } from "./test-slice.ts";
 
-/**
- * Supported budget for the slowest healthy test file; `v1/test/run.test.ts` runs ~120s under the aggregate suite.
- *
- * TEMPORARY STOPGAP (#2181): raised from 180_000 to 420_000 because `v2/src/execution/workflow-runner.test.ts`
- * (~12k lines / 224 tests) sits at the edge of 180s and deterministically tips over it once a couple of
- * resume-path tests are added (blocks #2981). This is a band-aid, not the fix — revert to 180_000 when the
- * durable fix lands (splitting `workflow-runner.test.ts` so no single file approaches the health budget).
- */
-export const SUPPORTED_HEALTHY_FILE_BUDGET_MS = 420_000;
+/** Supported budget for the slowest healthy test file; `v1/test/run.test.ts` runs ~120s under the aggregate suite. */
+export const SUPPORTED_HEALTHY_FILE_BUDGET_MS = 180_000;
 export const FAILING_TEST_FILE_MARKER = "JARVIS_READY_FAILING_TEST_FILE ";
 export const READY_ATTEMPT_ENV = "JARVIS_READY_ATTEMPT_ID";
 

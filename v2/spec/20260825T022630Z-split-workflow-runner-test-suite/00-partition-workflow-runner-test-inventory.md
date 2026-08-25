@@ -25,12 +25,8 @@
 - [x] A merge-base-to-branch inventory comparison reports equal case counts and unchanged test titles, assertion expressions, `// @mutate` directives, and keystone directives across `v2/src/execution/workflow-runner.test.ts` and every resulting `workflow-runner-*.test.ts` file.
 - [x] An isolated wall-clock measurement reports at most 150 seconds for every resulting file and at most 120 seconds for the resume-path file.
 - [x] Relocated helper guards are unchanged; if implementation requires any added or modified guard, an in-body `// @mutate` checkpoint in its owning `workflow-runner-*.test.ts` test turns that test red when the guard is inverted.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass with the split inventory.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass with the split inventory.
 
 ## Documentation updates
 
 None — this subspec only partitions test code; the measured scheduling contract and durable audit are updated with the policy restoration in [01](./01-restore-per-file-health-policy.md).
-
-## Blocker
-
-`bun run test:v2` repeatedly times out in unrelated subprocess-heavy files under suite load, and `bun run test:integration:v2` repeatedly fails because `write-loop-ready-gate-reap.sandbox-unrunnable.test.ts` never observes its trap marker, including serial unsandboxed runs. The split files, inventory audit, isolated timing, helper-body audit, and `bun run typecheck` pass.

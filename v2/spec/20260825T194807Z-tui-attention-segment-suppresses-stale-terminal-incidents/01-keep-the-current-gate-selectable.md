@@ -15,11 +15,11 @@ Gates and failures share one six-row cap and sort oldest-`sinceMs`-first within 
 
 ## Task checklist
 
-- [ ] In `v2/src/tui/tui-attention-rows.ts`, split the sorted surfaced incidents into `gates` and `failures` by `GATE_KINDS` and build `rows` as every gate followed by `failures.slice(0, ATTENTION_ROW_CAP)`, leaving `total` and `overflow` derived as they are today.
-- [ ] In `compareAttentionRows`, orient the same-group dated comparison by group so gates compare newest-first and failures stay oldest-first, leaving group rank, undated placement, and the target-id/row-id tiebreaks untouched.
-- [ ] Pin uncapped gates, newest-gate-first ordering, the failure-ordering negative case, and the retained failure cap in `v2/src/tui/tui-attention-rows.test.ts`, each with an in-body directive on the real guard (no production inversion hooks).
-- [ ] Pin in `v2/src/tui/tui-entry.test.tsx` that `approve` reaches the newest gate when the gate backlog exceeds the failure cap.
-- [ ] Update the durable docs listed below in the same change.
+- [x] In `v2/src/tui/tui-attention-rows.ts`, split the sorted surfaced incidents into `gates` and `failures` by `GATE_KINDS` and build `rows` as every gate followed by `failures.slice(0, ATTENTION_ROW_CAP)`, leaving `total` and `overflow` derived as they are today.
+- [x] In `compareAttentionRows`, orient the same-group dated comparison by group so gates compare newest-first and failures stay oldest-first, leaving group rank, undated placement, and the target-id/row-id tiebreaks untouched.
+- [x] Pin uncapped gates, newest-gate-first ordering, the failure-ordering negative case, and the retained failure cap in `v2/src/tui/tui-attention-rows.test.ts`, each with an in-body directive on the real guard (no production inversion hooks).
+- [x] Pin in `v2/src/tui/tui-entry.test.tsx` that `approve` reaches the newest gate when the gate backlog exceeds the failure cap.
+- [x] Update the durable docs listed below in the same change.
 
 ## Acceptance criteria
 

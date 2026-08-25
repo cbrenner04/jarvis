@@ -19,11 +19,11 @@
 
 ## Task checklist
 
-- [ ] Add `ATTENTION_TERMINAL_RECENCY_MS` and `isSurfacedIncident(row, nowMs)` to `v2/src/tui/tui-attention-rows.ts`, ordered gate bypass, then undated rejection, then the inclusive window comparison, and filter the assembled incidents with `.filter((row) => isSurfacedIncident(row, nowMs))` before `.sort(compareAttentionRows)` so `total` and `overflow` derive from the surfaced set.
-- [ ] Make `nowMs` a required fourth parameter of `buildAttentionRows` and thread the frame clock through every caller: `leftPaneAttentionRowCount`, `leftPaneTreeMaxVisibleRows`, `monitorLeftPaneTreeRows` (its currently unused `_nowMs`), `withLeftPaneTreeScrollFollow`, `resolveAttentionTargetId`, `dockHintLine`, and `monitorDockLines` in `v2/src/tui/tui-monitor-lines.ts`; `selectedAttentionRow`, `approveRejectSelectionError`, `resolvePipelineSteeringDispatch`, and `revealSelectedAttentionTarget` in `v2/src/tui/tui-entry.tsx`; and `renderDockContent` in `v2/src/tui/tui-ink-monitor.tsx`, which already has the frame clock in scope at its call site.
-- [ ] Pin suppression, the within-window negative case, the gate bypass, the undated case, and caller-clock evaluation in `v2/src/tui/tui-attention-rows.test.ts`, each with an in-body directive on the real guard (no production inversion hooks).
-- [ ] Pin the painted heading count and the empty-segment case in `v2/src/tui/tui-monitor-lines.test.ts`, and pin that suppressed incidents leave the selectable id set.
-- [ ] Update the durable docs listed below in the same change.
+- [x] Add `ATTENTION_TERMINAL_RECENCY_MS` and `isSurfacedIncident(row, nowMs)` to `v2/src/tui/tui-attention-rows.ts`, ordered gate bypass, then undated rejection, then the inclusive window comparison, and filter the assembled incidents with `.filter((row) => isSurfacedIncident(row, nowMs))` before `.sort(compareAttentionRows)` so `total` and `overflow` derive from the surfaced set.
+- [x] Make `nowMs` a required fourth parameter of `buildAttentionRows` and thread the frame clock through every caller: `leftPaneAttentionRowCount`, `leftPaneTreeMaxVisibleRows`, `monitorLeftPaneTreeRows` (its currently unused `_nowMs`), `withLeftPaneTreeScrollFollow`, `resolveAttentionTargetId`, `dockHintLine`, and `monitorDockLines` in `v2/src/tui/tui-monitor-lines.ts`; `selectedAttentionRow`, `approveRejectSelectionError`, `resolvePipelineSteeringDispatch`, and `revealSelectedAttentionTarget` in `v2/src/tui/tui-entry.tsx`; and `renderDockContent` in `v2/src/tui/tui-ink-monitor.tsx`, which already has the frame clock in scope at its call site.
+- [x] Pin suppression, the within-window negative case, the gate bypass, the undated case, and caller-clock evaluation in `v2/src/tui/tui-attention-rows.test.ts`, each with an in-body directive on the real guard (no production inversion hooks).
+- [x] Pin the painted heading count and the empty-segment case in `v2/src/tui/tui-monitor-lines.test.ts`, and pin that suppressed incidents leave the selectable id set.
+- [x] Update the durable docs listed below in the same change.
 
 ## Acceptance criteria
 

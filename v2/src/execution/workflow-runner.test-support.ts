@@ -1,16 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import {
-  appendFileSync,
-  cpSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -20,67 +9,19 @@ import type {
 } from "../../../shared/invocation/execute.ts";
 import { resolveHarnessRoot } from "../../../shared/markdownlint-repair.ts";
 import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
-import { intentReviewPromptProfile } from "../../../shared/prompts/review-intent.ts";
-import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
-import { exitCodeForWriteResult } from "../cli/run-completion.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
-import {
-  createRunControlHandlers,
-  resetWriteLoopBindingSourceDepsForTests,
-  setWriteLoopBindingSourceDepsForTests,
-} from "../daemon/daemon.ts";
-import { stageArtifactKey } from "../daemon/pipeline-stage-dispatch.ts";
-import { resolveStageWorkflowSteps } from "../daemon/pipeline-stage-resolve.ts";
-import { composeRunOperatorError, findTerminalLogRecord } from "../daemon/run-operator-error.ts";
-import {
-  type LogEvent,
-  type LogSink,
-  openLogReader,
-  openLogSink,
-  type PersistedRecord,
-} from "../persistence/log-stream.ts";
+import { setWriteLoopBindingSourceDepsForTests } from "../daemon/daemon.ts";
+import type { LogEvent, LogSink, PersistedRecord } from "../persistence/log-stream.ts";
 import type { openStateStore } from "../persistence/state-store.ts";
-import {
-  createFakeWithExternalWorktree,
-  createJarvisHome,
-  trackedTempRoots,
-  withStateStore,
-} from "../testing/write-fixtures.ts";
-import { createCompletionCommitter } from "./completion-commit.ts";
-import { createCompletionPublisher } from "./completion-publisher.ts";
+import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
-import { getExternalWorktreePath } from "./external-worktree.ts";
-import { configuredIntentDurableDir, intentHandoffSpecPath } from "./intent-output.ts";
-import type { InvocationFailureKind } from "./invocation-failure.ts";
-import type { PipelineDefinition } from "./pipeline-definition.ts";
-import { landPublication, type PublicationLanding } from "./publication-landing.ts";
-import { buildPlanWorkflowSteps, validateReadyIntent } from "./publication-workflow-steps.ts";
-import { baseRefProbeFailsSeam, gateFailureOutput, initGateScopeWorktree } from "./ready-finalize.test.ts";
-import {
-  formatReadyGateOutOfScopeDetail,
-  ReadyFlipError,
-  ReadyGateError,
-  SurvivingMutationError,
-} from "./ready-finalize.ts";
-import { nonEmptyDiscoveryReason } from "./runtime-smoke-verifier.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
-import type { LoadedWorkflowStep, WorkflowSourceStep } from "./workflow-loader.ts";
-import {
-  executeWorkflow,
-  isPostCommitReviewRetryableFailureKind,
-  LinkedIndexReadError,
-  type ReviewDebateWorkflowStep,
-  type ReviewWorkflowStep,
-  recoverPlanStage,
-  resolveIntentFinalizationResumeContext,
-  resolveReviewMutationResumeContext,
-  resolveWorkflowPreset,
-  resumePopulatedIntentPublication,
-  resumeReviewMutationFinalization,
-  type WorkflowStepInput,
-  type WriteWorkflowStep,
+import type {
+  ReviewDebateWorkflowStep,
+  ReviewWorkflowStep,
+  WorkflowStepInput,
+  WriteWorkflowStep,
 } from "./workflow-runner.ts";
-import { findFirstMarkdownOnlyFenceViolation } from "./write-loop.ts";
 
 export const { roots } = trackedTempRoots();
 

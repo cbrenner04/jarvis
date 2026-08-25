@@ -24,7 +24,7 @@ CLI admission and cleanup command orchestration
 - Keep dead daemon-socket reaping global because sockets are not project-owned; rules out inventing a project-to-socket ownership contract.
 - Keep bare `jarvis cleanup` on the current all-registered-projects path; rules out making the project required or changing the default.
 - Apply the same project scope under `--dry-run` and `--yes`; rules out preview/apply divergence.
-- Keep `--abandon <name>` as the existing single-workspace path, outside project-scoped bulk cleanup; rules out changing abandon selection semantics.
+- Reject `jarvis cleanup <project> --abandon <name>` as conflicting cleanup targets; keep bare `jarvis cleanup --abandon <name>` as the existing single-workspace path, outside project-scoped bulk cleanup.
 - Preserve every existing eligibility and archival ownership recheck after scoping; rules out treating a named project as authorization to weaken safety gates.
 
 ## Acceptance criteria
@@ -32,7 +32,7 @@ CLI admission and cleanup command orchestration
 - [ ] With two registered projects, `jarvis cleanup <project>` surveys and considers only the selected project's managed worktrees, merged branch refs, and open spec home; the other project's project-owned discovery and mutation seams are never called.
 - [ ] Bare `jarvis cleanup` still surveys every registered project.
 - [ ] `jarvis cleanup <unknown-project>` exits non-zero, names the unknown key, and performs no daemon discovery, cleanup survey, or mutation.
-- [ ] The positional project composes with `--dry-run`, `--yes`, and `-y`, while `--abandon <name>` keeps its existing behavior.
+- [ ] The positional project composes with `--dry-run`, `--yes`, and `-y`; `jarvis cleanup <project> --abandon <name>` refuses the conflicting targets, while bare `--abandon <name>` keeps its existing behavior.
 - [ ] Scoped preview and apply preserve existing worktree, ref-prune, stranded-archive, and ownership rechecks.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 

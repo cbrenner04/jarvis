@@ -25,33 +25,42 @@ type PromptStdin = {
 type CleanupCliArgs = {
   abandonName: string | undefined;
   dryRun: boolean;
+  projectName: string | undefined;
   yes: boolean;
 };
 
 function parseCleanupCliArgs(argv: readonly string[], io: Io): CleanupCliArgs | undefined {
-  let values: Record<string, string | boolean | string[] | undefined>;
   try {
-    values = parseArgs({
+    const { values, positionals } = parseArgs({
       args: [...argv],
-      allowPositionals: false,
+      allowPositionals: true,
       strict: true,
       options: CLEANUP_PARSE_ARG_OPTIONS,
-    }).values;
+    });
+    if (positionals.length > 1) {
+      io.stderr(CLEANUP_USAGE);
+      return undefined;
+    }
+
+    const projectName = positionals[0];
+    const abandonName = typeof values.abandon === "string" ? values.abandon : undefined;
+    if (projectName !== undefined && abandonName !== undefined) {
+      io.stderr(CLEANUP_USAGE);
+      return undefined;
+    }
+
+    const dryRun = values["dry-run"] === true;
+    const yes = values.yes === true;
+    if (dryRun && yes) {
+      io.stderr(CLEANUP_USAGE);
+      return undefined;
+    }
+
+    return { dryRun, yes, abandonName, projectName };
   } catch {
     io.stderr(CLEANUP_USAGE);
     return undefined;
   }
-
-  const dryRun = values["dry-run"] === true;
-  const yes = values.yes === true;
-  const abandonName = typeof values.abandon === "string" ? values.abandon : undefined;
-
-  if (dryRun && yes) {
-    io.stderr(CLEANUP_USAGE);
-    return undefined;
-  }
-
-  return { dryRun, yes, abandonName };
 }
 
 /**
@@ -91,9 +100,14 @@ export function createPromptFunction(
 export async function runCleanupCliCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
   const parsedArgs = parseCleanupCliArgs(argv, io);
   if (parsedArgs === undefined) return 1;
-  const { dryRun, yes, abandonName } = parsedArgs;
+  const { dryRun, yes, abandonName, projectName } = parsedArgs;
 
   const registry = deps.readProjectRegistry();
+  if (projectName !== undefined && !Object.hasOwn(registry, projectName)) {
+    io.stderr(`Unknown project: ${projectName}\n`);
+    return 1;
+  }
+  const cleanupRegistry = projectName === undefined ? registry : { [projectName]: registry[projectName]! };
   const options = dryRun
     ? { dryRun: true }
     : { promptConfirm: yes ? async () => true : (deps.promptConfirm ?? createPromptFunction()) };
@@ -139,12 +153,13 @@ export async function runCleanupCliCommand(argv: readonly string[], io: Io, deps
 
   return runCleanupCommand(
     options,
-    registry,
+    cleanupRegistry,
     deps.jarvisRoot ?? jarvisHome(),
     deps.subprocessRunner ?? realAsyncSubprocessRunner,
     daemonClient,
     store,
     io,
+    registry,
   );
 }
 

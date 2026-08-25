@@ -221,7 +221,7 @@ If `gh` auth or `origin` is missing, the run can still reach `completed` locally
 
 ## Session close-out
 
-After the implementation PR lands, run `jarvis cleanup --dry-run`, then confirm `jarvis cleanup`. It retires the merged worktree and local branch, archives the completed v2 spec under `v2/spec/completed/`, and prunes its ready-intent only when it byte-matches `intent.md`. Durable run history remains available; incomplete, open-PR, or worktree-owned specs remain in place with a refusal reason.
+After the implementation PR lands, run `jarvis cleanup your-project --dry-run`, then confirm `jarvis cleanup your-project`. It retires that project's merged worktree and local branch, archives the completed v2 spec under `v2/spec/completed/`, and prunes its ready-intent only when it byte-matches `intent.md`. Use bare `jarvis cleanup` only for intentional all-project maintenance. Durable run history remains available; incomplete, open-PR, or worktree-owned specs remain in place with a refusal reason.
 
 ## Optional daemon lifecycle control
 

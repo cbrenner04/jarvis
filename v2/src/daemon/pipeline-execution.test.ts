@@ -25,6 +25,7 @@ import type {
   Run,
   RunStatus,
   StateStore,
+  WorkflowSnapshot,
 } from "../persistence/state-store.ts";
 import { analyzeFailedPipelineReopenShape, openStateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
@@ -80,6 +81,7 @@ import {
 } from "./pipeline-stage-resolve.ts";
 import type { TerminalLogRecord } from "./run-operator-error.ts";
 import { composeRunOperatorError } from "./run-operator-error.ts";
+import { rollupWorkflowRunStatus } from "./workflow-run-status-rollup.ts";
 
 const PIPELINE_ID = "pipeline-1";
 const baseContext: PipelineContext = { cwd: "/repo", seed: "seed text" };
@@ -1095,6 +1097,288 @@ describe("pipeline activation after restart", () => {
     expect(dispatchOrder).toEqual([2]);
     expect(stages().find((s) => s.stageId === "s1")?.workflowInvocationId).toBe("inv-1");
     expect(stages().find((s) => s.stageId === "s3")?.status).toBe("succeeded");
+  });
+
+  const RESTART_SWEEP_DEFINITION: PipelineDefinition = {
+    name: "restart-sweep-p",
+    terminalAction: "ready",
+    stages: [
+      { stageId: "s1", kind: "workflow", workflow: "intent", review: "none" },
+      { stageId: "s2", kind: "workflow", workflow: "plan", review: "none" },
+    ],
+  };
+
+  function deferredMarkerDetail(entryRunId: string, rollupStatus: RunStatus) {
+    return {
+      code: "settlement_deferred" as const,
+      reason: "entry_run_still_live" as const,
+      entryRunId,
+      rollupStatus,
+    };
+  }
+
+  function restartSweepEntrySnapshot(invocationId: string): WorkflowSnapshot {
+    return {
+      invocationId,
+      steps: [
+        { stepId: "s1-entry", role: "intent", durable: true },
+        { stepId: "s1-review", role: "review", behavior: "review", durable: true },
+      ],
+    };
+  }
+
+  /** Rolls up from seeded sibling step-run rows, mirroring `waitForWorkflowEntryRun` in production. */
+  function restartSweepWait(runs: Record<string, Partial<Run>>): PipelineWorkflowWait {
+    return async (entryRunId) => {
+      const entryRunPartial = runs[entryRunId];
+      if (!entryRunPartial) return "failed";
+      const entryRun = { id: entryRunId, attempts: [], ...entryRunPartial } as unknown as Run;
+      const workflowSnapshot = entryRun.workflowSnapshot ?? null;
+      const siblingRuns = Object.entries(runs)
+        .filter(([, run]) => run.workflowSnapshot?.invocationId === workflowSnapshot?.invocationId)
+        .map(([id, run]) => ({ id, attempts: [], ...run }) as unknown as Run);
+      return rollupWorkflowRunStatus({ entryRun, workflowSnapshot, siblingRuns, isLive: false });
+    };
+  }
+
+  test("restart sweep settles a deferred stage whose entry run completed while the daemon was down", async () => {
+    const entryRunId = "run-restart-sweep-1";
+    const reviewRunId = "run-restart-sweep-1-review";
+    const snapshot = restartSweepEntrySnapshot("inv-restart-sweep-1");
+    const runs: Record<string, Partial<Run>> = {
+      [entryRunId]: { specPath: "spec/s1.md", stepId: "s1-entry", status: "completed", workflowSnapshot: snapshot },
+      [reviewRunId]: { stepId: "s1-review", status: "completed", workflowSnapshot: snapshot },
+    };
+    const { store, stages } = fakeStore(RESTART_SWEEP_DEFINITION, runs, {
+      context: persistedContext,
+      ownerIdentity: PRIOR_OWNER,
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "s1",
+      patch: {
+        status: "running",
+        workflowInvocationId: entryRunId,
+        failureDetail: deferredMarkerDetail(entryRunId, "failed"),
+      },
+    });
+
+    let terminalPublicationCalls = 0;
+    const executeTerminalPublication = async () => {
+      terminalPublicationCalls += 1;
+      return { prNumber: 99, prUrl: "https://example.com/pr/99" };
+    };
+    const dispatchOrder: number[] = [];
+    const dispatch: PipelineWorkflowDispatch = async (steps) => {
+      dispatchOrder.push(stageIndexOf(steps));
+      const runId = "run-restart-sweep-2";
+      runs[runId] = {
+        specPath: "spec/s2.md",
+        worktreePath: "/repo/worktree",
+        branch: "feature-branch",
+        specRef: "main",
+        status: "completed",
+      };
+      return { ok: true, entryRunId: runId, invocationId: "inv-restart-sweep-2" };
+    };
+
+    const { continued } = await recoverContinuablePipelines(
+      store,
+      { store, dispatch, wait: restartSweepWait(runs), resolveStage: resolveStageStub(), executeTerminalPublication },
+      async () => false,
+    );
+
+    expect(continued).toBe(1);
+    const s1 = stages().find((s) => s.stageId === "s1");
+    expect(s1?.status).toBe("succeeded");
+    expect(s1?.failureDetail).toBeNull();
+    expect(s1?.artifact).toMatchObject({ entryRunId, specPath: "spec/s1.md" });
+    expect(stages().find((s) => s.stageId === "s2")?.status).toBe("succeeded");
+    expect(dispatchOrder).toEqual([1]);
+    expect(terminalPublicationCalls).toBe(1);
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (!isPipelineContinuable(pipeline) && !hasRedrivableDeferredSettlement(store, pipeline, reconciledEntryRunIds)) continue;" -> "if (!isPipelineContinuable(pipeline)) continue;"
+  });
+
+  test("restart sweep fails a deferred stage whose entry run ended failed", async () => {
+    const entryRunId = "run-restart-sweep-fail-1";
+    const reviewRunId = "run-restart-sweep-fail-1-review";
+    const snapshot = restartSweepEntrySnapshot("inv-restart-sweep-fail-1");
+    const runs: Record<string, Partial<Run>> = {
+      [entryRunId]: { specPath: "spec/s1.md", stepId: "s1-entry", status: "completed", workflowSnapshot: snapshot },
+      [reviewRunId]: { stepId: "s1-review", status: "failed", workflowSnapshot: snapshot },
+    };
+    const { store, stages } = fakeStore(RESTART_SWEEP_DEFINITION, runs, {
+      context: persistedContext,
+      ownerIdentity: PRIOR_OWNER,
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "s1",
+      patch: {
+        status: "running",
+        workflowInvocationId: entryRunId,
+        failureDetail: deferredMarkerDetail(entryRunId, "in-progress"),
+      },
+    });
+
+    const terminalRecord: PersistedRecord = {
+      runId: entryRunId,
+      seq: 1,
+      ts: "2026-01-01T00:00:00.000Z",
+      event: {
+        kind: "loop_finished",
+        loopOutcomeKind: "completion_commit_failed" as WriteLoopOutcomeKind,
+        iterationsConsumed: 1,
+        resumable: true,
+      },
+    };
+    const loadLogRecords = (runId: string) => (runId === entryRunId ? [terminalRecord] : []);
+
+    let dispatchCalled = false;
+    const dispatch: PipelineWorkflowDispatch = async () => {
+      dispatchCalled = true;
+      return { ok: true, entryRunId: "should-not-dispatch" };
+    };
+    let terminalPublicationCalls = 0;
+    const executeTerminalPublication = async () => {
+      terminalPublicationCalls += 1;
+      return { prNumber: 99, prUrl: "https://example.com/pr/99" };
+    };
+
+    const { continued } = await recoverContinuablePipelines(
+      store,
+      {
+        store,
+        dispatch,
+        wait: restartSweepWait(runs),
+        resolveStage: resolveStageStub(),
+        executeTerminalPublication,
+        loadLogRecords,
+      },
+      async () => false,
+    );
+
+    expect(continued).toBe(1);
+    expect(dispatchCalled).toBe(false);
+    const s1 = stages().find((s) => s.stageId === "s1");
+    expect(s1?.status).toBe("failed");
+    const entryRun = store.loadRun(entryRunId);
+    if (entryRun === null) throw new Error("expected entry run");
+    expect(s1?.failureDetail).toEqual(composeRunOperatorError(entryRun, terminalRecord as TerminalLogRecord));
+    expect(stages().find((s) => s.stageId === "s2")?.status).toBe("skipped");
+    expect(terminalPublicationCalls).toBe(0);
+  });
+
+  test("restart sweep leaves a deferred stage whose entry run is still live untouched", async () => {
+    const entryRunId = "run-restart-sweep-live";
+    const runs: Record<string, Partial<Run>> = {
+      [entryRunId]: { specPath: "spec/s1.md", status: "in-progress" },
+    };
+    const { store, stages } = fakeStore(RESTART_SWEEP_DEFINITION, runs, {
+      context: persistedContext,
+      ownerIdentity: PRIOR_OWNER,
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "s1",
+      patch: {
+        status: "running",
+        workflowInvocationId: entryRunId,
+        startedAt: 12345,
+        failureDetail: deferredMarkerDetail(entryRunId, "in-progress"),
+      },
+    });
+    const before = structuredClone(stages());
+
+    let dispatchCalled = false;
+    const dispatch: PipelineWorkflowDispatch = async () => {
+      dispatchCalled = true;
+      return { ok: true, entryRunId: "should-not-dispatch" };
+    };
+
+    const { continued } = await recoverContinuablePipelines(
+      store,
+      { store, dispatch, wait: restartSweepWait(runs), resolveStage: resolveStageStub() },
+      async () => false,
+    );
+
+    expect(continued).toBe(0);
+    expect(dispatchCalled).toBe(false);
+    expect(stages()).toEqual(before);
+    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (isLiveEntryRun(store, deferredEntryRunId)) return undefined;" -> "if (false) return undefined;"
+  });
+
+  test("restart sweep leaves a running stage without a deferred marker untouched", async () => {
+    const entryRunId = "run-restart-sweep-no-marker";
+    const runs: Record<string, Partial<Run>> = {
+      [entryRunId]: { specPath: "spec/s1.md", status: "completed" },
+    };
+    const { store, stages } = fakeStore(RESTART_SWEEP_DEFINITION, runs, {
+      context: persistedContext,
+      ownerIdentity: PRIOR_OWNER,
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "s1",
+      patch: { status: "running", workflowInvocationId: entryRunId },
+    });
+    const before = structuredClone(stages());
+
+    let dispatchCalled = false;
+    const dispatch: PipelineWorkflowDispatch = async () => {
+      dispatchCalled = true;
+      return { ok: true, entryRunId: "should-not-dispatch" };
+    };
+
+    const { continued } = await recoverContinuablePipelines(
+      store,
+      { store, dispatch, wait: restartSweepWait(runs), resolveStage: resolveStageStub() },
+      async () => false,
+    );
+
+    expect(continued).toBe(0);
+    expect(dispatchCalled).toBe(false);
+    expect(stages()).toEqual(before);
+    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (detail?.code !== \"settlement_deferred\" || detail.reason !== \"entry_run_still_live\") return undefined;" -> "if (false) return undefined;"
+  });
+
+  test("restart sweep leaves a deferred stage whose entry run was just reconciled untouched", async () => {
+    const entryRunId = "run-restart-sweep-reconciled";
+    const runs: Record<string, Partial<Run>> = {
+      [entryRunId]: { specPath: "spec/s1.md", status: "killed" },
+    };
+    const { store, stages } = fakeStore(RESTART_SWEEP_DEFINITION, runs, {
+      context: persistedContext,
+      ownerIdentity: PRIOR_OWNER,
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "s1",
+      patch: {
+        status: "running",
+        workflowInvocationId: entryRunId,
+        failureDetail: deferredMarkerDetail(entryRunId, "in-progress"),
+      },
+    });
+    const before = structuredClone(stages());
+
+    let dispatchCalled = false;
+    const dispatch: PipelineWorkflowDispatch = async () => {
+      dispatchCalled = true;
+      return { ok: true, entryRunId: "should-not-dispatch" };
+    };
+
+    const { continued } = await recoverContinuablePipelines(
+      store,
+      { store, dispatch, wait: restartSweepWait(runs), resolveStage: resolveStageStub() },
+      async () => false,
+      new Set([entryRunId]),
+    );
+
+    expect(continued).toBe(0);
+    expect(dispatchCalled).toBe(false);
+    expect(stages()).toEqual(before);
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (reconciledEntryRunIds.has(deferredEntryRunId)) return false;" -> "if (false) return false;"
   });
 
   test("after an applied reopen dispatches only the reopened failed stage and preserves predecessor evidence", async () => {

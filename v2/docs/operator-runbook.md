@@ -692,6 +692,10 @@ Durable non-terminal rows from a prior daemon are reconciled to `killed` with re
   and `nextAction: "stop"`. Fix the persisted context or re-run the spec rather than treating that
   row as a config-binding failure.
 
+### Wedged pipeline-stage settlement after daemon death
+
+A pipeline stage can wedge `running` with `failureDetail: { code: "settlement_deferred", reason: "entry_run_still_live" }` when a prior daemon dies between its entry run reaching a durable terminal status and that status being delivered back to the stage row. The **first** daemon restart after the wedge recovers it automatically — no manual step: the startup continuation sweep advances or fails the stage from its entry run's durable rows and dispatches the pending successor or terminal publication, provided that entry run is already durably terminal and was not itself reconciled by that same restart (see [`daemon-host.md` § Restart reconciliation and recovery](./daemon-host.md#restart-reconciliation-and-recovery)). A genuinely live entry run, or one reconciled by that same restart (left to the ordinary reconcile-and-resume path instead), is left alone; if it later settles `interrupted` the usual way, it is out of the re-drive's reach on any later restart.
+
 ### Clearing a stale non-active run with `run kill --force`
 
 Reach for `jarvis run kill --force <run-id>` only after `run resume <run-id>` refuses (`unsupported_resume_context` or similar), or the row has no resumable write context at all — a stale `paused` row is the common case, since `paused` is not boundary-terminal and never ages out of the default retention window on its own. Do **not** force a row whose owning daemon is mid-`finalization` or mid-`recovery`: the force path only takes the safe abort branch for a live `write-loop`/`workflow` active kind (see the `kill` RPC row in [`daemon-host.md`](./daemon-host.md#rpc-methods-transport-slice)); forcing a mid-finalization or mid-recovery row stamps it `killed` while that work keeps running underneath.

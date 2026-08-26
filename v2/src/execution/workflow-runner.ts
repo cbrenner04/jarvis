@@ -54,6 +54,7 @@ import {
   type InvocationFailureKind,
   isExhaustedRoleTimeout,
 } from "./invocation-failure.ts";
+import { readBranchCommits } from "./pr-attribution.ts";
 import { checkPlanTreeLanding, landPublication, type PublicationLanding } from "./publication-landing.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
@@ -849,10 +850,11 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     // completion agent — the agent that actually ran it — falling back to the write step's
     // configured agent only when no durable record exists, so publication is never silently
     // skipped because the actuator was skipped.
-    const publicationAgent =
+    const boundaryAgent =
       lastResult.kind === "complete"
         ? (completionAgent ?? (isReviewLastStep ? (durableWriteAgent ?? completionStep?.agents[0]) : undefined))
         : undefined;
+    const publicationAgent = boundaryAgent;
 
     // The publication tail always writes status/log records against `lastResult.runId`. When the
     // last step is non-durable (e.g. a light review with no landing), that id is a synthesized
@@ -1260,6 +1262,28 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     if (!args.stateStore) {
       store.close();
     }
+  }
+}
+
+/**
+ * Fall back to the branch's own commit attribution when a completed boundary resolves no
+ * publishing identity — e.g. a re-dispatched implement whose durable rows were reused without a
+ * recorded completion agent. Newest attributed commit wins; an unreadable branch or a branch
+ * whose commits carry no `Jarvis-Agent` trailer resolves no identity rather than inventing one.
+ */
+async function branchCommitAgent(step: WriteWorkflowStep | undefined): Promise<string | undefined> {
+  if (step === undefined) return undefined;
+  try {
+    const commits = await readBranchCommits({
+      cwd: getExternalWorktreePath(step.worktree),
+      base: step.worktree.baseRef,
+    });
+    return [...commits]
+      .reverse()
+      .flatMap((c) => c.jarvisAgentTrailers)
+      .find((agent) => agent.length > 0);
+  } catch {
+    return undefined;
   }
 }
 

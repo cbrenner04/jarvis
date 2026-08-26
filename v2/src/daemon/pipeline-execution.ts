@@ -411,6 +411,7 @@ export async function resumePipeline(
     return { kind: "refused", pipelineId, reason: terminalReason };
   }
   if (resumeDeferredRefusalApplies(derivedState, pipeline)) {
+    if (resumeDrivesDeferredSettlement(store, derivedState, pipeline)) return continueAfterAdmission();
     return { kind: "refused", pipelineId, reason: "pipeline_not_resumable" };
   }
 
@@ -807,6 +808,22 @@ async function settlePipelineTerminalPublication(
       ...(resolved.input.prUrl !== undefined ? { prUrl: resolved.input.prUrl } : {}),
     });
   }
+}
+
+/**
+ * `resumeDrivesDeferredSettlement`'s reconciled-set argument: resume runs on a live daemon, not
+ * a restart batch, so no entry run has been reconciled-this-start.
+ */
+const NO_RECONCILED_ENTRY_RUNS: ReadonlySet<string> = new Set();
+
+/** True when derived `running` reflects a redrivable deferred-settlement wedge, not live work. */
+export function resumeDrivesDeferredSettlement(
+  store: StateStore,
+  derivedState: PipelineDerivedState,
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+): boolean {
+  if (derivedState !== "running") return false;
+  return hasRedrivableDeferredSettlement(store, pipeline, NO_RECONCILED_ENTRY_RUNS);
 }
 
 /**

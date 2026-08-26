@@ -991,6 +991,15 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                   pass: lastResult.reviewPass,
                 }
               : undefined;
+          // The content-vs-base gate below only means something against a real Git worktree whose
+          // returned commit actually exists — the production committer only ever returns a
+          // `commitSha` once it has confirmed `.git` exists and always returns a real commit, so
+          // both checks are redundant there, but a test double may fake a `commitSha` over a
+          // non-Git worktreePath or one that was never actually committed. Falling back to "has
+          // content" (1) in that case keeps the gate a no-op (preserving prior always-publish
+          // behavior) instead of failing on unreadable git state.
+          const worktreeHasGit = existsSync(join(worktreePath, ".git"));
+          const headBeforeCompletionCommit = worktreeHasGit ? await getCurrentHeadAsync(worktreePath) : undefined;
           const published = await (args.completionCommitter ?? createCompletionCommitter())({
             worktreePath,
             baseRef: worktree.baseRef,
@@ -1001,6 +1010,12 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             iterationTimeoutMs: completionStep.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
             ...(commitStep !== undefined ? { step: commitStep } : {}),
           });
+          const filesChangedFromBase =
+            published.commitSha !== undefined &&
+            worktreeHasGit &&
+            (await commitExists(worktreePath, published.commitSha))
+              ? await countFilesChangedFromBase(worktreePath, worktree.baseRef, published.commitSha)
+              : 1;
           if (published.commitSha === undefined) {
             const uncommitted = await getUncommittedPaths(worktreePath);
             const remainingStaged = remainingStagedIntentPaths(worktreePath, completionStep.landing);
@@ -1033,7 +1048,21 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               };
             }
           }
-          if (published.commitSha !== undefined) {
+          if (
+            published.commitSha !== undefined &&
+            filesChangedFromBase === 0 &&
+            headBeforeCompletionCommit !== undefined
+          ) {
+            // The forced completion commit carries no content ahead of base (e.g. a no-work
+            // shrink boundary over an already-clean branch). Roll it back locally rather than
+            // publish an empty marker commit.
+            await realAsyncSubprocessRunner.runAsync(
+              "git",
+              ["reset", "--mixed", headBeforeCompletionCommit],
+              worktreePath,
+            );
+          }
+          if (published.commitSha !== undefined && filesChangedFromBase > 0) {
             const stamped = lastResult as WriteLoopResult;
             stamped.commitSha = published.commitSha;
             if (
@@ -1703,6 +1732,35 @@ async function gitOutput(
     return (await runner.runAsync("git", [...args], worktreePath, { maxBuffer: GIT_OUTPUT_MAX_BUFFER })).trim();
   } catch {
     return "";
+  }
+}
+
+/**
+ * Count files the completion commit changed relative to `baseRef`. Used to decide whether a
+ * forced completion commit actually carries publishable content — a failed or unparseable diff
+ * resolves to `0` rather than throwing, so it never strands an otherwise-complete run.
+ */
+async function countFilesChangedFromBase(worktreePath: string, baseRef: string, commitSha: string): Promise<number> {
+  try {
+    const output = await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["diff", "--name-only", baseRef, commitSha],
+      worktreePath,
+      { maxBuffer: GIT_OUTPUT_MAX_BUFFER },
+    );
+    return output.split("\n").filter((line) => line.trim().length > 0).length;
+  } catch {
+    return 0;
+  }
+}
+
+/** Whether `commitSha` resolves to a real commit object in `worktreePath`. */
+async function commitExists(worktreePath: string, commitSha: string): Promise<boolean> {
+  try {
+    await realAsyncSubprocessRunner.runAsync("git", ["cat-file", "-e", `${commitSha}^{commit}`], worktreePath);
+    return true;
+  } catch {
+    return false;
   }
 }
 

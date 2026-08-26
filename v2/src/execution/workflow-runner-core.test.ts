@@ -961,7 +961,7 @@ describe("executeWorkflow", () => {
       projectRoot: harness.workspace,
       projectName: "demo",
       branchName,
-      baseRef: "HEAD",
+      baseRef: "lazy-base",
       git: false,
       localPath: harness.workspace,
     };

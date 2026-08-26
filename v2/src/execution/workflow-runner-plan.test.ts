@@ -388,17 +388,18 @@ describe("executeWorkflow plan review dispatch", () => {
         return { kind: "ok", stdout: "done", stderr: "" } as const;
       }),
     });
+    // A fixed base sha, not the literal "HEAD" sentinel: the completion tail's content-vs-base
+    // gate diffs the completion commit against this ref after it has already moved HEAD forward.
+    const preRunHead = execFileSync("git", ["rev-parse", "HEAD"], { cwd: harness.workspace, encoding: "utf8" }).trim();
     step.worktree = {
       projectRoot: harness.workspace,
       projectName: "demo",
       branchName,
-      baseRef: "HEAD",
+      baseRef: preRunHead,
       git: false,
       localPath: harness.workspace,
     };
     step.withExternalWorktree = harness.withExternalWorktree;
-
-    const preRunHead = execFileSync("git", ["rev-parse", "HEAD"], { cwd: harness.workspace, encoding: "utf8" }).trim();
 
     await withStateStore(async (store) => {
       const result = await executeWorkflow({

@@ -1881,6 +1881,14 @@ describe("implement preflight stale workspace reset", () => {
   let resetJarvisRoot: string;
   const resetBranch = "implement-run";
 
+  // A fixed base sha, not the literal "HEAD" sentinel: once a materialized worktree exists for
+  // this branch, "HEAD" resolves against that worktree's own tip (not resetProjectRoot's), which
+  // moves as the run commits and would self-diff empty against the completion tail's own forced
+  // commit whenever a test flips `publishCompletion` on.
+  function resetProjectBaseRef(): string {
+    return execFileSync("git", ["rev-parse", "HEAD"], { cwd: resetProjectRoot, encoding: "utf8" }).trim();
+  }
+
   function resetImplementSteps(branch = resetBranch): AnyWorkflowStep[] {
     return [
       {
@@ -1900,7 +1908,7 @@ describe("implement preflight stale workspace reset", () => {
           projectRoot: realpathSync(resetProjectRoot),
           projectName: "demo",
           branchName: branch,
-          baseRef: "HEAD",
+          baseRef: resetProjectBaseRef(),
           jarvisRoot: resetJarvisRoot,
         },
         specPath: "index.md",
@@ -1932,7 +1940,7 @@ describe("implement preflight stale workspace reset", () => {
           projectRoot: realpathSync(resetProjectRoot),
           projectName: "demo",
           branchName: branch,
-          baseRef: "HEAD",
+          baseRef: resetProjectBaseRef(),
           jarvisRoot: resetJarvisRoot,
         },
         specPath: "spec/ready-intents",
@@ -1940,7 +1948,7 @@ describe("implement preflight stale workspace reset", () => {
         publishCompletion: false,
         landing: {
           kind: "intent-stage",
-          baseRef: "HEAD",
+          baseRef: resetProjectBaseRef(),
           inputs: { sourceRoot: resetProjectRoot, paths: [], consumeFrom: "worktree" },
           output: { durableDir: "spec/ready-intents" },
           stagingDir: ".jarvis-intent-stage",

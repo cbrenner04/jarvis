@@ -258,6 +258,9 @@ describe("executeWorkflow review dispatch", () => {
   } {
     const harness = createIntentWorktreeHarness(branchName);
     const workspace = harness.workspace;
+    // A fixed base sha, not the literal "HEAD" sentinel: the completion tail's content-vs-base
+    // gate diffs the completion commit against this ref after it has already moved HEAD forward.
+    const baseRef = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
     const durableDir = join(workspace, "ready-intents");
     const stagingDir = join(workspace, ".jarvis-intent-stage");
     const verdictPath = join(workspace, ".jarvis-intent-review-verdict.md");
@@ -278,7 +281,7 @@ describe("executeWorkflow review dispatch", () => {
         projectRoot: workspace,
         projectName: "demo",
         branchName,
-        baseRef: "HEAD",
+        baseRef,
         git: false,
         localPath: workspace,
       },

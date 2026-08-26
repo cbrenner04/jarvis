@@ -54,6 +54,7 @@ import {
   type InvocationFailureKind,
   isExhaustedRoleTimeout,
 } from "./invocation-failure.ts";
+import { readBranchCommits } from "./pr-attribution.ts";
 import { checkPlanTreeLanding, landPublication, type PublicationLanding } from "./publication-landing.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
@@ -849,10 +850,11 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     // completion agent — the agent that actually ran it — falling back to the write step's
     // configured agent only when no durable record exists, so publication is never silently
     // skipped because the actuator was skipped.
-    const publicationAgent =
+    const boundaryAgent =
       lastResult.kind === "complete"
         ? (completionAgent ?? (isReviewLastStep ? (durableWriteAgent ?? completionStep?.agents[0]) : undefined))
         : undefined;
+    const publicationAgent = boundaryAgent;
 
     // The publication tail always writes status/log records against `lastResult.runId`. When the
     // last step is non-durable (e.g. a light review with no landing), that id is a synthesized
@@ -991,6 +993,15 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                   pass: lastResult.reviewPass,
                 }
               : undefined;
+          // The content-vs-base gate below only means something against a real Git worktree whose
+          // returned commit actually exists — the production committer only ever returns a
+          // `commitSha` once it has confirmed `.git` exists and always returns a real commit, so
+          // both checks are redundant there, but a test double may fake a `commitSha` over a
+          // non-Git worktreePath or one that was never actually committed. Falling back to "has
+          // content" (1) in that case keeps the gate a no-op (preserving prior always-publish
+          // behavior) instead of failing on unreadable git state.
+          const worktreeHasGit = existsSync(join(worktreePath, ".git"));
+          const headBeforeCompletionCommit = worktreeHasGit ? await getCurrentHeadAsync(worktreePath) : undefined;
           const published = await (args.completionCommitter ?? createCompletionCommitter())({
             worktreePath,
             baseRef: worktree.baseRef,
@@ -1001,6 +1012,12 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             iterationTimeoutMs: completionStep.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
             ...(commitStep !== undefined ? { step: commitStep } : {}),
           });
+          const filesChangedFromBase =
+            published.commitSha !== undefined &&
+            worktreeHasGit &&
+            (await commitExists(worktreePath, published.commitSha))
+              ? await countFilesChangedFromBase(worktreePath, worktree.baseRef, published.commitSha)
+              : 1;
           if (published.commitSha === undefined) {
             const uncommitted = await getUncommittedPaths(worktreePath);
             const remainingStaged = remainingStagedIntentPaths(worktreePath, completionStep.landing);
@@ -1033,7 +1050,21 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               };
             }
           }
-          if (published.commitSha !== undefined) {
+          if (
+            published.commitSha !== undefined &&
+            filesChangedFromBase === 0 &&
+            headBeforeCompletionCommit !== undefined
+          ) {
+            // The forced completion commit carries no content ahead of base (e.g. a no-work
+            // shrink boundary over an already-clean branch). Roll it back locally rather than
+            // publish an empty marker commit.
+            await realAsyncSubprocessRunner.runAsync(
+              "git",
+              ["reset", "--mixed", headBeforeCompletionCommit],
+              worktreePath,
+            );
+          }
+          if (published.commitSha !== undefined && filesChangedFromBase > 0) {
             const stamped = lastResult as WriteLoopResult;
             stamped.commitSha = published.commitSha;
             if (
@@ -1231,6 +1262,28 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     if (!args.stateStore) {
       store.close();
     }
+  }
+}
+
+/**
+ * Fall back to the branch's own commit attribution when a completed boundary resolves no
+ * publishing identity — e.g. a re-dispatched implement whose durable rows were reused without a
+ * recorded completion agent. Newest attributed commit wins; an unreadable branch or a branch
+ * whose commits carry no `Jarvis-Agent` trailer resolves no identity rather than inventing one.
+ */
+async function branchCommitAgent(step: WriteWorkflowStep | undefined): Promise<string | undefined> {
+  if (step === undefined) return undefined;
+  try {
+    const commits = await readBranchCommits({
+      cwd: getExternalWorktreePath(step.worktree),
+      base: step.worktree.baseRef,
+    });
+    return [...commits]
+      .reverse()
+      .flatMap((c) => c.jarvisAgentTrailers)
+      .find((agent) => agent.length > 0);
+  } catch {
+    return undefined;
   }
 }
 
@@ -1703,6 +1756,35 @@ async function gitOutput(
     return (await runner.runAsync("git", [...args], worktreePath, { maxBuffer: GIT_OUTPUT_MAX_BUFFER })).trim();
   } catch {
     return "";
+  }
+}
+
+/**
+ * Count files the completion commit changed relative to `baseRef`. Used to decide whether a
+ * forced completion commit actually carries publishable content — a failed or unparseable diff
+ * resolves to `0` rather than throwing, so it never strands an otherwise-complete run.
+ */
+async function countFilesChangedFromBase(worktreePath: string, baseRef: string, commitSha: string): Promise<number> {
+  try {
+    const output = await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["diff", "--name-only", baseRef, commitSha],
+      worktreePath,
+      { maxBuffer: GIT_OUTPUT_MAX_BUFFER },
+    );
+    return output.split("\n").filter((line) => line.trim().length > 0).length;
+  } catch {
+    return 0;
+  }
+}
+
+/** Whether `commitSha` resolves to a real commit object in `worktreePath`. */
+async function commitExists(worktreePath: string, commitSha: string): Promise<boolean> {
+  try {
+    await realAsyncSubprocessRunner.runAsync("git", ["cat-file", "-e", `${commitSha}^{commit}`], worktreePath);
+    return true;
+  } catch {
+    return false;
   }
 }
 

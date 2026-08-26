@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,6 +25,7 @@ import {
   DEFAULT_AGENT_MODEL_CONFIG,
   doneBindingFactory,
   externalWorktreeBinding,
+  initGitWorkspace,
   okTokenBindingFactory,
   roots,
   seedCompletedWriteRun,
@@ -1796,5 +1798,123 @@ describe("executeWorkflow completion publication", () => {
       expect(specTemplates).toEqual([true, true]);
       expect(summaries[0]).toBe(summaries[1]);
     });
+  });
+
+  /**
+   * A write step whose implement and shrink prompts both settle without touching any file —
+   * `expectedArtifactPath` ("proof.txt") is created up front so `artifact.exists` is already
+   * satisfied. `aheadOfBase` seeds one real committed file change ahead of `baseRef` before the
+   * no-work boundary; without it, the branch has zero content ahead of base at all.
+   */
+  function noWorkShrinkStep(branchName: string, aheadOfBase: boolean): { workspace: string; step: WriteWorkflowStep } {
+    const workspace = initGitWorkspace(`no-work-shrink-${branchName}-`);
+    writeFileSync(join(workspace, "proof.txt"), "ok\n", "utf8");
+    execFileSync("git", ["add", "."], { cwd: workspace });
+    execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
+    const baseRef = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
+
+    if (aheadOfBase) {
+      writeFileSync(join(workspace, "feature.txt"), "feature\n", "utf8");
+      execFileSync("git", ["add", "."], { cwd: workspace });
+      execFileSync("git", ["commit", "-qm", "add feature"], { cwd: workspace });
+    }
+
+    const step = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName,
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        invoke: ({ prompt }) =>
+          Promise.resolve({
+            kind: "ok",
+            stdout: prompt.includes("Post-completion Shrink") ? "done" : "no-work",
+            stderr: "",
+          } as const),
+        metadata: { agent: agentId, model: adapterModel },
+      }),
+    });
+    step.worktree = {
+      projectRoot: workspace,
+      projectName: "demo",
+      branchName,
+      baseRef,
+      git: false,
+      localPath: workspace,
+    };
+    step.withExternalWorktree = externalWorktreeBinding(workspace);
+    return { workspace, step };
+  }
+
+  test("a completed run with no content ahead of base neither pushes nor opens a PR", async () => {
+    // @mutate v2/src/execution/workflow-runner.ts "if (published.commitSha !== undefined && filesChangedFromBase > 0) {" -> "if (published.commitSha !== undefined) {"
+    const { workspace, step } = noWorkShrinkStep("no-content-ahead-of-base", false);
+    const headBeforeCompletionCommit = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: workspace,
+      encoding: "utf8",
+    }).trim();
+    let publisherCalled = false;
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionPublisher: async () => {
+          publisherCalled = true;
+          return {};
+        },
+      });
+      expect(result.kind).toBe("complete");
+    });
+
+    expect(publisherCalled).toBe(false);
+    expect(execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim()).toBe(
+      headBeforeCompletionCommit,
+    );
+  });
+
+  test("a no-work shrink over a branch already ahead of base still pushes and opens the draft PR", async () => {
+    const { step } = noWorkShrinkStep("shrink-over-existing-content", true);
+    const publisherCalls: Array<{ branch: string; baseRef: string }> = [];
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionPublisher: async (input) => {
+          publisherCalls.push({ branch: input.branch, baseRef: input.baseRef });
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+    });
+
+    expect(publisherCalls).toEqual([{ branch: step.worktree.branchName, baseRef: step.worktree.baseRef }]);
+  });
+
+  test("pipeline implement stage shape creates the draft PR when the shrink produces no further commit", async () => {
+    const { step } = noWorkShrinkStep("shrink-over-existing-content-pipeline", true);
+    step.skipReadyFinalization = true;
+    let publisherCalled = false;
+    let readyFinalizerCalled = false;
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionPublisher: async () => {
+          publisherCalled = true;
+          return {};
+        },
+        readyFinalizer: async () => {
+          readyFinalizerCalled = true;
+        },
+      });
+      expect(result.kind).toBe("complete");
+    });
+
+    expect(publisherCalled).toBe(true);
+    expect(readyFinalizerCalled).toBe(false);
   });
 });

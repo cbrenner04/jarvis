@@ -195,6 +195,10 @@ export function createLazyIntentWorktreeHarness(branchName: string) {
       writeFileSync(join(workspace, "base.txt"), "base\n", "utf8");
       execFileSync("git", ["add", "."], { cwd: workspace });
       execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
+      // Named so callers can use a fixed baseRef ("lazy-base") that survives later commits,
+      // instead of the literal "HEAD" sentinel, which would self-diff empty once this branch's
+      // own commits move HEAD past it.
+      execFileSync("git", ["tag", "lazy-base"], { cwd: workspace });
       materialized = true;
     }
     return {
@@ -247,6 +251,10 @@ export function createShrinkTestStep(
   invoke: (args: { cwd: string; shrink: boolean }) => Promise<InvocationResult>,
 ) {
   const harness = createIntentWorktreeHarness(branchName);
+  // A fixed base sha, not the literal "HEAD" sentinel: the completion tail's content-vs-base
+  // gate diffs the completion commit against this ref after it has already moved HEAD forward,
+  // so a self-tracking "HEAD" would always self-diff empty regardless of real content.
+  const baseRef = execFileSync("git", ["rev-parse", "HEAD"], { cwd: harness.workspace, encoding: "utf8" }).trim();
   const step = createStep({
     stepId: "implement",
     role: "implement",
@@ -261,7 +269,7 @@ export function createShrinkTestStep(
     projectRoot: harness.workspace,
     projectName: "demo",
     branchName,
-    baseRef: "HEAD",
+    baseRef,
     git: false,
     localPath: harness.workspace,
   };

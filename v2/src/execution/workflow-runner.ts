@@ -54,6 +54,7 @@ import {
   type InvocationFailureKind,
   isExhaustedRoleTimeout,
 } from "./invocation-failure.ts";
+import { readBranchCommits } from "./pr-attribution.ts";
 import { checkPlanTreeLanding, landPublication, type PublicationLanding } from "./publication-landing.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
@@ -849,10 +850,20 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     // completion agent — the agent that actually ran it — falling back to the write step's
     // configured agent only when no durable record exists, so publication is never silently
     // skipped because the actuator was skipped.
-    const publicationAgent =
+    const boundaryAgent =
       lastResult.kind === "complete"
         ? (completionAgent ?? (isReviewLastStep ? (durableWriteAgent ?? completionStep?.agents[0]) : undefined))
         : undefined;
+    // A re-dispatched completed run (e.g. its durable rows reused without a recorded completion
+    // agent) can leave the boundary unresolved even though the branch already carries real,
+    // attributed commits. Fall back to the newest `Jarvis-Agent` trailer on the branch so
+    // publication is not silently skipped for identity alone.
+    const publicationAgent =
+      lastResult.kind === "complete"
+        ? boundaryAgent === undefined
+          ? await branchCommitAgent(completionStep)
+          : boundaryAgent
+        : boundaryAgent;
 
     // The publication tail always writes status/log records against `lastResult.runId`. When the
     // last step is non-durable (e.g. a light review with no landing), that id is a synthesized
@@ -991,6 +1002,13 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                   pass: lastResult.reviewPass,
                 }
               : undefined;
+          // The gate below suppresses publication only when the diff against base was positively
+          // read back empty. Every state where the diff can't be evaluated at all — an
+          // unresolvable base, a fake commitSha from a test double, a non-Git worktreePath —
+          // resolves to "changed" instead, preserving the pre-change always-publish behavior
+          // rather than guessing.
+          const worktreeHasGit = existsSync(join(worktreePath, ".git"));
+          const headBeforeCompletionCommit = worktreeHasGit ? await getCurrentHeadAsync(worktreePath) : undefined;
           const published = await (args.completionCommitter ?? createCompletionCommitter())({
             worktreePath,
             baseRef: worktree.baseRef,
@@ -1001,6 +1019,10 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             iterationTimeoutMs: completionStep.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
             ...(commitStep !== undefined ? { step: commitStep } : {}),
           });
+          const baseDiffOutcome =
+            published.commitSha !== undefined
+              ? await readDiffOutcome(worktreePath, worktree.baseRef, published.commitSha)
+              : "changed";
           if (published.commitSha === undefined) {
             const uncommitted = await getUncommittedPaths(worktreePath);
             const remainingStaged = remainingStagedIntentPaths(worktreePath, completionStep.landing);
@@ -1033,7 +1055,22 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               };
             }
           }
-          if (published.commitSha !== undefined) {
+          if (published.commitSha !== undefined && baseDiffOutcome === "empty") {
+            // The forced completion commit carries no content ahead of base (e.g. a no-work
+            // shrink boundary over an already-clean branch). Roll it back locally rather than
+            // publish an empty marker commit — but only when the commit is itself a no-op against
+            // its own parent; a boundary that legitimately reverts branch content back to base
+            // keeps its real commit instead of dumping that diff into the working tree.
+            await suppressContentEmptyCompletionCommit(worktreePath, published.commitSha, headBeforeCompletionCommit);
+            traceCompletionPublication(
+              args.logSink,
+              lastResult.runId,
+              completionStep.landing,
+              worktree.branchName,
+              "no_content_ahead_of_base: completion commit matches base, nothing to publish",
+            );
+          }
+          if (published.commitSha !== undefined && baseDiffOutcome !== "empty") {
             const stamped = lastResult as WriteLoopResult;
             stamped.commitSha = published.commitSha;
             if (
@@ -1231,6 +1268,28 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     if (!args.stateStore) {
       store.close();
     }
+  }
+}
+
+/**
+ * Fall back to the branch's own commit attribution when a completed boundary resolves no
+ * publishing identity — e.g. a re-dispatched implement whose durable rows were reused without a
+ * recorded completion agent. Newest attributed commit wins; an unreadable branch or a branch
+ * whose commits carry no `Jarvis-Agent` trailer resolves no identity rather than inventing one.
+ */
+async function branchCommitAgent(step: WriteWorkflowStep | undefined): Promise<string | undefined> {
+  if (step === undefined) return undefined;
+  try {
+    const commits = await readBranchCommits({
+      cwd: getExternalWorktreePath(step.worktree),
+      base: step.worktree.baseRef,
+    });
+    return [...commits]
+      .reverse()
+      .flatMap((c) => c.jarvisAgentTrailers)
+      .find((agent) => agent.length > 0);
+  } catch {
+    return undefined;
   }
 }
 
@@ -1703,6 +1762,62 @@ async function gitOutput(
     return (await runner.runAsync("git", [...args], worktreePath, { maxBuffer: GIT_OUTPUT_MAX_BUFFER })).trim();
   } catch {
     return "";
+  }
+}
+
+/**
+ * Diff `toRef` against `fromRef`, reporting whether it carries file changes. A failed or
+ * unparseable read (an unresolvable ref, a non-Git worktree) resolves to `"unreadable"` rather
+ * than throwing or being conflated with a positively-empty diff — the completion-publication gate
+ * only suppresses publication when this read succeeds and comes back `"empty"`.
+ */
+async function readDiffOutcome(
+  worktreePath: string,
+  fromRef: string,
+  toRef: string,
+): Promise<"empty" | "changed" | "unreadable"> {
+  try {
+    const output = await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["diff", "--name-only", fromRef, toRef],
+      worktreePath,
+      { maxBuffer: GIT_OUTPUT_MAX_BUFFER },
+    );
+    return output.split("\n").some((line) => line.trim().length > 0) ? "changed" : "empty";
+  } catch {
+    return "unreadable";
+  }
+}
+
+/**
+ * Undo a completion commit whose diff against base came back empty — but only when the commit is
+ * itself a no-op against its own parent. `filesChangedFromBase === 0` means the commit's tree
+ * equals base's tree, not that the commit equals its parent: a boundary that legitimately reverts
+ * branch content back to base produces a real commit with real changes relative to its parent,
+ * and resetting would dump that diff into the working tree for no reason — that commit is left on
+ * the branch untouched, just not published. The parent is read from the commit itself (not a head
+ * sampled before the committer call) because the committer's pending-retry path can return a
+ * `commitSha` that already was HEAD going in, which would otherwise make the reset a no-op and
+ * leave the content-empty commit dangling. A failed rollback subprocess still means "don't
+ * publish" rather than throwing out of a completed run.
+ */
+async function suppressContentEmptyCompletionCommit(
+  worktreePath: string,
+  commitSha: string,
+  headBeforeCompletionCommit: string | undefined,
+): Promise<void> {
+  let parent: string | undefined;
+  try {
+    parent = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", `${commitSha}^`], worktreePath)).trim();
+  } catch {
+    parent = headBeforeCompletionCommit;
+  }
+  if (parent === undefined) return;
+  if ((await readDiffOutcome(worktreePath, parent, commitSha)) !== "empty") return;
+  try {
+    await realAsyncSubprocessRunner.runAsync("git", ["reset", "--mixed", parent], worktreePath);
+  } catch {
+    // A failed rollback still must not publish; the marker commit (empty vs base) stays local.
   }
 }
 

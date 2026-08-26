@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { exitCodeForWriteResult } from "../cli/run-completion.ts";
@@ -24,6 +25,7 @@ import {
   DEFAULT_AGENT_MODEL_CONFIG,
   doneBindingFactory,
   externalWorktreeBinding,
+  initGitWorkspace,
   okTokenBindingFactory,
   roots,
   seedCompletedWriteRun,
@@ -1796,5 +1798,341 @@ describe("executeWorkflow completion publication", () => {
       expect(specTemplates).toEqual([true, true]);
       expect(summaries[0]).toBe(summaries[1]);
     });
+  });
+
+  /** Commit `fileName` in `workspace` as the base commit, returning its sha. */
+  function commitBaseRef(workspace: string, fileName: string, content: string): string {
+    writeFileSync(join(workspace, fileName), content, "utf8");
+    execFileSync("git", ["add", "."], { cwd: workspace });
+    execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
+    return execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
+  }
+
+  /**
+   * A write step whose implement and shrink prompts both settle without touching any file —
+   * `expectedArtifactPath` ("proof.txt") is created up front so `artifact.exists` is already
+   * satisfied. `aheadOfBase` seeds one real committed file change ahead of `baseRef` before the
+   * no-work boundary; without it, the branch has zero content ahead of base at all.
+   */
+  function noWorkShrinkStep(branchName: string, aheadOfBase: boolean): { workspace: string; step: WriteWorkflowStep } {
+    const workspace = initGitWorkspace(`no-work-shrink-${branchName}-`);
+    const baseRef = commitBaseRef(workspace, "proof.txt", "ok\n");
+
+    if (aheadOfBase) {
+      writeFileSync(join(workspace, "feature.txt"), "feature\n", "utf8");
+      execFileSync("git", ["add", "."], { cwd: workspace });
+      execFileSync("git", ["commit", "-qm", "add feature"], { cwd: workspace });
+    }
+
+    const step = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName,
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        invoke: ({ prompt }) =>
+          Promise.resolve({
+            kind: "ok",
+            stdout: prompt.includes("Post-completion Shrink") ? "done" : "no-work",
+            stderr: "",
+          } as const),
+        metadata: { agent: agentId, model: adapterModel },
+      }),
+    });
+    step.worktree = {
+      projectRoot: workspace,
+      projectName: "demo",
+      branchName,
+      baseRef,
+      git: false,
+      localPath: workspace,
+    };
+    step.withExternalWorktree = externalWorktreeBinding(workspace);
+    return { workspace, step };
+  }
+
+  test("a completed run with no content ahead of base neither pushes nor opens a PR", async () => {
+    // @mutate v2/src/execution/workflow-runner.ts "if (published.commitSha !== undefined && baseDiffOutcome !== \"empty\") {" -> "if (published.commitSha !== undefined) {"
+    const { workspace, step } = noWorkShrinkStep("no-content-ahead-of-base", false);
+    const headBeforeCompletionCommit = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: workspace,
+      encoding: "utf8",
+    }).trim();
+    let publisherCalled = false;
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionPublisher: async () => {
+          publisherCalled = true;
+          return {};
+        },
+      });
+      expect(result.kind).toBe("complete");
+    });
+
+    expect(publisherCalled).toBe(false);
+    expect(execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim()).toBe(
+      headBeforeCompletionCommit,
+    );
+  });
+
+  test("a no-work shrink over a branch already ahead of base still pushes and opens the draft PR", async () => {
+    const { step } = noWorkShrinkStep("shrink-over-existing-content", true);
+    const publisherCalls: Array<{ branch: string; baseRef: string }> = [];
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionPublisher: async (input) => {
+          publisherCalls.push({ branch: input.branch, baseRef: input.baseRef });
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+    });
+
+    expect(publisherCalls).toEqual([{ branch: step.worktree.branchName, baseRef: step.worktree.baseRef }]);
+  });
+
+  /**
+   * A branch one commit ahead of `baseRef` (`feature.txt` added) whose `implement` pass deletes
+   * `feature.txt` again during the run — a boundary that legitimately reverts branch content back
+   * to base. The completion commit this produces has real changes vs its own parent (the "add
+   * feature" commit) even though its diff against base is empty.
+   */
+  function revertToBaseStep(branchName: string): { workspace: string; step: WriteWorkflowStep } {
+    const workspace = initGitWorkspace(`revert-to-base-${branchName}-`);
+    const baseRef = commitBaseRef(workspace, "proof.txt", "ok\n");
+    writeFileSync(join(workspace, "feature.txt"), "feature\n", "utf8");
+    execFileSync("git", ["add", "."], { cwd: workspace });
+    execFileSync("git", ["commit", "-qm", "add feature"], { cwd: workspace });
+
+    const step = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName,
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        invoke: ({ prompt }) => {
+          if (!prompt.includes("Post-completion Shrink")) {
+            rmSync(join(workspace, "feature.txt"));
+          }
+          return Promise.resolve({
+            kind: "ok",
+            stdout: prompt.includes("Post-completion Shrink") ? "done" : "no-work",
+            stderr: "",
+          } as const);
+        },
+        metadata: { agent: agentId, model: adapterModel },
+      }),
+    });
+    step.worktree = {
+      projectRoot: workspace,
+      projectName: "demo",
+      branchName,
+      baseRef,
+      git: false,
+      localPath: workspace,
+    };
+    step.withExternalWorktree = externalWorktreeBinding(workspace);
+    return { workspace, step };
+  }
+
+  test("a boundary that reverts branch content back to base keeps the commit but does not publish", async () => {
+    const { workspace, step } = revertToBaseStep("revert-to-base");
+    let publisherCalled = false;
+
+    let headBeforeRun = "";
+    await withStateStore(async (store) => {
+      headBeforeRun = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionPublisher: async () => {
+          publisherCalled = true;
+          return {};
+        },
+      });
+      expect(result.kind).toBe("complete");
+    });
+
+    expect(publisherCalled).toBe(false);
+    // The completion commit carries real changes vs its parent (the revert), so it stays on the
+    // branch instead of being unwound into the working tree.
+    const headAfterRun = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
+    expect(headAfterRun).not.toBe(headBeforeRun);
+    expect(execFileSync("git", ["status", "--porcelain"], { cwd: workspace, encoding: "utf8" }).trim()).toBe("");
+  });
+
+  test("pipeline implement stage shape creates the draft PR when the shrink produces no further commit", async () => {
+    const { step } = noWorkShrinkStep("shrink-over-existing-content-pipeline", true);
+    step.skipReadyFinalization = true;
+    let publisherCalled = false;
+    let readyFinalizerCalled = false;
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionPublisher: async () => {
+          publisherCalled = true;
+          return {};
+        },
+        readyFinalizer: async () => {
+          readyFinalizerCalled = true;
+        },
+      });
+      expect(result.kind).toBe("complete");
+    });
+
+    expect(publisherCalled).toBe(true);
+    expect(readyFinalizerCalled).toBe(false);
+  });
+
+  /**
+   * A branch one commit ahead of `baseRef`, with `implement` and `implement~shrink` durable rows
+   * both seeded `completed` and carrying no `completionAgent` — the re-dispatch shape that leaves
+   * the completion boundary unattributed while the branch already carries real, attributed commits.
+   */
+  function unattributedBoundaryStep(
+    branchName: string,
+    trailer: string | undefined,
+  ): { workspace: string; step: WriteWorkflowStep } {
+    const workspace = initGitWorkspace(`unattributed-boundary-${branchName}-`);
+    const baseRef = commitBaseRef(workspace, "base.txt", "base\n");
+
+    writeFileSync(join(workspace, "feature.txt"), "feature\n", "utf8");
+    execFileSync("git", ["add", "."], { cwd: workspace });
+    execFileSync("git", ["commit", "-q", "-F", "-"], {
+      cwd: workspace,
+      input: trailer !== undefined ? `add feature\n\n${trailer}\n` : "add feature\n",
+    });
+
+    const step = createStep({ stepId: "implement", role: "implement", branchName });
+    step.worktree = {
+      projectRoot: workspace,
+      projectName: "demo",
+      branchName,
+      baseRef,
+      git: false,
+      localPath: workspace,
+    };
+    step.withExternalWorktree = externalWorktreeBinding(workspace);
+    return { workspace, step };
+  }
+
+  function seedCompletedWriteRunWithoutAgent(
+    store: ReturnType<typeof openStateStore>,
+    step: WriteWorkflowStep,
+    workspace: string,
+    invocationId: string,
+  ): void {
+    const runId = store.createRun({
+      project: step.worktree.projectName,
+      specRef: "",
+      worktreePath: workspace,
+      branch: step.worktree.branchName,
+      specPath: step.specPath,
+      stepId: step.stepId,
+      workflowSnapshot: {
+        invocationId,
+        steps: [
+          {
+            stepId: step.stepId,
+            role: step.role,
+            stepRules: step.stepRules,
+            expectedArtifactPath: step.expectedArtifactPath,
+            agents: step.agents,
+            agentModelConfig: step.agentModelConfig,
+          },
+        ],
+      },
+    });
+    const attemptId = store.recordAttemptStart(runId);
+    store.commitCompletionBoundary({ attemptId, runStatus: "completed", outcomeKind: "done" });
+  }
+
+  /** Seed the completed `implement` row and its hidden `implement~shrink` sibling, both unattributed. */
+  function seedUnattributedCompletionRows(
+    store: ReturnType<typeof openStateStore>,
+    step: WriteWorkflowStep,
+    workspace: string,
+    invocationPrefix: string,
+  ): void {
+    seedCompletedWriteRunWithoutAgent(store, step, workspace, `${invocationPrefix}-inv`);
+    seedCompletedWriteRunWithoutAgent(
+      store,
+      { ...step, stepId: "implement~shrink", role: "shrink" },
+      workspace,
+      `${invocationPrefix}-inv-shrink`,
+    );
+  }
+
+  test("unattributed completion boundary publishes under the branch commit attribution", async () => {
+    // @mutate v2/src/execution/workflow-runner.ts "? await branchCommitAgent(completionStep)" -> "? boundaryAgent"
+    const branchName = "unattributed-boundary-attributed";
+    const { workspace, step } = unattributedBoundaryStep(branchName, "Jarvis-Agent: claude");
+    const commitCalls: string[] = [];
+    let publisherCalls = 0;
+
+    await withStateStore(async (store) => {
+      seedUnattributedCompletionRows(store, step, workspace, "unattributed-boundary");
+
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async (input) => {
+          commitCalls.push(input.agent);
+          return { commitSha: "commit-1" };
+        },
+        completionPublisher: async () => {
+          publisherCalls += 1;
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+    });
+
+    expect(commitCalls).toEqual(["claude"]);
+    expect(publisherCalls).toBe(1);
+  });
+
+  test("a branch whose commits carry no Jarvis-Agent trailer resolves no publishing identity", async () => {
+    // @mutate v2/src/execution/workflow-runner.ts "find((agent) => agent.length > 0)" -> "find((agent) => agent.length === 0)"
+    // A no-break-space trailer value trims to "" in JS but is not the empty string to git, so the
+    // trailer line survives into `jarvisAgentTrailers` as a genuine "" element instead of being
+    // dropped entirely (an absent trailer yields `[]`, over which both the real and mutated
+    // `find` predicates return `undefined` — no divergence to catch).
+    const branchName = "unattributed-boundary-untrailered";
+    const { workspace, step } = unattributedBoundaryStep(branchName, `Jarvis-Agent: \u00A0`);
+    let committerCalled = false;
+    let publisherCalled = false;
+
+    await withStateStore(async (store) => {
+      seedUnattributedCompletionRows(store, step, workspace, "unattributed-boundary-untrailered");
+
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => {
+          committerCalled = true;
+          return { commitSha: "commit-1" };
+        },
+        completionPublisher: async () => {
+          publisherCalled = true;
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+    });
+
+    expect(committerCalled).toBe(false);
+    expect(publisherCalled).toBe(false);
   });
 });

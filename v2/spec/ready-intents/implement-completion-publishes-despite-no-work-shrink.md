@@ -20,7 +20,7 @@ The same tail skips publication entirely when no `publicationAgent` resolves. Pi
 
 - Publication keys off "the completed branch has commits ahead of its resolved base that are not yet published", not off a fresh tail commit produced this boundary — rules out equating "no new commit at this boundary" with "nothing to publish".
 - A run that produced zero commits against a clean worktree still does not push or open a PR — rules out pushing a branch equal to base.
-- An unresolved publishing identity does not skip publication for a completed spec with publishable commits: resolve it from the attribution that produced the commits, or publish without agent attribution — rules out silently dropping the PR when the final boundary attributed no agent.
+- An unresolved publishing identity does not skip publication for a completed spec with publishable commits: the tail resolves it from the attribution that produced the commits — rules out silently dropping the PR when the final boundary attributed no agent.
 - The change lands in the shared completion tail so standalone and pipeline implement stages both publish; the pipeline stage then ready-flips the created draft via existing terminal publication — rules out a standalone-only or pipeline-only patch.
 - The existing uncommitted-work failure path (a no-`commitSha` tail with dirty named paths still fails `completion_commit_failed`) is preserved — rules out turning a dirty-worktree failure into a publish.
 
@@ -28,7 +28,7 @@ The same tail skips publication entirely when no `publicationAgent` resolves. Pi
 
 - An implement workflow reaching `complete` via a `no-work`/`no_file_changes` shrink, atop a branch with real completed-spec commits ahead of base, pushes the branch and creates the draft PR.
 - A run with no commits against a clean worktree neither pushes nor opens a PR.
-- A completed spec whose final boundary attributed no completion agent but whose branch has publishable commits still publishes — or the plan shows that path is unreachable and removes the gate.
+- A completed spec whose final boundary attributed no completion agent but whose branch has publishable commits still publishes, with identity resolved from the attribution that produced the commits.
 - A pipeline implement stage whose shrink no-works yields a draft PR for terminal publication to ready-flip.
 
 ## Prerequisites
@@ -37,6 +37,7 @@ The same tail skips publication entirely when no `publicationAgent` resolves. Pi
 - Individual workflow steps never publish; the trailing `~shrink` step is the publishing boundary for an implement workflow.
 - A `no-work`/`no_file_changes` shrink boundary self-completes its run and returns a `complete` result to the workflow tail.
 - Pipeline terminal publication ready-flips or merges an existing draft PR and never creates one.
+- A completed spec's final boundary can attribute no completion agent while its branch still carries publishable commits (confirms the unresolved-identity scenario is reachable, not dead code, before it's treated as a settled gate to remove).
 
 ## Documentation updates
 

@@ -8,6 +8,7 @@ import {
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
 import { DEFAULT_ITERATION_TIMEOUT_MS } from "../config/machine-config-loader.ts";
+import { isMaterializedNodeModulesPath, MATERIALIZED_NODE_MODULES_PATH } from "./external-worktree.ts";
 import {
   clearUnrestoredDirectives,
   describeStrandedMutation,
@@ -244,6 +245,25 @@ async function countFilesChanged(runGit: Git, cwd: string, baseTree: string, com
   return output.split("\n").filter((line) => line.length > 0).length;
 }
 
+const ADD_ALL_ARGS = ["add", "-A"] as const;
+// Excludes the harness-materialized node_modules symlink from `add -A`, never `git rm --cached`
+// an already-tracked entry: narrowing the stage pathspec can't turn a poisoned repo's next
+// commit into an unrequested deletion. The trailing character is wrapped in a `[…]` class (not
+// spelled as a literal) so git classifies the pathspec element as a glob — a literal excluded
+// path that also matches `.gitignore` hard-fails `add -A` ("paths are ignored"; a target repo
+// that already gitignores node_modules would otherwise break every completion commit). Only the
+// bare-entry pattern is needed: this list is appended only when the path is a symlink, and git
+// never descends into a symlink to stage its target's contents.
+const NODE_MODULES_GLOB = `${MATERIALIZED_NODE_MODULES_PATH.slice(0, -1)}[${MATERIALIZED_NODE_MODULES_PATH.slice(-1)}]`;
+const EXCLUDE_MATERIALIZED_NODE_MODULES = ["--", ".", `:(exclude)${NODE_MODULES_GLOB}`] as const;
+
+/** `git add -A` pathspec for a completion commit; excludes the materialized node_modules
+ * symlink when present so no harness completion commit ever stages it. */
+export function completionStageArgs(worktreePath: string): string[] {
+  if (!isMaterializedNodeModulesPath(worktreePath, MATERIALIZED_NODE_MODULES_PATH)) return [...ADD_ALL_ARGS];
+  return [...ADD_ALL_ARGS, ...EXCLUDE_MATERIALIZED_NODE_MODULES];
+}
+
 /**
  * Snapshots the worktree into a fresh pending commit, or settles early when HEAD is already the
  * completion commit. `settled` short-circuits the caller with its result.
@@ -269,7 +289,7 @@ async function preparePendingCommit(
   await runCompletionFormat({ cwd: input.worktreePath, paths: changedPaths, timeoutMs }, subprocessRunner);
   const head = await runGit(input.worktreePath, ["rev-parse", "HEAD"]);
   await runGit(input.worktreePath, ["read-tree", head], { GIT_INDEX_FILE: index });
-  await runGit(input.worktreePath, ["add", "-A"], { GIT_INDEX_FILE: index });
+  await runGit(input.worktreePath, completionStageArgs(input.worktreePath), { GIT_INDEX_FILE: index });
   await refuseStrandedMutationsBeforeCommit(
     runGit,
     input.worktreePath,

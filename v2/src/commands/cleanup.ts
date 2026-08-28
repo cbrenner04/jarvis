@@ -18,6 +18,7 @@ import { request } from "../cli/ipc.ts";
 import { parseListRuns } from "../daemon/daemon-wire.ts";
 import { mergeRunLists } from "../daemon/merge-run-lists.ts";
 import { type QueryDaemonListsDeps, queryDaemonListsFromSockets } from "../daemon/query-daemon-lists-from-sockets.ts";
+import { isMaterializedNodeModulesPath } from "../execution/external-worktree.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { jarvisHome } from "../paths.ts";
@@ -1615,6 +1616,7 @@ export async function listDirtyWorktreePathsForStaleReset(
       const arrow = path.lastIndexOf(" -> ");
       if (arrow >= 0) path = path.slice(arrow + 4).trim();
       if (untracked && path && isJarvisHarnessSidecarPath(path)) continue;
+      if (untracked && path && isMaterializedNodeModulesPath(worktreePath, path)) continue;
       hasBlockingPorcelain = true;
       if (path) paths.push(path);
     }

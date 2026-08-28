@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { basename, dirname, join } from "node:path";
 import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
@@ -3457,6 +3457,23 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(listed.status).toBe("dirty");
     if (listed.status !== "dirty") throw new Error("expected dirty");
     expect(listed.paths).toEqual(expect.arrayContaining([tracked, "new.txt"]));
+  });
+
+  test("listDirtyWorktreePathsForStaleReset ignores a worktree holding only the materialized node_modules symlink", async () => {
+    // @mutate v2/src/commands/cleanup.ts "if (untracked && path && isMaterializedNodeModulesPath(worktreePath, path)) continue;" -> "if (false) continue;"
+    const branch = "impl/dirty-list-node-modules-symlink";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    symlinkSync("/nonexistent-target-for-test", join(worktreePath, "node_modules"));
+
+    const symlinkOnly = await listDirtyWorktreePathsForStaleReset(worktreePath, realAsyncSubprocessRunner);
+    expect(symlinkOnly).toEqual({ status: "clean" });
+
+    writeFileSync(join(worktreePath, "leftover.txt"), "real work\n");
+    const withLeftover = await listDirtyWorktreePathsForStaleReset(worktreePath, realAsyncSubprocessRunner);
+    expect(withLeftover.status).toBe("dirty");
+    if (withLeftover.status !== "dirty") throw new Error("expected dirty");
+    expect(withLeftover.paths).toEqual(expect.arrayContaining(["leftover.txt"]));
+    expect(withLeftover.paths).not.toContain("node_modules");
   });
 });
 

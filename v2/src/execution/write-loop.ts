@@ -52,10 +52,15 @@ import {
   type StateStore,
   type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
-import { type CompletionCommitter, createCompletionCommitter, renderStepCommitTitle } from "./completion-commit.ts";
+import {
+  type CompletionCommitter,
+  completionStageArgs,
+  createCompletionCommitter,
+  renderStepCommitTitle,
+} from "./completion-commit.ts";
 import { type CompletionPublisher, createCompletionPublisher } from "./completion-publisher.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
-import { getExternalWorktreePath } from "./external-worktree.ts";
+import { getExternalWorktreePath, isMaterializedNodeModulesPath } from "./external-worktree.ts";
 import { evaluateIntentSplitLandingGate } from "./intent-output.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import {
@@ -490,7 +495,6 @@ function stepResponseTextForLog(result: StepRunResult): string {
   return final?.kind === "ok" ? final.stdout.trim() : "";
 }
 
-/** `git status --porcelain` paths; fail-soft to [] — diagnostic listing only. */
 /** Terminal completion fails closed when the committer produced no sha but the worktree is dirty. */
 export function shouldFailTerminalCompletionForDirtyWorktree(
   commitSha: string | undefined,
@@ -499,12 +503,14 @@ export function shouldFailTerminalCompletionForDirtyWorktree(
   return commitSha === undefined && uncommittedPaths.length > 0;
 }
 
+/** `git status --porcelain` paths, minus the materialized node_modules symlink; fail-soft to []. */
 export async function getUncommittedPaths(worktreePath: string): Promise<string[]> {
   try {
     return (await realAsyncSubprocessRunner.runAsync("git", ["status", "--porcelain"], worktreePath))
       .split("\n")
       .map((line) => line.slice(3).trim())
-      .filter(Boolean);
+      .filter(Boolean)
+      .filter((path) => !isMaterializedNodeModulesPath(worktreePath, path));
   } catch {
     return [];
   }
@@ -634,7 +640,7 @@ export function escapeRepoPathForEvidence(path: string): string {
   return result;
 }
 
-/** Paths a ready-gate repair completion commit would stage (`read-tree` + `add -A`). */
+/** Paths a ready-gate repair completion commit would stage: `read-tree` + the same `completionStageArgs` the committer uses. */
 export async function enumerateRepairCompletionCandidates(worktreePath: string): Promise<string[] | undefined> {
   if (!existsSync(join(worktreePath, ".git"))) {
     return [];
@@ -643,7 +649,8 @@ export async function enumerateRepairCompletionCandidates(worktreePath: string):
   try {
     const head = (await runRepairFenceGit(worktreePath, ["rev-parse", "HEAD"])).trim();
     await runRepairFenceGit(worktreePath, ["read-tree", head], { GIT_INDEX_FILE: index });
-    await runRepairFenceGit(worktreePath, ["add", "-A"], { GIT_INDEX_FILE: index });
+    const stageArgs = completionStageArgs(worktreePath);
+    await runRepairFenceGit(worktreePath, stageArgs, { GIT_INDEX_FILE: index });
     const output = await runRepairFenceGit(worktreePath, ["diff-index", "--name-status", "-z", "HEAD"], {
       GIT_INDEX_FILE: index,
     });

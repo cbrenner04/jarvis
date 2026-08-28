@@ -519,7 +519,7 @@ describe("createMonitorDisplay", () => {
     const stageId = monitorPipelineStageNodeId(pipelineId, "implement", "default");
     const snapshot = pipelineSnapshot({
       pipelineId,
-      stages: [implementStage(invocationId)],
+      stages: [implementStage("run-ink")],
     });
     const run: DaemonListRunRow = {
       runId: "run-ink",
@@ -629,7 +629,7 @@ describe("createMonitorDisplay", () => {
           branchKey: modelBranch,
           position: 4,
           status: "running",
-          workflowInvocationId: invocationId,
+          workflowInvocationId: "run-model-impl",
         },
         {
           ...baseStage,
@@ -753,7 +753,7 @@ describe("createMonitorDisplay", () => {
       isLive: false,
       finishedAtMs: TREE_NOW_MS - 1_000,
     };
-    const snapshot = pipelineSnapshot({ pipelineId: "pipe-work", stages: [implementStage("inv-work")] });
+    const snapshot = pipelineSnapshot({ pipelineId: "pipe-work", stages: [implementStage("run-work")] });
     const matchedRun: DaemonListRunRow = {
       runId: "run-work",
       project: "demo",
@@ -1088,7 +1088,7 @@ describe("openInkMonitor", () => {
     // @mutate v2/src/tui/tui-ink-monitor.tsx "controls.toggleSelectedWorkflowExpansion();" -> "return;"
     const pipelineId = "pipe-glyph-toggle";
     const invocationId = "inv-glyph-toggle";
-    const snapshot = pipelineSnapshot({ pipelineId, stages: [implementStage(invocationId)] });
+    const snapshot = pipelineSnapshot({ pipelineId, stages: [implementStage("run-glyph-toggle")] });
     const run: DaemonListRunRow = {
       runId: "run-glyph-toggle",
       project: "demo",

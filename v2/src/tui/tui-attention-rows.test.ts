@@ -110,7 +110,7 @@ describe("buildAttentionRows", () => {
       stepId: "implement",
     });
     // Attribute the run to pipeGates' failed implement stage so the stage and its run both project.
-    pipeGates.stages[4] = { ...pipeGates.stages[4]!, workflowInvocationId: "inv-implement" };
+    pipeGates.stages[4] = { ...pipeGates.stages[4]!, workflowInvocationId: "run-attributed-fail" };
 
     const adHocFailedRun = listRun({ runId: "run-adhoc-fail", status: "failed", finishedAtMs: 2_700 });
 
@@ -309,7 +309,7 @@ describe("buildAttentionRows", () => {
         steps: [{ stepId: "implement", role: "implement", status: "completed", attemptCount: 1 }],
       },
     });
-    pipe2.stages[4] = { ...pipe2.stages[4]!, workflowInvocationId: "inv-2-implement" };
+    pipe2.stages[4] = { ...pipe2.stages[4]!, workflowInvocationId: "run-impl-fail" };
 
     const blockedRun = listRun({ runId: "run-adhoc-blocked", status: "blocked", finishedAtMs: 3_500 });
 
@@ -468,7 +468,7 @@ describe("buildAttentionRows", () => {
     expect(projection.rows).toMatchObject([{ id: "attention:gate:pipe-live:approve-intent:default" }]);
   });
 
-  test("a failed run attributed to a dismissed pipeline contributes no attention row", () => {
+  test("a dismissed pipeline suppresses a failed invocation reached through its entry run", () => {
     // Negative case: proves the suppressed run row is absent, not merely re-targeted.
     // @mutate v2/src/tui/tui-attention-rows.ts "return invocationId !== undefined && hiddenInvocationIds.has(invocationId);" -> "return false;"
     const dismissed = pipelineSnapshot({
@@ -480,9 +480,18 @@ describe("buildAttentionRows", () => {
           position: 0,
           status: "failed",
           endedAt: 500,
-          workflowInvocationId: "inv-dismissed-implement",
+          workflowInvocationId: "run-dismissed-entry",
         }),
       ],
+    });
+    const entryRun = listRun({
+      runId: "run-dismissed-entry",
+      status: "completed",
+      isLive: false,
+      workflow: {
+        invocationId: "inv-dismissed-implement",
+        steps: [{ stepId: "implement", role: "implement", status: "completed", attemptCount: 1 }],
+      },
     });
     const failedRun = listRun({
       runId: "run-dismissed-fail",
@@ -495,7 +504,7 @@ describe("buildAttentionRows", () => {
       },
     });
 
-    const projection = buildAttentionRows({ socket: socketSnapshots([dismissed]) }, [failedRun], {}, NOW_MS);
+    const projection = buildAttentionRows({ socket: socketSnapshots([dismissed]) }, [entryRun, failedRun], {}, NOW_MS);
 
     expect(projection.rows.some((row) => row.targetId === "run-dismissed-fail")).toBe(false);
     expect(projection.rows.map((row) => row.id)).not.toContain("attention:failed-run:run-dismissed-fail");
@@ -507,7 +516,7 @@ describe("buildAttentionRows", () => {
     const snapshot = pipelineSnapshot({
       pipelineId: "pipe-branch-attr",
       stages: [
-        snapshotStage({ stageId: "implement", position: 0, status: "running", workflowInvocationId: "inv-stage" }),
+        snapshotStage({ stageId: "implement", position: 0, status: "running", workflowInvocationId: "run-stage-own" }),
       ],
     });
     const stageRun = listRun({

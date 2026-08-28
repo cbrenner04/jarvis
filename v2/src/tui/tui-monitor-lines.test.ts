@@ -179,7 +179,7 @@ function overflowPaneMonitorFixture(): {
       state: "succeeded",
       createdAt: TREE_NOW_MS + index,
       finishedAtMs: TREE_NOW_MS + 100_000 + index,
-      stages: [snapshotStage({ stageId: "plan", status: "succeeded", workflowInvocationId: `inv-${index}` })],
+      stages: [snapshotStage({ stageId: "plan", status: "succeeded", workflowInvocationId: `run-${index}` })],
     }),
   );
   const runs = pipelines.map((_, index) => workflowRun(`run-${index}`, "completed", `inv-${index}`, { isLive: false }));
@@ -608,7 +608,7 @@ describe("monitorLeftPaneTreeRows", () => {
     // Mutation checkpoint: using monitorLeftPaneTableRows as the tree-pane source in tui-ink-monitor.tsx must turn pipeline tree row ordering RED.
     const snapshot = pipelineSnapshot({
       pipelineId: PIPELINE_ID,
-      stages: [implementStage(INVOCATION_MATCHED)],
+      stages: [implementStage("run-implement")],
     });
     const matchedRun = workflowRun("run-implement", "in-progress", INVOCATION_MATCHED);
     // Distinct (project, branch) from matchedRun's so this invocation stays genuinely unattributed.
@@ -638,7 +638,7 @@ describe("monitorLeftPaneTreeRows", () => {
   test("maps node.depth to indent column slots for pipeline, stage, and run leaves", () => {
     const snapshot = pipelineSnapshot({
       pipelineId: PIPELINE_ID,
-      stages: [implementStage(INVOCATION_MATCHED)],
+      stages: [implementStage("run-implement")],
     });
     const matchedRun = workflowRun("run-implement", "in-progress", INVOCATION_MATCHED);
     const stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
@@ -682,7 +682,7 @@ describe("monitorLeftPaneTreeRows", () => {
     };
     const snapshot = pipelineSnapshot({
       pipelineId: PIPELINE_ID,
-      stages: [implementStage(MULTI_INVOCATION)],
+      stages: [implementStage("run-implement")],
     });
     const runs = multiMemberRuns();
     const stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
@@ -707,7 +707,7 @@ describe("monitorLeftPaneTreeRows", () => {
     const staleFinishedAt = TREE_NOW_MS - TUI_TERMINAL_WINDOW_MS - 1;
     const snapshot = pipelineSnapshot({
       pipelineId: PIPELINE_ID,
-      stages: [implementStage(INVOCATION_MATCHED)],
+      stages: [implementStage("run-stale-matched")],
     });
     const staleMatched = workflowRun("run-stale-matched", "completed", INVOCATION_MATCHED, {
       isLive: false,
@@ -856,7 +856,7 @@ describe("monitorLeftPaneAttentionRows", () => {
     expect(fewLines.some((line) => line.includes("more"))).toBe(false);
     // @mutate v2/src/tui/tui-monitor-lines.ts "age === \"\" ? [] : [separator(), untoned(`idle ${age}`)]" -> "[separator(), untoned(`idle ${age}`)]"
 
-    const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] });
+    const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage("run-implement")] });
     const matchedRun = workflowRun("run-implement", "in-progress", INVOCATION_MATCHED);
     const failedA = workflowRun("run-attn-a", "failed", "inv-attn-a", {
       finishedAtMs: TREE_NOW_MS - 1_000,
@@ -943,7 +943,7 @@ describe("monitorLeftPaneWorkHeadingRows", () => {
     const emptyState = monitorState({});
     expect(monitorLeftPaneWorkHeadingRows(emptyState)).toEqual([]);
 
-    const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] });
+    const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage("run-implement")] });
     const matchedRun = workflowRun("run-implement", "in-progress", INVOCATION_MATCHED);
     // Distinct (project, branch) from matchedRun's so this invocation stays genuinely unattributed.
     const orphanRun = workflowRun("run-orphan", "completed", INVOCATION_ORPHAN, {
@@ -1093,7 +1093,7 @@ describe("monitorSelectableNodeIds", () => {
   test("lists every full-flatten work-tree row id in pane order", () => {
     const snapshot = pipelineSnapshot({
       pipelineId: PIPELINE_ID,
-      stages: [implementStage(INVOCATION_MATCHED)],
+      stages: [implementStage("run-implement")],
     });
     const matchedRun = workflowRun("run-implement", "in-progress", INVOCATION_MATCHED);
     // Distinct (project, branch) from matchedRun's so this invocation stays genuinely unattributed.
@@ -1254,7 +1254,7 @@ describe("attention selection target detail", () => {
     const snapshot = pipelineSnapshot({
       pipelineId,
       stages: [
-        snapshotStage({ stageId: "implement", position: 0, status: "failed", workflowInvocationId: "inv-attr" }),
+        snapshotStage({ stageId: "implement", position: 0, status: "failed", workflowInvocationId: "run-attributed" }),
       ],
     });
     // Distinct (project, branch) from attributedRun's so this invocation stays genuinely unattributed.
@@ -1309,7 +1309,7 @@ describe("monitorRightPaneSegmentRows", () => {
     stageId: "implement",
     position: 9,
     status: "succeeded",
-    workflowInvocationId: "inv-detail-a",
+    workflowInvocationId: "run-detail-a",
     startedAt: stageStartedAt,
     endedAt: pipelineFinishedAt,
     artifact: { z: 1, a: { z: false, a: "" } },
@@ -1320,7 +1320,7 @@ describe("monitorRightPaneSegmentRows", () => {
     stageId: "implement",
     position: 1,
     status: "succeeded",
-    workflowInvocationId: "inv-detail-b",
+    workflowInvocationId: "run-detail-b",
     startedAt: stageStartedAt,
     endedAt: pipelineFinishedAt,
   });
@@ -1586,7 +1586,7 @@ describe("monitorRightPaneSegmentRows", () => {
       "position: 9",
       "status: succeeded",
       "elapsed: 1m 0s",
-      "workflowInvocationId: inv-detail-a",
+      "workflowInvocationId: run-detail-a",
       `startedAt: ${formatAbsoluteTimestamp(stageStartedAt)}`,
       `endedAt: ${formatAbsoluteTimestamp(pipelineFinishedAt)}`,
       " ",
@@ -1701,7 +1701,7 @@ describe("monitorRightPaneSegmentRows", () => {
       "position: 9",
       "status: succeeded",
       "elapsed: 1m 0s",
-      "workflowInvocationId: inv-detail-a",
+      "workflowInvocationId: run-detail-a",
       `startedAt: ${formatAbsoluteTimestamp(stageStartedAt)}`,
       `endedAt: ${formatAbsoluteTimestamp(pipelineFinishedAt)}`,
       " ",
@@ -1933,7 +1933,7 @@ describe("monitorRightPaneSegmentRows", () => {
     }
   });
 
-  test("pipeline project is omitted when joined rows are absent or conflict", () => {
+  test("pipeline project resolves entry runs and is omitted when joined rows are absent or conflict", () => {
     // @mutate v2/src/tui/tui-monitor-lines.ts "if (projects.size !== 1 || project.length === 0) return [];" -> "if (false) return [];"
     const absent = pipelineSnapshot({
       pipelineId: "pipe-absent",
@@ -1942,14 +1942,30 @@ describe("monitorRightPaneSegmentRows", () => {
     const conflicting = pipelineSnapshot({
       pipelineId: "pipe-conflict",
       stages: [
-        snapshotStage({ stageId: "write", workflowInvocationId: "inv-conflict-a" }),
-        snapshotStage({ stageId: "review", workflowInvocationId: "inv-conflict-b" }),
+        snapshotStage({ stageId: "write", workflowInvocationId: "run-conflict-a" }),
+        snapshotStage({ stageId: "review", workflowInvocationId: "run-conflict-b" }),
       ],
     });
     const runs = [
       workflowRun("run-conflict-a", "in-progress", "inv-conflict-a", { project: "alpha" }),
       workflowRun("run-conflict-b", "in-progress", "inv-conflict-b", { project: "beta" }),
     ];
+
+    const resolved = pipelineSnapshot({
+      pipelineId: "pipe-resolved",
+      stages: [snapshotStage({ stageId: "write", workflowInvocationId: "run-resolved-entry" })],
+    });
+    const resolvedRuns = [workflowRun("run-resolved-entry", "in-progress", "inv-resolved", { project: "gamma" })];
+
+    const resolvedLines = monitorRightPaneSegmentRows(
+      monitorState({
+        runs: resolvedRuns,
+        selectedNodeId: resolved.pipelineId,
+        pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [resolved] } },
+      }),
+      TREE_NOW_MS,
+    ).map(joinMonitorRow);
+    expect(resolvedLines).toContain("project: gamma");
 
     for (const snapshot of [absent, conflicting]) {
       const lines = monitorRightPaneSegmentRows(
@@ -2142,7 +2158,7 @@ describe("monitorRightPaneSegmentRows", () => {
 
   test("ad-hoc run detail omits pipeline context when a pipeline row precedes it", () => {
     // @mutate v2/src/tui/tui-monitor-lines.ts "if (treeRow === undefined || treeRow.kind === \"adhoc\") return undefined;" -> "if (treeRow === undefined) return undefined;"
-    const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] });
+    const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage("run-active")] });
     const matchedRun = workflowRun("run-implement", "in-progress", INVOCATION_MATCHED);
     // Distinct (project, branch) from matchedRun's so this invocation stays genuinely unattributed.
     const orphanRun = workflowRun("run-orphan", "completed", INVOCATION_ORPHAN, {
@@ -2179,12 +2195,11 @@ describe("monitorRightPaneSegmentRows", () => {
     );
 
     expect(lines).not.toContain("No run selected.");
-    expect(lines.slice(0, 5)).toEqual([
+    expect(lines.slice(0, 4)).toEqual([
       "Pipeline",
       `pipelineId: ${offPanePipelineId}`,
       "name: pipeline-0",
       "project: demo",
-      "state: succeeded",
     ]);
     expect(lines).toContain("wallClock: 1m 40s");
     expect(lines).toContain("stage: plan status=succeeded");
@@ -2193,7 +2208,7 @@ describe("monitorRightPaneSegmentRows", () => {
   test("pipeline and stage selection hide the wait/outcome panel", () => {
     const snapshot = pipelineSnapshot({
       pipelineId: PIPELINE_ID,
-      stages: [implementStage(INVOCATION_MATCHED)],
+      stages: [implementStage("run-implement")],
     });
     const matchedRun = workflowRun("run-implement", "in-progress", INVOCATION_MATCHED);
     const stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
@@ -2569,7 +2584,7 @@ describe("monitorDockLines", () => {
     );
   });
 
-  test("counts genuine ad-hoc invocations once without duplicating matched pipeline work", () => {
+  test("production-shaped resolved invocation rows count as staged in Work and dock", () => {
     const matched = workflowRun("matched", "completed", INVOCATION_MATCHED, { isLive: false });
     // Distinct (project, branch) from matched's so this invocation stays genuinely unattributed.
     const unmatched = workflowRun("unmatched", "completed", INVOCATION_ORPHAN, {
@@ -2581,11 +2596,12 @@ describe("monitorDockLines", () => {
       runs: [matched, unmatched],
       pipelineSnapshotsBySocketPath: {
         "/socket": {
-          pipelines: [pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] })],
+          pipelines: [pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage("matched")] })],
         },
       },
     });
 
+    expect(monitorLeftPaneWorkHeadingRows(state).map(joinMonitorRow)).toEqual(["── Work (2) ──"]);
     expect(dockStatus(state)).toStartWith("1 running · 0 awaiting gate · 0 failed · 1 done · unknown@unknown");
   });
 
@@ -2842,7 +2858,7 @@ describe("monitorDockLines", () => {
     // @mutate v2/src/tui/tui-monitor-lines.ts "    selectedRun?.isLive === true &&" -> "    false &&"
     // @mutate v2/src/tui/tui-monitor-lines.ts "...(expandable ? [\"e expand/collapse\"] : [])" -> "...[]"
     // @mutate v2/src/tui/tui-monitor-lines.ts "...(killable ? [\"k kill\"] : [])" -> "...[]"
-    const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage(INVOCATION_MATCHED)] });
+    const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage("run-active")] });
     const stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
     const active = workflowRun("run-active", "in-progress", INVOCATION_MATCHED);
     const terminal = workflowRun("run-terminal", "completed", "inv-terminal", { isLive: true });
@@ -2905,7 +2921,7 @@ describe("monitorDockLines", () => {
     const runPipelineId = "pipe-hint-run";
     const runSnapshot = pipelineSnapshot({
       pipelineId: runPipelineId,
-      stages: [implementStage("inv-hint-run")],
+      stages: [implementStage("run-hint-attributed")],
     });
     const attributedRun = workflowRun("run-hint-attributed", "in-progress", "inv-hint-run");
     const adHocRun = workflowRun("run-hint-adhoc", "in-progress", "inv-hint-adhoc");
@@ -2953,7 +2969,7 @@ describe("dismissed pipeline exclusion", () => {
         snapshotStage({ stageId: "approve-plan", position: 1, status: "awaiting" }),
       ],
     });
-    const live = pipelineSnapshot({ pipelineId: "pipe-live", stages: [implementStage(INVOCATION_MATCHED)] });
+    const live = pipelineSnapshot({ pipelineId: "pipe-live", stages: [implementStage("run-live")] });
     const runs = [workflowRun("run-live", "in-progress", INVOCATION_MATCHED)];
 
     const state = monitorState({
@@ -3002,8 +3018,8 @@ describe("dismissed run exclusion", () => {
     const snapshot = pipelineSnapshot({
       pipelineId: "pipe-dismissed-run-label",
       stages: [
-        snapshotStage({ stageId: "stage-a", position: 0, workflowInvocationId: "inv-dismissed-stage-leaf" }),
-        snapshotStage({ stageId: "stage-b", position: 1, workflowInvocationId: "inv-live-stage-leaf" }),
+        snapshotStage({ stageId: "stage-a", position: 0, workflowInvocationId: "run-dismissed-stage-leaf" }),
+        snapshotStage({ stageId: "stage-b", position: 1, workflowInvocationId: "run-live-stage-leaf" }),
       ],
     });
     const { pipelineNodes } = buildMonitorPipelineTreeJoin([snapshot], [dismissedRun, liveRun], {

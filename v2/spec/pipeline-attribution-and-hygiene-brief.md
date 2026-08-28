@@ -8,7 +8,7 @@ Successor to `tui-pipeline-continuation-brief.md` (that phase shipped the recove
 - **Implement publication fixed (#2958 closed)** — the #1 friction of the prior two sessions. Subspec 00 #3015; subspec 01 (identity fallback from branch `Jarvis-Agent` attribution) #3018. Recursive validation: the branch *implementing* the fix was itself stranded gate-passed-but-PR-less by the pre-fix code and hand-landed as #3018. If a gate-passed pushed branch ever ends PR-less again post-#3018, that is a new skip path — seed it then, not before.
 - **Infra**: `workflow-runner.test.ts` monolith split (#2998/#2999, issue #2181 closed); serial `test:cost` baseline refreshed and the split-suite spec finished (#3019); `contention-safe-heavy-test-scheduling` subspec 01 (margin-derived budget) **descoped** with an in-spec note.
 - **Hygiene session (2026-08-28)**: 28 stale worktrees torn down, 11 landed specs archived (#3017), runbook gained "Hand-publish leaves spec bookkeeping behind" (verify-then-tick, archive in the same sitting), seeds `cleanup-improvements` (4 cleanup defects) and `ready-gate-repair-out-of-diff-edits` landed (#3019).
-- **In flight**: `20260824T014411Z-intent-landing-never-treats-node-modules-symlink-as-rogue` subspecs 01+02 (operator-driven implement run); chess dogfood fan-out pipeline `af881ac0` (fast, 6 lanes).
+- **Landed**: `20260824T014411Z-intent-landing-never-treats-node-modules-symlink-as-rogue` subspecs 01+02 (#3022 — review-debate verdict's 4 required outcomes all shipped; spec complete, all three index boxes ticked, archive at next cleanup). **In flight**: chess dogfood fan-out pipeline `af881ac0` (fast, 6 lanes).
 
 ## ⚠️ P0 — the pipeline stage↔run join is broken; the double-print is back with a *different* root cause
 
@@ -25,11 +25,16 @@ Operator re-observed pipelines' workflows double-printing in the TUI (2026-08-28
 
 | P | Item | Delivers | Status / gate |
 | --- | --- | --- | --- |
-| **P0** | stage↔run join fix (seed to author, above) | Pipelines actually contain their runs; #2959 becomes live; double-print ends | Root-caused, unseeded |
+| **P0** | `pipeline-stage-run-join-resolves-entry-run-id` | Pipelines actually contain their runs; #2959 becomes live; double-print ends | Seeded #3021; unstarted — next to plan+implement |
 | **P1** | `pipeline-fan-out-per-lane-terminal-settlement` → `pipeline-fan-out-lanes-serial-chained-bases` | Fan-outs settle/publish per lane; lanes chain serially | Unchanged gate: operator's `configure-pipeline-supersede-policy` ready-intent lands first. Live urgency: `af881ac0` is a real 6-lane fan-out running now |
 | **P1** | `pipeline-stage-stuck-running-after-failed-run` (#2960) + `operator-killed-pipeline-stage-is-recoverable` (#2996) | Quota-failed and operator-killed stages settle/recover instead of wedging `running`/`interrupted` | Seeded; plan together (both are stage-settlement gaps) |
+| **P1** | `plan-review-failure-preserves-and-recovers-the-good-draft` (#2995) | A plan whose write step drafted cleanly but whose review step failed no longer strands the good draft — recover/resume gain a non-destructive land path | Seeded 2026-08-24 **dogfooding `full-review`** (pipeline `0f0b45d9`); unstarted. Same stage-settlement family as #2960/#2996; the review step is the fragile part on every review-bearing pipeline |
+| **P1** | `harness-publication-push-uses-explicit-refspec` (#2907) | Publication pushes `git push origin HEAD:<branch>` so a differently-named upstream (worktree from `--base origin/main`) never strands the PR at `completion_commit_failed` | Seeded 2026-08-18; unstarted. Every pipeline stage and manual implement publishes through this push; workaround is operator-set `push.default=current`, which the harness must not depend on |
 | **P2** | `cleanup-improvements` + `ready-gate-repair-out-of-diff-edits` | Cleanup reclaims terminal-run worktrees, commits its moves, stops inspecting junk dirs; repair debris reverted | Seeded 2026-08-28 (#3019) |
+| **P2** | `implement-retirement-destroys-artifacts-before-materialization` + `implement-resumes-stalled-unmerged-subspec-chain` (#2882) | Stale-workspace retirement validates rematerialization **before** destroying the worktree/branch (kills the self-referential `--base <same-branch>` trap); a stalled committed-but-unmerged subspec chain gets a non-destructive resume instead of merge-or-discard | Seeded 2026-08-16; unstarted; plan together (both are implement-chain recovery/safety). Sharp case: `--base` naming the branch being retired deletes it, then `git branch X X` fails and the work survives only as dangling objects |
 | **P2** | `pipeline-list-display-retention` | Cap terminal pipelines like runs | Last survivor of the display-hygiene trio |
+
+Folded in 2026-08-28: the four rows citing #2995/#2907/#2882 are pre-brief seeds (2026-08-16 → 08-24) that never entered the prior phase tracker. All four are recovery/publication-robustness gaps that surface directly under pipeline dogfooding — `plan-review-failure` and the fan-out work are the sharpest pipeline blockers; the implement-recovery and push-refspec pair harden every stage that publishes or re-runs.
 
 ## TUI work
 
@@ -44,7 +49,7 @@ The P0 join fix supersedes all TUI work — nothing else in the pipeline tree me
 
 ## Recommended ordering
 
-1. **Author + land the stage↔run join seed (P0)** — every pipeline/TUI surface reads through this join; #2959's shipped work is dark until it's fixed.
+1. **Plan + implement the stage↔run join seed (P0, seeded #3021)** — every pipeline/TUI surface reads through this join; #2959's shipped work is dark until it's fixed. Good `full-review` pipeline dogfood candidate.
 2. **Operator lands `configure-pipeline-supersede-policy`**, unblocking the fan-out correctness pair (the chess dogfood makes this concrete: today's 6-lane run will read `failed` at terminal settlement regardless of lane outcomes).
 3. **Stage-settlement seeds** (#2960 + #2996) — recovery completeness for the two remaining wedge paths.
 4. **Cleanup + repair-debris seeds** — makes the next hygiene sweep a no-op instead of a session.

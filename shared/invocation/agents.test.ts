@@ -620,6 +620,45 @@ describe("createResolvedAgentBinding", () => {
     expect(fake.calls[0]?.child?.killedWith).toContain("SIGTERM");
   });
 
+  test("Codex sandbox argv retains approval policy only when sandboxed", async () => {
+    // @mutate shared/invocation/agents.ts "args.sandboxMode !== \"danger-full-access\"" -> "args.sandboxMode === \"danger-full-access\""
+    const fake = fakeSpawn([
+      { kind: "settle", code: 1, stderr: "stop" },
+      { kind: "settle", code: 1, stderr: "stop" },
+    ]);
+    const sessionsDir = mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
+
+    await createResolvedAgentBinding(
+      { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
+      { spawn: fake.spawn, codexSessionsDir: sessionsDir, codexSandboxMode: "danger-full-access" },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+    await createResolvedAgentBinding(
+      { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
+      { spawn: fake.spawn, codexSessionsDir: sessionsDir, codexSandboxMode: "read-only" },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(fake.calls[0]?.argv).toEqual([
+      "exec",
+      "--color",
+      "never",
+      "--sandbox",
+      "danger-full-access",
+      "--model",
+      "gpt-5.4",
+    ]);
+    expect(fake.calls[1]?.argv).toEqual([
+      "exec",
+      "--color",
+      "never",
+      "--sandbox",
+      "read-only",
+      "-c",
+      'approval_policy="on-request"',
+      "--model",
+      "gpt-5.4",
+    ]);
+  });
+
   test("codex binding classifies quota (ASCII and U+2019), model config, and generic errors", async () => {
     const quota = fakeSpawn([{ kind: "settle", code: 1, stderr: "You've reached your usage limit" }]);
     const hitLimit = fakeSpawn([{ kind: "settle", code: 1, stderr: "you’ve hit your usage limit" }]);

@@ -20,6 +20,7 @@ import {
   pipelineStageNodes,
   pipelineStageRollupGroups,
   pipelineWorkIdleTiming,
+  resolveStageInvocationId,
   stageElapsedLabel,
 } from "./tui-monitor-pipeline-tree.ts";
 import type { TuiMonitorState } from "./tui-monitor-types.ts";
@@ -849,7 +850,10 @@ function pipelineStageRollupRows(snapshot: PipelineSnapshot, nowMs: number): Mon
 
 function pipelineProjectRows(snapshot: PipelineSnapshot, runs: readonly DaemonListRunRow[]): MonitorLineRow[] {
   const invocationIds = new Set(
-    snapshot.stages.flatMap((stage) => (stage.workflowInvocationId === null ? [] : [stage.workflowInvocationId])),
+    snapshot.stages.flatMap((stage) => {
+      const invocationId = resolveStageInvocationId(stage, runs);
+      return invocationId === null ? [] : [invocationId];
+    }),
   );
   const projects = new Set(
     runs

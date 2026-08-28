@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Resolve stage entry runs before pipeline-tree attribution](./00-resolve-stage-entry-runs.md)
+- [x] [00 - Resolve stage entry runs before pipeline-tree attribution](./00-resolve-stage-entry-runs.md)

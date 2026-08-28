@@ -13,6 +13,7 @@ import {
   monitorPipelineStageNodeId,
   pipelineRowLabel,
   pipelineStageNodes,
+  resolveStageInvocationId,
   stageBranchCellValue,
 } from "./tui-monitor-pipeline-tree.ts";
 import { workflowRoleLabel, workflowTableRowMembers } from "./tui-monitor-workflow-collapse.ts";
@@ -201,12 +202,17 @@ function isHiddenPipelineRun(run: DaemonListRunRow, hiddenInvocationIds: Readonl
   return invocationId !== undefined && hiddenInvocationIds.has(invocationId);
 }
 
-function hiddenPipelineInvocationIds(snapshots: readonly PipelineSnapshot[], showDismissed: boolean): Set<string> {
+function hiddenPipelineInvocationIds(
+  snapshots: readonly PipelineSnapshot[],
+  runs: readonly DaemonListRunRow[],
+  showDismissed: boolean,
+): Set<string> {
   const hidden = new Set<string>();
   for (const snapshot of snapshots) {
     if (!isHiddenDismissedPipeline(snapshot, showDismissed)) continue;
     for (const stage of snapshot.stages) {
-      if (stage.workflowInvocationId !== null) hidden.add(stage.workflowInvocationId);
+      const invocationId = resolveStageInvocationId(stage, runs);
+      if (invocationId !== null) hidden.add(invocationId);
     }
   }
   return hidden;
@@ -218,7 +224,7 @@ function runIncidents(
   options: MonitorPipelineDisplayOptions,
 ): AttentionRow[] {
   const { pipelineNodes, adHocNodes } = buildMonitorPipelineTreeJoin(snapshots, runs, options);
-  const hiddenInvocationIds = hiddenPipelineInvocationIds(snapshots, options.showDismissed === true);
+  const hiddenInvocationIds = hiddenPipelineInvocationIds(snapshots, runs, options.showDismissed === true);
 
   const attribution = new Map<string, { snapshot: PipelineSnapshot; branchKey: string }>();
   for (const pipeline of pipelineNodes) {

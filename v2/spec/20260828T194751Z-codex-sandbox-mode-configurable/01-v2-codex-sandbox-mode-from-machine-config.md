@@ -21,11 +21,11 @@ V2 cannot select the shared Codex binding's sandbox mode, so trusted toolchains 
 
 ## Acceptance criteria
 
-- [ ] `v2/src/config/machine-config-loader.test.ts` proves its top-level `codexSandboxMode` resolver returns recognized values unchanged while absent, non-string, and unrecognized values resolve to `workspace-write`; it fails against the pre-change loader.
-- [ ] A v2 write/implement invocation-path test sets top-level `codexSandboxMode` to `danger-full-access` and proves the resolved mode reaches the shared Codex binding.
-- [ ] A v2 binding-rehydration test proves the configured mode survives the daemon/JSON boundary rather than reverting to `workspace-write`.
-- [ ] `v2/src/config/machine-config-loader.test.ts` test `unrecognized Codex sandbox modes fall back to workspace-write` proves mutating the accepted-mode guard to admit an unrecognized value turns the scoped test red; its `// @mutate` directive lives inside that named test body. `v2/src/config/machine-config-loader.test.ts` — `unrecognized Codex sandbox modes fall back to workspace-write`; Mutation checkpoint:
-- [ ] `bun run typecheck` and `bun run test:v2` + `bun run test:integration:v2` pass.
+- [x] `v2/src/config/machine-config-loader.test.ts` proves its top-level `codexSandboxMode` resolver returns recognized values unchanged while absent, non-string, and unrecognized values resolve to `workspace-write`; it fails against the pre-change loader.
+- [x] A v2 write/implement invocation-path test sets top-level `codexSandboxMode` to `danger-full-access` and proves the resolved mode reaches the shared Codex binding.
+- [x] A v2 binding-rehydration test proves the configured mode survives the daemon/JSON boundary rather than reverting to `workspace-write`.
+- [x] `v2/src/config/machine-config-loader.test.ts` test `unrecognized Codex sandbox modes fall back to workspace-write` proves mutating the accepted-mode guard to admit an unrecognized value turns the scoped test red; its `// @mutate` directive lives inside that named test body. `v2/src/config/machine-config-loader.test.ts` — `unrecognized Codex sandbox modes fall back to workspace-write`; Mutation checkpoint:
+- [x] `bun run typecheck` and `bun run test:v2` + `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

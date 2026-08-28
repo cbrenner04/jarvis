@@ -19,6 +19,12 @@ Per-project variance is **only** the ordered `agents` list. Role→model assignm
 
 v1's combined `{agent, model}` `agentOrder` entries are retired. v2 holds agent names in project config and model rungs in the global store.
 
+## Codex sandbox mode
+
+The top-level `codexSandboxMode` key in `~/.jarvis/config.json` selects the sandbox the shared Codex binding runs under for v2 write/implement invocations. `readCodexSandboxMode` in [`machine-config-loader.ts`](../src/config/machine-config-loader.ts) owns resolution: recognized values (`read-only`, `workspace-write`, `danger-full-access`) pass through; a missing, non-string, or unrecognized value resolves to the `workspace-write` default. The resolved mode is threaded into Codex binding creation once when the daemon assembles production write/implement bindings (`resolveWriteLoopBindings`), so both fresh and rehydrated (post daemon/JSON boundary) invocation paths select the same mode rather than reverting to the default on resume.
+
+`danger-full-access` grants ambient trust so trusted local toolchains (e.g. Xcode/CoreSimulator) are reachable — parity with the trust cursor already takes via `--force` and claude via `--permission-mode acceptEdits`. There is no per-project override or command flag; per-project Codex trust is gated on the non-functional v2 per-project config read tracked by #3026.
+
 ## Types
 
 Resolution keys are concrete **roles** from the closed union in [`role-resolution.md`](role-resolution.md). This schema uses role names only.

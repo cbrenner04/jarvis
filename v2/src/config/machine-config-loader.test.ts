@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   DEFAULT_REVIEW_ROLE_TIMEOUT_MS,
   loadMachineConfig,
+  readCodexSandboxMode,
   readMachineConfigDocument,
   readProjectImplementReviewBehavior,
   readProjectImplementReviewPasses,
@@ -308,5 +309,31 @@ describe("readProjectReadyCommand", () => {
   test("returns undefined when the project or readyCommand is absent", () => {
     expect(readProjectReadyCommand("demo", writeConfig({ projects: { demo: { root: "/tmp/repo" } } }))).toBeUndefined();
     expect(readProjectReadyCommand("missing", writeConfig({ projects: {} }))).toBeUndefined();
+  });
+});
+
+describe("readCodexSandboxMode", () => {
+  test.each([
+    "read-only",
+    "workspace-write",
+    "danger-full-access",
+  ] as const)("recognized mode %s passes through unchanged", (mode) => {
+    expect(readCodexSandboxMode(writeConfig({ codexSandboxMode: mode }))).toBe(mode);
+  });
+
+  test("absent codexSandboxMode falls back to workspace-write", () => {
+    expect(readCodexSandboxMode(writeConfig({ agents: ["claude"] }))).toBe("workspace-write");
+    expect(readCodexSandboxMode("/nonexistent/path/config.json")).toBe("workspace-write");
+  });
+
+  test("non-string codexSandboxMode falls back to workspace-write", () => {
+    expect(readCodexSandboxMode(writeConfig({ codexSandboxMode: 3 }))).toBe("workspace-write");
+    expect(readCodexSandboxMode(writeConfig({ codexSandboxMode: ["danger-full-access"] }))).toBe("workspace-write");
+  });
+
+  test("unrecognized Codex sandbox modes fall back to workspace-write", () => {
+    // @mutate v2/src/config/machine-config-loader.ts "(CODEX_SANDBOX_MODES as readonly string[]).includes(value)" -> "true"
+    expect(readCodexSandboxMode(writeConfig({ codexSandboxMode: "full-access" }))).toBe("workspace-write");
+    expect(readCodexSandboxMode(writeConfig({ codexSandboxMode: "yolo" }))).toBe("workspace-write");
   });
 });

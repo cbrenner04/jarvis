@@ -2,7 +2,11 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { getExecutableTreeDigest } from "../../../shared/executable-tree.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
-import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
+import {
+  createResolvedAgentBinding,
+  type ResolvedAgentBinding,
+  type ResolvedAgentBindingOptions,
+} from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
@@ -18,7 +22,11 @@ import {
   resolveExecutableRole,
   resolveInvocationBindings,
 } from "../config/agent-model-config.ts";
-import { readIterationCeilingMs, resolveMachineProfile } from "../config/machine-config-loader.ts";
+import {
+  readCodexSandboxMode,
+  readIterationCeilingMs,
+  resolveMachineProfile,
+} from "../config/machine-config-loader.ts";
 import { loadMachineProfileModels } from "../config/machine-profile-loader.ts";
 import {
   getExternalWorktreePath,
@@ -398,7 +406,26 @@ type WriteLoopBindingSourceDeps = {
   machinesDir?: string;
   /** When true, replay `bindingResolution.agentModelConfig` (guard tests only). */
   forceSnapshotAgentModelConfig?: boolean;
+  /** Injected into production binding options so tests can observe spawned argv (tests only). */
+  bindingSpawn?: ResolvedAgentBindingOptions["spawn"];
+  /** Redirects Codex session snapshotting away from `~/.codex` (tests only). */
+  codexSessionsDir?: string;
 };
+
+/**
+ * Production binding factory. Stamps the configured Codex sandbox mode onto every write/implement
+ * binding so both fresh and rehydrated resolution paths select the operator-trusted sandbox.
+ */
+function productionAgentBindingFactory(): (binding: ResolvedAgentBinding) => InvocationBinding {
+  const opts: ResolvedAgentBindingOptions = {
+    codexSandboxMode: readCodexSandboxMode(writeLoopBindingSourceDeps.machineConfigPath),
+  };
+  if (writeLoopBindingSourceDeps.bindingSpawn !== undefined) opts.spawn = writeLoopBindingSourceDeps.bindingSpawn;
+  if (writeLoopBindingSourceDeps.codexSessionsDir !== undefined) {
+    opts.codexSessionsDir = writeLoopBindingSourceDeps.codexSessionsDir;
+  }
+  return (binding) => createResolvedAgentBinding(binding, opts);
+}
 
 let writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps = {};
 
@@ -471,7 +498,7 @@ export function resolveWriteLoopBindings(input: WriteLoopInput): ResolvedWriteLo
             resolveExecutableRole(context.role),
             context.agents,
             agentModelConfig,
-            createResolvedAgentBinding,
+            productionAgentBindingFactory(),
           ),
         },
       };
@@ -526,7 +553,7 @@ function buildImplementRecoverMutationRepairDeps(repair: ImplementRecoverMutatio
       resolveExecutableRole("implement"),
       repair.agents,
       repair.agentModelConfig,
-      createResolvedAgentBinding,
+      productionAgentBindingFactory(),
     ),
     stepRules: repair.stepRules,
     ...(repair.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: repair.iterationTimeoutMs } : {}),

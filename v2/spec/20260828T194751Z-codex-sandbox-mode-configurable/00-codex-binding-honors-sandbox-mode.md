@@ -18,11 +18,11 @@ The shared Codex adapter hardcodes `--sandbox workspace-write` plus `-c approval
 
 ## Acceptance criteria
 
-- [ ] `shared/invocation/agents.test.ts` pins the omitted-mode argv as `--sandbox workspace-write` with the `-c approval_policy="on-request"` arguments retained.
-- [ ] `shared/invocation/agents.test.ts` proves `danger-full-access` reaches `--sandbox` and removes both approval-policy arguments; it fails against the pre-change hardcoded argv.
-- [ ] `shared/invocation/agents.test.ts` proves `read-only` reaches `--sandbox` and retains the approval-policy arguments.
-- [ ] `shared/invocation/agents.test.ts` test `Codex sandbox argv retains approval policy only when sandboxed` proves treating `danger-full-access` as sandboxed retains the approval-policy arguments and turns the scoped test red; its `// @mutate` directive lives inside that named test body. `shared/invocation/agents.test.ts` — `Codex sandbox argv retains approval policy only when sandboxed`; Mutation checkpoint:
-- [ ] `bun run typecheck` and `bun run test:v1` + `bun run test:v2` + `bun run test:integration:v2` pass (shared surface).
+- [x] `shared/invocation/agents.test.ts` pins the omitted-mode argv as `--sandbox workspace-write` with the `-c approval_policy="on-request"` arguments retained.
+- [x] `shared/invocation/agents.test.ts` proves `danger-full-access` reaches `--sandbox` and removes both approval-policy arguments; it fails against the pre-change hardcoded argv.
+- [x] `shared/invocation/agents.test.ts` proves `read-only` reaches `--sandbox` and retains the approval-policy arguments.
+- [x] `shared/invocation/agents.test.ts` test `Codex sandbox argv retains approval policy only when sandboxed` proves treating `danger-full-access` as sandboxed retains the approval-policy arguments and turns the scoped test red; its `// @mutate` directive lives inside that named test body. `shared/invocation/agents.test.ts` — `Codex sandbox argv retains approval policy only when sandboxed`; Mutation checkpoint:
+- [x] `bun run typecheck` and `bun run test:v1` + `bun run test:v2` + `bun run test:integration:v2` pass (shared surface).
 
 ## Documentation updates
 

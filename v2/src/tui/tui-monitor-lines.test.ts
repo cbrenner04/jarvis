@@ -1342,6 +1342,7 @@ describe("monitorRightPaneSegmentRows", () => {
     "Pipeline",
     `pipelineId: ${PIPELINE_ID}`,
     "name: feature-pipeline",
+    "project: demo",
     "state: succeeded",
     "work: 2m",
     "idle: 5s",
@@ -2198,7 +2199,7 @@ describe("monitorRightPaneSegmentRows", () => {
       "Pipeline",
       `pipelineId: ${offPanePipelineId}`,
       "name: pipeline-0",
-      "state: succeeded",
+      "project: demo",
     ]);
     expect(lines).toContain("wallClock: 1m 40s");
     expect(lines).toContain("stage: plan status=succeeded");

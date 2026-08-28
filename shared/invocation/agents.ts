@@ -17,10 +17,13 @@ export type ResolvedAgentBinding = {
   priceKey: string;
 };
 
+export type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
+
 type SpawnFn = (binary: string, argv: readonly string[], opts: SpawnOptions) => ChildProcess;
 
 export type ResolvedAgentBindingOptions = {
   spawn?: SpawnFn;
+  codexSandboxMode?: CodexSandboxMode;
   codexSessionsDir?: string;
   randomUUID?: () => string;
   setTimeout?: typeof setTimeout;
@@ -76,6 +79,7 @@ export function createResolvedAgentBinding(
           cwd: invokeArgs.cwd,
           adapterModel,
           priceKey,
+          sandboxMode: opts.codexSandboxMode ?? "workspace-write",
           ...pickAgentRunOptions(invokeArgs),
           ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
           ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
@@ -614,6 +618,7 @@ async function runCodexBinding(args: {
   cwd: string;
   adapterModel: string;
   priceKey: string;
+  sandboxMode: CodexSandboxMode;
   signal?: AbortSignal;
   idleOutputMs?: number;
   joinProcessOnIdleStall?: boolean;
@@ -638,9 +643,8 @@ async function runCodexBinding(args: {
         "--color",
         "never",
         "--sandbox",
-        "workspace-write",
-        "-c",
-        'approval_policy="on-request"',
+        args.sandboxMode,
+        ...(args.sandboxMode !== "danger-full-access" ? ["-c", 'approval_policy="on-request"'] : []),
         "--model",
         args.adapterModel,
       ],

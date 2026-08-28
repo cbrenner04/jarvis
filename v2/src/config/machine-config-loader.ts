@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import type { CodexSandboxMode } from "../../../shared/invocation/agents.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import { MACHINE_CONFIG_PATH } from "../paths.ts";
 
@@ -50,6 +51,24 @@ export function readConfiguredIdleOutputTimeoutMs(configPath: string = MACHINE_C
 /** Resolves the machine-wide wall clock bounding each review/review-debate role invocation. */
 export function readReviewRoleTimeoutMs(configPath: string = MACHINE_CONFIG_PATH): number {
   return readPositiveNumberField(configPath, "reviewRoleTimeoutMs", DEFAULT_REVIEW_ROLE_TIMEOUT_MS);
+}
+
+export const DEFAULT_CODEX_SANDBOX_MODE: CodexSandboxMode = "workspace-write";
+
+const CODEX_SANDBOX_MODES: readonly CodexSandboxMode[] = ["read-only", "workspace-write", "danger-full-access"];
+
+function isCodexSandboxMode(value: string): value is CodexSandboxMode {
+  return (CODEX_SANDBOX_MODES as readonly string[]).includes(value);
+}
+
+/**
+ * Resolves the machine-wide Codex sandbox mode for v2 write/implement invocations. A missing,
+ * non-string, or unrecognized `codexSandboxMode` resolves to `workspace-write`.
+ */
+export function readCodexSandboxMode(configPath: string = MACHINE_CONFIG_PATH): CodexSandboxMode {
+  const value = readMachineConfigDocument(configPath)?.codexSandboxMode;
+  if (typeof value !== "string") return DEFAULT_CODEX_SANDBOX_MODE;
+  return isCodexSandboxMode(value) ? value : DEFAULT_CODEX_SANDBOX_MODE;
 }
 
 /** Reads write-path iteration bounds and rejects inverted idle/wall/ceiling ordering. */

@@ -281,6 +281,10 @@ function fakeStore(
       const run = runs[runId];
       return run ? ({ id: runId, attempts: [], ...run } as unknown as Run & { attempts: [] }) : null;
     },
+    findRunsByInvocationId: (invocationId: string) =>
+      Object.entries(runs)
+        .filter(([, run]) => run.workflowSnapshot?.invocationId === invocationId)
+        .map(([id, run]) => ({ id, attempts: [], ...run }) as unknown as Run),
     listPipelines: () => {
       const pipeline = store.loadPipeline(PIPELINE_ID);
       return pipeline ? [pipeline] : [];
@@ -416,6 +420,37 @@ function restartSweepEntrySnapshot(invocationId: string): WorkflowSnapshot {
       { stepId: "s1-entry", role: "intent", durable: true },
       { stepId: "s1-review", role: "review", behavior: "review", durable: true },
     ],
+  };
+}
+
+function restartSweepRollupWedgeRuns(
+  entryRunId: string,
+  reviewRunId: string,
+  invocationId: string,
+  reviewStatus: RunStatus,
+): Record<string, Partial<Run>> {
+  const snapshot = restartSweepEntrySnapshot(invocationId);
+  return {
+    [entryRunId]: { specPath: "spec/s1.md", stepId: "s1-entry", status: "completed", workflowSnapshot: snapshot },
+    [reviewRunId]: { stepId: "s1-review", status: reviewStatus, workflowSnapshot: snapshot },
+  };
+}
+
+function restartSweepTerminalLogFor(entryRunId: string) {
+  const terminalRecord: PersistedRecord = {
+    runId: entryRunId,
+    seq: 1,
+    ts: "2026-01-01T00:00:00.000Z",
+    event: {
+      kind: "loop_finished",
+      loopOutcomeKind: "completion_commit_failed" as WriteLoopOutcomeKind,
+      iterationsConsumed: 1,
+      resumable: true,
+    },
+  };
+  return {
+    terminalRecord,
+    loadLogRecords: (runId: string) => (runId === entryRunId ? [terminalRecord] : []),
   };
 }
 
@@ -1202,11 +1237,7 @@ describe("pipeline activation after restart", () => {
   test("restart sweep fails a deferred stage whose entry run ended failed", async () => {
     const entryRunId = "run-restart-sweep-fail-1";
     const reviewRunId = "run-restart-sweep-fail-1-review";
-    const snapshot = restartSweepEntrySnapshot("inv-restart-sweep-fail-1");
-    const runs: Record<string, Partial<Run>> = {
-      [entryRunId]: { specPath: "spec/s1.md", stepId: "s1-entry", status: "completed", workflowSnapshot: snapshot },
-      [reviewRunId]: { stepId: "s1-review", status: "failed", workflowSnapshot: snapshot },
-    };
+    const runs = restartSweepRollupWedgeRuns(entryRunId, reviewRunId, "inv-restart-sweep-fail-1", "failed");
     const { store, stages } = fakeStore(RESTART_SWEEP_DEFINITION, runs, {
       context: persistedContext,
       ownerIdentity: PRIOR_OWNER,
@@ -1221,18 +1252,7 @@ describe("pipeline activation after restart", () => {
       },
     });
 
-    const terminalRecord: PersistedRecord = {
-      runId: entryRunId,
-      seq: 1,
-      ts: "2026-01-01T00:00:00.000Z",
-      event: {
-        kind: "loop_finished",
-        loopOutcomeKind: "completion_commit_failed" as WriteLoopOutcomeKind,
-        iterationsConsumed: 1,
-        resumable: true,
-      },
-    };
-    const loadLogRecords = (runId: string) => (runId === entryRunId ? [terminalRecord] : []);
+    const { terminalRecord, loadLogRecords } = restartSweepTerminalLogFor(entryRunId);
 
     let dispatchCalled = false;
     const dispatch: PipelineWorkflowDispatch = async () => {
@@ -1267,6 +1287,61 @@ describe("pipeline activation after restart", () => {
     expect(s1?.failureDetail).toEqual(composeRunOperatorError(entryRun, terminalRecord as TerminalLogRecord));
     expect(stages().find((s) => s.stageId === "s2")?.status).toBe("skipped");
     expect(terminalPublicationCalls).toBe(0);
+  });
+
+  test("restart sweep fails a running stage whose entry run ended failed without a deferred marker", async () => {
+    const entryRunId = "run-restart-sweep-unsettled-fail-1";
+    const reviewRunId = "run-restart-sweep-unsettled-fail-1-review";
+    const runs = restartSweepRollupWedgeRuns(entryRunId, reviewRunId, "inv-restart-sweep-unsettled-fail-1", "failed");
+    const { store, stages } = fakeStore(RESTART_SWEEP_DEFINITION, runs, {
+      context: persistedContext,
+      ownerIdentity: PRIOR_OWNER,
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "s1",
+      patch: { status: "running", workflowInvocationId: entryRunId },
+    });
+
+    const { terminalRecord, loadLogRecords } = restartSweepTerminalLogFor(entryRunId);
+
+    let dispatchCalled = false;
+    const dispatch: PipelineWorkflowDispatch = async () => {
+      dispatchCalled = true;
+      return { ok: true, entryRunId: "should-not-dispatch" };
+    };
+    let terminalPublicationCalls = 0;
+    const executeTerminalPublication = async () => {
+      terminalPublicationCalls += 1;
+      return { prNumber: 99, prUrl: "https://example.com/pr/99" };
+    };
+
+    const { continued } = await recoverContinuablePipelines(
+      store,
+      {
+        store,
+        dispatch,
+        wait: restartSweepWait(runs),
+        resolveStage: resolveStageStub(),
+        executeTerminalPublication,
+        loadLogRecords,
+      },
+      async () => false,
+    );
+
+    expect(continued).toBe(1);
+    expect(dispatchCalled).toBe(false);
+    const s1 = stages().find((s) => s.stageId === "s1");
+    expect(s1?.status).toBe("failed");
+    const entryRun = store.loadRun(entryRunId);
+    if (entryRun === null) throw new Error("expected entry run");
+    expect(s1?.failureDetail).toEqual(composeRunOperatorError(entryRun, terminalRecord as TerminalLogRecord));
+    expect(stages().find((s) => s.stageId === "s2")?.status).toBe("skipped");
+    expect(terminalPublicationCalls).toBe(0);
+    const pipeline = store.loadPipeline(PIPELINE_ID);
+    if (!pipeline) throw new Error("expected pipeline");
+    expect(derivePipelineState(pipeline)).toBe("failed");
+    // @mutate v2/src/daemon/pipeline-execution.ts "const unsettledEntryRunId = unsettledTerminalStageEntryRunId(store, stage);" -> "const unsettledEntryRunId = undefined;"
   });
 
   test("restart sweep leaves a deferred stage whose entry run is still live untouched", async () => {
@@ -1310,9 +1385,8 @@ describe("pipeline activation after restart", () => {
 
   test("restart sweep leaves a running stage without a deferred marker untouched", async () => {
     const entryRunId = "run-restart-sweep-no-marker";
-    const runs: Record<string, Partial<Run>> = {
-      [entryRunId]: { specPath: "spec/s1.md", status: "completed" },
-    };
+    const reviewRunId = "run-restart-sweep-no-marker-review";
+    const runs = restartSweepRollupWedgeRuns(entryRunId, reviewRunId, "inv-restart-sweep-no-marker", "completed");
     const { store, stages } = fakeStore(RESTART_SWEEP_DEFINITION, runs, {
       context: persistedContext,
       ownerIdentity: PRIOR_OWNER,
@@ -1339,7 +1413,83 @@ describe("pipeline activation after restart", () => {
     expect(continued).toBe(0);
     expect(dispatchCalled).toBe(false);
     expect(stages()).toEqual(before);
-    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (detail?.code !== \"settlement_deferred\" || detail.reason !== \"entry_run_still_live\") return undefined;" -> "if (false) return undefined;"
+    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (rollupStatus !== \"failed\") return undefined;" -> "if (false) return undefined;"
+  });
+
+  test("restart sweep leaves an unsettled stage whose entry run is still live untouched", async () => {
+    const entryRunId = "run-restart-sweep-unsettled-live";
+    const shrinkRunId = "run-restart-sweep-unsettled-live-shrink";
+    const snapshot = restartSweepEntrySnapshot("inv-restart-sweep-unsettled-live");
+    const runs: Record<string, Partial<Run>> = {
+      [entryRunId]: { specPath: "spec/s1.md", stepId: "s1-entry", status: "in-progress", workflowSnapshot: snapshot },
+      [shrinkRunId]: { stepId: "implement~shrink", status: "failed", workflowSnapshot: snapshot },
+    };
+    const { store, stages } = fakeStore(RESTART_SWEEP_DEFINITION, runs, {
+      context: persistedContext,
+      ownerIdentity: PRIOR_OWNER,
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "s1",
+      patch: { status: "running", workflowInvocationId: entryRunId, startedAt: 12345 },
+    });
+    const before = structuredClone(stages());
+
+    let dispatchCalled = false;
+    const dispatch: PipelineWorkflowDispatch = async () => {
+      dispatchCalled = true;
+      return { ok: true, entryRunId: "should-not-dispatch" };
+    };
+
+    const { continued } = await recoverContinuablePipelines(
+      store,
+      { store, dispatch, wait: restartSweepWait(runs), resolveStage: resolveStageStub() },
+      async () => false,
+    );
+
+    expect(continued).toBe(0);
+    expect(dispatchCalled).toBe(false);
+    expect(stages()).toEqual(before);
+    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (isLiveEntryRun(store, linkedEntryRunId)) return undefined;" -> "if (false) return undefined;"
+  });
+
+  test("restart sweep leaves an unsettled stage whose entry run was just reconciled untouched", async () => {
+    const entryRunId = "run-restart-sweep-unsettled-reconciled";
+    const reviewRunId = "run-restart-sweep-unsettled-reconciled-review";
+    const runs = restartSweepRollupWedgeRuns(
+      entryRunId,
+      reviewRunId,
+      "inv-restart-sweep-unsettled-reconciled",
+      "failed",
+    );
+    const { store, stages } = fakeStore(RESTART_SWEEP_DEFINITION, runs, {
+      context: persistedContext,
+      ownerIdentity: PRIOR_OWNER,
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "s1",
+      patch: { status: "running", workflowInvocationId: entryRunId },
+    });
+    const before = structuredClone(stages());
+
+    let dispatchCalled = false;
+    const dispatch: PipelineWorkflowDispatch = async () => {
+      dispatchCalled = true;
+      return { ok: true, entryRunId: "should-not-dispatch" };
+    };
+
+    const { continued } = await recoverContinuablePipelines(
+      store,
+      { store, dispatch, wait: restartSweepWait(runs), resolveStage: resolveStageStub() },
+      async () => false,
+      new Set([entryRunId]),
+    );
+
+    expect(continued).toBe(0);
+    expect(dispatchCalled).toBe(false);
+    expect(stages()).toEqual(before);
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (reconciledEntryRunIds.has(redrivableEntryRunId)) return false;" -> "if (false) return false;"
   });
 
   test("restart sweep leaves a deferred stage whose entry run was just reconciled untouched", async () => {
@@ -1378,7 +1528,67 @@ describe("pipeline activation after restart", () => {
     expect(continued).toBe(0);
     expect(dispatchCalled).toBe(false);
     expect(stages()).toEqual(before);
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (reconciledEntryRunIds.has(deferredEntryRunId)) return false;" -> "if (false) return false;"
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (reconciledEntryRunIds.has(redrivableEntryRunId)) return false;" -> "if (false) return false;"
+  });
+
+  test("resume reopens and redispatches after an unsettled terminally failed stage", async () => {
+    const entryRunId = "run-resume-unsettled-fail-1";
+    const reviewRunId = "run-resume-unsettled-fail-1-review";
+    const runs = restartSweepRollupWedgeRuns(entryRunId, reviewRunId, "inv-resume-unsettled-fail-1", "failed");
+    const { store, stages } = fakeStore(RESTART_SWEEP_DEFINITION, runs, {
+      context: persistedContext,
+      ownerIdentity: PRIOR_OWNER,
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "s1",
+      patch: { status: "running", workflowInvocationId: entryRunId },
+    });
+
+    const { terminalRecord, loadLogRecords } = restartSweepTerminalLogFor(entryRunId);
+
+    const dispatchOrder: number[] = [];
+    const dispatch: PipelineWorkflowDispatch = async (steps) => {
+      dispatchOrder.push(stageIndexOf(steps));
+      const runId = "run-resume-unsettled-fail-2";
+      runs[runId] = {
+        specPath: "spec/s2.md",
+        worktreePath: "/repo/worktree",
+        branch: "feature-branch",
+        specRef: "main",
+        status: "completed",
+      };
+      return { ok: true, entryRunId: runId, invocationId: "inv-resume-unsettled-fail-2" };
+    };
+
+    const deps = {
+      store,
+      dispatch,
+      wait: restartSweepWait(runs),
+      resolveStage: resolveStageStub(),
+      loadLogRecords,
+    };
+
+    const firstOutcome = await resumePipeline(PIPELINE_ID, deps);
+    expect(firstOutcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+    const s1AfterSettle = stages().find((s) => s.stageId === "s1");
+    expect(s1AfterSettle?.status).toBe("failed");
+    const entryRun = store.loadRun(entryRunId);
+    if (entryRun === null) throw new Error("expected entry run");
+    expect(s1AfterSettle?.failureDetail).toEqual(
+      composeRunOperatorError(entryRun, terminalRecord as TerminalLogRecord),
+    );
+    const pipelineAfterSettle = store.loadPipeline(PIPELINE_ID);
+    if (!pipelineAfterSettle) throw new Error("expected pipeline");
+    expect(derivePipelineState(pipelineAfterSettle)).toBe("failed");
+    expect(dispatchOrder).toEqual([]);
+
+    const secondOutcome = await resumePipeline(PIPELINE_ID, deps);
+    expect(secondOutcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+    expect(stages().find((s) => s.stageId === "s1")?.status).toBe("succeeded");
+    expect(stages().find((s) => s.stageId === "s2")?.status).toBe("succeeded");
+    expect(dispatchOrder).toEqual([0, 1]);
+    // @mutate v2/src/daemon/pipeline-execution.ts "return hasRedrivableDeferredSettlement(store, pipeline, NO_RECONCILED_ENTRY_RUNS);" -> "return false;"
   });
 
   test("after an applied reopen dispatches only the reopened failed stage and preserves predecessor evidence", async () => {

@@ -27,7 +27,9 @@ The shared Codex adapter hardcodes `workspace-write` plus an ineffective non-int
 - [ ] `shared/invocation/agents.test.ts` pins the omitted-mode argv as `--sandbox workspace-write -c approval_policy="on-request"`.
 - [ ] `shared/invocation/agents.test.ts` fails against the baseline, then proves `danger-full-access` reaches `--sandbox` and removes both approval-policy arguments.
 - [ ] `shared/invocation/agents.test.ts` proves `read-only` reaches `--sandbox` and retains the approval-policy arguments.
+- [ ] `shared/invocation/agents.test.ts` test `Codex sandbox argv retains approval policy only when sandboxed` proves treating `danger-full-access` as sandboxed retains the approval-policy arguments and turns the scoped test red. `shared/invocation/agents.test.ts` — `Codex sandbox argv retains approval policy only when sandboxed`; Mutation checkpoint:
 
 ## Documentation updates
 
 - `v2/docs/shared-invocation.md` — resolved Codex sandbox modes, default, and approval-policy argv behavior.
+- `v2/docs/v1-behaviors.md` — shared Codex sandbox behavior and v1's unchanged default.

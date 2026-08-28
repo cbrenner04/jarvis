@@ -5,7 +5,7 @@ import ts from "typescript";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
-import type { PipelineStageRecord, Run, RunStatus, StateStore } from "../persistence/state-store.ts";
+import type { PipelineStageRecord, Run, RunStatus, StateStore, WorkflowSnapshot } from "../persistence/state-store.ts";
 import {
   adoptAndSettlePipelineStage,
   dispatchPipelineStage,
@@ -13,6 +13,7 @@ import {
   type PipelineWorkflowWait,
   redrivableDeferredSettlementEntryRunId,
   shouldStopForInFlightStageRow,
+  unsettledTerminalStageEntryRunId,
 } from "./pipeline-stage-dispatch.ts";
 import type { TerminalLogRecord } from "./run-operator-error.ts";
 import { composeRunOperatorError } from "./run-operator-error.ts";
@@ -195,6 +196,10 @@ function fakeStore(runsById: Record<string, Partial<Run>> = {}): {
       const run = runsById[runId];
       return run ? ({ id: runId, attempts: [], ...run } as unknown as Run & { attempts: [] }) : null;
     },
+    findRunsByInvocationId: (invocationId: string) =>
+      Object.entries(runsById)
+        .filter(([, run]) => run.workflowSnapshot?.invocationId === invocationId)
+        .map(([id, run]) => ({ id, attempts: [], ...run }) as unknown as Run),
     loadPipeline: () => null,
     claimPipelineStageAdmission: (args: { pipelineId: string; stageId: string; branchKey?: string }) => {
       const key = `${args.pipelineId}:${args.stageId}:${args.branchKey ?? "default"}`;
@@ -348,6 +353,83 @@ describe("redrivableDeferredSettlementEntryRunId", () => {
         }),
       ),
     ).toBe("entry-missing");
+  });
+});
+
+function entryReviewSnapshot(invocationId: string): WorkflowSnapshot {
+  return {
+    invocationId,
+    steps: [
+      { stepId: "s1-entry", role: "intent", durable: true },
+      { stepId: "s1-review", role: "review", behavior: "review", durable: true },
+    ],
+  };
+}
+
+function unsettledRollupWedgeRuns(
+  entryRunId: string,
+  reviewRunId: string,
+  invocationId: string,
+  reviewStatus: RunStatus,
+): Record<string, Partial<Run>> {
+  const snapshot = entryReviewSnapshot(invocationId);
+  return {
+    [entryRunId]: { stepId: "s1-entry", status: "completed", workflowSnapshot: snapshot },
+    [reviewRunId]: { stepId: "s1-review", status: reviewStatus, workflowSnapshot: snapshot },
+  };
+}
+
+describe("unsettledTerminalStageEntryRunId", () => {
+  test("not a running row", () => {
+    const { store } = fakeStore();
+    expect(unsettledTerminalStageEntryRunId(store, stageRecord({ status: "pending" }))).toBeUndefined();
+  });
+
+  test("running with deferred marker", () => {
+    const entryRunId = "entry-deferred";
+    const { store } = fakeStore({ [entryRunId]: { status: "failed" } });
+    expect(
+      unsettledTerminalStageEntryRunId(
+        store,
+        stageRecord({
+          status: "running",
+          workflowInvocationId: entryRunId,
+          failureDetail: {
+            code: "settlement_deferred",
+            reason: "entry_run_still_live",
+            entryRunId,
+            rollupStatus: "failed",
+          },
+        }),
+      ),
+    ).toBeUndefined();
+  });
+
+  test("running with a still-live linked entry run", () => {
+    const entryRunId = "entry-live";
+    const { store } = fakeStore({ [entryRunId]: { status: "in-progress" } });
+    expect(
+      unsettledTerminalStageEntryRunId(store, stageRecord({ status: "running", workflowInvocationId: entryRunId })),
+    ).toBeUndefined();
+  });
+
+  test("running with rollup-failed linked run without marker redrives", () => {
+    const entryRunId = "entry-failed";
+    const reviewRunId = "entry-failed-review";
+    const { store } = fakeStore(unsettledRollupWedgeRuns(entryRunId, reviewRunId, "inv-failed", "failed"));
+    expect(
+      unsettledTerminalStageEntryRunId(store, stageRecord({ status: "running", workflowInvocationId: entryRunId })),
+    ).toBe(entryRunId);
+  });
+
+  test("running with rollup-completed linked run without marker returns undefined", () => {
+    const entryRunId = "entry-completed";
+    const reviewRunId = "entry-completed-review";
+    const { store } = fakeStore(unsettledRollupWedgeRuns(entryRunId, reviewRunId, "inv-completed", "completed"));
+    expect(
+      unsettledTerminalStageEntryRunId(store, stageRecord({ status: "running", workflowInvocationId: entryRunId })),
+    ).toBeUndefined();
+    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (rollupStatus !== \"failed\") return undefined;" -> "if (false) return undefined;"
   });
 });
 
@@ -672,6 +754,34 @@ describe("dispatchPipelineStage", () => {
       entryRunId: "entry-wait-fail",
       invocationId: "inv-wait-fail",
       specPath: "spec/wait-recover.md",
+    });
+    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (admittedEntryRunId !== undefined && isLiveEntryRun(store, admittedEntryRunId)) {" -> "if (false) {"
+  });
+
+  test("dispatch catch over a live admitted entry run records settlement_deferred", async () => {
+    const entryRunId = "entry-catch-defer";
+    const dispatch: PipelineWorkflowDispatch = async () => ({
+      ok: true,
+      entryRunId,
+      invocationId: "inv-catch-defer",
+    });
+    const wait: PipelineWorkflowWait = async () => {
+      throw new Error("forced wait rejection");
+    };
+    const { store, patches } = fakeStore({
+      [entryRunId]: { specPath: "spec/catch-defer.md", status: "in-progress" },
+    });
+
+    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+
+    expect(patches.some((p) => p.patch.status === "failed")).toBe(false);
+    expect(patches.some((p) => p.patch.status === "succeeded")).toBe(false);
+    const deferredPatch = patches.find((p) => p.patch.failureDetail !== undefined);
+    expect(deferredPatch?.patch.failureDetail).toEqual({
+      code: "settlement_deferred",
+      reason: "entry_run_still_live",
+      entryRunId,
+      rollupStatus: "in-progress",
     });
     // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (admittedEntryRunId !== undefined && isLiveEntryRun(store, admittedEntryRunId)) {" -> "if (false) {"
   });

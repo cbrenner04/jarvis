@@ -36,6 +36,7 @@ import {
   settlementLinkedEntryRunId,
   shouldStopForInFlightStageRow,
   stageArtifactKey,
+  unsettledTerminalStageEntryRunId,
 } from "./pipeline-stage-dispatch.ts";
 import {
   isFanOutStageResolution,
@@ -839,8 +840,10 @@ export function hasRedrivableDeferredSettlement(
 ): boolean {
   for (const stage of pipeline.stages) {
     const deferredEntryRunId = redrivableDeferredSettlementEntryRunId(store, stage);
-    if (deferredEntryRunId === undefined) continue;
-    if (reconciledEntryRunIds.has(deferredEntryRunId)) return false;
+    const unsettledEntryRunId = unsettledTerminalStageEntryRunId(store, stage);
+    const redrivableEntryRunId = deferredEntryRunId ?? unsettledEntryRunId;
+    if (redrivableEntryRunId === undefined) continue;
+    if (reconciledEntryRunIds.has(redrivableEntryRunId)) return false;
     return true;
   }
   return false;

@@ -8,6 +8,7 @@ import {
   type StateStore,
 } from "../persistence/state-store.ts";
 import { composeRunOperatorError, findTerminalLogRecord } from "./run-operator-error.ts";
+import { rollupWorkflowRunStatus } from "./workflow-run-status-rollup.ts";
 
 /**
  * Daemon-built closure around `handleWorkflowStart`/`startWorkflowRun`, the only seam a
@@ -52,6 +53,37 @@ export function isLiveEntryRun(store: StateStore, entryRunId: string): boolean {
   return run !== null && !isTerminalRunStatus(run.status);
 }
 
+function isDeferredSettlementMarker(detail: { code?: string; reason?: string } | null | undefined): boolean {
+  return detail?.code === "settlement_deferred" && detail.reason === "entry_run_still_live";
+}
+
+function rollupLinkedEntryRunStatus(store: StateStore, entryRunId: string, isLive: boolean): RunStatus | undefined {
+  const entryRun = store.loadRun(entryRunId);
+  if (entryRun === null) return undefined;
+  const workflowSnapshot = entryRun.workflowSnapshot ?? null;
+  const siblingRuns = workflowSnapshot !== null ? store.findRunsByInvocationId(workflowSnapshot.invocationId) : [];
+  return rollupWorkflowRunStatus({ entryRun, workflowSnapshot, siblingRuns, isLive });
+}
+
+function recordDeferredSettlement(
+  store: StateStore,
+  stageTarget: PipelineStageTarget,
+  entryRunId: string,
+  rollupStatus: RunStatus,
+): void {
+  store.updateStage({
+    ...stageTarget,
+    patch: {
+      failureDetail: {
+        code: "settlement_deferred",
+        reason: "entry_run_still_live",
+        entryRunId,
+        rollupStatus,
+      },
+    },
+  });
+}
+
 /** Linked entry run when a `running` stage row still needs adopt/settlement (live or pending re-settlement). */
 export function settlementLinkedEntryRunId(
   _store: StateStore,
@@ -68,12 +100,30 @@ export function redrivableDeferredSettlementEntryRunId(
   record: PipelineStageRecord | undefined,
 ): string | undefined {
   if (record?.status !== "running") return undefined;
-  const detail = record.failureDetail as { code?: string; reason?: string } | null | undefined;
-  if (detail?.code !== "settlement_deferred" || detail.reason !== "entry_run_still_live") return undefined;
+  if (!isDeferredSettlementMarker(record.failureDetail as { code?: string; reason?: string } | null | undefined)) {
+    return undefined;
+  }
   const deferredEntryRunId = settlementLinkedEntryRunId(store, record);
   if (deferredEntryRunId === undefined) return undefined;
   if (isLiveEntryRun(store, deferredEntryRunId)) return undefined;
   return deferredEntryRunId;
+}
+
+/** Linked entry run when a `running` stage row has no deferred marker and its linked entry run rollup is terminally `failed`. */
+export function unsettledTerminalStageEntryRunId(
+  store: StateStore,
+  record: PipelineStageRecord | undefined,
+): string | undefined {
+  if (record?.status !== "running") return undefined;
+  if (isDeferredSettlementMarker(record.failureDetail as { code?: string; reason?: string } | null | undefined)) {
+    return undefined;
+  }
+  const linkedEntryRunId = settlementLinkedEntryRunId(store, record);
+  if (linkedEntryRunId === undefined) return undefined;
+  if (isLiveEntryRun(store, linkedEntryRunId)) return undefined;
+  const rollupStatus = rollupLinkedEntryRunStatus(store, linkedEntryRunId, false);
+  if (rollupStatus !== "failed") return undefined;
+  return linkedEntryRunId;
 }
 
 /** True when a post-dispatch stage row is still in flight and must not be terminalized. */
@@ -193,17 +243,7 @@ function applyEntryRunSettlement(args: {
     return;
   }
   if (isLiveEntryRun(store, entryRunId)) {
-    store.updateStage({
-      ...stageTarget,
-      patch: {
-        failureDetail: {
-          code: "settlement_deferred",
-          reason: "entry_run_still_live",
-          entryRunId,
-          rollupStatus,
-        },
-      },
-    });
+    recordDeferredSettlement(store, stageTarget, entryRunId, rollupStatus);
     return;
   }
   store.updateStage({
@@ -332,6 +372,12 @@ export async function dispatchPipelineStage(args: {
     });
   } catch (error) {
     if (admittedEntryRunId !== undefined && isLiveEntryRun(store, admittedEntryRunId)) {
+      recordDeferredSettlement(
+        store,
+        stageTarget,
+        admittedEntryRunId,
+        rollupLinkedEntryRunStatus(store, admittedEntryRunId, true) ?? "in-progress",
+      );
       return;
     }
     settleUnexpectedThrow(store, stageTarget, error);

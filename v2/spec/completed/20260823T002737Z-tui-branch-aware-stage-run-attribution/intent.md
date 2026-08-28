@@ -20,12 +20,12 @@ A pipeline stage records exactly one `workflowInvocationId`. `isAdHocCandidate` 
 
 ## Acceptance criteria
 
-- [ ] A run sharing a pipeline stage's branch but carrying a different `workflow.invocationId` than the stage's recorded one is attributed to that pipeline and emits zero top-level ad-hoc rows, pinned by a pure-function test over `buildMonitorPipelineTreeJoin` reproducing the recorded-vs-same-branch-leak case; the test fails against the pre-fix code.
-- [ ] A pipeline stage backed by multiple step runs (entry, review, publication) attributes all of them to the stage, pinned by a test.
-- [ ] A `run workflow` invocation matching no pipeline stage still renders as a top-level ad-hoc row, pinned by a test (no over-suppression).
-- [ ] When two currently-listed stages across concurrent or resumed pipelines share a branch, a run on that branch attributes to the most-recently-started matching stage only, never to both and never to a pipeline absent from the current snapshot pass, pinned by a test.
-- [ ] The same run id never appears both under a pipeline subtree and as a top-level node in the flattened tree, pinned by a regression test over the flattened output.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] A run sharing a pipeline stage's branch but carrying a different `workflow.invocationId` than the stage's recorded one is attributed to that pipeline and emits zero top-level ad-hoc rows, pinned by a pure-function test over `buildMonitorPipelineTreeJoin` reproducing the recorded-vs-same-branch-leak case; the test fails against the pre-fix code.
+- [x] A pipeline stage backed by multiple step runs (entry, review, publication) attributes all of them to the stage, pinned by a test.
+- [x] A `run workflow` invocation matching no pipeline stage still renders as a top-level ad-hoc row, pinned by a test (no over-suppression).
+- [x] When two currently-listed stages across concurrent or resumed pipelines share a branch, a run on that branch attributes to the most-recently-started matching stage only, never to both and never to a pipeline absent from the current snapshot pass, pinned by a test.
+- [x] The same run id never appears both under a pipeline subtree and as a top-level node in the flattened tree, pinned by a regression test over the flattened output.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Prerequisites
 

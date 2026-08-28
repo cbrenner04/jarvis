@@ -77,3 +77,4 @@ report,specs_driven,completed_specs,partial_or_blocked,session_active_tokens,ope
 20260810T205258Z-tui-command-center-completion-session,10,9,1,647400,647400,171200000,116.06,116.06,71933,12.90
 20260816T225338Z-guard-reprompt-trio-and-tui-pipeline-dogfood-session,3,3,0,466920,466920,180800000,109.41,109.41,155640,36.47
 20260824T002531Z-ci-fix-double-print-explicit-expansion-run-dismiss,12,11,1,540700,540700,179900000,133.53,133.53,49155,12.14
+20260828T143653Z-chess-dogfood-and-pipeline-completion-fixes,9,8,1,432800,432800,223800000,158.41,158.41,54100,19.8

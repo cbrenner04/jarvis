@@ -31,7 +31,7 @@
 - [x] The updated parity test fails against the pre-fix 420-second baseline and pins `SUPPORTED_HEALTHY_FILE_BUDGET_MS = 180_000` in `test/test-slices.test.ts` (`policy parity: aggregate and v2 files share per-file timeout and subprocess isolation`).
 - [x] The restored timeout accepts 180,000ms and rejects 179,999ms in `scripts/run-v2-tests.test.ts`.
 - [x] `v2/docs/test-writing.md` replaces the monolith audit with the resulting files, dated lane decisions, measured production-policy margins, and the rule to split a file before it reaches 150 seconds under the 180-second health budget.
-- [ ] `v2/docs/test-cost-baseline.txt` and the measured aggregate-cost section in `v2/docs/test-writing.md` report the refreshed roster and serial `bun run test:cost` results without conflating them with production-runner timing.
+- [x] `v2/docs/test-cost-baseline.txt` and the measured aggregate-cost section in `v2/docs/test-writing.md` report the refreshed roster and serial `bun run test:cost` results without conflating them with production-runner timing.
 - [x] `v2/docs/v1-behaviors.md` records the restored 180-second scheduler budget and evidence-based isolation behavior.
 - [x] `bun run typecheck` and `bun run test` pass at the restored threshold.
 

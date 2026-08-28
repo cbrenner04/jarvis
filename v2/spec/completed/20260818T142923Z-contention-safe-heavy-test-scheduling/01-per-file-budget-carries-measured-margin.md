@@ -1,6 +1,8 @@
 # 01 - Per-file budget carries a measured margin
 
-## Problem
+## Descoped (2026-08-28)
+
+Declined, not forgotten. The #2992 stopgap that motivated urgency here was already reverted by `20260825T022630Z-split-workflow-runner-test-suite` (budget back to `180_000`); `validatePerFileTimeout` has no production caller, so the margin guard would be policy-test-only; and the split spec's "split a file before ~150s" rule covers the same drift socially. If the budget constant is ever raised again without a measurement, revive this subspec — its decision ledger and implementer notes remain valid. Acceptance criteria below are preserved unticked-as-prose for that revival.
 
 `SUPPORTED_HEALTHY_FILE_BUDGET_MS = 180_000` is asserted as a literal in `test/test-slices.test.ts` and described in `v2/docs/operator-runbook.md` as a permanent floor sized against `v1/test/run.test.ts` at ~120s. Nothing ties the number to a measurement or a margin: `validatePerFileTimeout` only rejects values below the literal, so the number can be restated without re-measuring, and the file it was sized against is not the slowest file under the lane membership subspec 00 lands. The `workflow-runner.test.ts` timeout was diagnosed as "raise the budget until the timeout stops firing" precisely because the budget has no stated derivation.
 
@@ -23,14 +25,14 @@
 
 ## Acceptance criteria
 
-- [ ] `scripts/run-v2-tests.test.ts` test `the per-file budget carries the documented margin over the slowest measured file` fails against the pre-fix code and passes after: `validatePerFileTimeout(200_000, 180_000, 1.5)` throws naming the anchor and margin (200_000 clears the 180_000 floor but not the 270_000 margin, so the pre-fix single-argument function does not throw), `validatePerFileTimeout(400_000, 120_000, 1.5)` does not throw, and `SUPPORTED_HEALTHY_FILE_BUDGET_MS` is greater than or equal to both `180_000` and `SLOWEST_MEASURED_FILE_MS * FILE_BUDGET_MARGIN`, so lowering the budget constant below the documented anchor's margin turns this test red.
-- [ ] `scripts/run-v2-tests.test.ts` — `the per-file budget carries the documented margin over the slowest measured file`; Keystone checkpoint: an in-body `// @mutate scripts/run-v2-tests.ts "slowestMeasuredMs * margin" -> "0"` directive reverts the budget to an undocumented literal floor with no margin over any measurement, so the under-margin timeout is accepted and this test turns red.
-- [ ] `scripts/run-v2-tests.test.ts` — `the per-file budget carries the documented margin over the slowest measured file`; Mutation checkpoint: an in-body `// @mutate scripts/run-v2-tests.ts "timeout < slowestMeasuredMs * margin" -> "timeout > slowestMeasuredMs * margin"` directive inverts the margin guard so an over-margin timeout is rejected, proving the guard's negative case — that a budget clearing the margin is admitted — is asserted, and turning this test red.
-- [ ] `SLOWEST_MEASURED_FILE_MS`'s doc-comment in `scripts/run-v2-tests.ts` names the file it was measured from, the command, and the measurement date.
-- [ ] Existing `scripts/run-v2-tests.test.ts` `validatePerFileTimeout` tests and `test/test-slices.test.ts` test `policy parity: aggregate and v2 files share per-file timeout and subprocess isolation` stay green (the budget floor and the runner's per-file timeout wiring are unchanged by this derivation).
-- [ ] `v2/docs/test-writing.md` records the per-file budget's derivation: the measured anchor with its file and date, the 1.5x margin, that 180_000 is a floor the margin rule may raise but never lower, and that a new slowest file forces a re-measure rather than a raised literal.
-- [ ] `v2/docs/operator-runbook.md`'s per-file timeout bullet states the same derivation instead of describing 180_000 as sized against `v1/test/run.test.ts` alone, and names `validatePerFileTimeout` as the check that rejects an under-margin budget.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- `scripts/run-v2-tests.test.ts` test `the per-file budget carries the documented margin over the slowest measured file` fails against the pre-fix code and passes after: `validatePerFileTimeout(200_000, 180_000, 1.5)` throws naming the anchor and margin (200_000 clears the 180_000 floor but not the 270_000 margin, so the pre-fix single-argument function does not throw), `validatePerFileTimeout(400_000, 120_000, 1.5)` does not throw, and `SUPPORTED_HEALTHY_FILE_BUDGET_MS` is greater than or equal to both `180_000` and `SLOWEST_MEASURED_FILE_MS * FILE_BUDGET_MARGIN`, so lowering the budget constant below the documented anchor's margin turns this test red.
+- `scripts/run-v2-tests.test.ts` — `the per-file budget carries the documented margin over the slowest measured file`; Keystone checkpoint: an in-body `// @mutate scripts/run-v2-tests.ts "slowestMeasuredMs * margin" -> "0"` directive reverts the budget to an undocumented literal floor with no margin over any measurement, so the under-margin timeout is accepted and this test turns red.
+- `scripts/run-v2-tests.test.ts` — `the per-file budget carries the documented margin over the slowest measured file`; Mutation checkpoint: an in-body `// @mutate scripts/run-v2-tests.ts "timeout < slowestMeasuredMs * margin" -> "timeout > slowestMeasuredMs * margin"` directive inverts the margin guard so an over-margin timeout is rejected, proving the guard's negative case — that a budget clearing the margin is admitted — is asserted, and turning this test red.
+- `SLOWEST_MEASURED_FILE_MS`'s doc-comment in `scripts/run-v2-tests.ts` names the file it was measured from, the command, and the measurement date.
+- Existing `scripts/run-v2-tests.test.ts` `validatePerFileTimeout` tests and `test/test-slices.test.ts` test `policy parity: aggregate and v2 files share per-file timeout and subprocess isolation` stay green (the budget floor and the runner's per-file timeout wiring are unchanged by this derivation).
+- `v2/docs/test-writing.md` records the per-file budget's derivation: the measured anchor with its file and date, the 1.5x margin, that 180_000 is a floor the margin rule may raise but never lower, and that a new slowest file forces a re-measure rather than a raised literal.
+- `v2/docs/operator-runbook.md`'s per-file timeout bullet states the same derivation instead of describing 180_000 as sized against `v1/test/run.test.ts` alone, and names `validatePerFileTimeout` as the check that rejects an under-margin budget.
+- `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

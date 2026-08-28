@@ -539,6 +539,10 @@ When a write step times out after at least one linked subspec's non-human-only a
 
 Hand-pushed or hand-merged run branches often leave `refs/remotes/origin/<branch>` on disk after GitHub deletes the remote head. Incomplete git-enabled `jarvis run workflow implement` or `plan` re-runs (`resetStaleWorkspace` preflight) now prune that remote-tracking ref during retirement and print `Pruned stale remote-tracking ref: origin/<branch>` on success stdout when one was removed. `jarvis cleanup --abandon` uses the same retirement sequence.
 
+### Hand-publish leaves spec bookkeeping behind
+
+The harness ticks acceptance-criteria and index checkboxes as part of its own landing; a hand-published or hand-merged implement PR skips that, so the spec on `main` keeps unticked boxes even though the work landed (observed 2026-08-28: #2959 merged with all 16 ACs unticked; #2977 and #2998/#2999 with index boxes unticked). Every such spec then surfaces in `jarvis cleanup` as a stranded artifact with an unchecked criterion and is never archived. When hand-publishing, finish the bookkeeping in the same sitting: verify each AC's named artifact actually exists on `main` (tests by literal title, doc updates by content — never tick by name-match), tick the AC and index boxes, and archive the spec dir to `completed/` in the merge or a follow-up commit. Re-runs already tolerate a lagging index box (subspec routing keys off unticked criteria, not the index), so the cost of skipping this is borne by cleanup and future operators, not the runner.
+
 ### Intent finalization failed with staged files remaining
 
 A reviewed intent workflow can fail after critic/actuator succeed but landing (promotion, commit, push, or PR) fails, leaving `.jarvis-intent-stage/` still populated. `jarvis run list` / `jarvis run wait <id>` show `landing_failed` (`nextAction: "resume"`).

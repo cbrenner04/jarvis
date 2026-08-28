@@ -34,19 +34,27 @@ function setupWorktree(specPath?: string): { worktreePath: string; gitDir: strin
   return { worktreePath, gitDir };
 }
 
-function initRealGitWorktree(): { worktreePath: string; seedHead: string } {
-  const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-v2-completion-commit-real-"));
+function initRealGitWorktreeAt(
+  prefix: string,
+  options: { withGitignore: boolean },
+): {
+  worktreePath: string;
+  seedHead: string;
+} {
+  const worktreePath = mkdtempSync(join(tmpdir(), prefix));
   roots.push(worktreePath);
   execSync("git init -q", { cwd: worktreePath, stdio: "pipe" });
   execSync("git config user.email 'test@example.com'", { cwd: worktreePath, stdio: "pipe" });
   execSync("git config user.name 'Test User'", { cwd: worktreePath, stdio: "pipe" });
   execSync("git config commit.gpgsign false", { cwd: worktreePath, stdio: "pipe" });
   copyFileSync(join(repoRoot, "biome.json"), join(worktreePath, "biome.json"));
-  copyFileSync(join(repoRoot, ".gitignore"), join(worktreePath, ".gitignore"));
-  try {
-    symlinkSync(join(repoRoot, "node_modules"), join(worktreePath, "node_modules"), "dir");
-  } catch {
-    /* reuse existing symlink */
+  if (options.withGitignore) {
+    copyFileSync(join(repoRoot, ".gitignore"), join(worktreePath, ".gitignore"));
+    try {
+      symlinkSync(join(repoRoot, "node_modules"), join(worktreePath, "node_modules"), "dir");
+    } catch {
+      /* reuse existing symlink */
+    }
   }
   mkdirSync(join(worktreePath, "v2/spec/test"), { recursive: true });
   writeFileSync(join(worktreePath, "v2/spec/test/index.md"), "# Test Spec Title\n");
@@ -60,6 +68,16 @@ function initRealGitWorktree(): { worktreePath: string; seedHead: string } {
     stdio: "pipe",
   }).trim();
   return { worktreePath, seedHead };
+}
+
+function initRealGitWorktree(): { worktreePath: string; seedHead: string } {
+  return initRealGitWorktreeAt("jarvis-v2-completion-commit-real-", { withGitignore: true });
+}
+
+/** Same as `initRealGitWorktree`, minus the `.gitignore` copy — a target repo that does not
+ * gitignore `node_modules`, so the materialized symlink is stageable by `add -A`. */
+function initRealGitWorktreeWithoutGitignore(): { worktreePath: string; seedHead: string } {
+  return initRealGitWorktreeAt("jarvis-v2-completion-commit-no-gitignore-", { withGitignore: false });
 }
 
 function completionInput(worktreePath: string, overrides?: { iterationTimeoutMs?: number }) {
@@ -837,5 +855,71 @@ describe("createCompletionCommitter", () => {
     expect(result.commitSha).toBeDefined();
     expect(budgets).toEqual([5, 60_000]);
     expect(readFileSync(examplePath(worktreePath), "utf8")).toBe(FORMATTED_TS);
+  });
+
+  test("completion commit omits the harness-materialized node_modules symlink", async () => {
+    // @mutate v2/src/execution/completion-commit.ts "return [...ADD_ALL_ARGS, ...EXCLUDE_MATERIALIZED_NODE_MODULES];" -> "return [...ADD_ALL_ARGS];"
+    const { worktreePath, seedHead } = initRealGitWorktreeWithoutGitignore();
+    symlinkSync(join(repoRoot, "node_modules"), join(worktreePath, "node_modules"), "dir");
+    writeFileSync(join(worktreePath, "v2/spec/test/index.md"), "# Test Spec Title\n\nUpdated body.\n");
+
+    const result = await createCompletionCommitter()(completionInput(worktreePath, { iterationTimeoutMs: 60_000 }));
+
+    expect(result.commitSha).toBeDefined();
+    expect(result.commitSha).not.toBe(seedHead);
+    const topLevel = execFileSync("git", ["ls-tree", "--name-only", "HEAD"], {
+      cwd: worktreePath,
+      encoding: "utf8",
+      stdio: "pipe",
+    })
+      .trim()
+      .split("\n");
+    expect(topLevel).not.toContain("node_modules");
+    const committed = execFileSync("git", ["show", "HEAD:v2/spec/test/index.md"], {
+      cwd: worktreePath,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    expect(committed).toContain("Updated body.");
+  });
+
+  test("a real untracked node_modules directory is still committed", async () => {
+    // @mutate v2/src/execution/completion-commit.ts "if (!isMaterializedNodeModulesPath(worktreePath, MATERIALIZED_NODE_MODULES_PATH)) return [...ADD_ALL_ARGS];" -> "if (false) return [...ADD_ALL_ARGS];"
+    const { worktreePath, seedHead } = initRealGitWorktreeWithoutGitignore();
+    mkdirSync(join(worktreePath, "node_modules"));
+    writeFileSync(join(worktreePath, "node_modules/marker.txt"), "not a symlink\n");
+
+    const result = await createCompletionCommitter()(completionInput(worktreePath, { iterationTimeoutMs: 60_000 }));
+
+    expect(result.commitSha).toBeDefined();
+    expect(result.commitSha).not.toBe(seedHead);
+    const committed = execFileSync("git", ["show", "HEAD:node_modules/marker.txt"], {
+      cwd: worktreePath,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    expect(committed).toBe("not a symlink\n");
+  });
+
+  test("a node_modules symlink already tracked at HEAD survives the completion commit", async () => {
+    const { worktreePath } = initRealGitWorktreeWithoutGitignore();
+    symlinkSync(join(repoRoot, "node_modules"), join(worktreePath, "node_modules"), "dir");
+    execSync("git add -A", { cwd: worktreePath, stdio: "pipe" });
+    execSync("git commit -q -m 'track node_modules symlink'", { cwd: worktreePath, stdio: "pipe" });
+    const trackedHead = headSha(worktreePath);
+    writeFileSync(join(worktreePath, "v2/spec/test/index.md"), "# Test Spec Title\n\nUpdated body.\n");
+
+    const result = await createCompletionCommitter()(completionInput(worktreePath, { iterationTimeoutMs: 60_000 }));
+
+    expect(result.commitSha).toBeDefined();
+    expect(result.commitSha).not.toBe(trackedHead);
+    const topLevel = execFileSync("git", ["ls-tree", "--name-only", "HEAD"], {
+      cwd: worktreePath,
+      encoding: "utf8",
+      stdio: "pipe",
+    })
+      .trim()
+      .split("\n");
+    expect(topLevel).toContain("node_modules");
   });
 });

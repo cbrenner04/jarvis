@@ -54,6 +54,7 @@ import {
   executeWriteLoop,
   findFirstMarkdownOnlyFenceViolation,
   findFirstRepairFenceViolation,
+  getUncommittedPaths,
   persistRetainedFinalizationCheckpoint,
   publishWithReadyRepair,
   runMutationRepairIteration,
@@ -4861,6 +4862,25 @@ export function isLoadSensitive(file: string): boolean {
         expect(compareRepoPathsByUtf8Bytes("b", "a")).toBeGreaterThan(0);
       });
 
+      test("repair completion candidates omit the harness-materialized node_modules symlink", async () => {
+        // @mutate v2/src/execution/write-loop.ts "const stageArgs = completionStageArgs(worktreePath);" -> "const stageArgs = ['add', '-A'];"
+        const root = mkdtempSync(join(tmpdir(), "repair-fence-node-modules-"));
+        roots.push(root);
+        execFileSync("git", ["init"], { cwd: root, stdio: "pipe" });
+        execFileSync("git", ["-C", root, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+        execFileSync("git", ["-C", root, "config", "user.name", "Test User"], { stdio: "pipe" });
+        writeFileSync(join(root, "tracked.txt"), "keep\n", "utf8");
+        execFileSync("git", ["-C", root, "add", "-A"], { stdio: "pipe" });
+        execFileSync("git", ["-C", root, "commit", "-m", "seed"], { stdio: "pipe" });
+
+        writeFileSync(join(root, "tracked.txt"), "changed\n", "utf8");
+        symlinkSync("/nonexistent-target-for-test", join(root, "node_modules"));
+
+        const candidates = (await enumerateRepairCompletionCandidates(root)) ?? [];
+        expect(candidates).toContain("tracked.txt");
+        expect(candidates).not.toContain("node_modules");
+      });
+
       test("completes repair limited to an existing run-diff path", async () => {
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         const branchName = "repair-fence-run-diff";
@@ -7711,6 +7731,30 @@ export function isLoadSensitive(file: string): boolean {
       expect(shouldFailTerminalCompletionForDirtyWorktree(undefined, ["left-dirty.txt"])).not.toBe(
         invertedIgnoresDirty,
       );
+    });
+
+    test("uncommitted paths omit the materialized node_modules symlink and keep other untracked work", async () => {
+      // @mutate v2/src/execution/write-loop.ts ".filter((path) => !isMaterializedNodeModulesPath(worktreePath, path));" -> ".filter(() => true);"
+      const worktreePath = mkdtempSync(join(tmpdir(), "uncommitted-paths-node-modules-"));
+      roots.push(worktreePath);
+      execFileSync("git", ["init"], { cwd: worktreePath, stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
+      writeFileSync(join(worktreePath, "tracked.txt"), "keep\n", "utf8");
+      execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
+
+      symlinkSync("/nonexistent-target-for-test", join(worktreePath, "node_modules"));
+
+      const symlinkOnly = await getUncommittedPaths(worktreePath);
+      expect(symlinkOnly).not.toContain("node_modules");
+      expect(shouldFailTerminalCompletionForDirtyWorktree(undefined, symlinkOnly)).toBe(false);
+
+      writeFileSync(join(worktreePath, "leftover.txt"), "real work\n", "utf8");
+      const withLeftover = await getUncommittedPaths(worktreePath);
+      expect(withLeftover).toContain("leftover.txt");
+      expect(withLeftover).not.toContain("node_modules");
+      expect(shouldFailTerminalCompletionForDirtyWorktree(undefined, withLeftover)).toBe(true);
     });
 
     test("commits once per changed progress iteration with Jarvis-Agent and Spec lines", async () => {

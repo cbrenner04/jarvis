@@ -35,7 +35,7 @@ name: admit-pipeline-recovery-through-workflow-start
 
 - [ ] A structural test proves `handleWorkflowStart`, pipeline live dispatch, and pipeline recovery reach one admission call target with no recovery-local registry claim, memory gate, or `activeRuns.set` copy.
 - [ ] A behavior test applies the same claimed-worktree and insufficient-memory fixtures to live start and recovery and asserts matching refusal codes with no recovery attempt or stage mutation; it fails against the hand-copied recovery admission.
-- [ ] Recovery success retains its detached attempt, settlement, and release behavior; existing recovery lifecycle tests stay green.
+- [ ] `v2/src/daemon/pipeline-stage-recovery.test.ts` — `recovers a corrected non-first fan-out branch and leaves siblings unchanged` and `a completion-commit failure does not settle the stage succeeded` stay green.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

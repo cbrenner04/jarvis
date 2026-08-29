@@ -38,7 +38,7 @@ name: dispatch-pipeline-stages-through-shared-preparation
 - [ ] A pipeline implement regression configures review passes above one and a non-default review behavior, then asserts the dispatched review step carries both configured values; it fails against `FIXED_REVIEW_PASSES = 1`.
 - [ ] Plan, implement, single-stage, and fan-out pipeline regressions prove the shared stale-reset gate runs before dispatch and a refusal records stage failure without starting a workflow; they fail against the pre-fix intent-only synthetic gate.
 - [ ] A structural test leaves one production authority for realizable workflow/review pairs and one prepared-step assembly.
-- [ ] Existing pipeline resolution, fan-out, dispatch, and CLI workflow tests stay green.
+- [ ] `v2/src/daemon/pipeline-stage-resolve.test.ts` — `fan-out implement resolution binds active branchKey plan artifact when siblings populate out of order`, `v2/src/daemon/pipeline-execution.test.ts` — `approving both fan-out branches dispatches each successor on its own branchKey`, and `v2/src/commands/workflow.test.ts` — `run workflow implement sends start and wait IPC requests, blocks on completion, and prints run ID and wait JSON` stay green.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

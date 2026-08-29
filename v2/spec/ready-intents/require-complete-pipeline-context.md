@@ -33,7 +33,7 @@ name: require-complete-pipeline-context
 
 - [ ] Pipeline admission rejects a context missing `configPath` before creating runnable stage state; the regression fails against the pre-fix permissive admission.
 - [ ] A persisted context missing `configPath` fails the pending stage with a named context-loader error and records no workflow dispatch; the regression fails against the pre-fix loader path.
-- [ ] A valid context round-trips byte-for-byte and supplies both fresh and continued execution.
+- [ ] A valid admitted `PipelineContext` persists and reloads with equal required field values for both fresh and continued execution.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

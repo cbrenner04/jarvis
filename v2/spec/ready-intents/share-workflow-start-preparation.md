@@ -4,8 +4,6 @@ name: share-workflow-start-preparation
 
 # Share workflow-start preparation
 
-## Prerequisites
-
 ## Primary implementation surface
 
 - CLI workflow admission in `v2/src/commands/workflow.ts`
@@ -31,7 +29,7 @@ name: share-workflow-start-preparation
 
 - [ ] CLI tests pin unchanged `intent`, `plan`, and `implement` step arrays and stale-reset outcomes while `runWorkflowCommand` delegates preparation to one shared call target.
 - [ ] A structural test rejects a second production realizability or preset-mapping table outside the shared preparation owner.
-- [ ] Existing CLI recovery, legacy-alias, detach, output, and wait tests stay green.
+- [ ] `v2/src/commands/workflow.test.ts` — `recovery uses the implement completion traversal and canonical spec identity`, `run workflow implement detaches an admitted recovery`, `run workflow intent with --detach prints intent paths stderr before run ID without client wait`, and `run workflow implement sends start and wait IPC requests, blocks on completion, and prints run ID and wait JSON` stay green.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
@@ -39,3 +37,5 @@ name: share-workflow-start-preparation
 - `v2/docs/v2-architecture.md` — shared workflow-start preparation boundary and thin CLI adapter.
 - `v2/docs/workflow-runner.md` — normalized preparation ownership before daemon admission.
 - `v2/docs/v1-behaviors.md` — record unchanged CLI workflow-start semantics through the shared preparation boundary.
+
+## Prerequisites

@@ -43,6 +43,7 @@ function formatListRunRow(run: DaemonListRunRow, showDismissal: boolean): string
     run.prNumber !== undefined ? String(run.prNumber) : "-",
     run.prUrl ?? "-",
     e?.completionCommitError === undefined ? "-" : JSON.stringify(e.completionCommitError),
+    e?.message === undefined ? "-" : JSON.stringify(e.message),
     ...(showDismissal ? [typeof run.dismissedAt === "number" ? "dismissed" : "-"] : []),
   ];
   return `${columns.join("\t")}\n`;

@@ -284,6 +284,36 @@ test("wait resolves failed run_execution_failed without loop fields", async () =
   });
 });
 
+test("list and wait project persisted binding-chain invocation stderr onto the operator error", async () => {
+  const runId = createRun();
+  const message = "final binding stderr\nsecond line";
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({
+    attemptId,
+    runStatus: "failed",
+    outcomeKind: "invocation_failure",
+    invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message },
+  });
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "invocation_failure",
+    iterationsConsumed: 1,
+    resumable: false,
+  });
+
+  const expectedError = { reason: "invocation_error", retryable: false, nextAction: "stop", message };
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; error?: unknown }>).find((candidate) => candidate.runId === runId);
+  expect(row?.error).toEqual(expectedError);
+  expect(await expectResponse(await waitDirect("invocation-stderr", runId))).toEqual({
+    runStatus: "failed",
+    loopOutcomeKind: "invocation_failure",
+    iterationsConsumed: 1,
+    resumable: false,
+    error: expectedError,
+  });
+});
+
 test("wait resolve payload includes the same error object as list for the same run", async () => {
   const runId = createRun();
   stateStore.setRunStatus(runId, "killed");

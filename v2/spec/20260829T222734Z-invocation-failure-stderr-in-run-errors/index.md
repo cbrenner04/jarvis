@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Project invocation failure stderr](./00-project-invocation-failure-stderr.md)
+- [x] [00 - Project invocation failure stderr](./00-project-invocation-failure-stderr.md)

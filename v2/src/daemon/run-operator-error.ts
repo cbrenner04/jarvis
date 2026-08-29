@@ -142,8 +142,12 @@ function mapInvocationFromAttempt(attempt: Attempt): RunOperatorError | undefine
     case "invocation_failure": {
       const detail = attempt.invocationFailureDetail;
       if (detail === null) return op("invocation_error", "stop");
-      if (isExhaustedRoleTimeout(detail)) return op("role_timeout", "stop", false);
-      return INVOCATION_BY_FAILURE_KIND[detail.failureKind] ?? op("invocation_error", "stop");
+      const error = isExhaustedRoleTimeout(detail)
+        ? op("role_timeout", "stop", false)
+        : (INVOCATION_BY_FAILURE_KIND[detail.failureKind] ?? op("invocation_error", "stop"));
+      return detail.failureKind === "error" && detail.message !== undefined
+        ? { ...error, message: detail.message }
+        : error;
     }
     case "idle_output_timeout":
       return op("idle_output_timeout", "stop");

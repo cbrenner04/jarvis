@@ -24,7 +24,7 @@ name: invocation-failure-stderr-in-run-errors
 ## Acceptance criteria
 
 - [ ] `v2/src/daemon/run-operator-error.test.ts` proves `invocation_failure` with a populated detail `message` surfaces it on `composeRunOperatorError(...).message`; it fails against the pre-fix mapper.
-- [ ] A write-path test proves terminal `invocation_failure` stderr is visible via `run list` / `run wait` `error.message` projection; it fails without both settlement and projection fixes.
+- [ ] A daemon test proves a run whose terminal attempt row persists detail `message` reports it on `run wait`'s `error.message`; it fails against the pre-fix mapper.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

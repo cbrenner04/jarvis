@@ -3018,9 +3018,8 @@ test("resumed guard repair retains consumed iteration budget", async () => {
     telemetryFailures: [] as const,
   };
   mock.module("../execution/write.ts", () => ({
-    executeWrite: async (input: WriteExecuteInput) => {
+    executeWrite: async (_input: WriteExecuteInput) => {
       calls += 1;
-      expect(input.guardCheckpointReprompt?.repairs).toEqual(GUARD_REPAIRS);
       return {
         worktreePath: join(jarvisRoot, "worktrees", "demo", "implement-paused-guard-budget"),
         worktreeReused: true,
@@ -3035,6 +3034,7 @@ test("resumed guard repair retains consumed iteration budget", async () => {
     logsPath,
     writeLoopExecutor: async (input, signal, pauseSignal) => {
       expect(input.initialIterationsConsumed).toBe(2);
+      expect(input.guardCheckpointReprompt?.repairs).toEqual(GUARD_REPAIRS);
       const resumeSink = openLogSink(logsPath);
       try {
         resumedResult = await executeWriteLoop({
@@ -3125,9 +3125,8 @@ test("resumes a paused direct implement run with guard replay and its original r
     telemetryFailures: [] as const,
   };
   mock.module("../execution/write.ts", () => ({
-    executeWrite: async (writeInput: WriteExecuteInput) => {
+    executeWrite: async (_writeInput: WriteExecuteInput) => {
       calls += 1;
-      expect(writeInput.guardCheckpointReprompt?.repairs).toEqual(GUARD_REPAIRS);
       return {
         worktreePath: join(jarvisRoot, "worktrees", "direct-replay", "direct-replay"),
         worktreeReused: true,
@@ -3145,6 +3144,7 @@ test("resumes a paused direct implement run with guard replay and its original r
       try {
         expect(resumedInput.maxIterations).toBe(3);
         expect(resumedInput.initialIterationsConsumed).toBe(2);
+        expect(resumedInput.guardCheckpointReprompt?.repairs).toEqual(GUARD_REPAIRS);
         resumedResult = await executeWriteLoop({
           ...resumedInput,
           signal,

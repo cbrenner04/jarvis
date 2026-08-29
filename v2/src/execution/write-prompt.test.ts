@@ -122,21 +122,10 @@ describe("write prompt", () => {
     expect(() => renderStepPrompt("write.execute", { SPEC_PATH: "spec.md" })).toThrow(PromptRenderingError);
   });
 
-  test("write.guard-checkpoint-reprompt renders its structured repair contract", () => {
+  test("registry omits retired checkpoint reprompt prompts", () => {
     const registry = loadPromptRegistry();
-    expect(registry.getById("write.guard-checkpoint-reprompt").metadata.id).toBe("write.guard-checkpoint-reprompt");
-    const rendered = renderStepPrompt("write.guard-checkpoint-reprompt", {
-      ACTIVE_SUBSPEC_PATH: "spec/00-guard.md",
-      REPAIR_LIST:
-        '- kind: guard; criterion: guard pin; pin: guard.test.ts; reason: hollow; linked directive: guard.test.ts:3: // @mutate target.ts "a" -> "b"\n  Repair: repair the linked directive or pinning test.',
-      STEP_RULES: "Return exactly one terminal token.",
-    });
-
-    expect(rendered).toContain("spec/00-guard.md");
-    expect(rendered).toContain("kind: guard");
-    expect(rendered).toContain("reason: hollow");
-    expect(rendered).toContain("guard.test.ts:3");
-    expect(rendered).toContain("repair the linked directive or pinning test");
-    expect(rendered).toContain("Return exactly one terminal token.");
+    expect(() => registry.getById("write.guard-checkpoint-reprompt")).toThrow(/unknown prompt id/);
+    expect(() => registry.getById("write.mutation-directive-reprompt")).toThrow(/unknown prompt id/);
+    expect(() => registry.getById("write.keystone-directive-reprompt")).toThrow(/unknown prompt id/);
   });
 });

@@ -16,18 +16,6 @@ One-shot re-prompt issued when the agent's first response carries no terminal to
 
 One-shot re-prompt issued when a `blocked` token misses the blocker-text contract. No placeholders. Used by the step runner; see [`write-behavior.md`](./write-behavior.md#terminal-token).
 
-### `write.mutation-directive-reprompt`
-
-Re-prompt issued when implement mutation-checkpoint verification finds only repromptable unparseable directives (`target_absent`, `target_ambiguous`) in opened pinning files. Injects `ACTIVE_SUBSPEC_PATH`, `DIRECTIVE_LIST` (`describeUnparseable` rows), and `STEP_RULES`. Used by the write loop; see [`write-behavior.md`](./write-behavior.md#loop-outcomes).
-
-### `write.keystone-directive-reprompt`
-
-Re-prompt issued when implement mutation-checkpoint verification finds an unlinked keystone checkpoint (pin resolved, no `// @mutate` linked) as the report's only blocking finding. Injects `ACTIVE_SUBSPEC_PATH`, `CRITERION` (the criterion's first line), `PIN_PATH` (resolved repo-relative pin path), and `STEP_RULES`. Used by the write loop; see [`write-behavior.md`](./write-behavior.md#loop-outcomes).
-
-### `write.guard-checkpoint-reprompt`
-
-Re-prompt issued when implement mutation-checkpoint verification finds at least one repairable `unlinked` or `hollow` guard and no blockers other than unlinked keystones. Injects `ACTIVE_SUBSPEC_PATH`, `REPAIR_LIST` (every checkpoint's kind, criterion, resolved pin path, reason, hollow linked-directive identity, and kind/reason-specific instruction), and `STEP_RULES`. Used only by the fresh write loop; see [`write-behavior.md`](./write-behavior.md#loop-outcomes).
-
 ### `write.landing-contract-reprompt`
 
 Re-prompt issued when `intent.prompt.split` staged output fails landing-shape validation before write-loop completion. Injects `VIOLATION`, `OFFENDING_FILE`, and `STAGING_DIR`. Used by the write loop; see [`write-behavior.md`](./write-behavior.md#intent-split-landing-contracts).

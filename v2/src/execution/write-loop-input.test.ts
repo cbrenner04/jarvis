@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildWriteLoopInput,
   buildWriteLoopInputFromCliValues,
-  DEFAULT_WRITE_STEP_RULES,
+  IMPLEMENT_WRITE_STEP_RULES,
   parseWriteArgs,
 } from "./write-loop-input.ts";
 
@@ -38,10 +38,10 @@ describe("buildWriteLoopInput", () => {
     expect(fromCli.input).toMatchObject({
       worktree: fromFields.input.worktree,
       specPath: fromFields.input.specPath,
-      stepRules: DEFAULT_WRITE_STEP_RULES,
+      stepRules: IMPLEMENT_WRITE_STEP_RULES,
       expectedArtifactPath: fromFields.input.expectedArtifactPath,
     });
-    expect(fromFields.input.stepRules).toBe(DEFAULT_WRITE_STEP_RULES);
+    expect(fromFields.input.stepRules).toBe(IMPLEMENT_WRITE_STEP_RULES);
     expect("maxIterations" in fromCli.input).toBe(false);
   });
 

@@ -36,7 +36,7 @@ import {
   resolveWorkflowPreset,
   type WriteWorkflowStep,
 } from "./workflow-runner.ts";
-import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
+import { IMPLEMENT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 /** Per-run inputs the operator supplies alongside cwd project resolution. */
 export type BuildImplementWorkflowStepsInput = {
@@ -511,7 +511,7 @@ export async function buildImplementWorkflowSteps(
     stepId: "implement",
     role: "implement",
     promptId: "patch.prompt.body",
-    stepRules: DEFAULT_WRITE_STEP_RULES,
+    stepRules: IMPLEMENT_WRITE_STEP_RULES,
     worktree: {
       projectRoot: match.root,
       projectName: match.key,

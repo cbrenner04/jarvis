@@ -1,10 +1,12 @@
 import { parseArgs } from "node:util";
+import { filterPlanDraftStepRules } from "../../../shared/prompts/plan-draft.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../../../shared/prompts/step-rules.ts";
 import { WRITE_PARSE_ARG_OPTIONS } from "../cli/command-help-flags.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopInput } from "./write-loop.ts";
 
 export { DEFAULT_WRITE_STEP_RULES };
+export const IMPLEMENT_WRITE_STEP_RULES = filterPlanDraftStepRules(DEFAULT_WRITE_STEP_RULES);
 
 /** Default agent list when config has no `agents` override. */
 export const DEFAULT_WRITE_AGENTS = ["claude"] as const;
@@ -54,7 +56,7 @@ export function buildWriteLoopInput(
       baseRef: required.baseRef,
     },
     specPath: required.specPath,
-    stepRules: DEFAULT_WRITE_STEP_RULES,
+    stepRules: IMPLEMENT_WRITE_STEP_RULES,
     expectedArtifactPath: required.artifactPath,
     bindings: [],
     bindingResolution: { role: "implement", agents: required.agents, agentModelConfig },

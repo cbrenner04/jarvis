@@ -28,7 +28,6 @@ import { parseSpec } from "../../../shared/spec-parser.ts";
 import { AsyncSubprocessError, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
-  type GuardCheckpointRepairEntry,
   type GuardCheckpointRepromptContext,
   type GuardCheckpointRepromptEvent,
   type KeystoneDirectiveRepromptContext,
@@ -63,14 +62,6 @@ import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts"
 import { getExternalWorktreePath, isMaterializedNodeModulesPath } from "./external-worktree.ts";
 import { evaluateIntentSplitLandingGate } from "./intent-output.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
-import {
-  blockingUnparseableEntries,
-  describeUnparseable,
-  type MutationCheckpointReport,
-  repoRelativeChangedPathsFromBaseRef,
-  type UnparseableDirective,
-  verifyMutationCheckpoints,
-} from "./mutation-checkpoint-verifier.ts";
 import type { PublicationLanding } from "./publication-landing.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import {
@@ -100,12 +91,7 @@ import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import { reportUncoveredChangedLines } from "./uncovered-changed-lines.ts";
 import { type BoundaryStamp, boundaryStampFromStoredRun, emitWorkBoundaryRecorded } from "./work-boundary-telemetry.ts";
-import {
-  executeWrite,
-  isMutationCheckpointCriteriaTickedMiss,
-  isRepromptEligibleMutationCheckpointMiss,
-  type WriteExecuteInput,
-} from "./write.ts";
+import { executeWrite, type WriteExecuteInput } from "./write.ts";
 
 const WRITE_LOOP_OUTCOME_KINDS = [
   "complete",
@@ -321,60 +307,6 @@ export type WriteLoopInput = WriteExecuteInput & {
  */
 export function applyOperatorSessionId(input: WriteLoopInput, operatorSessionId: string): WriteLoopInput {
   return { ...input, telemetry: { ...input.telemetry, operatorSessionId } };
-}
-
-function repromptableMutationDirectiveBlocking(
-  report: MutationCheckpointReport,
-): readonly UnparseableDirective[] | undefined {
-  if (report.hollow.length > 0 || report.inertHeadline.length > 0 || report.keystoneUnlinked.length > 0) {
-    return undefined;
-  }
-  const blocking = blockingUnparseableEntries(report);
-  if (
-    blocking.length === 0 ||
-    !blocking.every(
-      (entry) =>
-        (entry.reason === "target_absent" || entry.reason === "target_ambiguous") &&
-        report.openedPinningFiles.includes(entry.sourceFile),
-    )
-  ) {
-    return undefined;
-  }
-  return blocking;
-}
-
-/** True when every blocking unparseable is `target_absent` or `target_ambiguous` in an opened pinning file. */
-export function isRepromptOnlyMutationDirectiveMiss(report: MutationCheckpointReport): boolean {
-  return repromptableMutationDirectiveBlocking(report) !== undefined;
-}
-
-/** True when unlinked keystone checkpoints are the report's only blocking finding. */
-export function isRepromptOnlyKeystoneDirectiveMiss(report: MutationCheckpointReport): boolean {
-  if (report.keystoneUnlinked.length === 0) return false;
-  if (report.hollow.length > 0 || report.inertHeadline.length > 0) return false;
-  return blockingUnparseableEntries(report).length === 0;
-}
-
-function guardCheckpointRepairs(report: MutationCheckpointReport): GuardCheckpointRepairEntry[] | undefined {
-  if (report.hollow.length === 0) return undefined;
-  if (report.inertHeadline.length > 0) return undefined;
-  if (blockingUnparseableEntries(report).length > 0) return undefined;
-  const checkpoints = [...report.hollow, ...report.keystoneUnlinked];
-  return checkpoints.map(({ criterionText, kind, pinPath, reason, directive }) => ({
-    criterionText,
-    kind,
-    pinPath,
-    reason,
-    ...(directive === undefined
-      ? {}
-      : {
-          directive: {
-            sourceFile: directive.sourceFile,
-            sourceLine: directive.sourceLine,
-            raw: directive.raw,
-          },
-        }),
-  }));
 }
 
 /** Last in-loop landing-contract reprompt from a run's persisted log tail (resume after pause). */
@@ -1553,114 +1485,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               ? resolveSpecPath(worktreePath, join(args.expectedArtifactPath, "intent.md"))
               : resolveSpecPath(worktreePath, args.specPath);
 
-        if (
-          result.failedContractId === "spec.criteria-ticked" &&
-          isMutationCheckpointCriteriaTickedMiss(result.failureReason) &&
-          isRepromptEligibleMutationCheckpointMiss(result.failureReason) &&
-          args.promptId === "patch.prompt.body" &&
-          args.expectedArtifactPath.length > 0
-        ) {
-          const subspecPath = resolveSpecPath(worktreePath, args.expectedArtifactPath);
-          const report = await verifyMutationCheckpoints(worktreePath, subspecPath, {
-            ...args.mutationCheckpointSeams,
-            changedPaths:
-              args.mutationCheckpointSeams?.changedPaths ??
-              (await repoRelativeChangedPathsFromBaseRef(worktreePath, args.worktree.baseRef)),
-            ...(args.signal !== undefined ? { signal: args.signal } : {}),
-          });
-          const guardRepairs = guardCheckpointRepairs(report);
-          // Mutation checkpoint: inverting guard repair admission must turn
-          // "guard checkpoint repair persists one complete structured event" RED.
-          if (guardRepairs !== undefined && iterationsConsumed < maxIterations) {
-            const outcome = await commitRepromptProgressBoundary(
-              args,
-              prepared,
-              store,
-              runId,
-              worktreePath,
-              attemptId,
-              result,
-              iterationsConsumed,
-              () => {
-                args.logSink?.append(runId, { kind: "guard_checkpoint_reprompt", attemptId, repairs: guardRepairs });
-                pendingGuardCheckpointReprompt = { repairs: guardRepairs };
-                pendingMutationDirectiveReprompt = undefined;
-                pendingKeystoneDirectiveReprompt = undefined;
-              },
-            );
-            if (outcome !== undefined) return outcome;
-            continue;
-          }
-          // Mutation checkpoint: inverting isRepromptOnlyMutationDirectiveMiss must turn
-          // "target_absent mutation directive reprompts before settle" RED.
-          if (isRepromptOnlyMutationDirectiveMiss(report) && iterationsConsumed < maxIterations) {
-            const blocking = repromptableMutationDirectiveBlocking(report)!;
-            const directives = blocking.map((entry) => ({
-              pinningFile: entry.sourceFile,
-              line: entry.sourceLine,
-              raw: entry.raw,
-              reason: entry.reason as "target_absent" | "target_ambiguous",
-            }));
-            const display = blocking.map((entry) => `- ${describeUnparseable(entry)}`).join("\n");
-            const outcome = await commitRepromptProgressBoundary(
-              args,
-              prepared,
-              store,
-              runId,
-              worktreePath,
-              attemptId,
-              result,
-              iterationsConsumed,
-              () => {
-                args.logSink?.append(runId, {
-                  kind: "mutation_directive_reprompt",
-                  attemptId,
-                  directives,
-                  display: truncateLogText(display),
-                });
-                pendingMutationDirectiveReprompt = { directives, display };
-                pendingGuardCheckpointReprompt = pendingKeystoneDirectiveReprompt = undefined;
-              },
-            );
-            if (outcome !== undefined) return outcome;
-            continue;
-          }
-
-          // Mutation checkpoint: inverting isRepromptOnlyKeystoneDirectiveMiss must turn
-          // "unlinked keystone checkpoint reprompts before settle" RED.
-          if (isRepromptOnlyKeystoneDirectiveMiss(report) && iterationsConsumed < maxIterations) {
-            const [entry] = report.keystoneUnlinked;
-            const pinPath = entry?.pinPath ?? "";
-            const criterionText = entry?.criterionText ?? "";
-            const outcome = await commitRepromptProgressBoundary(
-              args,
-              prepared,
-              store,
-              runId,
-              worktreePath,
-              attemptId,
-              result,
-              iterationsConsumed,
-              () => {
-                args.logSink?.append(runId, {
-                  kind: "keystone_directive_reprompt",
-                  attemptId,
-                  criterionText,
-                  pinPath,
-                });
-                pendingKeystoneDirectiveReprompt = { criterionText, pinPath };
-                pendingMutationDirectiveReprompt = undefined;
-                pendingGuardCheckpointReprompt = undefined;
-              },
-            );
-            if (outcome !== undefined) return outcome;
-            continue;
-          }
-        }
-        // Only a direct existing regular file is eligible for a blocker append; an absent,
-        // non-file, or symlinked target is skipped (no create, no fallback), while contract-miss
-        // detail logging and terminal settlement below proceed unchanged. An append failure on an
-        // eligible target propagates uncaught rather than receiving best-effort settlement.
         if (isEligibleBlockerAppendTarget(blockerPath)) {
           appendBlockerToSpec(blockerPath, reason);
         }
@@ -2400,7 +2224,6 @@ function buildWriteExecuteInput(
     expectedArtifactPath: args.expectedArtifactPath,
     bindings: args.bindings,
     ...(args.promptId !== undefined ? { promptId: args.promptId } : {}),
-    ...(args.mutationCheckpointSeams !== undefined ? { mutationCheckpointSeams: args.mutationCheckpointSeams } : {}),
     ...(args.promptPlaceholders !== undefined ? { promptPlaceholders: args.promptPlaceholders } : {}),
     ...(args.intentSeed !== undefined ? { intentSeed: args.intentSeed, intentBefore: args.intentSeed } : {}),
     ...(fullTelemetry !== undefined
@@ -2427,9 +2250,6 @@ function buildWriteExecuteInput(
     ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
     ...(landingContractReprompt !== undefined ? { landingContractReprompt } : {}),
     ...(stagedMarkdownLintReprompt !== undefined ? { stagedMarkdownLintReprompt } : {}),
-    ...(mutationDirectiveReprompt !== undefined ? { mutationDirectiveReprompt } : {}),
-    ...(guardCheckpointReprompt !== undefined ? { guardCheckpointReprompt } : {}),
-    ...(keystoneDirectiveReprompt !== undefined ? { keystoneDirectiveReprompt } : {}),
   };
 }
 

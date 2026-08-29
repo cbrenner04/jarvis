@@ -19,7 +19,7 @@ import type {
   WorkflowPresetBuilderInput,
   WorkflowPresetBuilderResult,
 } from "../execution/workflow-presets.ts";
-import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
+import { IMPLEMENT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import type { DestroyedArtifacts } from "./cleanup.ts";
@@ -149,7 +149,7 @@ function resolveImplementMutationRepair(deps: CliDeps): ImplementRecoveryRequest
           stepId: "implement",
           role: "implement",
           promptId: "patch.prompt.body",
-          stepRules: DEFAULT_WRITE_STEP_RULES,
+          stepRules: IMPLEMENT_WRITE_STEP_RULES,
           worktree: { projectRoot: "", projectName: "", branchName: "", baseRef: "" },
           specPath: "",
           expectedArtifactPath: "",

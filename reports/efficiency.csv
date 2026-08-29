@@ -79,3 +79,4 @@ report,specs_driven,completed_specs,partial_or_blocked,session_active_tokens,ope
 20260824T002531Z-ci-fix-double-print-explicit-expansion-run-dismiss,12,11,1,540700,540700,179900000,133.53,133.53,49155,12.14
 20260828T143653Z-chess-dogfood-and-pipeline-completion-fixes,9,8,1,432800,432800,223800000,158.41,158.41,54100,19.8
 20260829T060000Z-config-parity-and-pipeline-dogfood-hardening,9,8,1,907300,907300,206600000,142.07,142.07,113413,17.76
+20260829T212624Z-structural-recovery-drive,14,10,2,500200,500200,241600000,144.52,144.52,50020,14.45

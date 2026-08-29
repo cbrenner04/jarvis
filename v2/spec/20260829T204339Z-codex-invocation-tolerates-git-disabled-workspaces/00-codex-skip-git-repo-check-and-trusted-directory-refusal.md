@@ -28,10 +28,10 @@ v2 spawns `codex exec` without `--skip-git-repo-check`, so codex ≥0.150 refuse
 
 ## Acceptance criteria
 
-- [ ] `shared/invocation/agents.test.ts` proves the codex adapter argv includes `--skip-git-repo-check` in the default `workspace-write` invocation and in the `danger-full-access` and `read-only` invocations, and `v2/src/daemon/write-loop-codex-sandbox-mode.test.ts` updates both full-argv pins to include the flag; all five pins fail against the pre-fix argv.
-- [ ] `shared/invocation/agents.test.ts` proves a codex binding whose spawn exits 1 with stderr `Not inside a trusted directory and --skip-git-repo-check was not specified.` resolves `{kind: "quota", stderr: <that stderr>, authFailure: true}`; it fails against current classification, which settles `{kind: "error", exitCode: 1}`.
-- [ ] A new `shared/invocation/agents.test.ts` test uses its existing fake-spawn harness to drive `executeWithQuotaFallback` with two `createResolvedAgentBinding` codex bindings — the first spawning exit 1 with the trusted-directory stderr, the second settling `ok` — and asserts two attempts ran and `final.result.kind === "ok"`; it fails against current classification, where the refusal settles `error` and the chain stops at one attempt.
-- [ ] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` pass (shared surface).
+- [x] `shared/invocation/agents.test.ts` proves the codex adapter argv includes `--skip-git-repo-check` in the default `workspace-write` invocation and in the `danger-full-access` and `read-only` invocations, and `v2/src/daemon/write-loop-codex-sandbox-mode.test.ts` updates both full-argv pins to include the flag; all five pins fail against the pre-fix argv.
+- [x] `shared/invocation/agents.test.ts` proves a codex binding whose spawn exits 1 with stderr `Not inside a trusted directory and --skip-git-repo-check was not specified.` resolves `{kind: "quota", stderr: <that stderr>, authFailure: true}`; it fails against current classification, which settles `{kind: "error", exitCode: 1}`.
+- [x] A new `shared/invocation/agents.test.ts` test uses its existing fake-spawn harness to drive `executeWithQuotaFallback` with two `createResolvedAgentBinding` codex bindings — the first spawning exit 1 with the trusted-directory stderr, the second settling `ok` — and asserts two attempts ran and `final.result.kind === "ok"`; it fails against current classification, where the refusal settles `error` and the chain stops at one attempt.
+- [x] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` pass (shared surface).
 
 ## Documentation updates
 

@@ -13,6 +13,12 @@ name: cleanup-uses-lossless-git-status
 
 - Stale-workspace cleanup uses the last independent porcelain path parser and can mangle valid path text.
 
+Unsplit rationale: Stale-reset classification and diagnostics are one CLI boundary; its shared-inventory dependency and execution consumers are already isolated in earlier intents.
+
+## Primary implementation surface
+
+- cli
+
 ## Behavior
 
 - Stale-workspace cleanup derives dirty paths and untracked status from shared typed entries.
@@ -29,7 +35,9 @@ name: cleanup-uses-lossless-git-status
 
 - [ ] `cleanup.test.ts` preserves stale-reset status classification and the untracked harness-sidecar and materialized `node_modules` exclusions while production uses the shared inventory.
 - [ ] Cleanup reports rename destinations and whitespace/newline/non-ASCII paths without trimming or quote artifacts, pinned by a test that fails against the pre-fix parser.
-- [ ] A grep-level guard prevents porcelain path-record parsing outside the shared helper across the four migrated call sites.
+- [ ] `cleanup.test.ts` — `listDirtyWorktreePathsForStaleReset reports lossless status paths`; Keystone checkpoint:
+- [ ] `cleanup.test.ts` — `listDirtyWorktreePathsForStaleReset ignores a worktree holding only the materialized node_modules symlink`; Mutation checkpoint:
+- [ ] A repository guard rejects `git status --porcelain` path-record splitting, status-prefix slicing, rename-arrow slicing, or path trimming in `v2/src/execution/review-intent-enforcement.ts`, `v2/src/execution/completion-commit.ts`, `v2/src/execution/write-loop.ts`, and `v2/src/commands/cleanup.ts`; it fails against main, where all four consumers still contain one of those reachable parsing forms.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

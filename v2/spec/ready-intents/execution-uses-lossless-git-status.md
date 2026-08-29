@@ -13,6 +13,12 @@ name: execution-uses-lossless-git-status
 - Review enforcement, completion formatting, and terminal dirty-worktree detection carry divergent path parsers.
 - Terminal completion can miss the only dirty file when Git collapses an untracked directory.
 
+Unsplit rationale: These consumers share the execution-loop boundary and depend on the same inventory contract; splitting them would retain competing execution path protocols.
+
+## Primary implementation surface
+
+- execution-loop
+
 ## Behavior
 
 - Review enforcement, completion formatting, and terminal dirty-worktree detection derive paths from the shared inventory.
@@ -30,7 +36,10 @@ name: execution-uses-lossless-git-status
 - [ ] `review-intent-enforcement.test.ts` and `completion-commit.test.ts` stay green while their production consumers use the shared inventory.
 - [ ] A `write-loop.test.ts` Git fixture whose only dirt is a file inside an untracked directory makes terminal completion fail and names that file; the test fails against the pre-fix parser.
 - [ ] Paths containing spaces, newlines, non-ASCII text, or leading/trailing whitespace reach execution consumers unchanged, pinned by tests.
-- [ ] The execution-library call sites contain no porcelain path-record slicing or trimming.
+- [ ] `write-loop.test.ts` — `terminal completion reports the nested untracked file`; Keystone checkpoint:
+- [ ] `write-loop.test.ts` — `terminal completion reports the nested untracked file`; Mutation checkpoint:
+- [ ] `review-intent-enforcement.test.ts` — `git-enabled: getChangedPaths preserves lossless status paths`; Mutation checkpoint:
+- [ ] `completion-commit.test.ts` — `completion formatting receives lossless status paths`; Mutation checkpoint:
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

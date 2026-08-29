@@ -20,10 +20,10 @@ Intent split and plan draft publish only validated Markdown, but completion stil
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/ready-finalize.test.ts` — `skips the ready gate but completes remaining finalization when admitted`; Keystone checkpoint: a markdown-only admission never spawns a missing ready command, still runs the remaining finalization tail and ready flip, fails against the pre-fix unconditional gate, and carries an in-test `// @mutate` directive that restores unconditional gate execution and turns the test RED.
-- [ ] `v2/src/execution/write-loop.test.ts` — `routes markdown-only workflow prompts around the ready gate`; Mutation checkpoint: both `intent.prompt.split` and `plan.prompt.draft` publish successfully without invoking a missing ready command, a code-bearing prompt on the same completion-publication path still surfaces `ready_gate_command_missing`, and an in-test `// @mutate` directive inverting prompt-derived admission turns the test RED.
-- [ ] `v2/src/execution/workflow-runner-publication.test.ts` — `markdown-only ready-gate skip retains staged non-Markdown rejection` stays green: an intent split staging a non-`.md` path settles `landing_failed` before completion publication or finalization.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/execution/ready-finalize.test.ts` — `skips the ready gate but completes remaining finalization when admitted`; Keystone checkpoint: a markdown-only admission never spawns a missing ready command, still runs the remaining finalization tail and ready flip, fails against the pre-fix unconditional gate, and carries an in-test `// @mutate` directive that restores unconditional gate execution and turns the test RED.
+- [x] `v2/src/execution/write-loop.test.ts` — `routes markdown-only workflow prompts around the ready gate`; Mutation checkpoint: both `intent.prompt.split` and `plan.prompt.draft` publish successfully without invoking a missing ready command, a code-bearing prompt on the same completion-publication path still surfaces `ready_gate_command_missing`, and an in-test `// @mutate` directive inverting prompt-derived admission turns the test RED.
+- [x] `v2/src/execution/workflow-runner-publication.test.ts` — `markdown-only ready-gate skip retains staged non-Markdown rejection` stays green: an intent split staging a non-`.md` path settles `landing_failed` before completion publication or finalization.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

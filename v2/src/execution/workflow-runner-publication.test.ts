@@ -1110,6 +1110,76 @@ describe("executeWorkflow completion publication", () => {
     });
   });
 
+  test("markdown-only ready-gate skip retains staged non-Markdown rejection", async () => {
+    const invocationId = "intent-non-markdown-stage";
+    const { workspace, withExternalWorktree } = createIntentWorktreeHarness(invocationId);
+    const baseStep = createStep({
+      stepId: "intent",
+      role: "plan",
+      promptId: "intent.prompt.split",
+      branchName: invocationId,
+      specPath: "ready-intents",
+      expectedArtifactPath: ".jarvis-intent-stage",
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId,
+        baseRef: "HEAD",
+      },
+      workflowInvocationId: invocationId,
+      withExternalWorktree,
+      agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] } } },
+    });
+    const step: WriteWorkflowStep = {
+      ...baseStep,
+      worktree: { ...baseStep.worktree, git: false, localPath: workspace },
+    };
+    const stagingDir = join(workspace, ".jarvis-intent-stage");
+    mkdirSync(stagingDir, { recursive: true });
+    writeFileSync(join(stagingDir, "valid.md"), "---\nname: valid\n---\n\n# Valid\n\n## Prerequisites\n", "utf8");
+    writeFileSync(join(stagingDir, "source.ts"), "export {};\n", "utf8");
+
+    const logSink = new TestLogSink();
+    let completionCommitterCalled = false;
+    let completionPublisherCalled = false;
+    let readyFinalizerCalled = false;
+    await withStateStore(async (store) => {
+      seedCompletedWriteRun(store, step, workspace, invocationId);
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => {
+          completionCommitterCalled = true;
+          return {};
+        },
+        completionPublisher: async () => {
+          completionPublisherCalled = true;
+          return {};
+        },
+        readyFinalizer: async () => {
+          readyFinalizerCalled = true;
+        },
+      });
+
+      expect(result.kind).toBe("pre-publication");
+      expect(result.prePublicationError).toContain("expected only markdown files");
+      expect(store.loadRun(result.runId)?.status).toBe("failed");
+      expect(
+        logSink
+          .getEventsForRun(result.runId)
+          .filter((event) => event.kind === "loop_finished")
+          .at(-1),
+      ).toMatchObject({ kind: "loop_finished", loopOutcomeKind: "landing_failed" });
+    });
+    expect({ completionCommitterCalled, completionPublisherCalled, readyFinalizerCalled }).toEqual({
+      completionCommitterCalled: false,
+      completionPublisherCalled: false,
+      readyFinalizerCalled: false,
+    });
+  });
+
   test("does not record done completion boundary when intent stage remains uncommitted", async () => {
     // Plain (non-git) workspace: `git status --porcelain` fails here, so `getUncommittedPaths`
     // alone can't see a leftover staged file — only `remainingStagedIntentPaths` does.

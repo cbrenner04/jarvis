@@ -1,0 +1,3 @@
+- Preserve reconstructed markdown-only provenance during populated intent-stage resume. The resumed publication tail must skip the project ready gate, including when `promptId` is unavailable, while still running required integration, mutation verification, runtime smoke verification, and draft-to-ready promotion. Otherwise resume contradicts the spec’s prompt/landing-derived admission contract and can incorrectly settle `ready_gate_failed` or `ready_gate_command_missing`.
+
+- Add resume-path coverage proving the ready gate is not invoked for the reconstructed intent-stage context and the remaining finalization tail completes. Code-bearing resume behavior must remain gated.

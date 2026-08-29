@@ -2564,7 +2564,13 @@ function withBoundaryTelemetry(
 
 export type CompletionPublicationSeams = Pick<
   WriteLoopInput,
-  "completionPublisher" | "readyFinalizer" | "skipReadyFinalization" | "signal" | "readyCommand"
+  | "completionPublisher"
+  | "readyFinalizer"
+  | "skipReadyFinalization"
+  | "signal"
+  | "readyCommand"
+  | "promptId"
+  | "landing"
 >;
 
 export type CompletionPublishFailure = {
@@ -3406,6 +3412,7 @@ async function runReadyFinalizer(
     ...(seams.signal !== undefined ? { signal: seams.signal } : {}),
     ...(onGateGroupId !== undefined ? { onGateGroupId } : {}),
     ...(seams.readyCommand !== undefined ? { readyCommand: seams.readyCommand } : {}),
+    skipReadyGate: resolveMarkdownOnlyWorkflowPromptId(seams.promptId, seams.landing) !== undefined,
   };
   return (await readyFinalizer(finalInput))?.runtimeSmokeOutcome;
 }

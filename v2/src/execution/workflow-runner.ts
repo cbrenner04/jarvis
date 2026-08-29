@@ -3466,6 +3466,7 @@ function inertResumeWriteLoopInput(
   context: { worktreePath: string; project: string; branch: string; baseRef: string },
   specPath: string,
   deps: IntentFinalizationResumeDeps,
+  landing?: PublicationLanding,
 ): WriteLoopInput {
   const fixCommand = readProjectFixCommand(context.project);
   const readyCommand = readProjectReadyCommand(context.project);
@@ -3488,6 +3489,7 @@ function inertResumeWriteLoopInput(
     ...(deps.readyFinalizer !== undefined ? { readyFinalizer: deps.readyFinalizer } : {}),
     ...(deps.runFixCommand !== undefined ? { runFixCommand: deps.runFixCommand } : {}),
     ...(deps.logSink !== undefined ? { logSink: deps.logSink } : {}),
+    ...(landing !== undefined ? { landing } : {}),
   };
 }
 
@@ -3572,7 +3574,7 @@ async function runIntentResumeCommitAndPublish(
   };
   store.setRunStatus(context.runId, "in-progress");
   const publication = await publishWithReadyRepair(
-    inertResumeWriteLoopInput(context, context.durableDir, deps),
+    inertResumeWriteLoopInput(context, context.durableDir, deps, context.landing),
     store,
     result,
     0,

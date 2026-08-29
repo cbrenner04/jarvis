@@ -3129,6 +3129,120 @@ export type PlanStageRecoveryRefusalCode =
   | "operator_blocker"
   | "plan_stage_invalid";
 
+/** True when a terminal failed review row's last attempt admits completed-write plan recovery. */
+function isAdmittedReviewFailedPlanRecoveryOutcome(lastAttempt: Attempt | undefined): boolean {
+  if (lastAttempt === undefined) return false;
+  const outcomeKind = lastAttempt.outcomeKind;
+  if (outcomeKind === "idle_output_timeout") return true;
+  if (outcomeKind === "invocation_failure") {
+    return lastAttempt.invocationFailureDetail?.failureKind !== "landing";
+  }
+  return false;
+}
+
+function hasStagedPlanOperatorBlocker(worktreePath: string): boolean {
+  const intentPath = join(worktreePath, PLAN_STAGE_DIR, "intent.md");
+  if (!existsSync(intentPath)) return false;
+  return extractBlockerBody(readFileSync(intentPath, "utf8")) !== undefined;
+}
+
+function hasLivePlanRecoveryWorktreeClaim(
+  store: StateStore,
+  project: string,
+  branch: string,
+  excludedRunIds: ReadonlySet<string>,
+): boolean {
+  if (store.hasQueuedRun({ project, branch })) return true;
+  for (const candidate of store.listRuns()) {
+    if (candidate.project !== project || candidate.branch !== branch) continue;
+    if (excludedRunIds.has(candidate.id)) continue;
+    if (
+      candidate.status === "in-progress" ||
+      candidate.status === "paused" ||
+      candidate.status === "budget-soft-stopped"
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function resolveFailedPlanReviewSiblingRun(
+  writeRun: Run & { attempts: Attempt[] },
+  store: StateStore,
+  capturedReviewStepIds: readonly string[],
+): (Run & { attempts: Attempt[] }) | undefined {
+  const snapshot = writeRun.workflowSnapshot;
+  if (!snapshot) return undefined;
+  const stepIds =
+    capturedReviewStepIds.length > 0
+      ? capturedReviewStepIds
+      : snapshot.steps
+          .filter((step) => step.behavior === "review" || step.behavior === "review-debate")
+          .map((step) => step.stepId);
+
+  let selected: (Run & { attempts: Attempt[] }) | undefined;
+  let selectedCompletedAt = -Infinity;
+  for (const stepId of stepIds) {
+    const reviewRun = store.findRunByProjectBranch({
+      project: writeRun.project,
+      branch: writeRun.branch,
+      stepId,
+    });
+    if (!reviewRun || reviewRun.status !== "failed") continue;
+    if (reviewRun.workflowSnapshot?.invocationId !== snapshot.invocationId) continue;
+    const lastAttempt = reviewRun.attempts.at(-1);
+    if (!isAdmittedReviewFailedPlanRecoveryOutcome(lastAttempt)) continue;
+    const completedAt = latestAttemptCompletedAt(reviewRun) ?? reviewRun.createdAt;
+    if (
+      selected === undefined ||
+      completedAt > selectedCompletedAt ||
+      (completedAt === selectedCompletedAt && reviewRun.id > selected.id)
+    ) {
+      selected = reviewRun;
+      selectedCompletedAt = completedAt;
+    }
+  }
+  return selected;
+}
+
+function isBlockedPlanWriteRecoveryCandidate(
+  run: Run & { attempts: Attempt[] },
+  writeStep: WorkflowSnapshotStep | undefined,
+): boolean {
+  const lastAttempt = run.attempts.at(-1);
+  const outcomeKind = lastAttempt?.outcomeKind ?? null;
+  return (
+    run.status === "blocked" &&
+    (outcomeKind === "contract_miss" || outcomeKind === "blocked") &&
+    writeStep?.expectedArtifactPath === PLAN_STAGE_DIR
+  );
+}
+
+function isReviewFailedPlanWriteRecoveryCandidate(
+  run: Run & { attempts: Attempt[] },
+  writeStep: WorkflowSnapshotStep | undefined,
+  store: StateStore,
+  capturedReviewStepIds: readonly string[],
+): boolean {
+  if (run.status !== "completed" || writeStep?.expectedArtifactPath !== PLAN_STAGE_DIR) return false;
+  return resolveFailedPlanReviewSiblingRun(run, store, capturedReviewStepIds) !== undefined;
+}
+
+/** Whether a pipeline-linked plan entry run is recoverable through `recoverPlanStage`. */
+export function isPlanStageEntryRunRecoverable(
+  entryRun: Run & { attempts: Attempt[] },
+  store: StateStore,
+  reviewStepId: string,
+): boolean {
+  const writeStep = entryRun.workflowSnapshot?.steps.find((candidate) => candidate.stepId === entryRun.stepId);
+  if (entryRun.status !== "blocked" && entryRun.status !== "completed") return true;
+  return (
+    isBlockedPlanWriteRecoveryCandidate(entryRun, writeStep) ||
+    isReviewFailedPlanWriteRecoveryCandidate(entryRun, writeStep, store, [reviewStepId])
+  );
+}
+
 /**
  * Effect-free shape + contract-normalizer + landing-link validation against staged plan bytes.
  * Recovery runs this before the first review and again (via `revalidateStagedPlanBeforeLanding`)
@@ -3299,14 +3413,12 @@ export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promi
     };
   }
   const writeStep = run.workflowSnapshot.steps.find((candidate) => candidate.stepId === run.stepId);
-  const lastAttempt = run.attempts.at(-1);
-  const outcomeKind = lastAttempt?.outcomeKind ?? null;
-  if (
-    run.status !== "blocked" ||
-    (outcomeKind !== "contract_miss" && outcomeKind !== "blocked") ||
-    writeStep?.expectedArtifactPath !== PLAN_STAGE_DIR ||
-    !hasPopulatedPlanStage(run.worktreePath)
-  ) {
+  const capturedReviewStepIds = request.steps
+    .filter((step) => step.behavior === "review" || step.behavior === "review-debate")
+    .map((step) => step.stepId);
+  const reviewFailedPath = isReviewFailedPlanWriteRecoveryCandidate(run, writeStep, store, capturedReviewStepIds);
+  const blockedWritePath = isBlockedPlanWriteRecoveryCandidate(run, writeStep);
+  if ((!blockedWritePath && !reviewFailedPath) || !hasPopulatedPlanStage(run.worktreePath)) {
     return { ok: false, code: "unrelated_plan_stage", message: "no recoverable populated plan stage for this run" };
   }
   if (!existsSync(join(run.worktreePath, ".git"))) {
@@ -3316,14 +3428,34 @@ export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promi
       message: "plan-stage recovery requires Git-backed publication mode",
     };
   }
-  const provenance = resolvePlanBlockerProvenance(run.worktreePath, outcomeKind, request.logSink, run.id);
-  if (provenance.kind === "operator") {
-    return { ok: false, code: "operator_blocker", message: "staged plan carries an operator-authored blocker" };
-  }
-  if (provenance.kind === "harness") {
-    const intentPath = join(run.worktreePath, PLAN_STAGE_DIR, "intent.md");
-    const content = readFileSync(intentPath, "utf8");
-    writeFileSync(intentPath, content.slice(0, content.length - provenance.text.length), "utf8");
+  if (reviewFailedPath) {
+    const evidenceReview = resolveFailedPlanReviewSiblingRun(run, store, capturedReviewStepIds);
+    if (evidenceReview === undefined) {
+      return { ok: false, code: "unrelated_plan_stage", message: "no recoverable populated plan stage for this run" };
+    }
+    if (hasStagedPlanOperatorBlocker(run.worktreePath)) {
+      return { ok: false, code: "operator_blocker", message: "staged plan carries an operator-authored blocker" };
+    }
+    const excludedRunIds = new Set([run.id, evidenceReview.id]);
+    if (hasLivePlanRecoveryWorktreeClaim(store, run.project, run.branch, excludedRunIds)) {
+      return {
+        ok: false,
+        code: "unrelated_plan_stage",
+        message: "a live run holds the worktree claim for this branch",
+      };
+    }
+  } else {
+    const lastAttempt = run.attempts.at(-1);
+    const outcomeKind = lastAttempt?.outcomeKind ?? null;
+    const provenance = resolvePlanBlockerProvenance(run.worktreePath, outcomeKind, request.logSink, run.id);
+    if (provenance.kind === "operator") {
+      return { ok: false, code: "operator_blocker", message: "staged plan carries an operator-authored blocker" };
+    }
+    if (provenance.kind === "harness") {
+      const intentPath = join(run.worktreePath, PLAN_STAGE_DIR, "intent.md");
+      const content = readFileSync(intentPath, "utf8");
+      writeFileSync(intentPath, content.slice(0, content.length - provenance.text.length), "utf8");
+    }
   }
 
   // Revalidate before the first review: an operator correction never trusted past admission.

@@ -3,6 +3,7 @@ import type { PipelineStage } from "../execution/pipeline-definition.ts";
 import type { PublicationLanding } from "../execution/publication-landing.ts";
 import {
   type AnyWorkflowStep,
+  isPlanStageEntryRunRecoverable,
   type PlanStageRecoveryOutcome,
   type PlanStageRecoveryRequest,
   type ReviewDebateWorkflowStep,
@@ -190,6 +191,13 @@ export async function resolveBlockedPlanStageRecoveryTarget(
       ok: false,
       reason: "stage_not_recoverable",
       message: `resolved review step cwd "${reviewStep.cwd}" does not match the linked run's worktree "${entryRun.worktreePath}"`,
+    };
+  }
+  if (!isPlanStageEntryRunRecoverable(entryRun, store, reviewStep.stepId)) {
+    return {
+      ok: false,
+      reason: "stage_not_recoverable",
+      message: `linked entry run for stage "${stage.stageId}" is not a recoverable plan stage`,
     };
   }
 

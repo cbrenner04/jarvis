@@ -29,14 +29,11 @@ import { AsyncSubprocessError, realAsyncSubprocessRunner } from "../../../shared
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
   type GuardCheckpointRepromptContext,
-  type GuardCheckpointRepromptEvent,
   type KeystoneDirectiveRepromptContext,
-  type KeystoneDirectiveRepromptEvent,
   type LandingContractRepromptEvent,
   type LogSink,
   type LoopFinishedEvent,
   type MutationDirectiveRepromptContext,
-  type MutationDirectiveRepromptEvent,
   type PersistedRecord,
   priorLogRecordsFromSink,
   type StagedMarkdownLintRepromptEvent,
@@ -337,43 +334,6 @@ export function findStagedMarkdownLintRepromptFromLog(
   return latest === undefined
     ? undefined
     : { ruleId: latest.ruleId, offendingFile: latest.offendingFile, message: latest.violation };
-}
-
-/**
- * Last in-loop directive reprompt from a run's persisted log tail (resume after pause). The
- * reprompt arms clear their sibling contexts as they fire, so only the context matching the last
- * event is live; scanning them independently would resurrect a superseded sibling context.
- */
-export function findDirectiveRepromptFromLog(logRecords: readonly PersistedRecord[] | undefined): {
-  mutationDirectiveReprompt?: MutationDirectiveRepromptContext;
-  guardCheckpointReprompt?: GuardCheckpointRepromptContext;
-  keystoneDirectiveReprompt?: KeystoneDirectiveRepromptContext;
-} {
-  if (logRecords === undefined) return {};
-  let latest:
-    | MutationDirectiveRepromptEvent
-    | GuardCheckpointRepromptEvent
-    | KeystoneDirectiveRepromptEvent
-    | undefined;
-  for (const record of logRecords) {
-    if (
-      record.event.kind === "mutation_directive_reprompt" ||
-      record.event.kind === "guard_checkpoint_reprompt" ||
-      record.event.kind === "keystone_directive_reprompt"
-    ) {
-      latest = record.event;
-    }
-  }
-  if (latest === undefined) return {};
-  if (latest.kind === "mutation_directive_reprompt") {
-    const { display, directives } = latest;
-    return { mutationDirectiveReprompt: { display, directives } };
-  }
-  if (latest.kind === "guard_checkpoint_reprompt") {
-    return { guardCheckpointReprompt: { repairs: latest.repairs } };
-  }
-  const { criterionText, pinPath } = latest;
-  return { keystoneDirectiveReprompt: { criterionText, pinPath } };
 }
 
 const DEFAULT_MAX_ITERATIONS = 10;

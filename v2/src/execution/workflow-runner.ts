@@ -3541,6 +3541,16 @@ function reviewStepCommitFields(
   return { title: renderStepCommitTitle(step, title), step };
 }
 
+function persistPrEvidenceIfComplete(
+  store: StateStore,
+  runId: string,
+  success: { prNumber?: number; prUrl?: string } | undefined,
+): void {
+  if (success?.prNumber !== undefined && success.prUrl !== undefined) {
+    store.setPrEvidence(runId, success.prNumber, success.prUrl);
+  }
+}
+
 async function runIntentResumeCommitAndPublish(
   context: IntentFinalizationResumeContext,
   store: StateStore,
@@ -3630,13 +3640,7 @@ async function runIntentResumeCommitAndPublish(
   }
 
   appendRuntimeSmokeOutcome(deps.logSink, context.runId, publication.success?.runtimeSmokeOutcome);
-  if (
-    publication.success !== undefined &&
-    publication.success.prNumber !== undefined &&
-    publication.success.prUrl !== undefined
-  ) {
-    store.setPrEvidence(context.runId, publication.success.prNumber, publication.success.prUrl);
-  }
+  persistPrEvidenceIfComplete(store, context.runId, publication.success);
   store.commitCompletionBoundary({
     attemptId,
     runStatus: "completed",
@@ -4255,13 +4259,7 @@ async function runMutationRepairAttempt(
 
   const finalAttemptId = store.recordAttemptStart(context.runId);
   appendRuntimeSmokeOutcome(deps.logSink, context.runId, publication.success?.runtimeSmokeOutcome);
-  if (
-    publication.success !== undefined &&
-    publication.success.prNumber !== undefined &&
-    publication.success.prUrl !== undefined
-  ) {
-    store.setPrEvidence(context.runId, publication.success.prNumber, publication.success.prUrl);
-  }
+  persistPrEvidenceIfComplete(store, context.runId, publication.success);
   store.commitCompletionBoundary({
     attemptId: finalAttemptId,
     runStatus: "completed",
@@ -4370,13 +4368,7 @@ function settleSuccessfulReviewMutationPublication(
   deps: ReviewMutationResumeDeps,
 ): ReviewMutationResumeOutcome {
   appendRuntimeSmokeOutcome(deps.logSink, context.runId, publication.success?.runtimeSmokeOutcome);
-  if (
-    publication.success !== undefined &&
-    publication.success.prNumber !== undefined &&
-    publication.success.prUrl !== undefined
-  ) {
-    store.setPrEvidence(context.runId, publication.success.prNumber, publication.success.prUrl);
-  }
+  persistPrEvidenceIfComplete(store, context.runId, publication.success);
   store.commitCompletionBoundary({
     attemptId,
     runStatus: "completed",

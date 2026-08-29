@@ -109,7 +109,7 @@ function wrapGitWithAddTracker(onAdd?: () => void) {
     return new Promise((resolve, reject) => {
       execFile("git", [...args], { cwd, env: { ...process.env, ...env }, encoding: "utf8" }, (error, stdout) => {
         if (error) reject(error);
-        else resolve(stdout.trim());
+        else resolve(args.includes("-z") ? stdout : stdout.trim());
       });
     });
   };
@@ -781,6 +781,58 @@ describe("createCompletionCommitter", () => {
     expect(result.commitSha).toBeDefined();
     expect(result.commitSha).not.toBe(seedHead);
     expect(existsSync(join(worktreePath, "src/example.ts"))).toBe(false);
+  });
+
+  test("completion formatting receives lossless status paths", async () => {
+    // @mutate v2/src/execution/completion-commit.ts "inventory.map((entry) => entry.currentPath)" -> "inventory.map((entry) => entry.currentPath.trim())"
+    const { worktreePath } = initRealGitWorktree();
+    const paths = ["src/space name.ts", "src/line\nbreak.ts", "src/naïve.ts", " leading.ts", "src/trailing /file.ts"];
+    for (const path of paths) {
+      mkdirSync(join(worktreePath, path, ".."), { recursive: true });
+      writeFileSync(join(worktreePath, path), "export const value = true;\n");
+    }
+    execFileSync("git", ["add", "-A"], { cwd: worktreePath, stdio: "pipe" });
+    execFileSync("git", ["commit", "-q", "-m", "seed lossless paths"], { cwd: worktreePath, stdio: "pipe" });
+    const status = paths.map((path) => ` M ${path}\0`).join("");
+    const runGit = async (cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> => {
+      if (args.join("\0") === ["status", "--porcelain=v1", "-z", "--untracked-files=all"].join("\0")) return status;
+      return wrapGitWithAddTracker()(cwd, args, env);
+    };
+    const formattedPaths: string[][] = [];
+    const formatter: AsyncSubprocessRunner = {
+      async runAsync(cmd, args) {
+        expect(cmd).toBe("bun");
+        formattedPaths.push(args.slice(3));
+        return "";
+      },
+    };
+
+    await createCompletionCommitter(runGit, formatter)(completionInput(worktreePath));
+
+    expect(formattedPaths).toEqual([paths]);
+  });
+
+  test("completion formatting fails when shared inventory inspection fails", async () => {
+    const { worktreePath, gitDir } = setupWorktree("v2/spec/test/index.md");
+    let addCalled = false;
+    const runGit = async (_cwd: string, args: readonly string[]): Promise<string> => {
+      if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;
+      if (args.join("\0") === ["status", "--porcelain=v1", "-z", "--untracked-files=all"].join("\0")) {
+        throw new Error("inventory inspection failed");
+      }
+      if (args[0] === "add") addCalled = true;
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return "base-head";
+      if (args[0] === "write-tree") return "new-tree";
+      if (args[0] === "rev-parse" && args[1] === "base-head^{tree}") return "base-tree";
+      if (args[0] === "symbolic-ref") return "refs/heads/feature";
+      if (args[0] === "commit-tree") return "new-commit";
+      return "";
+    };
+
+    await expect(createCompletionCommitter(runGit)(completionInput(worktreePath))).rejects.toThrow(
+      "inventory inspection failed",
+    );
+    expect(addCalled).toBe(false);
   });
 
   test("throws before staging when formatter exits non-zero", async () => {

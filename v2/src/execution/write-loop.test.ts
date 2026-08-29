@@ -1481,6 +1481,60 @@ describe("write loop", () => {
     }
   });
 
+  test("binding-chain invocation failure persists only the bounded final stderr tail", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const earlierStderr = "earlier-attempt-stderr";
+    const finalStderr = `discarded-final-prefix:${"z".repeat(2048)}`;
+    const expectedMessage = finalStderr.slice(-2048);
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      bindings: [
+        {
+          id: "sim.1",
+          invoke: async () => ({ kind: "quota", stderr: earlierStderr }),
+        },
+        {
+          id: "sim.2",
+          invoke: async () => ({ kind: "error", exitCode: 1, stderr: finalStderr }),
+        },
+      ],
+    });
+
+    expect(result.kind).toBe("invocation_failure");
+    const detail = loadRunOnce(stateDbPath, result.runId)?.attempts[0]?.invocationFailureDetail;
+    expect(detail?.message).toBe(expectedMessage);
+    expect(detail?.message?.length).toBe(2048);
+    expect(detail?.message).not.toContain(earlierStderr);
+  });
+
+  test("binding-chain invocation failure distinguishes empty and whitespace-only stderr", async () => {
+    const cases = [
+      { branchName: "empty-stderr-run", stderr: "", expectedMessage: undefined },
+      { branchName: "whitespace-stderr-run", stderr: " \n\t ", expectedMessage: " \n\t " },
+    ] as const;
+
+    for (const testCase of cases) {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        branchName: testCase.branchName,
+        bindings: [
+          {
+            id: "sim.1",
+            invoke: async () => ({ kind: "error", exitCode: 1, stderr: testCase.stderr }),
+          },
+        ],
+      });
+
+      expect(result.kind).toBe("invocation_failure");
+      const detail = loadRunOnce(stateDbPath, result.runId)?.attempts[0]?.invocationFailureDetail;
+      expect(detail?.message).toBe(testCase.expectedMessage);
+      if (testCase.expectedMessage === undefined) expect(detail).not.toHaveProperty("message");
+    }
+  });
+
   const invalidTokenBindings: InvocationBinding[] = [
     {
       id: "agent",

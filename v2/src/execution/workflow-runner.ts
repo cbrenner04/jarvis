@@ -3412,7 +3412,11 @@ function admitPlanRecoveryBlockerAndClaim(
     }
     const excludedRunIds = new Set([run.id, evidenceReview.id]);
     if (hasLivePlanRecoveryWorktreeClaim(store, run.project, run.branch, excludedRunIds)) {
-      return { ok: false, code: "unrelated_plan_stage", message: "a live run holds the worktree claim for this branch" };
+      return {
+        ok: false,
+        code: "unrelated_plan_stage",
+        message: "a live run holds the worktree claim for this branch",
+      };
     }
     return undefined;
   }
@@ -3464,7 +3468,13 @@ export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promi
       message: "plan-stage recovery requires Git-backed publication mode",
     };
   }
-  const blockerAdmission = admitPlanRecoveryBlockerAndClaim(run, store, request, reviewFailedPath, capturedReviewStepIds);
+  const blockerAdmission = admitPlanRecoveryBlockerAndClaim(
+    run,
+    store,
+    request,
+    reviewFailedPath,
+    capturedReviewStepIds,
+  );
   if (blockerAdmission) return blockerAdmission;
 
   // Revalidate before the first review: an operator correction never trusted past admission.

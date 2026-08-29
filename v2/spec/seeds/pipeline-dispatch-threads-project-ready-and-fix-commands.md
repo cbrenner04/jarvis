@@ -2,33 +2,48 @@
 name: pipeline-dispatch-threads-project-ready-and-fix-commands
 ---
 
-# Pipeline-dispatched implement ignores the project's configured readyCommand/fixCommand and defaults to `bun run ready`
+# Daemon pipeline dispatch drops the entire step-config layer the CLI applies (readyCommand, fixCommand, iteration bounds, review timeouts)
 
 ## Problem
 
-A project's configured `readyCommand` (and `fixCommand`) reach a workflow's write steps only through `prepareWorkflowSteps` (`v2/src/commands/workflow.ts:226`, wiring at `:258–264`), which is called **only on the CLI `run workflow` path** (`workflow.ts:380`, `:390`). The **daemon's pipeline-stage dispatch never calls `prepareWorkflowSteps` and sets `readyCommand`/`fixCommand` nowhere** (`git grep readyCommand v2/src/daemon` is empty). So a pipeline-dispatched implement step — and the `~shrink` pass that inherits it via `{ ...step }` (`runShrinkAfterImplementComplete`, `workflow-runner.ts`) — runs the ready gate with `readyCommand` undefined, which `resolveReadyGateCommand` (`ready-finalize.ts:48`) defaults to `bun run ready`.
+Every workflow write/review step's project- and machine-config layer is stamped in exactly one place — `prepareWorkflowSteps` (`v2/src/commands/workflow.ts:226`, wiring at `:242–264`) — which is on the **CLI `run workflow` path only** (`workflow.ts:380`, `:390`). The **daemon pipeline-stage dispatch never calls it**: `resolveStageWorkflowSteps` (`pipeline-stage-resolve.ts:535`) → `defaultPipelineDispatch` (`daemon.ts:2000`) → `handleWorkflowStart` → `startWorkflowRun` (`daemon.ts:1184`), and `startWorkflowRun` maps each step adding **only** `signal` (`daemon.ts:1201`). The shared builders/loader set none of it either. So all five config values arrive `undefined` on daemon-dispatched steps and silently fall back to defaults:
 
-For any project whose configured `readyCommand` is not `bun run ready`, every pipeline implement stage runs the wrong gate command and (when no `bun run ready` script exists) settles `ready_gate_command_missing`, never running the configured command. The configured `readyCommand` is silently ignored on the exact path pipelines use.
+| Config (source) | Default when missed | Impact on a pipeline run |
+| --- | --- | --- |
+| write `iterationTimeoutMs` (`...bounds`) | `DEFAULT_ITERATION_TIMEOUT_MS` 10min | configured per-iteration timeout ignored |
+| write `iterationCeilingMs` (`...bounds`) | `undefined` → **no ceiling watchdog armed** (`write-loop.ts:2056`, gated on `!== undefined`) | **no absolute wall-clock kill on a pipeline write step** — diverges even at default config |
+| write `idleOutputMs` (`...bounds`) | `undefined` → **no idle-output watchdog armed** (`write-loop.ts:2423`, gated on `!== undefined`) | **a stalled pipeline agent producing no output is never caught** — diverges even at default config |
+| write `fixCommand` (`readProjectFixCommand`) | `bun run fix` (`shared/fix-command.ts:50`) | ready-gate autofix runs the wrong command |
+| write `readyCommand` (`readProjectReadyCommand`) | `bun run ready` (`ready-finalize.ts:44`) | ready gate runs `bun run ready`, not the configured command |
+| review `roleTimeoutMs` (`readReviewRoleTimeoutMs`) | 30min | configured review-role timeout ignored |
+| review `idleOutputMs` (`readConfiguredIdleOutputTimeoutMs`) | 90s | configured review idle-output timeout ignored |
 
-Observed 2026-08-29, `cbrenner04/chess-mvp-yolo` (config `readyCommand: "make test"`), pipeline `7089b156` `fast` implement stage: the `~shrink` run `c990d3d5` settled `loopOutcomeKind: ready_gate_command_missing`, `error.message: "Ready gate command missing: bun run ready\nerror: Script not found \"ready\""` — `bun run ready`, not the configured `make test`. Every chess implement red-gates this way, blocking pipeline dogfooding.
+The two unarmed write-step watchdogs (ceiling + idle-output) are the most severe: a daemon-dispatched implement/plan that stalls or runs away is never force-terminated, unlike the CLI path — a likely cause of hanging pipeline runs, and it inverts the "idle_output_timeout false-kills pipelines under contention" folklore (the CLI path arms that watchdog; pipelines never did).
 
-`fixCommand` rides the same gap (also only set in `prepareWorkflowSteps`), so daemon-dispatched autofix uses the default fix command too. The review-bound parity (`roleTimeoutMs`, `idleOutputMs`) that `prepareWorkflowSteps` also applies may diverge on the daemon path as well — verify while fixing.
+Observed 2026-08-29, `cbrenner04/chess-mvp-yolo` (config `readyCommand: "make test"`, no `bun run ready` script), pipeline `7089b156` `fast` implement `~shrink` run `c990d3d5`: settled `ready_gate_command_missing`, `error.message: "Ready gate command missing: bun run ready\nerror: Script not found \"ready\""` — `bun run ready`, not the configured `make test`. Every chess implement red-gates this way, blocking pipeline dogfooding.
+
+Secondary defect: the one daemon-side path that does re-read project config, `inertResumeWriteLoopInput` (`workflow-runner.ts:3478`, intent-finalization resume), calls `readProjectFixCommand`/`readProjectReadyCommand` with the **default `MACHINE_CONFIG_PATH`**, not the pipeline's `context.configPath`.
+
+Not a divergence (verified, leave alone): the #3049 intent/plan ready-gate skip keys off `promptId`/`landing`, which the shared builders set on both paths, so it works identically under pipeline dispatch.
 
 ## Decisions
 
-- The daemon's pipeline-stage (and any daemon-dispatched) implement/write step construction resolves the project's `readyCommand` and `fixCommand` from machine config (`readProjectReadyCommand`/`readProjectFixCommand`) and threads them onto the write step, matching `prepareWorkflowSteps`; rules out the configured command reaching only the CLI path. The `~shrink` step inherits both through its existing `{ ...step }` spread — no separate shrink wiring needed once the implement step carries them.
-- Resolve the shared step-preparation so CLI and daemon dispatch cannot diverge again — either both call `prepareWorkflowSteps` (or the command-resolving core of it) or the readyCommand/fixCommand wiring moves to a single point both paths pass through; rules out a second copy of the wiring that can drift.
-- Do not change default behavior for a project with no configured `readyCommand`: it still defaults to `bun run ready`; rules out forcing a command where none is configured.
+- Thread all five config values onto daemon-dispatched write/review steps exactly as `prepareWorkflowSteps` does: write steps get `resolveWritePathIterationBounds` (`iterationTimeoutMs`/`iterationCeilingMs`/`idleOutputMs`), `readProjectFixCommand`, `readProjectReadyCommand`; review/review-debate steps get `readReviewRoleTimeoutMs` and `readConfiguredIdleOutputTimeoutMs`. Resolve from the **pipeline's own `configPath`**, not the default. Rules out the config layer reaching only the CLI path, and rules out a partial fix that wires `readyCommand` alone.
+- Unify so CLI and daemon dispatch cannot diverge again: the step-config stamping moves to a single shared function both paths call (extract the `prepareWorkflowSteps` mapping core, or stamp inside the shared builders/loader), rather than a second copy inside the daemon. Rules out re-introducing the drift with a duplicated mapping.
+- Fix the secondary path: `inertResumeWriteLoopInput` resolves fix/ready commands from the run's actual config path.
+- Do not change default behavior for a project with no configured value: absent `readyCommand`→`bun run ready`, absent `fixCommand`→`bun run fix`, bounds/timeouts→their existing defaults, and the watchdogs arm from the resolved bounds. Rules out forcing values where none are configured (but the ceiling/idle-output watchdogs must now arm on the daemon path from resolved bounds, since resolved bounds carry them).
 
 ## Acceptance criteria
 
-- [ ] A daemon/pipeline-dispatch test drives an implement (and its `~shrink` pass) for a project whose machine config sets `readyCommand` to a non-default value and asserts the ready gate resolves/runs that configured command, not `bun run ready` — fails against the current daemon path that leaves `readyCommand` undefined.
-- [ ] The same dispatch threads the configured `fixCommand` onto the step — pinned by a test.
-- [ ] A project with no configured `readyCommand` still resolves `bun run ready` on the daemon path — pinned by a test.
-- [ ] CLI `run workflow` and daemon pipeline dispatch resolve `readyCommand`/`fixCommand` through a single shared point (no duplicated wiring) — pinned by a test or a structural assertion.
+- [ ] A daemon/pipeline-dispatch test drives an implement step for a project whose machine config sets `readyCommand` and `fixCommand` to non-default values and asserts the write step carries them (and the ready gate resolves the configured command, not `bun run ready`) — fails against the current daemon path.
+- [ ] The same dispatch stamps `iterationTimeoutMs`, `iterationCeilingMs`, and `idleOutputMs` from resolved write-path bounds so the ceiling and idle-output watchdogs arm on a daemon write step — pinned by a test asserting the step carries the bounds (fails today: bounds absent → watchdogs unarmed).
+- [ ] Review/review-debate steps dispatched by the daemon carry the configured `roleTimeoutMs` and `idleOutputMs` — pinned by a test.
+- [ ] CLI `run workflow` and daemon pipeline dispatch stamp all five values through a single shared point (no duplicated mapping) — pinned by a test or structural assertion.
+- [ ] A project with no configured `readyCommand`/`fixCommand` still resolves `bun run ready`/`bun run fix` on the daemon path, and bounds/timeouts fall back to their documented defaults — pinned by a test.
+- [ ] `inertResumeWriteLoopInput` resolves fix/ready commands from the run's config path, not the default `MACHINE_CONFIG_PATH` — pinned by a test.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
-- `v2/docs/install-and-config.md` — the configured `readyCommand`/`fixCommand` applies to pipeline-dispatched implements, not only CLI `run workflow`.
-- `v2/docs/daemon-host.md` — pipeline-stage dispatch resolves project ready/fix commands from machine config.
+- `v2/docs/install-and-config.md` — configured `readyCommand`/`fixCommand`/iteration bounds/review timeouts apply to pipeline-dispatched runs, not only CLI `run workflow`.
+- `v2/docs/daemon-host.md` — pipeline-stage dispatch stamps the shared step-config layer (commands, bounds, watchdogs, review timeouts) from the pipeline's config path; note the ceiling/idle-output watchdogs now arm on daemon write steps.

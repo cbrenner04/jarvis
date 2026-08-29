@@ -23,6 +23,7 @@ name: record-iteration-commit-failure-cause
 ## Acceptance criteria
 
 - [ ] A `write-loop.test.ts` boundary-commit fixture throws a known error with Git stderr and asserts the bounded cause on `loop_finished`; the test fails against the pre-fix bare record.
+- [ ] `v2/src/execution/write-loop.test.ts` — `stops failed when iteration commit throws on progress`; Mutation checkpoint: its test body carries `// @mutate v2/src/execution/write-loop.ts "completionCommitError: iterationCommitErrorMessage," -> ""`, removing the added bounded terminal cause and turning the scoped test red.
 - [ ] The same fixture asserts `resumable: true`, no `boundary_committed`, and the authored worktree change remains uncommitted.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 

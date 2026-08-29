@@ -6,8 +6,8 @@ name: preserve-failed-iteration-work-on-rerun
 
 ## Prerequisites
 
-- An `iteration_commit_failed` terminal record carries a bounded boundary-commit error message and available Git stderr while preserving the authored uncommitted work.
-- A failed standalone implement row with a valid persisted write snapshot is admitted through ordinary resume, and list/wait project `iteration_commit_failed` as retryable and resumable.
+- The `record-iteration-commit-failure-cause` behavior is implemented: an `iteration_commit_failed` terminal record carries a bounded boundary-commit error message and available Git stderr while preserving the authored uncommitted work.
+- The `resume-iteration-commit-failures` behavior is implemented: a failed standalone implement row with a valid persisted write snapshot is admitted through ordinary resume, and list/wait project `iteration_commit_failed` as retryable and resumable.
 
 ## Problem
 
@@ -27,6 +27,7 @@ name: preserve-failed-iteration-work-on-rerun
 ## Acceptance criteria
 
 - [ ] A stale-reset CLI test seeds a matching `iteration_commit_failed` row and dirty authored file, invokes incomplete implement re-run with `--reset-despite-dirty`, and asserts refusal plus unchanged file, worktree, and branch; it fails against the current override path.
+- [ ] `v2/src/commands/workflow.test.ts` — `run workflow implement refuses iteration_commit_failed worktree despite reset-despite-dirty`; Mutation checkpoint: its test body carries `// @mutate v2/src/commands/cleanup.ts "if (preserveFailedIterationWork) {" -> "if (false) {"`, disabling the added matching-failed-row guard, restoring retirement, and turning the scoped test red.
 - [ ] A recovered clean worktree and unrelated failure rows retain existing stale-retirement behavior, pinned by tests.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 

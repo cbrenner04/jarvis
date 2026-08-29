@@ -27,6 +27,7 @@ name: resume-iteration-commit-failures
 ## Acceptance criteria
 
 - [ ] A `daemon-resume.test.ts` fixture seeds the observed failed standalone implement row with a valid snapshot and dirty authored file, then asserts resume admission and same-worktree execution; it fails against the current `unsupported_resume_context` projection.
+- [ ] `v2/src/daemon/daemon-resume.test.ts` — `resumes a failed standalone implement boundary commit from its persisted write snapshot`; Mutation checkpoint: its test body carries `// @mutate v2/src/daemon/daemon.ts "if (!isResumeAdmitted(run, terminalRecord)) return undefined;" -> "if (true) return undefined;"`, restoring `unsupported_resume_context` and turning the scoped test red.
 - [ ] `run-operator-error.test.ts` asserts the terminal boundary-commit cause projects on the retryable `iteration_commit_failed` operator error.
 - [ ] List, wait, and resume expose one consistent resumability contract for the seeded row.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.

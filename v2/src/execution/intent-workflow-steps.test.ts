@@ -155,7 +155,7 @@ describe("buildIntentWorkflowSteps", () => {
     const config = join(root, "config.json");
     writeFileSync(
       config,
-      JSON.stringify({ projects: { demo: { root, git: false } }, modes: { plan: { targetDir: "configured" } } }),
+      JSON.stringify({ projects: { "Org/Repo": { root, git: false } }, modes: { plan: { targetDir: "configured" } } }),
     );
     const result = await buildIntentWorkflowSteps(
       { cwd: root, seedText: "one thing", targetDir: "override", configPath: config, jarvisRoot: "/jarvis" },
@@ -164,9 +164,9 @@ describe("buildIntentWorkflowSteps", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.steps[0]).toMatchObject({
-      specPath: "/jarvis/specs/demo/ready-intents",
+      specPath: "/jarvis/specs/Org-Repo/ready-intents",
       publishCompletion: false,
-      worktree: { baseRef: "none", git: false, localPath: "/jarvis/intent-work/demo/one-thing" },
+      worktree: { baseRef: "none", git: false, localPath: "/jarvis/intent-work/Org-Repo/one-thing" },
     });
   });
 

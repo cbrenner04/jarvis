@@ -1,5 +1,4 @@
 import { basename } from "node:path";
-import { parseSpec } from "./spec-parser.ts";
 
 const CHECKLIST_ITEM_PATTERN = /^\s*-\s\[([ xX])\]\s+(.*)$/;
 const LEVEL_TWO_HEADING_PATTERN = /^##\s/;

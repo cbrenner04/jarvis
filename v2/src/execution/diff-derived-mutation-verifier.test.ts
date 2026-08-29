@@ -5,7 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   type DiffDerivedMutationVerifierInput,
+  isInsideTimerCallbackForTest,
+  MAX_CONCURRENT_VERIFIER_TEST_RUNS,
+  MAX_VERIFICATION_MS,
   maskNonCodeSpans,
+  peakVerifierTestRuns,
+  resetVerifierTestRunTrackingForTest,
+  runDiffDerivedScopedTests,
   verifyDiffDerivedMutations,
 } from "./diff-derived-mutation-verifier.ts";
 
@@ -357,24 +363,24 @@ index 1234567..abcdefg 100644
     }
   });
 
-  const promptDiff = `diff --git a/prompts/patch/review-critic.md b/prompts/patch/review-critic.md
+  const promptDiff = `diff --git a/prompts/implement/review-critic.md b/prompts/implement/review-critic.md
 index f424d7da..be281d02 100644
---- a/prompts/patch/review-critic.md
-+++ b/prompts/patch/review-critic.md
+--- a/prompts/implement/review-critic.md
++++ b/prompts/implement/review-critic.md
 @@ -19,2 +19,2 @@
 -## Branch change summary
 +## Branch diff
 +The diff comes from git merge-base <base> HEAD.
 `;
 
-  const registeredCritic = async () => ["prompts/patch/review-critic.md"];
+  const registeredCritic = async () => ["prompts/implement/review-critic.md"];
   const missingCriticRenderCoverage = {
     kind: "surviving-mutation" as const,
     mutation: "missing-render-coverage",
-    sourceSite: { file: "prompts/patch/review-critic.md", line: 1 },
+    sourceSite: { file: "prompts/implement/review-critic.md", line: 1 },
   };
   const criticSource = `---
-id: patch.review.critic
+id: implement.prompt.review.critic
 behavior: review
 kind: step
 revision: 1
@@ -449,7 +455,7 @@ The diff comes from git merge-base <base> HEAD.
       {
         gitDiff: async () => promptDiff,
         untrackedFiles: async () => [],
-        registeredPromptPaths: async () => ["prompts/patch/review-critic.md"],
+        registeredPromptPaths: async () => ["prompts/implement/review-critic.md"],
         readFile: async () => prompt,
         writeFile: async (_path, content) => {
           prompt = content;
@@ -464,10 +470,10 @@ The diff comes from git merge-base <base> HEAD.
   });
 
   it("fails deleted and untracked registered prompts without render coverage", async () => {
-    const deletedDiff = `diff --git a/prompts/patch/review-critic.md b/prompts/patch/review-critic.md
+    const deletedDiff = `diff --git a/prompts/implement/review-critic.md b/prompts/implement/review-critic.md
 deleted file mode 100644
 index be281d02..00000000
---- a/prompts/patch/review-critic.md
+--- a/prompts/implement/review-critic.md
 +++ /dev/null
 @@ -1 +0,0 @@
 -old prompt
@@ -485,7 +491,7 @@ index be281d02..00000000
       { worktreePath: "/test/path", runBase: "main" },
       {
         gitDiff: async () => "",
-        untrackedFiles: async () => ["prompts/patch/review-critic.md"],
+        untrackedFiles: async () => ["prompts/implement/review-critic.md"],
         registeredPromptPaths: registeredCritic,
         runScopedTests: async () => true,
       },
@@ -496,7 +502,14 @@ index be281d02..00000000
   });
 
   it("bounds scoped render checks across changed prompts", async () => {
-    const promptPaths = Array.from({ length: 6 }, (_, index) => `prompts/patch/review-${index}.md`);
+    const promptPaths = [
+      "prompts/implement/review-critic.md",
+      "prompts/plan/draft.md",
+      "prompts/intent/split.md",
+      "prompts/write/execute.md",
+      "prompts/patch/shrink.md",
+      "prompts/patch/instructions.md",
+    ];
     const uncoveredPath = promptPaths[5];
     if (uncoveredPath === undefined) throw new Error("expected six prompt paths");
     const diff = promptPaths
@@ -603,6 +616,214 @@ index 1234567..abcdefg 100644
     );
 
     expect(result.kind).toBe("pass");
+  });
+
+  it("fails closed for registered prompts without render-observer map entries", async () => {
+    const patchPromptDiff = `diff --git a/prompts/patch/review-critic.md b/prompts/patch/review-critic.md
+index f424d7da..be281d02 100644
+--- a/prompts/patch/review-critic.md
++++ b/prompts/patch/review-critic.md
+@@ -19,2 +19,2 @@
+-## Branch change summary
++## Branch diff
++The diff comes from git merge-base <base> HEAD.
+`;
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => patchPromptDiff,
+        untrackedFiles: async () => [],
+        registeredPromptPaths: async () => ["prompts/patch/review-critic.md"],
+        runScopedTests: async () => false,
+      },
+    );
+
+    expect(result).toEqual({
+      kind: "surviving-mutation",
+      mutation: "missing-render-coverage",
+      sourceSite: { file: "prompts/patch/review-critic.md", line: 1 },
+    });
+  });
+
+  it("completes shared multi-candidate verification within MAX_VERIFICATION_MS", async () => {
+    const diff =
+      `diff --git a/shared/fixture/a.ts b/shared/fixture/a.ts
+index 1234567..abcdefg 100644
+--- a/shared/fixture/a.ts
++++ b/shared/fixture/a.ts
+@@ -1,1 +1,2 @@
++  if (!x0) return null;
+` +
+      Array.from({ length: 12 }, (_, index) => {
+        const file = `shared/fixture/b${index}.ts`;
+        return `diff --git a/${file} b/${file}
+index 1234567..abcdefg 100644
+--- a/${file}
++++ b/${file}
+@@ -1,1 +1,2 @@
++  if (!x${index + 1}) return null;
+`;
+      }).join("");
+
+    let scopedRuns = 0;
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        readFile: async (path) => {
+          const basename = path.split("/").pop() ?? "";
+          if (basename.includes(".test.")) return "export {};\n";
+          const match = path.match(/b(\d+)\.ts$/);
+          if (match?.[1] !== undefined) return `  if (!x${Number(match[1]) + 1}) return null;`;
+          return "  if (!x0) return null;";
+        },
+        writeFile: async () => {},
+        runScopedTests: async (_cwd, scope) => {
+          scopedRuns += scope.length;
+          return false;
+        },
+        now: () => 0,
+      },
+    );
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(13);
+    expect(scopedRuns).toBe(13);
+    expect(0 + MAX_VERIFICATION_MS).toBeGreaterThan(0);
+  });
+
+  it("invokes only the co-located killing test file per candidate", async () => {
+    const diff = `diff --git a/shared/fixture/alpha.ts b/shared/fixture/alpha.ts
+index 1234567..abcdefg 100644
+--- a/shared/fixture/alpha.ts
++++ b/shared/fixture/alpha.ts
+@@ -1,1 +1,2 @@
++  if (!a) return null;
+diff --git a/shared/fixture/beta.ts b/shared/fixture/beta.ts
+index 1234567..abcdefg 100644
+--- a/shared/fixture/beta.ts
++++ b/shared/fixture/beta.ts
+@@ -1,1 +1,2 @@
++  if (!b) return null;
+diff --git a/v2/src/other/surface.ts b/v2/src/other/surface.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/other/surface.ts
++++ b/v2/src/other/surface.ts
+@@ -1,1 +1,2 @@
++  if (!c) return null;
+`;
+    const invoked: string[][] = [];
+
+    await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        readFile: async (path) => {
+          const basename = path.split("/").pop() ?? "";
+          if (basename.includes(".test.")) return "export {};\n";
+          if (path.endsWith("alpha.ts")) return "  if (!a) return null;";
+          if (path.endsWith("beta.ts")) return "  if (!b) return null;";
+          return "  if (!c) return null;";
+        },
+        writeFile: async () => {},
+        runScopedTests: async (_cwd, scope) => {
+          invoked.push([...scope]);
+          return false;
+        },
+      },
+    );
+
+    expect(invoked).toHaveLength(3);
+    for (const scope of invoked) {
+      expect(scope).toHaveLength(1);
+      expect(scope[0]).toMatch(/\.test\.ts$/);
+      expect(scope[0]).not.toContain("test:v2");
+      expect(scope[0]).not.toContain("test:v1");
+    }
+    expect(invoked.map((scope) => scope[0]).sort()).toEqual([
+      "shared/fixture/alpha.test.ts",
+      "shared/fixture/beta.test.ts",
+      "v2/src/other/surface.test.ts",
+    ]);
+  });
+
+  it("invokes only that prompt's render-observer test file(s) per changed prompt", async () => {
+    const diff = `diff --git a/prompts/implement/review-critic.md b/prompts/implement/review-critic.md
+index f424d7da..be281d02 100644
+--- a/prompts/implement/review-critic.md
++++ b/prompts/implement/review-critic.md
+@@ -22,1 +22,1 @@
+-The merge-base branch diff.
++The merge-base branch diff (mutated).
+`;
+    const invoked: string[][] = [];
+    let prompt = criticSource.replace("merge-base branch diff", "merge-base branch diff (mutated)");
+
+    await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        registeredPromptPaths: registeredCritic,
+        readFile: async () => prompt,
+        writeFile: async (_path, content) => {
+          prompt = content;
+        },
+        runScopedTests: async (_cwd, scope) => {
+          invoked.push([...scope]);
+          return !prompt.includes("__JARVIS_PROMPT_RENDER_COVERAGE_MUTATION__");
+        },
+      },
+    );
+
+    expect(invoked).toHaveLength(1);
+    expect(invoked[0]).toEqual(["shared/prompts/review-implement.test.ts"]);
+  });
+
+  it("caps concurrent bun test invocations at MAX_CONCURRENT_VERIFIER_TEST_RUNS", async () => {
+    resetVerifierTestRunTrackingForTest();
+    // Deterministic overlap: each run blocks on an explicit gate (no real timers,
+    // which the determinism guard forbids), so admitted runs stay in flight until
+    // released and the semaphore's peak reflects the cap.
+    const gates: Array<() => void> = [];
+    const mockRunner = {
+      runAsync: async () => {
+        await new Promise<void>((resolve) => {
+          gates.push(resolve);
+        });
+        return "";
+      },
+    };
+    const flush = async () => {
+      for (let i = 0; i < 20; i += 1) await Promise.resolve();
+    };
+
+    const all = Promise.all(
+      Array.from({ length: 8 }, (_, index) =>
+        runDiffDerivedScopedTests("/test/path", [`shared/fixture/p${index}.test.ts`], mockRunner),
+      ),
+    );
+
+    await flush();
+    // The semaphore admits at most the cap; only that many runs reach their gate.
+    expect(gates.length).toBe(MAX_CONCURRENT_VERIFIER_TEST_RUNS);
+    expect(peakVerifierTestRuns()).toBe(MAX_CONCURRENT_VERIFIER_TEST_RUNS);
+
+    // Drain: release admitted runs in waves; each completion admits a queued run.
+    let released = 0;
+    while (released < 8) {
+      while (gates.length > 0) {
+        gates.shift()?.();
+        released += 1;
+      }
+      await flush();
+    }
+    await all;
+
+    expect(peakVerifierTestRuns()).toBeLessThanOrEqual(MAX_CONCURRENT_VERIFIER_TEST_RUNS);
+    expect(peakVerifierTestRuns()).toBeGreaterThan(1);
   });
 
   describe("defaultRunScopedTests (real subprocess, no seam)", () => {
@@ -1164,7 +1385,11 @@ index 1234567..abcdefg 100644
         {
           gitDiff: async () => diff,
           untrackedFiles: async () => [],
-          readFile: async () => content,
+          readFile: async (path) => {
+            const basename = path.split("/").pop() ?? "";
+            if (basename.includes(".test.")) return "export {};\n";
+            return content;
+          },
           writeFile: async () => {},
           runScopedTests: async () => true,
         },
@@ -1175,10 +1400,10 @@ index 1234567..abcdefg 100644
     }
 
     it("detects timer callback enclosure for a surviving mutation inside setTimeout", async () => {
-      const diff = `diff --git a/v2/src/execution/test.ts b/v2/src/execution/test.ts
+      const diff = `diff --git a/v2/src/execution/guard.ts b/v2/src/execution/guard.ts
 index 1234567..abcdefg 100644
---- a/v2/src/execution/test.ts
-+++ b/v2/src/execution/test.ts
+--- a/v2/src/execution/guard.ts
++++ b/v2/src/execution/guard.ts
 @@ -1,5 +1,5 @@
  export function test() {
    setTimeout(() => {
@@ -1192,9 +1417,30 @@ index 1234567..abcdefg 100644
     if (!x) return "test";
     return x;
   }, 100);
-}`;
+}
+`;
 
-      const result = await survivingMutation(diff, content);
+      let scopedCalls = 0;
+      const result = await verifyDiffDerivedMutations(
+        { worktreePath: "/test/path", runBase: "main" },
+        {
+          gitDiff: async () => diff,
+          untrackedFiles: async () => [],
+          readFile: async (path) => {
+            const basename = path.split("/").pop() ?? "";
+            if (basename.includes(".test.")) return "export {};\n";
+            return content;
+          },
+          writeFile: async () => {},
+          runScopedTests: async () => {
+            scopedCalls += 1;
+            return true;
+          },
+        },
+      );
+      expect(scopedCalls).toBe(1);
+      expect(result.kind).toBe("surviving-mutation");
+      if (result.kind !== "surviving-mutation") throw new Error("expected surviving-mutation");
       expect(result.dualConstraint).toBe(true);
     });
 

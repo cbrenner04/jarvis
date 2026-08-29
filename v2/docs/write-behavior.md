@@ -629,15 +629,19 @@ Every new PR resolves its title at the shared publication boundary. A readable `
 
 ## Diff-derived mutation verification
 
-After the admitted scoped ready gate passes, or immediately after publication when that gate is skipped, completion verification applies mutation candidates derived from the run's production-diff (`<runBase>...HEAD` plus untracked production files) before the draft→ready flip to enforce that changed guards are constrained by the run-base scoped test suites.
+After the admitted scoped ready gate passes, or immediately after publication when that gate is skipped, completion verification applies mutation candidates derived from the run's production-diff (`<runBase>...HEAD` plus untracked production files) before the draft→ready flip to enforce that changed guards are constrained by killing tests at bounded cost.
 
 Mutation candidates are derived from changed lines by classifying patterns: fail-closed guards (negation flips, comparison operator flips), destructive-operation safety choices (calls to unlink/delete/etc.), and subprocess arguments. Non-production files (test files, specs, docs) are excluded from the diff and do not generate candidates.
 
-For each candidate: the file is mutated, scoped tests are run via `resolveCiTestScope` against the mutated tree, and the mutation is marked "caught" only when at least one scoped test fails. The tree is restored after each candidate regardless of outcome. A zero-candidate diff (no production changes) or a production diff where all candidates are caught returns a pass result carrying the run base, inspected paths, and candidate count.
+For each code candidate: the production file is mutated, only the co-located `<stem>.test.ts` beside the production file is run via `bun test <relative-path>`, and the mutation is marked "caught" only when that killing test fails. Missing co-located `<stem>.test.ts` fails closed for that candidate (`missing-killing-test`). Changed registered prompts resolve render-observer scope through `shared/prompts/render-observer-tests.ts` `resolveRenderObserverTests(promptPath)`; only those mapped observer test file(s) run per prompt via `bun test`. Missing map entry fails closed as `missing-render-coverage`. The tree is restored after each candidate regardless of outcome. A zero-candidate diff (no production changes) or a production diff where all candidates are caught returns a pass result carrying the run base, inspected paths, and candidate count.
+
+Diff-derived verification is narrower than the ready gate by design: the gate proves the diff's CI union once; diff-derived proves per-artifact kill evidence at bounded cost. A thin or mis-paired co-located killing test can miss a surviving mutation that the full gate union would catch.
+
+Per-candidate and per-prompt file-scoped `bun test` runs parallelize behind a module semaphore; `MAX_CONCURRENT_VERIFIER_TEST_RUNS` (4, beside `MAX_INSPECTED_MUTATIONS` and `MAX_VERIFICATION_MS` in `diff-derived-mutation-verifier.ts`) caps total in-flight verifier-launched test subprocesses. Post-write `MAX_VERIFICATION_MS` is checked between candidates and prompt checks, separate from checkpoint `@mutate` verification in `mutation-checkpoint-verifier.ts` (which keeps package.json script semantics).
 
 A surviving mutation (scoped tests pass under the mutation) halts verification and returns the mutation text and source file+line. This is a non-recoverable completion failure: the run does not report `completed` and the mutation + source site are named in completion failure. The worktree is restored before returning any terminal result.
 
-Application and verification scope are bounded: only changed production files are inspected (no full-repo scan), and verification may be halted by count/time bounds to avoid dominating implement wall-clock (future enhancement).
+Application and verification scope are bounded: only changed production files are inspected (no full-repo scan), and verification may be halted by count/time bounds to avoid dominating implement wall-clock.
 
 Verification is exercised through injected seams for git-diff, untracked-file discovery, and scoped-test execution, enabling unit coverage of candidate derivation, mutation application, and failure classification without live subprocess or file I/O.
 

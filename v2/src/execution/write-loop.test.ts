@@ -525,6 +525,73 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
   };
 }
 
+type CompletedWriteObservation = { prNumber?: number | null; prUrl?: string | null };
+
+/** Wrap a store to record PR evidence present on each `setRunStatus(..., "completed")` call. */
+function storeObservingCompletedWrites(inner: StateStore): {
+  store: StateStore;
+  completedWrites: CompletedWriteObservation[];
+} {
+  const completedWrites: CompletedWriteObservation[] = [];
+  const store: StateStore = {
+    createRun: (args) => inner.createRun(args),
+    setCreationTitle: (runId, title) => inner.setCreationTitle(runId, title),
+    setRunSpecPath: (runId, specPath) => inner.setRunSpecPath(runId, specPath),
+    setRunDownstreamInputs: (runId, downstreamInputs) => inner.setRunDownstreamInputs(runId, downstreamInputs),
+    clearRunDownstreamInputs: (runId) => inner.clearRunDownstreamInputs(runId),
+    setPrEvidence: (runId, prNumber, prUrl) => inner.setPrEvidence(runId, prNumber, prUrl),
+    setReadyGatePgid: (runId, pgid) => inner.setReadyGatePgid(runId, pgid),
+    setReadyGateRepairFence: (runId, fence) => inner.setReadyGateRepairFence(runId, fence),
+    setRetainedFinalizationCheckpoint: (runId, checkpoint) =>
+      inner.setRetainedFinalizationCheckpoint(runId, checkpoint),
+    loadRun: (runId) => inner.loadRun(runId),
+    findRunByProjectBranch: (args) => inner.findRunByProjectBranch(args),
+    findReviewMutationLineageRows: (args) => inner.findReviewMutationLineageRows(args),
+    findRunsByInvocationId: (invocationId) => inner.findRunsByInvocationId(invocationId),
+    createPipeline: (args) => inner.createPipeline(args),
+    createPipelineStageBranch: (args) => inner.createPipelineStageBranch(args),
+    loadPipeline: (pipelineId) => inner.loadPipeline(pipelineId),
+    listPipelines: () => inner.listPipelines(),
+    updateStage: (args) => inner.updateStage(args),
+    commitApprovalBoundary: (args) => inner.commitApprovalBoundary(args),
+    commitApprovalDecision: (args) => inner.commitApprovalDecision(args),
+    claimPipelineContinuation: (args) => inner.claimPipelineContinuation(args),
+    claimPipelineStageAdmission: (args) => inner.claimPipelineStageAdmission(args),
+    releasePipelineStageAdmission: (args) => inner.releasePipelineStageAdmission(args),
+    loadPipelineStageAdmission: (args) => inner.loadPipelineStageAdmission(args),
+    reopenFailedPipeline: (args) => inner.reopenFailedPipeline(args),
+    commitTerminalPublicationFailure: (args) => inner.commitTerminalPublicationFailure(args),
+    commitTerminalPublicationSuccess: (args) => inner.commitTerminalPublicationSuccess(args),
+    dismissPipeline: (args) => inner.dismissPipeline(args),
+    undismissPipeline: (args) => inner.undismissPipeline(args),
+    recordAttemptStart: (runId) => inner.recordAttemptStart(runId),
+    setRunStatus: (runId, status) => {
+      if (status === "completed") {
+        const row = inner.loadRun(runId);
+        completedWrites.push({
+          ...(row?.prNumber !== undefined ? { prNumber: row.prNumber } : {}),
+          ...(row?.prUrl !== undefined ? { prUrl: row.prUrl } : {}),
+        });
+      }
+      inner.setRunStatus(runId, status);
+    },
+    commitGuardedKill: (runId) => inner.commitGuardedKill(runId),
+    dismissRun: (runId) => inner.dismissRun(runId),
+    undismissRun: (runId) => inner.undismissRun(runId),
+    forceKillOwnerAdmits: (runId) => inner.forceKillOwnerAdmits(runId),
+    beginRunReconciliation: () => inner.beginRunReconciliation(),
+    finishRunReconciliation: (runId) => inner.finishRunReconciliation(runId),
+    reconcilePipelines: () => inner.reconcilePipelines(),
+    listRuns: () => inner.listRuns(),
+    hasQueuedRun: (args) => inner.hasQueuedRun(args),
+    listQueuedRuns: () => inner.listQueuedRuns(),
+    isClosed: () => inner.isClosed(),
+    close: () => inner.close(),
+    commitCompletionBoundary: (args) => inner.commitCompletionBoundary(args),
+  };
+  return { store, completedWrites };
+}
+
 /** Bindings that report `progress` n times, then write the artifact and report `done`. */
 function progressThenDone(n: number): InvocationBinding[] {
   let calls = 0;
@@ -5737,6 +5804,83 @@ export function isLoadSensitive(file: string): boolean {
       const storedRun = loadRunOnce(stateDbPath, result.runId);
       expect(storedRun?.prNumber).toBe(42);
       expect(storedRun?.prUrl).toBe("https://github.com/owner/repo/pull/42");
+    });
+
+    test("fresh completion publication persists PR evidence before the run becomes completed", async () => {
+      // @mutate v2/src/execution/write-loop.ts "store.setPrEvidence(runId, publication.success.prNumber, publication.success.prUrl);" -> "void publication.success;"
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const inner = openStateStore(stateDbPath);
+      const { store, completedWrites } = storeObservingCompletedWrites(inner);
+      const prNumber = 42;
+      const prUrl = "https://github.com/owner/repo/pull/42";
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        store,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        completionCommitter: async () => ({ commitSha: "commit-1", filesChanged: 1 }),
+        completionPublisher: async () => ({ prNumber, prUrl }),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      const successfulCompletedWrite = completedWrites.at(-1);
+      expect(successfulCompletedWrite?.prNumber).toBe(prNumber);
+      expect(successfulCompletedWrite?.prUrl).toBe(prUrl);
+    });
+
+    test("resumed completion publication persists PR evidence before the run becomes completed and reuses the published PR", async () => {
+      // @mutate v2/src/execution/write-loop.ts "store.setPrEvidence(prepared.result.runId, publication.success.prNumber, publication.success.prUrl);" -> "void publication.success;"
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const branchName = "resume-pr-evidence-order";
+      const publish = { commitSha: "commit-1", filesChanged: 2 };
+      const prNumber = 7;
+      const prUrl = "https://github.com/owner/repo/pull/7";
+      let publishCalls = 0;
+
+      const first = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        branchName,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        completionCommitter: async () => publish,
+        completionPublisher: async () => {
+          publishCalls += 1;
+          throw new Error("push failed");
+        },
+        readyFinalizer: async () => {
+          throw new Error("should not finalize before publication succeeds");
+        },
+      });
+      expect(first.kind).toBe("completion_commit_failed");
+      expect(publishCalls).toBe(1);
+
+      mkdirSync(join(jarvisRoot, "worktrees", "demo", branchName, ".git"), { recursive: true });
+
+      const inner = openStateStore(stateDbPath);
+      const { store, completedWrites } = storeObservingCompletedWrites(inner);
+      const retry = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        branchName,
+        store,
+        bindings: [],
+        completionCommitter: async () => publish,
+        completionPublisher: async () => {
+          publishCalls += 1;
+          return { prNumber, prUrl };
+        },
+        readyFinalizer: async () => {},
+      });
+      expect(retry.kind).toBe("complete");
+      expect(retry.runId).toBe(first.runId);
+      expect(publishCalls).toBe(2);
+      expect(retry.prNumber).toBe(prNumber);
+      expect(retry.prUrl).toBe(prUrl);
+
+      const successfulCompletedWrite = completedWrites.at(-1);
+      expect(successfulCompletedWrite?.prNumber).toBe(prNumber);
+      expect(successfulCompletedWrite?.prUrl).toBe(prUrl);
     });
 
     test("records successful observed runtime smoke separately from not-runnable evidence", async () => {

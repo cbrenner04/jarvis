@@ -4,12 +4,13 @@ name: retire-implement-mutation-checkpoint-verification
 
 # Retire implement-time mutation-checkpoint verification
 
+Unsplit rationale: Retiring checkpoint verification is one execution-loop behavior.
+
 ## Prerequisites
 
 - Plan drafting, review, normalization, and durable guidance no longer require, author, or validate mutation/keystone checkpoint syntax, while the named pre-fix failing-test rule remains.
-- The operator has confirmed that no in-flight spec tree still depends on checkpoint-shaped acceptance criteria.
 
-## Module-boundary surface
+## Primary implementation surface
 
 - Execution loop
 
@@ -33,7 +34,7 @@ name: retire-implement-mutation-checkpoint-verification
 ## Acceptance criteria
 
 - [ ] Write completion tests pin that checked checkpoint-shaped criteria trigger no checkpoint selection, mutation application, or checkpoint-specific reprompt.
-- [ ] `v2/src/execution/mutation-checkpoint-verifier.ts`, its dedicated tests, shared checkpoint-only classifiers, and prompt IDs `write.mutation-directive-reprompt`, `write.keystone-directive-reprompt`, and `write.guard-checkpoint-reprompt` are gone.
+- [ ] Implement completion exposes no checkpoint-specific verifier or reprompt capability.
 - [ ] Existing diff-derived mutation-verifier, mutation-repair, and runtime-smoke tests stay green without semantic changes.
 - [ ] `bun run typecheck` and the v1, v2, and v2 integration suites pass.
 

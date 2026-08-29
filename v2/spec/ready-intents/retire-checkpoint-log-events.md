@@ -4,13 +4,15 @@ name: retire-checkpoint-log-events
 
 # Retire checkpoint reprompt log events
 
+Unsplit rationale: Retiring the durable event contract is one persistence-bound behavior.
+
 ## Prerequisites
 
 - Plan drafting, review, normalization, and durable guidance no longer require, author, or validate mutation/keystone checkpoint syntax, while the named pre-fix failing-test rule remains.
 - Implement completion ignores checkpoint-shaped criteria, exposes no checkpoint verifier or reprompt prompts, and retains diff-derived verification as the sole mutation gate.
 - Daemon resume no longer reconstructs or forwards checkpoint-specific reprompt context from durable logs.
 
-## Module-boundary surface
+## Primary implementation surface
 
 - Persistence
 
@@ -21,7 +23,7 @@ name: retire-checkpoint-log-events
 ## Behavior
 
 - The appendable log-event contract contains no mutation-directive, guard-checkpoint, or keystone-directive reprompt variants or payload types.
-- Generic log reading remains tolerant of historical JSON records, but retired events have no replay or repair semantics.
+- Generic log reading remains tolerant of historical JSON records without retaining typed handling for retired events.
 - Operator log-follow behavior for active event kinds remains unchanged.
 
 ## Decisions
@@ -31,8 +33,8 @@ name: retire-checkpoint-log-events
 
 ## Acceptance criteria
 
-- [ ] `v2/src/persistence/log-stream.ts` and its tests expose no checkpoint-reprompt event or payload types.
-- [ ] A persisted historical checkpoint event remains tail-readable as generic JSON and cannot influence resume, pinned by persistence and daemon tests.
+- [ ] Log append and inspection expose no checkpoint-reprompt event family or payload.
+- [ ] A persisted historical checkpoint event remains tail-readable as generic JSON.
 - [ ] Existing log sequence, truncation, follow, and active-event formatting tests stay green.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 

@@ -4,9 +4,11 @@ name: retire-plan-mutation-checkpoint-authoring
 
 # Retire mutation-checkpoint authoring from plans
 
+Unsplit rationale: Retiring checkpoint authoring is one plan-authoring-and-review behavior.
+
 ## Prerequisites
 
-## Module-boundary surface
+## Primary implementation surface
 
 - Plan authoring and review
 

@@ -4,12 +4,14 @@ name: retire-checkpoint-resume-replay
 
 # Retire checkpoint reprompt replay on daemon resume
 
+Unsplit rationale: Retiring checkpoint replay is one daemon-bound resume behavior.
+
 ## Prerequisites
 
 - Plan drafting, review, normalization, and durable guidance no longer require, author, or validate mutation/keystone checkpoint syntax, while the named pre-fix failing-test rule remains.
 - Implement completion ignores checkpoint-shaped criteria, exposes no checkpoint verifier or reprompt prompts, and retains diff-derived verification as the sole mutation gate.
 
-## Module-boundary surface
+## Primary implementation surface
 
 - Daemon
 
@@ -32,7 +34,7 @@ name: retire-checkpoint-resume-replay
 
 - [ ] Daemon resume tests pin that historical checkpoint reprompt events restore no prompt context and do not affect the resumed iteration budget.
 - [ ] Existing paused implement, landing-contract, staged-Markdown-lint, invalid-token, and missing-blocker resume tests stay green.
-- [ ] No daemon or execution input type exposes checkpoint-specific replay context.
+- [ ] Daemon resume exposes no checkpoint-specific replay context to execution.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

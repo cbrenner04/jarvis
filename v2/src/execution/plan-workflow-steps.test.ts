@@ -245,7 +245,7 @@ describe("plan ready-intent output routing", () => {
     const readyIntent = "v1/spec/ready-intents/feature.md";
     mkdirSync(join(root, "v1/spec/ready-intents"), { recursive: true });
     writeFileSync(join(root, readyIntent), "---\nname: feature\n---\n\n## Prerequisites\n", "utf8");
-    writeFileSync(config, JSON.stringify({ projects: { demo: { root, git: false } } }));
+    writeFileSync(config, JSON.stringify({ projects: { "Org/Repo": { root, git: false } } }));
 
     const result = await buildPlanWorkflowSteps(
       { cwd: root, readyIntent, configPath: config },
@@ -253,7 +253,7 @@ describe("plan ready-intent output routing", () => {
     );
     expect(result.ok).toBe(true);
     if (result.ok) {
-      const externalPlanPath = join(jarvisHome(), "specs", "demo", "plans", "feature");
+      const externalPlanPath = join(jarvisHome(), "specs", "Org-Repo", "plans", "feature");
       expect(result.steps[0]).toMatchObject({
         specPath: externalPlanPath,
         worktree: { git: false, localPath: externalPlanPath },

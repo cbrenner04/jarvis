@@ -22,14 +22,14 @@ Intent and plan publication privately transform registered project keys before p
 
 ## Acceptance criteria
 
-- [ ] `shared/project-safe-id.test.ts` pins `org/repo` → `org-repo`, trims edge hyphens, preserves case, and maps an all-special key to `project`.
-- [ ] `projectSafeId` has one exported definition in `shared/project-safe-id.ts`; `v2/src/execution/publication-workflow-steps.ts` imports it and contains no private duplicate.
-- [ ] `v2/src/execution/intent-workflow-steps.test.ts` test `uses project-safe registered keys for Git-disabled intent workspace and durable output` (or equivalent) supplies a registered slash-containing key with `git: false` and pins `~/.jarvis/intent-work/<safeId>/` plus `~/.jarvis/specs/<safeId>/ready-intents`.
-- [ ] `v2/src/execution/plan-workflow-steps.test.ts` test `uses project-safe registered keys for Git-disabled plan workspace and durable output` (or equivalent) supplies a registered slash-containing key with `git: false` and pins `~/.jarvis/specs/<safeId>/plans/<name>` for both workspace and durable output routing.
-- [ ] `v2/src/execution/intent-workflow-steps.test.ts` — `uses external ready-intents storage when project git is disabled` — stays green.
-- [ ] `v2/src/execution/plan-workflow-steps.test.ts` — `keeps Git-disabled ready-intent plans in external storage` — stays green.
-- [ ] `v1/src/modes/plan/spec-paths.ts` remains unchanged; v1's existing project-ID resolver is out of scope.
-- [ ] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `shared/project-safe-id.test.ts` pins `org/repo` → `org-repo`, trims edge hyphens, preserves case, and maps an all-special key to `project`.
+- [x] `projectSafeId` has one exported definition in `shared/project-safe-id.ts`; `v2/src/execution/publication-workflow-steps.ts` imports it and contains no private duplicate.
+- [x] `v2/src/execution/intent-workflow-steps.test.ts` test `uses project-safe registered keys for Git-disabled intent workspace and durable output` (or equivalent) supplies a registered slash-containing key with `git: false` and pins `~/.jarvis/intent-work/<safeId>/` plus `~/.jarvis/specs/<safeId>/ready-intents`.
+- [x] `v2/src/execution/plan-workflow-steps.test.ts` test `uses project-safe registered keys for Git-disabled plan workspace and durable output` (or equivalent) supplies a registered slash-containing key with `git: false` and pins `~/.jarvis/specs/<safeId>/plans/<name>` for both workspace and durable output routing.
+- [x] `v2/src/execution/intent-workflow-steps.test.ts` — `uses external ready-intents storage when project git is disabled` — stays green.
+- [x] `v2/src/execution/plan-workflow-steps.test.ts` — `keeps Git-disabled ready-intent plans in external storage` — stays green.
+- [x] `v1/src/modes/plan/spec-paths.ts` remains unchanged; v1's existing project-ID resolver is out of scope.
+- [x] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -5,6 +5,7 @@ import { getBaseBranch } from "../../../shared/git.ts";
 import type { ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
+import { projectSafeId } from "../../../shared/project-safe-id.ts";
 import {
   INTENT_REVIEW_DEBATE_ROLE_PROMPT_IDS,
   intentReviewPromptProfile,
@@ -104,10 +105,6 @@ function slugify(value: string): string {
 function inside(parent: string, child: string): boolean {
   const path = relative(parent, child);
   return path === "" || (!path.startsWith("..") && !isAbsolute(path));
-}
-function projectSafeId(project: string): string {
-  const safe = project.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
-  return safe.length > 0 ? safe : "project";
 }
 function projectConfig(path: string | undefined, project: ProjectMatch): ProjectConfig {
   const d = readMachineConfigDocument(path);

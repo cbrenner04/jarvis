@@ -1,0 +1,4 @@
+Reviewing the implementation against the spec and acceptance criteria before issuing a verdict.
+The patch satisfies the landed subspec. `projectSafeId` lives in `shared/project-safe-id.ts`, publication imports it with no local duplicate, unit tests cover the four pinned transform cases, and the intent/plan workflow tests route `Org/Repo` → `Org-Repo` on git-disabled external paths. v1 is untouched; deferred work (daemon wiring, collision policy, cross-mode identity) is correctly out of scope.
+
+Remaining notes (`intent.md` seed drift, `test:shared` omitted from AC wording, optional DRY/style hardening) are spec hygiene or follow-ups, not defects that block merge.

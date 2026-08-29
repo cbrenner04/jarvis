@@ -198,6 +198,31 @@ describe("ready gate untouched-path classification", () => {
     expect(classified.outsidePaths).toEqual(["v2/src/untouched.test.ts"]);
   });
 
+  it("classifies missing-command gate output as ready_gate_command_missing and keeps ordinary red output on ready_gate_failed", async () => {
+    for (const output of ['Script not found "ready"', "command not found: bun", "spawn ENOENT"]) {
+      const classified = await classifyReadyGateError(
+        new ReadyGateError("bun run ready", 1, output),
+        scope,
+        allowedSeams,
+      );
+      expect(classified.gateFailureKind).toBe("ready_gate_command_missing");
+    }
+
+    const ordinaryRed = await classifyReadyGateError(
+      new ReadyGateError(
+        "bun run ready",
+        1,
+        gateOutput({
+          completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 1 }],
+          failingFiles: [{ attemptId: "2.1", path: "v2/src/changed.ts" }],
+        }),
+      ),
+      scope,
+      allowedSeams,
+    );
+    expect(ordinaryRed.gateFailureKind).toBe("ready_gate_failed");
+  });
+
   it("keeps mixed, absent, malformed, stale-retry, later-non-test, and partial attribution on ready_gate_failed", async () => {
     const mixed = await classifyReadyGateError(
       new ReadyGateError(

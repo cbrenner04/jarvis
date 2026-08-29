@@ -499,6 +499,8 @@ A red ready gate first runs project autofix once per repair entry (after the rep
 
 When every attributable failing path lies outside the run's touched set (spec tree plus base-to-HEAD diff and untracked inventory) and also reproduces on `baseRef`, finalization settles `ready_gate_out_of_scope` instead of entering bounded repair. `list` / `wait` name `error.reason: ready_gate_out_of_scope`, preserve `error.readyGateOutsidePaths` and `error.readyGateOutOfScopeDetail`, and report `nextAction: stop` when the outside-path set is unchanged from the row's first such settlement — resume cannot clear that condition. Do not `jarvis run resume` or repair unrelated source files for unchanged-path out-of-scope failures. Review every repair commit's file list before merging; bounded repair can still touch in-scope paths when a mixed or in-scope gate failure triggered it.
 
+When gate output names a missing spawn target (`Script not found`, `command not found`, or `ENOENT`), finalization settles `ready_gate_command_missing` instead of entering autofix or bounded repair. Read `error.message` for the configured command and bounded output, fix `projects.<key>.readyCommand` or add the missing script, then re-dispatch the workflow. `nextAction` is `fix_config`; `jarvis run resume` is refused because resume cannot create the command.
+
 Mutation verification inspects production diff paths only; test-file changes (basename contains `.test.`, e.g. `*.test.tsx`, `*.sandbox-unrunnable.test.ts`) are not mutation candidates and will not surface `surviving_mutation_failed`.
 
 Mutation verification requires expectations independent of the mutated production behavior; self-referential doubles invalidate that evidence.

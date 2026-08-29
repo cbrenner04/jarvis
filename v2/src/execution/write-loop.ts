@@ -120,6 +120,7 @@ const WRITE_LOOP_OUTCOME_KINDS = [
   "completion_commit_failed",
   "iteration_commit_failed",
   "ready_gate_failed",
+  "ready_gate_command_missing",
   "ready_gate_out_of_scope",
   "ready_flip_failed",
   "surviving_mutation_failed",
@@ -2570,6 +2571,7 @@ export type CompletionPublishFailure = {
   kind:
     | "completion_commit_failed"
     | "ready_gate_failed"
+    | "ready_gate_command_missing"
     | "ready_gate_out_of_scope"
     | "ready_flip_failed"
     | "surviving_mutation_failed"
@@ -2755,7 +2757,12 @@ async function classifyReadyGatePublishFailure(
   );
   return {
     ...failure,
-    kind: classified.gateFailureKind === "ready_gate_out_of_scope" ? "ready_gate_out_of_scope" : "ready_gate_failed",
+    kind:
+      classified.gateFailureKind === "ready_gate_out_of_scope"
+        ? "ready_gate_out_of_scope"
+        : classified.gateFailureKind === "ready_gate_command_missing"
+          ? "ready_gate_command_missing"
+          : "ready_gate_failed",
     error: classified,
   };
 }
@@ -2799,10 +2806,15 @@ function loadPersistedRepairAllowset(store: StateStore, runId: string): Set<stri
   return new Set(persistedFence.allowedPaths);
 }
 
-function isActiveReadyGateFailure(
-  outcome: CompletionPublishOutcome,
-): outcome is CompletionPublishFailure & { kind: "ready_gate_failed"; error: ReadyGateError } {
-  return outcome.kind === "ready_gate_failed" && outcome.error instanceof ReadyGateError && !outcome.error.timedOut;
+function isActiveReadyGateFailure(outcome: CompletionPublishOutcome): outcome is CompletionPublishFailure & {
+  kind: "ready_gate_failed" | "ready_gate_command_missing";
+  error: ReadyGateError;
+} {
+  return (
+    (outcome.kind === "ready_gate_failed" || outcome.kind === "ready_gate_command_missing") &&
+    outcome.error instanceof ReadyGateError &&
+    !outcome.error.timedOut
+  );
 }
 
 async function initializeFrozenRepairAllowset(
@@ -3221,6 +3233,9 @@ export async function publishWithReadyRepair(
   if (outcome.kind !== "success") {
     outcome = await classifyReadyGatePublishFailure(outcome, input, args.readyCommand, args.readyGateScopeSeams);
   }
+  if (outcome.kind === "ready_gate_command_missing") {
+    return buildReadyRepairPublishResult(outcome, iterationsConsumed);
+  }
   if (!isActiveReadyGateFailure(outcome)) {
     appendReadyGateTimeoutLog(args, result.runId, outcome);
     return buildReadyRepairPublishResult(outcome, iterationsConsumed);
@@ -3430,7 +3445,9 @@ function buildFinalizationErrorResponse(
       err instanceof ReadyGateError
         ? err.gateFailureKind === "ready_gate_out_of_scope"
           ? "ready_gate_out_of_scope"
-          : "ready_gate_failed"
+          : err.gateFailureKind === "ready_gate_command_missing"
+            ? "ready_gate_command_missing"
+            : "ready_gate_failed"
         : "ready_flip_failed",
     error: err,
     ...(prNumber !== undefined ? { prNumber } : {}),
@@ -3571,26 +3588,36 @@ export function persistRetainedFinalizationCheckpoint(
   return true;
 }
 
+type ReadyFailureKind =
+  | "ready_gate_failed"
+  | "ready_gate_command_missing"
+  | "ready_gate_out_of_scope"
+  | "ready_flip_failed"
+  | "surviving_mutation_failed"
+  | "runtime_smoke_failed";
+
+function readyFailureResumable(
+  kind: ReadyFailureKind,
+  outsidePaths: readonly string[] | undefined,
+  priorRecords: ReturnType<typeof priorLogRecordsFromSink>,
+): boolean {
+  if (kind === "ready_gate_out_of_scope") return outOfScopeSettlementResumable(outsidePaths, priorRecords);
+  if (kind === "ready_gate_command_missing") return false;
+  return kind === "ready_gate_failed" || kind === "surviving_mutation_failed";
+}
+
 function readyFailed(
   args: WriteLoopInput,
   store: StateStore,
   result: WriteLoopResult,
-  kind:
-    | "ready_gate_failed"
-    | "ready_gate_out_of_scope"
-    | "ready_flip_failed"
-    | "surviving_mutation_failed"
-    | "runtime_smoke_failed",
+  kind: ReadyFailureKind,
   error?: Error,
   readyGateOrigin?: ReadyGateOrigin,
 ): WriteLoopResult {
   const publicationFailure = error === undefined ? undefined : publicationFailureFor(error);
   const outOfScopeFields = readyGateOutOfScopeLogFields(error);
   const priorRecords = priorLogRecordsFromSink(args.logSink, result.runId);
-  const resumable =
-    kind === "ready_gate_out_of_scope"
-      ? outOfScopeSettlementResumable(outOfScopeFields.readyGateOutsidePaths, priorRecords)
-      : kind === "ready_gate_failed" || kind === "surviving_mutation_failed";
+  const resumable = readyFailureResumable(kind, outOfScopeFields.readyGateOutsidePaths, priorRecords);
   const mutationFields = survivingMutationLogFields(error);
   // Publication marks the row `in-progress` for the finalization tail, so every exit from that
   // tail must restore a terminal status. Gate and mutation failures demote to `failed`; flip and
@@ -3598,7 +3625,10 @@ function readyFailed(
   // non-live forever and hangs `run wait`, which follows the log for non-terminal rows.
   store.setRunStatus(
     result.runId,
-    kind === "surviving_mutation_failed" || kind === "ready_gate_failed" || kind === "ready_gate_out_of_scope"
+    kind === "surviving_mutation_failed" ||
+      kind === "ready_gate_failed" ||
+      kind === "ready_gate_command_missing" ||
+      kind === "ready_gate_out_of_scope"
       ? "failed"
       : "completed",
   );
@@ -3633,7 +3663,7 @@ function readyFailed(
           readyGateError: outOfScopeFields.readyGateOutOfScopeDetail ?? error?.message ?? "ready gate failed",
           ...outOfScopeFields,
         }
-      : kind === "ready_gate_failed"
+      : kind === "ready_gate_failed" || kind === "ready_gate_command_missing"
         ? { readyGateError: error?.message ?? "ready gate failed" }
         : kind === "ready_flip_failed"
           ? {

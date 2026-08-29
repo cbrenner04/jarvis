@@ -95,7 +95,13 @@ export class ReadyFlipError extends Error {
   }
 }
 
-export type ReadyGateFailureKind = "ready_gate_failed" | "ready_gate_out_of_scope";
+export type ReadyGateFailureKind = "ready_gate_failed" | "ready_gate_out_of_scope" | "ready_gate_command_missing";
+
+/** True when trimmed gate output names a missing spawn target or script. */
+export function isMissingReadyGateCommandOutput(output: string): boolean {
+  const text = output.trim();
+  return /script not found/i.test(text) || /command not found/i.test(text) || /enoent/i.test(text);
+}
 
 export type ReadyGateClassification = {
   kind: ReadyGateFailureKind;
@@ -165,7 +171,7 @@ export function readyGateFailureLogFields(
   source: Error | undefined,
 ) {
   if (
-    loopOutcomeKind !== "ready_gate_failed" ||
+    (loopOutcomeKind !== "ready_gate_failed" && loopOutcomeKind !== "ready_gate_command_missing") ||
     !(source instanceof ReadyGateError) ||
     source.gateFailureKind !== loopOutcomeKind
   ) {
@@ -483,7 +489,13 @@ export async function classifyReadyGateFailure(
   seams?: ReadyGateScopeSeams,
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
 ): Promise<ReadyGateClassification> {
-  if (error.timedOut || error.command !== resolveReadyGateCommand(scope?.readyCommand).display) {
+  if (error.timedOut) {
+    return { kind: "ready_gate_failed" };
+  }
+  if (isMissingReadyGateCommandOutput(error.output)) {
+    return { kind: "ready_gate_command_missing" };
+  }
+  if (error.command !== resolveReadyGateCommand(scope?.readyCommand).display) {
     return { kind: "ready_gate_failed" };
   }
   if (failingPaths === undefined || allowedPaths === undefined || failingPaths.length === 0) {

@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { InvocationResult } from "../../../shared/invocation/execute.ts";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
@@ -215,7 +214,7 @@ describe("recoverPlanStage review-failed admission", () => {
     writeLintCleanPlanStage(stage, "00-first.md");
 
     const reviewerCalls: string[] = [];
-    const planDraftCalls: string[] = [];
+    const _planDraftCalls: string[] = [];
 
     await withStateStore(async (store) => {
       const runId = seedCompletedPlanWriteRun(store, {

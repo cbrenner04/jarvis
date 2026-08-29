@@ -12,6 +12,7 @@ With all real work on workflows/pipelines, the ad-hoc write-loop lane is vestigi
 
 - Sequence: delete `run pause` (+ TUI `pause` verb + `pauseController` plumbing in `daemon.ts`/`write-loop.ts`), then `run start` (+ `queuedInput`, `reconstructDirectWriteResume`, `kind: "write-loop"` rows, `parseWriteCliInput`, help-parity entries), then `config` (fold `set-agents` into `init` or document hand-edit; re-point the install smoke check at `jarvis help`). Rules out deleting `run start` first and stranding pause plumbing.
 - `run.test.ts`'s daemon-auto-start / stale-dispatch coverage migrates onto `run workflow` argv before the `run start` cut; no coverage dropped. Rules out losing the auto-start pins with the command.
+- `queuedInput` gained a consumer after this seed was drafted: `resolveWriteSiblingCommandSource` (`workflow-runner.ts`, #3060) reads it as the first source for resume fix/ready commands. The `run start` cut degrades that read to snapshot-only (workflow rows never persisted `queuedInput`) in the same change. Rules out deleting the column out from under the resume path.
 - The dismiss pairs merge onto one implementation with two thin CLI surfaces (both verbs stay; the duplicated mutation-checkpoint idiom goes). Rules out carrying two copies of dismissal.
 - Keep: `daemon start|status|stop` (runtime-smoke verifier shells them), `run list|log|wait|kill|resume` (documented recovery verbs; `run kill` is the only abort for a live pipeline stage run). Rules out over-trimming the operator's recovery surface.
 

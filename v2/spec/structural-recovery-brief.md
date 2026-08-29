@@ -37,6 +37,7 @@ The five structural retirements that close whole classes: one dispatch front doo
 | **P2** | [[split-workflow-runner-resume-machines]] | 5,141-line file split; twin resume machines merged (`resumable: true` bug); absorbs issue #2181 and the demoted load-isolation trio |
 | **P2** | [[split-daemon-run-control-handlers]] | 1,318-line closure split; WeakMap back-channel and production test seams retired; guard generalized |
 | **P2** | [[dead-export-and-test-seam-gates]] | knip-style gate; 6 dead exports; repair-fence bypass out of production |
+| **P2** | [[typed-step-stubs-and-bounded-spins]] | Shared typed step factory + bounded-spin helper; retires the two scaffolding hazards behind the #3060 silent hang |
 | **P2** | [[cli-retire-write-and-legacy-aliases]] → [[cli-retire-run-start-pause-and-config]] | CLI trim, sequenced (pause plumbing before `run start`); dismiss pairs merged |
 | **P3** | [[mechanical-cruft-pass]] | Shared helpers, path derivations, dead flag, migration squash |
 | **P3** | Re-triage demoted seeds | rename-lane family and supersede family re-scope against the post-settlement seam; load trio verify-or-reap |
@@ -53,6 +54,6 @@ Keep: `daemon start|status|stop` (runtime-smoke verifier shells them), `run list
 - Reaped: ready-intent `landing-failed-names-its-cause` (#2980 verified on `main`).
 - Demoted to seeds with inline notes: `concurrent-load-suite-margin-check`, `daemon-test-concurrent-load-isolation`, `workflow-runner-test-concurrent-load-isolation` (verify-or-reap), `rename-pipeline-lane-{persistence,rpc,execution,operator-surfaces}` (post-settlement; persistence slice absorbs the `workflowInvocationId`→entry-run-id rename), `configure-pipeline-supersede-policy`, `settle-superseded-pipeline-prs`, `retire-superseded-pipeline-branches` (re-scope post-settlement).
 - Kept ready-intent: `daemon-start-sweeps-orphan-gate-children` (prereqs landed, orthogonal).
-- New seeds from the review: the thirteen linked above.
+- New seeds from the review and the #3060 hand-finish: the fourteen linked above.
 
 Test strategy unchanged: pure functions + injected input hook for TUI; daemon/state tests for pipeline items; no assertion dropped in any split (inventory-diff before merge).

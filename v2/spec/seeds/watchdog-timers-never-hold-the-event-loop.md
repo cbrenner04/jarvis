@@ -12,7 +12,7 @@ The wall-segment, ceiling, and review-role watchdog timers were real timers not 
 
 - Pin the landed behavior: a process that arms each watchdog kind and reaches settle exits without waiting out the timer. Rules out unpinned hygiene that the next timer site regresses.
 - Tests that assert watchdog behavior drive fake timers; no test waits out a real watchdog. Rules out reintroducing wall-clock hangs.
-- The microtask-spin test idiom (`while (!flag) await Promise.resolve()`) starves timers and turns any pre-`wait()` failure into a silent file hang; decide at intent time whether to bound it with a shared helper. Rules out leaving the hang class entirely undocumented.
+- The microtask-spin hazard that hid the real failure is owned by [[typed-step-stubs-and-bounded-spins]], not here. Rules out two seeds fixing the same idiom.
 
 ## Acceptance criteria
 

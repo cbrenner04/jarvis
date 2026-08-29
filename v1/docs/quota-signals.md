@@ -196,6 +196,12 @@ Codex quota detection now covers both non-zero exits and zero exits. On zero exi
   Your access token could not be refreshed because your refresh token was revoked. Please log out and sign in again.
   ```
 
+- 2026-08-29 — Codex trusted-directory refusal (exit non-zero, stderr); classified by v2 `shared/invocation/agents.ts` only
+
+  ```text
+  Not inside a trusted directory and --skip-git-repo-check was not specified.
+  ```
+
 ### Observed quota stderr (real samples)
 
 - No real samples recorded yet.
@@ -223,7 +229,7 @@ Cursor quota detection now covers both non-zero exits and zero exits. On zero ex
 
 - No real samples recorded yet.
 
-## Pattern audit (`src/agents/quota.ts`)
+## v1 pattern audit (`src/agents/quota.ts`)
 
 Status key:
 - `Matched`: verified against a real sample captured in this doc.
@@ -368,6 +374,13 @@ Git/gh-specific transient patterns used by `isTransientNetworkError` and the bou
   Sample link: none yet.
 - `/\\bthe remote end hung up unexpectedly\\b/i` — Unverified best-effort.
   Sample link: none yet (git over HTTPS pattern).
+
+## v2 shared Codex classifier (`shared/invocation/agents.ts`)
+
+### `codexCredentialAuthPatterns`
+
+- `/--skip-git-repo-check was not specified/i` — Matched.
+  Sample link: 2026-08-29 (trusted-directory refusal; v2 shared classifier only).
 
 ## Follow-up TODOs
 

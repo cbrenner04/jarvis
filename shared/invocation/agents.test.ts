@@ -140,6 +140,7 @@ function telemetryForRows(rows: InvocationCompletedRecord[]) {
 
 const CODEX_FIXTURE_MARKER_ID = "fixture-marker";
 const CODEX_FIXTURE_MARKER = `<!-- jarvis-codex-invocation: ${CODEX_FIXTURE_MARKER_ID} -->`;
+const CODEX_TRUSTED_DIRECTORY_REFUSAL = "Not inside a trusted directory and --skip-git-repo-check was not specified.";
 
 function codexUserMessageLine(marker = CODEX_FIXTURE_MARKER): string {
   return JSON.stringify({
@@ -602,6 +603,7 @@ describe("createResolvedAgentBinding", () => {
     expect(fake.calls[0]?.binary).toBe("codex");
     expect(fake.calls[0]?.argv).toEqual([
       "exec",
+      "--skip-git-repo-check",
       "--color",
       "never",
       "--sandbox",
@@ -639,6 +641,7 @@ describe("createResolvedAgentBinding", () => {
 
     expect(fake.calls[0]?.argv).toEqual([
       "exec",
+      "--skip-git-repo-check",
       "--color",
       "never",
       "--sandbox",
@@ -648,6 +651,7 @@ describe("createResolvedAgentBinding", () => {
     ]);
     expect(fake.calls[1]?.argv).toEqual([
       "exec",
+      "--skip-git-repo-check",
       "--color",
       "never",
       "--sandbox",
@@ -664,6 +668,7 @@ describe("createResolvedAgentBinding", () => {
     const hitLimit = fakeSpawn([{ kind: "settle", code: 1, stderr: "you’ve hit your usage limit" }]);
     const reachedLimit = fakeSpawn([{ kind: "settle", code: 1, stderr: "you’ve reached your usage limit" }]);
     const authQuota = fakeSpawn([{ kind: "settle", code: 1, stderr: "please log out and sign in" }]);
+    const trustedDir = fakeSpawn([{ kind: "settle", code: 1, stderr: CODEX_TRUSTED_DIRECTORY_REFUSAL }]);
     const model = fakeSpawn([{ kind: "settle", code: 1, stderr: "unknown model: nope" }]);
     const generic = fakeSpawn([{ kind: "settle", code: 2, stderr: "boom" }]);
 
@@ -693,6 +698,12 @@ describe("createResolvedAgentBinding", () => {
     ).resolves.toEqual({ kind: "quota", stderr: "please log out and sign in", authFailure: true });
     await expect(
       createResolvedAgentBinding(
+        { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
+        { spawn: trustedDir.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({ kind: "quota", stderr: CODEX_TRUSTED_DIRECTORY_REFUSAL, authFailure: true });
+    await expect(
+      createResolvedAgentBinding(
         { agentId: "codex", adapterModel: "bad", priceKey: "bad" },
         { spawn: model.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
       ).invoke({ prompt: "p", cwd: "/repo" }),
@@ -703,6 +714,31 @@ describe("createResolvedAgentBinding", () => {
         { spawn: generic.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
       ).invoke({ prompt: "p", cwd: "/repo" }),
     ).resolves.toEqual({ kind: "error", exitCode: 2, stderr: "boom" });
+  });
+
+  test("codex trusted-directory refusal advances fallback", async () => {
+    const sessionsDir = mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
+    const fake = fakeSpawn([{ kind: "settle", code: 1, stderr: CODEX_TRUSTED_DIRECTORY_REFUSAL }]);
+    const result = await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/repo",
+      bindings: [
+        createResolvedAgentBinding(
+          { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
+          codexBindingOpts(sessionsDir, fake.spawn),
+        ),
+        { id: "next", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) },
+      ],
+    });
+
+    expect(result.attempts).toHaveLength(2);
+    expect(result.attempts[0]?.result).toEqual({
+      kind: "quota",
+      stderr: CODEX_TRUSTED_DIRECTORY_REFUSAL,
+      authFailure: true,
+    });
+    expect(result.attempts[1]?.binding.id).toBe("next");
+    expect(result.final?.result).toEqual({ kind: "ok", stdout: "done", stderr: "" });
   });
 
   test("codex binding classifies zero-exit quota patterns", async () => {

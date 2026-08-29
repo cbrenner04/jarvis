@@ -92,6 +92,7 @@ test("configured danger-full-access reaches the shared Codex binding on the fres
   expect(fake.calls[0]?.binary).toBe("codex");
   expect(fake.calls[0]?.argv).toEqual([
     "exec",
+    "--skip-git-repo-check",
     "--color",
     "never",
     "--sandbox",
@@ -120,6 +121,7 @@ test("configured Codex sandbox mode survives the daemon/JSON rehydration boundar
 
   expect(fake.calls[0]?.argv).toEqual([
     "exec",
+    "--skip-git-repo-check",
     "--color",
     "never",
     "--sandbox",

@@ -640,6 +640,7 @@ async function runCodexBinding(args: {
       cwd: args.cwd,
       buildArgv: () => [
         "exec",
+        "--skip-git-repo-check",
         "--color",
         "never",
         "--sandbox",
@@ -992,6 +993,7 @@ const opencodeQuotaPatterns = [
 const opencodeModelConfigurationPatterns = [/\bno provider configured for\b/i] as const;
 
 const codexCredentialAuthPatterns = [
+  /--skip-git-repo-check was not specified/i,
   /\brefresh token was revoked\b/i,
   /\brefresh token revoked\b/i,
   /\blog out and sign in\b/i,

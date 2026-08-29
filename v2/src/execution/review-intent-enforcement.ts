@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
-import { isGitRepoAsync } from "../../../shared/git.ts";
+import { getGitStatusInventory, isGitRepoAsync } from "../../../shared/git.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { ReviewCycleInput, ReviewCycleResult } from "./review-cycle.ts";
 import { executeReviewCycle } from "./review-cycle.ts";
@@ -57,31 +57,6 @@ function listFiles(root: string, dir: string = root, out: string[] = []): string
   return out;
 }
 
-function pathFromPorcelainLine(line: string): string | undefined {
-  if (line.endsWith("\r")) line = line.slice(0, -1);
-  if (line.length < 3) return undefined;
-  let path = line.slice(3);
-  const arrow = path.indexOf(" -> ");
-  if (arrow >= 0) path = path.slice(arrow + 4);
-  return path.length > 0 ? path : undefined;
-}
-
-async function gitStatusPaths(
-  cwd: string,
-  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
-): Promise<Set<string>> {
-  const current = new Set<string>();
-  const raw = await runner.runAsync("git", ["status", "--porcelain", "--untracked-files=all"], cwd);
-  if (raw.length === 0) return current;
-  const lines = raw.split("\n");
-  if (lines.at(-1) === "") lines.pop();
-  for (const line of lines) {
-    const path = pathFromPorcelainLine(line);
-    if (path !== undefined) current.add(path);
-  }
-  return current;
-}
-
 /**
  * Working-tree state captured before a review cycle, used to detect and undo unauthorized
  * changes afterward. Git-enabled repos are diffed via `git status`; a plain (git-disabled)
@@ -108,7 +83,8 @@ export async function getChangedPaths(
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
 ): Promise<Set<string>> {
   if (before.kind === "git") {
-    return await gitStatusPaths(cwd, runner);
+    const inventory = await getGitStatusInventory(cwd, runner);
+    return new Set(inventory.map((entry) => entry.currentPath));
   }
   const after = new Set(listFiles(cwd));
   const changed = new Set<string>();

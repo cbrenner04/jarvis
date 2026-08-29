@@ -19,20 +19,20 @@ function dir(): string {
   return mkdtempSync(join(tmpdir(), "review-intent-enforcement-"));
 }
 
-function mockGitStatusRunner(porcelain: string): AsyncSubprocessRunner {
+function mockGitStatusRunner(inventoryOutput: string): AsyncSubprocessRunner {
   return {
     runAsync: async (cmd, args) => {
-      if (cmd === "git" && args[0] === "status") return porcelain;
+      if (cmd === "git" && args[0] === "status") return inventoryOutput;
       throw new Error(`unexpected: ${cmd} ${args.join(" ")}`);
     },
   };
 }
 
-async function changedPathsFromPorcelain(porcelain: string): Promise<Set<string>> {
+async function changedPathsFromInventory(inventoryOutput: string): Promise<Set<string>> {
   const repo = dir();
   execFileSync("git", ["init", "-q"], { cwd: repo });
   const before = await snapshotWorkingTree(repo);
-  const changed = await getChangedPaths(repo, before, mockGitStatusRunner(porcelain));
+  const changed = await getChangedPaths(repo, before, mockGitStatusRunner(inventoryOutput));
   discardSnapshot(before);
   return changed;
 }
@@ -84,32 +84,29 @@ describe("review-intent-enforcement", () => {
 
   test("git-enabled: getChangedPaths preserves path when first porcelain line is unstaged tracked", async () => {
     const path = ".jarvis-intent-stage/one.md";
-    expect((await changedPathsFromPorcelain(` M ${path}\n`)).has(path)).toBe(true);
+    expect((await changedPathsFromInventory(` M ${path}\0`)).has(path)).toBe(true);
   });
 
   test("git-enabled: getChangedPaths preserves every path for mixed untracked and staged lines", async () => {
     const untracked = "new-file.md";
     const staged = "staged-file.md";
-    const changed = await changedPathsFromPorcelain(`?? ${untracked}\nA  ${staged}\n`);
+    const changed = await changedPathsFromInventory(`?? ${untracked}\0A  ${staged}\0`);
     expect(changed.has(untracked)).toBe(true);
     expect(changed.has(staged)).toBe(true);
   });
 
   test("git-enabled: getChangedPaths records rename destination path", async () => {
     const dest = "new-name.md";
-    const changed = await changedPathsFromPorcelain(`R  old-name.md -> ${dest}\n`);
+    const changed = await changedPathsFromInventory(`R  ${dest}\0old-name.md\0`);
     expect(changed.has(dest)).toBe(true);
     expect(changed.has("old-name.md")).toBe(false);
   });
 
-  test("git-enabled: getChangedPaths keeps the last path when porcelain has no trailing newline", async () => {
-    const path = "no-trailing-newline.md";
-    expect((await changedPathsFromPorcelain(`?? ${path}`)).has(path)).toBe(true);
-  });
-
-  test("git-enabled: getChangedPaths preserves trailing whitespace in porcelain path segment", async () => {
-    const pathWithTrailingSpace = "weird-path.md ";
-    expect((await changedPathsFromPorcelain(`?? ${pathWithTrailingSpace}\n`)).has(pathWithTrailingSpace)).toBe(true);
+  test("git-enabled: getChangedPaths preserves lossless status paths", async () => {
+    // @mutate v2/src/execution/review-intent-enforcement.ts "return new Set(inventory.map((entry) => entry.currentPath));" -> "return new Set(inventory.map((entry) => entry.currentPath.trim()));"
+    const paths = ["space path.md", "line\nbreak.md", "café/雪.md", " leading-and-trailing.md "];
+    const changed = await changedPathsFromInventory(paths.map((path) => `?? ${path}\0`).join(""));
+    expect(changed).toEqual(new Set(paths));
   });
 
   test("git-enabled: getChangedPaths detects an edit outside the staging directory", async () => {
@@ -207,14 +204,14 @@ describe("review-intent-enforcement", () => {
       stagingDir,
       cwd: repo,
       verdictPath,
-      runner: mockGitStatusRunner(` M ${outsidePath}\n`),
+      runner: mockGitStatusRunner(` M ${outsidePath}\0`),
     });
 
     expect(result.boundaryViolation).toContain("modified files outside");
     expect(result.boundaryViolation).toContain(outsidePath);
   });
 
-  test("fails closed with the Git inspection cause", async () => {
+  test("git-enabled: getChangedPaths reports shared-inventory inspection failure", async () => {
     const repo = dir();
     execFileSync("git", ["init", "-q"], { cwd: repo });
     const verdictPath = join(repo, VERDICT_FILE);

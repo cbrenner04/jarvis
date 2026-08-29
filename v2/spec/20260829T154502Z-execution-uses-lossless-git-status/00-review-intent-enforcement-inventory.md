@@ -18,11 +18,11 @@ Reviewed-intent boundary enforcement parses porcelain itself, risking lossy path
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/review-intent-enforcement.ts` obtains Git-backed changed paths through `getGitStatusInventory`, projects only exact `currentPath` values, and contains no independent porcelain parser.
-- [ ] `review-intent-enforcement.test.ts` test `git-enabled: getChangedPaths preserves lossless status paths` proves spaces, newlines, non-ASCII text, and leading/trailing whitespace reach the reviewed-intent changed-path set unchanged; it fails against the pre-fix parser.
-- [ ] `review-intent-enforcement.test.ts` test `git-enabled: getChangedPaths reports shared-inventory inspection failure` pins the existing fail-closed inspection-error result, while `git-disabled: restoreWorkingTree discards unauthorized changes` stays green for the filesystem fallback.
-- [ ] `review-intent-enforcement.test.ts` — `git-enabled: getChangedPaths preserves lossless status paths`; Mutation checkpoint: the test body carries a source `// @mutate` directive that makes the migrated current-path projection lossy, and the scoped test turns RED under that mutation.
-- [ ] `v2/docs/workflow-runner.md` documents that reviewed-intent boundary enforcement consumes the shared lossless inventory, projects current paths only, and retains its inspection-error and fallback behavior.
+- [x] `v2/src/execution/review-intent-enforcement.ts` obtains Git-backed changed paths through `getGitStatusInventory`, projects only exact `currentPath` values, and contains no independent porcelain parser.
+- [x] `review-intent-enforcement.test.ts` test `git-enabled: getChangedPaths preserves lossless status paths` proves spaces, newlines, non-ASCII text, and leading/trailing whitespace reach the reviewed-intent changed-path set unchanged; it fails against the pre-fix parser.
+- [x] `review-intent-enforcement.test.ts` test `git-enabled: getChangedPaths reports shared-inventory inspection failure` pins the existing fail-closed inspection-error result, while `git-disabled: restoreWorkingTree discards unauthorized changes` stays green for the filesystem fallback.
+- [x] `review-intent-enforcement.test.ts` — `git-enabled: getChangedPaths preserves lossless status paths`; Mutation checkpoint: the test body carries a source `// @mutate` directive that makes the migrated current-path projection lossy, and the scoped test turns RED under that mutation.
+- [x] `v2/docs/workflow-runner.md` documents that reviewed-intent boundary enforcement consumes the shared lossless inventory, projects current paths only, and retains its inspection-error and fallback behavior.
 
 ## Documentation updates
 

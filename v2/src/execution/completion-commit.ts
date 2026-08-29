@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { existsSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
+import { getGitStatusInventory } from "../../../shared/git.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
@@ -56,22 +57,6 @@ type CompletionFormatOpts = {
   paths: readonly string[];
   timeoutMs: number;
 };
-
-function pathFromPorcelainLine(line: string): string | undefined {
-  if (line.endsWith("\r")) line = line.slice(0, -1);
-  if (line.length < 2) return undefined;
-  let path: string;
-  if (line.length >= 3 && line[2] === " ") {
-    path = line.slice(3);
-  } else if (line[1] === " ") {
-    path = line.slice(2);
-  } else {
-    return undefined;
-  }
-  const arrow = path.indexOf(" -> ");
-  if (arrow >= 0) path = path.slice(arrow + 4);
-  return path.length > 0 ? path : undefined;
-}
 
 /** Biome only processes a fixed set of extensions. A changed set that is markdown-only or
  * deletion-only yields no eligible files, and `biome check` would exit non-zero ("No files
@@ -185,7 +170,7 @@ function git(cwd: string, args: readonly string[], env?: Record<string, string>)
   return new Promise((resolve, reject) => {
     execFile("git", args, { cwd, env: { ...process.env, ...env }, encoding: "utf8" }, (error, stdout) => {
       if (error) reject(error);
-      else resolve(stdout.trim());
+      else resolve(args.includes("-z") ? stdout : stdout.trim());
     });
   });
 }
@@ -275,16 +260,13 @@ async function preparePendingCommit(
   ctx: { agent: string; subject: string; index: string; pendingPath: string },
 ): Promise<{ kind: "pending"; pending: PendingCommit } | { kind: "settled"; result: CompletionCommitResult }> {
   const { agent, subject, index, pendingPath } = ctx;
-  const raw = await runGit(input.worktreePath, ["status", "--porcelain", "--untracked-files=all"]);
-  const changedPaths: string[] = [];
-  if (raw) {
-    const lines = raw.split("\n");
-    if (lines.at(-1) === "") lines.pop();
-    for (const line of lines) {
-      const path = pathFromPorcelainLine(line);
-      if (path !== undefined) changedPaths.push(path);
-    }
-  }
+  const inventory = await getGitStatusInventory(input.worktreePath, {
+    async runAsync(command, args, cwd) {
+      if (command !== "git") throw new Error(`Unsupported completion inventory command: ${command}`);
+      return runGit(cwd, args);
+    },
+  });
+  const changedPaths = inventory.map((entry) => entry.currentPath);
   const timeoutMs = input.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS;
   await runCompletionFormat({ cwd: input.worktreePath, paths: changedPaths, timeoutMs }, subprocessRunner);
   const head = await runGit(input.worktreePath, ["rev-parse", "HEAD"]);

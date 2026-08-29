@@ -22,7 +22,7 @@ Chained plan and implement stages cannot map prior git-disabled stage workspaces
 ## Acceptance criteria
 
 - [ ] `pipeline-stage-resolve.test.ts` proves a prior path under `~/.jarvis/intent-work/<safeId>/<slug>` resolves to the registered key and admission root, and the test fails against the pre-fix matcher.
-- [ ] `pipeline-stage-resolve.test.ts` proves a prior path under `~/.jarvis/specs/<safeId>/plans/<name>` resolves to the registered key and admission root, and the test fails against the pre-fix matcher.
+- [ ] `pipeline-stage-resolve.test.ts` proves a prior path under `~/.jarvis/specs/<safeId>/<timestamp>-<slug>/` resolves to the registered key and admission root, and the test fails against the pre-fix matcher.
 - [ ] A matcher regression test uses a registered key containing `/` and proves both managed roots are resolved through its transformed path segment.
 - [ ] An existing or new matcher test proves an unmatched path outside the admission root and all registered managed roots still returns the direct-match fallback.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.

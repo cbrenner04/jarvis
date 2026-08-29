@@ -85,7 +85,11 @@ import { rollupWorkflowRunStatus } from "./workflow-run-status-rollup.ts";
 
 const PIPELINE_ID = "pipeline-1";
 const baseContext: PipelineContext = { cwd: "/repo", seed: "seed text", configPath: "/fake/.jarvis/config.json" };
-const persistedContext: PipelineContext = { cwd: "/persisted-repo", seed: "persisted seed" };
+const persistedContext: PipelineContext = {
+  cwd: "/persisted-repo",
+  seed: "persisted seed",
+  configPath: "/fake/.jarvis/config.json",
+};
 const PRIOR_OWNER = "11111:1000000";
 const CURRENT_OWNER = "22222:2000000";
 const { createWriteStep } = writeStepFixtures();
@@ -853,7 +857,7 @@ describe("continuePipeline", () => {
       store,
       dispatch,
       wait,
-      context: { cwd: "/caller-should-be-ignored", seed: "ignored" },
+      context: { cwd: "/caller-should-be-ignored", seed: "ignored", configPath: "/fake/.jarvis/config.json" },
       resolveStage,
     });
 

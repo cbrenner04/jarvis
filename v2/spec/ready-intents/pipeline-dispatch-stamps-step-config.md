@@ -24,9 +24,9 @@ Before pipeline workflow dispatch, stamp resolved steps through the shared step-
 
 ## Acceptance criteria
 
-- [ ] A daemon/pipeline-dispatch test drives an implement step for a project whose machine config sets non-default `readyCommand` and `fixCommand` and asserts the dispatched write step carries them and the ready gate resolves the configured command, not `bun run ready` — fails against the current daemon path.
-- [ ] The same dispatch stamps `iterationTimeoutMs`, `iterationCeilingMs`, and `idleOutputMs` from resolved write-path bounds on the write step — pinned by a test; fails today when bounds are absent.
-- [ ] Review and review-debate steps dispatched by the daemon carry configured `roleTimeoutMs` and `idleOutputMs` — pinned by a test.
+- [ ] A daemon/pipeline-dispatch test drives an implement step for a project whose machine config sets non-default `readyCommand` and `fixCommand` and asserts the dispatched write step carries them and the ready gate resolves the configured command, not `bun run ready` — fails against the current daemon path. `v2/src/daemon/pipeline-stage-dispatch.test.ts` — `pipeline dispatch stamps configured ready and fix commands on implement steps`; Keystone checkpoint: that test body carries a `// @mutate` directive reverting dispatch to raw preset-builder output so configured commands stay absent and the test turns red when applied.
+- [ ] The same dispatch stamps `iterationTimeoutMs`, `iterationCeilingMs`, and `idleOutputMs` from resolved write-path bounds on the write step — pinned by a test in `pipeline-stage-dispatch.test.ts`; fails today when bounds are absent; Mutation checkpoint: that test body carries an in-test `// @mutate` directive that skips shared stamping and turns the scoped test red.
+- [ ] Review and review-debate steps dispatched by the daemon carry configured `roleTimeoutMs` and `idleOutputMs` — pinned by a test in `pipeline-stage-dispatch.test.ts`; Mutation checkpoint: that test body carries an in-test `// @mutate` directive that skips shared stamping and turns the scoped test red.
 - [ ] Daemon pipeline dispatch stamps all five config layers through the shared export with no duplicate mapping — pinned by a structural test or import assertion.
 - [ ] A project with no configured `readyCommand`/`fixCommand` still resolves `bun run ready`/`bun run fix` on the daemon path and bounds/timeouts fall back to documented defaults — pinned by a test.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
@@ -35,3 +35,4 @@ Before pipeline workflow dispatch, stamp resolved steps through the shared step-
 
 - `v2/docs/install-and-config.md` — configured `readyCommand`/`fixCommand`/iteration bounds/review timeouts apply to pipeline-dispatched runs, not only CLI `run workflow`.
 - `v2/docs/daemon-host.md` — replace the deferred-vs-CLI prose: pipeline-stage dispatch stamps the shared step-config layer from the pipeline's config path; ceiling and idle-output watchdogs arm on daemon write steps.
+- `v2/docs/v1-behaviors.md` — **[v2 behavior change]** pipeline-dispatched workflow steps receive the same machine-config stamping as CLI `run workflow`; closes the deferred-vs-CLI gap in `daemon-host.md`.

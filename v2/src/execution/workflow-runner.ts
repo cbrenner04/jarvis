@@ -3394,6 +3394,42 @@ async function commitRecoveredPlanLanding(
  * {@link executeWorkflow} (shared landing) and, once landing completes, commits the durable
  * output via {@link commitRecoveredPlanLanding}.
  */
+/** Admission-time blocker/claim checks for the two plan-recovery paths; returns a refusal outcome or `undefined` to proceed. */
+function admitPlanRecoveryBlockerAndClaim(
+  run: Run & { attempts: Attempt[] },
+  store: StateStore,
+  request: PlanStageRecoveryRequest,
+  reviewFailedPath: boolean,
+  capturedReviewStepIds: string[],
+): PlanStageRecoveryOutcome | undefined {
+  if (reviewFailedPath) {
+    const evidenceReview = resolveFailedPlanReviewSiblingRun(run, store, capturedReviewStepIds);
+    if (evidenceReview === undefined) {
+      return { ok: false, code: "unrelated_plan_stage", message: "no recoverable populated plan stage for this run" };
+    }
+    if (hasStagedPlanOperatorBlocker(run.worktreePath)) {
+      return { ok: false, code: "operator_blocker", message: "staged plan carries an operator-authored blocker" };
+    }
+    const excludedRunIds = new Set([run.id, evidenceReview.id]);
+    if (hasLivePlanRecoveryWorktreeClaim(store, run.project, run.branch, excludedRunIds)) {
+      return { ok: false, code: "unrelated_plan_stage", message: "a live run holds the worktree claim for this branch" };
+    }
+    return undefined;
+  }
+  const lastAttempt = run.attempts.at(-1);
+  const outcomeKind = lastAttempt?.outcomeKind ?? null;
+  const provenance = resolvePlanBlockerProvenance(run.worktreePath, outcomeKind, request.logSink, run.id);
+  if (provenance.kind === "operator") {
+    return { ok: false, code: "operator_blocker", message: "staged plan carries an operator-authored blocker" };
+  }
+  if (provenance.kind === "harness") {
+    const intentPath = join(run.worktreePath, PLAN_STAGE_DIR, "intent.md");
+    const content = readFileSync(intentPath, "utf8");
+    writeFileSync(intentPath, content.slice(0, content.length - provenance.text.length), "utf8");
+  }
+  return undefined;
+}
+
 export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promise<PlanStageRecoveryOutcome> {
   const store = request.stateStore;
   const run = store.loadRun(request.runId);
@@ -3428,35 +3464,8 @@ export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promi
       message: "plan-stage recovery requires Git-backed publication mode",
     };
   }
-  if (reviewFailedPath) {
-    const evidenceReview = resolveFailedPlanReviewSiblingRun(run, store, capturedReviewStepIds);
-    if (evidenceReview === undefined) {
-      return { ok: false, code: "unrelated_plan_stage", message: "no recoverable populated plan stage for this run" };
-    }
-    if (hasStagedPlanOperatorBlocker(run.worktreePath)) {
-      return { ok: false, code: "operator_blocker", message: "staged plan carries an operator-authored blocker" };
-    }
-    const excludedRunIds = new Set([run.id, evidenceReview.id]);
-    if (hasLivePlanRecoveryWorktreeClaim(store, run.project, run.branch, excludedRunIds)) {
-      return {
-        ok: false,
-        code: "unrelated_plan_stage",
-        message: "a live run holds the worktree claim for this branch",
-      };
-    }
-  } else {
-    const lastAttempt = run.attempts.at(-1);
-    const outcomeKind = lastAttempt?.outcomeKind ?? null;
-    const provenance = resolvePlanBlockerProvenance(run.worktreePath, outcomeKind, request.logSink, run.id);
-    if (provenance.kind === "operator") {
-      return { ok: false, code: "operator_blocker", message: "staged plan carries an operator-authored blocker" };
-    }
-    if (provenance.kind === "harness") {
-      const intentPath = join(run.worktreePath, PLAN_STAGE_DIR, "intent.md");
-      const content = readFileSync(intentPath, "utf8");
-      writeFileSync(intentPath, content.slice(0, content.length - provenance.text.length), "utf8");
-    }
-  }
+  const blockerAdmission = admitPlanRecoveryBlockerAndClaim(run, store, request, reviewFailedPath, capturedReviewStepIds);
+  if (blockerAdmission) return blockerAdmission;
 
   // Revalidate before the first review: an operator correction never trusted past admission.
   const stagingDir = join(run.worktreePath, PLAN_STAGE_DIR);

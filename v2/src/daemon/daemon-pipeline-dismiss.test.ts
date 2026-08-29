@@ -14,7 +14,7 @@ import { type PipelineSnapshot, projectPipelineSnapshot } from "./pipeline-obser
 
 const { createWriteStep } = writeStepFixtures();
 
-const ADMISSION_CONTEXT = { cwd: "/fake", seed: "seed text" } as const;
+const ADMISSION_CONTEXT = { cwd: "/fake", seed: "seed text", configPath: "/fake/.jarvis/config.json" } as const;
 
 const SINGLE_WORKFLOW = (name: string): PipelineDefinition => ({
   name,

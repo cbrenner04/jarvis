@@ -614,7 +614,7 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("intent-finalization resume skips the ready gate but completes the remaining finalization tail", async () => {
-    // @mutate v2/src/execution/workflow-runner.ts "inertResumeWriteLoopInput(context, context.durableDir, deps, context.landing)" -> "inertResumeWriteLoopInput(context, context.durableDir, deps)"
+    // @mutate v2/src/execution/workflow-runner.ts "inertResumeWriteLoopInput(context, context.durableDir, deps, context.landing, writeSibling)" -> "inertResumeWriteLoopInput(context, context.durableDir, deps, undefined, writeSibling)"
     const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-resume-ready-gate-"));
     mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
     writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"), "example.md");
@@ -659,6 +659,35 @@ describe("executeWorkflow review dispatch", () => {
         loopOutcomeKind: "complete",
         resumable: false,
       });
+    });
+  });
+
+  test("intent-finalization resume uses write-sibling stamped fix and ready commands", async () => {
+    // @mutate v2/src/execution/workflow-runner.ts "const readyCommand = writeSibling?.queuedInput?.readyCommand ?? writeSibling?.snapshotStep?.readyCommand;" -> "const readyCommand = undefined;"
+    const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-resume-stamped-commands-"));
+    mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
+    writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"), "example.md");
+    mkdirSync(join(workspace, "ready-intents"), { recursive: true });
+
+    await withStateStore(async (store) => {
+      const reviewRunId = seedFailedIntentReviewResumeRun(store, workspace, {
+        branch: "intent/stamped-commands",
+        invocationId: "intent-stamped-commands",
+        intentStepConfig: { fixCommand: "make fix", readyCommand: "make test" },
+      });
+      const run = store.loadRun(reviewRunId);
+      if (!run) throw new Error("expected review run");
+      let finalizerReadyCommand: string | undefined;
+      const outcome = await resumePopulatedIntentPublication(run, store, {
+        completionCommitter: async () => ({ commitSha: "commit-1", filesChanged: 1 }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async (input) => {
+          finalizerReadyCommand = input.readyCommand;
+        },
+      });
+
+      expect(outcome).toMatchObject({ ok: true });
+      expect(finalizerReadyCommand).toBe("make test");
     });
   });
 

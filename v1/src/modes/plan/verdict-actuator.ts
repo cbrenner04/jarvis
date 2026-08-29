@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
+import { filterPlanDraftStepRules } from "../../../../shared/prompts/plan-draft.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
 import { createAgent } from "../../agents/factory.ts";
@@ -47,10 +48,12 @@ export function buildVerdictActuatorPrompt(opts: {
   targetDir?: string;
 }): string {
   const registry = loadPromptRegistry();
-  let template = assemblePromptForStep({
-    registry,
-    stepPromptId: "plan.prompt.review-actuator",
-  });
+  let template = filterPlanDraftStepRules(
+    assemblePromptForStep({
+      registry,
+      stepPromptId: "plan.prompt.review-actuator",
+    }),
+  );
 
   const workDir = opts.workDirLabel ?? opts.name;
   const targetDir = opts.targetDir ?? "spec";

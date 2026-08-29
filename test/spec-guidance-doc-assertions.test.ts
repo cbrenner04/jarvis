@@ -3,33 +3,26 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const SPEC_GUIDANCE = readFileSync(join(import.meta.dir, "..", "v1", "docs", "spec-guidance.md"), "utf8");
-const MUTATION_CHECKPOINT_CRITERIA =
-  SPEC_GUIDANCE.match(/### Mutation-checkpoint criteria\n([\s\S]*?)(?=\n### )/)?.[1] ?? "";
+const RULE_OUT_GUIDANCE =
+  SPEC_GUIDANCE.match(
+    /#### Rule-out and invariant guards: cite reachability on the base\n([\s\S]*?)(?=\n#### )/,
+  )?.[1] ?? "";
+const FAILING_TEST_GUIDANCE =
+  SPEC_GUIDANCE.match(/#### Failing-test requirement for runtime-behavior subspecs\n([\s\S]*?)(?=\n#### )/)?.[1] ?? "";
 
-describe("spec-guidance § Mutation-checkpoint criteria", () => {
-  test("documents enclosing test() title requirement, linker matching, and hollow-on-loose-reference", () => {
-    expect(MUTATION_CHECKPOINT_CRITERIA).toContain("enclosing `test()` title");
-    expect(MUTATION_CHECKPOINT_CRITERIA).toMatch(/pin title\s*\/\s*`directive\.pinTitle`/);
-    expect(MUTATION_CHECKPOINT_CRITERIA).toMatch(/every mutation-checkpoint criterion must include/i);
-    expect(MUTATION_CHECKPOINT_CRITERIA).toContain("criterionText.includes(directive.pinTitle)");
-    expect(MUTATION_CHECKPOINT_CRITERIA).toMatch(/case-sensitive/i);
-    expect(MUTATION_CHECKPOINT_CRITERIA).toMatch(/substring of the full title suffices/i);
-    expect(MUTATION_CHECKPOINT_CRITERIA).toMatch(/no all-directives-in-file fallback|no fallback/i);
-    expect(MUTATION_CHECKPOINT_CRITERIA).toMatch(/different casing does not/i);
-    expect(MUTATION_CHECKPOINT_CRITERIA).toMatch(/loose references/i);
-    expect(MUTATION_CHECKPOINT_CRITERIA).toMatch(/`hollow`/);
-    expect(MUTATION_CHECKPOINT_CRITERIA).toMatch(/Bad:/i);
-    expect(MUTATION_CHECKPOINT_CRITERIA).toMatch(/Good:/i);
-    expect(MUTATION_CHECKPOINT_CRITERIA).toContain("on the pinned-argv test in `write.test.ts`");
-    expect(MUTATION_CHECKPOINT_CRITERIA).toContain("pinned argv passes through unchanged");
+describe("spec-guidance plan authoring", () => {
+  test("requires a named pre-fix failing test", () => {
+    expect(FAILING_TEST_GUIDANCE).toContain(
+      "naming a test that fails against the pre-fix code and passes after the change",
+    );
+    expect(FAILING_TEST_GUIDANCE).toContain('"Existing tests stay green" does not satisfy this requirement');
   });
 
-  test("documents inside-the-test-body placement and adjacent-line above-test tolerance", () => {
-    expect(MUTATION_CHECKPOINT_CRITERIA).toMatch(/inside the enclosing test body/i);
-    expect(MUTATION_CHECKPOINT_CRITERIA).toMatch(/below the `test\("…", …\) => \{` line/i);
-    expect(MUTATION_CHECKPOINT_CRITERIA).toMatch(/line immediately above the `test`\/`it` declaration/i);
-    expect(MUTATION_CHECKPOINT_CRITERIA).toMatch(/next physical line/i);
-    expect(MUTATION_CHECKPOINT_CRITERIA).toMatch(/verifier-tolerated/i);
-    expect(MUTATION_CHECKPOINT_CRITERIA).toMatch(/inside-the-body is preferred/i);
+  test("retains pinning-test reachability without checkpoint authoring", () => {
+    expect(RULE_OUT_GUIDANCE).toContain("a regression or pinning test naming the failure scenario");
+    expect(RULE_OUT_GUIDANCE).toContain("fails against the pre-fix");
+    expect(SPEC_GUIDANCE).not.toContain("Mutation checkpoint:");
+    expect(SPEC_GUIDANCE).not.toContain("Keystone checkpoint:");
+    expect(SPEC_GUIDANCE).not.toContain("@mutate");
   });
 });

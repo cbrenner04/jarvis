@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { detectAtRiskHollowPinsInMarkdown, formatAtRiskHollowPinsSection } from "../mutation-checkpoint-criteria.ts";
 import { detectUnfalsifiablePremisesInMarkdown, formatUnfalsifiablePremisesSection } from "../premise-falsification.ts";
+import { filterPlanDraftStepRules } from "./plan-draft.ts";
 import { loadPromptRegistry } from "./registry.ts";
 import { renderArtifactTemplate } from "./render.ts";
 import { bindReviewPromptProfile, planReviewProfile } from "./review-profile.ts";
@@ -25,7 +25,7 @@ function readSpecFiles(specPath: string): string {
     .join("\n\n");
 }
 
-/** `REVIEW_PASS_CONTEXT` for plan debate roles; sibling passes add named sections here. */
+/** `REVIEW_PASS_CONTEXT` for plan debate roles. */
 export function buildPlanReviewPassContext(context: PlanReviewPromptContext): string {
   const specPath = context.specPath;
   if (!existsSync(specPath)) return "";
@@ -35,12 +35,7 @@ export function buildPlanReviewPassContext(context: PlanReviewPromptContext): st
   const premiseFindings = stagedFiles.flatMap((entry) =>
     detectUnfalsifiablePremisesInMarkdown(readFileSync(join(specPath, entry.name), "utf8"), entry.name),
   );
-  const hollowFindings = stagedFiles.flatMap((entry) =>
-    detectAtRiskHollowPinsInMarkdown(readFileSync(join(specPath, entry.name), "utf8"), entry.name),
-  );
-  return [formatUnfalsifiablePremisesSection(premiseFindings), formatAtRiskHollowPinsSection(hollowFindings)]
-    .filter((section) => section.length > 0)
-    .join("\n\n");
+  return formatUnfalsifiablePremisesSection(premiseFindings);
 }
 
 function renderPlanReviewPrompt(
@@ -50,18 +45,20 @@ function renderPlanReviewPrompt(
   extra: Record<string, string> = {},
 ): string {
   const artifact = loadPromptRegistry().getById(promptId);
-  return renderArtifactTemplate(artifact, {
-    WORKDIR: context.worktreePath,
-    NAME: basename(context.specPath.replace(/\\/g, "/")),
-    INTENT: existsSync(join(context.specPath, "intent.md"))
-      ? readFileSync(join(context.specPath, "intent.md"), "utf8")
-      : "",
-    CURRENT_SPEC: readSpecFiles(context.specPath),
-    SPEC_GUIDANCE: readFileSync(join(import.meta.dir, "..", "..", "v1", "docs", "spec-guidance.md"), "utf8"),
-    REVIEW_PASS_CONTEXT: "",
-    VERDICT: verdict,
-    ...extra,
-  }).trim();
+  return filterPlanDraftStepRules(
+    renderArtifactTemplate(artifact, {
+      WORKDIR: context.worktreePath,
+      NAME: basename(context.specPath.replace(/\\/g, "/")),
+      INTENT: existsSync(join(context.specPath, "intent.md"))
+        ? readFileSync(join(context.specPath, "intent.md"), "utf8")
+        : "",
+      CURRENT_SPEC: readSpecFiles(context.specPath),
+      SPEC_GUIDANCE: readFileSync(join(import.meta.dir, "..", "..", "v1", "docs", "spec-guidance.md"), "utf8"),
+      REVIEW_PASS_CONTEXT: "",
+      VERDICT: verdict,
+      ...extra,
+    }),
+  ).trim();
 }
 
 export function renderPlanReviewCriticPrompt(context: PlanReviewPromptContext): string {

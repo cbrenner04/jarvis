@@ -168,50 +168,7 @@ Keep subspecs atomic. If one unchecked item requires unrelated code paths, multi
 
 ### Authored markdown style
 
-Do not hard-wrap authored markdown (specs, ready-intents, seeds, docs, PR bodies): one physical line per paragraph and per list item. Indented continuation lines within a single bullet are fine; do not break bullets or paragraphs at column limits. Do not split `@mutate` directives or acceptance-criterion checkboxes across physical lines. The ready gate's `lint:md` step enforces this via the `no-hard-wrap` custom rule on the lint-covered corpus; repair wrapped prose with `bun run reflow:md` (same globs and ignores as `.markdownlint-cli2.jsonc`).
-
-### Mutation-checkpoint criteria
-
-A criterion asserting that inverting a guard turns a pinning test red is only satisfied when the harness **applies** that mutation and watches the suite go red. Write the checkpoint as a directive in the pinning test file, not as prose:
-
-```ts
-test("selection stays inside the painted viewport", () => {
-  // @mutate v2/src/tui/tui-entry.tsx "withMeasuredTerminal(state, fn)" -> "state"
-  ...
-});
-```
-
-Rules the harness enforces:
-
-- A ticked non-human-only guard criterion is selected by canonical suffix `` `pinFile` — `pinTitle`; Mutation checkpoint:`` (preferred authoring contract), prefix-first shape `` Mutation checkpoint: in `pinFile` test `pinTitle` ``, or a directive-shaped `@mutate` occurrence (`// @mutate <path> "<original>" -> "<replacement>"`). Functional AC may mention `@mutate`, `Mutation checkpoint:`, or `Keystone checkpoint:` descriptively without selecting. Bare `@mutate` prose mentions are safe and do not select. Successful verification still requires a valid linked directive.
-- Wrapping a pinning-test reference or enclosing-test name onto a continuation line still parses, but authored markdown should keep `@mutate` directives on one physical line (see [Authored markdown style](#authored-markdown-style)).
-- The criterion names a pinning test whose basename matches the fixed [checkpoint pin filename patterns](../../v2/docs/test-writing.md#checkpoint-pin-filenames). When the basename is not unique, use a repo-relative path (for example `` `v2/src/execution/write.test.ts` ``). A bare basename must resolve to exactly one file; completion disambiguates multiple matches via parent-directory overlap with repo-relative `git diff --name-only <baseRef>` changed paths (untracked excluded), otherwise refusing `ambiguous_pinning_basename` with every candidate. Separately, a bare JavaScript basename with zero primary matches retries `.test.ts`/`.test.tsx`/`.test.js`/`.test.jsx` alternates and resolves only one match; path-qualified references do not retry, `.test.mts`/`.test.cts` are outside this alternate-extension tolerance, and zero or multiple matches refuse `unresolved_pinning_test`.
-- Place `// @mutate` inside the enclosing test body (below the `test("…", …) => {` line). A directive on the line immediately above the `test`/`it` declaration (next physical line, no blank line or intervening comment) is verifier-tolerated but inside-the-body is preferred. Multiline `test.each([...])("title", …)` continuation titles on the `])("title", …)` line above the callback are resolvable via opener-anchored forward scan; the criterion must still name that title.
-- Every mutation-checkpoint criterion must include the enclosing `test()` title (pin title / `directive.pinTitle`). Linker matching is case-sensitive `criterionText.includes(directive.pinTitle)` with no all-directives-in-file fallback — a substring of the full title suffices; different casing does not match. Loose references go `hollow`. Bad: "on the pinned-argv test in `write.test.ts`". Good: embed `pinned argv passes through unchanged` from `test("pinned argv passes through unchanged", …)`.
-- The directive's target text must occur **exactly once** in the named path. Zero or
-  several occurrences is unparseable — reported on stderr and, when the pinning file is
-  opened by a selected criterion, blocks completion.
-- Prefer a **stable anchor** for the quoted original: a unique definition line or unique
-  enclosing statement beats a bare call expression that may change arity or recur at
-  multiple sites after implement lands.
-- Directives are single-line text replacement. A multi-line mutation must be reduced
-  to one unique line (neutering the enclosing condition usually does it).
-- A ticked criterion claiming a mutation with **no** linked directive is refused.
-- A directive that leaves the scoped suite green is refused, with `path:line: directive`
-  in the blocker. That outcome is often correct information: the guard may be dead code,
-  in which case deleting it beats inventing a test for it.
-
-#### Keystone checkpoints
-
-Headline behavior changes need a keystone checkpoint alongside guard checkpoints. A `Keystone checkpoint:` criterion whose `// @mutate` directive reverts the subspec's headline to baseline semantics proves the shipped change is not inert: when the scoped suite stays green after apply, completion refuses with `Inert headline change` (distinct from hollow guard checkpoint messaging).
-
-- Selection requires the canonical suffix `` `pinFile` — `pinTitle`; Keystone checkpoint:`` on a ticked non-human-only criterion; `@mutate` in the block links the pinning test only — not alternate selection without the suffix. Functional AC may mention `Keystone checkpoint:` descriptively without selecting.
-- Exactly one ticked `Keystone checkpoint:` criterion per runtime-behavior subspec at completion; plan-draft authors the criterion and pinning-test directive when drafting runtime-behavior subspecs.
-- Keystones are opt-in: a subspec with guard `Mutation checkpoint:` criteria and no `Keystone checkpoint:` criterion completes normally. A declared keystone is verified (a surviving headline revert refuses `Inert headline change`; more than one refuses `Multiple keystone checkpoints`). Requiring a keystone on every guard-checkpoint subspec is deferred until plan-draft authors keystones.
-- Full-diff revert is not the keystone shape: new tests import new exports, so reverting everything yields compile errors rather than red tests.
-- Plan draft refuses a criterion that self-marks as a keystone (`Keystone checkpoint:` outside a backtick span) but lacks the canonical suffix; a canonical suffix whose pin misses the [recognized filename patterns](../../v2/docs/test-writing.md#checkpoint-pin-filenames) receives a filename-pattern-specific refusal. Prose-only and otherwise malformed checkpoints retain the generic refusal.
-
-Prose `Mutation checkpoint:` comments remain useful context for a human reader; without a linked directive they are refused and are not the machine contract.
+Do not hard-wrap authored markdown (specs, ready-intents, seeds, docs, PR bodies): one physical line per paragraph and per list item. Indented continuation lines within a single bullet are fine; do not break bullets or paragraphs at column limits. Do not split acceptance-criterion checkboxes across physical lines. The ready gate's `lint:md` step enforces this via the `no-hard-wrap` custom rule on the lint-covered corpus; repair wrapped prose with `bun run reflow:md` (same globs and ignores as `.markdownlint-cli2.jsonc`).
 
 ### Behavioral acceptance criteria
 
@@ -268,8 +225,6 @@ A criterion that rules out a condition (invariant phrasing such as `may never`, 
 #### Failing-test requirement for runtime-behavior subspecs
 
 Every subspec that changes runtime behavior must carry an acceptance criterion naming a test that fails against the pre-fix code and passes after the change. This ensures every behavior change lands with a failing-test surface that motivates and validates the work. The test may be newly written or an existing test that was updated to expect new behavior; either way, the AC must name a test that would fail against the baseline and pass against the implementation. "Existing tests stay green" does not satisfy this requirement; that is a preservation criterion (cite it using the refactor AC pattern above), not evidence of new behavior. Docs-only and spec-only subspecs are exempt — only runtime-behavior changes require the failing-test AC.
-
-Every subspec whose tasks or acceptance criteria change executable code, including mixed code-and-docs work, must also require tests to fail when each added or modified guard is inverted. When a guard suppresses an effect, its negative case must prove that effect is absent. Documentation-only and spec-only subspecs are exempt.
 
 Good (new behavior):
 

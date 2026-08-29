@@ -217,13 +217,13 @@ When a guard inside a `setInterval` callback changes, extract it into a pure exp
 
 ## Guard-inversion evidence
 
-Guard-inversion ACs require a **source mutation on the real guard** and a **comment checkpoint on the pinning test** naming that mutation (documents what to flip so the pin turns RED; not a substitute for mutating the guard).
+During implementation, invert each added or modified real guard and prove its pinning test turns red. Production invert hooks are not evidence.
 
 ### Checkpoint pin filenames
 
-Guard and keystone selection, hollow-pin review, premise-reachability review, and completion-time pin extraction share one fixed basename classifier. JavaScript compatibility accepts a basename containing lowercase `.test.` or matching case-insensitive terminal `.test.[cm]?[jt]sx?`. Additional patterns are case-sensitive and whole-basename anchored: `*Test.swift`, `*Tests.swift`, `*Test.m`, `*Tests.m`, `*Test.kt`, `*Tests.kt`, `*Test.java`, `*Tests.java`, `*_test.go`, `*_test.py`, `test_*.py`, `*_test.rb`, `*_spec.rb`, and `*_test.exs`; `*` may be empty. Recognition admits a checkpoint pin for resolution and linking only; it does not add mutation commands, execute another language's tests, or imply toolchain support.
+Implement-time guard and keystone selection, premise-reachability review, and completion-time pin extraction share one fixed basename classifier. JavaScript compatibility accepts a basename containing lowercase `.test.` or matching case-insensitive terminal `.test.[cm]?[jt]sx?`. Additional patterns are case-sensitive and whole-basename anchored: `*Test.swift`, `*Tests.swift`, `*Test.m`, `*Tests.m`, `*Test.kt`, `*Tests.kt`, `*Test.java`, `*Tests.java`, `*_test.go`, `*_test.py`, `test_*.py`, `*_test.rb`, `*_spec.rb`, and `*_test.exs`; `*` may be empty. Recognition admits a checkpoint pin for resolution and linking only; it does not add mutation commands, execute another language's tests, or imply toolchain support.
 
-Injected write-step rules carry the guard-inversion evidence contract and invert-hook prohibition into agent prompts — necessary but not sufficient to stop production invert hooks. Static enforcement runs under `bun run check` via `scripts/guard-production-test-flags.ts`.
+Implement write-step rules carry the guard-inversion policy and invert-hook prohibition into agent prompts; plan draft filters checkpoint-authoring lines. Static enforcement runs under `bun run check` via `scripts/guard-production-test-flags.ts`.
 
 Forbidden production invert hooks: `setInvert*ForTest` exports, `invert*ForTest` module variables, `invert*` function parameters, `invert*ForTest` type members.
 

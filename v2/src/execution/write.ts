@@ -155,8 +155,8 @@ function validatePlanDraft(
 
 /**
  * Reused by plan-stage recovery to revalidate staged bytes it did not itself draft: the same
- * shape (index/subspec presence) and contract-normalizer (index links, split boundary, keystone
- * satisfiability) checks the ordinary plan-draft write step runs against its own output.
+ * shape (index/subspec presence) and contract-normalizer (index links and split boundary) checks the
+ * ordinary plan-draft write step runs against its own output.
  */
 export function checkStagedPlanDraft(draftDir: string): { ok: true } | { ok: false; reason: string } {
   return validatePlanDraft(draftDir, validatePlanDraftShape);

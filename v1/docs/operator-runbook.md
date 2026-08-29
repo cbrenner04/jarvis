@@ -42,6 +42,10 @@ The orchestration loop (the operator's own model calls) dominates session cost â
 - **After every landed intent (fully implemented and on `main`), give a concise update on the full session** â€” what shipped, what's still in flight, what's blocked. One short paragraph, not the close-out report.
 - **Interrupt only for a decision** you genuinely can't resolve yourself.
 
+## Plan checkpoint drain
+
+Plan drafting no longer authors checkpoint syntax or guard-inversion acceptance criteria. Existing authored trees remain compatible with implement-time checkpoint selection, repair, and verification during the drain. Do not add hollow-pin detectors, keystone normalizers, or other plan-stage checkpoint validators; retire the remaining implementation machinery separately.
+
 ## Operator responsibilities (definition of done)
 
 A session is done when the findings and tooling persist, not when the PRs merge. Every session owes:

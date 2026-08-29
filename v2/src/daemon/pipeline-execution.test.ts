@@ -2997,6 +2997,55 @@ describe("resumePipeline", () => {
     expect(store.loadPipeline(PIPELINE_ID)?.terminalPublicationFailure).toBeNull();
   });
 
+  test("deferred settlement fails when a merge pipeline's completed entry run lacks publication PR evidence", async () => {
+    const definition: PipelineDefinition = {
+      name: "missing-publication-evidence-merge",
+      terminalAction: "merge",
+      stages: [{ stageId: "implement", kind: "workflow", workflow: "implement", review: "light" }],
+    };
+    const entryRunId = "run-resume-missing-pr-merge";
+    const runs: Record<string, Partial<Run>> = {
+      [entryRunId]: { specPath: "spec/implement.md", status: "completed" },
+    };
+    const { store, stages } = fakeStore(definition, runs, {
+      context: persistedContext,
+      ownerIdentity: PRIOR_OWNER,
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "implement",
+      patch: {
+        status: "running",
+        workflowInvocationId: entryRunId,
+        failureDetail: deferredMarkerDetail(entryRunId, "failed"),
+      },
+    });
+
+    let terminalPublicationCalls = 0;
+    const outcome = await resumePipeline(PIPELINE_ID, {
+      store,
+      dispatch: async () => {
+        throw new Error("deferred settlement must not redispatch");
+      },
+      wait: restartSweepWait(runs),
+      resolveStage: resolveStageStub(),
+      executeTerminalPublication: async () => {
+        terminalPublicationCalls += 1;
+        return TERMINAL_PR;
+      },
+    });
+
+    expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+    const implement = stages().find((stage) => stage.stageId === "implement");
+    expect(implement?.status).toBe("failed");
+    expect(implement?.failureDetail).toEqual({
+      code: "completion_publication_missing_pr_evidence",
+      message: `completion publication left no confirmed PR evidence on linked entry run ${entryRunId}`,
+    });
+    expect(terminalPublicationCalls).toBe(0);
+    expect(store.loadPipeline(PIPELINE_ID)?.terminalPublicationFailure).toBeNull();
+  });
+
   test("resume still refuses a running pipeline whose deferred stage entry run is genuinely live", async () => {
     const entryRunId = "run-resume-live-1";
     const runs: Record<string, Partial<Run>> = {

@@ -84,7 +84,7 @@ import { composeRunOperatorError } from "./run-operator-error.ts";
 import { rollupWorkflowRunStatus } from "./workflow-run-status-rollup.ts";
 
 const PIPELINE_ID = "pipeline-1";
-const baseContext: PipelineContext = { cwd: "/repo", seed: "seed text" };
+const baseContext: PipelineContext = { cwd: "/repo", seed: "seed text", configPath: "/fake/.jarvis/config.json" };
 const persistedContext: PipelineContext = { cwd: "/persisted-repo", seed: "persisted seed" };
 const PRIOR_OWNER = "11111:1000000";
 const CURRENT_OWNER = "22222:2000000";

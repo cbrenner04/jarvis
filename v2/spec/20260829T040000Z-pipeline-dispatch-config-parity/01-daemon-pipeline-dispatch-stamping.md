@@ -20,16 +20,16 @@ Pipeline stage resolution (`resolveStageWorkflowSteps`) feeds preset-builder out
 
 ## Acceptance criteria
 
-- [ ] A test in `v2/src/daemon/pipeline-stage-dispatch.test.ts` drives an implement-stage dispatch for a project whose machine config sets non-default `readyCommand` and `fixCommand` and asserts the dispatched write step carries both; it fails against the pre-fix daemon path that forwards raw preset output. `v2/src/daemon/pipeline-stage-dispatch.test.ts` — `dispatches implement write steps with configured fix and ready commands`; Mutation checkpoint: its test body carries `// @mutate` reverting the pre-dispatch stamp call so raw resolved steps reach `dispatch`, and the mutation turns that test RED.
-- [ ] A sibling test in `v2/src/daemon/pipeline-stage-dispatch.test.ts` asserts dispatched write steps carry `iterationTimeoutMs`, `iterationCeilingMs`, and `idleOutputMs` from resolved write-path bounds; it fails against the pre-fix path where those fields are absent on daemon-dispatched steps.
-- [ ] A test in `v2/src/daemon/pipeline-stage-dispatch.test.ts` asserts daemon-dispatched `review` and `review-debate` steps carry configured `roleTimeoutMs` and `idleOutputMs`; it fails against the pre-fix path.
-- [ ] A test in `v2/src/daemon/pipeline-stage-dispatch.test.ts` asserts a project with no configured `readyCommand`/`fixCommand` still yields write steps whose execution resolves `bun run ready`/`bun run fix` and whose bounds/timeouts match documented defaults; the negative case proves absent optional fields are not forced onto the step object.
-- [ ] `v2/src/daemon/pipeline-stage-dispatch.test.ts` — `dispatches implement write steps with configured fix and ready commands`; Keystone checkpoint: its test body carries `// @mutate` reverting the pre-dispatch stamp call so raw resolved steps reach `dispatch`, and the mutation turns that test RED while the unconfigured-fallback test stays green.
-- [ ] `v2/docs/install-and-config.md` — `fixCommand`, `readyCommand`, write-path iteration bounds, and `reviewRoleTimeoutMs`/`idleOutputTimeoutMs` apply to pipeline-dispatched runs, not only CLI `run workflow`.
-- [ ] `v2/docs/daemon-host.md` — pipeline-stage dispatch stamps the shared step-config layer from the pipeline admission `configPath`, replacing the deferred-vs-CLI prose.
-- [ ] `v2/docs/daemon-host.md` — the ceiling and idle-output watchdogs arm on daemon write steps.
-- [ ] `v2/docs/v1-behaviors.md` — pipeline-dispatched workflow steps receive the same machine-config stamping as CLI `run workflow`.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `v2/src/daemon/pipeline-stage-dispatch.test.ts` test `dispatches implement write steps with configured fix and ready commands` asserts the daemon dispatch stamp (`stampPipelineDispatchSteps`, called before `dispatchPipelineStage` by both `advanceWorkflowStage` and `runFanOutBranchAction`) carries a project's non-default `readyCommand`/`fixCommand`; it fails against the pre-fix path that forwards raw preset output.
+- [x] A sibling test asserts stamped write steps carry `iterationTimeoutMs`, `iterationCeilingMs`, and `idleOutputMs` from resolved write-path bounds; it fails against the pre-fix path where those fields are absent on daemon-dispatched steps.
+- [x] A test asserts stamped `review` and `review-debate` steps carry configured `roleTimeoutMs` and `idleOutputMs`; it fails against the pre-fix path.
+- [x] A test asserts a project with no configured `readyCommand`/`fixCommand` still yields write steps whose execution resolves `bun run ready`/`bun run fix` and whose bounds/timeouts match documented defaults; absent optional fields are not forced onto the step object.
+- [x] `v2/src/daemon/pipeline-stage-dispatch.test.ts` — `dispatches implement write steps with configured fix and ready commands`; Mutation checkpoint: its test body carries `// @mutate` on `stampPipelineDispatchSteps` returning unstamped steps (`return [...steps];`), which turns that test RED (verified).
+- [x] `v2/docs/install-and-config.md` — `fixCommand`, `readyCommand`, write-path iteration bounds, and `reviewRoleTimeoutMs`/`idleOutputTimeoutMs` apply to pipeline-dispatched runs, not only CLI `run workflow`.
+- [x] `v2/docs/daemon-host.md` — pipeline-stage dispatch stamps the shared step-config layer from the pipeline admission `configPath`, replacing the deferred-vs-CLI prose.
+- [x] `v2/docs/daemon-host.md` — the ceiling and idle-output watchdogs arm on daemon write steps.
+- [x] `v2/docs/v1-behaviors.md` — pipeline-dispatched workflow steps receive the same machine-config stamping as CLI `run workflow`.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

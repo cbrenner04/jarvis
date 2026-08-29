@@ -2,10 +2,19 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import ts from "typescript";
-import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
+import { resolveReadyGateCommand } from "../execution/ready-finalize.ts";
+import type {
+  AnyWorkflowStep,
+  ReviewDebateWorkflowStep,
+  ReviewWorkflowStep,
+  WriteWorkflowStep,
+} from "../execution/workflow-runner.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
 import type { PipelineStageRecord, Run, RunStatus, StateStore, WorkflowSnapshot } from "../persistence/state-store.ts";
+import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
+import { writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
+import { stampPipelineDispatchSteps } from "./pipeline-execution.ts";
 import {
   adoptAndSettlePipelineStage,
   dispatchPipelineStage,
@@ -1065,5 +1074,115 @@ describe("dispatchPipelineStage", () => {
       requestedBase: RETARGET_REQUESTED_BASE,
       resolvedBase: RETARGET_RESOLVED_BASE,
     });
+  });
+});
+
+const { createWriteStep } = writeStepFixtures();
+
+function fakeReviewStep(): ReviewWorkflowStep {
+  return {
+    behavior: "review",
+    stepId: "review",
+    project: "demo",
+    branch: "implement-run",
+    agents: { critic: ["claude"], actuator: ["claude"] },
+    agentModelConfig: {},
+    cwd: "/repo",
+    verdictPath: "verdict.md",
+    maxCycles: 1,
+  };
+}
+
+function fakeReviewDebateStep(): ReviewDebateWorkflowStep {
+  return {
+    behavior: "review-debate",
+    stepId: "review-debate",
+    project: "demo",
+    branch: "implement-run",
+    agents: {
+      adversary: ["claude"],
+      advocate: ["claude"],
+      adjudicator: ["claude"],
+      actuator: ["claude"],
+    },
+    agentModelConfig: {},
+    cwd: "/repo",
+    verdictPath: "verdict.md",
+    maxCycles: 1,
+    prompts: { adversary: "a", advocate: "b", adjudicator: "c" },
+  };
+}
+
+// Exercises the exact stamping the daemon dispatch path applies before dispatchPipelineStage
+// (advanceWorkflowStage / runFanOutBranchAction both call stampPipelineDispatchSteps). Calling it
+// directly keeps the assertion on step config, without driving the full pipeline lifecycle.
+function runImplementStageDispatch(configPath: string, resolvedSteps: AnyWorkflowStep[]): AnyWorkflowStep[] {
+  return stampPipelineDispatchSteps(resolvedSteps, configPath);
+}
+
+describe("pipeline stage dispatch step-config stamping", () => {
+  test("dispatches implement write steps with configured fix and ready commands", async () => {
+    // @mutate v2/src/daemon/pipeline-execution.ts "return stampWorkflowStepsWithMachineConfig(steps, configPath);" -> "return [...steps];"
+    const configPath = writeHomeMachineConfig({
+      projects: { demo: { fixCommand: "npm run fix-custom", readyCommand: "npm run verify-custom" } },
+    });
+    const writeStep = createWriteStep("implement", "implement-run");
+    const dispatched = await runImplementStageDispatch(configPath, [writeStep]);
+    const stampedWrite = dispatched.find((step): step is WriteWorkflowStep => step.behavior === "write");
+    expect(stampedWrite).toMatchObject({
+      fixCommand: "npm run fix-custom",
+      readyCommand: "npm run verify-custom",
+    });
+  });
+
+  test("dispatches implement write steps with configured write-path iteration bounds", async () => {
+    const configPath = writeHomeMachineConfig({
+      iterationTimeoutMs: 120_000,
+      iterationCeilingMs: 240_000,
+      idleOutputTimeoutMs: 45_000,
+    });
+    const writeStep = createWriteStep("implement", "implement-run");
+    const dispatched = await runImplementStageDispatch(configPath, [writeStep]);
+    const stampedWrite = dispatched.find((step): step is WriteWorkflowStep => step.behavior === "write");
+    expect(stampedWrite).toMatchObject({
+      iterationTimeoutMs: 120_000,
+      iterationCeilingMs: 240_000,
+      idleOutputMs: 45_000,
+    });
+  });
+
+  test("dispatches review steps with configured role and idle-output timeouts", async () => {
+    const configPath = writeHomeMachineConfig({
+      reviewRoleTimeoutMs: 900_000,
+      idleOutputTimeoutMs: 123_456,
+    });
+    const dispatched = await runImplementStageDispatch(configPath, [
+      createWriteStep("implement", "implement-run"),
+      fakeReviewStep(),
+      fakeReviewDebateStep(),
+    ]);
+    expect(dispatched[1]).toMatchObject({ behavior: "review", roleTimeoutMs: 900_000, idleOutputMs: 123_456 });
+    expect(dispatched[2]).toMatchObject({
+      behavior: "review-debate",
+      roleTimeoutMs: 900_000,
+      idleOutputMs: 123_456,
+    });
+  });
+
+  test("dispatches implement write steps with documented defaults when project commands are unset", async () => {
+    const configPath = writeHomeMachineConfig({ projects: { demo: {} } });
+    const writeStep = createWriteStep("implement", "implement-run");
+    const dispatched = await runImplementStageDispatch(configPath, [writeStep]);
+    const stampedWrite = dispatched.find((step): step is WriteWorkflowStep => step.behavior === "write");
+    if (!stampedWrite) throw new Error("expected write step");
+    expect(stampedWrite).not.toHaveProperty("fixCommand");
+    expect(stampedWrite).not.toHaveProperty("readyCommand");
+    expect(stampedWrite).toMatchObject({
+      iterationTimeoutMs: 600_000,
+      iterationCeilingMs: 1_800_000,
+      idleOutputMs: 90_000,
+    });
+    expect(resolveReadyGateCommand(stampedWrite.readyCommand).display).toBe("bun run ready");
+    expect(stampedWrite.fixCommand ?? "bun run fix").toBe("bun run fix");
   });
 });

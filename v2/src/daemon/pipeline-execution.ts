@@ -3,6 +3,7 @@ import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { maybeResetStaleWorkspace } from "../commands/stale-reset-workspace.ts";
 import type { IntentWorkflowCliInput } from "../commands/workflow-args.ts";
+import { stampWorkflowStepsWithMachineConfig } from "../commands/workflow-step-config-stamp.ts";
 import type { PipelineDefinition, PipelineStage, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
 import { normalizePublicationFailure, type PublicationFailure } from "../execution/publication-retry.ts";
 import {
@@ -1295,6 +1296,16 @@ type AdvanceWorkflowStageArgs = {
   intentStaleReset?: PipelineExecutionDeps["intentStaleReset"];
 };
 
+export function stampPipelineDispatchSteps(
+  steps: readonly AnyWorkflowStep[],
+  configPath: string | undefined,
+): AnyWorkflowStep[] {
+  if (configPath === undefined) {
+    throw new Error("Pipeline admission context is missing required 'configPath'");
+  }
+  return stampWorkflowStepsWithMachineConfig(steps, configPath);
+}
+
 function failWorkflowStageAt(
   store: StateStore,
   pipelineId: string,
@@ -1589,9 +1600,10 @@ async function runFanOutBranchAction(
     return "skip";
   }
   if (steps === undefined) return "skip";
+  const stampedSteps = stampPipelineDispatchSteps(steps, args.context.configPath);
   await dispatchPipelineStage({
     ...stageTarget,
-    steps,
+    steps: stampedSteps,
     dispatch,
     wait,
     store,
@@ -1808,11 +1820,12 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
       );
     }
 
+    const stampedSteps = stampPipelineDispatchSteps(resolvedSteps, context.configPath);
     await dispatchPipelineStage({
       pipelineId,
       stageId: stage.stageId,
       branchKey,
-      steps: resolvedSteps,
+      steps: stampedSteps,
       dispatch,
       wait,
       store,

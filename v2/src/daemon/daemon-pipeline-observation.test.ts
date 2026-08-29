@@ -68,7 +68,7 @@ const SINGLE_WORKFLOW = (name: string): PipelineDefinition => ({
   stages: [{ stageId: "s1", kind: "workflow", workflow: "intent", review: "none" }],
 });
 
-const PIPELINE_CONTEXT = { cwd: "/fake", seed: "seed text" } as const;
+const PIPELINE_CONTEXT = { cwd: "/fake", seed: "seed text", configPath: "/fake/.jarvis/config.json" } as const;
 
 function handlers(overrides: Partial<Parameters<typeof createRunControlHandlers>[0]> = {}) {
   return createRunControlHandlers({

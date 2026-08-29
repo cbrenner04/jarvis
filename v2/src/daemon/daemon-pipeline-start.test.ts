@@ -121,7 +121,7 @@ test("pipeline_start admits a pipeline, keeps running after the client disconnec
   // The handler resolves once the pipeline's rows are durably created — proving the daemon does
   // not hold the client connection open for the pipeline's full run.
   const response = await handlers.pipeline_start(
-    requestFrame("p1", "pipeline_start", { definition, context: { cwd: "/fake", seed: "seed text" } }),
+    requestFrame("p1", "pipeline_start", { definition, context: ADMISSION_CONTEXT }),
     new AbortController().signal,
   );
   expect(response.kind).toBe("response");

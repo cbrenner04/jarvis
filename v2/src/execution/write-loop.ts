@@ -1013,7 +1013,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
                     publication.readyGateOrigin,
                   );
             }
-            store.setRunStatus(prepared.result.runId, "completed");
             if (
               publication.success !== undefined &&
               publication.success.prNumber !== undefined &&
@@ -1023,6 +1022,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               prepared.result.prNumber = publication.success.prNumber;
               prepared.result.prUrl = publication.success.prUrl;
             }
+            store.setRunStatus(prepared.result.runId, "completed");
             appendRuntimeSmokeOutcome(args.logSink, prepared.result.runId, publication.success?.runtimeSmokeOutcome);
             if (publication.success?.requestedBase !== undefined && publication.success.resolvedBase !== undefined) {
               publicationBaseRetarget = {
@@ -1883,7 +1883,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
                   publication.readyGateOrigin,
                 );
           }
-          store.setRunStatus(runId, "completed");
           if (
             publication.success !== undefined &&
             publication.success.prNumber !== undefined &&
@@ -1893,6 +1892,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             attributed.prNumber = publication.success.prNumber;
             attributed.prUrl = publication.success.prUrl;
           }
+          store.setRunStatus(runId, "completed");
           appendRuntimeSmokeOutcome(args.logSink, runId, publication.success?.runtimeSmokeOutcome);
           if (publication.success?.requestedBase !== undefined && publication.success?.resolvedBase !== undefined) {
             publicationBaseRetarget = {

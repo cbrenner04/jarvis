@@ -1222,6 +1222,13 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               };
             }
             appendRuntimeSmokeOutcome(args.logSink, lastResult.runId, publication.success?.runtimeSmokeOutcome);
+            if (
+              publication.success !== undefined &&
+              publication.success.prNumber !== undefined &&
+              publication.success.prUrl !== undefined
+            ) {
+              store.setPrEvidence(lastResult.runId, publication.success.prNumber, publication.success.prUrl);
+            }
             store.setRunStatus(lastResult.runId, "completed");
             traceCompletionPublication(args.logSink, lastResult.runId, completionStep.landing, worktree.branchName);
           }
@@ -3623,6 +3630,13 @@ async function runIntentResumeCommitAndPublish(
   }
 
   appendRuntimeSmokeOutcome(deps.logSink, context.runId, publication.success?.runtimeSmokeOutcome);
+  if (
+    publication.success !== undefined &&
+    publication.success.prNumber !== undefined &&
+    publication.success.prUrl !== undefined
+  ) {
+    store.setPrEvidence(context.runId, publication.success.prNumber, publication.success.prUrl);
+  }
   store.commitCompletionBoundary({
     attemptId,
     runStatus: "completed",
@@ -4241,6 +4255,13 @@ async function runMutationRepairAttempt(
 
   const finalAttemptId = store.recordAttemptStart(context.runId);
   appendRuntimeSmokeOutcome(deps.logSink, context.runId, publication.success?.runtimeSmokeOutcome);
+  if (
+    publication.success !== undefined &&
+    publication.success.prNumber !== undefined &&
+    publication.success.prUrl !== undefined
+  ) {
+    store.setPrEvidence(context.runId, publication.success.prNumber, publication.success.prUrl);
+  }
   store.commitCompletionBoundary({
     attemptId: finalAttemptId,
     runStatus: "completed",
@@ -4349,6 +4370,13 @@ function settleSuccessfulReviewMutationPublication(
   deps: ReviewMutationResumeDeps,
 ): ReviewMutationResumeOutcome {
   appendRuntimeSmokeOutcome(deps.logSink, context.runId, publication.success?.runtimeSmokeOutcome);
+  if (
+    publication.success !== undefined &&
+    publication.success.prNumber !== undefined &&
+    publication.success.prUrl !== undefined
+  ) {
+    store.setPrEvidence(context.runId, publication.success.prNumber, publication.success.prUrl);
+  }
   store.commitCompletionBoundary({
     attemptId,
     runStatus: "completed",

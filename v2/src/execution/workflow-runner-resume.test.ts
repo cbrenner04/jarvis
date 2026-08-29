@@ -17,7 +17,7 @@ import { configuredIntentDurableDir, intentHandoffSpecPath } from "./intent-outp
 import type { PipelineDefinition } from "./pipeline-definition.ts";
 import type { PublicationLanding } from "./publication-landing.ts";
 import { validateReadyIntent } from "./publication-workflow-steps.ts";
-import { ReadyGateError, SurvivingMutationError } from "./ready-finalize.ts";
+import { createReadyFinalizer, ReadyGateError, SurvivingMutationError } from "./ready-finalize.ts";
 import {
   config,
   createBindingFactory,
@@ -613,7 +613,8 @@ describe("executeWorkflow review dispatch", () => {
     }
   });
 
-  test("intent-finalization resume retains ready gate terminal evidence", async () => {
+  test("intent-finalization resume skips the ready gate but completes the remaining finalization tail", async () => {
+    // @mutate v2/src/execution/workflow-runner.ts "inertResumeWriteLoopInput(context, context.durableDir, deps, context.landing)" -> "inertResumeWriteLoopInput(context, context.durableDir, deps)"
     const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-resume-ready-gate-"));
     mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
     writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"), "example.md");
@@ -627,22 +628,36 @@ describe("executeWorkflow review dispatch", () => {
       const run = store.loadRun(reviewRunId);
       if (!run) throw new Error("expected review run");
       const logSink = new TestLogSink();
+      const calls: string[] = [];
       const outcome = await resumePopulatedIntentPublication(run, store, {
         logSink,
         completionCommitter: async () => ({ commitSha: "commit-1" }),
         completionPublisher: async () => ({}),
         runFixCommand: async () => {},
-        readyFinalizer: async () => {
-          throw new ReadyGateError("bun run intent-ready", 1, "intent gate red");
-        },
+        readyFinalizer: createReadyFinalizer({
+          runReadyGate: async () => {
+            calls.push("gate");
+            throw new ReadyGateError("bun run intent-ready", 1, "intent gate red");
+          },
+          runMutationVerification: async () => {
+            calls.push("mutation");
+          },
+          runRuntimeSmokeVerification: async () => {
+            calls.push("smoke");
+            return { kind: "observed-clean" };
+          },
+          ghReadyFlip: async () => {
+            calls.push("flip");
+          },
+        }),
       });
 
-      expect(outcome).toMatchObject({ ok: false });
+      expect(outcome).toMatchObject({ ok: true });
+      expect(calls).toEqual(["mutation", "smoke", "flip"]);
       expect(logSink.getEventsForRun(reviewRunId).findLast((event) => event.kind === "loop_finished")).toMatchObject({
         kind: "loop_finished",
-        loopOutcomeKind: "ready_gate_failed",
-        readyGateCommand: "bun run intent-ready",
-        readyGateOutput: "intent gate red",
+        loopOutcomeKind: "complete",
+        resumable: false,
       });
     });
   });
@@ -1967,7 +1982,8 @@ describe("executeWorkflow review dispatch", () => {
           completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
           completionPublisher: async () => ({}),
           runFixCommand: async () => {},
-          readyFinalizer: async () => {
+          readyFinalizer: async (input) => {
+            expect(input.skipReadyGate).toBe(false);
             throw new ReadyGateError("bun run review-ready", 1, "review gate red");
           },
         });

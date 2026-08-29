@@ -35,6 +35,7 @@ import {
   lintMdOnlyGateFailureOutput,
 } from "./ready-finalize.test.ts";
 import {
+  createReadyFinalizer,
   deriveGateAllowedPaths,
   ReadyFlipError,
   ReadyGateError,
@@ -56,6 +57,7 @@ import {
   findFirstRepairFenceViolation,
   getUncommittedPaths,
   persistRetainedFinalizationCheckpoint,
+  publishCompletionArtifacts,
   publishWithReadyRepair,
   runMutationRepairIteration,
   shouldFailTerminalCompletionForDirtyWorktree,
@@ -2874,6 +2876,42 @@ describe("write loop", () => {
 
       expect(result.kind).toBe("complete");
       expect(observedReadyCommand).toBe("npm run verify");
+    });
+
+    test("routes markdown-only workflow prompts around the ready gate", async () => {
+      // @mutate v2/src/execution/write-loop.ts "skipReadyGate: resolveMarkdownOnlyWorkflowPromptId(seams.promptId, seams.landing) !== undefined," -> "skipReadyGate: resolveMarkdownOnlyWorkflowPromptId(seams.promptId, seams.landing) === undefined,"
+      const calls: string[] = [];
+      const readyFinalizer = createReadyFinalizer({
+        runReadyGate: async () => {
+          calls.push("gate");
+          throw new ReadyGateError("missing-ready", undefined, "ENOENT", false, {
+            kind: "ready_gate_command_missing",
+          });
+        },
+        runMutationVerification: async () => {
+          calls.push("mutation");
+        },
+        runRuntimeSmokeVerification: async () => {
+          calls.push("smoke");
+          return { kind: "observed-clean" };
+        },
+        ghReadyFlip: async () => {
+          calls.push("flip");
+        },
+      });
+      const input = {
+        worktreePath: "/tmp/worktree",
+        baseRef: "main",
+        specPath: "spec.md",
+        branch: "feature",
+      };
+      const publish = (promptId: string) =>
+        publishCompletionArtifacts({ completionPublisher: async () => ({}), readyFinalizer, promptId }, input);
+
+      await expect(publish("intent.prompt.split")).resolves.toMatchObject({ kind: "success" });
+      await expect(publish("plan.prompt.draft")).resolves.toMatchObject({ kind: "success" });
+      await expect(publish("patch.prompt.body")).resolves.toMatchObject({ kind: "ready_gate_command_missing" });
+      expect(calls).toEqual(["mutation", "smoke", "flip", "mutation", "smoke", "flip", "gate"]);
     });
 
     test.each([

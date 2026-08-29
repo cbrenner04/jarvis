@@ -37,6 +37,8 @@ export type ReadyFinalizeInput = {
   onGateGroupId?: (pgid: number | null) => void;
   /** Per-project ready command override (`bun run ready` when unset). */
   readyCommand?: string;
+  /** Skip only the project ready gate; the remaining finalization checks still run. */
+  skipReadyGate?: boolean;
 };
 
 const DEFAULT_READY_COMMAND = "bun run ready";
@@ -1029,7 +1031,7 @@ async function flipWithRetry(flip: () => Promise<void>, delay: Delay, retryNotic
   });
 }
 
-/** Runs the ready gate in the worktree, then flips the draft PR to ready on green. */
+/** Runs admitted finalization checks, then flips the draft PR to ready on green. */
 export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalizer {
   const asyncSubprocessRunner = seams?.asyncSubprocessRunner ?? realAsyncSubprocessRunner;
   const runReadyGate = seams?.runReadyGate ?? createDefaultRunReadyGate(asyncSubprocessRunner);
@@ -1042,11 +1044,13 @@ export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalize
   const runRuntimeSmokeVerification = seams?.runRuntimeSmokeVerification;
 
   return async (input) => {
-    await runReadyGate(input.worktreePath, input.baseRef, {
-      signal: input.signal,
-      onGroupId: input.onGateGroupId,
-      readyCommand: input.readyCommand,
-    });
+    if (!input.skipReadyGate) {
+      await runReadyGate(input.worktreePath, input.baseRef, {
+        signal: input.signal,
+        onGroupId: input.onGateGroupId,
+        readyCommand: input.readyCommand,
+      });
+    }
     if (input.requiredIntegrationScope) {
       await runRequiredIntegration(input.worktreePath, input.requiredIntegrationScope, {
         signal: input.signal,

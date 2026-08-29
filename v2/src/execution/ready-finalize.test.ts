@@ -622,6 +622,34 @@ describe("createReadyFinalizer", () => {
   const input = { worktreePath: "/tmp/worktree", branch: "feature-branch", baseRef: "main" };
   const noopDelay = async () => {};
 
+  it("skips the ready gate but completes remaining finalization when admitted", async () => {
+    // @mutate v2/src/execution/ready-finalize.ts "if (!input.skipReadyGate) {" -> "if (true) {"
+    const calls: string[] = [];
+    const finalizer = createReadyFinalizer({
+      runReadyGate: async () => {
+        throw new ReadyGateError("missing-ready", undefined, "ENOENT");
+      },
+      runRequiredIntegration: async () => {
+        calls.push("integration");
+      },
+      runMutationVerification: async () => {
+        calls.push("mutation");
+      },
+      runRuntimeSmokeVerification: async () => {
+        calls.push("smoke");
+        return { kind: "observed-clean" };
+      },
+      ghReadyFlip: async () => {
+        calls.push("flip");
+      },
+    });
+
+    await expect(
+      finalizer({ ...input, requiredIntegrationScope: "test:integration:v2", skipReadyGate: true }),
+    ).resolves.toEqual({ runtimeSmokeOutcome: { kind: "observed-clean" } });
+    expect(calls).toEqual(["integration", "mutation", "smoke", "flip"]);
+  });
+
   it("runs the ready gate then flips the draft PR on green", async () => {
     const calls: string[] = [];
     const finalizer = createReadyFinalizer({

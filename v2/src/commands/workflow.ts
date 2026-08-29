@@ -7,13 +7,7 @@ import { waitForRunCompletion } from "../cli/run-completion.ts";
 import { withConnectDispatch } from "../cli/stale-dispatch.ts";
 import { WORKFLOW_IMPLEMENT_USAGE, WORKFLOW_INTENT_USAGE, WORKFLOW_PLAN_USAGE, WORKFLOW_USAGE } from "../cli/usage.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
-import {
-  readConfiguredIdleOutputTimeoutMs,
-  readProjectFixCommand,
-  readProjectReadyCommand,
-  readReviewRoleTimeoutMs,
-  resolveWritePathIterationBounds,
-} from "../config/machine-config-loader.ts";
+import { resolveWritePathIterationBounds } from "../config/machine-config-loader.ts";
 import { parseStartResult } from "../daemon/daemon-wire.ts";
 import {
   resolveImplementSpecIdentity,
@@ -39,6 +33,7 @@ import {
   parseIntentWorkflowArgs,
   parsePlanWorkflowArgs,
 } from "./workflow-args.ts";
+import { stampWorkflowStepsWithMachineConfig } from "./workflow-step-config-stamp.ts";
 
 let forceSkipAttachClientWaitForTest = false;
 let attachWaitRunIdOverrideForTest: string | undefined;
@@ -234,36 +229,13 @@ async function prepareWorkflowSteps(
     io.stderr(`${built.error.replace(/\n+$/, "")}\n`);
     return { ok: false };
   }
-  let bounds: ReturnType<typeof resolveWritePathIterationBounds>;
-  let configuredIdleOutputMs: number | undefined;
-  let reviewRoleTimeoutMs: number;
+  let steps: SuccessfulWorkflowBuild["steps"];
   try {
-    bounds = resolveWritePathIterationBounds(machineConfigPath);
-    configuredIdleOutputMs = readConfiguredIdleOutputTimeoutMs(machineConfigPath);
-    reviewRoleTimeoutMs = readReviewRoleTimeoutMs(machineConfigPath);
+    steps = stampWorkflowStepsWithMachineConfig(built.steps, machineConfigPath);
   } catch (error) {
     io.stderr(`${error instanceof Error ? error.message : String(error)}\n`);
     return { ok: false };
   }
-  const steps = built.steps.map((step) => {
-    if (step.behavior !== "write") {
-      return step.behavior === "review" || step.behavior === "review-debate"
-        ? {
-            ...step,
-            roleTimeoutMs: reviewRoleTimeoutMs,
-            ...(configuredIdleOutputMs === undefined ? {} : { idleOutputMs: configuredIdleOutputMs }),
-          }
-        : step;
-    }
-    const fixCommand = readProjectFixCommand(step.worktree.projectName, machineConfigPath);
-    const readyCommand = readProjectReadyCommand(step.worktree.projectName, machineConfigPath);
-    return {
-      ...step,
-      ...bounds,
-      ...(fixCommand !== undefined ? { fixCommand } : {}),
-      ...(readyCommand !== undefined ? { readyCommand } : {}),
-    };
-  });
   return { ok: true, steps, built };
 }
 

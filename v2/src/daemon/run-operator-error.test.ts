@@ -325,6 +325,33 @@ test("composeRunOperatorError returns invocation_error for legacy detail-free bi
   expect(composeRunOperatorError(storeRun)).toEqual(expected);
 });
 
+test("composeRunOperatorError projects binding-chain invocation stderr when present and omits it when absent", () => {
+  const message = "final binding stderr\nsecond line";
+  const withMessage = runWith("failed", [
+    attempt("invocation_failure", { failureKind: "error", bindingAttempts: [], message }),
+  ]);
+  const withoutMessage = runWith("failed", [
+    attempt("invocation_failure", { failureKind: "error", bindingAttempts: [] }),
+  ]);
+
+  expect(composeRunOperatorError(withMessage)).toEqual({ ...err("invocation_error", "stop"), message });
+  expect(composeRunOperatorError(withoutMessage)).toEqual(err("invocation_error", "stop"));
+});
+
+test.each([
+  ["quota", "quota_exhausted", "retry_later", false],
+  ["model_config", "model_config", "fix_config", false],
+  ["no_binding", "no_binding", "fix_config", false],
+  ["landing", "landing_failed", "resume", true],
+  ["timeout", "role_timeout", "retry_later", true],
+  ["stall", "role_stalled", "retry_later", true],
+] as const)("composeRunOperatorError does not project message for %s invocation failure", (failureKind, reason, nextAction, retryable) => {
+  const message = `synthetic ${failureKind} message`;
+  const run = runWith("failed", [attempt("invocation_failure", { failureKind, bindingAttempts: [], message })]);
+
+  expect(composeRunOperatorError(run)).toEqual(err(reason, nextAction, retryable));
+});
+
 test("composeRunOperatorError differs for stall vs error failureKind", () => {
   const stallRun = runWith("failed", [attempt("invocation_failure", { failureKind: "stall", bindingAttempts: [] })]);
   const errorRun = runWith("failed", [attempt("invocation_failure", { failureKind: "error", bindingAttempts: [] })]);

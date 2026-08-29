@@ -1160,6 +1160,7 @@ describe("run control", () => {
 
     expect(code).toBe(0);
     expect(row()[15]).toBe("-");
+    expect(row()[16]).toBe("-");
     // @mutate v2/src/commands/run.ts "e?.completionCommitError === undefined ? \"-\" : JSON.stringify(e.completionCommitError)," -> "JSON.stringify(e?.completionCommitError ?? \"-\"),"
   });
 
@@ -1185,6 +1186,26 @@ describe("run control", () => {
     expect(stdout.trimEnd().split("\n")).toHaveLength(1);
     expect(row()[15]).toBe(JSON.stringify(completionCommitError));
     // @mutate v2/src/commands/run.ts "e?.completionCommitError === undefined ? \"-\" : JSON.stringify(e.completionCommitError)," -> "e?.completionCommitError ?? \"-\","
+  });
+
+  test("run list renders invocation stderr as JSON in a stable trailing message column", async () => {
+    const message = "final binding stderr\nsecond line\tcolumn";
+    const { code, stdout, row } = await runSoloList([
+      {
+        runId: "binding-error",
+        project: "demo",
+        branch: "main",
+        status: "failed",
+        isLive: false,
+        error: { reason: "invocation_error", retryable: false, nextAction: "stop", message },
+      },
+    ]);
+
+    expect(code).toBe(0);
+    expect(stdout.trimEnd().split("\n")).toHaveLength(1);
+    expect(row()[15]).toBe("-");
+    expect(row()[16]).toBe(JSON.stringify(message));
+    // @mutate v2/src/commands/run.ts "e?.message === undefined ? \"-\" : JSON.stringify(e.message)," -> "e?.message ?? \"-\","
   });
 
   test("run list --all requests dismissed runs", async () => {
@@ -1216,8 +1237,8 @@ describe("run control", () => {
 
     expect(code).toBe(0);
     const [dismissed, notDismissed] = rows();
-    expect(dismissed?.[16]).toBe("dismissed");
-    expect(notDismissed?.[16]).toBe("-");
+    expect(dismissed?.[17]).toBe("dismissed");
+    expect(notDismissed?.[17]).toBe("-");
     // @mutate v2/src/commands/run.ts "...(showDismissal ? [typeof run.dismissedAt === \"number\" ? \"dismissed\" : \"-\"] : [])," -> "...[],"
   });
 
@@ -1225,7 +1246,7 @@ describe("run control", () => {
     const { code, row } = await runSoloList([{ ...soloDaemonListRow("dismissed-run"), dismissedAt: 123 }]);
 
     expect(code).toBe(0);
-    expect(row()).toHaveLength(16);
+    expect(row()).toHaveLength(17);
     // @mutate v2/src/commands/run.ts "...(showDismissal ? [typeof run.dismissedAt === \"number\" ? \"dismissed\" : \"-\"] : [])," -> "...[typeof run.dismissedAt === \"number\" ? \"dismissed\" : \"-\"],"
   });
 

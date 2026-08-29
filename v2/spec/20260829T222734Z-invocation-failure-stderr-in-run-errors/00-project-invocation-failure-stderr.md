@@ -17,11 +17,11 @@ Binding-chain `invocation_failure` attempt rows can persist the final binding's 
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/run-operator-error.test.ts` proves a binding-chain `invocation_failure` with populated `InvocationFailureDetail.message` returns that value from `composeRunOperatorError(...).message`, while absent detail message remains omitted; the populated case fails against the pre-fix mapper.
-- [ ] `v2/src/daemon/daemon-wait-run-completion.test.ts` proves a terminal run whose attempt row persists `InvocationFailureDetail.message` exposes the same value at `error.message` on daemon `wait`; it fails against the pre-fix mapper.
-- [ ] `v2/docs/operator-runbook.md` documents that `invocation_error` operator errors may include the final binding stderr tail in `error.message`.
-- [ ] `v2/docs/v1-behaviors.md` records the v2 additive `error.message` projection.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/daemon/run-operator-error.test.ts` proves a binding-chain `invocation_failure` with populated `InvocationFailureDetail.message` returns that value from `composeRunOperatorError(...).message`, while absent detail message remains omitted; the populated case fails against the pre-fix mapper.
+- [x] `v2/src/daemon/daemon-wait-run-completion.test.ts` proves a terminal run whose attempt row persists `InvocationFailureDetail.message` exposes the same value at `error.message` on daemon `wait`; it fails against the pre-fix mapper.
+- [x] `v2/docs/operator-runbook.md` documents that `invocation_error` operator errors may include the final binding stderr tail in `error.message`.
+- [x] `v2/docs/v1-behaviors.md` records the v2 additive `error.message` projection.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

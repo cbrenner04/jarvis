@@ -3633,11 +3633,21 @@ function iterationCommitFailed(
 ): WriteLoopResult {
   store.setRunStatus(runId, "failed");
   const publicationFailure = publicationFailureFor(error);
+  const message = error.message || "iteration commit failed";
+  const stderrRaw = (error as { stderr?: unknown }).stderr;
+  const stderr = typeof stderrRaw === "string" ? stderrRaw.trim() || undefined : undefined;
+  let cause = message;
+  if (stderr && !message.includes(stderr)) {
+    const tail = publicationFailure?.stderrTail;
+    if (!(tail && (tail.includes(stderr) || stderr.includes(tail)))) cause = `${message}\n${stderr}`;
+  }
+  const iterationCommitErrorMessage = truncateLogText(cause);
   args.logSink?.append(runId, {
     kind: "loop_finished",
     loopOutcomeKind: "iteration_commit_failed",
     iterationsConsumed,
     resumable: true,
+    message: iterationCommitErrorMessage,
     ...(publicationFailure !== undefined ? { publicationFailure } : {}),
   });
   return {
@@ -3645,7 +3655,7 @@ function iterationCommitFailed(
     runId,
     iterationsConsumed,
     resumable: true,
-    completionCommitError: error.message,
+    completionCommitError: iterationCommitErrorMessage,
     attemptId,
     outcomeKind: "progress",
     runStatus: "failed",

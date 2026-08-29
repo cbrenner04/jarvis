@@ -19,10 +19,10 @@
 
 ## Acceptance criteria
 
-- [ ] `prepareWorkflowSteps` stamps steps only through the shared export — a structural test in `v2/src/commands/workflow.test.ts` fails when the `readProjectFixCommand` / `readProjectReadyCommand` / bounds / review-timeout mapping is re-inlined into `prepareWorkflowSteps` instead of delegating to the export.
-- [ ] `v2/src/commands/workflow.test.ts` — `readyCommand admission` describe stays green.
-- [ ] `v2/src/commands/workflow.test.ts` — review idle-budget and `reviewRoleTimeoutMs` admission tests stay green.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `prepareWorkflowSteps` stamps steps only through the shared export — a structural test in `v2/src/commands/workflow.test.ts` fails when the `readProjectFixCommand` / `readProjectReadyCommand` / bounds / review-timeout mapping is re-inlined into `prepareWorkflowSteps` instead of delegating to the export.
+- [x] `v2/src/commands/workflow.test.ts` — `readyCommand admission` describe stays green.
+- [x] `v2/src/commands/workflow.test.ts` — review idle-budget and `reviewRoleTimeoutMs` admission tests stay green.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

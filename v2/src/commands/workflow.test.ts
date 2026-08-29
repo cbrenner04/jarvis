@@ -1565,6 +1565,20 @@ describe("review-role timeout resolution", () => {
   });
 });
 
+describe("shared step-config stamp", () => {
+  test("prepareWorkflowSteps delegates step-config stamping to the shared export", () => {
+    // @mutate v2/src/commands/workflow.ts "steps = stampWorkflowStepsWithMachineConfig(built.steps, machineConfigPath);" -> "const bounds = resolveWritePathIterationBounds(machineConfigPath); const configuredIdleOutputMs = readConfiguredIdleOutputTimeoutMs(machineConfigPath); const reviewRoleTimeoutMs = readReviewRoleTimeoutMs(machineConfigPath); steps = built.steps.map((step) => { if (step.behavior !== \"write\") { return step.behavior === \"review\" || step.behavior === \"review-debate\" ? { ...step, roleTimeoutMs: reviewRoleTimeoutMs, ...(configuredIdleOutputMs === undefined ? {} : { idleOutputMs: configuredIdleOutputMs }) } : step; } const fixCommand = readProjectFixCommand(step.worktree.projectName, machineConfigPath); const readyCommand = readProjectReadyCommand(step.worktree.projectName, machineConfigPath); return { ...step, ...bounds, ...(fixCommand !== undefined ? { fixCommand } : {}), ...(readyCommand !== undefined ? { readyCommand } : {}) }; });"
+    const source = readFileSync(join(import.meta.dir, "workflow.ts"), "utf8");
+    const prepareStart = source.indexOf("async function prepareWorkflowSteps");
+    expect(prepareStart).toBeGreaterThanOrEqual(0);
+    const nextFunction = source.indexOf("\nasync function ", prepareStart + 1);
+    const prepareSource = source.slice(prepareStart, nextFunction === -1 ? undefined : nextFunction);
+    expect(prepareSource).not.toMatch(/readProjectFixCommand/);
+    expect(prepareSource).not.toMatch(/readProjectReadyCommand/);
+    expect(prepareSource).toMatch(/stampWorkflowStepsWithMachineConfig/);
+  });
+});
+
 describe("readyCommand admission", () => {
   test("stamps the configured readyCommand onto write steps", async () => {
     // @mutate v2/src/commands/workflow.ts "...(readyCommand !== undefined ? { readyCommand } : {})," -> "...({}),"

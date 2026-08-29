@@ -585,7 +585,7 @@ function mapImplementRecoverOutcome(
   };
 }
 
-function reconstructDirectWriteResume(run: Run, _logRecords?: readonly PersistedRecord[]): ResolvedWriteLoopInput {
+function reconstructDirectWriteResume(run: Run): ResolvedWriteLoopInput {
   if (run.status !== "paused") return { ok: false, message: "direct write resume requires a paused run" };
   const input = run.queuedInput;
   if (!input) return { ok: false, message: "run has no durable direct-write resume context" };
@@ -601,7 +601,7 @@ function reconstructDirectWriteResume(run: Run, _logRecords?: readonly Persisted
 
 function reconstructWriteResume(run: Run, logRecords?: readonly PersistedRecord[]): ResolvedWriteLoopInput {
   const snapshot = run.workflowSnapshot;
-  if (!snapshot) return reconstructDirectWriteResume(run, logRecords);
+  if (!snapshot) return reconstructDirectWriteResume(run);
   const stepId = run.stepId;
   const hiddenShrink = stepId?.endsWith("~shrink") === true;
   const step = snapshot?.steps.find(

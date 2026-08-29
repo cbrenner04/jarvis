@@ -2618,10 +2618,7 @@ const GUARD_REPAIRS: GuardCheckpointRepairEntry[] = [
   },
 ];
 
-function createPausedImplementRepromptRun(branchName: string): {
-  jarvisRoot: string;
-  runId: string;
-} {
+function createPausedImplementRepromptRun(branchName: string): string {
   const { jarvisRoot } = createJarvisHome();
   roots.push(join(jarvisRoot, ".."));
   const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
@@ -2650,106 +2647,20 @@ function createPausedImplementRepromptRun(branchName: string): {
     },
   });
   stateStore.setRunStatus(runId, "paused");
-  return { jarvisRoot, runId };
+  return runId;
 }
 
-function expectNoCheckpointRepromptReplay(input: WriteLoopInput | undefined): void {
-  expect(input?.mutationDirectiveReprompt).toBeUndefined();
-  expect(input?.guardCheckpointReprompt).toBeUndefined();
-  expect(input?.keystoneDirectiveReprompt).toBeUndefined();
-  expect(input?.initialIterationsConsumed).toBeUndefined();
-}
+const PAUSED_LOOP_FINISHED = {
+  kind: "loop_finished",
+  loopOutcomeKind: "paused",
+  iterationsConsumed: 2,
+  resumable: true,
+} as const satisfies LogEvent;
 
-test.each([
-  {
-    checkpointKind: "mutation_directive_reprompt",
-    checkpointEvent: {
-      kind: "mutation_directive_reprompt",
-      attemptId: "attempt-1",
-      directives: [
-        {
-          pinningFile: "pin-a.test.ts",
-          line: 2,
-          raw: '// @mutate target.ts "missing-a" -> "x"',
-          reason: "target_absent" as const,
-        },
-      ],
-      display: "truncated…",
-    } satisfies LogEvent,
-  },
-  {
-    checkpointKind: "guard_checkpoint_reprompt",
-    checkpointEvent: {
-      kind: "guard_checkpoint_reprompt",
-      attemptId: "attempt-1",
-      repairs: GUARD_REPAIRS,
-    } satisfies LogEvent,
-  },
-  {
-    checkpointKind: "keystone_directive_reprompt",
-    checkpointEvent: {
-      kind: "keystone_directive_reprompt",
-      attemptId: "attempt-1",
-      criterionText: "- [x] `keystone.test.ts` — `keystone pin`; Keystone checkpoint: headline revert turns pin red.",
-      pinPath: "keystone.test.ts",
-    } satisfies LogEvent,
-  },
-])("paused implement resume ignores historical checkpoint reprompt log events ($checkpointKind)", async ({
-  checkpointEvent,
-}) => {
-  // @mutate v2/src/daemon/daemon-resume.test.ts "expectNoCheckpointRepromptReplay(starts[0]);" -> "expect(starts[0]?.mutationDirectiveReprompt ?? starts[0]?.guardCheckpointReprompt ?? starts[0]?.keystoneDirectiveReprompt).toBeDefined();"
-  const { runId } = createPausedImplementRepromptRun(`implement-paused-ignore-${checkpointEvent.kind}`);
-  const response = await resumeDirect(
-    createHandlers(
-      logReader(runId, [
-        checkpointEvent,
-        { kind: "loop_finished", loopOutcomeKind: "paused", iterationsConsumed: 2, resumable: true },
-      ]),
-    ),
-    runId,
-  );
-
-  expect(response.kind).toBe("response");
-  expect(starts).toHaveLength(1);
-  expectNoCheckpointRepromptReplay(starts[0]);
-});
-
-test("paused implement resume restores landing-contract but ignores checkpoint reprompt when co-present", async () => {
-  const { runId } = createPausedImplementRepromptRun("implement-paused-landing-over-checkpoint");
-  const response = await resumeDirect(
-    createHandlers(
-      logReader(runId, [
-        {
-          kind: "guard_checkpoint_reprompt",
-          attemptId: "attempt-1",
-          repairs: GUARD_REPAIRS,
-        },
-        {
-          kind: "landing_contract_reprompt",
-          attemptId: "attempt-2",
-          violation: "intent: bad-intent.md must list prerequisites as one bullet per line",
-          offendingFile: "bad-intent.md",
-        },
-        { kind: "loop_finished", loopOutcomeKind: "paused", iterationsConsumed: 2, resumable: true },
-      ]),
-    ),
-    runId,
-  );
-
-  expect(response.kind).toBe("response");
-  expect(starts).toHaveLength(1);
-  expectNoCheckpointRepromptReplay(starts[0]);
-  expect(starts[0]?.landingContractReprompt).toEqual({
-    violation: "intent: bad-intent.md must list prerequisites as one bullet per line",
-    offendingFile: "bad-intent.md",
-  });
-});
-
-test("paused direct implement resume ignores historical checkpoint reprompt log events", async () => {
-  // @mutate v2/src/daemon/daemon-resume.test.ts "expectNoCheckpointRepromptReplay(resumedInput);" -> "expect(resumedInput.guardCheckpointReprompt?.repairs).toEqual(GUARD_REPAIRS);"
+function createPausedDirectWriteRun(): string {
   const { jarvisRoot } = createJarvisHome();
   roots.push(join(jarvisRoot, ".."));
-  const input: WriteLoopInput = {
+  const queuedInput: WriteLoopInput = {
     ...mockWriteLoopInput({
       projectRoot: "/fake",
       projectName: "direct-replay",
@@ -2766,43 +2677,115 @@ test("paused direct implement resume ignores historical checkpoint reprompt log 
       agentModelConfig: AGENT_MODEL_CONFIG,
     },
   };
-  const runId = await startRunDirect(handlers, input);
-  expect(runId).toBeDefined();
-  if (!runId) return;
-  stateStore.setRunStatus(runId, "paused");
-
-  const logsPath = join(tmpdir(), `jarvis-direct-ignore-checkpoint-${process.pid}-${Date.now()}.jsonl`);
-  const seedSink = openLogSink(logsPath);
-  seedSink.append(runId, { kind: "guard_checkpoint_reprompt", attemptId: "attempt-2", repairs: GUARD_REPAIRS });
-  seedSink.append(runId, {
-    kind: "loop_finished",
-    loopOutcomeKind: "paused",
-    iterationsConsumed: 2,
-    resumable: true,
+  return stateStore.createRun({
+    project: "direct-replay",
+    specRef: "HEAD",
+    worktreePath: "/fake",
+    branch: "direct-replay",
+    specPath: "spec.md",
+    status: "paused",
+    queuedInput,
   });
-  seedSink.close();
+}
 
-  let resumedInput: WriteLoopInput | undefined;
-  const localHandlers = createRunControlHandlers({
-    stateStore,
-    logReader: openLogReader(logsPath),
-    logsPath,
-    writeLoopExecutor: async (input) => {
-      resumedInput = input;
-    },
-    failureReporter: () => {},
-    hasMemoryHeadroom: () => true,
-    settleDelayMs: 0,
+function expectNoCheckpointRepromptReplay(input: WriteLoopInput | undefined): void {
+  expect(input?.mutationDirectiveReprompt).toBeUndefined();
+  expect(input?.guardCheckpointReprompt).toBeUndefined();
+  expect(input?.keystoneDirectiveReprompt).toBeUndefined();
+  expect(input?.initialIterationsConsumed).toBeUndefined();
+}
+
+test.each([
+  {
+    checkpointEvent: {
+      kind: "mutation_directive_reprompt",
+      attemptId: "attempt-1",
+      directives: [
+        {
+          pinningFile: "pin-a.test.ts",
+          line: 2,
+          raw: '// @mutate target.ts "missing-a" -> "x"',
+          reason: "target_absent" as const,
+        },
+      ],
+      display: "truncated…",
+    } satisfies LogEvent,
+  },
+  {
+    checkpointEvent: {
+      kind: "guard_checkpoint_reprompt",
+      attemptId: "attempt-1",
+      repairs: GUARD_REPAIRS,
+    } satisfies LogEvent,
+  },
+  {
+    checkpointEvent: {
+      kind: "keystone_directive_reprompt",
+      attemptId: "attempt-1",
+      criterionText: "- [x] `keystone.test.ts` — `keystone pin`; Keystone checkpoint: headline revert turns pin red.",
+      pinPath: "keystone.test.ts",
+    } satisfies LogEvent,
+  },
+])("paused implement resume ignores historical checkpoint reprompt log events ($checkpointEvent.kind)", async ({
+  checkpointEvent,
+}) => {
+  // @mutate v2/src/daemon/daemon-resume.test.ts "expectNoCheckpointRepromptReplay(starts[0]);" -> "expect(starts[0]?.mutationDirectiveReprompt ?? starts[0]?.guardCheckpointReprompt ?? starts[0]?.keystoneDirectiveReprompt).toBeDefined();"
+  const runId = createPausedImplementRepromptRun(`implement-paused-ignore-${checkpointEvent.kind}`);
+  const response = await resumeDirect(createHandlers(logReader(runId, [checkpointEvent, PAUSED_LOOP_FINISHED])), runId);
+
+  expect(response.kind).toBe("response");
+  expect(starts).toHaveLength(1);
+  expectNoCheckpointRepromptReplay(starts[0]);
+});
+
+test("paused implement resume restores landing-contract but ignores checkpoint reprompt when co-present", async () => {
+  const runId = createPausedImplementRepromptRun("implement-paused-landing-over-checkpoint");
+  const response = await resumeDirect(
+    createHandlers(
+      logReader(runId, [
+        {
+          kind: "guard_checkpoint_reprompt",
+          attemptId: "attempt-1",
+          repairs: GUARD_REPAIRS,
+        },
+        {
+          kind: "landing_contract_reprompt",
+          attemptId: "attempt-2",
+          violation: "intent: bad-intent.md must list prerequisites as one bullet per line",
+          offendingFile: "bad-intent.md",
+        },
+        PAUSED_LOOP_FINISHED,
+      ]),
+    ),
+    runId,
+  );
+
+  expect(response.kind).toBe("response");
+  expect(starts).toHaveLength(1);
+  expectNoCheckpointRepromptReplay(starts[0]);
+  expect(starts[0]?.landingContractReprompt).toEqual({
+    violation: "intent: bad-intent.md must list prerequisites as one bullet per line",
+    offendingFile: "bad-intent.md",
   });
+});
 
-  try {
-    expect((await resumeDirect(localHandlers, runId)).kind).toBe("response");
-    await flushBackgroundRuns();
-    expectNoCheckpointRepromptReplay(resumedInput);
-    expect(resumedInput?.maxIterations).toBe(3);
-  } finally {
-    rmSync(logsPath, { force: true });
-  }
+test("paused direct implement resume ignores historical checkpoint reprompt log events", async () => {
+  // @mutate v2/src/daemon/daemon-resume.test.ts "expectNoCheckpointRepromptReplay(starts[0]);" -> "expect(starts[0]?.guardCheckpointReprompt?.repairs).toEqual(GUARD_REPAIRS);"
+  const runId = createPausedDirectWriteRun();
+  const response = await resumeDirect(
+    createHandlers(
+      logReader(runId, [
+        { kind: "guard_checkpoint_reprompt", attemptId: "attempt-2", repairs: GUARD_REPAIRS },
+        PAUSED_LOOP_FINISHED,
+      ]),
+    ),
+    runId,
+  );
+
+  expect(response.kind).toBe("response");
+  expect(starts).toHaveLength(1);
+  expectNoCheckpointRepromptReplay(starts[0]);
+  expect(starts[0]?.maxIterations).toBe(3);
 });
 
 test("exhausted-red eligibility guard inversion: origin evidence", () => {

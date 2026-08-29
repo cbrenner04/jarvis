@@ -6,18 +6,17 @@ name: watchdog-timers-never-hold-the-event-loop
 
 ## Problem
 
-The write-loop ceiling/idle-output watchdogs and review role/idle timers are real timers that are not `.unref()`'d. Surfaced by #3060 (config-parity subspec 01): once daemon-dispatched steps carry stamped timeout fields, `pipeline-execution.test.ts` arms those watchdogs and the file hangs — module loads and 109/109 tests pass, but pending timers hold bun's event loop so the process never exits (reproduced locally and on CI; bisected to any armed timer field). On `main` the daemon path never stamped the fields, so the timers never armed there — the latent defect was masked by the parity bug that spec fixes. Any short-lived process that arms a watchdog and finishes early has the same exposure.
+The wall-segment, ceiling, and review-role watchdog timers were real timers not `.unref()`'d; a short-lived process that arms one and settles early stays alive until the timer fires. The `.unref()` fix landed in #3060's hand-finish (2026-08-29) as hygiene, but nothing pins it — a new watchdog timer can silently regress. (Historical note: #3060's `pipeline-execution.test.ts` hang was originally attributed to these timers; the true cause was stub steps without `worktree` making the stamp throw before `wait()`, starving the tests' microtask spin loops. The unrefs are correct independent of that hang.)
 
 ## Decisions
 
-- Every watchdog/timeout timer in the write loop and review execution is `.unref()`'d (or managed by a scheduler that is), so a pending watchdog never keeps a process alive; cancellation on settle is unchanged. Rules out fixing only the one test file with fake timers.
+- Pin the landed behavior: a process that arms each watchdog kind and reaches settle exits without waiting out the timer. Rules out unpinned hygiene that the next timer site regresses.
 - Tests that assert watchdog behavior drive fake timers; no test waits out a real watchdog. Rules out reintroducing wall-clock hangs.
-- If #3060's hand-finish already lands the `.unref()` fix, this seed is reaped with a pointer to that PR. Rules out double-implementing.
+- The microtask-spin test idiom (`while (!flag) await Promise.resolve()`) starves timers and turns any pre-`wait()` failure into a silent file hang; decide at intent time whether to bound it with a shared helper. Rules out leaving the hang class entirely undocumented.
 
 ## Acceptance criteria
 
-- [ ] A process that arms each watchdog kind and reaches settle exits without waiting for the timer, pinned by a test that fails against a ref'd timer.
-- [ ] `pipeline-execution.test.ts` passes with stamped timeout fields present (the #3060 repro), pinned.
+- [ ] A process that arms each watchdog kind (wall-segment, ceiling, review-role) and reaches settle exits without waiting for the timer, pinned by a test that fails against a ref'd timer.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates

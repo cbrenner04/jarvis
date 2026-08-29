@@ -21,7 +21,7 @@ The five structural retirements that close whole classes: one dispatch front doo
 
 ## In flight (2026-08-29)
 
-- **PR #3060** (`impl/config-parity-01-02`) — **keep, hand-finish.** Subspec 01 wiring + tests are committed and correct (missing `configPath` fails the stage per the ledger); blocked on a root-caused latent defect: stamped timeout fields arm watchdog timers that are not `.unref()`'d, hanging `pipeline-execution.test.ts`. Finish: land the unref fix ([[watchdog-timers-never-hold-the-event-loop]], reap it if folded in), tick the last AC, then subspec 02. The leaked hung `bun test` in that worktree is killable.
+- **PR #3060** (`impl/config-parity-01-02`) — **hand-finished 2026-08-29, awaiting green CI + merge.** Subspecs 01+02 complete, all gates green locally. The test-file hang's true cause was stub steps without `worktree` (the stamp threw before `wait()`, starving microtask spin loops) — not timers; the watchdog unrefs landed anyway as hygiene, leaving [[watchdog-timers-never-hold-the-event-loop]] as a pin-test seed. On merge, reap [[pipeline-dispatch-threads-project-ready-and-fix-commands]].
 - **Spec `20260829T023500Z-deferred-settlement-resume-preserves-pr-evidence`** — next to run. Point fix for the sharpest dogfood blocker; later subsumed by [[pipeline-settlement-derives-from-run-rows]] (which retires the deferred-settlement machinery it patches). Seeds for both in-flight specs stay in `seeds/` until landed, then reap.
 
 ## Priority-ordered work

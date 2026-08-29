@@ -23,12 +23,12 @@ Unsplit rationale: The behavior changes only daemon resume reconstruction; its f
 
 - Resolve a missing snapshot `iterationCeilingMs` from `writeLoopBindingSourceDeps.machineConfigPath`; rules out rebuilding the path from `jarvisHome()`.
 - Keep persisted snapshot ceilings authoritative; rules out replacing an already-stamped ceiling with current config.
-- Pin `v2/src/daemon/` against direct `jarvisHome()` config-path construction through the existing config-source guard seam; rules out another daemon-local hardcoded config source.
+- Extend the existing config-source guard to reject direct `jarvisHome()` machine-config construction in daemon resume; the pre-fix `v2/src/daemon/daemon.ts` ceiling fallback is reachable evidence for the invariant.
 
 ## Acceptance criteria
 
-- [ ] Snapshot-backed resume with distinct operator-home and injected configs uses the injected config's iteration ceiling, while a persisted snapshot ceiling remains unchanged.
-- [ ] No production source under `v2/src/daemon/` constructs a machine-config path from `jarvisHome()`, pinned structurally.
+- [ ] `v2/src/daemon/daemon-resume.test.ts` test `resume resolves a missing iterationCeilingMs from the injected config` fails against the pre-fix operator-home fallback and passes when distinct operator-home and injected configs use the injected ceiling; a persisted snapshot ceiling remains unchanged.
+- [ ] `v2/src/daemon/write-loop-binding-source-guard.test.ts` — `daemon resume does not construct a ceiling config path from jarvisHome`; Mutation checkpoint: an in-body `// @mutate v2/src/daemon/daemon.ts "iterationCeilingMs: step.iterationCeilingMs ?? readIterationCeilingMs(writeLoopBindingSourceDeps.machineConfigPath)," -> "iterationCeilingMs: step.iterationCeilingMs ?? readIterationCeilingMs(join(jarvisHome(), \"config.json\")),"` directive restores the pre-fix reachable violation and turns the scoped test red.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

@@ -418,6 +418,33 @@ const RESTART_SWEEP_DEFINITION: PipelineDefinition = {
   ],
 };
 
+const DEFERRED_FINAL_STAGE_DEFINITION: PipelineDefinition = {
+  name: "deferred-final-stage-p",
+  terminalAction: "ready",
+  stages: [{ stageId: "s1", kind: "workflow", workflow: "intent", review: "none" }],
+};
+
+const DEFERRED_FINAL_PR = { prNumber: 98, prUrl: "https://example.com/pr/98" } as const;
+
+function deferredFinalEntryRun(
+  entryRunId: string,
+  snapshot: WorkflowSnapshot,
+  pr: { prNumber: number; prUrl: string } = DEFERRED_FINAL_PR,
+): Record<string, Partial<Run>> {
+  return {
+    [entryRunId]: {
+      specPath: "spec/s1.md",
+      stepId: "s1-entry",
+      status: "completed",
+      workflowSnapshot: snapshot,
+      worktreePath: "/repo/worktree",
+      branch: "feature-branch",
+      specRef: "main",
+      ...pr,
+    },
+  };
+}
+
 function deferredMarkerDetail(entryRunId: string, rollupStatus: RunStatus) {
   return {
     code: "settlement_deferred" as const,
@@ -1246,6 +1273,117 @@ describe("pipeline activation after restart", () => {
     expect(dispatchOrder).toEqual([1]);
     expect(terminalPublicationCalls).toBe(1);
     // @mutate v2/src/daemon/pipeline-execution.ts "if (!isPipelineContinuable(pipeline) && !hasRedrivableDeferredSettlement(store, pipeline, reconciledEntryRunIds)) continue;" -> "if (!isPipelineContinuable(pipeline)) continue;"
+  });
+
+  test("restart sweep preserves PR evidence through final deferred settlement for terminal publication", async () => {
+    const entryRunId = "run-restart-sweep-final-pr";
+    const reviewRunId = "run-restart-sweep-final-pr-review";
+    const snapshot = restartSweepEntrySnapshot("inv-restart-sweep-final-pr");
+    const runs: Record<string, Partial<Run>> = {
+      ...deferredFinalEntryRun(entryRunId, snapshot),
+      [reviewRunId]: { stepId: "s1-review", status: "completed", workflowSnapshot: snapshot },
+    };
+    const { store, stages } = fakeStore(DEFERRED_FINAL_STAGE_DEFINITION, runs, {
+      context: persistedContext,
+      ownerIdentity: PRIOR_OWNER,
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "s1",
+      patch: {
+        status: "running",
+        workflowInvocationId: entryRunId,
+        failureDetail: deferredMarkerDetail(entryRunId, "failed"),
+      },
+    });
+
+    let terminalPublicationCalls = 0;
+    const capturedInputs: unknown[] = [];
+    const executeTerminalPublication = async (input: unknown) => {
+      capturedInputs.push(input);
+      terminalPublicationCalls += 1;
+      return DEFERRED_FINAL_PR;
+    };
+
+    const { continued } = await recoverContinuablePipelines(
+      store,
+      {
+        store,
+        dispatch: async () => {
+          throw new Error("final deferred settlement must not redispatch");
+        },
+        wait: restartSweepWait(runs),
+        resolveStage: resolveStageStub(),
+        executeTerminalPublication,
+      },
+      async () => false,
+    );
+
+    expect(continued).toBe(1);
+    const s1 = stages().find((s) => s.stageId === "s1");
+    expect(s1?.status).toBe("succeeded");
+    expect(s1?.artifact).toMatchObject({ entryRunId, ...DEFERRED_FINAL_PR });
+    expect(capturedInputs).toEqual([
+      {
+        terminalAction: "ready",
+        worktreePath: "/repo/worktree",
+        branch: "feature-branch",
+        baseRef: "main",
+        ...DEFERRED_FINAL_PR,
+      },
+    ]);
+    expect(terminalPublicationCalls).toBe(1);
+  });
+
+  test("restart sweep fails final deferred settlement when a ready pipeline's completed entry run lacks publication PR evidence", async () => {
+    const entryRunId = "run-restart-sweep-missing-pr";
+    const reviewRunId = "run-restart-sweep-missing-pr-review";
+    const snapshot = restartSweepEntrySnapshot("inv-restart-sweep-missing-pr");
+    const runs: Record<string, Partial<Run>> = {
+      [entryRunId]: { specPath: "spec/s1.md", stepId: "s1-entry", status: "completed", workflowSnapshot: snapshot },
+      [reviewRunId]: { stepId: "s1-review", status: "completed", workflowSnapshot: snapshot },
+    };
+    const { store, stages } = fakeStore(DEFERRED_FINAL_STAGE_DEFINITION, runs, {
+      context: persistedContext,
+      ownerIdentity: PRIOR_OWNER,
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "s1",
+      patch: {
+        status: "running",
+        workflowInvocationId: entryRunId,
+        failureDetail: deferredMarkerDetail(entryRunId, "failed"),
+      },
+    });
+
+    let terminalPublicationCalls = 0;
+    const { continued } = await recoverContinuablePipelines(
+      store,
+      {
+        store,
+        dispatch: async () => {
+          throw new Error("deferred settlement must not redispatch");
+        },
+        wait: restartSweepWait(runs),
+        resolveStage: resolveStageStub(),
+        executeTerminalPublication: async () => {
+          terminalPublicationCalls += 1;
+          return DEFERRED_FINAL_PR;
+        },
+      },
+      async () => false,
+    );
+
+    expect(continued).toBe(1);
+    const s1 = stages().find((s) => s.stageId === "s1");
+    expect(s1?.status).toBe("failed");
+    expect(s1?.failureDetail).toEqual({
+      code: "completion_publication_missing_pr_evidence",
+      message: `completion publication left no confirmed PR evidence on linked entry run ${entryRunId}`,
+    });
+    expect(terminalPublicationCalls).toBe(0);
+    expect(store.loadPipeline(PIPELINE_ID)?.terminalPublicationFailure).toBeNull();
   });
 
   test("restart sweep fails a deferred stage whose entry run ended failed", async () => {
@@ -2747,14 +2885,15 @@ describe("resumePipeline", () => {
   });
 
   test("resume drives settlement for a stage wedged behind a durably terminal entry run", async () => {
+    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "...(entryRun.prNumber != null ? { prNumber: entryRun.prNumber } : {})," -> "...(false ? { prNumber: entryRun.prNumber } : {}),"
     const entryRunId = "run-resume-settle-1";
     const reviewRunId = "run-resume-settle-1-review";
     const snapshot = restartSweepEntrySnapshot("inv-resume-settle-1");
     const runs: Record<string, Partial<Run>> = {
-      [entryRunId]: { specPath: "spec/s1.md", stepId: "s1-entry", status: "completed", workflowSnapshot: snapshot },
+      ...deferredFinalEntryRun(entryRunId, snapshot),
       [reviewRunId]: { stepId: "s1-review", status: "completed", workflowSnapshot: snapshot },
     };
-    const { store, stages } = fakeStore(RESTART_SWEEP_DEFINITION, runs, {
+    const { store, stages } = fakeStore(DEFERRED_FINAL_STAGE_DEFINITION, runs, {
       context: persistedContext,
       ownerIdentity: PRIOR_OWNER,
     });
@@ -2769,27 +2908,18 @@ describe("resumePipeline", () => {
     });
 
     let terminalPublicationCalls = 0;
-    const executeTerminalPublication = async () => {
+    const capturedInputs: unknown[] = [];
+    const executeTerminalPublication = async (input: unknown) => {
+      capturedInputs.push(input);
       terminalPublicationCalls += 1;
-      return { prNumber: 99, prUrl: "https://example.com/pr/99" };
-    };
-    const dispatchOrder: number[] = [];
-    const dispatch: PipelineWorkflowDispatch = async (steps) => {
-      dispatchOrder.push(stageIndexOf(steps));
-      const runId = "run-resume-settle-2";
-      runs[runId] = {
-        specPath: "spec/s2.md",
-        worktreePath: "/repo/worktree",
-        branch: "feature-branch",
-        specRef: "main",
-        status: "completed",
-      };
-      return { ok: true, entryRunId: runId, invocationId: "inv-resume-settle-2" };
+      return DEFERRED_FINAL_PR;
     };
 
     const outcome = await resumePipeline(PIPELINE_ID, {
       store,
-      dispatch,
+      dispatch: async () => {
+        throw new Error("final deferred settlement must not redispatch");
+      },
       wait: restartSweepWait(runs),
       resolveStage: resolveStageStub(),
       executeTerminalPublication,
@@ -2799,11 +2929,72 @@ describe("resumePipeline", () => {
     const s1 = stages().find((s) => s.stageId === "s1");
     expect(s1?.status).toBe("succeeded");
     expect(s1?.failureDetail).toBeNull();
-    expect(s1?.artifact).toMatchObject({ entryRunId, specPath: "spec/s1.md" });
-    expect(stages().find((s) => s.stageId === "s2")?.status).toBe("succeeded");
-    expect(dispatchOrder).toEqual([1]);
+    expect(s1?.artifact).toMatchObject({
+      entryRunId,
+      specPath: "spec/s1.md",
+      ...DEFERRED_FINAL_PR,
+    });
+    expect(capturedInputs).toEqual([
+      {
+        terminalAction: "ready",
+        worktreePath: "/repo/worktree",
+        branch: "feature-branch",
+        baseRef: "main",
+        ...DEFERRED_FINAL_PR,
+      },
+    ]);
     expect(terminalPublicationCalls).toBe(1);
     // @mutate v2/src/daemon/pipeline-execution.ts "if (resumeDrivesDeferredSettlement(store, derivedState, pipeline)) return continueAfterAdmission();" -> "if (false) return continueAfterAdmission();"
+  });
+
+  test("deferred settlement fails when a ready pipeline's completed entry run lacks publication PR evidence", async () => {
+    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "code: \"completion_publication_missing_pr_evidence\"" -> "code: \"ignored\""
+    const definition: PipelineDefinition = {
+      name: "missing-publication-evidence",
+      terminalAction: "ready",
+      stages: [{ stageId: "implement", kind: "workflow", workflow: "implement", review: "light" }],
+    };
+    const entryRunId = "run-resume-missing-pr";
+    const runs: Record<string, Partial<Run>> = {
+      [entryRunId]: { specPath: "spec/implement.md", status: "completed" },
+    };
+    const { store, stages } = fakeStore(definition, runs, {
+      context: persistedContext,
+      ownerIdentity: PRIOR_OWNER,
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "implement",
+      patch: {
+        status: "running",
+        workflowInvocationId: entryRunId,
+        failureDetail: deferredMarkerDetail(entryRunId, "failed"),
+      },
+    });
+
+    let terminalPublicationCalls = 0;
+    const outcome = await resumePipeline(PIPELINE_ID, {
+      store,
+      dispatch: async () => {
+        throw new Error("deferred settlement must not redispatch");
+      },
+      wait: restartSweepWait(runs),
+      resolveStage: resolveStageStub(),
+      executeTerminalPublication: async () => {
+        terminalPublicationCalls += 1;
+        return TERMINAL_PR;
+      },
+    });
+
+    expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+    const implement = stages().find((stage) => stage.stageId === "implement");
+    expect(implement?.status).toBe("failed");
+    expect(implement?.failureDetail).toEqual({
+      code: "completion_publication_missing_pr_evidence",
+      message: `completion publication left no confirmed PR evidence on linked entry run ${entryRunId}`,
+    });
+    expect(terminalPublicationCalls).toBe(0);
+    expect(store.loadPipeline(PIPELINE_ID)?.terminalPublicationFailure).toBeNull();
   });
 
   test("resume still refuses a running pipeline whose deferred stage entry run is genuinely live", async () => {

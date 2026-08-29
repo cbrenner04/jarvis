@@ -8361,11 +8361,10 @@ export function isLoadSensitive(file: string): boolean {
           resumable: true,
           message: expectedCause,
         });
-        // @mutate v2/src/execution/write-loop.ts "message: truncateLogText(iterationCommitErrorMessage)," -> ""
+        // @mutate v2/src/execution/write-loop.ts "message: iterationCommitErrorMessage," -> ""
         // @mutate v2/src/execution/write-loop.ts "completionCommitError: iterationCommitErrorMessage," -> ""
 
         const oversizedStderr = "e".repeat(600);
-        const oversizedCause = truncateLogText(`${commitMessage}\n${oversizedStderr}`);
         const oversizedBranch = `${branchName}-oversized`;
         initGitWorktree(jarvisRoot, oversizedBranch);
         const oversizedSink = new TestLogSink();
@@ -8378,7 +8377,7 @@ export function isLoadSensitive(file: string): boolean {
             },
           }),
         );
-        expect(oversizedResult.completionCommitError).toBe(oversizedCause);
+        expect(oversizedResult.completionCommitError).toBe(truncateLogText(`${commitMessage}\n${oversizedStderr}`));
         const oversizedTerminal = oversizedSink
           .getEventsForRun(oversizedResult.runId)
           .find((event): event is LoopFinishedEvent => event.kind === "loop_finished");

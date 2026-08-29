@@ -512,7 +512,12 @@ export function stageReviewedIntent(workspace: string): void {
 export function seedFailedIntentReviewResumeRun(
   store: ReturnType<typeof openStateStore>,
   workspace: string,
-  options: { branch: string; invocationId: string; intentAgents?: readonly string[] },
+  options: {
+    branch: string;
+    invocationId: string;
+    intentAgents?: readonly string[];
+    intentStepConfig?: { fixCommand?: string; readyCommand?: string };
+  },
 ): string {
   const base = {
     project: "demo",
@@ -529,6 +534,12 @@ export function seedFailedIntentReviewResumeRun(
           durable: true,
           expectedArtifactPath: ".jarvis-intent-stage",
           agents: options.intentAgents ?? ["claude"],
+          ...(options.intentStepConfig?.fixCommand !== undefined
+            ? { fixCommand: options.intentStepConfig.fixCommand }
+            : {}),
+          ...(options.intentStepConfig?.readyCommand !== undefined
+            ? { readyCommand: options.intentStepConfig.readyCommand }
+            : {}),
         },
         { stepId: "review", role: "", durable: true, behavior: "review" as const },
       ],

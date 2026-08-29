@@ -231,7 +231,9 @@ export type WallSegmentScheduleHandle = { cancel: () => void };
 export type WallSegmentSchedule = (fire: () => void, delayMs: number) => WallSegmentScheduleHandle;
 
 const defaultWallSegmentSchedule: WallSegmentSchedule = (fire, delayMs) => {
+  // Watchdog: firing only aborts work, so a pending timer must never hold the event loop open.
   const timer = setTimeout(fire, delayMs);
+  timer.unref?.();
   return { cancel: () => clearTimeout(timer) };
 };
 
@@ -2055,6 +2057,7 @@ async function awaitIteration(
     bumpWallSegment();
     if (args.iterationCeilingMs !== undefined) {
       ceilingTimeout = setTimeout(fireWatchdogTimeout, args.iterationCeilingMs);
+      ceilingTimeout.unref?.();
     }
   });
 

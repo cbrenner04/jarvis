@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   type DiffDerivedMutationVerifierInput,
-  isInsideTimerCallbackForTest,
   MAX_CONCURRENT_VERIFIER_TEST_RUNS,
   MAX_VERIFICATION_MS,
   maskNonCodeSpans,

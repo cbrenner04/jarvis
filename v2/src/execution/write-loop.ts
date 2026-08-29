@@ -2157,9 +2157,9 @@ function buildWriteExecuteInput(
   sessionLog: SessionLog,
   landingContractReprompt?: { violation: string; offendingFile: string },
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string },
-  mutationDirectiveReprompt?: MutationDirectiveRepromptContext,
-  guardCheckpointReprompt?: GuardCheckpointRepromptContext,
-  keystoneDirectiveReprompt?: KeystoneDirectiveRepromptContext,
+  _mutationDirectiveReprompt?: MutationDirectiveRepromptContext,
+  _guardCheckpointReprompt?: GuardCheckpointRepromptContext,
+  _keystoneDirectiveReprompt?: KeystoneDirectiveRepromptContext,
 ): WriteExecuteInput {
   const telemetry = args.telemetry;
   // An operator-session-only telemetry attachment (no sinkPath/workflow/role) is a
@@ -3542,7 +3542,7 @@ async function checkpointSettledIteration(
  * then honor any abort/pause signal. Returns a terminal `WriteLoopResult` to return from the loop,
  * or `undefined` to `continue` the loop.
  */
-async function commitRepromptProgressBoundary(
+async function _commitRepromptProgressBoundary(
   args: WriteLoopInput,
   prepared: { creationTitle?: string },
   store: StateStore,

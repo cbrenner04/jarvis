@@ -37,3 +37,7 @@ Daemon (`v2/src/daemon/**/*.test.ts`, shared fixtures under `v2/src/testing/**`)
 ## Documentation updates
 
 - `v2/docs/test-writing.md` — the per-test isolation requirement for socket/tmp/db state, the shared fixture that provides it, and its place in the determinism smell checklist.
+
+## Reprioritization note (2026-08-29)
+
+Demoted from ready-intents: verify still needed — the #2900 no-co-runner lane has held since 2026-08-18, and the planned workflow-runner module/test split ([[split-workflow-runner-resume-machines]]) reworks this surface. Re-scope or reap at re-triage.

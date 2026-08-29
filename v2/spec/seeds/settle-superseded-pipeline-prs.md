@@ -36,3 +36,7 @@ Successful terminal publication leaves preceding intent and plan PRs open even t
 - `v2/docs/daemon-host.md` — supersede ordering, exclusions, nonfatal failure detail, and derived-state contract.
 - `v2/docs/state-store.md` — durable `supersedeFailures` detail.
 - `v2/docs/v1-behaviors.md` — v2 terminal supersede settlement.
+
+## Reprioritization note (2026-08-29)
+
+Demoted from ready-intents: terminal publication is reworked by [[pipeline-settlement-derives-from-run-rows]]; re-scope this family against the post-restructure settlement seam before planning.

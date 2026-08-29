@@ -39,3 +39,7 @@ CLI, including the TUI operator client.
 - `v2/docs/first-workflow-walkthrough.md` — approval commands and how to obtain the `default` or ready-intent-name lane.
 - `v2/docs/operator-runbook.md` — TUI lane presentation and steering semantics.
 - `v2/docs/v1-behaviors.md` — operator-facing rename and unchanged real git-branch terminology.
+
+## Reprioritization note (2026-08-29)
+
+Demoted from ready-intents: sequence after [[pipeline-settlement-derives-from-run-rows]] — the settlement restructure reworks the same stage rows and predicates this rename touches.

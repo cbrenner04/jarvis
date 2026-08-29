@@ -31,3 +31,7 @@ name: retire-superseded-pipeline-branches
 
 - `v2/docs/operator-runbook.md` — superseded-PR retirement authority, refusal cases, and local-only branch teardown.
 - `v2/docs/v1-behaviors.md` — v2 cleanup authority for superseded pipeline branches.
+
+## Reprioritization note (2026-08-29)
+
+Demoted from ready-intents: terminal publication is reworked by [[pipeline-settlement-derives-from-run-rows]]; re-scope this family against the post-restructure settlement seam before planning.

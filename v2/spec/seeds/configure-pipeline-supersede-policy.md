@@ -26,3 +26,7 @@ Project pipeline config cannot choose whether successful terminal settlement clo
 - `v2/docs/install-and-config.md` — values, default, validation, and complete project example.
 - `v2/docs/workflow-runner.md` — immutable admitted supersede policy.
 - `v2/docs/v1-behaviors.md` — v2 pipeline supersede-policy admission.
+
+## Reprioritization note (2026-08-29)
+
+Demoted from ready-intents: terminal publication is reworked by [[pipeline-settlement-derives-from-run-rows]]; re-scope this family against the post-restructure settlement seam before planning.

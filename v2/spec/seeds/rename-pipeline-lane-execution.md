@@ -34,3 +34,7 @@ Execution loop.
 
 - `v2/docs/daemon-host.md` — lane-keyed fan-out execution, approval targeting, and valid-lane refusal semantics.
 - `v2/docs/v1-behaviors.md` — pipeline execution's lane vocabulary and unchanged lane values.
+
+## Reprioritization note (2026-08-29)
+
+Demoted from ready-intents: sequence after [[pipeline-settlement-derives-from-run-rows]] — the settlement restructure reworks the same stage rows and predicates this rename touches.

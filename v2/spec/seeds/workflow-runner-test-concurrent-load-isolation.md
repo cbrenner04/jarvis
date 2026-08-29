@@ -37,3 +37,7 @@ Execution loop (`v2/src/execution/workflow-runner.test.ts` and its siblings).
 ## Documentation updates
 
 - `v2/docs/test-writing.md` — how an execution-loop test file stays inside the per-file budget (fixture sharing, fan-out limits, when to split a file) rather than joining the no-co-runner lane.
+
+## Reprioritization note (2026-08-29)
+
+Demoted from ready-intents: verify still needed — the #2900 no-co-runner lane has held since 2026-08-18, and the planned workflow-runner module/test split ([[split-workflow-runner-resume-machines]]) reworks this surface. Re-scope or reap at re-triage.

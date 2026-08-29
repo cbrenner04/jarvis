@@ -39,3 +39,7 @@ Test tooling (`scripts/`); operator/scheduled invocation, not `.github/workflows
 
 - `v2/docs/test-writing.md` — how to run the margin check, what its repeats and margin mean, and what to do when it names a file.
 - `v2/docs/operator-runbook.md` — when the operator runs the check and how to act on a named file.
+
+## Reprioritization note (2026-08-29)
+
+Demoted from ready-intents: verify still needed — the #2900 no-co-runner lane has held since 2026-08-18, and the planned workflow-runner module/test split ([[split-workflow-runner-resume-machines]]) reworks this surface. Re-scope or reap at re-triage.

@@ -5,6 +5,91 @@ import {
   type SubprocessRunner,
 } from "./subprocess.ts";
 
+export type GitPathStatus =
+  | "unmodified"
+  | "modified"
+  | "type-changed"
+  | "added"
+  | "deleted"
+  | "renamed"
+  | "copied"
+  | "unmerged"
+  | "untracked"
+  | "ignored";
+
+type GitStatusEntryBase = {
+  stagedStatus: GitPathStatus;
+  worktreeStatus: GitPathStatus;
+  currentPath: string;
+};
+
+export type GitStatusEntry =
+  | (GitStatusEntryBase & { kind: "ordinary" })
+  | (GitStatusEntryBase & { kind: "rename" | "copy"; originalPath: string });
+
+type GitStatusCode = " " | "M" | "T" | "A" | "D" | "R" | "C" | "U" | "?" | "!";
+
+function statusFromCode(code: string): GitPathStatus {
+  const statuses: Record<GitStatusCode, GitPathStatus> = {
+    " ": "unmodified",
+    M: "modified",
+    T: "type-changed",
+    A: "added",
+    D: "deleted",
+    R: "renamed",
+    C: "copied",
+    U: "unmerged",
+    "?": "untracked",
+    "!": "ignored",
+  };
+  const status = statuses[code as GitStatusCode];
+  if (status === undefined)
+    throw new Error(`Malformed git status inventory: invalid status code ${JSON.stringify(code)}`);
+  return status;
+}
+
+function twoPathKind(stagedCode: string, worktreeCode: string): "rename" | "copy" | undefined {
+  if (stagedCode === "R" || worktreeCode === "R") return "rename";
+  if (stagedCode === "C" || worktreeCode === "C") return "copy";
+  return undefined;
+}
+
+/** Rejects malformed porcelain framing rather than returning ambiguous paths. */
+export async function getGitStatusInventory(
+  cwd: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<GitStatusEntry[]> {
+  const output = await runner.runAsync("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], cwd);
+  if (output.length === 0) return [];
+  if (!output.endsWith("\0")) throw new Error("Malformed git status inventory: missing terminal NUL");
+
+  const fields = output.slice(0, -1).split("\0");
+  const entries: GitStatusEntry[] = [];
+  for (let index = 0; index < fields.length; index += 1) {
+    const record = fields[index] ?? "";
+    if (record.length < 4 || record[2] !== " ") throw new Error("Malformed git status inventory: truncated record");
+    const stagedCode = record[0] ?? "";
+    const worktreeCode = record[1] ?? "";
+    const base: GitStatusEntryBase = {
+      stagedStatus: statusFromCode(stagedCode),
+      worktreeStatus: statusFromCode(worktreeCode),
+      currentPath: record.slice(3),
+    };
+    const kind = twoPathKind(stagedCode, worktreeCode);
+    if (kind === undefined) {
+      entries.push({ ...base, kind: "ordinary" });
+      continue;
+    }
+    index += 1;
+    const originalPath = fields[index];
+    if (originalPath === undefined || originalPath.length === 0) {
+      throw new Error("Malformed git status inventory: missing rename or copy origin");
+    }
+    entries.push({ ...base, kind, originalPath });
+  }
+  return entries;
+}
+
 /** Resolve GitHub's default branch, falling back to `main` when unavailable. */
 export async function getBaseBranch(
   cwd?: string,

@@ -55,6 +55,10 @@ Tests must be deterministic and sandbox-runnable by default. See [`test-writing.
 
 `v2/**` and `shared/**` may not introduce synchronous child processes. The only allowlisted module is `shared/subprocess.ts`, the v1 CLI-only synchronous runner seam; new allowlist entries need a CLI-only reason. `bun run check` enforces this, including v2 imports of synchronous runner seams and Git helpers. Small synchronous filesystem reads remain permitted.
 
+## Git status paths
+
+New or migrated path-aware Git status consumers must use `getGitStatusInventory` from `shared/git.ts`; do not parse porcelain output independently.
+
 ## Production invert-for-test hooks
 
 Production code under `v2/src`, `v1/src`, and `shared` must not carry the four invert-for-test hook shapes: `setInvert*ForTest` exports, `invert*ForTest` module variables, `invert*` function parameters, and `invert*ForTest` type members. `bun run check` enforces this via `scripts/guard-production-test-flags.ts`. Other `*ForTest` hooks remain out of scope.

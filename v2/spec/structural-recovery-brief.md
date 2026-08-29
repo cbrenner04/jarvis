@@ -21,14 +21,14 @@ The five structural retirements that close whole classes: one dispatch front doo
 
 ## In flight (2026-08-29)
 
-- **PR #3060** (`impl/config-parity-01-02`) — **hand-finished 2026-08-29, awaiting green CI + merge.** Subspecs 01+02 complete, all gates green locally. The test-file hang's true cause was stub steps without `worktree` (the stamp threw before `wait()`, starving microtask spin loops) — not timers; the watchdog unrefs landed anyway as hygiene, leaving [[watchdog-timers-never-hold-the-event-loop]] as a pin-test seed. On merge, reap [[pipeline-dispatch-threads-project-ready-and-fix-commands]].
+- **PR #3060 — MERGED 2026-08-29.** Dispatch-parity spec complete (subspecs 00–02): pipeline dispatch stamps the full step-config layer, watchdogs arm on daemon write steps, resume reads write-sibling stamped commands. The readyCommand cascade (#2976→#3060, five fixes) is closed; its seed is reaped. The test-file hang's true cause was stub steps without `worktree` (the stamp threw before `wait()`, starving microtask spin loops) — not timers; the watchdog unrefs landed as hygiene, leaving [[watchdog-timers-never-hold-the-event-loop]] as a pin-test seed. The spec dir awaits the next `jarvis cleanup` archival pass.
 - **Spec `20260829T023500Z-deferred-settlement-resume-preserves-pr-evidence`** — next to run. Point fix for the sharpest dogfood blocker; later subsumed by [[pipeline-settlement-derives-from-run-rows]] (which retires the deferred-settlement machinery it patches). Seeds for both in-flight specs stay in `seeds/` until landed, then reap.
 
 ## Priority-ordered work
 
 | P | Item | Delivers |
 | --- | --- | --- |
-| **P0** | Land #3060 + the deferred-settlement spec | Watchdogs arm on pipeline runs; configured ready/fix commands honored; review-bearing pipelines stop stranding their PR |
+| **P0** | ~~Land #3060~~ (merged 2026-08-29) + the deferred-settlement spec | Watchdogs arm on pipeline runs; configured ready/fix commands honored ✓; review-bearing pipelines stop stranding their PR (spec still open) |
 | **P0** | [[pipeline-architecture-doc]] | Cheap; states the target the P1 restructures converge on |
 | **P1** | [[pipeline-dispatch-shares-cli-front-door]] | Retires the remaining dispatch-assembly copies (posture, review passes, stale-reset, admission, context source) |
 | **P1** | [[pipeline-settlement-derives-from-run-rows]] | Retires copy-then-redrive settlement, both claim mechanisms, the dual `derivePipelineState`; absorbs [[operator-killed-pipeline-stage-is-recoverable]] and [[restart-reconciliation-preserves-paused-resumable-runs]] planning |
@@ -51,7 +51,7 @@ Keep: `daemon start|status|stop` (runtime-smoke verifier shells them), `run list
 ## Rewrite ledger (2026-08-29)
 
 - Retired briefs: `tui-command-center-brief.md` (phase complete 2026-08-10), `tui-pipeline-continuation-brief.md` (every row landed or carried: attention-segment #3007, publishes-despite-no-work-shrink #3015/#3018, guard reprompts #2853), `pipeline-attribution-and-hygiene-brief.md` (superseded here).
-- Reaped: ready-intent `landing-failed-names-its-cause` (#2980 verified on `main`).
+- Reaped: ready-intent `landing-failed-names-its-cause` (#2980 verified on `main`); seed `pipeline-dispatch-threads-project-ready-and-fix-commands` (#3060 merged).
 - Demoted to seeds with inline notes: `concurrent-load-suite-margin-check`, `daemon-test-concurrent-load-isolation`, `workflow-runner-test-concurrent-load-isolation` (verify-or-reap), `rename-pipeline-lane-{persistence,rpc,execution,operator-surfaces}` (post-settlement; persistence slice absorbs the `workflowInvocationId`→entry-run-id rename), `configure-pipeline-supersede-policy`, `settle-superseded-pipeline-prs`, `retire-superseded-pipeline-branches` (re-scope post-settlement).
 - Kept ready-intent: `daemon-start-sweeps-orphan-gate-children` (prereqs landed, orthogonal).
 - New seeds from the review and the #3060 hand-finish: the fourteen linked above.

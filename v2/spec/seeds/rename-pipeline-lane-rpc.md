@@ -35,3 +35,7 @@ Daemon.
 
 - `v2/docs/daemon-host.md` — canonical lane-keyed RPC contracts and one-line deprecated request-alias sunset note.
 - `v2/docs/v1-behaviors.md` — RPC rename, alias window, and lane-keyed observation payloads.
+
+## Reprioritization note (2026-08-29)
+
+Demoted from ready-intents: sequence after [[pipeline-settlement-derives-from-run-rows]] — the settlement restructure reworks the same stage rows and predicates this rename touches.

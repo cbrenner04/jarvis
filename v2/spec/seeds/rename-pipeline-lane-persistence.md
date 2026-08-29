@@ -32,3 +32,7 @@ Persistence.
 
 - `v2/docs/state-store.md` — canonical `laneKey`/`lane_key` contract and legacy-store migration.
 - `v2/docs/v1-behaviors.md` — renamed durable pipeline lane identity and preserved values/order.
+
+## Reprioritization note (2026-08-29)
+
+Demoted from ready-intents: sequence after [[pipeline-settlement-derives-from-run-rows]] — the settlement restructure reworks the same stage rows and predicates this rename touches. Fold in the `workflowInvocationId` → entry-run-id column rename: the column stores the entry run id, not the invocation id (2026-08-29 review, seam S4), and every new consumer picks wrong.

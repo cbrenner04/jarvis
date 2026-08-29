@@ -18,7 +18,6 @@ import {
   resolveInvocationBindings,
 } from "../config/agent-model-config.ts";
 import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
-import { readProjectFixCommand, readProjectReadyCommand } from "../config/machine-config-loader.ts";
 import {
   type IntentFinalizationEvent,
   type LogSink,
@@ -1424,6 +1423,8 @@ function buildWorkflowSnapshot(
           iterationTimeoutMs: step.iterationTimeoutMs,
           iterationCeilingMs: step.iterationCeilingMs,
           idleOutputMs: step.idleOutputMs,
+          ...(step.fixCommand !== undefined ? { fixCommand: step.fixCommand } : {}),
+          ...(step.readyCommand !== undefined ? { readyCommand: step.readyCommand } : {}),
         }
       : {}),
   }));
@@ -3027,6 +3028,38 @@ function resolveReviewRowHead(
   return { ok: true, head: { snapshot, writeStep, writeRun, completionAgent, behavior: step.behavior, reviewPass } };
 }
 
+/** Durable source for a resume's stamped `fixCommand`/`readyCommand`: the write row's `queuedInput`
+ * (direct writes) first, then the workflow snapshot's write step (workflow rows). Never the
+ * default machine-config path — a pipeline admitted under a scoped config stamped these at dispatch. */
+type WriteSiblingCommandSource = {
+  queuedInput?: WriteLoopInput;
+  snapshotStep?: WorkflowSnapshotStep;
+};
+
+function resolveWriteSiblingCommandSource(
+  run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>,
+  store: StateStore,
+): WriteSiblingCommandSource | undefined {
+  const snapshot = run.workflowSnapshot;
+  const ownStep = snapshot?.steps.find((candidate) => candidate.stepId === run.stepId);
+  if (ownStep && ownStep.behavior !== "review" && ownStep.behavior !== "review-debate") {
+    return {
+      ...(run.queuedInput != null ? { queuedInput: run.queuedInput } : {}),
+      snapshotStep: ownStep,
+    };
+  }
+  const writeStepId = snapshot ? findDurableWriteStepId(snapshot.steps) : undefined;
+  const writeRun = writeStepId
+    ? store.findRunByProjectBranch({ project: run.project, branch: run.branch, stepId: writeStepId })
+    : null;
+  if (!writeRun) return undefined;
+  const snapshotStep = snapshot?.steps.find((candidate) => candidate.stepId === writeStepId);
+  return {
+    ...(writeRun.queuedInput != null ? { queuedInput: writeRun.queuedInput } : {}),
+    ...(snapshotStep !== undefined ? { snapshotStep } : {}),
+  };
+}
+
 /**
  * Admission head for the review-mutation resume tail only: the row must be a *durable*, failed
  * review/review-debate step — a non-durable light review sharing that stepId is not a recovery
@@ -3474,9 +3507,10 @@ function inertResumeWriteLoopInput(
   specPath: string,
   deps: IntentFinalizationResumeDeps,
   landing?: PublicationLanding,
+  writeSibling?: WriteSiblingCommandSource,
 ): WriteLoopInput {
-  const fixCommand = readProjectFixCommand(context.project);
-  const readyCommand = readProjectReadyCommand(context.project);
+  const fixCommand = writeSibling?.queuedInput?.fixCommand ?? writeSibling?.snapshotStep?.fixCommand;
+  const readyCommand = writeSibling?.queuedInput?.readyCommand ?? writeSibling?.snapshotStep?.readyCommand;
   return {
     worktree: {
       projectRoot: context.worktreePath,
@@ -3556,6 +3590,7 @@ async function runIntentResumeCommitAndPublish(
   store: StateStore,
   attemptId: string,
   deps: IntentFinalizationResumeDeps,
+  writeSibling?: WriteSiblingCommandSource,
 ): Promise<IntentFinalizationResumeOutcome> {
   const creationTitle = resolvePublicationTitle(context.worktreePath, context.durableDir, context.creationTitleHint);
   store.setCreationTitle(context.runId, creationTitle);
@@ -3591,7 +3626,7 @@ async function runIntentResumeCommitAndPublish(
   };
   store.setRunStatus(context.runId, "in-progress");
   const publication = await publishWithReadyRepair(
-    inertResumeWriteLoopInput(context, context.durableDir, deps, context.landing),
+    inertResumeWriteLoopInput(context, context.durableDir, deps, context.landing, writeSibling),
     store,
     result,
     0,
@@ -3677,6 +3712,8 @@ export async function resumePopulatedIntentPublication(
   const resolved = resolveIntentFinalizationResumeContext(run, store);
   if (!resolved.ok) return { ok: false, message: resolved.message };
   const { context } = resolved;
+  // Resolve before the status flip below: the head lookup requires the row still `failed`.
+  const writeSibling = resolveWriteSiblingCommandSource(run, store);
 
   const attemptId = store.recordAttemptStart(context.runId);
   deps.logSink?.append(context.runId, { kind: "iteration_started", attemptId });
@@ -3720,7 +3757,7 @@ export async function resumePopulatedIntentPublication(
       return settleIntentResumeFailure(store, context, attemptId, "invocation_failure", 0, landed.message, deps);
     }
 
-    return await runIntentResumeCommitAndPublish(context, store, attemptId, deps);
+    return await runIntentResumeCommitAndPublish(context, store, attemptId, deps, writeSibling);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return settleIntentResumeFailure(store, context, attemptId, "invocation_failure", 0, message, deps);
@@ -4397,6 +4434,7 @@ async function runReviewMutationCommitAndPublish(
   store: StateStore,
   attemptId: string,
   deps: ReviewMutationResumeDeps,
+  writeSibling?: WriteSiblingCommandSource,
 ): Promise<ReviewMutationResumeOutcome> {
   const creationTitle = resolvePublicationTitle(context.worktreePath, context.specPath, context.creationTitleHint);
   store.setCreationTitle(context.runId, creationTitle);
@@ -4437,7 +4475,7 @@ async function runReviewMutationCommitAndPublish(
   };
   store.setRunStatus(context.runId, "in-progress");
   const publication = await publishWithReadyRepair(
-    inertResumeWriteLoopInput(context, context.specPath, deps),
+    inertResumeWriteLoopInput(context, context.specPath, deps, undefined, writeSibling),
     store,
     result,
     0,
@@ -4466,6 +4504,7 @@ async function replayMutationFinalization(
   resolved: ReviewMutationResumeResolution,
   store: StateStore,
   deps: ReviewMutationResumeDeps,
+  writeSibling?: WriteSiblingCommandSource,
 ): Promise<ReviewMutationResumeOutcome> {
   if (!resolved.ok) return { ok: false, message: resolved.message };
   const { context } = resolved;
@@ -4486,7 +4525,7 @@ async function replayMutationFinalization(
       );
     }
 
-    return await runReviewMutationCommitAndPublish(context, store, attemptId, deps);
+    return await runReviewMutationCommitAndPublish(context, store, attemptId, deps, writeSibling);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return settleReviewMutationResumeFailure(store, context, attemptId, "invocation_failure", message, deps);
@@ -4507,7 +4546,9 @@ export async function resumeReviewMutationFinalization(
   const resolved = exhaustedResolved.ok
     ? exhaustedResolved
     : resolveWriteOutOfScopeResumeContext(run, store, terminalRecord);
-  return replayMutationFinalization(resolved, store, deps);
+  // Resolve before replay flips the row to in-progress: the sibling lookup reads the failed row.
+  const writeSibling = resolveWriteSiblingCommandSource(run, store);
+  return replayMutationFinalization(resolved, store, deps, writeSibling);
 }
 
 type ReviewStepExecutionIds = {

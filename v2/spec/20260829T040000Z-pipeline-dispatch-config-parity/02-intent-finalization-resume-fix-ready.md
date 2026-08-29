@@ -18,8 +18,8 @@
 
 ## Acceptance criteria
 
-- [ ] A test in `v2/src/execution/workflow-runner-resume.test.ts` seeds a failed intent review resume whose write-sibling was admitted under a non-default machine config (`readyCommand`/`fixCommand` distinct from defaults) and asserts intent-finalization resume uses those stamped commands, not default-path lookup; it fails against the pre-fix `readProjectFixCommand(context.project)` / `readProjectReadyCommand(context.project)` path. `v2/src/execution/workflow-runner-resume.test.ts` — `intent-finalization resume uses write-sibling stamped fix and ready commands`; Mutation checkpoint: its test body carries a `// @mutate` directive replacing the landed write-sibling command resolution in `inertResumeWriteLoopInput` with the pre-fix `readProjectFixCommand(context.project)` / `readProjectReadyCommand(context.project)` calls, and the mutation turns that test RED.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test in `v2/src/execution/workflow-runner-resume.test.ts` seeds a failed intent review resume whose write-sibling was admitted under a non-default machine config (`readyCommand`/`fixCommand` distinct from defaults) and asserts intent-finalization resume uses those stamped commands, not default-path lookup; it fails against the pre-fix `readProjectFixCommand(context.project)` / `readProjectReadyCommand(context.project)` path. `v2/src/execution/workflow-runner-resume.test.ts` — `intent-finalization resume uses write-sibling stamped fix and ready commands`; Mutation checkpoint: its test body carries a `// @mutate` directive replacing the landed write-sibling command resolution in `inertResumeWriteLoopInput` with `const readyCommand = undefined;` (the pre-fix default-path result; a string mutation cannot reintroduce the removed `readProjectFixCommand` import), and the mutation turns that test RED (verified).
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

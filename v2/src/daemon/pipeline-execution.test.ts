@@ -142,8 +142,18 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 /** A tagged step so a fake `dispatch`/`resolveStage` can tell which stage index it built. */
+// Dispatch stamps steps with machine config before dispatch, dereferencing worktree.projectName;
+// stub steps must carry a worktree or the stamp throws and the stage fails before wait().
+const STUB_STEP_WORKTREE = {
+  projectRoot: "/fake",
+  projectName: "demo",
+  branchName: "stub",
+  baseRef: "HEAD",
+  jarvisRoot: "/fake/.jarvis",
+} as const;
+
 function taggedStep(stageIndex: number): AnyWorkflowStep {
-  return { behavior: "write", stageIndex } as unknown as AnyWorkflowStep;
+  return { behavior: "write", stageIndex, worktree: STUB_STEP_WORKTREE } as unknown as AnyWorkflowStep;
 }
 
 function stageIndexOf(steps: AnyWorkflowStep[]): number {
@@ -3010,6 +3020,7 @@ describe("resumePipeline branch scope", () => {
           stageId: "implement",
           stageIndex,
           branchKey: deps?.branchKey,
+          worktree: STUB_STEP_WORKTREE,
         } as unknown as AnyWorkflowStep,
       ],
     });
@@ -3683,7 +3694,7 @@ function fanOutResolveStageStub(
 }
 
 function fanOutTaggedStep(stageIndex: number, branchKey?: string): AnyWorkflowStep {
-  return { behavior: "write", stageIndex, branchKey } as unknown as AnyWorkflowStep;
+  return { behavior: "write", stageIndex, branchKey, worktree: STUB_STEP_WORKTREE } as unknown as AnyWorkflowStep;
 }
 
 function stageRecord(

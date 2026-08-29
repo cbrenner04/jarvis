@@ -29,13 +29,7 @@ Pipeline stage resolution (`resolveStageWorkflowSteps`) feeds preset-builder out
 - [x] `v2/docs/daemon-host.md` — pipeline-stage dispatch stamps the shared step-config layer from the pipeline admission `configPath`, replacing the deferred-vs-CLI prose.
 - [x] `v2/docs/daemon-host.md` — the ceiling and idle-output watchdogs arm on daemon write steps.
 - [x] `v2/docs/v1-behaviors.md` — pipeline-dispatched workflow steps receive the same machine-config stamping as CLI `run workflow`.
-- [ ] `bun run typecheck` and `bun run test:v2` pass. (typecheck passes; `test:v2` blocked — see Blocker.)
-
-## Blocker
-
-`v2/src/daemon/pipeline-execution.test.ts` hangs (module loads in 103ms and passes 109/109 in 1.84s on `main`, but times out with these changes; reproduced on CI). Root-caused by bisecting `stampPipelineDispatchSteps`: a pure passthrough passes in 1.86s, so the **stamping's timeout/watchdog fields** are the trigger — stripping the write-path bounds still hangs, and stripping the review `roleTimeoutMs`/`idleOutputMs` still hangs, so any armed-timer field does it. The daemon dispatch now stamps long watchdog/timeout durations (defaults ~30min ceiling, 90s idle, 30min review role) onto steps that some `pipeline-execution.test.ts` test drives through a path that arms **real timers not `.unref()`'d**, keeping bun's event loop alive so the test file never exits. On `main` those fields were never stamped on daemon steps, so no timers were armed.
-
-Fix direction (not yet applied): `.unref()` the write-loop/review watchdog timers so a pending watchdog never keeps the process alive (correct regardless of tests), and/or drive the affected `pipeline-execution.test.ts` cases with fake timers. Ruled out: module-load, the config loader on a missing path (0ms), and the missing-`configPath` throw (skip-on-undefined did not fix it). Not the write commands (omitted when config is absent). Ruled in: the watchdog/timeout fields.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

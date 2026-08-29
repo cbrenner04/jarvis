@@ -74,6 +74,8 @@ export type WorkflowSnapshotStep = {
   iterationTimeoutMs?: number;
   iterationCeilingMs?: number;
   idleOutputMs?: number;
+  fixCommand?: string;
+  readyCommand?: string;
 };
 
 /** Durable workflow invocation snapshot shared by every step run in that workflow. */

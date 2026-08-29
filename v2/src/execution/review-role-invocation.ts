@@ -63,6 +63,7 @@ export async function invokeReviewRole<Role extends string>(
       timedOut = true;
       timeout.abort();
     }, boundMs);
+    timer.unref?.();
     const onCallerAbort = () => {
       callerAborted = true;
       timeout.abort();

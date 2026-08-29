@@ -17,9 +17,9 @@ When a write-step binding chain stops without advancing, terminal `invocation_fa
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop.test.ts` proves a terminal binding-chain `invocation_failure` with multiple attempts carrying distinguishable stderr commits exactly the final attempt's last 2048 JavaScript UTF-16 code units to `InvocationFailureDetail.message`, excluding earlier-attempt stderr; it fails against the pre-fix settlement path.
-- [ ] The same `v2/src/execution/write-loop.test.ts` regression proves truly empty final-attempt stderr leaves the committed `InvocationFailureDetail.message` unset and whitespace-only stderr is persisted verbatim.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/execution/write-loop.test.ts` proves a terminal binding-chain `invocation_failure` with multiple attempts carrying distinguishable stderr commits exactly the final attempt's last 2048 JavaScript UTF-16 code units to `InvocationFailureDetail.message`, excluding earlier-attempt stderr; it fails against the pre-fix settlement path.
+- [x] The same `v2/src/execution/write-loop.test.ts` regression proves truly empty final-attempt stderr leaves the committed `InvocationFailureDetail.message` unset and whitespace-only stderr is persisted verbatim.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

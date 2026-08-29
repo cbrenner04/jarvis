@@ -112,6 +112,8 @@ const WRITE_LOOP_OUTCOME_KINDS = [
   "landing_failed",
 ] as const;
 
+const INVOCATION_FAILURE_MESSAGE_MAX_CODE_UNITS = 2048;
+
 export type WriteLoopOutcomeKind = (typeof WRITE_LOOP_OUTCOME_KINDS)[number];
 
 const writeLoopOutcomeKindSet = new Set<string>(WRITE_LOOP_OUTCOME_KINDS);
@@ -1489,9 +1491,14 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       const boundaryRunStatus = keepsCompletionInProgress ? ("in-progress" as const) : terminal.runStatus;
       const bindingAttempts = (invocation: InvocationExecution) =>
         invocation.attempts.map((attempt) => ({ bindingId: attempt.binding.id, resultKind: attempt.result.kind }));
+      const finalStderr = result.kind === "invocation_failure" ? result.invocation.final?.result.stderr : undefined;
       const detail =
         result.kind === "invocation_failure"
-          ? { failureKind: result.failureKind, bindingAttempts: bindingAttempts(result.invocation) }
+          ? {
+              failureKind: result.failureKind,
+              bindingAttempts: bindingAttempts(result.invocation),
+              ...(finalStderr ? { message: finalStderr.slice(-INVOCATION_FAILURE_MESSAGE_MAX_CODE_UNITS) } : {}),
+            }
           : result.kind === "stall"
             ? {
                 // Reuses the invocation_failure-shaped detail record (not a parallel one) for

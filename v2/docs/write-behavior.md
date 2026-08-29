@@ -511,6 +511,8 @@ When the step result is binding-chain `invocation_failure`, stdout JSON includes
   than a raw `InvocationResult` variant); production rung bindings use
   `agentId/adapterModel/priceKey`
 
+Separately, the optional durable `InvocationFailureDetail.message` stores the verbatim last 2048 JavaScript UTF-16 code units of the final binding attempt's stderr; it is omitted only when that final stderr is empty or no binding was attempted.
+
 `invalid_token` also maps to loop `kind: "invocation_failure"` but **omits** `failureKind` and `bindingAttempts`, and finishes `resumable: true`. `missing_blocker` mirrors `invalid_token` exactly (same loop kind, paused status, resumable, no binding detail) and adds `missing_blocker_detail` to the run log. Other terminal outcomes (`complete`, `blocked`, `contract_miss`, `budget-exhausted`) omit them too. Idempotent re-entry returns persisted binding-chain detail only when the terminal attempt row has `invocation_failure_detail` stored; legacy rows without it resume detail-free. `invalid_token` rows resume with a fresh attempt instead of replaying the prior terminal failure.
 
 Resume identity is `(project, branch, stepId)`. For single-step workflows (default, stepId omitted), resume identity is `(project, branch)` only: re-invoking the same project and branch resumes the most recent durable run even if `--base`, `--spec`, or the materialized worktree path differ. For multi-step workflows, stepId isolates each step's attempt history: each `stepId` within the same `(project, branch)` maintains independent resume state. A different project or branch creates a fresh run.

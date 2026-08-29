@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import { classifyChangedPaths } from "../../../scripts/ci-test-scope.ts";
 import { guarded } from "../../../scripts/guard-deterministic-daemon-tests.ts";
+import { resolveRenderObserverTests } from "../../../shared/prompts/render-observer-tests.ts";
 import { type ChangedLine, changedPathsFromDiff, defaultGitDiff, isProductionFile, parseDiff } from "./diff-scan.ts";
 
 export type DiffDerivedMutationVerifierInput = {
@@ -55,9 +55,59 @@ type VerifierSeams = {
 };
 
 /** Verification bounds: hitting either ends the run as a pass over the candidates inspected so far. */
-const MAX_INSPECTED_MUTATIONS = 25;
-const MAX_PROMPT_RENDER_VERIFICATIONS = 5;
-const MAX_VERIFICATION_MS = 5 * 60_000;
+export const MAX_INSPECTED_MUTATIONS = 25;
+export const MAX_PROMPT_RENDER_VERIFICATIONS = 5;
+export const MAX_VERIFICATION_MS = 5 * 60_000;
+export const MAX_CONCURRENT_VERIFIER_TEST_RUNS = 4;
+
+let peakConcurrentVerifierTestRuns = 0;
+let currentConcurrentVerifierTestRuns = 0;
+let verifierTestRunSemaphore: VerifierTestRunSemaphore | undefined;
+
+export function resetVerifierTestRunTrackingForTest(): void {
+  peakConcurrentVerifierTestRuns = 0;
+  currentConcurrentVerifierTestRuns = 0;
+  verifierTestRunSemaphore = undefined;
+}
+
+export function peakVerifierTestRuns(): number {
+  return peakConcurrentVerifierTestRuns;
+}
+
+class VerifierTestRunSemaphore {
+  private inFlight = 0;
+  private readonly queue: Array<() => void> = [];
+
+  constructor(private readonly limit: number) {}
+
+  async run<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.inFlight >= this.limit) {
+      await new Promise<void>((resolve) => {
+        this.queue.push(resolve);
+      });
+    }
+    this.inFlight += 1;
+    currentConcurrentVerifierTestRuns += 1;
+    if (currentConcurrentVerifierTestRuns > peakConcurrentVerifierTestRuns) {
+      peakConcurrentVerifierTestRuns = currentConcurrentVerifierTestRuns;
+    }
+    try {
+      return await fn();
+    } finally {
+      this.inFlight -= 1;
+      currentConcurrentVerifierTestRuns -= 1;
+      const next = this.queue.shift();
+      if (next !== undefined) next();
+    }
+  }
+}
+
+function getVerifierTestRunSemaphore(): VerifierTestRunSemaphore {
+  if (verifierTestRunSemaphore === undefined) {
+    verifierTestRunSemaphore = new VerifierTestRunSemaphore(MAX_CONCURRENT_VERIFIER_TEST_RUNS);
+  }
+  return verifierTestRunSemaphore;
+}
 
 async function defaultUntrackedFiles(cwd: string): Promise<string[]> {
   const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
@@ -76,15 +126,29 @@ async function defaultUntrackedFiles(cwd: string): Promise<string[]> {
 }
 
 async function defaultRunScopedTests(cwd: string, scope: string[]): Promise<boolean> {
+  return runDiffDerivedScopedTests(cwd, scope);
+}
+
+type ScopedTestRunner = {
+  runAsync: (command: string, args: string[], cwd: string) => Promise<string>;
+};
+
+export async function runDiffDerivedScopedTests(
+  cwd: string,
+  scope: string[],
+  runner?: ScopedTestRunner,
+): Promise<boolean> {
   if (scope.length === 0) return true;
-  const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
+  const subprocess = runner ?? (await import("../../../shared/subprocess.ts")).realAsyncSubprocessRunner;
+  const semaphore = getVerifierTestRunSemaphore();
   try {
-    // `scope` holds package.json script names (e.g. "test:v2"), not file
-    // patterns — each must run via `bun run <script>`, matching how
-    // scripts/ready.ts's getReadyCommands invokes the same scoped scripts.
-    for (const script of scope) {
-      await realAsyncSubprocessRunner.runAsync("bun", ["run", script], cwd);
-    }
+    await Promise.all(
+      scope.map((testPath) =>
+        semaphore.run(async () => {
+          await subprocess.runAsync("bun", ["test", testPath], cwd);
+        }),
+      ),
+    );
     return true;
   } catch {
     return false;
@@ -318,6 +382,15 @@ function isCodePath(path: string): boolean {
   return /\.[cm]?[jt]sx?$/.test(path);
 }
 
+export function resolveCoLocatedKillingTest(productionPath: string): string | null {
+  if (!isCodePath(productionPath)) return null;
+  const basename = productionPath.split("/").pop() ?? "";
+  if (basename.includes(".test.")) return null;
+  const match = productionPath.match(/^(.+)\.[cm]?[jt]sx?$/);
+  if (match?.[1] === undefined) return null;
+  return `${match[1]}.test.ts`;
+}
+
 function mutateRenderedPrompt(content: string, changedLines: ChangedLine[]): string | null {
   const bodyStart = content.indexOf("\n---\n");
   if (bodyStart < 0) return null;
@@ -395,7 +468,7 @@ async function verifyPromptRenderCoverage(
   readFile: ReadFile,
   writeFile: WriteFile,
   runScopedTests: RunScopedTests,
-  scopeTests: string[],
+  observerTests: readonly string[],
 ): Promise<boolean> {
   const filePath = `${input.worktreePath}/${promptPath}`;
   let original: string;
@@ -408,7 +481,7 @@ async function verifyPromptRenderCoverage(
   if (mutated === null) return false;
   try {
     await writeFile(filePath, mutated);
-    return !(await runScopedTests(input.worktreePath, scopeTests));
+    return !(await runScopedTests(input.worktreePath, [...observerTests]));
   } finally {
     await writeFile(filePath, original);
   }
@@ -465,13 +538,17 @@ function isInsideTimerCallback(content: string, lineNum: number): boolean {
   return false;
 }
 
+export function isInsideTimerCallbackForTest(content: string, lineNum: number): boolean {
+  return isInsideTimerCallback(content, lineNum);
+}
+
 async function testCandidate(
   candidate: Candidate,
   originalContent: string,
   input: DiffDerivedMutationVerifierInput,
   writeFile: WriteFile,
   runScopedTests: RunScopedTests,
-  scopeTests: string[],
+  killingTestPath: string,
 ): Promise<SurvivingMutationResult | null> {
   const filePath = `${input.worktreePath}/${candidate.file}`;
 
@@ -480,7 +557,7 @@ async function testCandidate(
     await writeFile(filePath, mutatedContent);
 
     try {
-      const testsPassed = await runScopedTests(input.worktreePath, scopeTests);
+      const testsPassed = await runScopedTests(input.worktreePath, [killingTestPath]);
       if (testsPassed) {
         const result: SurvivingMutationResult = {
           kind: "surviving-mutation",
@@ -523,6 +600,14 @@ function missingRenderCoverage(promptPath: string): SurvivingMutationResult {
   };
 }
 
+function missingKillingTest(candidate: Candidate): SurvivingMutationResult {
+  return {
+    kind: "surviving-mutation",
+    mutation: "missing-killing-test",
+    sourceSite: { file: candidate.file, line: candidate.line },
+  };
+}
+
 async function verifyChangedPrompts(
   changedPaths: string[],
   changedLinesByFile: Map<string, ChangedLine[]>,
@@ -531,7 +616,6 @@ async function verifyChangedPrompts(
   readFile: ReadFile,
   writeFile: WriteFile,
   runScopedTests: RunScopedTests,
-  scopeTests: string[],
   now: () => number,
   deadline: number,
 ): Promise<SurvivingMutationResult | null> {
@@ -539,6 +623,8 @@ async function verifyChangedPrompts(
   const changedPrompts = changedPaths.filter((path) => registeredPrompts.has(path));
   for (const [index, promptPath] of changedPrompts.entries()) {
     if (index >= MAX_PROMPT_RENDER_VERIFICATIONS || now() >= deadline) return missingRenderCoverage(promptPath);
+    const observerTests = resolveRenderObserverTests(promptPath);
+    if (observerTests === undefined || observerTests.length === 0) return missingRenderCoverage(promptPath);
     const renderedOutputObserved = await verifyPromptRenderCoverage(
       promptPath,
       changedLinesByFile.get(promptPath) ?? [],
@@ -546,7 +632,7 @@ async function verifyChangedPrompts(
       readFile,
       writeFile,
       runScopedTests,
-      scopeTests,
+      observerTests,
     );
     if (!renderedOutputObserved) return missingRenderCoverage(promptPath);
   }
@@ -569,24 +655,46 @@ async function verifyCandidates(
   readFile: ReadFile,
   writeFile: WriteFile,
   runScopedTests: RunScopedTests,
-  scopeTests: string[],
   now: () => number,
   deadline: number,
 ): Promise<{ result: SurvivingMutationResult | null; inspected: number }> {
   let inspected = 0;
+  let survivingResult: SurvivingMutationResult | null = null;
+  const pending: Promise<void>[] = [];
+
   for (const candidate of candidates) {
     if (inspected >= MAX_INSPECTED_MUTATIONS || now() >= deadline) break;
+    if (survivingResult !== null) break;
     inspected += 1;
-    let originalContent: string;
-    try {
-      originalContent = await readFile(`${input.worktreePath}/${candidate.file}`);
-    } catch {
-      continue;
+
+    const killingTest = resolveCoLocatedKillingTest(candidate.file);
+    if (killingTest === null) {
+      return { result: missingKillingTest(candidate), inspected };
     }
-    const result = await testCandidate(candidate, originalContent, input, writeFile, runScopedTests, scopeTests);
-    if (result) return { result, inspected };
+
+    pending.push(
+      (async () => {
+        if (survivingResult !== null || now() >= deadline) return;
+        let originalContent: string;
+        try {
+          originalContent = await readFile(`${input.worktreePath}/${candidate.file}`);
+        } catch {
+          return;
+        }
+        try {
+          await readFile(`${input.worktreePath}/${killingTest}`);
+        } catch {
+          survivingResult = missingKillingTest(candidate);
+          return;
+        }
+        const result = await testCandidate(candidate, originalContent, input, writeFile, runScopedTests, killingTest);
+        if (result !== null) survivingResult = result;
+      })(),
+    );
   }
-  return { result: null, inspected };
+
+  await Promise.all(pending);
+  return { result: survivingResult, inspected };
 }
 
 export async function verifyDiffDerivedMutations(
@@ -620,11 +728,6 @@ export async function verifyDiffDerivedMutations(
   }
 
   const changedPaths = Array.from(changedFiles);
-  const scope = classifyChangedPaths(changedPaths);
-  // "full" means the aggregate `test` script, not "skip verification" — an
-  // empty scopeTests short-circuits defaultRunScopedTests to an unconditional
-  // pass, silently disabling mutation verification for full-scope diffs.
-  const scopeTests = scope === "full" ? ["test"] : scope;
 
   const now = seams?.now ?? Date.now;
   const deadline = now() + MAX_VERIFICATION_MS;
@@ -636,7 +739,6 @@ export async function verifyDiffDerivedMutations(
     readFile,
     writeFile,
     runScopedTests,
-    scopeTests,
     now,
     deadline,
   );
@@ -659,7 +761,6 @@ export async function verifyDiffDerivedMutations(
     readFile,
     writeFile,
     runScopedTests,
-    scopeTests,
     now,
     deadline,
   );

@@ -1,6 +1,6 @@
 import { describe, expect, it, mock } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { READY_STEP_COMPLETION_MARKER, readyStepCompletionRecord } from "../../../scripts/ready.ts";
@@ -779,6 +779,64 @@ index 1234567..abcdefg 100644
       "Surviving mutation in prompts/patch/review-critic.md:1: missing-render-coverage",
     );
     expect(flipCalls).toBe(0);
+  });
+
+  it("settles finalization after diff-derived verification on a shared multi-candidate diff", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mutation-finalize-fixture-"));
+    try {
+      execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
+      execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+      execFileSync("git", ["config", "user.name", "test"], { cwd: dir });
+      mkdirSync(join(dir, "shared", "fixture"), { recursive: true });
+      writeFileSync(
+        join(dir, "shared", "fixture", "a.ts"),
+        "export function a(x: unknown): string {\n  return String(x);\n}\n",
+      );
+      writeFileSync(
+        join(dir, "shared", "fixture", "a.test.ts"),
+        'import { expect, test } from "bun:test";\nimport { a } from "./a.ts";\ntest("a", () => { expect(a(0)).toBe("0"); });\n',
+      );
+      writeFileSync(
+        join(dir, "shared", "fixture", "b.ts"),
+        "export function b(x: unknown): string {\n  return String(x);\n}\n",
+      );
+      writeFileSync(
+        join(dir, "shared", "fixture", "b.test.ts"),
+        'import { expect, test } from "bun:test";\nimport { b } from "./b.ts";\ntest("b", () => { expect(b(0)).toBe("0"); });\n',
+      );
+      execFileSync("git", ["add", "-A"], { cwd: dir });
+      execFileSync("git", ["commit", "-q", "-m", "base"], { cwd: dir });
+      const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();
+      writeFileSync(
+        join(dir, "shared", "fixture", "a.ts"),
+        'export function a(x: unknown): string {\n  if (!x) return "null";\n  return String(x);\n}\n',
+      );
+      writeFileSync(
+        join(dir, "shared", "fixture", "b.ts"),
+        'export function b(x: unknown): string {\n  if (!x) return "null";\n  return String(x);\n}\n',
+      );
+      execFileSync("git", ["commit", "-aq", "-m", "guards"], { cwd: dir });
+
+      let flipCalls = 0;
+      const finalizer = createReadyFinalizer({
+        runReadyGate: async () => {},
+        runMutationVerification: async (worktreePath, runBase) => {
+          const result = await verifyDiffDerivedMutations({ worktreePath, runBase });
+          if (result.kind === "surviving-mutation") {
+            throw new SurvivingMutationError(result.mutation, result.sourceSite.file, result.sourceSite.line);
+          }
+        },
+        ghReadyFlip: async () => {
+          flipCalls += 1;
+        },
+      });
+
+      await expect(finalizer({ worktreePath: dir, branch: "feature", baseRef: baseSha })).resolves.toEqual({});
+      expect(flipCalls).toBe(1);
+      expect(execFileSync("git", ["status", "--porcelain"], { cwd: dir }).toString().trim()).toBe("");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("carries the ready gate command, exit code, and combined output", async () => {

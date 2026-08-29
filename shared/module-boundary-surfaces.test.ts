@@ -10,7 +10,6 @@ import {
   spansMultipleModuleBoundaries,
   splitResiduePattern,
 } from "./module-boundary-surfaces.ts";
-import { findUnsatisfiableKeystoneCriteria, selectKeystoneCheckpointCriteria } from "./mutation-checkpoint-criteria.ts";
 
 const PHRASE_FIXTURES = [
   ["The state-store persists run status atomically.", ["persistence"]],
@@ -394,7 +393,7 @@ describe("module boundary surfaces", () => {
       expect(() => normalizePlanDraftSpecDir(dir)).toThrow("multi-surface ## Acceptance criteria bullet");
     });
 
-    test("a declared staged plan still refuses a broken index link and an unsatisfiable keystone criterion", () => {
+    test("a declared staged plan still refuses a broken index link", () => {
       const { dir: linkDir } = stageK2WithMultiSurfaceBullet();
       writeFileSync(join(linkDir, "intent.md"), declarationIntent());
       writeFileSync(
@@ -402,153 +401,39 @@ describe("module boundary surfaces", () => {
         readFileSync(join(linkDir, "index.md"), "utf8").replace("00-phase-1-state-cli.md", "00-does-not-exist.md"),
       );
       expect(() => normalizePlanDraftSpecDir(linkDir)).toThrow("Plan index links unknown subspec");
-
-      mkdirSync(scratchRoot, { recursive: true });
-      const keystoneDir = mkdtempSync(join(scratchRoot, "module-boundary-declared-keystone-"));
-      tempDirs.push(keystoneDir);
-      writeFileSync(join(keystoneDir, "index.md"), "# Staged plan\n\n- [ ] [00 - Guard](./00-guard.md)\n");
-      writeFileSync(
-        join(keystoneDir, "00-guard.md"),
-        [
-          "# Preserve this title",
-          "",
-          "## Acceptance criteria",
-          "",
-          "- [ ] Keystone checkpoint: inverting the undated-row ordering guard makes the scoped test fail.",
-          "",
-        ].join("\n"),
-      );
-      writeFileSync(join(keystoneDir, "intent.md"), declarationIntent());
-
-      expect(() => normalizePlanDraftSpecDir(keystoneDir)).toThrow("unsatisfiable keystone criterion");
     });
   });
 });
 
-describe("keystone admissibility at plan draft", () => {
-  function stageDraft(dir: string, subspecFile: string, acceptanceCriteriaBlock: string): string {
+describe("plan draft criterion admission", () => {
+  function stageDraft(dir: string, subspecFile: string, acceptanceCriteriaBlock: string): void {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "index.md"), `# Staged plan\n\n- [ ] [Subspec](./${subspecFile})\n`);
-    const sourcePath = join(dir, subspecFile);
-    writeFileSync(sourcePath, `# Preserve this title\n\n## Acceptance criteria\n\n${acceptanceCriteriaBlock}\n`);
-    return sourcePath;
+    writeFileSync(
+      join(dir, subspecFile),
+      `# Preserve this title\n\n## Acceptance criteria\n\n${acceptanceCriteriaBlock}\n`,
+    );
   }
 
   function scratchDir(name: string): string {
     mkdirSync(scratchRoot, { recursive: true });
-    const dir = mkdtempSync(join(scratchRoot, `keystone-${name}-`));
+    const dir = mkdtempSync(join(scratchRoot, `criterion-${name}-`));
     tempDirs.push(dir);
     return dir;
   }
 
-  const PROSE_KEYSTONE =
-    "- [ ] Keystone checkpoint: inverting the undated-row ordering guard makes the scoped test fail.";
-  const CANONICAL_KEYSTONE =
-    "- [ ] `write.test.ts` — `pins the undated-row ordering`; Keystone checkpoint: inverting the guard makes the scoped test fail.";
-
-  test("a prose-only keystone criterion refuses the staged draft", () => {
-    // @mutate shared/module-boundary-surfaces.ts "const finding = unsatisfiable[0];" -> "const finding = undefined;"
-    const dir = scratchDir("prose");
-    stageDraft(dir, "00-persistence.md", PROSE_KEYSTONE);
-
-    expect(() => normalizePlanDraftSpecDir(dir)).toThrow("00-persistence.md");
-  });
-
-  test("the keystone refusal names the offending subspec file and criterion", () => {
-    // @mutate shared/module-boundary-surfaces.ts "has an unsatisfiable keystone criterion: ${finding.firstLine}" -> "has an unsatisfiable keystone criterion"
-    const dir = scratchDir("names-file");
-    stageDraft(dir, "00-persistence.md", PROSE_KEYSTONE);
-
-    expect(() => normalizePlanDraftSpecDir(dir)).toThrow(
-      "Keystone checkpoint: inverting the undated-row ordering guard makes the scoped test fail.",
-    );
-  });
-
-  test("a single-boundary draft with a prose-only keystone still refuses", () => {
-    const dir = scratchDir("single-boundary");
-    stageDraft(dir, "00-persistence.md", `- [ ] The state-store persists runs atomically.\n${PROSE_KEYSTONE}`);
-
-    expect(moduleBoundariesForAcceptanceCriteria(["The state-store persists runs atomically."])).toEqual([
-      "persistence",
-    ]);
-    expect(() => normalizePlanDraftSpecDir(dir)).toThrow("00-persistence.md");
-  });
-
-  test("a canonical keystone criterion is admitted", () => {
-    const dir = scratchDir("canonical");
-    stageDraft(dir, "00-guard.md", CANONICAL_KEYSTONE);
-
-    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
-  });
-
-  test("a canonical Swift keystone is admitted", () => {
-    const dir = scratchDir("swift");
-    const criterion =
-      "- [ ] `ChessPracticeTests/RootContentTests.swift` — `pins root content`; Keystone checkpoint: restoring baseline behavior makes the scoped test fail.";
-    const sourcePath = stageDraft(dir, "00-guard.md", criterion);
-    const body = readFileSync(sourcePath, "utf8");
-
-    expect(selectKeystoneCheckpointCriteria(body)).toHaveLength(1);
-    expect(findUnsatisfiableKeystoneCriteria(body)).toEqual([]);
-    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
-  });
-
-  test("an unrecognized keystone pin names the filename-pattern mismatch", () => {
-    // @mutate shared/module-boundary-surfaces.ts "if (finding.reason === \"unrecognized_test_file\")" -> "if (finding.reason !== \"unrecognized_test_file\")"
-    const dir = scratchDir("unrecognized-pin");
+  test("admits keystone-shaped criteria during draft normalization", () => {
+    const admittedDir = scratchDir("admitted");
     stageDraft(
-      dir,
-      "00-guard.md",
-      "- [ ] `ChessPractice/Sources/RootContent.swift` — `pins root content`; Keystone checkpoint: restoring baseline behavior makes the scoped test fail.",
+      admittedDir,
+      "00-persistence.md",
+      "- [ ] Keystone checkpoint: inverting the undated-row ordering guard makes the scoped test fail.",
     );
+    expect(() => normalizePlanDraftSpecDir(admittedDir)).not.toThrow();
 
-    expect(() => normalizePlanDraftSpecDir(dir)).toThrow("filename does not match a recognized test-file pattern");
-  });
-
-  test("a canonical keystone criterion is admitted alongside a literal @mutate directive", () => {
-    const dir = scratchDir("canonical-mutate");
-    stageDraft(dir, "00-guard.md", `${CANONICAL_KEYSTONE}\n      // @mutate write.ts "if (invert)" -> "if (!invert)"`);
-
-    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
-  });
-
-  test("a double-backticked keystone mention is admitted", () => {
-    const dir = scratchDir("double-backtick");
-    stageDraft(
-      dir,
-      "00-guard.md",
-      "- [ ] The guidance-sanctioned descriptive mention `` `Keystone checkpoint:` `` documents the marker.",
-    );
-
-    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
-  });
-
-  test("a keystone criterion naming a nonexistent pin is admitted", () => {
-    const dir = scratchDir("nonexistent-pin");
-    stageDraft(
-      dir,
-      "00-guard.md",
-      "- [ ] `nonexistent.test.ts` — `does not exist anywhere`; Keystone checkpoint: inverting a fictional guard fails a fictional test.",
-    );
-
-    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
-  });
-
-  test("a human-only keystone-shaped criterion is admitted", () => {
-    const dir = scratchDir("human-only");
-    stageDraft(dir, "00-guard.md", `${PROSE_KEYSTONE.replace(/\.$/, "")} (Manual).`);
-
-    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
-  });
-
-  test("a tree with no keystone criteria still normalizes", () => {
-    const dir = scratchDir("no-keystone");
-    stageDraft(
-      dir,
-      "00-guard.md",
-      "- [ ] `write.test.ts` — `pins the undated-row ordering`; Mutation checkpoint: inverting the guard makes the scoped test fail.",
-    );
-
-    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
+    const brokenLinkDir = scratchDir("broken-link");
+    stageDraft(brokenLinkDir, "00-persistence.md", "- [ ] Keystone checkpoint: legacy shape.");
+    writeFileSync(join(brokenLinkDir, "index.md"), "# Staged plan\n\n- [ ] [Missing](./00-missing.md)\n");
+    expect(() => normalizePlanDraftSpecDir(brokenLinkDir)).toThrow("Plan index links unknown subspec");
   });
 });

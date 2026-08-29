@@ -159,13 +159,13 @@ describe("plan preset draft write step", () => {
 
     expect(code.resultKind).toBe("complete");
     expect(code.capturedPrompt).toContain(codeIntent.content);
-    expect(code.capturedPrompt).toContain("each added or modified guard is inverted");
-    expect(code.capturedPrompt).toContain("negative case must prove the suppressed effect is absent");
+    expect(code.capturedPrompt).toContain("fails against the pre-fix code and passes after the change");
+    expect(code.capturedPrompt).not.toContain("each added or modified guard is inverted");
     expect(code.writtenSubspec).toContain("each added or modified guard is inverted");
     expect(code.writtenSubspec).toContain("suppressed effect is absent");
     expect(docs.resultKind).toBe("complete");
     expect(docs.capturedPrompt).toContain(docsIntent.content);
-    expect(docs.capturedPrompt).toContain("Documentation-only and spec-only subspecs are exempt");
+    expect(docs.capturedPrompt).toContain("Docs-only and spec-only subspecs are exempt");
     expect(docs.writtenSubspec).not.toContain("guard is inverted");
   });
 
@@ -183,7 +183,7 @@ describe("plan preset draft write step", () => {
 
     expect(spec.resultKind).toBe("complete");
     expect(spec.capturedPrompt).toContain(specIntent.content);
-    expect(spec.capturedPrompt).toContain("Documentation-only and spec-only subspecs are exempt");
+    expect(spec.capturedPrompt).toContain("Docs-only and spec-only subspecs are exempt");
     expect(spec.writtenSubspec).not.toContain("guard is inverted");
   });
 });

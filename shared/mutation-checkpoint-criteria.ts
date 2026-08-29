@@ -2,7 +2,6 @@ import { basename } from "node:path";
 import { parseSpec } from "./spec-parser.ts";
 
 export const CRITERION_MARKER = "Mutation checkpoint:";
-export const KEYSTONE_CRITERION_MARKER = "Keystone checkpoint:";
 export const DIRECTIVE_PATTERN = /@mutate\s+(\S+)\s+"((?:[^"\\]|\\.)*)"\s*->\s*"((?:[^"\\]|\\.)*)"/;
 const CANONICAL_GUARD_SUFFIX_PATTERN = /`([^`]+)`\s*—\s*`([^`]+)`;\s*Mutation checkpoint:/;
 const PREFIX_FIRST_GUARD_PATTERN = /Mutation checkpoint:\s+in\s+`([^`]+)`\s+test\s+`([^`]+)`/;
@@ -96,70 +95,6 @@ export function selectKeystoneCheckpointCriteria(
   return selectCheckpointCriteria(content, "keystone", options);
 }
 
-/** Strips CommonMark-style backtick code spans (matching-length backtick runs); non-span text survives. */
-function stripCodeSpans(text: string): string {
-  const runPattern = /`+/g;
-  let result = "";
-  let lastIndex = 0;
-  let openMatch = runPattern.exec(text);
-  while (openMatch !== null) {
-    const openStart = openMatch.index;
-    const openLen = openMatch[0].length;
-    const closePattern = /`+/g;
-    closePattern.lastIndex = openStart + openLen;
-    let closeMatch: RegExpExecArray | null = null;
-    let candidate = closePattern.exec(text);
-    while (candidate !== null) {
-      if (candidate[0].length === openLen) {
-        closeMatch = candidate;
-        break;
-      }
-      candidate = closePattern.exec(text);
-    }
-    if (closeMatch !== null) {
-      result += text.slice(lastIndex, openStart);
-      lastIndex = closeMatch.index + closeMatch[0].length;
-      runPattern.lastIndex = lastIndex;
-    }
-    openMatch = runPattern.exec(text);
-  }
-  result += text.slice(lastIndex);
-  return result;
-}
-
-export type UnsatisfiableKeystoneCriterion = MutationCheckpointCriterion & {
-  reason: "malformed" | "unrecognized_test_file";
-};
-
-/**
- * Non-human-only acceptance criteria that self-mark as a keystone checkpoint (`Keystone checkpoint:`
- * outside any backtick span) but are not selectable by `selectKeystoneCheckpointCriteria` — keystone
- * verification would never pick them up.
- */
-export function findUnsatisfiableKeystoneCriteria(content: string): UnsatisfiableKeystoneCriterion[] {
-  const blocks = acceptanceCriterionBlocks(content);
-  const admissible = selectKeystoneCheckpointCriteria(content);
-  const remainingAdmissible = [...admissible];
-  const findings: UnsatisfiableKeystoneCriterion[] = [];
-  for (const [index, criterion] of parseSpec(content).acceptanceCriteria.entries()) {
-    if (criterion.humanOnly) continue;
-    const block = blocks[index] ?? criterion.text;
-    if (!stripCodeSpans(block).includes(KEYSTONE_CRITERION_MARKER)) continue;
-    const matchIndex = remainingAdmissible.findIndex((entry) => entry.block === block);
-    if (matchIndex !== -1) {
-      remainingAdmissible.splice(matchIndex, 1);
-      continue;
-    }
-    const canonical = CANONICAL_KEYSTONE_SUFFIX_PATTERN.exec(block);
-    findings.push({
-      block,
-      firstLine: criterion.text,
-      reason: canonical === null ? "malformed" : "unrecognized_test_file",
-    });
-  }
-  return findings;
-}
-
 const LANGUAGE_NEUTRAL_CHECKPOINT_TEST_FILE_PATTERN =
   /^(?:.*Tests?\.(?:swift|m|kt|java)|.*_test\.(?:go|py|rb)|test_.*\.py|.*_spec\.rb|.*_test\.exs)$/;
 
@@ -171,53 +106,3 @@ export function isCheckpointTestFileReference(reference: string): boolean {
 }
 
 const isTestFileReference = isCheckpointTestFileReference;
-
-/** True when criterion text backtick- or quote-names a plausible pin title beyond pinning file and directive. */
-function criterionNamesPinTitle(block: string): boolean {
-  const withoutDirectives = block
-    .replace(/\/\/\s*@mutate[^\n]*/g, "")
-    .replace(new RegExp(DIRECTIVE_PATTERN.source, "g"), "");
-  const backtickTokens = [...withoutDirectives.matchAll(/`([^`]+)`/g)].map((match) => match[1] ?? "");
-  const quoteTokens = [...withoutDirectives.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((match) => match[1] ?? "");
-  for (const token of [...backtickTokens, ...quoteTokens]) {
-    if (isTestFileReference(token)) continue;
-    if (token.trim().length > 0) return true;
-  }
-  return false;
-}
-
-export type AtRiskHollowPinFinding = {
-  criterionText: string;
-  rationale: string;
-  sourceFile?: string;
-};
-
-const AT_RISK_HOLLOW_PINS_SECTION = "## At-risk hollow pins";
-const HOLLOW_PIN_RATIONALE =
-  "mutation-checkpoint criterion names no backticked or quoted pin title; implement-time linking may go hollow";
-
-/** Advisory hollow-pin findings for mutation-checkpoint criteria missing a pin title reference. */
-export function detectAtRiskHollowPinsInMarkdown(content: string, sourceFile?: string): AtRiskHollowPinFinding[] {
-  const findings: AtRiskHollowPinFinding[] = [];
-  for (const { block } of selectMutationCheckpointCriteria(content)) {
-    if (!criterionNamesPinTitle(block)) {
-      findings.push({
-        criterionText: block,
-        rationale: HOLLOW_PIN_RATIONALE,
-        ...(sourceFile !== undefined ? { sourceFile } : {}),
-      });
-    }
-  }
-  return findings;
-}
-
-export function formatAtRiskHollowPinsSection(findings: readonly AtRiskHollowPinFinding[]): string {
-  if (findings.length === 0) return "";
-  const lines = [AT_RISK_HOLLOW_PINS_SECTION, ""];
-  for (const finding of findings) {
-    const prefix = finding.sourceFile === undefined ? "" : `[${finding.sourceFile}] `;
-    lines.push(`- ${prefix}Criterion: ${finding.criterionText}`);
-    lines.push(`  Rationale: ${finding.rationale}`);
-  }
-  return lines.join("\n");
-}

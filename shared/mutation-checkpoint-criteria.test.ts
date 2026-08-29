@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  detectAtRiskHollowPinsInMarkdown,
   isCheckpointTestFileReference,
   selectKeystoneCheckpointCriteria,
   selectMutationCheckpointCriteria,
@@ -43,12 +42,8 @@ describe("checkpoint pin-file recognition", () => {
       const keystone = specWithCriterion(
         `\`${reference}\` — \`pin\`; Keystone checkpoint: baseline restore turns red.`,
       );
-      const pinOnly = specWithCriterion(
-        `\`${reference}\`; // @mutate shared/example.ts "before" -> "after" requires evidence.`,
-      );
       expect(selectMutationCheckpointCriteria(guard)).toHaveLength(1);
       expect(selectKeystoneCheckpointCriteria(keystone)).toHaveLength(1);
-      expect(detectAtRiskHollowPinsInMarkdown(pinOnly)).toHaveLength(1);
     }
 
     for (const reference of [

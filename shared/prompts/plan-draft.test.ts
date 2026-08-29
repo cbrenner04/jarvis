@@ -1,12 +1,15 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { DEFAULT_WRITE_STEP_RULES } from "../../v2/src/execution/write-loop-input.ts";
-import { buildPlanDraftPrompt, PLAN_DRAFT_PROMPT_ID } from "./plan-draft.ts";
+import { buildPlanDraftPrompt, filterPlanDraftStepRules, PLAN_DRAFT_PROMPT_ID } from "./plan-draft.ts";
 import { PromptRenderingError } from "./render.ts";
 
 const HARNESS_DIAGNOSTICS_HEADING = "## Prior harness normalizer diagnostics";
 
 const HUMAN_ONLY_STEP_RULES =
   "Human-only acceptance criteria contain `(Manual)`, `visual inspection only`, or `no automated guard` anywhere in the full bullet block (the first checklist line and any continuation lines). Recognition uses case-insensitive substring matching; markers need not be trailing or whole phrases.";
+const SPEC_GUIDANCE = readFileSync(join(import.meta.dir, "../../v1/docs/spec-guidance.md"), "utf8");
 
 describe("buildPlanDraftPrompt", () => {
   test("omits runtime suffix sections when specDir and stepRules are absent", () => {
@@ -19,9 +22,8 @@ describe("buildPlanDraftPrompt", () => {
     expect(prompt).not.toContain("## File output");
     expect(prompt).not.toContain("## Step completion");
     expect(PLAN_DRAFT_PROMPT_ID).toBe("plan.prompt.draft");
-    expect(prompt).toContain("each added or modified guard is inverted");
-    expect(prompt).toContain("suppressed effect is absent");
-    expect(prompt).toContain("Documentation-only and spec-only subspecs are exempt");
+    expect(prompt).toContain("fails against the pre-fix code and passes after the change");
+    expect(prompt).not.toContain("each added or modified guard is inverted");
   });
 
   test("appends file output and step completion sections when supplied", () => {
@@ -39,8 +41,29 @@ describe("buildPlanDraftPrompt", () => {
     expect(prompt).toContain("Do not emit spec content to stdout");
     expect(prompt).toContain("## Step completion");
     const stepRules = prompt.split("## Step completion\n\n")[1];
-    expect(stepRules).toBe(DEFAULT_WRITE_STEP_RULES);
+    expect(stepRules).toBe(filterPlanDraftStepRules(DEFAULT_WRITE_STEP_RULES));
     expect(stepRules).toContain(HUMAN_ONLY_STEP_RULES);
+    expect(stepRules).toContain("production code");
+    expect(stepRules).toContain("final line of your response");
+    expect(stepRules).not.toContain("Guard-inversion criteria require");
+    expect(stepRules).not.toContain("Place `// @mutate`");
+  });
+
+  test("renders named pre-fix failing-test guidance without checkpoint authoring", () => {
+    // @mutate shared/prompts/plan-draft.ts ".filter((line) => !RETIRED_PLAN_DRAFT_STEP_RULE_PREFIXES.some((prefix) => line.startsWith(prefix)))" -> ".filter((line) => RETIRED_PLAN_DRAFT_STEP_RULE_PREFIXES.some((prefix) => line.startsWith(prefix)))"
+    const prompt = buildPlanDraftPrompt({
+      name: "my-plan",
+      intent: "Change runtime behavior.",
+      specGuidance: SPEC_GUIDANCE,
+      stepRules: DEFAULT_WRITE_STEP_RULES,
+    });
+
+    expect(prompt).toContain("naming a test that fails against the pre-fix code and passes after the change");
+    expect(prompt).not.toContain("Mutation checkpoint:");
+    expect(prompt).not.toContain("Keystone checkpoint:");
+    expect(prompt).not.toContain("@mutate");
+    expect(prompt).not.toContain("each added or modified guard is inverted");
+    expect(prompt).not.toContain("comment checkpoint on the pinning test");
   });
 
   test("throws on delimiter-violating intent or specGuidance", () => {

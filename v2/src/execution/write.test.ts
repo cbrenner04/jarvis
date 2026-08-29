@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
+import { filterPlanDraftStepRules } from "../../../shared/prompts/plan-draft.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { executeWrite, isRepromptEligibleMutationCheckpointMiss } from "./write.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
@@ -83,7 +84,7 @@ function capturingBinding(onPrompt: (prompt: string) => void): InvocationBinding
   };
 }
 
-function expectGuardInversionWriteStepRules(prompt: string): void {
+function expectImplementWriteStepRules(prompt: string): void {
   expect(prompt).toContain("require a source mutation on the real guard");
   expect(prompt).toContain("comment checkpoint on the pinning test");
   expect(prompt).toContain("production invert hooks are forbidden");
@@ -92,6 +93,16 @@ function expectGuardInversionWriteStepRules(prompt: string): void {
   expect(prompt).toContain("`invert*ForTest` module variables");
   expect(prompt).toContain("`invert*` function parameters");
   expect(prompt).toContain("`invert*ForTest` type members");
+}
+
+function expectPlanDraftStepRules(prompt: string): void {
+  const stepRules = extractFinalStepRules(prompt);
+  expect(stepRules).toBe(filterPlanDraftStepRules(DEFAULT_WRITE_STEP_RULES));
+  expect(stepRules).toContain(HUMAN_ONLY_STEP_RULES);
+  expect(stepRules).toContain("production code");
+  expect(stepRules).toContain("final line of your response");
+  expect(stepRules).not.toContain("Guard-inversion criteria require");
+  expect(stepRules).not.toContain("Place `// @mutate`");
 }
 
 function extractSpecGuidance(prompt: string): string {
@@ -819,7 +830,7 @@ describe("write behavior", () => {
     expect(capturedPrompt).toContain(repoGuidance);
     expect(capturedPrompt.trimEnd().endsWith(DEFAULT_WRITE_STEP_RULES)).toBe(true);
     expect(extractFinalStepRules(capturedPrompt)).toContain(HUMAN_ONLY_STEP_RULES);
-    expectGuardInversionWriteStepRules(capturedPrompt);
+    expectImplementWriteStepRules(capturedPrompt);
     expect(capturedPrompt).toContain(
       "When a guard sits inside a `setTimeout` or `setInterval` callback, extract it into a pure exported predicate and test both truth directions directly without a real-timer wait.",
     );
@@ -993,8 +1004,8 @@ describe("write behavior", () => {
     expect(capturedPrompt).toContain(`under \`${join(result.worktreePath, ".jarvis-plan-stage")}\`.`);
     expect(capturedPrompt).toContain("Do not emit spec content to stdout");
     expect(capturedPrompt).toContain("## Step completion");
-    expect(capturedPrompt).toContain(DEFAULT_WRITE_STEP_RULES);
-    expectGuardInversionWriteStepRules(capturedPrompt);
+    expect(capturedPrompt).not.toContain(DEFAULT_WRITE_STEP_RULES);
+    expectPlanDraftStepRules(capturedPrompt);
 
     const intentPath = join(result.worktreePath, ".jarvis-plan-stage", "intent.md");
     expect(existsSync(intentPath)).toBe(true);

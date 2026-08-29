@@ -22,7 +22,6 @@ const REACHABLE_TEST_PIN =
 const ORDINARY_MUST_NOT = "- [ ] The handler must not leak sensitive data in error responses.";
 const FAN_OUT_VERBATIM =
   "- [ ] Each sibling dispatch owns only its resolved destination `(project, branch)` worktree; neither destination may equal the predecessor worktree.";
-const HOLLOW_CRITERION = '- [ ] `guard.test.ts`; // @mutate v2/src/guard.ts "a > 0" -> "a >= 0" requires a linked pin.';
 const ADVERSARY_PREMISE_INSTRUCTION = "Unfalsifiable premises listed in Context under `## Unfalsifiable premises`";
 
 describe("plan review premise-falsification pass", () => {
@@ -88,22 +87,20 @@ describe("plan review premise-falsification pass", () => {
     );
   });
 
-  test("composes unfalsifiable premises ahead of at-risk hollow pins without clobbering", () => {
+  test("preserves premise findings without retired review context", () => {
     const specPath = specDirWithIntent();
     writeFileSync(
       join(specPath, "00-guard.md"),
-      ["# Guard", "", "## Acceptance criteria", "", UNREACHABLE_INVARIANT, "", HOLLOW_CRITERION, ""].join("\n"),
+      ["# Guard", "", "## Acceptance criteria", "", UNREACHABLE_INVARIANT, ""].join("\n"),
       "utf8",
     );
     const passContext = buildPlanReviewPassContext({ worktreePath: "/repo", specPath });
-    expect(passContext.indexOf("## Unfalsifiable premises")).toBeLessThan(
-      passContext.indexOf("## At-risk hollow pins"),
-    );
+    expect(passContext).toContain("## Unfalsifiable premises");
     expect(passContext).toContain(PREMISE_SIGNAL);
-    expect(passContext).toContain("implement-time linking may go hollow");
+    expect(passContext).not.toContain("hollow");
   });
 
-  test("omits empty sections when only one pass has findings", () => {
+  test("omits context when premise review has no findings", () => {
     const premiseOnly = specDirWithIntent();
     writeFileSync(
       join(premiseOnly, "00-guard.md"),
@@ -112,17 +109,10 @@ describe("plan review premise-falsification pass", () => {
     );
     const premiseContext = buildPlanReviewPassContext({ worktreePath: "/repo", specPath: premiseOnly });
     expect(premiseContext).toContain("## Unfalsifiable premises");
-    expect(premiseContext).not.toContain("## At-risk hollow pins");
 
-    const hollowOnly = specDirWithIntent();
-    writeFileSync(
-      join(hollowOnly, "00-guard.md"),
-      ["# Guard", "", "## Acceptance criteria", "", HOLLOW_CRITERION, ""].join("\n"),
-      "utf8",
-    );
-    const hollowContext = buildPlanReviewPassContext({ worktreePath: "/repo", specPath: hollowOnly });
-    expect(hollowContext).toContain("## At-risk hollow pins");
-    expect(hollowContext).not.toContain("## Unfalsifiable premises");
+    const ordinary = specDirWithIntent();
+    writeFileSync(join(ordinary, "00-guard.md"), `# Guard\n\n## Acceptance criteria\n\n${ORDINARY_MUST_NOT}\n`, "utf8");
+    expect(buildPlanReviewPassContext({ worktreePath: "/repo", specPath: ordinary })).toBe("");
   });
 
   test("reports when a flagged premise is the sole remaining non-human-only criterion", () => {

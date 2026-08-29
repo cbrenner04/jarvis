@@ -6,6 +6,22 @@ export const PLAN_DRAFT_PROMPT_ID = "plan.prompt.draft";
 
 const HARNESS_NORMALIZER_DIAGNOSTICS_HEADING = "## Prior harness normalizer diagnostics";
 
+const RETIRED_PLAN_DRAFT_STEP_RULE_PREFIXES = ["Guard-inversion criteria require", "Place `// @mutate`"] as const;
+const PLAN_DRAFT_RULE_REWRITES = new Map([
+  [
+    "Do not split `@mutate` directives or acceptance-criterion checkboxes across physical lines.",
+    "Do not split acceptance-criterion checkboxes across physical lines.",
+  ],
+]);
+
+export function filterPlanDraftStepRules(stepRules: string): string {
+  return stepRules
+    .split("\n")
+    .map((line) => PLAN_DRAFT_RULE_REWRITES.get(line) ?? line)
+    .filter((line) => !RETIRED_PLAN_DRAFT_STEP_RULE_PREFIXES.some((prefix) => line.startsWith(prefix)))
+    .join("\n");
+}
+
 /**
  * Canonical ordered `## Prior harness normalizer diagnostics` section for a preserved plan-draft
  * redraft prompt: one numbered `<<<HARNESS_NORMALIZER_DIAGNOSTIC n BEGIN>>>`/`...END>>>` data zone
@@ -34,10 +50,12 @@ export function buildPlanDraftPrompt(opts: {
 }): string {
   const registry = loadPromptRegistry();
   const artifact = registry.getById(PLAN_DRAFT_PROMPT_ID);
-  let template = assemblePromptForStep({
-    registry,
-    stepPromptId: PLAN_DRAFT_PROMPT_ID,
-  });
+  let template = filterPlanDraftStepRules(
+    assemblePromptForStep({
+      registry,
+      stepPromptId: PLAN_DRAFT_PROMPT_ID,
+    }),
+  );
 
   const workDir = opts.workDirLabel ?? opts.name;
   const targetDir = opts.targetDir ?? "spec";
@@ -84,7 +102,7 @@ export function buildPlanDraftPrompt(opts: {
   if (opts.stepRules !== undefined && opts.stepRules.trim().length > 0) {
     sections.push(`## Step completion
 
-${opts.stepRules.trim()}`);
+${filterPlanDraftStepRules(opts.stepRules.trim())}`);
   }
 
   if (opts.harnessNormalizerDiagnostics !== undefined && opts.harnessNormalizerDiagnostics.length > 0) {

@@ -22,13 +22,13 @@ The five structural retirements that close whole classes: one dispatch front doo
 ## In flight (2026-08-29)
 
 - **PR #3060 — MERGED 2026-08-29.** Dispatch-parity spec complete (subspecs 00–02): pipeline dispatch stamps the full step-config layer, watchdogs arm on daemon write steps, resume reads write-sibling stamped commands. The readyCommand cascade (#2976→#3060, five fixes) is closed; its seed is reaped. The test-file hang's true cause was stub steps without `worktree` (the stamp threw before `wait()`, starving microtask spin loops) — not timers; the watchdog unrefs landed as hygiene, leaving [[watchdog-timers-never-hold-the-event-loop]] as a pin-test seed. The spec dir awaits the next `jarvis cleanup` archival pass.
-- **Spec `20260829T023500Z-deferred-settlement-resume-preserves-pr-evidence`** — next to run. Point fix for the sharpest dogfood blocker; later subsumed by [[pipeline-settlement-derives-from-run-rows]] (which retires the deferred-settlement machinery it patches). Seeds for both in-flight specs stay in `seeds/` until landed, then reap.
+- **Spec `20260829T023500Z-deferred-settlement-resume-preserves-pr-evidence` — MERGED 2026-08-29** (subspec 00 #3054, subspec 01 #3069). Point fix for the sharpest dogfood blocker; later subsumed by [[pipeline-settlement-derives-from-run-rows]] (which retires the deferred-settlement machinery it patches). Its seed is reaped. Subspec 01's publication surfaced a new blocker — ready-flip on a prior subspec's closed same-branch PR — seeded as [[implement-publication-reuses-closed-same-branch-pr]] and hand-published as #3069.
 
 ## Priority-ordered work
 
 | P | Item | Delivers |
 | --- | --- | --- |
-| **P0** | ~~Land #3060~~ (merged 2026-08-29) + the deferred-settlement spec | Watchdogs arm on pipeline runs; configured ready/fix commands honored ✓; review-bearing pipelines stop stranding their PR (spec still open) |
+| **P0** | ~~Land #3060 + the deferred-settlement spec~~ (both merged 2026-08-29) | Watchdogs arm on pipeline runs; configured ready/fix commands honored ✓; review-bearing pipelines stop stranding their PR ✓ |
 | **P0** | [[pipeline-architecture-doc]] | Cheap; states the target the P1 restructures converge on |
 | **P1** | [[pipeline-dispatch-shares-cli-front-door]] | Retires the remaining dispatch-assembly copies (posture, review passes, stale-reset, admission, context source) |
 | **P1** | [[pipeline-settlement-derives-from-run-rows]] | Retires copy-then-redrive settlement, both claim mechanisms, the dual `derivePipelineState`; absorbs [[operator-killed-pipeline-stage-is-recoverable]] and [[restart-reconciliation-preserves-paused-resumable-runs]] planning |

@@ -14,15 +14,16 @@ Daemon lifecycle and request handling still contain terminal status paths whose 
 
 ## Behavior
 
-- Inventory every production terminal transition under `v2/src/daemon/` and route each through the state-store terminal-settlement operation.
+- Inventory every daemon-owned production terminal transition under `v2/src/daemon/` and route each admitted transition through the state-store terminal-settlement operation.
 - Preserve guarded kill, owner-liveness, startup reconciliation, queue, and resume behavior while making each terminal row carry its available cause and failure evidence atomically.
-- Add daemon regressions proving immediate list and wait observation reports the terminal status and matching operator error from the same settlement.
+- Add daemon regressions proving immediate list and wait observation reports terminal status with its matching available cause and evidence from the same settlement.
 - Document daemon settlement ownership in `v2/docs/daemon-host.md` and record the changed v2 behavior in `v2/docs/v1-behaviors.md`.
 
 ## Decision ledger
 
 - Daemon callers supply the terminal cause and available evidence at the transition they own; rules out reconstructing cause later from whichever log record happens to be newest.
 - Existing conditional kill and reconciliation admission remains authoritative before settlement; rules out converting guarded no-ops into unconditional terminal writes.
+- Daemon owns guarded-kill and startup-reconciliation admission; persistence owns only their atomic settlement, while execution owns completion-boundary admission; rules out overlapping transition migrations.
 - Nonterminal recovery writes remain on the nonterminal state-store path; rules out treating resume or queue promotion as terminal settlement.
 
 ## Prerequisites

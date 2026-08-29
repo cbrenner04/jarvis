@@ -794,7 +794,7 @@ index 1234567..abcdefg 100644
       );
       writeFileSync(
         join(dir, "shared", "fixture", "a.test.ts"),
-        'import { expect, test } from "bun:test";\nimport { a } from "./a.ts";\ntest("a", () => { expect(a(0)).toBe("0"); });\n',
+        'import { expect, test } from "bun:test";\nimport { a } from "./a.ts";\ntest("a", () => { expect(a(0)).toBe("null"); expect(a(1)).toBe("1"); });\n',
       );
       writeFileSync(
         join(dir, "shared", "fixture", "b.ts"),
@@ -802,7 +802,7 @@ index 1234567..abcdefg 100644
       );
       writeFileSync(
         join(dir, "shared", "fixture", "b.test.ts"),
-        'import { expect, test } from "bun:test";\nimport { b } from "./b.ts";\ntest("b", () => { expect(b(0)).toBe("0"); });\n',
+        'import { expect, test } from "bun:test";\nimport { b } from "./b.ts";\ntest("b", () => { expect(b(0)).toBe("null"); expect(b(1)).toBe("1"); });\n',
       );
       execFileSync("git", ["add", "-A"], { cwd: dir });
       execFileSync("git", ["commit", "-q", "-m", "base"], { cwd: dir });

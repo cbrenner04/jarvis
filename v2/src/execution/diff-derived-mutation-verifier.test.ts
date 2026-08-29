@@ -784,21 +784,43 @@ index f424d7da..be281d02 100644
 
   it("caps concurrent bun test invocations at MAX_CONCURRENT_VERIFIER_TEST_RUNS", async () => {
     resetVerifierTestRunTrackingForTest();
-    let inFlight = 0;
+    // Deterministic overlap: each run blocks on an explicit gate (no real timers,
+    // which the determinism guard forbids), so admitted runs stay in flight until
+    // released and the semaphore's peak reflects the cap.
+    const gates: Array<() => void> = [];
     const mockRunner = {
       runAsync: async () => {
-        inFlight += 1;
-        await new Promise((resolve) => setTimeout(resolve, 30));
-        inFlight -= 1;
+        await new Promise<void>((resolve) => {
+          gates.push(resolve);
+        });
         return "";
       },
     };
+    const flush = async () => {
+      for (let i = 0; i < 20; i += 1) await Promise.resolve();
+    };
 
-    await Promise.all(
+    const all = Promise.all(
       Array.from({ length: 8 }, (_, index) =>
         runDiffDerivedScopedTests("/test/path", [`shared/fixture/p${index}.test.ts`], mockRunner),
       ),
     );
+
+    await flush();
+    // The semaphore admits at most the cap; only that many runs reach their gate.
+    expect(gates.length).toBe(MAX_CONCURRENT_VERIFIER_TEST_RUNS);
+    expect(peakVerifierTestRuns()).toBe(MAX_CONCURRENT_VERIFIER_TEST_RUNS);
+
+    // Drain: release admitted runs in waves; each completion admits a queued run.
+    let released = 0;
+    while (released < 8) {
+      while (gates.length > 0) {
+        gates.shift()?.();
+        released += 1;
+      }
+      await flush();
+    }
+    await all;
 
     expect(peakVerifierTestRuns()).toBeLessThanOrEqual(MAX_CONCURRENT_VERIFIER_TEST_RUNS);
     expect(peakVerifierTestRuns()).toBeGreaterThan(1);

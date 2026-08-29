@@ -6,19 +6,15 @@ export const PLAN_DRAFT_PROMPT_ID = "plan.prompt.draft";
 
 const HARNESS_NORMALIZER_DIAGNOSTICS_HEADING = "## Prior harness normalizer diagnostics";
 
-const RETIRED_PLAN_DRAFT_STEP_RULE_PREFIXES = ["Guard-inversion criteria require", "Place `// @mutate`"] as const;
-const PLAN_DRAFT_RULE_REWRITES = new Map([
-  [
-    "Do not split `@mutate` directives or acceptance-criterion checkboxes across physical lines.",
-    "Do not split acceptance-criterion checkboxes across physical lines.",
-  ],
-]);
+const MUTATE_DIRECTIVE_LINE =
+  "Do not split `@mutate` directives or acceptance-criterion checkboxes across physical lines.";
+const CHECKBOX_LINE = "Do not split acceptance-criterion checkboxes across physical lines.";
 
 export function filterPlanDraftStepRules(stepRules: string): string {
   return stepRules
     .split("\n")
-    .map((line) => PLAN_DRAFT_RULE_REWRITES.get(line) ?? line)
-    .filter((line) => !RETIRED_PLAN_DRAFT_STEP_RULE_PREFIXES.some((prefix) => line.startsWith(prefix)))
+    .filter((line) => !line.startsWith("Guard-inversion criteria require") && !line.startsWith("Place `// @mutate`"))
+    .map((line) => (line === MUTATE_DIRECTIVE_LINE ? CHECKBOX_LINE : line))
     .join("\n");
 }
 

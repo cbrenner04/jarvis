@@ -50,7 +50,7 @@ describe("buildPlanDraftPrompt", () => {
   });
 
   test("renders named pre-fix failing-test guidance without checkpoint authoring", () => {
-    // @mutate shared/prompts/plan-draft.ts ".filter((line) => !RETIRED_PLAN_DRAFT_STEP_RULE_PREFIXES.some((prefix) => line.startsWith(prefix)))" -> ".filter((line) => RETIRED_PLAN_DRAFT_STEP_RULE_PREFIXES.some((prefix) => line.startsWith(prefix)))"
+    // @mutate shared/prompts/plan-draft.ts "!line.startsWith(\"Guard-inversion criteria require\")" -> "line.startsWith(\"Guard-inversion criteria require\")"
     const prompt = buildPlanDraftPrompt({
       name: "my-plan",
       intent: "Change runtime behavior.",

@@ -45,15 +45,15 @@ export type MutationCheckpointCriterion = {
 function isGuardMutationCheckpointBlock(block: string): boolean {
   if (DIRECTIVE_PATTERN.test(block)) return true;
   const canonical = CANONICAL_GUARD_SUFFIX_PATTERN.exec(block);
-  if (canonical !== null && isTestFileReference(canonical[1] ?? "")) return true;
+  if (canonical !== null && isCheckpointTestFileReference(canonical[1] ?? "")) return true;
   const prefixFirst = PREFIX_FIRST_GUARD_PATTERN.exec(block);
-  if (prefixFirst !== null && isTestFileReference(prefixFirst[1] ?? "")) return true;
+  if (prefixFirst !== null && isCheckpointTestFileReference(prefixFirst[1] ?? "")) return true;
   return false;
 }
 
 function isKeystoneCheckpointBlock(block: string): boolean {
   const match = CANONICAL_KEYSTONE_SUFFIX_PATTERN.exec(block);
-  return match !== null && isTestFileReference(match[1] ?? "");
+  return match !== null && isCheckpointTestFileReference(match[1] ?? "");
 }
 
 function selectCheckpointCriteria(
@@ -104,5 +104,3 @@ export function isCheckpointTestFileReference(reference: string): boolean {
   if (/\.test\.[cm]?[jt]sx?$/i.test(name) || name.includes(".test.")) return true;
   return LANGUAGE_NEUTRAL_CHECKPOINT_TEST_FILE_PATTERN.test(name);
 }
-
-const isTestFileReference = isCheckpointTestFileReference;

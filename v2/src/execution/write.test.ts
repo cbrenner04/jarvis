@@ -84,27 +84,6 @@ function capturingBinding(onPrompt: (prompt: string) => void): InvocationBinding
   };
 }
 
-function expectImplementWriteStepRules(prompt: string): void {
-  expect(prompt).toContain("require a source mutation on the real guard");
-  expect(prompt).toContain("comment checkpoint on the pinning test");
-  expect(prompt).toContain("production invert hooks are forbidden");
-  expect(prompt).toContain("Do not add");
-  expect(prompt).toContain("`setInvert*ForTest` exports");
-  expect(prompt).toContain("`invert*ForTest` module variables");
-  expect(prompt).toContain("`invert*` function parameters");
-  expect(prompt).toContain("`invert*ForTest` type members");
-}
-
-function expectPlanDraftStepRules(prompt: string): void {
-  const stepRules = extractFinalStepRules(prompt);
-  expect(stepRules).toBe(filterPlanDraftStepRules(DEFAULT_WRITE_STEP_RULES));
-  expect(stepRules).toContain(HUMAN_ONLY_STEP_RULES);
-  expect(stepRules).toContain("production code");
-  expect(stepRules).toContain("final line of your response");
-  expect(stepRules).not.toContain("Guard-inversion criteria require");
-  expect(stepRules).not.toContain("Place `// @mutate`");
-}
-
 function extractSpecGuidance(prompt: string): string {
   const beginMarker = "<<<SPEC_GUIDANCE_BEGIN>>>";
   const endMarker = "<<<SPEC_GUIDANCE_END>>>";
@@ -830,7 +809,14 @@ describe("write behavior", () => {
     expect(capturedPrompt).toContain(repoGuidance);
     expect(capturedPrompt.trimEnd().endsWith(DEFAULT_WRITE_STEP_RULES)).toBe(true);
     expect(extractFinalStepRules(capturedPrompt)).toContain(HUMAN_ONLY_STEP_RULES);
-    expectImplementWriteStepRules(capturedPrompt);
+    expect(capturedPrompt).toContain("require a source mutation on the real guard");
+    expect(capturedPrompt).toContain("comment checkpoint on the pinning test");
+    expect(capturedPrompt).toContain("production invert hooks are forbidden");
+    expect(capturedPrompt).toContain("Do not add");
+    expect(capturedPrompt).toContain("`setInvert*ForTest` exports");
+    expect(capturedPrompt).toContain("`invert*ForTest` module variables");
+    expect(capturedPrompt).toContain("`invert*` function parameters");
+    expect(capturedPrompt).toContain("`invert*ForTest` type members");
     expect(capturedPrompt).toContain(
       "When a guard sits inside a `setTimeout` or `setInterval` callback, extract it into a pure exported predicate and test both truth directions directly without a real-timer wait.",
     );
@@ -1005,7 +991,13 @@ describe("write behavior", () => {
     expect(capturedPrompt).toContain("Do not emit spec content to stdout");
     expect(capturedPrompt).toContain("## Step completion");
     expect(capturedPrompt).not.toContain(DEFAULT_WRITE_STEP_RULES);
-    expectPlanDraftStepRules(capturedPrompt);
+    const stepRules = extractFinalStepRules(capturedPrompt);
+    expect(stepRules).toBe(filterPlanDraftStepRules(DEFAULT_WRITE_STEP_RULES));
+    expect(stepRules).toContain(HUMAN_ONLY_STEP_RULES);
+    expect(stepRules).toContain("production code");
+    expect(stepRules).toContain("final line of your response");
+    expect(stepRules).not.toContain("Guard-inversion criteria require");
+    expect(stepRules).not.toContain("Place `// @mutate`");
 
     const intentPath = join(result.worktreePath, ".jarvis-plan-stage", "intent.md");
     expect(existsSync(intentPath)).toBe(true);

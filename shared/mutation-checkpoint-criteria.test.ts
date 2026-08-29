@@ -1,13 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  isCheckpointTestFileReference,
-  selectKeystoneCheckpointCriteria,
-  selectMutationCheckpointCriteria,
-} from "./mutation-checkpoint-criteria.ts";
-
-function specWithCriterion(criterion: string): string {
-  return `# Spec\n\n## Acceptance criteria\n\n- [ ] ${criterion}\n`;
-}
+import { isCheckpointTestFileReference } from "./mutation-checkpoint-criteria.ts";
 
 describe("checkpoint pin-file recognition", () => {
   test("recognizes language-neutral checkpoint pin files", () => {
@@ -38,12 +30,6 @@ describe("checkpoint pin-file recognition", () => {
 
     for (const reference of recognized) {
       expect(isCheckpointTestFileReference(reference)).toBe(true);
-      const guard = specWithCriterion(`\`${reference}\` — \`pin\`; Mutation checkpoint: mutation turns red.`);
-      const keystone = specWithCriterion(
-        `\`${reference}\` — \`pin\`; Keystone checkpoint: baseline restore turns red.`,
-      );
-      expect(selectMutationCheckpointCriteria(guard)).toHaveLength(1);
-      expect(selectKeystoneCheckpointCriteria(keystone)).toHaveLength(1);
     }
 
     for (const reference of [
@@ -59,16 +45,6 @@ describe("checkpoint pin-file recognition", () => {
       "tests.test.ts/latest.swift",
     ]) {
       expect(isCheckpointTestFileReference(reference)).toBe(false);
-      expect(
-        selectMutationCheckpointCriteria(
-          specWithCriterion(`\`${reference}\` — \`pin\`; Mutation checkpoint: mutation turns red.`),
-        ),
-      ).toEqual([]);
-      expect(
-        selectKeystoneCheckpointCriteria(
-          specWithCriterion(`\`${reference}\` — \`pin\`; Keystone checkpoint: baseline restore turns red.`),
-        ),
-      ).toEqual([]);
     }
   });
 });

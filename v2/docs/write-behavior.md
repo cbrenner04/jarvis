@@ -446,11 +446,7 @@ For `jarvis run workflow implement`, `complete` means the authored implement wri
 
 **Workflow-started implement live control:** Implement runs launched via `jarvis run workflow implement` cannot be paused, resumed, or killed via `jarvis run pause/resume/kill`. The workflow step executes atomically to completion within the step's timeout; partial progress cannot be saved. Only `jarvis run start ...` implement runs (direct `write` mode) support live control.
 
-**Mutation-directive reprompt pause/resume:** After a repromptable mutation-checkpoint miss, the write loop logs `mutation_directive_reprompt` with structured `directives` and a truncated `display`, commits a `progress` boundary, and continues within `maxIterations`. Reprompt context persists across non-`complete` iterations until mutation checkpoints pass (same pattern as landing reprompt). Paused replay follows the shared directive-reprompt contract below.
-
-**Keystone-directive reprompt pause/resume:** When the only blocking finding is an unlinked keystone checkpoint (pin resolved, no directive linked, no hollow/inert-headline/blocking-unparseable finding alongside it), the write loop logs `keystone_directive_reprompt` with the criterion's first line and its resolved repo-relative pin path, commits a `progress` boundary, and continues within `maxIterations`. Prompt selection checks pending mutation-directive-reprompt context first; that fixed order only matters within a single iteration, since a mixed unparseable-plus-unlinked-keystone report hard-blocks instead of reprompting rather than leaving both pending at once. Across iterations, each reprompt arm clears the other's pending context as it records its own, so a context never outlives the miss that produced it: an unparseable-directive reprompt followed by a pure unlinked-keystone miss on the next iteration renders the keystone prompt, not a stale mutation one. Reprompt context clears on contract settle (`complete` or a terminal `contract_miss`) or budget exhaustion, same as before. Budget exhaustion settles `contract_miss` with the `Unlinked keystone checkpoints` blocker naming the criterion and pin path. Paused replay follows the shared directive-reprompt contract below.
-
-**Guard-checkpoint reprompt event and shared paused replay:** When the write loop admits a guard-checkpoint repair, it appends exactly one `guard_checkpoint_reprompt` event after that iteration's `boundary_committed` event at the stream's normal next sequence position. The event carries the admitting `attemptId` and the complete ordered `repairs` array used by the producer. Each row contains `kind` (`guard` or `keystone`), `criterionText`, resolved repo-relative `pinPath`, and `reason` (`unlinked` or `hollow`); a row linked to a directive also carries `directive.sourceFile`, `directive.sourceLine`, and `directive.raw`. The event contains no rendered prompt prose. On paused direct `jarvis run start` implement resume, the daemon reconstructs the durable direct-write input, selects the last `mutation_directive_reprompt`, `guard_checkpoint_reprompt`, or `keystone_directive_reprompt` event in the ordered durable tail, and restores only that context. Guard replay reuses the complete ordered repair array verbatim, including criterion text, resolved pin path, reason, checkpoint kind, and optional directive identity, so the next `write.guard-checkpoint-reprompt` receives the original rows. Any restored directive-reprompt context seeds the resumed loop from the durable terminal `loop_finished.iterationsConsumed`, including a paused run whose terminal boundary reports `invalid_token` or `missing_blocker`; it can spend only the remainder of the original shared `maxIterations` allowance. Unrelated `budget-soft-stopped` resume still starts with a fresh per-invocation budget. Existing mutation and keystone payloads and historical log records are unchanged.
+**Implement write-step rules:** `patch.prompt.body` injects filtered step rules (human-only markers, invert-hook prohibition, terminal tokens) and omits checkpoint authoring lines (`Guard-inversion criteria require…`, `Place \`// @mutate\``) that plan draft already filters.
 
 ## Loop outcomes
 
@@ -460,40 +456,9 @@ The loop classifies and routes results:
   one of `N`. Contract is **not** checked mid-loop.
 - **`done` / `no-work`**: agent claims finished. Loop checks two contracts:
   1. **`artifact.exists`**: the `--artifact` file (spec or subspec) must exist.
-  2. **`spec.criteria-ticked`** (implement writes only): the active subspec's
-     non-human-only acceptance criteria must all be ticked; re-reads the spec
-     from the worktree to catch agent edits. On every implement `done` /
-     `no-work` — independent of whether the unticked-row gate registered — the
-     same contract id also verifies **ticked** non-human-only guard criteria whose
-     assembled bullet block contains `Mutation checkpoint:` or a directive-shaped `@mutate`
-     occurrence, and **ticked** `Keystone checkpoint:` criteria (`Keystone checkpoint:` prefix
-     required for selection; `@mutate` in the block links only). Guard criteria containing
-     `Keystone checkpoint:` are excluded from guard selection. Keystones are opt-in — a subspec with
-     guard mutation-checkpoint criteria and no keystone criterion completes normally; more than one
-     ticked keystone criterion refuses (`Multiple keystone checkpoints`).
-     Pinning-test resolution and directive linking read the assembled full bullet block (aligned
-     with selection); wrapped pinning-test references and enclosing-test names on continuation
-     lines resolve. A directive is recognized only when `@mutate` is the first token after `//`
-     and optional whitespace, with a token boundary (`@mutated`, `@mutateSuffix` do not match); a
-     later `@mutate` mention elsewhere in the comment is ignored (no directive, no unparseable
-     entry). When the directive-position token has an invalid body, the line reports `malformed`
-     even if a well-formed-looking `@mutate <path> "<original>" -> "<replacement>"` sequence
-     appears later on the same line — body parsing anchors to the directive-position token, not a
-     whole-line search. Each linked `// @mutate` directive in the named pinning test (path-qualified
-     first, basename only when unambiguous) is applied in the worktree, scoped suites run with
-     `AbortSignal` and remaining write-iteration wall budget, and the file is restored (snapshot
-     restore on abort, timeout, or throw — abnormal settle does not count as verification). Guard
-     hollow checkpoints (suite stayed green) settle `contract_miss` with `Hollow mutation checkpoints`
-     messaging. Keystone directives whose scoped suite stays green after apply refuse with `Inert
-     headline change` (distinct from hollow guard messaging); keystone caught completes normally.
-     A ticked keystone criterion with no linked `// @mutate` on the named pin refuses with `Unlinked
-     keystone checkpoints` (distinct from guard hollow). Comment-leading unparseable directives and
-     unresolved pinning-test references settle `contract_miss` with named coordinates. A report containing at least one guard checkpoint is repairable only when every guard is `unlinked` or `hollow` and every other blocker is an unlinked keystone. The fresh write loop aggregates that whole set into one `write.guard-checkpoint-reprompt`: every row names its checkpoint kind, criterion, resolved repo-relative pin, and reason; a hollow guard also names its linked directive as `path:line` plus text. An unlinked guard is told to add a linked directive, a hollow guard to repair that directive or the pinning test until the mutation makes the scoped suite fail, and an unlinked keystone to add a headline-revert directive. Guard context precedes a simultaneously pending keystone-only context, and arming any guard, mutation-directive, or keystone-only repair clears the sibling contexts. The next iteration consumes the existing `maxIterations` budget; exhaustion starts no extra iteration and appends the latest normal checkpoint blocker. Terminal settlement clears repair context before its observable boundary and emits no repair prompt. Paused reconstruction follows the durable replay contract above. A guard mixed with `target_absent`, `target_ambiguous`, unresolved or ambiguous pinning, inert headline, blocking malformed or otherwise unparseable directive, or any other real failure remains terminal `contract_miss` without a guard prompt. Pure `target_absent`/`target_ambiguous` reports still reprompt through `write.mutation-directive-reprompt`, and a pure unlinked-keystone report still uses `write.keystone-directive-reprompt`; both retain their existing budget behavior. Verify-run unrestored directives are tracked;
-     completion refuses when staged or `HEAD` blob content still carries replacement text without
-     the original (including pending-commit resume).
-  
-  All contracts pass → success (`complete`). Repairable completion-checkpoint misses follow the guard, pure-target, and pure-keystone arms above. Other
-  contract failures append `## Blocker` to the artifact
+  2. **`spec.criteria-ticked`** (implement writes only): the active subspec's non-human-only acceptance criteria must all be ticked; re-reads the spec from the worktree to catch agent edits. Checkpoint-shaped bullet text is not selection or verification input — legacy `Mutation checkpoint:` / `Keystone checkpoint:` rows complete on ordinary tick state only.
+
+  All contracts pass → success (`complete`). Other contract failures append `## Blocker` to the artifact
   (`spec.criteria-ticked` → active subspec; every `plan.prompt.draft` contract
   miss, regardless of which contract failed → staged
   `<expectedArtifactPath>/intent.md`, never the unpublished durable spec
@@ -637,7 +602,7 @@ For each code candidate: the production file is mutated, only the co-located `<s
 
 Diff-derived verification is narrower than the ready gate by design: the gate proves the diff's CI union once; diff-derived proves per-artifact kill evidence at bounded cost. A thin or mis-paired co-located killing test can miss a surviving mutation that the full gate union would catch.
 
-Per-candidate and per-prompt file-scoped `bun test` runs parallelize behind a module semaphore; `MAX_CONCURRENT_VERIFIER_TEST_RUNS` (4, beside `MAX_INSPECTED_MUTATIONS` and `MAX_VERIFICATION_MS` in `diff-derived-mutation-verifier.ts`) caps total in-flight verifier-launched test subprocesses. Post-write `MAX_VERIFICATION_MS` is checked between candidates and prompt checks, separate from checkpoint `@mutate` verification in `mutation-checkpoint-verifier.ts` (which keeps package.json script semantics).
+Per-candidate and per-prompt file-scoped `bun test` runs parallelize behind a module semaphore; `MAX_CONCURRENT_VERIFIER_TEST_RUNS` (4, beside `MAX_INSPECTED_MUTATIONS` and `MAX_VERIFICATION_MS` in `diff-derived-mutation-verifier.ts`) caps total in-flight verifier-launched test subprocesses. Post-write `MAX_VERIFICATION_MS` is checked between candidates and prompt checks.
 
 A surviving mutation (scoped tests pass under the mutation) halts verification and returns the mutation text and source file+line. This is a non-recoverable completion failure: the run does not report `completed` and the mutation + source site are named in completion failure. The worktree is restored before returning any terminal result.
 

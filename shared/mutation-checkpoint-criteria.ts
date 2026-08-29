@@ -1,12 +1,6 @@
 import { basename } from "node:path";
 import { parseSpec } from "./spec-parser.ts";
 
-export const CRITERION_MARKER = "Mutation checkpoint:";
-export const DIRECTIVE_PATTERN = /@mutate\s+(\S+)\s+"((?:[^"\\]|\\.)*)"\s*->\s*"((?:[^"\\]|\\.)*)"/;
-const CANONICAL_GUARD_SUFFIX_PATTERN = /`([^`]+)`\s*—\s*`([^`]+)`;\s*Mutation checkpoint:/;
-const PREFIX_FIRST_GUARD_PATTERN = /Mutation checkpoint:\s+in\s+`([^`]+)`\s+test\s+`([^`]+)`/;
-const CANONICAL_KEYSTONE_SUFFIX_PATTERN = /`([^`]+)`\s*—\s*`([^`]+)`;\s*Keystone checkpoint:/;
-
 const CHECKLIST_ITEM_PATTERN = /^\s*-\s\[([ xX])\]\s+(.*)$/;
 const LEVEL_TWO_HEADING_PATTERN = /^##\s/;
 
@@ -35,64 +29,6 @@ export function acceptanceCriterionBlocks(content: string): string[] {
     blocks.push(block);
   }
   return blocks;
-}
-
-export type MutationCheckpointCriterion = {
-  block: string;
-  firstLine: string;
-};
-
-function isGuardMutationCheckpointBlock(block: string): boolean {
-  if (DIRECTIVE_PATTERN.test(block)) return true;
-  const canonical = CANONICAL_GUARD_SUFFIX_PATTERN.exec(block);
-  if (canonical !== null && isCheckpointTestFileReference(canonical[1] ?? "")) return true;
-  const prefixFirst = PREFIX_FIRST_GUARD_PATTERN.exec(block);
-  if (prefixFirst !== null && isCheckpointTestFileReference(prefixFirst[1] ?? "")) return true;
-  return false;
-}
-
-function isKeystoneCheckpointBlock(block: string): boolean {
-  const match = CANONICAL_KEYSTONE_SUFFIX_PATTERN.exec(block);
-  return match !== null && isCheckpointTestFileReference(match[1] ?? "");
-}
-
-function selectCheckpointCriteria(
-  content: string,
-  kind: "guard" | "keystone",
-  options: { requireChecked?: boolean } = {},
-): MutationCheckpointCriterion[] {
-  const requireChecked = options.requireChecked ?? false;
-  const blocks = acceptanceCriterionBlocks(content);
-  const selected: MutationCheckpointCriterion[] = [];
-  for (const [index, criterion] of parseSpec(content).acceptanceCriteria.entries()) {
-    if (criterion.humanOnly) continue;
-    if (requireChecked && !criterion.checked) continue;
-    const block = blocks[index] ?? criterion.text;
-    const isKeystone = isKeystoneCheckpointBlock(block);
-    if (kind === "keystone") {
-      if (!isKeystone) continue;
-    } else if (isKeystone || !isGuardMutationCheckpointBlock(block)) {
-      continue;
-    }
-    selected.push({ block, firstLine: criterion.text });
-  }
-  return selected;
-}
-
-/** Mutation-checkpoint-shaped criteria from `## Acceptance criteria`, with full bullet blocks. */
-export function selectMutationCheckpointCriteria(
-  content: string,
-  options: { requireChecked?: boolean } = {},
-): MutationCheckpointCriterion[] {
-  return selectCheckpointCriteria(content, "guard", options);
-}
-
-/** Keystone-checkpoint-shaped criteria from `## Acceptance criteria`, with full bullet blocks. */
-export function selectKeystoneCheckpointCriteria(
-  content: string,
-  options: { requireChecked?: boolean } = {},
-): MutationCheckpointCriterion[] {
-  return selectCheckpointCriteria(content, "keystone", options);
 }
 
 const LANGUAGE_NEUTRAL_CHECKPOINT_TEST_FILE_PATTERN =

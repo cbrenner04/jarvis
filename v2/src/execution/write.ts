@@ -12,7 +12,6 @@ import { isAbsolute, join } from "node:path";
 import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
 import type { SessionLog } from "../../../shared/invocation/session-log.ts";
 import { normalizePlanDraftSpecDir } from "../../../shared/module-boundary-surfaces.ts";
-import { selectKeystoneCheckpointCriteria } from "../../../shared/mutation-checkpoint-criteria.ts";
 import {
   buildIntentSplitPrompt,
   INTENT_SPLIT_PROMPT_ID,
@@ -22,24 +21,11 @@ import { buildHarnessNormalizerDiagnosticsSection, buildPlanDraftPrompt } from "
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { PromptRenderingError, renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import { hasGenuineBlocker, parseSpec } from "../../../shared/spec-parser.ts";
-import type {
-  GuardCheckpointRepromptContext,
-  KeystoneDirectiveRepromptContext,
-  MutationDirectiveRepromptContext,
-} from "../persistence/log-stream.ts";
 import {
   type ExternalWorktreeInput,
   type LockStatus,
   withExternalWorktree as realWithExternalWorktree,
 } from "./external-worktree.ts";
-import {
-  blockingUnparseableEntries,
-  describeCriterionCheckpoint,
-  describeUnparseable,
-  type MutationCheckpointSeams,
-  repoRelativeChangedPathsFromBaseRef,
-  verifyMutationCheckpoints,
-} from "./mutation-checkpoint-verifier.ts";
 import { type BlockerTextContract, runStep, type StepContract, type StepRunResult } from "./step-runner.ts";
 import { renderStepPrompt } from "./write-prompt.ts";
 
@@ -199,14 +185,7 @@ export type WriteExecuteInput = {
   idleOutputMs?: number;
   joinProcessOnIdleStall?: boolean;
   landingContractReprompt?: { violation: string; offendingFile: string };
-  mutationDirectiveReprompt?: MutationDirectiveRepromptContext;
-  /** Process-local repair context for guard checkpoints and accompanying unlinked keystones. */
-  guardCheckpointReprompt?: GuardCheckpointRepromptContext;
-  /** Reprompt context for the next implement iteration after a repromptable unlinked-keystone miss. */
-  keystoneDirectiveReprompt?: KeystoneDirectiveRepromptContext;
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string };
-  /** Test seams for mutation-checkpoint verification; production uses real fs and scoped test scripts. */
-  mutationCheckpointSeams?: MutationCheckpointSeams;
 };
 
 type WriteExecuteResult = {
@@ -485,134 +464,6 @@ function buildCriteriaTickedReason(unticked: string[]): string {
   return `Unticked non-human-only acceptance criteria:\n${lines}`;
 }
 
-function buildListedReason<T>(header: string, items: readonly T[], describe: (item: T) => string): string {
-  const lines = items.map((item) => `- ${describe(item)}`).join("\n");
-  return `${header}\n${lines}`;
-}
-
-type ContractCheck = { ok: true } | { ok: false; reason: string };
-
-async function checkMutationCheckpointsAtCompletion(
-  cwd: string,
-  expectedArtifactPath: string,
-  args: WriteExecuteInput,
-): Promise<ContractCheck> {
-  const subspecContent = readFileSync(expectedArtifactPath, "utf8");
-  // Keystones are verified when present; they are not required for guard-checkpoint subspecs.
-  const keystoneCriteria = selectKeystoneCheckpointCriteria(subspecContent, { requireChecked: true });
-  if (keystoneCriteria.length > 1) {
-    return {
-      ok: false,
-      reason: buildListedReason(
-        "Multiple keystone checkpoints (exactly one ticked Keystone checkpoint criterion per runtime-behavior subspec):",
-        keystoneCriteria,
-        (entry) => entry.firstLine,
-      ),
-    };
-  }
-
-  const report = await verifyMutationCheckpoints(cwd, expectedArtifactPath, {
-    ...args.mutationCheckpointSeams,
-    changedPaths:
-      args.mutationCheckpointSeams?.changedPaths ??
-      (await repoRelativeChangedPathsFromBaseRef(cwd, args.worktree.baseRef)),
-    ...(args.signal !== undefined ? { signal: args.signal } : {}),
-    ...(args.remainingIterationWallMs !== undefined ? { remainingIterationWallMs: args.remainingIterationWallMs } : {}),
-  });
-  const describeInertHeadlineSection = () =>
-    buildListedReason(
-      "Inert headline change (headline revert left the scoped suite green):",
-      report.inertHeadline,
-      describeCriterionCheckpoint,
-    );
-  const describeHollowSection = () =>
-    buildListedReason(
-      "Hollow mutation checkpoints (the named mutation left the scoped suite green):",
-      report.hollow,
-      describeCriterionCheckpoint,
-    );
-  if (report.keystoneUnlinked.length > 0) {
-    // Mixed with any other blocking finding: report every applicable reason so the
-    // agent (and the exhaustion blocker) sees the full picture, not just the keystone
-    // miss — a malformed directive already on the named pin is not reprompt-eligible.
-    const sections = [
-      buildListedReason(
-        "Unlinked keystone checkpoints (no directive linked on the named pin):",
-        report.keystoneUnlinked,
-        describeCriterionCheckpoint,
-      ),
-    ];
-    if (report.inertHeadline.length !== 0) sections.push(describeInertHeadlineSection());
-    if (report.hollow.length > 0) sections.push(describeHollowSection());
-    const blockingUnparseable = blockingUnparseableEntries(report);
-    if (blockingUnparseable.length > 0) {
-      sections.push(buildListedReason("Unparseable mutation checkpoints:", blockingUnparseable, describeUnparseable));
-    }
-    return { ok: false, reason: sections.join("\n\n") };
-  }
-  if (report.inertHeadline.length > 0) return { ok: false, reason: describeInertHeadlineSection() };
-  if (report.hollow.length > 0) return { ok: false, reason: describeHollowSection() };
-  if (report.unparseable.length === 0) return { ok: true };
-  const blockingUnparseable = blockingUnparseableEntries(report);
-  if (blockingUnparseable.length > 0) {
-    return {
-      ok: false,
-      reason: buildListedReason("Unparseable mutation checkpoints:", blockingUnparseable, describeUnparseable),
-    };
-  }
-  return { ok: true };
-}
-
-/** True when `spec.criteria-ticked` failed on mutation-checkpoint verification, not unticked rows. */
-export function isMutationCheckpointCriteriaTickedMiss(failureReason: string | undefined): boolean {
-  if (failureReason === undefined) return false;
-  if (failureReason.startsWith("Unticked non-human-only acceptance criteria:")) return false;
-  return (
-    failureReason.startsWith("Unparseable mutation checkpoints:") ||
-    failureReason.startsWith("Hollow mutation checkpoints") ||
-    failureReason.startsWith("Inert headline change") ||
-    failureReason.startsWith("Unlinked keystone checkpoints") ||
-    failureReason.startsWith("Multiple keystone checkpoints")
-  );
-}
-
-/**
- * True when a mutation-checkpoint `spec.criteria-ticked` miss should reach structured reprompt
- * admission. This is a coarse text pre-filter; the write loop re-verifies the full report before
- * selecting a repair arm, and mixed reports still hard-block.
- */
-export function isRepromptEligibleMutationCheckpointMiss(failureReason: string | undefined): boolean {
-  if (failureReason === undefined) return false;
-  if (failureReason.startsWith("Unparseable mutation checkpoints:")) return true;
-  if (failureReason.startsWith("Hollow mutation checkpoints")) return true;
-  return failureReason.startsWith("Unlinked keystone checkpoints");
-}
-
-export function formatMutationDirectiveRepromptListing(context: MutationDirectiveRepromptContext): string {
-  if (context.directives.length > 0) {
-    return context.directives.map((d) => `- ${d.pinningFile}:${d.line}: ${d.reason}: ${d.raw}`).join("\n");
-  }
-  return context.display;
-}
-
-export function formatGuardCheckpointRepromptListing(context: GuardCheckpointRepromptContext): string {
-  return context.repairs
-    .map((repair) => {
-      const directive =
-        repair.directive === undefined
-          ? ""
-          : `; linked directive: ${repair.directive.sourceFile}:${repair.directive.sourceLine}: ${repair.directive.raw}`;
-      const instruction =
-        repair.kind === "keystone"
-          ? "add a headline-revert `// @mutate` directive inside the named pin"
-          : repair.reason === "unlinked"
-            ? "add a linked `// @mutate` directive inside the named pin"
-            : "repair the linked directive or pinning test so applying the mutation makes the scoped suite fail";
-      return `- kind: ${repair.kind}; criterion: ${repair.criterionText}; pin: ${repair.pinPath}; reason: ${repair.reason}${directive}\n  Repair: ${instruction}.`;
-    })
-    .join("\n");
-}
-
 function getUntickedNonHumanOnlyCriteria(artifactPath: string): string[] {
   if (!existsSync(artifactPath)) {
     return [];
@@ -633,33 +484,12 @@ async function executeDefaultWrite(
 ): Promise<StepRunResult> {
   let prompt: string;
   try {
-    if (promptId === "patch.prompt.body" && args.guardCheckpointReprompt !== undefined) {
-      prompt = renderArtifactTemplate(loadPromptRegistry().getById("write.guard-checkpoint-reprompt"), {
-        ACTIVE_SUBSPEC_PATH: expectedArtifactPath,
-        REPAIR_LIST: formatGuardCheckpointRepromptListing(args.guardCheckpointReprompt),
-        STEP_RULES: args.stepRules,
-      });
-    } else if (promptId === "patch.prompt.body" && args.mutationDirectiveReprompt !== undefined) {
-      prompt = renderArtifactTemplate(loadPromptRegistry().getById("write.mutation-directive-reprompt"), {
-        ACTIVE_SUBSPEC_PATH: expectedArtifactPath,
-        DIRECTIVE_LIST: formatMutationDirectiveRepromptListing(args.mutationDirectiveReprompt),
-        STEP_RULES: args.stepRules,
-      });
-    } else if (promptId === "patch.prompt.body" && args.keystoneDirectiveReprompt !== undefined) {
-      prompt = renderArtifactTemplate(loadPromptRegistry().getById("write.keystone-directive-reprompt"), {
-        ACTIVE_SUBSPEC_PATH: expectedArtifactPath,
-        CRITERION: args.keystoneDirectiveReprompt.criterionText,
-        PIN_PATH: args.keystoneDirectiveReprompt.pinPath,
-        STEP_RULES: args.stepRules,
-      });
-    } else {
-      const placeholders = assembleWriteStepPlaceholders(
-        promptId,
-        { specPath, stepRules: args.stepRules, worktreePath, expectedArtifactPath },
-        args.promptPlaceholders,
-      );
-      prompt = renderStepPrompt(promptId, placeholders);
-    }
+    const placeholders = assembleWriteStepPlaceholders(
+      promptId,
+      { specPath, stepRules: args.stepRules, worktreePath, expectedArtifactPath },
+      args.promptPlaceholders,
+    );
+    prompt = renderStepPrompt(promptId, placeholders);
   } catch (err) {
     if (err instanceof PromptRenderingError) {
       return {
@@ -692,12 +522,6 @@ async function executeDefaultWrite(
         },
       });
     }
-    // Runs whether or not the unticked gate registered: a subspec whose rows are all
-    // ticked already is exactly where a hollow checkpoint hides.
-    contracts.push({
-      id: "spec.criteria-ticked",
-      check: ({ cwd }) => checkMutationCheckpointsAtCompletion(cwd, expectedArtifactPath, args),
-    });
   }
 
   // Blocker-text contract applies to both run path (DEFAULT_PROMPT_ID on specPath)

@@ -10,13 +10,6 @@ import {
 } from "../../../shared/subprocess.ts";
 import { DEFAULT_ITERATION_TIMEOUT_MS } from "../config/machine-config-loader.ts";
 import { isMaterializedNodeModulesPath, MATERIALIZED_NODE_MODULES_PATH } from "./external-worktree.ts";
-import {
-  clearUnrestoredDirectives,
-  describeStrandedMutation,
-  isStrandedMutationContent,
-  loadUnrestoredDirectives,
-  type MutateDirective,
-} from "./mutation-checkpoint-verifier.ts";
 import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 
 /** Workflow purpose classification rendered as the `Jarvis-Step` trailer. Defaults to `write`
@@ -41,8 +34,6 @@ export type CompletionCommitInput = {
   readyGateAttribution?: "autofix";
   /** Formatter wall-clock budget; callers pass write-loop `iterationTimeoutMs` when known. */
   iterationTimeoutMs?: number;
-  /** Test seam: verify-run unrestored directives; when absent, loaded from git state. */
-  unrestoredDirectives?: readonly MutateDirective[];
   /** Workflow step for the `Jarvis-Step` trailer; defaults to `write`. Only consulted while
    * preparing a new pending commit — a retry of an already-prepared pending commit ignores
    * this and keeps the stored message's own step classification. */
@@ -184,46 +175,6 @@ export function shouldReuseHeadWithoutNewCommit(
   return indexTree === headTree && !forceDistinctCommit;
 }
 
-async function readGitBlob(runGit: Git, cwd: string, object: string, env?: Record<string, string>): Promise<string> {
-  try {
-    return await runGit(cwd, ["show", object], env);
-  } catch {
-    return "";
-  }
-}
-
-/** Refuse completion when verify-run directives survive in staged-tree or committed content. */
-export async function refuseStrandedMutationsInTrees(
-  runGit: Git,
-  worktreePath: string,
-  stagedTree: string,
-  head: string,
-  unrestored: readonly MutateDirective[],
-): Promise<void> {
-  for (const directive of unrestored) {
-    const staged = await readGitBlob(runGit, worktreePath, `${stagedTree}:${directive.targetPath}`);
-    if (isStrandedMutationContent(staged, directive)) {
-      throw new Error(describeStrandedMutation(directive));
-    }
-    const headContent = await readGitBlob(runGit, worktreePath, `${head}:${directive.targetPath}`);
-    if (isStrandedMutationContent(headContent, directive)) {
-      throw new Error(describeStrandedMutation(directive));
-    }
-  }
-}
-
-/** Refuse completion when verify-run directives survive in the temp index or committed content. */
-export async function refuseStrandedMutationsBeforeCommit(
-  runGit: Git,
-  worktreePath: string,
-  index: string,
-  head: string,
-  unrestored: readonly MutateDirective[],
-): Promise<void> {
-  const stagedTree = await runGit(worktreePath, ["write-tree"], { GIT_INDEX_FILE: index });
-  await refuseStrandedMutationsInTrees(runGit, worktreePath, stagedTree, head, unrestored);
-}
-
 async function countFilesChanged(runGit: Git, cwd: string, baseTree: string, completionTree: string): Promise<number> {
   const output = await runGit(cwd, ["diff-tree", "--no-renames", "--name-only", baseTree, completionTree]);
   if (!output) return 0;
@@ -272,15 +223,6 @@ async function preparePendingCommit(
   const head = await runGit(input.worktreePath, ["rev-parse", "HEAD"]);
   await runGit(input.worktreePath, ["read-tree", head], { GIT_INDEX_FILE: index });
   await runGit(input.worktreePath, completionStageArgs(input.worktreePath), { GIT_INDEX_FILE: index });
-  await refuseStrandedMutationsBeforeCommit(
-    runGit,
-    input.worktreePath,
-    index,
-    head,
-    input.unrestoredDirectives !== undefined
-      ? [...input.unrestoredDirectives]
-      : loadUnrestoredDirectives(input.worktreePath),
-  );
   const tree = await runGit(input.worktreePath, ["write-tree"], { GIT_INDEX_FILE: index });
   const baseTree = await runGit(input.worktreePath, ["rev-parse", `${head}^{tree}`]);
   if (shouldReuseHeadWithoutNewCommit(tree, baseTree, input.forceDistinctCommit === true)) {
@@ -331,17 +273,12 @@ export function createCompletionCommitter(
     const gitDir = isAbsolute(gitDirValue) ? gitDirValue : resolve(input.worktreePath, gitDirValue);
     const pendingPath = join(gitDir, "jarvis-completion-pending.json");
     try {
-      const unrestored =
-        input.unrestoredDirectives !== undefined
-          ? [...input.unrestoredDirectives]
-          : loadUnrestoredDirectives(input.worktreePath);
       let pending: PendingCommit;
       if (existsSync(pendingPath)) {
         pending = upgradeLegacyPendingStepTrailer(
           JSON.parse(readFileSync(pendingPath, "utf8")) as PendingCommit,
           pendingPath,
         );
-        await refuseStrandedMutationsInTrees(runGit, input.worktreePath, pending.tree, pending.baseHead, unrestored);
       } else {
         const prepared = await preparePendingCommit(runGit, input, subprocessRunner, {
           agent,
@@ -357,7 +294,6 @@ export function createCompletionCommitter(
       if (pending.commitSha !== undefined && currentHead === pending.commitSha) {
         await runGit(input.worktreePath, ["reset", "--mixed", pending.commitSha]);
         unlinkSync(pendingPath);
-        clearUnrestoredDirectives(input.worktreePath);
         return {
           commitSha: pending.commitSha,
           filesChanged: await countFilesChanged(runGit, input.worktreePath, `${pending.baseHead}^{tree}`, pending.tree),
@@ -381,7 +317,6 @@ export function createCompletionCommitter(
       await runGit(input.worktreePath, ["update-ref", pending.branchRef, commit, pending.baseHead]);
       await runGit(input.worktreePath, ["reset", "--mixed", commit]);
       unlinkSync(pendingPath);
-      clearUnrestoredDirectives(input.worktreePath);
       return {
         commitSha: commit,
         filesChanged: await countFilesChanged(runGit, input.worktreePath, `${pending.baseHead}^{tree}`, pending.tree),

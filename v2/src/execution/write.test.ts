@@ -5,8 +5,8 @@ import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { filterPlanDraftStepRules } from "../../../shared/prompts/plan-draft.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
-import { executeWrite, isRepromptEligibleMutationCheckpointMiss } from "./write.ts";
-import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
+import { executeWrite } from "./write.ts";
+import { DEFAULT_WRITE_STEP_RULES, IMPLEMENT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 const { roots } = trackedTempRoots();
 
@@ -22,7 +22,6 @@ function runWrite(args: {
   promptId?: string;
   promptPlaceholders?: Record<string, string>;
   idleOutputMs?: number;
-  mutationCheckpointSeams?: Parameters<typeof executeWrite>[0]["mutationCheckpointSeams"];
 }) {
   // Track the parent directory of jarvisRoot for cleanup
   roots.push(join(args.jarvisRoot, ".."));
@@ -43,7 +42,6 @@ function runWrite(args: {
     ...(args.promptId !== undefined ? { promptId: args.promptId } : {}),
     ...(args.promptPlaceholders !== undefined ? { promptPlaceholders: args.promptPlaceholders } : {}),
     ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
-    ...(args.mutationCheckpointSeams !== undefined ? { mutationCheckpointSeams: args.mutationCheckpointSeams } : {}),
     withExternalWorktree: createFakeWithExternalWorktree(args.jarvisRoot),
   });
 }
@@ -55,22 +53,6 @@ function writeImplementSubspec(jarvisRoot: string, criteria: string): string {
   const subspec = join(worktreePath, "00-subspec.md");
   writeFileSync(subspec, `## Acceptance criteria\n\n${criteria}`, "utf8");
   return subspec;
-}
-
-const KEYSTONE_CRITERION_LINE =
-  "- [x] `keystone.test.ts` — `keystone pin`; Keystone checkpoint: headline revert turns pin red.\n";
-
-function withKeystoneCriteria(criteria: string): string {
-  if (criteria.includes("Keystone checkpoint:")) return criteria;
-  return `${criteria}${KEYSTONE_CRITERION_LINE}`;
-}
-
-function seedKeystoneGuardPin(worktree: string): void {
-  writeFileSync(
-    join(worktree, "keystone.test.ts"),
-    'test("keystone pin", () => {\n  // @mutate guard.ts "a > 0" -> "a >= 0"\n});\n',
-    "utf8",
-  );
 }
 
 function capturingBinding(onPrompt: (prompt: string) => void): InvocationBinding {
@@ -218,221 +200,32 @@ describe("write behavior", () => {
     }
   });
 
-  test("ticked mutation-checkpoint criterion with no linked directive is a contract miss", async () => {
-    // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "if (linked.length === 0) {" -> "if (false) {"
+  test("checked checkpoint-shaped criteria complete without checkpoint verification", async () => {
     const { jarvisRoot } = createJarvisHome();
     const subspec = writeImplementSubspec(
       jarvisRoot,
-      withKeystoneCriteria(
-        "- [x] `guard.test.ts` — `guard pin`; Mutation checkpoint: flipping the guard turns this RED.\n",
-      ),
+      "- [x] `guard.test.ts` — `guard pin`; Mutation checkpoint: flipping the guard turns this RED.\n- [x] `keystone.test.ts` — `keystone pin`; Keystone checkpoint: headline revert turns pin red.\n",
     );
     const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
     writeFileSync(join(worktree, "guard.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
-    // Prose only: the shape that satisfied the contract before directives existed.
-    writeFileSync(
-      join(worktree, "guard.test.ts"),
-      'test("guard pin", () => {\n  // Mutation checkpoint: flipping `a > 0` turns this RED.\n});\n',
-      "utf8",
-    );
-    seedKeystoneGuardPin(worktree);
+    writeFileSync(join(worktree, "guard.test.ts"), 'test("guard pin", () => {});\n', "utf8");
+    writeFileSync(join(worktree, "keystone.test.ts"), 'test("keystone pin", () => {});\n', "utf8");
+    let capturedPrompt = "";
 
     const result = await runWrite({
       jarvisRoot,
       artifactPath: subspec,
       promptId: "patch.prompt.body",
-      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
-      mutationCheckpointSeams: { runScopedTests: async () => false },
-    });
-
-    expect(result.result.kind).toBe("contract_miss");
-    if (result.result.kind === "contract_miss") {
-      expect(result.result.failedContractId).toBe("spec.criteria-ticked");
-      expect(result.result.failureReason).toContain("@mutate");
-    }
-  });
-
-  test("ticked mutation-checkpoint criterion whose directive leaves the suite green is a contract miss", async () => {
-    // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "if (survived) {" -> "if (false) {"
-    const { jarvisRoot } = createJarvisHome();
-    const subspec = writeImplementSubspec(
-      jarvisRoot,
-      withKeystoneCriteria(
-        "- [x] `guard.test.ts` — `guard pin`; Mutation checkpoint: flipping the guard turns this RED.\n",
-      ),
-    );
-    const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
-    writeFileSync(join(worktree, "guard.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
-    writeFileSync(
-      join(worktree, "guard.test.ts"),
-      'test("guard pin", () => {\n  // @mutate guard.ts "a > 0" -> "a >= 0"\n});\n',
-      "utf8",
-    );
-    seedKeystoneGuardPin(worktree);
-    let scopedCalls = 0;
-
-    const result = await runWrite({
-      jarvisRoot,
-      artifactPath: subspec,
-      promptId: "patch.prompt.body",
-      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
-      mutationCheckpointSeams: {
-        runScopedTests: async () => {
-          scopedCalls += 1;
-          return scopedCalls === 1;
-        },
-      },
-    });
-
-    expect(result.result.kind).toBe("contract_miss");
-    if (result.result.kind === "contract_miss") {
-      expect(result.result.failedContractId).toBe("spec.criteria-ticked");
-      expect(result.result.failureReason).toContain("scoped suite stayed green");
-      expect(result.result.failureReason).toContain("guard.test.ts:2");
-    }
-  });
-
-  test("one hollow directive among several refuses completion", async () => {
-    const { jarvisRoot } = createJarvisHome();
-    const subspec = writeImplementSubspec(
-      jarvisRoot,
-      withKeystoneCriteria("- [x] `guard.test.ts` — `guard pin`; Mutation checkpoint: two guards named on that pin.\n"),
-    );
-    const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
-    writeFileSync(
-      join(worktree, "guard.ts"),
-      "export const ok = (a: number) => a > 0;\nexport const two = 2;\n",
-      "utf8",
-    );
-    writeFileSync(
-      join(worktree, "guard.test.ts"),
-      [
-        'test("guard pin", () => {',
-        '  // @mutate guard.ts "a > 0" -> "a >= 0"',
-        '  // @mutate guard.ts "two = 2" -> "two = 3"',
-        "});",
-        "",
-      ].join("\n"),
-      "utf8",
-    );
-    seedKeystoneGuardPin(worktree);
-    let call = 0;
-
-    const result = await runWrite({
-      jarvisRoot,
-      artifactPath: subspec,
-      promptId: "patch.prompt.body",
-      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
-      mutationCheckpointSeams: {
-        runScopedTests: async () => {
-          call += 1;
-          return call === 2;
-        },
-      },
-    });
-
-    expect(result.result.kind).toBe("contract_miss");
-    if (result.result.kind === "contract_miss") {
-      expect(result.result.failureReason).toContain("two = 2");
-    }
-  });
-
-  test("guard checkpoint repair findings identify pins and directives", async () => {
-    // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "return directive === undefined ? \"unlinked\" : \"hollow\";" -> "return directive === undefined ? \"hollow\" : \"unlinked\";"
-    const { jarvisRoot } = createJarvisHome();
-    const unlinkedCriterion =
-      "`v2/src/execution/unlinked.test.ts` — `unlinked pin`; Mutation checkpoint: flipping the guard turns this RED.";
-    const hollowCriterion =
-      "`v2/src/execution/guard.test.ts` — `guard pin`; Mutation checkpoint: both linked guards turn this RED.";
-    const subspec = writeImplementSubspec(
-      jarvisRoot,
-      withKeystoneCriteria(`- [x] ${unlinkedCriterion}\n- [x] ${hollowCriterion}\n`),
-    );
-    const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
-    mkdirSync(join(worktree, "v2/src/execution"), { recursive: true });
-    writeFileSync(join(worktree, "v2/src/execution/unlinked.test.ts"), 'test("unlinked pin", () => {});\n', "utf8");
-    writeFileSync(
-      join(worktree, "v2/src/execution/guard.ts"),
-      "export const first = 1;\nexport const second = 2;\n",
-      "utf8",
-    );
-    writeFileSync(join(worktree, "guard.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
-    writeFileSync(
-      join(worktree, "v2/src/execution/guard.test.ts"),
-      [
-        'test("guard pin", () => {',
-        '  // @mutate v2/src/execution/guard.ts "first = 1" -> "first = 0"',
-        '  // @mutate v2/src/execution/guard.ts "second = 2" -> "second = 0"',
-        "});",
-        "",
-      ].join("\n"),
-      "utf8",
-    );
-    seedKeystoneGuardPin(worktree);
-    let call = 0;
-
-    const result = await runWrite({
-      jarvisRoot,
-      artifactPath: subspec,
-      promptId: "patch.prompt.body",
-      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
-      mutationCheckpointSeams: {
-        runScopedTests: async () => {
-          call += 1;
-          return call === 2;
-        },
-      },
-    });
-
-    expect(result.result.kind).toBe("contract_miss");
-    if (result.result.kind === "contract_miss") {
-      const reason = result.result.failureReason ?? "";
-      expect(reason).toContain(
-        `criterion: ${unlinkedCriterion}; kind: guard; pin: v2/src/execution/unlinked.test.ts; reason: unlinked`,
-      );
-      expect(reason).toContain(
-        `criterion: ${hollowCriterion}; kind: guard; pin: v2/src/execution/guard.test.ts; reason: hollow`,
-      );
-      expect(reason).toContain(
-        'directive: v2/src/execution/guard.test.ts:3: // @mutate v2/src/execution/guard.ts "second = 2" -> "second = 0"',
-      );
-      expect(reason).not.toContain(
-        'directive: v2/src/execution/guard.test.ts:2: // @mutate v2/src/execution/guard.ts "first = 1" -> "first = 0"',
-      );
-    }
-  });
-
-  test("ticked mutation-checkpoint criterion completes when its directive turns the suite red", async () => {
-    // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "report_.caught.push(directive);" -> "report_.hollow.push({ criterionText, directive, detail: \"forced\" });"
-    const { jarvisRoot } = createJarvisHome();
-    const subspec = writeImplementSubspec(
-      jarvisRoot,
-      withKeystoneCriteria(
-        "- [x] `guard.test.ts` — `guard pin`; Mutation checkpoint: flipping the guard turns this RED.\n",
-      ),
-    );
-    const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
-    writeFileSync(join(worktree, "guard.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
-    writeFileSync(
-      join(worktree, "guard.test.ts"),
-      'test("guard pin", () => {\n  // @mutate guard.ts "a > 0" -> "a >= 0"\n});\n',
-      "utf8",
-    );
-    seedKeystoneGuardPin(worktree);
-
-    const result = await runWrite({
-      jarvisRoot,
-      artifactPath: subspec,
-      promptId: "patch.prompt.body",
-      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
-      mutationCheckpointSeams: { runScopedTests: async () => false },
+      bindings: [capturingBinding((prompt) => (capturedPrompt = prompt))],
     });
 
     expect(result.result.kind).toBe("complete");
+    expect(capturedPrompt).not.toContain("write.guard-checkpoint-reprompt");
+    expect(capturedPrompt).not.toContain("write.mutation-directive-reprompt");
+    expect(capturedPrompt).not.toContain("write.keystone-directive-reprompt");
   });
 
   test("functional AC mentioning checkpoint tokens descriptively does not contract_miss", async () => {
-    // @mutate shared/mutation-checkpoint-criteria.ts "if (DIRECTIVE_PATTERN.test(block)) return true;" -> "if (block.includes(CRITERION_MARKER)) return true;"
     const { jarvisRoot } = createJarvisHome();
     const subspec = writeImplementSubspec(
       jarvisRoot,
@@ -447,214 +240,6 @@ describe("write behavior", () => {
     });
 
     expect(result.result.kind).toBe("complete");
-  });
-
-  test("unparseable in a referenced pinning file refuses completion", async () => {
-    // @mutate v2/src/execution/write.ts "report.unparseable.length === 0" -> "true"
-    const { jarvisRoot } = createJarvisHome();
-    const subspec = writeImplementSubspec(
-      jarvisRoot,
-      withKeystoneCriteria(
-        "- [x] `v2/src/execution/write.test.ts` — `unparseable in a referenced pinning file refuses completion`; Mutation checkpoint: flipping the guard turns this RED.\n",
-      ),
-    );
-    const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
-    mkdirSync(join(worktree, "v2/src/execution"), { recursive: true });
-    writeFileSync(join(worktree, "guard.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
-    writeFileSync(
-      join(worktree, "v2/src/execution/write.test.ts"),
-      [
-        'test("unparseable in a referenced pinning file refuses completion", () => {',
-        '  // @mutate guard.ts "a > 0" -> "a >= 0"',
-        "  // @mutate nonsense",
-        "});",
-        "",
-      ].join("\n"),
-      "utf8",
-    );
-    seedKeystoneGuardPin(worktree);
-
-    const result = await runWrite({
-      jarvisRoot,
-      artifactPath: subspec,
-      promptId: "patch.prompt.body",
-      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
-      mutationCheckpointSeams: { runScopedTests: async () => false },
-    });
-
-    expect(result.result.kind).toBe("contract_miss");
-    if (result.result.kind === "contract_miss") {
-      expect(result.result.failedContractId).toBe("spec.criteria-ticked");
-      expect(result.result.failureReason).toContain("v2/src/execution/write.test.ts");
-      expect(result.result.failureReason).toContain("// @mutate nonsense");
-      expect(result.result.failureReason).toContain("malformed");
-    }
-  });
-
-  test("unresolved pinning test blocks completion", async () => {
-    // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "if (normalized.includes(\"/\"))" -> "if (false)"
-    const { jarvisRoot } = createJarvisHome();
-    const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
-    mkdirSync(join(worktree, "v2/src/execution"), { recursive: true });
-    writeFileSync(
-      join(worktree, "v2/src/execution/write.test.ts"),
-      [
-        'test("unresolved pinning test blocks completion", () => {',
-        '  // @mutate v2/src/execution/mutation-checkpoint-verifier.ts "if (normalized.includes(\\"/\\"))" -> "if (false)"',
-        "});",
-        "",
-      ].join("\n"),
-      "utf8",
-    );
-    const unresolvedSubspec = join(worktree, "unresolved-pin.md");
-    writeFileSync(
-      unresolvedSubspec,
-      "## Acceptance criteria\n\n- [x] `absent.test.ts` — `missing pin`; Mutation checkpoint: named.\n- [x] `keystone.test.ts` — `keystone pin`; Keystone checkpoint: headline revert turns pin red.\n",
-      "utf8",
-    );
-    writeFileSync(join(worktree, "guard.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
-    seedKeystoneGuardPin(worktree);
-
-    const result = await runWrite({
-      jarvisRoot,
-      artifactPath: unresolvedSubspec,
-      promptId: "patch.prompt.body",
-      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
-      mutationCheckpointSeams: { runScopedTests: async () => false },
-    });
-
-    expect(result.result.kind).toBe("contract_miss");
-    if (result.result.kind === "contract_miss") {
-      expect(result.result.failedContractId).toBe("spec.criteria-ticked");
-      expect(result.result.failureReason).toContain("criterion:");
-      expect(result.result.failureReason).toContain("reference: absent.test.ts");
-      expect(result.result.failureReason).toContain("reason: unresolved_pinning_test");
-    }
-  });
-
-  test("ambiguous pinning-test basename blocks completion", async () => {
-    const { jarvisRoot } = createJarvisHome();
-    const subspec = writeImplementSubspec(
-      jarvisRoot,
-      withKeystoneCriteria("- [x] `write.test.ts` — `ambiguous pin`; Mutation checkpoint: ambiguous basename.\n"),
-    );
-    const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
-    mkdirSync(join(worktree, "v2/src/a"), { recursive: true });
-    mkdirSync(join(worktree, "v2/src/b"), { recursive: true });
-    writeFileSync(join(worktree, "v2/src/a/write.test.ts"), 'test("ambiguous pin", () => {});\n', "utf8");
-    writeFileSync(join(worktree, "v2/src/b/write.test.ts"), 'test("ambiguous pin", () => {});\n', "utf8");
-    writeFileSync(join(worktree, "guard.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
-    seedKeystoneGuardPin(worktree);
-
-    const result = await runWrite({
-      jarvisRoot,
-      artifactPath: subspec,
-      promptId: "patch.prompt.body",
-      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
-      mutationCheckpointSeams: { runScopedTests: async () => false },
-    });
-
-    expect(result.result.kind).toBe("contract_miss");
-    if (result.result.kind === "contract_miss") {
-      expect(result.result.failedContractId).toBe("spec.criteria-ticked");
-      expect(result.result.failureReason).toContain("criterion:");
-      expect(result.result.failureReason).toContain("reference: write.test.ts");
-      expect(result.result.failureReason).toContain("reason: ambiguous_pinning_basename");
-      expect(result.result.failureReason).toContain("candidates:");
-      expect(result.result.failureReason).toContain("v2/src/a/write.test.ts");
-      expect(result.result.failureReason).toContain("v2/src/b/write.test.ts");
-    }
-  });
-
-  test("bare basename disambiguates via completion changed paths", async () => {
-    const { jarvisRoot } = createJarvisHome();
-    const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
-    mkdirSync(join(worktree, "v2/src/execution"), { recursive: true });
-    mkdirSync(join(worktree, "v2/src/commands"), { recursive: true });
-    writeFileSync(join(worktree, "v2/src/execution/guard.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
-    writeFileSync(
-      join(worktree, "v2/src/execution/write.test.ts"),
-      'test("completion disambig pin", () => {\n  // @mutate v2/src/execution/guard.ts "a > 0" -> "a >= 0"\n});\n',
-      "utf8",
-    );
-    writeFileSync(join(worktree, "v2/src/commands/write.test.ts"), 'test("commands pin", () => {});\n', "utf8");
-    writeFileSync(join(worktree, "guard.ts"), "export const ok = (a: number) => a > 0;\n", "utf8");
-    seedKeystoneGuardPin(worktree);
-    const subspec = writeImplementSubspec(
-      jarvisRoot,
-      withKeystoneCriteria(
-        "- [x] `write.test.ts` — `completion disambig pin`; Mutation checkpoint: completion basename disambiguation.\n",
-      ),
-    );
-
-    execFileSync("git", ["init", worktree], { stdio: "pipe" });
-    execFileSync("git", ["-C", worktree, "config", "user.email", "test@example.com"], { stdio: "pipe" });
-    execFileSync("git", ["-C", worktree, "config", "user.name", "Test User"], { stdio: "pipe" });
-    execFileSync("git", ["-C", worktree, "add", "-A"], { stdio: "pipe" });
-    execFileSync("git", ["-C", worktree, "commit", "-m", "seed"], { stdio: "pipe" });
-    writeFileSync(
-      join(worktree, "v2/src/execution/guard.ts"),
-      "export const ok = (a: number) => a > 0;\nexport const touched = true;\n",
-      "utf8",
-    );
-
-    const scopedCalls: string[][] = [];
-    const result = await runWrite({
-      jarvisRoot,
-      artifactPath: subspec,
-      promptId: "patch.prompt.body",
-      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
-      mutationCheckpointSeams: {
-        runScopedTests: async (_cwd, scope) => {
-          scopedCalls.push([...scope]);
-          return false;
-        },
-      },
-    });
-
-    expect(result.result.kind).toBe("complete");
-    expect(scopedCalls.filter((scope) => scope.includes("test:v2"))).toEqual([["test:v2", "test:integration:v2"]]);
-  });
-
-  test("mutation-directive reprompt uses structured directives when log display is truncated", async () => {
-    const { jarvisRoot } = createJarvisHome();
-    const subspec = writeImplementSubspec(jarvisRoot, "- [x] criterion\n");
-    let capturedPrompt = "";
-    const directives = [
-      {
-        pinningFile: "pin-a.test.ts",
-        line: 2,
-        raw: '// @mutate target.ts "missing-a" -> "x"',
-        reason: "target_absent" as const,
-      },
-      {
-        pinningFile: "pin-b.test.ts",
-        line: 3,
-        raw: '// @mutate target.ts "missing-b" -> "y"',
-        reason: "target_absent" as const,
-      },
-    ];
-
-    await executeWrite({
-      worktree: {
-        projectRoot: "/fake",
-        projectName: "demo",
-        branchName: "write-run",
-        baseRef: "HEAD",
-        jarvisRoot,
-      },
-      specPath: "spec.md",
-      stepRules: "Return exactly one terminal token.",
-      expectedArtifactPath: subspec,
-      promptId: "patch.prompt.body",
-      mutationDirectiveReprompt: { directives, display: "truncated…" },
-      bindings: [capturingBinding((prompt) => (capturedPrompt = prompt))],
-      withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
-    });
-
-    expect(capturedPrompt).toContain('pin-a.test.ts:2: target_absent: // @mutate target.ts "missing-a" -> "x"');
-    expect(capturedPrompt).toContain('pin-b.test.ts:3: target_absent: // @mutate target.ts "missing-b" -> "y"');
-    expect(capturedPrompt).not.toContain("truncated…");
   });
 
   test("done completes when only a wrapped human-only criterion is unchecked", async () => {
@@ -776,7 +361,7 @@ describe("write behavior", () => {
         jarvisRoot,
       },
       specPath,
-      stepRules: DEFAULT_WRITE_STEP_RULES,
+      stepRules: IMPLEMENT_WRITE_STEP_RULES,
       expectedArtifactPath: subspecPath,
       promptId: "patch.prompt.body",
       bindings: [
@@ -807,16 +392,15 @@ describe("write behavior", () => {
     expect(capturedPrompt).toContain(resolvedSubspecPath);
     expect(capturedPrompt).toContain(subspecBody);
     expect(capturedPrompt).toContain(repoGuidance);
-    expect(capturedPrompt.trimEnd().endsWith(DEFAULT_WRITE_STEP_RULES)).toBe(true);
+    expect(capturedPrompt.trimEnd().endsWith(IMPLEMENT_WRITE_STEP_RULES)).toBe(true);
     expect(extractFinalStepRules(capturedPrompt)).toContain(HUMAN_ONLY_STEP_RULES);
-    expect(capturedPrompt).toContain("require a source mutation on the real guard");
-    expect(capturedPrompt).toContain("comment checkpoint on the pinning test");
-    expect(capturedPrompt).toContain("production invert hooks are forbidden");
     expect(capturedPrompt).toContain("Do not add");
     expect(capturedPrompt).toContain("`setInvert*ForTest` exports");
     expect(capturedPrompt).toContain("`invert*ForTest` module variables");
     expect(capturedPrompt).toContain("`invert*` function parameters");
     expect(capturedPrompt).toContain("`invert*ForTest` type members");
+    expect(capturedPrompt).not.toContain("comment checkpoint on the pinning test");
+    expect(capturedPrompt).not.toContain("Place `// @mutate`");
     expect(capturedPrompt).toContain(
       "When a guard sits inside a `setTimeout` or `setInterval` callback, extract it into a pure exported predicate and test both truth directions directly without a real-timer wait.",
     );
@@ -1793,24 +1377,5 @@ describe("write behavior: implement-path blocker-text contract", () => {
     });
 
     expect(result.result.kind).toBe("blocked");
-  });
-});
-
-describe("isRepromptEligibleMutationCheckpointMiss", () => {
-  test("hollow guard miss is reprompt eligible", () => {
-    // @mutate v2/src/execution/write.ts "if (failureReason.startsWith(\"Hollow mutation checkpoints\")) return true;" -> "if (failureReason.startsWith(\"Hollow mutation checkpoints\")) return false;"
-    expect(isRepromptEligibleMutationCheckpointMiss("Hollow mutation checkpoints (details):\n- guard")).toBe(true);
-  });
-
-  test("unlinked keystone miss is reprompt eligible", () => {
-    // @mutate v2/src/execution/write.ts "failureReason.startsWith(\"Unlinked keystone checkpoints\");" -> "false;"
-    expect(
-      isRepromptEligibleMutationCheckpointMiss(
-        "Unlinked keystone checkpoints (no directive linked on the named pin):\n- criterion",
-      ),
-    ).toBe(true);
-    expect(isRepromptEligibleMutationCheckpointMiss("Unparseable mutation checkpoints:\n- x")).toBe(true);
-    expect(isRepromptEligibleMutationCheckpointMiss("Hollow mutation checkpoints (…):\n- x")).toBe(true);
-    expect(isRepromptEligibleMutationCheckpointMiss(undefined)).toBe(false);
   });
 });

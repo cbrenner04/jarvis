@@ -3,8 +3,14 @@ import { execSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { branchExistsLocal, branchExistsOnOrigin, getCurrentBranch, isWorktreeDirty } from "./git.ts";
-import type { SubprocessRunner } from "./subprocess.ts";
+import {
+  branchExistsLocal,
+  branchExistsOnOrigin,
+  getCurrentBranch,
+  getGitStatusInventory,
+  isWorktreeDirty,
+} from "./git.ts";
+import type { AsyncSubprocessRunner, SubprocessRunner } from "./subprocess.ts";
 
 /** Fake runner: resolves canned results by exact `cmd args` match, records argv+cwd. */
 function fakeRunner(
@@ -23,6 +29,118 @@ function fakeRunner(
     },
   };
 }
+
+function fakeAsyncRunner(output: string): AsyncSubprocessRunner & { calls: Array<{ args: string[]; cwd: string }> } {
+  const calls: Array<{ args: string[]; cwd: string }> = [];
+  return {
+    calls,
+    async runAsync(cmd, args, cwd) {
+      calls.push({ args: [cmd, ...args], cwd });
+      return output;
+    },
+  };
+}
+
+describe("getGitStatusInventory", () => {
+  const fixtureRoots: string[] = [];
+
+  afterEach(() => {
+    for (const root of fixtureRoots.splice(0)) rmSync(root, { recursive: true, force: true });
+  });
+
+  test("inventory preserves typed porcelain entries including exact UTF-8 path text", async () => {
+    // @mutate shared/git.ts "const originalPath = fields[index];" -> "const originalPath = undefined;"
+    // @mutate shared/git.ts "const kind = twoPathKind(stagedCode, worktreeCode);" -> "const kind = undefined;"
+    const stagedRenameCurrent = " staged rename current \n";
+    const stagedRenameOriginal = " staged rename original \n";
+    const worktreeRenameCurrent = "\nworktree rename current ";
+    const worktreeRenameOriginal = "\nworktree rename original ";
+    const stagedCopyCurrent = " staged copy current ";
+    const stagedCopyOriginal = " staged copy original ";
+    const worktreeCopyCurrent = " worktree copy current\n ";
+    const worktreeCopyOriginal = " worktree copy original\n ";
+    const output = [
+      " M ordinary space.txt",
+      "A  café\nfile.txt",
+      "?? untracked/雪.txt",
+      `R  ${stagedRenameCurrent}`,
+      stagedRenameOriginal,
+      ` R ${worktreeRenameCurrent}`,
+      worktreeRenameOriginal,
+      `C  ${stagedCopyCurrent}`,
+      stagedCopyOriginal,
+      ` C ${worktreeCopyCurrent}`,
+      worktreeCopyOriginal,
+      "",
+    ].join("\0");
+    const runner = fakeAsyncRunner(output);
+
+    expect(await getGitStatusInventory("/repo", runner)).toEqual([
+      { kind: "ordinary", stagedStatus: "unmodified", worktreeStatus: "modified", currentPath: "ordinary space.txt" },
+      { kind: "ordinary", stagedStatus: "added", worktreeStatus: "unmodified", currentPath: "café\nfile.txt" },
+      { kind: "ordinary", stagedStatus: "untracked", worktreeStatus: "untracked", currentPath: "untracked/雪.txt" },
+      {
+        kind: "rename",
+        stagedStatus: "renamed",
+        worktreeStatus: "unmodified",
+        currentPath: stagedRenameCurrent,
+        originalPath: stagedRenameOriginal,
+      },
+      {
+        kind: "rename",
+        stagedStatus: "unmodified",
+        worktreeStatus: "renamed",
+        currentPath: worktreeRenameCurrent,
+        originalPath: worktreeRenameOriginal,
+      },
+      {
+        kind: "copy",
+        stagedStatus: "copied",
+        worktreeStatus: "unmodified",
+        currentPath: stagedCopyCurrent,
+        originalPath: stagedCopyOriginal,
+      },
+      {
+        kind: "copy",
+        stagedStatus: "unmodified",
+        worktreeStatus: "copied",
+        currentPath: worktreeCopyCurrent,
+        originalPath: worktreeCopyOriginal,
+      },
+    ]);
+    expect(runner.calls).toEqual([
+      { args: ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"], cwd: "/repo" },
+    ]);
+  });
+
+  test("inventory expands nested untracked files", async () => {
+    // @mutate shared/git.ts "\"--untracked-files=all\"" -> ""
+    const scratchRoot = join(process.cwd(), ".scratch");
+    mkdirSync(scratchRoot, { recursive: true });
+    const repo = mkdtempSync(join(scratchRoot, "git-inventory-"));
+    fixtureRoots.push(repo);
+    execSync("git init", { cwd: repo });
+    mkdirSync(join(repo, "nested", "deeper"), { recursive: true });
+    writeFileSync(join(repo, "nested", "one.txt"), "one\n");
+    writeFileSync(join(repo, "nested", "deeper", "two.txt"), "two\n");
+
+    expect((await getGitStatusInventory(repo)).map((entry) => entry.currentPath).sort()).toEqual([
+      "nested/deeper/two.txt",
+      "nested/one.txt",
+    ]);
+  });
+
+  test("inventory rejects malformed porcelain output", async () => {
+    // @mutate shared/git.ts "if (record.length < 4 || record[2] !== \" \")" -> "if (false)"
+    // @mutate shared/git.ts "if (originalPath === undefined || originalPath.length === 0)" -> "if (false)"
+    // @mutate shared/git.ts "if (!output.endsWith(\"\\0\"))" -> "if (false)"
+    await expect(getGitStatusInventory("/repo", fakeAsyncRunner(" M\0"))).rejects.toThrow("truncated record");
+    await expect(getGitStatusInventory("/repo", fakeAsyncRunner("R  current\0"))).rejects.toThrow(
+      "missing rename or copy origin",
+    );
+    await expect(getGitStatusInventory("/repo", fakeAsyncRunner(" M path"))).rejects.toThrow("missing terminal NUL");
+  });
+});
 
 describe("branchExistsLocal", () => {
   test("true for an existing branch, false otherwise", () => {

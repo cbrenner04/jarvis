@@ -27,18 +27,18 @@ V2 path consumers parse newline-delimited porcelain output, which cannot represe
 
 ## Acceptance criteria
 
-- [ ] `shared/git.test.ts` test `inventory preserves typed porcelain entries including exact UTF-8 path text` proves ordinary statuses, rename and copy records from either status column, spaces, newlines, non-ASCII paths, and leading/trailing whitespace in both current and original rename/copy endpoints; it fails on main because the shared inventory export is absent.
-- [ ] `shared/git.test.ts` test `inventory expands nested untracked files` uses a real temporary Git repository, lists each nested untracked file individually, and fails when the inventory command omits `--untracked-files=all`.
-- [ ] `shared/git.test.ts` test `inventory rejects malformed porcelain output` proves truncated records, missing rename/copy origins, and missing terminal NUL framing are rejected instead of producing incorrect entries.
-- [ ] The shared inventory returns typed staged/worktree status semantics, rename/copy kind, current-path, and original-path-when-present values from `git status --porcelain=v1 -z --untracked-files=all` without altering UTF-8 path fields.
-- [ ] `shared/git.test.ts` — `inventory expands nested untracked files`; Keystone checkpoint: the test body carries a source `// @mutate` directive that removes `--untracked-files=all` from the inventory command, and the scoped test turns RED under that mutation.
-- [ ] `shared/git.test.ts` — `inventory preserves typed porcelain entries including exact UTF-8 path text`; Mutation checkpoint: the test body carries a source `// @mutate` directive that disables two-path record parsing (current path then original path), and the scoped test turns RED under that mutation.
-- [ ] `shared/git.test.ts` — `inventory preserves typed porcelain entries including exact UTF-8 path text`; Mutation checkpoint: the test body carries a source `// @mutate` directive that disables rename/copy kind detection, and the scoped test turns RED under that mutation.
-- [ ] `shared/git.test.ts` — `inventory rejects malformed porcelain output`; Mutation checkpoint: the test body carries a source `// @mutate` directive that bypasses the truncated-record guard, and the scoped test turns RED under that mutation.
-- [ ] `shared/git.test.ts` — `inventory rejects malformed porcelain output`; Mutation checkpoint: the test body carries a source `// @mutate` directive that bypasses the missing-rename-or-copy-origin guard, and the scoped test turns RED under that mutation.
-- [ ] `shared/git.test.ts` — `inventory rejects malformed porcelain output`; Mutation checkpoint: the test body carries a source `// @mutate` directive that bypasses the missing-terminal-NUL guard, and the scoped test turns RED under that mutation.
-- [ ] `v2/docs/coding-standards.md` requires new or migrated path-aware Git status consumers to use the shared typed inventory instead of parsing porcelain output independently.
-- [ ] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `shared/git.test.ts` test `inventory preserves typed porcelain entries including exact UTF-8 path text` proves ordinary statuses, rename and copy records from either status column, spaces, newlines, non-ASCII paths, and leading/trailing whitespace in both current and original rename/copy endpoints; it fails on main because the shared inventory export is absent.
+- [x] `shared/git.test.ts` test `inventory expands nested untracked files` uses a real temporary Git repository, lists each nested untracked file individually, and fails when the inventory command omits `--untracked-files=all`.
+- [x] `shared/git.test.ts` test `inventory rejects malformed porcelain output` proves truncated records, missing rename/copy origins, and missing terminal NUL framing are rejected instead of producing incorrect entries.
+- [x] The shared inventory returns typed staged/worktree status semantics, rename/copy kind, current-path, and original-path-when-present values from `git status --porcelain=v1 -z --untracked-files=all` without altering UTF-8 path fields.
+- [x] `shared/git.test.ts` — `inventory expands nested untracked files`; Keystone checkpoint: the test body carries a source `// @mutate` directive that removes `--untracked-files=all` from the inventory command, and the scoped test turns RED under that mutation.
+- [x] `shared/git.test.ts` — `inventory preserves typed porcelain entries including exact UTF-8 path text`; Mutation checkpoint: the test body carries a source `// @mutate` directive that disables two-path record parsing (current path then original path), and the scoped test turns RED under that mutation.
+- [x] `shared/git.test.ts` — `inventory preserves typed porcelain entries including exact UTF-8 path text`; Mutation checkpoint: the test body carries a source `// @mutate` directive that disables rename/copy kind detection, and the scoped test turns RED under that mutation.
+- [x] `shared/git.test.ts` — `inventory rejects malformed porcelain output`; Mutation checkpoint: the test body carries a source `// @mutate` directive that bypasses the truncated-record guard, and the scoped test turns RED under that mutation.
+- [x] `shared/git.test.ts` — `inventory rejects malformed porcelain output`; Mutation checkpoint: the test body carries a source `// @mutate` directive that bypasses the missing-rename-or-copy-origin guard, and the scoped test turns RED under that mutation.
+- [x] `shared/git.test.ts` — `inventory rejects malformed porcelain output`; Mutation checkpoint: the test body carries a source `// @mutate` directive that bypasses the missing-terminal-NUL guard, and the scoped test turns RED under that mutation.
+- [x] `v2/docs/coding-standards.md` requires new or migrated path-aware Git status consumers to use the shared typed inventory instead of parsing porcelain output independently.
+- [x] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

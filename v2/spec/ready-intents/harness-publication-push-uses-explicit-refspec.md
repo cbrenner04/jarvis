@@ -34,7 +34,7 @@ Unsplit rationale: Push command selection, publication retry, and resume replay 
 - [ ] `v2/src/execution/completion-publisher.test.ts` captures `git push origin HEAD:<branch>` for a branch whose upstream is a differently named ref and fails against the pre-fix upstream-sensitive command selection.
 - [ ] `v2/src/execution/completion-publisher.test.ts` and `v2/src/execution/workflow-runner-resume.test.ts` prove initial publication, transient retry, and resume replay all use the explicit refspec without reading upstream state.
 - [ ] Matching-upstream and no-upstream cases in `v2/src/execution/completion-publisher.test.ts` retain successful publication after their expected push argv is aligned with the explicit refspec.
-- [ ] `v2/src/execution/completion-publisher.test.ts` — `pushes HEAD to the target branch independently of upstream tracking`; Keystone checkpoint:
+- [ ] `v2/src/execution/completion-publisher.test.ts` — `pushes HEAD to the target branch independently of upstream tracking` contains `// @mutate v2/src/execution/completion-publisher.ts "const pushArgs = [\"push\", \"origin\", \`HEAD:${input.branch}\`];" -> "const pushArgs = await checkHasUpstream(git, input.worktreePath, input.branch) ? [\"push\"] : [\"push\", \"-u\", \"origin\", input.branch];"`; Keystone checkpoint:
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

@@ -1,0 +1,47 @@
+# Per-candidate diff-derived verification scope
+
+Ready-finalization `verifyDiffDerivedMutations` classifies the whole production diff once (`classifyChangedPaths(changedPaths)`) and re-runs that CI script union for every mutation candidate and prompt render check. On `shared/**` diffs that fans to multiple full-suite `bun run test:*` invocations per candidate, verification exhausts post-write `MAX_VERIFICATION_MS`, and the durable row stays `in-progress` after the agent has already written correct code.
+
+## Decisions
+
+- Supersedes the landed `resolveCiTestScope`-per-candidate contract from `20260719T002542Z-implement-completion-requires-diff-derived-mutation-evidence` — rules out reusing ready-gate CI script unions per mutation candidate or prompt check.
+- Diff-derived verification is **narrower than ready-gate scope by design**: the gate proves the diff's CI union once; diff-derived proves per-artifact kill evidence at bounded cost. Accepted tradeoff: a thin or mis-paired co-located killing test can miss a surviving mutation that the full gate union would catch.
+- Each mutation candidate runs only its co-located killing test file via `bun test <relative-test-path>` — rules out `classifyChangedPaths` on the whole diff or on the mutated production path (the latter still fans `shared/**` to the full v1+v2+shared script union).
+- Co-located killing-test resolution for production paths accepted by `isCodePath` (`/\.[cm]?[jt]sx?$/`): same directory, same basename stem, production suffix swapped for `.test.ts` (always `.test.ts`, not `.test.tsx`). Paths whose basename already contains `.test.` (including `*.sandbox-unrunnable.test.ts`) are not production killing-test targets. Exactly one file — `<stem>.test.ts` beside `<stem>.<prod-suffix>` — rules out directory-wide globs or surface-scoped `bun test`. Missing co-located `<stem>.test.ts` fails closed for that candidate (surviving-mutation or verification error), not skip.
+- Changed registered-prompt render checks resolve observer scope via `shared/prompts/render-observer-tests.ts` `resolveRenderObserverTests(promptPath)` keyed by registry-relative `prompts/...` path → repo-relative test file path(s) for `bun test`; missing map entry fails closed as `missing-render-coverage` — rules out co-located `.test.ts` swap (prompts live under `prompts/`, observers under `shared/prompts/` and elsewhere). Multiple mapped paths for one prompt are all in scope for that check.
+- `RunScopedTests` `scope` entries in diff-derived verification are repo-relative test file paths invoked via `bun test <path>`; checkpoint `@mutate` verification in `mutation-checkpoint-verifier.ts` keeps package.json script semantics — rules out path/script confusion across the shared type name.
+- Post-write `MAX_VERIFICATION_MS` remains the verifier wall bound; checked between candidates and prompt checks (not per subprocess). Verification runs only after `executeWrite` clears the iteration watchdog (`publishCompletionArtifacts` → `runReadyFinalizer` → `verifyDiffDerivedMutations`) — rules out coupling this cost fix to write-iteration ceiling accounting. Single-candidate overrun is mitigated by scope narrowing, not subprocess caps.
+- Parallelize per-candidate and per-prompt file-scoped `bun test` runs; `MAX_CONCURRENT_VERIFIER_TEST_RUNS = 4` in `diff-derived-mutation-verifier.ts` (beside `MAX_INSPECTED_MUTATIONS` and `MAX_VERIFICATION_MS`) caps total in-flight verifier-launched test subprocesses — load rationale: operator machine runs concurrent gate/review work; four cheap file-scoped runs bound verifier fan-out without stacking dozens of processes. Rules out unbounded parallel fan-out once file-scoped parallelism lands.
+- All `verifyDiffDerivedMutations` callers (ready-finalize, workflow-runner resume) inherit narrowed scope via the module change — no separate caller AC.
+- Checkpoint `@mutate` verification in `mutation-checkpoint-verifier.ts` stays unchanged — rules out coupling this cost fix to [[retire-mutation-checkpoint-dsl]].
+
+## Tasks
+
+- Replace diff-wide `classifyChangedPaths` scope in `verifyDiffDerivedMutations` with per-candidate killing-test-file paths and per-prompt render-observer paths from `resolveRenderObserverTests`.
+- Add `shared/prompts/render-observer-tests.ts` with entries for registered prompts that have render-observer coverage today; wire `verifyPromptRenderCoverage` to resolve scope through it.
+- Change `defaultRunScopedTests` in `diff-derived-mutation-verifier.ts` to invoke `bun test <relative-path>` per scoped file instead of `bun run <package.json script>`.
+- Add `MAX_CONCURRENT_VERIFIER_TEST_RUNS = 4` beside `MAX_INSPECTED_MUTATIONS` and `MAX_VERIFICATION_MS`; parallelize file-scoped runs behind a module semaphore.
+- Add pinning tests in `diff-derived-mutation-verifier.test.ts` and `ready-finalize.test.ts` named in the acceptance criteria.
+- Update `defaultRunScopedTests (real subprocess, no seam)` fixtures for file-scoped `bun test` invocation.
+- Update docs per **Documentation updates**.
+
+## Acceptance criteria
+
+- [ ] `diff-derived-mutation-verifier.test.ts` test `completes shared multi-candidate verification within MAX_VERIFICATION_MS` proves deadline integration on a `shared/**` diff with multiple mutation candidates; primary pre-fix failure surface is the structural scope ACs below — this AC fails on main only when aggregate scope fan-out is still wired (cross-reference `invokes only the co-located killing test file per candidate`).
+- [ ] `diff-derived-mutation-verifier.test.ts` test `invokes only the co-located killing test file per candidate` structurally pins that each candidate invokes only the co-located killing test file, not unaffected surface suites or aggregate diff scope; it fails when aggregate diff scope is reused per candidate.
+- [ ] `diff-derived-mutation-verifier.test.ts` test `invokes only that prompt's render-observer test file(s) per changed prompt` structurally pins that `verifyPromptRenderCoverage` invokes only paths from `resolveRenderObserverTests` for that prompt, not the whole-diff `scopeTests` union; it fails on main, which forwards aggregate scope at `verifyPromptRenderCoverage`.
+- [ ] `ready-finalize.test.ts` test `settles finalization after diff-derived verification on a shared multi-candidate diff` proves ready finalization completes and the durable row settles to a terminal status (`completed` or `failed`, not `in-progress`) after diff-derived verification on a shared multi-candidate diff; it fails against the pre-fix path where post-write verification load strands finalization in `in-progress`.
+- [ ] `diff-derived-mutation-verifier.test.ts` test `caps concurrent bun test invocations at MAX_CONCURRENT_VERIFIER_TEST_RUNS` proves peak simultaneous verifier-launched `bun test` subprocesses stay ≤ `MAX_CONCURRENT_VERIFIER_TEST_RUNS` when file-scoped runs are parallelized; it fails when parallelism lands without the module semaphore (reachable on an uncapped implementation branch).
+- [ ] `diff-derived-mutation-verifier.test.ts` tests `catches a covered guard mutation via the real bun run invocation` and `reports a surviving mutation when no test covers the changed guard` stay green under file-scoped `bun test` invocation (real-subprocess fixtures updated per tasks).
+- [ ] Existing `diff-derived-mutation-verifier.test.ts` cases outside the new scope, prompt-scope, and concurrency subcases stay green (candidate derivation, prompt render pass/fail semantics through injected seams, restoration, `MAX_INSPECTED_MUTATIONS`, and surviving-mutation classification) — carve-out: new scope and prompt-scope pinning subcases above.
+- [ ] `mutation-checkpoint-verifier.test.ts` stays green (checkpoint `@mutate` verification unchanged).
+- [ ] `v2/docs/write-behavior.md` § Diff-derived mutation verification documents per-candidate killing-test-file scope, per-prompt render-observer scope via `resolveRenderObserverTests`, `MAX_CONCURRENT_VERIFIER_TEST_RUNS`, the narrower-than-gate tradeoff, and post-write `MAX_VERIFICATION_MS` timing separate from checkpoint `@mutate` verification.
+- [ ] `v2/docs/operator-runbook.md` § Gate trust distinguishes the **fixed** stall (aggregate diff scope × N candidates on `shared/**`) from **residual** risks (subprocess hang, missing killing test or render-observer map entry, deadline exhaustion across many cheap candidates, hung `bun test`), and retains salvage guidance for residual cases.
+- [ ] `v2/docs/v1-behaviors.md` records the narrowed per-candidate diff-derived verification scope, render-observer map, and verifier concurrency bound.
+- [ ] `bun run typecheck` and `bun run test:v2` pass.
+
+## Documentation updates
+
+- `v2/docs/write-behavior.md` — diff-derived ready-finalization mutation verification uses per-candidate killing-test-file scope, per-prompt render-observer scope via `resolveRenderObserverTests`, `MAX_CONCURRENT_VERIFIER_TEST_RUNS`, the narrower-than-gate tradeoff, and post-write `MAX_VERIFICATION_MS` timing separate from checkpoint `@mutate` verification.
+- `v2/docs/operator-runbook.md` — distinguish fixed aggregate-scope stall from residual verification risks (subprocess hang, missing killing test or observer map entry, deadline exhaustion, hung `bun test`); retain salvage guidance for residual cases.
+- `v2/docs/v1-behaviors.md` — record the narrowed per-candidate diff-derived verification scope, render-observer map, and verifier concurrency bound.

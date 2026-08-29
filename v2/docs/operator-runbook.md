@@ -437,7 +437,7 @@ jarvis run list              # find the failed write-step row (intent-split / sp
 jarvis run resume <runId>    # write-step runId — re-enters the write loop
 ```
 
-`reconstructWriteResume` preserves stage bytes and restores any pending landing-contract reprompt context from the last `landing_contract_reprompt` log event (including after pause). For implement writes paused after a repromptable mutation-checkpoint miss, resume also restores the full directive list from the last `mutation_directive_reprompt` log event.
+`reconstructWriteResume` preserves stage bytes and restores any pending landing-contract reprompt context from the last `landing_contract_reprompt` log event (including after pause). Historical `mutation_directive_reprompt`, `guard_checkpoint_reprompt`, and `keystone_directive_reprompt` tails on old paused runs no longer restore reprompt context or checkpoint-derived iteration accounting on resume — restart the run or hand-repair until log-schema deletion in `retire-checkpoint-log-events`.
 
 **Review row** (`runId` on the review/finalization step) settled `landing_failed` with populated stage replays finalization only (`resolveIntentFinalizationResumeContext`), not the write loop:
 

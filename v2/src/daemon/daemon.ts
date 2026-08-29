@@ -55,7 +55,6 @@ import {
 import {
   applyOperatorSessionId,
   executeWriteLoop,
-  findDirectiveRepromptFromLog,
   findLandingContractRepromptFromLog,
   findStagedMarkdownLintRepromptFromLog,
   type WriteLoopInput,
@@ -586,33 +585,7 @@ function mapImplementRecoverOutcome(
   };
 }
 
-function restoredDirectiveRepromptInput(
-  run: Run,
-  logRecords?: readonly PersistedRecord[],
-): Pick<
-  WriteLoopInput,
-  "mutationDirectiveReprompt" | "guardCheckpointReprompt" | "keystoneDirectiveReprompt" | "initialIterationsConsumed"
-> {
-  const { mutationDirectiveReprompt, guardCheckpointReprompt, keystoneDirectiveReprompt } =
-    findDirectiveRepromptFromLog(logRecords);
-  const terminalRecord = findTerminalLogRecord([...(logRecords ?? [])]);
-  const initialIterationsConsumed =
-    run.status === "paused" &&
-    (mutationDirectiveReprompt !== undefined ||
-      guardCheckpointReprompt !== undefined ||
-      keystoneDirectiveReprompt !== undefined) &&
-    terminalRecord?.event.kind === "loop_finished"
-      ? terminalRecord.event.iterationsConsumed
-      : undefined;
-  return {
-    ...(mutationDirectiveReprompt !== undefined ? { mutationDirectiveReprompt } : {}),
-    ...(guardCheckpointReprompt !== undefined ? { guardCheckpointReprompt } : {}),
-    ...(keystoneDirectiveReprompt !== undefined ? { keystoneDirectiveReprompt } : {}),
-    ...(initialIterationsConsumed !== undefined ? { initialIterationsConsumed } : {}),
-  };
-}
-
-function reconstructDirectWriteResume(run: Run, logRecords?: readonly PersistedRecord[]): ResolvedWriteLoopInput {
+function reconstructDirectWriteResume(run: Run, _logRecords?: readonly PersistedRecord[]): ResolvedWriteLoopInput {
   if (run.status !== "paused") return { ok: false, message: "direct write resume requires a paused run" };
   const input = run.queuedInput;
   if (!input) return { ok: false, message: "run has no durable direct-write resume context" };
@@ -623,7 +596,7 @@ function reconstructDirectWriteResume(run: Run, logRecords?: readonly PersistedR
     initialIterationsConsumed: _initialIterationsConsumed,
     ...baseInput
   } = input;
-  return resolveWriteLoopBindings({ ...baseInput, ...restoredDirectiveRepromptInput(run, logRecords) });
+  return resolveWriteLoopBindings(baseInput);
 }
 
 function reconstructWriteResume(run: Run, logRecords?: readonly PersistedRecord[]): ResolvedWriteLoopInput {
@@ -672,7 +645,6 @@ function reconstructWriteResume(run: Run, logRecords?: readonly PersistedRecord[
     ...(step.idleOutputMs === undefined ? {} : { idleOutputMs: step.idleOutputMs }),
     ...(landingContractReprompt !== undefined ? { landingContractReprompt } : {}),
     ...(stagedMarkdownLintReprompt !== undefined ? { stagedMarkdownLintReprompt } : {}),
-    ...restoredDirectiveRepromptInput(run, logRecords),
   });
 }
 

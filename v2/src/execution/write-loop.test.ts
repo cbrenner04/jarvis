@@ -19,6 +19,7 @@ import { basename, join } from "node:path";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
 import { composeRunOperatorError } from "../daemon/run-operator-error.ts";
 import type { LogEvent, LogSink, LoopFinishedEvent } from "../persistence/log-stream.ts";
+import { INVALID_TOKEN_LOG_MAX_CHARS, truncateLogText } from "../persistence/log-stream.ts";
 import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
 import { stubAgentModelConfig } from "../testing/cli-test-helpers.ts";
@@ -8311,26 +8312,38 @@ export function isLoadSensitive(file: string): boolean {
       const sink = new TestLogSink();
       let commitCalls = 0;
 
+      const boundaryCommitError = (message: string, stderr: string): Error & { stderr: string } => {
+        const error = new Error(message) as Error & { stderr: string };
+        error.stderr = stderr;
+        return error;
+      };
+
       mock.module("./write.ts", () => ({
-        executeWrite: async () => {
-          writeFileSync(join(worktreePath, "iter-1.txt"), "x\n");
-          return progressWrite(worktreePath);
+        executeWrite: async (input: WriteExecuteInput) => {
+          const activeWorktreePath = join(jarvisRoot, "worktrees", "demo", input.worktree.branchName);
+          writeFileSync(join(activeWorktreePath, "iter-1.txt"), "x\n");
+          return progressWrite(activeWorktreePath);
         },
       }));
 
       try {
+        const commitMessage = "iteration commit blew up";
+        const gitStderr = "fatal: unable to auto-detect email address";
+        const expectedCause = `${commitMessage}\n${gitStderr}`;
         const result = await executeWriteLoop(
           iterLoopInput(jarvisRoot, branchName, store, {
             bindings: simulatedBindings(["progress", "progress"]),
             logSink: sink,
             completionCommitter: async () => {
               commitCalls += 1;
-              throw new Error("iteration commit blew up");
+              throw boundaryCommitError(commitMessage, gitStderr);
             },
           }),
         );
 
         expect(result.kind).toBe("iteration_commit_failed");
+        expect(result.resumable).toBe(true);
+        expect(result.completionCommitError).toBe(expectedCause);
         expect(loadRunOnce(stateDbPath, result.runId)?.status).toBe("failed");
         expect(commitCalls).toBe(1);
         expect(sink.getEventsForRun(result.runId).filter((event) => event.kind === "iteration_started")).toHaveLength(
@@ -8339,6 +8352,38 @@ export function isLoadSensitive(file: string): boolean {
         expect(sink.getEventsForRun(result.runId).filter((event) => event.kind === "boundary_committed")).toHaveLength(
           0,
         );
+        expect(gitIn(worktreePath, ["status", "--porcelain"])).toContain("iter-1.txt");
+        const terminal = sink
+          .getEventsForRun(result.runId)
+          .find((event): event is LoopFinishedEvent => event.kind === "loop_finished");
+        expect(terminal).toMatchObject({
+          loopOutcomeKind: "iteration_commit_failed",
+          resumable: true,
+          message: expectedCause,
+        });
+        // @mutate v2/src/execution/write-loop.ts "message: truncateLogText(iterationCommitErrorMessage)," -> ""
+        // @mutate v2/src/execution/write-loop.ts "completionCommitError: iterationCommitErrorMessage," -> ""
+
+        const oversizedStderr = "e".repeat(600);
+        const oversizedCause = truncateLogText(`${commitMessage}\n${oversizedStderr}`);
+        const oversizedBranch = `${branchName}-oversized`;
+        initGitWorktree(jarvisRoot, oversizedBranch);
+        const oversizedSink = new TestLogSink();
+        const oversizedResult = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, oversizedBranch, store, {
+            bindings: simulatedBindings(["progress", "progress"]),
+            logSink: oversizedSink,
+            completionCommitter: async () => {
+              throw boundaryCommitError(commitMessage, oversizedStderr);
+            },
+          }),
+        );
+        expect(oversizedResult.completionCommitError).toBe(oversizedCause);
+        const oversizedTerminal = oversizedSink
+          .getEventsForRun(oversizedResult.runId)
+          .find((event): event is LoopFinishedEvent => event.kind === "loop_finished");
+        expect(oversizedTerminal?.message).toMatch(/^iteration commit blew up\ne+…$/);
+        expect(oversizedTerminal?.message?.length).toBe(INVALID_TOKEN_LOG_MAX_CHARS + 1);
       } finally {
         store.close();
         mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));

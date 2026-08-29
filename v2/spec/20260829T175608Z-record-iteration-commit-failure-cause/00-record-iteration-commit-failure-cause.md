@@ -26,11 +26,11 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop.test.ts` — `stops failed when iteration commit throws on progress` drives a boundary-commit throw as an `Error` with `message` and a `stderr` string property, asserts the formatted bounded cause on terminal `loop_finished.message` and matching `result.completionCommitError`, `resumable: true`, no `boundary_committed`, and the authored worktree change remains uncommitted; it fails against the pre-fix bare terminal record.
-- [ ] The same fixture drives oversized `stderr` and asserts `loop_finished.message` is truncated with the same `INVALID_TOKEN_LOG_MAX_CHARS` ellipsis policy as `contract_miss_detail truncates long invocation output like invalid_token_detail`; it fails against the pre-fix bare terminal record.
-- [ ] `v2/src/execution/write-loop.test.ts` — `stops failed when iteration commit throws on progress`; Mutation checkpoint: its test body carries `// @mutate v2/src/execution/write-loop.ts "message: truncateLogText(iterationCommitErrorMessage)," -> ""`, removing the added bounded terminal cause and turning the scoped test red.
-- [ ] `v2/src/execution/write-loop.test.ts` — `stops failed when iteration commit throws on progress`; Mutation checkpoint: its test body carries `// @mutate v2/src/execution/write-loop.ts "completionCommitError: iterationCommitErrorMessage," -> ""`, removing the mirrored return-path cause and turning the scoped test red.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/execution/write-loop.test.ts` — `stops failed when iteration commit throws on progress` drives a boundary-commit throw as an `Error` with `message` and a `stderr` string property, asserts the formatted bounded cause on terminal `loop_finished.message` and matching `result.completionCommitError`, `resumable: true`, no `boundary_committed`, and the authored worktree change remains uncommitted; it fails against the pre-fix bare terminal record.
+- [x] The same fixture drives oversized `stderr` and asserts `loop_finished.message` is truncated with the same `INVALID_TOKEN_LOG_MAX_CHARS` ellipsis policy as `contract_miss_detail truncates long invocation output like invalid_token_detail`; it fails against the pre-fix bare terminal record.
+- [x] `v2/src/execution/write-loop.test.ts` — `stops failed when iteration commit throws on progress`; Mutation checkpoint: its test body carries `// @mutate v2/src/execution/write-loop.ts "message: truncateLogText(iterationCommitErrorMessage)," -> ""`, removing the added bounded terminal cause and turning the scoped test red.
+- [x] `v2/src/execution/write-loop.test.ts` — `stops failed when iteration commit throws on progress`; Mutation checkpoint: its test body carries `// @mutate v2/src/execution/write-loop.ts "completionCommitError: iterationCommitErrorMessage," -> ""`, removing the mirrored return-path cause and turning the scoped test red.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

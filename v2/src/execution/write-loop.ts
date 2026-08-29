@@ -3803,6 +3803,26 @@ async function commitRepromptProgressBoundary(
   return undefined;
 }
 
+function boundaryCommitGitStderr(error: Error): string | undefined {
+  const stderr = (error as { stderr?: unknown }).stderr;
+  if (typeof stderr !== "string") return undefined;
+  const trimmed = stderr.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function formatBoundaryCommitError(error: Error, publicationFailure?: PublicationFailure): string {
+  const message = error.message || "iteration commit failed";
+  const stderr = boundaryCommitGitStderr(error);
+  if (stderr === undefined || message.includes(stderr)) {
+    return message;
+  }
+  const stderrTail = publicationFailure?.stderrTail;
+  if (stderrTail !== undefined && (stderrTail.includes(stderr) || stderr.includes(stderrTail))) {
+    return message;
+  }
+  return `${message}\n${stderr}`;
+}
+
 function iterationCommitFailed(
   args: WriteLoopInput,
   store: StateStore,
@@ -3813,11 +3833,13 @@ function iterationCommitFailed(
 ): WriteLoopResult {
   store.setRunStatus(runId, "failed");
   const publicationFailure = publicationFailureFor(error);
+  const iterationCommitErrorMessage = truncateLogText(formatBoundaryCommitError(error, publicationFailure));
   args.logSink?.append(runId, {
     kind: "loop_finished",
     loopOutcomeKind: "iteration_commit_failed",
     iterationsConsumed,
     resumable: true,
+    message: truncateLogText(iterationCommitErrorMessage),
     ...(publicationFailure !== undefined ? { publicationFailure } : {}),
   });
   return {
@@ -3825,7 +3847,7 @@ function iterationCommitFailed(
     runId,
     iterationsConsumed,
     resumable: true,
-    completionCommitError: error.message,
+    completionCommitError: iterationCommitErrorMessage,
     attemptId,
     outcomeKind: "progress",
     runStatus: "failed",

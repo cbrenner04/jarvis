@@ -3758,6 +3758,70 @@ describe("write loop", () => {
         }
       });
 
+      test("settles ready_gate_command_missing without autofix or repair when the gate command is absent", async () => {
+        // @mutate v2/src/execution/write-loop.ts "if (outcome.kind === \"ready_gate_command_missing\") {" -> ""
+        // @mutate v2/src/execution/ready-finalize.ts "if (isMissingReadyGateCommandOutput(error.output)) {" -> "if (!isMissingReadyGateCommandOutput(error.output)) {"
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        const logSink = new TestLogSink();
+        let fixCalls = 0;
+        let agentInvocations = 0;
+        const result = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          bindings: [
+            {
+              id: "sim.1",
+              metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+              invoke: async ({ cwd }) => {
+                agentInvocations += 1;
+                writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+                return { kind: "ok", stdout: "done", stderr: "" } as const;
+              },
+            },
+          ],
+          logSink,
+          ...completionHooks,
+          runFixCommand: async () => {
+            fixCalls += 1;
+          },
+          readyFinalizer: async () => {
+            throw new ReadyGateError("bun run ready", 1, 'Script not found "ready"');
+          },
+        });
+
+        expect(result.kind).toBe("ready_gate_command_missing");
+        expect(result.resumable).toBe(false);
+        expect(fixCalls).toBe(0);
+        expect(agentInvocations).toBe(1);
+        const events = logSink.getEventsForRun(result.runId);
+        expect(events.filter((event) => event.kind === "ready_gate_repair")).toEqual([]);
+        expect(events.filter((event) => event.kind === "ready_gate_autofix_discarded")).toEqual([]);
+        const loopEvent = events.at(-1);
+        expect(loopEvent).toMatchObject({
+          kind: "loop_finished",
+          loopOutcomeKind: "ready_gate_command_missing",
+          resumable: false,
+          readyGateCommand: "bun run ready",
+          readyGateOutput: 'Script not found "ready"',
+        });
+        const run = openStateStore(stateDbPath).loadRun(result.runId);
+        expect(run).toBeDefined();
+        if (!run) return;
+        expect(
+          composeRunOperatorError(run, {
+            runId: result.runId,
+            seq: 1,
+            ts: "",
+            event: loopEvent as LoopFinishedEvent,
+          }),
+        ).toMatchObject({
+          reason: "ready_gate_command_missing",
+          nextAction: "fix_config",
+          retryable: false,
+          message: 'Ready gate command missing: bun run ready\nScript not found "ready"',
+        });
+      });
+
       test("ready-gate repair autofix invokes configured fixCommand", async () => {
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         let observedFixCommand: string | undefined;

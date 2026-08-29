@@ -1147,13 +1147,16 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               const isFlipFailure = publication.failure.kind === "ready_flip_failed";
               const isGateFailure =
                 publication.failure.kind === "ready_gate_failed" ||
+                publication.failure.kind === "ready_gate_command_missing" ||
                 publication.failure.kind === "ready_gate_out_of_scope";
               const gateOutOfScopeFields = readyGateOutOfScopeLogFields(publication.failure.error);
               const priorRecords = priorLogRecordsFromSink(args.logSink, lastResult.runId);
               const publicationResumable =
                 publication.failure.kind === "ready_gate_out_of_scope"
                   ? outOfScopeSettlementResumable(gateOutOfScopeFields.readyGateOutsidePaths, priorRecords)
-                  : !isFlipFailure;
+                  : publication.failure.kind === "ready_gate_command_missing"
+                    ? false
+                    : !isFlipFailure;
               const publicationLoopFinishedBase = {
                 kind: "loop_finished" as const,
                 iterationsConsumed: totalIterationsConsumed,
@@ -4323,7 +4326,7 @@ async function settleFailedReviewMutationPublication(
               readyGateOutOfScopeLogFields(failure.error).readyGateOutsidePaths,
               priorRecords,
             )
-          : true,
+          : failure.kind !== "ready_gate_command_missing",
     ...survivingMutationLogFields(failure.error),
     ...readyGateOutOfScopeLogFields(failure.error),
     ...readyGateFailureLogFields(failure.kind, failure.error),

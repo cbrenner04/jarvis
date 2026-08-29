@@ -31,6 +31,7 @@ const RUN_OPERATOR_ERROR_REASONS = [
   "completion_commit_failed",
   "iteration_commit_failed",
   "ready_gate_failed",
+  "ready_gate_command_missing",
   "ready_gate_out_of_scope",
   "ready_flip_failed",
   "surviving_mutation_failed",
@@ -225,6 +226,18 @@ function mapFromLoopFinished(
             }
           : {}),
       };
+    case "ready_gate_command_missing":
+      return {
+        ...op("ready_gate_command_missing", "fix_config", false),
+        ...(event.readyGateCommand !== undefined
+          ? {
+              message:
+                event.readyGateOutput === undefined
+                  ? `Ready gate command missing: ${event.readyGateCommand}`
+                  : `Ready gate command missing: ${event.readyGateCommand}\n${event.readyGateOutput}`,
+            }
+          : {}),
+      };
     case "ready_gate_out_of_scope":
       return event.resumable
         ? {
@@ -294,6 +307,7 @@ export const RUN_OPERATOR_ERROR_RECOVERY = {
   completion_commit_failed: "fix git/gh publication, then jarvis run resume",
   iteration_commit_failed: "fix git state, then jarvis run resume",
   ready_gate_failed: "fix the ready gate failure, then jarvis run resume",
+  ready_gate_command_missing: "fix the configured ready gate command in project config, then re-dispatch the workflow",
   ready_gate_out_of_scope:
     "when nextAction is resume, jarvis run resume may change outside-path attribution; unchanged outside paths are terminal — do not repair unrelated source files",
   ready_flip_failed:

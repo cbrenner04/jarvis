@@ -396,6 +396,25 @@ test("composeRunOperatorError omits message for cause-less landing_failed", () =
   expect(error).not.toHaveProperty("message");
 });
 
+test("composeRunOperatorError maps ready_gate_command_missing to fix_config without resume", () => {
+  expect(
+    composeRunOperatorError(
+      runWith("failed"),
+      loopFinished("ready_gate_command_missing", {
+        resumable: false,
+        readyGateCommand: "bun run ready",
+        readyGateOutput: 'Script not found "ready"',
+      }),
+    ),
+  ).toEqual({
+    reason: "ready_gate_command_missing",
+    retryable: false,
+    nextAction: "fix_config",
+    message: 'Ready gate command missing: bun run ready\nScript not found "ready"',
+  });
+  expect(RUN_OPERATOR_ERROR_RECOVERY.ready_gate_command_missing).not.toContain("jarvis run resume");
+});
+
 test("composeRunOperatorError maps exhausted-red terminal evidence as ready_gate_failed without origin on the operator error", () => {
   const event = loopFinished("ready_gate_failed", {
     resumable: true,

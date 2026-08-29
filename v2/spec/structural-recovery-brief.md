@@ -24,6 +24,14 @@ The five structural retirements that close whole classes: one dispatch front doo
 - **PR #3060 — MERGED 2026-08-29.** Dispatch-parity spec complete (subspecs 00–02): pipeline dispatch stamps the full step-config layer, watchdogs arm on daemon write steps, resume reads write-sibling stamped commands. The readyCommand cascade (#2976→#3060, five fixes) is closed; its seed is reaped. The test-file hang's true cause was stub steps without `worktree` (the stamp threw before `wait()`, starving microtask spin loops) — not timers; the watchdog unrefs landed as hygiene, leaving [[watchdog-timers-never-hold-the-event-loop]] as a pin-test seed. The spec dir awaits the next `jarvis cleanup` archival pass.
 - **Spec `20260829T023500Z-deferred-settlement-resume-preserves-pr-evidence` — MERGED 2026-08-29** (subspec 00 #3054, subspec 01 #3069). Point fix for the sharpest dogfood blocker; later subsumed by [[pipeline-settlement-derives-from-run-rows]] (which retires the deferred-settlement machinery it patches). Its seed is reaped. Subspec 01's publication surfaced a new blocker — ready-flip on a prior subspec's closed same-branch PR — seeded as [[implement-publication-reuses-closed-same-branch-pr]] and hand-published as #3069.
 
+## Session progress (2026-08-29 PM)
+
+- **P1-small + P1-restructure seeds run through `intent` → ready-intents on `main`:** [[daemon-resume-honors-injected-config-path]] (#3063), [[pipeline-architecture-doc]] (#3064), [[unify-git-status-parsing]] (#3065), [[harness-publication-push-uses-explicit-refspec]] (#3072), [[plan-review-failure-preserves-and-recovers-the-good-draft]] (#3073), [[terminal-state-honesty-invariant]] (#3074), [[pipeline-settlement-derives-from-run-rows]] (#3075), [[pipeline-dispatch-shares-cli-front-door]] (#3076), [[implement-boundary-commit-failure-strands-authored-work]] (#3077), [[retire-mutation-checkpoint-dsl]] (#3078). Each restructure decomposed into a coupled ready-intent chain — plan in dependency order, foundational slice first.
+- **Plans landed as specs:** [[pipeline-architecture-doc]] spec (#3066); lossless-git-status helper (unify subspec 00) spec (#3068). Retire-mutation lead (`retire-plan-mutation-checkpoint-authoring`) plan in flight.
+- **Implements:** deferred-settlement P0 fully merged. Lossless-helper implement is the current bottleneck — crashed the machine once (concurrent local suite load), then a 45-min codex iteration timeout; re-running, hand-implement fallback.
+- **Parked/closed:** daemon-resume plan #3067 closed (see the P3 demotion below).
+- **Load/churn finding:** intents/plans parallelize cheaply (7+1 concurrent ≈ load 4/18, 94% mem free); the crash lever is concurrent *local suite invocations* — each `bun test` spawns ~20 workers (`--max-concurrency=20`), and an implement gate on `shared/**` runs three suites. Discipline: never run manual `bun test`/`check` beside a live gate; keep implements ~1 at a time. No global concurrency cap across gates — seed candidate if it recurs. The implement stage (serial; codex-first times out on fiddly work) is the throughput ceiling, not intent/plan generation.
+
 ## Priority-ordered work
 
 | P | Item | Delivers |
@@ -33,7 +41,9 @@ The five structural retirements that close whole classes: one dispatch front doo
 | **P1** | [[pipeline-dispatch-shares-cli-front-door]] | Retires the remaining dispatch-assembly copies (posture, review passes, stale-reset, admission, context source) |
 | **P1** | [[pipeline-settlement-derives-from-run-rows]] | Retires copy-then-redrive settlement, both claim mechanisms, the dual `derivePipelineState`; absorbs [[operator-killed-pipeline-stage-is-recoverable]] and [[restart-reconciliation-preserves-paused-resumable-runs]] planning |
 | **P1** | [[terminal-state-honesty-invariant]] | One atomic terminal-write owner; closes the 48-fix honesty class |
-| **P1** (small, any time) | [[unify-git-status-parsing]], [[daemon-resume-honors-injected-config-path]], [[implement-boundary-commit-failure-strands-authored-work]], [[harness-publication-push-uses-explicit-refspec]], [[plan-review-failure-preserves-and-recovers-the-good-draft]] | Live bugs with evidence; independent of the restructures |
+| **P1** | [[retire-mutation-checkpoint-dsl]] | Retires the checkpoint DSL layer (plan authoring mandate, `@mutate` directives, checkpoint verifier, the three reprompt loops); diff-derived verification stays the sole mutation gate. Attacks the 26-fix mutation/plan-contract churn class directly (operator ask, 2026-08-29). Decomposed into retire-{plan-authoring,implement-verification,checkpoint-resume-replay,checkpoint-log-events}; plan-authoring retirement lands first (independently valuable), deletion follows once in-flight DSL-authored trees drain |
+| **P1** (small, any time) | [[unify-git-status-parsing]], [[implement-boundary-commit-failure-strands-authored-work]], [[harness-publication-push-uses-explicit-refspec]], [[plan-review-failure-preserves-and-recovers-the-good-draft]] | Live bugs with evidence; independent of the restructures |
+| **P3** (demoted) | [[daemon-resume-honors-injected-config-path]] | **Re-scoped 2026-08-29:** not a 1-line fix. The resume ceiling read (`daemon.ts:671`) runs in the *detached daemon* process, where the injected `machineConfigPath` is never set (the wrapper only runs at `cli.ts:48`), so honoring a scoped config needs config-path propagation *into* the daemon — a bigger change. Marginal in single-operator use (daemon reads the real `~/.jarvis/config.json`). Plan #3067 correctly caught the mechanism but carried a sandbox-unrunnable keystone AC; closed. Re-plan tightly only if scoped-daemon config injection becomes real |
 | **P2** | [[split-workflow-runner-resume-machines]] | 5,141-line file split; twin resume machines merged (`resumable: true` bug); absorbs issue #2181 and the demoted load-isolation trio |
 | **P2** | [[split-daemon-run-control-handlers]] | 1,318-line closure split; WeakMap back-channel and production test seams retired; guard generalized |
 | **P2** | [[dead-export-and-test-seam-gates]] | knip-style gate; 6 dead exports; repair-fence bypass out of production |
@@ -43,6 +53,19 @@ The five structural retirements that close whole classes: one dispatch front doo
 | **P3** | Re-triage demoted seeds | rename-lane family and supersede family re-scope against the post-settlement seam; load trio verify-or-reap |
 
 Chess-dogfood seeds ([[per-project-agent-fallback-order]], [[codex-zero-exit-auth-failure-advances-agent-order]], [[blocker-contract-credits-existing-section]]) and display/TUI seeds ([[pipeline-list-display-retention]], [[tui-dock-command-grammar-mirrors-cli]], [[tui-typed-run-steering-clears-command-input]], [[full-light-review-pipeline]], [[cleanup-improvements]], [[ready-gate-repair-out-of-diff-edits]], [[implement-retirement-destroys-artifacts-before-materialization]], [[implement-resumes-stalled-unmerged-subspec-chain]]) keep their prior priorities; schedule them between restructure landings.
+
+## Prompt corpus (2026-08-29 review)
+
+Six seeds from the 2026-08-29 prompt review (49 files / ~1,700 lines under `prompts/` plus `shared/prompts/` assembly; every file classified live-v2 / live-v1 / both / dead against both engines), added in #3079:
+
+| P | Seed | Rationale |
+| --- | --- | --- |
+| **P1** (small, any time) | [[split-spec-guidance-agent-core]] | Stops injecting all 30KB of `spec-guidance.md` into every plan/intent invocation (5–7 renders/plan run); the only prompt seed with a recurring dollar payoff. Independent of the restructures |
+| **P2** (cheap, any time) | [[prompt-corpus-dead-weight-sweep]] | 4 dead prompt files, the phantom `patch.prompt.review-actuator` id, the consumer-less `promptIds` field, an unreachable v1 critic branch; same dead-surface class as [[dead-export-and-test-seam-gates]] |
+| **P2** (after the guidance split) | [[plan-draft-rules-single-source]] | Failing-test / guard-inversion / agent-verifiable-AC rules each ship twice, worded differently; needs the agent-core home to exist first. Note the guard-inversion half retires with [[retire-mutation-checkpoint-dsl]] — sequence after it so the rule is not consolidated then deleted |
+| **P2** (between restructure landings) | [[terse-review-role-prompts]] | Converge plan/implement review roles to the intent family's style (~⅓ the size); fold the patch/implement byte-duplication; content-only, no structural coupling |
+| **P2** | [[declarative-prompt-fragment-policy]] | Same defect mechanism as the dispatch-parity class ("assembled twice, one copy stale") — the prompt-layer instance; slot with the structural retirements |
+| **P3** | [[implement-owns-its-prompt-ids]] | Biggest churn, least urgency; v2 implement still runs on `patch.prompt.body`; sequence after terse-review-roles + fragment-policy so the same artifacts are not rewritten twice; pairs with the rename-lane re-triage |
 
 ## CLI surface verdicts (2026-08-29 inventory)
 
@@ -55,5 +78,6 @@ Keep: `daemon start|status|stop` (runtime-smoke verifier shells them), `run list
 - Demoted to seeds with inline notes: `concurrent-load-suite-margin-check`, `daemon-test-concurrent-load-isolation`, `workflow-runner-test-concurrent-load-isolation` (verify-or-reap), `rename-pipeline-lane-{persistence,rpc,execution,operator-surfaces}` (post-settlement; persistence slice absorbs the `workflowInvocationId`→entry-run-id rename), `configure-pipeline-supersede-policy`, `settle-superseded-pipeline-prs`, `retire-superseded-pipeline-branches` (re-scope post-settlement).
 - Kept ready-intent: `daemon-start-sweeps-orphan-gate-children` (prereqs landed, orthogonal).
 - New seeds from the review and the #3060 hand-finish: the fourteen linked above.
+- 2026-08-29 PM additions: [[retire-mutation-checkpoint-dsl]] (operator ask — retires the checkpoint DSL layer, keeps diff-derived verification; P1 above); the six prompt-review seeds (#3079, see Prompt corpus above); [[implement-publication-reuses-closed-same-branch-pr]] (P0 hand-finish blocker). Reaped `deferred-settlement-resume-preserves-pr-evidence` (spec merged). Demoted `daemon-resume-honors-injected-config-path` to P3 (re-scoped; #3067 closed).
 
 Test strategy unchanged: pure functions + injected input hook for TUI; daemon/state tests for pipeline items; no assertion dropped in any split (inventory-diff before merge).

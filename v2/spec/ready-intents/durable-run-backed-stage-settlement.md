@@ -26,9 +26,11 @@ Stage terminal status and artifacts are copied by daemon wait paths, so a termin
 
 ## Acceptance criteria
 
-- [ ] State-store tests settle the same linked stage state from terminal durable workflow rows without any promise input, across completed and non-success terminal rollups, and repeated settlement is a no-op.
-- [ ] A succeeded settlement rebuilds the stage artifact from the entry run with its complete publication evidence; missing required spec or terminal-publication evidence retains the existing named failure behavior.
+- [ ] The new `state-store.test.ts` test `settles linked running stages from terminal durable entry runs idempotently` fails against the pre-fix promise-backed path and settles completed and non-success terminal rollups without promise input.
+- [ ] The settlement guard in `v2/src/persistence/state-store.test.ts` — `settles linked running stages from terminal durable entry runs idempotently`; Mutation checkpoint:
+- [ ] The new `state-store.test.ts` test `settled stage artifacts retain durable entry-run publication evidence` fails against the pre-fix path and proves succeeded settlement rebuilds complete `prNumber`/`prUrl` evidence while missing required spec or terminal-publication evidence retains the existing named failure.
 - [ ] A live linked entry run receives no terminal stage write.
+- [ ] The non-terminal-entry-run guard in `v2/src/persistence/state-store.test.ts` — `live linked entry runs receive no terminal stage write`; Mutation checkpoint:
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

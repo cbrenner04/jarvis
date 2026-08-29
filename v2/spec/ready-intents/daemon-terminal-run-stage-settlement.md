@@ -27,8 +27,9 @@ The daemon settles stages by awaiting `workflowPromisesByEntryRunId`; adoption, 
 
 ## Acceptance criteria
 
-- [ ] Daemon tests drive the same entry run to each terminal outcome while the daemon holds its promise, adopts without it, and starts after it; every path produces the same durable stage row and artifact evidence.
-- [ ] Terminal-run handling and startup settlement are idempotent and continue the pipeline at most once after an applied stage transition.
+- [ ] The new `daemon-pipeline-start.test.ts` test `terminal entry runs settle linked stages with or without a local workflow promise` fails against the pre-fix promise-owned path and proves matching durable stage rows and artifact evidence for held, adopted, and startup-observed terminal runs.
+- [ ] The terminal-event and startup continuation guard in `v2/src/daemon/daemon-pipeline-start.test.ts` — `terminal entry runs settle linked stages with or without a local workflow promise`; Mutation checkpoint:
+- [ ] The new `daemon-pipeline-start.test.ts` test `terminal stage settlement continues a pipeline at most once` fails against the pre-fix separate continuation paths and proves repeated terminal handling and startup settlement are idempotent.
 - [ ] No covered path writes `settlement_deferred`, and the marker plus resume/start redrive predicates are absent from production code.
 - [ ] `pipeline_resume` no longer carries special deferred-settlement admission or the two-resume recovery choreography.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.

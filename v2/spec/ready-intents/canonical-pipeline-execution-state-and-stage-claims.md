@@ -6,7 +6,7 @@ name: canonical-pipeline-execution-state-and-stage-claims
 
 ## Prerequisites
 
-- Persistence idempotently maps terminal durable workflow rows onto every linked running stage, including terminal status, artifacts, publication evidence, and failure detail, while leaving live runs unchanged.
+- Pipeline stages durably record their admitted entry-run ID before later execution-loop ownership decisions.
 
 ## Module-boundary surface
 
@@ -25,9 +25,10 @@ Pipeline execution guards one stage row with both durable admission and process-
 
 ## Acceptance criteria
 
-- [ ] A concurrency regression proves adoption of an already-dispatched stage is refused by the durable claim and fails against the pre-fix process-local claim path.
+- [ ] The new `pipeline-execution.test.ts` test `adoption of an already-dispatched stage loses the durable claim without a second dispatch` fails against the pre-fix process-local claim path and proves the loser neither dispatches nor settles.
+- [ ] The adoption guard in `v2/src/daemon/pipeline-execution.test.ts` — `adoption of an already-dispatched stage loses the durable claim without a second dispatch`; Mutation checkpoint:
 - [ ] Dispatch, adoption, and recovery use the durable stage claim; process-local same-row claim code is absent.
-- [ ] Linear and fan-out derivation tests exercise one implementation with no assertion dropped, and existing state outcomes stay green.
+- [ ] `v2/src/daemon/pipeline-execution.test.ts` tests `reports running when any workflow stage row reads running`, `failed-plus-running fan-out rows derive running`, `rejected-plus-running fan-out rows derive running`, and `all-settled fan-out rows with at least one failure derive failed` stay green with no assertion dropped.
 - [ ] Pipeline and stage in-flight callers consume the canonical derivation instead of independent status predicates.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 

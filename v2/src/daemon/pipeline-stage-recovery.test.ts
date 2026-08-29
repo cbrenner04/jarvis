@@ -1,16 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
-import type {
-  AnyWorkflowStep,
-  ReviewDebateWorkflowStep,
-  ReviewWorkflowStep,
-  WriteWorkflowStep,
+import {
+  type AnyWorkflowStep,
+  type ReviewDebateWorkflowStep,
+  type ReviewWorkflowStep,
+  recoverPlanStage,
+  type WriteWorkflowStep,
 } from "../execution/workflow-runner.ts";
 import type { LogEvent, LogSink, PersistedRecord } from "../persistence/log-stream.ts";
 import type { Pipeline, PipelineContext, PipelineStageRecord, Run, StateStore } from "../persistence/state-store.ts";
@@ -372,6 +373,142 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
     // Keystone checkpoint: rebinding the recovered step/landing to the raw re-resolved step
     // restores redraft-shaped output (the stale, freshly-resolved durablePath) — must go RED.
     // @mutate v2/src/daemon/pipeline-stage-recovery.ts "landing: { ...reviewStep.landing, durablePath: entryRun.specPath }," -> "landing: reviewStep.landing,"
+  });
+
+  test("resolves a review-failed plan stage through pipeline recovery", async () => {
+    const worktreePath = mkdtempSync(join(tmpdir(), "pipeline-review-failed-recover-"));
+    execFileSync("git", ["init", "-q"], { cwd: worktreePath });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: worktreePath });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: worktreePath });
+    execFileSync("git", ["commit", "--allow-empty", "-qm", "base"], { cwd: worktreePath });
+    const stage = join(worktreePath, ".jarvis-plan-stage");
+    const durable = join(worktreePath, "spec", "2026-pipeline-review-failed");
+    mkdirSync(stage, { recursive: true });
+    writeFileSync(join(stage, "intent.md"), "---\nname: test\n---\n", "utf8");
+    writeFileSync(join(stage, "index.md"), "# Index\n\n- [ ] [One](./00-first.md)\n", "utf8");
+    writeFileSync(join(stage, "00-first.md"), "# One\n\n## Acceptance criteria\n\n- [ ] one\n", "utf8");
+    const branch = "plan/pipeline-review-failed";
+    const specPath = "spec/2026-pipeline-review-failed";
+    const invocationId = "pipeline-review-failed-inv";
+    const snapshot = {
+      invocationId,
+      steps: [
+        { stepId: "plan", role: "plan", expectedArtifactPath: ".jarvis-plan-stage" },
+        { stepId: "plan-review", role: "", behavior: "review-debate" as const },
+      ],
+    };
+    const planReviewConfig: AgentModelConfig = {
+      claude: { critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] } },
+      codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
+    };
+    const writeInvocations: string[] = [];
+
+    await withStateStore(async (store) => {
+      const entryRunId = store.createRun({
+        project: "demo",
+        specRef: "HEAD",
+        worktreePath,
+        branch,
+        specPath,
+        stepId: "plan",
+        workflowSnapshot: snapshot,
+      });
+      const writeAttempt = store.recordAttemptStart(entryRunId);
+      store.commitCompletionBoundary({ attemptId: writeAttempt, runStatus: "completed", outcomeKind: "done" });
+
+      const reviewRunId = store.createRun({
+        project: "demo",
+        specRef: "",
+        worktreePath,
+        branch,
+        specPath: ".jarvis-plan-stage",
+        stepId: "plan-review",
+        workflowSnapshot: snapshot,
+      });
+      const reviewAttempt = store.recordAttemptStart(reviewRunId);
+      store.commitCompletionBoundary({
+        attemptId: reviewAttempt,
+        runStatus: "failed",
+        outcomeKind: "idle_output_timeout",
+      });
+
+      const pipelineId = store.createPipeline({ definition: SINGLE_DEFINITION, context: CONTEXT });
+      store.updateStage({
+        pipelineId,
+        stageId: "intent",
+        patch: {
+          status: "succeeded",
+          workflowInvocationId: "run-intent",
+          artifact: { entryRunId: "run-intent", specPath: "ready-intents/solo.md" },
+        },
+      });
+      store.updateStage({
+        pipelineId,
+        stageId: "plan",
+        branchKey: "default",
+        patch: { status: "failed", workflowInvocationId: entryRunId, failureDetail: { message: "review failed" } },
+      });
+
+      const reviewStep: ReviewWorkflowStep = {
+        behavior: "review",
+        stepId: "plan-review",
+        project: "demo",
+        branch,
+        cwd: worktreePath,
+        prompt: "",
+        verdictPath: join(stage, "verdict-plan.md"),
+        maxCycles: 1,
+        agents: { critic: ["claude"], actuator: ["codex"] },
+        agentModelConfig: planReviewConfig,
+        profile: planReviewPromptProfile,
+        profileContext: { specPath: stage, worktreePath },
+        landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: durable },
+        createBinding: ({ agentId }) => {
+          writeInvocations.push(agentId);
+          return {
+            id: agentId,
+            metadata: { agent: agentId, model: agentId },
+            invoke: async () =>
+              agentId === "claude"
+                ? ({ kind: "ok", stdout: "Looks good", stderr: "" } as const)
+                : ({ kind: "ok", stdout: "done", stderr: "" } as const),
+          };
+        },
+      };
+
+      const resolution = await resolveBlockedPlanStageRecoveryTarget(
+        { pipelineId, branchKey: "default" },
+        {
+          store,
+          resolveStage: stubResolveSteps([
+            { behavior: "write", stepId: "plan" } as unknown as AnyWorkflowStep,
+            reviewStep,
+          ]),
+        },
+      );
+
+      // @mutate v2/src/daemon/pipeline-stage-recovery.ts "if (!isPlanStageEntryRunRecoverable(entryRun, store, reviewStep.stepId)) {" -> "if (false) {"
+      expect(resolution.ok).toBe(true);
+      if (!resolution.ok) throw new Error("expected an admitted recovery target");
+      expect(resolution.target.steps).toHaveLength(1);
+      expect(resolution.target.steps[0]?.behavior).toBe("review");
+
+      const outcome = await recoverPlanStage({
+        runId: resolution.target.runId,
+        project: resolution.target.project,
+        branch: resolution.target.branch,
+        worktreePath: resolution.target.worktreePath,
+        writeStepId: resolution.target.writeStepId,
+        steps: resolution.target.steps,
+        stateStore: store,
+      });
+
+      expect(outcome.ok).toBe(true);
+      if (!outcome.ok) throw new Error("unreachable");
+      expect(outcome.kind).toBe("complete");
+      expect(writeInvocations).toEqual(["claude", "codex"]);
+      expect(existsSync(join(durable, "00-first.md"))).toBe(true);
+    });
   });
 
   test("refuses an unresolvable pipeline or branch recovery target with a named reason", async () => {

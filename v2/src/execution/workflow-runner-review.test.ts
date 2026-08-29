@@ -531,7 +531,7 @@ describe("executeWorkflow implement patch light review", () => {
         id: `${agentId}/${adapterModel}`,
         invoke: (() => {
           let criticCalls = 0;
-          return async ({ prompt, cwd }: { prompt: string; cwd: string }) => {
+          return async ({ cwd }: { prompt: string; cwd: string }) => {
             if (adapterModel === "CRIT") {
               criticCalls += 1;
               if (criticCalls === 1) {

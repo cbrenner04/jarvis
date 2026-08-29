@@ -202,6 +202,29 @@ function failureDetailForEntryRun(
   return composed ?? { reason: "harness_failure", retryable: false, nextAction: "stop" as const };
 }
 
+function terminalPublicationStageRequiresPrEvidence(store: StateStore, stageTarget: PipelineStageTarget): boolean {
+  const pipeline = store.loadPipeline(stageTarget.pipelineId);
+  if (pipeline === null) return false;
+  const definition = pipeline.definition;
+  if (definition === undefined) return false;
+  const record = pipeline.stages.find(
+    (stage) =>
+      stage.stageId === stageTarget.stageId &&
+      stage.branchKey === (stageTarget.branchKey ?? DEFAULT_PIPELINE_STAGE_BRANCH_KEY),
+  );
+  if (!isDeferredSettlementMarker(record?.failureDetail as { code?: string; reason?: string } | null | undefined)) {
+    return false;
+  }
+  const terminalAction = definition.terminalAction;
+  if (terminalAction !== "ready" && terminalAction !== "merge") return false;
+  for (let index = definition.stages.length - 1; index >= 0; index -= 1) {
+    const stage = definition.stages[index];
+    if (stage?.kind !== "workflow") continue;
+    return stage.stageId === stageTarget.stageId;
+  }
+  return false;
+}
+
 function applyEntryRunSettlement(args: {
   store: StateStore;
   stageTarget: PipelineStageTarget;
@@ -213,15 +236,24 @@ function applyEntryRunSettlement(args: {
   const { store, stageTarget, entryRunId, invocationId, rollupStatus, loadLogRecords } = args;
   if (rollupStatus === "completed") {
     const entryRun = store.loadRun(entryRunId);
-    if (entryRun?.specPath === undefined) {
+    const missingPublicationEvidence =
+      entryRun !== null &&
+      terminalPublicationStageRequiresPrEvidence(store, stageTarget) &&
+      (entryRun.prNumber == null || entryRun.prUrl == null);
+    if (entryRun?.specPath === undefined || missingPublicationEvidence) {
       store.updateStage({
         ...stageTarget,
         patch: {
           status: "failed",
           endedAt: Date.now(),
-          failureDetail: {
-            message: `pipeline-stage-dispatch: entry run ${entryRunId} completed without a recorded spec path`,
-          },
+          failureDetail: missingPublicationEvidence
+            ? {
+                code: "completion_publication_missing_pr_evidence",
+                message: `completion publication left no confirmed PR evidence on linked entry run ${entryRunId}`,
+              }
+            : {
+                message: `pipeline-stage-dispatch: entry run ${entryRunId} completed without a recorded spec path`,
+              },
         },
       });
       return;

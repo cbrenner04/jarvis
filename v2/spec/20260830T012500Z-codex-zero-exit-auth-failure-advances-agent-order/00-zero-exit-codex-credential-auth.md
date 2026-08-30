@@ -1,0 +1,49 @@
+# Zero-exit codex credential-auth
+
+## Primary implementation surface
+
+Execution loop: the shared codex invocation settle classifier in `shared/invocation/agents.ts` (`settleZeroExit`, `codexCredentialAuthPatterns`).
+
+## Problem
+
+A codex invocation that does nothing but fail credential auth exits `0`, so `settleZeroExit` settles `{kind: "ok"}`. Its non-claude branch tests combined `${errBuf}${outBuf}` against `quotaPatternsFor("codex")` only (usage/rate-limit phrases), and `isCredentialAuthSignal` hard-returns `false` on `exitCode === 0` and is reachable only from `settleNonZeroExit`. The write loop then sees a successful iteration with no file changes and no completion token → `invocation_failure` (`resumable: false`), and the pipeline stage settles `invocation_error` / `nextAction: stop` while a healthy next agent sits unused in the order.
+
+Observed 2026-08-28 (#3027): pipeline `af881ac0` on `cbrenner04/chess-mvp-yolo`, run `045b445a`, lane `game-model-check-exposure` — a fresh `codex exec` after the ChatGPT refresh token expired emitted ~26s of `401 Unauthorized` / `Failed to refresh token: … please log out and sign in again` with zero tool activity and exited `0`. `codexCredentialAuthPatterns` already matches that text verbatim (`/\bplease log out and sign in\b/i`), but nothing consults it on the zero-exit path; cursor was next in the order and healthy, and the lane died instead of advancing.
+
+**Stream attribution (run `045b445a`, write-loop iteration 2):** session log `~/.jarvis/sessions/045b445a-f57e-4cb9-8b25-9ef88c2d69d9-2026-08-28T18-25-36.311Z.log` — `Failed to refresh token: … Please log out and sign in again` appears only on `[inbound_stderr]` lines (e.g. line 139); the file has no `[inbound_stdout]` entries for that binding. `logBindingInbound` (`shared/invocation/execute.ts:154-161`) tags spawn `result.stdout` and `result.stderr` separately for `ok` results; here the binding settled non-`ok`, so only `[inbound_stderr]` is emitted, but the auth phrase is absent from every `[inbound_stdout]` line in the file. At the spawn layer the predicate reads `errBuf` (child stderr), where this text landed.
+
+## Decisions
+
+- `settleZeroExit`'s non-claude branch tests `codexCredentialAuthPatterns` and settles `{kind: "quota", authFailure: true}` on a match; rules out leaving the zero-exit path with no auth defense.
+- **Intent divergence — "no productive work":** the intent gates auth reclassification on "no productive work"; `singleSpawn` has no file-change signal, v2's write loop rotates bindings inside `executeWithQuotaFallback` before the caller can observe progress, and no v2 call site overrides `shouldAdvance` (`execute.ts:241`), so that clause is unimplementable at this layer. **Accepted proxy:** any zero-exit match where the auth phrase appears in `errBuf` (spawn stderr). **Accepted regression class:** a productive zero-exit codex run that emits auth-matching text on stderr settles `quota`, discarding that iteration's work and its usage/cost telemetry (`createInvocationCompletedRecord` records `unavailable`/`null` for non-`ok`). Porting v1's lenient-guard precedent is a separate executor-contract change and is out of scope here.
+- **Pattern-list audit:** reuse the full `codexCredentialAuthPatterns` list on the zero-exit path (not a named subset). Member-by-member: `refresh token was revoked`, `refresh token revoked`, `log out and sign in`, and `please log out and sign in` are verified credential-auth phrases; `/\bre-?authenticate/i` and `/\bre-?authentication required\b/i` are unverified best-effort (no sample yet); `/--skip-git-repo-check was not specified/i` is a trusted-directory refusal, not credential auth, but on exit `0` it is also a did-nothing condition, so reclassifying it is acceptable. The list name drives rotation for at least one non-credential condition — doc prose says "the committed codex credential-auth patterns", not that every member is credential auth.
+- That check is gated to `config.classifier === "codex"`; rules out applying codex-scoped auth phrasing to zero-exit cursor and opencode invocations, whose auth patterns are still deferred to a first sample.
+- The zero-exit auth predicate reads `errBuf` alone, not the combined stderr+stdout the zero-exit quota check uses; rules out false-positiving a healthy run whose stdout merely quotes "log out and sign in".
+- The settled `stderr` payload stays the combined `${errBuf}${outBuf}` diagnostics used by sibling settle branches; rules out narrowing operator-visible diagnostics just because the predicate narrowed.
+- The auth check runs before the zero-exit quota-pattern check, mirroring non-zero precedence (transient → auth → quota → model_config).
+- `isCredentialAuthSignal` and `settleNonZeroExit` stay unchanged; rules out relaxing the non-zero exit-code gate or widening non-zero diagnostics scope as part of this fix.
+- `v1/src/agents/spawn.ts` keeps its duplicate classifier untouched — v1 is maintenance-only and settles `ok` on every exit `0`; rules out a speculative v1 parallel edit.
+- When codex is last in the order, this reclassification changes the terminal failure mode from `invocation_error`/`stop` to quota-exhausted — same shape already accepted for non-zero auth and zero-exit quota.
+- `authFailure` is inert in v2: every consumer of the marker is v1 (`iteration.ts`, `shrink.ts`, `review.ts`, `prompt/run.ts`, `emit-plan-quota-stderr.ts`); v2 advances on `kind === "quota"` alone and the marker reaches no telemetry field. Emitting it anyway matches the sibling non-zero branch; v2 gets no auth-specific operator note — adding one is separate work.
+
+## Tasks
+
+- In `settleZeroExit`'s non-claude branch, test `errBuf` alone against `codexCredentialAuthPatterns` when the classifier is `codex`, before the combined-diagnostics quota check; on a match settle kind `quota` with `authFailure: true` and the same combined stderr+stdout `stderr` payload the neighboring quota branch uses.
+- Add the tests named in the acceptance criteria to `shared/invocation/agents.test.ts`.
+- Align durable docs per Documentation updates.
+
+## Acceptance criteria
+
+- [x] A new `shared/invocation/agents.test.ts` test drives the codex binding through a spawn that exits `0` with `Failed to refresh token: … please log out and sign in again` on stderr, nonempty stdout (e.g. banner text), and asserts `{kind: "quota", stderr: <combined stderr+stdout diagnostics>, authFailure: true}`; it fails against the pre-fix code, which settles `{kind: "ok"}`.
+- [x] A new `shared/invocation/agents.test.ts` test drives the codex binding through a spawn that exits `0` with empty stderr and productive stdout quoting `please log out and sign in`, and asserts `kind: "ok"`; it guards the stderr-only match scope and fails against an implementation of this change that matches combined stderr+stdout.
+- [x] A new `shared/invocation/agents.test.ts` test drives the codex binding through a spawn that exits `0` with productive stdout and auth-matching text on stderr, and asserts `{kind: "quota", authFailure: true}`; it pins the accepted regression from the intent divergence (productive work discarded on stderr auth match) and fails against the pre-fix code, which settles `{kind: "ok"}`.
+- [x] A new `shared/invocation/agents.test.ts` test runs `executeWithQuotaFallback` with the zero-exit auth-failing codex binding first and a second binding after it, and asserts two attempts, the second binding invoked, and the final result from that second binding; it fails against the pre-fix code, which records one attempt and finalizes on codex's `ok`.
+- [x] A new `shared/invocation/agents.test.ts` test drives a zero-exit cursor binding with auth-shaped stderr and asserts `kind: "ok"`; it guards the `config.classifier === "codex"` gate.
+- [x] `shared/invocation/agents.test.ts` tests `codex binding classifies zero-exit quota patterns`, `codex binding classifies quota (ASCII and U+2019), model config, and generic errors`, and `codex trusted-directory refusal advances fallback` stay green (zero-exit quota and non-zero classification unchanged).
+- [x] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` pass (shared surface).
+
+## Documentation updates
+
+- `v2/docs/shared-invocation.md` — the resolved-codex-binding paragraph states that a zero-exit invocation whose stderr matches the committed codex credential-auth patterns settles `quota` with `authFailure: true` so fallback advances; note the match reads stderr only while the settled diagnostics carry stderr+stdout.
+- `v2/docs/v1-behaviors.md` — correct the spawn-classification entry, which currently claims only non-zero exits can classify as auth at the shared spawn layer: record zero-exit codex credential-auth reclassification (`quota` + `authFailure: true`), its stderr-only match scope, and that it precedes the zero-exit quota check; note that when codex is last in the order the terminal failure mode is quota-exhausted rather than `invocation_error`/`stop`; scope out that v2 emits `authFailure` for symmetry but advances on `kind === "quota"` alone with no auth-specific operator note; mark it `[v2 divergence]` under the codex adapter entry, since v1's `spawn.ts` still settles `ok` on exit `0`.
+- `v1/docs/quota-signals.md` — line 3 (`0` is never quota or transient at the shared spawn layer) is stale against the zero-exit quota text at `:189` and falsified by this change; update it. The Codex section and the v2 `codexCredentialAuthPatterns` audit table under `## v2 shared Codex classifier` (`:380`) record zero-exit stderr-only auth reclassification at the shared layer plus the 2026-08-28 zero-exit `401 Unauthorized` / refresh-token sample (exit `0`, stderr); scope the "Known limitation" note (classification requires a non-zero exit code) to v1's `src/agents/spawn.ts`, which is unchanged. Do not add the sample to v1's table at `:252`.

@@ -1,6 +1,6 @@
 # Quota Signals & Transient Errors
 
-Jarvis classifies quota exhaustion and transient transport errors after an agent CLI exits non-zero. Exit codes are not documented as stable by the vendors, so the implementation treats the exit code as a guard (`0` is never quota or transient at the shared spawn layer) and matches stderr text patterns. **Exception:** the Claude adapter reclassifies a verified exit-`0` JSON error envelope before accepting `kind: "ok"` (see [Claude](#claude)).
+Jarvis classifies quota exhaustion and transient transport errors after an agent CLI exits non-zero. Exit codes are not documented as stable by the vendors, so the implementation treats the exit code as a guard (`0` is never transient at the shared spawn layer; quota and credential-auth reclassification on exit `0` is adapter-specific — see [Claude](#claude) and [Codex](#codex)) and matches stderr text patterns.
 
 ## Transient transport errors
 
@@ -28,7 +28,7 @@ A credential or auth failure is a durable session/token error (refresh token rev
 
 Patterns are **scoped per-agent**: Codex has verified auth patterns; Claude and Cursor patterns are deferred to the first real sample. This rules out false positives from broad cross-agent matching. When every agent is exhausted by auth and/or quota, the run terminates via the existing quota-exhaustion path (exit 2).
 
-**Known limitation:** Classification requires a non-zero exit code; an exit-0 CLI emitting auth-failure stderr (if one exists) would return `kind: "ok"` without rotating. This is within the stderr-driven, exit-code-unconfirmed scope, but represents residual risk if a sample exits 0.
+**Known limitation:** Classification in v1's `src/agents/spawn.ts` requires a non-zero exit code; an exit-0 CLI emitting auth-failure stderr would return `kind: "ok"` without rotating. v2's shared classifier reclassifies zero-exit codex credential-auth on stderr (see [Codex](#codex) and [v2 shared Codex classifier](#v2-shared-codex-classifier-sharedinvocationagentsts)).
 
 ## Quota fallback
 
@@ -186,7 +186,7 @@ sample below is exit-`0` JSON on stdout.
 
 ## Codex
 
-Codex quota detection now covers both non-zero exits and zero exits. On zero exit, the spawn layer checks combined stderr+stdout against the committed `codexQuotaPatterns` list; when a pattern matches, the result is reclassified from `ok` to `quota` before returning to the binding caller. This mirrors non-zero exit detection and allows fallback to advance when a quota exhaustion exits cleanly. Non-zero exit detection and credential/auth patterns are unchanged.
+Codex quota detection now covers both non-zero exits and zero exits. On zero exit, the spawn layer checks combined stderr+stdout against the committed `codexQuotaPatterns` list; when a pattern matches, the result is reclassified from `ok` to `quota` before returning to the binding caller. This mirrors non-zero exit detection and allows fallback to advance when a quota exhaustion exits cleanly. Non-zero exit detection and credential/auth patterns are unchanged. v2's shared classifier additionally reclassifies zero-exit stderr matching `codexCredentialAuthPatterns` to `quota` with `authFailure: true` (stderr-only match, precedes zero-exit quota check).
 
 ### Observed credential/auth stderr (real samples)
 
@@ -194,6 +194,13 @@ Codex quota detection now covers both non-zero exits and zero exits. On zero exi
 
   ```text
   Your access token could not be refreshed because your refresh token was revoked. Please log out and sign in again.
+  ```
+
+- 2026-08-28 — Codex refresh token expired (exit `0`, stderr); classified by v2 `shared/invocation/agents.ts` only
+
+  ```text
+  401 Unauthorized
+  Failed to refresh token: … Please log out and sign in again
   ```
 
 - 2026-08-29 — Codex trusted-directory refusal (exit non-zero, stderr); classified by v2 `shared/invocation/agents.ts` only
@@ -251,6 +258,8 @@ Status key:
 
 ### `codexCredentialAuthPatterns`
 
+Non-zero exit and zero-exit stderr-only auth detection (v2 shared classifier; v1 non-zero only).
+
 - `/\\brefresh token was revoked\\b/i` — Matched.
   Sample link: 2026-06-25 (refresh token revoked).
 - `/\\brefresh token revoked\\b/i` — Matched.
@@ -258,7 +267,7 @@ Status key:
 - `/\\blog out and sign in\\b/i` — Matched.
   Sample link: 2026-06-25 (refresh token revoked).
 - `/\\bplease log out and sign in\\b/i` — Matched.
-  Sample link: 2026-06-25 (refresh token revoked).
+  Sample link: 2026-06-25 (refresh token revoked); 2026-08-28 (zero-exit `401 Unauthorized` / refresh-token failure, stderr; v2 shared classifier only).
 - `/\\bre-?authenticate/i` — Unverified best-effort.
   Sample link: none yet.
 - `/\\bre-?authentication required\\b/i` — Unverified best-effort.
@@ -379,8 +388,12 @@ Git/gh-specific transient patterns used by `isTransientNetworkError` and the bou
 
 ### `codexCredentialAuthPatterns`
 
+Non-zero exit and zero-exit stderr-only auth detection.
+
 - `/--skip-git-repo-check was not specified/i` — Matched.
   Sample link: 2026-08-29 (trusted-directory refusal; v2 shared classifier only).
+- `/\\bplease log out and sign in\\b/i` — Matched.
+  Sample link: 2026-08-28 (zero-exit `401 Unauthorized` / refresh-token failure, stderr).
 
 ## Follow-up TODOs
 

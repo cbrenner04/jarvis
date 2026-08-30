@@ -741,6 +741,90 @@ describe("createResolvedAgentBinding", () => {
     expect(result.final?.result).toEqual({ kind: "ok", stdout: "done", stderr: "" });
   });
 
+  test("codex zero-exit credential-auth on stderr settles quota with authFailure", async () => {
+    const stderr = "401 Unauthorized\nFailed to refresh token: abc123. Please log out and sign in again";
+    const stdout = "codex banner text\n";
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout, stderr }]);
+
+    const result = await createResolvedAgentBinding(
+      { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
+      { spawn: fake.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toEqual({
+      kind: "quota",
+      stderr: `${stderr}${stdout}`,
+      authFailure: true,
+    });
+  });
+
+  test("codex zero-exit auth phrase in stdout only settles ok", async () => {
+    const stdout = "please log out and sign in to continue";
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout, stderr: "" }]);
+
+    const result = await createResolvedAgentBinding(
+      { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
+      { spawn: fake.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toMatchObject({ kind: "ok", stdout, stderr: "" });
+  });
+
+  test("codex zero-exit productive stdout with auth stderr settles quota", async () => {
+    const stdout = "completed implementation\n";
+    const stderr = "please log out and sign in again";
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout, stderr }]);
+
+    const result = await createResolvedAgentBinding(
+      { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
+      { spawn: fake.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toEqual({
+      kind: "quota",
+      stderr: `${stderr}${stdout}`,
+      authFailure: true,
+    });
+  });
+
+  test("codex zero-exit credential-auth advances fallback order", async () => {
+    const sessionsDir = mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-"));
+    const stderr = "Failed to refresh token. Please log out and sign in again";
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: "banner", stderr }]);
+    const result = await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/repo",
+      bindings: [
+        createResolvedAgentBinding(
+          { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
+          codexBindingOpts(sessionsDir, fake.spawn),
+        ),
+        { id: "next", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) },
+      ],
+    });
+
+    expect(result.attempts).toHaveLength(2);
+    expect(result.attempts[0]?.result).toEqual({
+      kind: "quota",
+      stderr: `${stderr}banner`,
+      authFailure: true,
+    });
+    expect(result.attempts[1]?.binding.id).toBe("next");
+    expect(result.final?.result).toEqual({ kind: "ok", stdout: "done", stderr: "" });
+  });
+
+  test("cursor zero-exit auth-shaped stderr settles ok", async () => {
+    const stderr = "please log out and sign in again";
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: "done", stderr }]);
+
+    const result = await createResolvedAgentBinding(
+      { agentId: "cursor", adapterModel: "GPT-5.4", priceKey: "GPT-5.4" },
+      { spawn: fake.spawn },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(result).toEqual(cursorOkNoUsage("done", stderr));
+  });
+
   test("codex binding classifies zero-exit quota patterns", async () => {
     const quotaZeroExit = fakeSpawn([{ kind: "settle", code: 0, stdout: "You've hit your usage limit", stderr: "" }]);
     const normalZeroExit = fakeSpawn([{ kind: "settle", code: 0, stdout: "completed successfully", stderr: "" }]);

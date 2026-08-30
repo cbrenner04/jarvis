@@ -304,6 +304,10 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
         }
       } else {
         const diagnostics = `${errBuf}${outBuf}`;
+        if (config.classifier === "codex" && codexCredentialAuthPatterns.some((pattern) => pattern.test(errBuf))) {
+          settle({ kind: "quota", stderr: diagnostics, authFailure: true });
+          return;
+        }
         if (quotaPatternsFor(config.classifier).some((pattern) => pattern.test(diagnostics))) {
           settle({ kind: "quota", stderr: diagnostics });
           return;

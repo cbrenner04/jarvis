@@ -25,7 +25,7 @@ Observed 2026-08-28 (#3027): pipeline `af881ac0` on `cbrenner04/chess-mvp-yolo`,
 
 - The zero-exit path consults `codexCredentialAuthPatterns` and, on a match with no productive work, settles `{kind: "quota", authFailure: true}` — rules out leaving the zero-exit path with no auth defense.
 - The zero-exit auth match reads the invocation's stderr only, not the combined stderr+stdout the zero-exit quota check uses — agent stdout can legitimately quote "log out and sign in"; rules out a false positive on a healthy run that merely narrates the phrase.
-- Zero-exit quota and `read-only` behavior is otherwise unchanged, and a productive zero-exit invocation still settles `ok` — rules out reclassifying healthy runs.
+- Zero-exit quota-pattern behavior is otherwise unchanged; a productive zero-exit invocation still settles `ok` — rules out reclassifying healthy runs.
 - `v1/src/agents/spawn.ts` keeps its own duplicate classifier and is out of scope — v1 is maintenance-only; rules out a speculative parallel edit.
 
 ## Acceptance criteria

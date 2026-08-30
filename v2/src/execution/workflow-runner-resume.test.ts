@@ -1157,6 +1157,80 @@ describe("executeWorkflow review dispatch", () => {
     }
   });
 
+  test("review-mutation resume republication settles completed with PR evidence atomically", async () => {
+    // @mutate v2/src/execution/workflow-runner.ts restoring standalone `setPrEvidence` before terminal `setRunStatus` on the resume publication success tail turns the test RED.
+    const workspace = initGitWorkspace("review-mutation-repub-atomic-");
+    const logsPath = join(workspace, "resume.jsonl");
+    try {
+      writeFileSync(join(workspace, "spec.md"), "# Spec\n\n## Acceptance criteria\n\n- [x] complete\n", "utf8");
+      execFileSync("git", ["add", "spec.md"], { cwd: workspace });
+      execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
+      const baseRef = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
+      execFileSync("git", ["branch", "-M", "main"], { cwd: workspace });
+      const prNumber = 7;
+      const prUrl = "https://example.test/pr/7";
+
+      await withStateStore(async (store) => {
+        const snapshot = reviewMutationWorkflowSnapshot("review-mutation-repub-atomic", "implement: repub-atomic");
+        const base = {
+          project: "demo",
+          specRef: baseRef,
+          worktreePath: workspace,
+          branch: "review-mutation/repub-atomic",
+          specPath: "spec.md",
+          workflowSnapshot: snapshot,
+        };
+        const writeRunId = store.createRun({ ...base, stepId: "implement" });
+        store.setRunStatus(writeRunId, "completed");
+        const writeAttemptId = store.recordAttemptStart(writeRunId);
+        store.commitCompletionBoundary({
+          attemptId: writeAttemptId,
+          runStatus: "completed",
+          outcomeKind: "done",
+          completionAgent: "codex",
+        });
+
+        const reviewRunId = store.createRun({ ...base, stepId: "implement-review" });
+        store.setRunStatus(reviewRunId, "failed");
+        const seedSink = openLogSink(logsPath);
+        seedSink.append(reviewRunId, {
+          kind: "loop_finished",
+          loopOutcomeKind: "completion_commit_failed",
+          iterationsConsumed: 0,
+          resumable: true,
+          completionCommitError: "publish failed",
+        });
+        seedSink.close();
+
+        const run = store.loadRun(reviewRunId);
+        if (!run) throw new Error("expected review run");
+        const terminalRecord = findTerminalLogRecord(openLogReader(logsPath).tail(reviewRunId));
+        const logSink = openLogSink(logsPath);
+        const outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, {
+          logSink,
+          completionCommitter: createCompletionCommitter(),
+          completionPublisher: async () => ({ pushSha: "deadbeef", prNumber, prUrl }),
+          readyFinalizer: async () => {},
+        });
+        logSink.close();
+
+        expect(outcome).toMatchObject({ ok: true, prNumber, prUrl });
+        const settledRow = store.loadRun(reviewRunId);
+        expect(settledRow).toMatchObject({
+          status: "completed",
+          prNumber,
+          prUrl,
+          terminalCause: "complete",
+        });
+        expect(settledRow?.finishedAt).not.toBeNull();
+        const terminal = findTerminalLogRecord(openLogReader(logsPath).tail(reviewRunId));
+        expect(terminal?.event).toMatchObject({ kind: "loop_finished", loopOutcomeKind: "complete" });
+      });
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
   test("mutation repair stops at its bound and reports a non-retryable operator error", async () => {
     const workspace = initGitWorkspace("review-mutation-repair-exhausted-");
     const logsPath = join(workspace, "resume.jsonl");

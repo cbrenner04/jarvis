@@ -14,6 +14,7 @@ import {
   formatReadyGateOutOfScopeDetail,
   ReadyFlipError,
   ReadyGateError,
+  RuntimeSmokeFailedError,
   SurvivingMutationError,
 } from "./ready-finalize.ts";
 import { nonEmptyDiscoveryReason } from "./runtime-smoke-verifier.ts";
@@ -434,6 +435,88 @@ describe("executeWorkflow completion publication", () => {
     });
   });
 
+  test("workflow completion publication settles PR evidence and terminal cause atomically", async () => {
+    // @mutate v2/src/execution/workflow-runner.ts restoring standalone `setPrEvidence` before terminal `setRunStatus` on the success tail turns the test RED.
+    const step1 = createStep({ stepId: "step-1", role: "implement", branchName: "atomic-workflow-pub" });
+    const step2 = createStep({ stepId: "step-2", role: "implement", branchName: "atomic-workflow-pub" });
+    const prNumber = 99;
+    const prUrl = "https://github.com/owner/repo/pull/99";
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step1, step2],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({ prNumber, prUrl }),
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+      const settledRow = store.loadRun(result.runId);
+      expect(settledRow).toMatchObject({
+        status: "completed",
+        prNumber,
+        prUrl,
+        terminalCause: "complete",
+      });
+      expect(settledRow?.finishedAt).not.toBeNull();
+    });
+  });
+
+  test("ready_flip_failed keeps completed with atomic non-resumable cause", async () => {
+    const step = createStep({
+      stepId: "publish-ready-flip-atomic",
+      role: "implement",
+      branchName: "publish-ready-flip-atomic",
+    });
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {
+          throw new Error("gh pr ready failed");
+        },
+      });
+      expect(result.kind).toBe("ready_flip_failed");
+      const settledRow = store.loadRun(result.runId);
+      expect(settledRow).toMatchObject({
+        status: "completed",
+        terminalCause: "ready_flip_failed",
+        terminalFailureDetail: {
+          failureKind: "error",
+          bindingAttempts: [],
+          message: "gh pr ready failed",
+        },
+      });
+      expect(settledRow?.finishedAt).not.toBeNull();
+    });
+  });
+
+  test("runtime_smoke_failed settles failed with atomic cause (not completed)", async () => {
+    const step = createStep({
+      stepId: "publish-runtime-smoke-failed-atomic",
+      role: "implement",
+      branchName: "publish-runtime-smoke-failed-atomic",
+    });
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {
+          throw new RuntimeSmokeFailedError("bun run v2/src/cli.ts --help", "error: command failed");
+        },
+      });
+      expect(result.kind).toBe("runtime_smoke_failed");
+      const settledRow = store.loadRun(result.runId);
+      // Only ready_flip_failed keeps the run completed; runtime_smoke_failed must settle failed.
+      expect(settledRow?.status).toBe("failed");
+      expect(settledRow?.terminalCause).toBe("runtime_smoke_failed");
+      expect(settledRow?.finishedAt).not.toBeNull();
+    });
+  });
+
   test("persists a successful not-runnable runtime smoke outcome after workflow completion", async () => {
     const step = createStep({
       stepId: "publish-runtime-smoke-not-runnable",
@@ -809,6 +892,7 @@ describe("executeWorkflow completion publication", () => {
 
       const terminal = findTerminalLogRecord([persisted]);
       const run = store.loadRun(result.runId);
+      expect(run?.terminalCause).toBe("ready_gate_out_of_scope");
       const operatorError = composeRunOperatorError(run ?? { status: "failed" }, terminal);
       expect(operatorError).toEqual({
         reason: "ready_gate_out_of_scope",
@@ -835,7 +919,7 @@ describe("executeWorkflow completion publication", () => {
           loopOutcomeKind: "ready_gate_failed",
         },
       });
-      expect(wrongKind?.reason).toBe("ready_gate_failed");
+      expect(wrongKind?.reason).toBe("ready_gate_out_of_scope");
       expect(wrongKind?.readyGateOutsidePaths).toBeUndefined();
     });
 

@@ -60,6 +60,7 @@ import type { ReadyFinalizer } from "./ready-finalize.ts";
 import {
   isResumableOutOfScopeTerminalEvidence,
   outOfScopeSettlementResumable,
+  ReadyGateError,
   readyGateFailureLogFields,
   readyGateOutOfScopeLogFields,
   SurvivingMutationError,
@@ -156,6 +157,97 @@ export function isPostCommitReviewRetryableFailureKind(
 ): boolean {
   if (detail.failureKind === "stall") return true;
   return detail.failureKind === "timeout" && !isExhaustedRoleTimeout(detail);
+}
+
+function terminalFailureDetailFromError(error?: Error, fallbackMessage?: string): InvocationFailureDetail {
+  const message = error?.message || fallbackMessage || "harness failure";
+  return { failureKind: "error", bindingAttempts: [], message };
+}
+
+function readyGateTerminalFailureDetail(error?: Error): InvocationFailureDetail {
+  if (error instanceof ReadyGateError) {
+    const output = error.output.trim().slice(-4096);
+    const message =
+      output.length > 0 ? `ready gate failed (exit ${String(error.exitCode ?? "unknown")}): ${output}` : error.command;
+    return { failureKind: "error", bindingAttempts: [], message };
+  }
+  return terminalFailureDetailFromError(error, "ready gate failed");
+}
+
+function landingFailedTerminalFailureDetail(message?: string): InvocationFailureDetail | undefined {
+  if (message === undefined || message.length === 0) return undefined;
+  return { failureKind: "error", bindingAttempts: [], message };
+}
+
+function completionBoundarySettlementFields(
+  terminalCause: WriteLoopOutcomeKind,
+  terminalFailureDetail?: InvocationFailureDetail,
+): {
+  terminalCause: WriteLoopOutcomeKind;
+  terminalFailureDetail?: InvocationFailureDetail;
+} {
+  return {
+    terminalCause,
+    ...(terminalFailureDetail !== undefined ? { terminalFailureDetail } : {}),
+  };
+}
+
+function settleCompletedPublication(store: StateStore, runId: string, prNumber?: number, prUrl?: string): void {
+  store.commitTerminalRunSettlement({
+    runId,
+    status: "completed",
+    terminalCause: "complete",
+    ...(prNumber !== undefined ? { prNumber } : {}),
+    ...(prUrl !== undefined ? { prUrl } : {}),
+  });
+}
+
+type WorkflowPublicationFailureKind =
+  | "completion_commit_failed"
+  | "ready_gate_failed"
+  | "ready_gate_command_missing"
+  | "ready_gate_out_of_scope"
+  | "ready_flip_failed"
+  | "surviving_mutation_failed"
+  | "runtime_smoke_failed";
+
+function workflowPublicationFailureTerminalDetail(
+  kind: WorkflowPublicationFailureKind,
+  error?: Error,
+): InvocationFailureDetail | undefined {
+  if (kind === "surviving_mutation_failed") return terminalFailureDetailFromError(error);
+  if (kind === "ready_gate_failed" || kind === "ready_gate_command_missing" || kind === "ready_gate_out_of_scope") {
+    return readyGateTerminalFailureDetail(error);
+  }
+  if (kind === "runtime_smoke_failed") return terminalFailureDetailFromError(error, "runtime smoke failed");
+  if (kind === "ready_flip_failed") return terminalFailureDetailFromError(error, "ready flip failed");
+  if (kind === "completion_commit_failed") {
+    return terminalFailureDetailFromError(error, error?.message ?? "completion commit failed");
+  }
+  return undefined;
+}
+
+function settleWorkflowPublicationFailure(
+  store: StateStore,
+  runId: string,
+  kind: WorkflowPublicationFailureKind,
+  error?: Error,
+  prNumber?: number,
+  prUrl?: string,
+): void {
+  // Only ready_flip_failed keeps the run completed (the commit landed; the draft→ready flip is a
+  // post-completion PR-state fix). Every other publication failure kind — including
+  // runtime_smoke_failed — settles failed, matching the resume path and the pre-atomic inline path.
+  const terminalStatus = kind === "ready_flip_failed" ? "completed" : "failed";
+  const terminalFailureDetail = workflowPublicationFailureTerminalDetail(kind, error);
+  store.commitTerminalRunSettlement({
+    runId,
+    status: terminalStatus,
+    terminalCause: kind,
+    ...(terminalFailureDetail !== undefined ? { terminalFailureDetail } : {}),
+    ...(prNumber !== undefined ? { prNumber } : {}),
+    ...(prUrl !== undefined ? { prUrl } : {}),
+  });
 }
 
 /** Post-implement-commit shrink outcomes that resume at the hidden `~shrink` row without re-invoking implement. */
@@ -899,7 +991,12 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       completionStep.publishCompletion !== false
     ) {
       const message = "no completion agent available to attribute the publication commit";
-      store.setRunStatus(lastResult.runId, "failed");
+      store.commitTerminalRunSettlement({
+        runId: lastResult.runId,
+        status: "failed",
+        terminalCause: "invocation_failure",
+        terminalFailureDetail: terminalFailureDetailFromError(undefined, message),
+      });
       args.logSink?.append(lastResult.runId, {
         kind: "loop_finished",
         loopOutcomeKind: "invocation_failure",
@@ -946,7 +1043,13 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        store.setRunStatus(lastResult.runId, "failed");
+        const landingDetail = landingFailedTerminalFailureDetail(message);
+        store.commitTerminalRunSettlement({
+          runId: lastResult.runId,
+          status: "failed",
+          terminalCause: "landing_failed",
+          ...(landingDetail !== undefined ? { terminalFailureDetail: landingDetail } : {}),
+        });
         args.logSink?.append(lastResult.runId, {
           kind: "loop_finished",
           loopOutcomeKind: "landing_failed",
@@ -1028,7 +1131,12 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             const namedPaths = [...new Set([...uncommitted, ...remainingStaged])];
             if (namedPaths.length > 0) {
               const uncommittedChangesMessage = `Uncommitted changes: ${namedPaths.join(", ")}`;
-              store.setRunStatus(lastResult.runId, "failed");
+              settleWorkflowPublicationFailure(
+                store,
+                lastResult.runId,
+                "completion_commit_failed",
+                new Error(uncommittedChangesMessage),
+              );
               args.logSink?.append(lastResult.runId, {
                 kind: "loop_finished",
                 loopOutcomeKind: "completion_commit_failed",
@@ -1182,7 +1290,14 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               // The row was marked `in-progress` for the finalization tail, so both branches must
               // restore a terminal status. A flip failure keeps its documented `completed` status;
               // leaving `in-progress` strands it non-live and hangs `run wait`.
-              store.setRunStatus(lastResult.runId, isFlipFailure ? "completed" : "failed");
+              settleWorkflowPublicationFailure(
+                store,
+                lastResult.runId,
+                publication.failure.kind,
+                publication.failure.error,
+                publication.failure.prNumber,
+                publication.failure.prUrl,
+              );
               traceCompletionPublication(
                 args.logSink,
                 lastResult.runId,
@@ -1226,15 +1341,26 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               publication.success.prNumber !== undefined &&
               publication.success.prUrl !== undefined
             ) {
-              store.setPrEvidence(lastResult.runId, publication.success.prNumber, publication.success.prUrl);
+              settleCompletedPublication(
+                store,
+                lastResult.runId,
+                publication.success.prNumber,
+                publication.success.prUrl,
+              );
+            } else {
+              settleCompletedPublication(store, lastResult.runId);
             }
-            store.setRunStatus(lastResult.runId, "completed");
             traceCompletionPublication(args.logSink, lastResult.runId, completionStep.landing, worktree.branchName);
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           const completionCommitErrorMessage = message;
-          store.setRunStatus(lastResult.runId, "failed");
+          settleWorkflowPublicationFailure(
+            store,
+            lastResult.runId,
+            "completion_commit_failed",
+            error instanceof Error ? error : new Error(message),
+          );
           args.logSink?.append(lastResult.runId, {
             kind: "loop_finished",
             loopOutcomeKind: "completion_commit_failed",
@@ -2201,6 +2327,7 @@ function commitReviewDebateOutcome(
       runStatus: "failed",
       outcomeKind: "invocation_failure",
       ...(failureDetail !== undefined ? { invocationFailureDetail: failureDetail } : {}),
+      ...completionBoundarySettlementFields("invocation_failure", failureDetail),
     });
     return;
   }
@@ -2208,6 +2335,7 @@ function commitReviewDebateOutcome(
     attemptId,
     runStatus: "completed",
     outcomeKind: "done",
+    terminalCause: "complete",
     ...(completionAgent ? { completionAgent } : {}),
     ...(reviewPass !== undefined ? { completionReviewPass: reviewPass } : {}),
   });
@@ -2250,6 +2378,7 @@ function settleReviewedStagedMarkdownLintFailure(
     attemptId,
     runStatus: "failed",
     outcomeKind: "landing_failed",
+    ...completionBoundarySettlementFields("landing_failed"),
   });
   logSink?.append(runId, {
     kind: "boundary_committed",
@@ -2257,7 +2386,6 @@ function settleReviewedStagedMarkdownLintFailure(
     outcomeKind: "landing_failed",
     runStatus: "failed",
   });
-  store.setRunStatus(runId, "failed");
   return {
     kind: "landing_failed",
     runId,
@@ -2389,6 +2517,7 @@ async function repromptReviewedStagedMarkdownLintOrFail(
         runStatus: "failed",
         outcomeKind: "invocation_failure",
         invocationFailureDetail: detail,
+        ...completionBoundarySettlementFields("invocation_failure", detail),
       });
       return {
         kind: "invocation_failure",
@@ -2427,6 +2556,11 @@ async function landReviewedOutputOrFail(
         runStatus: "failed",
         outcomeKind: "invocation_failure",
         invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: contract.reason },
+        ...completionBoundarySettlementFields("invocation_failure", {
+          failureKind: "landing",
+          bindingAttempts: [],
+          message: contract.reason,
+        }),
       });
       return { kind: "invocation_failure", runId, iterationsConsumed, resumable: true };
     }
@@ -2463,6 +2597,11 @@ async function landReviewedOutputOrFail(
     runStatus: "failed",
     outcomeKind: "invocation_failure",
     invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: landed.message },
+    ...completionBoundarySettlementFields("invocation_failure", {
+      failureKind: "landing",
+      bindingAttempts: [],
+      message: landed.message,
+    }),
   });
   return { kind: "invocation_failure", runId, iterationsConsumed, resumable: true };
 }
@@ -2521,6 +2660,11 @@ async function tryActuatorOnlyReviewDebateRetry(
           runStatus: "failed",
           outcomeKind: "invocation_failure",
           invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message },
+          ...completionBoundarySettlementFields("invocation_failure", {
+            failureKind: "error",
+            bindingAttempts: [],
+            message,
+          }),
         });
         return { kind: "missing_verdict" as const, message };
       }
@@ -2598,6 +2742,7 @@ async function tryActuatorOnlyReviewDebateRetry(
       runStatus: "failed",
       outcomeKind: "invocation_failure",
       invocationFailureDetail: detail,
+      ...completionBoundarySettlementFields("invocation_failure", detail),
     });
     return {
       kind: "invocation_failure",
@@ -2668,6 +2813,7 @@ async function tryActuatorOnlyReviewDebateRetry(
     attemptId,
     runStatus: "completed",
     outcomeKind: "done",
+    terminalCause: "complete",
     ...(completionAgent ? { completionAgent } : {}),
     completionReviewPass: 1,
   });
@@ -2880,6 +3026,7 @@ async function finishReviewedLanding(
     attemptId,
     runStatus: "completed",
     outcomeKind: "done",
+    terminalCause: "complete",
     ...(completionAgent ? { completionAgent } : {}),
     ...(reviewPass !== undefined ? { completionReviewPass: reviewPass } : {}),
   });
@@ -3630,6 +3777,7 @@ function settleIntentResumeFailure(
     runStatus: "failed",
     outcomeKind: "invocation_failure",
     invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message },
+    ...completionBoundarySettlementFields(loopOutcomeKind, terminalFailureDetailFromError(undefined, message)),
   });
   const intentResumeCommitErrorMessage = message;
   deps.logSink?.append(context.runId, {
@@ -3726,16 +3874,39 @@ function reviewStepCommitFields(
   return { title: renderStepCommitTitle(step, title), step };
 }
 
-function persistPrEvidenceIfComplete(
-  store: StateStore,
-  runId: string,
-  success: { prNumber?: number; prUrl?: string } | undefined,
-): void {
-  if (success?.prNumber !== undefined && success.prUrl !== undefined) {
-    store.setPrEvidence(runId, success.prNumber, success.prUrl);
-  }
+function resumePublicationFailureBoundaryFields(
+  failure: NonNullable<Awaited<ReturnType<typeof publishWithReadyRepair>>["failure"]>,
+  message: string,
+): {
+  terminalCause: WriteLoopOutcomeKind;
+  terminalFailureDetail?: InvocationFailureDetail;
+  invocationFailureDetail?: InvocationFailureDetail;
+} {
+  const isFlip = failure.kind === "ready_flip_failed";
+  const landingDetail = { failureKind: "landing" as const, bindingAttempts: [] as [], message };
+  const terminalFailureDetail =
+    workflowPublicationFailureTerminalDetail(failure.kind, failure.error) ??
+    terminalFailureDetailFromError(failure.error, message);
+  return {
+    terminalCause: failure.kind,
+    terminalFailureDetail,
+    ...(isFlip ? {} : { invocationFailureDetail: landingDetail }),
+  };
 }
 
+function completedPublicationBoundaryFields(success?: { prNumber?: number; prUrl?: string }): {
+  terminalCause: "complete";
+  prNumber?: number;
+  prUrl?: string;
+} {
+  return {
+    terminalCause: "complete",
+    ...(success?.prNumber !== undefined ? { prNumber: success.prNumber } : {}),
+    ...(success?.prUrl !== undefined ? { prUrl: success.prUrl } : {}),
+  };
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: intent-resume commit-and-publish orchestrates commit, terminal settlement, and publication branches in sequence
 async function runIntentResumeCommitAndPublish(
   context: IntentFinalizationResumeContext,
   store: StateStore,
@@ -3795,11 +3966,18 @@ async function runIntentResumeCommitAndPublish(
     const isFlip = failure.kind === "ready_flip_failed";
     const message = failure.error?.message ?? failure.kind;
     const publicationFailure = publicationFailureFor(failure.error);
+    const failureFields = resumePublicationFailureBoundaryFields(failure, message);
     store.commitCompletionBoundary({
       attemptId,
       runStatus: isFlip ? "completed" : "failed",
       outcomeKind: isFlip ? "done" : "invocation_failure",
-      ...(isFlip ? {} : { invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message } }),
+      ...(failureFields.invocationFailureDetail !== undefined
+        ? { invocationFailureDetail: failureFields.invocationFailureDetail }
+        : {}),
+      terminalCause: failureFields.terminalCause,
+      ...(failureFields.terminalFailureDetail !== undefined
+        ? { terminalFailureDetail: failureFields.terminalFailureDetail }
+        : {}),
     });
     const intentResumePublicationCommitError = message;
     deps.logSink?.append(context.runId, {
@@ -3826,11 +4004,11 @@ async function runIntentResumeCommitAndPublish(
   }
 
   appendRuntimeSmokeOutcome(deps.logSink, context.runId, publication.success?.runtimeSmokeOutcome);
-  persistPrEvidenceIfComplete(store, context.runId, publication.success);
   store.commitCompletionBoundary({
     attemptId,
     runStatus: "completed",
     outcomeKind: "done",
+    ...completedPublicationBoundaryFields(publication.success),
     ...(context.completionAgent ? { completionAgent: context.completionAgent } : {}),
   });
   deps.logSink?.append(context.runId, {
@@ -4116,6 +4294,7 @@ function settleReviewMutationResumeFailure(
     runStatus: "failed",
     outcomeKind: "invocation_failure",
     invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message },
+    ...completionBoundarySettlementFields(loopOutcomeKind, terminalFailureDetailFromError(undefined, message)),
   });
   const reviewMutationResumeCommitErrorMessage = message;
   deps.logSink?.append(context.runId, {
@@ -4268,6 +4447,10 @@ function settleMutationRepairExhausted(
     runStatus: "failed",
     outcomeKind: "invocation_failure",
     invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message },
+    ...completionBoundarySettlementFields(
+      "mutation_repair_exhausted",
+      terminalFailureDetailFromError(undefined, message),
+    ),
   });
   deps.logSink?.append(context.runId, {
     kind: "loop_finished",
@@ -4447,11 +4630,11 @@ async function runMutationRepairAttempt(
 
   const finalAttemptId = store.recordAttemptStart(context.runId);
   appendRuntimeSmokeOutcome(deps.logSink, context.runId, publication.success?.runtimeSmokeOutcome);
-  persistPrEvidenceIfComplete(store, context.runId, publication.success);
   store.commitCompletionBoundary({
     attemptId: finalAttemptId,
     runStatus: "completed",
     outcomeKind: "done",
+    ...completedPublicationBoundaryFields(publication.success),
     ...(context.completionAgent !== undefined ? { completionAgent: context.completionAgent } : {}),
   });
   deps.logSink?.append(context.runId, {
@@ -4510,11 +4693,18 @@ async function settleFailedReviewMutationPublication(
   const message = failure.error?.message ?? failure.kind;
   const publicationFailure = publicationFailureFor(failure.error);
   appendRuntimeSmokeOutcome(deps.logSink, context.runId, failure.runtimeSmokeOutcome);
+  const failureFields = resumePublicationFailureBoundaryFields(failure, message);
   store.commitCompletionBoundary({
     attemptId,
     runStatus: isFlip ? "completed" : "failed",
     outcomeKind: isFlip ? "done" : "invocation_failure",
-    ...(isFlip ? {} : { invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message } }),
+    ...(failureFields.invocationFailureDetail !== undefined
+      ? { invocationFailureDetail: failureFields.invocationFailureDetail }
+      : {}),
+    terminalCause: failureFields.terminalCause,
+    ...(failureFields.terminalFailureDetail !== undefined
+      ? { terminalFailureDetail: failureFields.terminalFailureDetail }
+      : {}),
     ...(context.completionAgent !== undefined ? { completionAgent: context.completionAgent } : {}),
   });
   const exhaustedFields = reviewMutationExhaustedTerminalFields(store, context.runId, publication.readyGateOrigin);
@@ -4556,11 +4746,11 @@ function settleSuccessfulReviewMutationPublication(
   deps: ReviewMutationResumeDeps,
 ): ReviewMutationResumeOutcome {
   appendRuntimeSmokeOutcome(deps.logSink, context.runId, publication.success?.runtimeSmokeOutcome);
-  persistPrEvidenceIfComplete(store, context.runId, publication.success);
   store.commitCompletionBoundary({
     attemptId,
     runStatus: "completed",
     outcomeKind: "done",
+    ...completedPublicationBoundaryFields(publication.success),
     ...(context.completionAgent !== undefined ? { completionAgent: context.completionAgent } : {}),
   });
   deps.logSink?.append(context.runId, {
@@ -4846,6 +5036,7 @@ function commitIntentStageInvocationFailure(
     runStatus: "failed",
     outcomeKind: "invocation_failure",
     invocationFailureDetail,
+    ...completionBoundarySettlementFields("invocation_failure", invocationFailureDetail),
   });
 }
 
@@ -5032,6 +5223,7 @@ async function finalizeStandardReviewStep(
     attemptId: ids.attemptId,
     runStatus: "completed",
     outcomeKind: "done",
+    terminalCause: "complete",
     ...(completionAgent ? { completionAgent } : {}),
     ...(mutating?.pass !== undefined ? { completionReviewPass: mutating.pass } : {}),
   });

@@ -244,7 +244,7 @@ function maskTypePositionAngleBrackets(line: string): string {
       chars[i] = " ";
       let depth = 1;
       while (++i < chars.length && depth > 0) {
-        if (chars[i] === "<" && isLt(i) && isTypeOpen(i)) {
+        if (isLt(i) && isTypeOpen(i)) {
           chars[i] = " ";
           depth++;
         } else if (chars[i] === ">" && isGt(i)) {

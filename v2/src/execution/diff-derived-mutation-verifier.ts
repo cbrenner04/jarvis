@@ -834,8 +834,8 @@ async function verifyCandidates(
   let inspected = 0;
   let survivingResult: SurvivingMutationResult | null = null;
   const acceptedSites: AcceptedSite[] = [];
-  const pending: Promise<void>[] = [];
   const fileCache = new Map<string, string>();
+  const fileChains = new Map<string, Promise<void>>();
 
   async function getFileContent(file: string): Promise<string | null> {
     const cached = fileCache.get(file);
@@ -871,8 +871,10 @@ async function verifyCandidates(
       return { result: missingKillingTest(candidate), inspected, acceptedSites };
     }
 
-    pending.push(
-      (async () => {
+    const previous = fileChains.get(candidate.file) ?? Promise.resolve();
+    fileChains.set(
+      candidate.file,
+      previous.then(async () => {
         if (survivingResult !== null || now() >= deadline) return;
         const content = await getFileContent(candidate.file);
         if (content === null) return;
@@ -889,11 +891,11 @@ async function verifyCandidates(
         }
         const result = await testCandidate(candidate, content, input, writeFile, runScopedTests, killingTests);
         if (result !== null && survivingResult === null) survivingResult = result;
-      })(),
+      }),
     );
   }
 
-  await Promise.all(pending);
+  await Promise.all(fileChains.values());
   return { result: survivingResult, inspected, acceptedSites };
 }
 

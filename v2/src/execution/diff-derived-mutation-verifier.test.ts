@@ -914,6 +914,206 @@ index f424d7da..be281d02 100644
   });
 });
 
+describe("per-file candidate scheduling", () => {
+  async function waitForCondition(condition: () => boolean, label: string): Promise<void> {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      if (condition()) return;
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 0);
+      });
+    }
+    throw new Error(`timed out waiting for ${label}`);
+  }
+
+  function dualGuardFixture(file: string, fnName: string, v1: string, v2: string) {
+    const content = `export function ${fnName}() {
+  if (!${v1}) return "${v1}";
+  if (!${v2}) return "${v2}";
+  return true;
+}`;
+    const flip = (varName: string) =>
+      content.replace(`if (!${varName}) return "${varName}";`, `if (${varName}) return "${varName}";`);
+    return {
+      content,
+      diff: `diff --git a/${file} b/${file}
+index 1234567..abcdefg 100644
+--- a/${file}
++++ b/${file}
+@@ -1,3 +1,4 @@
+ export function ${fnName}() {
++  if (!${v1}) return "${v1}";
++  if (!${v2}) return "${v2}";
+   return true;
+`,
+      mutant1: flip(v1),
+      mutant2: flip(v2),
+    };
+  }
+
+  const multi = dualGuardFixture("src/multi.ts", "multi", "a", "b");
+
+  async function runMultiGuardVerification(runScopedTests: (cwd: string, scope: string[]) => Promise<boolean>) {
+    let currentContent = multi.content;
+    const observedAtTest: string[] = [];
+    const writeLog: string[] = [];
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => multi.diff,
+        untrackedFiles: async () => [],
+        readFile: async (path) => {
+          if (path.endsWith(".test.ts")) return "export {};\n";
+          return multi.content;
+        },
+        writeFile: async (_path, content) => {
+          writeLog.push(content);
+          currentContent = content;
+        },
+        listDir: () => [],
+        runScopedTests: async (cwd, scope) => {
+          observedAtTest.push(currentContent);
+          return runScopedTests(cwd, scope);
+        },
+      },
+    );
+    return { result, observedAtTest, writeLog };
+  }
+
+  it("serializes same-file mutation candidates deterministically", async () => {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const { result, observedAtTest, writeLog } = await runMultiGuardVerification(async () => false);
+      expect(result.kind).toBe("pass");
+      expect(observedAtTest).toEqual([multi.mutant1, multi.mutant2]);
+      expect(writeLog).toEqual([multi.mutant1, multi.content, multi.mutant2, multi.content]);
+    }
+  });
+
+  it("reports genuine surviving-mutation at exact source site on multi-candidate file", async () => {
+    let call = 0;
+    const { result } = await runMultiGuardVerification(async () => {
+      call += 1;
+      return call === 2;
+    });
+    expect(result.kind).toBe("surviving-mutation");
+    if (result.kind === "surviving-mutation") {
+      expect(result.sourceSite.file).toBe("src/multi.ts");
+      expect(result.sourceSite.line).toBe(3);
+      expect(result.mutation).toContain("guard-flip: !b");
+    }
+  });
+
+  it("overlaps distinct-file candidate cycles while serializing same-file cycles", async () => {
+    resetVerifierTestRunTrackingForTest();
+    const other = dualGuardFixture("src/other.ts", "other", "c", "d");
+    const diff = multi.diff + other.diff;
+
+    let releaseBlockedScopedTests: (() => void) | undefined;
+    const blockedScopedTests = new Promise<void>((resolve) => {
+      releaseBlockedScopedTests = resolve;
+    });
+    const fileContents = new Map<string, string>([
+      ["src/multi.ts", multi.content],
+      ["src/other.ts", other.content],
+    ]);
+    const writeEvents: Array<{ file: string; content: string }> = [];
+    let inFlightScoped = 0;
+    let peakScoped = 0;
+    let sameFileWriteDepth = 0;
+    let peakSameFileWriteDepth = 0;
+
+    const verification = verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        readFile: async (path) => {
+          if (path.endsWith(".test.ts")) return "export {};\n";
+          const file = path.replace("/test/path/", "");
+          return fileContents.get(file) ?? multi.content;
+        },
+        writeFile: async (path, content) => {
+          const file = path.replace("/test/path/", "");
+          sameFileWriteDepth += 1;
+          peakSameFileWriteDepth = Math.max(peakSameFileWriteDepth, sameFileWriteDepth);
+          writeEvents.push({ file, content });
+          fileContents.set(file, content);
+          sameFileWriteDepth -= 1;
+        },
+        listDir: () => [],
+        runScopedTests: async () => {
+          inFlightScoped += 1;
+          peakScoped = Math.max(peakScoped, inFlightScoped);
+          await blockedScopedTests;
+          inFlightScoped -= 1;
+          return false;
+        },
+      },
+    );
+
+    await waitForCondition(() => inFlightScoped > 1, "concurrent scoped-test invocations");
+    expect(peakScoped).toBeLessThanOrEqual(MAX_CONCURRENT_VERIFIER_TEST_RUNS);
+    expect(peakSameFileWriteDepth).toBe(1);
+
+    releaseBlockedScopedTests?.();
+    const result = await verification;
+    expect(result.kind).toBe("pass");
+
+    const multiWrites = writeEvents.filter((event) => event.file === "src/multi.ts").map((event) => event.content);
+    const otherWrites = writeEvents.filter((event) => event.file === "src/other.ts").map((event) => event.content);
+    expect(multiWrites).toEqual([multi.mutant1, multi.content, multi.mutant2, multi.content]);
+    expect(otherWrites).toEqual([other.mutant1, other.content, other.mutant2, other.content]);
+  });
+
+  it("short-circuits on first surviving-mutation under per-file scheduling", async () => {
+    const first = dualGuardFixture("src/first.ts", "first", "x", "y");
+    const second = dualGuardFixture("src/second.ts", "second", "a", "b");
+    const diff = first.diff + second.diff;
+
+    let releaseSecondFile: (() => void) | undefined;
+    const secondFileBlocked = new Promise<void>((resolve) => {
+      releaseSecondFile = resolve;
+    });
+    const scopedCalls: string[] = [];
+
+    const verification = verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        readFile: async (path) => {
+          if (path.endsWith(".test.ts")) return "export {};\n";
+          if (path.endsWith("/src/first.ts")) return first.content;
+          if (path.endsWith("/src/second.ts")) return second.content;
+          throw new Error(`unexpected read: ${path}`);
+        },
+        writeFile: async () => {},
+        listDir: () => [],
+        runScopedTests: async (_cwd, scope) => {
+          const testPath = scope[0];
+          if (testPath === undefined) throw new Error("missing scoped test path");
+          scopedCalls.push(testPath);
+          if (testPath === "src/first.test.ts") return true;
+          if (testPath === "src/second.test.ts") {
+            await secondFileBlocked;
+            return false;
+          }
+          throw new Error(`unexpected scope: ${scope.join(",")}`);
+        },
+      },
+    );
+
+    await waitForCondition(() => scopedCalls.includes("src/second.test.ts"), "blocked second-file scoped test");
+    releaseSecondFile?.();
+
+    const result = await verification;
+    expect(result.kind).toBe("surviving-mutation");
+    if (result.kind === "surviving-mutation") {
+      expect(result.sourceSite).toEqual({ file: "src/first.ts", line: 2 });
+    }
+    expect(scopedCalls).toEqual(["src/first.test.ts", "src/second.test.ts"]);
+  });
+});
+
 describe("verification bounds", () => {
   function guardFlipDiff(lines: number): string {
     const added = Array.from({ length: lines }, (_, i) => `+  if (!x${i}) return null;`).join("\n");

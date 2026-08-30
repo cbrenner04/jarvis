@@ -606,7 +606,7 @@ For each code candidate: the production file is mutated, only the co-located `<s
 
 Diff-derived verification is narrower than the ready gate by design: the gate proves the diff's CI union once; diff-derived proves per-artifact kill evidence at bounded cost. A thin or mis-paired co-located killing test can miss a surviving mutation that the full gate union would catch.
 
-Per-candidate and per-prompt file-scoped `bun test` runs parallelize behind a module semaphore; `MAX_CONCURRENT_VERIFIER_TEST_RUNS` (4, beside `MAX_INSPECTED_MUTATIONS` and `MAX_VERIFICATION_MS` in `diff-derived-mutation-verifier.ts`) caps total in-flight verifier-launched test subprocesses. Post-write `MAX_VERIFICATION_MS` is checked between candidates and prompt checks.
+Per-candidate and per-prompt file-scoped `bun test` runs parallelize across distinct production files behind a module semaphore; candidates on the same production file run serially (mutate → scoped test → restore before the next candidate on that file). `MAX_CONCURRENT_VERIFIER_TEST_RUNS` (4, beside `MAX_INSPECTED_MUTATIONS` and `MAX_VERIFICATION_MS` in `diff-derived-mutation-verifier.ts`) caps total in-flight verifier-launched test subprocesses. Post-write `MAX_VERIFICATION_MS` is checked between candidates and prompt checks.
 
 A surviving mutation (scoped tests pass under the mutation) halts verification and returns the mutation text and source file+line. This is a non-recoverable completion failure: the run does not report `completed` and the mutation + source site are named in completion failure. The worktree is restored before returning any terminal result.
 

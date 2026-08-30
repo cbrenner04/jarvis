@@ -6,7 +6,17 @@ import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopInput } from "./write-loop.ts";
 
 export { DEFAULT_WRITE_STEP_RULES };
-export const IMPLEMENT_WRITE_STEP_RULES = filterPlanDraftStepRules(DEFAULT_WRITE_STEP_RULES);
+
+/**
+ * Restores a killing-test authoring instruction to implement (and mutation-repair) prompts, reworded
+ * clear of the retired `@mutate`/checkpoint DSL. The diff-derived mutation gate still requires a
+ * co-located test that fails when a changed guard is inverted; without this line agents stopped
+ * authoring those tests and stranded at publication on `surviving_mutation_failed`.
+ */
+const KILLING_TEST_RULE =
+  "When you add or change a comparison operator, boolean guard, or branch condition in production code, add or extend a test that fails when that guard is inverted (for example flipping `===`/`!==`, `<`/`>=`, or dropping a negation). Put it in the file's co-located `<file>.test.ts` or an existing sibling `<file>-*.test.ts` in the same directory — the diff-derived mutation gate resolves killing tests only from those co-located files at publication, with no fallback to the wider suite. Do not use production invert hooks.";
+
+export const IMPLEMENT_WRITE_STEP_RULES = `${filterPlanDraftStepRules(DEFAULT_WRITE_STEP_RULES)}\n${KILLING_TEST_RULE}`;
 
 /** Default agent list when config has no `agents` override. */
 export const DEFAULT_WRITE_AGENTS = ["claude"] as const;

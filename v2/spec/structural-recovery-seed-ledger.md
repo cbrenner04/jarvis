@@ -45,7 +45,7 @@ A seed with multiple ready-intents spans one row per ready-intent; the `Seed` an
 | implement-completes-without-publishing | held (verify-or-reap; #3088; 2026-08-30 counter-evidence) | — | — | — |
 | plan-draft-contract-miss-reprompts-before-blocking | held (#3114; pending split-spec-guidance / plan-draft-rules) | — | — | — |
 | mutation-verifier-masks-type-generic-brackets | in-flight (full-review pipeline dogfood 64e5e97b) | consumed via pipeline intent stage | pipeline plan stage (spec 20260830T063545Z-mutation-verifier-masks-type-generic-brackets, not yet merged) | pipeline implement stage running |
-| diff-derived-verifier-resolves-split-test-files | not-started (new 2026-08-30; stranded terminal-honesty subspec-01 salvage; workflow-runner.ts has no exact-stem test file) | — | — | — |
+| diff-derived-verifier-resolves-split-test-files | implemented by hand 2026-08-30 (seed removed) — `resolveSiblingKillingTests` fallback to `<stem>-*.test.ts`, paired with restored implement/repair killing-test authoring rule (`IMPLEMENT_WRITE_STEP_RULES`) | — | — | hand PR |
 | idle-watchdog-counts-worktree-filesystem-activity | not-started (new 2026-08-30 #3153; intake #3150) | — | — | — |
 | stall-settlement-preserves-agent-stdout | not-started (new 2026-08-30; intake #3151) | — | — | — |
 | idle-output-timeout-preserves-committed-progress-resumable | not-started (new 2026-08-30; intake #3152) | — | — | — |

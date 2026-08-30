@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { guarded } from "../../../scripts/guard-deterministic-daemon-tests.ts";
 import { resolveRenderObserverTests } from "../../../shared/prompts/render-observer-tests.ts";
 import { type ChangedLine, changedPathsFromDiff, defaultGitDiff, isProductionFile, parseDiff } from "./diff-scan.ts";
@@ -43,6 +43,7 @@ type RunScopedTests = (cwd: string, scope: string[]) => Promise<boolean>;
 type ReadFile = (path: string) => Promise<string>;
 type WriteFile = (path: string, content: string) => Promise<void>;
 type RegisteredPromptPaths = (cwd: string, baseRef: string) => Promise<string[]>;
+type ListDir = (dir: string) => string[];
 
 type VerifierSeams = {
   gitDiff?: GitDiff;
@@ -51,6 +52,7 @@ type VerifierSeams = {
   readFile?: ReadFile;
   writeFile?: WriteFile;
   registeredPromptPaths?: RegisteredPromptPaths;
+  listDir?: ListDir;
   now?: () => number;
 };
 
@@ -157,6 +159,14 @@ export async function runDiffDerivedScopedTests(
 
 async function defaultReadFile(path: string): Promise<string> {
   return readFileSync(path, "utf-8");
+}
+
+function defaultListDir(dir: string): string[] {
+  try {
+    return readdirSync(dir);
+  } catch {
+    return [];
+  }
 }
 
 async function defaultWriteFile(path: string, content: string): Promise<void> {
@@ -391,6 +401,28 @@ export function resolveCoLocatedKillingTest(productionPath: string): string | nu
   return `${match[1]}.test.ts`;
 }
 
+/**
+ * Sibling co-located killing tests for a changed production file: existing `<stem>-*.test.ts` files
+ * in the same directory (NOT the exact-stem `<stem>.test.ts`, which callers resolve separately). A
+ * large source file whose tests are split across siblings (no exact-stem file — e.g.
+ * `workflow-runner.ts` with `workflow-runner-*.test.ts`) resolves its killing tests here instead of
+ * reporting `missing-killing-test`. Returns worktree-relative paths, sorted; `[]` when none exist.
+ */
+export function resolveSiblingKillingTests(
+  productionPath: string,
+  worktreePath: string,
+  listDir: ListDir = defaultListDir,
+): string[] {
+  if (resolveCoLocatedKillingTest(productionPath) === null) return [];
+  const slash = productionPath.lastIndexOf("/");
+  const dir = slash >= 0 ? productionPath.slice(0, slash) : "";
+  const stem = productionPath.slice(slash + 1).match(/^(.+)\.[cm]?[jt]sx?$/)?.[1] ?? "";
+  const matches = listDir(dir ? `${worktreePath}/${dir}` : worktreePath)
+    .filter((entry) => entry.startsWith(`${stem}-`) && entry.endsWith(".test.ts"))
+    .sort();
+  return matches.map((entry) => (dir ? `${dir}/${entry}` : entry));
+}
+
 function mutateRenderedPrompt(content: string, changedLines: ChangedLine[]): string | null {
   const bodyStart = content.indexOf("\n---\n");
   if (bodyStart < 0) return null;
@@ -548,7 +580,7 @@ async function testCandidate(
   input: DiffDerivedMutationVerifierInput,
   writeFile: WriteFile,
   runScopedTests: RunScopedTests,
-  killingTestPath: string,
+  killingTestPaths: string[],
 ): Promise<SurvivingMutationResult | null> {
   const filePath = `${input.worktreePath}/${candidate.file}`;
 
@@ -557,7 +589,8 @@ async function testCandidate(
     await writeFile(filePath, mutatedContent);
 
     try {
-      const testsPassed = await runScopedTests(input.worktreePath, [killingTestPath]);
+      // Killed if ANY co-located test fails under the mutation; runScopedTests returns false on the first failure.
+      const testsPassed = await runScopedTests(input.worktreePath, killingTestPaths);
       if (testsPassed) {
         const result: SurvivingMutationResult = {
           kind: "surviving-mutation",
@@ -649,12 +682,37 @@ function deriveCandidates(changedLinesByFile: Map<string, ChangedLine[]>): Candi
   return candidates;
 }
 
+/**
+ * The co-located killing tests to run against a candidate's mutation: the exact-stem
+ * `<file>.test.ts` when it exists on disk, plus every existing sibling `<file>-*.test.ts`.
+ */
+async function coLocatedKillingTests(
+  candidateFile: string,
+  exactStemTest: string,
+  worktreePath: string,
+  readFile: ReadFile,
+  listDir: ListDir,
+): Promise<string[]> {
+  const killingTests: string[] = [];
+  try {
+    await readFile(`${worktreePath}/${exactStemTest}`);
+    killingTests.push(exactStemTest);
+  } catch {
+    // exact-stem test file absent; fall back to sibling <stem>-*.test.ts files
+  }
+  for (const sibling of resolveSiblingKillingTests(candidateFile, worktreePath, listDir)) {
+    if (!killingTests.includes(sibling)) killingTests.push(sibling);
+  }
+  return killingTests;
+}
+
 async function verifyCandidates(
   candidates: Candidate[],
   input: DiffDerivedMutationVerifierInput,
   readFile: ReadFile,
   writeFile: WriteFile,
   runScopedTests: RunScopedTests,
+  listDir: ListDir,
   now: () => number,
   deadline: number,
 ): Promise<{ result: SurvivingMutationResult | null; inspected: number }> {
@@ -681,14 +739,19 @@ async function verifyCandidates(
         } catch {
           return;
         }
-        try {
-          await readFile(`${input.worktreePath}/${killingTest}`);
-        } catch {
-          survivingResult = missingKillingTest(candidate);
+        const killingTests = await coLocatedKillingTests(
+          candidate.file,
+          killingTest,
+          input.worktreePath,
+          readFile,
+          listDir,
+        );
+        if (killingTests.length === 0) {
+          if (survivingResult === null) survivingResult = missingKillingTest(candidate);
           return;
         }
-        const result = await testCandidate(candidate, originalContent, input, writeFile, runScopedTests, killingTest);
-        if (result !== null) survivingResult = result;
+        const result = await testCandidate(candidate, originalContent, input, writeFile, runScopedTests, killingTests);
+        if (result !== null && survivingResult === null) survivingResult = result;
       })(),
     );
   }
@@ -707,6 +770,7 @@ export async function verifyDiffDerivedMutations(
   const readFile = seams?.readFile ?? defaultReadFile;
   const writeFile = seams?.writeFile ?? defaultWriteFile;
   const registeredPromptPaths = seams?.registeredPromptPaths ?? defaultRegisteredPromptPaths;
+  const listDir = seams?.listDir ?? defaultListDir;
 
   const diffOutput = await gitDiff(input.worktreePath, input.runBase);
   const changedLines = parseDiff(diffOutput);
@@ -761,6 +825,7 @@ export async function verifyDiffDerivedMutations(
     readFile,
     writeFile,
     runScopedTests,
+    listDir,
     now,
     deadline,
   );

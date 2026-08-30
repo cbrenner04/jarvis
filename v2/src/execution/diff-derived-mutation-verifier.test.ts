@@ -10,6 +10,7 @@ import {
   maskNonCodeSpans,
   peakVerifierTestRuns,
   resetVerifierTestRunTrackingForTest,
+  resolveSiblingKillingTests,
   runDiffDerivedScopedTests,
   verifyDiffDerivedMutations,
 } from "./diff-derived-mutation-verifier.ts";
@@ -1485,5 +1486,77 @@ index 1234567..abcdefg 100644
       const result = await survivingMutation(diff, content);
       expect(result.dualConstraint).toBeUndefined();
     });
+  });
+});
+
+describe("co-located killing-test resolution (sibling fallback)", () => {
+  it("resolveSiblingKillingTests returns existing <stem>-*.test.ts siblings, excluding exact-stem and unrelated files", () => {
+    const entries = ["big.test.ts", "big-part.test.ts", "big-other.test.ts", "unrelated.test.ts", "big.ts"];
+    const result = resolveSiblingKillingTests("v2/src/big.ts", "/wt", () => entries);
+    expect(result).toEqual(["v2/src/big-other.test.ts", "v2/src/big-part.test.ts"]);
+  });
+
+  it("resolveSiblingKillingTests returns [] for a test file or when no siblings exist", () => {
+    expect(resolveSiblingKillingTests("v2/src/big.test.ts", "/wt", () => ["big.test.ts"])).toEqual([]);
+    expect(resolveSiblingKillingTests("v2/src/big.ts", "/wt", () => [])).toEqual([]);
+    expect(resolveSiblingKillingTests("v2/src/data.json", "/wt", () => ["data-x.test.ts"])).toEqual([]);
+  });
+
+  const guardDiff = `diff --git a/v2/src/big.ts b/v2/src/big.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/big.ts
++++ b/v2/src/big.ts
+@@ -1,2 +1,2 @@
+ export function check(a: number, b: number) {
+-  return a < b;
++  return a === b;
+`;
+  const guardContent = `export function check(a: number, b: number) {\n  return a === b;\n}`;
+
+  function readFileSeam(): (path: string) => Promise<string> {
+    return async (path: string) => {
+      if (path.endsWith("big.test.ts")) throw new Error("ENOENT: exact-stem test absent");
+      if (path.endsWith("big.ts")) return guardContent;
+      throw new Error(`unexpected read: ${path}`);
+    };
+  }
+
+  it("a changed guard whose only killing test is a sibling passes when the sibling kills the mutation", async () => {
+    const scopes: string[][] = [];
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/wt", runBase: "main" },
+      {
+        gitDiff: async () => guardDiff,
+        untrackedFiles: async () => [],
+        readFile: readFileSeam(),
+        writeFile: async () => {},
+        listDir: () => ["big-part.test.ts"],
+        runScopedTests: async (_cwd, scope) => {
+          scopes.push(scope);
+          return false; // sibling test fails under the mutation => killed
+        },
+      },
+    );
+    expect(result.kind).toBe("pass");
+    expect(scopes.some((scope) => scope.includes("v2/src/big-part.test.ts"))).toBe(true);
+  });
+
+  it("the same changed guard reports missing-killing-test when no exact-stem and no sibling test exists (fix is load-bearing)", async () => {
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/wt", runBase: "main" },
+      {
+        gitDiff: async () => guardDiff,
+        untrackedFiles: async () => [],
+        readFile: readFileSeam(),
+        writeFile: async () => {},
+        listDir: () => [], // no co-located test file at all
+        runScopedTests: async () => true,
+      },
+    );
+    expect(result.kind).toBe("surviving-mutation");
+    if (result.kind === "surviving-mutation") {
+      expect(result.mutation).toBe("missing-killing-test");
+      expect(result.sourceSite.file).toBe("v2/src/big.ts");
+    }
   });
 });

@@ -9,12 +9,12 @@ A seed with multiple ready-intents spans one row per ready-intent; the `Seed` an
 | Seed | Status | Ready-intent | Plan | Implement |
 | --- | --- | --- | --- | --- |
 | pipeline-dispatch-shares-cli-front-door | in-flight | admit-pipeline-recovery-through-workflow-start | — | — |
-| | | dispatch-pipeline-stages-through-shared-preparation | — | — |
+| | | dispatch-pipeline-stages-through-shared-preparation | [20260830T062000Z-dispatch-pipeline-stages-through-shared-preparation](https://github.com/cbrenner04/jarvis/pull/3165) (hand-landed) | — |
 | | | require-complete-pipeline-context | [20260830T041003Z-require-complete-pipeline-context](https://github.com/cbrenner04/jarvis/pull/3148) | [#3155](https://github.com/cbrenner04/jarvis/pull/3155) |
 | | | share-workflow-start-preparation (intent #3076) | [20260830T025737Z-share-workflow-start-preparation](https://github.com/cbrenner04/jarvis/pull/3141) | [#3143](https://github.com/cbrenner04/jarvis/pull/3143) |
-| pipeline-settlement-derives-from-run-rows | intent-split | canonical-pipeline-execution-state-and-stage-claims | — | — |
-| | | daemon-terminal-run-stage-settlement | — | — |
-| | | durable-run-backed-stage-settlement (intent #3075) | — | — |
+| pipeline-settlement-derives-from-run-rows | intent-split | canonical-pipeline-execution-state-and-stage-claims | deferred — plan drafted 2026-08-30 but 00/01 subspecs near-duplicate; needs re-plan | — |
+| | | daemon-terminal-run-stage-settlement | blocked on canonical + durable-run-backed landing | — |
+| | | durable-run-backed-stage-settlement (intent #3075) | [20260830T062002Z-durable-run-backed-stage-settlement](https://github.com/cbrenner04/jarvis/pull/3165) (hand-landed) | — |
 | implement-admits-externally-landed-specs | held (P2; seq. behind front-door) | — | — | — |
 | all-spec-documents-external-capable | held (P2; seq. behind front-door) | — | — | — |
 | split-workflow-runner-resume-machines | not-started (P2) | — | — | — |
@@ -44,7 +44,8 @@ A seed with multiple ready-intents spans one row per ready-intent; the `Seed` an
 | implement-publication-reuses-closed-same-branch-pr | not-started (point fix hand-published once as #3069) | — | — | — |
 | implement-completes-without-publishing | held (verify-or-reap; #3088; 2026-08-30 counter-evidence) | — | — | — |
 | plan-draft-contract-miss-reprompts-before-blocking | held (#3114; pending split-spec-guidance / plan-draft-rules) | — | — | — |
-| mutation-verifier-masks-type-generic-brackets | not-started (new 2026-08-30 #3146; stranded #3143) | — | — | — |
+| mutation-verifier-masks-type-generic-brackets | in-flight (full-review pipeline dogfood 64e5e97b) | consumed via pipeline intent stage | pipeline plan stage (spec 20260830T063545Z-mutation-verifier-masks-type-generic-brackets, not yet merged) | pipeline implement stage running |
+| diff-derived-verifier-resolves-split-test-files | not-started (new 2026-08-30; stranded terminal-honesty subspec-01 salvage; workflow-runner.ts has no exact-stem test file) | — | — | — |
 | idle-watchdog-counts-worktree-filesystem-activity | not-started (new 2026-08-30 #3153; intake #3150) | — | — | — |
 | stall-settlement-preserves-agent-stdout | not-started (new 2026-08-30; intake #3151) | — | — | — |
 | idle-output-timeout-preserves-committed-progress-resumable | not-started (new 2026-08-30; intake #3152) | — | — | — |
@@ -74,9 +75,9 @@ Ready-intents whose originating seed is no longer on disk (seed reaped after its
 | preserve-failed-iteration-work-on-rerun | merged | [#3077](https://github.com/cbrenner04/jarvis/pull/3077) | 20260829T175608Z-record-iteration-commit-failure-cause | [#3100](https://github.com/cbrenner04/jarvis/pull/3100) |
 | resume-iteration-commit-failures | merged | [#3077](https://github.com/cbrenner04/jarvis/pull/3077) | 20260829T175608Z-record-iteration-commit-failure-cause | [#3100](https://github.com/cbrenner04/jarvis/pull/3100) |
 | daemon-terminal-run-settlement | in-flight | [#3074](https://github.com/cbrenner04/jarvis/pull/3074) | [20260830T025725Z-daemon-terminal-run-settlement](https://github.com/cbrenner04/jarvis/pull/3140) | [#3145](https://github.com/cbrenner04/jarvis/pull/3145) |
-| execution-terminal-run-settlement-invariant | in-flight (00 landed; 01/02 deferred) | [#3074](https://github.com/cbrenner04/jarvis/pull/3074) | [20260830T041008Z-execution-terminal-run-settlement-invariant](https://github.com/cbrenner04/jarvis/pull/3149) | [#3157](https://github.com/cbrenner04/jarvis/pull/3157) (subspec 00 only) |
-| cleanup-uses-lossless-git-status | intent-split (blocked on execution consumer 02, landed #3138) | [#3065](https://github.com/cbrenner04/jarvis/pull/3065) | — | — |
-| harness-publication-push-uses-explicit-refspec | intent-split | [#3072](https://github.com/cbrenner04/jarvis/pull/3072) | — | — |
+| execution-terminal-run-settlement-invariant | in-flight (00 landed #3157; 01 salvaged #3167; 02 deferred) | [#3074](https://github.com/cbrenner04/jarvis/pull/3074) | [20260830T041008Z-execution-terminal-run-settlement-invariant](https://github.com/cbrenner04/jarvis/pull/3149) | [#3157](https://github.com/cbrenner04/jarvis/pull/3157) (00), [#3167](https://github.com/cbrenner04/jarvis/pull/3167) (01, hand-salvaged) |
+| cleanup-uses-lossless-git-status | intent-split; plan hand-landed | [#3065](https://github.com/cbrenner04/jarvis/pull/3065) | [20260830T061854Z-cleanup-uses-lossless-git-status](https://github.com/cbrenner04/jarvis/pull/3165) (hand-landed) | — |
+| harness-publication-push-uses-explicit-refspec | intent-split; plan hand-landed | [#3072](https://github.com/cbrenner04/jarvis/pull/3072) | [20260830T061852Z-harness-publication-push-uses-explicit-refspec](https://github.com/cbrenner04/jarvis/pull/3165) (hand-landed) | — |
 | inject-spec-guidance-agent-core | intent-split | [#3094](https://github.com/cbrenner04/jarvis/pull/3094) | — | — |
 | split-spec-guidance-documents | intent-split | [#3094](https://github.com/cbrenner04/jarvis/pull/3094) | — | — |
 | daemon-start-sweeps-orphan-gate-children | intent-split (kept; prereqs landed, orthogonal) | [#2828](https://github.com/cbrenner04/jarvis/pull/2828) | — | — |
@@ -85,6 +86,14 @@ Ready-intents whose originating seed is no longer on disk (seed reaped after its
 ## This-session (2026-08-30) landings, for context
 
 Not seed rows, but they close or advance brief items: #3133 retire-checkpoint-log-events (completes retire-mutation-checkpoint-dsl chain, 4/4), #3134 atomic-terminal-run-settlement-store (implements spec #3096), #3137 pipeline-execution architecture doc (implements spec #3066), #3138 lossless-git-status execution consumer 01+02, #3139 codex-zero-exit-auth, #3140/#3141 the two plans, #3142 stale-codex-seed removal, #3143 share-workflow-start-preparation implement, #3144 this ledger, #3145 daemon-terminal-run-settlement implement, #3146 mutation-verifier-type-generic seed.
+
+## This-session (2026-08-30 overnight) landings
+
+- **#3165** — hand-landed 4 contract-miss-blocked plans in one PR: `dispatch-pipeline-stages-through-shared-preparation` (front-door P1), `durable-run-backed-stage-settlement` (settlement P1), `cleanup-uses-lossless-git-status`, `harness-publication-push-uses-explicit-refspec`. All 5 launched plans blocked at the plan-draft contract check on shape/strictness only (multi-surface-AC prose ×2, nested `v2/` stage layout ×2, one missing index link — evidence for [[plan-draft-shape-accepts-nested-stage-layout]] #3156 and [[plan-draft-contract-miss-reprompts-before-blocking]] #3114); 4 also carried retired `@mutate` checkpoint-DSL from stale pre-retirement ready-intents (scrubbed on hand-land). `canonical-pipeline-execution-state-and-stage-claims` deferred (00/01 subspec near-duplicate).
+- **#3167** — hand-salvaged `execution-terminal-run-settlement-invariant` subspec 01 (agent completed it but the commit was blocked by two biome complexity findings). Independent diff review caught a settlement honesty inversion (`runtime_smoke_failed` → `completed`); fixed + killing test added.
+- **Pipeline dogfood 64e5e97b** (full-review on `mutation-verifier-masks-type-generic-brackets`): clean single-lane intent → plan → implement; drafts had zero `@mutate` contamination (confirms stale ready-intents, not the current prompts, are the contamination source).
+- New seed: `diff-derived-verifier-resolves-split-test-files` (verifier's exact-stem killing-test resolution misses split sibling test files; stranded the subspec-01 salvage at the mutation gate).
+- **#3163** — merged at session start to unbreak main (plan.prompt.draft r15 snapshot pin).
 
 ## Gaps / low-confidence
 

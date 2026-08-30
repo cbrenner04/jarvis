@@ -486,6 +486,8 @@ Seed/artifact hand-off: the first workflow stage (by authored position) builds w
 
 `PipelineContext.projectRegistry` is passed through to the implement builder only; intent/plan resolution uses `configPath` (and optional `targetDir`) for project and target-dir lookup, matching the CLI's config-backed registry.
 
+Chained-stage project resolution (`createChainedStageProjectMatch`) maps a prior entry-run `worktreePath` to `{ key, root }`: admission `cwd` uses registry longest-prefix match; `~/.jarvis/worktrees/<registered-key>/` (raw key), `~/.jarvis/intent-work/<project-safe-id>/`, and `~/.jarvis/specs/<project-safe-id>/` (for example `intent-work/demo/<slug>/`, `specs/demo/plans/<name>/`, or `specs/demo/ready-intents/`; `intent-work` and `specs` segments from `projectSafeId(key)`) map to `{ key, root: admissionRoot }` where `root` is pipeline admission `cwd`, not necessarily registry `project.root`; other paths keep the terminal `findProjectMatch` fallback.
+
 Resolution failure: a stage whose `(workflow, review)` pair has no table entry, or whose builder call itself reports `{ ok: false }`, returns `{ ok: false; error: string }` — never a thrown error and never a fallback to a different preset.
 
 ## Pipeline stage dispatch

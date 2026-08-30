@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
+import { projectSafeId } from "../../../shared/project-safe-id.ts";
 import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import {
@@ -121,7 +122,7 @@ function projectRegistryFromContext(context: PipelineContext): Record<string, Pr
     : {};
 }
 
-/** Pipeline chained stages match cwd under the admission root or jarvis external worktrees. */
+/** Pipeline chained stages match cwd under the admission root or jarvis managed workspaces. */
 export function createChainedStageProjectMatch(context: PipelineContext): (path: string) => ProjectMatch | undefined {
   const registry = projectRegistryFromContext(context);
   const admissionRoot = context.cwd;
@@ -131,8 +132,12 @@ export function createChainedStageProjectMatch(context: PipelineContext): (path:
     const resolved = resolve(path);
     const jarvisRoot = jarvisHome();
     for (const key of Object.keys(registry)) {
-      const externalRoot = join(jarvisRoot, "worktrees", key);
-      if (isUnderPath(resolved, externalRoot)) {
+      const safeId = projectSafeId(key);
+      if (
+        isUnderPath(resolved, join(jarvisRoot, "worktrees", key)) ||
+        isUnderPath(resolved, join(jarvisRoot, "intent-work", safeId)) ||
+        isUnderPath(resolved, join(jarvisRoot, "specs", safeId))
+      ) {
         return { key, root: admissionRoot };
       }
     }

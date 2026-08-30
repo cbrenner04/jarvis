@@ -104,6 +104,8 @@ After every workflow and required approval stage succeeds, `settlePipelineTermin
 
 Failures throw `TerminalPublicationError` with normalized `PublicationFailure`; PR evidence is retained (`maybeDestroyPrEvidence` is intentionally no-op). Durable success: `terminalPublicationSucceededAt`; failure: `terminalPublicationFailure` (`PipelineTerminalPublicationFailure`). Pipeline success requires terminal success when `terminalAction` is set.
 
+**Retry and resume limits:** a `terminalPublicationFailure` is not auto-retried; `pipeline resume` re-attempts it, reloading the linked entry run and preserving its `prNumber`/`prUrl` in the stage artifact so the ready/merge flip can land. Re-settlement that finds the final entry run without a complete PR pair fails with `completion_publication_missing_pr_evidence` and never invokes terminal publication. Because the ready flip is idempotent and PR evidence is never destroyed on failure, a repeated attempt neither re-flips nor loses evidence.
+
 Completion publication (per-stage push/draft/ready during implement) and terminal publication are separate boundaries — `skipReadyFinalization` on implement when `terminalAction` is `leave-draft`. Tests: `terminal-publication.test.ts`, `state-store.test.ts` — `terminal publication commits`, `pipeline-execution.test.ts` — `pipeline terminal publication settlement`.
 
 ## Daemon restart continuation

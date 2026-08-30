@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import ts from "typescript";
 import { guarded } from "../../../scripts/guard-deterministic-daemon-tests.ts";
 import { resolveRenderObserverTests } from "../../../shared/prompts/render-observer-tests.ts";
 import { type ChangedLine, changedPathsFromDiff, defaultGitDiff, isProductionFile, parseDiff } from "./diff-scan.ts";
@@ -46,6 +47,22 @@ export type Candidate = {
   mutatedText: string;
   mutation: string;
 };
+
+function deduplicateCandidates(candidates: Candidate[]): Candidate[] {
+  const seen = new Set<string>();
+  return candidates.filter((candidate) => {
+    const identity = JSON.stringify([
+      candidate.file,
+      candidate.line,
+      candidate.columnStart,
+      candidate.columnEnd,
+      candidate.mutation,
+    ]);
+    if (seen.has(identity)) return false;
+    seen.add(identity);
+    return true;
+  });
+}
 
 type GitDiff = (cwd: string, baseRef: string) => Promise<string>;
 type UntrackedFiles = (cwd: string) => Promise<string[]>;
@@ -314,32 +331,50 @@ function flipOperator(original: string): string {
   return original;
 }
 
+const COMPARISON_OPERATOR_KINDS = new Set<ts.SyntaxKind>([
+  ts.SyntaxKind.EqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsToken,
+  ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsEqualsToken,
+  ts.SyntaxKind.LessThanToken,
+  ts.SyntaxKind.LessThanEqualsToken,
+  ts.SyntaxKind.GreaterThanToken,
+  ts.SyntaxKind.GreaterThanEqualsToken,
+]);
+
 function deriveOperatorMutations(
   file: string,
-  lineNum: number,
-  content: string,
-  masked: string,
+  source: string,
+  changedLineNumbers: ReadonlySet<number>,
   candidates: Candidate[],
 ): void {
-  const comparisonMatches = Array.from(masked.matchAll(/([=!><]+)/g));
-  for (const match of comparisonMatches) {
-    if (match.index === undefined) continue;
-    const start = match.index;
-    const original = content.slice(start, start + match[0].length);
-    const mutated = flipOperator(original);
+  const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
 
-    if (mutated !== original) {
+  function visit(node: ts.Node): void {
+    if (ts.isBinaryExpression(node) && COMPARISON_OPERATOR_KINDS.has(node.operatorToken.kind)) {
+      const start = node.operatorToken.getStart(sourceFile);
+      const position = sourceFile.getLineAndCharacterOfPosition(start);
+      const line = position.line + 1;
+      if (!changedLineNumbers.has(line)) {
+        ts.forEachChild(node, visit);
+        return;
+      }
+      const original = node.operatorToken.getText(sourceFile);
+      const mutated = flipOperator(original);
       candidates.push({
         file,
-        line: lineNum,
-        columnStart: start,
-        columnEnd: start + original.length,
+        line,
+        columnStart: position.character,
+        columnEnd: position.character + original.length,
         originalText: original,
         mutatedText: mutated,
         mutation: `operator-flip: ${original} → ${mutated}`,
       });
     }
+    ts.forEachChild(node, visit);
   }
+
+  visit(sourceFile);
 }
 
 function deriveDestructiveMutations(
@@ -438,21 +473,21 @@ export function maskNonCodeSpans(line: string): string {
   return masked.join("");
 }
 
-function deriveFromLine(file: string, lineNum: number, content: string): Candidate[] {
-  const candidates: Candidate[] = [];
-
+function deriveFromLine(file: string, lineNum: number, content: string, operatorCandidates: Candidate[]): Candidate[] {
   // Skip comments and empty lines
   if (!content.trim() || content.trim().startsWith("//") || content.trim().startsWith("*")) {
-    return candidates;
+    return [];
   }
 
   const maskedContent = maskNonCodeSpans(content);
+  const guardCandidates: Candidate[] = [];
+  const destructiveCandidates: Candidate[] = [];
 
-  deriveGuardMutations(file, lineNum, content, maskedContent, candidates);
-  deriveOperatorMutations(file, lineNum, content, maskedContent, candidates);
-  deriveDestructiveMutations(file, lineNum, content, maskedContent, candidates);
+  deriveGuardMutations(file, lineNum, content, maskedContent, guardCandidates);
+  deriveDestructiveMutations(file, lineNum, content, maskedContent, destructiveCandidates);
 
-  return candidates;
+  operatorCandidates.sort((left, right) => left.columnStart - right.columnStart);
+  return deduplicateCandidates([...guardCandidates, ...operatorCandidates, ...destructiveCandidates]);
 }
 
 function isCodePath(path: string): boolean {
@@ -747,14 +782,50 @@ async function verifyChangedPrompts(
   return null;
 }
 
-function deriveCandidates(changedLinesByFile: Map<string, ChangedLine[]>): Candidate[] {
+function sourceWithChangedLines(source: string, changedLines: ChangedLine[]): string {
+  const lines = source.split("\n");
+  for (const changedLine of changedLines) {
+    if (lines[changedLine.lineNumber - 1] !== undefined) lines[changedLine.lineNumber - 1] = changedLine.content;
+  }
+  return lines.join("\n");
+}
+
+async function deriveCandidates(
+  changedLinesByFile: Map<string, ChangedLine[]>,
+  worktreePath: string,
+  readFile: ReadFile,
+): Promise<Candidate[]> {
   const candidates: Candidate[] = [];
-  for (const lines of changedLinesByFile.values()) {
+  for (const [file, lines] of changedLinesByFile) {
+    const operatorCandidatesByLine = new Map<number, Candidate[]>();
+    if (isCodePath(file)) {
+      try {
+        const source = sourceWithChangedLines(await readFile(`${worktreePath}/${file}`), lines);
+        const operatorCandidates: Candidate[] = [];
+        deriveOperatorMutations(file, source, new Set(lines.map((line) => line.lineNumber)), operatorCandidates);
+        for (const candidate of operatorCandidates) {
+          const lineCandidates = operatorCandidatesByLine.get(candidate.line) ?? [];
+          lineCandidates.push(candidate);
+          operatorCandidatesByLine.set(candidate.line, lineCandidates);
+        }
+      } catch {
+        // The later verifier read will report an untestable production file; omit operators here rather than parsing a changed line without lexical context.
+      }
+    }
     for (const line of lines) {
-      if (isCodePath(line.file)) candidates.push(...deriveFromLine(line.file, line.lineNumber, line.content));
+      if (isCodePath(line.file)) {
+        candidates.push(
+          ...deriveFromLine(
+            line.file,
+            line.lineNumber,
+            line.content,
+            operatorCandidatesByLine.get(line.lineNumber) ?? [],
+          ),
+        );
+      }
     }
   }
-  return candidates;
+  return deduplicateCandidates(candidates);
 }
 
 /**
@@ -1056,7 +1127,7 @@ export async function verifyDiffDerivedMutations(
   );
   if (promptResult) return promptResult;
 
-  const candidates = deriveCandidates(changedLinesByFile);
+  const candidates = await deriveCandidates(changedLinesByFile, input.worktreePath, readFile);
 
   if (candidates.length === 0) {
     return {

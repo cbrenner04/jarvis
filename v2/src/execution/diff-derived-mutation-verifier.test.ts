@@ -916,6 +916,116 @@ index f424d7da..be281d02 100644
   });
 });
 
+describe("TypeScript operator candidate classification", () => {
+  function addedLineDiff(file: string, hunks: string[][]): string {
+    return `diff --git a/${file} b/${file}
+index 1234567..abcdefg 100644
+--- a/${file}
++++ b/${file}
+${hunks.map((lines) => `@@ -0,0 +1,${lines.length} @@\n+${lines.join("\n+")}\n`).join("")}`;
+  }
+
+  function verifyAddedSource(file: string, hunks: string[][], source: string, mutations?: string[]) {
+    return verifyDiffSource(file, addedLineDiff(file, hunks), source, mutations);
+  }
+
+  function verifyDiffSource(file: string, diff: string, source: string, mutations?: string[]) {
+    return verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        readFile: async (path) => (path.endsWith(".test.ts") ? "export {};\n" : source),
+        writeFile: async (_path, content) => {
+          if (content !== source) mutations?.push(content);
+        },
+        listDir: () => [],
+        runScopedTests: async () => false,
+      },
+    );
+  }
+
+  it("skips operator-flip for type-position angle brackets", async () => {
+    const lines = [
+      "const parameter = x as Parameters<Foo>[0];",
+      "const map = new Map<string, number>();",
+      "const called = fn<T>(value);",
+      "const satisfied = x satisfies Foo<Bar>;",
+      "const generic = <K extends keyof T>(key: K) => key;",
+    ];
+    const content = lines.join("\n");
+    const result = await verifyAddedSource("src/syntax.ts", [lines], content);
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(0);
+  });
+
+  it("derives operator-flip for expression comparisons on lines with type syntax", async () => {
+    const sourceLine = "export const compare = (a: number, b: number) => a < b ? new Map<string, number>() : null;";
+    const mutations: string[] = [];
+    const result = await verifyAddedSource("src/compare.ts", [[sourceLine]], sourceLine, mutations);
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(1);
+    expect(mutations).toEqual([sourceLine.replace("a < b", "a >= b")]);
+  });
+
+  it("orders guard-flip before operator-flip and collapses per-line duplicates", async () => {
+    const sourceLine =
+      "export function choose(a: boolean, b: number, c: number) { if (!a && b < c) return b; return c; }";
+    const mutations: string[] = [];
+    const result = await verifyAddedSource("src/choose.ts", [[sourceLine], [sourceLine]], sourceLine, mutations);
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(2);
+    expect(mutations).toEqual([sourceLine.replace("!a", "a"), sourceLine.replace("b < c", "b >= c")]);
+  });
+
+  it("skips a multiline template continuation while retaining a real comparison", async () => {
+    const source = "const message = `\n  rendered < marker\n`;\nconst comparison = left < right;";
+    const mutations: string[] = [];
+    const result = await verifyDiffSource(
+      "src/template.ts",
+      `diff --git a/src/template.ts b/src/template.ts
+index 1234567..abcdefg 100644
+--- a/src/template.ts
++++ b/src/template.ts
+@@ -2 +2 @@
+-  previous text
++  rendered < marker
+@@ -4 +4 @@
+-const comparison = old;
++const comparison = left < right;
+`,
+      source,
+      mutations,
+    );
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(1);
+    expect(mutations).toEqual([source.replace("left < right", "left >= right")]);
+  });
+
+  it("skips operator-flip in a multiline block-comment continuation", async () => {
+    const source = "/*\n  documented < marker\n*/";
+    const result = await verifyDiffSource(
+      "src/comment.ts",
+      `diff --git a/src/comment.ts b/src/comment.ts
+index 1234567..abcdefg 100644
+--- a/src/comment.ts
++++ b/src/comment.ts
+@@ -2 +2 @@
+-  previous text
++  documented < marker
+`,
+      source,
+    );
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(0);
+  });
+});
+
 describe("per-file candidate scheduling", () => {
   async function waitForCondition(condition: () => boolean, label: string): Promise<void> {
     for (let attempt = 0; attempt < 200; attempt += 1) {

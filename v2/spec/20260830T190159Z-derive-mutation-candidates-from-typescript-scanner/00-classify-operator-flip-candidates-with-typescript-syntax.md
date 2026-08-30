@@ -25,15 +25,15 @@ Diff-derived mutation candidate derivation in `v2/src/execution/diff-derived-mut
 
 ## Acceptance criteria
 
-- [ ] `diff-derived-mutation-verifier.test.ts` regression `skips operator-flip for type-position angle brackets` drives changed lines whose only angle brackets appear in `x as Parameters<Foo>[0]`, `new Map<string, number>()`, `fn<T>(...)`, `x satisfies Foo<Bar>`, and an arrow generic `<K extends keyof T> =>`, asserts no `operator-flip` candidate is derived for any of them, and fails against the pre-fix regex derivation reachable in `deriveOperatorMutations` today.
-- [ ] `diff-derived-mutation-verifier.test.ts` regression `derives operator-flip for expression comparisons on lines with type syntax` drives a changed line containing both a real `a < b` comparison and a type generic, asserts an `operator-flip` candidate targets the comparison at its source columns, and fails against the pre-fix classifier that suppresses or misplaces the comparison.
-- [ ] `diff-derived-mutation-verifier.test.ts` regression `orders guard-flip before operator-flip and collapses per-line duplicates` drives one changed line with both guard-flip and operator-flip opportunities plus a duplicate operator candidate, asserts guard-flip is emitted first, duplicate identities collapse to one entry, and inspection order respects that collapse; it fails against the pre-fix deriver that emits operator-flips before guards or retains duplicates.
-- [ ] `diff-derived-mutation-verifier.test.ts` `maskNonCodeSpans` describe block stays green (non-code-span suppression for guard and destructive families unchanged).
-- [ ] `v2/docs/workflow-runner.md` documents TypeScript-based operator classification, exclusion of type-position brackets from operator-flip candidates, and guard-before-operator per-line ordering with duplicate collapse before inspection bounds.
-- [ ] `v2/docs/v1-behaviors.md` replaces the regex-masked comparison-operator candidate description with scanner/AST-based expression-position classification and the guard-before-operator ordering contract.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `diff-derived-mutation-verifier.test.ts` regression `skips operator-flip for type-position angle brackets` drives changed lines whose only angle brackets appear in `x as Parameters<Foo>[0]`, `new Map<string, number>()`, `fn<T>(...)`, `x satisfies Foo<Bar>`, and an arrow generic `<K extends keyof T> =>`, asserts no `operator-flip` candidate is derived for any of them, and fails against the pre-fix regex derivation reachable in `deriveOperatorMutations` today.
+- [x] `diff-derived-mutation-verifier.test.ts` regression `derives operator-flip for expression comparisons on lines with type syntax` drives a changed line containing both a real `a < b` comparison and a type generic, asserts an `operator-flip` candidate targets the comparison at its source columns, and fails against the pre-fix classifier that suppresses or misplaces the comparison.
+- [x] `diff-derived-mutation-verifier.test.ts` regression `orders guard-flip before operator-flip and collapses per-line duplicates` drives one changed line with both guard-flip and operator-flip opportunities plus a duplicate operator candidate, asserts guard-flip is emitted first, duplicate identities collapse to one entry, and inspection order respects that collapse; it fails against the pre-fix deriver that emits operator-flips before guards or retains duplicates.
+- [x] `diff-derived-mutation-verifier.test.ts` `maskNonCodeSpans` describe block stays green (non-code-span suppression for guard and destructive families unchanged).
+- [x] `v2/docs/workflow-runner.md` documents TypeScript-based operator classification, exclusion of type-position brackets from operator-flip candidates, and guard-before-operator per-line ordering with duplicate collapse before inspection bounds.
+- [x] `v2/docs/v1-behaviors.md` replaces the regex-masked comparison-operator candidate description with scanner/AST-based expression-position classification and the guard-before-operator ordering contract.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

@@ -779,3 +779,20 @@ test("post-boundary lock classifier guard inversion", () => {
   expect(inverted(lockTerminal)).toEqual(err("harness_failure", "stop"));
   expect(inverted(controlTerminal)).toEqual(err("state_store_lock_timeout", "resume", true));
 });
+
+test("composeRunOperatorError routes durable terminalCause invocation_failure through terminalFailureDetail", () => {
+  const run = {
+    status: "failed" as RunStatus,
+    attempts: [],
+    terminalCause: "invocation_failure" as const,
+    terminalFailureDetail: { failureKind: "error" as const, message: "boom", bindingAttempts: [] },
+  };
+  // The durable terminalCause === "invocation_failure" branch must map the detail so its message
+  // survives; flipping that guard to !== falls through to loop-outcome mapping and drops the message.
+  expect(composeRunOperatorError(run)).toEqual({
+    reason: "invocation_error",
+    nextAction: "stop",
+    retryable: false,
+    message: "boom",
+  });
+});

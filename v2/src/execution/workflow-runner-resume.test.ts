@@ -1113,7 +1113,9 @@ describe("executeWorkflow review dispatch", () => {
 
         let finalizerCalls = 0;
         const prompts: string[] = [];
+        const logSink = new TestLogSink();
         const outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, {
+          logSink,
           completionCommitter: createCompletionCommitter(),
           completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" }),
           readyFinalizer: async (input) => {
@@ -1124,7 +1126,16 @@ describe("executeWorkflow review dispatch", () => {
               throw new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
             }
             if (finalizerCalls <= 3) throw new ReadyGateError("bun run ready", 1, "still red");
-            return undefined;
+            return {
+              acceptedSites: [
+                {
+                  file: "src/guard.ts",
+                  line: 17,
+                  mutation: "guard-flip: !ready → ready",
+                  reason: "The caller establishes readiness",
+                },
+              ],
+            };
           },
           runFixCommand: async () => {},
           mutationRepair: {
@@ -1152,6 +1163,17 @@ describe("executeWorkflow review dispatch", () => {
         expect(prompts[0]).toContain("Mutation: operator-flip: === → !==");
         expect(prompts[0]).not.toContain("patch.prompt.body");
         expect(prompts[1]).toContain("The ready gate failed:");
+        expect(
+          logSink.events.map(({ event }) => event).filter((event) => event.kind === "accepted_equivalent_mutation"),
+        ).toEqual([
+          {
+            kind: "accepted_equivalent_mutation",
+            file: "src/guard.ts",
+            line: 17,
+            mutation: "guard-flip: !ready → ready",
+            reason: "The caller establishes readiness",
+          },
+        ]);
       });
     } finally {
       rmSync(workspace, { recursive: true, force: true });

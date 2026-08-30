@@ -83,6 +83,14 @@ export type RuntimeSmokeOutcomeEvent =
       discoveryReason: string;
     };
 
+export type AcceptedEquivalentMutationEvent = {
+  kind: "accepted_equivalent_mutation";
+  file: string;
+  line: number;
+  mutation: string;
+  reason: string;
+};
+
 /** Emitted on every settled main-loop iteration: the per-iteration commit made, or why it was skipped. */
 export type IterationCommitEvent =
   | {
@@ -220,6 +228,7 @@ type LogEventWithoutLoopFinished =
   | ReadyGateTimeoutEvent
   | ReadyGateAutofixDiscardedEvent
   | RuntimeSmokeOutcomeEvent
+  | AcceptedEquivalentMutationEvent
   | IterationCommitEvent
   | RunExecutionFailedEvent
   | RunReconciledEvent
@@ -271,6 +280,16 @@ export interface LogReader {
    * Honour AbortSignal for clean shutdown.
    */
   follow(runId: string, signal?: AbortSignal): AsyncIterableIterator<PersistedRecord>;
+}
+
+export function appendAcceptedEquivalentMutations(
+  logSink: LogSink | undefined,
+  runId: string,
+  acceptedSites: readonly Omit<AcceptedEquivalentMutationEvent, "kind">[],
+): void {
+  for (const site of acceptedSites) {
+    logSink?.append(runId, { kind: "accepted_equivalent_mutation", ...site });
+  }
 }
 
 /** Interval `follow()` polls `tail()` for new records. */

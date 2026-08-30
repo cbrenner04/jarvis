@@ -28,6 +28,7 @@ import { parseSpec } from "../../../shared/spec-parser.ts";
 import { AsyncSubprocessError, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
+  appendAcceptedEquivalentMutations,
   dualConstraintRepromptDetail,
   type LandingContractRepromptEvent,
   type LogSink,
@@ -57,6 +58,7 @@ import {
 } from "./completion-commit.ts";
 import { type CompletionPublisher, createCompletionPublisher } from "./completion-publisher.ts";
 import {
+  type AcceptedSite,
   type DiffDerivedMutationVerifierInput,
   type VerificationResult,
   verifyDiffDerivedMutations,
@@ -72,6 +74,7 @@ import {
   deriveGateAllowedPaths,
   outOfScopeSettlementResumable,
   parseGitNameStatusZ,
+  type ReadyFinalizationResult,
   type ReadyFinalizer,
   ReadyFlipError,
   ReadyGateError,
@@ -971,7 +974,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               if (args.signal?.aborted) {
                 return finishLoop(args, prepared.result.runId, "progress", publication.iterationsConsumed, true);
               }
-              appendRuntimeSmokeOutcome(args.logSink, prepared.result.runId, publication.failure.runtimeSmokeOutcome);
+              appendPublicationFailureVerificationOutcomes(args.logSink, prepared.result.runId, publication.failure);
               const publishedResult = {
                 ...prepared.result,
                 iterationsConsumed: publication.iterationsConsumed,
@@ -1005,7 +1008,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             } else {
               settleCompletedPublication(store, prepared.result.runId);
             }
-            appendRuntimeSmokeOutcome(args.logSink, prepared.result.runId, publication.success?.runtimeSmokeOutcome);
+            appendCompletionVerificationOutcomes(args.logSink, prepared.result.runId, publication.success);
             if (publication.success?.requestedBase !== undefined && publication.success.resolvedBase !== undefined) {
               publicationBaseRetarget = {
                 requestedBase: publication.success.requestedBase,
@@ -1842,7 +1845,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             if (args.signal?.aborted) {
               return finishLoop(args, runId, "progress", publication.iterationsConsumed, true);
             }
-            appendRuntimeSmokeOutcome(args.logSink, runId, publication.failure.runtimeSmokeOutcome);
+            appendPublicationFailureVerificationOutcomes(args.logSink, runId, publication.failure);
             const publishedResult = {
               ...attributed,
               iterationsConsumed: publication.iterationsConsumed,
@@ -1871,7 +1874,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           } else {
             settleCompletedPublication(store, runId);
           }
-          appendRuntimeSmokeOutcome(args.logSink, runId, publication.success?.runtimeSmokeOutcome);
+          appendCompletionVerificationOutcomes(args.logSink, runId, publication.success);
           if (publication.success?.requestedBase !== undefined && publication.success?.resolvedBase !== undefined) {
             publicationBaseRetarget = {
               requestedBase: publication.success.requestedBase,
@@ -2594,6 +2597,7 @@ export type CompletionPublishFailure = {
   prNumber?: number;
   prUrl?: string;
   runtimeSmokeOutcome?: SmokePass;
+  acceptedSites?: readonly AcceptedSite[];
   requestedBase?: string;
   resolvedBase?: string;
 };
@@ -2602,6 +2606,7 @@ export type CompletionPublishSuccess = {
   prNumber?: number;
   prUrl?: string;
   runtimeSmokeOutcome: SmokePass | undefined;
+  acceptedSites: readonly AcceptedSite[];
   requestedBase?: string;
   resolvedBase?: string;
 };
@@ -2627,6 +2632,24 @@ export function appendRuntimeSmokeOutcome(
           },
     );
   }
+}
+
+export function appendCompletionVerificationOutcomes(
+  logSink: LogSink | undefined,
+  runId: string,
+  success: Pick<CompletionPublishSuccess, "acceptedSites" | "runtimeSmokeOutcome"> | undefined,
+): void {
+  appendAcceptedEquivalentMutations(logSink, runId, success?.acceptedSites ?? []);
+  appendRuntimeSmokeOutcome(logSink, runId, success?.runtimeSmokeOutcome);
+}
+
+export function appendPublicationFailureVerificationOutcomes(
+  logSink: LogSink | undefined,
+  runId: string,
+  failure: Pick<CompletionPublishFailure, "acceptedSites" | "runtimeSmokeOutcome">,
+): void {
+  appendAcceptedEquivalentMutations(logSink, runId, failure.acceptedSites ?? []);
+  appendRuntimeSmokeOutcome(logSink, runId, failure.runtimeSmokeOutcome);
 }
 
 type CompletionPublishInput = Parameters<typeof publishCompletionArtifacts>[1];
@@ -3386,7 +3409,7 @@ async function runReadyFinalizer(
   seams: CompletionPublicationSeams,
   input: { worktreePath: string; baseRef: string; branch: string; requiredIntegrationScope?: string },
   onGateGroupId?: (pgid: number | null) => void,
-): Promise<SmokePass | undefined> {
+): Promise<ReadyFinalizationResult | undefined> {
   const readyFinalizer =
     seams.readyFinalizer ??
     createReadyFinalizer({
@@ -3403,6 +3426,7 @@ async function runReadyFinalizer(
             verificationResult.dualConstraint,
           );
         }
+        return verificationResult.acceptedSites;
       },
       runRuntimeSmokeVerification: async (worktreePath: string, baseRef: string) => {
         const verificationResult = await verifyRuntimeSmoke({
@@ -3422,14 +3446,23 @@ async function runReadyFinalizer(
     ...(seams.readyCommand !== undefined ? { readyCommand: seams.readyCommand } : {}),
     skipReadyGate: resolveMarkdownOnlyWorkflowPromptId(seams.promptId, seams.landing) !== undefined,
   };
-  return (await readyFinalizer(finalInput))?.runtimeSmokeOutcome;
+  return (await readyFinalizer(finalInput)) ?? undefined;
 }
 
+function finalizationAcceptedSites(err: Error): readonly AcceptedSite[] | undefined {
+  if (err instanceof RuntimeSmokeFailedError || err instanceof ReadyFlipError) {
+    return err.acceptedSites;
+  }
+  return undefined;
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: exhaustive mapping of each finalization error variant (surviving mutation, accepted-site persistence, ready-gate, commit failure) to its typed response; the branching is inherent to the error taxonomy.
 function buildFinalizationErrorResponse(
   err: Error,
   prNumber: number | undefined,
   prUrl: string | undefined,
 ): CompletionPublishFailure {
+  const acceptedSites = finalizationAcceptedSites(err);
   if (err instanceof SurvivingMutationError) {
     return {
       kind: "surviving_mutation_failed",
@@ -3442,6 +3475,7 @@ function buildFinalizationErrorResponse(
     return {
       kind: "runtime_smoke_failed",
       error: err,
+      ...(acceptedSites !== undefined ? { acceptedSites } : {}),
       ...(prNumber !== undefined ? { prNumber } : {}),
       ...(prUrl !== undefined ? { prUrl } : {}),
     };
@@ -3451,6 +3485,7 @@ function buildFinalizationErrorResponse(
       kind: "ready_flip_failed",
       error: err,
       runtimeSmokeOutcome: err.runtimeSmokeOutcome,
+      ...(acceptedSites !== undefined ? { acceptedSites } : {}),
       ...(prNumber !== undefined ? { prNumber } : {}),
       ...(prUrl !== undefined ? { prUrl } : {}),
     };
@@ -3503,7 +3538,7 @@ export async function publishCompletionArtifacts(
   onGateGroupId?: (pgid: number | null) => void,
 ): Promise<CompletionPublishFailure | (CompletionPublishSuccess & { kind: "success" })> {
   let publisherResult: Awaited<ReturnType<CompletionPublisher>> | undefined;
-  let runtimeSmokeOutcome: SmokePass | undefined;
+  let finalizationResult: Awaited<ReturnType<ReadyFinalizer>>;
   try {
     publisherResult = await runPublisher(seams, input);
   } catch (publishError) {
@@ -3524,7 +3559,7 @@ export async function publishCompletionArtifacts(
   }
   try {
     if (!seams.skipReadyFinalization) {
-      runtimeSmokeOutcome = await runReadyFinalizer(
+      finalizationResult = await runReadyFinalizer(
         seams,
         {
           worktreePath: input.worktreePath,
@@ -3546,7 +3581,8 @@ export async function publishCompletionArtifacts(
     ...(publisherResult?.requestedBase !== undefined && publisherResult?.resolvedBase !== undefined
       ? { requestedBase: publisherResult.requestedBase, resolvedBase: publisherResult.resolvedBase }
       : {}),
-    runtimeSmokeOutcome,
+    runtimeSmokeOutcome: finalizationResult?.runtimeSmokeOutcome,
+    acceptedSites: finalizationResult?.acceptedSites ?? [],
   };
 }
 

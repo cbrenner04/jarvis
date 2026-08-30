@@ -429,13 +429,25 @@ describe("run control", () => {
     const records = [
       logRecord(1, "iteration_started"),
       logRecord(2, "boundary_committed"),
-      logRecord(3, "loop_finished"),
       {
         runId: "run-123",
-        seq: 4,
-        ts: "2026-01-01T00:00:04.000Z",
+        seq: 3,
+        ts: "2026-01-01T00:00:03.000Z",
+        event: {
+          kind: "accepted_equivalent_mutation",
+          file: "v2/src/guard.ts",
+          line: 12,
+          mutation: "guard-flip: !ready → ready",
+          reason: "The caller establishes readiness",
+        },
+      } satisfies PersistedRecord,
+      logRecord(4, "loop_finished"),
+      {
+        runId: "run-123",
+        seq: 5,
+        ts: "2026-01-01T00:00:05.000Z",
         event: { kind: "run_reconciled", runStatus: "killed", reason: "daemon_restart" },
-      },
+      } satisfies PersistedRecord,
     ];
 
     const code = await withFixedUuid([OPERATOR_SESSION_ID, SOLO_LIST_REQUEST_ID, streamId], () =>
@@ -448,6 +460,7 @@ describe("run control", () => {
               { kind: "stream-data", streamId, payload: JSON.stringify(records[1]) },
               { kind: "stream-data", streamId, payload: JSON.stringify(records[2]) },
               { kind: "stream-data", streamId, payload: JSON.stringify(records[3]) },
+              { kind: "stream-data", streamId, payload: JSON.stringify(records[4]) },
               { kind: "stream-end", streamId },
             ],
             { sent },
@@ -459,7 +472,7 @@ describe("run control", () => {
     expect(code).toBe(0);
     expect(sent).toEqual([{ kind: "stream-open", streamId, payload: { runId: "run-123", afterSeq: 0 } }]);
     expect(cap.read()).toEqual({
-      stdout: `${JSON.stringify(records[0])}\n${JSON.stringify(records[1])}\n${JSON.stringify(records[2])}\n${JSON.stringify(records[3])}\n`,
+      stdout: `${JSON.stringify(records[0])}\n${JSON.stringify(records[1])}\n${JSON.stringify(records[2])}\n${JSON.stringify(records[3])}\n${JSON.stringify(records[4])}\n`,
       stderr: "",
     });
   });

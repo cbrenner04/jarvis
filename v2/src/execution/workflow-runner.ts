@@ -111,7 +111,8 @@ import {
 } from "./work-boundary-telemetry.ts";
 import { checkStagedPlanDraft } from "./write.ts";
 import {
-  appendRuntimeSmokeOutcome,
+  appendCompletionVerificationOutcomes,
+  appendPublicationFailureVerificationOutcomes,
   DEFAULT_ITERATION_TIMEOUT_MS,
   enforcePersistedReadyGateRepairFence,
   executeWriteLoop,
@@ -1249,7 +1250,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                   resumable: true,
                 };
               }
-              appendRuntimeSmokeOutcome(args.logSink, lastResult.runId, publication.failure.runtimeSmokeOutcome);
+              appendPublicationFailureVerificationOutcomes(args.logSink, lastResult.runId, publication.failure);
               const publicationFailure = publicationFailureFor(publication.failure.error);
               const isFlipFailure = publication.failure.kind === "ready_flip_failed";
               const isGateFailure =
@@ -1335,7 +1336,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 ...(publicationFailure !== undefined ? { publicationFailure } : {}),
               };
             }
-            appendRuntimeSmokeOutcome(args.logSink, lastResult.runId, publication.success?.runtimeSmokeOutcome);
+            appendCompletionVerificationOutcomes(args.logSink, lastResult.runId, publication.success);
             if (
               publication.success !== undefined &&
               publication.success.prNumber !== undefined &&
@@ -4003,7 +4004,7 @@ async function runIntentResumeCommitAndPublish(
     return { ok: false, message };
   }
 
-  appendRuntimeSmokeOutcome(deps.logSink, context.runId, publication.success?.runtimeSmokeOutcome);
+  appendCompletionVerificationOutcomes(deps.logSink, context.runId, publication.success);
   store.commitCompletionBoundary({
     attemptId,
     runStatus: "completed",
@@ -4614,7 +4615,7 @@ async function runMutationRepairAttempt(
     return { kind: "retry", mutationError: publication.failure.error };
   }
   if (publication.failure !== undefined) {
-    appendRuntimeSmokeOutcome(deps.logSink, context.runId, publication.failure.runtimeSmokeOutcome);
+    appendPublicationFailureVerificationOutcomes(deps.logSink, context.runId, publication.failure);
     return {
       kind: "settled",
       outcome: await settleReviewMutationResumeFailure(
@@ -4629,7 +4630,7 @@ async function runMutationRepairAttempt(
   }
 
   const finalAttemptId = store.recordAttemptStart(context.runId);
-  appendRuntimeSmokeOutcome(deps.logSink, context.runId, publication.success?.runtimeSmokeOutcome);
+  appendCompletionVerificationOutcomes(deps.logSink, context.runId, publication.success);
   store.commitCompletionBoundary({
     attemptId: finalAttemptId,
     runStatus: "completed",
@@ -4692,7 +4693,7 @@ async function settleFailedReviewMutationPublication(
   const isFlip = failure.kind === "ready_flip_failed";
   const message = failure.error?.message ?? failure.kind;
   const publicationFailure = publicationFailureFor(failure.error);
-  appendRuntimeSmokeOutcome(deps.logSink, context.runId, failure.runtimeSmokeOutcome);
+  appendPublicationFailureVerificationOutcomes(deps.logSink, context.runId, failure);
   const failureFields = resumePublicationFailureBoundaryFields(failure, message);
   store.commitCompletionBoundary({
     attemptId,
@@ -4745,7 +4746,7 @@ function settleSuccessfulReviewMutationPublication(
   publication: Awaited<ReturnType<typeof publishWithReadyRepair>>,
   deps: ReviewMutationResumeDeps,
 ): ReviewMutationResumeOutcome {
-  appendRuntimeSmokeOutcome(deps.logSink, context.runId, publication.success?.runtimeSmokeOutcome);
+  appendCompletionVerificationOutcomes(deps.logSink, context.runId, publication.success);
   store.commitCompletionBoundary({
     attemptId,
     runStatus: "completed",

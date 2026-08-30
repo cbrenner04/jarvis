@@ -15,12 +15,12 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import * as sharedGit from "../../../shared/git.ts";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
 import { composeRunOperatorError } from "../daemon/run-operator-error.ts";
 import type { LogEvent, LogSink, LoopFinishedEvent } from "../persistence/log-stream.ts";
-import { INVALID_TOKEN_LOG_MAX_CHARS, truncateLogText } from "../persistence/log-stream.ts";
+import { INVALID_TOKEN_LOG_MAX_CHARS, openLogReader, openLogSink, truncateLogText } from "../persistence/log-stream.ts";
 import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
 import { stubAgentModelConfig } from "../testing/cli-test-helpers.ts";
@@ -370,6 +370,79 @@ async function runLoop(args: {
 const IN_LOOP_SURVIVING_MUTATION = "operator-flip: === → !==";
 const IN_LOOP_SURVIVING_SOURCE_FILE = "v2/src/execution/guard.ts";
 const IN_LOOP_SURVIVING_SOURCE_LINE = 17;
+
+function initAcceptedMutationWorktree(
+  jarvisRoot: string,
+  branchName: string,
+  sites: readonly { file: string; reason: string }[],
+): { baseRef: string; acceptedSites: Array<{ file: string; line: number; mutation: string; reason: string }> } {
+  const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+  mkdirSync(worktreePath, { recursive: true });
+  execFileSync("git", ["init", worktreePath], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
+  writeFileSync(join(worktreePath, ".gitignore"), ".reused\n", "utf8");
+  writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
+  for (const site of sites) {
+    mkdirSync(dirname(join(worktreePath, site.file)), { recursive: true });
+    writeFileSync(
+      join(worktreePath, site.file),
+      'export function guard(x: unknown) {\n  if (x) return "base";\n  return x;\n}\n',
+      "utf8",
+    );
+  }
+  execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
+  const baseRef = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
+    encoding: "utf8",
+    stdio: "pipe",
+  }).trim();
+  const mutation = "guard-flip: !x → x";
+  for (const site of sites) {
+    const directive = `// @mutate-equivalent mutation=${JSON.stringify(mutation)} reason=${JSON.stringify(site.reason)}`;
+    writeFileSync(
+      join(worktreePath, site.file),
+      `export function guard(x: unknown) {\n  if (!x) return "safe"; ${directive}\n  return x;\n}\n`,
+      "utf8",
+    );
+  }
+  if (sites.length === 0) {
+    mkdirSync(join(worktreePath, "v2/src"), { recursive: true });
+    writeFileSync(join(worktreePath, "v2/src/plain.ts"), "export const value = 1;\n", "utf8");
+  }
+  execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "commit", "-m", "change"], { stdio: "pipe" });
+  return {
+    baseRef,
+    acceptedSites: sites.map((site) => ({ file: site.file, line: 2, mutation, reason: site.reason })),
+  };
+}
+
+function acceptedMutationReadyFinalizer() {
+  return createReadyFinalizer({
+    runReadyGate: async () => {},
+    runMutationVerification: async (worktreePath, baseRef) => {
+      const result = await verifyDiffDerivedMutations({ worktreePath, runBase: baseRef });
+      if (result.kind === "surviving-mutation") {
+        throw new SurvivingMutationError(
+          result.mutation,
+          result.sourceSite.file,
+          result.sourceSite.line,
+          result.dualConstraint,
+        );
+      }
+      return result.acceptedSites;
+    },
+    ghReadyFlip: async () => {},
+  });
+}
+
+function acceptedMutationEvents(logsPath: string, runId: string) {
+  return openLogReader(logsPath)
+    .tail(runId)
+    .map(({ event }) => event)
+    .filter((event) => event.kind === "accepted_equivalent_mutation");
+}
 
 function writeSpecIndex(jarvisRoot: string, branchName: string, content: string): void {
   const specDir = join(jarvisRoot, "worktrees", "demo", branchName, "spec");
@@ -5159,6 +5232,124 @@ index 1234567..abcdefg 100644
       expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
         kind: "loop_finished",
         loopOutcomeKind: "complete",
+      });
+    });
+
+    test("persists accepted_equivalent_mutation after completion with an exact directive", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const branchName = "accepted-equivalent-single";
+      const fixture = initAcceptedMutationWorktree(jarvisRoot, branchName, [
+        { file: "v2/src/guard.ts", reason: "Caller contract guarantees truthy x" },
+      ]);
+      const logsPath = join(jarvisRoot, "accepted-equivalent.jsonl");
+      const logSink = openLogSink(logsPath);
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        branchName,
+        baseRef: fixture.baseRef,
+        logSink,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        ...completionHooks,
+        readyFinalizer: acceptedMutationReadyFinalizer(),
+      });
+      logSink.close();
+
+      expect(result.kind).toBe("complete");
+      expect(acceptedMutationEvents(logsPath, result.runId)).toEqual(
+        fixture.acceptedSites.map((site) => ({ kind: "accepted_equivalent_mutation", ...site })),
+      );
+    });
+
+    test("persists distinct accepted_equivalent_mutation events per site and none when acceptedSites is empty", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logsPath = join(jarvisRoot, "accepted-equivalent.jsonl");
+      const logSink = openLogSink(logsPath);
+      const multiple = initAcceptedMutationWorktree(jarvisRoot, "accepted-equivalent-multiple", [
+        { file: "v2/src/alpha.ts", reason: "Alpha input is validated by the caller" },
+        { file: "v2/src/beta.ts", reason: "Beta input is validated by the caller" },
+      ]);
+      const multipleResult = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        branchName: "accepted-equivalent-multiple",
+        baseRef: multiple.baseRef,
+        logSink,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        ...completionHooks,
+        readyFinalizer: acceptedMutationReadyFinalizer(),
+      });
+
+      expect(multipleResult.kind).toBe("complete");
+      expect(acceptedMutationEvents(logsPath, multipleResult.runId)).toEqual(
+        multiple.acceptedSites.map((site) => ({ kind: "accepted_equivalent_mutation", ...site })),
+      );
+
+      const empty = initAcceptedMutationWorktree(jarvisRoot, "accepted-equivalent-empty", []);
+      const emptyResult = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        branchName: "accepted-equivalent-empty",
+        baseRef: empty.baseRef,
+        logSink,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        ...completionHooks,
+        readyFinalizer: acceptedMutationReadyFinalizer(),
+      });
+      logSink.close();
+
+      expect(emptyResult.kind).toBe("complete");
+      expect(acceptedMutationEvents(logsPath, emptyResult.runId)).toEqual([]);
+    });
+
+    test("persists accepted_equivalent_mutation when runtime smoke fails after mutation verification", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const branchName = "accepted-equivalent-smoke-fail";
+      const fixture = initAcceptedMutationWorktree(jarvisRoot, branchName, [
+        { file: "v2/src/guard.ts", reason: "Caller contract guarantees truthy x" },
+      ]);
+      const logsPath = join(jarvisRoot, "accepted-equivalent-smoke-fail.jsonl");
+      const logSink = openLogSink(logsPath);
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        branchName,
+        baseRef: fixture.baseRef,
+        logSink,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        ...completionHooks,
+        readyFinalizer: createReadyFinalizer({
+          runReadyGate: async () => {},
+          runMutationVerification: async (worktreePath, baseRef) => {
+            const verificationResult = await verifyDiffDerivedMutations({ worktreePath, runBase: baseRef });
+            if (verificationResult.kind === "surviving-mutation") {
+              throw new SurvivingMutationError(
+                verificationResult.mutation,
+                verificationResult.sourceSite.file,
+                verificationResult.sourceSite.line,
+                verificationResult.dualConstraint,
+              );
+            }
+            return verificationResult.acceptedSites;
+          },
+          runRuntimeSmokeVerification: async () => ({
+            kind: "smoke-failure",
+            command: "bun run v2/src/cli.ts --help",
+            observation: "error: command failed",
+          }),
+          ghReadyFlip: async () => {},
+        }),
+      });
+      logSink.close();
+
+      expect(result.kind).toBe("runtime_smoke_failed");
+      expect(acceptedMutationEvents(logsPath, result.runId)).toEqual(
+        fixture.acceptedSites.map((site) => ({ kind: "accepted_equivalent_mutation", ...site })),
+      );
+      expect(openLogReader(logsPath).tail(result.runId).at(-1)?.event).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "runtime_smoke_failed",
+        resumable: false,
       });
     });
 

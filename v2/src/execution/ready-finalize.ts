@@ -20,6 +20,7 @@ import {
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
 import type { LoopFinishedEvent, PersistedRecord } from "../persistence/log-stream.ts";
+import type { AcceptedSite } from "./diff-derived-mutation-verifier.ts";
 import {
   defaultPublicationDelay,
   defaultPublicationRetryNotice,
@@ -65,7 +66,8 @@ export type GhReadyFlip = (branch: string, worktreePath: string) => Promise<void
 type Delay = (ms: number) => Promise<void>;
 type RetryNotice = (message: string) => void;
 
-type MutationVerificationRunner = (worktreePath: string, baseRef: string) => Promise<void>;
+// biome-ignore lint/suspicious/noConfusingVoidType: injected verifiers may predate audit evidence.
+type MutationVerificationRunner = (worktreePath: string, baseRef: string) => Promise<AcceptedSite[] | void>;
 type RuntimeSmokeVerificationRunner = (worktreePath: string, baseRef: string) => Promise<VerificationResult>;
 
 export type ReadyFinalizerSeams = {
@@ -81,6 +83,7 @@ export type ReadyFinalizerSeams = {
 
 export type ReadyFinalizationResult = {
   runtimeSmokeOutcome?: SmokePass;
+  acceptedSites?: AcceptedSite[];
 };
 
 export type ReadyFinalizer = (
@@ -91,6 +94,7 @@ export class ReadyFlipError extends Error {
   constructor(
     readonly readyFlipError: Error,
     readonly runtimeSmokeOutcome: SmokePass,
+    readonly acceptedSites?: readonly AcceptedSite[],
   ) {
     super(readyFlipError.message, { cause: readyFlipError });
     this.name = "ReadyFlipError";
@@ -870,6 +874,7 @@ export class RuntimeSmokeFailedError extends Error {
   constructor(
     readonly command: string,
     readonly observation: string,
+    readonly acceptedSites?: readonly AcceptedSite[],
   ) {
     super(`Runtime smoke failed: ${command} — ${observation}`);
     this.name = "RuntimeSmokeFailedError";
@@ -1043,6 +1048,7 @@ export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalize
   const runMutationVerification = seams?.runMutationVerification;
   const runRuntimeSmokeVerification = seams?.runRuntimeSmokeVerification;
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: sequential finalization flow (ready gate → mutation verification → accepted-equivalent-mutation persistence → runtime smoke) reads clearest as one ordered closure; splitting fragments the finalization ordering.
   return async (input) => {
     if (!input.skipReadyGate) {
       await runReadyGate(input.worktreePath, input.baseRef, {
@@ -1057,23 +1063,31 @@ export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalize
         onGroupId: input.onGateGroupId,
       });
     }
-    if (runMutationVerification) {
-      await runMutationVerification(input.worktreePath, input.baseRef);
-    }
+    const acceptedSitesResult = runMutationVerification
+      ? await runMutationVerification(input.worktreePath, input.baseRef)
+      : undefined;
+    const acceptedSites = Array.isArray(acceptedSitesResult) ? acceptedSitesResult : undefined;
     const runtimeSmokeOutcome = runRuntimeSmokeVerification
       ? await runRuntimeSmokeVerification(input.worktreePath, input.baseRef)
       : undefined;
     if (runtimeSmokeOutcome?.kind === "smoke-failure") {
-      throw new RuntimeSmokeFailedError(runtimeSmokeOutcome.command, runtimeSmokeOutcome.observation);
+      throw new RuntimeSmokeFailedError(runtimeSmokeOutcome.command, runtimeSmokeOutcome.observation, acceptedSites);
     }
     try {
       await flipWithRetry(() => ghReadyFlip(input.branch, input.worktreePath), delay, retryNotice);
     } catch (error) {
       if (runtimeSmokeOutcome !== undefined) {
-        throw new ReadyFlipError(error instanceof Error ? error : new Error(String(error)), runtimeSmokeOutcome);
+        throw new ReadyFlipError(
+          error instanceof Error ? error : new Error(String(error)),
+          runtimeSmokeOutcome,
+          acceptedSites,
+        );
       }
       throw error;
     }
-    return runtimeSmokeOutcome !== undefined ? { runtimeSmokeOutcome } : {};
+    return {
+      ...(runtimeSmokeOutcome !== undefined ? { runtimeSmokeOutcome } : {}),
+      ...(acceptedSites !== undefined ? { acceptedSites } : {}),
+    };
   };
 }

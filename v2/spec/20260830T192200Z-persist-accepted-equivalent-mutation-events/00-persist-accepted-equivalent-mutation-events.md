@@ -24,13 +24,13 @@ Durable run-log persistence in `v2/src/persistence/log-stream.ts`; completion mu
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts` regression `persists accepted_equivalent_mutation after completion with an exact directive` drives implement completion through the real ready finalizer against a git fixture with an exact colocated `// @mutate-equivalent mutation=<JSON string> reason=<JSON string>` directive, asserts one durable `accepted_equivalent_mutation` event with matching `file`, `line`, `mutation`, and `reason`, and fails against the prerequisite-only path that completes without the event.
-- [ ] `write-loop.test.ts` regression `persists distinct accepted_equivalent_mutation events per site and none when acceptedSites is empty` proves multiple accepted sites produce distinct events in verifier order and a successful completion with no accepted sites appends no `accepted_equivalent_mutation` event; it fails against the pre-fix path that omits multi-site persistence or emits on empty acceptance.
-- [ ] `run.test.ts` regression proves `jarvis run log <run-id>` replays persisted `accepted_equivalent_mutation` records through the existing structured-log JSONL path with no separate lookup; it fails against the pre-fix replay corpus that lacks the event kind.
-- [ ] `v2/docs/workflow-runner.md` documents `accepted_equivalent_mutation` emission at completion mutation verification and replaces the verifier-only note that downstream lifecycle logging of accepted sites is out of scope.
-- [ ] `v2/docs/operator-runbook.md` documents using `jarvis run log` to audit accepted equivalent mutations against the PR diff.
-- [ ] `v2/docs/v1-behaviors.md` records durable audit events for the v2-only equivalent-mutation escape hatch.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `write-loop.test.ts` regression `persists accepted_equivalent_mutation after completion with an exact directive` drives implement completion through the real ready finalizer against a git fixture with an exact colocated `// @mutate-equivalent mutation=<JSON string> reason=<JSON string>` directive, asserts one durable `accepted_equivalent_mutation` event with matching `file`, `line`, `mutation`, and `reason`, and fails against the prerequisite-only path that completes without the event.
+- [x] `write-loop.test.ts` regression `persists distinct accepted_equivalent_mutation events per site and none when acceptedSites is empty` proves multiple accepted sites produce distinct events in verifier order and a successful completion with no accepted sites appends no `accepted_equivalent_mutation` event; it fails against the pre-fix path that omits multi-site persistence or emits on empty acceptance.
+- [x] `run.test.ts` regression proves `jarvis run log <run-id>` replays persisted `accepted_equivalent_mutation` records through the existing structured-log JSONL path with no separate lookup; it fails against the pre-fix replay corpus that lacks the event kind.
+- [x] `v2/docs/workflow-runner.md` documents `accepted_equivalent_mutation` emission at completion mutation verification and replaces the verifier-only note that downstream lifecycle logging of accepted sites is out of scope.
+- [x] `v2/docs/operator-runbook.md` documents using `jarvis run log` to audit accepted equivalent mutations against the PR diff.
+- [x] `v2/docs/v1-behaviors.md` records durable audit events for the v2-only equivalent-mutation escape hatch.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

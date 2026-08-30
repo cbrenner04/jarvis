@@ -23,13 +23,13 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/completion-publisher.test.ts` test `pushes HEAD to the target branch independently of upstream tracking` asserts `git push origin HEAD:<branch>` when `branch@{u}` resolves to a differently named ref; reachable on `main` via upstream-sensitive push selection in `v2/src/execution/completion-publisher.ts`; fails against the pre-fix code.
-- [ ] `v2/src/execution/completion-publisher.test.ts` test `retries transient push errors up to 3 attempts using the injected delay and retry-notice seams` (or a focused sibling in the same file) asserts each push retry uses `git push origin HEAD:<branch>` and does not call `rev-parse …@{u}`; fails against the pre-fix upstream-sensitive push selection.
-- [ ] `v2/src/execution/workflow-runner-resume.test.ts` test `resume publication push uses explicit refspec without upstream detection` drives completion-publication resume through `createCompletionPublisher`, records push argv, and proves `origin HEAD:<branch>` without `@{u}` lookup; fails against the pre-fix upstream-sensitive push selection.
-- [ ] `v2/src/execution/completion-publisher.test.ts` — `publishes push with existing upstream` and `publishes push with new upstream and creates draft PR` stay green after their expected push argv is aligned with `git push origin HEAD:<branch>`.
-- [ ] `v2/docs/write-behavior.md` — **Push+PR phase** documents completion publication `git push origin HEAD:<branch>` independently of upstream tracking and `push.default`, with initial, retry, and resume paths sharing the command.
-- [ ] `v2/docs/v1-behaviors.md` — records v2 completion-publication push divergence from v1's upstream-sensitive two-phase push (`git push -u` then bare `git push`).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/execution/completion-publisher.test.ts` test `pushes HEAD to the target branch independently of upstream tracking` asserts `git push origin HEAD:<branch>` when `branch@{u}` resolves to a differently named ref; reachable on `main` via upstream-sensitive push selection in `v2/src/execution/completion-publisher.ts`; fails against the pre-fix code.
+- [x] `v2/src/execution/completion-publisher.test.ts` test `retries transient push errors up to 3 attempts using the injected delay and retry-notice seams` (or a focused sibling in the same file) asserts each push retry uses `git push origin HEAD:<branch>` and does not call `rev-parse …@{u}`; fails against the pre-fix upstream-sensitive push selection.
+- [x] `v2/src/execution/workflow-runner-resume.test.ts` test `resume publication push uses explicit refspec without upstream detection` drives completion-publication resume through `createCompletionPublisher`, records push argv, and proves `origin HEAD:<branch>` without `@{u}` lookup; fails against the pre-fix upstream-sensitive push selection.
+- [x] `v2/src/execution/completion-publisher.test.ts` — `publishes push with existing upstream` and `publishes push with new upstream and creates draft PR` stay green after their expected push argv is aligned with `git push origin HEAD:<branch>`.
+- [x] `v2/docs/write-behavior.md` — **Push+PR phase** documents completion publication `git push origin HEAD:<branch>` independently of upstream tracking and `push.default`, with initial, retry, and resume paths sharing the command.
+- [x] `v2/docs/v1-behaviors.md` — records v2 completion-publication push divergence from v1's upstream-sensitive two-phase push (`git push -u` then bare `git push`).
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

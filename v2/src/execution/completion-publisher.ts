@@ -91,12 +91,7 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
       const pushSha = await runPublicationWithRetry(
         "push",
         async () => {
-          const hasUpstream = await checkHasUpstream(git, input.worktreePath, input.branch);
-          if (hasUpstream) {
-            await git(input.worktreePath, ["push"]);
-          } else {
-            await git(input.worktreePath, ["push", "-u", "origin", input.branch]);
-          }
+          await git(input.worktreePath, ["push", "origin", `HEAD:refs/heads/${input.branch}`]);
           return await git(input.worktreePath, ["rev-parse", "HEAD"]);
         },
         { delay, retryNotice },
@@ -161,15 +156,6 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
       throw error;
     }
   };
-}
-
-async function checkHasUpstream(git: Git, worktreePath: string, branch: string): Promise<boolean> {
-  try {
-    await git(worktreePath, ["rev-parse", `${branch}@{u}`]);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 type PrEvidence = {

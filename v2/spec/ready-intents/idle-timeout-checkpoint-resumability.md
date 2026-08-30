@@ -22,7 +22,7 @@ The write loop checkpoints a stalled iteration before settling `idle_output_time
 ## Acceptance criteria
 
 - [ ] `write-loop-idle-watchdog.test.ts` drives a stalled iteration that writes a tracked file, asserts its boundary emits `iteration_commit` with `commitSha`, then asserts the returned result and terminal `loop_finished` are `idle_output_timeout` with `resumable: true`; it fails against the baseline hard `false`.
-- [ ] The committed-progress regression test carries an in-body `// @mutate` directive that replaces the production fresh-checkpoint resumability guard with `false`; applying it turns the test RED.
+- [ ] The committed-progress regression test fails when the production fresh-checkpoint resumability guard is manually replaced with `false` at the source, and passes on the real guard; no production inversion hook is added.
 - [ ] `write-loop-idle-watchdog.test.ts` drives a stalled iteration with no file changes and asserts `iteration_commit.skipReason: "no_file_changes"` plus `resumable: false` on the result and terminal `loop_finished`.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 

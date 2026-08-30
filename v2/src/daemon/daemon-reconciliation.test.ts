@@ -148,6 +148,88 @@ test("reconciles an orphaned review-debate row to interrupted and retains its wo
   sweepStore.close();
 });
 
+test("startup reconciliation routes admitted orphan terminals through atomic settlement", async () => {
+  const ordinaryRunId = createRun(seedStore, "in-progress");
+  const reviewRunId = seedStore.createRun({
+    project: "project",
+    specRef: "main",
+    worktreePath: "/tmp/worktree-atomic-debate",
+    branch: "branch-atomic-debate",
+    specPath: "/tmp/verdict.md",
+    stepId: "review-debate",
+    workflowSnapshot: {
+      invocationId: "workflow-atomic-debate",
+      steps: [{ stepId: "review-debate", role: "", behavior: "review-debate", durable: true }],
+    },
+  });
+  const reviewAttemptId = seedStore.recordAttemptStart(reviewRunId);
+  const records: PersistedRecord[] = [];
+  const reader: LogReader = {
+    tail: (runId) => records.filter((record) => record.runId === runId),
+    async *follow() {},
+  };
+  const sink: LogSink = {
+    append: (runId, event) => records.push({ runId, seq: records.length + 1, ts: "now", event }),
+    close: () => undefined,
+  };
+  const sweepStore = openSweepStore(async () => false);
+  const settlements: Array<{ runId: string; status: string }> = [];
+  const commitTerminalRunSettlement = sweepStore.commitTerminalRunSettlement.bind(sweepStore);
+  sweepStore.commitTerminalRunSettlement = (args) => {
+    settlements.push({ runId: args.runId, status: args.status });
+    commitTerminalRunSettlement(args);
+  };
+  sweepStore.commitGuardedKill = () => {
+    throw new Error("legacy guarded kill called");
+  };
+
+  await reconcileOrphanedRuns(sweepStore, sink, reader);
+
+  expect(settlements).toEqual(
+    expect.arrayContaining([
+      { runId: ordinaryRunId, status: "killed" },
+      { runId: reviewRunId, status: "interrupted" },
+    ]),
+  );
+  const ordinary = sweepStore.loadRun(ordinaryRunId);
+  const review = sweepStore.loadRun(reviewRunId);
+  expect(ordinary).toMatchObject({ status: "killed", terminalCause: null, terminalFailureDetail: null });
+  expect(ordinary?.finishedAt).toBeNumber();
+  expect(ordinary?.reconciledAt).toBeNumber();
+  expect(review).toMatchObject({
+    status: "interrupted",
+    terminalCause: null,
+    terminalFailureDetail: null,
+    attempts: [{ id: reviewAttemptId, status: "in-progress" }],
+  });
+  expect(review?.finishedAt).toBeNumber();
+  expect(review?.attempts[0]?.completedAt).toBeNumber();
+
+  const handlers = createRunControlHandlers({
+    stateStore: sweepStore,
+    logReader: reader,
+    writeLoopExecutor: async () => undefined,
+    failureReporter: () => undefined,
+  });
+  const listed = await handlers.list({ kind: "request", id: "list", method: "list" }, new AbortController().signal);
+  expect(listed).toMatchObject({
+    kind: "response",
+    result: {
+      runs: expect.arrayContaining([
+        expect.objectContaining({ runId: ordinaryRunId, status: "killed", finishedAtMs: ordinary?.finishedAt }),
+        expect.objectContaining({ runId: reviewRunId, status: "interrupted", finishedAtMs: review?.finishedAt }),
+      ]),
+    },
+  });
+  const waited = await handlers.wait(
+    { kind: "request", id: "wait", method: "wait", params: { runId: ordinaryRunId } },
+    new AbortController().signal,
+  );
+  expect(waited).toMatchObject({ kind: "response", result: { runStatus: "killed" } });
+  handlers.close();
+  sweepStore.close();
+});
+
 test("dedupes run_reconciled per settled status, so a stale killed event does not suppress an interrupted append", async () => {
   const runId = seedStore.createRun({
     project: "project",
@@ -651,7 +733,7 @@ test("daemon status reports the boot revision and digest on every call", async (
   }
 });
 
-test("automatic recovery records success, isolates admission failures, and preserves unsupported orphans", async () => {
+test("failed restart recovery admission settles with its diagnostic", async () => {
   const successId = createRun(seedStore, "in-progress");
   const failedId = createRun(seedStore, "in-progress");
   const unsupportedId = createRun(seedStore, "in-progress");
@@ -677,7 +759,15 @@ test("automatic recovery records success, isolates admission failures, and prese
   expect(recovery).toEqual({ resumed: 1 });
   expect(admissions).toEqual([successId, failedId, unsupportedId]);
   expect(seedStore.loadRun(successId)?.status).toBe("killed");
-  expect(seedStore.loadRun(failedId)?.status).toBe("failed");
+  expect(seedStore.loadRun(failedId)).toMatchObject({
+    status: "failed",
+    terminalCause: "invocation_failure",
+    terminalFailureDetail: {
+      failureKind: "error",
+      bindingAttempts: [],
+      message: "Automatic restart recovery admission failed: worktree still claimed",
+    },
+  });
   expect(seedStore.loadRun(unsupportedId)?.status).toBe("killed");
   expect(events).toEqual([
     { runId: successId, event: { kind: "run_recovery", outcome: "resumed" } },

@@ -33,6 +33,7 @@ import {
   withExternalWorktree as realWithExternalWorktree,
   WorktreeMaterializationError,
 } from "../execution/external-worktree.ts";
+import type { InvocationFailureDetail, InvocationFailureKind } from "../execution/invocation-failure.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type { TerminalPublicationInput, TerminalPublicationResult } from "../execution/terminal-publication.ts";
 import {
@@ -71,6 +72,7 @@ import {
   openLogReader,
   openLogSink,
   type PersistedRecord,
+  truncateLogText,
 } from "../persistence/log-stream.ts";
 import {
   type Attempt,
@@ -178,6 +180,20 @@ export function forceSettleStatusAdmitsRun(status: RunStatus): boolean {
   return !isTerminalRunStatus(status);
 }
 
+function reconciliationTerminalStatus(run: Run): "killed" | "interrupted" | undefined {
+  if (isTerminalRunStatus(run.status)) return undefined;
+  const isReviewDebate = run.workflowSnapshot?.steps.some(
+    (step) => step.stepId === run.stepId && step.behavior === "review-debate",
+  );
+  return isReviewDebate ? "interrupted" : "killed";
+}
+
+function settleGuardedKill(store: StateStore, runId: string): void {
+  const run = store.loadRun(runId);
+  if (!run || isTerminalRunStatus(run.status)) return;
+  store.commitTerminalRunSettlement({ runId, status: "killed" });
+}
+
 /**
  * Whether `kill`'s force path may settle a row: `force` must be set, the row must be
  * non-terminal, and its owner must be this process or provably dead — refuses a
@@ -219,7 +235,12 @@ export async function reconcileOrphanedRuns(
 ): Promise<string[]> {
   const reconciledRunIds: string[] = [];
   for (const runId of await stateStore.beginRunReconciliation()) {
-    const run = stateStore.loadRun(runId);
+    let run = stateStore.loadRun(runId);
+    const terminalStatus = run === null ? undefined : reconciliationTerminalStatus(run);
+    if (terminalStatus !== undefined) {
+      stateStore.commitTerminalRunSettlement({ runId, status: terminalStatus });
+      run = stateStore.loadRun(runId);
+    }
     const eventPersisted = logReader
       ?.tail(runId)
       .some(
@@ -440,9 +461,9 @@ export function resetWriteLoopBindingSourceDepsForTests(): void {
 export function settleKilledWorkflowOwnership(args: {
   killedRunIds: readonly string[];
   releaseRegistry: () => void;
-  commitGuardedKill: (runId: string) => void;
+  stateStore: StateStore;
 }): void {
-  for (const runId of args.killedRunIds) args.commitGuardedKill(runId);
+  for (const runId of args.killedRunIds) settleGuardedKill(args.stateStore, runId);
   args.releaseRegistry();
 }
 
@@ -902,6 +923,10 @@ export { stoppedOutcomeForRun } from "./workflow-list-snapshot.ts";
 /** Mutated by {@link promoteQueuedRunImpl} on each promotion; shared across calls. */
 export type PromotionSettleState = { suppressedUntil: number };
 
+function daemonFailureDetail(failureKind: InvocationFailureKind, message: string): InvocationFailureDetail {
+  return { failureKind, bindingAttempts: [], message: truncateLogText(message) };
+}
+
 export type PromoteQueuedRunDeps = {
   store: StateStore;
   registry: WorktreeOwnershipRegistry;
@@ -946,7 +971,12 @@ export function promoteQueuedRunImpl(deps: PromoteQueuedRunDeps, bypassSettleDel
 
     const resolved = resolveWriteLoopBindings(run.queuedInput);
     if (!resolved.ok) {
-      store.setRunStatus(run.id, "failed");
+      store.commitTerminalRunSettlement({
+        runId: run.id,
+        status: "failed",
+        terminalCause: "invocation_failure",
+        terminalFailureDetail: daemonFailureDetail("model_config", resolved.message),
+      });
       continue;
     }
 
@@ -966,7 +996,7 @@ export function promoteQueuedRunImpl(deps: PromoteQueuedRunDeps, bypassSettleDel
  * @throws Never — factory and handlers are non-throwing at the RPC boundary.
  * @invariant Each invocation gets a fresh `WorktreeOwnershipRegistry` and `activeRuns` map.
  * @invariant Write loops spawn fire-and-forget; settlement always releases registry and
- *   active-run entries. Spawn-boundary executor rejections best-effort persist `failed`,
+ *   active-run entries. Spawn-boundary executor rejections best-effort settle `failed`,
  *   await `failureReporter`, then release — they do not propagate to RPC callers.
  */
 export function createRunControlHandlers(deps: RunControlHandlerDeps) {
@@ -1016,6 +1046,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       : () => loadSettleDelayMs(resolveMachineProfile());
   const settleState: PromotionSettleState = { suppressedUntil: 0 };
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: wait-completion result assembly branches on status, record, and resume context
   const resultFrom = (runId: string, runStatus: RunStatus, record?: TerminalLogRecord): WaitRunCompletionResult => {
     const logTail = logReader?.tail(runId) ?? [];
     const run = store.loadRun(runId);
@@ -1027,15 +1058,19 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
           ? composeRunOperatorError(run, record, logTail)
           : undefined;
     const unsupportedResume = resumeContext?.ok === false;
+    const loopFinishedEvent = record?.event.kind === "loop_finished" ? record.event : undefined;
+    const loopOutcomeKind = run?.terminalCause ?? loopFinishedEvent?.loopOutcomeKind;
     const base: WaitRunCompletionResult =
-      record?.event.kind === "loop_finished"
-        ? {
+      loopOutcomeKind === undefined
+        ? { runStatus }
+        : {
             runStatus,
-            loopOutcomeKind: record.event.loopOutcomeKind,
-            iterationsConsumed: record.event.iterationsConsumed,
+            loopOutcomeKind,
+            ...(loopFinishedEvent?.loopOutcomeKind === loopOutcomeKind
+              ? { iterationsConsumed: loopFinishedEvent.iterationsConsumed }
+              : {}),
             resumable: unsupportedResume ? false : run != null && isResumeAdmitted(run, record),
-          }
-        : { runStatus };
+          };
     const withError = error === undefined ? base : { ...base, error };
     return runStatus === "blocked" && run ? { ...withError, worktreePath: run.worktreePath } : withError;
   };
@@ -1094,7 +1129,13 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         try {
           const run = store.loadRun(runId);
           if (run && !isSettledRunStatus(run.status)) {
-            store.setRunStatus(runId, "failed");
+            const message = reason instanceof Error ? reason.message : String(reason);
+            store.commitTerminalRunSettlement({
+              runId,
+              status: "failed",
+              terminalCause: "invocation_failure",
+              terminalFailureDetail: daemonFailureDetail("error", message),
+            });
           }
         } catch {
           // best-effort persist; cleanup still runs
@@ -1123,7 +1164,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   };
 
   /**
-   * Demote one non-terminal workflow run to `failed` and record why. Both steps are
+   * Settle one non-terminal workflow run as `failed` and record why. Both steps are
    * best-effort and independent: a persist fault must not skip the log append, and an
    * append fault must not roll back the demote. Already-settled runs keep their status
    * but still get the log record — a workflow can die after its step runs completed
@@ -1133,7 +1174,12 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     const run = store.loadRun(runId);
     if (!(run && isSettledRunStatus(run.status))) {
       try {
-        store.setRunStatus(runId, "failed");
+        store.commitTerminalRunSettlement({
+          runId,
+          status: "failed",
+          terminalCause: "invocation_failure",
+          terminalFailureDetail: daemonFailureDetail("error", message),
+        });
       } catch {
         // best-effort persist; append still runs
       }
@@ -1226,7 +1272,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
           settleKilledWorkflowOwnership({
             killedRunIds: killedWorkflowRuns,
             releaseRegistry: () => _registry.release(workflowKey, claimRunId),
-            commitGuardedKill: (runId) => store.commitGuardedKill(runId),
+            stateStore: store,
           });
           if (workflowInvocationId !== undefined) {
             clearLiveReviewProgress(workflowInvocationId);
@@ -1575,6 +1621,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       if (dismissal.kind === "refused") {
         return { kind: "response", result: dismissal };
       }
+      // biome-ignore lint/style/noNonNullAssertion: dismissal returned non-refused, so the run is present
       const run = store.loadRun(runId)!;
       return { kind: "response", result: { ...dismissal, status: run.status } };
     };
@@ -1624,13 +1671,16 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         activeRun.pendingKill = true;
         return { kind: "response", result: { ok: true } };
       }
-      store.commitGuardedKill(runId);
+      settleGuardedKill(store, runId);
       return { kind: "response", result: { ok: true } };
     }
 
     if (await forceSettleAdmitsRun(store, runId, run.status, params?.force)) {
-      store.commitGuardedKill(runId);
-      return { kind: "response", result: { ok: true } };
+      const admittedRun = store.loadRun(runId);
+      if (admittedRun !== null && forceSettleStatusAdmitsRun(admittedRun.status)) {
+        settleGuardedKill(store, runId);
+        return { kind: "response", result: { ok: true } };
+      }
     }
 
     return { kind: "error", code: "run_not_active", message: `Run ${runId} is not currently active` };
@@ -2193,6 +2243,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       if (outcome.kind === "refused") {
         return { kind: "response", result: outcome };
       }
+      // biome-ignore lint/style/noNonNullAssertion: dismissal returned non-refused, so the pipeline is present
       const pipeline = store.loadPipeline(pipelineId)!;
       return { kind: "response", result: { ...outcome, state: derivePipelineState(pipeline) } };
     };
@@ -2467,7 +2518,12 @@ export async function recoverReconciledRuns(
 
     const message = `Automatic restart recovery admission failed: ${response.message}`;
     try {
-      stateStore.setRunStatus(runId, "failed");
+      stateStore.commitTerminalRunSettlement({
+        runId,
+        status: "failed",
+        terminalCause: "invocation_failure",
+        terminalFailureDetail: daemonFailureDetail("error", message),
+      });
     } catch {
       // Log the diagnostic even if persistence is unavailable.
     }

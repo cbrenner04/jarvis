@@ -729,6 +729,7 @@ export interface StateStore {
    */
   forceKillOwnerAdmits(runId: string): Promise<boolean>;
 
+  /** Admit dead-owner orphan rows and return every row still owing reconciliation history. */
   beginRunReconciliation(): Promise<string[]>;
 
   /** Mark a persisted reconciliation event as complete. */
@@ -1955,13 +1956,11 @@ class StateStoreImpl implements StateStore {
   async beginRunReconciliation(): Promise<string[]> {
     const candidates = this.db
       .prepare(
-        `SELECT id, owner_identity AS ownerIdentity, step_id AS stepId, workflow_snapshot AS workflowSnapshotJson FROM runs WHERE status IN (${ORPHAN_STATUSES})`,
+        `SELECT id, owner_identity AS ownerIdentity FROM runs WHERE status IN (${ORPHAN_STATUSES}) AND reconciliation_pending = 0`,
       )
       .all() as Array<{
       id: string;
       ownerIdentity: string | null;
-      stepId: string | null;
-      workflowSnapshotJson: string | null;
     }>;
 
     const orphaned: typeof candidates = [];
@@ -1982,14 +1981,6 @@ class StateStoreImpl implements StateStore {
 
     return this.db.transaction(() => {
       for (const candidate of orphaned) {
-        const snapshot =
-          candidate.workflowSnapshotJson === null
-            ? undefined
-            : (JSON.parse(candidate.workflowSnapshotJson) as WorkflowSnapshot);
-        const isReviewDebate = snapshot?.steps.some(
-          (step) => step.stepId === candidate.stepId && step.behavior === "review-debate",
-        );
-        const terminalStatus = isReviewDebate ? "interrupted" : "killed";
         const finishAt = Date.now();
         const inProgressAttemptId = (
           this.db
@@ -2000,9 +1991,9 @@ class StateStoreImpl implements StateStore {
         )?.id;
         const runUpdate = this.db
           .prepare(
-            `UPDATE runs SET status = ?, reconciliation_pending = 1, reconciled_at = ? WHERE id = ? AND status IN (${ORPHAN_STATUSES})`,
+            `UPDATE runs SET reconciliation_pending = 1, reconciled_at = ? WHERE id = ? AND status IN (${ORPHAN_STATUSES}) AND reconciliation_pending = 0`,
           )
-          .run(terminalStatus, orphanSettlementReconciledAt(inProgressAttemptId, finishAt), candidate.id);
+          .run(orphanSettlementReconciledAt(inProgressAttemptId, finishAt), candidate.id);
         if (runUpdate.changes === 0) continue;
         if (orphanSettlementShouldStampAttempt(true, inProgressAttemptId)) {
           this.db.prepare("UPDATE attempts SET completed_at = ? WHERE id = ?").run(finishAt, inProgressAttemptId);

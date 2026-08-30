@@ -1,6 +1,7 @@
-import { isExhaustedRoleTimeout } from "../execution/invocation-failure.ts";
+import { type InvocationFailureDetail, isExhaustedRoleTimeout } from "../execution/invocation-failure.ts";
 import type { PublicationFailure } from "../execution/publication-retry.ts";
 import { readyGateOutOfScopeLogFields, survivingMutationLogFields } from "../execution/ready-finalize.ts";
+import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type {
   ContractMissDetailEvent,
   LoopFinishedEvent,
@@ -74,6 +75,8 @@ export type TerminalLogRecord = PersistedRecord & { event: LoopFinishedEvent | R
 type RunWithAttempts = {
   status: RunStatus;
   attempts?: Attempt[];
+  terminalCause?: WriteLoopOutcomeKind | null;
+  terminalFailureDetail?: InvocationFailureDetail | null;
 };
 
 const op = (
@@ -129,6 +132,20 @@ export function isPostBoundaryStateStoreLockTimeout(
   return lastCommittedAttempt(run.attempts ?? [])?.outcomeKind === "done";
 }
 
+function mapInvocationFailureDetail(
+  detail: InvocationFailureDetail | null | undefined,
+  projectModelConfigMessage = false,
+): RunOperatorError {
+  if (detail == null) return op("invocation_error", "stop");
+  const error = isExhaustedRoleTimeout(detail)
+    ? op("role_timeout", "stop", false)
+    : (INVOCATION_BY_FAILURE_KIND[detail.failureKind] ?? op("invocation_error", "stop"));
+  return (detail.failureKind === "error" || (projectModelConfigMessage && detail.failureKind === "model_config")) &&
+    detail.message !== undefined
+    ? { ...error, message: detail.message }
+    : error;
+}
+
 function mapInvocationFromAttempt(attempt: Attempt): RunOperatorError | undefined {
   switch (attempt.outcomeKind) {
     case "invalid_token":
@@ -139,16 +156,8 @@ function mapInvocationFromAttempt(attempt: Attempt): RunOperatorError | undefine
       return op("agent_blocked", "inspect_spec");
     case "contract_miss":
       return op("contract_miss", "inspect_spec");
-    case "invocation_failure": {
-      const detail = attempt.invocationFailureDetail;
-      if (detail === null) return op("invocation_error", "stop");
-      const error = isExhaustedRoleTimeout(detail)
-        ? op("role_timeout", "stop", false)
-        : (INVOCATION_BY_FAILURE_KIND[detail.failureKind] ?? op("invocation_error", "stop"));
-      return detail.failureKind === "error" && detail.message !== undefined
-        ? { ...error, message: detail.message }
-        : error;
-    }
+    case "invocation_failure":
+      return mapInvocationFailureDetail(attempt.invocationFailureDetail);
     case "idle_output_timeout":
       return op("idle_output_timeout", "stop");
     default:
@@ -347,11 +356,27 @@ export function terminalResumeRefusalMessage(
  * conflicting `loop_finished` values do not override mappable attempt detail, and
  * durable-status resumable kinds from stale logs stay demoted.
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: operator-error precedence composition over durable status vs terminal log
 function composeRunOperatorErrorFromState(
   run: RunWithAttempts,
   terminalRecord?: TerminalLogRecord,
 ): RunOperatorError | undefined {
   if (run.status === "in-progress") return undefined;
+  if (run.terminalCause != null) {
+    if (run.terminalCause === "invocation_failure") {
+      return mapInvocationFailureDetail(run.terminalFailureDetail, true);
+    }
+    const fromCause = mapFromLoopFinished({
+      kind: "loop_finished",
+      loopOutcomeKind: run.terminalCause,
+      iterationsConsumed: 0,
+      resumable: false,
+    });
+    if (fromCause) return fromCause;
+    if (run.status === "blocked") return op("agent_blocked", "inspect_spec");
+    if (run.status === "failed") return op("harness_failure", "stop");
+    return undefined;
+  }
   // A completed run can still carry a trailing `run_execution_failed`: its workflow died
   // after the step run settled (review step, publication). Surface that, not silence.
   if (

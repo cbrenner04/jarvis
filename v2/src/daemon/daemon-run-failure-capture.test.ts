@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { WriteWorkflowStep } from "../execution/workflow-runner.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { openLogReader } from "../persistence/log-stream.ts";
-import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
+import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns, listRunsDirect, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
 import { doneWithArtifactBindingFactory, writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
 import { createRunControlHandlers, createRunExecutionFailureReporter } from "./daemon.ts";
@@ -35,6 +35,7 @@ function createHandlers(): Handlers {
     stateStore,
     writeLoopExecutor,
     failureReporter,
+    logReader: openLogReader(logsPath),
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
   });
@@ -66,6 +67,52 @@ test("executor rejection sets durable status to failed", async () => {
 
   const run = stateStore.loadRun(runId as string);
   expect(run?.status).toBe("failed");
+});
+
+test("executor rejection exposes atomic durable cause and evidence before its log append", async () => {
+  let releaseReporter!: () => void;
+  let reporterEntered!: () => void;
+  const entered = new Promise<void>((resolve) => {
+    reporterEntered = resolve;
+  });
+  failureReporter = async (runId, reason) => {
+    reportedFailures.push({ runId, reason });
+    reporterEntered();
+    await new Promise<void>((resolve) => {
+      releaseReporter = resolve;
+    });
+  };
+  handlers = createHandlers();
+
+  const runId = (await startRunDirect(handlers)) as string;
+  await entered;
+
+  try {
+    expect(stateStore.loadRun(runId)).toMatchObject({
+      status: "failed",
+      terminalCause: "invocation_failure",
+      terminalFailureDetail: { failureKind: "error", bindingAttempts: [], message: "executor boom" },
+    });
+    const row = (await listRunsDirect(handlers))?.find((candidate) => candidate.runId === runId);
+    expect(row).toMatchObject({
+      status: "failed",
+      loopOutcomeKind: "invocation_failure",
+      error: { reason: "invocation_error", message: "executor boom" },
+    });
+    const wait = await handlers.wait(requestFrame("atomic-wait", "wait", { runId }), new AbortController().signal);
+    expect(wait).toMatchObject({
+      kind: "response",
+      result: {
+        runStatus: "failed",
+        loopOutcomeKind: "invocation_failure",
+        error: { reason: "invocation_error", message: "executor boom" },
+      },
+    });
+    expect(openLogReader(logsPath).tail(runId)).toEqual([]);
+  } finally {
+    releaseReporter();
+    await flushBackgroundRuns();
+  }
 });
 
 test("executor rejection appends exactly one run_execution_failed via failure reporter", async () => {
@@ -232,17 +279,17 @@ function throwOnNthRecordAttemptStart(store: StateStore, n: number): StateStore 
   });
 }
 
-/** After `createRun` for `stepId`, pin terminal status so later in-progress writes are ignored. */
-function lockTerminalStatusOnStepCreate(store: StateStore, stepId: string, status: RunStatus): StateStore {
-  const locked = new Map<string, RunStatus>();
+/** After `createRun` for `stepId`, pin completed settlement so later in-progress writes are ignored. */
+function lockCompletedSettlementOnStepCreate(store: StateStore, stepId: string): StateStore {
+  const locked = new Set<string>();
   return new Proxy(store, {
     get(target, prop, receiver) {
       if (prop === "createRun") {
         return (...args: Parameters<StateStore["createRun"]>) => {
           const runId = target.createRun(...args);
           if (args[0]?.stepId === stepId) {
-            locked.set(runId, status);
-            target.setRunStatus(runId, status);
+            locked.add(runId);
+            target.commitTerminalRunSettlement({ runId, status: "completed", terminalCause: "complete" });
           }
           return runId;
         };
@@ -250,8 +297,7 @@ function lockTerminalStatusOnStepCreate(store: StateStore, stepId: string, statu
       if (prop === "setRunStatus") {
         return (...args: Parameters<StateStore["setRunStatus"]>) => {
           const [runId, nextStatus] = args;
-          const lock = locked.get(runId);
-          if (lock !== undefined && nextStatus !== lock) {
+          if (locked.has(runId) && nextStatus !== "completed") {
             return;
           }
           return target.setRunStatus(...args);
@@ -274,7 +320,7 @@ function findStepRunId(store: StateStore, branch: string, stepId: string): strin
   return store.findRunByProjectBranch({ project: "demo", branch, stepId })?.id;
 }
 
-test("workflow async-path failure after step 0's row demotes durable status and appends a terminal record", async () => {
+test("workflow async rejection exposes atomic durable cause and evidence", async () => {
   const branch = "workflow-async-failure";
   const failingStore = throwOnNthRecordAttemptStart(stateStore, 2);
   const workflowHandlers = createRunControlHandlers({
@@ -297,7 +343,11 @@ test("workflow async-path failure after step 0's row demotes durable status and 
   expect(failedRunId).toBeTruthy();
 
   const run = stateStore.loadRun(failedRunId as string);
-  expect(run?.status).toBe("failed");
+  expect(run).toMatchObject({
+    status: "failed",
+    terminalCause: "invocation_failure",
+    terminalFailureDetail: { failureKind: "error", bindingAttempts: [], message: "recordAttemptStart boom" },
+  });
 
   const records = openLogReader(logsPath).tail(failedRunId as string);
   const terminalRecords = records.filter((record) => record.event.kind === "run_execution_failed");
@@ -305,7 +355,12 @@ test("workflow async-path failure after step 0's row demotes durable status and 
   expect(terminalRecords[0]?.event).toEqual({ kind: "run_execution_failed", message: "recordAttemptStart boom" });
 
   const row = (await listRunsDirect(workflowHandlers))?.find((r) => r.runId === failedRunId);
-  expect(row?.isLive).toBe(false);
+  expect(row).toMatchObject({
+    status: "failed",
+    isLive: false,
+    loopOutcomeKind: "invocation_failure",
+    error: { reason: "invocation_error", message: "recordAttemptStart boom" },
+  });
 
   const waitResponse = await workflowHandlers.wait(
     requestFrame("w1", "wait", { runId: failedRunId }),
@@ -313,7 +368,11 @@ test("workflow async-path failure after step 0's row demotes durable status and 
   );
   expect(waitResponse).toMatchObject({
     kind: "response",
-    result: { runStatus: "failed", error: { reason: "harness_failure" } },
+    result: {
+      runStatus: "failed",
+      loopOutcomeKind: "invocation_failure",
+      error: { reason: "invocation_error", message: "recordAttemptStart boom" },
+    },
   });
 
   const secondSteps: WriteWorkflowStep[] = [workflowStep("step-1", `${branch}-retry`)];
@@ -325,8 +384,8 @@ test("workflow async-path failure after step 0's row demotes durable status and 
 });
 
 test("a run already terminal at rejection time is not re-demoted but still records the failure", async () => {
-  const branch = "workflow-killed";
-  const failingStore = throwOnNthRecordAttemptStart(lockTerminalStatusOnStepCreate(stateStore, "step-2", "killed"), 2);
+  const branch = "workflow-completed";
+  const failingStore = throwOnNthRecordAttemptStart(lockCompletedSettlementOnStepCreate(stateStore, "step-2"), 2);
   const workflowHandlers = createRunControlHandlers({
     stateStore: failingStore,
     writeLoopExecutor: async () => {},
@@ -343,13 +402,13 @@ test("a run already terminal at rejection time is not re-demoted but still recor
 
   await flushBackgroundRuns(5);
 
-  const killedRunId = findStepRunId(stateStore, branch, "step-2");
-  expect(killedRunId).toBeTruthy();
+  const completedRunId = findStepRunId(stateStore, branch, "step-2");
+  expect(completedRunId).toBeTruthy();
 
-  const run = stateStore.loadRun(killedRunId as string);
-  expect(run?.status).toBe("killed");
+  const run = stateStore.loadRun(completedRunId as string);
+  expect(run).toMatchObject({ status: "completed", terminalCause: "complete", terminalFailureDetail: null });
 
-  const records = openLogReader(logsPath).tail(killedRunId as string);
+  const records = openLogReader(logsPath).tail(completedRunId as string);
   const terminalRecords = records.filter((record) => record.event.kind === "run_execution_failed");
   expect(terminalRecords).toHaveLength(1);
 });

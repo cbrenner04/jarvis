@@ -6,8 +6,10 @@ import { join } from "node:path";
 import {
   type DiffDerivedMutationVerifierInput,
   MAX_CONCURRENT_VERIFIER_TEST_RUNS,
+  MAX_INSPECTED_MUTATIONS,
   MAX_VERIFICATION_MS,
   maskNonCodeSpans,
+  parseEquivalentMutationDirective,
   peakVerifierTestRuns,
   resetVerifierTestRunTrackingForTest,
   resolveSiblingKillingTests,
@@ -1485,6 +1487,370 @@ index 1234567..abcdefg 100644
 
       const result = await survivingMutation(diff, content);
       expect(result.dualConstraint).toBeUndefined();
+    });
+  });
+});
+
+describe("equivalent-mutation directives", () => {
+  const guardMutation = "guard-flip: !x → x";
+  const guardDirective = `// @mutate-equivalent mutation="${guardMutation}" reason="Caller contract guarantees truthy x"`;
+
+  function guardFlipDiff(file: string, lineContent: string): string {
+    return `diff --git a/${file} b/${file}
+index 1234567..abcdefg 100644
+--- a/${file}
++++ b/${file}
+@@ -1,3 +1,3 @@
+ export function safe(x: any) {
+-  if (!x) return null;
++${lineContent}
+   return x;
+`;
+  }
+
+  it("accepts an exact equivalent-mutation directive and reports its audit site", async () => {
+    const file = "src/safe.ts";
+    const sourceLine = `  if (!x) return "safe"; ${guardDirective}`;
+    const originalContent = `export function safe(x: any) {\n${sourceLine}\n  return x;\n}`;
+    let testRunCount = 0;
+
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => guardFlipDiff(file, sourceLine),
+        untrackedFiles: async () => [],
+        readFile: async () => originalContent,
+        writeFile: async () => {},
+        listDir: () => [],
+        runScopedTests: async () => {
+          testRunCount += 1;
+          return true;
+        },
+      },
+    );
+
+    expect(testRunCount).toBe(0);
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") {
+      expect(result.acceptedSites).toEqual([
+        {
+          file,
+          line: 2,
+          mutation: guardMutation,
+          reason: "Caller contract guarantees truthy x",
+        },
+      ]);
+    }
+  });
+
+  it("treats malformed, reordered, padded, trailing, empty-reason, and mismatched directives as absent", async () => {
+    const file = "src/safe.ts";
+    const baseLine = `  if (!x) return "safe";`;
+    const originalContent = (suffix: string) => `export function safe(x: any) {\n${baseLine} ${suffix}\n  return x;\n}`;
+    const malformedCases = [
+      `// @mutate-equivalent mutation=${guardMutation} reason="ok"`,
+      `// @mutate-equivalent reason="ok" mutation="${guardMutation}"`,
+      `//  @mutate-equivalent mutation="${guardMutation}" reason="ok"`,
+      `// @mutate-equivalent mutation="${guardMutation}" reason="ok" trailing`,
+      `// @mutate-equivalent mutation="${guardMutation}" reason="ok" @mutate-equivalent mutation="${guardMutation}" reason="dup"`,
+      `// @mutate-equivalent mutation="${guardMutation}" reason=""`,
+      `// @mutate-equivalent mutation="${guardMutation}" reason="   "`,
+      `// @mutate-equivalent mutation="operator-flip: === → !==" reason="wrong mutation"`,
+    ];
+
+    for (const suffix of malformedCases) {
+      let testRunCount = 0;
+      const result = await verifyDiffDerivedMutations(
+        { worktreePath: "/test/path", runBase: "main" },
+        {
+          gitDiff: async () => guardFlipDiff(file, `${baseLine} ${suffix}`),
+          untrackedFiles: async () => [],
+          readFile: async () => originalContent(suffix),
+          writeFile: async () => {},
+          listDir: () => [],
+          runScopedTests: async () => {
+            testRunCount += 1;
+            return true;
+          },
+        },
+      );
+      expect(result.kind).toBe("surviving-mutation");
+      expect(testRunCount).toBeGreaterThan(0);
+    }
+  });
+
+  it("does not recognize directive-like text outside a lexical line comment", async () => {
+    const file = "src/safe.ts";
+    const disguises = [
+      `const note = "// @mutate-equivalent mutation=\\"${guardMutation}\\" reason=\\"ok\\""; if (!x) return "safe";`,
+      `const note = \`// @mutate-equivalent mutation="${guardMutation}" reason="ok"\`; if (!x) return "safe";`,
+      `const re = /\\/\\/@mutate-equivalent mutation="${guardMutation}" reason="ok"/; if (!x) return "safe";`,
+      `/* @mutate-equivalent mutation="${guardMutation}" reason="ok" */ if (!x) return "safe";`,
+    ];
+
+    for (const lineContent of disguises) {
+      let testRunCount = 0;
+      const result = await verifyDiffDerivedMutations(
+        { worktreePath: "/test/path", runBase: "main" },
+        {
+          gitDiff: async () => guardFlipDiff(file, lineContent),
+          untrackedFiles: async () => [],
+          readFile: async () => `export function safe(x: any) {\n${lineContent}\n  return x;\n}`,
+          writeFile: async () => {},
+          listDir: () => [],
+          runScopedTests: async () => {
+            testRunCount += 1;
+            return true;
+          },
+        },
+      );
+      expect(result.kind).toBe("surviving-mutation");
+      expect(testRunCount).toBeGreaterThan(0);
+      if (result.kind === "pass") expect(result.acceptedSites).toEqual([]);
+    }
+  });
+
+  it("does not recognize a directive embedded in an unterminated block comment", async () => {
+    // The block-comment scanner must consume to end of line: a `//`-directive
+    // sitting inside an unterminated `/* … ` is comment content, not a lexical
+    // line comment, so the guard mutation stays blocking.
+    const file = "src/safe.ts";
+    const lineContent = `  if (!x) return null; /* ${guardDirective}`;
+    let testRunCount = 0;
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => guardFlipDiff(file, lineContent),
+        untrackedFiles: async () => [],
+        readFile: async () => `export function safe(x: any) {\n${lineContent}\n  return x;\n}`,
+        writeFile: async () => {},
+        listDir: () => [],
+        runScopedTests: async () => {
+          testRunCount += 1;
+          return true;
+        },
+      },
+    );
+    expect(result.kind).toBe("surviving-mutation");
+    expect(testRunCount).toBeGreaterThan(0);
+    if (result.kind === "pass") expect(result.acceptedSites).toEqual([]);
+  });
+
+  it("accepts only the exact file and physical line named by the directive", async () => {
+    const otherLineDirective = `// @mutate-equivalent mutation="${guardMutation}" reason="only line 3"`;
+    const diff = `diff --git a/src/a.ts b/src/a.ts
+index 1234567..abcdefg 100644
+--- a/src/a.ts
++++ b/src/a.ts
+@@ -1,4 +1,4 @@
+ export function a(x: any) {
+-  if (!x) return null;
++  if (!x) return "a";
+   if (!x) return "b"; ${otherLineDirective}
+   return x;
+diff --git a/src/b.ts b/src/b.ts
+index 1234567..abcdefg 100644
+--- a/src/b.ts
++++ b/src/b.ts
+@@ -1,3 +1,3 @@
+ export function b(x: any) {
+-  if (!x) return null;
++  if (!x) return "b";
+   return x;
+`;
+    const aContent = `export function a(x: any) {\n  if (!x) return "a";\n  if (!x) return "b"; ${otherLineDirective}\n  return x;\n}`;
+    const bContent = `export function b(x: any) {\n  if (!x) return "b";\n  return x;\n}`;
+
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        readFile: async (path) => {
+          if (path.endsWith("a.ts")) return aContent;
+          if (path.endsWith("b.ts")) return bContent;
+          throw new Error(`unexpected read: ${path}`);
+        },
+        writeFile: async () => {},
+        listDir: () => [],
+        runScopedTests: async () => true,
+      },
+    );
+
+    expect(result.kind).toBe("surviving-mutation");
+    if (result.kind === "surviving-mutation") {
+      expect(result.sourceSite.file).toBe("src/a.ts");
+      expect(result.sourceSite.line).toBe(2);
+    }
+  });
+
+  it("accepts one named transform on a multi-candidate line while testing the other", async () => {
+    const operatorMutation = "operator-flip: === → !==";
+    const sourceLine = `  if (!x) return x === 5 ? "hit" : "miss"; // @mutate-equivalent mutation="${operatorMutation}" reason="Domain makes equality check behavior-neutral"`;
+    const originalContent = `export function pick(x: number) {\n${sourceLine}\n  return x;\n}`;
+    let testRunCount = 0;
+
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => guardFlipDiff("src/pick.ts", sourceLine),
+        untrackedFiles: async () => [],
+        readFile: async () => originalContent,
+        writeFile: async () => {},
+        listDir: () => [],
+        runScopedTests: async () => {
+          testRunCount += 1;
+          return true;
+        },
+      },
+    );
+
+    expect(testRunCount).toBeGreaterThan(0);
+    expect(result.kind).toBe("surviving-mutation");
+    if (result.kind === "surviving-mutation") {
+      expect(result.mutation).toContain("guard-flip");
+    }
+  });
+
+  it("accepts duplicate identity candidates jointly with one audit entry", async () => {
+    const operatorMutation = "operator-flip: === → !==";
+    const line = `  if (x === 5 && y === 6) return "hit"; // @mutate-equivalent mutation="${operatorMutation}" reason="Both comparisons are behavior-neutral under domain"`;
+    const originalContent = `export function safe(x: number, y: number) {\n${line}\n  return x;\n}`;
+    let testRunCount = 0;
+
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => guardFlipDiff("src/safe.ts", line),
+        untrackedFiles: async () => [],
+        readFile: async () => originalContent,
+        writeFile: async () => {},
+        listDir: () => [],
+        runScopedTests: async () => {
+          testRunCount += 1;
+          return true;
+        },
+      },
+    );
+
+    expect(testRunCount).toBe(0);
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") {
+      expect(result.acceptedSites).toEqual([
+        {
+          file: "src/safe.ts",
+          line: 2,
+          mutation: operatorMutation,
+          reason: "Both comparisons are behavior-neutral under domain",
+        },
+      ]);
+      expect(result.candidateCount).toBeGreaterThan(1);
+    }
+  });
+
+  it("exposes acceptedSites on every pass result", async () => {
+    const empty = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      { gitDiff: async () => "", untrackedFiles: async () => [], runScopedTests: async () => true },
+    );
+    expect(empty.kind).toBe("pass");
+    if (empty.kind === "pass") expect(empty.acceptedSites).toEqual([]);
+
+    const lineA = `  if (!a) return "a"; // @mutate-equivalent mutation="guard-flip: !a → a" reason="a is always truthy"`;
+    const lineB = `  if (!b) return "b"; // @mutate-equivalent mutation="guard-flip: !b → b" reason="b is always truthy"`;
+    const diff = `diff --git a/src/many.ts b/src/many.ts
+index 1234567..abcdefg 100644
+--- a/src/many.ts
++++ b/src/many.ts
+@@ -1,3 +1,4 @@
+ export function many() {
++${lineA}
++${lineB}
+   return true;
+`;
+    const content = `export function many() {\n${lineA}\n${lineB}\n  return true;\n}`;
+    const multi = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        readFile: async () => content,
+        writeFile: async () => {},
+        listDir: () => [],
+        runScopedTests: async () => true,
+      },
+    );
+    expect(multi.kind).toBe("pass");
+    if (multi.kind === "pass") {
+      expect(multi.acceptedSites).toEqual([
+        { file: "src/many.ts", line: 2, mutation: "guard-flip: !a → a", reason: "a is always truthy" },
+        { file: "src/many.ts", line: 3, mutation: "guard-flip: !b → b", reason: "b is always truthy" },
+      ]);
+    }
+  });
+
+  it("counts accepted candidates against bounds and omits unadmitted sites", async () => {
+    const directive = (index: number) =>
+      `// @mutate-equivalent mutation="guard-flip: !x${index} → x${index}" reason="always truthy"`;
+    const lines = Array.from({ length: 30 }, (_, index) => `  if (!x${index}) return null; ${directive(index)}`);
+    const diff = `diff --git a/src/many.ts b/src/many.ts
+index 1234567..abcdefg 100644
+--- a/src/many.ts
++++ b/src/many.ts
+@@ -1,1 +1,${lines.length} @@
+${lines.map((line) => `+${line}`).join("\n")}
+`;
+    const content = lines.join("\n");
+    let testRunCount = 0;
+    const capped = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        readFile: async () => content,
+        writeFile: async () => {},
+        listDir: () => [],
+        runScopedTests: async () => {
+          testRunCount += 1;
+          return true;
+        },
+      },
+    );
+    expect(capped.kind).toBe("pass");
+    if (capped.kind === "pass") {
+      expect(capped.candidateCount).toBe(MAX_INSPECTED_MUTATIONS);
+      expect(capped.acceptedSites).toHaveLength(MAX_INSPECTED_MUTATIONS);
+      expect(testRunCount).toBe(0);
+    }
+
+    let deadlineCalls = 0;
+    const deadline = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => guardFlipDiff("src/safe.ts", `  if (!x) return "safe"; ${guardDirective}`),
+        untrackedFiles: async () => [],
+        readFile: async () =>
+          `export function safe(x: any) {\n  if (!x) return "safe"; ${guardDirective}\n  return x;\n}`,
+        writeFile: async () => {},
+        listDir: () => [],
+        runScopedTests: async () => true,
+        now: () => (deadlineCalls++ === 0 ? 0 : 10_000_000),
+      },
+    );
+    expect(deadline.kind).toBe("pass");
+    if (deadline.kind === "pass") {
+      expect(deadline.candidateCount).toBe(0);
+      expect(deadline.acceptedSites).toEqual([]);
+    }
+  });
+
+  it("parses standard JSON escaping in directive strings", () => {
+    const parsed = parseEquivalentMutationDirective(
+      `  if (!x) return "safe"; // @mutate-equivalent mutation="guard-flip: !x → x" reason="tab\\tand\\"quote\\""`,
+    );
+    expect(parsed).toEqual({
+      mutation: "guard-flip: !x → x",
+      reason: 'tab\tand"quote"',
     });
   });
 });

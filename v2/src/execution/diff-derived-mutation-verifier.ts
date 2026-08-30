@@ -8,11 +8,19 @@ export type DiffDerivedMutationVerifierInput = {
   runBase: string;
 };
 
+export type AcceptedSite = {
+  file: string;
+  line: number;
+  mutation: string;
+  reason: string;
+};
+
 export type PassResult = {
   kind: "pass";
   runBase: string;
   inspectedPaths: string[];
   candidateCount: number;
+  acceptedSites: AcceptedSite[];
 };
 
 export type SurvivingMutationResult = {
@@ -686,6 +694,113 @@ function deriveCandidates(changedLinesByFile: Map<string, ChangedLine[]>): Candi
  * The co-located killing tests to run against a candidate's mutation: the exact-stem
  * `<file>.test.ts` when it exists on disk, plus every existing sibling `<file>-*.test.ts`.
  */
+const EQUIVALENT_MUTATION_DIRECTIVE_PREFIX = " @mutate-equivalent mutation=";
+
+/** Index just past a `/* … *\/` block comment opening at `start`, or end of line if unterminated. */
+function skipBlockComment(line: string, start: number): number {
+  let i = start + 2;
+  while (i < line.length) {
+    if (line[i] === "*" && i + 1 < line.length && line[i + 1] === "/") return i + 2;
+    i++;
+  }
+  return i;
+}
+
+/** Index just past a string literal opened by `close` at `start`, honoring backslash escapes. */
+function skipStringLiteral(line: string, start: number, close: string): number {
+  let i = start + 1;
+  while (i < line.length) {
+    if (line[i] === "\\" && i + 1 < line.length) {
+      i += 2;
+      continue;
+    }
+    if (line[i] === close) return i + 1;
+    i++;
+  }
+  return i;
+}
+
+function findLineCommentStart(line: string): number {
+  let i = 0;
+  while (i < line.length) {
+    const char = line[i];
+    if (char === "/" && line[i + 1] === "/") return i;
+    if (char === "/" && line[i + 1] === "*") {
+      i = skipBlockComment(line, i);
+      continue;
+    }
+    if (char === '"' || char === "'" || char === "`") {
+      i = skipStringLiteral(line, i, char);
+      continue;
+    }
+    i++;
+  }
+  return -1;
+}
+
+function parseLeadingJsonString(input: string): { value: string; consumed: number } | null {
+  if (!input.startsWith('"')) return null;
+  for (let end = 1; end <= input.length; end++) {
+    if (input[end - 1] !== '"') continue;
+    let valid = true;
+    for (let j = 1; j < end - 1; j++) {
+      if (input[j] === "\\") {
+        j++;
+        continue;
+      }
+      if (input[j] === '"') {
+        valid = false;
+        break;
+      }
+    }
+    if (!valid) continue;
+    try {
+      const parsed: unknown = JSON.parse(input.slice(0, end));
+      if (typeof parsed !== "string") continue;
+      return { value: parsed, consumed: end };
+    } catch {}
+  }
+  return null;
+}
+
+export function parseEquivalentMutationDirective(line: string): { mutation: string; reason: string } | null {
+  const commentStart = findLineCommentStart(line);
+  if (commentStart === -1) return null;
+  const body = line.slice(commentStart + 2);
+  if (!body.startsWith(EQUIVALENT_MUTATION_DIRECTIVE_PREFIX)) return null;
+
+  const mutationPart = body.slice(EQUIVALENT_MUTATION_DIRECTIVE_PREFIX.length);
+  const mutationParsed = parseLeadingJsonString(mutationPart);
+  if (mutationParsed === null) return null;
+
+  const afterMutation = mutationPart.slice(mutationParsed.consumed);
+  if (!afterMutation.startsWith(" reason=")) return null;
+
+  const reasonPart = afterMutation.slice(" reason=".length);
+  const reasonParsed = parseLeadingJsonString(reasonPart);
+  if (reasonParsed === null) return null;
+  if (reasonPart.slice(reasonParsed.consumed).length > 0) return null;
+  if (!/\S/.test(reasonParsed.value)) return null;
+
+  return { mutation: mutationParsed.value, reason: reasonParsed.value };
+}
+
+function recordAcceptedSite(acceptedSites: AcceptedSite[], candidate: Candidate, reason: string): void {
+  if (
+    acceptedSites.some(
+      (site) => site.file === candidate.file && site.line === candidate.line && site.mutation === candidate.mutation,
+    )
+  ) {
+    return;
+  }
+  acceptedSites.push({
+    file: candidate.file,
+    line: candidate.line,
+    mutation: candidate.mutation,
+    reason,
+  });
+}
+
 async function coLocatedKillingTests(
   candidateFile: string,
   exactStemTest: string,
@@ -715,30 +830,52 @@ async function verifyCandidates(
   listDir: ListDir,
   now: () => number,
   deadline: number,
-): Promise<{ result: SurvivingMutationResult | null; inspected: number }> {
+): Promise<{ result: SurvivingMutationResult | null; inspected: number; acceptedSites: AcceptedSite[] }> {
   let inspected = 0;
   let survivingResult: SurvivingMutationResult | null = null;
+  const acceptedSites: AcceptedSite[] = [];
   const pending: Promise<void>[] = [];
+  const fileCache = new Map<string, string>();
+
+  async function getFileContent(file: string): Promise<string | null> {
+    const cached = fileCache.get(file);
+    if (cached !== undefined) return cached;
+    try {
+      const content = await readFile(`${input.worktreePath}/${file}`);
+      fileCache.set(file, content);
+      return content;
+    } catch {
+      return null;
+    }
+  }
 
   for (const candidate of candidates) {
     if (inspected >= MAX_INSPECTED_MUTATIONS || now() >= deadline) break;
     if (survivingResult !== null) break;
     inspected += 1;
 
+    const originalContent = await getFileContent(candidate.file);
+    if (originalContent !== null) {
+      const sourceLine = originalContent.split("\n")[candidate.line - 1];
+      if (sourceLine !== undefined) {
+        const directive = parseEquivalentMutationDirective(sourceLine);
+        if (directive !== null && directive.mutation === candidate.mutation) {
+          recordAcceptedSite(acceptedSites, candidate, directive.reason);
+          continue;
+        }
+      }
+    }
+
     const killingTest = resolveCoLocatedKillingTest(candidate.file);
     if (killingTest === null) {
-      return { result: missingKillingTest(candidate), inspected };
+      return { result: missingKillingTest(candidate), inspected, acceptedSites };
     }
 
     pending.push(
       (async () => {
         if (survivingResult !== null || now() >= deadline) return;
-        let originalContent: string;
-        try {
-          originalContent = await readFile(`${input.worktreePath}/${candidate.file}`);
-        } catch {
-          return;
-        }
+        const content = await getFileContent(candidate.file);
+        if (content === null) return;
         const killingTests = await coLocatedKillingTests(
           candidate.file,
           killingTest,
@@ -750,14 +887,14 @@ async function verifyCandidates(
           if (survivingResult === null) survivingResult = missingKillingTest(candidate);
           return;
         }
-        const result = await testCandidate(candidate, originalContent, input, writeFile, runScopedTests, killingTests);
+        const result = await testCandidate(candidate, content, input, writeFile, runScopedTests, killingTests);
         if (result !== null && survivingResult === null) survivingResult = result;
       })(),
     );
   }
 
   await Promise.all(pending);
-  return { result: survivingResult, inspected };
+  return { result: survivingResult, inspected, acceptedSites };
 }
 
 export async function verifyDiffDerivedMutations(
@@ -788,6 +925,7 @@ export async function verifyDiffDerivedMutations(
       runBase: input.runBase,
       inspectedPaths: [],
       candidateCount: 0,
+      acceptedSites: [],
     };
   }
 
@@ -816,10 +954,11 @@ export async function verifyDiffDerivedMutations(
       runBase: input.runBase,
       inspectedPaths: changedPaths,
       candidateCount: 0,
+      acceptedSites: [],
     };
   }
 
-  const { result, inspected } = await verifyCandidates(
+  const { result, inspected, acceptedSites } = await verifyCandidates(
     candidates,
     input,
     readFile,
@@ -836,5 +975,6 @@ export async function verifyDiffDerivedMutations(
     runBase: input.runBase,
     inspectedPaths: changedPaths,
     candidateCount: inspected,
+    acceptedSites,
   };
 }

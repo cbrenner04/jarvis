@@ -802,7 +802,11 @@ test("composeRunOperatorError projects model_config message from durable termina
     status: "failed" as RunStatus,
     attempts: [],
     terminalCause: "invocation_failure" as const,
-    terminalFailureDetail: { failureKind: "model_config" as const, message: "Unable to resolve bindings", bindingAttempts: [] },
+    terminalFailureDetail: {
+      failureKind: "model_config" as const,
+      message: "Unable to resolve bindings",
+      bindingAttempts: [],
+    },
   };
   // The durable path passes projectModelConfigMessage=true; dropping that clause loses the
   // operator-facing binding-resolution message, so a model_config detail must still carry it.

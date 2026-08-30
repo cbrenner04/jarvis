@@ -6,12 +6,12 @@ Conventions for working in this repo — humans and coding agents alike. **BE TE
 
 Jarvis is a minimal coding-agent harness driving an underlying agent CLI (`claude`, `codex`, `cursor`, …). Two engines:
 
-- **`jarvis` (v2, `v2/src/cli.ts`) — the primary harness.** Daemon-backed workflow runner: `write`, `daemon`, `config`, `run` (start/list/log/pause/resume/kill/wait), `run workflow intent|plan|implement`, `tui`, `cleanup`. Docs: [v2/docs/](v2/docs/), start at [v2/docs/onboarding.md](v2/docs/onboarding.md).
+- **`jarvis` (v2, `v2/src/cli.ts`) — the primary harness.** Daemon-backed workflow runner: `init`, `write`, `daemon`, `config`, `run` (start/list/log/pause/resume/kill/dismiss/undismiss/wait), `run workflow intent|plan|implement`, `pipeline` (start/list/wait/approve/reject/resume/recover/dismiss/undismiss), `tui`, `cleanup`. Docs: [v2/docs/](v2/docs/), start at [v2/docs/onboarding.md](v2/docs/onboarding.md).
 - **`jarvis1` (v1, `v1/src/cli.ts`) — maintenance-only fallback.** Kept green, no new investment. Docs: [v1/docs/](v1/docs/).
 
 Work here is work on the harness itself. Layout:
 
-- root — shared glue, config, public docs, version-agnostic `scripts/` and `data/` (global `prices.json`)
+- root — shared glue, config, public docs, version-agnostic `scripts/` and `data/` (global `prices.json`), `prompts/` (committed per-workflow prompt templates), `reports/` (session reports), `test/` (root-tooling tests, run by the `test:shared` scripts)
 - `shared/` — version-agnostic runtime code consumed by both `v1` and `v2`; `shared/**` must not import from `v1/**` or `v2/**`
 - `v1/` — maintenance-only fallback (src, test, spec, docs)
 - `v2/` — primary implementation (src, spec, docs), with tests co-located next to the source files they cover
@@ -32,7 +32,7 @@ Each iteration the agent is told to inspect the target repo for guidance, read t
 
 **Route by target:** new specs default to `v2/spec/` (the jarvis project `plan.targetDir`); `v1/spec/` only for genuine v1 maintenance fixes, authored with explicit `--target-dir v1/spec`.
 
-Long-lived v2 reference docs live in `v2/docs/`. Multi-file specs go in `<targetDir>/<UTC-timestamp>-<name>/` with an `index.md`. The index is the routing file: a checklist of subspec pointers, each checked when done. Each subspec is **atomic, independently testable**, and carries a **Documentation updates** section (docs are part of the work). Create with `jarvis run workflow intent|plan`. Full conventions: [v1/docs/spec-guidance.md](v1/docs/spec-guidance.md).
+Long-lived v2 reference docs live in `v2/docs/`. Multi-file specs go in `<targetDir>/<UTC-timestamp>-<name>/` with an `index.md`. The index is the routing file: a checklist of subspec pointers, each checked when done. Each subspec is **atomic, independently testable**, and carries a **Documentation updates** section (docs are part of the work). Create with `jarvis run workflow intent|plan`. On completion Jarvis archives the spec dir to `<targetDir>/completed/` — archive presence is not proof the work merged; verify the feature on `main` before trusting it. Full conventions: [v1/docs/spec-guidance.md](v1/docs/spec-guidance.md).
 
 ## Working rules for agents
 
@@ -40,7 +40,7 @@ Long-lived v2 reference docs live in `v2/docs/`. Multi-file specs go in `<target
 - Temp/scratch/working files go in repo-local `.scratch/` (gitignored) — not system `/tmp` or scattered tmp dirs.
 - A spec must exist before any change. None yet? Create one first ([spec-guidance.md](v1/docs/spec-guidance.md)), merge it to `main` via PR, *then* start a separate implementation run. Specs already on disk get run through `jarvis`, not implemented by hand.
 - Read `index.md` to pick the next unchecked subspec, then read that subspec before editing.
-- Run `bun run typecheck` (unscoped) before ticking the acceptance criteria they cover, plus the test script(s) matching the surface(s) touched since the branch/merge-base (`git diff <merge-base>...`), same rule as `scripts/ci-test-scope.ts` (surfaces are additive/unioned): `v1/**` → `test:v1`; `v2/**` → `test:v2` + `test:integration:v2`; both `v1/**` and `v2/**` touched → `test:v1` + `test:v2` + `test:integration:v2`; `shared/**` → all three; root tooling touched, or surface undetermined → full `bun run test`. Do not run `bun run ready` — Jarvis runs that harness gate automatically when the spec completes and flips the draft PR to ready.
+- Run `bun run typecheck` (unscoped) before ticking the acceptance criteria they cover, plus the test script(s) matching the surface(s) touched since the branch/merge-base (`git diff <merge-base>...`), same rule as `scripts/ci-test-scope.ts` (surfaces are additive/unioned): `v1/**` → `test:v1` + `test:integration:v1`; `v2/**` → `test:v2` + `test:integration:v2`; `shared/**` → all six (both pairs plus `test:shared` + `test:integration:shared`); root `test/**` → the `test:shared` pair; diffs touching only docs, specs, `ready-intents/`, or `reports/` → no tests; root tooling touched, or surface undetermined → full `bun run test`. Do not run `bun run ready` — Jarvis runs that harness gate automatically when the spec completes and flips the draft PR to ready.
 - Tick `- [ ]` items only in the subspec's `## Acceptance criteria` section, only once satisfied, never speculatively. Other checklist sections are informational; Jarvis ignores them.
 - **Do not** edit `index.md` or run `git commit` — Jarvis owns the index checkbox and all commits (`git add -A` would absorb manual ones unexpectedly).
 - Blocked or ambiguous? Append a `## Blocker` to the subspec and stop, rather than guess.

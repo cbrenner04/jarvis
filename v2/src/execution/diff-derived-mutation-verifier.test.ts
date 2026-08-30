@@ -1610,6 +1610,32 @@ index 1234567..abcdefg 100644
     }
   });
 
+  it("does not recognize a directive embedded in an unterminated block comment", async () => {
+    // The block-comment scanner must consume to end of line: a `//`-directive
+    // sitting inside an unterminated `/* … ` is comment content, not a lexical
+    // line comment, so the guard mutation stays blocking.
+    const file = "src/safe.ts";
+    const lineContent = `  if (!x) return null; /* ${guardDirective}`;
+    let testRunCount = 0;
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => guardFlipDiff(file, lineContent),
+        untrackedFiles: async () => [],
+        readFile: async () => `export function safe(x: any) {\n${lineContent}\n  return x;\n}`,
+        writeFile: async () => {},
+        listDir: () => [],
+        runScopedTests: async () => {
+          testRunCount += 1;
+          return true;
+        },
+      },
+    );
+    expect(result.kind).toBe("surviving-mutation");
+    expect(testRunCount).toBeGreaterThan(0);
+    if (result.kind === "pass") expect(result.acceptedSites).toEqual([]);
+  });
+
   it("accepts only the exact file and physical line named by the directive", async () => {
     const otherLineDirective = `// @mutate-equivalent mutation="${guardMutation}" reason="only line 3"`;
     const diff = `diff --git a/src/a.ts b/src/a.ts

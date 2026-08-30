@@ -32,12 +32,16 @@ jobs:
       - name: Determine test scope
         id: scope
         run: |
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "scripts=full" >> "$GITHUB_OUTPUT"
-            exit 0
+          # Base ref differs by event: PR compares against its base branch; a
+          # push to main compares against the pre-push HEAD (github.event.before).
+          # Both paths run the same path-based classifier and fall back to the
+          # full aggregate suite when the base is unresolvable.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE_SHA="${{ github.event.before }}"
           fi
 
-          BASE_SHA="${{ github.event.pull_request.base.sha }}"
           RESOLVABLE=true
           if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
             RESOLVABLE=false

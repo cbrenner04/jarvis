@@ -2,6 +2,8 @@
 
 Successor to `pipeline-attribution-and-hygiene-brief.md` (retired in this rewrite; every open row is carried below or lives in `seeds/`). Sourced from the 2026-08-29 code review of `v2/src` (four fan-out audits: dispatch seams, cruft, fix-commit taxonomy, CLI surface). This doc is the phase tracker: tick as work lands.
 
+Per-seed completion status (seed → ready-intent → plan → implement PR) lives in the companion [`structural-recovery-seed-ledger.md`](./structural-recovery-seed-ledger.md).
+
 ## Why this phase
 
 237 of 376 v2 code commits since 2026-07-15 were fixes, and they cluster on a handful of structural seams — not scattered sloppiness. A pipeline stage *is* a workflow run (both paths end in the same `handleWorkflowStart`); the bug stream comes from what the pipeline layer re-implements around it and from terminal writes that only happen on the happy path.

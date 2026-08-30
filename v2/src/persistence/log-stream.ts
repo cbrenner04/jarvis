@@ -151,64 +151,6 @@ export type StagedMarkdownLintRepromptEvent = {
   offendingFile: string;
 };
 
-/** Structured directive row carried in a mutation-directive reprompt log event. */
-export type MutationDirectiveRepromptDirective = {
-  pinningFile: string;
-  line: number;
-  raw: string;
-  reason: "target_absent" | "target_ambiguous";
-};
-
-/** Resume/prompt payload for a mutation-directive reprompt. */
-export type MutationDirectiveRepromptContext = {
-  directives: MutationDirectiveRepromptDirective[];
-  /** `describeUnparseable` listing for operator display and prompt injection. */
-  display: string;
-};
-
-/** Emitted when implement mutation-checkpoint verification finds only repromptable unparseable directives. */
-export type MutationDirectiveRepromptEvent = {
-  kind: "mutation_directive_reprompt";
-  attemptId: string;
-} & MutationDirectiveRepromptContext;
-
-/** Resume/prompt payload for a keystone-directive reprompt: the ticked criterion and its resolved pin. */
-export type KeystoneDirectiveRepromptContext = {
-  criterionText: string;
-  /** Repo-relative path of the criterion's resolved pinning test. */
-  pinPath: string;
-};
-
-/** Emitted when implement mutation-checkpoint verification finds an unlinked keystone as the sole blocking finding. */
-export type KeystoneDirectiveRepromptEvent = {
-  kind: "keystone_directive_reprompt";
-  attemptId: string;
-} & KeystoneDirectiveRepromptContext;
-
-/** Structured checkpoint row shared by guard-repair prompting and durable logs. */
-export type GuardCheckpointRepairEntry = {
-  criterionText: string;
-  kind: "guard" | "keystone";
-  /** Resolved repo-relative path of the criterion's pinning test. */
-  pinPath: string;
-  reason: "unlinked" | "hollow";
-  directive?: {
-    sourceFile: string;
-    sourceLine: number;
-    raw: string;
-  };
-};
-
-export type GuardCheckpointRepromptContext = {
-  repairs: GuardCheckpointRepairEntry[];
-};
-
-/** Emitted once when the write loop admits a complete guard-checkpoint repair set. */
-export type GuardCheckpointRepromptEvent = {
-  kind: "guard_checkpoint_reprompt";
-  attemptId: string;
-} & GuardCheckpointRepromptContext;
-
 /** Agent stdout excerpt when a rejected `blocked` token still has no blocker text; truncated at append time. */
 export type MissingBlockerDetailEvent = {
   kind: "missing_blocker_detail";
@@ -269,9 +211,6 @@ type LogEventWithoutLoopFinished =
   | BlockerRepromptEvent
   | LandingContractRepromptEvent
   | StagedMarkdownLintRepromptEvent
-  | MutationDirectiveRepromptEvent
-  | KeystoneDirectiveRepromptEvent
-  | GuardCheckpointRepromptEvent
   | MissingBlockerDetailEvent
   | ContractMissDetailEvent
   | BlockerTextDetailEvent

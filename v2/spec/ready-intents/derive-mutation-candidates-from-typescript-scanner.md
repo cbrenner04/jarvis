@@ -27,7 +27,7 @@ Unsplit rationale: The behavior changes only execution-loop mutation candidate d
 
 ## Decision ledger
 
-- Classify comparison tokens with the TypeScript scanner and AST; rules out regex or masking heuristics that cannot distinguish type and expression positions.
+- Scan the original changed-line source, parse source with those line offsets preserved, and classify each scanner token against its AST span; rules out regex or masking heuristics that cannot distinguish type and expression positions.
 - Remove `maskNonCodeSpans` from operator-flip derivation while retaining non-code-span handling only where other mutation families still require it; rules out two operator-candidate derivation paths.
 - Preserve source columns and mutation text for expression comparisons; rules out changing mutation application or failure-reporting contracts while replacing classification.
 - Order guard-flips before operator-flips and deduplicate per line; rules out positional ordering that spends `MAX_INSPECTED_MUTATIONS` on lower-signal or repeated candidates first.
@@ -37,7 +37,7 @@ Unsplit rationale: The behavior changes only execution-loop mutation candidate d
 - [ ] A regression test in `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves changed lines whose only angle brackets are in `x as Parameters<Foo>[0]`, `new Map<string, number>()`, `fn<T>(...)`, `x satisfies Foo<Bar>`, and an arrow generic `<K extends keyof T>` produce no operator-flip candidate; it fails against the pre-fix regex derivation.
 - [ ] A test in `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves a real `a < b` comparison on a line that also contains a type generic remains an operator-flip candidate.
 - [ ] A test in `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves a line with guard-flip and operator-flip opportunities emits the guard-flip first and collapses per-line duplicates before inspection.
-- [ ] Production operator-flip derivation uses TypeScript syntax classification and no longer consumes `maskNonCodeSpans`; the pre-fix `deriveOperatorMutations(..., maskedContent, ...)` call is reachable evidence for this invariant.
+- [ ] Operator-flip candidates are emitted only for comparison tokens classified in expression positions, while non-code spans and type-position brackets produce none.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

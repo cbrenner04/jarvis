@@ -36,7 +36,7 @@ Unsplit rationale: The resolver, scoped test execution, prompt rule, and durable
 ## Acceptance criteria
 
 - [ ] `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves a changed guard whose only killing test is a non-sibling direct importer does not yield `missing-killing-test` when that importer fails under mutation; the test fails against the co-location-only resolver.
-- [ ] The importing-test regression carries an in-body `// @mutate v2/src/execution/diff-derived-mutation-verifier.ts "if (killingTests.length === 0) {" -> "if (true) {"` checkpoint that names the real empty-union guard and turns the scoped test red; production inversion hooks are absent.
+- [ ] The importing-test regression fails when the real empty-union guard (`if (killingTests.length === 0)`) is manually inverted at the source, and passes on the real guard; no production inversion hook is added.
 - [ ] `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves a changed module with neither co-located nor direct-importer tests still yields `missing-killing-test`.
 - [ ] `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves direct-importer discovery examines only `*.test.ts` files under the changed module's source root, ignores transitive importers, and fails closed as `importer-discovery-cap-exceeded` when a 201st candidate would be inspected.
 - [ ] `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves scoped execution runs the resolved co-located ∪ direct-importer union and excludes unrelated tests.

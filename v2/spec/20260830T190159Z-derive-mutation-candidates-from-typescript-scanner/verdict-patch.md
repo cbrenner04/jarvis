@@ -1,0 +1,3 @@
+- Ensure operator-flip candidates exclude text inside multiline template literals and block comments, including changed continuation lines without an opening delimiter. Such text is not an expression-position comparison and can incorrectly block completion.
+- Add focused regression coverage for these multiline non-code contexts while preserving real comparisons, source columns, guard-first ordering, and deduplication.
+- Align `workflow-runner.md` and `v1-behaviors.md` with the resulting lexical-context contract and any remaining limitations. Current documentation misleadingly assigns multiline masking limitations only to guard and destructive candidates.

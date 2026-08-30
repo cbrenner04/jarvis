@@ -59,6 +59,8 @@ Tests must be deterministic and sandbox-runnable by default. See [`test-writing.
 
 New or migrated path-aware Git status consumers must use `getGitStatusInventory` from `shared/git.ts`; do not parse porcelain output independently.
 
+`bun run check` enforces this lossless inventory boundary via `scripts/guard-lossless-git-status-inventory.ts` for `v2/src/execution/review-intent-enforcement.ts`, `v2/src/execution/completion-commit.ts`, `v2/src/execution/write-loop.ts`, and `v2/src/commands/cleanup.ts`.
+
 ## Production invert-for-test hooks
 
 Production code under `v2/src`, `v1/src`, and `shared` must not carry the four invert-for-test hook shapes: `setInvert*ForTest` exports, `invert*ForTest` module variables, `invert*` function parameters, and `invert*ForTest` type members. `bun run check` enforces this via `scripts/guard-production-test-flags.ts`. Other `*ForTest` hooks remain out of scope.

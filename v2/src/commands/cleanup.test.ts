@@ -3446,21 +3446,49 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(listOutput).not.toContain(worktreePath);
   });
 
-  test("listDirtyWorktreePathsForStaleReset reports porcelain paths", async () => {
+  test("listDirtyWorktreePathsForStaleReset reports lossless status paths", async () => {
     const branch = "impl/dirty-list-unit";
     const worktreePath = await setupWorktreeAndBranch(branch);
     const tracked = `file-${branch.replace(/\//g, "-")}.txt`;
-    writeFileSync(join(worktreePath, tracked), "edited\n");
-    writeFileSync(join(worktreePath, "new.txt"), "x\n");
+    const renameDestination = " renamed\ncafé destination ";
+    const paths = [renameDestination, "new file.txt", "new\nline.txt", "jalapeño.txt", " leading.txt", "trailing.txt "];
+    await realAsyncSubprocessRunner.runAsync("git", ["mv", tracked, renameDestination], worktreePath);
+    for (const path of paths.slice(1)) writeFileSync(join(worktreePath, path), "x\n");
 
     const listed = await listDirtyWorktreePathsForStaleReset(worktreePath, realAsyncSubprocessRunner);
     expect(listed.status).toBe("dirty");
     if (listed.status !== "dirty") throw new Error("expected dirty");
-    expect(listed.paths).toEqual(expect.arrayContaining([tracked, "new.txt"]));
+    expect(listed.paths).toEqual(expect.arrayContaining(paths));
+  });
+
+  test("listDirtyWorktreePathsForStaleReset ignores untracked harness sidecars", async () => {
+    // @mutate v2/src/commands/cleanup.ts "if (untracked && isJarvisHarnessSidecarPath(entry.currentPath)) continue;" -> "if (false) continue;"
+    const branch = "impl/dirty-list-harness-sidecars";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, ".jarvis-verdict.md"), "verdict\n");
+    mkdirSync(join(worktreePath, ".jarvis-stage"));
+    writeFileSync(join(worktreePath, ".jarvis-stage", "result.md"), "result\n");
+
+    expect(await listDirtyWorktreePathsForStaleReset(worktreePath, realAsyncSubprocessRunner)).toEqual({
+      status: "clean",
+    });
+  });
+
+  test("listDirtyWorktreePathsForStaleReset treats staged harness sidecar changes as dirty", async () => {
+    // @mutate v2/src/commands/cleanup.ts 'entry.stagedStatus === "untracked"' -> 'entry.stagedStatus !== "untracked"'
+    const branch = "impl/dirty-list-staged-harness-sidecar";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, ".jarvis-verdict.md"), "verdict\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", ".jarvis-verdict.md"], worktreePath);
+
+    const listed = await listDirtyWorktreePathsForStaleReset(worktreePath, realAsyncSubprocessRunner);
+    expect(listed.status).toBe("dirty");
+    if (listed.status !== "dirty") throw new Error("expected dirty");
+    expect(listed.paths).toEqual(expect.arrayContaining([".jarvis-verdict.md"]));
   });
 
   test("listDirtyWorktreePathsForStaleReset ignores a worktree holding only the materialized node_modules symlink", async () => {
-    // @mutate v2/src/commands/cleanup.ts "if (untracked && path && isMaterializedNodeModulesPath(worktreePath, path)) continue;" -> "if (false) continue;"
+    // @mutate v2/src/commands/cleanup.ts "if (untracked && isMaterializedNodeModulesPath(worktreePath, entry.currentPath)) continue;" -> "if (false) continue;"
     const branch = "impl/dirty-list-node-modules-symlink";
     const worktreePath = await setupWorktreeAndBranch(branch);
     symlinkSync("/nonexistent-target-for-test", join(worktreePath, "node_modules"));

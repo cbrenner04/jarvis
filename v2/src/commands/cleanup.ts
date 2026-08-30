@@ -3,6 +3,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import {
   getBaseBranch,
   getCurrentBranchAsync,
+  getGitStatusInventory,
   isGitRepoAsync,
   originTrackingRefResolvesAsync,
 } from "../../../shared/git.ts";
@@ -1579,11 +1580,6 @@ function combineStaleResetRefusalReasons(parts: string[]): string {
   return parts.join("; ");
 }
 
-function isUntrackedPorcelainLine(line: string): boolean {
-  const status = line.slice(0, 2);
-  return status === "??" || status[0] === "?" || status[1] === "?";
-}
-
 function isJarvisHarnessSidecarPath(path: string): boolean {
   return path.split("/").some((segment) => segment.startsWith(".jarvis-"));
 }
@@ -1605,25 +1601,18 @@ export async function listDirtyWorktreePathsForStaleReset(
   runner: AsyncSubprocessRunner,
 ): Promise<DirtyWorktreeListResult> {
   try {
-    const output = await runner.runAsync("git", ["status", "--porcelain", "--untracked-files=all"], worktreePath);
-    const lines = output.split("\n").filter((line) => line.trim().length > 0);
-    if (lines.length === 0) return { status: "clean" };
+    const inventory = await getGitStatusInventory(worktreePath, runner);
     const paths: string[] = [];
-    let hasBlockingPorcelain = false;
-    for (const line of lines) {
-      const untracked = isUntrackedPorcelainLine(line);
-      let path = line.slice(3).trim();
-      const arrow = path.lastIndexOf(" -> ");
-      if (arrow >= 0) path = path.slice(arrow + 4).trim();
-      if (untracked && path && isJarvisHarnessSidecarPath(path)) continue;
-      if (untracked && path && isMaterializedNodeModulesPath(worktreePath, path)) continue;
-      hasBlockingPorcelain = true;
-      if (path) paths.push(path);
+    for (const entry of inventory) {
+      const untracked = entry.stagedStatus === "untracked" || entry.worktreeStatus === "untracked";
+      if (untracked && isJarvisHarnessSidecarPath(entry.currentPath)) continue;
+      if (untracked && isMaterializedNodeModulesPath(worktreePath, entry.currentPath)) continue;
+      paths.push(entry.currentPath);
     }
-    if (!hasBlockingPorcelain) return { status: "clean" };
-    return { status: "dirty", paths };
+    return paths.length === 0 ? { status: "clean" } : { status: "dirty", paths };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    if (message.startsWith("Malformed git status inventory:")) return { status: "dirty", paths: [] };
     return hasNotGitRepositoryDiagnostic(err) ? { status: "not-git-repository" } : { status: "error", message };
   }
 }

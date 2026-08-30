@@ -21,13 +21,13 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/cleanup.ts` obtains stale-reset dirty paths through `getGitStatusInventory`, projects only exact `currentPath` values for blocking entries, and contains no independent `git status` porcelain path parser in `listDirtyWorktreePathsForStaleReset`.
-- [ ] `cleanup.test.ts` test `listDirtyWorktreePathsForStaleReset reports lossless status paths` proves rename destinations and paths containing spaces, newlines, non-ASCII text, or leading or trailing whitespace reach `DirtyWorktreeListResult.paths` unchanged; it fails against the pre-fix newline porcelain parser.
-- [ ] `cleanup.test.ts` test `listDirtyWorktreePathsForStaleReset ignores untracked harness sidecars` proves a worktree holding only untracked `.jarvis-*` paths yields `{ status: "clean" }`; it fails against the pre-fix parser when sidecar filtering is removed.
-- [ ] `cleanup.test.ts` test `listDirtyWorktreePathsForStaleReset treats non-empty unparseable porcelain as dirty` stays green.
-- [ ] `cleanup.test.ts` test `listDirtyWorktreePathsForStaleReset ignores a worktree holding only the materialized node_modules symlink` proves a worktree holding only the materialized worktree-root `node_modules` symlink yields `{ status: "clean" }`; it fails against the pre-fix parser when the materialized `node_modules` exclusion is removed.
-- [ ] `v2/docs/operator-runbook.md` documents that stale-reset dirty refusal diagnostics name exact lossless inventory paths while untracked `.jarvis-*` harness sidecars and the materialized worktree-root `node_modules` symlink remain excluded.
-- [ ] `v2/docs/v1-behaviors.md` records stale-reset dirty inventory semantics through the shared lossless inventory and names `listDirtyWorktreePathsForStaleReset` as the migrated cleanup source.
+- [x] `v2/src/commands/cleanup.ts` obtains stale-reset dirty paths through `getGitStatusInventory`, projects only exact `currentPath` values for blocking entries, and contains no independent `git status` porcelain path parser in `listDirtyWorktreePathsForStaleReset`.
+- [x] `cleanup.test.ts` test `listDirtyWorktreePathsForStaleReset reports lossless status paths` proves rename destinations and paths containing spaces, newlines, non-ASCII text, or leading or trailing whitespace reach `DirtyWorktreeListResult.paths` unchanged; it fails against the pre-fix newline porcelain parser.
+- [x] `cleanup.test.ts` test `listDirtyWorktreePathsForStaleReset ignores untracked harness sidecars` proves a worktree holding only untracked `.jarvis-*` paths yields `{ status: "clean" }`; it fails against the pre-fix parser when sidecar filtering is removed.
+- [x] `cleanup.test.ts` test `listDirtyWorktreePathsForStaleReset treats non-empty unparseable porcelain as dirty` stays green.
+- [x] `cleanup.test.ts` test `listDirtyWorktreePathsForStaleReset ignores a worktree holding only the materialized node_modules symlink` proves a worktree holding only the materialized worktree-root `node_modules` symlink yields `{ status: "clean" }`; it fails against the pre-fix parser when the materialized `node_modules` exclusion is removed.
+- [x] `v2/docs/operator-runbook.md` documents that stale-reset dirty refusal diagnostics name exact lossless inventory paths while untracked `.jarvis-*` harness sidecars and the materialized worktree-root `node_modules` symlink remain excluded.
+- [x] `v2/docs/v1-behaviors.md` records stale-reset dirty inventory semantics through the shared lossless inventory and names `listDirtyWorktreePathsForStaleReset` as the migrated cleanup source.
 
 ## Documentation updates
 

@@ -34,3 +34,7 @@ Project `homestead-service`, spec `~/.jarvis/specs/homestead-service/plans/house
 - `v2/docs/workflow-runner.md` and `v2/docs/write-behavior.md` — external-spec implement contract (admission, routing, ticking, archival).
 - `v2/docs/operator-runbook.md` — `plan.commit: false` projects ride v2 implement via the external home; remove any contrary caveat.
 - `v2/docs/v1-behaviors.md` — v2 parity note for v1's external-spec no-commit handling.
+
+## Migration follow-up (homestead-service, operator 2026-08-30)
+
+Homestead currently works around the missing v2 external-implement path with a split: some repo files gitignored, some artifacts in the external `~/.jarvis/specs/homestead-service/` dir. Once this lands, homestead needs a deliberate migration plan off that split onto the clean external-home flow — downstream homestead-project work that this seed enables, not part of this seed's scope. Trigger the migration when this ships.

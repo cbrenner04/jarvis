@@ -72,6 +72,9 @@ Intake-driven session (issues #3106, #3119, #3122); all fixes landed through the
 
 | P | Item | Delivers |
 | --- | --- | --- |
+| **P0 — gates first** | [[plan-draft-shape-accepts-nested-stage-layout]] (#3156) + [[plan-draft-contract-miss-reprompts-before-blocking]] (#3114) | Plan gate rejected 5/5 sound drafts on shape/strictness (2026-08-30) → all hand-landed (#3165); unblock plan throughput |
+| **P0 — gates first** | mutation-gate plan (mutation-DSL author re-review, 2026-08-30), in order: (1) [[mutation-gate-equivalent-mutation-escape-hatch]] → (2) [[implement-verifies-mutations-in-loop]] → (3) [[mutation-verifier-scanner-based-candidates]] → (4) [[mutation-gate-resolves-importer-killing-tests]] | Mutation gate is the dominant implement-strand blocker. Escape hatch is the pressure valve; **in-loop verification is the linchpin** (binds authoring+enforcement at the same lifecycle point, removes the operator from strand-and-hand-finish); scanner-based derivation retires the dead masking-loop approach; importer-aware resolution enforces coverage not co-location. Builds on landed #3172 (sibling resolver + restored authoring rule) |
+| **P0 — gates first** | watchdog trio — [[idle-output-timeout-preserves-committed-progress-resumable]] (#3152) **first**, then [[idle-watchdog-counts-worktree-filesystem-activity]] (#3150/#3153), then [[stall-settlement-preserves-agent-stdout]] (#3151) | Idle/stall watchdogs discard committed progress and misjudge live agents; the trio makes strands recoverable and is the trigger to relax serial-only implement |
 | **P0** | ~~Land #3060 + the deferred-settlement spec~~ (both merged 2026-08-29) | Watchdogs arm on pipeline runs; configured ready/fix commands honored ✓; review-bearing pipelines stop stranding their PR ✓ |
 | **P0** | [[pipeline-architecture-doc]] | Cheap; states the target the P1 restructures converge on |
 | **P1** | [[pipeline-dispatch-shares-cli-front-door]] | Retires the remaining dispatch-assembly copies (posture, review passes, stale-reset, admission, context source) |
@@ -90,6 +93,14 @@ Intake-driven session (issues #3106, #3119, #3122); all fixes landed through the
 | **P3** | Re-triage demoted seeds | rename-lane family and supersede family re-scope against the post-settlement seam; load trio verify-or-reap |
 
 Chess-dogfood seeds ([[per-project-agent-fallback-order]], [[codex-zero-exit-auth-failure-advances-agent-order]], [[blocker-contract-credits-existing-section]]) and display/TUI seeds ([[pipeline-list-display-retention]], [[tui-dock-command-grammar-mirrors-cli]], [[tui-typed-run-steering-clears-command-input]], [[full-light-review-pipeline]], [[cleanup-improvements]], [[ready-gate-repair-out-of-diff-edits]], [[implement-retirement-destroys-artifacts-before-materialization]], [[implement-resumes-stalled-unmerged-subspec-chain]]) keep their prior priorities; schedule them between restructure landings.
+
+**Gate-fix P0 (2026-08-30, refactor-owner ask).** The last ~12h show the gates rejecting good work is now the dominant cost: 5/5 plans contract-miss-blocked (→ #3165 hand-land), 3 implements stranded at the mutation gate, #3164/#3166/#3169 closed unlanded on an equivalent mutation. These gates tax every subsequent run, and the P2 refactor seeds pay that tax on each of their runs — so gate fixes land first, ahead of every remaining P2 refactor seed.
+
+## Operating notes
+
+**Circuit-breaker (per-lane, per-gate).** If a lane (plan / implement / review) needs hand-intervention twice in a row on the same gate, stop routing that lane through Jarvis until the gate fix merges — hand-land the work instead. Re-open the lane only after one clean end-to-end run on the fixed gate. Mirrored in [operator-runbook.md § Circuit-breaker](../docs/operator-runbook.md#circuit-breaker-stop-routing-a-lane-that-keeps-failing-the-same-gate).
+
+**Serial-only implement is under review (not yet relaxed).** The 2026-08-30 parallelization experiment ran two concurrent implements ~40 min with zero idle-output false-kills under the 15-min idle budget — evidence that concurrent implements are viable now. Do **not** change the serial-only rule yet; the trigger to relax it is the watchdog trio (P0 above) landing, after which a concurrent-implement run is safe to re-trial.
 
 ## Prompt corpus (2026-08-29 review)
 

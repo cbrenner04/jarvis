@@ -25,7 +25,7 @@ import {
 } from "./pipeline-stage-recovery.ts";
 
 const PIPELINE_ID = "pipeline-1";
-const CONTEXT: PipelineContext = { cwd: "/repo" };
+const CONTEXT: PipelineContext = { cwd: "/repo", configPath: "/fake/.jarvis/config.json" };
 
 const FAN_OUT_DEFINITION: PipelineDefinition = {
   name: "full-review",
@@ -568,6 +568,21 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
       { store: noContextStore },
     );
     expect(missingContext).toEqual(expect.objectContaining({ ok: false, reason: "missing_context" }));
+
+    const incompleteContext = { cwd: "/repo", seed: "legacy inline seed" } as PipelineContext;
+    const incompleteContextPipeline = makePipeline(SINGLE_DEFINITION, stages, incompleteContext);
+    const incompleteContextStore = makeStore({ [PIPELINE_ID]: incompleteContextPipeline }, { "run-plan": entryRun });
+    const incompleteContextResult = await resolveBlockedPlanStageRecoveryTarget(
+      { pipelineId: PIPELINE_ID, branchKey: "default" },
+      { store: incompleteContextStore },
+    );
+    expect(incompleteContextResult).toEqual(
+      expect.objectContaining({
+        ok: false,
+        reason: "stage_resolution_failed",
+        message: expect.stringMatching(/^pipeline-context-loader:/),
+      }),
+    );
 
     // Mutation checkpoints: inverting each guard suppresses the refusal (and the request stays
     // absent — either the guard's `false` branch throws downstream, or it wrongly proceeds to

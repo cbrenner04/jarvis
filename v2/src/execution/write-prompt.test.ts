@@ -128,4 +128,38 @@ describe("write prompt", () => {
     expect(() => registry.getById("write.mutation-directive-reprompt")).toThrow(/unknown prompt id/);
     expect(() => registry.getById("write.keystone-directive-reprompt")).toThrow(/unknown prompt id/);
   });
+
+  test("registers stable id write.surviving-mutation-reprompt", () => {
+    const registry = loadPromptRegistry();
+    expect(registry.getById("write.surviving-mutation-reprompt").metadata.id).toBe("write.surviving-mutation-reprompt");
+  });
+
+  test("write.surviving-mutation-reprompt renders the mutation site, both remedies, and injected rules", () => {
+    const rendered = renderStepPrompt("write.surviving-mutation-reprompt", {
+      SPEC_PATH: "spec/example/00-sub.md",
+      STEP_RULES: "Follow the implement contract.",
+      SURVIVING_MUTATION: "replace `a === b` with `a !== b`",
+      SOURCE_FILE: "v2/src/execution/write-loop.ts",
+      SOURCE_LINE: "142",
+      DUAL_CONSTRAINT_DETAIL: "Determinism guard forbids a real-timer kill test.",
+    });
+
+    expect(rendered).toContain("Read the spec at spec/example/00-sub.md.");
+    expect(rendered).toContain("Mutation: replace `a === b` with `a !== b`");
+    expect(rendered).toContain("Source: v2/src/execution/write-loop.ts:142");
+    expect(rendered).toContain("Determinism guard forbids a real-timer kill test.");
+    // Both remedies must be offered: a co-located killing test, or the equivalence directive.
+    expect(rendered).toContain("co-located killing test");
+    expect(rendered).toContain("@mutate-equivalent");
+    expect(rendered).toContain("Follow the implement contract.");
+  });
+
+  test("write.surviving-mutation-reprompt requires the mutation-site placeholders", () => {
+    expect(() =>
+      renderStepPrompt("write.surviving-mutation-reprompt", {
+        SPEC_PATH: "spec/example/00-sub.md",
+        STEP_RULES: "Rules.",
+      }),
+    ).toThrow(PromptRenderingError);
+  });
 });

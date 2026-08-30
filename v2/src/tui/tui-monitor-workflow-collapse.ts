@@ -1,6 +1,6 @@
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
-import { rollupWorkflowRunStatus } from "../daemon/workflow-run-status-rollup.ts";
 import { isTerminalRunStatus, type Run, type RunStatus, type WorkflowSnapshot } from "../persistence/state-store.ts";
+import { rollupWorkflowRunStatus } from "../persistence/workflow-run-status-rollup.ts";
 
 export function isActiveRunStatus(status: RunStatus): boolean {
   switch (status) {

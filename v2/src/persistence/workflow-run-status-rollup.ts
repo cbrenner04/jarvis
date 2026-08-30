@@ -1,4 +1,4 @@
-import type { Run, RunStatus, WorkflowSnapshot } from "../persistence/state-store.ts";
+import type { Run, RunStatus, WorkflowSnapshot } from "./state-store.ts";
 
 /**
  * Computes the workflow-level status from a workflow invocation's durable rows.

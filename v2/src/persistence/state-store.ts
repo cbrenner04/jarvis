@@ -8,6 +8,8 @@ import type { PipelineDefinition, PipelineTerminalAction } from "../execution/pi
 import type { PublicationFailure } from "../execution/publication-retry.ts";
 import { isWriteLoopOutcomeKind, type WriteLoopInput, type WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import { jarvisHome } from "../paths.ts";
+import { stageArtifactFromEntryRun, stageFailureDetailFromEntryRun } from "./pipeline-stage-settlement.ts";
+import { rollupWorkflowRunStatus } from "./workflow-run-status-rollup.ts";
 
 /** Timeout for the state store to wait when the database is locked (busy_timeout in ms). Must exceed the longest single store transaction. */
 export const STATE_STORE_BUSY_TIMEOUT_MS = 5000;
@@ -663,6 +665,8 @@ export interface StateStore {
 
   /** Apply a targeted lifecycle patch keyed by `(pipelineId, stageId, branchKey)`; omitted `branchKey` defaults to `"default"`. */
   updateStage(args: { pipelineId: string; stageId: string; branchKey?: string; patch: StageLifecyclePatch }): void;
+
+  settleLinkedStagesFromEntryRun(entryRunId: string): void;
 
   /**
    * Conditionally mark one `kind: "approval"` row `pending` → `awaiting` by durable
@@ -1850,6 +1854,89 @@ class StateStoreImpl implements StateStore {
     if (result.changes === 0) {
       throw new Error(`Stage ${args.stageId} (branch ${branchKey}) not found in pipeline ${args.pipelineId}`);
     }
+  }
+
+  settleLinkedStagesFromEntryRun(entryRunId: string): void {
+    this.db.transaction(() => {
+      const entryRun = this.loadRun(entryRunId);
+      if (entryRun === null) return;
+
+      const workflowSnapshot = entryRun.workflowSnapshot ?? null;
+      const siblingRuns = workflowSnapshot === null ? [] : this.findRunsByInvocationId(workflowSnapshot.invocationId);
+      const rollupStatus = rollupWorkflowRunStatus({
+        entryRun,
+        workflowSnapshot,
+        siblingRuns,
+        isLive: false,
+      });
+      if (!isTerminalRunStatus(rollupStatus)) return;
+
+      const stages = this.db
+        .prepare(`SELECT ${STAGE_COLUMNS} FROM pipeline_stages WHERE workflow_invocation_id = ? AND status = 'running'`)
+        .all(entryRunId) as StageRow[];
+      const endedAt = Date.now();
+      for (const stageRow of stages) {
+        const stage = mapStageRow(stageRow);
+        if (rollupStatus !== "completed") {
+          this.settleRunningStage(stage.id, "failed", endedAt, undefined, stageFailureDetailFromEntryRun(entryRun));
+          continue;
+        }
+
+        const pipeline = this.loadPipeline(stage.pipelineId);
+        const requiresPrEvidence =
+          pipeline !== null && this.terminalPublicationStageRequiresPrEvidence(pipeline.definition, stage.stageId);
+        const missingPrEvidence = requiresPrEvidence && (entryRun.prNumber == null || entryRun.prUrl == null);
+        if (entryRun.specPath.length === 0 || missingPrEvidence) {
+          this.settleRunningStage(
+            stage.id,
+            "failed",
+            endedAt,
+            undefined,
+            entryRun.specPath.length === 0
+              ? {
+                  message: `pipeline-stage-dispatch: entry run ${entryRunId} completed without a recorded spec path`,
+                }
+              : {
+                  code: "completion_publication_missing_pr_evidence",
+                  message: `completion publication left no confirmed PR evidence on linked entry run ${entryRunId}`,
+                },
+          );
+          continue;
+        }
+
+        this.settleRunningStage(stage.id, "succeeded", endedAt, stageArtifactFromEntryRun(entryRunId, entryRun), null);
+      }
+    })();
+  }
+
+  private terminalPublicationStageRequiresPrEvidence(definition: PipelineDefinition, stageId: string): boolean {
+    if (definition.terminalAction !== "ready" && definition.terminalAction !== "merge") return false;
+    for (let index = definition.stages.length - 1; index >= 0; index -= 1) {
+      const stage = definition.stages[index];
+      if (stage?.kind !== "workflow") continue;
+      return stage.stageId === stageId;
+    }
+    return false;
+  }
+
+  private settleRunningStage(
+    stageRecordId: string,
+    status: "succeeded" | "failed",
+    endedAt: number,
+    artifact: unknown | undefined,
+    failureDetail: unknown,
+  ): void {
+    this.db
+      .prepare(
+        `UPDATE pipeline_stages SET status = ?, ended_at = ?, artifact = COALESCE(?, artifact), failure_detail = ? WHERE id = ? AND status = 'running'`,
+      )
+      .run(
+        status,
+        endedAt,
+        artifact === undefined ? null : JSON.stringify(artifact),
+        failureDetail === null ? null : JSON.stringify(failureDetail),
+        stageRecordId,
+      );
   }
 
   recordAttemptStart(runId: string): string {

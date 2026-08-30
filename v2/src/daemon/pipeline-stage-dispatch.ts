@@ -1,5 +1,6 @@
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
+import { type PipelineStageArtifact, stageArtifactFromEntryRun } from "../persistence/pipeline-stage-settlement.ts";
 import {
   DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
   isTerminalRunStatus,
@@ -7,8 +8,8 @@ import {
   type RunStatus,
   type StateStore,
 } from "../persistence/state-store.ts";
+import { rollupWorkflowRunStatus } from "../persistence/workflow-run-status-rollup.ts";
 import { composeRunOperatorError, findTerminalLogRecord } from "./run-operator-error.ts";
-import { rollupWorkflowRunStatus } from "./workflow-run-status-rollup.ts";
 
 /**
  * Daemon-built closure around `handleWorkflowStart`/`startWorkflowRun`, the only seam a
@@ -25,16 +26,8 @@ export type PipelineWorkflowDispatch = (
  */
 export type PipelineWorkflowWait = (entryRunId: string) => Promise<RunStatus>;
 
-export type PipelineStageArtifact = {
-  entryRunId: string;
-  invocationId?: string;
-  specPath: string;
-  downstreamInputs?: string[];
-  prNumber?: number;
-  prUrl?: string;
-  requestedBase?: string;
-  resolvedBase?: string;
-};
+export type { PipelineStageArtifact } from "../persistence/pipeline-stage-settlement.ts";
+export { stageArtifactFromEntryRun } from "../persistence/pipeline-stage-settlement.ts";
 
 /** Composite key for in-memory stage artifact maps: prefix stages use `default`, suffix stages use the branch key. */
 export function stageArtifactKey(stageId: string, branchKey: string = DEFAULT_PIPELINE_STAGE_BRANCH_KEY): string {
@@ -171,23 +164,6 @@ function publicationBaseRetargetFromLogRecords(
     }
   }
   return undefined;
-}
-
-export function stageArtifactFromEntryRun(
-  entryRunId: string,
-  entryRun: NonNullable<ReturnType<StateStore["loadRun"]>>,
-  invocationId?: string,
-  publicationBaseRetarget?: { requestedBase: string; resolvedBase: string },
-): PipelineStageArtifact {
-  return {
-    entryRunId,
-    ...(invocationId !== undefined ? { invocationId } : {}),
-    specPath: entryRun.specPath!,
-    ...(entryRun.downstreamInputs?.length ? { downstreamInputs: [...entryRun.downstreamInputs] } : {}),
-    ...(entryRun.prNumber != null ? { prNumber: entryRun.prNumber } : {}),
-    ...(entryRun.prUrl != null ? { prUrl: entryRun.prUrl } : {}),
-    ...(publicationBaseRetarget ?? {}),
-  };
 }
 
 function failureDetailForEntryRun(

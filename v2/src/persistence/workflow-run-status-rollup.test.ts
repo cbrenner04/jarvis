@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Run, WorkflowSnapshot } from "../persistence/state-store.ts";
+import type { Run, WorkflowSnapshot } from "./state-store.ts";
 import { rollupWorkflowRunStatus } from "./workflow-run-status-rollup.ts";
 
 function createRun(overrides: Partial<Run> = {}): Run {

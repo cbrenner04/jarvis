@@ -8,6 +8,8 @@ import type { PipelineDefinition, PipelineTerminalAction } from "../execution/pi
 import type { PublicationFailure } from "../execution/publication-retry.ts";
 import { isWriteLoopOutcomeKind, type WriteLoopInput, type WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import { jarvisHome } from "../paths.ts";
+import { stageArtifactFromEntryRun, stageFailureDetailFromEntryRun } from "./pipeline-stage-settlement.ts";
+import { rollupWorkflowRunStatus } from "./workflow-run-status-rollup.ts";
 
 /** Timeout for the state store to wait when the database is locked (busy_timeout in ms). Must exceed the longest single store transaction. */
 export const STATE_STORE_BUSY_TIMEOUT_MS = 5000;
@@ -664,6 +666,9 @@ export interface StateStore {
   /** Apply a targeted lifecycle patch keyed by `(pipelineId, stageId, branchKey)`; omitted `branchKey` defaults to `"default"`. */
   updateStage(args: { pipelineId: string; stageId: string; branchKey?: string; patch: StageLifecyclePatch }): void;
 
+  /** Settle every linked `running` stage when the durable workflow entry-run rollup is terminal. */
+  settlePipelineStagesForEntryRun(entryRunId: string): void;
+
   /**
    * Conditionally mark one `kind: "approval"` row `pending` → `awaiting` by durable
    * `PipelineStageRecord.id`. Returns an explicit applied or refused outcome.
@@ -1297,6 +1302,46 @@ function mapStageRow(row: StageRow): PipelineStageRecord {
   };
 }
 
+function stageRequiresPrEvidence(pipeline: Pipeline | null, stageId: string): boolean {
+  const terminalAction = pipeline?.definition.terminalAction;
+  if (terminalAction !== "ready" && terminalAction !== "merge") return false;
+  const lastWorkflowStage = [...(pipeline?.definition.stages ?? [])]
+    .reverse()
+    .find((stage) => stage.kind === "workflow");
+  return lastWorkflowStage?.stageId === stageId;
+}
+
+function completedStageSettlementPatch(args: {
+  entryRunId: string;
+  entryRun: Run & { attempts: Attempt[] };
+  stage: PipelineStageRecord;
+  pipeline: Pipeline | null;
+}): StageLifecyclePatch {
+  const { entryRunId, entryRun, stage, pipeline } = args;
+  if (entryRun.specPath === "") {
+    return {
+      status: "failed",
+      failureDetail: {
+        message: `pipeline-stage-dispatch: entry run ${entryRunId} completed without a recorded spec path`,
+      },
+    };
+  }
+  if (stageRequiresPrEvidence(pipeline, stage.stageId) && (entryRun.prNumber == null || entryRun.prUrl == null)) {
+    return {
+      status: "failed",
+      failureDetail: {
+        code: "completion_publication_missing_pr_evidence",
+        message: `completion publication left no confirmed PR evidence on linked entry run ${entryRunId}`,
+      },
+    };
+  }
+  return {
+    status: "succeeded",
+    failureDetail: null,
+    artifact: stageArtifactFromEntryRun(entryRunId, entryRun, entryRun.workflowSnapshot?.invocationId),
+  };
+}
+
 class PipelineReopenLostError extends Error {
   constructor() {
     super("pipeline reopen lost concurrent claim");
@@ -1850,6 +1895,43 @@ class StateStoreImpl implements StateStore {
     if (result.changes === 0) {
       throw new Error(`Stage ${args.stageId} (branch ${branchKey}) not found in pipeline ${args.pipelineId}`);
     }
+  }
+
+  settlePipelineStagesForEntryRun(entryRunId: string): void {
+    this.db.transaction(() => {
+      const entryRun = this.loadRun(entryRunId);
+      if (entryRun === null || !isTerminalRunStatus(entryRun.status)) return;
+      const workflowSnapshot = entryRun.workflowSnapshot ?? null;
+      const siblingRuns = workflowSnapshot === null ? [] : this.findRunsByInvocationId(workflowSnapshot.invocationId);
+      const rollupStatus = rollupWorkflowRunStatus({ entryRun, workflowSnapshot, siblingRuns, isLive: false });
+      if (!isTerminalRunStatus(rollupStatus)) return;
+      // A missing durable step can mean the invocation is still progressing between rows.
+      if (rollupStatus === "killed" && ![entryRun, ...siblingRuns].some((run) => run.status === "killed")) return;
+
+      const linkedStages = (
+        this.db
+          .prepare(
+            `SELECT ${STAGE_COLUMNS} FROM pipeline_stages WHERE workflow_invocation_id = ? AND status = 'running'`,
+          )
+          .all(entryRunId) as StageRow[]
+      ).map(mapStageRow);
+      if (linkedStages.length === 0) return;
+
+      const settledEntryRun = this.loadRun(entryRunId);
+      if (settledEntryRun === null) return;
+      for (const stage of linkedStages) {
+        const pipeline = this.loadPipeline(stage.pipelineId);
+        this.updateStage({
+          pipelineId: stage.pipelineId,
+          stageId: stage.stageId,
+          branchKey: stage.branchKey,
+          patch:
+            rollupStatus === "completed"
+              ? completedStageSettlementPatch({ entryRunId, entryRun: settledEntryRun, stage, pipeline })
+              : { status: "failed", failureDetail: stageFailureDetailFromEntryRun(settledEntryRun) },
+        });
+      }
+    })();
   }
 
   recordAttemptStart(runId: string): string {

@@ -29,6 +29,7 @@ import type {
 } from "../persistence/state-store.ts";
 import { analyzeFailedPipelineReopenShape, openStateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
+import { rollupWorkflowRunStatus } from "../persistence/workflow-run-status-rollup.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { makeIpcClient } from "../testing/ipc-client-fake.ts";
 import { flushBackgroundRuns } from "../testing/run-control.ts";
@@ -81,7 +82,6 @@ import {
 } from "./pipeline-stage-resolve.ts";
 import type { TerminalLogRecord } from "./run-operator-error.ts";
 import { composeRunOperatorError } from "./run-operator-error.ts";
-import { rollupWorkflowRunStatus } from "./workflow-run-status-rollup.ts";
 
 const PIPELINE_ID = "pipeline-1";
 const baseContext: PipelineContext = { cwd: "/repo", seed: "seed text", configPath: "/fake/.jarvis/config.json" };

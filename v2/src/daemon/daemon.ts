@@ -84,6 +84,7 @@ import {
   type StateStore,
   type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
+import { rollupWorkflowRunStatus } from "../persistence/workflow-run-status-rollup.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
 import {
   applyPipelineApprovalDecision,
@@ -117,7 +118,6 @@ import {
   terminalResumeRefusalMessage,
 } from "./run-operator-error.ts";
 import { workflowRowSnapshot } from "./workflow-list-snapshot.ts";
-import { rollupWorkflowRunStatus } from "./workflow-run-status-rollup.ts";
 
 type WorktreeOwnership = {
   runId: string;

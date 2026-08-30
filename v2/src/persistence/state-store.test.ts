@@ -1716,6 +1716,291 @@ describe("pipelines", () => {
     expect(stage.endedAt).toBe(1_700_000_000_000);
   });
 
+  test("settles linked running stages from terminal durable entry runs idempotently", () => {
+    const completedInvocationId = "settlement-completed";
+    const completedEntryRunId = seedRun(store, {
+      specPath: "v2/spec/completed.md",
+      stepId: "plan",
+      workflowSnapshot: {
+        invocationId: completedInvocationId,
+        steps: [
+          { stepId: "plan", role: "plan", durable: true },
+          { stepId: "implement", role: "implement", durable: true },
+        ],
+      },
+    });
+    store.setRunDownstreamInputs(completedEntryRunId, ["ready-intents/a.md", "ready-intents/b.md"]);
+    const completedAttemptId = store.recordAttemptStart(completedEntryRunId);
+    store.commitCompletionBoundary({ attemptId: completedAttemptId, runStatus: "completed", outcomeKind: "done" });
+    seedRun(store, {
+      status: "completed",
+      stepId: "implement",
+      workflowSnapshot: {
+        invocationId: completedInvocationId,
+        steps: [
+          { stepId: "plan", role: "plan", durable: true },
+          { stepId: "implement", role: "implement", durable: true },
+        ],
+      },
+    });
+    const linkedCompletedPipelineIds = ["completed-a", "completed-b"].map((name) => {
+      const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline(name) });
+      store.updateStage({
+        pipelineId,
+        stageId: "plan",
+        patch: { status: "running", workflowInvocationId: completedEntryRunId, startedAt: 100 },
+      });
+      return pipelineId;
+    });
+
+    store.settleLinkedStagesFromEntryRun(completedEntryRunId);
+    const completedAfterFirst = linkedCompletedPipelineIds.map(
+      (pipelineId) => loadPipelineOrThrow(store, pipelineId).stages[0],
+    );
+    for (const stage of completedAfterFirst) {
+      expect(stage?.status).toBe("succeeded");
+      expect(stage?.endedAt).not.toBeNull();
+      expect(stage?.failureDetail).toBeNull();
+      expect(stage?.artifact).toEqual({
+        entryRunId: completedEntryRunId,
+        invocationId: completedInvocationId,
+        specPath: "v2/spec/completed.md",
+        downstreamInputs: ["ready-intents/a.md", "ready-intents/b.md"],
+      });
+    }
+    store.settleLinkedStagesFromEntryRun(completedEntryRunId);
+    expect(linkedCompletedPipelineIds.map((pipelineId) => loadPipelineOrThrow(store, pipelineId).stages[0])).toEqual(
+      completedAfterFirst,
+    );
+
+    const failedEntryRunId = seedRun(store, {
+      stepId: "implement",
+      workflowSnapshot: {
+        invocationId: "settlement-failed",
+        steps: [{ stepId: "implement", role: "implement", durable: true }],
+      },
+    });
+    const failedAttemptId = store.recordAttemptStart(failedEntryRunId);
+    const terminalFailureDetail = {
+      failureKind: "quota" as const,
+      bindingAttempts: [{ bindingId: "codex.1", resultKind: "quota" as const }],
+    };
+    store.commitCompletionBoundary({
+      attemptId: failedAttemptId,
+      runStatus: "failed",
+      outcomeKind: "invocation_failure",
+      invocationFailureDetail: terminalFailureDetail,
+      terminalCause: "invocation_failure",
+      terminalFailureDetail,
+    });
+    const failedPipelineId = store.createPipeline({ definition: singlePlanStagePipeline("failed") });
+    store.updateStage({
+      pipelineId: failedPipelineId,
+      stageId: "plan",
+      patch: { status: "running", workflowInvocationId: failedEntryRunId, startedAt: 200 },
+    });
+
+    store.settleLinkedStagesFromEntryRun(failedEntryRunId);
+    const failedAfterFirst = loadPipelineOrThrow(store, failedPipelineId).stages[0];
+    expect(failedAfterFirst?.status).toBe("failed");
+    expect(failedAfterFirst?.endedAt).not.toBeNull();
+    expect(failedAfterFirst?.artifact).toBeNull();
+    expect(failedAfterFirst?.failureDetail).toMatchObject({
+      reason: "quota_exhausted",
+      retryable: false,
+      nextAction: "retry_later",
+      entryRunStatus: "failed",
+      terminalCause: "invocation_failure",
+      terminalFailureDetail,
+      attempts: [
+        { attemptNumber: 1, outcomeKind: "invocation_failure", invocationFailureDetail: terminalFailureDetail },
+      ],
+    });
+    store.settleLinkedStagesFromEntryRun(failedEntryRunId);
+    expect(loadPipelineOrThrow(store, failedPipelineId).stages[0]).toEqual(failedAfterFirst);
+
+    const siblingFailureInvocationId = "settlement-sibling-failed";
+    const siblingFailureEntryRunId = seedRun(store, {
+      status: "completed",
+      stepId: "plan",
+      workflowSnapshot: {
+        invocationId: siblingFailureInvocationId,
+        steps: [
+          { stepId: "plan", role: "plan", durable: true },
+          { stepId: "implement", role: "implement", durable: true },
+        ],
+      },
+    });
+    seedRun(store, {
+      status: "failed",
+      stepId: "implement",
+      workflowSnapshot: {
+        invocationId: siblingFailureInvocationId,
+        steps: [
+          { stepId: "plan", role: "plan", durable: true },
+          { stepId: "implement", role: "implement", durable: true },
+        ],
+      },
+    });
+    const siblingFailurePipelineId = store.createPipeline({ definition: singlePlanStagePipeline("sibling-failed") });
+    store.updateStage({
+      pipelineId: siblingFailurePipelineId,
+      stageId: "plan",
+      patch: { status: "running", workflowInvocationId: siblingFailureEntryRunId, startedAt: 250 },
+    });
+
+    store.settleLinkedStagesFromEntryRun(siblingFailureEntryRunId);
+    expect(loadPipelineOrThrow(store, siblingFailurePipelineId).stages[0]).toMatchObject({
+      status: "failed",
+      artifact: null,
+      failureDetail: { entryRunStatus: "completed" },
+    });
+  });
+
+  test("settled stage artifacts retain durable entry-run publication evidence", () => {
+    const publishedEntryRunId = seedRun(store, {
+      stepId: "implement",
+      workflowSnapshot: {
+        invocationId: "settlement-published",
+        steps: [{ stepId: "implement", role: "implement", durable: true }],
+      },
+    });
+    store.setPrEvidence(publishedEntryRunId, 42, "https://github.com/example/repo/pull/42");
+    store.setRunStatus(publishedEntryRunId, "completed");
+    const publishedPipelineId = store.createPipeline({
+      definition: { ...SAMPLE_PIPELINE_DEFINITION, name: "published", terminalAction: "ready" },
+    });
+    store.updateStage({
+      pipelineId: publishedPipelineId,
+      stageId: "implement",
+      patch: { status: "running", workflowInvocationId: publishedEntryRunId },
+    });
+
+    store.settleLinkedStagesFromEntryRun(publishedEntryRunId);
+    const publishedStage = loadPipelineOrThrow(store, publishedPipelineId).stages.find(
+      (stage) => stage.stageId === "implement",
+    );
+    expect(publishedStage?.status).toBe("succeeded");
+    expect(publishedStage?.artifact).toMatchObject({
+      entryRunId: publishedEntryRunId,
+      invocationId: "settlement-published",
+      prNumber: 42,
+      prUrl: "https://github.com/example/repo/pull/42",
+    });
+
+    const missingSpecEntryRunId = seedRun(store, {
+      specPath: "",
+      status: "completed",
+      stepId: "plan",
+      workflowSnapshot: {
+        invocationId: "settlement-missing-spec",
+        steps: [{ stepId: "plan", role: "plan", durable: true }],
+      },
+    });
+    const missingSpecPipelineId = store.createPipeline({ definition: singlePlanStagePipeline("missing-spec") });
+    store.updateStage({
+      pipelineId: missingSpecPipelineId,
+      stageId: "plan",
+      patch: { status: "running", workflowInvocationId: missingSpecEntryRunId },
+    });
+    store.settleLinkedStagesFromEntryRun(missingSpecEntryRunId);
+    expect(loadPipelineOrThrow(store, missingSpecPipelineId).stages[0]).toMatchObject({
+      status: "failed",
+      artifact: null,
+      failureDetail: {
+        message: `pipeline-stage-dispatch: entry run ${missingSpecEntryRunId} completed without a recorded spec path`,
+      },
+    });
+
+    const missingSpecAndPrEntryRunId = seedRun(store, {
+      specPath: "",
+      status: "completed",
+      stepId: "implement",
+      workflowSnapshot: {
+        invocationId: "settlement-missing-spec-and-pr",
+        steps: [{ stepId: "implement", role: "implement", durable: true }],
+      },
+    });
+    const missingSpecAndPrPipelineId = store.createPipeline({
+      definition: { ...SAMPLE_PIPELINE_DEFINITION, name: "missing-spec-and-pr", terminalAction: "ready" },
+    });
+    store.updateStage({
+      pipelineId: missingSpecAndPrPipelineId,
+      stageId: "implement",
+      patch: { status: "running", workflowInvocationId: missingSpecAndPrEntryRunId },
+    });
+    store.settleLinkedStagesFromEntryRun(missingSpecAndPrEntryRunId);
+    expect(
+      loadPipelineOrThrow(store, missingSpecAndPrPipelineId).stages.find((stage) => stage.stageId === "implement"),
+    ).toMatchObject({
+      status: "failed",
+      artifact: null,
+      failureDetail: {
+        message: `pipeline-stage-dispatch: entry run ${missingSpecAndPrEntryRunId} completed without a recorded spec path`,
+      },
+    });
+
+    for (const terminalAction of ["ready", "merge"] as const) {
+      const missingPrEntryRunId = seedRun(store, {
+        status: "completed",
+        stepId: "implement",
+        workflowSnapshot: {
+          invocationId: `settlement-missing-pr-${terminalAction}`,
+          steps: [{ stepId: "implement", role: "implement", durable: true }],
+        },
+      });
+      const missingPrPipelineId = store.createPipeline({
+        definition: { ...SAMPLE_PIPELINE_DEFINITION, name: `missing-pr-${terminalAction}`, terminalAction },
+      });
+      for (const stageId of ["plan", "implement"]) {
+        store.updateStage({
+          pipelineId: missingPrPipelineId,
+          stageId,
+          patch: { status: "running", workflowInvocationId: missingPrEntryRunId },
+        });
+      }
+
+      store.settleLinkedStagesFromEntryRun(missingPrEntryRunId);
+      const stages = loadPipelineOrThrow(store, missingPrPipelineId).stages;
+      expect(stages.find((stage) => stage.stageId === "plan")?.status).toBe("succeeded");
+      expect(stages.find((stage) => stage.stageId === "implement")).toMatchObject({
+        status: "failed",
+        artifact: null,
+        failureDetail: {
+          code: "completion_publication_missing_pr_evidence",
+          message: `completion publication left no confirmed PR evidence on linked entry run ${missingPrEntryRunId}`,
+        },
+      });
+    }
+  });
+
+  test("live linked entry runs receive no terminal stage write", () => {
+    const entryRunId = seedRun(store, {
+      stepId: "implement",
+      workflowSnapshot: {
+        invocationId: "settlement-live",
+        steps: [{ stepId: "implement", role: "implement", durable: true }],
+      },
+    });
+    const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline("live") });
+    store.updateStage({
+      pipelineId,
+      stageId: "plan",
+      patch: { status: "running", workflowInvocationId: entryRunId, startedAt: 300 },
+    });
+
+    store.settleLinkedStagesFromEntryRun(entryRunId);
+
+    expect(loadPipelineOrThrow(store, pipelineId).stages[0]).toMatchObject({
+      status: "running",
+      workflowInvocationId: entryRunId,
+      startedAt: 300,
+      endedAt: null,
+      artifact: null,
+      failureDetail: null,
+    });
+  });
+
   function approvalStageRecord(pipeline: Pipeline & { stages: PipelineStageRecord[] }): PipelineStageRecord {
     const stage = pipeline.stages.find((row) => row.stageId === "gate");
     if (!stage) throw new Error("approval stage should exist");

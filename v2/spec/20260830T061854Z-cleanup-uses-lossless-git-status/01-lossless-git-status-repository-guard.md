@@ -27,12 +27,12 @@ After subspec 00 migrates cleanup, nothing in the repository prevents a future r
 
 ## Acceptance criteria
 
-- [ ] `scripts/guard-lossless-git-status-inventory.test.ts` test `rejects independent git status porcelain path parsing` fails against the pre-migration tree where `v2/src/commands/cleanup.ts` newline-splits `git status --porcelain` output in `listDirtyWorktreePathsForStaleReset`; reachable today because that parser remains in production.
-- [ ] `scripts/guard-lossless-git-status-inventory.test.ts` test `allows getGitStatusInventory consumers after migration` passes when all four inventoried consumer files obtain paths only through `getGitStatusInventory` current-path projection with no forbidden constructs.
-- [ ] `bun run check` runs the guard and passes against the migrated tree with only the four named consumer files in scope.
-- [ ] `v1/test/ready-script.sandbox-unrunnable.test.ts` test `package biome scripts use bun's resolved biome binary` pins the updated `check` script string including the new guard.
-- [ ] `v2/docs/coding-standards.md` states that `bun run check` enforces the lossless inventory guard on the four named path-aware consumers via `scripts/guard-lossless-git-status-inventory.ts`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `scripts/guard-lossless-git-status-inventory.test.ts` test `rejects independent git status porcelain path parsing` fails against the pre-migration tree where `v2/src/commands/cleanup.ts` newline-splits `git status --porcelain` output in `listDirtyWorktreePathsForStaleReset`; reachable today because that parser remains in production.
+- [x] `scripts/guard-lossless-git-status-inventory.test.ts` test `allows getGitStatusInventory consumers after migration` passes when all four inventoried consumer files obtain paths only through `getGitStatusInventory` current-path projection with no forbidden constructs.
+- [x] `bun run check` runs the guard and passes against the migrated tree with only the four named consumer files in scope.
+- [x] `v1/test/ready-script.sandbox-unrunnable.test.ts` test `package biome scripts use bun's resolved biome binary` pins the updated `check` script string including the new guard.
+- [x] `v2/docs/coding-standards.md` states that `bun run check` enforces the lossless inventory guard on the four named path-aware consumers via `scripts/guard-lossless-git-status-inventory.ts`.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

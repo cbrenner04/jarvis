@@ -3474,6 +3474,19 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     });
   });
 
+  test("listDirtyWorktreePathsForStaleReset treats staged harness sidecar changes as dirty", async () => {
+    // @mutate v2/src/commands/cleanup.ts 'entry.stagedStatus === "untracked"' -> 'entry.stagedStatus !== "untracked"'
+    const branch = "impl/dirty-list-staged-harness-sidecar";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, ".jarvis-verdict.md"), "verdict\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", ".jarvis-verdict.md"], worktreePath);
+
+    const listed = await listDirtyWorktreePathsForStaleReset(worktreePath, realAsyncSubprocessRunner);
+    expect(listed.status).toBe("dirty");
+    if (listed.status !== "dirty") throw new Error("expected dirty");
+    expect(listed.paths).toEqual(expect.arrayContaining([".jarvis-verdict.md"]));
+  });
+
   test("listDirtyWorktreePathsForStaleReset ignores a worktree holding only the materialized node_modules symlink", async () => {
     // @mutate v2/src/commands/cleanup.ts "if (untracked && isMaterializedNodeModulesPath(worktreePath, entry.currentPath)) continue;" -> "if (false) continue;"
     const branch = "impl/dirty-list-node-modules-symlink";

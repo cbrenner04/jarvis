@@ -33,6 +33,7 @@ import {
   parseIntentWorkflowArgs,
   parsePlanWorkflowArgs,
 } from "./workflow-args.ts";
+import { prepareWorkflowStart, type WorkflowStartPreparationResult } from "./workflow-start-preparation.ts";
 import { stampWorkflowStepsWithMachineConfig } from "./workflow-step-config-stamp.ts";
 
 let forceSkipAttachClientWaitForTest = false;
@@ -218,27 +219,6 @@ function applyLegacyWorkflowAlias(
   io.stderr(`deprecated: use ${alias.canonical} --review-passes ${alias.passes} --review-behavior ${alias.behavior}\n`);
 }
 
-async function prepareWorkflowSteps(
-  builder: WorkflowPresetBuilder,
-  builderInput: WorkflowPresetBuilderInput,
-  machineConfigPath: string,
-  io: Io,
-): Promise<{ ok: true; steps: SuccessfulWorkflowBuild["steps"]; built: SuccessfulWorkflowBuild } | { ok: false }> {
-  const built = await builder(builderInput as Parameters<WorkflowPresetBuilder>[0]);
-  if (!built.ok) {
-    io.stderr(`${built.error.replace(/\n+$/, "")}\n`);
-    return { ok: false };
-  }
-  let steps: SuccessfulWorkflowBuild["steps"];
-  try {
-    steps = stampWorkflowStepsWithMachineConfig(built.steps, machineConfigPath);
-  } catch (error) {
-    io.stderr(`${error instanceof Error ? error.message : String(error)}\n`);
-    return { ok: false };
-  }
-  return { ok: true, steps, built };
-}
-
 async function startWorkflowRun(
   client: IpcClient,
   steps: SuccessfulWorkflowBuild["steps"],
@@ -347,34 +327,46 @@ export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: 
     canonicalName === "implement"
       ? resolveImplementRecoveryRequest(parsed as Extract<ImplementWorkflowCliInput, { ok: true }>, deps)
       : undefined;
-  const initialPreparation =
-    recovery === undefined
-      ? await prepareWorkflowSteps(builder, builderInputResult.input, deps.machineConfigPath, io)
-      : undefined;
-  if (initialPreparation !== undefined && !initialPreparation.ok) return 1;
-  let destroyedArtifacts: DestroyedArtifacts | undefined;
+  const preparationRequest = {
+    workflow: canonicalName as "intent" | "plan" | "implement",
+    builder,
+    builderInput: builderInputResult.input,
+    machineConfigPath: deps.machineConfigPath,
+    stampSteps: stampWorkflowStepsWithMachineConfig,
+    staleReset: {
+      run: maybeResetStaleWorkspace,
+      deps,
+      io,
+      flags: {
+        skipDirtyWorktreeGate: "resetDespiteDirty" in parsed && parsed.resetDespiteDirty === true,
+        skipLandedCriteriaGate: "resetDespiteLandedCriteria" in parsed && parsed.resetDespiteLandedCriteria === true,
+      },
+    },
+  };
+  let preparationPromise: Promise<WorkflowStartPreparationResult> | undefined;
+  const prepare = () => (preparationPromise ??= prepareWorkflowStart(preparationRequest));
+  const initialPreparation = recovery === undefined ? await prepare() : undefined;
+  if (initialPreparation !== undefined && !initialPreparation.ok) {
+    io.stderr(`${initialPreparation.error.replace(/\n+$/, "")}\n`);
+    return 1;
+  }
+  let completedPreparation: Extract<WorkflowStartPreparationResult, { ok: true }> | undefined;
   const exitCode = await withConnectDispatch(io, deps, async (client) => {
     if (canonicalName === "implement") {
       const recovered = await maybeRecoverImplement(client, recovery, detach, io);
       if (recovered.admitted) return recovered.exitCode;
     }
-    const prepared =
-      initialPreparation ?? (await prepareWorkflowSteps(builder, builderInputResult.input, deps.machineConfigPath, io));
-    if (!prepared.ok) return 1;
-    const resetExitCode = await maybeResetStaleWorkspace(
-      canonicalName,
-      prepared.built,
-      deps,
-      io,
-      parsed,
-      client,
-      (destroyed) => {
-        destroyedArtifacts = destroyed;
-      },
-    );
+    const prepared = initialPreparation ?? (await prepare());
+    if (!prepared.ok) {
+      io.stderr(`${prepared.error.replace(/\n+$/, "")}\n`);
+      return 1;
+    }
+    completedPreparation = prepared;
+    const resetExitCode = await prepared.runStaleResetPreflight(client);
     if (resetExitCode !== undefined) return resetExitCode;
     return startWorkflowRun(client, prepared.steps, prepared.built, isIntentPreset, detach, io);
   });
+  const destroyedArtifacts = completedPreparation?.destroyedArtifacts;
   if (exitCode !== 0 && destroyedArtifacts !== undefined && Object.keys(destroyedArtifacts).length > 0) {
     io.stderr(`${formatDestroyedArtifactsSummary(destroyedArtifacts)}\n`);
   }

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { InvocationResult } from "../../../shared/invocation/execute.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type { AnyWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
+import type { PipelineContext } from "../persistence/state-store.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns } from "../testing/run-control.ts";
 import {
@@ -150,6 +151,56 @@ test("pipeline_start admits a pipeline, keeps running after the client disconnec
   if (!finalPipeline) throw new Error("expected pipeline to exist");
   expect(finalPipeline.stages.map((s) => s.status)).toEqual(["succeeded", "succeeded"]);
   expect(derivePipelineState(finalPipeline)).toBe("succeeded");
+});
+
+test("pipeline_start refuses context missing configPath without creating pipeline rows", async () => {
+  const handlers = createPipelineStartHandlers(async () => ({ ok: true, steps: [] }));
+
+  const response = await handlers.pipeline_start(
+    requestFrame("no-config", "pipeline_start", {
+      definition: SINGLE_STAGE_DEFINITION,
+      context: { cwd: "/fake", seed: "seed text" },
+    }),
+    new AbortController().signal,
+  );
+
+  expect(response).toEqual({
+    kind: "error",
+    code: "invalid_params",
+    message: "missing required field: configPath",
+  });
+  expect(stateStore.listPipelines()).toEqual([]);
+});
+
+test("pipeline_start passes reloaded persisted context to runPipeline when RPC bytes differ", async () => {
+  const persistedContext = {
+    cwd: "/persisted-cwd",
+    configPath: "/persisted/.jarvis/config.json",
+    seed: "seed text",
+  };
+  const rpcContext = { ...persistedContext, __rpcOnlyMarker: true };
+
+  let executionContext: PipelineContext | undefined;
+  const handlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    resolveStage: async (_definition, _index, context) => {
+      executionContext = context;
+      return { ok: true, steps: [] };
+    },
+  });
+
+  const response = await handlers.pipeline_start(
+    requestFrame("reload-ctx", "pipeline_start", { definition: SINGLE_STAGE_DEFINITION, context: rpcContext }),
+    new AbortController().signal,
+  );
+  expect(response.kind).toBe("response");
+
+  await waitFor(() => executionContext !== undefined);
+  expect(executionContext).toEqual(persistedContext);
+  expect(Object.hasOwn(executionContext as object, "__rpcOnlyMarker")).toBe(false);
 });
 
 test("pipeline_start persists supplied context before returning pipelineId", async () => {

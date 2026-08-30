@@ -10,7 +10,7 @@ A seed with multiple ready-intents spans one row per ready-intent; the `Seed` an
 | --- | --- | --- | --- | --- |
 | pipeline-dispatch-shares-cli-front-door | in-flight | admit-pipeline-recovery-through-workflow-start | — | — |
 | | | dispatch-pipeline-stages-through-shared-preparation | — | — |
-| | | require-complete-pipeline-context | — | — |
+| | | require-complete-pipeline-context | [20260830T041003Z-require-complete-pipeline-context](https://github.com/cbrenner04/jarvis/pull/3148) | [#3155](https://github.com/cbrenner04/jarvis/pull/3155) |
 | | | share-workflow-start-preparation (intent #3076) | [20260830T025737Z-share-workflow-start-preparation](https://github.com/cbrenner04/jarvis/pull/3141) | [#3143](https://github.com/cbrenner04/jarvis/pull/3143) |
 | pipeline-settlement-derives-from-run-rows | intent-split | canonical-pipeline-execution-state-and-stage-claims | — | — |
 | | | daemon-terminal-run-stage-settlement | — | — |
@@ -44,7 +44,11 @@ A seed with multiple ready-intents spans one row per ready-intent; the `Seed` an
 | implement-publication-reuses-closed-same-branch-pr | not-started (point fix hand-published once as #3069) | — | — | — |
 | implement-completes-without-publishing | held (verify-or-reap; #3088; 2026-08-30 counter-evidence) | — | — | — |
 | plan-draft-contract-miss-reprompts-before-blocking | held (#3114; pending split-spec-guidance / plan-draft-rules) | — | — | — |
-| mutation-verifier-masks-type-generic-brackets | not-started (new 2026-08-30; stranded #3143) | — | — | — |
+| mutation-verifier-masks-type-generic-brackets | not-started (new 2026-08-30 #3146; stranded #3143) | — | — | — |
+| idle-watchdog-counts-worktree-filesystem-activity | not-started (new 2026-08-30 #3153; intake #3150) | — | — | — |
+| stall-settlement-preserves-agent-stdout | not-started (new 2026-08-30; intake #3151) | — | — | — |
+| idle-output-timeout-preserves-committed-progress-resumable | not-started (new 2026-08-30; intake #3152) | — | — | — |
+| plan-draft-shape-accepts-nested-stage-layout | not-started (new 2026-08-30; intake #3156; pairs with #3154) | — | — | — |
 | pipeline-fan-out-lanes-serial-chained-bases | not-started | — | — | — |
 | pipeline-fan-out-per-lane-terminal-settlement | not-started | — | — | — |
 | operator-killed-pipeline-stage-is-recoverable | superseded (into pipeline-settlement-derives-from-run-rows) | — | — | — |
@@ -70,7 +74,7 @@ Ready-intents whose originating seed is no longer on disk (seed reaped after its
 | preserve-failed-iteration-work-on-rerun | merged | [#3077](https://github.com/cbrenner04/jarvis/pull/3077) | 20260829T175608Z-record-iteration-commit-failure-cause | [#3100](https://github.com/cbrenner04/jarvis/pull/3100) |
 | resume-iteration-commit-failures | merged | [#3077](https://github.com/cbrenner04/jarvis/pull/3077) | 20260829T175608Z-record-iteration-commit-failure-cause | [#3100](https://github.com/cbrenner04/jarvis/pull/3100) |
 | daemon-terminal-run-settlement | in-flight | [#3074](https://github.com/cbrenner04/jarvis/pull/3074) | [20260830T025725Z-daemon-terminal-run-settlement](https://github.com/cbrenner04/jarvis/pull/3140) | [#3145](https://github.com/cbrenner04/jarvis/pull/3145) |
-| execution-terminal-run-settlement-invariant | intent-split | [#3074](https://github.com/cbrenner04/jarvis/pull/3074) | related atomic-store spec #3096 | [#3134](https://github.com/cbrenner04/jarvis/pull/3134) |
+| execution-terminal-run-settlement-invariant | in-flight (00 landed; 01/02 deferred) | [#3074](https://github.com/cbrenner04/jarvis/pull/3074) | [20260830T041008Z-execution-terminal-run-settlement-invariant](https://github.com/cbrenner04/jarvis/pull/3149) | [#3157](https://github.com/cbrenner04/jarvis/pull/3157) (subspec 00 only) |
 | cleanup-uses-lossless-git-status | intent-split (blocked on execution consumer 02, landed #3138) | [#3065](https://github.com/cbrenner04/jarvis/pull/3065) | — | — |
 | harness-publication-push-uses-explicit-refspec | intent-split | [#3072](https://github.com/cbrenner04/jarvis/pull/3072) | — | — |
 | inject-spec-guidance-agent-core | intent-split | [#3094](https://github.com/cbrenner04/jarvis/pull/3094) | — | — |

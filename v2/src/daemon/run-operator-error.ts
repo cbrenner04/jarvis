@@ -362,16 +362,27 @@ function composeRunOperatorErrorFromState(
   terminalRecord?: TerminalLogRecord,
 ): RunOperatorError | undefined {
   if (run.status === "in-progress") return undefined;
+  const lastAttempt = lastCommittedAttempt(run.attempts ?? []);
+  const loopFinishedEvent = terminalRecord?.event.kind === "loop_finished" ? terminalRecord.event : undefined;
   if (run.terminalCause != null) {
     if (run.terminalCause === "invocation_failure") {
       return mapInvocationFailureDetail(run.terminalFailureDetail, true);
     }
-    const fromCause = mapFromLoopFinished({
-      kind: "loop_finished",
-      loopOutcomeKind: run.terminalCause,
-      iterationsConsumed: 0,
-      resumable: false,
-    });
+    if (loopFinishedEvent?.loopOutcomeKind === run.terminalCause) {
+      const fromLog = mapFromLoopFinished(loopFinishedEvent, lastAttempt, true);
+      if (fromLog) return fromLog;
+    }
+    const fromCause = mapFromLoopFinished(
+      {
+        kind: "loop_finished",
+        loopOutcomeKind: run.terminalCause,
+        iterationsConsumed: 0,
+        resumable: loopFinishedEvent?.resumable ?? false,
+        ...(run.terminalFailureDetail?.message !== undefined ? { message: run.terminalFailureDetail.message } : {}),
+      },
+      lastAttempt,
+      true,
+    );
     if (fromCause) return fromCause;
     if (run.status === "blocked") return op("agent_blocked", "inspect_spec");
     if (run.status === "failed") return op("harness_failure", "stop");
@@ -387,7 +398,6 @@ function composeRunOperatorErrorFromState(
     return undefined;
   }
 
-  const lastAttempt = lastCommittedAttempt(run.attempts ?? []);
   if (lastAttempt?.outcomeKind === "invalid_token") {
     return op("invalid_token", "resume", true);
   }
@@ -395,7 +405,6 @@ function composeRunOperatorErrorFromState(
     return op("missing_blocker", "resume", true);
   }
 
-  const loopFinishedEvent = terminalRecord?.event.kind === "loop_finished" ? terminalRecord.event : undefined;
   if (
     lastAttempt?.outcomeKind === "contract_miss" &&
     loopFinishedEvent?.loopOutcomeKind === "contract_miss" &&

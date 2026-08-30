@@ -21,9 +21,9 @@
 
 ## Acceptance criteria
 
-- [ ] `daemon-pipeline-start.test.ts` — a test calls `pipeline_start` with `context` missing `configPath` and asserts `invalid_params` (or equivalent refusal) with no pipeline row and no runnable stage state; it fails against the pre-fix permissive admission that creates stages.
-- [ ] `daemon-pipeline-start.test.ts` — `pipeline_start persists supplied context before returning pipelineId` stays green, and a sibling test asserts `runPipeline` receives reloaded persisted `configPath`/`cwd` when RPC bytes differ; the sibling fails against the pre-fix handler that forwards RPC `context` directly.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `daemon-pipeline-start.test.ts` — a test calls `pipeline_start` with `context` missing `configPath` and asserts `invalid_params` (or equivalent refusal) with no pipeline row and no runnable stage state; it fails against the pre-fix permissive admission that creates stages.
+- [x] `daemon-pipeline-start.test.ts` — `pipeline_start persists supplied context before returning pipelineId` stays green, and a sibling test asserts `runPipeline` receives reloaded persisted `configPath`/`cwd` when RPC bytes differ; the sibling fails against the pre-fix handler that forwards RPC `context` directly.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

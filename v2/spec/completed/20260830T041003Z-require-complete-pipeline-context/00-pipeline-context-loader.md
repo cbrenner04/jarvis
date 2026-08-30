@@ -22,9 +22,9 @@
 
 ## Acceptance criteria
 
-- [ ] `state-store.test.ts` — a test asserts `loadPipelineContext` rejects JSON missing `configPath` with a `pipeline-context-loader` error naming the field; it fails against the pre-fix path that casts parsed JSON without validation.
-- [ ] `state-store.test.ts` — a test asserts a complete admitted snapshot round-trips through `createPipeline` / store reload and passes the loader with equal `cwd` and `configPath`; `Mutation checkpoint:` omitting `configPath` from the reloaded snapshot makes the test fail.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `state-store.test.ts` — a test asserts `loadPipelineContext` rejects JSON missing `configPath` with a `pipeline-context-loader` error naming the field; it fails against the pre-fix path that casts parsed JSON without validation.
+- [x] `state-store.test.ts` — a test asserts a complete admitted snapshot round-trips through `createPipeline` / store reload and passes the loader with equal `cwd` and `configPath`; `Mutation checkpoint:` omitting `configPath` from the reloaded snapshot makes the test fail.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

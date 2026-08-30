@@ -174,6 +174,34 @@ describe("successor-step-idle-watchdog workflow integration", () => {
     mock.module("./review-debate.ts", () => ({ executeReviewDebate: realExecuteReviewDebate }));
   });
 
+  test("successor shell stall settles invocation failure atomically", async () => {
+    mock.module("./review-cycle.ts", () => ({ executeReviewCycle: () => new Promise(() => {}) }));
+    const workspace = mkdtempSync(join(tmpdir(), "successor-shell-atomic-"));
+    stageReviewedIntent(workspace);
+    const logSink = new TestLogSink();
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [createDurableReviewStep(workspace)],
+        stateStore: store,
+        logSink,
+      });
+      expect(result.kind).toBe("invocation_failure");
+      const settled = store.loadRun(result.runId);
+      expect(settled?.status).toBe("failed");
+      expect(settled?.terminalCause).toBe("invocation_failure");
+      expect(settled?.terminalFailureDetail).toMatchObject({
+        failureKind: "stall",
+        boundMs: SHORT_IDLE_MS,
+        bindingAttempts: [],
+      });
+      const events = logSink.getEventsForRun(result.runId);
+      const loopFinishedIndex = events.findIndex((event) => event.kind === "loop_finished");
+      expect(loopFinishedIndex).toBeGreaterThan(-1);
+      expect(events.slice(0, loopFinishedIndex).some((event) => event.kind === "loop_finished")).toBe(false);
+    });
+  });
+
   test("a silent durable review settles within the idle budget after iteration_started", async () => {
     mock.module("./review-cycle.ts", () => ({ executeReviewCycle: () => new Promise(() => {}) }));
     const workspace = mkdtempSync(join(tmpdir(), "successor-shell-review-"));

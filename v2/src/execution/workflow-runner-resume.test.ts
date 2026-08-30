@@ -891,7 +891,7 @@ describe("executeWorkflow review dispatch", () => {
       const planResolution = await resolveStageWorkflowSteps(
         definition,
         1,
-        { cwd: workspace, seed: "seed" },
+        { cwd: workspace, configPath: "/fake/.jarvis/config.json", seed: "seed" },
         new Map([[stageArtifactKey("intent"), { entryRunId: result.runId, specPath: entryRun?.specPath ?? "" }]]),
         {
           loadRun: (runId) => (runId === result.runId ? { worktreePath: workspace, branch: "intent/test" } : null),

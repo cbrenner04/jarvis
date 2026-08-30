@@ -20,6 +20,7 @@ import {
   type ApprovalRefusalReason,
   DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
   isOwnerAlive,
+  loadPipelineContext,
   type OwnerLivenessProbe,
   type Pipeline,
   type PipelineContext,
@@ -140,9 +141,9 @@ export type ResumePipelineOutcome =
       status?: string;
     };
 
-/** True when a pipeline row carries the admission context required for restart continuation. */
+/** True when a pipeline row carries complete admission context for restart continuation. `null` is absent; incomplete JSON is distinguishable via `loadPipelineContext`. */
 export function persistedContextLoadPermitsContinuation(context: PipelineContext | null): boolean {
-  return context !== null;
+  return context !== null && loadPipelineContext(context).ok;
 }
 
 /** Terminal derived states that refuse resume without stage dispatch. */
@@ -421,6 +422,9 @@ export async function resumePipeline(
     if (pipeline.context === null) {
       return { kind: "refused", pipelineId, reason: "missing_context" };
     }
+    if (!persistedContextLoadPermitsContinuation(pipeline.context)) {
+      return { kind: "refused", pipelineId, reason: "pipeline_not_resumable" };
+    }
     const claim = store.claimPipelineContinuation({
       pipelineId,
       priorOwnerIdentity: pipeline.ownerIdentity,
@@ -575,7 +579,7 @@ function fanOutApprovalPermitsActivation(
 /** True when a reconciled or active pipeline with persisted context has a dispatchable workflow stage or pending settlement. */
 export function isPipelineContinuable(pipeline: Pipeline & { stages: PipelineStageRecord[] }): boolean {
   if (pipeline.status !== "active" && pipeline.status !== "interrupted") return false;
-  if (pipeline.context === null) return false;
+  if (!persistedContextLoadPermitsContinuation(pipeline.context)) return false;
   if (isPipelineSettlementPending(pipeline)) return true;
 
   const split = findFanOutSplit(pipeline);
@@ -752,6 +756,7 @@ function commitTerminalPublicationSuccessSafely(
   }
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: terminal-publication settlement fans over terminalAction, PR evidence, and retarget cases
 async function settlePipelineTerminalPublication(
   pipelineId: string,
   deps: Pick<PipelineExecutionDeps, "store" | "executeTerminalPublication">,
@@ -763,13 +768,18 @@ async function settlePipelineTerminalPublication(
   const terminalAction = pipeline.definition.terminalAction;
   if (!terminalAction) return;
 
-  if (pipeline.context === null) {
+  if (!persistedContextLoadPermitsContinuation(pipeline.context)) {
+    const loadedContext = loadPipelineContext(pipeline.context);
+    const message =
+      pipeline.context === null
+        ? "missing pipeline admission context"
+        : `pipeline-context-loader: ${loadedContext.ok ? "invalid pipeline admission context" : loadedContext.error.errors.join("; ")}`;
     commitTerminalPublicationFailureSafely(store, {
       pipelineId,
       terminalAction,
       failure: {
         operation: terminalAction,
-        message: "missing pipeline admission context",
+        message,
       },
     });
     return;
@@ -1323,6 +1333,54 @@ function failWorkflowStageAt(
   });
   skipRemainingStages(store, pipelineId, stageRecords, skipFromPosition, branchKey);
   return "stop";
+}
+
+function hasPendingDefaultWorkflowStage(pipeline: Pipeline & { stages: PipelineStageRecord[] }): boolean {
+  for (const { stage, record } of authoredStagesInPositionOrder(pipeline)) {
+    if (record.branchKey !== DEFAULT_PIPELINE_STAGE_BRANCH_KEY) continue;
+    if (stage.kind === "workflow" && record.status === "pending") return true;
+  }
+  return false;
+}
+
+function failFirstPendingWorkflowStageOnContextError(
+  store: StateStore,
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  message: string,
+): void {
+  for (const { stage, record } of authoredStagesInPositionOrder(pipeline)) {
+    if (record.branchKey !== DEFAULT_PIPELINE_STAGE_BRANCH_KEY) continue;
+    if (stage.kind !== "workflow" || record.status !== "pending") continue;
+    failWorkflowStageAt(
+      store,
+      pipeline.id,
+      stage.stageId,
+      record.branchKey,
+      pipeline.stages,
+      record.position + 1,
+      message,
+    );
+    return;
+  }
+}
+
+function handlePersistedContextLoadFailure(
+  store: StateStore,
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  message: string,
+): void {
+  if (hasPendingDefaultWorkflowStage(pipeline)) {
+    failFirstPendingWorkflowStageOnContextError(store, pipeline, message);
+    return;
+  }
+  if (!isPipelineSettlementPending(pipeline)) return;
+  const terminalAction = pipeline.definition.terminalAction;
+  if (!terminalAction) return;
+  commitTerminalPublicationFailureSafely(store, {
+    pipelineId: pipeline.id,
+    terminalAction,
+    failure: { operation: terminalAction, message },
+  });
 }
 
 function handleSucceededWorkflowStage(args: {
@@ -1993,7 +2051,22 @@ export async function runPipeline(
   const pipeline = store.loadPipeline(pipelineId);
   if (!pipeline) return;
 
+  if (pipeline.context === null) {
+    handlePersistedContextLoadFailure(store, pipeline, "pipeline-context-loader: missing pipeline admission context");
+    return;
+  }
+  const loadedContext = loadPipelineContext(pipeline.context);
+  if (!loadedContext.ok) {
+    handlePersistedContextLoadFailure(
+      store,
+      pipeline,
+      `pipeline-context-loader: ${loadedContext.error.errors.join("; ")}`,
+    );
+    return;
+  }
+
   const definition = pipeline.definition;
+  const executionDeps: PipelineExecutionDeps = { ...deps, context: loadedContext.context };
   const stageArtifacts = new Map<string, PipelineStageArtifact>();
   const dispatchClaims: PipelineDispatchClaims = new Map();
 
@@ -2001,7 +2074,7 @@ export async function runPipeline(
     const initialSplit = findFanOutSplit(pipeline);
     await runAuthoredStages({
       pipelineId,
-      deps,
+      deps: executionDeps,
       split: initialSplit,
       branchKey: DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
       fromIndex: 0,
@@ -2017,7 +2090,7 @@ export async function runPipeline(
         (branchKey) => () =>
           runAuthoredStages({
             pipelineId,
-            deps,
+            deps: executionDeps,
             split: activeSplit,
             branchKey,
             fromIndex: activeSplit.splitPosition + 1,
@@ -2028,7 +2101,7 @@ export async function runPipeline(
       await runConcurrently(suffixDispatchTasks);
     }
 
-    await settlePipelineTerminalPublication(pipelineId, deps);
+    await settlePipelineTerminalPublication(pipelineId, executionDeps);
   } catch (error) {
     failStrandedPipelineStage(store, pipelineId, definition, error);
   }

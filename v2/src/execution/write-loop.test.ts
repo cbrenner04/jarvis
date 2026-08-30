@@ -27,6 +27,7 @@ import { stubAgentModelConfig } from "../testing/cli-test-helpers.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter } from "./completion-commit.ts";
 import { createCompletionPublisher } from "./completion-publisher.ts";
+import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 import type { BindingAttemptSummary, InvocationFailureKind } from "./invocation-failure.ts";
 import { renderAttribution } from "./pr-attribution.ts";
 import {
@@ -311,6 +312,7 @@ async function runLoop(args: {
   runAutofixTypecheck?: WriteLoopInput["runAutofixTypecheck"];
   iterationTimeoutMs?: number;
   readyGateScopeSeams?: WriteLoopInput["readyGateScopeSeams"];
+  verifyDiffDerivedMutations?: WriteLoopInput["verifyDiffDerivedMutations"];
 }) {
   // Track the parent directory for cleanup
   roots.push(join(args.jarvisRoot, ".."));
@@ -354,6 +356,9 @@ async function runLoop(args: {
     ...(args.runAutofixTypecheck !== undefined ? { runAutofixTypecheck: args.runAutofixTypecheck } : {}),
     ...(args.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: args.iterationTimeoutMs } : {}),
     ...(args.readyGateScopeSeams !== undefined ? { readyGateScopeSeams: args.readyGateScopeSeams } : {}),
+    ...(args.verifyDiffDerivedMutations !== undefined
+      ? { verifyDiffDerivedMutations: args.verifyDiffDerivedMutations }
+      : {}),
   };
   try {
     return await executeWriteLoop(loopInput);
@@ -361,6 +366,10 @@ async function runLoop(args: {
     store.close();
   }
 }
+
+const IN_LOOP_SURVIVING_MUTATION = "operator-flip: === → !==";
+const IN_LOOP_SURVIVING_SOURCE_FILE = "v2/src/execution/guard.ts";
+const IN_LOOP_SURVIVING_SOURCE_LINE = 17;
 
 function writeSpecIndex(jarvisRoot: string, branchName: string, content: string): void {
   const specDir = join(jarvisRoot, "worktrees", "demo", branchName, "spec");
@@ -5023,6 +5032,206 @@ export function isLoadSensitive(file: string): boolean {
       expect(retry.kind).toBe("complete");
       expect(retry.runId).toBe(first.runId);
       expect(publishCalls).toBe(2);
+    });
+
+    test("implement complete surviving mutation reprompts before publication", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      let verifyCalls = 0;
+      let invocations = 0;
+      let repromptPrompt = "";
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        promptId: "patch.prompt.body",
+        maxIterations: 3,
+        logSink,
+        bindings: [
+          {
+            id: "implement",
+            metadata: { agent: "test-agent", model: "test" },
+            invoke: async ({ cwd, prompt }) => {
+              invocations += 1;
+              repromptPrompt = prompt;
+              writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+              return { kind: "ok", stdout: "done", stderr: "" };
+            },
+          },
+        ],
+        verifyDiffDerivedMutations: async () => {
+          verifyCalls += 1;
+          if (verifyCalls === 1) {
+            return {
+              kind: "surviving-mutation",
+              mutation: IN_LOOP_SURVIVING_MUTATION,
+              sourceSite: { file: IN_LOOP_SURVIVING_SOURCE_FILE, line: IN_LOOP_SURVIVING_SOURCE_LINE },
+              dualConstraint: true,
+            };
+          }
+          return {
+            kind: "pass",
+            runBase: "HEAD",
+            inspectedPaths: [],
+            candidateCount: 0,
+            acceptedSites: [],
+          };
+        },
+        completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(invocations).toBe(2);
+      expect(verifyCalls).toBe(2);
+      expect(result.kind).toBe("complete");
+      expect(result.iterationsConsumed).toBe(2);
+      expect(repromptPrompt).toContain(IN_LOOP_SURVIVING_MUTATION);
+      expect(repromptPrompt).toContain(IN_LOOP_SURVIVING_SOURCE_FILE);
+      expect(repromptPrompt).toContain(String(IN_LOOP_SURVIVING_SOURCE_LINE));
+      expect(repromptPrompt).toContain("@mutate-equivalent");
+      const events = logSink.getEventsForRun(result.runId).map((event) => event.kind);
+      expect(events).toContain("surviving_mutation_reprompt");
+      expect(events).not.toContain("surviving_mutation_failed");
+      const reprompt = logSink
+        .getEventsForRun(result.runId)
+        .find((event) => event.kind === "surviving_mutation_reprompt");
+      expect(reprompt).toMatchObject({
+        kind: "surviving_mutation_reprompt",
+        mutation: IN_LOOP_SURVIVING_MUTATION,
+        sourceFile: IN_LOOP_SURVIVING_SOURCE_FILE,
+        sourceLine: IN_LOOP_SURVIVING_SOURCE_LINE,
+        dualConstraint: true,
+      });
+      expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "complete",
+      });
+    });
+
+    test("implement complete honors exact mutate-equivalent directive in-loop", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      const guardMutation = "guard-flip: !x → x";
+      const guardDirective = `// @mutate-equivalent mutation="${guardMutation}" reason="Caller contract guarantees truthy x"`;
+      const sourceFile = "v2/src/guard.ts";
+      const sourceLine = `  if (!x) return "safe"; ${guardDirective}`;
+      const originalContent = `export function guard(x: unknown) {\n${sourceLine}\n  return x;\n}\n`;
+      const diff = `diff --git a/${sourceFile} b/${sourceFile}
+index 1234567..abcdefg 100644
+--- a/${sourceFile}
++++ b/${sourceFile}
+@@ -1,3 +1,3 @@
+ export function guard(x: unknown) {
+-  if (!x) return null;
++${sourceLine}
+   return x;
+`;
+      let verifyCalls = 0;
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        promptId: "patch.prompt.body",
+        logSink,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        verifyDiffDerivedMutations: async (input) => {
+          verifyCalls += 1;
+          return verifyDiffDerivedMutations(input, {
+            gitDiff: async () => diff,
+            untrackedFiles: async () => [],
+            readFile: async () => originalContent,
+            writeFile: async () => {},
+            listDir: () => [],
+            runScopedTests: async () => true,
+          });
+        },
+        completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(verifyCalls).toBe(1);
+      expect(result.kind).toBe("complete");
+      const events = logSink.getEventsForRun(result.runId).map((event) => event.kind);
+      expect(events).not.toContain("surviving_mutation_reprompt");
+      expect(events).not.toContain("surviving_mutation_failed");
+      expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "complete",
+      });
+    });
+
+    test("implement complete surviving mutation reprompt budget exhaustion settles surviving_mutation_failed", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      let invocations = 0;
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        promptId: "patch.prompt.body",
+        maxIterations: 2,
+        logSink,
+        bindings: [
+          {
+            id: "implement",
+            metadata: { agent: "test-agent", model: "test" },
+            invoke: async ({ cwd }) => {
+              invocations += 1;
+              writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+              return { kind: "ok", stdout: "done", stderr: "" };
+            },
+          },
+        ],
+        verifyDiffDerivedMutations: async () => ({
+          kind: "surviving-mutation",
+          mutation: IN_LOOP_SURVIVING_MUTATION,
+          sourceSite: { file: IN_LOOP_SURVIVING_SOURCE_FILE, line: IN_LOOP_SURVIVING_SOURCE_LINE },
+        }),
+        completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {
+          throw new Error("publication mutation verification should not run");
+        },
+      });
+
+      expect(invocations).toBe(2);
+      expect(result.kind).toBe("surviving_mutation_failed");
+      expect(result.resumable).toBe(true);
+      expect(result.survivingMutation).toBe(IN_LOOP_SURVIVING_MUTATION);
+      expect(result.survivingMutationSourceFile).toBe(IN_LOOP_SURVIVING_SOURCE_FILE);
+      expect(result.survivingMutationSourceLine).toBe(IN_LOOP_SURVIVING_SOURCE_LINE);
+      expect(loadRunOnce(stateDbPath, result.runId)?.status).toBe("failed");
+      const events = logSink.getEventsForRun(result.runId).map((event) => event.kind);
+      expect(events).toContain("surviving_mutation_reprompt");
+      expect(events).not.toContain("blocked");
+      expect(events).not.toContain("contract_miss");
+      expect(events).not.toContain("mutation_repair_exhausted");
+      const loopEvent = logSink.getEventsForRun(result.runId).at(-1);
+      expect(loopEvent).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "surviving_mutation_failed",
+        resumable: true,
+        survivingMutation: IN_LOOP_SURVIVING_MUTATION,
+        survivingMutationSourceFile: IN_LOOP_SURVIVING_SOURCE_FILE,
+        survivingMutationSourceLine: IN_LOOP_SURVIVING_SOURCE_LINE,
+      });
+      const run = openStateStore(stateDbPath).loadRun(result.runId);
+      expect(run).toBeDefined();
+      if (!run) return;
+      expect(
+        composeRunOperatorError(run, {
+          runId: result.runId,
+          seq: 1,
+          ts: "",
+          event: loopEvent as LoopFinishedEvent,
+        }),
+      ).toMatchObject({
+        reason: "surviving_mutation_failed",
+        nextAction: "resume",
+        retryable: true,
+      });
     });
 
     test("returns surviving_mutation_failed when mutation verification detects an uncovered changed guard", async () => {

@@ -32,7 +32,7 @@ Diff-derived mutation verification runs only at ready finalization after publica
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts` `implement complete surviving mutation reprompts before publication` drives `patch.prompt.body` to `done` with an uncovered changed guard via the in-loop `verifyDiffDerivedMutations` seam, asserts a `surviving_mutation_reprompt` durable log event (including `dualConstraint: true` when the survivor is dual-constraint) and loop re-entry naming the mutation and source file/line, then completes after a follow-up iteration adds a co-located killing test without settling `surviving_mutation_failed` at publication; fails against the pre-fix loop that only verifies at ready finalization.
+- [x] `write-loop.test.ts` `implement complete surviving mutation reprompts before publication` drives `patch.prompt.body` to `done` with an uncovered changed guard via the in-loop `verifyDiffDerivedMutations` seam, asserts a `surviving_mutation_reprompt` durable log event (including `dualConstraint: true` when the survivor is dual-constraint) and loop re-entry naming the mutation and source file/line, then completes after a follow-up iteration adds a co-located killing test without settling `surviving_mutation_failed` at publication; fails against the pre-fix loop that only verifies at ready finalization.
 
 ## Documentation updates
 

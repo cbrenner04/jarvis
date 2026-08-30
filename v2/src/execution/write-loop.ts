@@ -28,12 +28,15 @@ import { parseSpec } from "../../../shared/spec-parser.ts";
 import { AsyncSubprocessError, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
+  dualConstraintRepromptDetail,
   type LandingContractRepromptEvent,
   type LogSink,
   type LoopFinishedEvent,
   type PersistedRecord,
   priorLogRecordsFromSink,
   type StagedMarkdownLintRepromptEvent,
+  type SurvivingMutationRepromptContext,
+  type SurvivingMutationRepromptEvent,
   truncateLogText,
 } from "../persistence/log-stream.ts";
 import {
@@ -53,7 +56,11 @@ import {
   renderStepCommitTitle,
 } from "./completion-commit.ts";
 import { type CompletionPublisher, createCompletionPublisher } from "./completion-publisher.ts";
-import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
+import {
+  type DiffDerivedMutationVerifierInput,
+  type VerificationResult,
+  verifyDiffDerivedMutations,
+} from "./diff-derived-mutation-verifier.ts";
 import { getExternalWorktreePath, isMaterializedNodeModulesPath } from "./external-worktree.ts";
 import { evaluateIntentSplitLandingGate } from "./intent-output.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
@@ -321,6 +328,10 @@ export type WriteLoopInput = WriteExecuteInput & {
   landingContractReprompt?: { violation: string; offendingFile: string };
   /** Reprompt context for the next plan-draft iteration after a staged Markdown lint miss. */
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string };
+  /** Reprompt context for the next implement iteration after a surviving-mutation miss. */
+  survivingMutationReprompt?: SurvivingMutationRepromptContext;
+  /** Test seam overriding diff-derived mutation verification during implement complete. */
+  verifyDiffDerivedMutations?: (input: DiffDerivedMutationVerifierInput) => Promise<VerificationResult>;
   /** Publication landing contract when invoked from workflow-runner write steps. */
   landing?: PublicationLanding;
   /** Per-project autofix override (`bun run fix` when unset). */
@@ -373,6 +384,40 @@ export function findStagedMarkdownLintRepromptFromLog(
   return latest === undefined
     ? undefined
     : { ruleId: latest.ruleId, offendingFile: latest.offendingFile, message: latest.violation };
+}
+
+/** Last in-loop surviving-mutation reprompt from a run's persisted log tail (resume after pause). */
+export function findSurvivingMutationRepromptFromLog(
+  logRecords: readonly PersistedRecord[] | undefined,
+): SurvivingMutationRepromptContext | undefined {
+  if (logRecords === undefined) return undefined;
+  let latest: SurvivingMutationRepromptEvent | undefined;
+  for (const record of logRecords) {
+    if (record.event.kind === "surviving_mutation_reprompt") {
+      latest = record.event;
+    }
+  }
+  if (latest === undefined) return undefined;
+  const { kind: _kind, attemptId: _attemptId, ...context } = latest;
+  return context;
+}
+
+function survivingMutationRepromptContext(
+  result: Extract<VerificationResult, { kind: "surviving-mutation" }>,
+): SurvivingMutationRepromptContext {
+  return {
+    mutation: result.mutation,
+    sourceFile: result.sourceSite.file,
+    sourceLine: result.sourceSite.line,
+    ...(result.dualConstraint === true ? { dualConstraint: true } : {}),
+  };
+}
+
+function survivingMutationRepromptEvent(
+  attemptId: string,
+  result: Extract<VerificationResult, { kind: "surviving-mutation" }>,
+): SurvivingMutationRepromptEvent {
+  return { kind: "surviving_mutation_reprompt", attemptId, ...survivingMutationRepromptContext(result) };
 }
 
 const DEFAULT_MAX_ITERATIONS = 10;
@@ -1015,6 +1060,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
     let resumedAttemptId = prepared.resumedAttemptId;
     let pendingLandingReprompt = args.landingContractReprompt;
     let pendingStagedMarkdownLintReprompt = args.stagedMarkdownLintReprompt;
+    let pendingSurvivingMutationReprompt = args.survivingMutationReprompt;
 
     store.setRunStatus(runId, "in-progress");
 
@@ -1043,6 +1089,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         "bounded",
         pendingLandingReprompt,
         pendingStagedMarkdownLintReprompt,
+        pendingSurvivingMutationReprompt,
       );
       if (settled.kind === "aborted") {
         closeSessionLog(sessionLog, "abort");
@@ -1512,6 +1559,86 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             responseText: truncateLogText(advisoryResult.responseText),
           });
         }
+
+        const verify = args.verifyDiffDerivedMutations ?? verifyDiffDerivedMutations;
+        const verificationResult = await verify({
+          worktreePath,
+          runBase: args.worktree.baseRef,
+        });
+        if (verificationResult.kind === "surviving-mutation") {
+          try {
+            await checkpointSettledIteration(args, prepared, store, runId, worktreePath, attemptId, result);
+          } catch (error) {
+            return iterationCommitFailed(
+              args,
+              store,
+              runId,
+              attemptId,
+              iterationsConsumed,
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          }
+          const mutationError = new SurvivingMutationError(
+            verificationResult.mutation,
+            verificationResult.sourceSite.file,
+            verificationResult.sourceSite.line,
+            verificationResult.dualConstraint,
+          );
+          const mutationFields = survivingMutationLogFields(mutationError);
+          if (iterationsConsumed >= maxIterations) {
+            store.commitCompletionBoundary({
+              attemptId,
+              runStatus: "failed",
+              outcomeKind: "surviving_mutation_failed",
+              ...completionBoundarySettlementFields(
+                "surviving_mutation_failed",
+                terminalFailureDetailFromError(mutationError),
+              ),
+            });
+            args.logSink?.append(runId, {
+              kind: "boundary_committed",
+              attemptId,
+              outcomeKind: "surviving_mutation_failed",
+              runStatus: "failed",
+            });
+            args.logSink?.append(runId, {
+              kind: "loop_finished",
+              loopOutcomeKind: "surviving_mutation_failed",
+              iterationsConsumed,
+              resumable: true,
+              ...mutationFields,
+            });
+            return {
+              kind: "surviving_mutation_failed",
+              runId,
+              iterationsConsumed,
+              resumable: true,
+              attemptId,
+              outcomeKind: "surviving_mutation_failed",
+              runStatus: "failed",
+              ...mutationFields,
+            };
+          }
+
+          store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
+          args.logSink?.append(runId, {
+            kind: "boundary_committed",
+            attemptId,
+            outcomeKind: "progress",
+            runStatus: "in-progress",
+          });
+          args.logSink?.append(runId, survivingMutationRepromptEvent(attemptId, verificationResult));
+          pendingSurvivingMutationReprompt = survivingMutationRepromptContext(verificationResult);
+          if (args.signal?.aborted) {
+            return finishLoop(args, runId, "progress", iterationsConsumed, true);
+          }
+          if (args.pauseSignal?.aborted) {
+            store.setRunStatus(runId, "paused");
+            return finishLoop(args, runId, "paused", iterationsConsumed, true);
+          }
+          continue;
+        }
+        pendingSurvivingMutationReprompt = undefined;
       }
 
       let commitOutcome: ProgressIterationCommitOutcome;
@@ -1868,6 +1995,7 @@ async function awaitIteration(
   settlementPolicy: IterationSettlementPolicy = "bounded",
   landingContractReprompt?: { violation: string; offendingFile: string },
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string },
+  survivingMutationReprompt?: SurvivingMutationRepromptContext,
 ): Promise<IterationSettlement> {
   const executionController = new AbortController();
   const abortExecution = () => executionController.abort();
@@ -1916,6 +2044,7 @@ async function awaitIteration(
       sessionLog,
       landingContractReprompt,
       stagedMarkdownLintReprompt,
+      survivingMutationReprompt,
     ),
     remainingIterationWallMs: () => Math.max(0, wallSegmentDeadline - Date.now()),
     ...(onInvocationOutputProgress !== undefined ? { onInvocationOutputProgress } : {}),
@@ -2229,6 +2358,7 @@ function buildWriteExecuteInput(
   sessionLog: SessionLog,
   landingContractReprompt?: { violation: string; offendingFile: string },
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string },
+  survivingMutationReprompt?: SurvivingMutationRepromptContext,
 ): WriteExecuteInput {
   const telemetry = args.telemetry;
   // An operator-session-only telemetry attachment (no sinkPath/workflow/role) is a
@@ -2279,6 +2409,7 @@ function buildWriteExecuteInput(
     ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
     ...(landingContractReprompt !== undefined ? { landingContractReprompt } : {}),
     ...(stagedMarkdownLintReprompt !== undefined ? { stagedMarkdownLintReprompt } : {}),
+    ...(survivingMutationReprompt !== undefined ? { survivingMutationReprompt } : {}),
   };
 }
 
@@ -2357,7 +2488,7 @@ function committedResult(
   }
   if (run.status === "failed") {
     const outcomeKind = run.attempts[run.attempts.length - 1]?.outcomeKind;
-    if (outcomeKind === "landing_failed") {
+    if (outcomeKind === "landing_failed" || outcomeKind === "surviving_mutation_failed") {
       return null;
     }
     if (
@@ -2586,9 +2717,7 @@ export async function runMutationRepairIteration(
       SURVIVING_MUTATION: mutationError.mutation,
       SOURCE_FILE: mutationError.sourceSiteFile,
       SOURCE_LINE: String(mutationError.sourceSiteLine),
-      DUAL_CONSTRAINT_DETAIL: mutationError.dualConstraint
-        ? "The source is a timer callback in a determinism-guarded suite. Extract and test a pure predicate in both directions without a real-timer wait."
-        : "",
+      DUAL_CONSTRAINT_DETAIL: dualConstraintRepromptDetail(mutationError.dualConstraint),
     },
   };
   const settled = await awaitIteration(repairArgs, result.runId, attemptId, sessionLog, "finalization-repair");

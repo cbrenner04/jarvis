@@ -22,8 +22,8 @@ Publication-time diff-derived verification must stay blocking for mutants introd
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner-resume.test.ts` `publication-time repair-introduced surviving mutation settles surviving_mutation_failed` drives an implement completion whose in-loop `verifyDiffDerivedMutations` seam returns `pass` and whose publication `readyFinalizer` seam returns `surviving-mutation`, then asserts `surviving_mutation_failed` with review `write.mutation-repair` resume admission; fails against the pre-fix publication-only first-discovery path that never ran in-loop verification.
-- [ ] `workflow-runner-resume.test.ts` `publication-time repair-introduced surviving mutation does not reprompt implement` on the same seam setup asserts no `surviving_mutation_reprompt` log event and no implement write-loop re-entry after publication failure; only review `write.mutation-repair` admission is offered; fails against a pre-fix path that reprompted or re-entered implement at publication.
+- [x] `workflow-runner-resume.test.ts` `publication-time repair-introduced surviving mutation settles surviving_mutation_failed` drives an implement completion whose in-loop `verifyDiffDerivedMutations` seam returns `pass` and whose publication `readyFinalizer` seam returns `surviving-mutation`, then asserts `surviving_mutation_failed` with review `write.mutation-repair` resume admission; fails against the pre-fix publication-only first-discovery path that never ran in-loop verification.
+- [x] `workflow-runner-resume.test.ts` `publication-time repair-introduced surviving mutation does not reprompt implement` on the same seam setup asserts no `surviving_mutation_reprompt` log event and no implement write-loop re-entry after publication failure; only review `write.mutation-repair` admission is offered; fails against a pre-fix path that reprompted or re-entered implement at publication.
 
 ## Documentation updates
 

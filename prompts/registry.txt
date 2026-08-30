@@ -34,6 +34,7 @@ write/landing-contract-reprompt.md
 write/staged-markdown-lint-reprompt.md
 write/ready-repair.md
 write/mutation-repair.md
+write/surviving-mutation-reprompt.md
 write/coverage-advisory.md
 prompt/instructions.md
 prompt/rules.md

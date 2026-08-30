@@ -21,6 +21,7 @@ import { buildHarnessNormalizerDiagnosticsSection, buildPlanDraftPrompt } from "
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { PromptRenderingError, renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import { hasGenuineBlocker, parseSpec } from "../../../shared/spec-parser.ts";
+import { dualConstraintRepromptDetail, type SurvivingMutationRepromptContext } from "../persistence/log-stream.ts";
 import {
   type ExternalWorktreeInput,
   type LockStatus,
@@ -186,6 +187,7 @@ export type WriteExecuteInput = {
   joinProcessOnIdleStall?: boolean;
   landingContractReprompt?: { violation: string; offendingFile: string };
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string };
+  survivingMutationReprompt?: SurvivingMutationRepromptContext;
 };
 
 type WriteExecuteResult = {
@@ -484,12 +486,24 @@ async function executeDefaultWrite(
 ): Promise<StepRunResult> {
   let prompt: string;
   try {
-    const placeholders = assembleWriteStepPlaceholders(
-      promptId,
-      { specPath, stepRules: args.stepRules, worktreePath, expectedArtifactPath },
-      args.promptPlaceholders,
-    );
-    prompt = renderStepPrompt(promptId, placeholders);
+    const survivingReprompt = args.survivingMutationReprompt;
+    if (promptId === "patch.prompt.body" && survivingReprompt !== undefined) {
+      prompt = renderArtifactTemplate(loadPromptRegistry().getById("write.surviving-mutation-reprompt"), {
+        SPEC_PATH: expectedArtifactPath,
+        STEP_RULES: args.stepRules,
+        SURVIVING_MUTATION: survivingReprompt.mutation,
+        SOURCE_FILE: survivingReprompt.sourceFile,
+        SOURCE_LINE: String(survivingReprompt.sourceLine),
+        DUAL_CONSTRAINT_DETAIL: dualConstraintRepromptDetail(survivingReprompt.dualConstraint),
+      });
+    } else {
+      const placeholders = assembleWriteStepPlaceholders(
+        promptId,
+        { specPath, stepRules: args.stepRules, worktreePath, expectedArtifactPath },
+        args.promptPlaceholders,
+      );
+      prompt = renderStepPrompt(promptId, placeholders);
+    }
   } catch (err) {
     if (err instanceof PromptRenderingError) {
       return {

@@ -1,5 +1,6 @@
 import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
@@ -20,6 +21,7 @@ import {
   createRunControlHandlers,
   resetWriteLoopBindingSourceDepsForTests,
   runListTerminalFinishAtMs,
+  settleKilledWorkflowOwnership,
   setWriteLoopBindingSourceDepsForTests,
 } from "./daemon.ts";
 
@@ -69,6 +71,7 @@ beforeEach(() => {
 
   handlers = createRunControlHandlers({
     stateStore,
+    logReader: { tail: () => [], async *follow() {} },
     writeLoopExecutor: fakeExecutor.executor,
     failureReporter: () => {},
     hasMemoryHeadroom: () => memoryHeadroom,
@@ -1048,6 +1051,68 @@ test("kill aborts an active run and records killed status", async () => {
   const run = runs?.find((candidate) => candidate.runId === runId);
   expect(run).toBeDefined();
   expect(run?.status).toBe("killed");
+});
+
+test("active deferred and forced kill use terminal settlement after admission", async () => {
+  const settlementCalls: Array<{ runId: string; status: string }> = [];
+  const commitTerminalRunSettlement = stateStore.commitTerminalRunSettlement.bind(stateStore);
+  stateStore.commitTerminalRunSettlement = (args) => {
+    settlementCalls.push({ runId: args.runId, status: args.status });
+    commitTerminalRunSettlement(args);
+  };
+  stateStore.commitGuardedKill = () => {
+    throw new Error("legacy guarded kill called");
+  };
+
+  const activeRunId = await startRunDirect(handlers);
+  if (!activeRunId) return;
+  const forcedRunId = seedRun({ status: "paused" });
+  const deferredRunId = seedRun();
+
+  await expect(killDirect(handlers, activeRunId)).resolves.toMatchObject({ kind: "response" });
+  await expect(killDirect(handlers, forcedRunId, true)).resolves.toMatchObject({ kind: "response" });
+  let released = false;
+  settleKilledWorkflowOwnership({
+    killedRunIds: [deferredRunId],
+    stateStore,
+    releaseRegistry: () => {
+      released = true;
+    },
+  });
+
+  expect(released).toBe(true);
+  expect(settlementCalls).toEqual([
+    { runId: activeRunId, status: "killed" },
+    { runId: forcedRunId, status: "killed" },
+    { runId: deferredRunId, status: "killed" },
+  ]);
+  const rows = await listRunsDirect(handlers);
+  for (const runId of [activeRunId, forcedRunId, deferredRunId]) {
+    const run = loadRunOrThrow(stateStore, runId);
+    expect(run).toMatchObject({ status: "killed", terminalCause: null, terminalFailureDetail: null });
+    expect(run.finishedAt).toBeNumber();
+    expect(rows?.find((row) => row.runId === runId)).toMatchObject({ status: "killed", finishedAtMs: run.finishedAt });
+    const waited = await waitDirect(handlers, runId);
+    expect(waited).toMatchObject({ kind: "response", result: { runStatus: "killed" } });
+  }
+});
+
+test("daemon production terminal writers are restricted to atomic settlement", () => {
+  const productionSources = readdirSync(import.meta.dir)
+    .filter((name) => name.endsWith(".ts") && !name.includes(".test."))
+    .map((name) => readFileSync(join(import.meta.dir, name), "utf8"))
+    .join("\n");
+  expect(productionSources).not.toMatch(/\.commitGuardedKill\s*\(/);
+  expect([...productionSources.matchAll(/\.setRunStatus\s*\(([^)]*)\)/g)].map((match) => match[1]?.trim())).toEqual([
+    'run.id, "in-progress"',
+  ]);
+
+  const stateStoreSource = readFileSync(join(import.meta.dir, "../persistence/state-store.ts"), "utf8");
+  const reconciliationAdmission = stateStoreSource.slice(
+    stateStoreSource.indexOf("async beginRunReconciliation"),
+    stateStoreSource.indexOf("finishRunReconciliation", stateStoreSource.indexOf("async beginRunReconciliation")),
+  );
+  expect(reconciliationAdmission).not.toContain("UPDATE runs SET status");
 });
 
 test("kill rejects unknown run ID", async () => {

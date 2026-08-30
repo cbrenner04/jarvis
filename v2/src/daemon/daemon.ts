@@ -76,6 +76,7 @@ import {
 } from "../persistence/log-stream.ts";
 import {
   type Attempt,
+  isBoundaryTerminalRunStatus,
   isTerminalRunStatus,
   openStateStore,
   type Run,
@@ -180,6 +181,27 @@ export function forceSettleStatusAdmitsRun(status: RunStatus): boolean {
   return !isTerminalRunStatus(status);
 }
 
+const RECONCILABLE_RUN_STATUSES: ReadonlySet<RunStatus> = new Set([
+  "queued",
+  "in-progress",
+  "paused",
+  "budget-soft-stopped",
+]);
+
+function reconciliationTerminalStatus(run: Run): "killed" | "interrupted" | undefined {
+  if (!RECONCILABLE_RUN_STATUSES.has(run.status)) return undefined;
+  const isReviewDebate = run.workflowSnapshot?.steps.some(
+    (step) => step.stepId === run.stepId && step.behavior === "review-debate",
+  );
+  return isReviewDebate ? "interrupted" : "killed";
+}
+
+function settleGuardedKill(store: StateStore, runId: string): void {
+  const run = store.loadRun(runId);
+  if (!run || isBoundaryTerminalRunStatus(run.status)) return;
+  store.commitTerminalRunSettlement({ runId, status: "killed" });
+}
+
 /**
  * Whether `kill`'s force path may settle a row: `force` must be set, the row must be
  * non-terminal, and its owner must be this process or provably dead — refuses a
@@ -221,6 +243,11 @@ export async function reconcileOrphanedRuns(
 ): Promise<string[]> {
   const reconciledRunIds: string[] = [];
   for (const runId of await stateStore.beginRunReconciliation()) {
+    const admittedRun = stateStore.loadRun(runId);
+    const terminalStatus = admittedRun === null ? undefined : reconciliationTerminalStatus(admittedRun);
+    if (terminalStatus !== undefined) {
+      stateStore.commitTerminalRunSettlement({ runId, status: terminalStatus });
+    }
     const run = stateStore.loadRun(runId);
     const eventPersisted = logReader
       ?.tail(runId)
@@ -442,9 +469,9 @@ export function resetWriteLoopBindingSourceDepsForTests(): void {
 export function settleKilledWorkflowOwnership(args: {
   killedRunIds: readonly string[];
   releaseRegistry: () => void;
-  commitGuardedKill: (runId: string) => void;
+  stateStore: StateStore;
 }): void {
-  for (const runId of args.killedRunIds) args.commitGuardedKill(runId);
+  for (const runId of args.killedRunIds) settleGuardedKill(args.stateStore, runId);
   args.releaseRegistry();
 }
 
@@ -1259,7 +1286,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
           settleKilledWorkflowOwnership({
             killedRunIds: killedWorkflowRuns,
             releaseRegistry: () => _registry.release(workflowKey, claimRunId),
-            commitGuardedKill: (runId) => store.commitGuardedKill(runId),
+            stateStore: store,
           });
           if (workflowInvocationId !== undefined) {
             clearLiveReviewProgress(workflowInvocationId);
@@ -1657,13 +1684,16 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         activeRun.pendingKill = true;
         return { kind: "response", result: { ok: true } };
       }
-      store.commitGuardedKill(runId);
+      settleGuardedKill(store, runId);
       return { kind: "response", result: { ok: true } };
     }
 
     if (await forceSettleAdmitsRun(store, runId, run.status, params?.force)) {
-      store.commitGuardedKill(runId);
-      return { kind: "response", result: { ok: true } };
+      const admittedRun = store.loadRun(runId);
+      if (admittedRun !== null && forceSettleStatusAdmitsRun(admittedRun.status)) {
+        store.commitTerminalRunSettlement({ runId, status: "killed" });
+        return { kind: "response", result: { ok: true } };
+      }
     }
 
     return { kind: "error", code: "run_not_active", message: `Run ${runId} is not currently active` };

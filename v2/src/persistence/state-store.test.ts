@@ -2198,7 +2198,7 @@ describe("pipeline reconciliation", () => {
     raw.close();
   }
 
-  test("beginRunReconciliation stamps reconciliation finish time on orphaned runs", async () => {
+  test("beginRunReconciliation admits orphaned runs and stamps reconciliation finish metadata", async () => {
     const sweepStore = openSweepStore(async () => false);
 
     const inProgressRunId = seedOrphanRun();
@@ -2244,7 +2244,7 @@ describe("pipeline reconciliation", () => {
     await sweepStore.beginRunReconciliation();
 
     const inProgressRun = loadRunOrThrow(sweepStore, inProgressRunId);
-    expect(inProgressRun.status).toBe("killed");
+    expect(inProgressRun.status).toBe("in-progress");
     expect(inProgressRun.reconciledAt).toBeNull();
     expect(inProgressRun.attemptCount).toBe(0);
     expect(inProgressRun.attempts).toHaveLength(1);
@@ -2254,7 +2254,7 @@ describe("pipeline reconciliation", () => {
     expect(inProgressRun.attempts[0]?.completedAt).not.toBeNull();
 
     const noAttemptRun = loadRunOrThrow(sweepStore, noAttemptRunId);
-    expect(noAttemptRun.status).toBe("killed");
+    expect(noAttemptRun.status).toBe("in-progress");
     expect(noAttemptRun.reconciledAt).not.toBeNull();
     expect(noAttemptRun.attempts).toHaveLength(0);
     expect(sweepStore.listRuns().find((run) => run.id === noAttemptRunId)?.reconciledAt).toBe(
@@ -2273,7 +2273,7 @@ describe("pipeline reconciliation", () => {
     expect(openAttempt?.completedAt).toBeGreaterThan(STALE_COMPLETED_AT);
 
     const reviewDebateRun = loadRunOrThrow(sweepStore, reviewDebateRunId);
-    expect(reviewDebateRun.status).toBe("interrupted");
+    expect(reviewDebateRun.status).toBe("in-progress");
     expect(reviewDebateRun.reconciledAt).toBeNull();
     expect(reviewDebateRun.attempts[0]?.id).toBe(reviewDebateAttemptId);
     expect(reviewDebateRun.attempts[0]?.status).toBe("in-progress");
@@ -2304,7 +2304,7 @@ describe("pipeline reconciliation", () => {
     await sweepStore.beginRunReconciliation();
 
     const swept = loadRunOrThrow(sweepStore, runId);
-    expect(swept.status).toBe("killed");
+    expect(swept.status).toBe("in-progress");
     expect(swept.dismissedAt).not.toBeNull();
 
     sweepStore.close();

@@ -2792,7 +2792,6 @@ test.each([
 ])("paused implement resume ignores historical checkpoint reprompt log events ($checkpointEvent.kind)", async ({
   checkpointEvent,
 }) => {
-  // @mutate v2/src/daemon/daemon-resume.test.ts "expectNoCheckpointRepromptReplay(starts[0]);" -> "expect(starts[0]?.mutationDirectiveReprompt ?? starts[0]?.guardCheckpointReprompt ?? starts[0]?.keystoneDirectiveReprompt).toBeDefined();"
   const runId = createPausedImplementRepromptRun(`implement-paused-ignore-${checkpointEvent.kind}`);
   const response = await resumeDirect(createHandlers(logReader(runId, [checkpointEvent, PAUSED_LOOP_FINISHED])), runId);
 
@@ -2833,7 +2832,6 @@ test("paused implement resume restores landing-contract but ignores checkpoint r
 });
 
 test("paused direct implement resume ignores historical checkpoint reprompt log events", async () => {
-  // @mutate v2/src/daemon/daemon-resume.test.ts "expectNoCheckpointRepromptReplay(starts[0]);" -> "expect(starts[0]?.guardCheckpointReprompt?.repairs).toEqual(GUARD_REPAIRS);"
   const runId = createPausedDirectWriteRun();
   const response = await resumeDirect(
     createHandlers(
@@ -3059,7 +3057,6 @@ test("resume after idle_output_timeout retains worktree commits without stale re
     });
     logSink.close();
 
-    // @mutate v2/src/daemon/run-operator-error.ts "event.resumable ? op(\"idle_output_timeout\", \"resume\", true) : op(\"idle_output_timeout\", \"stop\")" -> "op(\"idle_output_timeout\", \"stop\")"
     expect(idleResult).toMatchObject({ kind: "idle_output_timeout", resumable: true });
     const checkpointSha = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
       encoding: "utf8",

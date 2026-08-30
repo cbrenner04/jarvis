@@ -435,7 +435,6 @@ test("list and wait preserve failed hidden-shrink publication evidence and resum
     completionCommitError,
     publicationFailure: { operation: "push", exitCode: 7, stderrTail: "err" },
   };
-  // @mutate v2/src/daemon/run-operator-error.ts "{ completionCommitError: event.completionCommitError }" -> "{}"
 
   const list = await expectResponse(await listDirect());
   const rows = list.runs as Array<{ runId: string; status: string; error?: unknown }>;
@@ -596,7 +595,6 @@ test("list and wait project resumable idle_output_timeout as resume", async () =
     retryable: true,
     nextAction: "resume",
   };
-  // @mutate v2/src/daemon/run-operator-error.ts "event.resumable ? op(\"idle_output_timeout\", \"resume\", true) : op(\"idle_output_timeout\", \"stop\")" -> "op(\"idle_output_timeout\", \"stop\")"
 
   const list = await expectResponse(await listDirect());
   const row = (list.runs as Array<{ runId: string; status: string; error?: unknown; resumable?: boolean }>).find(

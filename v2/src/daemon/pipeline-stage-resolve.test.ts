@@ -1,8 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { findProjectMatch } from "../../../shared/project-registry.ts";
+import { projectSafeId } from "../../../shared/project-safe-id.ts";
 import type { BuildImplementWorkflowStepsInput } from "../execution/implement-workflow-steps.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { landPublication } from "../execution/publication-landing.ts";
@@ -15,9 +17,11 @@ import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import { publishCompletionArtifacts } from "../execution/write-loop.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
+import { createJarvisHome } from "../testing/write-fixtures.ts";
 import type { PipelineStageArtifact } from "./pipeline-stage-dispatch.ts";
 import { stageArtifactKey } from "./pipeline-stage-dispatch.ts";
 import {
+  createChainedStageProjectMatch,
   type PipelineContext,
   type PipelineStageResolveDeps,
   resolveStageWorkflowSteps,
@@ -110,6 +114,46 @@ function chainedDeps(
   overrides: Partial<PipelineStageResolveDeps> = {},
 ): PipelineStageResolveDeps {
   return { loadRun: loadRunAt(worktreePath, branch), ...overrides };
+}
+
+async function withIsolatedJarvisHome<T>(fn: (jarvisRoot: string) => Promise<T> | T): Promise<T> {
+  const previousJarvisHome = process.env.JARVIS_HOME;
+  const { jarvisRoot } = createJarvisHome();
+  process.env.JARVIS_HOME = jarvisRoot;
+  try {
+    return await fn(jarvisRoot);
+  } finally {
+    if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
+    else process.env.JARVIS_HOME = previousJarvisHome;
+  }
+}
+
+function gitDisabledPipelineContext(projectKey = "demo"): {
+  admissionRoot: string;
+  projectKey: string;
+  context: PipelineContext;
+} {
+  const admissionRoot = mkdtempSync(join(tmpdir(), "pipeline-git-disabled-admission-"));
+  const configPath = writeHomeMachineConfig({ projects: { [projectKey]: { root: admissionRoot, git: false } } });
+  return {
+    admissionRoot,
+    projectKey,
+    context: { cwd: admissionRoot, configPath, seed: "unused" },
+  };
+}
+
+function isolatedChainedMatcher(
+  prefix: string,
+  projectKey: string,
+): { admissionRoot: string; match: ReturnType<typeof createChainedStageProjectMatch> } {
+  const admissionRoot = mkdtempSync(join(tmpdir(), prefix));
+  return {
+    admissionRoot,
+    match: createChainedStageProjectMatch({
+      cwd: admissionRoot,
+      projectRegistry: { [projectKey]: { root: admissionRoot } },
+    }),
+  };
 }
 
 const planImplementBranch = "plan/feature";
@@ -764,6 +808,36 @@ describe("resolveStageWorkflowSteps", () => {
     expect(missingWorktreePath.error).toContain("worktreePath");
   });
 
+  test("plan stage resolves through real preset builders when ready-intent exists only on git-disabled intent workspace", () =>
+    withIsolatedJarvisHome((jarvisRoot) => {
+      const readyIntentRel = "spec/ready-intents/feature.md";
+      const { admissionRoot, projectKey, context } = gitDisabledPipelineContext();
+      const intentWorktree = join(jarvisRoot, "intent-work", projectSafeId(projectKey), "feature");
+      mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
+      writeFileSync(
+        join(intentWorktree, readyIntentRel),
+        "---\nname: feature\n---\n\n## Prerequisites\n\n- none\n",
+        "utf8",
+      );
+      expect(existsSync(join(admissionRoot, readyIntentRel))).toBe(false);
+
+      const definition: PipelineDefinition = {
+        name: "p",
+        stages: [
+          { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+          { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+        ],
+      };
+      const stageArtifacts = new Map([[stageArtifactKey("intent"), stageArtifact("run-intent", readyIntentRel)]]);
+      const deps = { builders: WORKFLOW_PRESET_BUILDERS, ...chainedDeps(intentWorktree, "intent/feature") };
+
+      return resolveStageWorkflowSteps(definition, 1, context, stageArtifacts, deps).then((result) => {
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(singleStageResolutionSteps(result).some((step) => step.behavior === "write")).toBe(true);
+      });
+    }));
+
   test("plan stage resolves through real preset builders when ready-intent exists only on intent worktree", async () => {
     const { repoRoot, configPath, intentBranch, intentWorktree, readyIntentRel } = createChainedHandoffRepo();
     expect(existsSync(join(repoRoot, readyIntentRel))).toBe(false);
@@ -813,6 +887,35 @@ describe("resolveStageWorkflowSteps", () => {
     // In `selectChainedStageCwd`, `return priorWorktreePath` → `return contextCwd` turns this test RED.
     expect(singleStageResolutionSteps(result).some((step) => step.behavior === "write")).toBe(true);
   });
+
+  test("implement stage resolves through real preset builders when plan spec exists only on git-disabled plan workspace", () =>
+    withIsolatedJarvisHome((jarvisRoot) => {
+      const planSpecRel = "spec/feature/index.md";
+      const planBranch = "plan/feature";
+      const { admissionRoot, projectKey, context } = gitDisabledPipelineContext();
+      const planWorktree = join(jarvisRoot, "specs", projectSafeId(projectKey), "plans", "feature");
+      mkdirSync(join(planWorktree, "spec", "feature"), { recursive: true });
+      writeFileSync(join(planWorktree, planSpecRel), "# Feature\n\n- [ ] [Work](./00-work.md)\n", "utf8");
+      writeFileSync(
+        join(planWorktree, "spec/feature/00-work.md"),
+        "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n",
+        "utf8",
+      );
+      initGitRepo(planWorktree);
+      execFileSync("git", ["checkout", "-b", planBranch], { cwd: planWorktree });
+      execFileSync("git", ["add", "-A"], { cwd: planWorktree });
+      execFileSync("git", ["commit", "-qm", "plan"], { cwd: planWorktree });
+      expect(existsSync(join(admissionRoot, planSpecRel))).toBe(false);
+
+      const stageArtifacts = new Map([[stageArtifactKey("plan"), stageArtifact("run-plan", planSpecRel)]]);
+      const deps = { builders: WORKFLOW_PRESET_BUILDERS, ...chainedDeps(planWorktree, planBranch) };
+
+      return resolveStageWorkflowSteps(planImplementDefinition, 1, context, stageArtifacts, deps).then((result) => {
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(singleStageResolutionSteps(result).some((step) => step.behavior === "write")).toBe(true);
+      });
+    }));
 
   test("implement stage normalizes the recorded plan directory artifact through real preset builders", async () => {
     // The production shape: publication records the spec DIRECTORY, and the real preset builder --
@@ -1103,5 +1206,68 @@ describe("resolveStageWorkflowSteps", () => {
     expect(result.error).toContain(`${planSpecDir}/index.md`);
     expect(result.error).toMatch(/index/i);
     expect(result.error).not.toContain("Non-index spec requires --artifact");
+  });
+});
+
+describe("createChainedStageProjectMatch", () => {
+  let jarvisRoot: string;
+  let priorJarvisHome: string | undefined;
+
+  beforeEach(() => {
+    priorJarvisHome = process.env.JARVIS_HOME;
+    ({ jarvisRoot } = createJarvisHome());
+    process.env.JARVIS_HOME = jarvisRoot;
+  });
+
+  afterEach(() => {
+    if (priorJarvisHome === undefined) delete process.env.JARVIS_HOME;
+    else process.env.JARVIS_HOME = priorJarvisHome;
+  });
+
+  test("resolves intent-work slug path to registered key and admission cwd", () => {
+    const { admissionRoot, match } = isolatedChainedMatcher("pipeline-match-intent-admission-", "demo");
+    const intentWorktree = join(jarvisRoot, "intent-work", projectSafeId("demo"), "feature");
+    mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
+    expect(match(join(intentWorktree, "spec/ready-intents/feature.md"))).toEqual({ key: "demo", root: admissionRoot });
+  });
+
+  test("resolves specs plan workspace path to registered key and admission cwd", () => {
+    const { admissionRoot, match } = isolatedChainedMatcher("pipeline-match-specs-admission-", "demo");
+    const planWorktree = join(jarvisRoot, "specs", projectSafeId("demo"), "plans", "feature");
+    mkdirSync(join(planWorktree, "spec", "feature"), { recursive: true });
+    expect(match(join(planWorktree, "spec/feature/index.md"))).toEqual({ key: "demo", root: admissionRoot });
+  });
+
+  test("resolves slash-containing registered keys through projectSafeId segments", () => {
+    const projectKey = "Org/Repo";
+    const safeId = projectSafeId(projectKey);
+    const { admissionRoot, match } = isolatedChainedMatcher("pipeline-match-slash-admission-", projectKey);
+    const intentWorktree = join(jarvisRoot, "intent-work", safeId, "feature");
+    const planWorktree = join(jarvisRoot, "specs", safeId, "plans", "feature");
+    mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
+    mkdirSync(join(planWorktree, "spec", "feature"), { recursive: true });
+    expect(match(join(intentWorktree, "spec/ready-intents/feature.md"))).toEqual({
+      key: projectKey,
+      root: admissionRoot,
+    });
+    expect(match(join(planWorktree, "spec/feature/index.md"))).toEqual({ key: projectKey, root: admissionRoot });
+  });
+
+  test("still resolves jarvis worktrees paths to admission cwd", () => {
+    const { admissionRoot, match } = isolatedChainedMatcher("pipeline-match-worktree-admission-", "demo");
+    const worktreePath = join(jarvisRoot, "worktrees", "demo", "intent/feature");
+    mkdirSync(worktreePath, { recursive: true });
+    expect(match(join(worktreePath, "spec/ready-intents/feature.md"))).toEqual({ key: "demo", root: admissionRoot });
+  });
+
+  test("does not override findProjectMatch for paths outside managed roots", () => {
+    const admissionRoot = mkdtempSync(join(tmpdir(), "pipeline-match-fallback-admission-"));
+    const otherProjectRoot = mkdtempSync(join(tmpdir(), "pipeline-match-fallback-other-"));
+    const registry = { alpha: { root: admissionRoot }, beta: { root: otherProjectRoot } };
+    const queryPath = join(otherProjectRoot, "src", "main.ts");
+    mkdirSync(join(otherProjectRoot, "src"), { recursive: true });
+    writeFileSync(queryPath, "export {}\n", "utf8");
+    const matcher = createChainedStageProjectMatch({ cwd: admissionRoot, projectRegistry: registry });
+    expect(matcher(queryPath)).toEqual(findProjectMatch(queryPath, registry));
   });
 });

@@ -297,25 +297,6 @@ function mapFromLoopFinished(
   }
 }
 
-function durableSettlementOperatorError(
-  run: RunWithAttempts,
-): { authoritative: false } | { authoritative: true; error: RunOperatorError | undefined } {
-  if (run.terminalCause == null) return { authoritative: false };
-  if (run.terminalCause === "invocation_failure") {
-    return { authoritative: true, error: mapInvocationFailureDetail(run.terminalFailureDetail, true) };
-  }
-  const fromCause = mapFromLoopFinished({
-    kind: "loop_finished",
-    loopOutcomeKind: run.terminalCause,
-    iterationsConsumed: 0,
-    resumable: false,
-  });
-  if (fromCause) return { authoritative: true, error: fromCause };
-  if (run.status === "blocked") return { authoritative: true, error: op("agent_blocked", "inspect_spec") };
-  if (run.status === "failed") return { authoritative: true, error: op("harness_failure", "stop") };
-  return { authoritative: true, error: undefined };
-}
-
 /** Operator recovery copy for `terminal_run` refusals; aligned with `v2/docs/operator-runbook.md`. */
 export const RUN_OPERATOR_ERROR_RECOVERY = {
   resumable_pause: "run jarvis run resume when the row reports nextAction resume",
@@ -375,13 +356,27 @@ export function terminalResumeRefusalMessage(
  * conflicting `loop_finished` values do not override mappable attempt detail, and
  * durable-status resumable kinds from stale logs stay demoted.
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: operator-error precedence composition over durable status vs terminal log
 function composeRunOperatorErrorFromState(
   run: RunWithAttempts,
   terminalRecord?: TerminalLogRecord,
 ): RunOperatorError | undefined {
   if (run.status === "in-progress") return undefined;
-  const durableSettlement = durableSettlementOperatorError(run);
-  if (durableSettlement.authoritative) return durableSettlement.error;
+  if (run.terminalCause != null) {
+    if (run.terminalCause === "invocation_failure") {
+      return mapInvocationFailureDetail(run.terminalFailureDetail, true);
+    }
+    const fromCause = mapFromLoopFinished({
+      kind: "loop_finished",
+      loopOutcomeKind: run.terminalCause,
+      iterationsConsumed: 0,
+      resumable: false,
+    });
+    if (fromCause) return fromCause;
+    if (run.status === "blocked") return op("agent_blocked", "inspect_spec");
+    if (run.status === "failed") return op("harness_failure", "stop");
+    return undefined;
+  }
   // A completed run can still carry a trailing `run_execution_failed`: its workflow died
   // after the step run settled (review step, publication). Surface that, not silence.
   if (

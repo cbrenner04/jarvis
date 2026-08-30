@@ -76,7 +76,6 @@ import {
 } from "../persistence/log-stream.ts";
 import {
   type Attempt,
-  isBoundaryTerminalRunStatus,
   isTerminalRunStatus,
   openStateStore,
   type Run,
@@ -181,15 +180,8 @@ export function forceSettleStatusAdmitsRun(status: RunStatus): boolean {
   return !isTerminalRunStatus(status);
 }
 
-const RECONCILABLE_RUN_STATUSES: ReadonlySet<RunStatus> = new Set([
-  "queued",
-  "in-progress",
-  "paused",
-  "budget-soft-stopped",
-]);
-
 function reconciliationTerminalStatus(run: Run): "killed" | "interrupted" | undefined {
-  if (!RECONCILABLE_RUN_STATUSES.has(run.status)) return undefined;
+  if (isTerminalRunStatus(run.status)) return undefined;
   const isReviewDebate = run.workflowSnapshot?.steps.some(
     (step) => step.stepId === run.stepId && step.behavior === "review-debate",
   );
@@ -198,7 +190,7 @@ function reconciliationTerminalStatus(run: Run): "killed" | "interrupted" | unde
 
 function settleGuardedKill(store: StateStore, runId: string): void {
   const run = store.loadRun(runId);
-  if (!run || isBoundaryTerminalRunStatus(run.status)) return;
+  if (!run || isTerminalRunStatus(run.status)) return;
   store.commitTerminalRunSettlement({ runId, status: "killed" });
 }
 
@@ -243,12 +235,12 @@ export async function reconcileOrphanedRuns(
 ): Promise<string[]> {
   const reconciledRunIds: string[] = [];
   for (const runId of await stateStore.beginRunReconciliation()) {
-    const admittedRun = stateStore.loadRun(runId);
-    const terminalStatus = admittedRun === null ? undefined : reconciliationTerminalStatus(admittedRun);
+    let run = stateStore.loadRun(runId);
+    const terminalStatus = run === null ? undefined : reconciliationTerminalStatus(run);
     if (terminalStatus !== undefined) {
       stateStore.commitTerminalRunSettlement({ runId, status: terminalStatus });
+      run = stateStore.loadRun(runId);
     }
-    const run = stateStore.loadRun(runId);
     const eventPersisted = logReader
       ?.tail(runId)
       .some(
@@ -935,25 +927,6 @@ function daemonFailureDetail(failureKind: InvocationFailureKind, message: string
   return { failureKind, bindingAttempts: [], message: truncateLogText(message) };
 }
 
-function terminalWaitResult(
-  runStatus: RunStatus,
-  run: LoadedRun | null | undefined,
-  record: TerminalLogRecord | undefined,
-  unsupportedResume: boolean,
-): WaitRunCompletionResult {
-  const loopFinishedEvent = record?.event.kind === "loop_finished" ? record.event : undefined;
-  const loopOutcomeKind = run?.terminalCause ?? loopFinishedEvent?.loopOutcomeKind;
-  if (loopOutcomeKind === undefined) return { runStatus };
-  return {
-    runStatus,
-    loopOutcomeKind,
-    ...(loopFinishedEvent?.loopOutcomeKind === loopOutcomeKind
-      ? { iterationsConsumed: loopFinishedEvent.iterationsConsumed }
-      : {}),
-    resumable: unsupportedResume ? false : run != null && isResumeAdmitted(run, record),
-  };
-}
-
 export type PromoteQueuedRunDeps = {
   store: StateStore;
   registry: WorktreeOwnershipRegistry;
@@ -1073,6 +1046,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       : () => loadSettleDelayMs(resolveMachineProfile());
   const settleState: PromotionSettleState = { suppressedUntil: 0 };
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: wait-completion result assembly branches on status, record, and resume context
   const resultFrom = (runId: string, runStatus: RunStatus, record?: TerminalLogRecord): WaitRunCompletionResult => {
     const logTail = logReader?.tail(runId) ?? [];
     const run = store.loadRun(runId);
@@ -1084,7 +1058,19 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
           ? composeRunOperatorError(run, record, logTail)
           : undefined;
     const unsupportedResume = resumeContext?.ok === false;
-    const base = terminalWaitResult(runStatus, run, record, unsupportedResume);
+    const loopFinishedEvent = record?.event.kind === "loop_finished" ? record.event : undefined;
+    const loopOutcomeKind = run?.terminalCause ?? loopFinishedEvent?.loopOutcomeKind;
+    const base: WaitRunCompletionResult =
+      loopOutcomeKind === undefined
+        ? { runStatus }
+        : {
+            runStatus,
+            loopOutcomeKind,
+            ...(loopFinishedEvent?.loopOutcomeKind === loopOutcomeKind
+              ? { iterationsConsumed: loopFinishedEvent.iterationsConsumed }
+              : {}),
+            resumable: unsupportedResume ? false : run != null && isResumeAdmitted(run, record),
+          };
     const withError = error === undefined ? base : { ...base, error };
     return runStatus === "blocked" && run ? { ...withError, worktreePath: run.worktreePath } : withError;
   };
@@ -1635,6 +1621,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       if (dismissal.kind === "refused") {
         return { kind: "response", result: dismissal };
       }
+      // biome-ignore lint/style/noNonNullAssertion: dismissal returned non-refused, so the run is present
       const run = store.loadRun(runId)!;
       return { kind: "response", result: { ...dismissal, status: run.status } };
     };
@@ -1691,7 +1678,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     if (await forceSettleAdmitsRun(store, runId, run.status, params?.force)) {
       const admittedRun = store.loadRun(runId);
       if (admittedRun !== null && forceSettleStatusAdmitsRun(admittedRun.status)) {
-        store.commitTerminalRunSettlement({ runId, status: "killed" });
+        settleGuardedKill(store, runId);
         return { kind: "response", result: { ok: true } };
       }
     }
@@ -2256,6 +2243,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       if (outcome.kind === "refused") {
         return { kind: "response", result: outcome };
       }
+      // biome-ignore lint/style/noNonNullAssertion: dismissal returned non-refused, so the pipeline is present
       const pipeline = store.loadPipeline(pipelineId)!;
       return { kind: "response", result: { ...outcome, state: derivePipelineState(pipeline) } };
     };

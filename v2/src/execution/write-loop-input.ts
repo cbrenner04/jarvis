@@ -11,10 +11,10 @@ export { DEFAULT_WRITE_STEP_RULES };
  * Restores a killing-test authoring instruction to implement (and mutation-repair) prompts, reworded
  * clear of the retired `@mutate`/checkpoint DSL. The diff-derived mutation gate still requires a
  * co-located test that fails when a changed guard is inverted; without this line agents stopped
- * authoring those tests and stranded at publication on `surviving_mutation_failed`.
+ * authoring those tests and the diff-derived mutation gate misses uncovered guards at implement `done`.
  */
 const KILLING_TEST_RULE =
-  "When you add or change a comparison operator, boolean guard, or branch condition in production code, add or extend a test that fails when that guard is inverted (for example flipping `===`/`!==`, `<`/`>=`, or dropping a negation). Put it in the file's co-located `<file>.test.ts`, an existing sibling `<file>-*.test.ts` in the same directory, or a direct-importing `*.test.ts` under the same test-surface root (`v1/src/`, `v2/src/`, or `shared/`) — the diff-derived mutation gate resolves killing tests from that co-located ∪ direct-importer union at publication, not from the wider suite or transitive importers. Do not use production invert hooks.";
+  "When you add or change a comparison operator, boolean guard, or branch condition in production code, add or extend a test that fails when that guard is inverted (for example flipping `===`/`!==`, `<`/`>=`, or dropping a negation). Put it in the file's co-located `<file>.test.ts`, an existing sibling `<file>-*.test.ts` in the same directory, or a direct-importing `*.test.ts` under the same test-surface root (`v1/src/`, `v2/src/`, or `shared/`) — the diff-derived mutation gate resolves killing tests from that co-located ∪ direct-importer union at implement `done`, not only at publication, and not from the wider suite or transitive importers. Do not use production invert hooks.";
 
 export const IMPLEMENT_WRITE_STEP_RULES = `${filterPlanDraftStepRules(DEFAULT_WRITE_STEP_RULES)}\n${KILLING_TEST_RULE}`;
 

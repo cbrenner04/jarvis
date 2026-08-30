@@ -21,7 +21,7 @@ Pause/resume must replay in-loop surviving-mutation reprompt context the same wa
 
 ## Acceptance criteria
 
-- [ ] `daemon-resume.test.ts` `paused implement run resumes surviving mutation reprompt context` reconstructs `WriteLoopInput.survivingMutationReprompt` from the persisted `surviving_mutation_reprompt` log tail after pause on a workflow-snapshot implement run; fails against the pre-fix resume path that omits surviving-mutation reprompt replay.
+- [x] `daemon-resume.test.ts` `paused implement run resumes surviving mutation reprompt context` reconstructs `WriteLoopInput.survivingMutationReprompt` from the persisted `surviving_mutation_reprompt` log tail after pause on a workflow-snapshot implement run; fails against the pre-fix resume path that omits surviving-mutation reprompt replay.
 
 ## Documentation updates
 

@@ -28,9 +28,13 @@ Re-prompt issued when staged plan or intent Markdown fails markdownlint before w
 
 Re-prompt issued when the ready gate fails during completion publication. Injects `SPEC_PATH`, `STEP_RULES`, `GATE_COMMAND`, `GATE_EXIT_CODE`, and `GATE_OUTPUT`. Used by the write loop's publication boundary; see [`write-behavior.md`](./write-behavior.md#ready-finalization).
 
+### `write.surviving-mutation-reprompt`
+
+Re-prompt issued when in-loop diff-derived mutation verification finds an uncovered changed guard on an implement `done`/`no-work` iteration before completion commit or publication. Injects `SPEC_PATH`, `STEP_RULES`, `SURVIVING_MUTATION`, `SOURCE_FILE`, `SOURCE_LINE`, and `DUAL_CONSTRAINT_DETAIL` (same names as `write.mutation-repair`). Used by the implement write loop; see [`write-behavior.md`](./write-behavior.md#diff-derived-mutation-verification).
+
 ### `write.mutation-repair`
 
-Re-prompt issued when mutation verification survives an implement change. Injects `SPEC_PATH`, `STEP_RULES`, `SURVIVING_MUTATION`, `SOURCE_FILE`, `SOURCE_LINE`, and `DUAL_CONSTRAINT_DETAIL`. Used by implement-initiated recovery; see [`write-behavior.md`](./write-behavior.md#ready-finalization).
+Re-prompt issued when publication-time confirm-only mutation verification finds a repair-introduced surviving mutation after in-loop verification already passed. Injects `SPEC_PATH`, `STEP_RULES`, `SURVIVING_MUTATION`, `SOURCE_FILE`, `SOURCE_LINE`, and `DUAL_CONSTRAINT_DETAIL`. Used by implement-initiated recovery at publication; see [`write-behavior.md`](./write-behavior.md#diff-derived-mutation-verification).
 
 ### `write.coverage-advisory`
 

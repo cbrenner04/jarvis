@@ -36,6 +36,7 @@ import {
 } from "./workflow-runner.test-support.ts";
 import {
   executeWorkflow,
+  type ReviewDebateWorkflowStep,
   type ReviewWorkflowStep,
   resolveIntentFinalizationResumeContext,
   resolveReviewMutationResumeContext,
@@ -1979,6 +1980,179 @@ describe("executeWorkflow review dispatch", () => {
       } finally {
         rmSync(workspace, { recursive: true, force: true });
       }
+    });
+  });
+
+  function publicationRepairIntroducedMutationSteps(branchName: string): {
+    implementStep: WriteWorkflowStep;
+    reviewStep: ReviewDebateWorkflowStep;
+    verifyCalls: () => number;
+    implementInvocations: () => number;
+    mutation: string;
+    sourceFile: string;
+    sourceLine: number;
+  } {
+    let verifyCalls = 0;
+    let implementInvocations = 0;
+    const mutation = "operator-flip: === → !==";
+    const sourceFile = "src/guard.ts";
+    const sourceLine = 17;
+    const implementStep = createStep({
+      stepId: "implement",
+      role: "implement",
+      promptId: "patch.prompt.body",
+      branchName,
+      verifyDiffDerivedMutations: async () => {
+        verifyCalls += 1;
+        return {
+          kind: "pass",
+          runBase: "HEAD",
+          inspectedPaths: [],
+          candidateCount: 0,
+          acceptedSites: [],
+        };
+      },
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        invoke: async ({ cwd }) => {
+          implementInvocations += 1;
+          writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        },
+        metadata: { agent: agentId, model: adapterModel },
+      }),
+    });
+    const worktreePath = join(
+      implementStep.worktree.jarvisRoot ?? "",
+      "worktrees",
+      implementStep.worktree.projectName,
+      implementStep.worktree.branchName,
+    );
+    const reviewStep = createDebateStep({
+      stepId: "implement-review",
+      branch: branchName,
+      cwd: worktreePath,
+      verdictPath: join(worktreePath, "verdict-patch.md"),
+      profileContext: { specPath: "spec.md", cwd: worktreePath, baseBranch: "HEAD", passNumber: 1, totalPasses: 1 },
+      prompts: {
+        adversary: "implement.prompt.review.adversary",
+        advocate: "implement.prompt.review.advocate",
+        adjudicator: "implement.prompt.review.adjudicator",
+      },
+      createBinding: createDebateBindingFactory(async ({ adapterModel }) => ({
+        kind: "ok",
+        stdout: adapterModel === "ADJ" ? "" : "ok",
+        stderr: "",
+      })),
+    });
+    return {
+      implementStep,
+      reviewStep,
+      verifyCalls: () => verifyCalls,
+      implementInvocations: () => implementInvocations,
+      mutation,
+      sourceFile,
+      sourceLine,
+    };
+  }
+
+  test("publication-time repair-introduced surviving mutation settles surviving_mutation_failed", async () => {
+    const branchName = "publication-repair-mutation-settle";
+    const { implementStep, reviewStep, verifyCalls, mutation, sourceFile, sourceLine } =
+      publicationRepairIntroducedMutationSteps(branchName);
+    const logSink = new TestLogSink();
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "implement-commit-sha", filesChanged: 1 }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {
+          throw new SurvivingMutationError(mutation, sourceFile, sourceLine);
+        },
+      });
+
+      expect(result.kind).toBe("surviving_mutation_failed");
+      expect(result.resumable).toBe(true);
+      expect(verifyCalls()).toBe(1);
+
+      const reviewRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: branchName,
+        stepId: "implement-review",
+      });
+      const implementRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: branchName,
+        stepId: "implement",
+      });
+      expect(reviewRun).not.toBeNull();
+      expect(reviewRun?.id).toBe(result.runId);
+      expect(implementRun?.status).toBe("completed");
+      expect(store.loadRun(result.runId)?.status).toBe("failed");
+      expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "surviving_mutation_failed",
+        resumable: true,
+        survivingMutation: mutation,
+        survivingMutationSourceFile: sourceFile,
+        survivingMutationSourceLine: sourceLine,
+      });
+
+      const run = store.loadRun(result.runId);
+      if (!run) throw new Error("expected review run");
+      const terminalRecord = findTerminalLogRecord(logSink.tail(result.runId));
+      expect(resolveReviewMutationResumeContext(run, store, terminalRecord)).toMatchObject({ ok: true });
+    });
+  });
+
+  test("publication-time repair-introduced surviving mutation does not reprompt implement", async () => {
+    const branchName = "publication-repair-mutation-no-reprompt";
+    const { implementStep, reviewStep, verifyCalls, implementInvocations, mutation, sourceFile, sourceLine } =
+      publicationRepairIntroducedMutationSteps(branchName);
+    const logSink = new TestLogSink();
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "implement-commit-sha", filesChanged: 1 }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {
+          throw new SurvivingMutationError(mutation, sourceFile, sourceLine);
+        },
+      });
+
+      expect(result.kind).toBe("surviving_mutation_failed");
+      expect(verifyCalls()).toBe(1);
+      const invocationsAfterPublicationFailure = implementInvocations();
+
+      const implementRun = store.findRunByProjectBranch({
+        project: "demo",
+        branch: branchName,
+        stepId: "implement",
+      });
+      expect(implementRun?.status).toBe("completed");
+      expect(logSink.getEventsForRun(implementRun?.id ?? "").map((event) => event.kind)).not.toContain(
+        "surviving_mutation_reprompt",
+      );
+      expect(logSink.getEventsForRun(result.runId).map((event) => event.kind)).not.toContain(
+        "surviving_mutation_reprompt",
+      );
+      expect(implementInvocations()).toBe(invocationsAfterPublicationFailure);
+
+      const run = store.loadRun(result.runId);
+      if (!run) throw new Error("expected review run");
+      const terminalRecord = findTerminalLogRecord(logSink.tail(result.runId));
+      expect(resolveReviewMutationResumeContext(run, store, terminalRecord)).toMatchObject({ ok: true });
+      expect(composeRunOperatorError(run, terminalRecord)).toMatchObject({
+        reason: "surviving_mutation_failed",
+        retryable: true,
+        nextAction: "resume",
+      });
     });
   });
 

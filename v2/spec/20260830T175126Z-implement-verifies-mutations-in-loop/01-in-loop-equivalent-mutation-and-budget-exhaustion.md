@@ -22,8 +22,8 @@ Behavior-neutral mutations need an exact `// @mutate-equivalent` escape hatch at
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts` `implement complete honors exact mutate-equivalent directive in-loop` drives `patch.prompt.body` to `done` with an uncovered guard and an exact colocated `// @mutate-equivalent mutation=<JSON string> reason=<JSON string>` on the mutated line; asserts no `surviving_mutation_reprompt` and completion without publication-time `surviving_mutation_failed`; fails against the pre-fix publication-only verification path.
-- [ ] `write-loop.test.ts` `implement complete surviving mutation reprompt budget exhaustion settles surviving_mutation_failed` keeps a surviving mutation through `maxIterations`; asserts terminal `surviving_mutation_failed` with `resumable: true`, surviving-mutation source detail, and `nextAction: resume` (implement `jarvis run resume`), not `blocked`, `contract_miss`, or review `write.mutation-repair`; fails against the pre-fix loop that only discovers survivors at publication.
+- [x] `write-loop.test.ts` `implement complete honors exact mutate-equivalent directive in-loop` drives `patch.prompt.body` to `done` with an uncovered guard and an exact colocated `// @mutate-equivalent mutation=<JSON string> reason=<JSON string>` on the mutated line; asserts no `surviving_mutation_reprompt` and completion without publication-time `surviving_mutation_failed`; fails against the pre-fix publication-only verification path.
+- [x] `write-loop.test.ts` `implement complete surviving mutation reprompt budget exhaustion settles surviving_mutation_failed` keeps a surviving mutation through `maxIterations`; asserts terminal `surviving_mutation_failed` with `resumable: true`, surviving-mutation source detail, and `nextAction: resume` (implement `jarvis run resume`), not `blocked`, `contract_miss`, or review `write.mutation-repair`; fails against the pre-fix loop that only discovers survivors at publication.
 
 ## Documentation updates
 

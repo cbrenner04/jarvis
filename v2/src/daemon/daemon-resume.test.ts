@@ -376,6 +376,173 @@ test("resume retries a failed run after surviving mutation verification", async 
   expect(fakeExecutor.pendingCount()).toBe(1);
 });
 
+test("implement write row resumes in-loop surviving_mutation_failed without reprompt context", async () => {
+  const runId = createWorkflowRun({ invocationId: "implement-in-loop-mutation-exhaust" });
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({
+    attemptId,
+    runStatus: "failed",
+    outcomeKind: "surviving_mutation_failed",
+    terminalCause: "surviving_mutation_failed",
+  });
+  stateStore.setRunStatus(runId, "failed");
+  const response = await resumeDirect(
+    createHandlers(
+      logReader(runId, [
+        {
+          kind: "surviving_mutation_reprompt",
+          attemptId: "attempt-1",
+          mutation: '"value > 0" -> "value >= 0"',
+          sourceFile: "src/guard.ts",
+          sourceLine: 42,
+        },
+        {
+          kind: "loop_finished",
+          loopOutcomeKind: "surviving_mutation_failed",
+          iterationsConsumed: 2,
+          resumable: true,
+          survivingMutation: "operator-flip: === → !==",
+          survivingMutationSourceFile: "src/guard.ts",
+          survivingMutationSourceLine: 17,
+        },
+      ]),
+    ),
+    runId,
+  );
+
+  expect(response.kind).toBe("response");
+  expect(starts).toHaveLength(1);
+  expect(starts[0]?.survivingMutationReprompt).toBeUndefined();
+});
+
+test("resumes implement write row after in-loop surviving_mutation_failed exhaustion and re-runs verification", async () => {
+  const { jarvisRoot, stateDbPath } = createJarvisHome();
+  roots.push(join(jarvisRoot, ".."));
+  const branchName = `implement-mutation-exhaust-resume-${Date.now()}`;
+  const worktreePath = initResumeWorktree(jarvisRoot, branchName);
+  const store = openStateStore(stateDbPath);
+  const logsPath = join(tmpdir(), `implement-mutation-exhaust-resume-${process.pid}-${Date.now()}.jsonl`);
+  const logSink = openLogSink(logsPath);
+  const specPath = "spec/implement/01-second.md";
+  const artifactPath = "proof.txt";
+  let agentCalls = 0;
+  let verifyCalls = 0;
+  let resumedInput: WriteLoopInput | undefined;
+
+  const workflowSnapshot: NonNullable<WriteLoopInput["workflowSnapshot"]> = {
+    invocationId: "implement-mutation-exhaust-resume",
+    steps: [
+      {
+        stepId: "implement",
+        role: "implement",
+        stepRules: "Return done.",
+        expectedArtifactPath: artifactPath,
+        promptId: "patch.prompt.body",
+        agents: ["codex"],
+        agentModelConfig: AGENT_MODEL_CONFIG,
+      },
+    ],
+  };
+
+  const bindings: WriteLoopInput["bindings"] = [
+    {
+      id: "implement",
+      metadata: { agent: "test-agent", model: "test" },
+      invoke: async ({ cwd }) => {
+        agentCalls += 1;
+        writeFileSync(join(cwd, artifactPath), "ok\n", "utf8");
+        return { kind: "ok", stdout: "done", stderr: "" };
+      },
+    },
+  ];
+
+  try {
+    const exhausted = await executeWriteLoop({
+      worktree: { projectRoot: worktreePath, projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
+      specPath,
+      stepRules: "Return done.",
+      expectedArtifactPath: artifactPath,
+      promptId: "patch.prompt.body",
+      bindings,
+      stateStore: store,
+      withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+      sessionsDir: join(jarvisRoot, "sessions"),
+      logSink,
+      stepId: "implement",
+      workflowSnapshot,
+      maxIterations: 2,
+      publishCompletion: false,
+      verifyDiffDerivedMutations: async () => {
+        verifyCalls += 1;
+        return {
+          kind: "surviving-mutation",
+          mutation: "operator-flip: === → !==",
+          sourceSite: { file: "v2/src/guard.ts", line: 17 },
+        };
+      },
+      completionCommitter: async () => ({ commitSha: `commit-${verifyCalls}`, filesChanged: 1 }),
+    });
+    logSink.close();
+
+    expect(exhausted).toMatchObject({ kind: "surviving_mutation_failed", resumable: true });
+    expect(agentCalls).toBe(2);
+    expect(verifyCalls).toBe(2);
+
+    const verifyCallsBeforeResume = verifyCalls;
+    agentCalls = 0;
+
+    let backgroundResume: Promise<void> | undefined;
+    const localHandlers = createRunControlHandlers({
+      stateStore: store,
+      logReader: openLogReader(logsPath),
+      logsPath,
+      writeLoopExecutor: async (input, signal, pauseSignal) => {
+        resumedInput = input;
+        const resumeLogSink = openLogSink(logsPath);
+        backgroundResume = (async () => {
+          try {
+            await executeWriteLoop({
+              ...input,
+              worktree: { ...input.worktree, jarvisRoot },
+              signal,
+              pauseSignal,
+              stateStore: store,
+              logSink: resumeLogSink,
+              withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+              sessionsDir: join(jarvisRoot, "sessions"),
+              publishCompletion: false,
+              bindings,
+              verifyDiffDerivedMutations: async () => {
+                verifyCalls += 1;
+                return { kind: "pass", runBase: "HEAD", inspectedPaths: [], candidateCount: 0, acceptedSites: [] };
+              },
+              completionCommitter: async () => ({ commitSha: "commit-resume", filesChanged: 1 }),
+            });
+          } finally {
+            resumeLogSink.close();
+          }
+        })();
+        return backgroundResume;
+      },
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      settleDelayMs: 0,
+    });
+
+    expect((await resumeDirect(localHandlers, exhausted.runId)).kind).toBe("response");
+    if (backgroundResume !== undefined) await backgroundResume;
+
+    expect(verifyCalls).toBeGreaterThan(verifyCallsBeforeResume);
+    expect(agentCalls).toBe(1);
+    expect(resumedInput?.survivingMutationReprompt).toBeUndefined();
+    expect(resumedInput?.resumeReentry).toBe(true);
+    expect(store.loadRun(exhausted.runId)?.status).toBe("completed");
+  } finally {
+    store.close();
+    rmSync(logsPath, { force: true });
+  }
+});
+
 test("resume on an ad-hoc paused run returns resume_unsupported without invoking the executor", async () => {
   const pausedRunId = stateStore.createRun({
     project: "test-project",
@@ -2798,6 +2965,35 @@ test.each([
   expect(response.kind).toBe("response");
   expect(starts).toHaveLength(1);
   expectNoCheckpointRepromptReplay(starts[0]);
+});
+
+test("paused implement run resumes surviving mutation reprompt context", async () => {
+  const runId = createPausedImplementRepromptRun("implement-paused-surviving-mutation");
+  const response = await resumeDirect(
+    createHandlers(
+      logReader(runId, [
+        {
+          kind: "surviving_mutation_reprompt",
+          attemptId: "attempt-1",
+          mutation: '"value > 0" -> "value >= 0"',
+          sourceFile: "src/guard.ts",
+          sourceLine: 42,
+          dualConstraint: true,
+        },
+        PAUSED_LOOP_FINISHED,
+      ]),
+    ),
+    runId,
+  );
+
+  expect(response.kind).toBe("response");
+  expect(starts).toHaveLength(1);
+  expect(starts[0]?.survivingMutationReprompt).toEqual({
+    mutation: '"value > 0" -> "value >= 0"',
+    sourceFile: "src/guard.ts",
+    sourceLine: 42,
+    dualConstraint: true,
+  });
 });
 
 test("paused implement resume restores landing-contract but ignores checkpoint reprompt when co-present", async () => {

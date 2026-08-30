@@ -58,6 +58,7 @@ import {
   executeWriteLoop,
   findLandingContractRepromptFromLog,
   findStagedMarkdownLintRepromptFromLog,
+  findSurvivingMutationRepromptFromLog,
   type WriteLoopInput,
 } from "../execution/write-loop.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client";
@@ -642,6 +643,8 @@ function reconstructWriteResume(run: Run, logRecords?: readonly PersistedRecord[
 
   const landingContractReprompt = findLandingContractRepromptFromLog(logRecords);
   const stagedMarkdownLintReprompt = findStagedMarkdownLintRepromptFromLog(logRecords);
+  const survivingMutationReprompt =
+    run.status === "paused" ? findSurvivingMutationRepromptFromLog(logRecords) : undefined;
   return resolveWriteLoopBindings({
     worktree: {
       projectRoot: run.worktreePath,
@@ -668,6 +671,7 @@ function reconstructWriteResume(run: Run, logRecords?: readonly PersistedRecord[
     ...(step.idleOutputMs === undefined ? {} : { idleOutputMs: step.idleOutputMs }),
     ...(landingContractReprompt !== undefined ? { landingContractReprompt } : {}),
     ...(stagedMarkdownLintReprompt !== undefined ? { stagedMarkdownLintReprompt } : {}),
+    ...(survivingMutationReprompt !== undefined ? { survivingMutationReprompt } : {}),
   });
 }
 

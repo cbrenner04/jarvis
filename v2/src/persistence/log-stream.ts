@@ -151,6 +151,24 @@ export type StagedMarkdownLintRepromptEvent = {
   offendingFile: string;
 };
 
+/** Emitted when implement mutation verification finds a surviving mutation and schedules a reprompt. */
+export type SurvivingMutationRepromptEvent = {
+  kind: "surviving_mutation_reprompt";
+  attemptId: string;
+  mutation: string;
+  sourceFile: string;
+  sourceLine: number;
+  dualConstraint?: true;
+};
+
+export type SurvivingMutationRepromptContext = Omit<SurvivingMutationRepromptEvent, "kind" | "attemptId">;
+
+export function dualConstraintRepromptDetail(dualConstraint?: true): string {
+  return dualConstraint
+    ? "The source is a timer callback in a determinism-guarded suite. Extract and test a pure predicate in both directions without a real-timer wait."
+    : "";
+}
+
 /** Agent stdout excerpt when a rejected `blocked` token still has no blocker text; truncated at append time. */
 export type MissingBlockerDetailEvent = {
   kind: "missing_blocker_detail";
@@ -211,6 +229,7 @@ type LogEventWithoutLoopFinished =
   | BlockerRepromptEvent
   | LandingContractRepromptEvent
   | StagedMarkdownLintRepromptEvent
+  | SurvivingMutationRepromptEvent
   | MissingBlockerDetailEvent
   | ContractMissDetailEvent
   | BlockerTextDetailEvent

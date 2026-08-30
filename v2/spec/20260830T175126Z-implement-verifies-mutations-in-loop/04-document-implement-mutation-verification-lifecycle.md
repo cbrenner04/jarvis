@@ -23,14 +23,14 @@ Operator and architecture docs still describe publication as the first diff-deri
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/write-behavior.md` documents implement in-loop diff-derived mutation verification with surviving-mutation reprompt and confirm-only publication re-check.
-- [ ] `v2/docs/workflow-runner.md` documents completion-verification ordering: in-loop discovery before review/publication, publication re-check after.
-- [ ] `v2/docs/operator-runbook.md` documents that implement mutation misses reprompt the live agent, publication-time survivors indicate repair-introduced mutants, and direct-write pause/resume does not replay surviving-mutation reprompt context.
-- [ ] `v2/docs/prompts.md` documents `write.surviving-mutation-reprompt`.
-- [ ] `v2/docs/v1-behaviors.md` records the v2 implement completion mutation-verification lifecycle change relative to publication-only discovery.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/docs/write-behavior.md` documents implement in-loop diff-derived mutation verification with surviving-mutation reprompt and confirm-only publication re-check.
+- [x] `v2/docs/workflow-runner.md` documents completion-verification ordering: in-loop discovery before review/publication, publication re-check after.
+- [x] `v2/docs/operator-runbook.md` documents that implement mutation misses reprompt the live agent, publication-time survivors indicate repair-introduced mutants, and direct-write pause/resume does not replay surviving-mutation reprompt context.
+- [x] `v2/docs/prompts.md` documents `write.surviving-mutation-reprompt`.
+- [x] `v2/docs/v1-behaviors.md` records the v2 implement completion mutation-verification lifecycle change relative to publication-only discovery.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

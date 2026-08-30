@@ -1,12 +1,43 @@
 import { describe, expect, mock, test } from "bun:test";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
+import { createCompletionCommitter } from "./completion-commit.ts";
 import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "./write.ts";
 import { executeWriteLoop } from "./write-loop.ts";
 
 const { roots } = trackedTempRoots();
+
+function initGitWorktree(jarvisRoot: string, branchName: string): string {
+  const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+  mkdirSync(worktreePath, { recursive: true });
+  execFileSync("git", ["init", worktreePath], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
+  writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
+  writeFileSync(join(worktreePath, "README.md"), "seed\n", "utf8");
+  execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
+  return worktreePath;
+}
+
+const stallInvocation = {
+  attempts: [
+    {
+      binding: { id: "sim.1", metadata: { agent: "sim-agent-1", model: "sim-model-1" } },
+      result: { kind: "stall" as const },
+    },
+  ],
+  final: {
+    binding: { id: "sim.1", metadata: { agent: "sim-agent-1", model: "sim-model-1" } },
+    result: { kind: "stall" as const },
+  },
+  telemetryFailures: [],
+};
 
 function loadRunOnce(stateDbPath: string, runId: string) {
   const store = openStateStore(stateDbPath);
@@ -93,6 +124,150 @@ describe("write loop idle-output watchdog", () => {
       expect(run?.attempts[0]?.invocationFailureDetail?.boundMs).toBe(20);
     } finally {
       store.close();
+      mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+    }
+  });
+
+  test("a git-backed silent stall with committed progress settles idle_output_timeout resumable true", async () => {
+    // @mutate v2/src/execution/write-loop.ts "idleOutputTimeoutResumableFromCheckpoint(commitOutcome)" -> "false"
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const branchName = "idle-committed-progress";
+    const worktreePath = initGitWorktree(jarvisRoot, branchName);
+    const logsPath = join(jarvisRoot, "logs", "runs.jsonl");
+    const store = openStateStore(stateDbPath);
+    const logSink = openLogSink(logsPath);
+
+    mock.module("./write.ts", () => ({
+      executeWrite: async (input: WriteExecuteInput) => {
+        writeFileSync(join(worktreePath, "proof.txt"), "agent-edit\n", "utf8");
+        return {
+          worktreePath,
+          worktreeReused: false,
+          lock: { kind: "acquired" as const },
+          result: {
+            kind: "stall" as const,
+            invocation: stallInvocation,
+            boundMs: input.idleOutputMs,
+            agent: "sim-agent-1",
+            model: "sim-model-1",
+          },
+        };
+      },
+    }));
+
+    try {
+      const result = await executeWriteLoop({
+        worktree: { projectRoot: "/fake", projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
+        specPath: "spec.md",
+        stepRules: "Return exactly one terminal token.",
+        expectedArtifactPath: "proof.txt",
+        bindings: simulatedBindings(["stall"]),
+        stateStore: store,
+        withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
+        completionCommitter: createCompletionCommitter(),
+        iterationTimeoutMs: 10_000,
+        idleOutputMs: 20,
+        logSink,
+      });
+
+      expect(result).toMatchObject({ kind: "idle_output_timeout", iterationsConsumed: 1, resumable: true });
+      const events = openLogReader(logsPath)
+        .tail(result.runId)
+        .map((record) => record.event);
+      const commitEvent = events.find((event) => event.kind === "iteration_commit");
+      expect(commitEvent?.kind === "iteration_commit" && "commitSha" in commitEvent).toBe(true);
+      const finished = events.find((event) => event.kind === "loop_finished");
+      expect(finished).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "idle_output_timeout",
+        resumable: true,
+      });
+      const run = loadRunOnce(stateDbPath, result.runId);
+      expect(run?.status).toBe("failed");
+      expect(run?.attempts[0]?.outcomeKind).toBe("idle_output_timeout");
+
+      const replay = await executeWriteLoop({
+        worktree: { projectRoot: "/fake", projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
+        specPath: "spec.md",
+        stepRules: "Return exactly one terminal token.",
+        expectedArtifactPath: "proof.txt",
+        bindings: simulatedBindings(["stall"]),
+        stateStore: store,
+        withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
+        completionCommitter: createCompletionCommitter(),
+        iterationTimeoutMs: 10_000,
+        idleOutputMs: 20,
+        logSink,
+      });
+
+      expect(replay).toMatchObject({ kind: "idle_output_timeout", iterationsConsumed: 0, resumable: true });
+      expect(replay.runId).toBe(result.runId);
+    } finally {
+      store.close();
+      logSink.close();
+      mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+    }
+  });
+
+  test("a git-backed silent stall with no file changes settles idle_output_timeout resumable false", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const branchName = "idle-no-file-changes";
+    const worktreePath = initGitWorktree(jarvisRoot, branchName);
+    const logsPath = join(jarvisRoot, "logs", "runs.jsonl");
+    const store = openStateStore(stateDbPath);
+    const logSink = openLogSink(logsPath);
+
+    mock.module("./write.ts", () => ({
+      executeWrite: async (input: WriteExecuteInput) => ({
+        worktreePath,
+        worktreeReused: false,
+        lock: { kind: "acquired" as const },
+        result: {
+          kind: "stall" as const,
+          invocation: stallInvocation,
+          boundMs: input.idleOutputMs,
+          agent: "sim-agent-1",
+          model: "sim-model-1",
+        },
+      }),
+    }));
+
+    try {
+      const result = await executeWriteLoop({
+        worktree: { projectRoot: "/fake", projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
+        specPath: "spec.md",
+        stepRules: "Return exactly one terminal token.",
+        expectedArtifactPath: "proof.txt",
+        bindings: simulatedBindings(["stall"]),
+        stateStore: store,
+        withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
+        completionCommitter: createCompletionCommitter(),
+        iterationTimeoutMs: 10_000,
+        idleOutputMs: 20,
+        logSink,
+      });
+
+      expect(result).toMatchObject({ kind: "idle_output_timeout", iterationsConsumed: 1, resumable: false });
+      const events = openLogReader(logsPath)
+        .tail(result.runId)
+        .map((record) => record.event);
+      expect(events.find((event) => event.kind === "iteration_commit")).toMatchObject({
+        kind: "iteration_commit",
+        skipReason: "no_file_changes",
+      });
+      expect(events.find((event) => event.kind === "loop_finished")).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "idle_output_timeout",
+        resumable: false,
+      });
+    } finally {
+      store.close();
+      logSink.close();
       mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
     }
   });

@@ -742,6 +742,12 @@ jarvis1 run --agent codex <spec>                   # paid, fast
 
 **Run implement workflows serially — one at a time.** Two concurrent implement stages contend on the test suites, which widens each agent's silent window and false-kills productively-working runs on `idle_output_timeout` (see the 2026-08-28 gotcha below; this supersedes the earlier "~1–2 concurrent" guidance). `plan`/`intent` have short gates and isolated spec dirs — fan those out freely.
 
+**Serial-only is under review (2026-08-30, not yet relaxed).** A parallelization experiment ran two concurrent implements ~40 min with zero idle-output false-kills under the current 15-min idle budget — the old rule was calibrated to a much tighter budget. Do **not** run concurrent implements yet; the trigger to re-trial is the watchdog trio landing (`idle-output-timeout-preserves-committed-progress-resumable`, `idle-watchdog-counts-worktree-filesystem-activity`, `stall-settlement-preserves-agent-stdout` — P0 in the structural-recovery brief).
+
+### Circuit-breaker: stop routing a lane that keeps failing the same gate
+
+If a lane (plan / implement / review) needs hand-intervention **twice in a row on the same gate**, stop routing that lane through Jarvis until the gate fix merges — hand-land the work instead of spending another run to strand the same way. Re-open the lane only after one clean end-to-end run on the fixed gate. Rationale: a gate that rejects good work taxes every run in that lane; once it has cost two hand-finishes, the third run is predictably wasted. Observed 2026-08-30: the plan lane (5/5 contract-miss-blocked → hand-landed #3165) and the implement lane (3 mutation-gate strands → hand-finished / #3172) both crossed this threshold. Mirrors [structural-recovery-brief.md § Operating notes](../spec/structural-recovery-brief.md).
+
 **Read an `idle_output_timeout` cluster as a saturation signal, not an agent verdict (2026-07-30).** At 5–8 concurrent implement lanes (load average 15–25) three runs settled `idle_output_timeout` (`retryable: false`, `nextAction: "stop"`); all three recovered on re-dispatch at lower load. `idleOutputTimeoutMs` in `config/machines/home.json` is the lever if you want to keep a fan-out.
 
 **Do not merge to `main` blindly during long in-flight runs** — see v1 runbook [Integration-merge-then-retest](../../v1/docs/operator-runbook.md#integration-merge-then-retest-pattern), and note every merge rotates the daemon digest (see [Daemon lifecycle](#daemon-lifecycle)). Prefer batching merges for when no lane is live.

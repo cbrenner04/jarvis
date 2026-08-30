@@ -131,7 +131,7 @@ async function defaultReadSourceFile(path: string): Promise<string | null> {
   }
 }
 
-function importedModulePaths(source: string): string[] {
+export function importedModulePaths(source: string): string[] {
   const paths = new Set<string>();
   const pattern = /(?:import|export)\s+(?:[^"']*?\s+from\s+)?["']([^"']+)["']|import\s*\(\s*["']([^"']+)["']\s*\)/g;
   for (const match of source.matchAll(pattern)) {
@@ -141,7 +141,7 @@ function importedModulePaths(source: string): string[] {
   return [...paths];
 }
 
-function resolveImportedModule(worktreePath: string, importer: string, modulePath: string): string[] {
+export function resolveImportedModule(worktreePath: string, importer: string, modulePath: string): string[] {
   const base = resolve(worktreePath, dirname(importer), modulePath);
   return [base, `${base}.ts`, resolve(base, "index.ts")].map((candidate) => {
     const path = normalize(relative(worktreePath, candidate));

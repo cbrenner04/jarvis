@@ -1,7 +1,9 @@
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { guarded } from "../../../scripts/guard-deterministic-daemon-tests.ts";
 import { resolveRenderObserverTests } from "../../../shared/prompts/render-observer-tests.ts";
 import { type ChangedLine, changedPathsFromDiff, defaultGitDiff, isProductionFile, parseDiff } from "./diff-scan.ts";
+import { importedModulePaths, resolveImportedModule } from "./runtime-smoke-verifier.ts";
 
 export type DiffDerivedMutationVerifierInput = {
   worktreePath: string;
@@ -52,6 +54,7 @@ type ReadFile = (path: string) => Promise<string>;
 type WriteFile = (path: string, content: string) => Promise<void>;
 type RegisteredPromptPaths = (cwd: string, baseRef: string) => Promise<string[]>;
 type ListDir = (dir: string) => string[];
+type ListImporterCandidates = (scanRoot: string, worktreePath: string) => string[];
 
 type VerifierSeams = {
   gitDiff?: GitDiff;
@@ -61,6 +64,7 @@ type VerifierSeams = {
   writeFile?: WriteFile;
   registeredPromptPaths?: RegisteredPromptPaths;
   listDir?: ListDir;
+  listImporterCandidates?: ListImporterCandidates;
   now?: () => number;
 };
 
@@ -69,6 +73,9 @@ export const MAX_INSPECTED_MUTATIONS = 25;
 export const MAX_PROMPT_RENDER_VERIFICATIONS = 5;
 export const MAX_VERIFICATION_MS = 5 * 60_000;
 export const MAX_CONCURRENT_VERIFIER_TEST_RUNS = 4;
+export const MAX_IMPORTER_DISCOVERY_CANDIDATES_PER_FILE = 200;
+
+const IMPORTER_SCAN_SURFACE_PREFIXES = ["v1/src/", "v2/src/", "shared/"] as const;
 
 let peakConcurrentVerifierTestRuns = 0;
 let currentConcurrentVerifierTestRuns = 0;
@@ -176,6 +183,58 @@ function defaultListDir(dir: string): string[] {
     return [];
   }
 }
+
+function defaultListImporterCandidates(scanRoot: string, worktreePath: string): string[] {
+  const root = scanRoot ? `${worktreePath}/${scanRoot}` : worktreePath;
+  const prefix = `${worktreePath}/`;
+  const files: string[] = [];
+  try {
+    for (const entry of readdirSync(root, { recursive: true, withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith(".test.ts")) continue;
+      const full = join(entry.parentPath, entry.name).replace(/\\/g, "/");
+      const relative = full.startsWith(prefix) ? full.slice(prefix.length) : full;
+      files.push(relative);
+    }
+  } catch {
+    return [];
+  }
+  return files.sort();
+}
+
+export function resolveImporterScanRoot(productionPath: string): string | null {
+  let best: string | null = null;
+  for (const prefix of IMPORTER_SCAN_SURFACE_PREFIXES) {
+    if (productionPath.startsWith(prefix) && (best === null || prefix.length > best.length)) {
+      best = prefix;
+    }
+  }
+  return best;
+}
+
+async function testDirectlyImportsProductionModule(
+  worktreePath: string,
+  testPath: string,
+  productionPath: string,
+  readFile: ReadFile,
+): Promise<boolean> {
+  let source: string;
+  try {
+    source = await readFile(`${worktreePath}/${testPath}`);
+  } catch {
+    return false;
+  }
+  for (const modulePath of importedModulePaths(source)) {
+    for (const importedFile of resolveImportedModule(worktreePath, testPath, modulePath)) {
+      if (importedFile === productionPath) return true;
+    }
+  }
+  return false;
+}
+
+type KillingTestResolution = {
+  killingTests: string[];
+  capExceeded: boolean;
+};
 
 async function defaultWriteFile(path: string, content: string): Promise<void> {
   writeFileSync(path, content);
@@ -597,7 +656,7 @@ async function testCandidate(
     await writeFile(filePath, mutatedContent);
 
     try {
-      // Killed if ANY co-located test fails under the mutation; runScopedTests returns false on the first failure.
+      // Killed if any resolved killing test fails under the mutation; runScopedTests returns false on the first failure.
       const testsPassed = await runScopedTests(input.worktreePath, killingTestPaths);
       if (testsPassed) {
         const result: SurvivingMutationResult = {
@@ -649,6 +708,14 @@ function missingKillingTest(candidate: Candidate): SurvivingMutationResult {
   };
 }
 
+function importerDiscoveryCapExceeded(candidate: Candidate): SurvivingMutationResult {
+  return {
+    kind: "surviving-mutation",
+    mutation: "importer-discovery-cap-exceeded",
+    sourceSite: { file: candidate.file, line: candidate.line },
+  };
+}
+
 async function verifyChangedPrompts(
   changedPaths: string[],
   changedLinesByFile: Map<string, ChangedLine[]>,
@@ -691,8 +758,8 @@ function deriveCandidates(changedLinesByFile: Map<string, ChangedLine[]>): Candi
 }
 
 /**
- * The co-located killing tests to run against a candidate's mutation: the exact-stem
- * `<file>.test.ts` when it exists on disk, plus every existing sibling `<file>-*.test.ts`.
+ * Killing tests for a changed production file: exact-stem `<file>.test.ts` when present, sibling
+ * `<file>-*.test.ts` files, and direct-importing `*.test.ts` files under the surface-prefix scan root.
  */
 const EQUIVALENT_MUTATION_DIRECTIVE_PREFIX = " @mutate-equivalent mutation=";
 
@@ -801,24 +868,50 @@ function recordAcceptedSite(acceptedSites: AcceptedSite[], candidate: Candidate,
   });
 }
 
-async function coLocatedKillingTests(
+async function resolveKillingTests(
   candidateFile: string,
   exactStemTest: string,
   worktreePath: string,
   readFile: ReadFile,
   listDir: ListDir,
-): Promise<string[]> {
+  listImporterCandidates: ListImporterCandidates,
+): Promise<KillingTestResolution> {
   const killingTests: string[] = [];
+  const coLocatedPaths = new Set<string>();
   try {
     await readFile(`${worktreePath}/${exactStemTest}`);
     killingTests.push(exactStemTest);
+    coLocatedPaths.add(exactStemTest);
   } catch {
     // exact-stem test file absent; fall back to sibling <stem>-*.test.ts files
   }
   for (const sibling of resolveSiblingKillingTests(candidateFile, worktreePath, listDir)) {
-    if (!killingTests.includes(sibling)) killingTests.push(sibling);
+    if (!killingTests.includes(sibling)) {
+      killingTests.push(sibling);
+      coLocatedPaths.add(sibling);
+    }
   }
-  return killingTests;
+
+  const scanRoot = resolveImporterScanRoot(candidateFile);
+  if (scanRoot === null) {
+    killingTests.sort();
+    return { killingTests, capExceeded: false };
+  }
+
+  let inspectedImporterCandidates = 0;
+  for (const testPath of listImporterCandidates(scanRoot, worktreePath)) {
+    if (coLocatedPaths.has(testPath)) continue;
+    if (inspectedImporterCandidates >= MAX_IMPORTER_DISCOVERY_CANDIDATES_PER_FILE) {
+      return { killingTests, capExceeded: true };
+    }
+    inspectedImporterCandidates += 1;
+    if (await testDirectlyImportsProductionModule(worktreePath, testPath, candidateFile, readFile)) {
+      if (!killingTests.includes(testPath)) killingTests.push(testPath);
+    }
+  }
+
+  killingTests.sort();
+  return { killingTests, capExceeded: false };
 }
 
 async function verifyCandidates(
@@ -828,6 +921,7 @@ async function verifyCandidates(
   writeFile: WriteFile,
   runScopedTests: RunScopedTests,
   listDir: ListDir,
+  listImporterCandidates: ListImporterCandidates,
   now: () => number,
   deadline: number,
 ): Promise<{ result: SurvivingMutationResult | null; inspected: number; acceptedSites: AcceptedSite[] }> {
@@ -874,22 +968,35 @@ async function verifyCandidates(
     const previous = fileChains.get(candidate.file) ?? Promise.resolve();
     fileChains.set(
       candidate.file,
+      // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: per-file candidate unit fans out over admission bounds, equivalent-directive acceptance, importer resolution (cap/empty), and survivor short-circuit
       previous.then(async () => {
         if (survivingResult !== null || now() >= deadline) return;
         const content = await getFileContent(candidate.file);
         if (content === null) return;
-        const killingTests = await coLocatedKillingTests(
+        const resolution = await resolveKillingTests(
           candidate.file,
           killingTest,
           input.worktreePath,
           readFile,
           listDir,
+          listImporterCandidates,
         );
-        if (killingTests.length === 0) {
+        if (resolution.capExceeded) {
+          if (survivingResult === null) survivingResult = importerDiscoveryCapExceeded(candidate);
+          return;
+        }
+        if (resolution.killingTests.length === 0) {
           if (survivingResult === null) survivingResult = missingKillingTest(candidate);
           return;
         }
-        const result = await testCandidate(candidate, content, input, writeFile, runScopedTests, killingTests);
+        const result = await testCandidate(
+          candidate,
+          content,
+          input,
+          writeFile,
+          runScopedTests,
+          resolution.killingTests,
+        );
         if (result !== null && survivingResult === null) survivingResult = result;
       }),
     );
@@ -910,6 +1017,7 @@ export async function verifyDiffDerivedMutations(
   const writeFile = seams?.writeFile ?? defaultWriteFile;
   const registeredPromptPaths = seams?.registeredPromptPaths ?? defaultRegisteredPromptPaths;
   const listDir = seams?.listDir ?? defaultListDir;
+  const listImporterCandidates = seams?.listImporterCandidates ?? defaultListImporterCandidates;
 
   const diffOutput = await gitDiff(input.worktreePath, input.runBase);
   const changedLines = parseDiff(diffOutput);
@@ -967,6 +1075,7 @@ export async function verifyDiffDerivedMutations(
     writeFile,
     runScopedTests,
     listDir,
+    listImporterCandidates,
     now,
     deadline,
   );

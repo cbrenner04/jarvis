@@ -40,19 +40,19 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves a changed guard whose only killing test is a non-sibling direct importer does not yield `missing-killing-test` and returns pass when that importer kills the mutation under scoped execution; the regression fails against the co-location-only resolver.
-- [ ] The importing-test regression in `v2/src/execution/diff-derived-mutation-verifier.test.ts` turns red when the real empty-union guard (`if (killingTests.length === 0)`) is manually inverted and returns green after restoration, without a production inversion seam.
-- [ ] `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves a changed module with neither co-located nor direct-importing tests returns `missing-killing-test`.
-- [ ] `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves direct-importer discovery examines only `*.test.ts` files under the changed module's importer-scan root in lexicographic order, ignores transitive importers and cross-surface importers outside that prefix, returns `importer-discovery-cap-exceeded` before executing a partial union when a 201st candidate would be inspected, and when exact-stem co-located coverage exists with 201 discovery candidates still returns `importer-discovery-cap-exceeded` without invoking scoped test execution.
-- [ ] `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves scoped mutation execution receives the deduplicated co-located ∪ direct-importer union and excludes unrelated tests.
-- [ ] `v2/src/execution/write.test.ts` proves implement and `write.mutation-repair` prompts inject `IMPLEMENT_WRITE_STEP_RULES` (including `KILLING_TEST_RULE`) and tell agents that co-located or direct-importing tests can supply killing coverage while wider-suite and transitive coverage remain excluded.
-- [ ] `v2/docs/workflow-runner.md` documents the co-located ∪ direct-importer union, surface-prefix importer-scan roots and outside-prefix fallback, direct-only 200-candidate-per-file bound, cap-exhaustion `surviving-mutation` outcome, any-member kill semantics, and empty-union `missing-killing-test`.
-- [ ] `v2/docs/v1-behaviors.md` replaces the co-located-only parity baseline with importer-aware behavior.
-- [ ] `v2/docs/write-behavior.md` removes the co-located-only contradiction and points to the authoritative workflow contract.
-- [ ] `v2/docs/operator-runbook.md` aligns mutation-gate troubleshooting with importer discovery, cap exhaustion (`importer-discovery-cap-exceeded` with co-located coverage present but execution blocked), and recovery (reduce same-root `*.test.ts` sprawl or add co-located killing coverage).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves a changed guard whose only killing test is a non-sibling direct importer does not yield `missing-killing-test` and returns pass when that importer kills the mutation under scoped execution; the regression fails against the co-location-only resolver.
+- [x] The importing-test regression in `v2/src/execution/diff-derived-mutation-verifier.test.ts` turns red when the real empty-union guard (`if (killingTests.length === 0)`) is manually inverted and returns green after restoration, without a production inversion seam.
+- [x] `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves a changed module with neither co-located nor direct-importing tests returns `missing-killing-test`.
+- [x] `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves direct-importer discovery examines only `*.test.ts` files under the changed module's importer-scan root in lexicographic order, ignores transitive importers and cross-surface importers outside that prefix, returns `importer-discovery-cap-exceeded` before executing a partial union when a 201st candidate would be inspected, and when exact-stem co-located coverage exists with 201 discovery candidates still returns `importer-discovery-cap-exceeded` without invoking scoped test execution.
+- [x] `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves scoped mutation execution receives the deduplicated co-located ∪ direct-importer union and excludes unrelated tests.
+- [x] `v2/src/execution/write.test.ts` proves implement and `write.mutation-repair` prompts inject `IMPLEMENT_WRITE_STEP_RULES` (including `KILLING_TEST_RULE`) and tell agents that co-located or direct-importing tests can supply killing coverage while wider-suite and transitive coverage remain excluded.
+- [x] `v2/docs/workflow-runner.md` documents the co-located ∪ direct-importer union, surface-prefix importer-scan roots and outside-prefix fallback, direct-only 200-candidate-per-file bound, cap-exhaustion `surviving-mutation` outcome, any-member kill semantics, and empty-union `missing-killing-test`.
+- [x] `v2/docs/v1-behaviors.md` replaces the co-located-only parity baseline with importer-aware behavior.
+- [x] `v2/docs/write-behavior.md` removes the co-located-only contradiction and points to the authoritative workflow contract.
+- [x] `v2/docs/operator-runbook.md` aligns mutation-gate troubleshooting with importer discovery, cap exhaustion (`importer-discovery-cap-exceeded` with co-located coverage present but execution blocked), and recovery (reduce same-root `*.test.ts` sprawl or add co-located killing coverage).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

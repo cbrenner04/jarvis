@@ -14,7 +14,7 @@ export { DEFAULT_WRITE_STEP_RULES };
  * authoring those tests and stranded at publication on `surviving_mutation_failed`.
  */
 const KILLING_TEST_RULE =
-  "When you add or change a comparison operator, boolean guard, or branch condition in production code, add or extend a test that fails when that guard is inverted (for example flipping `===`/`!==`, `<`/`>=`, or dropping a negation). Put it in the file's co-located `<file>.test.ts` or an existing sibling `<file>-*.test.ts` in the same directory — the diff-derived mutation gate resolves killing tests only from those co-located files at publication, with no fallback to the wider suite. Do not use production invert hooks.";
+  "When you add or change a comparison operator, boolean guard, or branch condition in production code, add or extend a test that fails when that guard is inverted (for example flipping `===`/`!==`, `<`/`>=`, or dropping a negation). Put it in the file's co-located `<file>.test.ts`, an existing sibling `<file>-*.test.ts` in the same directory, or a direct-importing `*.test.ts` under the same test-surface root (`v1/src/`, `v2/src/`, or `shared/`) — the diff-derived mutation gate resolves killing tests from that co-located ∪ direct-importer union at publication, not from the wider suite or transitive importers. Do not use production invert hooks.";
 
 export const IMPLEMENT_WRITE_STEP_RULES = `${filterPlanDraftStepRules(DEFAULT_WRITE_STEP_RULES)}\n${KILLING_TEST_RULE}`;
 

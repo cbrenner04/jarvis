@@ -137,9 +137,11 @@ describe("write loop idle-output watchdog", () => {
     const store = openStateStore(stateDbPath);
     const logSink = openLogSink(logsPath);
 
+    let calls = 0;
     mock.module("./write.ts", () => ({
       executeWrite: async (input: WriteExecuteInput) => {
-        writeFileSync(join(worktreePath, "proof.txt"), "agent-edit\n", "utf8");
+        calls += 1;
+        writeFileSync(join(worktreePath, "proof.txt"), `agent-edit-${calls}\n`, "utf8");
         return {
           worktreePath,
           worktreeReused: false,
@@ -204,6 +206,26 @@ describe("write loop idle-output watchdog", () => {
 
       expect(replay).toMatchObject({ kind: "idle_output_timeout", iterationsConsumed: 0, resumable: true });
       expect(replay.runId).toBe(result.runId);
+      expect(calls).toBe(1);
+
+      const baseInput = {
+        worktree: { projectRoot: "/fake", projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
+        specPath: "spec.md",
+        stepRules: "Return exactly one terminal token.",
+        expectedArtifactPath: "proof.txt",
+        bindings: simulatedBindings(["stall"]),
+        stateStore: store,
+        withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
+        completionCommitter: createCompletionCommitter(),
+        iterationTimeoutMs: 10_000,
+        idleOutputMs: 20,
+        logSink,
+      };
+      // @mutate v2/src/execution/write-loop.ts "args.resumeReentry === true" -> "false"
+      const resumed = await executeWriteLoop({ ...baseInput, resumeReentry: true });
+      expect(resumed).toMatchObject({ kind: "idle_output_timeout", iterationsConsumed: 1, resumable: true });
+      expect(calls).toBe(2);
     } finally {
       store.close();
       logSink.close();

@@ -143,6 +143,62 @@ function createHandlers(logReader?: LogReader): Handlers {
   });
 }
 
+const OK_INVOCATION = {
+  attempts: [],
+  final: { binding: { id: "sim.1", metadata: { agent: "Test Agent" } }, result: { kind: "ok" as const } },
+  telemetryFailures: [] as const,
+};
+
+function initResumeWorktree(jarvisRoot: string, branchName: string): string {
+  const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+  mkdirSync(worktreePath, { recursive: true });
+  execFileSync("git", ["init", worktreePath], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
+  writeFileSync(join(worktreePath, "README.md"), "seed\n", "utf8");
+  const specDir = join(worktreePath, "spec/implement");
+  mkdirSync(specDir, { recursive: true });
+  writeFileSync(
+    join(specDir, "index.md"),
+    "# Implement\n\n- [ ] [00 - First](./00-first.md)\n- [ ] [01 - Second](./01-second.md)\n",
+    "utf8",
+  );
+  writeFileSync(join(specDir, "00-first.md"), "# First\n\n## Acceptance criteria\n\n- [x] done\n", "utf8");
+  writeFileSync(join(specDir, "01-second.md"), "# Second\n\n## Acceptance criteria\n\n- [ ] pending\n", "utf8");
+  execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+  execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
+  return worktreePath;
+}
+
+function createGitBackedResumeHandlers(store: StateStore, logsPath: string, jarvisRoot: string): Handlers {
+  return createRunControlHandlers({
+    stateStore: store,
+    logReader: openLogReader(logsPath),
+    logsPath,
+    writeLoopExecutor: async (input, signal, pauseSignal) => {
+      const resumeLogSink = openLogSink(logsPath);
+      try {
+        await executeWriteLoop({
+          ...input,
+          worktree: { ...input.worktree, jarvisRoot },
+          signal,
+          pauseSignal,
+          stateStore: store,
+          logSink: resumeLogSink,
+          withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+          sessionsDir: join(jarvisRoot, "sessions"),
+          publishCompletion: false,
+        });
+      } finally {
+        resumeLogSink.close();
+      }
+    },
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
+  });
+}
+
 function logReader(runId: string, events: readonly object[]): LogReader {
   return {
     tail: () =>
@@ -799,6 +855,11 @@ test.each([
     logOutcome: undefined,
     withStoreLockFailure: true,
   },
+  {
+    invocationId: "idle-output-timeout",
+    status: "failed" as const,
+    logOutcome: "idle_output_timeout" as const,
+  },
 ] as const)("resume admits $invocationId reason (composes nextAction: resume)", async (config) => {
   const runId = createWorkflowRun({ invocationId: config.invocationId });
   stateStore.setRunStatus(runId, config.status);
@@ -885,6 +946,7 @@ const WRITE_LOOP_OUTCOME_KINDS = [
   "contract_miss",
   "invocation_failure",
   "iteration_timeout",
+  "idle_output_timeout",
   "budget-exhausted",
   "paused",
   "completion_commit_failed",
@@ -2886,37 +2948,185 @@ test("exhausted-red eligibility guard inversion: corrupt checkpoint", () => {
   expect(resolveExhaustedRedResumeContext(run, stateStore, terminalRecord).ok).toBe(false);
 });
 
+test("resume refuses idle_output_timeout when terminal loop_finished is not resumable", async () => {
+  const runId = createWorkflowRun({ invocationId: "idle-timeout-no-progress" });
+  stateStore.setRunStatus(runId, "failed");
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({
+    attemptId,
+    runStatus: "failed",
+    outcomeKind: "idle_output_timeout",
+  });
+  const logReader = loopFinishedLogReader(runId, {
+    loopOutcomeKind: "idle_output_timeout",
+    iterationsConsumed: 1,
+    resumable: false,
+  });
+  const localHandlers = createHandlers(logReader);
+
+  const response = await resumeDirect(localHandlers, runId);
+  expect(response.kind).toBe("error");
+  if (response.kind === "error") {
+    expect(response.code).toBe("terminal_run");
+  }
+});
+
+test("resume after idle_output_timeout retains worktree commits without stale reset", async () => {
+  const { jarvisRoot, stateDbPath } = createJarvisHome();
+  roots.push(join(jarvisRoot, ".."));
+  const branchName = "resume-after-idle-timeout";
+  const worktreePath = initResumeWorktree(jarvisRoot, branchName);
+
+  const store = openStateStore(stateDbPath);
+  const logsPath = join(tmpdir(), `jarvis-idle-resume-${process.pid}-${Date.now()}.jsonl`);
+  const logSink = openLogSink(logsPath);
+  const specPath = "spec/implement/index.md";
+  const stallInvocation = {
+    attempts: [
+      {
+        binding: { id: "sim.1", metadata: { agent: "Test Agent" } },
+        result: { kind: "stall" as const },
+      },
+    ],
+    final: {
+      binding: { id: "sim.1", metadata: { agent: "Test Agent" } },
+      result: { kind: "stall" as const },
+    },
+    telemetryFailures: [] as const,
+  };
+  let calls = 0;
+
+  mock.module("../execution/write.ts", () => ({
+    executeWrite: (input: WriteExecuteInput) => {
+      calls += 1;
+      if (calls === 1) {
+        writeFileSync(join(worktreePath, "idle-checkpoint.txt"), "checkpoint\n", "utf8");
+        return Promise.resolve({
+          worktreePath,
+          worktreeReused: true as const,
+          lock: { kind: "acquired" as const },
+          result: {
+            kind: "stall" as const,
+            invocation: stallInvocation,
+            boundMs: input.idleOutputMs,
+            agent: "Test Agent",
+            model: "sim-model-1",
+          },
+        });
+      }
+      writeFileSync(join(worktreePath, "proof.txt"), "ok\n", "utf8");
+      return Promise.resolve({
+        worktreePath,
+        worktreeReused: true as const,
+        lock: { kind: "acquired" as const },
+        result: { kind: "complete" as const, token: "done" as const, invocation: OK_INVOCATION },
+      });
+    },
+  }));
+
+  const workflowSnapshot: NonNullable<WriteLoopInput["workflowSnapshot"]> = {
+    invocationId: "idle-timeout-resume",
+    steps: [
+      {
+        stepId: "step-1",
+        role: "implement",
+        stepRules: "Return progress or done.",
+        expectedArtifactPath: "proof.txt",
+        agents: ["codex"],
+        agentModelConfig: AGENT_MODEL_CONFIG,
+        iterationTimeoutMs: 10_000,
+        idleOutputMs: 20,
+      },
+    ],
+  };
+
+  try {
+    const idleResult = await executeWriteLoop({
+      worktree: { projectRoot: worktreePath, projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
+      specPath,
+      stepRules: "Return progress or done.",
+      expectedArtifactPath: "proof.txt",
+      bindings: simulatedBindings(["stall"]),
+      stateStore: store,
+      withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+      sessionsDir: join(jarvisRoot, "sessions"),
+      logSink,
+      stepId: "step-1",
+      workflowSnapshot,
+      iterationTimeoutMs: 10_000,
+      idleOutputMs: 20,
+      publishCompletion: false,
+    });
+    logSink.close();
+
+    // @mutate v2/src/daemon/run-operator-error.ts "event.resumable ? op(\"idle_output_timeout\", \"resume\", true) : op(\"idle_output_timeout\", \"stop\")" -> "op(\"idle_output_timeout\", \"stop\")"
+    expect(idleResult).toMatchObject({ kind: "idle_output_timeout", resumable: true });
+    const checkpointSha = execFileSync("git", ["-C", worktreePath, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+    }).trim();
+
+    let backgroundResume: Promise<void> | undefined;
+    const localHandlers = createRunControlHandlers({
+      stateStore: store,
+      logReader: openLogReader(logsPath),
+      logsPath,
+      writeLoopExecutor: (input, signal, pauseSignal) => {
+        const resumeLogSink = openLogSink(logsPath);
+        backgroundResume = (async () => {
+          try {
+            await executeWriteLoop({
+              ...input,
+              worktree: { ...input.worktree, jarvisRoot },
+              signal,
+              pauseSignal,
+              stateStore: store,
+              logSink: resumeLogSink,
+              withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+              sessionsDir: join(jarvisRoot, "sessions"),
+              publishCompletion: false,
+            });
+          } finally {
+            resumeLogSink.close();
+          }
+        })();
+        return backgroundResume;
+      },
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      settleDelayMs: 0,
+    });
+
+    expect((await resumeDirect(localHandlers, idleResult.runId)).kind).toBe("response");
+    if (backgroundResume !== undefined) await backgroundResume;
+
+    expect(calls).toBe(2);
+    const resumedRun = store.loadRun(idleResult.runId);
+    expect(resumedRun?.status).toBe("completed");
+    expect(resumedRun?.attempts.some((attempt) => attempt.outcomeKind === "done")).toBe(true);
+    execFileSync("git", ["-C", worktreePath, "merge-base", "--is-ancestor", checkpointSha, "HEAD"], {
+      stdio: "pipe",
+    });
+    expect(execFileSync("git", ["-C", worktreePath, "show", "HEAD:idle-checkpoint.txt"], { encoding: "utf8" })).toBe(
+      "checkpoint\n",
+    );
+    expect(execFileSync("git", ["-C", worktreePath, "show", "HEAD:proof.txt"], { encoding: "utf8" })).toBe("ok\n");
+  } finally {
+    store.close();
+    rmSync(logsPath, { force: true });
+    mock.module("../execution/write.ts", () => ({ executeWrite: realExecuteWrite }));
+  }
+});
+
 test("resume after iteration_timeout retains worktree commits without stale reset", async () => {
   const { jarvisRoot, stateDbPath } = createJarvisHome();
   roots.push(join(jarvisRoot, ".."));
   const branchName = "resume-after-timeout";
-  const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
-  mkdirSync(worktreePath, { recursive: true });
-  execFileSync("git", ["init", worktreePath], { stdio: "pipe" });
-  execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
-  execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
-  writeFileSync(join(worktreePath, "README.md"), "seed\n", "utf8");
-  const specDir = join(worktreePath, "spec/implement");
-  mkdirSync(specDir, { recursive: true });
-  writeFileSync(
-    join(specDir, "index.md"),
-    "# Implement\n\n- [ ] [00 - First](./00-first.md)\n- [ ] [01 - Second](./01-second.md)\n",
-    "utf8",
-  );
-  writeFileSync(join(specDir, "00-first.md"), "# First\n\n## Acceptance criteria\n\n- [x] done\n", "utf8");
-  writeFileSync(join(specDir, "01-second.md"), "# Second\n\n## Acceptance criteria\n\n- [ ] pending\n", "utf8");
-  execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
-  execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
+  const worktreePath = initResumeWorktree(jarvisRoot, branchName);
 
   const store = openStateStore(stateDbPath);
   const logsPath = join(tmpdir(), `jarvis-timeout-resume-${process.pid}-${Date.now()}.jsonl`);
   const logSink = openLogSink(logsPath);
   const specPath = "spec/implement/index.md";
-  const progressInvocation = {
-    attempts: [],
-    final: { binding: { id: "sim.1", metadata: { agent: "Test Agent" } }, result: { kind: "ok" as const } },
-    telemetryFailures: [] as const,
-  };
   let calls = 0;
 
   mock.module("../execution/write.ts", () => ({
@@ -2932,7 +3142,7 @@ test("resume after iteration_timeout retains worktree commits without stale rese
                 worktreePath,
                 worktreeReused: true as const,
                 lock: { kind: "acquired" as const },
-                result: { kind: "progress" as const, token: "progress" as const, invocation: progressInvocation },
+                result: { kind: "progress" as const, token: "progress" as const, invocation: OK_INVOCATION },
               }),
             { once: true },
           );
@@ -2943,7 +3153,7 @@ test("resume after iteration_timeout retains worktree commits without stale rese
         worktreePath,
         worktreeReused: true as const,
         lock: { kind: "acquired" as const },
-        result: { kind: "complete" as const, token: "done" as const, invocation: progressInvocation },
+        result: { kind: "complete" as const, token: "done" as const, invocation: OK_INVOCATION },
       });
     },
   }));
@@ -2986,26 +3196,7 @@ test("resume after iteration_timeout retains worktree commits without stale rese
       encoding: "utf8",
     }).trim();
 
-    const localHandlers = createRunControlHandlers({
-      stateStore: store,
-      logReader: openLogReader(logsPath),
-      logsPath,
-      writeLoopExecutor: async (input, signal, pauseSignal) => {
-        await executeWriteLoop({
-          ...input,
-          worktree: { ...input.worktree, jarvisRoot },
-          signal,
-          pauseSignal,
-          stateStore: store,
-          withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
-          sessionsDir: join(jarvisRoot, "sessions"),
-          publishCompletion: false,
-        });
-      },
-      failureReporter: () => {},
-      hasMemoryHeadroom: () => true,
-      settleDelayMs: 0,
-    });
+    const localHandlers = createGitBackedResumeHandlers(store, logsPath, jarvisRoot);
 
     expect((await resumeDirect(localHandlers, timeoutResult.runId)).kind).toBe("response");
     for (let i = 0; calls < 2 && i < 50; i += 1) {

@@ -250,6 +250,23 @@ test("composeRunOperatorError maps idle_output_timeout as a failed, non-retryabl
   ).toEqual(err("idle_output_timeout", "stop"));
 });
 
+test("composeRunOperatorError maps resumable idle_output_timeout with checkpoint progress", () => {
+  // @mutate v2/src/daemon/run-operator-error.ts "event.resumable ? op(\"idle_output_timeout\", \"resume\", true) : op(\"idle_output_timeout\", \"stop\")" -> "op(\"idle_output_timeout\", \"stop\")"
+  expect(
+    composeRunOperatorError(
+      runWith("failed", [attempt("idle_output_timeout")]),
+      loopFinished("idle_output_timeout", { resumable: true }),
+    ),
+  ).toEqual(err("idle_output_timeout", "resume", true));
+});
+
+test("idle_output_timeout recovery copy directs resume", () => {
+  expect(RUN_OPERATOR_ERROR_RECOVERY.idle_output_timeout).toContain("jarvis run resume");
+  expect(RUN_OPERATOR_ERROR_RECOVERY.idle_output_timeout).not.toEqual(
+    "inspect the stall in jarvis run log, then re-dispatch the workflow",
+  );
+});
+
 test("composeRunOperatorError maps idle_output_timeout from attempt detail alone (no matching loop_finished)", () => {
   expect(composeRunOperatorError(runWith("failed", [attempt("idle_output_timeout")]))).toEqual(
     err("idle_output_timeout", "stop"),
@@ -620,6 +637,31 @@ test("resolveFailedBlockedAttemptPrecedence prefers resumable iteration_timeout 
     resolveFailedBlockedAttemptPrecedence(
       attempt("blocked"),
       loopFinishedEvent("iteration_timeout", { resumable: false }),
+    ),
+  ).toEqual(err("agent_blocked", "inspect_spec"));
+});
+
+test("composeRunOperatorError and resolveFailedBlockedAttemptPrecedence prefer resumable idle_output_timeout over mappable attempt detail", () => {
+  const resumableIdleTimeout = loopFinishedEvent("idle_output_timeout", { resumable: true });
+  const expected = err("idle_output_timeout", "resume", true);
+  expect(
+    composeRunOperatorError(
+      runWith("failed", [attempt("blocked")]),
+      loopFinished("idle_output_timeout", { resumable: true }),
+    ),
+  ).toEqual(expected);
+  expect(
+    composeRunOperatorError(
+      runWith("blocked", [attempt("contract_miss")]),
+      loopFinished("idle_output_timeout", { resumable: true }),
+    ),
+  ).toEqual(expected);
+  expect(resolveFailedBlockedAttemptPrecedence(attempt("blocked"), resumableIdleTimeout)).toEqual(expected);
+  expect(resolveFailedBlockedAttemptPrecedence(attempt("contract_miss"), resumableIdleTimeout)).toEqual(expected);
+  expect(
+    resolveFailedBlockedAttemptPrecedence(
+      attempt("blocked"),
+      loopFinishedEvent("idle_output_timeout", { resumable: false }),
     ),
   ).toEqual(err("agent_blocked", "inspect_spec"));
 });

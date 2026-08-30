@@ -310,9 +310,6 @@ async function runLoop(args: {
   runAutofixTypecheck?: WriteLoopInput["runAutofixTypecheck"];
   iterationTimeoutMs?: number;
   readyGateScopeSeams?: WriteLoopInput["readyGateScopeSeams"];
-  guardCheckpointReprompt?: WriteLoopInput["guardCheckpointReprompt"];
-  mutationDirectiveReprompt?: WriteLoopInput["mutationDirectiveReprompt"];
-  keystoneDirectiveReprompt?: WriteLoopInput["keystoneDirectiveReprompt"];
 }) {
   // Track the parent directory for cleanup
   roots.push(join(args.jarvisRoot, ".."));
@@ -356,13 +353,6 @@ async function runLoop(args: {
     ...(args.runAutofixTypecheck !== undefined ? { runAutofixTypecheck: args.runAutofixTypecheck } : {}),
     ...(args.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: args.iterationTimeoutMs } : {}),
     ...(args.readyGateScopeSeams !== undefined ? { readyGateScopeSeams: args.readyGateScopeSeams } : {}),
-    ...(args.guardCheckpointReprompt !== undefined ? { guardCheckpointReprompt: args.guardCheckpointReprompt } : {}),
-    ...(args.mutationDirectiveReprompt !== undefined
-      ? { mutationDirectiveReprompt: args.mutationDirectiveReprompt }
-      : {}),
-    ...(args.keystoneDirectiveReprompt !== undefined
-      ? { keystoneDirectiveReprompt: args.keystoneDirectiveReprompt }
-      : {}),
   };
   try {
     return await executeWriteLoop(loopInput);

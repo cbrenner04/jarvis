@@ -28,12 +28,9 @@ import { parseSpec } from "../../../shared/spec-parser.ts";
 import { AsyncSubprocessError, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
-  type GuardCheckpointRepromptContext,
-  type KeystoneDirectiveRepromptContext,
   type LandingContractRepromptEvent,
   type LogSink,
   type LoopFinishedEvent,
-  type MutationDirectiveRepromptContext,
   type PersistedRecord,
   priorLogRecordsFromSink,
   type StagedMarkdownLintRepromptEvent,
@@ -278,12 +275,6 @@ export type WriteLoopInput = WriteExecuteInput & {
   landingContractReprompt?: { violation: string; offendingFile: string };
   /** Reprompt context for the next plan-draft iteration after a staged Markdown lint miss. */
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string };
-  /** Reprompt context for the next implement iteration after a repromptable mutation-directive miss. */
-  mutationDirectiveReprompt?: MutationDirectiveRepromptContext;
-  /** Process-local repair context for the next implement iteration after repairable guard findings. */
-  guardCheckpointReprompt?: GuardCheckpointRepromptContext;
-  /** Reprompt context for the next implement iteration after a repromptable unlinked-keystone miss. */
-  keystoneDirectiveReprompt?: KeystoneDirectiveRepromptContext;
   /** Publication landing contract when invoked from workflow-runner write steps. */
   landing?: PublicationLanding;
   /** Per-project autofix override (`bun run fix` when unset). */
@@ -974,9 +965,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
     let resumedAttemptId = prepared.resumedAttemptId;
     let pendingLandingReprompt = args.landingContractReprompt;
     let pendingStagedMarkdownLintReprompt = args.stagedMarkdownLintReprompt;
-    let pendingMutationDirectiveReprompt = args.mutationDirectiveReprompt;
-    let pendingGuardCheckpointReprompt = args.guardCheckpointReprompt;
-    let pendingKeystoneDirectiveReprompt = args.keystoneDirectiveReprompt;
 
     store.setRunStatus(runId, "in-progress");
 
@@ -1005,9 +993,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         "bounded",
         pendingLandingReprompt,
         pendingStagedMarkdownLintReprompt,
-        pendingMutationDirectiveReprompt,
-        pendingGuardCheckpointReprompt,
-        pendingKeystoneDirectiveReprompt,
       );
       if (settled.kind === "aborted") {
         closeSessionLog(sessionLog, "abort");
@@ -1452,10 +1437,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         }
       }
 
-      pendingMutationDirectiveReprompt = undefined;
-      pendingGuardCheckpointReprompt = undefined;
-      pendingKeystoneDirectiveReprompt = undefined;
-
       // Run coverage advisory for completing implement writes before terminal boundary
       if (result.kind === "complete" && args.promptId === "patch.prompt.body") {
         const advisoryResult = await runCoverageAdvisory(worktreePath, args.bindings, args.signal);
@@ -1810,9 +1791,6 @@ async function awaitIteration(
   settlementPolicy: IterationSettlementPolicy = "bounded",
   landingContractReprompt?: { violation: string; offendingFile: string },
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string },
-  mutationDirectiveReprompt?: MutationDirectiveRepromptContext,
-  guardCheckpointReprompt?: GuardCheckpointRepromptContext,
-  keystoneDirectiveReprompt?: KeystoneDirectiveRepromptContext,
 ): Promise<IterationSettlement> {
   const executionController = new AbortController();
   const abortExecution = () => executionController.abort();
@@ -1861,9 +1839,6 @@ async function awaitIteration(
       sessionLog,
       landingContractReprompt,
       stagedMarkdownLintReprompt,
-      mutationDirectiveReprompt,
-      guardCheckpointReprompt,
-      keystoneDirectiveReprompt,
     ),
     remainingIterationWallMs: () => Math.max(0, wallSegmentDeadline - Date.now()),
     ...(onInvocationOutputProgress !== undefined ? { onInvocationOutputProgress } : {}),
@@ -2164,9 +2139,6 @@ function buildWriteExecuteInput(
   sessionLog: SessionLog,
   landingContractReprompt?: { violation: string; offendingFile: string },
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string },
-  _mutationDirectiveReprompt?: MutationDirectiveRepromptContext,
-  _guardCheckpointReprompt?: GuardCheckpointRepromptContext,
-  _keystoneDirectiveReprompt?: KeystoneDirectiveRepromptContext,
 ): WriteExecuteInput {
   const telemetry = args.telemetry;
   // An operator-session-only telemetry attachment (no sinkPath/workflow/role) is a

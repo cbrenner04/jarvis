@@ -17,7 +17,7 @@ import {
   type WriteLoopOutcomeKind,
 } from "../execution/write-loop.ts";
 import type { IpcFrame } from "../ipc/types.ts";
-import type { GuardCheckpointRepairEntry, LogEvent, LogReader, LoopFinishedEvent } from "../persistence/log-stream.ts";
+import type { LogEvent, LogReader, LoopFinishedEvent } from "../persistence/log-stream.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
@@ -143,14 +143,14 @@ function createHandlers(logReader?: LogReader): Handlers {
   });
 }
 
-function logReader(runId: string, events: readonly LogEvent[]): LogReader {
+function logReader(runId: string, events: readonly object[]): LogReader {
   return {
     tail: () =>
       events.map((event, index) => ({
         runId,
         seq: index + 1,
         ts: `2026-01-01T00:00:0${index}.000Z`,
-        event,
+        event: event as LogEvent,
       })),
     async *follow() {},
   };
@@ -2592,7 +2592,7 @@ test("resumes paused intent-split write loop with landing-contract reprompt cont
   expect(readFileSync(stageFile, "utf8")).toContain("Still prose.");
 });
 
-const GUARD_REPAIRS: GuardCheckpointRepairEntry[] = [
+const GUARD_REPAIRS = [
   {
     kind: "guard",
     criterionText: "- [x] unlinked guard criterion",
@@ -2657,14 +2657,14 @@ const PAUSED_LOOP_FINISHED = {
   resumable: true,
 } as const satisfies LogEvent;
 
-function createPausedDirectWriteRun(): string {
+function createPausedDirectWriteRun(branchName = "direct-replay", queuedExtra?: Record<string, unknown>): string {
   const { jarvisRoot } = createJarvisHome();
   roots.push(join(jarvisRoot, ".."));
-  const queuedInput: WriteLoopInput = {
+  const queuedInput = {
     ...mockWriteLoopInput({
       projectRoot: "/fake",
-      projectName: "direct-replay",
-      branchName: "direct-replay",
+      projectName: branchName,
+      branchName,
       baseRef: "HEAD",
       jarvisRoot,
     }),
@@ -2676,12 +2676,13 @@ function createPausedDirectWriteRun(): string {
       agents: ["codex"],
       agentModelConfig: AGENT_MODEL_CONFIG,
     },
-  };
+    ...queuedExtra,
+  } as WriteLoopInput;
   return stateStore.createRun({
-    project: "direct-replay",
+    project: branchName,
     specRef: "HEAD",
     worktreePath: "/fake",
-    branch: "direct-replay",
+    branch: branchName,
     specPath: "spec.md",
     status: "paused",
     queuedInput,
@@ -2689,9 +2690,9 @@ function createPausedDirectWriteRun(): string {
 }
 
 function expectNoCheckpointRepromptReplay(input: WriteLoopInput | undefined): void {
-  expect(input?.mutationDirectiveReprompt).toBeUndefined();
-  expect(input?.guardCheckpointReprompt).toBeUndefined();
-  expect(input?.keystoneDirectiveReprompt).toBeUndefined();
+  expect(input).not.toHaveProperty("mutationDirectiveReprompt");
+  expect(input).not.toHaveProperty("guardCheckpointReprompt");
+  expect(input).not.toHaveProperty("keystoneDirectiveReprompt");
   expect(input?.initialIterationsConsumed).toBeUndefined();
 }
 
@@ -2709,14 +2710,14 @@ test.each([
         },
       ],
       display: "truncated…",
-    } satisfies LogEvent,
+    },
   },
   {
     checkpointEvent: {
       kind: "guard_checkpoint_reprompt",
       attemptId: "attempt-1",
       repairs: GUARD_REPAIRS,
-    } satisfies LogEvent,
+    },
   },
   {
     checkpointEvent: {
@@ -2724,7 +2725,7 @@ test.each([
       attemptId: "attempt-1",
       criterionText: "- [x] `keystone.test.ts` — `keystone pin`; Keystone checkpoint: headline revert turns pin red.",
       pinPath: "keystone.test.ts",
-    } satisfies LogEvent,
+    },
   },
 ])("paused implement resume ignores historical checkpoint reprompt log events ($checkpointEvent.kind)", async ({
   checkpointEvent,
@@ -2781,6 +2782,35 @@ test("paused direct implement resume ignores historical checkpoint reprompt log 
     ),
     runId,
   );
+
+  expect(response.kind).toBe("response");
+  expect(starts).toHaveLength(1);
+  expectNoCheckpointRepromptReplay(starts[0]);
+  expect(starts[0]?.maxIterations).toBe(3);
+});
+
+test("paused direct write resume strips stale checkpoint queuedInput without seeding iteration budget", async () => {
+  const runId = createPausedDirectWriteRun("direct-stale-queued", {
+    mutationDirectiveReprompt: {
+      directives: [
+        {
+          pinningFile: "pin-a.test.ts",
+          line: 2,
+          raw: '// @mutate target.ts "missing-a" -> "x"',
+          reason: "target_absent",
+        },
+      ],
+      display: "truncated…",
+    },
+    guardCheckpointReprompt: { repairs: GUARD_REPAIRS },
+    keystoneDirectiveReprompt: {
+      criterionText: "- [x] `keystone.test.ts` — `keystone pin`",
+      pinPath: "keystone.test.ts",
+    },
+    initialIterationsConsumed: 5,
+  });
+
+  const response = await resumeDirect(createHandlers(), runId);
 
   expect(response.kind).toBe("response");
   expect(starts).toHaveLength(1);

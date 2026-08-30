@@ -590,12 +590,12 @@ function reconstructDirectWriteResume(run: Run): ResolvedWriteLoopInput {
   const input = run.queuedInput;
   if (!input) return { ok: false, message: "run has no durable direct-write resume context" };
   const {
+    initialIterationsConsumed: _initialIterationsConsumed,
     mutationDirectiveReprompt: _mutationDirectiveReprompt,
     guardCheckpointReprompt: _guardCheckpointReprompt,
     keystoneDirectiveReprompt: _keystoneDirectiveReprompt,
-    initialIterationsConsumed: _initialIterationsConsumed,
     ...baseInput
-  } = input;
+  } = input as WriteLoopInput & Record<string, unknown>;
   return resolveWriteLoopBindings(baseInput);
 }
 

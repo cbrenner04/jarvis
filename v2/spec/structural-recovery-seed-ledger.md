@@ -119,6 +119,16 @@ Not seed rows, but they close or advance brief items: #3133 retire-checkpoint-lo
 - **Lesson — merging during live implements strands them.** Merged 5 PRs while 2 implements were live; both stranded `unsupported_resume_context` (work complete, died at biome commit). Both salvaged by hand. Discipline restored: batch merges at idle points, one implement at a time on the verifier file (`diff-derived-mutation-verifier.ts`), which forces the mutation-gate implements serial.
 - **`@mutate` contamination recurs at plan AND implement stages** (not just intent): #3184's plan actuator and #3189's implement agent both re-emitted dead `@mutate` despite scrubbed ready-intents — confirms the agents write it from habit/`DEFAULT_WRITE_STEP_RULES`, independent of the injected rules. Reinforces `retire-mutate-dsl-from-default-write-step-rules`.
 
+## This-session (2026-08-30 PM continuation 3)
+
+- **Both dominant mutation-gate flakiness roots LANDED:** escape-hatch (#3188) + race-fix serialize-per-file (#3191). Independent reviews both clean. After a daemon restart onto the fixed build, **`resume-admission` (#3194, 3-subspec) completed cleanly with no strand** — first multi-subspec implement to flow all the way through the fixed gate. Proof the race fix works.
+- **Watchdog trio 2/3 landed:** checkpoint-resumability (#3189) + resume-admission (#3194). Slice 3 (`stall-settlement-preserves-agent-stdout`) not started.
+- **Importer-aware killing tests landed (#3195)** — but its independent review found a latent self-brick (importer cap counts surface-total test files; v2/src at 144/200). Merged (safe today, spec-faithful) + seeded [[importer-cap-counts-realized-not-surface-total]] (P1).
+- **Linchpin planned (#3196)** — in-loop mutation verification, 5-subspec spec on main; **implement launched** (`20260830T175126Z`). Verifies at `done` + reprompts the live agent.
+- **Correction to the continuation-2 "merge-during-implement" lesson:** re-examination showed all three implement strands this session were **biome cognitive-complexity commit-gate failures**, not merge-disruption (gh merges don't supersede the daemon). Seeded [[implement-biome-complexity-commit-strand-is-resumable]] — the dominant remaining strand class now the mutation race is fixed.
+- **`@mutate` fully characterized:** a whole-repo grep confirms **no processor** — the retire chain removed it but left 500+ dead directives across ~60 test files. Seeded [[sweep-dead-mutate-directives-from-test-corpus]]; stopped per-PR scrubbing (inconsistent at that scale).
+- **New seeds:** [[importer-cap-counts-realized-not-surface-total]], [[sweep-dead-mutate-directives-from-test-corpus]], [[implement-biome-complexity-commit-strand-is-resumable]].
+
 ## Gaps / low-confidence
 
 - `harness-publication-push-uses-explicit-refspec`, `inject-spec-guidance-agent-core`, `split-spec-guidance-documents`, `cleanup-uses-lossless-git-status`: confirmed as landed ready-intents (intent PRs verified), but no plan-spec dir or implement PR was verifiable from the brief or git — left `—`. May be planned/implemented under names not matched here.

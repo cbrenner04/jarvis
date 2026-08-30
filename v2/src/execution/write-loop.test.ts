@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import {
   appendFileSync,
@@ -16,6 +16,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
+import * as sharedGit from "../../../shared/git.ts";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
 import { composeRunOperatorError } from "../daemon/run-operator-error.ts";
 import type { LogEvent, LogSink, LoopFinishedEvent } from "../persistence/log-stream.ts";
@@ -6883,6 +6884,134 @@ export function isLoadSensitive(file: string): boolean {
       expect(withLeftover).toContain("leftover.txt");
       expect(withLeftover).not.toContain("node_modules");
       expect(shouldFailTerminalCompletionForDirtyWorktree(undefined, withLeftover)).toBe(true);
+    });
+
+    test("terminal completion reports the nested untracked file", async () => {
+      // @mutate v2/src/execution/write-loop.ts ".map((entry) => entry.currentPath)" -> ".map((entry) => { const slash = entry.currentPath.indexOf(\"/\"); return slash >= 0 ? `${entry.currentPath.slice(0, slash + 1)}` : entry.currentPath; })"
+      // @mutate v2/src/execution/write-loop.ts "shouldFailTerminalCompletionForDirtyWorktree(undefined, uncommitted)" -> "false"
+      const nestedPath = "untracked-dir/only-dirt.txt";
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "iter-nested-untracked-terminal";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      writeFileSync(join(worktreePath, "subspec.md"), "- [ ] task\n", "utf8");
+      const store = openStateStore(stateDbPath);
+      let calls = 0;
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => {
+          calls += 1;
+          if (calls <= 2) {
+            writeFileSync(join(worktreePath, `iter-${calls}.txt`), "x\n");
+            return progressWrite(worktreePath);
+          }
+          mkdirSync(join(worktreePath, "untracked-dir"), { recursive: true });
+          writeFileSync(join(worktreePath, nestedPath), "nested only dirt\n");
+          return completeWrite(worktreePath);
+        },
+      }));
+
+      try {
+        let commitCalls = 0;
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            stepRules: "Return progress or done.",
+            expectedArtifactPath: "subspec.md",
+            bindings: simulatedBindings(["progress", "progress", "done"]),
+            completionCommitter: async (input) => {
+              commitCalls += 1;
+              if (commitCalls > 2) return {};
+              return createCompletionCommitter()(input);
+            },
+            completionPublisher: async () => ({}),
+            readyFinalizer: async () => {},
+          }),
+        );
+
+        expect(result.kind).toBe("completion_commit_failed");
+        expect(result.completionCommitError).toContain(nestedPath);
+        expect(result.completionCommitError).not.toContain("untracked-dir/,");
+
+        const unusualPaths = ["space path.txt", "line\nbreak.txt", "café/雪.txt", " leading.txt "];
+        for (const path of unusualPaths) {
+          mkdirSync(join(worktreePath, path, ".."), { recursive: true });
+          writeFileSync(join(worktreePath, path), "x\n");
+        }
+        const listed = await getUncommittedPaths(worktreePath);
+        for (const path of unusualPaths) {
+          expect(listed).toContain(path);
+          expect(listed.filter((candidate) => candidate === path)).toHaveLength(1);
+        }
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("getUncommittedPaths is fail-soft for Git failure and malformed status framing", async () => {
+      const plain = mkdtempSync(join(tmpdir(), "uncommitted-fail-soft-plain-"));
+      roots.push(plain);
+      expect(await getUncommittedPaths(plain)).toEqual([]);
+
+      const { jarvisRoot } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const inventorySpy = spyOn(sharedGit, "getGitStatusInventory").mockRejectedValue(
+        new Error("Malformed git status inventory: missing terminal NUL"),
+      );
+      try {
+        expect(await getUncommittedPaths(initGitWorktree(jarvisRoot, "uncommitted-malformed"))).toEqual([]);
+      } finally {
+        inventorySpy.mockRestore();
+      }
+    });
+
+    test("ready-gate snapshot and restoration retain lossless uncommitted paths", async () => {
+      const nestedPath = "outer/nested only.txt";
+      const nestedContent = "pre-autofix nested dirt\n";
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const logSink = new TestLogSink();
+      const branchName = "repair-autofix-lossless-snapshot";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      writeFileSync(join(worktreePath, "proof.txt"), "ok", "utf8");
+      execFileSync("git", ["-C", worktreePath, "add", "proof.txt"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "commit", "-qm", "add proof"], { stdio: "pipe" });
+      mkdirSync(join(worktreePath, "outer"), { recursive: true });
+      writeFileSync(join(worktreePath, nestedPath), nestedContent, "utf8");
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        branchName,
+        bindings: [
+          {
+            id: "sim.1",
+            metadata: { agent: "sim-agent-1", model: "sim-model-1" },
+            invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) as const,
+          },
+        ],
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
+        completionPublisher: async () => ({}),
+        runAutofixTypecheck: async () => ({ exitCode: 1, output: "typecheck failed" }),
+        runFixCommand: async ({ cwd }) => {
+          const proofPath = join(cwd, "proof.txt");
+          writeFileSync(proofPath, `${readFileSync(proofPath, "utf8").trimEnd()}\n`, "utf8");
+          writeFileSync(join(cwd, "broken.ts"), "const x: number = 'bad'\n", "utf8");
+        },
+        readyFinalizer: async ({ worktreePath: cwd }) => {
+          if (!readFileSync(join(cwd, "proof.txt"), "utf8").endsWith("\n")) {
+            throw new ReadyGateError("bun run ready", 1, "formatting required");
+          }
+        },
+      });
+
+      expect(result.kind).toBe("completion_commit_failed");
+      expect(existsSync(join(worktreePath, "broken.ts"))).toBe(false);
+      expect(readFileSync(join(worktreePath, nestedPath), "utf8")).toBe(nestedContent);
+      const listed = await getUncommittedPaths(worktreePath);
+      expect(listed).toContain(nestedPath);
+      expect(listed.filter((candidate) => candidate === nestedPath)).toHaveLength(1);
     });
 
     test("commits once per changed progress iteration with Jarvis-Agent and Spec lines", async () => {

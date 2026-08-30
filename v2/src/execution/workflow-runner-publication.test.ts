@@ -1180,6 +1180,74 @@ describe("executeWorkflow completion publication", () => {
     });
   });
 
+  test("workflow completion and resume retain the fail-soft uncommitted-path contract", async () => {
+    const nestedPath = "nested-dir/only-dirt.txt";
+    const invocationId = "workflow-uncommitted-inventory-inv";
+    const branchName = "workflow-uncommitted-inventory";
+    const noOpPublicationTail = {
+      completionCommitter: async () => ({}),
+      completionPublisher: async () => ({}),
+      readyFinalizer: async () => {},
+    };
+    const step = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName,
+      workflowInvocationId: invocationId,
+      createBinding: doneBindingFactory,
+    });
+    const jarvisRoot = step.worktree.jarvisRoot;
+    if (jarvisRoot === undefined) throw new Error("missing jarvis root");
+    const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+    mkdirSync(worktreePath, { recursive: true });
+    execFileSync("git", ["init", "-q"], { cwd: worktreePath, stdio: "pipe" });
+    execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+    execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
+    writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
+    execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+    execFileSync("git", ["-C", worktreePath, "commit", "-qm", "seed"], { stdio: "pipe" });
+    const logSink = new TestLogSink();
+
+    await withStateStore(async (store) => {
+      seedCompletedWriteRun(store, step, worktreePath, invocationId);
+      mkdirSync(join(worktreePath, "nested-dir"), { recursive: true });
+      writeFileSync(join(worktreePath, nestedPath), "only dirt\n", "utf8");
+
+      for (const _attempt of [0, 1]) {
+        const result = await executeWorkflow({
+          steps: [step],
+          stateStore: store,
+          logSink,
+          ...noOpPublicationTail,
+        });
+        expect(result.kind).toBe("completion_commit_failed");
+        expect(result.completionCommitError).toContain(nestedPath);
+      }
+    });
+
+    const plainWorkspace = mkdtempSync(join(tmpdir(), "workflow-uncommitted-fail-soft-"));
+    roots.push(plainWorkspace);
+    const plainBase = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName: "workflow-uncommitted-fail-soft",
+      createBinding: createBindingFactory(async ({ cwd }) => {
+        writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+        return { kind: "ok", stdout: "done", stderr: "" };
+      }),
+    });
+    const plainStep: WriteWorkflowStep = {
+      ...plainBase,
+      worktree: { ...plainBase.worktree, git: false, localPath: plainWorkspace },
+      withExternalWorktree: externalWorktreeBinding(plainWorkspace),
+    };
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [plainStep], stateStore: store, ...noOpPublicationTail });
+      expect(result.kind).toBe("complete");
+    });
+  });
+
   test("does not record done completion boundary when intent stage remains uncommitted", async () => {
     // Plain (non-git) workspace: `git status --porcelain` fails here, so `getUncommittedPaths`
     // alone can't see a leftover staged file — only `remainingStagedIntentPaths` does.

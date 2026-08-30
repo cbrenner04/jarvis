@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { type RunFixCommandOpts, runFixCommand } from "../../../shared/fix-command.ts";
-import { getCurrentHeadAsync } from "../../../shared/git.ts";
+import { getCurrentHeadAsync, getGitStatusInventory } from "../../../shared/git.ts";
 import {
   executeWithQuotaFallback,
   type InvocationBinding,
@@ -391,13 +391,11 @@ export function shouldFailTerminalCompletionForDirtyWorktree(
   return commitSha === undefined && uncommittedPaths.length > 0;
 }
 
-/** `git status --porcelain` paths, minus the materialized node_modules symlink; fail-soft to []. */
+/** Lossless uncommitted paths from shared inventory, minus materialized node_modules; fail-soft to []. */
 export async function getUncommittedPaths(worktreePath: string): Promise<string[]> {
   try {
-    return (await realAsyncSubprocessRunner.runAsync("git", ["status", "--porcelain"], worktreePath))
-      .split("\n")
-      .map((line) => line.slice(3).trim())
-      .filter(Boolean)
+    return (await getGitStatusInventory(worktreePath))
+      .map((entry) => entry.currentPath)
       .filter((path) => !isMaterializedNodeModulesPath(worktreePath, path));
   } catch {
     return [];

@@ -6,7 +6,7 @@ import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { InvocationFailureDetail } from "../execution/invocation-failure.ts";
 import type { PipelineDefinition, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
 import type { PublicationFailure } from "../execution/publication-retry.ts";
-import type { WriteLoopInput } from "../execution/write-loop.ts";
+import { isWriteLoopOutcomeKind, type WriteLoopInput, type WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import { jarvisHome } from "../paths.ts";
 
 /** Timeout for the state store to wait when the database is locked (busy_timeout in ms). Must exceed the longest single store transaction. */
@@ -143,7 +143,7 @@ export type Run = {
   prNumber?: number | null;
   prUrl?: string | null;
   reconciledAt?: number | null;
-  /** Unix epoch ms of the last durable terminal status write outside a completion boundary. */
+  /** Unix epoch ms stamped by terminal status writes outside a completion boundary (`setRunStatus`, `commitGuardedKill`, `commitTerminalRunSettlement`); cleared when `setRunStatus` writes a non-terminal status. */
   finishedAt?: number | null;
   /** Process group id of the run's in-flight ready-gate test tree; null when no gate is in flight. */
   readyGatePgid?: number | null;
@@ -155,6 +155,12 @@ export type Run = {
   retainedFinalizationCheckpointCorrupt?: boolean;
   /** Unix epoch ms when an operator dismissed this run from display; `null`/absent when not dismissed. */
   dismissedAt?: number | null;
+  /** Durable terminal settlement cause aligned with log `loopOutcomeKind`; `null` when unset or pre-migration. */
+  terminalCause?: WriteLoopOutcomeKind | null;
+  /** Durable terminal settlement failure detail; `null` when unset, cleared, corrupt, or pre-migration. */
+  terminalFailureDetail?: InvocationFailureDetail | null;
+  /** True when a non-null `terminal_failure_detail` column could not be parsed. */
+  terminalFailureDetailCorrupt?: boolean;
 };
 
 export type PipelineStatus = "active" | "interrupted";
@@ -225,6 +231,16 @@ export type RunDismissalRefusalReason = "run_not_found";
 export type RunDismissalOutcome =
   | { kind: "applied"; runId: string }
   | { kind: "refused"; runId: string; reason: RunDismissalRefusalReason };
+
+type CommitTerminalRunSettlementInput = {
+  runId: string;
+  status: RunStatus;
+  terminalCause?: WriteLoopOutcomeKind | null;
+  prNumber?: number | null;
+  prUrl?: string | null;
+  terminalFailureDetail?: InvocationFailureDetail | null;
+  beforeSecondWrite?: () => void;
+};
 
 export type PipelineReopenRefusalReason =
   | "pipeline_not_found"
@@ -690,6 +706,9 @@ export interface StateStore {
   /** Set `killed` unless the row is already boundary-terminal (`completed`, `blocked`, `failed`). */
   commitGuardedKill(runId: string): void;
 
+  /** Terminal status, finish metadata, and optional evidence in one transaction; `beforeSecondWrite` is a test seam. */
+  commitTerminalRunSettlement(args: CommitTerminalRunSettlementInput): void;
+
   /**
    * Mark a run dismissed from display. Preserves the first dismissal timestamp on
    * repeat calls; refuses on an unknown run id. Does not touch attempt rows or lifecycle.
@@ -768,7 +787,9 @@ const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, 
   ready_gate_pgid AS readyGatePgid,
   ready_gate_repair_fence AS readyGateRepairFenceJson,
   retained_finalization_checkpoint AS retainedFinalizationCheckpointJson,
-  dismissed_at AS dismissedAt`;
+  dismissed_at AS dismissedAt,
+  terminal_cause AS terminalCause,
+  terminal_failure_detail AS terminalFailureDetailJson`;
 
 const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, started_at AS startedAt, status,
   outcome_kind AS outcomeKind, completed_at AS completedAt, invocation_failure_detail AS invocationFailureDetailJson,
@@ -928,6 +949,11 @@ const SCHEMA_MIGRATIONS = [
   { id: "026-attempts-completion-review-pass", up: "ALTER TABLE attempts ADD COLUMN completion_review_pass INTEGER" },
   { id: "027-pipeline-dismissed-at", up: "ALTER TABLE pipelines ADD COLUMN dismissed_at INTEGER" },
   { id: "028-run-dismissed-at", up: "ALTER TABLE runs ADD COLUMN dismissed_at INTEGER" },
+  {
+    id: "029-run-terminal-settlement-columns",
+    up: `ALTER TABLE runs ADD COLUMN terminal_cause TEXT;
+        ALTER TABLE runs ADD COLUMN terminal_failure_detail TEXT`,
+  },
 ] as const;
 
 const ORPHAN_STATUSES = "'queued', 'in-progress', 'paused', 'budget-soft-stopped'";
@@ -1081,12 +1107,15 @@ type RunRow = Omit<
   | "retainedFinalizationCheckpoint"
   | "retainedFinalizationCheckpointCorrupt"
   | "downstreamInputs"
+  | "terminalFailureDetail"
+  | "terminalFailureDetailCorrupt"
 > & {
   workflowSnapshotJson: string | null;
   queuedInputJson: string | null;
   readyGateRepairFenceJson: string | null;
   retainedFinalizationCheckpointJson: string | null;
   downstreamInputsJson: string | null;
+  terminalFailureDetailJson: string | null;
 };
 
 function parseReadyGateRepairFenceProvenance(json: string | null): ReadyGateRepairFenceProvenance | null | "invalid" {
@@ -1106,6 +1135,19 @@ function parseReadyGateRepairFenceProvenance(json: string | null): ReadyGateRepa
       return "invalid";
     }
     if (parsed.outcomeKind !== "frozen" && parsed.outcomeKind !== "completion_commit_failed") {
+      return "invalid";
+    }
+    return parsed;
+  } catch {
+    return "invalid";
+  }
+}
+
+function parseTerminalFailureDetail(json: string | null): InvocationFailureDetail | null | "invalid" {
+  if (json === null) return null;
+  try {
+    const parsed = JSON.parse(json) as InvocationFailureDetail;
+    if (typeof parsed.failureKind !== "string" || !Array.isArray(parsed.bindingAttempts)) {
       return "invalid";
     }
     return parsed;
@@ -1134,10 +1176,12 @@ function mapRunRow(row: RunRow): Run {
     readyGateRepairFenceJson,
     retainedFinalizationCheckpointJson,
     downstreamInputsJson,
+    terminalFailureDetailJson,
     ...run
   } = row;
   const parsedFence = parseReadyGateRepairFenceProvenance(readyGateRepairFenceJson);
   const parsedCheckpoint = parseRetainedFinalizationCheckpoint(retainedFinalizationCheckpointJson);
+  const parsedTerminalFailureDetail = parseTerminalFailureDetail(terminalFailureDetailJson);
   let downstreamInputs: readonly string[] | null | undefined;
   if (downstreamInputsJson !== null) {
     try {
@@ -1157,6 +1201,11 @@ function mapRunRow(row: RunRow): Run {
     retainedFinalizationCheckpoint:
       parsedCheckpoint === "invalid" || parsedCheckpoint === null ? null : parsedCheckpoint,
     ...(parsedCheckpoint === "invalid" ? { retainedFinalizationCheckpointCorrupt: true } : {}),
+    terminalFailureDetail:
+      parsedTerminalFailureDetail === "invalid" || parsedTerminalFailureDetail === null
+        ? null
+        : parsedTerminalFailureDetail,
+    ...(parsedTerminalFailureDetail === "invalid" ? { terminalFailureDetailCorrupt: true } : {}),
   };
 }
 
@@ -1823,6 +1872,55 @@ class StateStoreImpl implements StateStore {
       const finishedAt = Date.now();
       this.db.prepare("UPDATE runs SET status = 'killed', finished_at = ? WHERE id = ?").run(finishedAt, runId);
     })();
+  }
+
+  commitTerminalRunSettlement(args: CommitTerminalRunSettlementInput): void {
+    if (!isTerminalRunStatus(args.status)) {
+      throw new Error(`Terminal run settlement requires a terminal status: ${args.status}`);
+    }
+    if (
+      args.terminalCause !== undefined &&
+      args.terminalCause !== null &&
+      !isWriteLoopOutcomeKind(args.terminalCause)
+    ) {
+      throw new Error(`Invalid terminal cause: ${String(args.terminalCause)}`);
+    }
+
+    const applySettlement = () => {
+      if (!this.runRowExists(args.runId)) throw new Error(`Run ${args.runId} not found`);
+
+      const finishedAt = Date.now();
+      this.db
+        .prepare("UPDATE runs SET status = ?, finished_at = ? WHERE id = ?")
+        .run(args.status, finishedAt, args.runId);
+
+      args.beforeSecondWrite?.();
+
+      const evidenceSets: string[] = [];
+      const evidenceValues: SQLQueryBindings[] = [];
+      for (const [column, value] of [
+        ["terminal_cause", args.terminalCause],
+        ["pr_number", args.prNumber],
+        ["pr_url", args.prUrl],
+        [
+          "terminal_failure_detail",
+          args.terminalFailureDetail === undefined
+            ? undefined
+            : args.terminalFailureDetail === null
+              ? null
+              : JSON.stringify(args.terminalFailureDetail),
+        ],
+      ] as const) {
+        if (value !== undefined) {
+          evidenceSets.push(`${column} = ?`);
+          evidenceValues.push(value);
+        }
+      }
+      if (evidenceSets.length === 0) evidenceSets.push("finished_at = finished_at");
+      this.db.prepare(`UPDATE runs SET ${evidenceSets.join(", ")} WHERE id = ?`).run(...evidenceValues, args.runId);
+    };
+
+    this.db.transaction(applySettlement)();
   }
 
   private runRowExists(runId: string): boolean {

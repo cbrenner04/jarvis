@@ -77,6 +77,7 @@ import {
 import {
   type Attempt,
   isTerminalRunStatus,
+  loadPipelineContext,
   openStateStore,
   type Run,
   type RunStatus,
@@ -2082,12 +2083,16 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
    * finishes. The loop keeps running after this handler resolves and the client disconnects.
    */
   const handlePipelineStartHandler: RpcHandler = (frame) => {
-    const params = frame.params as { definition?: PipelineDefinition; context?: PipelineContext } | undefined;
+    const params = frame.params as { definition?: PipelineDefinition; context?: unknown } | undefined;
     if (!params?.definition || !params?.context) {
       return { kind: "error", code: "invalid_params", message: "definition and context required" };
     }
-    const { definition, context } = params;
-    const pipelineId = store.createPipeline({ definition, context });
+    const { definition } = params;
+    const admittedContext = loadPipelineContext(params.context);
+    if (!admittedContext.ok) {
+      return { kind: "error", code: "invalid_params", message: admittedContext.error.errors.join("; ") };
+    }
+    const pipelineId = store.createPipeline({ definition, context: admittedContext.context });
     const admitted = store.loadPipeline(pipelineId);
     if (!admitted?.context) {
       return {
@@ -2096,9 +2101,19 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         message: "pipeline context was not durably persisted",
       };
     }
-    void runPipeline(pipelineId, { ...pipelineExecutionDeps(), context }).catch((err: unknown) => {
-      console.error(`Pipeline ${pipelineId} execution failed:`, err);
-    });
+    const executionContext = loadPipelineContext(admitted.context);
+    if (!executionContext.ok) {
+      return {
+        kind: "error",
+        code: "admission_failed",
+        message: executionContext.error.errors.join("; "),
+      };
+    }
+    void runPipeline(pipelineId, { ...pipelineExecutionDeps(), context: executionContext.context }).catch(
+      (err: unknown) => {
+        console.error(`Pipeline ${pipelineId} execution failed:`, err);
+      },
+    );
     return { kind: "response", result: { pipelineId } };
   };
 

@@ -92,7 +92,11 @@ function fakeBuilders(overrides: Partial<typeof WORKFLOW_PRESET_BUILDERS> = {}):
   };
 }
 
-const baseContext: PipelineContext = { cwd: "/repo", seed: "seed text" };
+const baseContext: PipelineContext = {
+  cwd: "/repo",
+  configPath: "/fake/.jarvis/config.json",
+  seed: "seed text",
+};
 
 function stageArtifact(entryRunId: string, specPath: string, downstreamInputs?: string[]): PipelineStageArtifact {
   return downstreamInputs !== undefined ? { entryRunId, specPath, downstreamInputs } : { entryRunId, specPath };
@@ -151,6 +155,7 @@ function isolatedChainedMatcher(
     admissionRoot,
     match: createChainedStageProjectMatch({
       cwd: admissionRoot,
+      configPath: "/fake/.jarvis/config.json",
       projectRegistry: { [projectKey]: { root: admissionRoot } },
     }),
   };
@@ -259,7 +264,11 @@ describe("resolveStageWorkflowSteps", () => {
       name: "p",
       stages: [{ stageId: "intent", kind: "workflow", workflow: "intent", review: "light" }],
     };
-    const inlineContext: PipelineContext = { cwd: "/repo", seed: "ship inline feature" };
+    const inlineContext: PipelineContext = {
+      cwd: "/repo",
+      configPath: "/fake/.jarvis/config.json",
+      seed: "ship inline feature",
+    };
 
     const result = await resolveStageWorkflowSteps(definition, 0, inlineContext, new Map(), { builders });
 
@@ -716,7 +725,7 @@ describe("resolveStageWorkflowSteps", () => {
     const result = await resolveStageWorkflowSteps(
       definition,
       1,
-      { cwd: operatorCwd, seed: "seed" },
+      { cwd: operatorCwd, configPath: "/fake/.jarvis/config.json", seed: "seed" },
       stageArtifacts,
       deps,
     );
@@ -744,7 +753,7 @@ describe("resolveStageWorkflowSteps", () => {
     const result = await resolveStageWorkflowSteps(
       planImplementDefinition,
       1,
-      { cwd: operatorCwd, seed: "seed" },
+      { cwd: operatorCwd, configPath: "/fake/.jarvis/config.json", seed: "seed" },
       stageArtifacts,
       deps,
     );
@@ -1267,7 +1276,11 @@ describe("createChainedStageProjectMatch", () => {
     const queryPath = join(otherProjectRoot, "src", "main.ts");
     mkdirSync(join(otherProjectRoot, "src"), { recursive: true });
     writeFileSync(queryPath, "export {}\n", "utf8");
-    const matcher = createChainedStageProjectMatch({ cwd: admissionRoot, projectRegistry: registry });
+    const matcher = createChainedStageProjectMatch({
+      cwd: admissionRoot,
+      configPath: "/fake/.jarvis/config.json",
+      projectRegistry: registry,
+    });
     expect(matcher(queryPath)).toEqual(findProjectMatch(queryPath, registry));
   });
 });

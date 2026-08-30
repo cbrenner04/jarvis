@@ -20,10 +20,10 @@ A legacy or manually corrupted row can store `context` JSON without `configPath`
 
 ## Acceptance criteria
 
-- [ ] `pipeline-execution.test.ts` — a test seeds persisted context JSON without `configPath`, drives `runPipeline` or `continuePipeline`, asserts the pending workflow stage is `failed` with a `pipeline-context-loader` message, and asserts no workflow dispatch occurred; it fails against the pre-fix path that reaches `stampPipelineDispatchSteps` or dispatches with defaults.
-- [ ] `pipeline-execution.test.ts` — a test asserts fresh execution and continuation pass equal `cwd` and `configPath` into stage resolution for a valid admitted snapshot; it fails if either path uses different bytes (RPC vs durable) or skips validation.
-- [ ] `v2/docs/v1-behaviors.md` — replace optional-`configPath` pipeline context semantics with fail-closed loader behavior for incomplete persisted JSON.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `pipeline-execution.test.ts` — a test seeds persisted context JSON without `configPath`, drives `runPipeline` or `continuePipeline`, asserts the pending workflow stage is `failed` with a `pipeline-context-loader` message, and asserts no workflow dispatch occurred; it fails against the pre-fix path that reaches `stampPipelineDispatchSteps` or dispatches with defaults.
+- [x] `pipeline-execution.test.ts` — a test asserts fresh execution and continuation pass equal `cwd` and `configPath` into stage resolution for a valid admitted snapshot; it fails if either path uses different bytes (RPC vs durable) or skips validation.
+- [x] `v2/docs/v1-behaviors.md` — replace optional-`configPath` pipeline context semantics with fail-closed loader behavior for incomplete persisted JSON.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

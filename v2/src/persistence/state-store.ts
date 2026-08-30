@@ -165,15 +165,62 @@ export type Run = {
 
 export type PipelineStatus = "active" | "interrupted";
 
-/** Immutable pipeline admission context persisted as a JSON snapshot on the pipeline row. Optional `seed` and `seedPath` are not required by the store; admission sets at most one; dual-populated or ambiguous rows load as stored. */
+/** Immutable pipeline admission context persisted as a JSON snapshot on the pipeline row. `cwd` and `configPath` are required on admission; optional `seed` and `seedPath` are not required by the store; admission sets at most one; dual-populated or ambiguous rows load as stored. */
 export type PipelineContext = {
   cwd: string;
-  configPath?: string;
+  configPath: string;
   targetDir?: string;
   projectRegistry?: Record<string, { root: string; origin?: string }>;
   seed?: string;
   seedPath?: string;
 };
+
+export type PipelineContextLoaderError = {
+  kind: "pipeline-context-loader";
+  errors: readonly string[];
+};
+
+export type LoadPipelineContextResult =
+  | { ok: true; context: PipelineContext }
+  | { ok: false; error: PipelineContextLoaderError };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Validate persisted pipeline context JSON at consumption boundaries; opaque `mapPipelineRow` parse does not run this. */
+export function loadPipelineContext(value: unknown): LoadPipelineContextResult {
+  if (!isRecord(value)) {
+    return { ok: false, error: { kind: "pipeline-context-loader", errors: ["expected object"] } };
+  }
+
+  const errors: string[] = [];
+  if (typeof value.cwd !== "string" || value.cwd === "") errors.push("missing required field: cwd");
+  if (typeof value.configPath !== "string" || value.configPath === "") {
+    errors.push("missing required field: configPath");
+  }
+  if (errors.length > 0) {
+    return { ok: false, error: { kind: "pipeline-context-loader", errors } };
+  }
+
+  const context: PipelineContext = { cwd: value.cwd as string, configPath: value.configPath as string };
+  for (const key of ["targetDir", "seed", "seedPath"] as const) {
+    const field = value[key];
+    if (field === undefined) continue;
+    if (typeof field !== "string") {
+      return { ok: false, error: { kind: "pipeline-context-loader", errors: [`${key} must be a string`] } };
+    }
+    context[key] = field;
+  }
+  if (value.projectRegistry !== undefined) {
+    if (!isRecord(value.projectRegistry)) {
+      return { ok: false, error: { kind: "pipeline-context-loader", errors: ["projectRegistry must be an object"] } };
+    }
+    context.projectRegistry = value.projectRegistry as Record<string, { root: string; origin?: string }>;
+  }
+
+  return { ok: true, context };
+}
 
 /** Durable terminal-publication failure recorded on the pipeline row after stage success. */
 export type PipelineTerminalPublicationFailure = {

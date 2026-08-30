@@ -851,6 +851,105 @@ describe("runPipeline", () => {
   });
 });
 
+describe("pipeline context loader at execution", () => {
+  const singleStageDefinition: PipelineDefinition = {
+    name: "p",
+    stages: [{ stageId: "s1", kind: "workflow", workflow: "intent", review: "none" }],
+  };
+  const malformedContext = { cwd: "/repo", seed: "legacy inline seed" } as PipelineContext;
+  const admittedContext: PipelineContext = {
+    cwd: "/admitted-repo",
+    configPath: "/admission/.jarvis/config.json",
+    seed: "admitted-seed",
+  };
+  const callerOverrideContext: PipelineContext = {
+    cwd: "/caller-override",
+    configPath: "/caller/.jarvis/config.json",
+    seed: "ignored",
+  };
+
+  test.each([
+    { label: "runPipeline", useContinuation: false, storeOptions: {} as { ownerIdentity?: string } },
+    { label: "continuePipeline", useContinuation: true, storeOptions: { ownerIdentity: PRIOR_OWNER } },
+  ])("$label fails the pending workflow stage with pipeline-context-loader and does not dispatch when persisted context lacks configPath", async ({
+    useContinuation,
+    storeOptions,
+  }) => {
+    const { store, stages } = fakeStore(singleStageDefinition, {}, { context: malformedContext, ...storeOptions });
+    let dispatchCalled = false;
+    const dispatch = async () => {
+      dispatchCalled = true;
+      return { ok: true as const, entryRunId: "run-0", invocationId: "inv-0" };
+    };
+    const deps = { store, dispatch, wait: async () => "completed" as const, resolveStage: resolveStageStub() };
+
+    const outcome = useContinuation
+      ? await continuePipeline(PIPELINE_ID, deps)
+      : await runPipeline(PIPELINE_ID, { ...deps, context: malformedContext });
+
+    if (useContinuation) {
+      expect(outcome).toEqual({ kind: "continued", pipelineId: PIPELINE_ID });
+    }
+    expect(dispatchCalled).toBe(false);
+    const stage = stages().find((candidate) => candidate.stageId === "s1");
+    expect(stage?.status).toBe("failed");
+    const message = (stage?.failureDetail as { message?: string } | null)?.message;
+    expect(message).toMatch(/^pipeline-context-loader:/);
+    if (!useContinuation) expect(message).toContain("configPath");
+  });
+
+  test("fresh runPipeline and continuePipeline pass equal cwd and configPath into stage resolution from durable context", async () => {
+    const continuationDefinition: PipelineDefinition = {
+      name: "p",
+      stages: [
+        { stageId: "s1", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "gate", kind: "approval" },
+        { stageId: "s3", kind: "workflow", workflow: "plan", review: "none" },
+      ],
+    };
+
+    let freshResolution: Pick<PipelineContext, "cwd" | "configPath"> | undefined;
+    const { store: freshStore } = fakeStore(continuationDefinition, {}, { context: admittedContext });
+    await runPipeline(PIPELINE_ID, {
+      store: freshStore,
+      dispatch: async () => ({ ok: true, entryRunId: "run-0", invocationId: "inv-0" }),
+      wait: async () => "completed",
+      context: callerOverrideContext,
+      resolveStage: async (_definition, _stageIndex, context) => {
+        freshResolution = { cwd: context.cwd, configPath: context.configPath };
+        return { ok: false, error: "stop after capture" };
+      },
+    });
+
+    const { store: contStore } = fakeStore(
+      continuationDefinition,
+      { "run-2": { specPath: "spec/s3.md" } },
+      { context: admittedContext, ownerIdentity: PRIOR_OWNER },
+    );
+    contStore.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "s1",
+      patch: { status: "succeeded", artifact: { specPath: "spec/s1.md" } },
+    });
+    contStore.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", patch: { status: "approved" } });
+
+    let continuationResolution: Pick<PipelineContext, "cwd" | "configPath"> | undefined;
+    await continuePipeline(PIPELINE_ID, {
+      store: contStore,
+      dispatch: async () => ({ ok: true, entryRunId: "run-2", invocationId: "inv-2" }),
+      wait: async () => "completed",
+      context: callerOverrideContext,
+      resolveStage: async (_definition, stageIndex, context) => {
+        if (stageIndex === 2) continuationResolution = { cwd: context.cwd, configPath: context.configPath };
+        return { ok: true, steps: [taggedStep(stageIndex)] };
+      },
+    });
+
+    expect(freshResolution).toEqual({ cwd: admittedContext.cwd, configPath: admittedContext.configPath });
+    expect(continuationResolution).toEqual(freshResolution);
+  });
+});
+
 describe("continuePipeline", () => {
   const definition: PipelineDefinition = {
     name: "p",
@@ -1145,7 +1244,37 @@ describe("continuation execution guards", () => {
   test("inverting persisted-context guard fails restart continuation regression", () => {
     expect(persistedContextLoadPermitsContinuation(baseContext)).toBe(true);
     expect(persistedContextLoadPermitsContinuation(null)).toBe(false);
+    expect(persistedContextLoadPermitsContinuation({ cwd: "/repo", seed: "seed text" } as PipelineContext)).toBe(false);
     expect(!persistedContextLoadPermitsContinuation(baseContext)).toBe(false);
+  });
+
+  test("continuation eligibility refuses incomplete non-null context before claim or dispatch", async () => {
+    const malformedContext = { cwd: "/repo", seed: "legacy inline seed" } as PipelineContext;
+    const singleStageDefinition: PipelineDefinition = {
+      name: "p",
+      stages: [{ stageId: "s1", kind: "workflow", workflow: "intent", review: "none" }],
+    };
+    const { store } = fakeStore(singleStageDefinition, {}, { context: malformedContext, ownerIdentity: PRIOR_OWNER });
+    const pipeline = store.loadPipeline(PIPELINE_ID);
+    if (!pipeline) throw new Error("expected pipeline");
+    expect(isPipelineContinuable(pipeline)).toBe(false);
+
+    const dispatchOrder: number[] = [];
+    const { continued } = await recoverContinuablePipelines(
+      store,
+      {
+        store,
+        dispatch: async (steps) => {
+          dispatchOrder.push(stageIndexOf(steps));
+          return { ok: true, entryRunId: "run-x", invocationId: "inv-x" };
+        },
+        wait: async () => "completed",
+        resolveStage: resolveStageStub(),
+      },
+      async () => false,
+    );
+    expect(continued).toBe(0);
+    expect(dispatchOrder).toEqual([]);
   });
 });
 
@@ -3756,6 +3885,47 @@ describe("pipeline terminal publication settlement", () => {
     expect(settled.terminalPublicationSucceededAt).not.toBeNull();
     expect(derivePipelineState(settled)).toBe("succeeded");
     expect(stages().find((s) => s.stageId === "implement")?.status).toBe("succeeded");
+  });
+
+  test("settlement-pending pipeline with incomplete persisted context is not continuable and records terminal publication failure on continuation", async () => {
+    const definition = terminalPipelineDefinition("ready");
+    const malformedContext = { cwd: "/repo", seed: "legacy inline seed" } as PipelineContext;
+    const { store } = fakeStore(
+      definition,
+      { "run-implement": terminalImplementRun() },
+      { context: malformedContext, ownerIdentity: PRIOR_OWNER },
+    );
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "implement",
+      patch: { status: "succeeded", artifact: terminalImplementArtifact() },
+    });
+
+    const pipeline = store.loadPipeline(PIPELINE_ID);
+    if (!pipeline) throw new Error("expected pipeline");
+    expect(isPipelineContinuable(pipeline)).toBe(false);
+
+    let terminalPublicationCalls = 0;
+    const outcome = await continuePipeline(PIPELINE_ID, {
+      store,
+      dispatch: async () => {
+        throw new Error("must not dispatch");
+      },
+      wait: async () => "completed",
+      resolveStage: resolveStageStub(),
+      executeTerminalPublication: async () => {
+        terminalPublicationCalls += 1;
+        return TERMINAL_PR;
+      },
+    });
+
+    expect(outcome).toEqual({ kind: "continued", pipelineId: PIPELINE_ID });
+    expect(terminalPublicationCalls).toBe(0);
+    const settled = store.loadPipeline(PIPELINE_ID);
+    if (!settled) throw new Error("expected pipeline");
+    expect(settled.terminalPublicationFailure?.failure.message).toMatch(/^pipeline-context-loader:/);
+    expect(settled.terminalPublicationSucceededAt).toBeNull();
+    expect(derivePipelineState(settled)).toBe("failed");
   });
 
   test("does not invoke terminal publication when the stage walk stops early", async () => {

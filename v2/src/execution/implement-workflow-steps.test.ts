@@ -782,7 +782,12 @@ describe("buildImplementWorkflowSteps", () => {
 
     const machineConfigPath = writeHomeMachineConfig({ projects: { registered: { root } } });
     const machineProfile = "home";
-    const context = { cwd: root, seed: "unused", projectRegistry: { registered: { root } } };
+    const context = {
+      cwd: root,
+      configPath: machineConfigPath,
+      seed: "unused",
+      projectRegistry: { registered: { root } },
+    };
     const result = await buildImplementWorkflowSteps(
       {
         cwd: planWorktree,

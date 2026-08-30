@@ -326,12 +326,12 @@ test("pipeline_list projects decidedAt for approved and rejected gates", async (
 test("projectPipelineSnapshot projects stored terminal and admission diagnostics with JSON omission semantics", () => {
   const successId = stateStore.createPipeline({
     definition: { ...WORKFLOW_ONLY, terminalAction: "ready" },
-    context: { cwd: "/admission/repo", seedPath: "seeds/intent.md" },
+    context: { cwd: "/admission/repo", configPath: "/admission/.jarvis/config.json", seedPath: "seeds/intent.md" },
   });
   stateStore.commitTerminalPublicationSuccess({ pipelineId: successId });
   const failureId = stateStore.createPipeline({
     definition: { ...WORKFLOW_ONLY, terminalAction: "merge" },
-    context: { cwd: "/admission/repo" },
+    context: { cwd: "/admission/repo", configPath: "/admission/.jarvis/config.json" },
   });
   stateStore.commitTerminalPublicationFailure({
     pipelineId: failureId,
@@ -340,7 +340,7 @@ test("projectPipelineSnapshot projects stored terminal and admission diagnostics
   });
   const absentId = stateStore.createPipeline({
     definition: WORKFLOW_ONLY,
-    context: { cwd: "/admission/repo" },
+    context: { cwd: "/admission/repo", configPath: "/admission/.jarvis/config.json" },
   });
 
   const success = stateStore.loadPipeline(successId);

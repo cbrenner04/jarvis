@@ -17,6 +17,7 @@ import type {
   PipelineStageRecord,
   StateStore,
 } from "../persistence/state-store.ts";
+import { loadPipelineContext } from "../persistence/state-store.ts";
 import type { PipelineExecutionDeps } from "./pipeline-execution.ts";
 import { buildBranchStageArtifacts, continuePipeline, findFanOutSplit, findStageRecord } from "./pipeline-execution.ts";
 import { stageArtifactFromEntryRun } from "./pipeline-stage-dispatch.ts";
@@ -138,11 +139,20 @@ export async function resolveBlockedPlanStageRecoveryTarget(
     };
   }
 
+  const loadedContext = loadPipelineContext(pipeline.context);
+  if (!loadedContext.ok) {
+    return {
+      ok: false,
+      reason: "stage_resolution_failed",
+      message: `pipeline-context-loader: ${loadedContext.error.errors.join("; ")}`,
+    };
+  }
+
   const split = findFanOutSplit(pipeline);
   const stageArtifacts =
     split !== null ? buildBranchStageArtifacts(pipeline, split, branchKey, record.position) : new Map();
 
-  const resolution = await resolveStage(pipeline.definition, record.position, pipeline.context, stageArtifacts, {
+  const resolution = await resolveStage(pipeline.definition, record.position, loadedContext.context, stageArtifacts, {
     loadRun: (runId) => {
       const run = store.loadRun(runId);
       return run === null ? null : { worktreePath: run.worktreePath, branch: run.branch };

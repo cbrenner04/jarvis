@@ -10,6 +10,7 @@ import {
   CURRENT_OWNER_IDENTITY,
   isApprovalAuthoredStage,
   isOwnerAlive,
+  loadPipelineContext,
   type OwnerLivenessProbe,
   openStateStore,
   orphanSettlementReconciledAt,
@@ -1131,7 +1132,7 @@ describe("pipelines", () => {
     const pipeline = store.loadPipeline(pipelineId);
     if (!pipeline) throw new Error("Pipeline should exist");
     // Mutation checkpoint: asserting `seedPath` is present on reload makes the test fail.
-    expect(pipeline.context).toEqual(legacyContext);
+    expect(pipeline.context as unknown).toEqual(legacyContext);
   });
 
   test("retains the admitted context snapshot after the live source context is mutated, and round-trips across close and reopen", () => {
@@ -1140,7 +1141,7 @@ describe("pipelines", () => {
 
     context.cwd = "/mutated";
     context.seed = "mutated seed";
-    delete context.configPath;
+    context.configPath = "/mutated/config.json";
 
     const beforeClose = store.loadPipeline(pipelineId);
     if (!beforeClose) throw new Error("Pipeline should exist");
@@ -1151,6 +1152,55 @@ describe("pipelines", () => {
     const reopened = store.loadPipeline(pipelineId);
     if (!reopened) throw new Error("Pipeline should exist");
     expect(reopened.context).toEqual(SAMPLE_PIPELINE_CONTEXT);
+  });
+
+  test.each([
+    { value: { cwd: "/repo", seed: "legacy inline seed" }, missing: "configPath" },
+    { value: { configPath: "/repo/.jarvis/config.json", seed: "seed" }, missing: "cwd" },
+  ])("loadPipelineContext rejects JSON missing $missing", ({ value, missing }) => {
+    const loaded = loadPipelineContext(value);
+    expect(loaded.ok).toBe(false);
+    if (loaded.ok) throw new Error("expected loader failure");
+    expect(loaded.error.kind).toBe("pipeline-context-loader");
+    expect(loaded.error.errors).toContain(`missing required field: ${missing}`);
+  });
+
+  test("complete admitted context round-trips through createPipeline and store reload and passes loadPipelineContext", () => {
+    const context: PipelineContext = { ...SAMPLE_PIPELINE_CONTEXT };
+    const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION, context });
+
+    store.close();
+    store = openStateStore(TEST_DB_PATH);
+    const reopened = store.loadPipeline(pipelineId);
+    if (!reopened?.context) throw new Error("Pipeline should exist with context");
+
+    const loaded = loadPipelineContext(reopened.context);
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) throw new Error("expected loader success");
+    // Mutation checkpoint: omitting `configPath` from the reloaded snapshot makes the test fail.
+    expect(loaded.context.cwd).toBe(SAMPLE_PIPELINE_CONTEXT.cwd);
+    expect(loaded.context.configPath).toBe(SAMPLE_PIPELINE_CONTEXT.configPath);
+  });
+
+  test("legacy context JSON that parses but lacks required fields fails loadPipelineContext", () => {
+    const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+    const legacyContext = { cwd: "/repo", seed: "legacy inline seed" };
+    const raw = new Database(TEST_DB_PATH);
+    try {
+      raw.prepare("UPDATE pipelines SET context = ? WHERE id = ?").run(JSON.stringify(legacyContext), pipelineId);
+    } finally {
+      raw.close();
+    }
+
+    const pipeline = store.loadPipeline(pipelineId);
+    if (!pipeline?.context) throw new Error("Pipeline should exist with context");
+    expect(pipeline.context as unknown).toEqual(legacyContext);
+
+    const loaded = loadPipelineContext(pipeline.context);
+    expect(loaded.ok).toBe(false);
+    if (loaded.ok) throw new Error("expected loader failure");
+    expect(loaded.error.kind).toBe("pipeline-context-loader");
+    expect(loaded.error.errors).toContain("missing required field: configPath");
   });
 
   test("a pre-context-migration database opens successfully and loads legacy pipeline context as absent", () => {

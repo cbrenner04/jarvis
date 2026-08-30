@@ -1512,8 +1512,9 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         }
       }
 
+      let commitOutcome: ProgressIterationCommitOutcome;
       try {
-        await checkpointSettledIteration(args, prepared, store, runId, worktreePath, attemptId, result);
+        commitOutcome = await checkpointSettledIteration(args, prepared, store, runId, worktreePath, attemptId, result);
       } catch (error) {
         return iterationCommitFailed(
           args,
@@ -1617,7 +1618,9 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         runId,
         terminal.kind,
         iterationsConsumed,
-        result.kind === "invalid_token" || result.kind === "missing_blocker",
+        result.kind === "stall"
+          ? idleOutputTimeoutResumableFromCheckpoint(commitOutcome)
+          : result.kind === "invalid_token" || result.kind === "missing_blocker",
         detail,
         terminal.kind !== "complete",
       );
@@ -2189,6 +2192,7 @@ function prepareRun(args: WriteLoopInput, store: StateStore): PreparedRun {
     worktreePath,
     projectRoot: args.worktree.projectRoot,
     specPath: args.specPath,
+    priorLogRecords: priorLogRecordsFromSink(args.logSink, existingRun.id),
   });
   return committed === null
     ? {
@@ -2306,11 +2310,31 @@ function terminalMapping(result: Exclude<StepRunResult, { kind: "progress" }>): 
   return { kind: "invocation_failure", runStatus: "failed", outcomeKind: "invocation_failure" };
 }
 
-/** Terminal result already committed by a prior invocation, returned idempotently; null when resumable. */
+function idleOutputTimeoutResumableFromCheckpoint(commitOutcome: ProgressIterationCommitOutcome): boolean {
+  return commitOutcome.kind === "committed";
+}
+
+function idleOutputTimeoutResumableFromDurableEvidence(logRecords: readonly PersistedRecord[]): boolean {
+  let terminal: LoopFinishedEvent | undefined;
+  for (const record of logRecords) {
+    const event = record.event;
+    if (event.kind === "loop_finished" && event.loopOutcomeKind === "idle_output_timeout") {
+      terminal = event;
+    }
+  }
+  return terminal?.resumable ?? false;
+}
+
+/** Terminal result already committed by a prior invocation, returned idempotently. Returns null when the run is resumable and has no committed terminal result, except the idle_output_timeout branch, which returns a non-null result echoing its durable resumable flag. */
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: idempotent terminal-result reconstruction fans out over each settled outcome kind
 function committedResult(
   run: StoredRun,
-  resumeContext?: { worktreePath: string; projectRoot: string; specPath: string },
+  resumeContext?: {
+    worktreePath: string;
+    projectRoot: string;
+    specPath: string;
+    priorLogRecords?: readonly PersistedRecord[];
+  },
 ): WriteLoopResult | null {
   if (run.status === "completed") {
     const agent = run.attempts.at(-1)?.completionAgent?.trim();
@@ -2352,7 +2376,12 @@ function committedResult(
           : "invocation_failure",
       runId: run.id,
       iterationsConsumed: 0,
-      resumable: outcomeKind === "iteration_timeout" ? hasCompletedSubspec(inventory) : false,
+      resumable:
+        outcomeKind === "iteration_timeout"
+          ? hasCompletedSubspec(inventory)
+          : outcomeKind === "idle_output_timeout"
+            ? idleOutputTimeoutResumableFromDurableEvidence(resumeContext?.priorLogRecords ?? [])
+            : false,
       ...(detail !== undefined ? detail : {}),
       ...(outcomeKind === "iteration_timeout"
         ? {

@@ -435,7 +435,6 @@ test("list and wait preserve failed hidden-shrink publication evidence and resum
     completionCommitError,
     publicationFailure: { operation: "push", exitCode: 7, stderrTail: "err" },
   };
-  // @mutate v2/src/daemon/run-operator-error.ts "{ completionCommitError: event.completionCommitError }" -> "{}"
 
   const list = await expectResponse(await listDirect());
   const rows = list.runs as Array<{ runId: string; status: string; error?: unknown }>;
@@ -577,6 +576,119 @@ test("list and wait project non-resumable iteration_timeout as stop", async () =
     loopOutcomeKind: "iteration_timeout",
     iterationsConsumed: 1,
     resumable: false,
+    error: expectedError,
+  });
+});
+
+test("list and wait project resumable idle_output_timeout as resume", async () => {
+  const runId = createImplementRun();
+  stateStore.setRunStatus(runId, "failed");
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "idle_output_timeout",
+    iterationsConsumed: 2,
+    resumable: true,
+  });
+
+  const expectedError = {
+    reason: "idle_output_timeout",
+    retryable: true,
+    nextAction: "resume",
+  };
+
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; status: string; error?: unknown; resumable?: boolean }>).find(
+    (candidate) => candidate.runId === runId,
+  );
+  expect(row).toMatchObject({ status: "failed", resumable: true, error: expectedError });
+
+  expect(await expectResponse(await waitDirect("idle-timeout-resumable", runId))).toMatchObject({
+    runStatus: "failed",
+    loopOutcomeKind: "idle_output_timeout",
+    iterationsConsumed: 2,
+    resumable: true,
+    error: expectedError,
+  });
+});
+
+test.each([
+  {
+    label: "non-resumable",
+    waitId: "idle-timeout-non-resumable",
+    prepare: (runId: string) => {
+      stateStore.setRunStatus(runId, "failed");
+      logSink.append(runId, {
+        kind: "loop_finished",
+        loopOutcomeKind: "idle_output_timeout",
+        iterationsConsumed: 1,
+        resumable: false,
+      });
+    },
+    waitExtra: { loopOutcomeKind: "idle_output_timeout" as const, iterationsConsumed: 1 },
+  },
+  {
+    label: "attempt-only",
+    waitId: "idle-timeout-attempt-only",
+    prepare: (runId: string) => {
+      const attemptId = stateStore.recordAttemptStart(runId);
+      stateStore.commitCompletionBoundary({
+        attemptId,
+        runStatus: "failed",
+        outcomeKind: "idle_output_timeout",
+      });
+    },
+    waitExtra: {},
+  },
+] as const)("list and wait project $label idle_output_timeout as stop", async ({ waitId, prepare, waitExtra }) => {
+  const runId = createImplementRun();
+  prepare(runId);
+
+  const expectedError = {
+    reason: "idle_output_timeout",
+    retryable: false,
+    nextAction: "stop",
+  };
+
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; status: string; error?: unknown; resumable?: boolean }>).find(
+    (candidate) => candidate.runId === runId,
+  );
+  expect(row).toMatchObject({ status: "failed", error: expectedError });
+  expect(row?.resumable ?? false).toBe(false);
+
+  const waitResult = await expectResponse(await waitDirect(waitId, runId));
+  expect(waitResult).toMatchObject({ runStatus: "failed", error: expectedError, ...waitExtra });
+  expect(waitResult.resumable ?? false).toBe(false);
+});
+
+test("list and wait prefer resumable idle_output_timeout over blocked last attempt", async () => {
+  const runId = createImplementRun();
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({ attemptId, runStatus: "blocked", outcomeKind: "blocked" });
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "idle_output_timeout",
+    iterationsConsumed: 2,
+    resumable: true,
+  });
+
+  const expectedError = {
+    reason: "idle_output_timeout",
+    retryable: true,
+    nextAction: "resume",
+  };
+
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; status: string; error?: unknown }>).find(
+    (candidate) => candidate.runId === runId,
+  );
+  expect(row).toMatchObject({ status: "blocked", error: expectedError });
+
+  expect(await expectResponse(await waitDirect("idle-timeout-over-blocked", runId))).toMatchObject({
+    runStatus: "blocked",
+    loopOutcomeKind: "idle_output_timeout",
+    iterationsConsumed: 2,
+    resumable: true,
     error: expectedError,
   });
 });

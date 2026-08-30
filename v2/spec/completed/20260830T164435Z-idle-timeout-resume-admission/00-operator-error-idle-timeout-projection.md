@@ -26,13 +26,13 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/run-operator-error.test.ts` asserts terminal `loop_finished` with `loopOutcomeKind: "idle_output_timeout"` and `resumable: true` composes to `reason: "idle_output_timeout"`, `retryable: true`, and `nextAction: "resume"`; fails against the baseline unconditional stop mapping in `mapFromLoopFinished` (`v2/src/daemon/run-operator-error.ts`) reachable via `composeRunOperatorError maps idle_output_timeout as a failed, non-retryable terminal`.
-- [ ] That committed-progress operator-error test turns red when the production resumable-idle-timeout branch in `mapFromLoopFinished` (`v2/src/daemon/run-operator-error.ts`) is manually collapsed to the unconditional stop mapping, and green on the real code; no production inversion hook.
-- [ ] `run-operator-error.test.ts` `composeRunOperatorError maps idle_output_timeout as a failed, non-retryable terminal` and `composeRunOperatorError maps idle_output_timeout from attempt detail alone (no matching loop_finished)` stay green (regression guards for `resumable: false` and store-only stop).
-- [ ] `run-operator-error.test.ts` asserts resumable `idle_output_timeout` outranks mappable last-attempt detail in `composeRunOperatorError` and `resolveFailedBlockedAttemptPrecedence`, mirroring the existing `iteration_timeout` precedence tests; regression guard — stays green and would fail if precedence omitted `idle_output_timeout`.
-- [ ] `run-operator-error.test.ts` `idle_output_timeout recovery copy directs resume` asserts `RUN_OPERATOR_ERROR_RECOVERY.idle_output_timeout` mentions `jarvis run resume`; fails against current re-dispatch-only `RUN_OPERATOR_ERROR_RECOVERY.idle_output_timeout`.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `v2/src/daemon/run-operator-error.test.ts` asserts terminal `loop_finished` with `loopOutcomeKind: "idle_output_timeout"` and `resumable: true` composes to `reason: "idle_output_timeout"`, `retryable: true`, and `nextAction: "resume"`; fails against the baseline unconditional stop mapping in `mapFromLoopFinished` (`v2/src/daemon/run-operator-error.ts`) reachable via `composeRunOperatorError maps idle_output_timeout as a failed, non-retryable terminal`.
+- [x] That committed-progress operator-error test turns red when the production resumable-idle-timeout branch in `mapFromLoopFinished` (`v2/src/daemon/run-operator-error.ts`) is manually collapsed to the unconditional stop mapping, and green on the real code; no production inversion hook.
+- [x] `run-operator-error.test.ts` `composeRunOperatorError maps idle_output_timeout as a failed, non-retryable terminal` and `composeRunOperatorError maps idle_output_timeout from attempt detail alone (no matching loop_finished)` stay green (regression guards for `resumable: false` and store-only stop).
+- [x] `run-operator-error.test.ts` asserts resumable `idle_output_timeout` outranks mappable last-attempt detail in `composeRunOperatorError` and `resolveFailedBlockedAttemptPrecedence`, mirroring the existing `iteration_timeout` precedence tests; regression guard — stays green and would fail if precedence omitted `idle_output_timeout`.
+- [x] `run-operator-error.test.ts` `idle_output_timeout recovery copy directs resume` asserts `RUN_OPERATOR_ERROR_RECOVERY.idle_output_timeout` mentions `jarvis run resume`; fails against current re-dispatch-only `RUN_OPERATOR_ERROR_RECOVERY.idle_output_timeout`.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

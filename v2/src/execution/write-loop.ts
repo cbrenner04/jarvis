@@ -307,6 +307,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   clock?: () => Date;
   /** When set, suppresses reuse of completed runs from prior invocations. */
   freshDispatch?: boolean;
+  /** When true, a resumable `idle_output_timeout` re-enters the loop instead of idempotent echo. */
+  resumeReentry?: boolean;
   /** Required integration test scope (e.g., "test:integration:v2") from active subspec. */
   requiredIntegrationScope?: string;
   /** When true, completion publication skips ready finalization (pipeline leave-draft). */
@@ -2194,7 +2196,10 @@ function prepareRun(args: WriteLoopInput, store: StateStore): PreparedRun {
     specPath: args.specPath,
     priorLogRecords: priorLogRecordsFromSink(args.logSink, existingRun.id),
   });
-  return committed === null
+  const reenter =
+    committed === null ||
+    (args.resumeReentry === true && committed.kind === "idle_output_timeout" && committed.resumable === true);
+  return reenter
     ? {
         runId: existingRun.id,
         worktreePath,

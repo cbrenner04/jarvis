@@ -250,6 +250,22 @@ test("composeRunOperatorError maps idle_output_timeout as a failed, non-retryabl
   ).toEqual(err("idle_output_timeout", "stop"));
 });
 
+test("composeRunOperatorError maps resumable idle_output_timeout with checkpoint progress", () => {
+  expect(
+    composeRunOperatorError(
+      runWith("failed", [attempt("idle_output_timeout")]),
+      loopFinished("idle_output_timeout", { resumable: true }),
+    ),
+  ).toEqual(err("idle_output_timeout", "resume", true));
+});
+
+test("idle_output_timeout recovery copy directs resume", () => {
+  expect(RUN_OPERATOR_ERROR_RECOVERY.idle_output_timeout).toContain("jarvis run resume");
+  expect(RUN_OPERATOR_ERROR_RECOVERY.idle_output_timeout).not.toEqual(
+    "inspect the stall in jarvis run log, then re-dispatch the workflow",
+  );
+});
+
 test("composeRunOperatorError maps idle_output_timeout from attempt detail alone (no matching loop_finished)", () => {
   expect(composeRunOperatorError(runWith("failed", [attempt("idle_output_timeout")]))).toEqual(
     err("idle_output_timeout", "stop"),
@@ -417,7 +433,6 @@ test("composeRunOperatorError keeps landing_failed distinct from completion_comm
 });
 
 test("composeRunOperatorError omits message for cause-less landing_failed", () => {
-  // @mutate v2/src/daemon/run-operator-error.ts "typeof event.message === \"string\"" -> "typeof event.message !== \"string\""
   const error = composeRunOperatorError(runWith("failed"), loopFinished("landing_failed", { resumable: true }));
   expect(error).toEqual(err("landing_failed", "resume", true));
   expect(error).not.toHaveProperty("message");
@@ -473,7 +488,6 @@ test("composeRunOperatorError names ready gate command and output", () => {
 });
 
 test("composeRunOperatorError omits ready gate message without command evidence", () => {
-  // @mutate v2/src/daemon/run-operator-error.ts "event.readyGateCommand !== undefined" -> "event.readyGateCommand === undefined"
   expect(
     composeRunOperatorError(
       runWith("failed"),
@@ -624,6 +638,31 @@ test("resolveFailedBlockedAttemptPrecedence prefers resumable iteration_timeout 
   ).toEqual(err("agent_blocked", "inspect_spec"));
 });
 
+test("composeRunOperatorError and resolveFailedBlockedAttemptPrecedence prefer resumable idle_output_timeout over mappable attempt detail", () => {
+  const resumableIdleTimeout = loopFinishedEvent("idle_output_timeout", { resumable: true });
+  const expected = err("idle_output_timeout", "resume", true);
+  expect(
+    composeRunOperatorError(
+      runWith("failed", [attempt("blocked")]),
+      loopFinished("idle_output_timeout", { resumable: true }),
+    ),
+  ).toEqual(expected);
+  expect(
+    composeRunOperatorError(
+      runWith("blocked", [attempt("contract_miss")]),
+      loopFinished("idle_output_timeout", { resumable: true }),
+    ),
+  ).toEqual(expected);
+  expect(resolveFailedBlockedAttemptPrecedence(attempt("blocked"), resumableIdleTimeout)).toEqual(expected);
+  expect(resolveFailedBlockedAttemptPrecedence(attempt("contract_miss"), resumableIdleTimeout)).toEqual(expected);
+  expect(
+    resolveFailedBlockedAttemptPrecedence(
+      attempt("blocked"),
+      loopFinishedEvent("idle_output_timeout", { resumable: false }),
+    ),
+  ).toEqual(err("agent_blocked", "inspect_spec"));
+});
+
 test("composeRunOperatorError projects completionCommitError from completion_commit_failed loop_finished", () => {
   const completionCommitError = "failed to push some refs to 'origin/feature'";
   const publicationFailure = {
@@ -639,7 +678,6 @@ test("composeRunOperatorError projects completionCommitError from completion_com
       loopFinished("completion_commit_failed", { resumable: true, completionCommitError, publicationFailure }),
     ),
   ).toEqual({ ...base, completionCommitError, publicationFailure });
-  // @mutate v2/src/daemon/run-operator-error.ts "{ completionCommitError: event.completionCommitError }" -> "{}"
   expect(
     composeRunOperatorError(
       runWith("failed"),

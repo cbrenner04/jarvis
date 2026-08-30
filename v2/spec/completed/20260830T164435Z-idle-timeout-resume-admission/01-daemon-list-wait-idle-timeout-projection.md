@@ -26,15 +26,15 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-wait-run-completion.test.ts` asserts `run list` and `run wait` project a committed-progress `idle_output_timeout` (`loop_finished.resumable: true`) as `resumable: true` with `error.nextAction: "resume"`; fails if subspec 00 were reverted to the baseline reachable via `run-operator-error.test.ts` `composeRunOperatorError maps idle_output_timeout as a failed, non-retryable terminal`.
-- [ ] `daemon-wait-run-completion.test.ts` asserts no-committed-progress (`resumable: false`) and attempt-only (no matching `loop_finished`) `idle_output_timeout` rows remain `resumable: false` with `error.nextAction: "stop"`; regression guard — stays green and would fail if the resumable projection applied without terminal proof.
-- [ ] `daemon-wait-run-completion.test.ts` `list and wait prefer resumable idle_output_timeout over blocked last attempt` stays green (regression guard for precedence over mappable last-attempt detail).
-- [ ] `v2/docs/daemon-host.md` documents conditional `idle_output_timeout` `retryable` / `nextAction` (resumable vs non-resumable terminal rows) and alignment with `wait.resumable`; does not claim `isResumeAdmitted` / full resume admission (subspec 02).
-- [ ] `v2/docs/v1-behaviors.md` records daemon list/wait projection of conditional `idle_output_timeout` resumability (no resume-admission claim until subspec 02).
-- [ ] `v2/docs/write-behavior.md` and `v2/docs/workflow-runner.md` no longer defer daemon `list`/`wait`/`resume` admission for committed-progress `idle_output_timeout` as interim limbo once projection is documented.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/daemon/daemon-wait-run-completion.test.ts` asserts `run list` and `run wait` project a committed-progress `idle_output_timeout` (`loop_finished.resumable: true`) as `resumable: true` with `error.nextAction: "resume"`; fails if subspec 00 were reverted to the baseline reachable via `run-operator-error.test.ts` `composeRunOperatorError maps idle_output_timeout as a failed, non-retryable terminal`.
+- [x] `daemon-wait-run-completion.test.ts` asserts no-committed-progress (`resumable: false`) and attempt-only (no matching `loop_finished`) `idle_output_timeout` rows remain `resumable: false` with `error.nextAction: "stop"`; regression guard — stays green and would fail if the resumable projection applied without terminal proof.
+- [x] `daemon-wait-run-completion.test.ts` `list and wait prefer resumable idle_output_timeout over blocked last attempt` stays green (regression guard for precedence over mappable last-attempt detail).
+- [x] `v2/docs/daemon-host.md` documents conditional `idle_output_timeout` `retryable` / `nextAction` (resumable vs non-resumable terminal rows) and alignment with `wait.resumable`; does not claim `isResumeAdmitted` / full resume admission (subspec 02).
+- [x] `v2/docs/v1-behaviors.md` records daemon list/wait projection of conditional `idle_output_timeout` resumability (no resume-admission claim until subspec 02).
+- [x] `v2/docs/write-behavior.md` and `v2/docs/workflow-runner.md` no longer defer daemon `list`/`wait`/`resume` admission for committed-progress `idle_output_timeout` as interim limbo once projection is documented.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

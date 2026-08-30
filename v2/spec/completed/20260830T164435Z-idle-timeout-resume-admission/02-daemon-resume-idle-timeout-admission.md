@@ -27,15 +27,15 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-resume.test.ts` drives a git-backed write step to failed `idle_output_timeout` with terminal `loop_finished.resumable: true` and a fresh `iteration_commit`, admits `jarvis run resume`, the resumed iteration reuses the retained branch and worktree, retains the checkpoint commit without stale reset, and the run reaches durable completion (`complete` / `done` or equivalent); fails against the baseline `terminal_run` refusal reachable when `isResumeAdmitted` follows the unconditional stop mapping.
-- [ ] `daemon-resume.test.ts` `wait and list resumable agrees with resume admission (idle_output_timeout on failed)` stays green after `idle_output_timeout` is added to `WRITE_LOOP_OUTCOME_KINDS` / `RESUMABLE_AGREEMENT_CASES`; regression guard for list/wait/resume agreement.
-- [ ] `daemon-resume.test.ts` refuses `jarvis run resume` for a no-progress `idle_output_timeout` (`resumable: false`); regression guard — stays green and would fail if admission ignored `resumable`.
-- [ ] `v2/docs/operator-runbook.md` **Idle-output stalls** section documents committed-progress write-path `idle_output_timeout` recovery via `jarvis run resume` when `nextAction: "resume"`, and retains stop/re-dispatch guidance when no checkpoint commit exists.
-- [ ] `v2/docs/operator-runbook.md` **Gotchas** `idle_output_timeout` false-kills entry replaces hand-salvage-only guidance with `jarvis run resume` when the terminal row is resumable; retains re-dispatch / salvage when no checkpoint commit exists.
-- [ ] `v2/docs/v1-behaviors.md` records daemon resume admission and retained-workspace resume semantics for committed-progress `idle_output_timeout`.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/daemon/daemon-resume.test.ts` drives a git-backed write step to failed `idle_output_timeout` with terminal `loop_finished.resumable: true` and a fresh `iteration_commit`, admits `jarvis run resume`, the resumed iteration reuses the retained branch and worktree, retains the checkpoint commit without stale reset, and the run reaches durable completion (`complete` / `done` or equivalent); fails against the baseline `terminal_run` refusal reachable when `isResumeAdmitted` follows the unconditional stop mapping.
+- [x] `daemon-resume.test.ts` `wait and list resumable agrees with resume admission (idle_output_timeout on failed)` stays green after `idle_output_timeout` is added to `WRITE_LOOP_OUTCOME_KINDS` / `RESUMABLE_AGREEMENT_CASES`; regression guard for list/wait/resume agreement.
+- [x] `daemon-resume.test.ts` refuses `jarvis run resume` for a no-progress `idle_output_timeout` (`resumable: false`); regression guard — stays green and would fail if admission ignored `resumable`.
+- [x] `v2/docs/operator-runbook.md` **Idle-output stalls** section documents committed-progress write-path `idle_output_timeout` recovery via `jarvis run resume` when `nextAction: "resume"`, and retains stop/re-dispatch guidance when no checkpoint commit exists.
+- [x] `v2/docs/operator-runbook.md` **Gotchas** `idle_output_timeout` false-kills entry replaces hand-salvage-only guidance with `jarvis run resume` when the terminal row is resumable; retains re-dispatch / salvage when no checkpoint commit exists.
+- [x] `v2/docs/v1-behaviors.md` records daemon resume admission and retained-workspace resume semantics for committed-progress `idle_output_timeout`.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

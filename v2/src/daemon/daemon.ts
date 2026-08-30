@@ -660,6 +660,7 @@ function reconstructWriteResume(run: Run, logRecords?: readonly PersistedRecord[
     },
     stepId,
     workflowSnapshot: snapshot,
+    resumeReentry: true,
     ...(step.promptId !== undefined ? { promptId: step.promptId } : {}),
     ...(step.promptPlaceholders !== undefined ? { promptPlaceholders: step.promptPlaceholders } : {}),
     ...(step.iterationTimeoutMs === undefined ? {} : { iterationTimeoutMs: step.iterationTimeoutMs }),

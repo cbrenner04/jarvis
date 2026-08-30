@@ -80,6 +80,10 @@ Designed and shipped (#121/#122): the `prompts/` layout, fragment taxonomy, the 
 
 **v2's own renderer (`v2/src/execution/write-prompt.ts`, `renderStepPrompt`) only implements the global half of this layering.** It prepends every `behavior: global` fragment (order-ranked, minus the step's own `remove` list) ahead of the step's task text, but does not layer behavior-specific fragments — those a step still injects itself via its own placeholders (e.g. `write.execute`'s `PRINCIPLES`). This means `plan.prompt.draft` renders two different ways depending on caller: through `shared/prompts/plan-draft.ts` (`assemblePromptForStep`, used by `jarvis1`) it also gets `plan.decisions-ledger` / `plan.defer-to-consumer` and honors `metadata.add`; through v2's `renderStepPrompt` it gets only the global fragments. Converging v2 onto `assemblePromptForStep` is the correct end state; tracked as follow-up, not yet done.
 
+## Pipelines
+
+A **pipeline** sequences named workflow presets and manual approval gates across intent → plan → implement (and variants), with optional terminal draft-PR actions (`leave-draft`, `ready`, `merge`). Definitions live in `pipeline-definition.ts` / `pipeline-registry.ts`; per-project overrides in `project-pipeline-resolution.ts`. Admission persists an immutable `PipelineContext` snapshot; the daemon owns ordered dispatch, stage settlement, fan-out branches, derived state, terminal publication, and restart continuation. Cross-file execution contract: [`pipeline-execution.md`](./pipeline-execution.md). Preset and per-step workflow semantics: [`workflow-runner.md`](./workflow-runner.md). RPC and startup: [`daemon-host.md`](./daemon-host.md).
+
 ## Workflows & orchestration
 
 Composability is paramount. A workflow is a linear (with loops) array of steps. Different projects need different postures — heavier review for sensitive repos, YOLO for others, fast short-circuits for small tasks — without changing the underlying behavior or prompt implementations.

@@ -2,7 +2,7 @@
 id: plan.prompt.draft
 behavior: plan
 kind: step
-revision: 14
+revision: 15
 placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, SPEC_GUIDANCE:string!]
 remove: [global.naming]
 ---
@@ -56,6 +56,8 @@ Your first action is to read existing repo files and confirm each behavior in th
 - For **product specs** (target-repo work), acceptance criteria describe observable behavior, not implementation structure. Good: "quota exhaustion falls through to the next configured agent." Bad: "quota classification lives in a dedicated module." Harness specs for the jarvis repo may name internal structure when it is the contract (prompt IDs, telemetry fields, hooks).
 - Every subspec that changes runtime behavior must carry an acceptance criterion naming a test that fails against the pre-fix code and passes after the change. "Existing tests stay green" does not satisfy this; each runtime-behavior subspec needs a dedicated new or updated failing test. Docs-only and spec-only subspecs are exempt.
 - **Agent-verifiable acceptance criteria:** Every non-human-only acceptance criterion must be verifiable from the implement worktree without network or GitHub access. Do not assert PR body/title content, CI status, review state, merge readiness, or other GitHub/network-only facts in automated criteria. If such verification is genuinely necessary, mark the criterion human-only with `(Manual)`, `visual inspection only`, or `no automated guard` so it is not automated. PR-body evidence (test count diffs, feature lists, etc.) belongs in publication, not in acceptance criteria.
+- **One surface per acceptance-criteria bullet.** Each `- [ ]` bullet must reference exactly one file or module surface — one test file, or one doc file. Never list multiple files in a single bullet (for example ``` `daemon-host.md`, `state-store.md`, and `v1-behaviors.md` document … ```); split it into one bullet per file. A bullet that spans multiple module-boundary surfaces (daemon, persistence, execution, …) or their docs is rejected by the plan contract, which blocks the whole draft.
+- **Link every subspec file; leave no orphans.** `index.md` must link every numbered `.md` file you create under `spec/<NAME>/`. If you draft a subspec and then rename or rewrite it, delete the old file — an on-disk subspec that `index.md` does not link (for example an old `00-foo.md` you replaced with `00-foo-bar.md`) is rejected by the plan contract. Before finishing, confirm the set of numbered files on disk exactly matches the set linked from `index.md`.
 - If you identify a blocker that prevents you from drafting the spec, append an exact `## Blocker` section to `intent.md` describing what you need. Do not invent answers; ask for human input. Do not include a `## Blocker` section unless there is a genuine blocker.
 - Follow the heading contracts from the spec guidance: exact `## Acceptance criteria` and `## Blocker` headings (level 2, case-sensitive).
 

@@ -279,15 +279,28 @@ export type RunDismissalOutcome =
   | { kind: "applied"; runId: string }
   | { kind: "refused"; runId: string; reason: RunDismissalRefusalReason };
 
-type CommitTerminalRunSettlementInput = {
-  runId: string;
-  status: RunStatus;
+type TerminalRunSettlementEvidence = {
   terminalCause?: WriteLoopOutcomeKind | null;
   prNumber?: number | null;
   prUrl?: string | null;
   terminalFailureDetail?: InvocationFailureDetail | null;
+};
+
+type CommitTerminalRunSettlementInput = TerminalRunSettlementEvidence & {
+  runId: string;
+  status: RunStatus;
   beforeSecondWrite?: () => void;
 };
+
+type CommitCompletionBoundaryInput = {
+  attemptId: string;
+  runStatus: RunStatus;
+  outcomeKind: OutcomeKind;
+  invocationFailureDetail?: InvocationFailureDetail;
+  completionAgent?: string;
+  completionReviewPass?: number;
+  beforeRunUpdate?: () => void;
+} & TerminalRunSettlementEvidence;
 
 export type PipelineReopenRefusalReason =
   | "pipeline_not_found"
@@ -737,15 +750,7 @@ export interface StateStore {
    * already-finished boundary is a no-op. `beforeRunUpdate` is a test seam to
    * force a mid-transaction failure.
    */
-  commitCompletionBoundary(args: {
-    attemptId: string;
-    runStatus: RunStatus;
-    outcomeKind: OutcomeKind;
-    invocationFailureDetail?: InvocationFailureDetail;
-    completionAgent?: string;
-    completionReviewPass?: number;
-    beforeRunUpdate?: () => void;
-  }): void;
+  commitCompletionBoundary(args: CommitCompletionBoundaryInput): void;
 
   /** Persist a run status update outside a completion boundary. */
   setRunStatus(runId: string, status: RunStatus): void;
@@ -1864,15 +1869,7 @@ class StateStoreImpl implements StateStore {
     return attemptId;
   }
 
-  commitCompletionBoundary(args: {
-    attemptId: string;
-    runStatus: RunStatus;
-    outcomeKind: OutcomeKind;
-    invocationFailureDetail?: InvocationFailureDetail;
-    completionAgent?: string;
-    completionReviewPass?: number;
-    beforeRunUpdate?: () => void;
-  }): void {
+  commitCompletionBoundary(args: CommitCompletionBoundaryInput): void {
     this.db.transaction(() => {
       const attempt = this.db
         .prepare("SELECT run_id AS runId, outcome_kind AS outcomeKind FROM attempts WHERE id = ?")
@@ -1901,6 +1898,17 @@ class StateStoreImpl implements StateStore {
 
       args.beforeRunUpdate?.();
 
+      const settlementEvidence = this.extractTerminalSettlementEvidence(args);
+      if (isTerminalRunStatus(args.runStatus) && settlementEvidence !== undefined) {
+        this.validateTerminalCause(settlementEvidence.terminalCause);
+        const finishedAt = Date.now();
+        this.db
+          .prepare("UPDATE runs SET attempt_count = attempt_count + 1, status = ?, finished_at = ? WHERE id = ?")
+          .run(args.runStatus, finishedAt, attempt.runId);
+        this.writeTerminalSettlementEvidence(attempt.runId, settlementEvidence);
+        return;
+      }
+
       this.db
         .prepare("UPDATE runs SET attempt_count = attempt_count + 1, status = ? WHERE id = ?")
         .run(args.runStatus, attempt.runId);
@@ -1926,13 +1934,7 @@ class StateStoreImpl implements StateStore {
     if (!isTerminalRunStatus(args.status)) {
       throw new Error(`Terminal run settlement requires a terminal status: ${args.status}`);
     }
-    if (
-      args.terminalCause !== undefined &&
-      args.terminalCause !== null &&
-      !isWriteLoopOutcomeKind(args.terminalCause)
-    ) {
-      throw new Error(`Invalid terminal cause: ${String(args.terminalCause)}`);
-    }
+    this.validateTerminalCause(args.terminalCause);
 
     const applySettlement = () => {
       if (!this.runRowExists(args.runId)) throw new Error(`Run ${args.runId} not found`);
@@ -1942,33 +1944,65 @@ class StateStoreImpl implements StateStore {
         .prepare("UPDATE runs SET status = ?, finished_at = ? WHERE id = ?")
         .run(args.status, finishedAt, args.runId);
 
-      args.beforeSecondWrite?.();
-
-      const evidenceSets: string[] = [];
-      const evidenceValues: SQLQueryBindings[] = [];
-      for (const [column, value] of [
-        ["terminal_cause", args.terminalCause],
-        ["pr_number", args.prNumber],
-        ["pr_url", args.prUrl],
-        [
-          "terminal_failure_detail",
-          args.terminalFailureDetail === undefined
-            ? undefined
-            : args.terminalFailureDetail === null
-              ? null
-              : JSON.stringify(args.terminalFailureDetail),
-        ],
-      ] as const) {
-        if (value !== undefined) {
-          evidenceSets.push(`${column} = ?`);
-          evidenceValues.push(value);
-        }
-      }
-      if (evidenceSets.length === 0) evidenceSets.push("finished_at = finished_at");
-      this.db.prepare(`UPDATE runs SET ${evidenceSets.join(", ")} WHERE id = ?`).run(...evidenceValues, args.runId);
+      this.writeTerminalSettlementEvidence(args.runId, args);
     };
 
     this.db.transaction(applySettlement)();
+  }
+
+  private extractTerminalSettlementEvidence(
+    args: TerminalRunSettlementEvidence,
+  ): TerminalRunSettlementEvidence | undefined {
+    if (
+      args.terminalCause === undefined &&
+      args.prNumber === undefined &&
+      args.prUrl === undefined &&
+      args.terminalFailureDetail === undefined
+    ) {
+      return undefined;
+    }
+    return {
+      ...(args.terminalCause !== undefined ? { terminalCause: args.terminalCause } : {}),
+      ...(args.prNumber !== undefined ? { prNumber: args.prNumber } : {}),
+      ...(args.prUrl !== undefined ? { prUrl: args.prUrl } : {}),
+      ...(args.terminalFailureDetail !== undefined ? { terminalFailureDetail: args.terminalFailureDetail } : {}),
+    };
+  }
+
+  private validateTerminalCause(terminalCause: WriteLoopOutcomeKind | null | undefined): void {
+    if (terminalCause !== undefined && terminalCause !== null && !isWriteLoopOutcomeKind(terminalCause)) {
+      throw new Error(`Invalid terminal cause: ${String(terminalCause)}`);
+    }
+  }
+
+  private writeTerminalSettlementEvidence(
+    runId: string,
+    args: TerminalRunSettlementEvidence & { beforeSecondWrite?: () => void },
+  ): void {
+    args.beforeSecondWrite?.();
+
+    const evidenceSets: string[] = [];
+    const evidenceValues: SQLQueryBindings[] = [];
+    for (const [column, value] of [
+      ["terminal_cause", args.terminalCause],
+      ["pr_number", args.prNumber],
+      ["pr_url", args.prUrl],
+      [
+        "terminal_failure_detail",
+        args.terminalFailureDetail === undefined
+          ? undefined
+          : args.terminalFailureDetail === null
+            ? null
+            : JSON.stringify(args.terminalFailureDetail),
+      ],
+    ] as const) {
+      if (value !== undefined) {
+        evidenceSets.push(`${column} = ?`);
+        evidenceValues.push(value);
+      }
+    }
+    if (evidenceSets.length === 0) evidenceSets.push("finished_at = finished_at");
+    this.db.prepare(`UPDATE runs SET ${evidenceSets.join(", ")} WHERE id = ?`).run(...evidenceValues, runId);
   }
 
   private runRowExists(runId: string): boolean {

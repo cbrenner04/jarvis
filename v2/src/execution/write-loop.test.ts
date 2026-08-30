@@ -516,14 +516,29 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
   };
 }
 
-type CompletedWriteObservation = { prNumber?: number | null; prUrl?: string | null };
+type CompletedWriteObservation = {
+  prNumber?: number | null;
+  prUrl?: string | null;
+  terminalCause?: string | null;
+  finishedAt?: number | null;
+};
 
-/** Wrap a store to record PR evidence present on each `setRunStatus(..., "completed")` call. */
+/** Wrap a store to record fields present on each terminal completed settlement. */
 function storeObservingCompletedWrites(inner: StateStore): {
   store: StateStore;
   completedWrites: CompletedWriteObservation[];
 } {
   const completedWrites: CompletedWriteObservation[] = [];
+  const recordCompletedSettlement = (runId: string) => {
+    const row = inner.loadRun(runId);
+    if (row?.status !== "completed") return;
+    completedWrites.push({
+      ...(row.prNumber !== undefined ? { prNumber: row.prNumber } : {}),
+      ...(row.prUrl !== undefined ? { prUrl: row.prUrl } : {}),
+      ...(row.terminalCause !== undefined ? { terminalCause: row.terminalCause } : {}),
+      ...(row.finishedAt !== undefined ? { finishedAt: row.finishedAt } : {}),
+    });
+  };
   const store: StateStore = {
     createRun: (args) => inner.createRun(args),
     setCreationTitle: (runId, title) => inner.setCreationTitle(runId, title),
@@ -556,18 +571,12 @@ function storeObservingCompletedWrites(inner: StateStore): {
     dismissPipeline: (args) => inner.dismissPipeline(args),
     undismissPipeline: (args) => inner.undismissPipeline(args),
     recordAttemptStart: (runId) => inner.recordAttemptStart(runId),
-    setRunStatus: (runId, status) => {
-      if (status === "completed") {
-        const row = inner.loadRun(runId);
-        completedWrites.push({
-          ...(row?.prNumber !== undefined ? { prNumber: row.prNumber } : {}),
-          ...(row?.prUrl !== undefined ? { prUrl: row.prUrl } : {}),
-        });
-      }
-      inner.setRunStatus(runId, status);
-    },
+    setRunStatus: (runId, status) => inner.setRunStatus(runId, status),
     commitGuardedKill: (runId) => inner.commitGuardedKill(runId),
-    commitTerminalRunSettlement: (args) => inner.commitTerminalRunSettlement(args),
+    commitTerminalRunSettlement: (args) => {
+      inner.commitTerminalRunSettlement(args);
+      if (args.status === "completed") recordCompletedSettlement(args.runId);
+    },
     dismissRun: (runId) => inner.dismissRun(runId),
     undismissRun: (runId) => inner.undismissRun(runId),
     forceKillOwnerAdmits: (runId) => inner.forceKillOwnerAdmits(runId),
@@ -4710,6 +4719,8 @@ export function isLoadSensitive(file: string): boolean {
       const successfulCompletedWrite = completedWrites.at(-1);
       expect(successfulCompletedWrite?.prNumber).toBe(prNumber);
       expect(successfulCompletedWrite?.prUrl).toBe(prUrl);
+      expect(successfulCompletedWrite?.terminalCause).toBe("complete");
+      expect(successfulCompletedWrite?.finishedAt).not.toBeNull();
     });
 
     test("resumed completion publication persists PR evidence before the run becomes completed and reuses the published PR", async () => {
@@ -4764,6 +4775,135 @@ export function isLoadSensitive(file: string): boolean {
       const successfulCompletedWrite = completedWrites.at(-1);
       expect(successfulCompletedWrite?.prNumber).toBe(prNumber);
       expect(successfulCompletedWrite?.prUrl).toBe(prUrl);
+      expect(successfulCompletedWrite?.terminalCause).toBe("complete");
+      expect(successfulCompletedWrite?.finishedAt).not.toBeNull();
+    });
+
+    test("landing_failed budget exhaustion settles failed with terminal cause without a second status write", async () => {
+      const realLint = await import("./staged-markdown-lint.ts");
+      mock.module("./staged-markdown-lint.ts", () => ({
+        lintStagedMarkdown: async () => ({
+          kind: "violation" as const,
+          ruleId: "MD038",
+          filePath: "stage/00-one.md",
+          message: "spaces inside emphasis markers",
+        }),
+      }));
+      try {
+        const { jarvisRoot, stateDbPath } = createJarvisHome();
+        let failedStatusWrites = 0;
+        const inner = openStateStore(stateDbPath);
+        const store: StateStore = {
+          createRun: (args) => inner.createRun(args),
+          setCreationTitle: (runId, title) => inner.setCreationTitle(runId, title),
+          setRunSpecPath: (runId, specPath) => inner.setRunSpecPath(runId, specPath),
+          setRunDownstreamInputs: (runId, downstreamInputs) => inner.setRunDownstreamInputs(runId, downstreamInputs),
+          clearRunDownstreamInputs: (runId) => inner.clearRunDownstreamInputs(runId),
+          setPrEvidence: (runId, prNumber, prUrl) => inner.setPrEvidence(runId, prNumber, prUrl),
+          setReadyGatePgid: (runId, pgid) => inner.setReadyGatePgid(runId, pgid),
+          setReadyGateRepairFence: (runId, fence) => inner.setReadyGateRepairFence(runId, fence),
+          setRetainedFinalizationCheckpoint: (runId, checkpoint) =>
+            inner.setRetainedFinalizationCheckpoint(runId, checkpoint),
+          loadRun: (runId) => inner.loadRun(runId),
+          findRunByProjectBranch: (args) => inner.findRunByProjectBranch(args),
+          findReviewMutationLineageRows: (args) => inner.findReviewMutationLineageRows(args),
+          findRunsByInvocationId: (invocationId) => inner.findRunsByInvocationId(invocationId),
+          createPipeline: (args) => inner.createPipeline(args),
+          createPipelineStageBranch: (args) => inner.createPipelineStageBranch(args),
+          loadPipeline: (pipelineId) => inner.loadPipeline(pipelineId),
+          listPipelines: () => inner.listPipelines(),
+          updateStage: (args) => inner.updateStage(args),
+          commitApprovalBoundary: (args) => inner.commitApprovalBoundary(args),
+          commitApprovalDecision: (args) => inner.commitApprovalDecision(args),
+          claimPipelineContinuation: (args) => inner.claimPipelineContinuation(args),
+          claimPipelineStageAdmission: (args) => inner.claimPipelineStageAdmission(args),
+          releasePipelineStageAdmission: (args) => inner.releasePipelineStageAdmission(args),
+          loadPipelineStageAdmission: (args) => inner.loadPipelineStageAdmission(args),
+          reopenFailedPipeline: (args) => inner.reopenFailedPipeline(args),
+          commitTerminalPublicationFailure: (args) => inner.commitTerminalPublicationFailure(args),
+          commitTerminalPublicationSuccess: (args) => inner.commitTerminalPublicationSuccess(args),
+          dismissPipeline: (args) => inner.dismissPipeline(args),
+          undismissPipeline: (args) => inner.undismissPipeline(args),
+          recordAttemptStart: (runId) => inner.recordAttemptStart(runId),
+          setRunStatus: (runId, status) => {
+            if (status === "failed") failedStatusWrites += 1;
+            inner.setRunStatus(runId, status);
+          },
+          commitGuardedKill: (runId) => inner.commitGuardedKill(runId),
+          commitTerminalRunSettlement: (args) => inner.commitTerminalRunSettlement(args),
+          dismissRun: (runId) => inner.dismissRun(runId),
+          undismissRun: (runId) => inner.undismissRun(runId),
+          forceKillOwnerAdmits: (runId) => inner.forceKillOwnerAdmits(runId),
+          beginRunReconciliation: () => inner.beginRunReconciliation(),
+          finishRunReconciliation: (runId) => inner.finishRunReconciliation(runId),
+          reconcilePipelines: () => inner.reconcilePipelines(),
+          listRuns: () => inner.listRuns(),
+          hasQueuedRun: (args) => inner.hasQueuedRun(args),
+          listQueuedRuns: () => inner.listQueuedRuns(),
+          isClosed: () => inner.isClosed(),
+          close: () => inner.close(),
+          commitCompletionBoundary: (args) => inner.commitCompletionBoundary(args),
+        };
+        const result = await runLoop({
+          jarvisRoot,
+          stateDbPath,
+          store,
+          maxIterations: 2,
+          artifactPath: ".jarvis-plan-stage",
+          specPath: PLAN_DRAFT_SPEC_PATH,
+          promptId: "plan.prompt.draft",
+          intentSeed: PLAN_DRAFT_INTENT_SEED,
+          bindings: [
+            {
+              id: "draft",
+              metadata: { agent: "test-agent", model: "test" },
+              invoke: async ({ cwd }) => {
+                const stage = join(cwd, ".jarvis-plan-stage");
+                mkdirSync(stage, { recursive: true });
+                writeFileSync(join(stage, "intent.md"), "---\nname: test\n---\n", "utf8");
+                writeFileSync(join(stage, "index.md"), "# Index\n\n- [ ] [00 - One](./00-one.md)\n", "utf8");
+                writeFileSync(
+                  join(stage, "00-one.md"),
+                  "# One\n\n## Acceptance criteria\n\n- [ ] single surface task\n",
+                  "utf8",
+                );
+                return { kind: "ok", stdout: "done", stderr: "" };
+              },
+            },
+          ],
+        });
+        expect(result.kind).toBe("landing_failed");
+        expect(failedStatusWrites).toBe(0);
+        const settled = loadRunOnce(stateDbPath, result.runId);
+        expect(settled?.status).toBe("failed");
+        expect(settled?.terminalCause).toBe("landing_failed");
+        expect(settled?.finishedAt).not.toBeNull();
+      } finally {
+        mock.module("./staged-markdown-lint.ts", () => realLint);
+      }
+    });
+
+    test("ready_gate_failed settlement exposes atomic cause and failure detail before loop_finished", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const gateError = new ReadyGateError("bun run ready", 1, "tests failed");
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        ...completionHooks,
+        readyFinalizer: async () => {
+          throw gateError;
+        },
+      });
+      expect(result.kind).toBe("ready_gate_failed");
+      const settled = loadRunOnce(stateDbPath, result.runId);
+      expect(settled?.status).toBe("failed");
+      expect(settled?.terminalCause).toBe("ready_gate_failed");
+      expect(settled?.terminalFailureDetail).toMatchObject({
+        failureKind: "error",
+        bindingAttempts: [],
+        message: expect.stringContaining("tests failed"),
+      });
     });
 
     test("records successful observed runtime smoke separately from not-runnable evidence", async () => {

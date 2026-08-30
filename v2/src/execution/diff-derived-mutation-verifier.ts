@@ -18,12 +18,19 @@ export type AcceptedSite = {
   reason: string;
 };
 
+export type SkippedCandidate = {
+  file: string;
+  line: number;
+  reason: string;
+};
+
 export type PassResult = {
   kind: "pass";
   runBase: string;
   inspectedPaths: string[];
   candidateCount: number;
   acceptedSites: AcceptedSite[];
+  skippedCandidates: SkippedCandidate[];
 };
 
 export type SurvivingMutationResult = {
@@ -537,22 +544,29 @@ function mutateRenderedPrompt(content: string, changedLines: ChangedLine[]): str
   return `${content.slice(0, bodyStart + 5)}${body.replace(original, "__JARVIS_PROMPT_RENDER_COVERAGE_MUTATION__")}`;
 }
 
+class UnappliableMutationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnappliableMutationError";
+  }
+}
+
 function applyMutation(fileContent: string, candidate: Candidate): string {
   const lines = fileContent.split("\n");
   const lineIndex = candidate.line - 1;
 
   if (lineIndex < 0 || lineIndex >= lines.length) {
-    throw new Error(`Line ${candidate.line} out of bounds`);
+    throw new UnappliableMutationError(`Line ${candidate.line} out of bounds`);
   }
 
   const line = lines[lineIndex];
   if (line === undefined) {
-    throw new Error(`Line ${candidate.line} is undefined`);
+    throw new UnappliableMutationError(`Line ${candidate.line} is undefined`);
   }
 
   const slice = line.slice(candidate.columnStart, candidate.columnEnd);
   if (slice !== candidate.originalText) {
-    throw new Error(
+    throw new UnappliableMutationError(
       `Failed to apply mutation: expected "${candidate.originalText}" at ${candidate.columnStart}-${candidate.columnEnd} but found "${slice}"`,
     );
   }
@@ -683,7 +697,7 @@ async function testCandidate(
   writeFile: WriteFile,
   runScopedTests: RunScopedTests,
   killingTestPaths: string[],
-): Promise<SurvivingMutationResult | null> {
+): Promise<SurvivingMutationResult | SkippedCandidate | null> {
   const filePath = `${input.worktreePath}/${candidate.file}`;
 
   try {
@@ -715,11 +729,14 @@ async function testCandidate(
     } finally {
       await writeFile(filePath, originalContent);
     }
-  } catch {
+  } catch (error) {
     try {
       await writeFile(filePath, originalContent);
     } catch {
       // Ignore restoration errors
+    }
+    if (error instanceof UnappliableMutationError) {
+      return { file: candidate.file, line: candidate.line, reason: error.message };
     }
     throw new Error(`Failed to test candidate for ${candidate.file}:${candidate.line}`);
   }
@@ -995,10 +1012,16 @@ async function verifyCandidates(
   listImporterCandidates: ListImporterCandidates,
   now: () => number,
   deadline: number,
-): Promise<{ result: SurvivingMutationResult | null; inspected: number; acceptedSites: AcceptedSite[] }> {
+): Promise<{
+  result: SurvivingMutationResult | null;
+  inspected: number;
+  acceptedSites: AcceptedSite[];
+  skippedCandidates: SkippedCandidate[];
+}> {
   let inspected = 0;
   let survivingResult: SurvivingMutationResult | null = null;
   const acceptedSites: AcceptedSite[] = [];
+  const skippedCandidates: SkippedCandidate[] = [];
   const fileCache = new Map<string, string>();
   const fileChains = new Map<string, Promise<void>>();
 
@@ -1033,7 +1056,7 @@ async function verifyCandidates(
 
     const killingTest = resolveCoLocatedKillingTest(candidate.file);
     if (killingTest === null) {
-      return { result: missingKillingTest(candidate), inspected, acceptedSites };
+      return { result: missingKillingTest(candidate), inspected, acceptedSites, skippedCandidates };
     }
 
     const previous = fileChains.get(candidate.file) ?? Promise.resolve();
@@ -1068,13 +1091,19 @@ async function verifyCandidates(
           runScopedTests,
           resolution.killingTests,
         );
-        if (result !== null && survivingResult === null) survivingResult = result;
+        if (result !== null) {
+          if ("kind" in result) {
+            if (survivingResult === null) survivingResult = result;
+          } else {
+            skippedCandidates.push(result);
+          }
+        }
       }),
     );
   }
 
   await Promise.all(fileChains.values());
-  return { result: survivingResult, inspected, acceptedSites };
+  return { result: survivingResult, inspected, acceptedSites, skippedCandidates };
 }
 
 export async function verifyDiffDerivedMutations(
@@ -1107,6 +1136,7 @@ export async function verifyDiffDerivedMutations(
       inspectedPaths: [],
       candidateCount: 0,
       acceptedSites: [],
+      skippedCandidates: [],
     };
   }
 
@@ -1136,10 +1166,11 @@ export async function verifyDiffDerivedMutations(
       inspectedPaths: changedPaths,
       candidateCount: 0,
       acceptedSites: [],
+      skippedCandidates: [],
     };
   }
 
-  const { result, inspected, acceptedSites } = await verifyCandidates(
+  const { result, inspected, acceptedSites, skippedCandidates } = await verifyCandidates(
     candidates,
     input,
     readFile,
@@ -1158,5 +1189,6 @@ export async function verifyDiffDerivedMutations(
     inspectedPaths: changedPaths,
     candidateCount: inspected,
     acceptedSites,
+    skippedCandidates,
   };
 }

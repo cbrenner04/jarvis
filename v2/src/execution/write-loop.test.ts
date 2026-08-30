@@ -490,6 +490,7 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
     recordAttemptStart: (runId) => inner.recordAttemptStart(runId),
     setRunStatus: (runId, status) => inner.setRunStatus(runId, status),
     commitGuardedKill: (runId) => inner.commitGuardedKill(runId),
+    commitTerminalRunSettlement: (args) => inner.commitTerminalRunSettlement(args),
     dismissRun: (runId) => inner.dismissRun(runId),
     undismissRun: (runId) => inner.undismissRun(runId),
     forceKillOwnerAdmits: (runId) => inner.forceKillOwnerAdmits(runId),
@@ -565,6 +566,7 @@ function storeObservingCompletedWrites(inner: StateStore): {
       inner.setRunStatus(runId, status);
     },
     commitGuardedKill: (runId) => inner.commitGuardedKill(runId),
+    commitTerminalRunSettlement: (args) => inner.commitTerminalRunSettlement(args),
     dismissRun: (runId) => inner.dismissRun(runId),
     undismissRun: (runId) => inner.undismissRun(runId),
     forceKillOwnerAdmits: (runId) => inner.forceKillOwnerAdmits(runId),

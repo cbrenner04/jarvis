@@ -646,6 +646,271 @@ describe("commitGuardedKill", () => {
     expect(completedRun.status).toBe("completed");
     expect(completedRun.finishedAt).toBeNull();
   });
+
+  test("commitTerminalRunSettlement persists terminal status finish metadata cause PR evidence and failure detail", () => {
+    const runId = seedRun(store);
+    const failureDetail = { failureKind: "quota" as const, bindingAttempts: [] };
+    const before = Date.now();
+
+    store.commitTerminalRunSettlement({
+      runId,
+      status: "completed",
+      terminalCause: "complete",
+      prNumber: 42,
+      prUrl: "https://github.com/example/pr/42",
+      terminalFailureDetail: failureDetail,
+    });
+
+    const loaded = loadRunOrThrow(store, runId);
+    expect(loaded.status).toBe("completed");
+    expect(loaded.finishedAt).not.toBeNull();
+    expect(loaded.finishedAt).toBeGreaterThanOrEqual(before);
+    expect(loaded.terminalCause).toBe("complete");
+    expect(loaded.prNumber).toBe(42);
+    expect(loaded.prUrl).toBe("https://github.com/example/pr/42");
+    expect(loaded.terminalFailureDetail).toEqual(failureDetail);
+
+    const listed = store.listRuns().find((run) => run.id === runId);
+    expect(listed?.status).toBe("completed");
+    expect(listed?.finishedAt).toBe(loaded.finishedAt);
+    expect(listed?.terminalCause).toBe("complete");
+    expect(listed?.prNumber).toBe(42);
+    expect(listed?.prUrl).toBe("https://github.com/example/pr/42");
+    expect(listed?.terminalFailureDetail).toEqual(failureDetail);
+  });
+
+  test("commitTerminalRunSettlement rolls back every field on mid-settlement failure", () => {
+    const runId = seedRun(store);
+    store.setPrEvidence(runId, 7, "https://github.com/example/pr/7");
+    store.commitTerminalRunSettlement({
+      runId,
+      status: "failed",
+      terminalCause: "invocation_failure",
+      terminalFailureDetail: { failureKind: "timeout", bindingAttempts: [], exhaustedRoleTimeout: true },
+    });
+    const before = loadRunOrThrow(store, runId);
+
+    expect(() =>
+      store.commitTerminalRunSettlement({
+        runId,
+        status: "killed",
+        terminalCause: "blocked",
+        prNumber: 99,
+        prUrl: "https://github.com/example/pr/99",
+        terminalFailureDetail: { failureKind: "quota", bindingAttempts: [] },
+        beforeSecondWrite: () => {
+          throw new Error("forced mid-settlement failure");
+        },
+      }),
+    ).toThrow("forced mid-settlement failure");
+    // @mutate v2/src/persistence/state-store.ts "this.db.transaction(applySettlement)();" -> "applySettlement();"
+
+    const after = loadRunOrThrow(store, runId);
+    expect(after.status).toBe(before.status);
+    expect(after.finishedAt).toBe(before.finishedAt);
+    expect(after.prNumber).toBe(before.prNumber);
+    expect(after.prUrl).toBe(before.prUrl);
+    expect(after.terminalCause).toBe(before.terminalCause);
+    expect(after.terminalFailureDetail).toEqual(before.terminalFailureDetail);
+  });
+
+  test("commitTerminalRunSettlement rejects nonterminal status", () => {
+    const runId = seedRun(store);
+    for (const status of ["paused", "in-progress"] as const) {
+      store.setRunStatus(runId, status);
+      expect(() =>
+        store.commitTerminalRunSettlement({
+          runId,
+          status,
+        }),
+      ).toThrow(`Terminal run settlement requires a terminal status: ${status}`);
+      const run = loadRunOrThrow(store, runId);
+      expect(run.status).toBe(status);
+      expect(run.finishedAt).toBeNull();
+    }
+  });
+
+  test("commitTerminalRunSettlement leaves omitted evidence columns unchanged", () => {
+    const runId = seedRun(store);
+    store.setPrEvidence(runId, 11, "https://github.com/example/pr/11");
+
+    store.commitTerminalRunSettlement({
+      runId,
+      status: "killed",
+    });
+
+    const run = loadRunOrThrow(store, runId);
+    expect(run.status).toBe("killed");
+    expect(run.finishedAt).not.toBeNull();
+    expect(run.prNumber).toBe(11);
+    expect(run.prUrl).toBe("https://github.com/example/pr/11");
+    expect(run.terminalCause).toBeNull();
+    expect(run.terminalFailureDetail).toBeNull();
+  });
+
+  test("commitTerminalRunSettlement refuses an unknown run id", () => {
+    const runA = seedRun(store, { branch: "branch-a" });
+    const runB = seedRun(store, { branch: "branch-b" });
+    const beforeA = loadRunOrThrow(store, runA);
+    const beforeB = loadRunOrThrow(store, runB);
+
+    expect(() =>
+      store.commitTerminalRunSettlement({
+        runId: "no-such-run",
+        status: "killed",
+      }),
+    ).toThrow("Run no-such-run not found");
+
+    expect(loadRunOrThrow(store, runA)).toEqual(beforeA);
+    expect(loadRunOrThrow(store, runB)).toEqual(beforeB);
+  });
+
+  test("commitTerminalRunSettlement updates prNumber and prUrl independently", () => {
+    const runId = seedRun(store);
+    store.setPrEvidence(runId, 11, "https://github.com/example/pr/11");
+
+    store.commitTerminalRunSettlement({
+      runId,
+      status: "completed",
+      prNumber: 22,
+    });
+    let run = loadRunOrThrow(store, runId);
+    expect(run.prNumber).toBe(22);
+    expect(run.prUrl).toBe("https://github.com/example/pr/11");
+
+    store.commitTerminalRunSettlement({
+      runId,
+      status: "failed",
+      prUrl: "https://github.com/example/pr/99",
+    });
+    run = loadRunOrThrow(store, runId);
+    expect(run.prNumber).toBe(22);
+    expect(run.prUrl).toBe("https://github.com/example/pr/99");
+  });
+
+  test("commitTerminalRunSettlement rejects invalid terminalCause without mutating the row", () => {
+    const runId = seedRun(store);
+    store.setPrEvidence(runId, 5, "https://github.com/example/pr/5");
+    const before = loadRunOrThrow(store, runId);
+
+    expect(() =>
+      store.commitTerminalRunSettlement({
+        runId,
+        status: "failed",
+        terminalCause: "bogus-outcome" as never,
+      }),
+    ).toThrow("Invalid terminal cause: bogus-outcome");
+
+    expect(loadRunOrThrow(store, runId)).toEqual(before);
+  });
+
+  test("commitTerminalRunSettlement clears explicitly nulled evidence columns", () => {
+    const runId = seedRun(store);
+    store.commitTerminalRunSettlement({
+      runId,
+      status: "failed",
+      terminalCause: "invocation_failure",
+      prNumber: 3,
+      prUrl: "https://github.com/example/pr/3",
+      terminalFailureDetail: { failureKind: "quota", bindingAttempts: [] },
+    });
+
+    store.commitTerminalRunSettlement({
+      runId,
+      status: "killed",
+      terminalCause: null,
+      prNumber: null,
+      prUrl: null,
+      terminalFailureDetail: null,
+    });
+
+    const run = loadRunOrThrow(store, runId);
+    expect(run.status).toBe("killed");
+    expect(run.terminalCause).toBeNull();
+    expect(run.prNumber).toBeNull();
+    expect(run.prUrl).toBeNull();
+    expect(run.terminalFailureDetail).toBeNull();
+  });
+
+  test("pre-migration runs read terminalCause and terminalFailureDetail as null after migration 029", () => {
+    const legacyDbPath = join(tmpdir(), "jarvis-test-state-legacy-terminal-settlement.sqlite");
+    removeOrchestrationStore(legacyDbPath);
+    try {
+      const raw = new Database(legacyDbPath);
+      raw.exec(`
+        CREATE TABLE runs (
+          id TEXT PRIMARY KEY,
+          project TEXT NOT NULL,
+          spec_ref TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          worktree_path TEXT NOT NULL,
+          branch TEXT NOT NULL,
+          spec_path TEXT NOT NULL,
+          step_id TEXT,
+          workflow_snapshot TEXT,
+          queued_input TEXT,
+          creation_title TEXT,
+          reconciliation_pending INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE attempts (
+          id TEXT PRIMARY KEY,
+          run_id TEXT NOT NULL,
+          attempt_number INTEGER NOT NULL,
+          started_at INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          outcome_kind TEXT,
+          completed_at INTEGER,
+          invocation_failure_detail TEXT,
+          completion_agent TEXT,
+          FOREIGN KEY (run_id) REFERENCES runs(id)
+        );
+        CREATE TABLE _migrations (
+          id TEXT PRIMARY KEY,
+          applied_at INTEGER NOT NULL
+        );
+      `);
+      for (const id of [
+        "004-invocation-failure-detail",
+        "005-run-step-id",
+        "006-run-workflow-snapshot",
+        "007-run-queued-input",
+        "008-attempt-completion-agent",
+        "009-run-creation-title",
+        "010-run-reconciliation-pending",
+      ]) {
+        raw.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(id, Date.now());
+      }
+      const runId = "legacy-run-terminal-settlement";
+      raw
+        .prepare(
+          `INSERT INTO runs (id, project, spec_ref, created_at, status, attempt_count, worktree_path, branch, spec_path)
+           VALUES (?, 'legacy-project', 'main', ?, 'completed', 1, '/tmp/legacy', 'legacy-branch', 'spec.md')`,
+        )
+        .run(runId, Date.now());
+      raw.close();
+
+      const migrated = openStateStore(legacyDbPath);
+      const run = loadRunOrThrow(migrated, runId);
+      expect(run.terminalCause).toBeNull();
+      expect(run.terminalFailureDetail).toBeNull();
+      migrated.close();
+    } finally {
+      removeOrchestrationStore(legacyDbPath);
+    }
+  });
+
+  test("loadRun surfaces terminalFailureDetailCorrupt when terminal_failure_detail JSON is invalid", () => {
+    const runId = seedRun(store);
+    const raw = new Database(TEST_DB_PATH);
+    raw.prepare("UPDATE runs SET terminal_failure_detail = ? WHERE id = ?").run("{not-json", runId);
+    raw.close();
+
+    const run = loadRunOrThrow(store, runId);
+    expect(run.terminalFailureDetail).toBeNull();
+    expect(run.terminalFailureDetailCorrupt).toBe(true);
+  });
 });
 
 function insertStageRow(
@@ -1883,7 +2148,7 @@ describe("pipelines", () => {
 
       const verify = new Database(legacyDbPath);
       const migrationCount = verify.prepare("SELECT COUNT(*) AS total FROM _migrations").get() as { total: number };
-      expect(migrationCount.total).toBe(25);
+      expect(migrationCount.total).toBe(26);
       verify.close();
 
       const pipelineId = migrated.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });

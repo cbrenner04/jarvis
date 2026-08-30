@@ -156,12 +156,6 @@ describe("createCompletionPublisher", () => {
 
     const mockGit = async (_cwd: string, args: readonly string[]) => {
       gitCalls.push(args.join(" "));
-      if (args.includes("push") && gitCalls.filter((c) => c.includes("push")).length === 1) {
-        return ""; // Successful push
-      }
-      if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) {
-        throw new Error("no tracking branch");
-      }
       if (args[0] === "rev-parse" && args[1] === "HEAD") {
         return "abc123def456";
       }
@@ -193,7 +187,41 @@ describe("createCompletionPublisher", () => {
     expect(result.pushSha).toBe("abc123def456");
     expect(result.prNumber).toBe(42);
     expect(result.prUrl).toBe("https://github.com/user/repo/pull/42");
-    expect(gitCalls.some((c) => c.includes("push -u origin feature-branch"))).toBe(true);
+    expect(gitCalls.filter((call) => call.startsWith("push"))).toEqual(["push origin HEAD:refs/heads/feature-branch"]);
+    expect(gitCalls.some((call) => call.includes("@{u}"))).toBe(false);
+  });
+
+  it("pushes HEAD to the target branch namespace despite a same-named remote tag", async () => {
+    const gitCalls: string[][] = [];
+    const remoteTagRef = `refs/tags/${baseInput.branch}`;
+    const publisher = createCompletionPublisher({
+      git: async (_cwd, args) => {
+        gitCalls.push([...args]);
+        if (args[0] === "push" && args[2] !== `HEAD:refs/heads/${baseInput.branch}`) {
+          throw new Error(`ambiguous destination: ${remoteTagRef}`);
+        }
+        if (args[0] === "rev-parse" && args[1] === `${baseInput.branch}@{u}`) {
+          return "origin/differently-named-remote-ref";
+        }
+        if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+        return "";
+      },
+      gh: async (_cwd, args) => {
+        if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
+        if (args[0] === "pr" && args[1] === "create") return "#42";
+        if (args[0] === "pr" && args[1] === "view") return viewPr(42, "https://github.com/user/repo/pull/42");
+        return "";
+      },
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+
+    await publisher(baseInput);
+
+    expect(gitCalls.filter(([command]) => command === "push")).toEqual([
+      ["push", "origin", `HEAD:refs/heads/${baseInput.branch}`],
+    ]);
+    expect(gitCalls.some((args) => args.some((arg) => arg.includes("@{u}")))).toBe(false);
   });
 
   it("threads a supplied narrative through refreshPrBody into the written PR body marker block", async () => {
@@ -345,8 +373,8 @@ describe("createCompletionPublisher", () => {
     });
     await publisher(baseInput);
 
-    expect(gitCalls.some((c) => c === "push")).toBe(true);
-    expect(gitCalls.some((c) => c.includes("-u"))).toBe(false);
+    expect(gitCalls.filter((call) => call.startsWith("push"))).toEqual(["push origin HEAD:refs/heads/feature-branch"]);
+    expect(gitCalls.some((call) => call.includes("@{u}"))).toBe(false);
   });
 
   it("reuses existing open PR with matching base", async () => {
@@ -536,8 +564,10 @@ describe("createCompletionPublisher", () => {
     let attempts = 0;
     const delays: number[] = [];
     const notices: string[] = [];
+    const gitCalls: string[][] = [];
 
     const mockGit = async (_cwd: string, args: readonly string[]) => {
+      gitCalls.push([...args]);
       if (args[0] === "push") {
         attempts += 1;
         if (attempts < 3) {
@@ -545,7 +575,6 @@ describe("createCompletionPublisher", () => {
         }
         return "";
       }
-      if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
       if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
       return "";
     };
@@ -572,6 +601,12 @@ describe("createCompletionPublisher", () => {
 
     expect(attempts).toBe(3);
     expect(result.pushSha).toBe("abc123def456");
+    expect(gitCalls.filter(([command]) => command === "push")).toEqual([
+      ["push", "origin", `HEAD:refs/heads/${baseInput.branch}`],
+      ["push", "origin", `HEAD:refs/heads/${baseInput.branch}`],
+      ["push", "origin", `HEAD:refs/heads/${baseInput.branch}`],
+    ]);
+    expect(gitCalls.some((args) => args.some((arg) => arg.includes("@{u}")))).toBe(false);
     expect(delays).toEqual([1000, 1000]);
     expect(notices).toEqual([
       "push: Connection reset by peer; exit=unknown; retrying (attempt 2/3)",
@@ -949,17 +984,13 @@ describe("createCompletionPublisher", () => {
     expect(ghCalls.some((c) => c.includes("pr create"))).toBe(false);
   });
 
-  it("awaits upstream detection, push, HEAD lookup, PR lookup/create/confirm, and body refresh in order", async () => {
+  it("awaits push, HEAD lookup, PR lookup/create/confirm, and body refresh in order", async () => {
     const events: string[] = [];
 
     const publisher = createCompletionPublisher({
       git: async (_cwd, args) => {
         const cmd = args.join(" ");
-        if (cmd.includes("@{u}")) {
-          events.push("upstream");
-          throw new Error("no upstream");
-        }
-        if (cmd === "push -u origin feature-branch") {
+        if (cmd === "push origin HEAD:refs/heads/feature-branch") {
           events.push("push");
         }
         if (cmd === "rev-parse HEAD") {
@@ -997,7 +1028,6 @@ describe("createCompletionPublisher", () => {
     await publisher(baseInput);
 
     expect(events).toEqual([
-      "upstream",
       "push",
       "head",
       "pr-lookup",

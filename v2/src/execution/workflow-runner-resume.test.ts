@@ -614,6 +614,60 @@ describe("executeWorkflow review dispatch", () => {
     }
   });
 
+  test("resume publication push uses explicit refspec without upstream detection", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-resume-explicit-push-"));
+    mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
+    writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"), "example.md");
+    mkdirSync(join(workspace, "ready-intents"), { recursive: true });
+
+    try {
+      await withStateStore(async (store) => {
+        const branch = "intent/explicit-push";
+        const reviewRunId = seedFailedIntentReviewResumeRun(store, workspace, {
+          branch,
+          invocationId: "intent-explicit-push",
+        });
+        const run = store.loadRun(reviewRunId);
+        if (!run) throw new Error("expected review run");
+        const gitCalls: string[][] = [];
+        const outcome = await resumePopulatedIntentPublication(run, store, {
+          completionCommitter: async () => ({ commitSha: "commit-1" }),
+          completionPublisher: createCompletionPublisher({
+            subprocessRunner: {
+              runAsync: async () => "deadbeef\trefs/heads/main\n",
+            },
+            git: async (_cwd, args) => {
+              gitCalls.push([...args]);
+              if (args[0] === "rev-parse" && args[1] === "HEAD") return "deadbeef";
+              return "";
+            },
+            gh: async (_cwd, args) => {
+              if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
+              if (args[0] === "pr" && args[1] === "create") return "#3";
+              if (args[0] === "pr" && args[1] === "view") {
+                return JSON.stringify({ number: 3, url: "https://example.test/pr/3", baseRefName: "main" });
+              }
+              return "";
+            },
+            delay: async () => {},
+            fetchPrBody: async () => "",
+            writePrBody: async () => {},
+            renderFooter: async () => "",
+          }),
+          readyFinalizer: async () => {},
+        });
+
+        expect(outcome).toMatchObject({ ok: true, prNumber: 3, prUrl: "https://example.test/pr/3" });
+        expect(gitCalls.filter(([command]) => command === "push")).toEqual([
+          ["push", "origin", `HEAD:refs/heads/${branch}`],
+        ]);
+        expect(gitCalls.some((args) => args.some((arg) => arg.includes("@{u}")))).toBe(false);
+      });
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
   test("intent-finalization resume skips the ready gate but completes the remaining finalization tail", async () => {
     // @mutate v2/src/execution/workflow-runner.ts "inertResumeWriteLoopInput(context, context.durableDir, deps, context.landing, writeSibling)" -> "inertResumeWriteLoopInput(context, context.durableDir, deps, undefined, writeSibling)"
     const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-resume-ready-gate-"));

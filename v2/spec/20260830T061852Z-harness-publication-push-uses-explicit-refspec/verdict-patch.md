@@ -1,0 +1,3 @@
+- Ensure completion publication unambiguously updates `refs/heads/<branch>` for initial, retry, and resume paths. `HEAD:<branch>` may resolve to a same-named remote tag or fail when branch and tag names collide, violating the spec’s target-branch guarantee.
+- Add regression coverage for remote namespace collisions while retaining assertions that upstream detection is absent and retries reuse the same refspec.
+- Align `v2/docs/write-behavior.md`, `v2/docs/v1-behaviors.md`, and affected test expectations with the namespace-qualified branch behavior.

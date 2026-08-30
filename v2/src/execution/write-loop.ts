@@ -2325,7 +2325,7 @@ function idleOutputTimeoutResumableFromDurableEvidence(logRecords: readonly Pers
   return terminal?.resumable ?? false;
 }
 
-/** Terminal result already committed by a prior invocation, returned idempotently; null when resumable. */
+/** Terminal result already committed by a prior invocation, returned idempotently. Returns null when the run is resumable and has no committed terminal result, except the idle_output_timeout branch, which returns a non-null result echoing its durable resumable flag. */
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: idempotent terminal-result reconstruction fans out over each settled outcome kind
 function committedResult(
   run: StoredRun,

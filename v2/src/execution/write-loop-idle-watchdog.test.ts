@@ -129,7 +129,6 @@ describe("write loop idle-output watchdog", () => {
   });
 
   test("a git-backed silent stall with committed progress settles idle_output_timeout resumable true", async () => {
-    // @mutate v2/src/execution/write-loop.ts "idleOutputTimeoutResumableFromCheckpoint(commitOutcome)" -> "false"
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     roots.push(join(jarvisRoot, ".."));
     const branchName = "idle-committed-progress";

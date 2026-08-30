@@ -11,6 +11,7 @@ import {
   resetStaleWorkspace,
 } from "./cleanup.ts";
 import type { ImplementWorkflowCliInput, IntentWorkflowCliInput, PlanWorkflowCliInput } from "./workflow-args.ts";
+import type { WorkflowStartResetFlags } from "./workflow-start-preparation.ts";
 
 type SuccessfulWorkflowBuild = Extract<WorkflowPresetBuilderResult, { ok: true }>;
 
@@ -22,13 +23,19 @@ export async function maybeResetStaleWorkspace(
   built: SuccessfulWorkflowBuild,
   deps: CliDeps,
   io: Io,
-  parsed: ImplementWorkflowCliInput | IntentWorkflowCliInput | PlanWorkflowCliInput,
+  parsed: WorkflowStartResetFlags | ImplementWorkflowCliInput | IntentWorkflowCliInput | PlanWorkflowCliInput,
   client: IpcClient,
   onDestroyed?: (destroyed: DestroyedArtifacts) => void,
 ): Promise<number | undefined> {
   if (!STALE_RESET_WORKFLOWS.has(canonicalName)) return undefined;
-  const skipDirtyWorktreeGate = "resetDespiteDirty" in parsed && parsed.resetDespiteDirty === true;
-  const skipLandedCriteriaGate = "resetDespiteLandedCriteria" in parsed && parsed.resetDespiteLandedCriteria === true;
+  const skipDirtyWorktreeGate =
+    "skipDirtyWorktreeGate" in parsed
+      ? parsed.skipDirtyWorktreeGate
+      : "resetDespiteDirty" in parsed && parsed.resetDespiteDirty === true;
+  const skipLandedCriteriaGate =
+    "skipLandedCriteriaGate" in parsed
+      ? parsed.skipLandedCriteriaGate
+      : "resetDespiteLandedCriteria" in parsed && parsed.resetDespiteLandedCriteria === true;
   const writeStep = built.steps.find((step) => step.behavior === "write");
   const worktree = writeStep?.behavior === "write" ? writeStep.worktree : undefined;
   if (!(worktree?.git !== false && worktree?.projectRoot && worktree.projectName && worktree.branchName)) {

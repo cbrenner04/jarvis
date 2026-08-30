@@ -20,10 +20,10 @@
 
 ## Acceptance criteria
 
-- [ ] A structural test colocated with `workflow-start-preparation.ts` rejects production workflow/review realizability or posture-to-preset tables outside that module; it fails against the pre-fix `isUnrealizableWorkflowReview` body in `pipeline-definition.ts` and `WORKFLOW_POSTURE_PRESETS` in `pipeline-stage-resolve.ts`, both reachable on main admission and stage-resolution paths.
-- [ ] `v2/src/execution/pipeline-definition-validation.test.ts` test `implement under none is unrealizable; light on the same stage validates clean` stays green.
-- [ ] `v2/src/execution/pipeline-posture-cli-alignment.test.ts` describe `pipeline posture vs workflow CLI review acceptance` stays green.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] A structural test colocated with `workflow-start-preparation.ts` rejects production workflow/review realizability or posture-to-preset tables outside that module; it fails against the pre-fix `isUnrealizableWorkflowReview` body in `pipeline-definition.ts` and `WORKFLOW_POSTURE_PRESETS` in `pipeline-stage-resolve.ts`, both reachable on main admission and stage-resolution paths.
+- [x] `v2/src/execution/pipeline-definition-validation.test.ts` test `implement under none is unrealizable; light on the same stage validates clean` stays green.
+- [x] `v2/src/execution/pipeline-posture-cli-alignment.test.ts` describe `pipeline posture vs workflow CLI review acceptance` stays green.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

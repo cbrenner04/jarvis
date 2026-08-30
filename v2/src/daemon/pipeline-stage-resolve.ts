@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import { projectSafeId } from "../../../shared/project-safe-id.ts";
+import { resolveWorkflowPresetName } from "../commands/workflow-start-preparation.ts";
 import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import {
@@ -54,12 +55,6 @@ export type PipelineStageResolveDeps = {
   loadRun?: (runId: string) => { worktreePath: string; branch: string } | null;
   branchKey?: string;
   splitPosition?: number;
-};
-
-/** review posture -> preset name, for the two presets that consume a prior stage's artifact or the seed. */
-const WORKFLOW_POSTURE_PRESETS: Record<string, Partial<Record<string, CliWorkflowPresetName>>> = {
-  intent: { none: "intent", light: "intent-reviewed", debate: "intent" },
-  plan: { none: "plan", light: "plan-reviewed-light", debate: "plan-reviewed" },
 };
 
 const FIXED_REVIEW_PASSES = 1;
@@ -534,8 +529,8 @@ async function resolvePlanWorkflowStage(
 /**
  * Resolve one pipeline stage into buildable workflow steps.
  *
- * `pipeline-definition.ts`'s `validatePipelineDefinition` is the sole authority on which
- * (workflow, review) pairs are realizable; this only maps realizable pairs to builders.
+ * Workflow-start preparation is the shared authority on which (workflow, review) pairs are
+ * realizable and which preset each pair selects.
  */
 export async function resolveStageWorkflowSteps(
   definition: PipelineDefinition,
@@ -558,13 +553,13 @@ export async function resolveStageWorkflowSteps(
     deps.splitPosition,
   );
 
-  if (stage.workflow === "implement") {
-    return resolveImplementWorkflowStage(definition, stage, context, priorArtifact, deps, builders);
-  }
-
-  const presetName = WORKFLOW_POSTURE_PRESETS[stage.workflow]?.[stage.review];
+  const presetName = resolveWorkflowPresetName(stage.workflow, stage.review);
   if (presetName === undefined) {
     return unmappedResult(stage);
+  }
+
+  if (stage.workflow === "implement") {
+    return resolveImplementWorkflowStage(definition, stage, context, priorArtifact, deps, builders);
   }
 
   if (stage.workflow === "intent") {

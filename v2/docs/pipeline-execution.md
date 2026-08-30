@@ -9,13 +9,13 @@ A pipeline definition (`PipelineDefinition` in `pipeline-definition.ts`) is a `n
 - **Workflow stage** — `{ stageId, kind: "workflow", workflow, review }` where `workflow` ∈ `BASE_WORKFLOW_NAMES` (`intent`, `plan`, `implement`) and `review` ∈ `none` | `light` | `debate`.
 - **Approval stage** — `{ stageId, kind: "approval" }`.
 
-`validatePipelineDefinition` (`pipeline-definition.ts`) is the sole admission authority on realizable `(workflow, review)` pairs; it returns `{ ok: true }` or `{ ok: false, errors }` with codes `unknown-workflow`, `invalid-review-posture`, `unrealizable-review-posture`, `missing-role-binding`, `duplicate-stage-id`, `empty-pipeline`. Tests: `pipeline-definition-validation.test.ts`.
+Workflow/review realizability and posture → preset realization live in `workflow-start-preparation.ts` for all callers (`validatePipelineDefinition`, CLI admission, and `pipeline-stage-resolve`). `prepareWorkflowStart` composes preset builder invocation, machine-config stamping, and connected stale-workspace preflight for standalone CLI `run workflow` only. Merge-day daemon pipeline dispatch still assembles builder input, stamps steps via `stampWorkflowStepsWithMachineConfig`, and applies intent-only stale reset outside `prepareWorkflowStart` pending migration. `validatePipelineDefinition` (`pipeline-definition.ts`) applies the realizability contract at pipeline admission and returns `{ ok: true }` or `{ ok: false, errors }` with codes `unknown-workflow`, `invalid-review-posture`, `unrealizable-review-posture`, `missing-role-binding`, `duplicate-stage-id`, `empty-pipeline`. Tests: `workflow-start-preparation.test.ts`, `pipeline-definition-validation.test.ts`, `workflow.test.ts`.
 
 `getPipelineDefinition` (`pipeline-registry.ts`) is a total lookup: `{ ok: true, definition }` or `{ ok: false, error: { code: "unknown-pipeline" } }`. Shipped definitions: `full-review`, `fast`. Tests: `pipeline-registry.test.ts`.
 
 `resolveProjectPipeline` (`project-pipeline-resolution.ts`) merges registry rows with per-project `terminalAction` and `reviewOverrides`; refuses `invalid-project-pipeline-config`, `unknown-pipeline`, `invalid-pipeline-definition`, and terminal-action without an implement stage. Tests: `project-pipeline-resolution.test.ts`.
 
-Posture → preset mapping for dispatch lives in `pipeline-stage-resolve.ts` (merge-day duplicate of CLI preparation — see [Pending dispatch boundary](#pending-dispatch-boundary)).
+`pipeline-stage-resolve.ts` consumes the shared posture → preset realization from that module. Until daemon dispatch migrates to `prepareWorkflowStart`, pipeline fan-out stale-reset policy and stage-failure settlement on reset refusal remain unchanged.
 
 ## Admission and `PipelineContext`
 
@@ -35,7 +35,7 @@ Resolution (`resolveIntentStage` in `pipeline-stage-resolve.ts`): `seedPath` →
 
 Current production path (pending replacement — see [Pending dispatch boundary](#pending-dispatch-boundary)):
 
-1. `resolveStageWorkflowSteps` (`pipeline-stage-resolve.ts`) — local posture table, `FIXED_REVIEW_PASSES = 1`, direct `WORKFLOW_PRESET_BUILDERS`, chained `cwd` via `createChainedStageProjectMatch`.
+1. `resolveStageWorkflowSteps` (`pipeline-stage-resolve.ts`) — shared posture realization, local `FIXED_REVIEW_PASSES = 1`, direct `WORKFLOW_PRESET_BUILDERS`, chained `cwd` via `createChainedStageProjectMatch`.
 2. `stampPipelineDispatchSteps` (`pipeline-execution.ts`) — machine config from `context.configPath` (throws when absent).
 3. Intent-only stale reset via injected `intentStaleReset` (`advanceWorkflowStage` in `pipeline-execution.ts`).
 4. `dispatchPipelineStage` (`pipeline-stage-dispatch.ts`) — `claimPipelineStageAdmission`, `defaultPipelineDispatch` → `handleWorkflowStart` → `startWorkflowRun`, `defaultPipelineWait` rollup.

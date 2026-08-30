@@ -1565,17 +1565,79 @@ describe("review-role timeout resolution", () => {
   });
 });
 
-describe("shared step-config stamp", () => {
-  test("prepareWorkflowSteps delegates step-config stamping to the shared export", () => {
-    // @mutate v2/src/commands/workflow.ts "steps = stampWorkflowStepsWithMachineConfig(built.steps, machineConfigPath);" -> "const bounds = resolveWritePathIterationBounds(machineConfigPath); const configuredIdleOutputMs = readConfiguredIdleOutputTimeoutMs(machineConfigPath); const reviewRoleTimeoutMs = readReviewRoleTimeoutMs(machineConfigPath); steps = built.steps.map((step) => { if (step.behavior !== \"write\") { return step.behavior === \"review\" || step.behavior === \"review-debate\" ? { ...step, roleTimeoutMs: reviewRoleTimeoutMs, ...(configuredIdleOutputMs === undefined ? {} : { idleOutputMs: configuredIdleOutputMs }) } : step; } const fixCommand = readProjectFixCommand(step.worktree.projectName, machineConfigPath); const readyCommand = readProjectReadyCommand(step.worktree.projectName, machineConfigPath); return { ...step, ...bounds, ...(fixCommand !== undefined ? { fixCommand } : {}), ...(readyCommand !== undefined ? { readyCommand } : {}) }; });"
+describe("shared workflow-start preparation", () => {
+  test("run workflow intent plan and implement preserve prepared start steps through the shared owner", async () => {
     const source = readFileSync(join(import.meta.dir, "workflow.ts"), "utf8");
-    const prepareStart = source.indexOf("async function prepareWorkflowSteps");
-    expect(prepareStart).toBeGreaterThanOrEqual(0);
-    const nextFunction = source.indexOf("\nasync function ", prepareStart + 1);
-    const prepareSource = source.slice(prepareStart, nextFunction === -1 ? undefined : nextFunction);
-    expect(prepareSource).not.toMatch(/readProjectFixCommand/);
-    expect(prepareSource).not.toMatch(/readProjectReadyCommand/);
-    expect(prepareSource).toMatch(/stampWorkflowStepsWithMachineConfig/);
+    expect(source.match(/prepareWorkflowStart\(/gu)).toHaveLength(1);
+    const configPath = writeMachineConfig({
+      iterationTimeoutMs: 101_000,
+      iterationCeilingMs: 202_000,
+      idleOutputTimeoutMs: 30_000,
+      projects: { demo: { fixCommand: "bun run fix", readyCommand: "bun run verify" } },
+    });
+    const cases = [
+      ["intent", ["run", "workflow", "intent", "--seed-text", "Improve API", "--detach"]],
+      ["plan", ["run", "workflow", "plan", "--ready-intent", "spec/ready-intents/demo.md", "--detach"]],
+      ["implement", [...IMPLEMENT_ARGS, "--detach"]],
+    ] as const;
+
+    for (const [workflow, argv] of cases) {
+      const cap = captureIo();
+      const sent: unknown[] = [];
+      let builds = 0;
+      const templateStep = fx.fakeImplementSteps[0]!;
+      if (templateStep.behavior !== "write") throw new Error("expected write step fixture");
+      const builtStep = {
+        ...templateStep,
+        stepId: workflow,
+        worktree: { ...templateStep.worktree, git: false },
+      };
+      const code = await withFixedUuid("00000000-0000-4000-8000-000000000120", () =>
+        main([...argv], cap.io, {
+          cwd: () => fx.repoSub,
+          machineConfigPath: configPath,
+          readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+          workflowPresetBuilders: {
+            [workflow]: () => {
+              builds += 1;
+              return { ok: true, steps: [builtStep] };
+            },
+          },
+          connectIpcClient: async () =>
+            makeIpcClient(
+              [{ kind: "response", id: "00000000-0000-4000-8000-000000000120", result: { runId: workflow } }],
+              { sent },
+            ),
+        }),
+      );
+      expect(code).toBe(0);
+      expect(builds).toBe(1);
+      expect(builtStep).not.toHaveProperty("fixCommand");
+      expect((sent[0] as { params: { steps: AnyWorkflowStep[] } }).params.steps).toEqual([
+        {
+          ...builtStep,
+          iterationTimeoutMs: 101_000,
+          iterationCeilingMs: 202_000,
+          idleOutputMs: 30_000,
+          fixCommand: "bun run fix",
+          readyCommand: "bun run verify",
+        },
+      ]);
+    }
+  });
+
+  test("runWorkflowCommand delegates build stamp and stale-reset preparation to the shared owner", () => {
+    const source = readFileSync(join(import.meta.dir, "workflow.ts"), "utf8");
+    const owner = readFileSync(join(import.meta.dir, "workflow-start-preparation.ts"), "utf8");
+    const commandStart = source.indexOf("export async function runWorkflowCommand");
+    const commandSource = source.slice(commandStart);
+    expect(source).toContain('from "./workflow-start-preparation.ts"');
+    expect(source).not.toContain("async function prepareWorkflowSteps");
+    expect(commandSource).not.toMatch(/stampWorkflowStepsWithMachineConfig\s*\(/u);
+    expect(commandSource).not.toMatch(/maybeResetStaleWorkspace\s*\(/u);
+    expect(owner).toMatch(/request\.builder\s*\(/u);
+    expect(owner).toMatch(/request\.stampSteps\s*\(/u);
+    expect(owner).toMatch(/request\.staleReset\.run\s*\(/u);
   });
 });
 

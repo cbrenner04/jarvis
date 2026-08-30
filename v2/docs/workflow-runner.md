@@ -54,6 +54,10 @@ Return `WorkflowResult` indicates which step produced the stopping outcome, its 
 
 Each durable step run also persists the workflow invocation snapshot that launched it: one `invocationId` plus the authored `steps[]` metadata (`stepId`, `role`, order). Daemon/TUI consumers read that snapshot back from daemon `list` rows as per-step progress in authored order, without reconstructing future steps from durable attempt history alone. See [`daemon-host.md`](daemon-host.md#workflow-snapshots-on-list-rows). Hidden post-implement shrink runs do not add a step to this snapshot, so daemon/TUI rows stay aligned to the authored workflow.
 
+## Workflow-start preparation
+
+`prepareWorkflowStart` accepts a normalized base-workflow request and is the authority that invokes its preset builder, stamps the built steps with machine config, and exposes the stale-workspace preflight that must run inside the connected dispatch scope immediately before daemon admission. Builder or stamp refusal occurs before daemon connection for ordinary starts; an already-complete implement first probes recovery without rebuilding and prepares only when recovery is not admitted. The successful result retains the builder metadata, the exact stamped step array for daemon `start`, and any destroyed-artifact evidence for the caller's failure summary. CLI parsing, recovery RPC, daemon connection, output, detach, and wait behavior remain adapter concerns.
+
 ## Authoring helper and presets
 
 `publication-workflow-steps.ts` owns named `intent` and `plan` publication rows. Each row selects its prompt, staging directory, output contract, and landing kind; shared project, target, Git, worktree, loading, and publication assembly is composed once. Input resolvers remain row-owned so intent seed and plan ready-intent validation retain their distinct contracts.

@@ -1,15 +1,12 @@
+import {
+  isBaseWorkflowName,
+  isUnrealizableWorkflowReview,
+  isWorkflowReviewPosture,
+} from "../commands/workflow-start-preparation.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
-
-export const BASE_WORKFLOW_NAMES = ["intent", "plan", "implement"] as const;
 
 export const PIPELINE_TERMINAL_ACTIONS = ["leave-draft", "ready", "merge"] as const;
 export type PipelineTerminalAction = (typeof PIPELINE_TERMINAL_ACTIONS)[number];
-
-const VALID_REVIEW_POSTURES = new Set(["none", "light", "debate"]);
-
-export function isUnrealizableWorkflowReview(workflow: string, review: string): boolean {
-  return workflow === "implement" && review === "none";
-}
 
 const POSTURE_REQUIRED_ROLES = {
   light: ["critic", "actuator"],
@@ -79,12 +76,11 @@ function collectDuplicateStageIdErrors(stages: PipelineStage[], errors: Pipeline
 
 function validateWorkflowStage(
   stage: WorkflowPipelineStage,
-  baseWorkflowNames: readonly string[],
   agentModelConfig: AgentModelConfig,
   errors: PipelineValidationError[],
 ): void {
   const { stageId, workflow, review } = stage;
-  const workflowKnown = baseWorkflowNames.includes(workflow);
+  const workflowKnown = isBaseWorkflowName(workflow);
 
   if (!workflowKnown) {
     errors.push({
@@ -95,7 +91,7 @@ function validateWorkflowStage(
     });
   }
 
-  if (!VALID_REVIEW_POSTURES.has(review)) {
+  if (!isWorkflowReviewPosture(review)) {
     errors.push({
       code: "invalid-review-posture",
       stageId,
@@ -136,7 +132,6 @@ export function validatePipelineDefinition(
   const errors: PipelineValidationError[] = [];
   const { stages } = definition;
   const { agentModelConfig } = options;
-  const baseWorkflowNames: readonly string[] = BASE_WORKFLOW_NAMES;
 
   if (stages.length === 0) {
     errors.push({
@@ -152,7 +147,7 @@ export function validatePipelineDefinition(
 
   for (const stage of stages) {
     if (stage.kind === "workflow") {
-      validateWorkflowStage(stage, baseWorkflowNames, agentModelConfig, errors);
+      validateWorkflowStage(stage, agentModelConfig, errors);
     }
   }
 

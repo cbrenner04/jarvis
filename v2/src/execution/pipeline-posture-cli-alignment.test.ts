@@ -4,7 +4,7 @@ import {
   parseIntentWorkflowArgs,
   parsePlanWorkflowArgs,
 } from "../commands/workflow-args.ts";
-import { BASE_WORKFLOW_NAMES, isUnrealizableWorkflowReview } from "./pipeline-definition.ts";
+import { BASE_WORKFLOW_NAMES, isUnrealizableWorkflowReview } from "../commands/workflow-start-preparation.ts";
 
 const POSTURES = ["none", "light", "debate"] as const;
 

@@ -651,7 +651,7 @@ test("daemon status reports the boot revision and digest on every call", async (
   }
 });
 
-test("automatic recovery records success, isolates admission failures, and preserves unsupported orphans", async () => {
+test("failed restart recovery admission settles with its diagnostic", async () => {
   const successId = createRun(seedStore, "in-progress");
   const failedId = createRun(seedStore, "in-progress");
   const unsupportedId = createRun(seedStore, "in-progress");
@@ -677,7 +677,15 @@ test("automatic recovery records success, isolates admission failures, and prese
   expect(recovery).toEqual({ resumed: 1 });
   expect(admissions).toEqual([successId, failedId, unsupportedId]);
   expect(seedStore.loadRun(successId)?.status).toBe("killed");
-  expect(seedStore.loadRun(failedId)?.status).toBe("failed");
+  expect(seedStore.loadRun(failedId)).toMatchObject({
+    status: "failed",
+    terminalCause: "invocation_failure",
+    terminalFailureDetail: {
+      failureKind: "error",
+      bindingAttempts: [],
+      message: "Automatic restart recovery admission failed: worktree still claimed",
+    },
+  });
   expect(seedStore.loadRun(unsupportedId)?.status).toBe("killed");
   expect(events).toEqual([
     { runId: successId, event: { kind: "run_recovery", outcome: "resumed" } },

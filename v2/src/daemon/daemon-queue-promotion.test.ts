@@ -317,6 +317,33 @@ test("promoteQueuedRunImpl re-resolves bindings after a machine-profile rung edi
   }
 });
 
+test("binding-resolution refusal settles queued run with model-config evidence", () => {
+  const { store, calls, promote, cleanup } = createPromotionHarness();
+  try {
+    writeQueuePromotionProfile([]);
+    writeFileSync(
+      join(profileHome, "config.json"),
+      JSON.stringify({ machineProfile: MACHINE_PROFILE, agents: ["codex"] }),
+    );
+    const runId = queueRun(store, serialized(workflowInput({ projectName: "project-binding-refusal" })));
+
+    promote();
+
+    expect(calls).toEqual([]);
+    expect(store.loadRun(runId)).toMatchObject({
+      status: "failed",
+      terminalCause: "invocation_failure",
+      terminalFailureDetail: {
+        failureKind: "model_config",
+        bindingAttempts: [],
+        message: expect.stringContaining("Unable to resolve bindings"),
+      },
+    });
+  } finally {
+    cleanup();
+  }
+});
+
 test("promoteQueuedRunImpl withholds promotion while the settle delay is active", () => {
   const { store, calls, deps, promote, cleanup } = createPromotionHarness({ settleDelayMs: () => 100_000 });
   try {

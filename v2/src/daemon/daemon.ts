@@ -33,6 +33,7 @@ import {
   withExternalWorktree as realWithExternalWorktree,
   WorktreeMaterializationError,
 } from "../execution/external-worktree.ts";
+import type { InvocationFailureDetail, InvocationFailureKind } from "../execution/invocation-failure.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type { TerminalPublicationInput, TerminalPublicationResult } from "../execution/terminal-publication.ts";
 import {
@@ -71,6 +72,7 @@ import {
   openLogReader,
   openLogSink,
   type PersistedRecord,
+  truncateLogText,
 } from "../persistence/log-stream.ts";
 import {
   type Attempt,
@@ -902,6 +904,29 @@ export { stoppedOutcomeForRun } from "./workflow-list-snapshot.ts";
 /** Mutated by {@link promoteQueuedRunImpl} on each promotion; shared across calls. */
 export type PromotionSettleState = { suppressedUntil: number };
 
+function daemonFailureDetail(failureKind: InvocationFailureKind, message: string): InvocationFailureDetail {
+  return { failureKind, bindingAttempts: [], message: truncateLogText(message) };
+}
+
+function terminalWaitResult(
+  runStatus: RunStatus,
+  run: LoadedRun | null | undefined,
+  record: TerminalLogRecord | undefined,
+  unsupportedResume: boolean,
+): WaitRunCompletionResult {
+  const loopFinishedEvent = record?.event.kind === "loop_finished" ? record.event : undefined;
+  const loopOutcomeKind = run?.terminalCause ?? loopFinishedEvent?.loopOutcomeKind;
+  if (loopOutcomeKind === undefined) return { runStatus };
+  return {
+    runStatus,
+    loopOutcomeKind,
+    ...(loopFinishedEvent?.loopOutcomeKind === loopOutcomeKind
+      ? { iterationsConsumed: loopFinishedEvent.iterationsConsumed }
+      : {}),
+    resumable: unsupportedResume ? false : run != null && isResumeAdmitted(run, record),
+  };
+}
+
 export type PromoteQueuedRunDeps = {
   store: StateStore;
   registry: WorktreeOwnershipRegistry;
@@ -946,7 +971,12 @@ export function promoteQueuedRunImpl(deps: PromoteQueuedRunDeps, bypassSettleDel
 
     const resolved = resolveWriteLoopBindings(run.queuedInput);
     if (!resolved.ok) {
-      store.setRunStatus(run.id, "failed");
+      store.commitTerminalRunSettlement({
+        runId: run.id,
+        status: "failed",
+        terminalCause: "invocation_failure",
+        terminalFailureDetail: daemonFailureDetail("model_config", resolved.message),
+      });
       continue;
     }
 
@@ -966,7 +996,7 @@ export function promoteQueuedRunImpl(deps: PromoteQueuedRunDeps, bypassSettleDel
  * @throws Never — factory and handlers are non-throwing at the RPC boundary.
  * @invariant Each invocation gets a fresh `WorktreeOwnershipRegistry` and `activeRuns` map.
  * @invariant Write loops spawn fire-and-forget; settlement always releases registry and
- *   active-run entries. Spawn-boundary executor rejections best-effort persist `failed`,
+ *   active-run entries. Spawn-boundary executor rejections best-effort settle `failed`,
  *   await `failureReporter`, then release — they do not propagate to RPC callers.
  */
 export function createRunControlHandlers(deps: RunControlHandlerDeps) {
@@ -1027,15 +1057,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
           ? composeRunOperatorError(run, record, logTail)
           : undefined;
     const unsupportedResume = resumeContext?.ok === false;
-    const base: WaitRunCompletionResult =
-      record?.event.kind === "loop_finished"
-        ? {
-            runStatus,
-            loopOutcomeKind: record.event.loopOutcomeKind,
-            iterationsConsumed: record.event.iterationsConsumed,
-            resumable: unsupportedResume ? false : run != null && isResumeAdmitted(run, record),
-          }
-        : { runStatus };
+    const base = terminalWaitResult(runStatus, run, record, unsupportedResume);
     const withError = error === undefined ? base : { ...base, error };
     return runStatus === "blocked" && run ? { ...withError, worktreePath: run.worktreePath } : withError;
   };
@@ -1094,7 +1116,13 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         try {
           const run = store.loadRun(runId);
           if (run && !isSettledRunStatus(run.status)) {
-            store.setRunStatus(runId, "failed");
+            const message = reason instanceof Error ? reason.message : String(reason);
+            store.commitTerminalRunSettlement({
+              runId,
+              status: "failed",
+              terminalCause: "invocation_failure",
+              terminalFailureDetail: daemonFailureDetail("error", message),
+            });
           }
         } catch {
           // best-effort persist; cleanup still runs
@@ -1123,7 +1151,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   };
 
   /**
-   * Demote one non-terminal workflow run to `failed` and record why. Both steps are
+   * Settle one non-terminal workflow run as `failed` and record why. Both steps are
    * best-effort and independent: a persist fault must not skip the log append, and an
    * append fault must not roll back the demote. Already-settled runs keep their status
    * but still get the log record — a workflow can die after its step runs completed
@@ -1133,7 +1161,12 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     const run = store.loadRun(runId);
     if (!(run && isSettledRunStatus(run.status))) {
       try {
-        store.setRunStatus(runId, "failed");
+        store.commitTerminalRunSettlement({
+          runId,
+          status: "failed",
+          terminalCause: "invocation_failure",
+          terminalFailureDetail: daemonFailureDetail("error", message),
+        });
       } catch {
         // best-effort persist; append still runs
       }
@@ -2467,7 +2500,12 @@ export async function recoverReconciledRuns(
 
     const message = `Automatic restart recovery admission failed: ${response.message}`;
     try {
-      stateStore.setRunStatus(runId, "failed");
+      stateStore.commitTerminalRunSettlement({
+        runId,
+        status: "failed",
+        terminalCause: "invocation_failure",
+        terminalFailureDetail: daemonFailureDetail("error", message),
+      });
     } catch {
       // Log the diagnostic even if persistence is unavailable.
     }

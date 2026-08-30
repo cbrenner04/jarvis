@@ -1,6 +1,7 @@
-import { isExhaustedRoleTimeout } from "../execution/invocation-failure.ts";
+import { type InvocationFailureDetail, isExhaustedRoleTimeout } from "../execution/invocation-failure.ts";
 import type { PublicationFailure } from "../execution/publication-retry.ts";
 import { readyGateOutOfScopeLogFields, survivingMutationLogFields } from "../execution/ready-finalize.ts";
+import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type {
   ContractMissDetailEvent,
   LoopFinishedEvent,
@@ -74,6 +75,8 @@ export type TerminalLogRecord = PersistedRecord & { event: LoopFinishedEvent | R
 type RunWithAttempts = {
   status: RunStatus;
   attempts?: Attempt[];
+  terminalCause?: WriteLoopOutcomeKind | null;
+  terminalFailureDetail?: InvocationFailureDetail | null;
 };
 
 const op = (
@@ -129,6 +132,20 @@ export function isPostBoundaryStateStoreLockTimeout(
   return lastCommittedAttempt(run.attempts ?? [])?.outcomeKind === "done";
 }
 
+function mapInvocationFailureDetail(
+  detail: InvocationFailureDetail | null | undefined,
+  projectModelConfigMessage = false,
+): RunOperatorError {
+  if (detail == null) return op("invocation_error", "stop");
+  const error = isExhaustedRoleTimeout(detail)
+    ? op("role_timeout", "stop", false)
+    : (INVOCATION_BY_FAILURE_KIND[detail.failureKind] ?? op("invocation_error", "stop"));
+  return (detail.failureKind === "error" || (projectModelConfigMessage && detail.failureKind === "model_config")) &&
+    detail.message !== undefined
+    ? { ...error, message: detail.message }
+    : error;
+}
+
 function mapInvocationFromAttempt(attempt: Attempt): RunOperatorError | undefined {
   switch (attempt.outcomeKind) {
     case "invalid_token":
@@ -139,16 +156,8 @@ function mapInvocationFromAttempt(attempt: Attempt): RunOperatorError | undefine
       return op("agent_blocked", "inspect_spec");
     case "contract_miss":
       return op("contract_miss", "inspect_spec");
-    case "invocation_failure": {
-      const detail = attempt.invocationFailureDetail;
-      if (detail === null) return op("invocation_error", "stop");
-      const error = isExhaustedRoleTimeout(detail)
-        ? op("role_timeout", "stop", false)
-        : (INVOCATION_BY_FAILURE_KIND[detail.failureKind] ?? op("invocation_error", "stop"));
-      return detail.failureKind === "error" && detail.message !== undefined
-        ? { ...error, message: detail.message }
-        : error;
-    }
+    case "invocation_failure":
+      return mapInvocationFailureDetail(attempt.invocationFailureDetail);
     case "idle_output_timeout":
       return op("idle_output_timeout", "stop");
     default:
@@ -288,6 +297,25 @@ function mapFromLoopFinished(
   }
 }
 
+function durableSettlementOperatorError(
+  run: RunWithAttempts,
+): { authoritative: false } | { authoritative: true; error: RunOperatorError | undefined } {
+  if (run.terminalCause == null) return { authoritative: false };
+  if (run.terminalCause === "invocation_failure") {
+    return { authoritative: true, error: mapInvocationFailureDetail(run.terminalFailureDetail, true) };
+  }
+  const fromCause = mapFromLoopFinished({
+    kind: "loop_finished",
+    loopOutcomeKind: run.terminalCause,
+    iterationsConsumed: 0,
+    resumable: false,
+  });
+  if (fromCause) return { authoritative: true, error: fromCause };
+  if (run.status === "blocked") return { authoritative: true, error: op("agent_blocked", "inspect_spec") };
+  if (run.status === "failed") return { authoritative: true, error: op("harness_failure", "stop") };
+  return { authoritative: true, error: undefined };
+}
+
 /** Operator recovery copy for `terminal_run` refusals; aligned with `v2/docs/operator-runbook.md`. */
 export const RUN_OPERATOR_ERROR_RECOVERY = {
   resumable_pause: "run jarvis run resume when the row reports nextAction resume",
@@ -352,6 +380,8 @@ function composeRunOperatorErrorFromState(
   terminalRecord?: TerminalLogRecord,
 ): RunOperatorError | undefined {
   if (run.status === "in-progress") return undefined;
+  const durableSettlement = durableSettlementOperatorError(run);
+  if (durableSettlement.authoritative) return durableSettlement.error;
   // A completed run can still carry a trailing `run_execution_failed`: its workflow died
   // after the step run settled (review step, publication). Surface that, not silence.
   if (

@@ -796,3 +796,20 @@ test("composeRunOperatorError routes durable terminalCause invocation_failure th
     message: "boom",
   });
 });
+
+test("composeRunOperatorError projects model_config message from durable terminalFailureDetail", () => {
+  const run = {
+    status: "failed" as RunStatus,
+    attempts: [],
+    terminalCause: "invocation_failure" as const,
+    terminalFailureDetail: { failureKind: "model_config" as const, message: "Unable to resolve bindings", bindingAttempts: [] },
+  };
+  // The durable path passes projectModelConfigMessage=true; dropping that clause loses the
+  // operator-facing binding-resolution message, so a model_config detail must still carry it.
+  expect(composeRunOperatorError(run)).toEqual({
+    reason: "model_config",
+    nextAction: "fix_config",
+    retryable: false,
+    message: "Unable to resolve bindings",
+  });
+});

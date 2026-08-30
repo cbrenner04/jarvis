@@ -91,6 +91,8 @@ function settleSuccessorShellStall(args: {
     runStatus: "failed",
     outcomeKind: "invocation_failure",
     invocationFailureDetail: detail,
+    terminalCause: "invocation_failure",
+    terminalFailureDetail: detail,
   });
   const outcome: SuccessorShellStallOutcome = {
     kind: "invocation_failure",

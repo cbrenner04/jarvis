@@ -37,6 +37,7 @@ import {
   truncateLogText,
 } from "../persistence/log-stream.ts";
 import {
+  isTerminalRunStatus,
   type OutcomeKind,
   openStateStore,
   type ReadyGateRepairFenceProvenance,
@@ -155,6 +156,49 @@ export type SubspecCompletionInventory = {
 
 export function hasCompletedSubspec(inventory: SubspecCompletionInventory): boolean {
   return inventory.completedSubspecPaths.length > 0;
+}
+
+function terminalFailureDetailFromError(error?: Error, fallbackMessage?: string): InvocationFailureDetail {
+  const message = error?.message || fallbackMessage || "harness failure";
+  return { failureKind: "error", bindingAttempts: [], message };
+}
+
+function readyGateTerminalFailureDetail(error?: Error): InvocationFailureDetail {
+  if (error instanceof ReadyGateError) {
+    const output = error.output.trim().slice(-4096);
+    const message =
+      output.length > 0 ? `ready gate failed (exit ${String(error.exitCode ?? "unknown")}): ${output}` : error.command;
+    return { failureKind: "error", bindingAttempts: [], message };
+  }
+  return terminalFailureDetailFromError(error, "ready gate failed");
+}
+
+function landingFailedTerminalFailureDetail(message?: string): InvocationFailureDetail | undefined {
+  if (message === undefined || message.length === 0) return undefined;
+  return { failureKind: "error", bindingAttempts: [], message };
+}
+
+function settleCompletedPublication(store: StateStore, runId: string, prNumber?: number, prUrl?: string): void {
+  store.commitTerminalRunSettlement({
+    runId,
+    status: "completed",
+    terminalCause: "complete",
+    ...(prNumber !== undefined ? { prNumber } : {}),
+    ...(prUrl !== undefined ? { prUrl } : {}),
+  });
+}
+
+function completionBoundarySettlementFields(
+  terminalCause: WriteLoopOutcomeKind,
+  terminalFailureDetail?: InvocationFailureDetail,
+): {
+  terminalCause: WriteLoopOutcomeKind;
+  terminalFailureDetail?: InvocationFailureDetail;
+} {
+  return {
+    terminalCause,
+    ...(terminalFailureDetail !== undefined ? { terminalFailureDetail } : {}),
+  };
 }
 
 function repoRelativeSubspecPath(projectRoot: string, absolutePath: string): string | undefined {
@@ -903,11 +947,17 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               publication.success.prNumber !== undefined &&
               publication.success.prUrl !== undefined
             ) {
-              store.setPrEvidence(prepared.result.runId, publication.success.prNumber, publication.success.prUrl);
+              settleCompletedPublication(
+                store,
+                prepared.result.runId,
+                publication.success.prNumber,
+                publication.success.prUrl,
+              );
               prepared.result.prNumber = publication.success.prNumber;
               prepared.result.prUrl = publication.success.prUrl;
+            } else {
+              settleCompletedPublication(store, prepared.result.runId);
             }
-            store.setRunStatus(prepared.result.runId, "completed");
             appendRuntimeSmokeOutcome(args.logSink, prepared.result.runId, publication.success?.runtimeSmokeOutcome);
             if (publication.success?.requestedBase !== undefined && publication.success.resolvedBase !== undefined) {
               publicationBaseRetarget = {
@@ -926,7 +976,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
                 new Error(`Uncommitted changes: ${uncommitted.join(", ")}`),
               );
             }
-            store.setRunStatus(prepared.result.runId, "completed");
+            settleCompletedPublication(store, prepared.result.runId);
           }
           args.logSink?.append(prepared.result.runId, {
             kind: "loop_finished",
@@ -1129,6 +1179,10 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               attemptId,
               runStatus: "failed",
               outcomeKind: "landing_failed",
+              ...completionBoundarySettlementFields(
+                "landing_failed",
+                landingFailedTerminalFailureDetail(truncateLogText(gate.error)),
+              ),
             });
             args.logSink?.append(runId, {
               kind: "boundary_committed",
@@ -1138,7 +1192,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             });
             // Mutation checkpoint: inverting this branch to contract_miss or blocked must turn
             // "intent split landing-contract budget exhaustion settles landing_failed" RED.
-            store.setRunStatus(runId, "failed");
             args.logSink?.append(runId, {
               kind: "loop_finished",
               loopOutcomeKind: "landing_failed",
@@ -1203,6 +1256,10 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               attemptId,
               runStatus: "failed",
               outcomeKind: "landing_failed",
+              ...completionBoundarySettlementFields(
+                "landing_failed",
+                landingFailedTerminalFailureDetail(truncateLogText(lintResult.message)),
+              ),
             });
             args.logSink?.append(runId, {
               kind: "boundary_committed",
@@ -1210,7 +1267,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               outcomeKind: "landing_failed",
               runStatus: "failed",
             });
-            store.setRunStatus(runId, "failed");
             args.logSink?.append(runId, {
               kind: "loop_finished",
               loopOutcomeKind: "landing_failed",
@@ -1273,6 +1329,10 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             attemptId,
             runStatus: "failed",
             outcomeKind: "landing_failed",
+            ...completionBoundarySettlementFields(
+              "landing_failed",
+              landingFailedTerminalFailureDetail(truncateLogText(lintResult.message)),
+            ),
           });
           args.logSink?.append(runId, {
             kind: "boundary_committed",
@@ -1280,7 +1340,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             outcomeKind: "landing_failed",
             runStatus: "failed",
           });
-          store.setRunStatus(runId, "failed");
           args.logSink?.append(runId, {
             kind: "loop_finished",
             loopOutcomeKind: "landing_failed",
@@ -1322,6 +1381,10 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               attemptId,
               runStatus: "failed",
               outcomeKind: "landing_failed",
+              ...completionBoundarySettlementFields(
+                "landing_failed",
+                landingFailedTerminalFailureDetail(truncateLogText(lintResult.message)),
+              ),
             });
             args.logSink?.append(runId, {
               kind: "boundary_committed",
@@ -1329,7 +1392,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               outcomeKind: "landing_failed",
               runStatus: "failed",
             });
-            store.setRunStatus(runId, "failed");
             args.logSink?.append(runId, {
               kind: "loop_finished",
               loopOutcomeKind: "landing_failed",
@@ -1392,6 +1454,10 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             attemptId,
             runStatus: "failed",
             outcomeKind: "landing_failed",
+            ...completionBoundarySettlementFields(
+              "landing_failed",
+              landingFailedTerminalFailureDetail(truncateLogText(lintResult.message)),
+            ),
           });
           args.logSink?.append(runId, {
             kind: "boundary_committed",
@@ -1399,7 +1465,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             outcomeKind: "landing_failed",
             runStatus: "failed",
           });
-          store.setRunStatus(runId, "failed");
           args.logSink?.append(runId, {
             kind: "loop_finished",
             loopOutcomeKind: "landing_failed",
@@ -1498,6 +1563,9 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         outcomeKind: terminal.outcomeKind,
         ...(detail !== undefined ? { invocationFailureDetail: detail } : {}),
         ...(completionAgent ? { completionAgent } : {}),
+        ...(isTerminalRunStatus(boundaryRunStatus) && boundaryRunStatus !== "completed"
+          ? completionBoundarySettlementFields(terminal.kind, detail)
+          : {}),
       });
       args.logSink?.append(runId, {
         kind: "boundary_committed",
@@ -1567,7 +1635,12 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           const uncommitted = await getUncommittedPaths(worktreePath);
           if (shouldFailTerminalCompletionForDirtyWorktree(undefined, uncommitted)) {
             const error = new Error(`Uncommitted changes: ${uncommitted.join(", ")}`);
-            store.setRunStatus(runId, "failed");
+            store.commitTerminalRunSettlement({
+              runId,
+              status: "failed",
+              terminalCause: "completion_commit_failed",
+              terminalFailureDetail: terminalFailureDetailFromError(error),
+            });
             args.logSink?.append(runId, {
               kind: "loop_finished",
               loopOutcomeKind: "completion_commit_failed",
@@ -1660,11 +1733,12 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             publication.success.prNumber !== undefined &&
             publication.success.prUrl !== undefined
           ) {
-            store.setPrEvidence(runId, publication.success.prNumber, publication.success.prUrl);
+            settleCompletedPublication(store, runId, publication.success.prNumber, publication.success.prUrl);
             attributed.prNumber = publication.success.prNumber;
             attributed.prUrl = publication.success.prUrl;
+          } else {
+            settleCompletedPublication(store, runId);
           }
-          store.setRunStatus(runId, "completed");
           appendRuntimeSmokeOutcome(args.logSink, runId, publication.success?.runtimeSmokeOutcome);
           if (publication.success?.requestedBase !== undefined && publication.success?.resolvedBase !== undefined) {
             publicationBaseRetarget = {
@@ -1683,7 +1757,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               new Error(`Uncommitted changes: ${uncommitted.join(", ")}`),
             );
           }
-          store.setRunStatus(runId, "completed");
+          settleCompletedPublication(store, runId);
         }
         args.logSink?.append(runId, {
           kind: "loop_finished",
@@ -1902,15 +1976,23 @@ async function finishIterationTimeout(
   iterationsConsumed: number,
   worktreePath: string,
 ): Promise<WriteLoopResult> {
-  store.commitCompletionBoundary({ attemptId, runStatus: "failed", outcomeKind: "iteration_timeout" });
+  const inventory = buildSubspecCompletionInventory(worktreePath, args.worktree.projectRoot, args.specPath);
+  const resumable = hasCompletedSubspec(inventory);
+  store.commitCompletionBoundary({
+    attemptId,
+    runStatus: "failed",
+    outcomeKind: "iteration_timeout",
+    ...completionBoundarySettlementFields(
+      "iteration_timeout",
+      resumable ? terminalFailureDetailFromError(undefined, "iteration timeout") : undefined,
+    ),
+  });
   args.logSink?.append(runId, {
     kind: "boundary_committed",
     attemptId,
     outcomeKind: "iteration_timeout",
     runStatus: "failed",
   });
-  const inventory = buildSubspecCompletionInventory(worktreePath, args.worktree.projectRoot, args.specPath);
-  const resumable = hasCompletedSubspec(inventory);
   const loopResult = finishLoop(args, runId, "iteration_timeout", iterationsConsumed, resumable, undefined, false);
   const inventoryFields = {
     completedSubspecPaths: [...inventory.completedSubspecPaths],
@@ -2021,6 +2103,7 @@ function finishExecuteWriteThrow(
     runStatus: "failed",
     outcomeKind: "invocation_failure",
     invocationFailureDetail: detail,
+    ...completionBoundarySettlementFields("invocation_failure", detail),
   });
   args.logSink?.append(runId, {
     kind: "boundary_committed",
@@ -2433,6 +2516,7 @@ async function runReadyRepairIteration(
     attemptId,
     runStatus: boundary.runStatus,
     outcomeKind: boundary.outcomeKind,
+    ...(stepResult.kind === "blocked" ? completionBoundarySettlementFields("blocked") : {}),
   });
   args.logSink?.append(result.runId, {
     kind: "boundary_committed",
@@ -2492,6 +2576,7 @@ export async function runMutationRepairIteration(
     attemptId,
     runStatus: boundary.runStatus,
     outcomeKind: boundary.outcomeKind,
+    ...(stepResult.kind === "blocked" ? completionBoundarySettlementFields("blocked") : {}),
   });
   args.logSink?.append(result.runId, {
     kind: "boundary_committed",
@@ -3308,11 +3393,18 @@ function completionCommitFailed(
   result: WriteLoopResult,
   source?: Error | CompletionPublishFailure,
 ): WriteLoopResult {
-  store.setRunStatus(result.runId, "completed");
   const error = source instanceof Error ? source : source?.error;
   const publicationFailure = error === undefined ? undefined : publicationFailureFor(error);
   const retarget = publicationBaseRetarget(source);
   const completionCommitErrorMessage = error?.message ?? "completion commit failed";
+  store.commitTerminalRunSettlement({
+    runId: result.runId,
+    status: "completed",
+    terminalCause: "completion_commit_failed",
+    terminalFailureDetail: terminalFailureDetailFromError(error, completionCommitErrorMessage),
+    ...(result.prNumber !== undefined ? { prNumber: result.prNumber } : {}),
+    ...(result.prUrl !== undefined ? { prUrl: result.prUrl } : {}),
+  });
   args.logSink?.append(result.runId, {
     kind: "loop_finished",
     loopOutcomeKind: "completion_commit_failed",
@@ -3373,6 +3465,7 @@ function readyFailureResumable(
   return kind === "ready_gate_failed" || kind === "surviving_mutation_failed";
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: ready-gate failure classification fans over many terminal kinds
 function readyFailed(
   args: WriteLoopInput,
   store: StateStore,
@@ -3386,19 +3479,35 @@ function readyFailed(
   const priorRecords = priorLogRecordsFromSink(args.logSink, result.runId);
   const resumable = readyFailureResumable(kind, outOfScopeFields.readyGateOutsidePaths, priorRecords);
   const mutationFields = survivingMutationLogFields(error);
+  const terminalStatus =
+    kind === "surviving_mutation_failed" ||
+    kind === "ready_gate_failed" ||
+    kind === "ready_gate_command_missing" ||
+    kind === "ready_gate_out_of_scope"
+      ? "failed"
+      : "completed";
+  const terminalFailureDetail =
+    kind === "surviving_mutation_failed"
+      ? terminalFailureDetailFromError(error)
+      : kind === "ready_gate_failed" || kind === "ready_gate_command_missing" || kind === "ready_gate_out_of_scope"
+        ? readyGateTerminalFailureDetail(error)
+        : kind === "runtime_smoke_failed"
+          ? terminalFailureDetailFromError(error, "runtime smoke failed")
+          : kind === "ready_flip_failed"
+            ? terminalFailureDetailFromError(error, "ready flip failed")
+            : undefined;
   // Publication marks the row `in-progress` for the finalization tail, so every exit from that
   // tail must restore a terminal status. Gate and mutation failures demote to `failed`; flip and
   // smoke failures keep their documented `completed` status. Leaving `in-progress` strands the row
   // non-live forever and hangs `run wait`, which follows the log for non-terminal rows.
-  store.setRunStatus(
-    result.runId,
-    kind === "surviving_mutation_failed" ||
-      kind === "ready_gate_failed" ||
-      kind === "ready_gate_command_missing" ||
-      kind === "ready_gate_out_of_scope"
-      ? "failed"
-      : "completed",
-  );
+  store.commitTerminalRunSettlement({
+    runId: result.runId,
+    status: terminalStatus,
+    terminalCause: kind,
+    ...(terminalFailureDetail !== undefined ? { terminalFailureDetail } : {}),
+    ...(result.prNumber !== undefined ? { prNumber: result.prNumber } : {}),
+    ...(result.prUrl !== undefined ? { prUrl: result.prUrl } : {}),
+  });
   args.logSink?.append(result.runId, {
     kind: "loop_finished",
     loopOutcomeKind: kind,
@@ -3568,7 +3677,6 @@ function iterationCommitFailed(
   iterationsConsumed: number,
   error: Error,
 ): WriteLoopResult {
-  store.setRunStatus(runId, "failed");
   const publicationFailure = publicationFailureFor(error);
   const message = error.message || "iteration commit failed";
   const stderrRaw = (error as { stderr?: unknown }).stderr;
@@ -3579,6 +3687,12 @@ function iterationCommitFailed(
     if (!(tail && (tail.includes(stderr) || stderr.includes(tail)))) cause = `${message}\n${stderr}`;
   }
   const iterationCommitErrorMessage = truncateLogText(cause);
+  store.commitTerminalRunSettlement({
+    runId,
+    status: "failed",
+    terminalCause: "iteration_commit_failed",
+    terminalFailureDetail: terminalFailureDetailFromError(error, iterationCommitErrorMessage),
+  });
   args.logSink?.append(runId, {
     kind: "loop_finished",
     loopOutcomeKind: "iteration_commit_failed",

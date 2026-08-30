@@ -632,6 +632,28 @@ describe("commitGuardedKill", () => {
     expect(loadRunOrThrow(store, runId).status).toBe("blocked");
   });
 
+  test("commitCompletionBoundary routes terminal runStatus through settlement when evidence is supplied", () => {
+    const runId = seedRun(store);
+    const attemptId = store.recordAttemptStart(runId);
+
+    store.commitCompletionBoundary({
+      attemptId,
+      runStatus: "completed",
+      outcomeKind: "done",
+      terminalCause: "complete",
+      prNumber: 7,
+      prUrl: "https://github.com/example/pr/7",
+    });
+
+    const loaded = loadRunOrThrow(store, runId);
+    expect(loaded.status).toBe("completed");
+    expect(loaded.terminalCause).toBe("complete");
+    expect(loaded.prNumber).toBe(7);
+    expect(loaded.prUrl).toBe("https://github.com/example/pr/7");
+    expect(loaded.finishedAt).not.toBeNull();
+    expect(loaded.attemptCount).toBe(1);
+  });
+
   test("commitGuardedKill stamps a finish timestamp on the killed row", () => {
     const killedRunId = seedRun(store);
     store.commitGuardedKill(killedRunId);

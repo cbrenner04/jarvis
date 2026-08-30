@@ -56,7 +56,7 @@ Each durable step run also persists the workflow invocation snapshot that launch
 
 ## Workflow-start preparation
 
-`prepareWorkflowStart` accepts a normalized base-workflow request and is the authority that invokes its preset builder, stamps the built steps with machine config, and exposes the stale-workspace preflight that must run inside the connected dispatch scope immediately before daemon admission. Builder or stamp refusal occurs before daemon connection for ordinary starts; an already-complete implement first probes recovery without rebuilding and prepares only when recovery is not admitted. The successful result retains the builder metadata, the exact stamped step array for daemon `start`, and any destroyed-artifact evidence for the caller's failure summary. CLI parsing, recovery RPC, daemon connection, output, detach, and wait behavior remain adapter concerns.
+`prepareWorkflowStart` accepts a normalized base-workflow request and is the authority that invokes its preset builder, stamps the built steps with machine config, and exposes the stale-workspace preflight that must run inside the connected dispatch scope immediately before daemon admission. CLI `run workflow` and daemon pipeline stage resolution both adapt into this entrypoint (`workflow.ts` and `pipeline-workflow-preparation.ts`); neither path retains a second production assembly or stamping layer. Builder or stamp refusal occurs before daemon connection for ordinary starts; an already-complete implement first probes recovery without rebuilding and prepares only when recovery is not admitted. The successful result retains the builder metadata, the exact stamped step array for daemon `start`, and any destroyed-artifact evidence for the caller's failure summary. CLI parsing, recovery RPC, daemon connection, output, detach, and wait behavior remain adapter concerns.
 
 ## Authoring helper and presets
 
@@ -176,7 +176,7 @@ A role is **bound** for admission when at least one agent entry in the supplied 
 
 `getPipelineDefinition(name)` is a total lookup returning `{ ok: true, definition }` on a hit or `{ ok: false, error: { code: "unknown-pipeline", name } }` on a miss; it never returns `undefined` or throws. The `unknown-pipeline` code exists for lookup totality only; no operator or CLI surface reports it yet (deferred until a pipeline-selecting entry point exists).
 
-Precedence between a pipeline stage's `review` posture and per-project implement review behavior from the machine-config loader is not decided here; nothing in this slice consumes stage posture at run time.
+Pipeline stage `review` selects the executable preset (`resolveWorkflowPresetName` in `workflow-start-preparation.ts`) at resolution time. For `implement` stages, `resolveImplementReviewConfig` in `implement-workflow-steps.ts` remains the canonical owner for review pass count and `reviewBehavior` on the built steps: pipeline resolution omits hardcoded review overrides on builder input and reads project `implement.reviewPasses` / `implement.reviewBehavior` from the admission `configPath` (stage posture still selects the `implement` preset; configured project policy supplies the review step shape).
 
 The registry (`pipeline-registry.ts`) ships two definitions:
 

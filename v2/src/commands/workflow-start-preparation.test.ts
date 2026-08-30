@@ -10,6 +10,9 @@ import {
 
 const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
 const OWNER_PATH = "v2/src/commands/workflow-start-preparation.ts";
+const PIPELINE_ADAPTER_PATH = "v2/src/daemon/pipeline-workflow-preparation.ts";
+const CLI_ADAPTER_PATH = "v2/src/commands/workflow.ts";
+const PREPARE_CALL_ALLOWED_PATHS = new Set([OWNER_PATH, PIPELINE_ADAPTER_PATH, CLI_ADAPTER_PATH]);
 
 function productionSources(): string[] {
   const sources: string[] = [];
@@ -66,5 +69,33 @@ describe("workflow-start preparation authority", () => {
     const resolverSource = readFileSync(join(REPO_ROOT, "v2/src/daemon/pipeline-stage-resolve.ts"), "utf8");
     expect(resolverSource).toContain('from "../commands/workflow-start-preparation.ts"');
     expect(resolverSource).toContain("resolveWorkflowPresetName(stage.workflow, stage.review)");
+  });
+
+  test("production prepared-step assembly lives only in shared preparation and the pipeline adapter", () => {
+    const forbiddenPrepareCall = /prepareWorkflowStart\s*\(/;
+
+    for (const path of productionSources()) {
+      if (PREPARE_CALL_ALLOWED_PATHS.has(path)) continue;
+      const source = readFileSync(join(REPO_ROOT, path), "utf8");
+      expect(source).not.toMatch(forbiddenPrepareCall);
+    }
+
+    const forbiddenResolverAssembly = [
+      /stampWorkflowStepsWithMachineConfig\s*\(/,
+      /WORKFLOW_PRESET_BUILDERS\s*\[\s*\w+\s*\]\s*\(/,
+      /WORKFLOW_PRESET_BUILDERS\s*\.\s*\w+\s*\(/,
+      /invokePlanPresetBuilder/,
+      /invokeImplementPresetBuilder/,
+      /FIXED_REVIEW_PASSES/,
+      /await\s+WORKFLOW_PRESET_BUILDERS/,
+    ];
+    const resolverSource = readFileSync(join(REPO_ROOT, "v2/src/daemon/pipeline-stage-resolve.ts"), "utf8");
+    for (const declaration of forbiddenResolverAssembly) {
+      expect(resolverSource).not.toMatch(declaration);
+    }
+    expect(resolverSource).toContain("preparePipelineStageWorkflow");
+
+    const pipelineAdapterSource = readFileSync(join(REPO_ROOT, PIPELINE_ADAPTER_PATH), "utf8");
+    expect(pipelineAdapterSource).toContain("prepareWorkflowStart({");
   });
 });

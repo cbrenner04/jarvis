@@ -20,14 +20,14 @@ CLI workflow starts and daemon pipeline dispatch still have two production paths
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/pipeline-workflow-preparation-parity.test.ts` test `CLI and pipeline adapters produce byte-identical prepared steps for representative workflow postures` drives CLI and pipeline adapters through `prepareWorkflowStart` for representative `intent`, `plan`, and `implement` workflow/posture/config triples and asserts byte-identical step arrays; it fails against the pre-fix daemon assembly path in `pipeline-stage-resolve.ts`.
-- [ ] `v2/src/commands/workflow-start-preparation.test.ts` test `production prepared-step assembly lives only in shared preparation and the pipeline adapter` rejects a second production `prepareWorkflowStart` assembly path or duplicate unstamped preset-builder dispatch assembly in daemon pipeline resolution; it fails against the pre-fix duplicate assembly reachable on main before this spec lands.
-- [ ] `v2/src/commands/workflow.test.ts` — `run workflow implement sends start and wait IPC requests, blocks on completion, and prints run ID and wait JSON` stays green.
-- [ ] `v2/docs/daemon-host.md` documents that pipeline stages and CLI workflow starts share preparation, config resolution, stamping, and stale-reset semantics through `prepareWorkflowStart`.
-- [ ] `v2/docs/v2-architecture.md` documents that daemon pipeline dispatch consumes the shared workflow-start front door rather than daemon-local assembly.
-- [ ] `v2/docs/workflow-runner.md` documents pipeline posture selection and canonical project review-config ownership for implement stages.
-- [ ] `v2/docs/v1-behaviors.md` replaces daemon-local pipeline assembly and intent-only stale-reset behavior with shared-preparation dispatch semantics.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/daemon/pipeline-workflow-preparation-parity.test.ts` test `CLI and pipeline adapters produce byte-identical prepared steps for representative workflow postures` drives CLI and pipeline adapters through `prepareWorkflowStart` for representative `intent`, `plan`, and `implement` workflow/posture/config triples and asserts byte-identical step arrays; it fails against the pre-fix daemon assembly path in `pipeline-stage-resolve.ts`.
+- [x] `v2/src/commands/workflow-start-preparation.test.ts` test `production prepared-step assembly lives only in shared preparation and the pipeline adapter` rejects a second production `prepareWorkflowStart` assembly path or duplicate unstamped preset-builder dispatch assembly in daemon pipeline resolution; it fails against the pre-fix duplicate assembly reachable on main before this spec lands.
+- [x] `v2/src/commands/workflow.test.ts` — `run workflow implement sends start and wait IPC requests, blocks on completion, and prints run ID and wait JSON` stays green.
+- [x] `v2/docs/daemon-host.md` documents that pipeline stages and CLI workflow starts share preparation, config resolution, stamping, and stale-reset semantics through `prepareWorkflowStart`.
+- [x] `v2/docs/v2-architecture.md` documents that daemon pipeline dispatch consumes the shared workflow-start front door rather than daemon-local assembly.
+- [x] `v2/docs/workflow-runner.md` documents pipeline posture selection and canonical project review-config ownership for implement stages.
+- [x] `v2/docs/v1-behaviors.md` replaces daemon-local pipeline assembly and intent-only stale-reset behavior with shared-preparation dispatch semantics.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

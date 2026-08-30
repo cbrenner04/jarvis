@@ -396,6 +396,7 @@ Implement PR bodies carry an agent-authored review-altitude narrative in the PR 
 **Authoring guidance:**
 
 - **Invert real guards in source tests during implementation** — production invert hooks are not evidence.
+- **For a genuinely behavior-neutral mutation, restructure cheaply first** — only when a candidate is provably equivalent and irreducible, add an exact colocated directive on the mutated physical line: `// @mutate-equivalent mutation=<JSON string> reason=<JSON string>` with standard JSON escaping, `mutation` equal to the verifier-generated string, and a substantive decoded reason; never add a vacuous killing test.
 - **Never `git checkout -- <file>` to undo a manual mutation test (2026-07-26)** — it reverts *all* uncommitted work in that file. Copy the file first (`cp path/to/file.ts "$TMPDIR/file.bak"`), mutate, run the test, restore from the copy, then `git status --short` to confirm your own edits survived.
 - **Never run your own mutation-applying diff review (or hand-apply mutations) against a worktree whose publication/finalization successor is still live** — the harness verifier and your review race on the same source files, and either side's revert can clobber the other's in-flight mutation (observed 2026-08-07). Review the committed diff (`git show`, `git diff main..HEAD`) or a detached copy, or wait for quiescence first (see [Deciding a workflow is finished](#deciding-a-workflow-is-finished)).
 

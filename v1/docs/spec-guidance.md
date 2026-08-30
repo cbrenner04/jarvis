@@ -129,6 +129,8 @@ When a seed touches exactly one module-boundary surface, the emitted intent's `U
 
 Treat reviewability as a warning, not a hard cap: if one spec looks likely to land around ~1000 changed lines including tests and docs, split earlier into multiple behavior-sized intents/specs rather than stretching one PR.
 
+Never collapse behavior-sized intents into one oversized subspec (e.g. to mirror a prior single-subspec spec): many small atomic subspecs is the goal, not a smell. When an intent split fans out to N behavior-scoped ready-intents, that is the split working — plan and implement each. Conversely, a single plan fanning out to many subspecs usually means the seed was under-split at the intent stage, not that the plan over-decomposed; the fix is more behavior intents, never a fatter subspec.
+
 For intent files, `seeds/` is the open raw-seed queue and `ready-intents/` is the open authored-intent queue. Successful promotion consumes a file seed: committed mode deletes its worktree copy in the split commit, while no-commit mode deletes it only after every ready-intent is written. Failed promotions leave it queued. Fan-out writes reviewed, one-per-surface intents to `ready-intents/`; later `jarvis1 plan` runs consume those intents one at a time.
 
 ### Intent prerequisites

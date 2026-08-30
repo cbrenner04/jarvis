@@ -1,4 +1,14 @@
-# Diff-derived mutation verifier flips TypeScript type-generic `<`/`>` as if comparisons
+---
+name: mutation-verifier-masks-type-generic-brackets
+---
+
+# Mutation verifier masks type-generic angle brackets from operator-flip candidates
+
+Unsplit rationale: Operator-flip masking, candidate-extraction tests, and verifier documentation all land on the diff-derived mutation verifier execution-loop boundary.
+
+## Primary implementation surface
+
+- execution-loop — `diff-derived-mutation-verifier` operator-flip candidate extraction
 
 ## Problem
 
@@ -22,10 +32,16 @@ The only `<` on the line is the `Parameters<WorkflowPresetBuilder>` generic. Ind
 
 ## Acceptance criteria
 
-- [ ] A verifier unit test proves a production line whose only `<`/`>` are type-generic (`x as Parameters<Foo>[0]`, `new Map<string, number>()`) yields NO operator-flip mutation candidate; it fails against the current extraction, which emits one.
-- [ ] A verifier unit test proves a real value comparison (`a < b`) on a line that also contains a generic still yields the comparison as a candidate — no over-masking.
+- [ ] `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves a production line whose only `<`/`>` are type-generic (`x as Parameters<Foo>[0]`, `new Map<string, number>()`, `fn<T>(...)`) yields NO operator-flip mutation candidate; it fails against the current extraction, which emits one.
+- [ ] `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves a real value comparison (`a < b`) on a line that also contains a generic still yields the comparison as a candidate — no over-masking.
+- [ ] A regression test in `v2/src/execution/diff-derived-mutation-verifier.test.ts` pins the exact `v2/src/commands/workflow-start-preparation.ts:92` line as a changed line and asserts it produces no operator-flip candidate; it fails against the pre-change verifier (reachable on main via the `share-workflow-start-preparation` implement run above).
+- [ ] Existing `v2/src/execution/diff-derived-mutation-verifier.test.ts` tests stay green (candidate derivation, scoped-test execution, restoration, bounds, and result semantics unchanged).
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
-- `v2/docs/test-writing.md` (or wherever diff-derived mutation verification is documented) — note that type-position angle brackets are excluded from operator-flip candidates.
+- `v2/docs/workflow-runner.md` — completion-verification paragraph: type-position angle brackets (generics, type casts, type params) are excluded from operator-flip candidates alongside existing string/template/comment masking.
+- `v2/docs/v1-behaviors.md` — amend the diff-derived mutation evidence entry to record type-position angle brackets are masked for comparison-operator candidates.
+- `v2/docs/test-writing.md` (optional cross-link) — pointer to workflow-runner masking semantics.
+
+## Prerequisites

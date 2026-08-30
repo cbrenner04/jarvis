@@ -222,7 +222,6 @@ describe("write loop idle-output watchdog", () => {
         idleOutputMs: 20,
         logSink,
       };
-      // @mutate v2/src/execution/write-loop.ts "args.resumeReentry === true" -> "false"
       const resumed = await executeWriteLoop({ ...baseInput, resumeReentry: true });
       expect(resumed).toMatchObject({ kind: "idle_output_timeout", iterationsConsumed: 1, resumable: true });
       expect(calls).toBe(2);

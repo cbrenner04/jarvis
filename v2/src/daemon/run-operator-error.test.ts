@@ -251,7 +251,6 @@ test("composeRunOperatorError maps idle_output_timeout as a failed, non-retryabl
 });
 
 test("composeRunOperatorError maps resumable idle_output_timeout with checkpoint progress", () => {
-  // @mutate v2/src/daemon/run-operator-error.ts "event.resumable ? op(\"idle_output_timeout\", \"resume\", true) : op(\"idle_output_timeout\", \"stop\")" -> "op(\"idle_output_timeout\", \"stop\")"
   expect(
     composeRunOperatorError(
       runWith("failed", [attempt("idle_output_timeout")]),
@@ -434,7 +433,6 @@ test("composeRunOperatorError keeps landing_failed distinct from completion_comm
 });
 
 test("composeRunOperatorError omits message for cause-less landing_failed", () => {
-  // @mutate v2/src/daemon/run-operator-error.ts "typeof event.message === \"string\"" -> "typeof event.message !== \"string\""
   const error = composeRunOperatorError(runWith("failed"), loopFinished("landing_failed", { resumable: true }));
   expect(error).toEqual(err("landing_failed", "resume", true));
   expect(error).not.toHaveProperty("message");
@@ -490,7 +488,6 @@ test("composeRunOperatorError names ready gate command and output", () => {
 });
 
 test("composeRunOperatorError omits ready gate message without command evidence", () => {
-  // @mutate v2/src/daemon/run-operator-error.ts "event.readyGateCommand !== undefined" -> "event.readyGateCommand === undefined"
   expect(
     composeRunOperatorError(
       runWith("failed"),
@@ -681,7 +678,6 @@ test("composeRunOperatorError projects completionCommitError from completion_com
       loopFinished("completion_commit_failed", { resumable: true, completionCommitError, publicationFailure }),
     ),
   ).toEqual({ ...base, completionCommitError, publicationFailure });
-  // @mutate v2/src/daemon/run-operator-error.ts "{ completionCommitError: event.completionCommitError }" -> "{}"
   expect(
     composeRunOperatorError(
       runWith("failed"),

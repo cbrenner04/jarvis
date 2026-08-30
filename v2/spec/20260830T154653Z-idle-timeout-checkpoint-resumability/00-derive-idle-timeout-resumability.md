@@ -32,7 +32,7 @@ Signal intent (this spec): derive `loop_finished.resumable` from the boundary ch
 ## Acceptance criteria
 
 - [ ] `v2/src/execution/write-loop-idle-watchdog.test.ts` drives a stalled git-backed iteration that changes a tracked file, asserts `iteration_commit` carries a fresh `commitSha`, and asserts the returned result and terminal `loop_finished` remain failed `idle_output_timeout` with `resumable: true`; the test fails against the baseline hard `false`.
-- [ ] That committed-progress test carries an in-body `// @mutate` directive pinning the fresh-checkpoint resumability guard (the `finishLoop` derivation from checkpoint outcome, e.g. replacing the derived expression with `false`); applying it turns the test RED; no production inversion hook.
+- [ ] That committed-progress test turns red when the fresh-checkpoint resumability guard (the `finishLoop` derivation from checkpoint outcome) is manually replaced with `false` at the source, and green after restoration; no production inversion hook.
 - [ ] The same committed-progress test asserts idempotent `executeWriteLoop` re-entry on the failed run echoes `resumable: true` without returning `null`.
 - [ ] `v2/src/execution/write-loop-idle-watchdog.test.ts` drives a stalled git-backed iteration with no file changes and asserts `iteration_commit.skipReason: "no_file_changes"` plus `resumable: false` on the returned result and terminal `loop_finished`; regression guard — stays false and would fail if the fresh-commit guard were applied to skipped checkpoints.
 - [ ] `write-loop-idle-watchdog.test.ts` "a silent agent settles idle_output_timeout well before the iteration wall elapses" (`/fake` worktree, line 87) stays green (preserved `no_git` negative path).

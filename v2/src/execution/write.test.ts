@@ -392,6 +392,9 @@ describe("write behavior", () => {
     expect(capturedPrompt).toContain(subspecBody);
     expect(capturedPrompt).toContain(repoGuidance);
     expect(capturedPrompt.trimEnd().endsWith(IMPLEMENT_WRITE_STEP_RULES)).toBe(true);
+    expect(capturedPrompt).toContain("co-located `<file>.test.ts`");
+    expect(capturedPrompt).toContain("direct-importing `*.test.ts`");
+    expect(capturedPrompt).toContain("not from the wider suite or transitive importers");
     expect(extractFinalStepRules(capturedPrompt)).toContain(HUMAN_ONLY_STEP_RULES);
     expect(capturedPrompt).toContain("Do not add");
     expect(capturedPrompt).toContain("`setInvert*ForTest` exports");
@@ -445,7 +448,11 @@ describe("write behavior", () => {
   });
 
   test.each([
-    ["write.ready-repair", { GATE_COMMAND: "bun test", GATE_EXIT_CODE: "1", GATE_OUTPUT: "failure" }],
+    [
+      "write.ready-repair",
+      { GATE_COMMAND: "bun test", GATE_EXIT_CODE: "1", GATE_OUTPUT: "failure" },
+      DEFAULT_WRITE_STEP_RULES,
+    ],
     [
       "write.mutation-repair",
       {
@@ -454,8 +461,9 @@ describe("write behavior", () => {
         SOURCE_LINE: "1",
         DUAL_CONSTRAINT_DETAIL: "Preserve the passing behavior.",
       },
+      IMPLEMENT_WRITE_STEP_RULES,
     ],
-  ] as const)("%s renders the shared human-only step rules", async (promptId, promptPlaceholders) => {
+  ] as const)("%s renders the shared human-only step rules", async (promptId, promptPlaceholders, expectedStepRules) => {
     const { jarvisRoot } = createJarvisHome();
     let capturedPrompt = "";
 
@@ -464,11 +472,15 @@ describe("write behavior", () => {
       bindings: [capturingBinding((prompt) => (capturedPrompt = prompt))],
       promptId,
       promptPlaceholders,
-      stepRules: DEFAULT_WRITE_STEP_RULES,
+      stepRules: expectedStepRules,
     });
 
-    expect(capturedPrompt.trimEnd().endsWith(DEFAULT_WRITE_STEP_RULES)).toBe(true);
+    expect(capturedPrompt.trimEnd().endsWith(expectedStepRules)).toBe(true);
     expect(extractFinalStepRules(capturedPrompt)).toContain(HUMAN_ONLY_STEP_RULES);
+    if (promptId === "write.mutation-repair") {
+      expect(capturedPrompt).toContain("direct-importing `*.test.ts`");
+      expect(capturedPrompt).toContain("not from the wider suite or transitive importers");
+    }
   });
 
   test("unresolved required placeholders fail as model_config without invoking binding", async () => {

@@ -89,4 +89,26 @@ describe("pipeline stage settlement projections", () => {
       attempts: [{ attemptNumber: 1, invocationFailureDetail: { failureKind: "quota" } }],
     });
   });
+
+  test("model_config failure carries its message while no_binding omits it", () => {
+    const modelConfig = stageFailureDetailFromEntryRun(
+      entryRun({
+        status: "failed",
+        terminalCause: "invocation_failure",
+        terminalFailureDetail: { failureKind: "model_config", message: "unresolved model", bindingAttempts: [] },
+      }),
+    ) as { reason: string; message?: string };
+    expect(modelConfig.reason).toBe("model_config");
+    expect(modelConfig.message).toBe("unresolved model");
+
+    const noBinding = stageFailureDetailFromEntryRun(
+      entryRun({
+        status: "failed",
+        terminalCause: "invocation_failure",
+        terminalFailureDetail: { failureKind: "no_binding", message: "no binding available", bindingAttempts: [] },
+      }),
+    ) as { reason: string; message?: string };
+    expect(noBinding.reason).toBe("no_binding");
+    expect(noBinding).not.toHaveProperty("message");
+  });
 });

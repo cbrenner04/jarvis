@@ -5075,6 +5075,7 @@ export function isLoadSensitive(file: string): boolean {
             inspectedPaths: [],
             candidateCount: 0,
             acceptedSites: [],
+            skippedCandidates: [],
           };
         },
         completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),

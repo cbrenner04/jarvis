@@ -2064,6 +2064,7 @@ describe("executeWorkflow review dispatch", () => {
           inspectedPaths: [],
           candidateCount: 0,
           acceptedSites: [],
+          skippedCandidates: [],
         };
       },
       createBinding: ({ agentId, adapterModel }) => ({

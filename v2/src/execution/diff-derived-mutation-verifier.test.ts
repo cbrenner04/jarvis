@@ -1667,8 +1667,8 @@ index 1234567..abcdefg 100644
     expect(mutatedContents[0]).toBe(`if (("minFreeGb" in memory)) {`);
   });
 
-  it("fails the candidate when the recorded columns no longer hold its original text", async () => {
-    const diff = `diff --git a/src/test.ts b/src/test.ts
+  describe("unappliable candidate containment", () => {
+    const unappliableDiff = `diff --git a/src/test.ts b/src/test.ts
 index 1234567..abcdefg 100644
 --- a/src/test.ts
 +++ b/src/test.ts
@@ -1676,20 +1676,133 @@ index 1234567..abcdefg 100644
 +if (x < 5) return null;
 `;
 
-    await expect(
-      verifyDiffDerivedMutations(
-        { worktreePath: "/test/path", runBase: "main" },
-        {
-          gitDiff: async () => diff,
-          untrackedFiles: async () => [],
-          // The worktree file has drifted from the diff, so the slice at the
-          // candidate's columns is not its original text.
-          readFile: async () => `if (yyyyyy < 5) return null;`,
-          writeFile: async () => {},
-          runScopedTests: async () => false,
+    const driftedContent = `if (yyyyyy < 5) return null;`;
+    const unappliableInput = { worktreePath: "/test/path", runBase: "main" };
+    const unappliableSeams = {
+      gitDiff: async () => unappliableDiff,
+      untrackedFiles: async () => [],
+      readFile: async () => driftedContent,
+      writeFile: async () => {},
+      runScopedTests: async () => false,
+    };
+
+    it("skips an unappliable candidate without crashing the run", async () => {
+      const result = await verifyDiffDerivedMutations(unappliableInput, unappliableSeams);
+      expect(result.kind).toBe("pass");
+    });
+
+    it("records skipped candidates on the pass result", async () => {
+      const result = await verifyDiffDerivedMutations(unappliableInput, unappliableSeams);
+      expect(result.kind).toBe("pass");
+      if (result.kind !== "pass") return;
+      expect(result.skippedCandidates).toEqual([
+        expect.objectContaining({
+          file: "src/test.ts",
+          line: 1,
+          reason: expect.stringMatching(/\S/),
+        }),
+      ]);
+    });
+
+    it("well-formed candidates still detect surviving and covered guards", async () => {
+      const diff =
+        unappliableDiff +
+        `diff --git a/src/safe.ts b/src/safe.ts
+index 1234567..abcdefg 100644
+--- a/src/safe.ts
++++ b/src/safe.ts
+@@ -1,3 +1,3 @@
+ export function safe(x: any) {
+-  if (!x) return null;
++  if (!x) return "safe";
+   return x;
+diff --git a/src/covered.ts b/src/covered.ts
+index 1234567..abcdefg 100644
+--- a/src/covered.ts
++++ b/src/covered.ts
+@@ -1,3 +1,3 @@
+ export function covered(x: any) {
+-  if (!x) return null;
++  if (!x) return "covered";
+   return x;
+`;
+      const safeContent = `export function safe(x: any) {\n  if (!x) return "safe";\n  return x;\n}`;
+      const coveredContent = `export function covered(x: any) {\n  if (!x) return "covered";\n  return x;\n}`;
+      const mixedInput = { worktreePath: "/test/path", runBase: "main" };
+      const mixedSeams = {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        readFile: async (path: string) => {
+          if (path.endsWith("safe.ts")) return safeContent;
+          if (path.endsWith("covered.ts")) return coveredContent;
+          if (path.endsWith("test.ts")) return driftedContent;
+          if (path.endsWith(".test.ts")) return "export {};\n";
+          throw new Error(`unexpected read: ${path}`);
         },
-      ),
-    ).rejects.toThrow("Failed to test candidate for src/test.ts:1");
+        writeFile: async () => {},
+      };
+
+      const survivingResult = await verifyDiffDerivedMutations(mixedInput, {
+        ...mixedSeams,
+        runScopedTests: async () => true,
+      });
+      expect(survivingResult.kind).toBe("surviving-mutation");
+      if (survivingResult.kind === "surviving-mutation") {
+        expect(survivingResult.sourceSite.file).toBe("src/safe.ts");
+        expect(survivingResult.mutation).toContain("guard-flip");
+      }
+
+      const passResult = await verifyDiffDerivedMutations(mixedInput, {
+        ...mixedSeams,
+        runScopedTests: async (_cwd, scope) => scope.some((entry) => entry.includes("safe.ts")),
+      });
+      expect(passResult.kind).toBe("pass");
+      if (passResult.kind === "pass") {
+        expect(passResult.skippedCandidates).toHaveLength(1);
+        expect(passResult.skippedCandidates[0]?.file).toBe("src/test.ts");
+      }
+    });
+
+    it("a genuine seam failure still surfaces", async () => {
+      const coveredDiff = `diff --git a/src/covered.ts b/src/covered.ts
+index 1234567..abcdefg 100644
+--- a/src/covered.ts
++++ b/src/covered.ts
+@@ -1,3 +1,3 @@
+ export function covered(x: any) {
+-  if (!x) return null;
++  if (!x) return "covered";
+   return x;
+`;
+      const coveredContent = `export function covered(x: any) {\n  if (!x) return "covered";\n  return x;\n}`;
+      const coveredInput = { worktreePath: "/test/path", runBase: "main" };
+      const coveredSeams = {
+        gitDiff: async () => coveredDiff,
+        untrackedFiles: async () => [],
+        readFile: async (path: string) => {
+          if (path.endsWith("covered.ts")) return coveredContent;
+          if (path.endsWith(".test.ts")) return "export {};\n";
+          throw new Error(`unexpected read: ${path}`);
+        },
+      };
+      const expectCandidateFailure = (seams: object) =>
+        expect(verifyDiffDerivedMutations(coveredInput, { ...coveredSeams, ...seams })).rejects.toThrow(
+          "Failed to test candidate for src/covered.ts:2",
+        );
+
+      await expectCandidateFailure({
+        writeFile: async () => {
+          throw new Error("disk full");
+        },
+        runScopedTests: async () => false,
+      });
+      await expectCandidateFailure({
+        writeFile: async () => {},
+        runScopedTests: async () => {
+          throw new Error("scoped test harness failed");
+        },
+      });
+    });
   });
 
   describe("dual-constraint detection", () => {

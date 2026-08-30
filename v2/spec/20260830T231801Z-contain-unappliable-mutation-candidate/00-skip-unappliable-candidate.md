@@ -27,12 +27,12 @@ Candidate application and testing in `v2/src/execution/diff-derived-mutation-ver
 
 ## Acceptance criteria
 
-- [ ] `diff-derived-mutation-verifier.test.ts` test `skips an unappliable candidate without crashing the run` drives `verifyDiffDerivedMutations` (injected seams) over a changed file whose derived candidate cannot apply (its `originalText`/columns do not match the source line), and asserts the call resolves to a `pass` result with no thrown error; it fails against the pre-fix `Failed to test candidate` re-throw.
-- [ ] `diff-derived-mutation-verifier.test.ts` test `records skipped candidates on the pass result` asserts the unappliable candidate appears in `PassResult.skippedCandidates` with its `file`, `line`, and a non-empty `reason`, and is absent from any surviving-mutation report; it fails against the pre-fix silent `null`.
-- [ ] `diff-derived-mutation-verifier.test.ts` test `well-formed candidates still detect surviving and covered guards` proves an applicable uncovered guard still returns `surviving-mutation` and an applicable covered guard returns `pass` (no regression to detection or killing-test resolution) alongside a skipped sibling candidate on another line.
-- [ ] `diff-derived-mutation-verifier.test.ts` test `a genuine seam failure still surfaces` proves a `writeFile`/`runScopedTests` seam throw is not swallowed as a skip (infra failures keep their current surfacing), distinguishing it from an unappliable candidate.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `diff-derived-mutation-verifier.test.ts` test `skips an unappliable candidate without crashing the run` drives `verifyDiffDerivedMutations` (injected seams) over a changed file whose derived candidate cannot apply (its `originalText`/columns do not match the source line), and asserts the call resolves to a `pass` result with no thrown error; it fails against the pre-fix `Failed to test candidate` re-throw.
+- [x] `diff-derived-mutation-verifier.test.ts` test `records skipped candidates on the pass result` asserts the unappliable candidate appears in `PassResult.skippedCandidates` with its `file`, `line`, and a non-empty `reason`, and is absent from any surviving-mutation report; it fails against the pre-fix silent `null`.
+- [x] `diff-derived-mutation-verifier.test.ts` test `well-formed candidates still detect surviving and covered guards` proves an applicable uncovered guard still returns `surviving-mutation` and an applicable covered guard returns `pass` (no regression to detection or killing-test resolution) alongside a skipped sibling candidate on another line.
+- [x] `diff-derived-mutation-verifier.test.ts` test `a genuine seam failure still surfaces` proves a `writeFile`/`runScopedTests` seam throw is not swallowed as a skip (infra failures keep their current surfacing), distinguishing it from an unappliable candidate.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

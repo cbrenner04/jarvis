@@ -514,7 +514,14 @@ test("resumes implement write row after in-loop surviving_mutation_failed exhaus
               bindings,
               verifyDiffDerivedMutations: async () => {
                 verifyCalls += 1;
-                return { kind: "pass", runBase: "HEAD", inspectedPaths: [], candidateCount: 0, acceptedSites: [] };
+                return {
+                  kind: "pass",
+                  runBase: "HEAD",
+                  inspectedPaths: [],
+                  candidateCount: 0,
+                  acceptedSites: [],
+                  skippedCandidates: [],
+                };
               },
               completionCommitter: async () => ({ commitSha: "commit-resume", filesChanged: 1 }),
             });

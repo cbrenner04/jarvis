@@ -1,8 +1,6 @@
 import { basename } from "node:path";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
-import { maybeResetStaleWorkspace } from "../commands/stale-reset-workspace.ts";
-import type { IntentWorkflowCliInput } from "../commands/workflow-args.ts";
 import { stampWorkflowStepsWithMachineConfig } from "../commands/workflow-step-config-stamp.ts";
 import type { PipelineDefinition, PipelineStage, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
 import { normalizePublicationFailure, type PublicationFailure } from "../execution/publication-retry.ts";
@@ -42,10 +40,13 @@ import {
 } from "./pipeline-stage-dispatch.ts";
 import {
   isFanOutStageResolution,
+  noopStaleResetPreflight,
   type PipelineStageResolutionResult,
   resolveStageWorkflowSteps,
+  type StaleResetPreflight,
   singleStageResolutionSteps,
 } from "./pipeline-stage-resolve.ts";
+import { capturingStaleReset } from "./pipeline-workflow-preparation.ts";
 
 export type PipelineDerivedState =
   | "succeeded"
@@ -81,13 +82,11 @@ export type PipelineExecutionDeps = {
   /** Bound on a losing branch's wait for a peer's fan-out claim (see `awaitBoundedPeerClaim`). */
   peerClaimTimeoutMs?: number;
   /**
-   * Stale-reset preflight injection for pipeline intent-stage re-dispatch
-   * (see `resetStaleIntentWorkspaceIfNeeded`). `connectClient` opens an `IpcClient` against the
-   * daemon's own socket on demand — pipeline dispatch always runs after the server is listening —
-   * and the preflight closes it after use. Undefined skips the preflight entirely (e.g. in tests
-   * that don't exercise it).
+   * Shared stale-reset preflight injection for pipeline workflow-stage re-dispatch.
+   * `connectClient` opens an `IpcClient` against the daemon's own socket on demand.
+   * Undefined skips the preflight entirely (e.g. in tests that don't exercise it).
    */
-  intentStaleReset?: { cliDeps: CliDeps; io: Io; connectClient: () => Promise<IpcClient> };
+  staleResetPreflight?: { cliDeps: CliDeps; io: Io; connectClient: () => Promise<IpcClient> };
 };
 
 export type PipelineContinuationRefusalReason = "pipeline_not_found" | "missing_context" | "claim_refused";
@@ -223,7 +222,7 @@ export async function continuePipeline(
       ...(deps.executeTerminalPublication !== undefined
         ? { executeTerminalPublication: deps.executeTerminalPublication }
         : {}),
-      ...(deps.intentStaleReset !== undefined ? { intentStaleReset: deps.intentStaleReset } : {}),
+      ...(deps.staleResetPreflight !== undefined ? { staleResetPreflight: deps.staleResetPreflight } : {}),
       ...(deps.loadLogRecords !== undefined ? { loadLogRecords: deps.loadLogRecords } : {}),
     },
     continuationBranchKey,
@@ -1303,7 +1302,7 @@ type AdvanceWorkflowStageArgs = {
   dispatchClaims: PipelineDispatchClaims;
   peerClaimTimeoutMs: number;
   loadLogRecords?: (entryRunId: string) => PersistedRecord[];
-  intentStaleReset?: PipelineExecutionDeps["intentStaleReset"];
+  staleResetPreflight?: PipelineExecutionDeps["staleResetPreflight"];
 };
 
 export function stampPipelineDispatchSteps(
@@ -1596,19 +1595,28 @@ async function advanceFanOutBranches(
     pipeline: (Pipeline & { stages: PipelineStageRecord[] }) | null;
     loadedStages: readonly PipelineStageRecord[];
     splitPosition: number;
-    results: Array<{ steps: AnyWorkflowStep[] }>;
+    results: Array<{
+      steps: AnyWorkflowStep[];
+      runStaleResetPreflight?: StaleResetPreflight;
+      preflightCapture?: { message: string };
+    }>;
   },
 ): Promise<boolean> {
   const { stage, branchKey } = args;
   const branchDispatchTasks = opts.branchKeys.map((targetBranchKey, branchIndex) => async (): Promise<boolean> => {
     const targetRecord = findStageRecord(opts.loadedStages, stage.stageId, targetBranchKey);
     if (targetRecord?.status === "succeeded") return false;
+    const branchResult = opts.results[branchIndex];
     const acted = await runFanOutBranchAction(args, {
       targetBranchKey,
       targetRecord,
       pipeline: opts.pipeline,
       splitPosition: opts.splitPosition,
-      steps: opts.results[branchIndex]?.steps,
+      steps: branchResult?.steps,
+      ...(branchResult?.runStaleResetPreflight !== undefined
+        ? { runStaleResetPreflight: branchResult.runStaleResetPreflight }
+        : {}),
+      ...(branchResult?.preflightCapture !== undefined ? { preflightCapture: branchResult.preflightCapture } : {}),
     });
     if (acted === "skip") return false;
     return settleFanOutBranch(args, targetBranchKey) && targetBranchKey === branchKey;
@@ -1630,11 +1638,14 @@ async function runFanOutBranchAction(
     pipeline: (Pipeline & { stages: PipelineStageRecord[] }) | null;
     splitPosition: number;
     steps: AnyWorkflowStep[] | undefined;
+    runStaleResetPreflight?: StaleResetPreflight;
+    preflightCapture?: { message: string };
   },
 ): Promise<"acted" | "skip"> {
-  const { pipelineId, stage, split, store, dispatch, wait, loadLogRecords, dispatchClaims } = args;
+  const { pipelineId, stage, index, split, store, dispatch, wait, loadLogRecords, dispatchClaims } = args;
   const { targetBranchKey, targetRecord, pipeline, steps } = opts;
   const stageTarget = { pipelineId, stageId: stage.stageId, branchKey: targetBranchKey };
+  const stageRecords = store.loadPipeline(pipelineId)?.stages ?? [];
 
   const linkedEntryRun = settlementLinkedEntryRunId(store, targetRecord);
   if (linkedEntryRun !== undefined) {
@@ -1658,10 +1669,21 @@ async function runFanOutBranchAction(
     return "skip";
   }
   if (steps === undefined) return "skip";
-  const stampedSteps = stampPipelineDispatchSteps(steps, args.context.configPath);
+  const staleReset =
+    args.staleResetPreflight === undefined
+      ? ({ ok: true } as const)
+      : await runSharedStaleResetPreflight(
+          opts.runStaleResetPreflight ?? noopStaleResetPreflight,
+          args.staleResetPreflight,
+          opts.preflightCapture ?? { message: "" },
+        );
+  if (!staleReset.ok) {
+    failWorkflowStageAt(store, pipelineId, stage.stageId, targetBranchKey, stageRecords, index + 1, staleReset.message);
+    return "acted";
+  }
   await dispatchPipelineStage({
     ...stageTarget,
-    steps: stampedSteps,
+    steps,
     dispatch,
     wait,
     store,
@@ -1726,40 +1748,18 @@ async function adoptRunningWorkflowStage(
   });
 }
 
-/** Synthetic: default (no override flags) — mirrors CLI `run workflow intent` with no `--reset-despite-*` flags. */
-const SYNTHETIC_INTENT_PARSED_INPUT: IntentWorkflowCliInput = { ok: true, seed: "" };
-
-/**
- * Before dispatching a resolved intent-stage write step into a git-enabled managed worktree,
- * reuse the CLI's stale-reset preflight (`maybeResetStaleWorkspace`) so a failed-stage
- * re-dispatch never reuses a poisoned worktree/branch left over from a prior run. No-op when
- * `injection` is undefined (stale-reset not wired) or the stage isn't authored `workflow:
- * "intent"`; `maybeResetStaleWorkspace` itself no-ops for non-git or unmanaged worktrees.
- */
-async function resetStaleIntentWorkspaceIfNeeded(
-  stage: Extract<PipelineStage, { kind: "workflow" }>,
-  steps: AnyWorkflowStep[],
-  injection: PipelineExecutionDeps["intentStaleReset"],
+async function runSharedStaleResetPreflight(
+  runStaleResetPreflight: StaleResetPreflight,
+  injection: PipelineExecutionDeps["staleResetPreflight"],
+  captured: { message: string },
 ): Promise<{ ok: true } | { ok: false; message: string }> {
-  if (injection === undefined || stage.workflow !== "intent") return { ok: true };
-  let captured = "";
-  const capturingIo: Io = {
-    stdout: injection.io.stdout,
-    stderr: (text: string) => {
-      captured += text;
-      injection.io.stderr(text);
-    },
-  };
+  if (injection === undefined) return { ok: true };
   let client: IpcClient;
   try {
     client = await injection.connectClient();
   } catch (error) {
-    // Fail open: this preflight is a best-effort recovery for a poisoned re-dispatch. If the daemon
-    // cannot open its own control socket (e.g. transient fd pressure), skip the check and proceed to
-    // dispatch rather than hard-failing an otherwise-healthy pipeline stage — degrading to the
-    // pre-feature behavior, where a genuinely poisoned tree still surfaces later at review.
     injection.io.stderr(
-      `intent-stage stale-reset preflight skipped: could not open daemon control socket: ${
+      `pipeline stale-reset preflight skipped: could not open daemon control socket: ${
         error instanceof Error ? error.message : String(error)
       }\n`,
     );
@@ -1767,19 +1767,12 @@ async function resetStaleIntentWorkspaceIfNeeded(
   }
   let exitCode: number | undefined;
   try {
-    exitCode = await maybeResetStaleWorkspace(
-      "intent",
-      { ok: true, steps },
-      injection.cliDeps,
-      capturingIo,
-      SYNTHETIC_INTENT_PARSED_INPUT,
-      client,
-    );
+    exitCode = await runStaleResetPreflight(client);
   } finally {
     client.close();
   }
   if (exitCode !== undefined) {
-    return { ok: false, message: captured.trim() || "Stale workspace reset failed" };
+    return { ok: false, message: captured.message.trim() || "Stale workspace reset failed" };
   }
   return { ok: true };
 }
@@ -1835,6 +1828,14 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
     if (record?.status === "failed") return "stop";
     if (record?.status === "skipped") return "continue";
 
+    const preflightCapture = { message: "" };
+    const staleResetForResolve =
+      args.staleResetPreflight === undefined
+        ? undefined
+        : capturingStaleReset(
+            { deps: args.staleResetPreflight.cliDeps, io: args.staleResetPreflight.io },
+            preflightCapture,
+          );
     const resolution = await resolveStage(definition, index, context, stageArtifacts, {
       loadRun: (runId) => {
         const entryRun = store.loadRun(runId);
@@ -1842,6 +1843,7 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
       },
       branchKey,
       ...(split !== null ? { splitPosition: split.splitPosition } : {}),
+      ...(staleResetForResolve !== undefined ? { staleReset: staleResetForResolve } : {}),
     });
     if (!resolution.ok) {
       return failWorkflowStageAt(
@@ -1860,12 +1862,14 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
     }
 
     const resolvedSteps = singleStageResolutionSteps(resolution);
-    // Skips the async call entirely (no extra microtask hop) when stale-reset isn't wired —
-    // the overwhelmingly common case — so the fast path's timing stays exactly as before.
     const staleReset =
-      args.intentStaleReset === undefined
+      args.staleResetPreflight === undefined
         ? ({ ok: true } as const)
-        : await resetStaleIntentWorkspaceIfNeeded(stage, resolvedSteps, args.intentStaleReset);
+        : await runSharedStaleResetPreflight(
+            resolution.runStaleResetPreflight ?? noopStaleResetPreflight,
+            args.staleResetPreflight,
+            preflightCapture,
+          );
     if (!staleReset.ok) {
       return failWorkflowStageAt(
         store,
@@ -1878,12 +1882,11 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
       );
     }
 
-    const stampedSteps = stampPipelineDispatchSteps(resolvedSteps, context.configPath);
     await dispatchPipelineStage({
       pipelineId,
       stageId: stage.stageId,
       branchKey,
-      steps: stampedSteps,
+      steps: resolvedSteps,
       dispatch,
       wait,
       store,
@@ -2029,7 +2032,7 @@ async function runAuthoredStages(args: {
             dispatchClaims,
             peerClaimTimeoutMs,
             ...(deps.loadLogRecords !== undefined ? { loadLogRecords: deps.loadLogRecords } : {}),
-            ...(deps.intentStaleReset !== undefined ? { intentStaleReset: deps.intentStaleReset } : {}),
+            ...(deps.staleResetPreflight !== undefined ? { staleResetPreflight: deps.staleResetPreflight } : {}),
           });
     if (outcome === "stop") return;
     pipeline.stages = store.loadPipeline(pipelineId)?.stages ?? pipeline.stages;

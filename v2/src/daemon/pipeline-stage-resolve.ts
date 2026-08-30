@@ -1,39 +1,48 @@
 import { existsSync } from "node:fs";
-import { join, resolve, sep } from "node:path";
-import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
-import { projectSafeId } from "../../../shared/project-safe-id.ts";
+import { join } from "node:path";
 import { resolveWorkflowPresetName } from "../commands/workflow-start-preparation.ts";
-import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
-import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
-import {
-  type BuildImplementWorkflowStepsDeps,
-  type BuildImplementWorkflowStepsInput,
-  buildImplementWorkflowSteps,
-} from "../execution/implement-workflow-steps.ts";
+import type { BuildImplementWorkflowStepsInput } from "../execution/implement-workflow-steps.ts";
 import type { PipelineDefinition, PipelineStage } from "../execution/pipeline-definition.ts";
-import {
-  buildPlanWorkflowSteps,
-  buildReviewedPlanLightWorkflowSteps,
-  buildReviewedPlanWorkflowSteps,
-  type IntentWorkflowInput,
-  type PlanWorkflowDeps,
-  type PlanWorkflowInput,
-  type PlanWorkflowResult,
-} from "../execution/publication-workflow-steps.ts";
-import { loadWorkflowSteps as realLoadWorkflowSteps } from "../execution/workflow-loader.ts";
+import type { IntentWorkflowInput, PlanWorkflowInput } from "../execution/publication-workflow-steps.ts";
 import { type CliWorkflowPresetName, WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
-import { jarvisHome } from "../paths.ts";
+import type { IpcClient } from "../ipc/client.ts";
 import type { PipelineContext } from "../persistence/state-store.ts";
 import { DEFAULT_PIPELINE_STAGE_BRANCH_KEY } from "../persistence/state-store.ts";
+import { createChainedStageProjectMatch } from "./pipeline-chained-workflow-deps.ts";
 import { type PipelineStageArtifact, stageArtifactKey } from "./pipeline-stage-dispatch.ts";
+import {
+  capturingStaleReset,
+  type PipelineStaleResetPreparation,
+  preparePipelineStageWorkflow,
+} from "./pipeline-workflow-preparation.ts";
 
 export type { PipelineContext };
+export { createChainedStageProjectMatch };
+
+export type StaleResetPreflight = (client: IpcClient) => Promise<number | undefined>;
+
+export const noopStaleResetPreflight: StaleResetPreflight = async () => undefined;
 
 export type PipelineStageResolutionResult =
-  | { ok: true; steps: AnyWorkflowStep[] }
-  | { ok: true; results: Array<{ steps: AnyWorkflowStep[] }> }
+  | { ok: true; steps: AnyWorkflowStep[]; runStaleResetPreflight?: StaleResetPreflight }
+  | {
+      ok: true;
+      results: Array<{
+        steps: AnyWorkflowStep[];
+        runStaleResetPreflight?: StaleResetPreflight;
+        preflightCapture?: { message: string };
+      }>;
+    }
   | { ok: false; error: string };
+
+function preparedStageResolution(
+  prepared: Awaited<ReturnType<typeof preparePipelineStageWorkflow>>,
+): PipelineStageResolutionResult {
+  return prepared.ok
+    ? { ok: true, steps: prepared.steps, runStaleResetPreflight: prepared.runStaleResetPreflight }
+    : prepared;
+}
 
 export function isFanOutStageResolution(
   result: Extract<PipelineStageResolutionResult, { ok: true }>,
@@ -55,13 +64,8 @@ export type PipelineStageResolveDeps = {
   loadRun?: (runId: string) => { worktreePath: string; branch: string } | null;
   branchKey?: string;
   splitPosition?: number;
+  staleReset?: PipelineStaleResetPreparation;
 };
-
-const FIXED_REVIEW_PASSES = 1;
-
-function selectChainedStageCwd(_contextCwd: string, priorWorktreePath: string): string {
-  return priorWorktreePath;
-}
 
 function unmappedResult(stage: PipelineStage & { kind: "workflow" }): { ok: false; error: string } {
   return {
@@ -100,97 +104,6 @@ function findPrecedingWorkflowArtifact(
     }
   }
   return undefined;
-}
-
-function isUnderPath(child: string, parent: string): boolean {
-  const resolvedChild = resolve(child);
-  const resolvedParent = resolve(parent);
-  const prefix = resolvedParent.endsWith(sep) ? resolvedParent : resolvedParent + sep;
-  return resolvedChild === resolvedParent || resolvedChild.startsWith(prefix);
-}
-
-function projectRegistryFromContext(context: PipelineContext): Record<string, ProjectRegistryEntry> {
-  if (context.projectRegistry !== undefined) return context.projectRegistry;
-  const projects = readMachineConfigDocument(context.configPath)?.projects;
-  return projects && typeof projects === "object" && !Array.isArray(projects)
-    ? (projects as Record<string, ProjectRegistryEntry>)
-    : {};
-}
-
-/** Pipeline chained stages match cwd under the admission root or jarvis managed workspaces. */
-export function createChainedStageProjectMatch(context: PipelineContext): (path: string) => ProjectMatch | undefined {
-  const registry = projectRegistryFromContext(context);
-  const admissionRoot = context.cwd;
-  return (path: string) => {
-    const direct = findProjectMatch(path, registry);
-    if (direct !== undefined && isUnderPath(path, admissionRoot)) return direct;
-    const resolved = resolve(path);
-    const jarvisRoot = jarvisHome();
-    for (const key of Object.keys(registry)) {
-      const safeId = projectSafeId(key);
-      if (
-        isUnderPath(resolved, join(jarvisRoot, "worktrees", key)) ||
-        isUnderPath(resolved, join(jarvisRoot, "intent-work", safeId)) ||
-        isUnderPath(resolved, join(jarvisRoot, "specs", safeId))
-      ) {
-        return { key, root: admissionRoot };
-      }
-    }
-    return direct;
-  };
-}
-
-function chainedPlanWorkflowDeps(context: PipelineContext): PlanWorkflowDeps {
-  return { resolveProjectMatch: createChainedStageProjectMatch(context) };
-}
-
-function chainedImplementWorkflowDeps(context: PipelineContext): BuildImplementWorkflowStepsDeps {
-  const configPath = context.configPath;
-  return {
-    resolveProjectMatch: createChainedStageProjectMatch(context),
-    ...(configPath !== undefined
-      ? {
-          configPath,
-          loadWorkflowSteps: (steps) => realLoadWorkflowSteps(steps, { machineConfigPath: configPath }),
-        }
-      : {}),
-  };
-}
-
-async function invokePlanPresetBuilder(
-  presetName: CliWorkflowPresetName,
-  input: PlanWorkflowInput,
-  context: PipelineContext,
-  builders: typeof WORKFLOW_PRESET_BUILDERS,
-): Promise<PlanWorkflowResult> {
-  const customBuilder = builders[presetName];
-  const defaultBuilder = WORKFLOW_PRESET_BUILDERS[presetName];
-  if (customBuilder !== defaultBuilder) {
-    return (await customBuilder(input as unknown as BuildImplementWorkflowStepsInput)) as PlanWorkflowResult;
-  }
-  const deps = chainedPlanWorkflowDeps(context);
-  switch (presetName) {
-    case "plan":
-      return buildPlanWorkflowSteps(input, deps);
-    case "plan-reviewed":
-      return buildReviewedPlanWorkflowSteps(input, deps);
-    case "plan-reviewed-light":
-      return buildReviewedPlanLightWorkflowSteps(input, deps);
-    default:
-      return (await customBuilder(input as unknown as BuildImplementWorkflowStepsInput)) as PlanWorkflowResult;
-  }
-}
-
-async function invokeImplementPresetBuilder(
-  input: BuildImplementWorkflowStepsInput,
-  context: PipelineContext,
-  builders: typeof WORKFLOW_PRESET_BUILDERS,
-): Promise<Awaited<ReturnType<typeof buildImplementWorkflowSteps>>> {
-  const customBuilder = builders.implement;
-  if (customBuilder !== WORKFLOW_PRESET_BUILDERS.implement) {
-    return customBuilder(input);
-  }
-  return buildImplementWorkflowSteps(input, chainedImplementWorkflowDeps(context));
 }
 
 type PriorArtifactContext = {
@@ -242,7 +155,7 @@ function resolvePriorArtifactContext(
     ok: true,
     prior: {
       artifact: priorArtifact,
-      cwd: selectChainedStageCwd(context.cwd, priorEntryRun.worktreePath),
+      cwd: priorEntryRun.worktreePath,
       worktreePath: priorEntryRun.worktreePath,
       branch: priorEntryRun.branch,
       specPath: priorArtifact.specPath,
@@ -337,33 +250,46 @@ function resolveChainedReadyIntentPaths(prior: PriorArtifactContext): ChainedRea
   return { ok: true, kind: "fan-out", paths: downstreamInputs };
 }
 
-function pathForDownstreamInput(
-  _prior: PriorArtifactContext,
-  path: string,
-): { ok: true; path: string } | { ok: false; error: string } {
-  return { ok: true, path };
+function stageReviewPasses(stage: PipelineStage & { kind: "workflow" }): number {
+  return stage.review === "none" ? 0 : 1;
 }
 
 async function resolveForDownstreamPaths(
   prior: PriorArtifactContext,
   paths: readonly string[],
-  resolveOne: (prior: PriorArtifactContext) => Promise<PipelineStageResolutionResult>,
+  resolveOne: (
+    prior: PriorArtifactContext,
+    staleReset?: PipelineStaleResetPreparation,
+  ) => Promise<PipelineStageResolutionResult>,
+  staleReset?: PipelineStaleResetPreparation,
   mapSteps?: (steps: AnyWorkflowStep[]) => AnyWorkflowStep[],
 ): Promise<PipelineStageResolutionResult> {
-  const results: Array<{ steps: AnyWorkflowStep[] }> = [];
+  const results: Array<{
+    steps: AnyWorkflowStep[];
+    runStaleResetPreflight?: StaleResetPreflight;
+    preflightCapture?: { message: string };
+  }> = [];
   for (const downstreamPath of paths) {
-    const bound = pathForDownstreamInput(prior, downstreamPath);
-    if (!bound.ok) return bound;
-    const result = await resolveOne({ ...prior, specPath: bound.path });
+    const preflightCapture = staleReset === undefined ? undefined : { message: "" };
+    const branchStaleReset =
+      staleReset === undefined || preflightCapture === undefined
+        ? undefined
+        : capturingStaleReset(staleReset, preflightCapture);
+    const result = await resolveOne({ ...prior, specPath: downstreamPath }, branchStaleReset);
     if (!result.ok) return result;
-    const steps = singleStageResolutionSteps(result);
-    results.push({ steps: mapSteps ? mapSteps(steps) : steps });
+    if (isFanOutStageResolution(result)) {
+      return {
+        ok: false,
+        error: "pipeline-stage-resolve: fan-out resolution is not supported in downstream path binding",
+      };
+    }
+    results.push({
+      steps: mapSteps ? mapSteps(result.steps) : result.steps,
+      ...(result.runStaleResetPreflight !== undefined ? { runStaleResetPreflight: result.runStaleResetPreflight } : {}),
+      ...(preflightCapture !== undefined ? { preflightCapture } : {}),
+    });
   }
   return { ok: true, results };
-}
-
-function toResolution(result: { ok: true; steps: AnyWorkflowStep[] } | { ok: false; error: string }) {
-  return result.ok ? { ok: true as const, steps: result.steps } : { ok: false as const, error: result.error };
 }
 
 async function resolveImplementStage(
@@ -371,43 +297,37 @@ async function resolveImplementStage(
   prior: PriorArtifactContext,
   context: PipelineContext,
   builders: typeof WORKFLOW_PRESET_BUILDERS,
+  staleReset?: PipelineStaleResetPreparation,
 ): Promise<PipelineStageResolutionResult> {
   const specPathResult = resolveChainedImplementSpecPath(prior.worktreePath, prior.specPath);
   if (!specPathResult.ok) return specPathResult;
   const specPath = specPathResult.specPath;
 
-  const customBuilder = builders.implement;
-  if (customBuilder !== WORKFLOW_PRESET_BUILDERS.implement) {
-    const input: BuildImplementWorkflowStepsInput = {
-      cwd: prior.cwd,
-      baseRef: prior.branch,
-      specPath,
-      reviewPasses: FIXED_REVIEW_PASSES,
-      reviewBehavior: stage.review as ImplementReviewBehavior,
-    };
-    return toResolution(await customBuilder(input));
-  }
-
-  const projectMatch = createChainedStageProjectMatch(context)(prior.worktreePath);
-  if (projectMatch === undefined) {
-    return {
-      ok: false,
-      error: `pipeline-stage-resolve: no registered project matches prior worktree ${prior.worktreePath}`,
-    };
-  }
-  const input: BuildImplementWorkflowStepsInput = {
+  const usesDefaultBuilder = builders.implement === WORKFLOW_PRESET_BUILDERS.implement;
+  let input: BuildImplementWorkflowStepsInput = {
     cwd: prior.cwd,
     baseRef: prior.branch,
     specPath,
-    reviewPasses: FIXED_REVIEW_PASSES,
-    reviewBehavior: stage.review as ImplementReviewBehavior,
-    projectRoot: projectMatch.root,
-    projectName: projectMatch.key,
-    preflightGitRoot: prior.worktreePath,
     ...(context.configPath !== undefined ? { configPath: context.configPath } : {}),
     ...(context.projectRegistry !== undefined ? { projectRegistry: context.projectRegistry } : {}),
   };
-  return toResolution(await invokeImplementPresetBuilder(input, context, builders));
+  if (usesDefaultBuilder) {
+    const projectMatch = createChainedStageProjectMatch(context)(prior.worktreePath);
+    if (projectMatch === undefined) {
+      return {
+        ok: false,
+        error: `pipeline-stage-resolve: no registered project matches prior worktree ${prior.worktreePath}`,
+      };
+    }
+    input = {
+      ...input,
+      projectRoot: projectMatch.root,
+      projectName: projectMatch.key,
+      preflightGitRoot: prior.worktreePath,
+    };
+  }
+  const prepared = await preparePipelineStageWorkflow("implement", "implement", input, context, builders, staleReset);
+  return preparedStageResolution(prepared);
 }
 
 async function resolveIntentStage(
@@ -416,6 +336,7 @@ async function resolveIntentStage(
   priorArtifact: PipelineStageArtifact | undefined,
   presetName: CliWorkflowPresetName,
   builders: typeof WORKFLOW_PRESET_BUILDERS,
+  staleReset?: PipelineStaleResetPreparation,
 ): Promise<PipelineStageResolutionResult> {
   if (priorArtifact !== undefined) {
     return {
@@ -425,7 +346,7 @@ async function resolveIntentStage(
   }
   const input: IntentWorkflowInput = {
     cwd: context.cwd,
-    reviewPasses: stage.review === "none" ? 0 : FIXED_REVIEW_PASSES,
+    reviewPasses: stageReviewPasses(stage),
     ...(stage.review === "light" || stage.review === "debate" ? { reviewBehavior: stage.review } : {}),
     ...(context.seedPath !== undefined
       ? { seed: context.seedPath }
@@ -435,7 +356,8 @@ async function resolveIntentStage(
     ...(context.targetDir !== undefined ? { targetDir: context.targetDir } : {}),
     ...(context.configPath !== undefined ? { configPath: context.configPath } : {}),
   };
-  return toResolution(await builders[presetName](input as unknown as BuildImplementWorkflowStepsInput));
+  const prepared = await preparePipelineStageWorkflow("intent", presetName, input, context, builders, staleReset);
+  return preparedStageResolution(prepared);
 }
 
 async function resolvePlanStage(
@@ -444,6 +366,7 @@ async function resolvePlanStage(
   context: PipelineContext,
   presetName: CliWorkflowPresetName,
   builders: typeof WORKFLOW_PRESET_BUILDERS,
+  staleReset?: PipelineStaleResetPreparation,
 ): Promise<PipelineStageResolutionResult> {
   // Mutation checkpoint: accepting a directory specPath here must turn the plan-stage
   // ready-intent-file regression RED.
@@ -456,12 +379,13 @@ async function resolvePlanStage(
   const input: PlanWorkflowInput = {
     cwd: prior.cwd,
     readyIntent: prior.specPath,
-    reviewPasses: stage.review === "none" ? 0 : FIXED_REVIEW_PASSES,
+    reviewPasses: stageReviewPasses(stage),
     ...(stage.review === "light" || stage.review === "debate" ? { reviewBehavior: stage.review } : {}),
     ...(context.targetDir !== undefined ? { targetDir: context.targetDir } : {}),
     ...(context.configPath !== undefined ? { configPath: context.configPath } : {}),
   };
-  return toResolution(await invokePlanPresetBuilder(presetName, input, context, builders));
+  const prepared = await preparePipelineStageWorkflow("plan", presetName, input, context, builders, staleReset);
+  return preparedStageResolution(prepared);
 }
 
 function leaveDraftWriteStepMapper(steps: AnyWorkflowStep[]): AnyWorkflowStep[] {
@@ -491,9 +415,19 @@ async function resolveImplementWorkflowStage(
   // Implement never re-fans out: the pipeline already branched at plan, so this stage resolves
   // exactly one input. Mutation checkpoint: fanning out here must turn the
   // "later stages do not re-fan out" regression RED.
-  const result = await resolveImplementStage(stage, priorResult.prior, context, builders);
+  const result = await resolveImplementStage(stage, priorResult.prior, context, builders, deps.staleReset);
   if (!result.ok || definition.terminalAction !== "leave-draft") return result;
-  return { ok: true, steps: leaveDraftWriteStepMapper(singleStageResolutionSteps(result)) };
+  if (isFanOutStageResolution(result)) {
+    return {
+      ok: false,
+      error: "pipeline-stage-resolve: implement stage resolution cannot fan out",
+    };
+  }
+  return {
+    ok: true,
+    steps: leaveDraftWriteStepMapper(result.steps),
+    ...(result.runStaleResetPreflight !== undefined ? { runStaleResetPreflight: result.runStaleResetPreflight } : {}),
+  };
 }
 
 async function resolvePlanWorkflowStage(
@@ -515,15 +449,17 @@ async function resolvePlanWorkflowStage(
   if (!inputPaths.ok) return inputPaths;
 
   if (inputPaths.kind === "fan-out") {
-    return resolveForDownstreamPaths(priorResult.prior, inputPaths.paths, (prior) =>
-      resolvePlanStage(stage, prior, context, presetName, builders),
+    return resolveForDownstreamPaths(
+      priorResult.prior,
+      inputPaths.paths,
+      (prior, branchStaleReset) => resolvePlanStage(stage, prior, context, presetName, builders, branchStaleReset),
+      deps.staleReset,
     );
   }
 
-  const bound = pathForDownstreamInput(priorResult.prior, inputPaths.path);
-  if (!bound.ok) return bound;
-  const prior = { ...priorResult.prior, specPath: bound.path };
-  return resolvePlanStage(stage, prior, context, presetName, builders);
+  const bound = inputPaths.path;
+  const prior = { ...priorResult.prior, specPath: bound };
+  return resolvePlanStage(stage, prior, context, presetName, builders, deps.staleReset);
 }
 
 /**
@@ -563,7 +499,7 @@ export async function resolveStageWorkflowSteps(
   }
 
   if (stage.workflow === "intent") {
-    return resolveIntentStage(stage, context, priorArtifact, presetName, builders);
+    return resolveIntentStage(stage, context, priorArtifact, presetName, builders, deps.staleReset);
   }
   if (stage.workflow === "plan") {
     return resolvePlanWorkflowStage(stage, context, priorArtifact, presetName, deps, builders);

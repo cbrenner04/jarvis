@@ -77,7 +77,7 @@ function createSeedPathRepo(): { repoRoot: string; configPath: string; intentWor
   return { repoRoot, configPath, intentWorktree };
 }
 
-const okStep = { behavior: "write" } as never;
+const okStep = { behavior: "write", worktree: { projectName: "demo", branchName: "test" } } as never;
 
 function fakeBuilders(overrides: Partial<typeof WORKFLOW_PRESET_BUILDERS> = {}): typeof WORKFLOW_PRESET_BUILDERS {
   const failEverything = async () => ({ ok: false as const, error: "unexpected call" });
@@ -467,7 +467,7 @@ describe("resolveStageWorkflowSteps", () => {
     expect(called).toBe(true);
   });
 
-  test("implement stage's built steps carry the stage's own posture as reviewBehavior, not a project default", async () => {
+  test("implement stage omits review overrides so builder resolves them from project config", async () => {
     let seenInput: BuildImplementWorkflowStepsInput | undefined;
     const planBranch = "plan/feature";
     const builders = fakeBuilders({
@@ -491,9 +491,47 @@ describe("resolveStageWorkflowSteps", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(seenInput?.reviewBehavior).toBe("light");
+    expect(seenInput?.reviewBehavior).toBeUndefined();
+    expect(seenInput?.reviewPasses).toBeUndefined();
     expect(seenInput?.specPath).toBe("spec/index.md");
     expect(seenInput?.baseRef).toBe(planBranch);
+  });
+
+  test("pipeline implement resolution uses configured review passes and review behavior on the review step", async () => {
+    const { repoRoot, planBranch, planWorktree, planSpecRel } = createChainedHandoffRepo();
+    const configPath = writeHomeMachineConfig({
+      projects: {
+        demo: {
+          root: repoRoot,
+          implement: { reviewPasses: 2, reviewBehavior: "light" },
+        },
+      },
+    });
+
+    const context: PipelineContext = { cwd: repoRoot, configPath, seed: "unused" };
+    const definition: PipelineDefinition = {
+      name: "p",
+      stages: [
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+      ],
+    };
+    const stageArtifacts = new Map([[stageArtifactKey("plan"), stageArtifact("run-plan", planSpecRel)]]);
+    const deps = { builders: WORKFLOW_PRESET_BUILDERS, ...chainedDeps(planWorktree, planBranch) };
+
+    const result = await resolveStageWorkflowSteps(definition, 1, context, stageArtifacts, deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const steps = singleStageResolutionSteps(result);
+    const writeStep = steps.find(
+      (step): step is Extract<(typeof steps)[number], { behavior: "write" }> =>
+        step.behavior === "write" && step.role === "implement",
+    );
+    expect(writeStep?.implementReviewBehavior).toBe("light");
+    const review = steps.find((step) => step.behavior === "review");
+    expect(review?.behavior).toBe("review");
+    if (review?.behavior !== "review") return;
+    expect(review.maxCycles).toBe(2);
   });
 
   test("intent+debate maps to intent preset with debate reviewBehavior and one pass", async () => {
@@ -632,7 +670,11 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("leave-draft pipeline implement completion skips ready finalization", async () => {
-    const publishWriteStep = { behavior: "write", publishCompletion: true } as never;
+    const publishWriteStep = {
+      behavior: "write",
+      publishCompletion: true,
+      worktree: { projectName: "demo", branchName: "test" },
+    } as never;
     const builders = fakeBuilders({
       implement: async () => ({ ok: true, steps: [publishWriteStep] }),
     });

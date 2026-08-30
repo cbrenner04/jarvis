@@ -4978,11 +4978,166 @@ describe("pipeline branch fan-out execution", () => {
   });
 });
 
-describe("pipeline intent-stage stale-reset preflight", () => {
+describe("pipeline workflow-stage stale-reset preflight", () => {
   let tmp: string;
   let projectRoot: string;
   let jarvisRoot: string;
-  const branch = "intent/improve-api";
+  const intentBranch = "intent/improve-api";
+  const planBranch = "plan/improve-api";
+  const implementBranch = "implement/improve-api";
+  const readyIntentRel = "spec/ready-intents/feature.md";
+  const readyIntentContent = "---\nname: feature\n---\n\n## Prerequisites\n\n- none\n";
+
+  function staleResetBundle(rpc: { client: ReturnType<typeof makeIpcClient> }) {
+    return {
+      cliDeps: { jarvisRoot, subprocessRunner: realAsyncSubprocessRunner } as unknown as CliDeps,
+      io: { stdout: () => {}, stderr: () => {} } satisfies Io,
+      connectClient: async () => rpc.client,
+    };
+  }
+
+  function managedWorktree(branchName: string, baseRef: string): NonNullable<WriteWorkflowStep["worktree"]> {
+    return {
+      projectRoot,
+      projectName: "demo",
+      branchName,
+      baseRef,
+      jarvisRoot,
+    };
+  }
+
+  async function materializeWorktree(branchName: string, baseRef = "HEAD"): Promise<string> {
+    await realAsyncSubprocessRunner.runAsync("git", ["branch", branchName, baseRef], projectRoot);
+    const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branchName], projectRoot);
+    return worktreePath;
+  }
+
+  async function seedIntentReadyIntent(intentWorktree: string): Promise<void> {
+    mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
+    writeFileSync(join(intentWorktree, readyIntentRel), readyIntentContent, "utf8");
+    for (const downstream of FAN_OUT_DOWNSTREAM) {
+      mkdirSync(dirname(join(intentWorktree, downstream)), { recursive: true });
+      writeFileSync(join(intentWorktree, downstream), readyIntentContent, "utf8");
+    }
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "-A"], intentWorktree);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-qm", "ready-intent"], intentWorktree);
+  }
+
+  function intentSteps(): AnyWorkflowStep[] {
+    return [
+      {
+        behavior: "write",
+        stepId: "intent",
+        role: "plan",
+        promptId: "intent.prompt.split",
+        stepRules: DEFAULT_WRITE_STEP_RULES,
+        agents: ["claude"],
+        agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+        worktree: managedWorktree(intentBranch, "HEAD"),
+        specPath: "spec/ready-intents",
+        expectedArtifactPath: ".jarvis-intent-stage",
+        publishCompletion: false,
+        landing: {
+          kind: "intent-stage",
+          baseRef: "HEAD",
+          inputs: { sourceRoot: projectRoot, paths: [], consumeFrom: "worktree" },
+          output: { durableDir: "spec/ready-intents" },
+          stagingDir: ".jarvis-intent-stage",
+          invocationId: "intent-invocation",
+        },
+      },
+    ] as unknown as AnyWorkflowStep[];
+  }
+
+  function planSteps(baseRef: string): AnyWorkflowStep[] {
+    return [
+      {
+        behavior: "write",
+        stepId: "plan",
+        role: "plan",
+        promptId: "plan.prompt",
+        stepRules: DEFAULT_WRITE_STEP_RULES,
+        agents: ["claude"],
+        agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+        worktree: managedWorktree(planBranch, baseRef),
+        specPath: "spec/plan",
+        expectedArtifactPath: ".jarvis-plan-stage",
+        publishCompletion: true,
+        landing: {
+          kind: "plan-tree",
+          baseRef,
+          inputs: { sourceRoot: projectRoot, paths: [readyIntentRel], consumeFrom: "worktree" },
+          output: { durableDir: "spec/plan" },
+          stagingDir: ".jarvis-plan-stage",
+          invocationId: "plan-invocation",
+        },
+      },
+    ] as unknown as AnyWorkflowStep[];
+  }
+
+  function implementSteps(baseRef: string): AnyWorkflowStep[] {
+    return [
+      {
+        behavior: "write",
+        stepId: "implement",
+        role: "implement",
+        promptId: "implement.prompt",
+        stepRules: DEFAULT_WRITE_STEP_RULES,
+        agents: ["claude"],
+        agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+        worktree: managedWorktree(implementBranch, baseRef),
+        specPath: "spec/plan/index.md",
+      },
+      {
+        behavior: "review-debate",
+        stepId: "review",
+        role: "review",
+        promptId: "review.prompt",
+        agents: ["claude"],
+        agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+        cwd: join(jarvisRoot, "worktrees", "demo", implementBranch),
+        landing: {
+          kind: "plan-tree",
+          baseRef,
+          inputs: { sourceRoot: projectRoot, paths: ["spec/plan/index.md"], consumeFrom: "worktree" },
+          output: { durableDir: "spec/plan" },
+          stagingDir: ".jarvis-plan-stage",
+          invocationId: "implement-invocation",
+        },
+      },
+    ] as unknown as AnyWorkflowStep[];
+  }
+
+  function intentDefinition(): PipelineDefinition {
+    return { name: "p", stages: [{ stageId: "s1", kind: "workflow", workflow: "intent", review: "none" }] };
+  }
+
+  function planChainDefinition(): PipelineDefinition {
+    return {
+      name: "p",
+      stages: [
+        { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+      ],
+    };
+  }
+
+  function implementChainDefinition(): PipelineDefinition {
+    return {
+      name: "p",
+      stages: [
+        { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+      ],
+    };
+  }
+
+  function intentArtifact(): PipelineStageArtifact {
+    return { entryRunId: "run-intent", specPath: readyIntentRel };
+  }
 
   beforeEach(async () => {
     tmp = mkdtempSync(join(tmpdir(), "jarvis-pipeline-stale-reset-"));
@@ -5001,53 +5156,6 @@ describe("pipeline intent-stage stale-reset preflight", () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
-  async function materializeStaleIntentWorktree(): Promise<string> {
-    await realAsyncSubprocessRunner.runAsync("git", ["branch", branch], projectRoot);
-    const worktreePath = join(jarvisRoot, "worktrees", "demo", branch);
-    mkdirSync(dirname(worktreePath), { recursive: true });
-    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "add", worktreePath, branch], projectRoot);
-    return worktreePath;
-  }
-
-  function intentSteps(): AnyWorkflowStep[] {
-    return [
-      {
-        behavior: "write",
-        stepId: "intent",
-        role: "plan",
-        promptId: "intent.prompt.split",
-        stepRules: DEFAULT_WRITE_STEP_RULES,
-        agents: ["claude"],
-        agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
-        worktree: {
-          projectRoot,
-          projectName: "demo",
-          branchName: branch,
-          baseRef: "HEAD",
-          jarvisRoot,
-        },
-        specPath: "spec/ready-intents",
-        expectedArtifactPath: ".jarvis-intent-stage",
-        publishCompletion: false,
-        landing: {
-          kind: "intent-stage",
-          baseRef: "HEAD",
-          inputs: { sourceRoot: projectRoot, paths: [], consumeFrom: "worktree" },
-          output: { durableDir: "spec/ready-intents" },
-          stagingDir: ".jarvis-intent-stage",
-          invocationId: "intent-invocation",
-        },
-      },
-    ] as unknown as AnyWorkflowStep[];
-  }
-
-  function intentDefinition(): PipelineDefinition {
-    return { name: "p", stages: [{ stageId: "s1", kind: "workflow", workflow: "intent", review: "none" }] };
-  }
-
-  /** Real `resolveStageWorkflowSteps`, with the `intent` preset swapped for one returning the
-   * pre-materialized git fixture's steps — keeps stage-shape/review-posture resolution real
-   * while pinning the concrete worktree the stale-reset preflight must act on. */
   function resolveStageWithFixedIntentSteps(
     definition: PipelineDefinition,
     index: number,
@@ -5066,10 +5174,119 @@ describe("pipeline intent-stage stale-reset preflight", () => {
             invocationId: "intent-invocation",
             project: "demo",
             slug: "improve-api",
-            branch,
+            branch: intentBranch,
             seedFingerprint: "fp",
           },
         }),
+      },
+    });
+  }
+
+  function resolveStageWithFixedPlanSteps(
+    definition: PipelineDefinition,
+    index: number,
+    context: PipelineContext,
+    stageArtifacts: ReadonlyMap<string, PipelineStageArtifact>,
+    deps?: PipelineStageResolveDeps,
+  ): Promise<PipelineStageResolutionResult> {
+    return resolveStageWorkflowSteps(definition, index, context, stageArtifacts, {
+      ...deps,
+      loadRun: (runId) =>
+        runId === "run-intent"
+          ? { worktreePath: join(jarvisRoot, "worktrees", "demo", intentBranch), branch: intentBranch }
+          : null,
+      builders: {
+        ...WORKFLOW_PRESET_BUILDERS,
+        plan: async () => ({
+          ok: true as const,
+          steps: planSteps(intentBranch),
+          identity: {
+            invocationId: "plan-invocation",
+            project: "demo",
+            name: "improve-api",
+            slug: "improve-api",
+            branch: planBranch,
+            seedFingerprint: "fp",
+          },
+        }),
+      },
+    });
+  }
+
+  function resolveStageWithFixedImplementSteps(
+    definition: PipelineDefinition,
+    index: number,
+    context: PipelineContext,
+    stageArtifacts: ReadonlyMap<string, PipelineStageArtifact>,
+    deps?: PipelineStageResolveDeps,
+  ): Promise<PipelineStageResolutionResult> {
+    return resolveStageWorkflowSteps(definition, index, context, stageArtifacts, {
+      ...deps,
+      loadRun: (runId) => {
+        if (runId === "run-intent") {
+          return { worktreePath: join(jarvisRoot, "worktrees", "demo", intentBranch), branch: intentBranch };
+        }
+        if (runId === "run-plan") {
+          return { worktreePath: join(jarvisRoot, "worktrees", "demo", planBranch), branch: planBranch };
+        }
+        return null;
+      },
+      builders: {
+        ...WORKFLOW_PRESET_BUILDERS,
+        implement: async () => ({
+          ok: true as const,
+          steps: implementSteps(planBranch),
+          identity: {
+            invocationId: "implement-invocation",
+            project: "demo",
+            slug: "improve-api",
+            branch: implementBranch,
+            seedFingerprint: "fp",
+          },
+        }),
+      },
+    });
+  }
+
+  function resolveFanOutPlanSteps(
+    definition: PipelineDefinition,
+    index: number,
+    context: PipelineContext,
+    stageArtifacts: ReadonlyMap<string, PipelineStageArtifact>,
+    deps?: PipelineStageResolveDeps,
+  ): Promise<PipelineStageResolutionResult> {
+    const intentWorktree = join(jarvisRoot, "worktrees", "demo", intentBranch);
+    return resolveStageWorkflowSteps(definition, index, context, stageArtifacts, {
+      ...deps,
+      loadRun: (runId) => (runId === "run-intent" ? { worktreePath: intentWorktree, branch: intentBranch } : null),
+      builders: {
+        ...WORKFLOW_PRESET_BUILDERS,
+        plan: async (input) => {
+          const branchKey = branchKeyFromDownstreamInput(
+            "readyIntent" in input && typeof input.readyIntent === "string" ? input.readyIntent : "",
+          );
+          const branchName = `plan/${branchKey}`;
+          return {
+            ok: true as const,
+            steps: [
+              {
+                behavior: "write",
+                stepId: "plan",
+                role: "plan",
+                worktree: managedWorktree(branchName, intentBranch),
+                specPath: "spec/plan",
+              },
+            ] as unknown as AnyWorkflowStep[],
+            identity: {
+              invocationId: `plan-${branchKey}`,
+              project: "demo",
+              name: branchKey,
+              slug: branchKey,
+              branch: branchName,
+              seedFingerprint: "fp",
+            },
+          };
+        },
       },
     });
   }
@@ -5122,9 +5339,9 @@ describe("pipeline intent-stage stale-reset preflight", () => {
     };
   }
 
-  // @mutate v2/src/daemon/pipeline-execution.ts "if (injection === undefined || stage.workflow !== \"intent\") return { ok: true };" -> "if (true) return { ok: true };"
+  // @mutate v2/src/daemon/pipeline-workflow-preparation.ts "maybeResetStaleWorkspace" -> "noopStaleReset"
   test("pipeline intent-stage re-dispatch resets a poisoned worktree before the write step", async () => {
-    const worktreePath = await materializeStaleIntentWorktree();
+    const worktreePath = await materializeWorktree(intentBranch);
     writeFileSync(join(worktreePath, ".jarvis-intent-review-verdict.md"), "verdict\n", "utf8");
     writeFileSync(join(worktreePath, ".jarvis-intent-review-verdict.md.owner"), "foreign-invocation\n", "utf8");
 
@@ -5150,11 +5367,7 @@ describe("pipeline intent-stage stale-reset preflight", () => {
         dispatch,
         wait: async () => "completed",
         resolveStage: resolveStageWithFixedIntentSteps,
-        intentStaleReset: {
-          cliDeps: { jarvisRoot, subprocessRunner: realAsyncSubprocessRunner } as unknown as CliDeps,
-          io: { stdout: () => {}, stderr: () => {} } satisfies Io,
-          connectClient: async () => rpc.client,
-        },
+        staleResetPreflight: staleResetBundle(rpc),
       });
 
       expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
@@ -5169,7 +5382,7 @@ describe("pipeline intent-stage stale-reset preflight", () => {
 
   // @mutate v2/src/daemon/pipeline-execution.ts "if (!staleReset.ok) {" -> "if (false) {"
   test("pipeline intent-stage stale-reset refusal fails stage without dispatch", async () => {
-    const worktreePath = await materializeStaleIntentWorktree();
+    const worktreePath = await materializeWorktree(intentBranch);
     writeFileSync(join(worktreePath, "README.md"), "dirty\n", "utf8");
 
     const { store, stages } = fakeStore(
@@ -5192,11 +5405,7 @@ describe("pipeline intent-stage stale-reset preflight", () => {
         dispatch,
         wait: async () => "completed",
         resolveStage: resolveStageWithFixedIntentSteps,
-        intentStaleReset: {
-          cliDeps: { jarvisRoot, subprocessRunner: realAsyncSubprocessRunner } as unknown as CliDeps,
-          io: { stdout: () => {}, stderr: () => {} } satisfies Io,
-          connectClient: async () => rpc.client,
-        },
+        staleResetPreflight: staleResetBundle(rpc),
       });
 
       expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
@@ -5212,8 +5421,179 @@ describe("pipeline intent-stage stale-reset preflight", () => {
     }
   });
 
+  // @mutate v2/src/daemon/pipeline-execution.ts "if (injection === undefined) return { ok: true };" -> "if (true) return { ok: true };"
+  test("pipeline plan-stage stale-reset refusal fails stage without dispatch", async () => {
+    const intentWorktree = await materializeWorktree(intentBranch);
+    await seedIntentReadyIntent(intentWorktree);
+    const planWorktree = await materializeWorktree(planBranch, intentBranch);
+    writeFileSync(join(planWorktree, "README.md"), "dirty\n", "utf8");
+
+    const { store, stages } = fakeStore(
+      planChainDefinition(),
+      { "run-intent": { specPath: readyIntentRel, worktreePath: intentWorktree, branch: intentBranch } },
+      { context: { ...persistedContext, cwd: projectRoot }, ownerIdentity: PRIOR_OWNER },
+    );
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      patch: { status: "succeeded", artifact: intentArtifact() },
+    });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "plan", patch: { status: "failed" } });
+
+    const rpc = daemonRpcClient();
+    let dispatchCalled = false;
+    const dispatch: PipelineWorkflowDispatch = async () => {
+      dispatchCalled = true;
+      return { ok: true, entryRunId: "run-plan", invocationId: "inv-plan" };
+    };
+
+    try {
+      const outcome = await resumePipeline(PIPELINE_ID, {
+        store,
+        dispatch,
+        wait: async () => "completed",
+        resolveStage: resolveStageWithFixedPlanSteps,
+        staleResetPreflight: staleResetBundle(rpc),
+      });
+
+      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(dispatchCalled).toBe(false);
+      const record = stageRecord(stages(), "plan");
+      expect(record?.status).toBe("failed");
+      expect((record?.failureDetail as { message?: string } | null)?.message).toContain(
+        "Cannot re-run incomplete spec",
+      );
+      expect(existsSync(planWorktree)).toBe(true);
+    } finally {
+      rpc.close();
+    }
+  });
+
+  // @mutate v2/src/daemon/pipeline-execution.ts "if (injection === undefined) return { ok: true };" -> "if (true) return { ok: true };"
+  test("pipeline implement-stage stale-reset refusal fails stage without dispatch", async () => {
+    const intentWorktree = await materializeWorktree(intentBranch);
+    await seedIntentReadyIntent(intentWorktree);
+    const planWorktree = await materializeWorktree(planBranch, intentBranch);
+    const implementWorktree = await materializeWorktree(implementBranch, planBranch);
+    writeFileSync(join(implementWorktree, "README.md"), "dirty\n", "utf8");
+
+    const { store, stages } = fakeStore(
+      implementChainDefinition(),
+      {
+        "run-intent": { specPath: readyIntentRel, worktreePath: intentWorktree, branch: intentBranch },
+        "run-plan": { specPath: "spec/plan/index.md", worktreePath: planWorktree, branch: planBranch },
+      },
+      { context: { ...persistedContext, cwd: projectRoot }, ownerIdentity: PRIOR_OWNER },
+    );
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      patch: { status: "succeeded", artifact: intentArtifact() },
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "plan",
+      patch: { status: "succeeded", artifact: { entryRunId: "run-plan", specPath: "spec/plan/index.md" } },
+    });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "implement", patch: { status: "failed" } });
+
+    const rpc = daemonRpcClient();
+    let dispatchCalled = false;
+    const dispatch: PipelineWorkflowDispatch = async () => {
+      dispatchCalled = true;
+      return { ok: true, entryRunId: "run-implement", invocationId: "inv-implement" };
+    };
+
+    try {
+      const outcome = await resumePipeline(PIPELINE_ID, {
+        store,
+        dispatch,
+        wait: async () => "completed",
+        resolveStage: resolveStageWithFixedImplementSteps,
+        staleResetPreflight: staleResetBundle(rpc),
+      });
+
+      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(dispatchCalled).toBe(false);
+      const record = stageRecord(stages(), "implement");
+      expect(record?.status).toBe("failed");
+      expect((record?.failureDetail as { message?: string } | null)?.message).toContain(
+        "Cannot re-run incomplete spec",
+      );
+      expect(existsSync(implementWorktree)).toBe(true);
+    } finally {
+      rpc.close();
+    }
+  });
+
+  // @mutate v2/src/daemon/pipeline-execution.ts "const staleReset = await runSharedStaleResetPreflight(" -> "const staleReset = { ok: true } as const; void runSharedStaleResetPreflight("
+  test("pipeline fan-out stale-reset refusal fails branch without dispatch", async () => {
+    const intentWorktree = await materializeWorktree(intentBranch);
+    await seedIntentReadyIntent(intentWorktree);
+    const alphaPlanBranch = "plan/alpha";
+    const alphaPlanWorktree = await materializeWorktree(alphaPlanBranch, intentBranch);
+    writeFileSync(join(alphaPlanWorktree, "README.md"), "dirty\n", "utf8");
+
+    const intentArtifactWithFanOut: PipelineStageArtifact = {
+      entryRunId: "run-intent",
+      specPath: FAN_OUT_DOWNSTREAM[0] ?? "ready-intents/alpha.md",
+      downstreamInputs: [...FAN_OUT_DOWNSTREAM],
+    };
+    const { store, stages } = fakeStore(
+      FAN_OUT_LINEAR_DEFINITION,
+      { "run-intent": { specPath: "ready-intents", worktreePath: intentWorktree, branch: intentBranch } },
+      { context: { ...persistedContext, cwd: projectRoot }, ownerIdentity: PRIOR_OWNER },
+    );
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      patch: { status: "succeeded", artifact: intentArtifactWithFanOut, workflowInvocationId: "run-intent" },
+    });
+    for (const branchKey of FAN_OUT_BRANCH_KEYS) {
+      store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "plan", branchKey });
+      store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "implement", branchKey });
+    }
+    for (const stageId of ["plan", "implement"] as const) {
+      store.updateStage({
+        pipelineId: PIPELINE_ID,
+        stageId,
+        branchKey: "default",
+        patch: { status: "skipped" },
+      });
+    }
+
+    const rpc = daemonRpcClient();
+    const dispatchLog: string[] = [];
+    const dispatch: PipelineWorkflowDispatch = async (steps) => {
+      const branchName = steps[0]?.behavior === "write" ? steps[0].worktree?.branchName : undefined;
+      if (branchName !== undefined) dispatchLog.push(branchName);
+      return { ok: true, entryRunId: `run-${branchName ?? "plan"}`, invocationId: `inv-${branchName ?? "plan"}` };
+    };
+
+    try {
+      await runPipeline(PIPELINE_ID, {
+        store,
+        dispatch,
+        wait: async () => "completed",
+        context: { ...persistedContext, cwd: projectRoot },
+        resolveStage: resolveFanOutPlanSteps,
+        staleResetPreflight: staleResetBundle(rpc),
+      });
+
+      expect(dispatchLog).not.toContain(alphaPlanBranch);
+      const alphaRecord = stageRecord(stages(), "plan", "alpha");
+      expect(alphaRecord?.status).toBe("failed");
+      expect((alphaRecord?.failureDetail as { message?: string } | null)?.message).toContain(
+        "Cannot re-run incomplete spec",
+      );
+      expect(existsSync(alphaPlanWorktree)).toBe(true);
+    } finally {
+      rpc.close();
+    }
+  });
+
   test("intent-stage preflight fails open when the daemon cannot open its own control socket", async () => {
-    const worktreePath = await materializeStaleIntentWorktree();
+    const worktreePath = await materializeWorktree(intentBranch);
     writeFileSync(join(worktreePath, ".jarvis-intent-review-verdict.md"), "verdict\n", "utf8");
 
     const { store, stages } = fakeStore(
@@ -5234,9 +5614,8 @@ describe("pipeline intent-stage stale-reset preflight", () => {
       dispatch,
       wait: async () => "completed",
       resolveStage: resolveStageWithFixedIntentSteps,
-      intentStaleReset: {
-        cliDeps: { jarvisRoot, subprocessRunner: realAsyncSubprocessRunner } as unknown as CliDeps,
-        io: { stdout: () => {}, stderr: () => {} } satisfies Io,
+      staleResetPreflight: {
+        ...staleResetBundle({ client: makeIpcClient([], { gated: true, deferred: true }) }),
         connectClient: async () => {
           throw new Error("EMFILE: too many open files");
         },
@@ -5244,14 +5623,12 @@ describe("pipeline intent-stage stale-reset preflight", () => {
     });
 
     expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
-    // Preflight skipped (could not connect) → dispatch proceeds and the worktree is left intact
-    // rather than reset, degrading to pre-feature behavior instead of hard-failing a healthy stage.
     expect(dispatched).toBe(true);
     expect(stages().find((s) => s.stageId === "s1")?.status).toBe("succeeded");
     expect(existsSync(worktreePath)).toBe(true);
   });
 
-  test("createRunControlHandlers wires intentStaleReset against the daemon socket when daemonSocketPath is set", async () => {
+  test("createRunControlHandlers wires staleResetPreflight against the daemon socket when daemonSocketPath is set", async () => {
     const stateStore = openStateStore(join(tmp, `state-wiring-${crypto.randomUUID()}.sqlite`));
     const marker = makeIpcClient([], { gated: true, deferred: true });
     let connectedTo: string | undefined;
@@ -5270,9 +5647,8 @@ describe("pipeline intent-stage stale-reset preflight", () => {
     });
     try {
       const built = handlers.pipelineExecutionDeps();
-      // Pre-fix (daemon never constructs the bundle) this is undefined — a no-op ship the tests missed.
-      expect(built.intentStaleReset).toBeDefined();
-      const client = await built.intentStaleReset?.connectClient();
+      expect(built.staleResetPreflight).toBeDefined();
+      const client = await built.staleResetPreflight?.connectClient();
       expect(connectedTo).toBe("/marker-daemon.sock");
       expect(client).toBe(marker);
     } finally {
@@ -5281,7 +5657,7 @@ describe("pipeline intent-stage stale-reset preflight", () => {
     }
   });
 
-  test("createRunControlHandlers leaves intentStaleReset unwired without daemonSocketPath", () => {
+  test("createRunControlHandlers leaves staleResetPreflight unwired without daemonSocketPath", () => {
     const stateStore = openStateStore(join(tmp, `state-nowire-${crypto.randomUUID()}.sqlite`));
     const handlers = createRunControlHandlers({
       stateStore,
@@ -5292,7 +5668,7 @@ describe("pipeline intent-stage stale-reset preflight", () => {
       registry: new WorktreeOwnershipRegistry(),
     });
     try {
-      expect(handlers.pipelineExecutionDeps().intentStaleReset).toBeUndefined();
+      expect(handlers.pipelineExecutionDeps().staleResetPreflight).toBeUndefined();
     } finally {
       handlers.close();
       stateStore.close();

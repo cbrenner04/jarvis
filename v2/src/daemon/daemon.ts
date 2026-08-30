@@ -802,7 +802,7 @@ export function runListTerminalFinishAtMs(
  * Read bound for the intent-stage stale-reset preflight's self-RPCs (`list`, `check_workflow_start_claim`).
  * These are fast local handlers; the bound only exists so a wedged reply can't hang the preflight
  * indefinitely (`connectIpcClient`'s own 5s bound covers connect, not reply). On timeout the preflight
- * fails open (see `resetStaleIntentWorkspaceIfNeeded`).
+ * fails open (see `runSharedStaleResetPreflight`).
  */
 const STALE_RESET_RPC_TIMEOUT_MS = 30_000;
 
@@ -835,9 +835,9 @@ export type RunControlHandlerDeps = {
   /** Test seam for pipeline terminal publication settlement. */
   executeTerminalPublication?: (input: TerminalPublicationInput) => Promise<TerminalPublicationResult>;
   /**
-   * The daemon's own socket path. When set, pipeline intent-stage re-dispatch runs the CLI's
-   * stale-reset preflight, opening an `IpcClient` against this socket per preflight (see
-   * {@link resetStaleIntentWorkspaceIfNeeded}). Undefined (most tests) leaves the preflight unwired.
+   * The daemon's own socket path. When set, pipeline workflow-stage re-dispatch runs the shared
+   * stale-reset preflight, opening an `IpcClient` against this socket per preflight. Undefined
+   * (most tests) leaves the preflight unwired.
    */
   daemonSocketPath?: string;
   /** Test seam for the stale-reset preflight's client factory; defaults to {@link connectIpcClient}. */
@@ -2059,15 +2059,11 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         : {}),
       ...(daemonSocketPath !== undefined
         ? {
-            intentStaleReset: {
-              // maybeResetStaleWorkspace reads only `jarvisRoot`/`subprocessRunner` from CliDeps
-              // (stale-reset-workspace.ts); the daemon supplies real values for both.
+            staleResetPreflight: {
               cliDeps:
                 deps.staleResetCliDeps ??
                 ({ jarvisRoot: jarvisHome(), subprocessRunner: realAsyncSubprocessRunner } as unknown as CliDeps),
               io: { stdout: () => {}, stderr: (text: string) => console.error(text) },
-              // The daemon dials its own control socket; bound the reply read so a wedged self-RPC
-              // can't hang the preflight (the 5s connect bound covers only connect, not reply).
               connectClient: connectStaleResetClient
                 ? () => connectStaleResetClient(daemonSocketPath)
                 : () => connectIpcClient(daemonSocketPath, STALE_RESET_RPC_TIMEOUT_MS),

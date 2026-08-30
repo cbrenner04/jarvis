@@ -23,9 +23,9 @@ Authoritative for pipeline stage resolution through shared preparation: acceptan
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/pipeline-stage-resolve.test.ts` test `pipeline implement resolution uses configured review passes and review behavior on the review step` configures project `implement.reviewPasses` above one and a non-default `implement.reviewBehavior`, resolves an implement stage, and asserts the built review step carries both configured values; it fails against `FIXED_REVIEW_PASSES = 1` reachable in `pipeline-stage-resolve.ts`.
-- [ ] `v2/src/daemon/pipeline-stage-resolve.test.ts` — `fan-out implement resolution binds active branchKey plan artifact when siblings populate out of order` stays green.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `v2/src/daemon/pipeline-stage-resolve.test.ts` test `pipeline implement resolution uses configured review passes and review behavior on the review step` configures project `implement.reviewPasses` above one and a non-default `implement.reviewBehavior`, resolves an implement stage, and asserts the built review step carries both configured values; it fails against `FIXED_REVIEW_PASSES = 1` reachable in `pipeline-stage-resolve.ts`.
+- [x] `v2/src/daemon/pipeline-stage-resolve.test.ts` — `fan-out implement resolution binds active branchKey plan artifact when siblings populate out of order` stays green.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

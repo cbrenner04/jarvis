@@ -88,7 +88,7 @@ A **pipeline** sequences named workflow presets and manual approval gates across
 
 Composability is paramount. A workflow is a linear (with loops) array of steps. Different projects need different postures — heavier review for sensitive repos, YOLO for others, fast short-circuits for small tasks — without changing the underlying behavior or prompt implementations.
 
-`workflow-start-preparation.ts` is the shared boundary between workflow-request adapters and daemon admission. It owns normalized workflow/review realization, preset builder invocation, machine-config stamping, and the connected stale-workspace preflight while retaining built metadata and retirement evidence. `runWorkflowCommand` is a thin adapter: it parses argv and retains usage, legacy warnings, implement recovery, daemon connection, detach/wait, and output semantics, but sends only the shared boundary's prepared steps to daemon `start`.
+`workflow-start-preparation.ts` is the shared boundary between workflow-request adapters and daemon admission. It owns normalized workflow/review realization, preset builder invocation, machine-config stamping, and the connected stale-workspace preflight while retaining built metadata and retirement evidence. `runWorkflowCommand` is a thin adapter: it parses argv and retains usage, legacy warnings, implement recovery, daemon connection, detach/wait, and output semantics, but sends only the shared boundary's prepared steps to daemon `start`. Daemon pipeline stage resolution (`pipeline-workflow-preparation.ts` → `preparePipelineStageWorkflow`) uses the same `prepareWorkflowStart` owner for preset build, stamping, and stale-reset preflight; it does not assemble steps locally in `pipeline-stage-resolve.ts`.
 
 Decided:
 

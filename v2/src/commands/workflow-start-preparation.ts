@@ -1,5 +1,3 @@
-import type { CliDeps } from "../cli/deps.ts";
-import type { Io } from "../cli/io.ts";
 import type {
   CliWorkflowPresetName,
   WorkflowPresetBuilder,
@@ -7,7 +5,6 @@ import type {
   WorkflowPresetBuilderResult,
 } from "../execution/workflow-presets.ts";
 import type { IpcClient } from "../ipc/client.ts";
-import type { DestroyedArtifacts } from "./cleanup.ts";
 
 export const BASE_WORKFLOW_NAMES = ["intent", "plan", "implement"] as const;
 export const WORKFLOW_REVIEW_POSTURES = ["none", "light", "debate"] as const;
@@ -21,7 +18,16 @@ export type WorkflowStartResetFlags = {
   skipLandedCriteriaGate: boolean;
 };
 
-export type WorkflowStartPreparationRequest = {
+/** Mirrors `DestroyedArtifacts` without importing cleanup's daemon dependency graph. */
+export type WorkflowStartDestroyedArtifacts = {
+  closedPrNumber?: number;
+  worktreePath?: string;
+  localBranch?: string;
+  remoteBranch?: string;
+  remoteTrackingRef?: string;
+};
+
+export type WorkflowStartPreparationRequest<TDeps = unknown, TIo = unknown> = {
   workflow: BaseWorkflowName;
   builder: WorkflowPresetBuilder;
   builderInput: WorkflowPresetBuilderInput;
@@ -31,14 +37,14 @@ export type WorkflowStartPreparationRequest = {
     run: (
       workflow: string,
       built: SuccessfulWorkflowBuild,
-      deps: CliDeps,
-      io: Io,
+      deps: TDeps,
+      io: TIo,
       flags: WorkflowStartResetFlags,
       client: IpcClient,
-      onDestroyed?: (destroyed: DestroyedArtifacts) => void,
+      onDestroyed?: (destroyed: WorkflowStartDestroyedArtifacts) => void,
     ) => Promise<number | undefined>;
-    deps: CliDeps;
-    io: Io;
+    deps: TDeps;
+    io: TIo;
     flags: WorkflowStartResetFlags;
   };
 };
@@ -49,7 +55,7 @@ export type WorkflowStartPreparationResult =
       ok: true;
       steps: SuccessfulWorkflowBuild["steps"];
       built: SuccessfulWorkflowBuild;
-      destroyedArtifacts?: DestroyedArtifacts;
+      destroyedArtifacts?: WorkflowStartDestroyedArtifacts;
       runStaleResetPreflight: (client: IpcClient) => Promise<number | undefined>;
     };
 
@@ -80,8 +86,8 @@ export function isUnrealizableWorkflowReview(workflow: string, review: string): 
   );
 }
 
-export async function prepareWorkflowStart(
-  request: WorkflowStartPreparationRequest,
+export async function prepareWorkflowStart<TDeps, TIo>(
+  request: WorkflowStartPreparationRequest<TDeps, TIo>,
 ): Promise<WorkflowStartPreparationResult> {
   const built = await request.builder(request.builderInput as Parameters<WorkflowPresetBuilder>[0]);
   if (!built.ok) return { ok: false, error: built.error };

@@ -29,7 +29,13 @@ Reported mid-session ("main is continuing to fail"). Root cause: the CI workflow
 
 Supporting: intents #3177–3180/#3182/#3193; plans #3183–3186/#3190/#3196; docs/seeds #3181/#3192.
 
-**In flight at report time:** the linchpin — in-loop mutation verification implement (`20260830T175126Z-implement-verifies-mutations-in-loop`, 5 subspecs) — verifies diff-derived mutations at `done` and reprompts the live agent, removing the operator from the strand-and-hand-finish loop. *(Outcome to be appended.)*
+### Handoff — linchpin in-loop verification banked as draft #3197
+
+The linchpin implement (`20260830T175126Z-implement-verifies-mutations-in-loop`, 5 subspecs) ran nearly to completion: 4 subspecs completed and it **published draft [#3197](https://github.com/cbrenner04/jarvis/pull/3197)**, stranding only on the final subspec's mutation gate with `surviving_mutation_failed` / **`missing-render-coverage`**. Cause: it adds a new registered prompt `prompts/write/surviving-mutation-reprompt.md` (in `registry.txt`) with no render-observer test mapped in `shared/prompts/render-observer-tests.ts` — so the gate fails closed. **Deliberately banked, not finished this session:** a 5-subspec linchpin touching the write loop + completion deserves a thorough independent full-diff review, not a rushed tail-end merge (would be a shortcut on a critical change).
+
+**To finish (next session):** in the worktree `~/.jarvis/worktrees/jarvis/20260830T175126Z-implement-verifies-mutations-in-loop`, (1) add a render-observer assertion for `write.surviving-mutation-reprompt` (model on the sibling `prompts/write/guard-checkpoint-reprompt.md` → `v2/src/execution/write-prompt.test.ts` mapping) and add the map entry to `RENDER_OBSERVER_TESTS`; (2) commit; (3) `jarvis run resume` the implement write row (or hand-finalize); (4) **independent full-diff review of all 5 subspecs** before merge — the in-loop reprompt wiring, budget accounting, pause/resume parity, and publication confirm-only re-check are the risk areas. The draft is real, near-complete progress.
+
+*This is the highest-value remaining P0 — it removes the operator from the strand-and-hand-finish loop.*
 
 ## Every implement landed via hand-review
 
@@ -61,4 +67,4 @@ The Jarvis review step ran, but per standing practice each code PR also got an *
 
 ## Cost
 
-`/cost` figures: *(to be filled from operator)*. Agent-side spend is per-run in telemetry (`~/.jarvis/telemetry.jsonl`); codex quota'd all session, cursor was the actuator.
+Operator (claude-opus-4-8): **$88.06** — API 1h34m42s / wall 3h30m13s; 57.2k input / 385.6k output, 140.1M cache read, 900.1k cache write; 544 lines added / 41 removed. Agent-side spend (codex quota'd all session, cursor the actuator, claude) is per-run in telemetry (`~/.jarvis/telemetry.jsonl`) and **not** in this figure. ~21 PRs merged + #3197 banked ⇒ ~$4.2/PR.

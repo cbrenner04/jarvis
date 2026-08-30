@@ -21,6 +21,7 @@ import {
   initGitWorkspace,
   REVIEW_MD_LINT_FIXTURES,
   roots,
+  seedCompletedWriteRun,
   skipReviewWithoutHarnessMarkdownlint,
   TestLogSink,
   writeLintCleanPlanStage,
@@ -531,6 +532,67 @@ describe("executeWorkflow plan review dispatch", () => {
     expect(readFileSync(join(reviewDurable, "01-test.md"), "utf8")).toBe("# After review\n");
     expect(existsSync(join(reviewDurable, "verdict-plan.md"))).toBe(false);
     expect(existsSync(writeDurable)).toBe(false);
+  });
+
+  test("pre-publication landing failure settles failed with landing cause before loop_finished", async () => {
+    const invocationId = "plan-pre-publication-landing";
+    const { workspace, withExternalWorktree } = createIntentWorktreeHarness(invocationId);
+    const baseStep = createStep({
+      stepId: "plan",
+      role: "plan",
+      promptId: "plan.prompt.draft",
+      branchName: invocationId,
+      specPath: "ready-intents",
+      expectedArtifactPath: ".jarvis-intent-stage",
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId,
+        baseRef: "HEAD",
+      },
+      workflowInvocationId: invocationId,
+      withExternalWorktree,
+      agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] } } },
+    });
+    const step: WriteWorkflowStep = {
+      ...baseStep,
+      worktree: { ...baseStep.worktree, git: false, localPath: workspace },
+    };
+    const stagingDir = join(workspace, ".jarvis-intent-stage");
+    mkdirSync(stagingDir, { recursive: true });
+    writeFileSync(join(stagingDir, "valid.md"), "---\nname: valid\n---\n\n# Valid\n\n## Prerequisites\n", "utf8");
+    writeFileSync(join(stagingDir, "source.ts"), "export {};\n", "utf8");
+    const logSink = new TestLogSink();
+
+    await withStateStore(async (store) => {
+      seedCompletedWriteRun(store, step, workspace, invocationId);
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({}),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("pre-publication");
+      const settledRow = store.loadRun(result.runId);
+      expect(settledRow).toMatchObject({
+        status: "failed",
+        terminalCause: "landing_failed",
+        terminalFailureDetail: {
+          failureKind: "error",
+          bindingAttempts: [],
+          message: expect.stringContaining("expected only markdown files"),
+        },
+      });
+      expect(
+        logSink
+          .getEventsForRun(result.runId)
+          .filter((event) => event.kind === "loop_finished")
+          .at(-1),
+      ).toMatchObject({ kind: "loop_finished", loopOutcomeKind: "landing_failed", resumable: true });
+    });
   });
 });
 

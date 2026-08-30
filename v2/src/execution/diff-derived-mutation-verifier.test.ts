@@ -54,6 +54,30 @@ function testParseDiff(diff: string): { file: string; lineNumber: number; conten
   return lines;
 }
 
+function addedLineDiff(file: string, line: string, lineNum = 1): string {
+  return `diff --git a/${file} b/${file}
+index 1234567..abcdefg 100644
+--- a/${file}
++++ b/${file}
+@@ -${lineNum},0 +${lineNum},1 @@
++${line}
+`;
+}
+
+async function expectNoMutationCandidates(diff: string): Promise<void> {
+  const result = await verifyDiffDerivedMutations(
+    { worktreePath: "/test/path", runBase: "main" },
+    {
+      gitDiff: async () => diff,
+      untrackedFiles: async () => [],
+      runScopedTests: async () => false,
+    },
+  );
+
+  expect(result.kind).toBe("pass");
+  if (result.kind === "pass") expect(result.candidateCount).toBe(0);
+}
+
 describe("diff-derived-mutation-verifier", () => {
   it("parses diff correctly to extract changed lines", () => {
     const diff = `diff --git a/src/test.ts b/src/test.ts
@@ -1375,6 +1399,54 @@ index 1234567..abcdefg 100644
         },
       ),
     ).rejects.toThrow("Failed to test candidate for src/test.ts:1");
+  });
+
+  it("yields no operator-flip candidate when only angle brackets are type-generic", async () => {
+    for (const line of [
+      `const x = request.input as Parameters<Foo>[0];`,
+      `const m = new Map<string, number>();`,
+      `export function fn<T>(value: T): T { return value; }`,
+      `const y = value satisfies Foo<Bar>;`,
+      `const assign = <K extends keyof T>(key: K, value: string | undefined): void => {};`,
+    ]) {
+      await expectNoMutationCandidates(addedLineDiff("src/test.ts", line));
+    }
+  });
+
+  it("keeps value comparison operator-flip on a line that also contains a generic", async () => {
+    const line = `if (a < b) const m = new Map<string, number>();`;
+    const diff = addedLineDiff("src/test.ts", line);
+
+    const mutatedContents: string[] = [];
+
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        readFile: async () => line,
+        writeFile: async (_path, content) => {
+          if (content !== line) mutatedContents.push(content);
+        },
+        runScopedTests: async () => false,
+      },
+    );
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBeGreaterThan(0);
+    expect(mutatedContents.length).toBeGreaterThan(0);
+    expect(mutatedContents[0]?.includes("if (a >= b)")).toBe(true);
+    expect(mutatedContents[0]?.includes("Map<string, number>")).toBe(true);
+  });
+
+  it("regression: workflow-start-preparation Parameters cast line yields no operator-flip candidate", async () => {
+    await expectNoMutationCandidates(
+      addedLineDiff(
+        "v2/src/commands/workflow-start-preparation.ts",
+        `const built = await request.builder(request.builderInput as Parameters<WorkflowPresetBuilder>[0]);`,
+        92,
+      ),
+    );
   });
 
   describe("dual-constraint detection", () => {

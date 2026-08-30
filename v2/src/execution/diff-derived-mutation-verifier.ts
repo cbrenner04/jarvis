@@ -225,6 +225,41 @@ function deriveGuardMutations(
   }
 }
 
+function maskTypePositionAngleBrackets(line: string): string {
+  const chars = line.split("");
+  const isLt = (i: number) => line[i] === "<" && line[i + 1] !== "=";
+  const isGt = (i: number) => line[i] === ">" && line[i + 1] !== "=";
+  const isTypeOpen = (i: number): boolean => {
+    if (!isLt(i)) return false;
+    let j = i - 1;
+    while (j >= 0 && line[j] === " ") j--;
+    if (j < 0) return false;
+    if (line[j] === "=") return /^[A-Za-z_$]/.test(line.slice(i + 1).trimStart());
+    return i - 1 === j && /[A-Za-z0-9_$)\]]/.test(line[j]!);
+  };
+
+  let i = 0;
+  while (i < chars.length) {
+    if (chars[i] === "<" && isTypeOpen(i)) {
+      chars[i] = " ";
+      let depth = 1;
+      while (++i < chars.length && depth > 0) {
+        if (chars[i] === "<" && isLt(i) && isTypeOpen(i)) {
+          chars[i] = " ";
+          depth++;
+        } else if (chars[i] === ">" && isGt(i)) {
+          chars[i] = " ";
+          depth--;
+        }
+      }
+      continue;
+    }
+    i++;
+  }
+
+  return chars.join("");
+}
+
 function flipOperator(original: string): string {
   if (original === "===") return "!==";
   if (original === "!==") return "===";
@@ -372,7 +407,7 @@ function deriveFromLine(file: string, lineNum: number, content: string): Candida
   const maskedContent = maskNonCodeSpans(content);
 
   deriveGuardMutations(file, lineNum, content, maskedContent, candidates);
-  deriveOperatorMutations(file, lineNum, content, maskedContent, candidates);
+  deriveOperatorMutations(file, lineNum, content, maskTypePositionAngleBrackets(maskedContent), candidates);
   deriveDestructiveMutations(file, lineNum, content, maskedContent, candidates);
 
   return candidates;

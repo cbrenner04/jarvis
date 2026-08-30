@@ -128,6 +128,8 @@ Validation stays synchronous:
 
 ## Pipeline definitions
 
+Cross-file pipeline execution (admission, dispatch, settlement, fan-out, derived state, terminal publication, recovery) is owned by [`pipeline-execution.md`](./pipeline-execution.md). This section covers definition schema, validation, registry rows, and posture → preset mapping at the workflow-runner boundary only.
+
 A pipeline definition (`v2/src/execution/pipeline-definition.ts`) composes named workflow presets and manual approvals into an ordered value; it does not author prompts or steps itself — that stays in `publication-workflow-steps.ts` and `implement-workflow-steps.ts`. A definition is a `name`, an optional `terminalAction` on admitted definitions (supplied by project-pipeline resolution, omitted from source-registry rows), and a list of stages, each one of two kinds:
 
 - `workflow`: `{ stageId, kind: "workflow", workflow, review }` — `workflow` names
@@ -413,6 +415,8 @@ Publication rows select one closed landing hook: `intent-stage`, `plan-tree`, or
 When a split's output branch (`intent/<slug>` or `plan/<name>`) already has a merged PR on the base ref, `findOrCreatePr` treats that merged PR as evidence of an already-published split and returns it as an idempotent success without creating a second PR. The check is keyed on the branch name and base ref, not file content or run id. If the merged PR's branch was deleted after merge and recreated from base, re-publication returns the original merged PR and does not open a duplicate. Only merged PRs are short-circuited; an open PR on the same branch uses the existing reuse path unchanged.
 
 ## Pipeline terminal publication
+
+Lifecycle, settlement handoff, fan-out fail-closed behavior, and recovery reachability for terminal publication live in [`pipeline-execution.md`](./pipeline-execution.md). Below is the per-action executor contract at the workflow-runner boundary.
 
 `executeTerminalPublication` in `v2/src/execution/terminal-publication.ts` is the sole executor for a resolved `terminalAction` (`leave-draft`, `ready`, or `merge`). It consumes existing worktree and PR evidence (`worktreePath`, `branch`, `baseRef`, `prNumber`, `prUrl`) and does not re-run completion publish (push, draft create, or body refresh). `runPipeline` in `pipeline-execution.ts` invokes it after the stage walk when `terminalAction` is set.
 

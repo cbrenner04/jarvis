@@ -49,7 +49,7 @@ Bindings:
   reclassify verified exit-0 quota envelopes to `quota`, and settle into
   `ok | quota | model_config | error` before fallback continues.
   Resolved `codex` bindings spawn `codex exec --skip-git-repo-check --color never --sandbox
-  workspace-write -c approval_policy="on-request" --model <adapterModel>`. Trusted-directory refusals containing `--skip-git-repo-check was not specified` settle `quota` with `authFailure: true` so fallback advances.
+  workspace-write -c approval_policy="on-request" --model <adapterModel>`. Trusted-directory refusals containing `--skip-git-repo-check was not specified` settle `quota` with `authFailure: true` so fallback advances. A zero-exit invocation whose stderr matches the committed codex credential-auth patterns also settles `quota` with `authFailure: true` so fallback advances; the match reads stderr only while the settled diagnostics carry stderr+stdout.
   The binding pipes the marker-augmented prompt on stdin, correlates changed
   `~/.codex/sessions/*.jsonl` files to this invocation, and on a unique match
   read the rollout's last `token_count` event with non-null `info`. Mapped usage

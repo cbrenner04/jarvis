@@ -1,10 +1,12 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationResult } from "../../../shared/invocation/execute.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
+import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import type { AnyWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
 import {
   openStateStore,
@@ -12,12 +14,17 @@ import {
   type PipelineStageRecord,
   type StateStore,
 } from "../persistence/state-store.ts";
+import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { flushBackgroundRuns } from "../testing/run-control.ts";
 import { createBindingFactory, writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers } from "./daemon.ts";
 import type { PipelineStageArtifact } from "./pipeline-stage-dispatch.ts";
-import type { PipelineStageResolutionResult, PipelineStageResolveDeps } from "./pipeline-stage-resolve.ts";
+import {
+  type PipelineStageResolutionResult,
+  type PipelineStageResolveDeps,
+  resolveStageWorkflowSteps,
+} from "./pipeline-stage-resolve.ts";
 
 const APPROVAL_DEFINITION: PipelineDefinition = {
   name: "approval",
@@ -79,6 +86,78 @@ const FAN_OUT_PIPELINE_DEFINITION: PipelineDefinition = {
     { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
   ],
 };
+
+const CHAINED_PLAN_RESUME_DEFINITION: PipelineDefinition = {
+  name: "chained-plan-resume",
+  stages: [
+    { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+    { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+  ],
+};
+
+const CHAINED_IMPLEMENT_RESUME_DEFINITION: PipelineDefinition = {
+  name: "chained-implement-resume",
+  stages: [
+    { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+    { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+  ],
+};
+
+function initGitRepo(root: string): void {
+  execFileSync("git", ["init", "-q"], { cwd: root });
+  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: root });
+  execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
+}
+
+function initChainedRepoBase(): string {
+  const repoRoot = mkdtempSync(join(tmpdir(), "pipeline-resume-chained-repo-"));
+  initGitRepo(repoRoot);
+  writeFileSync(join(repoRoot, "README.md"), "base\n", "utf8");
+  execFileSync("git", ["add", "README.md"], { cwd: repoRoot });
+  execFileSync("git", ["commit", "-qm", "base"], { cwd: repoRoot });
+  return repoRoot;
+}
+
+function addIntentHandoff(repoRoot: string): {
+  intentBranch: string;
+  intentWorktree: string;
+  readyIntentRel: string;
+} {
+  const intentBranch = "intent/feature";
+  const readyIntentRel = "spec/ready-intents/feature.md";
+  const intentWorktree = join(repoRoot, ".jarvis-worktrees", intentBranch);
+  mkdirSync(intentWorktree, { recursive: true });
+  execFileSync("git", ["branch", intentBranch], { cwd: repoRoot });
+  execFileSync("git", ["worktree", "add", intentWorktree, intentBranch], { cwd: repoRoot });
+  mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
+  writeFileSync(join(intentWorktree, readyIntentRel), "---\nname: feature\n---\n## Prerequisites\n", "utf8");
+  execFileSync("git", ["add", "-A"], { cwd: intentWorktree });
+  execFileSync("git", ["commit", "-qm", "intent"], { cwd: intentWorktree });
+  return { intentBranch, intentWorktree, readyIntentRel };
+}
+
+function addPlanHandoff(repoRoot: string): {
+  planBranch: string;
+  planWorktree: string;
+  planSpecDir: string;
+} {
+  const planBranch = "plan/feature";
+  const planSpecDir = "spec/feature";
+  const planWorktree = join(repoRoot, ".jarvis-worktrees", planBranch);
+  mkdirSync(planWorktree, { recursive: true });
+  execFileSync("git", ["branch", planBranch], { cwd: repoRoot });
+  execFileSync("git", ["worktree", "add", planWorktree, planBranch], { cwd: repoRoot });
+  mkdirSync(join(planWorktree, planSpecDir), { recursive: true });
+  writeFileSync(join(planWorktree, `${planSpecDir}/index.md`), "# Feature\n\n- [ ] [Work](./00-work.md)\n", "utf8");
+  writeFileSync(
+    join(planWorktree, `${planSpecDir}/00-work.md`),
+    "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n",
+    "utf8",
+  );
+  execFileSync("git", ["add", "-A"], { cwd: planWorktree });
+  execFileSync("git", ["commit", "-qm", "plan"], { cwd: planWorktree });
+  return { planBranch, planWorktree, planSpecDir };
+}
 
 const RESUME_BRANCH_TARGET = "resume-target";
 const RESUME_BRANCH_SIBLING_A = "resume-sibling-a";
@@ -532,4 +611,150 @@ test("pipeline_resume forwards a non-blank branchKey unchanged, not trimmed", as
   );
   expect(defaultAliasResponse).toEqual({ kind: "response", result: { kind: "resumed", pipelineId } });
   expect(stateStore.loadPipeline(pipelineId)?.stages.map((stage) => ({ ...stage }))).toEqual(before);
+});
+
+test("pipeline_resume dispatches chained plan and implement stages after prior worktree removal when input lives on durable branch", async () => {
+  const priorJarvisHome = process.env.JARVIS_HOME;
+  const jarvisRoot = mkdtempSync(join(tmpdir(), "pipeline-resume-jarvis-home-"));
+  process.env.JARVIS_HOME = jarvisRoot;
+  const fakeExecutor = createFakeWriteLoopExecutor();
+  const planRepoRoot = initChainedRepoBase();
+  const planHandoff = addIntentHandoff(planRepoRoot);
+  const planConfigPath = writeHomeMachineConfig({ projects: { demo: { root: planRepoRoot } } });
+  const planAdmissionContext: PipelineContext = { cwd: planRepoRoot, configPath: planConfigPath, seed: "unused" };
+  const implementRepoRoot = initChainedRepoBase();
+  const implementHandoff = addPlanHandoff(implementRepoRoot);
+  const implementConfigPath = writeHomeMachineConfig({ projects: { demo: { root: implementRepoRoot } } });
+  const implementAdmissionContext: PipelineContext = {
+    cwd: implementRepoRoot,
+    configPath: implementConfigPath,
+    seed: "unused",
+  };
+  const { intentBranch, intentWorktree, readyIntentRel } = planHandoff;
+  const { planBranch, planWorktree, planSpecDir } = implementHandoff;
+
+  const resumeHandlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    resolveStage: (definition, stageIndex, context, stageArtifacts, deps) =>
+      resolveStageWorkflowSteps(definition, stageIndex, context, stageArtifacts, {
+        ...deps,
+        builders: WORKFLOW_PRESET_BUILDERS,
+      }),
+    settleDelayMs: 0,
+  });
+
+  try {
+    const intentRunId = stateStore.createRun({
+      project: "demo",
+      specRef: "main",
+      worktreePath: intentWorktree,
+      branch: intentBranch,
+      specPath: readyIntentRel,
+      status: "completed",
+    });
+    const planRunId = stateStore.createRun({
+      project: "demo",
+      specRef: "main",
+      worktreePath: planWorktree,
+      branch: planBranch,
+      specPath: planSpecDir,
+      status: "completed",
+    });
+
+    const planPipelineId = stateStore.createPipeline({
+      definition: CHAINED_PLAN_RESUME_DEFINITION,
+      context: planAdmissionContext,
+    });
+    stateStore.updateStage({
+      pipelineId: planPipelineId,
+      stageId: "intent",
+      patch: {
+        status: "succeeded",
+        workflowInvocationId: intentRunId,
+        artifact: { entryRunId: intentRunId, specPath: readyIntentRel },
+      },
+    });
+    stateStore.updateStage({
+      pipelineId: planPipelineId,
+      stageId: "plan",
+      patch: {
+        status: "failed",
+        failureDetail: {
+          message: `pipeline-stage-resolve: downstream input ${readyIntentRel} not found in prior worktree`,
+        },
+      },
+    });
+    rmSync(intentWorktree, { recursive: true, force: true });
+
+    const planResponse = await resumeHandlers.pipeline_resume(
+      requestFrame("resume-plan", "pipeline_resume", { pipelineId: planPipelineId }),
+      new AbortController().signal,
+    );
+    expect(planResponse).toEqual({ kind: "response", result: { kind: "resumed", pipelineId: planPipelineId } });
+    await waitFor(() => {
+      const record = stateStore.loadPipeline(planPipelineId)?.stages.find((stage) => stage.stageId === "plan");
+      return record?.status === "running" || record?.workflowInvocationId !== null;
+    });
+    const planStage = stateStore.loadPipeline(planPipelineId)?.stages.find((stage) => stage.stageId === "plan");
+    expect(planStage?.status === "pending" || planStage?.status === "running").toBe(true);
+    expect(planStage?.workflowInvocationId).not.toBeNull();
+    fakeExecutor.settleAll();
+    await flushBackgroundRuns();
+
+    const implementPipelineId = stateStore.createPipeline({
+      definition: CHAINED_IMPLEMENT_RESUME_DEFINITION,
+      context: implementAdmissionContext,
+    });
+    stateStore.updateStage({
+      pipelineId: implementPipelineId,
+      stageId: "plan",
+      patch: {
+        status: "succeeded",
+        workflowInvocationId: planRunId,
+        artifact: { entryRunId: planRunId, specPath: planSpecDir },
+      },
+    });
+    stateStore.updateStage({
+      pipelineId: implementPipelineId,
+      stageId: "implement",
+      patch: {
+        status: "failed",
+        failureDetail: {
+          message: `pipeline-stage-resolve: expected index at ${planSpecDir}/index.md in prior worktree`,
+        },
+      },
+    });
+    rmSync(planWorktree, { recursive: true, force: true });
+
+    const implementResponse = await resumeHandlers.pipeline_resume(
+      requestFrame("resume-implement", "pipeline_resume", { pipelineId: implementPipelineId }),
+      new AbortController().signal,
+    );
+    expect(implementResponse).toEqual({
+      kind: "response",
+      result: { kind: "resumed", pipelineId: implementPipelineId },
+    });
+    await waitFor(() => {
+      const record = stateStore
+        .loadPipeline(implementPipelineId)
+        ?.stages.find((stage) => stage.stageId === "implement");
+      return record?.status === "running" || record?.workflowInvocationId !== null;
+    });
+    const implementStage = stateStore
+      .loadPipeline(implementPipelineId)
+      ?.stages.find((stage) => stage.stageId === "implement");
+    expect(implementStage?.status === "pending" || implementStage?.status === "running").toBe(true);
+    expect(implementStage?.workflowInvocationId).not.toBeNull();
+    fakeExecutor.settleAll();
+    await flushBackgroundRuns();
+  } finally {
+    if (priorJarvisHome === undefined) delete process.env.JARVIS_HOME;
+    else process.env.JARVIS_HOME = priorJarvisHome;
+    rmSync(jarvisRoot, { recursive: true, force: true });
+    rmSync(planRepoRoot, { recursive: true, force: true });
+    rmSync(implementRepoRoot, { recursive: true, force: true });
+  }
 });

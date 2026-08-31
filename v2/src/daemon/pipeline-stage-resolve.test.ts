@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { findProjectMatch } from "../../../shared/project-registry.ts";
@@ -227,6 +227,29 @@ function createChainedHandoffRepo(): {
   return { repoRoot, configPath, intentBranch, intentWorktree, planBranch, planWorktree, readyIntentRel, planSpecRel };
 }
 
+const chainedIntentPlanDefinition: PipelineDefinition = {
+  name: "p",
+  stages: [
+    { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+    { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+  ],
+};
+
+function absentPriorWorktreePlanFixture(repo: ReturnType<typeof createChainedHandoffRepo>): {
+  context: PipelineContext;
+  stageArtifacts: Map<string, PipelineStageArtifact>;
+  deps: PipelineStageResolveDeps & { builders: typeof WORKFLOW_PRESET_BUILDERS };
+} {
+  const { repoRoot, configPath, intentBranch, intentWorktree, readyIntentRel } = repo;
+  rmSync(intentWorktree, { recursive: true, force: true });
+  expect(existsSync(intentWorktree)).toBe(false);
+  return {
+    context: { cwd: repoRoot, configPath, seed: "unused" },
+    stageArtifacts: new Map([[stageArtifactKey("intent"), stageArtifact("run-intent", readyIntentRel)]]),
+    deps: { builders: WORKFLOW_PRESET_BUILDERS, ...chainedDeps(intentWorktree, intentBranch) },
+  };
+}
+
 async function resolveFirstIntentStageWithRealBuilders(review: "none" | "debate", seed = "ship feature") {
   const cwd = mkdtempSync(join(tmpdir(), "pipeline-resolve-intent-"));
   const configPath = writeHomeMachineConfig({ projects: { demo: { root: cwd } } });
@@ -337,6 +360,10 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("second workflow stage builds with the first stage's recorded artifact as readyIntent, matching the recorded value", async () => {
+    const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-fake-plan-"));
+    const recordedArtifact = "spec/ready-intents/foo.md";
+    mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
+    writeFileSync(join(intentWorktree, recordedArtifact), "---\nname: foo\n---\n", "utf8");
     let seenInput: PlanWorkflowInput | undefined;
     const builders = fakeBuilders({
       "plan-reviewed": async (input) => {
@@ -351,20 +378,23 @@ describe("resolveStageWorkflowSteps", () => {
         { stageId: "plan", kind: "workflow", workflow: "plan", review: "debate" },
       ],
     };
-    const recordedArtifact = "spec/ready-intents/foo.md";
     const stageArtifacts = new Map([[stageArtifactKey("intent"), stageArtifact("run-intent", recordedArtifact)]]);
 
     const result = await resolveStageWorkflowSteps(definition, 1, baseContext, stageArtifacts, {
       builders,
-      ...chainedDeps(baseContext.cwd),
+      ...chainedDeps(intentWorktree),
     });
 
     expect(result.ok).toBe(true);
     expect(seenInput?.readyIntent).toBe(recordedArtifact);
-    expect(seenInput?.cwd).toBe(baseContext.cwd);
+    expect(seenInput?.cwd).toBe(intentWorktree);
   });
 
   test("approval stages are skipped when walking back to find the preceding workflow artifact", async () => {
+    const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-fake-plan-"));
+    const recordedArtifact = "spec/ready-intents/foo.md";
+    mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
+    writeFileSync(join(intentWorktree, recordedArtifact), "---\nname: foo\n---\n", "utf8");
     let seenInput: PlanWorkflowInput | undefined;
     const builders = fakeBuilders({
       "plan-reviewed-light": async (input) => {
@@ -380,12 +410,11 @@ describe("resolveStageWorkflowSteps", () => {
         { stageId: "plan", kind: "workflow", workflow: "plan", review: "light" },
       ],
     };
-    const recordedArtifact = "spec/ready-intents/foo.md";
     const stageArtifacts = new Map([[stageArtifactKey("intent"), stageArtifact("run-intent", recordedArtifact)]]);
 
     const result = await resolveStageWorkflowSteps(definition, 2, baseContext, stageArtifacts, {
       builders,
-      ...chainedDeps(baseContext.cwd),
+      ...chainedDeps(intentWorktree),
     });
 
     expect(result.ok).toBe(true);
@@ -412,6 +441,9 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("plan+none maps to plan preset", async () => {
+    const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-fake-plan-"));
+    mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
+    writeFileSync(join(intentWorktree, "x.md"), "---\nname: x\n---\n", "utf8");
     let called = false;
     const builders = fakeBuilders({
       plan: async () => {
@@ -432,7 +464,7 @@ describe("resolveStageWorkflowSteps", () => {
       1,
       baseContext,
       new Map([[stageArtifactKey("intent"), stageArtifact("run-intent", "x.md")]]),
-      { builders, ...chainedDeps(baseContext.cwd) },
+      { builders, ...chainedDeps(intentWorktree) },
     );
 
     expect(result.ok).toBe(true);
@@ -440,6 +472,9 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("plan+light maps to plan-reviewed-light preset", async () => {
+    const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-fake-plan-"));
+    mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
+    writeFileSync(join(intentWorktree, "x.md"), "---\nname: x\n---\n", "utf8");
     let called = false;
     const builders = fakeBuilders({
       "plan-reviewed-light": async () => {
@@ -460,7 +495,7 @@ describe("resolveStageWorkflowSteps", () => {
       1,
       baseContext,
       new Map([[stageArtifactKey("intent"), stageArtifact("run-intent", "x.md")]]),
-      { builders, ...chainedDeps(baseContext.cwd) },
+      { builders, ...chainedDeps(intentWorktree) },
     );
 
     expect(result.ok).toBe(true);
@@ -468,6 +503,9 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("implement stage threads light review posture", async () => {
+    const planWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-fake-implement-"));
+    mkdirSync(join(planWorktree, "spec"), { recursive: true });
+    writeFileSync(join(planWorktree, "spec/index.md"), "# Feature\n", "utf8");
     let seenInput: BuildImplementWorkflowStepsInput | undefined;
     const builders = fakeBuilders({
       implement: async (input) => {
@@ -479,7 +517,7 @@ describe("resolveStageWorkflowSteps", () => {
 
     const result = await resolveStageWorkflowSteps(planImplementDefinition, 1, baseContext, stageArtifacts, {
       builders,
-      ...chainedDeps(baseContext.cwd, planImplementBranch),
+      ...chainedDeps(planWorktree, planImplementBranch),
     });
 
     expect(result.ok).toBe(true);
@@ -489,6 +527,9 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("implement stage threads debate review posture", async () => {
+    const planWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-fake-implement-"));
+    mkdirSync(join(planWorktree, "spec"), { recursive: true });
+    writeFileSync(join(planWorktree, "spec/index.md"), "# Feature\n", "utf8");
     let seenInput: BuildImplementWorkflowStepsInput | undefined;
     const builders = fakeBuilders({
       implement: async (input) => {
@@ -507,7 +548,7 @@ describe("resolveStageWorkflowSteps", () => {
 
     const result = await resolveStageWorkflowSteps(definition, 1, baseContext, stageArtifacts, {
       builders,
-      ...chainedDeps(baseContext.cwd, planImplementBranch),
+      ...chainedDeps(planWorktree, planImplementBranch),
     });
 
     expect(result.ok).toBe(true);
@@ -696,6 +737,9 @@ describe("resolveStageWorkflowSteps", () => {
   });
 
   test("leave-draft pipeline implement completion skips ready finalization", async () => {
+    const planWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-fake-implement-"));
+    mkdirSync(join(planWorktree, "spec"), { recursive: true });
+    writeFileSync(join(planWorktree, "spec/index.md"), "# Feature\n", "utf8");
     const publishWriteStep = {
       behavior: "write",
       publishCompletion: true,
@@ -714,7 +758,7 @@ describe("resolveStageWorkflowSteps", () => {
     };
     const resolveDeps = {
       builders,
-      ...chainedDeps(baseContext.cwd, "plan/feature"),
+      ...chainedDeps(planWorktree, "plan/feature"),
     };
     const stageArtifacts = new Map([[stageArtifactKey("plan"), stageArtifact("run-plan", "spec/index.md")]]);
 
@@ -1283,6 +1327,97 @@ describe("resolveStageWorkflowSteps", () => {
     expect(result.error).toContain(`${planSpecDir}/index.md`);
     expect(result.error).toMatch(/index/i);
     expect(result.error).not.toContain("Non-index spec requires --artifact");
+  });
+
+  test("plan stage falls back to prior branch when recorded prior worktree directory is absent", async () => {
+    const repo = createChainedHandoffRepo();
+    const { intentWorktree, readyIntentRel } = repo;
+    const { context, stageArtifacts, deps } = absentPriorWorktreePlanFixture(repo);
+
+    const result = await resolveStageWorkflowSteps(chainedIntentPlanDefinition, 1, context, stageArtifacts, deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(singleStageResolutionSteps(result).some((step) => step.behavior === "write")).toBe(true);
+    expect(existsSync(intentWorktree)).toBe(true);
+    expect(existsSync(join(intentWorktree, readyIntentRel))).toBe(true);
+  });
+
+  test("implement stage falls back to prior branch when recorded prior worktree directory is absent", async () => {
+    const { repoRoot, configPath, planBranch, planWorktree, planSpecRel } = createChainedHandoffRepo();
+    rmSync(planWorktree, { recursive: true, force: true });
+    expect(existsSync(planWorktree)).toBe(false);
+
+    const context: PipelineContext = { cwd: repoRoot, configPath, seed: "unused" };
+    const stageArtifacts = new Map([[stageArtifactKey("plan"), stageArtifact("run-plan", planSpecRel)]]);
+    const deps = { builders: WORKFLOW_PRESET_BUILDERS, ...chainedDeps(planWorktree, planBranch) };
+
+    const result = await resolveStageWorkflowSteps(planImplementDefinition, 1, context, stageArtifacts, deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(singleStageResolutionSteps(result).some((step) => step.behavior === "write")).toBe(true);
+    expect(existsSync(planWorktree)).toBe(true);
+    expect(existsSync(join(planWorktree, planSpecRel))).toBe(true);
+  });
+
+  test("plan stage falls back to admission project base when recorded prior worktree directory is absent", async () => {
+    const repo = createChainedHandoffRepo();
+    const { repoRoot, intentBranch, readyIntentRel } = repo;
+    mkdirSync(join(repoRoot, "spec", "ready-intents"), { recursive: true });
+    writeFileSync(join(repoRoot, readyIntentRel), "---\nname: feature\n---\n## Prerequisites\n", "utf8");
+    execFileSync("git", ["add", readyIntentRel], { cwd: repoRoot });
+    execFileSync("git", ["commit", "-qm", "admission ready-intent"], { cwd: repoRoot });
+    try {
+      execFileSync("git", ["cat-file", "-e", `${intentBranch}:${readyIntentRel}`], { cwd: repoRoot, stdio: "ignore" });
+      throw new Error("ready-intent should be absent from intent branch");
+    } catch (error) {
+      expect(error).toBeDefined();
+    }
+    expect(existsSync(join(repoRoot, readyIntentRel))).toBe(true);
+    const { context, stageArtifacts, deps } = absentPriorWorktreePlanFixture(repo);
+
+    const result = await resolveStageWorkflowSteps(chainedIntentPlanDefinition, 1, context, stageArtifacts, deps);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(singleStageResolutionSteps(result).some((step) => step.behavior === "write")).toBe(true);
+  });
+
+  test("downstream input never landed anywhere durable refuses with distinct named reason pointing at standalone re-drive", async () => {
+    const repo = createChainedHandoffRepo();
+    const { repoRoot, configPath, intentBranch, intentWorktree, planBranch, planWorktree } = repo;
+    rmSync(intentWorktree, { recursive: true, force: true });
+    rmSync(planWorktree, { recursive: true, force: true });
+    const planContext: PipelineContext = { cwd: repoRoot, configPath, seed: "unused" };
+    const missingReadyIntent = "spec/ready-intents/missing.md";
+    const missingPlanSpec = "spec/missing/index.md";
+
+    const planResult = await resolveStageWorkflowSteps(
+      chainedIntentPlanDefinition,
+      1,
+      planContext,
+      new Map([[stageArtifactKey("intent"), stageArtifact("run-intent", missingReadyIntent)]]),
+      { builders: WORKFLOW_PRESET_BUILDERS, ...chainedDeps(intentWorktree, intentBranch) },
+    );
+    expect(planResult.ok).toBe(false);
+    if (planResult.ok) return;
+    expect(planResult.error).toMatch(/^pipeline-stage-resolve:/);
+    expect(planResult.error).toContain("never landed");
+    expect(planResult.error).toContain("standalone");
+    expect(planResult.error).not.toContain("not found in prior worktree");
+
+    const implementResult = await resolveStageWorkflowSteps(
+      planImplementDefinition,
+      1,
+      planContext,
+      new Map([[stageArtifactKey("plan"), stageArtifact("run-plan", missingPlanSpec)]]),
+      { builders: WORKFLOW_PRESET_BUILDERS, ...chainedDeps(planWorktree, planBranch) },
+    );
+    expect(implementResult.ok).toBe(false);
+    if (implementResult.ok) return;
+    expect(implementResult.error).toMatch(/^pipeline-stage-resolve:/);
+    expect(implementResult.error).toContain("never landed");
+    expect(implementResult.error).toContain("standalone");
+    expect(implementResult.error).not.toContain("expected index at");
+    expect(implementResult.error).not.toContain("not found in prior worktree");
   });
 });
 

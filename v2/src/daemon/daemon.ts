@@ -110,7 +110,7 @@ import {
   type PipelineStageRecoveryAttempt,
   resolveBlockedPlanStageRecoveryTarget,
 } from "./pipeline-stage-recovery.ts";
-import { type PipelineContext, resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
+import { resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
 import {
   composeRunOperatorError,
   findTerminalLogRecord,
@@ -1210,7 +1210,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
    */
   const startWorkflowRun = (
     steps: AnyWorkflowStep[],
-    claimRunId: string,
+    _claimRunId: string,
     abortController: AbortController,
     settleWorkflowStart: () => void,
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {

@@ -26,9 +26,9 @@ After subspec 00 lands, stage resolution alone is insufficient: `pipeline resume
 
 ## Acceptance criteria
 
-- [ ] `daemon-pipeline-resume.test.ts` — `pipeline_resume dispatches chained plan and implement stages after prior worktree removal when input lives on durable branch` uses real `resolveStageWorkflowSteps` and `WORKFLOW_PRESET_BUILDERS` (not the default stubbed `resolveStage`), proves resume admission and dispatch with downstream stages reaching `pending` or `running` after prior worktree removal; it fails against the pre-fix resume refusal at stage resolution (reachable on main: absent prior worktree surfaces `not found in prior worktree` before dispatch and default stubbed `resolveStage` would not exercise the fix).
-- [ ] `v2/docs/operator-runbook.md` documents that pipeline resume recovers chained inputs from the durable landed artifact and clearing a stage worktree no longer permanently strands resume.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `daemon-pipeline-resume.test.ts` — `pipeline_resume dispatches chained plan and implement stages after prior worktree removal when input lives on durable branch` uses real `resolveStageWorkflowSteps` and `WORKFLOW_PRESET_BUILDERS` (not the default stubbed `resolveStage`), proves resume admission and dispatch with downstream stages reaching `pending` or `running` after prior worktree removal; it fails against the pre-fix resume refusal at stage resolution (reachable on main: absent prior worktree surfaces `not found in prior worktree` before dispatch and default stubbed `resolveStage` would not exercise the fix).
+- [x] `v2/docs/operator-runbook.md` documents that pipeline resume recovers chained inputs from the durable landed artifact and clearing a stage worktree no longer permanently strands resume.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

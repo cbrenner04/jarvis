@@ -1,6 +1,6 @@
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
-import { type PipelineStageArtifact, stageArtifactFromEntryRun } from "../persistence/pipeline-stage-settlement.ts";
+import { stageArtifactFromEntryRun } from "../persistence/pipeline-stage-settlement.ts";
 import {
   DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
   isTerminalRunStatus,

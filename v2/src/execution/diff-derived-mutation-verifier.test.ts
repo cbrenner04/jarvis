@@ -6,7 +6,6 @@ import { join } from "node:path";
 import {
   type DiffDerivedMutationVerifierInput,
   MAX_CONCURRENT_VERIFIER_TEST_RUNS,
-  MAX_IMPORTER_DISCOVERY_CANDIDATES_PER_FILE,
   MAX_INSPECTED_MUTATIONS,
   MAX_VERIFICATION_MS,
   maskNonCodeSpans,
@@ -929,7 +928,7 @@ ${hunks.map((lines) => `@@ -0,0 +1,${lines.length} @@\n+${lines.join("\n+")}\n`)
     return verifyDiffSource(file, addedLineDiff(file, hunks), source, mutations);
   }
 
-  function verifyDiffSource(file: string, diff: string, source: string, mutations?: string[]) {
+  function verifyDiffSource(_file: string, diff: string, source: string, mutations?: string[]) {
     return verifyDiffDerivedMutations(
       { worktreePath: "/test/path", runBase: "main" },
       {

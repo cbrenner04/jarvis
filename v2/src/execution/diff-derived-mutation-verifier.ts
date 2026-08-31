@@ -272,21 +272,30 @@ function registeredPromptPaths(manifest: string): string[] {
     .map((path) => `prompts/${path}`);
 }
 
-async function defaultRegisteredPromptPaths(cwd: string, baseRef: string): Promise<string[]> {
-  const paths = new Set<string>();
+function currentRegisteredPromptPaths(cwd: string): { available: boolean; paths: Set<string> } {
   try {
-    for (const path of registeredPromptPaths(readFileSync(`${cwd}/prompts/registry.txt`, "utf-8"))) paths.add(path);
+    return {
+      available: true,
+      paths: new Set(registeredPromptPaths(readFileSync(`${cwd}/prompts/registry.txt`, "utf-8"))),
+    };
+  } catch {
+    return { available: false, paths: new Set() };
+  }
+}
+
+async function defaultRegisteredPromptPaths(cwd: string, baseRef: string): Promise<string[]> {
+  try {
+    return registeredPromptPaths(readFileSync(`${cwd}/prompts/registry.txt`, "utf-8"));
   } catch {
     // A deleted manifest can still have registered artifacts at the base.
   }
   try {
     const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
     const manifest = await realAsyncSubprocessRunner.runAsync("git", ["show", `${baseRef}:prompts/registry.txt`], cwd);
-    for (const path of registeredPromptPaths(manifest)) paths.add(path);
+    return registeredPromptPaths(manifest);
   } catch {
-    // The current registry remains enough when the base cannot be resolved.
+    return [];
   }
-  return [...paths];
 }
 
 function deriveGuardMutations(
@@ -779,8 +788,13 @@ async function verifyChangedPrompts(
   now: () => number,
   deadline: number,
 ): Promise<SurvivingMutationResult | null> {
+  const currentRegistry = currentRegisteredPromptPaths(input.worktreePath);
   const registeredPrompts = new Set(await registeredPromptPaths(input.worktreePath, input.runBase));
-  const changedPrompts = changedPaths.filter((path) => registeredPrompts.has(path));
+  const changedPrompts = changedPaths.filter((path) => {
+    if (!registeredPrompts.has(path)) return false;
+    if (!currentRegistry.available) return true;
+    return currentRegistry.paths.has(path);
+  });
   for (const [index, promptPath] of changedPrompts.entries()) {
     if (index >= MAX_PROMPT_RENDER_VERIFICATIONS || now() >= deadline) return missingRenderCoverage(promptPath);
     const observerTests = resolveRenderObserverTests(promptPath);

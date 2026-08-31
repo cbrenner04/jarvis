@@ -26,11 +26,11 @@ Three governed prompt artifacts have no production consumers: `plan.prompt.revie
 
 ## Acceptance criteria
 
-- [ ] `prompts/plan/review.md`, `prompts/patch/review.md`, and `prompts/patch/review-critic.md` are absent from disk; fails against the pre-fix files reachable on main.
-- [ ] `shared/prompts/registry.test.ts` — `loadPromptRegistry()` stays green with the three retired artifacts absent from `prompts/registry.txt`, no longer expects `plan.prompt.review`, and asserts all three ids are unavailable; fails against the pre-fix `toContain("plan.prompt.review")` pin and pre-fix absence of `patch.prompt.review` / `patch.prompt.review.critic` negative pins reachable in that file.
-- [ ] `v1/test/prompts/rendered-snapshots.test.ts` no longer asserts `plan.prompt.review` revision; fails against the pre-fix revision pin at line 68 in that file.
-- [ ] `shared/prompts/review-prompt-divergence.test.ts` retains only adversary, advocate, and adjudicator divergence assertions; removing the unwired `patch.prompt.review.critic` test fails against the pre-fix critic-divergence pin in that file.
-- [ ] No files match `v1/test/fixtures/prompts/rendered/plan.prompt.review@r*.shared.txt`; fails against the twelve pre-fix orphan fixtures reachable on main.
+- [x] `prompts/plan/review.md`, `prompts/patch/review.md`, and `prompts/patch/review-critic.md` are absent from disk; fails against the pre-fix files reachable on main.
+- [x] `shared/prompts/registry.test.ts` — `loadPromptRegistry()` stays green with the three retired artifacts absent from `prompts/registry.txt`, no longer expects `plan.prompt.review`, and asserts all three ids are unavailable; fails against the pre-fix `toContain("plan.prompt.review")` pin and pre-fix absence of `patch.prompt.review` / `patch.prompt.review.critic` negative pins reachable in that file.
+- [x] `v1/test/prompts/rendered-snapshots.test.ts` no longer asserts `plan.prompt.review` revision; fails against the pre-fix revision pin at line 68 in that file.
+- [x] `shared/prompts/review-prompt-divergence.test.ts` retains only adversary, advocate, and adjudicator divergence assertions; removing the unwired `patch.prompt.review.critic` test fails against the pre-fix critic-divergence pin in that file.
+- [x] No files match `v1/test/fixtures/prompts/rendered/plan.prompt.review@r*.shared.txt`; fails against the twelve pre-fix orphan fixtures reachable on main.
 
 ## Documentation updates
 

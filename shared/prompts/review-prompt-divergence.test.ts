@@ -18,14 +18,4 @@ describe("patch vs implement review prompt registry-body divergence", () => {
     expect(implementBody).toContain("merge-base branch diff");
     expect(implementBody).not.toEqual(patchBody);
   });
-
-  test("critic branch-diff prose is merge-base unified diff on both patch.prompt.review.critic and implement.prompt.review.critic", () => {
-    const registry = loadPromptRegistry();
-    const patchCriticBody = registry.getById("patch.prompt.review.critic").body;
-    const implementCriticBody = registry.getById("implement.prompt.review.critic").body;
-
-    expect(patchCriticBody).toContain("merge-base branch diff");
-    expect(implementCriticBody).toContain("merge-base branch diff");
-    expect(implementCriticBody).not.toEqual(patchCriticBody);
-  });
 });

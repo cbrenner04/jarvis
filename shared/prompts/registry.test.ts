@@ -29,7 +29,6 @@ describe("prompt registry load validation", () => {
     expect(ids).toContain("plan.prompt.draft");
     expect(ids).toContain("plan.decisions-ledger");
     expect(ids).toContain("plan.defer-to-consumer");
-    expect(ids).toContain("plan.prompt.review");
     expect(ids).toContain("plan.prompt.review-actuator");
     expect(ids).toContain("intent.prompt.split");
     expect(ids).toContain("write.execute");
@@ -73,6 +72,15 @@ describe("prompt registry load validation", () => {
     expect(ids).not.toContain("plan.prompt.intent-draft");
     expect(ids).not.toContain("plan.prompt.intent-split");
     expect(ids).not.toContain("plan.prompt.refine");
+  });
+
+  test("retired dead registry prompt artifacts are unavailable", () => {
+    const registry = createPromptRegistry();
+    const ids = registry.all().map((artifact) => artifact.metadata.id);
+
+    expect(ids).not.toContain("plan.prompt.review");
+    expect(ids).not.toContain("patch.prompt.review");
+    expect(ids).not.toContain("patch.prompt.review.critic");
   });
 
   test("parses placeholder declarations from frontmatter", () => {

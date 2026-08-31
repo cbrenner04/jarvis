@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -646,6 +646,61 @@ index f424d7da..be281d02 100644
       mutation: "missing-render-coverage",
       sourceSite: { file: "prompts/patch/review-critic.md", line: 1 },
     });
+  });
+
+  it("does not require render coverage for prompts retired from the worktree registry", async () => {
+    // Mutation checkpoint: dropping `currentRegistry.paths.has(path)` when the worktree registry
+    // is available must turn this RED (`missing-render-coverage` at `prompts/patch/review-critic.md:1`).
+    const dir = mkdtempSync(join(tmpdir(), "mutation-retired-prompt-fixture-"));
+    try {
+      execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
+      execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+      execFileSync("git", ["config", "user.name", "test"], { cwd: dir });
+      mkdirSync(join(dir, "prompts", "patch"), { recursive: true });
+      writeFileSync(
+        join(dir, "prompts", "patch", "review-critic.md"),
+        `---
+id: patch.prompt.review.critic
+behavior: patch
+kind: step
+revision: 1
+placeholders: []
+---
+# Critic body
+`,
+      );
+      writeFileSync(join(dir, "prompts", "registry.txt"), "patch/review-critic.md\n");
+      execFileSync("git", ["add", "-A"], { cwd: dir });
+      execFileSync("git", ["commit", "-q", "-m", "base"], { cwd: dir });
+      const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();
+
+      rmSync(join(dir, "prompts", "patch", "review-critic.md"));
+      writeFileSync(join(dir, "prompts", "registry.txt"), "\n");
+      execFileSync("git", ["add", "-A"], { cwd: dir });
+      execFileSync("git", ["commit", "-q", "-m", "retire prompt"], { cwd: dir });
+
+      const unionBaseRegistry = async (_cwd: string, baseRef: string) => {
+        const manifest = execFileSync("git", ["show", `${baseRef}:prompts/registry.txt`], { cwd: dir }).toString();
+        return manifest
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((path) => `prompts/${path}`);
+      };
+      const result = await verifyDiffDerivedMutations(
+        { worktreePath: dir, runBase: baseSha },
+        { registeredPromptPaths: unionBaseRegistry },
+      );
+
+      expect(result.kind).toBe("pass");
+      expect(result).not.toEqual({
+        kind: "surviving-mutation",
+        mutation: "missing-render-coverage",
+        sourceSite: { file: "prompts/patch/review-critic.md", line: 1 },
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("completes shared multi-candidate verification within MAX_VERIFICATION_MS", async () => {

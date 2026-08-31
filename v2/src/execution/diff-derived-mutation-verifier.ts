@@ -103,7 +103,7 @@ const RENDER_OBSERVER_MAP_RELATIVE_PATH = "shared/prompts/render-observer-tests.
 const RENDER_OBSERVER_MAP_BINDING = "RENDER_OBSERVER_TESTS";
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: TS-AST walk over the observer-map object literal; extracting the node handlers would fragment the parse
-function extractRenderObserverMapFromSource(source: string): Record<string, readonly string[]> | null {
+export function extractRenderObserverMapFromSource(source: string): Record<string, readonly string[]> | null {
   let sourceFile: ts.SourceFile;
   try {
     sourceFile = ts.createSourceFile(RENDER_OBSERVER_MAP_RELATIVE_PATH, source, ts.ScriptTarget.Latest, true);

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   type DiffDerivedMutationVerifierInput,
+  extractRenderObserverMapFromSource,
   MAX_CONCURRENT_VERIFIER_TEST_RUNS,
   MAX_INSPECTED_MUTATIONS,
   MAX_VERIFICATION_MS,
@@ -2641,6 +2642,13 @@ index 1234567..abcdefg 100644
 });
 
 describe("worktree render-observer map resolution", () => {
+  it("extractRenderObserverMapFromSource parses a string-literal-keyed observer map", () => {
+    const src = 'const RENDER_OBSERVER_TESTS = { "prompts/write/x.md": ["v2/src/execution/x.test.ts"] };';
+    // Flipping `!ts.isStringLiteral(property.name)` to `ts.isStringLiteral` rejects the string-literal key and returns null.
+    expect(extractRenderObserverMapFromSource(src)).toEqual({ "prompts/write/x.md": ["v2/src/execution/x.test.ts"] });
+    expect(extractRenderObserverMapFromSource("const OTHER = {};")).toBeNull();
+  });
+
   const branchPromptPath = "prompts/write/branch-only-prompt.md";
   const branchBodyLine = "Branch-only prompt body line.";
   const branchPromptSource = `---

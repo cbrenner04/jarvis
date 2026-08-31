@@ -308,6 +308,8 @@ async function resolveImplementStage(
     cwd: prior.cwd,
     baseRef: prior.branch,
     specPath,
+    reviewPasses: stageReviewPasses(stage),
+    ...(stage.review === "light" || stage.review === "debate" ? { reviewBehavior: stage.review } : {}),
     ...(context.configPath !== undefined ? { configPath: context.configPath } : {}),
     ...(context.projectRegistry !== undefined ? { projectRegistry: context.projectRegistry } : {}),
   };

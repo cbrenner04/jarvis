@@ -67,7 +67,6 @@ describe("rendered prompt snapshots", () => {
     expect(registry.getById("plan.prompt.draft").metadata.revision).toBe("15");
     expect(registry.getById("plan.prompt.review.adversary").metadata.revision).toBe("7");
     expect(registry.getById("plan.prompt.review.advocate").metadata.revision).toBe("4");
-    expect(registry.getById("plan.prompt.review.critic").metadata.revision).toBe("3");
     expect(registry.getById("plan.prompt.review.adjudicator").metadata.revision).toBe("4");
     expect(registry.getById("plan.prompt.review-actuator").metadata.revision).toBe("6");
 
@@ -78,7 +77,6 @@ describe("rendered prompt snapshots", () => {
     const advocateKey = `${registry.getById("plan.prompt.review.advocate").metadata.id}@r${registry.getById("plan.prompt.review.advocate").metadata.revision}.pass-1.shared.txt`;
     const adjudicatorKey = `${registry.getById("plan.prompt.review.adjudicator").metadata.id}@r${registry.getById("plan.prompt.review.adjudicator").metadata.revision}.pass-1.shared.txt`;
     const reviewActuatorKey = `${registry.getById("plan.prompt.review-actuator").metadata.id}@r${registry.getById("plan.prompt.review-actuator").metadata.revision}.shared.txt`;
-    const criticKey = `${registry.getById("plan.prompt.review.critic").metadata.id}@r${registry.getById("plan.prompt.review.critic").metadata.revision}.pass-1.shared.txt`;
 
     const patch = buildPrompt("v1/spec/example/index.md", ["../shared-lib", "../infra"]);
     const draft = buildDraftPrompt({
@@ -117,13 +115,6 @@ describe("rendered prompt snapshots", () => {
       role: "advocate",
       priorArtifact: "Adversary finding",
     });
-    const critic = buildReviewPrompt({
-      name: "prompt-registry",
-      intent: "Intent",
-      specGuidance: "Guide",
-      currentSpec: '<<<FILE name="00-task.md" BEGIN>>>\n- [ ] Task\n<<<FILE END>>>',
-      role: "critic",
-    });
     const adjudicator = buildReviewPrompt({
       name: "prompt-registry",
       intent: "Intent",
@@ -139,7 +130,6 @@ describe("rendered prompt snapshots", () => {
     expect(reviewPass1).toBe(readFixture(reviewStepOneKey));
     expect(reviewPass2).toBe(readFixture(reviewStepTwoKey));
     expect(advocate).toBe(readFixture(advocateKey).trimEnd());
-    expect(critic).toBe(readFixture(criticKey).trimEnd());
     expect(adjudicator).toBe(readFixture(adjudicatorKey).trimEnd());
     expect(reviewActuator).toBe(readFixture(reviewActuatorKey));
   });

@@ -69,6 +69,7 @@ describe("ReviewPromptProfile", () => {
     const planPrompt = renderPlanReviewCriticPrompt({ worktreePath: "/repo", specPath: planSpec });
 
     expect(extractSpecGuidance(intentPrompt)).toContain(HUMAN_ONLY_MARKER_GUIDANCE);
+    expect(planPrompt).toContain("# Plan Mode — Review: Critic");
     expect(extractSpecGuidance(planPrompt)).toContain(HUMAN_ONLY_MARKER_GUIDANCE);
     expect(planPrompt.match(/Do not split acceptance-criterion checkboxes across physical lines\./g)).toHaveLength(2);
     expect(planPrompt).not.toContain("@mutate");

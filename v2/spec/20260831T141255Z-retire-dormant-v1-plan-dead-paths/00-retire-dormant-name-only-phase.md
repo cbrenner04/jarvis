@@ -24,12 +24,12 @@ The off-registry `prompts/plan/name-only.md` template is loaded only by `v1/src/
 
 ## Acceptance criteria
 
-- [ ] `v1/src/modes/plan/name-only.ts` and `prompts/plan/name-only.md` are absent, and `rg -n "runNameOnlyPhase" v1/src v1/test shared prompts` returns no matches; this searches only the stated production/test corpus, excluding `v1/spec/**`, `v2/spec/**`, `**/completed/**`, `.jarvis-plan-stage/**`, and Git history, and `v1/src/modes/plan/name-only.ts` matches on the pre-fix base.
-- [ ] `PlanTelemetryPhase` and `exitReasonForPlanAttempt` no longer admit `name-only` or return `plan-name-only-ok`; retained phase values remain covered, and the pre-fix `v1/src/modes/plan/plan-telemetry.ts` branch is reachable.
-- [ ] Plan telemetry coverage rejects `phase: "name-only"` at compile time and covers the retained phases; the unused-error directive fails against the pre-fix writer contract.
-- [ ] `v1/docs/agent-cli-failure-pipeline.md` no longer inventories the dormant loader, and `v1/docs/agents.md` distinguishes relocation history from its current inventory, which omits retired `name-only.md` and prerequisite-retired `review.md`.
-- [ ] `v1/docs/run-loop.md` no longer lists `name-only` among emitted `plan_phase` values, and the existing plan-telemetry entry in `v2/docs/v1-behaviors.md` is amended without a duplicate retirement entry.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `v1/src/modes/plan/name-only.ts` and `prompts/plan/name-only.md` are absent, and `rg -n "runNameOnlyPhase" v1/src v1/test shared prompts` returns no matches; this searches only the stated production/test corpus, excluding `v1/spec/**`, `v2/spec/**`, `**/completed/**`, `.jarvis-plan-stage/**`, and Git history, and `v1/src/modes/plan/name-only.ts` matches on the pre-fix base.
+- [x] `PlanTelemetryPhase` and `exitReasonForPlanAttempt` no longer admit `name-only` or return `plan-name-only-ok`; retained phase values remain covered, and the pre-fix `v1/src/modes/plan/plan-telemetry.ts` branch is reachable.
+- [x] Plan telemetry coverage rejects `phase: "name-only"` at compile time and covers the retained phases; the unused-error directive fails against the pre-fix writer contract.
+- [x] `v1/docs/agent-cli-failure-pipeline.md` no longer inventories the dormant loader, and `v1/docs/agents.md` distinguishes relocation history from its current inventory, which omits retired `name-only.md` and prerequisite-retired `review.md`.
+- [x] `v1/docs/run-loop.md` no longer lists `name-only` among emitted `plan_phase` values, and the existing plan-telemetry entry in `v2/docs/v1-behaviors.md` is amended without a duplicate retirement entry.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

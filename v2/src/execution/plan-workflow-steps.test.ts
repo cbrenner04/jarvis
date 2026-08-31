@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import type { ProjectMatch } from "../../../shared/project-registry.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
+import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
 import { readSpecGuidance } from "../../../shared/spec-guidance-path.ts";
 import { jarvisHome } from "../paths.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
@@ -466,6 +467,9 @@ describe("buildReviewedPlanLightWorkflowSteps", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]).toHaveLength(2);
     expect(result.steps).toHaveLength(2);
+    const registry = loadPromptRegistry();
+    expect(registry.getById("plan.prompt.review.critic")).toBeDefined();
+    expect(registry.getById("plan.prompt.review-actuator")).toBeDefined();
     expect(result.steps[0]).toMatchObject({ behavior: "write", promptId: "plan.prompt.draft" });
     expect(result.steps[1]).toMatchObject({
       behavior: "review",
@@ -478,14 +482,9 @@ describe("buildReviewedPlanLightWorkflowSteps", () => {
       profileContext: expect.objectContaining({
         specPath: expect.stringMatching(/\.jarvis-plan-stage$/),
       }),
+      profile: planReviewPromptProfile,
       landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage" },
     });
-  });
-
-  test("wires plan light-review prompt ids and verdict path for positive passes", () => {
-    const registry = loadPromptRegistry();
-    expect(registry.getById("plan.prompt.review.critic")).toBeDefined();
-    expect(registry.getById("plan.prompt.review-actuator")).toBeDefined();
   });
 
   test("uses requested positive passes and rejects invalid values before loading", async () => {

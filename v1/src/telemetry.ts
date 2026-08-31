@@ -19,7 +19,7 @@ export type TelemetryRecordRole = "invocation" | "run_terminal";
 export type TelemetryMode = "patch" | "plan" | "prompt";
 
 /**Present on plan-mode invocation rows so summaries can attribute usage to a phase.*/
-export type PlanTelemetryPhase = "intent" | "refine" | "name-only" | "draft" | "review";
+export type PlanTelemetryPhase = "intent" | "refine" | "draft" | "review";
 
 /**Terminal intent/refine state after harness validation; omitted on failed attempts.*/
 export type PlanStepOutcome = "success" | "refined" | "skip" | "blocker";

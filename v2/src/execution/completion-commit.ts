@@ -34,6 +34,8 @@ export type CompletionCommitInput = {
   readyGateAttribution?: "autofix";
   /** Formatter wall-clock budget; callers pass write-loop `iterationTimeoutMs` when known. */
   iterationTimeoutMs?: number;
+  /** `checkpoint` runs best-effort scoped `biome format --write`; default `strict` fail-closes on `biome check --write`. */
+  formatMode?: "checkpoint" | "strict";
   /** Workflow step for the `Jarvis-Step` trailer; defaults to `write`. Only consulted while
    * preparing a new pending commit — a retry of an already-prepared pending commit ignores
    * this and keeps the stored message's own step classification. */
@@ -102,6 +104,24 @@ async function runCompletionFormat(
   }
 }
 
+/** Scoped format-only pass on enumerated changed paths; checkpoint durability never gates on failure. */
+async function runCheckpointFormat(
+  opts: CompletionFormatOpts,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<void> {
+  if (!existsSync(join(opts.cwd, "biome.json"))) return;
+  const eligible = biomeEligiblePaths(opts.cwd, opts.paths);
+  if (eligible.length === 0) return;
+  try {
+    await runner.runAsync("bun", ["biome", "format", "--write", ...eligible], opts.cwd, {
+      timeoutMs: opts.timeoutMs,
+      env: process.env,
+    });
+  } catch {
+    /* best-effort: non-zero exit or timeout never blocks checkpoint commit */
+  }
+}
+
 type PendingCommit = {
   baseHead: string;
   tree: string;
@@ -110,6 +130,7 @@ type PendingCommit = {
   agent: string;
   timestamp: string;
   commitSha?: string;
+  formatMode?: "checkpoint" | "strict";
 };
 
 function renderJarvisStepTrailer(step: CompletionStepMetadata): string {
@@ -219,7 +240,12 @@ async function preparePendingCommit(
   });
   const changedPaths = inventory.map((entry) => entry.currentPath);
   const timeoutMs = input.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS;
-  await runCompletionFormat({ cwd: input.worktreePath, paths: changedPaths, timeoutMs }, subprocessRunner);
+  const formatMode = input.formatMode ?? "strict";
+  if (formatMode === "checkpoint") {
+    await runCheckpointFormat({ cwd: input.worktreePath, paths: changedPaths, timeoutMs }, subprocessRunner);
+  } else {
+    await runCompletionFormat({ cwd: input.worktreePath, paths: changedPaths, timeoutMs }, subprocessRunner);
+  }
   const head = await runGit(input.worktreePath, ["rev-parse", "HEAD"]);
   await runGit(input.worktreePath, ["read-tree", head], { GIT_INDEX_FILE: index });
   await runGit(input.worktreePath, completionStageArgs(input.worktreePath), { GIT_INDEX_FILE: index });
@@ -252,9 +278,39 @@ async function preparePendingCommit(
     }\n${renderJarvisStepTrailer(step)}`,
     agent,
     timestamp: new Date().toISOString(),
+    formatMode,
   };
   writeFileSync(pendingPath, `${JSON.stringify(pending)}\n`, "utf8");
   return { kind: "pending", pending };
+}
+
+async function restagePendingTreeAfterStrictFormat(
+  runGit: Git,
+  input: CompletionCommitInput,
+  subprocessRunner: AsyncSubprocessRunner,
+  index: string,
+  pending: PendingCommit,
+  pendingPath: string,
+): Promise<PendingCommit> {
+  const inventory = await getGitStatusInventory(input.worktreePath, {
+    async runAsync(command, args, cwd) {
+      if (command !== "git") throw new Error(`Unsupported completion inventory command: ${command}`);
+      return runGit(cwd, args);
+    },
+  });
+  const changedPaths = inventory.map((entry) => entry.currentPath);
+  const timeoutMs = input.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS;
+  await runCompletionFormat({ cwd: input.worktreePath, paths: changedPaths, timeoutMs }, subprocessRunner);
+  const head = await runGit(input.worktreePath, ["rev-parse", "HEAD"]);
+  await runGit(input.worktreePath, ["read-tree", head], { GIT_INDEX_FILE: index });
+  await runGit(input.worktreePath, completionStageArgs(input.worktreePath), { GIT_INDEX_FILE: index });
+  const tree = await runGit(input.worktreePath, ["write-tree"], { GIT_INDEX_FILE: index });
+  // Drop any checkpoint-stage commitSha so the strict boundary re-commits the re-formatted tree
+  // instead of reusing the stale checkpoint-tree commit object.
+  const { commitSha: _priorCheckpointSha, ...pendingWithoutSha } = pending;
+  const upgraded: PendingCommit = { ...pendingWithoutSha, tree, formatMode: "strict" };
+  writeFileSync(pendingPath, `${JSON.stringify(upgraded)}\n`, "utf8");
+  return upgraded;
 }
 
 /** Captures and publishes one completion snapshot; hooks are bypassed by design. */
@@ -262,6 +318,7 @@ export function createCompletionCommitter(
   runGit: Git = git,
   subprocessRunner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
 ): CompletionCommitter {
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: one committer closure coordinates snapshot capture, checkpoint-vs-strict format-mode selection, staging, and the compare-and-swap commit; off-by-one (25) after adding the durability best-effort-format branch, and splitting it would fragment the atomic commit sequence.
   return async (input) => {
     const agent = input.agent.trim();
     if (!agent) throw new Error("completion attribution is missing");
@@ -279,6 +336,17 @@ export function createCompletionCommitter(
           JSON.parse(readFileSync(pendingPath, "utf8")) as PendingCommit,
           pendingPath,
         );
+        const requestedFormatMode = input.formatMode ?? "strict";
+        if (pending.formatMode === "checkpoint" && requestedFormatMode === "strict") {
+          pending = await restagePendingTreeAfterStrictFormat(
+            runGit,
+            input,
+            subprocessRunner,
+            index,
+            pending,
+            pendingPath,
+          );
+        }
       } else {
         const prepared = await preparePendingCommit(runGit, input, subprocessRunner, {
           agent,

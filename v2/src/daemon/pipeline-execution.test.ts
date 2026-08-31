@@ -54,6 +54,7 @@ import {
   continuePipeline,
   derivePipelineFailureDetail,
   derivePipelineState,
+  findFailedStageForReopen,
   hasPipelineTerminalPublicationFailure,
   isPipelineContinuable,
   isReopenedFailedContinuation,
@@ -2386,6 +2387,19 @@ describe("derivePipelineState", () => {
       })),
     };
   }
+
+  test("findFailedStageForReopen selects the failed workflow stage and honors branch scope", () => {
+    // Unscoped: returns the failed stage. `status === "failed"` flipped to `!==` selects succeeded s1;
+    // `branchScope === undefined` flipped to `!==` drops all stages.
+    const found = findFailedStageForReopen(pipelineWith({ s1: "succeeded", s2: "failed" }), undefined);
+    expect(found?.stageId).toBe("s2");
+    expect(found?.status).toBe("failed");
+    expect(findFailedStageForReopen(pipelineWith({ s1: "succeeded", s2: "succeeded" }), undefined)).toBeUndefined();
+    // Branch-scoped to a non-matching lane returns nothing; `record.branchKey === branchScope` flipped
+    // to `!==` would instead match every "default"-lane stage.
+    expect(findFailedStageForReopen(pipelineWith({ s1: "failed", s2: "failed" }), "other")).toBeUndefined();
+    expect(findFailedStageForReopen(pipelineWith({ s1: "succeeded", s2: "failed" }), "default")?.stageId).toBe("s2");
+  });
 
   test("reports succeeded only once every authored stage in order has succeeded, including no pending approval gate", () => {
     expect(derivePipelineState(pipelineWith({ s1: "succeeded", s2: "pending" }))).toBe("pending");

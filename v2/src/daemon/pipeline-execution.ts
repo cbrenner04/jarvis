@@ -487,7 +487,7 @@ function resolveBranchResumeAdmission(
   return { kind: "ok", reopenFailedStage: scan.reopenFailed };
 }
 
-function findFailedStageForReopen(
+export function findFailedStageForReopen(
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
   branchScope: string | undefined,
 ): PipelineStageRecord | undefined {

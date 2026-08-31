@@ -649,6 +649,8 @@ index f424d7da..be281d02 100644
   });
 
   it("does not require render coverage for prompts retired from the worktree registry", async () => {
+    // Mutation checkpoint: inverting `defaultRegisteredPromptPaths` to union current+base registry
+    // must turn this RED (`missing-render-coverage` at `prompts/patch/review-critic.md:1`).
     const dir = mkdtempSync(join(tmpdir(), "mutation-retired-prompt-fixture-"));
     try {
       execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
@@ -680,6 +682,11 @@ placeholders: []
       const result = await verifyDiffDerivedMutations({ worktreePath: dir, runBase: baseSha });
 
       expect(result.kind).toBe("pass");
+      expect(result).not.toEqual({
+        kind: "surviving-mutation",
+        mutation: "missing-render-coverage",
+        sourceSite: { file: "prompts/patch/review-critic.md", line: 1 },
+      });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

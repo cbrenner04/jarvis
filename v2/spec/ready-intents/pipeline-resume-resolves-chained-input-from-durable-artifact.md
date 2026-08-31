@@ -30,14 +30,16 @@ Unsplit rationale: Chained downstream-input resolution, durable fallback when pr
 ## Decisions
 
 - Resolve downstream inputs from the durable landed artifact when the prior worktree is absent; rules out fail-hard the moment a worktree is cleaned.
+- Empty or missing `worktreePath` metadata stays a hard error (reachable on `pipeline-stage-resolve.test.ts` — `missing prior artifact, entryRunId, entry run, or worktreePath returns resolution failure without falling back to context.cwd`); only a recorded path whose directory is absent triggers durable fallback.
 - Deferred to first consumer: exact git ref walk order when both prior branch and project base carry the path — pin when a caller needs it.
-- Name never-landed refusals distinctly from worktree-missing cases; rules out one opaque `not found in prior worktree` for two states.
+- Never-landed downstream input refusals use a stable, grep-able `pipeline-stage-resolve:` reason distinct from `not found in prior worktree` and pointing at standalone re-drive; rules out one opaque prior-worktree message for two states.
 - Fold durable read-root selection into stage resolution before preset build; rules out requiring the prior worktree to survive for recovery.
 
 ## Acceptance criteria
 
-- [ ] A daemon or pipeline test drives `pipeline resume` on a chained plan stage and a chained implement stage whose prior-stage worktree was removed, proves downstream input resolution from the durable prior branch or project base and successful dispatch, and fails against the prior-worktree-only verifier; it fails against the pre-fix resolver.
-- [ ] `pipeline-stage-resolve.test.ts` or a sibling daemon test proves a downstream input never landed anywhere durable refuses with a distinct named reason pointing at standalone re-drive, not the generic prior-worktree message; it fails against the pre-fix error string.
+- [ ] `pipeline-stage-resolve.test.ts` — `plan stage falls back to prior branch when recorded prior worktree directory is absent` and `implement stage falls back to prior branch when recorded prior worktree directory is absent` resolve downstream inputs from the durable prior branch or project base; they fail against the pre-fix prior-worktree-only verifier.
+- [ ] `daemon-pipeline-resume.test.ts` — `pipeline_resume dispatches chained plan and implement stages after prior worktree removal when input lives on durable branch` proves resume admission and dispatch, not resolution alone; it fails against the pre-fix resume refusal at stage resolution.
+- [ ] `pipeline-stage-resolve.test.ts` — `downstream input never landed anywhere durable refuses with distinct named reason pointing at standalone re-drive` asserts a stable `pipeline-stage-resolve:` reason distinct from `not found in prior worktree`; it fails against the pre-fix error string.
 - [ ] `pipeline-stage-resolve.test.ts` — `plan stage resolves chained readyIntent from the intent entry-run worktree, not admission cwd`, `implement stage resolves chained specPath from the plan entry-run worktree with prior branch as baseRef`, `plan stage resolves through real preset builders when ready-intent exists only on intent worktree`, and `implement stage resolves through real preset builders when plan spec exists only on plan worktree branch` stay green.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 

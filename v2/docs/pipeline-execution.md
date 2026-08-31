@@ -37,7 +37,7 @@ Production path:
 
 1. `resolveStageWorkflowSteps` (`pipeline-stage-resolve.ts`) — `preparePipelineStageWorkflow` → `prepareWorkflowStart`: posture → preset realization, preset build, machine-config stamping via `stampWorkflowStepsWithMachineConfig`; returns stamped steps (no dispatch-time re-stamping). Chained stages supply `cwd` via `createChainedStageProjectMatch`; pipeline implement review pass count and behavior come from the resolved stage posture.
 2. Shared stale-reset preflight from the preparation result (`runStaleResetPreflight` in `advanceWorkflowStage` / fan-out branch dispatch in `pipeline-execution.ts`); guard refusal fails the stage with the same operator text as CLI `run workflow` and dispatches no workflow run.
-3. `dispatchPipelineStage` (`pipeline-stage-dispatch.ts`) — `claimPipelineStageAdmission`, `defaultPipelineDispatch` → `handleWorkflowStart` → `startWorkflowRun`, `defaultPipelineWait` rollup.
+3. `dispatchPipelineStage` (`pipeline-stage-dispatch.ts`) — `claimPipelineStageAdmission`, `defaultPipelineDispatch` → `handleWorkflowStart` → shared daemon `admitWorkflowStart` → `startWorkflowRun`, `defaultPipelineWait` rollup.
 
 Stage row: `pending` → claim → `running` + `workflowInvocationId` (entry run id). Worktree claim refusal at dispatch records stage `failed`. Tests: `pipeline-stage-dispatch.test.ts`, `pipeline-stage-resolve.test.ts`, `pipeline-workflow-preparation-parity.test.ts`, `pipeline-execution.test.ts` (`runPipeline`, fan-out, stale-reset refusal).
 
@@ -189,13 +189,17 @@ Opt-in; never fired by restart continuation. Branch key mandatory.
 
 | Outcome | Condition |
 | --- | --- |
-| **Admitted** `admitted` | `resolveBlockedPlanStageRecoveryTarget` ok; worktree claim free; `claimPipelineStageAdmission` won |
+| **Admitted** `admitted` | `resolveBlockedPlanStageRecoveryTarget` ok; shared `admitWorkflowStart` admitted (ownership free after stale workflow reclaim, memory headroom); `claimPipelineStageAdmission` won |
+| **RPC error** `worktree_claimed` | Queued or live `(project, branch)` ownership held (checked before memory) |
+| **RPC error** `insufficient_memory` | Memory headroom refused after ownership admits |
 | **Refused** `resolution_refused` | `pipeline_not_found`, `branch_not_found`, `missing_context`, `no_failed_stage`, `stage_not_plan`, `stage_not_linked`, `stage_resolution_failed`, `stage_not_recoverable` |
-| **Refused** `stage_claimed` | Another holder owns stage admission |
+| **Refused** `stage_claimed` | Another holder owns durable stage admission |
 | **Attempt refused** | `recoverPlanStage` — `operator_blocker`, `plan_stage_invalid`, `recovery_requires_git`, etc. (stage stays `failed`) |
 | **Succeeded** | Review landing + `reopenFailedPipeline` + stage `succeeded` + `continuePipeline(branchKey)` |
 
 Distinct from `pipeline resume`: recover never invokes plan drafting; `pipeline resume` redispatches the ordinary write step. Tests: `pipeline-stage-recovery.test.ts`; `daemon-pipeline-recover.test.ts`.
+
+After recovery-specific RPC validation and effect-free target resolution, live dispatch and recovery use the same daemon admission order: queued or live ownership after stale workflow-claim reclamation, then memory headroom, common registry/`activeRuns` acquisition, then lifecycle-specific durable admission. Thus ownership is not masked by memory pressure, while invalid recovery input or an unresolvable target returns before the memory check. Any refusal or exception before execution rolls common acquisition and recovery durable admission/log resources back, so the failed target stage stays byte-for-byte unchanged and the attempt does not run; an admitted detached recovery retains its `recovery` active-run identity until attempt, settlement, and continuation finish.
 
 ### Wedged `running` stage
 

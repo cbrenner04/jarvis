@@ -563,6 +563,7 @@ The daemon exposes a hermetic programmatic API over a Unix-domain-socket IPC tra
   remain for cross-process coexistence (daemon runs vs. `jarvis1`, editors, manual
   git). The lock is held for the whole run lifetime; ownership ensures no two
   daemon runs touch the same worktree.
+- **Shared workflow-start admission:** after caller-specific preparation and recovery target validation, standalone workflow starts, daemon pipeline dispatch, and pipeline stage recovery enter `admitWorkflowStart`. That boundary reclaims stale workflow claims, applies queued/live ownership and memory checks, acquires registry and `activeRuns` ownership, and rolls those resources back if lifecycle-specific durable admission refuses or throws. Workflow execution and detached recovery retain distinct identities, durable admission, execution, and settlement; recovery remains `kind: "recovery"` until its continuation settles.
 - **Client trusts daemon response shapes.** Client and daemon are the same
   build talking over a local Unix socket — no cross-version protocol skew is
   possible. `daemon/daemon-wire.ts` parsers are envelope-thin: they confirm the

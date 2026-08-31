@@ -29,9 +29,9 @@ When the idle-output watchdog fires, stall settlement carries only the accumulat
 
 ## Acceptance criteria
 
-- [ ] An invocation that streams stdout, emits no stderr, then idles past `idleOutputMs` settles a `stall` whose diagnostics contain the streamed stdout — in both the immediate and `joinProcessOnIdleStall` paths; the test fails against stderr-only stall settlement.
+- [ ] Regression coverage in `shared/invocation/agents.test.ts`'s `idle output expiry settles stall without joining a silent child` and `idle output expiry joins the child before settling stall` tests proves an invocation that streams stdout, emits no stderr, then idles past `idleOutputMs` settles a `stall` whose diagnostics contain the streamed stdout; both fail against stderr-only stall settlement.
 - [ ] The session log for that stalled binding records the streamed stdout in its inbound entry.
-- [ ] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, `bun run test:integration:v2` pass (shared surface).
+- [ ] `bun run typecheck`, `bun run test:v1`, `bun run test:integration:v1`, `bun run test:v2`, `bun run test:integration:v2`, `bun run test:shared`, and `bun run test:integration:shared` pass (shared surface).
 
 ## Documentation updates
 

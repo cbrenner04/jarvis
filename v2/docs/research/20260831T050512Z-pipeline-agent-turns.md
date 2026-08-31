@@ -28,7 +28,7 @@ Measured 2026-08-31 from operator telemetry. Question: how many agent turns does
 | implement / none | 120 | 1 | 3 | 2.9 | 5 | 7 |
 | implement / debate | 149 | 5 | 7 | 7.3 | 9 | 14 |
 
-Role means per completed workflow: implement writes 2.6 iterations (across `implement~link-N` positions), shrink 1.2; debate roles ~1.2 each with actuator 1.2 (the verdict is almost never empty); intent/plan drafts ~1.0–1.2; light review critic 1.1 + actuator 1.0.
+Role means per completed workflow (`binding_index == 0` cut, matching the table): implement writes 2.3 turns under debate / 1.9 standalone (across `implement~link-N` positions), shrink 1.0; debate roles 1.0 each with actuator 1.0 (single pass, verdict almost never empty); intent/plan drafts 1.0–1.1; light review critic 1.0 + actuator 0.9.
 
 **No jarvis data exists for implement/light** — every jarvis implement review ran debate; all 12 `fast` pipelines in the store are chess-mvp-yolo. Derived estimate: implement/none + the light-review delta observed on intent (+2.0) → ~4.9 mean, ~5 p50.
 
@@ -43,4 +43,4 @@ Sums of means are exact; summed p50/max are approximations (worst cases don't co
 
 ## Reproduction
 
-Aggregation script from this session: group telemetry `invocation_completed` by `run_id`, join runs by `workflow_snapshot.invocationId`, filter `binding_index == 0`, split cells by step ids present (`review` vs `review-debate`/`implement-review`) and telemetry roles (critic vs adversary).
+`bun v2/docs/research/20260831T050512Z-pipeline-agent-turns.ts` — groups telemetry `invocation_completed` by `run_id`, joins runs by `workflow_snapshot.invocationId`, filters `binding_index == 0`, splits cells by step ids present (`review` vs `review-debate`/`implement-review`) and telemetry roles (critic vs adversary). Reads the live telemetry file and a copy of the state DB; rerunning on a later dataset will drift from the snapshot above.

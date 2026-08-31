@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +10,7 @@ import { flushBackgroundRuns } from "../testing/run-control.ts";
 import { createBindingFactory, writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers } from "./daemon.ts";
+import * as pipelineExecution from "./pipeline-execution.ts";
 import type { PipelineStageResolutionResult } from "./pipeline-stage-resolve.ts";
 
 const { createWriteStep } = writeStepFixtures();
@@ -190,6 +191,108 @@ test("pipeline_approve returns after the durable write before async continuation
   );
   await flushBackgroundRuns();
   expect(stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status).toBe("succeeded");
+});
+
+async function approvalHandlersThroughGate(): Promise<{
+  approvalHandlers: ReturnType<typeof createRunControlHandlers>;
+  pipelineId: string;
+  stage3: ReturnType<typeof controllableBindingFactory>;
+}> {
+  const stage1 = controllableBindingFactory();
+  const stage3 = controllableBindingFactory();
+  const stage1Step: AnyWorkflowStep = createWriteStep("stage-1", "pipeline-branch", stage1.factory, {
+    suppressShrink: true,
+  });
+  const stage3Step: AnyWorkflowStep = createWriteStep("stage-3", "pipeline-branch", stage3.factory, {
+    suppressShrink: true,
+  });
+
+  const resolveStage = async (
+    _definition: PipelineDefinition,
+    stageIndex: number,
+  ): Promise<PipelineStageResolutionResult> => ({
+    ok: true,
+    steps: [stageIndex === 0 ? stage1Step : stage3Step],
+  });
+
+  const approvalHandlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    resolveStage,
+  });
+
+  const startResponse = await approvalHandlers.pipeline_start(
+    requestFrame("start", "pipeline_start", { definition: APPROVAL_DEFINITION, context: ADMISSION_CONTEXT }),
+    new AbortController().signal,
+  );
+  expect(startResponse.kind).toBe("response");
+  const pipelineId = (startResponse as { result: { pipelineId: string } }).result.pipelineId;
+
+  await waitFor(
+    () => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s1")?.status === "running",
+  );
+  stage1.settle();
+  await waitFor(
+    () => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "gate")?.status === "awaiting",
+  );
+
+  return { approvalHandlers, pipelineId, stage3 };
+}
+
+async function expectDefaultApproveLinksSuccessor(
+  approvalHandlers: ReturnType<typeof createRunControlHandlers>,
+  pipelineId: string,
+  stage3: ReturnType<typeof controllableBindingFactory>,
+): Promise<void> {
+  const approveResponse = await approvalHandlers.pipeline_approve(
+    requestFrame("approve", "pipeline_approve", { pipelineId, stageId: "gate", branchKey: "default" }),
+    new AbortController().signal,
+  );
+  expect(approveResponse).toEqual({
+    kind: "response",
+    result: { kind: "applied", pipelineId, stageId: "gate", decision: "approved" },
+  });
+
+  await waitFor(() => {
+    const successor = stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3");
+    return successor?.workflowInvocationId != null;
+  });
+  expect(stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status).toBe("running");
+
+  stage3.settle();
+  await waitFor(
+    () => stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3")?.status === "succeeded",
+  );
+  await flushBackgroundRuns();
+}
+
+test("pipeline_approve with explicit branchKey default links successor run without restart", async () => {
+  const { approvalHandlers, pipelineId, stage3 } = await approvalHandlersThroughGate();
+  await expectDefaultApproveLinksSuccessor(approvalHandlers, pipelineId, stage3);
+});
+
+test("pipeline_approve dispatches successor without recoverContinuablePipelines", async () => {
+  const recoverSpy = spyOn(pipelineExecution, "recoverContinuablePipelines").mockResolvedValue({ continued: 0 });
+  try {
+    const { approvalHandlers, pipelineId } = await approvalHandlersThroughGate();
+
+    const approveResponse = await approvalHandlers.pipeline_approve(
+      requestFrame("approve", "pipeline_approve", { pipelineId, stageId: "gate", branchKey: "default" }),
+      new AbortController().signal,
+    );
+    expect(approveResponse.kind).toBe("response");
+    expect(recoverSpy).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+      const successor = stateStore.loadPipeline(pipelineId)?.stages.find((s) => s.stageId === "s3");
+      return successor?.workflowInvocationId != null;
+    });
+    expect(recoverSpy).not.toHaveBeenCalled();
+  } finally {
+    recoverSpy.mockRestore();
+  }
 });
 
 test("pipeline_approve returns refused envelope for unknown pipeline", async () => {

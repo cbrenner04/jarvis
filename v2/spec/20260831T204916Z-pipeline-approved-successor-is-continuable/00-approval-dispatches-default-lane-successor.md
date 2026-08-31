@@ -24,14 +24,14 @@ Daemon pipeline continuation and resume admission in `v2/src/daemon/pipeline-exe
 
 ## Acceptance criteria
 
-- [ ] `daemon-pipeline-approval.test.ts` sends `pipeline_approve` with `branchKey: "default"` after a succeeded predecessor and proves the admitting daemon creates the pending successor's run linkage without restart; it fails against the pre-fix path that leaves the successor `pending` with `workflowInvocationId: null`.
-- [ ] `daemon-pipeline-approval.test.ts` proves approval on a freshly created handler dispatches the successor without invoking `recoverContinuablePipelines`; it fails against the pre-fix path that depends on a later startup continuation sweep.
-- [ ] `pipeline-execution.test.ts` — `approve-intent continuation dispatches only the approved branchKey` stays green.
-- [ ] `v2/docs/pipeline-execution.md` documents that approval dispatches the successor on the admitting daemon and that `branchKey: "default"` aliases unscoped whole-pipeline continuation scope.
-- [ ] `v2/docs/operator-runbook.md` documents that approval on an already-running admitting daemon advances the successor without daemon restart.
-- [ ] `v2/docs/v1-behaviors.md` records corrected post-approve successor dispatch for the default lane in the v1 parity baseline.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `daemon-pipeline-approval.test.ts` sends `pipeline_approve` with `branchKey: "default"` after a succeeded predecessor and proves the admitting daemon creates the pending successor's run linkage without restart; it fails against the pre-fix path that leaves the successor `pending` with `workflowInvocationId: null`.
+- [x] `daemon-pipeline-approval.test.ts` proves approval on a freshly created handler dispatches the successor without invoking `recoverContinuablePipelines`; it fails against the pre-fix path that depends on a later startup continuation sweep.
+- [x] `pipeline-execution.test.ts` — `approve-intent continuation dispatches only the approved branchKey` stays green.
+- [x] `v2/docs/pipeline-execution.md` documents that approval dispatches the successor on the admitting daemon and that `branchKey: "default"` aliases unscoped whole-pipeline continuation scope.
+- [x] `v2/docs/operator-runbook.md` documents that approval on an already-running admitting daemon advances the successor without daemon restart.
+- [x] `v2/docs/v1-behaviors.md` records corrected post-approve successor dispatch for the default lane in the v1 parity baseline.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

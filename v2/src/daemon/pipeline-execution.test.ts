@@ -54,6 +54,7 @@ import {
   continuePipeline,
   derivePipelineFailureDetail,
   derivePipelineState,
+  findFailedStageForReopen,
   hasPipelineTerminalPublicationFailure,
   isPipelineContinuable,
   isReopenedFailedContinuation,
@@ -61,6 +62,7 @@ import {
   persistedContextLoadPermitsContinuation,
   recoverContinuablePipelines,
   reopenedFailurePermitsActivation,
+  resumeApprovedGatePendingStrandApplies,
   resumeAwaitingClaimsOnly,
   resumeDeferredRefusalApplies,
   resumeFailedRequiresReopen,
@@ -2386,6 +2388,19 @@ describe("derivePipelineState", () => {
     };
   }
 
+  test("findFailedStageForReopen selects the failed workflow stage and honors branch scope", () => {
+    // Unscoped: returns the failed stage. `status === "failed"` flipped to `!==` selects succeeded s1;
+    // `branchScope === undefined` flipped to `!==` drops all stages.
+    const found = findFailedStageForReopen(pipelineWith({ s1: "succeeded", s2: "failed" }), undefined);
+    expect(found?.stageId).toBe("s2");
+    expect(found?.status).toBe("failed");
+    expect(findFailedStageForReopen(pipelineWith({ s1: "succeeded", s2: "succeeded" }), undefined)).toBeUndefined();
+    // Branch-scoped to a non-matching lane returns nothing; `record.branchKey === branchScope` flipped
+    // to `!==` would instead match every "default"-lane stage.
+    expect(findFailedStageForReopen(pipelineWith({ s1: "failed", s2: "failed" }), "other")).toBeUndefined();
+    expect(findFailedStageForReopen(pipelineWith({ s1: "succeeded", s2: "failed" }), "default")?.stageId).toBe("s2");
+  });
+
   test("reports succeeded only once every authored stage in order has succeeded, including no pending approval gate", () => {
     expect(derivePipelineState(pipelineWith({ s1: "succeeded", s2: "pending" }))).toBe("pending");
     expect(derivePipelineState(pipelineWith({ s1: "succeeded", s2: "succeeded" }))).toBe("succeeded");
@@ -2796,6 +2811,249 @@ describe("resumePipeline", () => {
     );
     expect(continued).toBe(0);
     expect(dispatchOrder).toEqual([]);
+  });
+
+  function setupApprovedGatePendingLinear(store: StateStore): void {
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "s1",
+      patch: { status: "succeeded", artifact: { specPath: "spec/s1.md" }, workflowInvocationId: "inv-1" },
+    });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", patch: { status: "approved" } });
+  }
+
+  test("admits unscoped and explicit-default resume on an approved-gate pending successor strand", async () => {
+    for (const branchKey of [undefined, "default"] as const) {
+      const { store, stages } = fakeStore(
+        APPROVAL_GATE_DEFINITION,
+        { "run-2": { specPath: "spec/s3.md" } },
+        { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+      );
+      setupApprovedGatePendingLinear(store);
+      const pipeline = store.loadPipeline(PIPELINE_ID);
+      if (!pipeline) throw new Error("expected pipeline");
+      expect(derivePipelineState(pipeline)).toBe("pending");
+      expect(resumeApprovedGatePendingStrandApplies(pipeline)).toBe(true);
+
+      const dispatchOrder: number[] = [];
+      const outcome = await resumePipeline(
+        PIPELINE_ID,
+        pipelineTestDeps(store, dispatchOrder),
+        branchKey === undefined ? {} : { branchKey },
+      );
+      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(dispatchOrder).toEqual([2]);
+      const successor = stages().find((stage) => stage.stageId === "s3");
+      expect(successor?.workflowInvocationId).toBe("run-2");
+      expect(successor?.status).toBe("succeeded");
+      // @mutate v2/src/daemon/pipeline-execution.ts "if (!resumeAwaitingClaimsOnly(derivedState) && resumeApprovedGatePendingStrandApplies(pipeline)) {" -> "if (false) {"
+    }
+  });
+
+  test("unscoped and explicit-default resume do not dispatch under aggregate awaiting-approval", async () => {
+    for (const branchKey of [undefined, "default"] as const) {
+      const { store, stages } = fakeStore(
+        FAN_OUT_PIPELINE_DEFINITION,
+        {
+          "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
+          "run-beta-plan": { specPath: "spec/beta/plan.md" },
+        },
+        { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+      );
+      const intentArtifact: PipelineStageArtifact = {
+        entryRunId: "run-intent",
+        specPath: "ready-intents",
+        downstreamInputs: [...FAN_OUT_DOWNSTREAM],
+      };
+      store.updateStage({
+        pipelineId: PIPELINE_ID,
+        stageId: "intent",
+        patch: { status: "succeeded", artifact: intentArtifact, workflowInvocationId: "run-intent" },
+      });
+      for (const branchKeyName of FAN_OUT_BRANCH_KEYS) {
+        store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey: branchKeyName });
+        store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "plan", branchKey: branchKeyName });
+        store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "implement", branchKey: branchKeyName });
+      }
+      for (const stageId of ["gate", "plan", "implement"] as const) {
+        store.updateStage({ pipelineId: PIPELINE_ID, stageId, branchKey: "default", patch: { status: "skipped" } });
+      }
+      store.updateStage({
+        pipelineId: PIPELINE_ID,
+        stageId: "gate",
+        branchKey: "alpha",
+        patch: { status: "awaiting" },
+      });
+      store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey: "beta", patch: { status: "approved" } });
+      const before = stages().map((stage) => ({ ...stage }));
+      const pipeline = store.loadPipeline(PIPELINE_ID);
+      if (!pipeline) throw new Error("expected pipeline");
+      expect(derivePipelineState(pipeline)).toBe("awaiting-approval");
+      expect(resumeApprovedGatePendingStrandApplies(pipeline)).toBe(true);
+
+      const dispatchOrder: number[] = [];
+      const outcome = await resumePipeline(
+        PIPELINE_ID,
+        pipelineTestDeps(store, dispatchOrder),
+        branchKey === undefined ? {} : { branchKey },
+      );
+      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(dispatchOrder).toEqual([]);
+      expect(stages().map((stage) => ({ ...stage }))).toEqual(before);
+      expect(
+        stages().find((stage) => stage.stageId === "plan" && stage.branchKey === "beta")?.workflowInvocationId,
+      ).toBeNull();
+      // @mutate v2/src/daemon/pipeline-execution.ts "if (!resumeAwaitingClaimsOnly(derivedState) && resumeApprovedGatePendingStrandApplies(pipeline)) {" -> "if (resumeApprovedGatePendingStrandApplies(pipeline)) {"
+    }
+  });
+
+  test("unscoped resume dispatches an approved-gate pending strand without scoping to a failed sibling", async () => {
+    for (const branchKey of [undefined, "default"] as const) {
+      const { store, stages } = fakeStore(
+        FAN_OUT_PIPELINE_DEFINITION,
+        { "run-beta-plan": { specPath: "spec/beta/plan.md" } },
+        { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+      );
+      const intentArtifact: PipelineStageArtifact = {
+        entryRunId: "run-intent",
+        specPath: "ready-intents",
+        downstreamInputs: [...FAN_OUT_DOWNSTREAM],
+      };
+      store.updateStage({
+        pipelineId: PIPELINE_ID,
+        stageId: "intent",
+        patch: { status: "succeeded", artifact: intentArtifact, workflowInvocationId: "run-intent" },
+      });
+      for (const branchKeyName of FAN_OUT_BRANCH_KEYS) {
+        store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey: branchKeyName });
+        store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "plan", branchKey: branchKeyName });
+        store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "implement", branchKey: branchKeyName });
+      }
+      for (const stageId of ["gate", "plan", "implement"] as const) {
+        store.updateStage({ pipelineId: PIPELINE_ID, stageId, branchKey: "default", patch: { status: "skipped" } });
+      }
+      store.updateStage({
+        pipelineId: PIPELINE_ID,
+        stageId: "plan",
+        branchKey: "alpha",
+        patch: { status: "failed" },
+      });
+      store.updateStage({
+        pipelineId: PIPELINE_ID,
+        stageId: "implement",
+        branchKey: "alpha",
+        patch: { status: "skipped" },
+      });
+      store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey: "beta", patch: { status: "approved" } });
+      const alphaPlanBefore = stages().find((stage) => stage.stageId === "plan" && stage.branchKey === "alpha");
+      const pipeline = store.loadPipeline(PIPELINE_ID);
+      if (!pipeline) throw new Error("expected pipeline");
+      expect(derivePipelineState(pipeline)).toBe("pending");
+      expect(resumeApprovedGatePendingStrandApplies(pipeline)).toBe(true);
+
+      const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+      const dispatch: PipelineWorkflowDispatch = async (steps) => {
+        const step = steps[0] as unknown as { stageId: string; branchKey?: string };
+        dispatchLog.push({ stageId: step.stageId, branchKey: step.branchKey ?? "default" });
+        return { ok: true, entryRunId: "run-beta-plan", invocationId: "inv-beta-plan" };
+      };
+      const wait: PipelineWorkflowWait = async (entryRunId) => {
+        if (entryRunId === "run-beta-plan") return "completed";
+        throw new Error(`unexpected wait for ${entryRunId}`);
+      };
+      const resolveStage = async (
+        _definition: PipelineDefinition,
+        stageIndex: number,
+        _context: PipelineContext,
+        _stageArtifacts: ReadonlyMap<string, PipelineStageArtifact>,
+        deps?: PipelineStageResolveDeps,
+      ): Promise<PipelineStageResolutionResult> => {
+        if (stageIndex === 2) {
+          return {
+            ok: true,
+            steps: [
+              {
+                behavior: "write",
+                stageId: "plan",
+                stageIndex,
+                branchKey: deps?.branchKey,
+                worktree: STUB_STEP_WORKTREE,
+              } as unknown as AnyWorkflowStep,
+            ],
+          };
+        }
+        return { ok: true, steps: [] };
+      };
+
+      const outcome = await resumePipeline(
+        PIPELINE_ID,
+        { store, dispatch, wait, resolveStage },
+        branchKey === undefined ? {} : { branchKey },
+      );
+      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(dispatchLog).toEqual([{ stageId: "plan", branchKey: "beta" }]);
+      expect(
+        stages().find((stage) => stage.stageId === "plan" && stage.branchKey === "beta")?.workflowInvocationId,
+      ).toBe("run-beta-plan");
+      expect(stages().find((stage) => stage.stageId === "plan" && stage.branchKey === "alpha")).toEqual(
+        alphaPlanBefore,
+      );
+      // @mutate v2/src/daemon/pipeline-execution.ts "return continueAfterAdmission(continuationBranchKey, undefined);" -> "return continueAfterAdmission();"
+    }
+  });
+
+  test("unscoped and explicit-default resume do not dispatch under aggregate running", async () => {
+    for (const branchKey of [undefined, "default"] as const) {
+      const { store, stages } = fakeStore(
+        FAN_OUT_PIPELINE_DEFINITION,
+        {
+          "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
+          "run-alpha-plan": { specPath: "spec/alpha/plan.md" },
+        },
+        { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+      );
+      const intentArtifact: PipelineStageArtifact = {
+        entryRunId: "run-intent",
+        specPath: "ready-intents",
+        downstreamInputs: [...FAN_OUT_DOWNSTREAM],
+      };
+      store.updateStage({
+        pipelineId: PIPELINE_ID,
+        stageId: "intent",
+        patch: { status: "succeeded", artifact: intentArtifact, workflowInvocationId: "run-intent" },
+      });
+      for (const branchKeyName of FAN_OUT_BRANCH_KEYS) {
+        store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey: branchKeyName });
+        store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "plan", branchKey: branchKeyName });
+        store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "implement", branchKey: branchKeyName });
+      }
+      for (const stageId of ["gate", "plan", "implement"] as const) {
+        store.updateStage({ pipelineId: PIPELINE_ID, stageId, branchKey: "default", patch: { status: "skipped" } });
+      }
+      store.updateStage({
+        pipelineId: PIPELINE_ID,
+        stageId: "plan",
+        branchKey: "alpha",
+        patch: { status: "running", workflowInvocationId: "run-alpha-plan" },
+      });
+      store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey: "beta", patch: { status: "approved" } });
+      const before = stages().map((stage) => ({ ...stage }));
+      const pipeline = store.loadPipeline(PIPELINE_ID);
+      if (!pipeline) throw new Error("expected pipeline");
+      expect(derivePipelineState(pipeline)).toBe("running");
+      expect(resumeApprovedGatePendingStrandApplies(pipeline)).toBe(true);
+
+      const dispatchOrder: number[] = [];
+      const outcome = await resumePipeline(
+        PIPELINE_ID,
+        pipelineTestDeps(store, dispatchOrder),
+        branchKey === undefined ? {} : { branchKey },
+      );
+      expect(outcome).toEqual({ kind: "refused", pipelineId: PIPELINE_ID, reason: "pipeline_not_resumable" });
+      expect(dispatchOrder).toEqual([]);
+      expect(stages().map((stage) => ({ ...stage }))).toEqual(before);
+      // @mutate v2/src/daemon/pipeline-execution.ts "if (derivedState === \"running\") {" -> "if (false) {"
+    }
   });
 
   test("refuses terminal succeeded and rejected pipelines without stage dispatch", async () => {
@@ -3571,6 +3829,120 @@ describe("resumePipeline branch scope", () => {
     });
     expect(outcomeDefaultAwaiting).toEqual(outcomeOmittedAwaiting);
     expect(normalizeStageClocks(defaultAwaiting.stages())).toEqual(normalizeStageClocks(omittedAwaiting.stages()));
+  });
+
+  const APPROVED_PENDING_BRANCH = "approved-pending-target";
+  const APPROVED_PENDING_SIBLING = "approved-pending-sibling";
+
+  function setupApprovedGatePendingBranchFixture(store: StateStore): void {
+    const intentArtifact: PipelineStageArtifact = {
+      entryRunId: "run-intent",
+      specPath: "ready-intents",
+      downstreamInputs: [APPROVED_PENDING_BRANCH, APPROVED_PENDING_SIBLING].map((key) => `ready-intents/${key}.md`),
+    };
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      patch: { status: "succeeded", artifact: intentArtifact, workflowInvocationId: "run-intent" },
+    });
+    for (const branchKey of [APPROVED_PENDING_BRANCH, APPROVED_PENDING_SIBLING]) {
+      store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey });
+      store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "plan", branchKey });
+      store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "implement", branchKey });
+    }
+    for (const stageId of ["gate", "plan", "implement"] as const) {
+      store.updateStage({ pipelineId: PIPELINE_ID, stageId, branchKey: "default", patch: { status: "skipped" } });
+    }
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "gate",
+      branchKey: APPROVED_PENDING_BRANCH,
+      patch: { status: "approved" },
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "gate",
+      branchKey: APPROVED_PENDING_SIBLING,
+      patch: { status: "awaiting" },
+    });
+  }
+
+  test("branch-scoped resume continues an approved-gate pending strand without reopenFailedPipeline", async () => {
+    const { store, stages } = fakeStore(
+      FAN_OUT_PIPELINE_DEFINITION,
+      { "run-target-plan": { specPath: "spec/target/plan.md" } },
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+    );
+    setupApprovedGatePendingBranchFixture(store);
+    const before = stages().map((stage) => ({ ...stage }));
+    let reopenCalled = false;
+    const reopenFailedPipeline = store.reopenFailedPipeline.bind(store);
+    store.reopenFailedPipeline = (args) => {
+      reopenCalled = true;
+      return reopenFailedPipeline(args);
+    };
+
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const dispatch: PipelineWorkflowDispatch = async (steps) => {
+      const step = steps[0] as unknown as { stageId: string; branchKey?: string };
+      dispatchLog.push({ stageId: step.stageId, branchKey: step.branchKey ?? "default" });
+      return { ok: true, entryRunId: "run-target-plan", invocationId: "inv-target-plan" };
+    };
+    const wait: PipelineWorkflowWait = async (entryRunId) => {
+      if (entryRunId === "run-target-plan") return "completed";
+      throw new Error(`unexpected wait for ${entryRunId}`);
+    };
+    const resolveStage = async (
+      _definition: PipelineDefinition,
+      stageIndex: number,
+      _context: PipelineContext,
+      _stageArtifacts: ReadonlyMap<string, PipelineStageArtifact>,
+      deps?: PipelineStageResolveDeps,
+    ): Promise<PipelineStageResolutionResult> => {
+      if (stageIndex === 2) {
+        return {
+          ok: true,
+          steps: [
+            {
+              behavior: "write",
+              stageId: "plan",
+              stageIndex,
+              branchKey: deps?.branchKey,
+              worktree: STUB_STEP_WORKTREE,
+            } as unknown as AnyWorkflowStep,
+          ],
+        };
+      }
+      if (stageIndex === 3) {
+        return { ok: false, error: "test: implement stage intentionally fails to pin continuation state" };
+      }
+      return { ok: true, steps: [] };
+    };
+
+    const outcome = await resumePipeline(
+      PIPELINE_ID,
+      { store, dispatch, wait, resolveStage },
+      { branchKey: APPROVED_PENDING_BRANCH },
+    );
+
+    expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+    expect(reopenCalled).toBe(false);
+    expect(dispatchLog).toEqual([{ stageId: "plan", branchKey: APPROVED_PENDING_BRANCH }]);
+    const after = stages();
+    for (const snapshot of before) {
+      if (
+        snapshot.branchKey === APPROVED_PENDING_BRANCH &&
+        (snapshot.stageId === "plan" || snapshot.stageId === "implement")
+      ) {
+        continue;
+      }
+      expect(after.find((stage) => stage.id === snapshot.id)).toEqual(snapshot);
+    }
+    const planAfter = stageRecord(after, "plan", APPROVED_PENDING_BRANCH);
+    expect(planAfter?.status).toBe("succeeded");
+    expect(planAfter?.workflowInvocationId).toBe("run-target-plan");
+    // @mutate v2/src/daemon/pipeline-execution.ts "return { kind: \"admissible\", reopenFailed: false };" -> "return { kind: \"not_resumable\", status: record.status };"
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (admission.reopenFailedStage) {" -> "if (true) {"
   });
 });
 

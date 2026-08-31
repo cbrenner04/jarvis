@@ -32,19 +32,19 @@ Daemon pipeline continuation and resume admission in `v2/src/daemon/pipeline-exe
 
 ## Acceptance criteria
 
-- [ ] `pipeline-execution.test.ts` proves unscoped and explicit-default `resumePipeline` admit an approved-gate plus pending-successor strand, create the successor run linkage, and fail against the pre-fix `pipeline_not_resumable` refusal.
-- [ ] `daemon-pipeline-resume.test.ts` proves unscoped and explicit-default `pipeline_resume` admit the same strand and create the successor run linkage; it fails against the pre-fix `pipeline_not_resumable` refusal.
-- [ ] `pipeline-execution.test.ts` proves named-lane `resumePipeline` admits the strand only for the requested lane, continues via `continuePipeline` without `reopenFailedPipeline`, and leaves sibling gates and stages unchanged; it fails against the pre-fix `branch_not_resumable`, `pipeline_not_resumable`, or `no_failed_stage` refusal.
-- [ ] `daemon-pipeline-resume.test.ts` proves named-lane `pipeline_resume` admits the strand only for the requested lane, continues without `reopenFailedPipeline`, and leaves sibling gates and stages unchanged; it fails against the pre-fix refusal.
-- [ ] `pipeline-execution.test.ts` proves unscoped and explicit-default `resumePipeline` do not dispatch a ready approved-gate pending strand when aggregate derived state is `awaiting-approval`; reachable on mixed fan-out pipelines where unscoped resume is claim-only today.
-- [ ] `pipeline-execution.test.ts` — `refuses terminal succeeded and rejected pipelines without stage dispatch` stays green.
-- [ ] `pipeline-execution.test.ts` — `refuses derived running, pending, and interrupted pipelines without stage dispatch` stays green.
-- [ ] `v2/docs/pipeline-execution.md` documents approved-gate pending-strand admission for unscoped, explicit-default, and named-lane `pipeline resume`, including the `awaiting-approval` mixed fan-out boundary.
-- [ ] `v2/docs/operator-runbook.md` documents that `pipeline resume` recovers an approved-gate pending strand without reopening a failed stage.
-- [ ] `v2/docs/v1-behaviors.md` records corrected approved-gate pending-strand resume behavior in the v1 parity baseline.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `pipeline-execution.test.ts` proves unscoped and explicit-default `resumePipeline` admit an approved-gate plus pending-successor strand, create the successor run linkage, and fail against the pre-fix `pipeline_not_resumable` refusal.
+- [x] `daemon-pipeline-resume.test.ts` proves unscoped and explicit-default `pipeline_resume` admit the same strand and create the successor run linkage; it fails against the pre-fix `pipeline_not_resumable` refusal.
+- [x] `pipeline-execution.test.ts` proves named-lane `resumePipeline` admits the strand only for the requested lane, continues via `continuePipeline` without `reopenFailedPipeline`, and leaves sibling gates and stages unchanged; it fails against the pre-fix `branch_not_resumable`, `pipeline_not_resumable`, or `no_failed_stage` refusal.
+- [x] `daemon-pipeline-resume.test.ts` proves named-lane `pipeline_resume` admits the strand only for the requested lane, continues without `reopenFailedPipeline`, and leaves sibling gates and stages unchanged; it fails against the pre-fix refusal.
+- [x] `pipeline-execution.test.ts` proves unscoped and explicit-default `resumePipeline` do not dispatch a ready approved-gate pending strand when aggregate derived state is `awaiting-approval`; reachable on mixed fan-out pipelines where unscoped resume is claim-only today.
+- [x] `pipeline-execution.test.ts` — `refuses terminal succeeded and rejected pipelines without stage dispatch` stays green.
+- [x] `pipeline-execution.test.ts` — `refuses derived running, pending, and interrupted pipelines without stage dispatch` stays green.
+- [x] `v2/docs/pipeline-execution.md` documents approved-gate pending-strand admission for unscoped, explicit-default, and named-lane `pipeline resume`, including the `awaiting-approval` mixed fan-out boundary.
+- [x] `v2/docs/operator-runbook.md` documents that `pipeline resume` recovers an approved-gate pending strand without reopening a failed stage.
+- [x] `v2/docs/v1-behaviors.md` records corrected approved-gate pending-strand resume behavior in the v1 parity baseline.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

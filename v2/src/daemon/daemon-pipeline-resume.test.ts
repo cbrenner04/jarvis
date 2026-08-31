@@ -218,6 +218,52 @@ function setupFanOutResumePipeline(store: StateStore): { pipelineId: string; bef
   return { pipelineId, before };
 }
 
+const APPROVED_PENDING_BRANCH = "approved-pending-target";
+const APPROVED_PENDING_SIBLING = "approved-pending-sibling";
+
+function setupApprovedGatePendingFanOutFixture(store: StateStore, pipelineId: string): void {
+  const intentArtifact: PipelineStageArtifact = {
+    entryRunId: "run-intent",
+    specPath: "ready-intents",
+    downstreamInputs: [APPROVED_PENDING_BRANCH, APPROVED_PENDING_SIBLING].map((key) => `ready-intents/${key}.md`),
+  };
+  store.updateStage({
+    pipelineId,
+    stageId: "intent",
+    patch: { status: "succeeded", artifact: intentArtifact, workflowInvocationId: "run-intent" },
+  });
+  for (const branchKey of [APPROVED_PENDING_BRANCH, APPROVED_PENDING_SIBLING]) {
+    store.createPipelineStageBranch({ pipelineId, stageId: "gate", branchKey });
+    store.createPipelineStageBranch({ pipelineId, stageId: "plan", branchKey });
+    store.createPipelineStageBranch({ pipelineId, stageId: "implement", branchKey });
+  }
+  for (const stageId of ["gate", "plan", "implement"] as const) {
+    store.updateStage({ pipelineId, stageId, branchKey: "default", patch: { status: "skipped" } });
+  }
+  store.updateStage({
+    pipelineId,
+    stageId: "gate",
+    branchKey: APPROVED_PENDING_BRANCH,
+    patch: { status: "approved" },
+  });
+  store.updateStage({
+    pipelineId,
+    stageId: "gate",
+    branchKey: APPROVED_PENDING_SIBLING,
+    patch: { status: "awaiting" },
+  });
+}
+
+function setupApprovedGatePendingFanOutPipeline(store: StateStore): {
+  pipelineId: string;
+  before: PipelineStageRecord[];
+} {
+  const pipelineId = store.createPipeline({ definition: FAN_OUT_PIPELINE_DEFINITION, context: ADMISSION_CONTEXT });
+  setupApprovedGatePendingFanOutFixture(store, pipelineId);
+  const before = store.loadPipeline(pipelineId)?.stages.map((stage) => ({ ...stage })) ?? [];
+  return { pipelineId, before };
+}
+
 let stateStore: StateStore;
 let dbPath: string;
 let handlers: ReturnType<typeof createRunControlHandlers>;
@@ -372,6 +418,53 @@ test("pipeline_resume on awaiting-approval returns claim_refused without dispatc
   expect(stateStore.loadPipeline(pipelineId)?.stages.find((stage) => stage.stageId === "s3")?.status).toBe("pending");
 });
 
+test("pipeline_resume admits unscoped and explicit-default approved-gate pending strands", async () => {
+  for (const branchKey of [undefined, "default"] as const) {
+    const pipelineId = stateStore.createPipeline({ definition: APPROVAL_DEFINITION, context: ADMISSION_CONTEXT });
+    stateStore.updateStage({
+      pipelineId,
+      stageId: "s1",
+      patch: { status: "succeeded", workflowInvocationId: "inv-1", artifact: { specPath: "spec/s1.md" } },
+    });
+    stateStore.updateStage({ pipelineId, stageId: "gate", patch: { status: "approved" } });
+
+    const plan = controllableBindingFactory();
+    const resumeHandlers = createRunControlHandlers({
+      stateStore,
+      writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      resolveStage: async (_definition, stageIndex) => ({
+        ok: true,
+        steps:
+          stageIndex === 2 ? [createWriteStep("plan", "pipeline-plan", plan.factory, { suppressShrink: true })] : [],
+      }),
+    });
+
+    const response = await resumeHandlers.pipeline_resume(
+      requestFrame("resume", "pipeline_resume", {
+        pipelineId,
+        ...(branchKey === undefined ? {} : { branchKey }),
+      }),
+      new AbortController().signal,
+    );
+    expect(response).toEqual({ kind: "response", result: { kind: "resumed", pipelineId } });
+    await waitFor(
+      () => stateStore.loadPipeline(pipelineId)?.stages.find((stage) => stage.stageId === "s3")?.status === "running",
+    );
+    plan.settle();
+    await waitFor(
+      () => stateStore.loadPipeline(pipelineId)?.stages.find((stage) => stage.stageId === "s3")?.status === "succeeded",
+    );
+    await flushBackgroundRuns();
+    expect(
+      stateStore.loadPipeline(pipelineId)?.stages.find((stage) => stage.stageId === "s3")?.workflowInvocationId,
+    ).not.toBeNull();
+    resumeHandlers.close();
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (!resumeAwaitingClaimsOnly(derivedState) && resumeApprovedGatePendingStrandApplies(pipeline)) {" -> "if (false) {"
+  }
+});
+
 test("pipeline_resume branchKey replays only the named branch while sibling gates stay awaiting", async () => {
   const { pipelineId, before } = setupFanOutResumePipeline(stateStore);
 
@@ -480,6 +573,92 @@ test("pipeline_resume branchKey replays only the named branch while sibling gate
   expect(intentAfter).toEqual(intentBefore);
   expect(intentAfter?.status).toBe("succeeded");
   expect(intentAfter?.workflowInvocationId).toBe("run-intent");
+});
+
+test("pipeline_resume continues an approved-gate pending strand on the named branch without reopenFailedPipeline", async () => {
+  const { pipelineId, before } = setupApprovedGatePendingFanOutPipeline(stateStore);
+  let reopenCalled = false;
+  const reopenFailedPipeline = stateStore.reopenFailedPipeline.bind(stateStore);
+  stateStore.reopenFailedPipeline = (args) => {
+    reopenCalled = true;
+    return reopenFailedPipeline(args);
+  };
+
+  const plan = controllableBindingFactory();
+  const dispatchLog: Array<{ stageIndex: number; branchKey: string }> = [];
+  const resolveStage = async (
+    _definition: PipelineDefinition,
+    stageIndex: number,
+    _context: PipelineContext,
+    _stageArtifacts: ReadonlyMap<string, PipelineStageArtifact>,
+    deps?: PipelineStageResolveDeps,
+  ): Promise<PipelineStageResolutionResult> => {
+    const branchKey = deps?.branchKey ?? "default";
+    dispatchLog.push({ stageIndex, branchKey });
+    if (stageIndex === 2) {
+      return {
+        ok: true,
+        steps: [createWriteStep(`plan-${branchKey}`, branchKey, plan.factory, { suppressShrink: true })],
+      };
+    }
+    return { ok: false, error: "test: implement stage intentionally fails to pin continuation state" };
+  };
+
+  const resumeHandlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    resolveStage,
+  });
+
+  const response = await resumeHandlers.pipeline_resume(
+    requestFrame("resume", "pipeline_resume", { pipelineId, branchKey: APPROVED_PENDING_BRANCH }),
+    new AbortController().signal,
+  );
+  expect(response).toEqual({ kind: "response", result: { kind: "resumed", pipelineId } });
+  expect(reopenCalled).toBe(false);
+
+  await waitFor(
+    () =>
+      stateStore
+        .loadPipeline(pipelineId)
+        ?.stages.find((stage) => stage.stageId === "plan" && stage.branchKey === APPROVED_PENDING_BRANCH)?.status ===
+      "running",
+  );
+  plan.settle();
+  await waitFor(
+    () =>
+      stateStore
+        .loadPipeline(pipelineId)
+        ?.stages.find((stage) => stage.stageId === "plan" && stage.branchKey === APPROVED_PENDING_BRANCH)?.status ===
+      "succeeded",
+  );
+  await flushBackgroundRuns();
+
+  const after = stateStore.loadPipeline(pipelineId)?.stages ?? [];
+  expect(dispatchLog).toEqual([
+    { stageIndex: 2, branchKey: APPROVED_PENDING_BRANCH },
+    { stageIndex: 3, branchKey: APPROVED_PENDING_BRANCH },
+  ]);
+  expect(
+    after.find((stage) => stage.stageId === "plan" && stage.branchKey === APPROVED_PENDING_BRANCH)
+      ?.workflowInvocationId,
+  ).not.toBeNull();
+  for (const snapshot of before) {
+    if (
+      snapshot.branchKey === APPROVED_PENDING_BRANCH &&
+      (snapshot.stageId === "plan" || snapshot.stageId === "implement")
+    ) {
+      continue;
+    }
+    expect(after.find((stage) => stage.id === snapshot.id)).toEqual(snapshot);
+  }
+  expect(after.find((stage) => stage.stageId === "gate" && stage.branchKey === APPROVED_PENDING_SIBLING)?.status).toBe(
+    "awaiting",
+  );
+  resumeHandlers.close();
+  // @mutate v2/src/daemon/pipeline-execution.ts "return { kind: \"admissible\", reopenFailed: false };" -> "return { kind: \"not_resumable\", status: record.status };"
 });
 
 test("pipeline_resume refuses the named branch's own awaiting gate without dispatch", async () => {

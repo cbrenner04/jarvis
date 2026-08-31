@@ -27,10 +27,10 @@ Primary: `v2/src/execution/implement-workflow-steps.ts` (`resolveChainedImplemen
 
 ## Acceptance criteria
 
-- [ ] `implement-workflow-steps.test.ts` — `chained pipeline preflight uses prior worktree as git root and prior branch for spec availability while publication baseRef is default branch` (or successor) asserts `git cat-file` spec-availability uses `prior.branch` while `input.baseRef` is the repository default branch; fails against current `isSpecAvailableInBaseRef(..., input.baseRef, …)` coupling (reachable on main: `chained pipeline preflight uses prior worktree as git root and prior branch as baseRef` passes `baseRef: planBranch` and expects cat-file on `planBranch:spec`).
-- [ ] `pipeline-stage-resolve.test.ts` — `implement stage resolves through real preset builders when plan spec exists only on plan worktree branch` stays green with resolved `baseRef` equal to repository default branch, not `prior.branch`.
-- [ ] `pipeline-workflow-preparation-parity.test.ts` stays green when it encodes chained implement preflight/baseRef expectations.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `implement-workflow-steps.test.ts` — `chained pipeline preflight uses prior worktree as git root and prior branch for spec availability while publication baseRef is default branch` (or successor) asserts `git cat-file` spec-availability uses `prior.branch` while `input.baseRef` is the repository default branch; fails against current `isSpecAvailableInBaseRef(..., input.baseRef, …)` coupling (reachable on main: `chained pipeline preflight uses prior worktree as git root and prior branch as baseRef` passes `baseRef: planBranch` and expects cat-file on `planBranch:spec`).
+- [x] `pipeline-stage-resolve.test.ts` — `implement stage resolves through real preset builders when plan spec exists only on plan worktree branch` stays green with resolved `baseRef` equal to repository default branch, not `prior.branch`.
+- [x] `pipeline-workflow-preparation-parity.test.ts` stays green when it encodes chained implement preflight/baseRef expectations.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -482,6 +482,126 @@ describe("executeWorkflow linked implement routing", () => {
       expect(readFileSync(join(worktreePath, "spec", "index.md"), "utf8")).toContain("- [x]");
     });
   });
+
+  test("lands chained spec tree from specReadRoot into the implement worktree before publication", async () => {
+    const planWorktree = mkdtempSync(join(tmpdir(), "chained-spec-landing-plan-"));
+    roots.push(planWorktree);
+    const specDir = join(planWorktree, "spec", "feature");
+    mkdirSync(specDir, { recursive: true });
+    const indexPath = join(specDir, "index.md");
+    writeFileSync(indexPath, "- [ ] [Sub](./00-work.md)\n", "utf8");
+    writeFileSync(join(specDir, "00-work.md"), "# Sub\n\n## Acceptance criteria\n\n- [ ] criterion\n", "utf8");
+
+    const home = createJarvisHome();
+    roots.push(home.jarvisRoot);
+    const branchName = "chained-spec-landing";
+    const worktreePath = join(home.jarvisRoot, "worktrees", "demo", branchName);
+    mkdirSync(worktreePath, { recursive: true });
+    writeFileSync(join(worktreePath, "README.md"), "implement only\n", "utf8");
+
+    const implementStep: WriteWorkflowStep = {
+      ...createStep({
+        stepId: "implement",
+        role: "implement",
+        branchName,
+        specPath: indexPath,
+        expectedArtifactPath: join(specDir, "00-work.md"),
+        createBinding: createBindingFactory(async () => {
+          writeFileSync(join(specDir, "00-work.md"), "# Sub\n\n## Acceptance criteria\n\n- [x] criterion\n", "utf8");
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        }),
+      }),
+      specReadRoot: planWorktree,
+      worktree: {
+        projectRoot: planWorktree,
+        projectName: "demo",
+        branchName,
+        baseRef: "HEAD",
+        jarvisRoot: home.jarvisRoot,
+      },
+      withExternalWorktree: async <T>(
+        args: { branchName: string; projectName: string },
+        run: (worktree: ExternalWorktree) => Promise<T> | T,
+      ): Promise<WithExternalWorktreeResult<T>> => {
+        const wtPath = join(home.jarvisRoot, "worktrees", args.projectName, args.branchName);
+        const existed = existsSync(wtPath);
+        mkdirSync(wtPath, { recursive: true });
+        const value = await run({ path: wtPath, reused: existed });
+        return { worktree: { path: wtPath, reused: existed }, lock: { kind: "acquired" }, value };
+      },
+      linkedIndexRouting: true,
+    };
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [implementStep],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+      expect(readFileSync(join(worktreePath, "spec/feature/index.md"), "utf8")).toContain("- [x]");
+      expect(readFileSync(join(worktreePath, "spec/feature/00-work.md"), "utf8")).toContain("- [x] criterion");
+    });
+  });
+
+  test("routes linked subspecs from specReadRoot when the index lives outside the implement worktree", async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "linked-routing-spec-read-root-"));
+    roots.push(projectRoot);
+    const specDir = join(projectRoot, "spec", "feature");
+    mkdirSync(specDir, { recursive: true });
+    const indexPath = join(specDir, "index.md");
+    writeFileSync(indexPath, "- [ ] [Sub](./00-work.md)\n", "utf8");
+    writeFileSync(join(specDir, "00-work.md"), "# Sub\n\n## Acceptance criteria\n\n- [ ] criterion\n", "utf8");
+
+    const home = createJarvisHome();
+    roots.push(home.jarvisRoot);
+    const branchName = "linked-routing-spec-read-root";
+    const worktreePath = join(home.jarvisRoot, "worktrees", "demo", branchName);
+    mkdirSync(worktreePath, { recursive: true });
+    writeFileSync(join(worktreePath, "README.md"), "implement only\n", "utf8");
+
+    const implementStep: WriteWorkflowStep = {
+      ...createStep({
+        stepId: "implement",
+        role: "implement",
+        branchName,
+        specPath: indexPath,
+        expectedArtifactPath: indexPath,
+        createBinding: createBindingFactory(async ({ cwd }) => {
+          writeFileSync(join(specDir, "00-work.md"), "# Sub\n\n## Acceptance criteria\n\n- [x] criterion\n", "utf8");
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        }),
+      }),
+      specReadRoot: projectRoot,
+      worktree: {
+        projectRoot,
+        projectName: "demo",
+        branchName,
+        baseRef: "HEAD",
+        jarvisRoot: home.jarvisRoot,
+      },
+      withExternalWorktree: async <T>(
+        args: { branchName: string; projectName: string },
+        run: (worktree: ExternalWorktree) => Promise<T> | T,
+      ): Promise<WithExternalWorktreeResult<T>> => {
+        const wtPath = join(home.jarvisRoot, "worktrees", args.projectName, args.branchName);
+        const existed = existsSync(wtPath);
+        mkdirSync(wtPath, { recursive: true });
+        const value = await run({ path: wtPath, reused: existed });
+        return { worktree: { path: wtPath, reused: existed }, lock: { kind: "acquired" }, value };
+      },
+      linkedIndexRouting: true,
+    };
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [implementStep], stateStore: store });
+      expect(result.kind).toBe("complete");
+      expect(readFileSync(indexPath, "utf8")).toContain("- [x]");
+      expect(readFileSync(join(worktreePath, "spec", "feature", "index.md"), "utf8")).toContain("- [x]");
+    });
+  });
 });
 
 describe("executeWorkflow implement patch review", () => {

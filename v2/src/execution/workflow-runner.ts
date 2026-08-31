@@ -45,6 +45,7 @@ import {
 import type { CompletionPublisher } from "./completion-publisher.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 import { getExternalWorktreePath, withExternalWorktree as realWithExternalWorktree } from "./external-worktree.ts";
+import { landImplementSpecTreeFromReadRoot } from "./implement-spec-landing.ts";
 import type { IntentPipelineHandoff } from "./intent-output.ts";
 import { configuredIntentDurableDir, listLandedIntentFiles } from "./intent-output.ts";
 import { deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
@@ -331,6 +332,8 @@ export type WriteWorkflowStep = Omit<WriteLoopInput, "bindings"> & {
   implementReviewBehavior?: ImplementReviewBehavior;
   /** Identifies an admitted external plan so stale reset does not inspect it as worktree content. */
   externalPlanSpec?: true;
+  /** Linked-index routing root when the spec tree lives outside the implement worktree. */
+  specReadRoot?: string;
 };
 
 /** Per-role agent fallback orders for a `review-debate` step's four fixed debate roles. */
@@ -581,6 +584,21 @@ function resolveInWorktree(worktreePath: string, path: string): string {
   return isAbsolute(path) ? path : join(worktreePath, path);
 }
 
+function resolveImplementSpecPathForPublication(step: WriteWorkflowStep, worktreePath: string): string {
+  if (step.externalPlanSpec === true || step.specReadRoot === undefined) {
+    return step.specPath;
+  }
+  const landed = landImplementSpecTreeFromReadRoot({
+    worktreePath,
+    specReadRoot: step.specReadRoot,
+    specPath: step.specPath,
+  });
+  if (!landed.ok) {
+    throw new Error(landed.error);
+  }
+  return landed.specPath;
+}
+
 function linkedImplementRoutingFailureOutcome(
   routing: Extract<LinkedIndexRoutingResult, { ok: false }>,
   totalIterationsConsumed: number,
@@ -707,6 +725,7 @@ async function runLinkedImplementStep(
 ): Promise<WorkflowStepOutcome> {
   const worktreePath = getExternalWorktreePath(step.worktree);
   await (step.withExternalWorktree ?? realWithExternalWorktree)(step.worktree, () => undefined);
+  const linkedProjectRoot = step.specReadRoot ?? worktreePath;
 
   let totalIterationsConsumed = 0;
 
@@ -719,7 +738,7 @@ async function runLinkedImplementStep(
     } catch (error) {
       throw new LinkedIndexReadError(indexPath, error);
     }
-    const routing = resolveActiveLinkedSubspec(indexPath, worktreePath);
+    const routing = resolveActiveLinkedSubspec(indexPath, linkedProjectRoot);
     if (!routing.ok) {
       return linkedImplementRoutingFailureOutcome(routing, totalIterationsConsumed, stepIndex, onStepRunCreated);
     }
@@ -727,7 +746,7 @@ async function runLinkedImplementStep(
     const linkStep: WriteWorkflowStep = {
       ...step,
       stepId: `${step.stepId}~link-${routing.active.index}`,
-      expectedArtifactPath: relative(worktreePath, routing.active.path),
+      expectedArtifactPath: routing.active.path,
     };
 
     const outcome = await runPreparedLinkedWriteStep(
@@ -751,7 +770,7 @@ async function runLinkedImplementStep(
     }
 
     const worktreeIndexPath = resolveInWorktree(worktreePath, step.specPath);
-    const pinnedRouting = resolvePinnedLinkedSubspec(worktreeIndexPath, worktreePath, routing.active.index);
+    const pinnedRouting = resolvePinnedLinkedSubspec(worktreeIndexPath, linkedProjectRoot, routing.active.index);
     if (!pinnedRouting.ok) {
       return linkedImplementRoutingFailureOutcome(pinnedRouting, totalIterationsConsumed, stepIndex, onStepRunCreated);
     }
@@ -869,6 +888,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
 
       if (step.behavior === "write" && step.role === "implement" && !step.suppressShrink && implementReviewEligible) {
         const worktreePath = getExternalWorktreePath(step.worktree);
+        step.specPath = resolveImplementSpecPathForPublication(step, worktreePath);
         const title = resolvePublicationTitle(worktreePath, step.specPath, workflowSnapshot.creationTitle);
         const committed = await createCompletionCommitter()({
           worktreePath,
@@ -1080,7 +1100,15 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       if (completionStep) {
         const worktree = completionStep.worktree;
         const worktreePath = getExternalWorktreePath(worktree);
-        const publicationPath = publicationSpecPath ?? writeStepRun?.specPath ?? completionStep.specPath;
+        const landedSpecPath =
+          completionStep.role === "implement"
+            ? resolveImplementSpecPathForPublication(completionStep, worktreePath)
+            : undefined;
+        if (landedSpecPath !== undefined) {
+          completionStep.specPath = landedSpecPath;
+        }
+        const publicationPath =
+          publicationSpecPath ?? landedSpecPath ?? writeStepRun?.specPath ?? completionStep.specPath;
         try {
           if (preImplementResetAnchor !== undefined) {
             await realAsyncSubprocessRunner.runAsync(

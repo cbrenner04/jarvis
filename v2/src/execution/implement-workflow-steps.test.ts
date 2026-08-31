@@ -893,7 +893,7 @@ describe("buildImplementWorkflowSteps", () => {
     expect(result.error).toContain("Failed to load agent model config");
   });
 
-  test("chained pipeline preflight uses prior worktree as git root and prior branch as baseRef", async () => {
+  test("chained pipeline preflight uses prior worktree as git root and prior branch for spec availability while publication baseRef is default branch", async () => {
     const root = mkdtempSync(join(tmpdir(), "implement-chained-preflight-"));
     initGitRepo(root);
     writeFileSync(join(root, "README.md"), "base\n", "utf8");
@@ -937,7 +937,8 @@ describe("buildImplementWorkflowSteps", () => {
     const result = await buildImplementWorkflowSteps(
       {
         cwd: planWorktree,
-        baseRef: planBranch,
+        baseRef: "main",
+        preflightBaseRef: planBranch,
         specPath: planSpecRel,
         projectRoot: root,
         projectName: "registered",
@@ -957,11 +958,17 @@ describe("buildImplementWorkflowSteps", () => {
     expect(result.ok).toBe(true);
     expect(catFileCalls).toContainEqual({ cwd: planWorktree, ref: `${planBranch}:${planSpecRel}` });
     expect(catFileCalls.some((call) => call.cwd === root && call.ref.startsWith("main:"))).toBe(false);
+    if (!result.ok) return;
+    const write = result.steps[0];
+    expect(write?.behavior).toBe("write");
+    if (write?.behavior !== "write") return;
+    expect(write.worktree.baseRef).toBe("main");
 
-    const wrongBaseRef = await buildImplementWorkflowSteps(
+    const wrongPreflightBaseRef = await buildImplementWorkflowSteps(
       {
         cwd: planWorktree,
         baseRef: "main",
+        preflightBaseRef: "main",
         specPath: planSpecRel,
         projectRoot: root,
         projectName: "registered",
@@ -977,9 +984,9 @@ describe("buildImplementWorkflowSteps", () => {
         resolveActiveLinkedSubspec: () => ({ ok: false, error: "empty", errorKind: "empty_index" }),
       },
     );
-    expect(wrongBaseRef.ok).toBe(false);
-    if (wrongBaseRef.ok) return;
-    expect(wrongBaseRef.error).toContain("Spec path unavailable in base ref main");
+    expect(wrongPreflightBaseRef.ok).toBe(false);
+    if (wrongPreflightBaseRef.ok) return;
+    expect(wrongPreflightBaseRef.error).toContain("Spec path unavailable in base ref main");
   });
 });
 

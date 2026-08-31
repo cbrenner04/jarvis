@@ -199,7 +199,8 @@ describe("pipeline workflow preparation parity", () => {
       if (projectMatch === undefined) throw new Error("expected project match");
       const implementBuilderInput: BuildImplementWorkflowStepsInput = {
         cwd: planWorktree,
-        baseRef: planBranch,
+        baseRef: "main",
+        preflightBaseRef: planBranch,
         specPath: planSpecRel,
         configPath,
         projectRegistry: { demo: { root: repoRoot } },

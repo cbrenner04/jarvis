@@ -22,8 +22,8 @@ Primary: `v2/src/daemon/pipeline-stage-resolve.test.ts`. Out of scope: `resolveP
 
 ## Acceptance criteria
 
-- [ ] `pipeline-stage-resolve.test.ts` — `chained plan stage resolves write-step baseRef to repository default branch, not prior branch` drives chained plan stage resolution through real preset builders and asserts resolved plan write-step `baseRef` is the repository default branch, not `prior.branch`; forward-regression pin (green pre-fix; no implement-style `prior.branch` pin exists in `resolvePlanStage` today).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `pipeline-stage-resolve.test.ts` — `chained plan stage resolves write-step baseRef to repository default branch, not prior branch` drives chained plan stage resolution through real preset builders and asserts resolved plan write-step `baseRef` is the repository default branch, not `prior.branch`; forward-regression pin (green pre-fix; no implement-style `prior.branch` pin exists in `resolvePlanStage` today).
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

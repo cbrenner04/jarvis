@@ -34,7 +34,7 @@ Execution loop
 ## Acceptance criteria
 
 - [ ] `v2/src/execution/write-loop.test.ts` test `per-iteration checkpoint commits despite biome complexity lint on staged edit` drives a settled iteration whose staged edit trips `noExcessiveCognitiveComplexity`, asserts the turn's edits are on the branch afterward, and does not settle `iteration_commit_failed`; it fails against the current `biome check --write` committer that throws on the lint error.
-- [ ] `v2/src/execution/write-loop.test.ts` — `per-iteration checkpoint commits despite biome complexity lint on staged edit`; Mutation checkpoint: its test body carries `// @mutate v2/src/execution/completion-commit.ts "await runCheckpointFormat(" -> "await runCompletionFormat("`, restoring lint-gated checkpoint failure and turning the scoped test red.
+- [ ] The checkpoint commit path is covered by a killing test proving it uses the best-effort formatter, not the terminal completion's fail-closed `biome check --write`: swapping the checkpoint's format call to the strict completion path turns a scoped `write-loop.test.ts` test red (the lint-dirty checkpoint would then fail to commit).
 - [ ] `v2/src/execution/write-loop.test.ts` test `controlled-loss checkpoint commits despite biome complexity lint on quiesced edit` covers abort/kill or watchdog quiescence with a lint-dirty staged edit and asserts checkpoint commit success; it fails against the current lint-gated committer.
 - [ ] `completion-commit.test.ts` test `formats changed files before staging so committed tree passes biome check` stays green (terminal completion hygiene unchanged).
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.

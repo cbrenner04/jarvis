@@ -3,7 +3,7 @@ import { derivePipelineBoundary, type PipelineSnapshot } from "../daemon/pipelin
 import type { PipelineStageArtifact } from "../daemon/pipeline-stage-dispatch.ts";
 import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
 import { isTerminalRunStatus, type RunStatus } from "../persistence/state-store.ts";
-import { type AttentionRow, buildAttentionRows } from "./tui-attention-rows.ts";
+import { type AttentionRow, buildAttentionRows, FAILURE_GLYPH } from "./tui-attention-rows.ts";
 import type { PipelineListResult } from "./tui-daemon-client.ts";
 import { formatAggregateDuration, formatElapsedWallClock } from "./tui-elapsed-format.ts";
 import {
@@ -581,7 +581,8 @@ function attentionRowLine(attentionRow: AttentionRow, selectedNodeId: string | n
   return row(
     untoned(marker),
     separator(),
-    untoned(attentionRow.glyph),
+    // Paint the failure glyph red; gate glyphs stay untoned.
+    attentionRow.glyph === FAILURE_GLYPH ? { text: attentionRow.glyph, tone: "failure" } : untoned(attentionRow.glyph),
     separator(),
     untoned(attentionRow.what),
     separator(),

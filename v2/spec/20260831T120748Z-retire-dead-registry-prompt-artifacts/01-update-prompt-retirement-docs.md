@@ -20,9 +20,9 @@ Operator and v1-parity docs still list the three retired prompts as registered-b
 
 ## Acceptance criteria
 
-- [ ] `v1/docs/prompt-governance.md` no longer lists `plan.prompt.review`, `patch.prompt.review`, or `patch.prompt.review.critic`; fails against the pre-fix unwired rows reachable in that file.
-- [ ] `v1/docs/plan-mode.md` no longer lists `prompts/plan/review.md` in prompt ownership; fails against the pre-fix listing at line 109 in that file.
-- [ ] `v2/docs/v1-behaviors.md` records retirement of `plan.prompt.review`, `patch.prompt.review`, and `patch.prompt.review.critic` from the governed prompt registry; fails against the pre-fix frozen-and-unwired wording for `patch.prompt.review.critic` and the pre-fix absence of `plan.prompt.review` / `patch.prompt.review` retirement notes reachable in that file.
+- [x] `v1/docs/prompt-governance.md` no longer lists `plan.prompt.review`, `patch.prompt.review`, or `patch.prompt.review.critic`; fails against the pre-fix unwired rows reachable in that file.
+- [x] `v1/docs/plan-mode.md` no longer lists `prompts/plan/review.md` in prompt ownership; fails against the pre-fix listing at line 109 in that file.
+- [x] `v2/docs/v1-behaviors.md` records retirement of `plan.prompt.review`, `patch.prompt.review`, and `patch.prompt.review.critic` from the governed prompt registry; fails against the pre-fix frozen-and-unwired wording for `patch.prompt.review.critic` and the pre-fix absence of `plan.prompt.review` / `patch.prompt.review` retirement notes reachable in that file.
 
 ## Documentation updates
 

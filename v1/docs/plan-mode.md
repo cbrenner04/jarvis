@@ -106,7 +106,6 @@ Plan mode executes these phases in order.
 The editable plan prompt templates live in the shared repo-level `prompts/plan/` tree:
 
 - `prompts/plan/draft.md`
-- `prompts/plan/review.md`
 - `prompts/plan/review-adversary.md`
 - `prompts/plan/review-advocate.md`
 - `prompts/plan/review-adjudicator.md`

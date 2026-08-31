@@ -66,7 +66,7 @@ describe("ReviewPromptProfile", () => {
     expect(adjudicator).not.toContain("plan.prompt.review");
   });
 
-  test("isolates bundled human-only guidance in v2 intent and plan review prompts", () => {
+  test("assembles bundled human-only guidance and global fragments in v2 intent and plan review prompts", () => {
     const intentStage = mkdtempSync(join(tmpdir(), "intent-review-guidance-"));
     writeFileSync(join(intentStage, "intent.md"), "# Intent\n\nmarker-free input\n", "utf8");
     const planSpec = mkdtempSync(join(tmpdir(), "plan-review-guidance-"));
@@ -82,5 +82,7 @@ describe("ReviewPromptProfile", () => {
 
     expect(extractSpecGuidance(intentPrompt)).toContain(HUMAN_ONLY_MARKER_GUIDANCE);
     expect(extractSpecGuidance(planPrompt)).toContain(HUMAN_ONLY_MARKER_GUIDANCE);
+    expect(planPrompt.match(/Do not split acceptance-criterion checkboxes across physical lines\./g)).toHaveLength(2);
+    expect(planPrompt).not.toContain("@mutate");
   });
 });

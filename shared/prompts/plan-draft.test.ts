@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_WRITE_STEP_RULES } from "../../v2/src/execution/write-loop-input.ts";
-import { buildPlanDraftPrompt, filterPlanDraftStepRules, PLAN_DRAFT_PROMPT_ID } from "./plan-draft.ts";
+import { buildPlanDraftPrompt, PLAN_DRAFT_PROMPT_ID } from "./plan-draft.ts";
 import { PromptRenderingError } from "./render.ts";
 
 const HARNESS_DIAGNOSTICS_HEADING = "## Prior harness normalizer diagnostics";
@@ -41,7 +41,7 @@ describe("buildPlanDraftPrompt", () => {
     expect(prompt).toContain("Do not emit spec content to stdout");
     expect(prompt).toContain("## Step completion");
     const stepRules = prompt.split("## Step completion\n\n")[1];
-    expect(stepRules).toBe(filterPlanDraftStepRules(DEFAULT_WRITE_STEP_RULES));
+    expect(stepRules).toBe(DEFAULT_WRITE_STEP_RULES);
     expect(stepRules).toContain(HUMAN_ONLY_STEP_RULES);
     expect(stepRules).toContain("production code");
     expect(stepRules).toContain("final line of your response");
@@ -50,7 +50,6 @@ describe("buildPlanDraftPrompt", () => {
   });
 
   test("renders named pre-fix failing-test guidance without checkpoint authoring", () => {
-    // @mutate shared/prompts/plan-draft.ts "!line.startsWith(\"Guard-inversion criteria require\")" -> "line.startsWith(\"Guard-inversion criteria require\")"
     const prompt = buildPlanDraftPrompt({
       name: "my-plan",
       intent: "Change runtime behavior.",

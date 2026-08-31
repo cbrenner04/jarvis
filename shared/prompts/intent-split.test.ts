@@ -44,6 +44,10 @@ describe("buildIntentSplitPrompt", () => {
     const stepRules = prompt.split("## Step completion\n\n")[1];
     expect(stepRules).toBe(DEFAULT_WRITE_STEP_RULES);
     expect(stepRules).toContain(HUMAN_ONLY_STEP_RULES);
+    expect(stepRules).not.toContain("@mutate");
+    expect(stepRules).not.toContain("Guard-inversion criteria require");
+    expect(prompt).not.toContain("@mutate");
+    expect(loadPromptRegistry().getById("global.no-hard-wrap").metadata.revision).toBe("2");
     expect(prompt).not.toContain("No planning labels in code.");
     expect(INTENT_SPLIT_PROMPT_ID).toBe("intent.prompt.split");
   });

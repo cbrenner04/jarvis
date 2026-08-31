@@ -1,0 +1,3 @@
+- Add explicit plan-review regression coverage through an assembled path that includes `global.no-hard-wrap`, asserting the rendered prompt contains no `@mutate`. The current assertion bypasses global-fragment assembly; snapshots provide only indirect protection.
+- Update `v2/docs/test-writing.md` to describe source-clean default step rules and removal of the checkpoint-authoring filter. Its current wording contradicts the implemented durable contract.
+- Remove or rewrite the stale `write.test.ts` comments claiming coverage of the deleted guard-inversion paragraph. Test rationale must describe behavior that still exists.

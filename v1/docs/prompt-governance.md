@@ -15,10 +15,7 @@ The first rollout includes shared global guidance fragments plus prompt artifact
 - `global.naming` (`prompts/global/naming.md`) — shared naming fragment layered
   into patch-mode prompts; forbids planning labels in code identifiers,
   filenames, types, and public API
-- `global.no-hard-wrap` (`prompts/global/no-hard-wrap.md`) — shared fragment
-  layered into agent-facing prompts after `global.terse`; forbids hard-wrapping
-  authored markdown (specs, ready-intents, seeds, docs, PR bodies) and splitting
-  `@mutate` directives or acceptance-criterion checkboxes across physical lines
+- `global.no-hard-wrap` (`prompts/global/no-hard-wrap.md`) — shared fragment layered into agent-facing prompts after `global.terse`; forbids hard-wrapping authored markdown (specs, ready-intents, seeds, docs, PR bodies) and splitting acceptance-criterion checkboxes across physical lines
 - `plan.defer-to-consumer` (`prompts/plan/defer-to-consumer.md`) — shared
   plan-only deferral fragment layered into plan draft/review prompts to
   avoid inventing precision before a first caller exists

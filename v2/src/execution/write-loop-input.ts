@@ -1,5 +1,4 @@
 import { parseArgs } from "node:util";
-import { filterPlanDraftStepRules } from "../../../shared/prompts/plan-draft.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../../../shared/prompts/step-rules.ts";
 import { WRITE_PARSE_ARG_OPTIONS } from "../cli/command-help-flags.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
@@ -16,7 +15,7 @@ export { DEFAULT_WRITE_STEP_RULES };
 const KILLING_TEST_RULE =
   "When you add or change a comparison operator, boolean guard, or branch condition in production code, add or extend a test that fails when that guard is inverted (for example flipping `===`/`!==`, `<`/`>=`, or dropping a negation). Put it in the file's co-located `<file>.test.ts`, an existing sibling `<file>-*.test.ts` in the same directory, or a direct-importing `*.test.ts` under the same test-surface root (`v1/src/`, `v2/src/`, or `shared/`) — the diff-derived mutation gate resolves killing tests from that co-located ∪ direct-importer union at implement `done`, not only at publication, and not from the wider suite or transitive importers. Do not use production invert hooks.";
 
-export const IMPLEMENT_WRITE_STEP_RULES = `${filterPlanDraftStepRules(DEFAULT_WRITE_STEP_RULES)}\n${KILLING_TEST_RULE}`;
+export const IMPLEMENT_WRITE_STEP_RULES = `${DEFAULT_WRITE_STEP_RULES}\n${KILLING_TEST_RULE}`;
 
 /** Default agent list when config has no `agents` override. */
 export const DEFAULT_WRITE_AGENTS = ["claude"] as const;

@@ -3508,16 +3508,7 @@ async function commitRecoveredPlanLanding(
     branch: context.branch,
     stepId: context.stepId,
   });
-  const boundaryAgent = reviewRun ? reviewCompletionAgent(reviewRun) : undefined;
-  const writeStepId = reviewRun?.workflowSnapshot
-    ? findDurableWriteStepId(reviewRun.workflowSnapshot.steps)
-    : undefined;
-  const writeRun =
-    writeStepId !== undefined
-      ? store.findRunByProjectBranch({ project: context.project, branch: context.branch, stepId: writeStepId })
-      : null;
-  const durableWriteAgent = writeRun ? reviewCompletionAgent(writeRun) : undefined;
-  const agent = publishedCommitAgent(durableWriteAgent, boundaryAgent);
+  const agent = reviewRun ? reviewCompletionAgent(reviewRun) : undefined;
   if (agent === undefined) {
     return {
       kind: "completion_commit_failed",

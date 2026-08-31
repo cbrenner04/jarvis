@@ -66,15 +66,6 @@ export function landImplementSpecTreeFromReadRoot(input: LandImplementSpecTreeIn
     copyFileSync(src, dest);
   }
 
-  const verdictSrc = join(dirname(absoluteSpecPath), "verdict-patch.md");
-  if (existsSync(verdictSrc)) {
-    const relVerdict = relative(specReadRoot, verdictSrc);
-    if (!relVerdict.startsWith("..")) {
-      const dest = join(worktreePath, relVerdict);
-      mkdirSync(dirname(dest), { recursive: true });
-      copyFileSync(verdictSrc, dest);
-    }
-  }
-
+  // verdict-patch.md is already copied by the markdown loop above (it lives in specDir); no dedicated pass needed.
   return { ok: true, specPath: relSpecPath };
 }

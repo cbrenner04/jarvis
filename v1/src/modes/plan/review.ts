@@ -1,7 +1,6 @@
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
-import { filterPlanDraftStepRules } from "../../../../shared/prompts/plan-draft.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
 import { detectBlocker } from "../../../../shared/spec-parser.ts";
@@ -80,12 +79,10 @@ export function buildReviewPrompt(opts: {
           ? "plan.prompt.review.critic"
           : "plan.prompt.review.adversary";
 
-  let template = filterPlanDraftStepRules(
-    assemblePromptForStep({
-      registry,
-      stepPromptId: promptId,
-    }),
-  );
+  let template = assemblePromptForStep({
+    registry,
+    stepPromptId: promptId,
+  });
 
   const workDir = opts.workDirLabel ?? opts.name;
   const targetDir = opts.targetDir ?? "spec";

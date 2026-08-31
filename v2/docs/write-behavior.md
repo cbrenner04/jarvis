@@ -448,7 +448,7 @@ For `jarvis run workflow implement`, `complete` means the authored implement wri
 
 **Workflow-started implement live control:** Implement runs launched via `jarvis run workflow implement` cannot be paused, resumed, or killed via `jarvis run pause/resume/kill`. The workflow step executes atomically to completion within the step's timeout; partial progress cannot be saved. Only `jarvis run start ...` implement runs (direct `write` mode) support live control.
 
-**Implement write-step rules:** `patch.prompt.body` injects filtered step rules (human-only markers, invert-hook prohibition, terminal tokens) and omits checkpoint authoring lines (`Guard-inversion criteria require…`, `Place \`// @mutate\``) that plan draft already filters.
+**Implement write-step rules:** `patch.prompt.body` injects `DEFAULT_WRITE_STEP_RULES`, whose source contains only human-only markers, the invert-hook prohibition, and terminal tokens, then appends the live diff-derived killing-test rule. No checkpoint-authoring filter is needed.
 
 ## Loop outcomes
 

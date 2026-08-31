@@ -1,9 +1,9 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { detectUnfalsifiablePremisesInMarkdown, formatUnfalsifiablePremisesSection } from "../premise-falsification.ts";
-import { filterPlanDraftStepRules } from "./plan-draft.ts";
+import { assemblePromptForStep } from "./assemble.ts";
 import { loadPromptRegistry } from "./registry.ts";
-import { renderArtifactTemplate } from "./render.ts";
+import { renderTemplateWithDeclarations } from "./render.ts";
 import { bindReviewPromptProfile, planReviewProfile } from "./review-profile.ts";
 
 export type PlanReviewPromptContext = { worktreePath: string; specPath: string };
@@ -44,9 +44,11 @@ function renderPlanReviewPrompt(
   verdict = "",
   extra: Record<string, string> = {},
 ): string {
-  const artifact = loadPromptRegistry().getById(promptId);
-  return filterPlanDraftStepRules(
-    renderArtifactTemplate(artifact, {
+  const registry = loadPromptRegistry();
+  return renderTemplateWithDeclarations(
+    assemblePromptForStep({ registry, stepPromptId: promptId }),
+    registry.getById(promptId).metadata.placeholders,
+    {
       WORKDIR: context.worktreePath,
       NAME: basename(context.specPath.replace(/\\/g, "/")),
       INTENT: existsSync(join(context.specPath, "intent.md"))
@@ -57,7 +59,7 @@ function renderPlanReviewPrompt(
       REVIEW_PASS_CONTEXT: "",
       VERDICT: verdict,
       ...extra,
-    }),
+    },
   ).trim();
 }
 

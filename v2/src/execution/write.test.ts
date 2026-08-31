@@ -2,7 +2,6 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { appendFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
-import { filterPlanDraftStepRules } from "../../../shared/prompts/plan-draft.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { landPublication } from "./publication-landing.ts";
 import { checkStagedPlanDraft, executeWrite } from "./write.ts";
@@ -375,7 +374,7 @@ describe("write behavior", () => {
     expect(capturedPrompt).not.toContain("Read the spec at");
   });
 
-  // Inversion target: DEFAULT_WRITE_STEP_RULES — removing, gutting, or inverting polarity in the guard-inversion paragraph turns this test RED.
+  // Pins patch prompt propagation of the source-clean default write-step rules.
   test("patch.prompt.body resolves step placeholders and invokes binding", async () => {
     const { jarvisRoot } = createJarvisHome();
     roots.push(join(jarvisRoot, ".."));
@@ -580,7 +579,7 @@ describe("write behavior", () => {
     expect(existsSync(join(result.worktreePath, ".jarvis-intent-stage", "plan-intent-flag.md"))).toBe(true);
   });
 
-  // Inversion target: DEFAULT_WRITE_STEP_RULES — removing, gutting, or inverting polarity in the guard-inversion paragraph turns this test RED.
+  // Pins plan prompt propagation of the source-clean default write-step rules.
   test("intentSeed branch: agent-instructed write path matches the seeded/validated spec directory", async () => {
     const { jarvisRoot } = createJarvisHome();
     roots.push(join(jarvisRoot, ".."));
@@ -620,9 +619,9 @@ describe("write behavior", () => {
     expect(capturedPrompt).toContain(`under \`${join(result.worktreePath, ".jarvis-plan-stage")}\`.`);
     expect(capturedPrompt).toContain("Do not emit spec content to stdout");
     expect(capturedPrompt).toContain("## Step completion");
-    expect(capturedPrompt).not.toContain(DEFAULT_WRITE_STEP_RULES);
+    expect(capturedPrompt).toContain(DEFAULT_WRITE_STEP_RULES);
     const stepRules = extractFinalStepRules(capturedPrompt);
-    expect(stepRules).toBe(filterPlanDraftStepRules(DEFAULT_WRITE_STEP_RULES));
+    expect(stepRules).toBe(DEFAULT_WRITE_STEP_RULES);
     expect(stepRules).toContain(HUMAN_ONLY_STEP_RULES);
     expect(stepRules).toContain("production code");
     expect(stepRules).toContain("final line of your response");

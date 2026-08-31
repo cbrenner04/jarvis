@@ -33,20 +33,20 @@ Reopening a failed plan stage redispatches its writer but shared stale reset tre
 
 ## Acceptance criteria
 
-- [ ] `pipeline-execution.test.ts` drives whole-pipeline and branch-scoped resume of a `failed` plan stage with uncommitted draft paths, proves shared reset removes and rematerializes the lane from base before plan writer dispatch without `cleanup --abandon`, and fails against the pre-fix dirty-reuse refusal.
-- [ ] `pipeline-execution.test.ts` proves a live run/worktree claim, a remaining staged `## Blocker`, and a plan worktree `HEAD` not descended from base each refuse before dispatch with the blocking state named in captured stale-reset stderr and stage `failureDetail`, and the worktree preserved, including requests with both reset overrides true; it fails against any implementation that clears through those reachable guards.
-- [ ] `daemon-pipeline-resume.test.ts` proves `pipeline_resume` threads `resetDespiteDirty` into the shared dirty-gate reset flag for unscoped and branch-scoped continuation.
-- [ ] `daemon-pipeline-resume.test.ts` proves `pipeline_resume` threads `resetDespiteLandedCriteria` into the shared landed-criteria reset flag independently of `resetDespiteDirty`.
-- [ ] `daemon-pipeline-recover.test.ts` proves `pipeline_recover` admits requests carrying both reset-override RPC fields while preserving corrected-tree recovery without stale-reset dispatch.
-- [ ] `pipeline-execution.test.ts` — `pipeline intent-stage re-dispatch resets a poisoned worktree before the write step` and the existing plan/implement stale-reset refusal pins stay green.
-- [ ] `workflow.test.ts` — `run workflow implement refuses reset when the managed worktree is dirty`, `run workflow plan resets a stale worktree before daemon start`, and related landed-criteria and override pins stay green.
-- [ ] `v2/docs/pipeline-execution.md` documents resume-only failed-plan dirty disposal, shared stale-reset flag threading, and preserved operator-blocker, live-run/worktree ownership, descendant, and landed-criteria guards.
-- [ ] `v2/docs/daemon-host.md` documents the optional `pipeline_resume` / `pipeline_recover` reset-override RPC fields and that recover does not invoke stale reset.
-- [ ] `v2/docs/operator-runbook.md` documents automatic dirty-tree retirement on failed plan redraft-resume and reserves manual `cleanup --abandon` for named preserved-refusal cases.
-- [ ] `v2/docs/v1-behaviors.md` records failed plan-lane resume auto-clear and its preserved guards against the v1 parity baseline.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `pipeline-execution.test.ts` drives whole-pipeline and branch-scoped resume of a `failed` plan stage with uncommitted draft paths, proves shared reset removes and rematerializes the lane from base before plan writer dispatch without `cleanup --abandon`, and fails against the pre-fix dirty-reuse refusal.
+- [x] `pipeline-execution.test.ts` proves a live run/worktree claim, a remaining staged `## Blocker`, and a plan worktree `HEAD` not descended from base each refuse before dispatch with the blocking state named in captured stale-reset stderr and stage `failureDetail`, and the worktree preserved, including requests with both reset overrides true; it fails against any implementation that clears through those reachable guards.
+- [x] `daemon-pipeline-resume.test.ts` proves `pipeline_resume` threads `resetDespiteDirty` into the shared dirty-gate reset flag for unscoped and branch-scoped continuation.
+- [x] `daemon-pipeline-resume.test.ts` proves `pipeline_resume` threads `resetDespiteLandedCriteria` into the shared landed-criteria reset flag independently of `resetDespiteDirty`.
+- [x] `daemon-pipeline-recover.test.ts` proves `pipeline_recover` admits requests carrying both reset-override RPC fields while preserving corrected-tree recovery without stale-reset dispatch.
+- [x] `pipeline-execution.test.ts` — `pipeline intent-stage re-dispatch resets a poisoned worktree before the write step` and the existing plan/implement stale-reset refusal pins stay green.
+- [x] `workflow.test.ts` — `run workflow implement refuses reset when the managed worktree is dirty`, `run workflow plan resets a stale worktree before daemon start`, and related landed-criteria and override pins stay green.
+- [x] `v2/docs/pipeline-execution.md` documents resume-only failed-plan dirty disposal, shared stale-reset flag threading, and preserved operator-blocker, live-run/worktree ownership, descendant, and landed-criteria guards.
+- [x] `v2/docs/daemon-host.md` documents the optional `pipeline_resume` / `pipeline_recover` reset-override RPC fields and that recover does not invoke stale reset.
+- [x] `v2/docs/operator-runbook.md` documents automatic dirty-tree retirement on failed plan redraft-resume and reserves manual `cleanup --abandon` for named preserved-refusal cases.
+- [x] `v2/docs/v1-behaviors.md` records failed plan-lane resume auto-clear and its preserved guards against the v1 parity baseline.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

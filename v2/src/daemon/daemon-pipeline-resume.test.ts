@@ -613,6 +613,74 @@ test("pipeline_resume forwards a non-blank branchKey unchanged, not trimmed", as
   expect(stateStore.loadPipeline(pipelineId)?.stages.map((stage) => ({ ...stage }))).toEqual(before);
 });
 
+test.each([
+  { scope: "unscoped", resetDespiteDirty: true, resetDespiteLandedCriteria: false },
+  { scope: "branch", resetDespiteDirty: true, resetDespiteLandedCriteria: false },
+  { scope: "unscoped", resetDespiteDirty: false, resetDespiteLandedCriteria: true },
+  { scope: "branch", resetDespiteDirty: false, resetDespiteLandedCriteria: true },
+] as const)("pipeline_resume threads independent stale-reset flags ($scope dirty=$resetDespiteDirty landed=$resetDespiteLandedCriteria)", async ({
+  scope,
+  resetDespiteDirty,
+  resetDespiteLandedCriteria,
+}) => {
+  let pipelineId: string;
+  let branchKey: string | undefined;
+  if (scope === "branch") {
+    ({ pipelineId } = setupFanOutResumePipeline(stateStore));
+    branchKey = RESUME_BRANCH_TARGET;
+    stateStore.updateStage({
+      pipelineId,
+      stageId: "plan",
+      branchKey,
+      patch: { status: "succeeded", artifact: { entryRunId: "run-target-plan", specPath: "spec/target" } },
+    });
+    stateStore.updateStage({ pipelineId, stageId: "implement", branchKey, patch: { status: "failed" } });
+  } else {
+    const definition: PipelineDefinition = {
+      name: "resume-reset-flags",
+      stages: [
+        { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+      ],
+    };
+    pipelineId = stateStore.createPipeline({ definition, context: ADMISSION_CONTEXT });
+    stateStore.updateStage({ pipelineId, stageId: "intent", patch: { status: "succeeded" } });
+    stateStore.updateStage({ pipelineId, stageId: "implement", patch: { status: "failed" } });
+  }
+
+  const captured: Array<{ skipDirtyWorktreeGate: boolean; skipLandedCriteriaGate: boolean }> = [];
+  const flagHandlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: createFakeWriteLoopExecutor().executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    daemonSocketPath: "/unused-pipeline-resume-flags.sock",
+    resolveStage: async (_definition, _stageIndex, _context, _artifacts, deps) => {
+      if (deps?.staleReset?.flags !== undefined) captured.push(deps.staleReset.flags);
+      return { ok: false, error: "captured reset flags" };
+    },
+  });
+  const response = await flagHandlers.pipeline_resume(
+    requestFrame("resume-flags", "pipeline_resume", {
+      pipelineId,
+      ...(branchKey !== undefined ? { branchKey } : {}),
+      resetDespiteDirty,
+      resetDespiteLandedCriteria,
+    }),
+    new AbortController().signal,
+  );
+
+  expect(response).toEqual({ kind: "response", result: { kind: "resumed", pipelineId } });
+  await waitFor(() => captured.length > 0);
+  expect(captured).toEqual([
+    {
+      skipDirtyWorktreeGate: resetDespiteDirty,
+      skipLandedCriteriaGate: resetDespiteLandedCriteria,
+    },
+  ]);
+  flagHandlers.close();
+});
+
 test("pipeline_resume dispatches chained plan and implement stages after prior worktree removal when input lives on durable branch", async () => {
   const priorJarvisHome = process.env.JARVIS_HOME;
   const jarvisRoot = mkdtempSync(join(tmpdir(), "pipeline-resume-jarvis-home-"));

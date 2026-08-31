@@ -1,8 +1,7 @@
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { isAbsolute, join, normalize, relative, resolve } from "node:path";
 import ts from "typescript";
 import { guarded } from "../../../scripts/guard-deterministic-daemon-tests.ts";
-import { resolveRenderObserverTests } from "../../../shared/prompts/render-observer-tests.ts";
 import { type ChangedLine, changedPathsFromDiff, defaultGitDiff, isProductionFile, parseDiff } from "./diff-scan.ts";
 import { importedModulePaths, resolveImportedModule } from "./runtime-smoke-verifier.ts";
 
@@ -100,6 +99,67 @@ export const MAX_CONCURRENT_VERIFIER_TEST_RUNS = 4;
 export const MAX_IMPORTER_DISCOVERY_CANDIDATES_PER_FILE = 200;
 
 const IMPORTER_SCAN_SURFACE_PREFIXES = ["v1/src/", "v2/src/", "shared/"] as const;
+const RENDER_OBSERVER_MAP_RELATIVE_PATH = "shared/prompts/render-observer-tests.ts";
+const RENDER_OBSERVER_MAP_BINDING = "RENDER_OBSERVER_TESTS";
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: TS-AST walk over the observer-map object literal; extracting the node handlers would fragment the parse
+export function extractRenderObserverMapFromSource(source: string): Record<string, readonly string[]> | null {
+  let sourceFile: ts.SourceFile;
+  try {
+    sourceFile = ts.createSourceFile(RENDER_OBSERVER_MAP_RELATIVE_PATH, source, ts.ScriptTarget.Latest, true);
+  } catch {
+    return null;
+  }
+
+  let mapInitializer: ts.ObjectLiteralExpression | undefined;
+  for (const node of sourceFile.statements) {
+    if (!ts.isVariableStatement(node)) continue;
+    for (const decl of node.declarationList.declarations) {
+      if (!ts.isIdentifier(decl.name) || decl.name.text !== RENDER_OBSERVER_MAP_BINDING) continue;
+      if (decl.initializer === undefined || !ts.isObjectLiteralExpression(decl.initializer)) return null;
+      mapInitializer = decl.initializer;
+    }
+  }
+  if (mapInitializer === undefined) return null;
+
+  const map: Record<string, readonly string[]> = {};
+  for (const property of mapInitializer.properties) {
+    if (!ts.isPropertyAssignment(property)) return null;
+    if (!ts.isStringLiteral(property.name) && !ts.isNoSubstitutionTemplateLiteral(property.name)) return null;
+    const key = property.name.text;
+    if (!ts.isArrayLiteralExpression(property.initializer)) return null;
+    const values: string[] = [];
+    for (const element of property.initializer.elements) {
+      if (!ts.isStringLiteral(element)) return null;
+      values.push(element.text);
+    }
+    map[key] = values;
+  }
+  return map;
+}
+
+function observerPathConfinedToWorktree(worktreePath: string, observerPath: string): boolean {
+  if (observerPath.length === 0 || isAbsolute(observerPath) || observerPath.includes("\\")) return false;
+  const normalized = normalize(observerPath).replace(/\\/g, "/");
+  if (
+    normalized !== observerPath ||
+    normalized.startsWith("../") ||
+    normalized === ".." ||
+    normalized.includes("/../")
+  ) {
+    return false;
+  }
+  const candidate = resolve(worktreePath, observerPath);
+  try {
+    const canonicalWorktree = realpathSync(worktreePath);
+    const canonicalCandidate = realpathSync(candidate);
+    const rel = relative(canonicalWorktree, canonicalCandidate);
+    return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+  } catch {
+    const rel = relative(resolve(worktreePath), candidate);
+    return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+  }
+}
 
 let peakConcurrentVerifierTestRuns = 0;
 let currentConcurrentVerifierTestRuns = 0;
@@ -797,8 +857,18 @@ async function verifyChangedPrompts(
   });
   for (const [index, promptPath] of changedPrompts.entries()) {
     if (index >= MAX_PROMPT_RENDER_VERIFICATIONS || now() >= deadline) return missingRenderCoverage(promptPath);
-    const observerTests = resolveRenderObserverTests(promptPath);
+    let mapSource: string;
+    try {
+      mapSource = await readFile(`${input.worktreePath}/${RENDER_OBSERVER_MAP_RELATIVE_PATH}`);
+    } catch {
+      return missingRenderCoverage(promptPath);
+    }
+    const map = extractRenderObserverMapFromSource(mapSource);
+    const observerTests = map?.[promptPath];
     if (observerTests === undefined || observerTests.length === 0) return missingRenderCoverage(promptPath);
+    for (const observerPath of observerTests) {
+      if (!observerPathConfinedToWorktree(input.worktreePath, observerPath)) return missingRenderCoverage(promptPath);
+    }
     const renderedOutputObserved = await verifyPromptRenderCoverage(
       promptPath,
       changedLinesByFile.get(promptPath) ?? [],

@@ -20,20 +20,20 @@ When the idle-output watchdog fires, stall settlement carries only accumulated s
 
 ## Acceptance criteria
 
-- [ ] `shared/invocation/agents.test.ts` tests `idle output expiry settles stall without joining a silent child` and `idle output expiry joins the child before settling stall` each stream stderr and stdout before idle expiry and assert a `stall` whose `stderr` is `${errBuf}${outBuf}` in that order; both fail against stderr-only stall settlement.
-- [ ] A `shared/invocation/agents.test.ts` session-log regression runs a resolved, stdout-streaming binding through actual idle-stall settlement and `executeWithQuotaFallback`, then verifies the stream is recorded only as combined `inbound_stderr` diagnostics; it fails against the pre-fix stderr-only settlement.
-- [ ] The same session-log regression proves an output-silent stalled binding writes no `inbound_stdout` or `inbound_stderr` payload, distinguishing real silence from a discarded stdout buffer.
-- [ ] `shared/invocation/agents.test.ts` test `cursor binding still stalls on output-silent invocation past idleOutputMs` stays green (silent stall diagnostics unchanged).
-- [ ] `shared/invocation/agents.test.ts` tests `output clears the previous idle expiry`, `worktree activity re-arms the idle timer for a silent child`, `sidecar-only worktree activity does not re-arm the idle timer`, and `claude binding threads idleOutputMs through and re-arms the idle timer on stdout` stay green (watchdog timing, re-arming, and process handling unchanged).
-- [ ] `shared/invocation/execute.test.ts` test `stops on stall instead of advancing the default binding chain` and `v2/src/daemon/run-operator-error.test.ts` test `composeRunOperatorError maps failureKind %s from log and store-only failed paths` stay green (`stall` classification unchanged).
-- [ ] `v2/docs/operator-runbook.md`, `v2/docs/v1-behaviors.md`, and `v2/docs/shared-invocation.md` state that stalled stdout is appended to diagnostics and written under `inbound_stderr`, never `inbound_stdout`; an empty stalled inbound payload means real silence.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v1` passes.
-- [ ] `bun run test:integration:v1` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
-- [ ] `bun run test:shared` passes.
-- [ ] `bun run test:integration:shared` passes.
+- [x] `shared/invocation/agents.test.ts` tests `idle output expiry settles stall without joining a silent child` and `idle output expiry joins the child before settling stall` each stream stderr and stdout before idle expiry and assert a `stall` whose `stderr` is `${errBuf}${outBuf}` in that order; both fail against stderr-only stall settlement.
+- [x] A `shared/invocation/agents.test.ts` session-log regression runs a resolved, stdout-streaming binding through actual idle-stall settlement and `executeWithQuotaFallback`, then verifies the stream is recorded only as combined `inbound_stderr` diagnostics; it fails against the pre-fix stderr-only settlement.
+- [x] The same session-log regression proves an output-silent stalled binding writes no `inbound_stdout` or `inbound_stderr` payload, distinguishing real silence from a discarded stdout buffer.
+- [x] `shared/invocation/agents.test.ts` test `cursor binding still stalls on output-silent invocation past idleOutputMs` stays green (silent stall diagnostics unchanged).
+- [x] `shared/invocation/agents.test.ts` tests `output clears the previous idle expiry`, `worktree activity re-arms the idle timer for a silent child`, `sidecar-only worktree activity does not re-arm the idle timer`, and `claude binding threads idleOutputMs through and re-arms the idle timer on stdout` stay green (watchdog timing, re-arming, and process handling unchanged).
+- [x] `shared/invocation/execute.test.ts` test `stops on stall instead of advancing the default binding chain` and `v2/src/daemon/run-operator-error.test.ts` test `composeRunOperatorError maps failureKind %s from log and store-only failed paths` stay green (`stall` classification unchanged).
+- [x] `v2/docs/operator-runbook.md`, `v2/docs/v1-behaviors.md`, and `v2/docs/shared-invocation.md` state that stalled stdout is appended to diagnostics and written under `inbound_stderr`, never `inbound_stdout`; an empty stalled inbound payload means real silence.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v1` passes.
+- [x] `bun run test:integration:v1` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
+- [x] `bun run test:shared` passes.
+- [x] `bun run test:integration:shared` passes.
 
 ## Documentation updates
 

@@ -434,7 +434,7 @@ When a write step times out after at least one linked subspec's non-human-only a
 
 ### `idle_output_timeout` with committed checkpoint
 
-When a write-step inactivity stall settles `idle_output_timeout` after the boundary checkpoint produced a fresh `iteration_commit` `commitSha`, terminal `loop_finished.resumable: true` projects `error.nextAction: "resume"`. Agent output and debounced non-sidecar file activity under the invocation `cwd` both re-arm this watchdog; `.jarvis-*` and `verdict-*.md` sidecar writes do not. Recovery is `jarvis run resume` on the retained branch and worktree — not `resetStaleWorkspace`, not a full workflow re-dispatch. A stall with no checkpoint commit (`resumable: false`) stays `nextAction: "stop"`; re-dispatch the workflow after inspecting `jarvis run log`.
+When a write-step inactivity stall settles `idle_output_timeout` after the boundary checkpoint produced a fresh `iteration_commit` `commitSha`, terminal `loop_finished.resumable: true` projects `error.nextAction: "resume"`. Agent output and debounced non-sidecar file activity under the invocation `cwd` both re-arm this watchdog; `.jarvis-*` and `verdict-*.md` sidecar writes do not. Recovery is `jarvis run resume` on the retained branch and worktree — not `resetStaleWorkspace`, not a full workflow re-dispatch. A stall with no checkpoint commit (`resumable: false`) stays `nextAction: "stop"`; re-dispatch the workflow after inspecting `jarvis run log`. Write-path stalls open a per-iteration session log; pre-stall streamed output is preserved as combined stderr-then-stdout under `inbound_stderr` only — empty stalled inbound means real silence, not discarded stdout.
 
 ### Salvaging a stranded implement run
 

@@ -1,0 +1,8 @@
+Verifying key claims in the implementation and docs before issuing the verdict.
+## Verdict — required outcomes
+
+1. **Correct `operator-runbook.md` stall-diagnosis placement.** The combined `inbound_stderr` / “empty inbound means real silence” note must describe write-path stalls where a session log is actually opened (`idle_output_timeout`), not unqualified under `role_stalled`. Review-role invocations call `executeWithQuotaFallback` without `sessionLog`, and review failure detail does not surface pre-stall stream content to `jarvis run log`. Leaving the note only under `role_stalled` misstates operator-visible behavior and conflicts with the spec’s intent to fix write-path session-log silence (#3151). `shared-invocation.md` already states the contract; operator-runbook must route operators to the right stall kind and visibility surface.
+
+2. **Relabel the `v1-behaviors.md` idle-stall bullet.** The new entry is marked `[v2 divergence]` but the behavior lives in `shared/invocation/agents.ts` and applies to any caller using shared idle-stall settlement (including v1 paths). The subspec asked for a parity-baseline correction, not a v2-only divergence. The label must accurately reflect shared corrected behavior.
+
+**Rationale:** Core settlement (`${errBuf}${outBuf}` on both idle-stall paths), regression tests, and `shared-invocation.md` satisfy the behavioral acceptance criteria. The two doc defects are the only upheld gaps that would leave operators misdiagnosing stalls or misreading parity scope. No code or test changes are required to close this subspec; optional follow-ups (stdout-only session-log subcase, `write-behavior.md` mirror, `execute.test.ts` stall logging parity) are not blockers.

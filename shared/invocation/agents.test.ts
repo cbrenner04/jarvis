@@ -85,6 +85,29 @@ function fakeSpawn(outcomes: FakeOutcome[]) {
   return { spawn, calls };
 }
 
+function hangWithControllableIdle(
+  bindingSpec: Parameters<typeof createResolvedAgentBinding>[0],
+  opts: Parameters<typeof createResolvedAgentBinding>[1] & { closeOnKill?: boolean } = {},
+) {
+  const { closeOnKill, ...bindingOpts } = opts;
+  const fake = fakeSpawn([closeOnKill === undefined ? { kind: "hang" } : { kind: "hang", closeOnKill }]);
+  let fireIdle: (() => void) | undefined;
+  const binding = createResolvedAgentBinding(bindingSpec, {
+    spawn: fake.spawn,
+    setTimeout: ((callback: Parameters<typeof setTimeout>[0]) => {
+      fireIdle = callback;
+      return { unref() {} } as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout,
+    clearTimeout: (() => {}) as typeof clearTimeout,
+    ...bindingOpts,
+  });
+  return { fake, binding, fireIdle: () => fireIdle?.() };
+}
+
+const STALL_TEST_STDERR = "stderr diagnostic\n";
+const STALL_TEST_STDOUT = "stdout stream\n";
+const STALL_TEST_DIAGNOSTICS = `${STALL_TEST_STDERR}${STALL_TEST_STDOUT}`;
+
 const COMPOSER_CURSOR_BINDING = {
   agentId: "cursor" as const,
   adapterModel: "Composer 2.5",
@@ -411,25 +434,17 @@ describe("createResolvedAgentBinding", () => {
   });
 
   test("idle output expiry settles stall without joining a silent child", async () => {
-    const fake = fakeSpawn([{ kind: "hang" }]);
-    let expiry: (() => void) | undefined;
-    const binding = createResolvedAgentBinding(
+    const { fake, binding, fireIdle } = hangWithControllableIdle(
       { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
-      {
-        spawn: fake.spawn,
-        setTimeout: ((callback: Parameters<typeof setTimeout>[0]) => {
-          expiry = callback;
-          return { unref() {} } as unknown as ReturnType<typeof setTimeout>;
-        }) as typeof setTimeout,
-        clearTimeout: (() => {}) as typeof clearTimeout,
-        watchWorktreeActivity: () => {},
-      },
+      { watchWorktreeActivity: () => {} },
     );
 
     const promise = binding.invoke({ prompt: "p", cwd: "/repo", idleOutputMs: 100 });
-    expiry?.();
+    fake.calls[0]?.child?.stderr.write(STALL_TEST_STDERR);
+    fake.calls[0]?.child?.stdout.write(STALL_TEST_STDOUT);
+    fireIdle();
 
-    await expect(promise).resolves.toEqual({ kind: "stall", stderr: "" });
+    await expect(promise).resolves.toEqual({ kind: "stall", stderr: STALL_TEST_DIAGNOSTICS });
     expect(fake.calls[0]?.child?.killedWith).toEqual([]);
   });
 
@@ -527,18 +542,9 @@ describe("createResolvedAgentBinding", () => {
   });
 
   test("idle output expiry joins the child before settling stall", async () => {
-    const fake = fakeSpawn([{ kind: "hang", closeOnKill: false }]);
-    let expiry: (() => void) | undefined;
-    const binding = createResolvedAgentBinding(
+    const { fake, binding, fireIdle } = hangWithControllableIdle(
       { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
-      {
-        spawn: fake.spawn,
-        setTimeout: ((callback: Parameters<typeof setTimeout>[0]) => {
-          expiry = callback;
-          return { unref() {} } as unknown as ReturnType<typeof setTimeout>;
-        }) as typeof setTimeout,
-        clearTimeout: (() => {}) as typeof clearTimeout,
-      },
+      { closeOnKill: false },
     );
     let invocationSettled = false;
     const promise = binding
@@ -547,7 +553,9 @@ describe("createResolvedAgentBinding", () => {
         invocationSettled = true;
       });
 
-    expiry?.();
+    fake.calls[0]?.child?.stderr.write(STALL_TEST_STDERR);
+    fake.calls[0]?.child?.stdout.write(STALL_TEST_STDOUT);
+    fireIdle();
     await Promise.resolve();
     expect(invocationSettled).toBe(false);
 
@@ -555,7 +563,46 @@ describe("createResolvedAgentBinding", () => {
     child?.stdout.end();
     child?.stderr.end();
     child?.emit("close", null);
-    await expect(promise).resolves.toEqual({ kind: "stall", stderr: "" });
+    await expect(promise).resolves.toEqual({ kind: "stall", stderr: STALL_TEST_DIAGNOSTICS });
+  });
+
+  test("actual idle stalls log combined diagnostics and preserve real silence", async () => {
+    const inbound: { tag: string; text: string }[] = [];
+    const sessionLog = {
+      append(tag: string, text: string) {
+        if (text) inbound.push({ tag, text });
+      },
+      close() {},
+    };
+    const stallCursor = (stdout: string, stderr: string) => {
+      const { fake, binding, fireIdle } = hangWithControllableIdle(COMPOSER_CURSOR_BINDING);
+      const execution = executeWithQuotaFallback({
+        prompt: "p",
+        cwd: "/repo",
+        bindings: [binding],
+        idleOutputMs: 100,
+        sessionLog,
+      });
+      fake.calls[0]?.child?.stderr.write(stderr);
+      fake.calls[0]?.child?.stdout.write(stdout);
+      fireIdle();
+      return execution;
+    };
+    const stdout = `${JSON.stringify({ type: "text_delta", text: "working" })}\n`;
+    const stderr = "warning\n";
+    const combined = `${stderr}${stdout}`;
+
+    const streamed = await stallCursor(stdout, stderr);
+    expect(streamed.final?.result).toEqual({ kind: "stall", stderr: combined });
+    expect(inbound.filter((line) => line.tag === "inbound_stdout")).toEqual([]);
+    expect(inbound.filter((line) => line.tag === "inbound_stderr")).toEqual([
+      { tag: "inbound_stderr", text: combined },
+    ]);
+
+    inbound.length = 0;
+    const silent = await stallCursor("", "");
+    expect(silent.final?.result).toEqual({ kind: "stall", stderr: "" });
+    expect(inbound.filter((line) => line.tag.startsWith("inbound_"))).toEqual([]);
   });
 
   test("output clears the previous idle expiry", async () => {
@@ -1552,19 +1599,10 @@ describe("createResolvedAgentBinding", () => {
   });
 
   test("cursor binding still stalls on output-silent invocation past idleOutputMs", async () => {
-    const fake = fakeSpawn([{ kind: "hang" }]);
-    let expiry: (() => void) | undefined;
-    const binding = createResolvedAgentBinding(COMPOSER_CURSOR_BINDING, {
-      spawn: fake.spawn,
-      setTimeout: ((callback: Parameters<typeof setTimeout>[0]) => {
-        expiry = callback;
-        return { unref() {} } as unknown as ReturnType<typeof setTimeout>;
-      }) as typeof setTimeout,
-      clearTimeout: (() => {}) as typeof clearTimeout,
-    });
+    const { fake, binding, fireIdle } = hangWithControllableIdle(COMPOSER_CURSOR_BINDING);
 
     const promise = binding.invoke({ prompt: "p", cwd: "/repo", idleOutputMs: 100 });
-    expiry?.();
+    fireIdle();
 
     await expect(promise).resolves.toEqual({ kind: "stall", stderr: "" });
     expect(fake.calls[0]?.child?.killedWith).toEqual([]);

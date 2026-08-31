@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
@@ -145,6 +145,22 @@ beforeEach(() => {
     hasMemoryHeadroom: () => memoryHeadroom,
     registry,
   });
+});
+
+test("workflow starts, pipeline dispatch, and recovery share daemon admission", () => {
+  const source = readFileSync(join(import.meta.dir, "daemon.ts"), "utf8");
+  const section = (start: string, end: string): string => source.slice(source.indexOf(start), source.indexOf(end));
+  const workflowStart = section("const handleWorkflowStart", "const handleWriteLoopStart");
+  const pipelineDispatch = section("const defaultPipelineDispatch", "const defaultPipelineWait");
+  const pipelineRecovery = section("const handlePipelineRecoverHandler", "const handlePipelineDismissalHandler");
+
+  expect(source).toContain("const admitWorkflowStart");
+  expect(workflowStart).toContain("return admitWorkflowStart({");
+  expect(pipelineDispatch).toContain("handleWorkflowStart(steps)");
+  expect(pipelineRecovery).toContain("return admitWorkflowStart({");
+  expect(pipelineRecovery).not.toContain("_registry.claim(");
+  expect(pipelineRecovery).not.toContain("checkMemoryHeadroom(");
+  expect(pipelineRecovery).not.toContain("activeRuns.set(");
 });
 
 afterEach(async () => {

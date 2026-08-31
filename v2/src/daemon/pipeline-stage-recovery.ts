@@ -338,13 +338,8 @@ async function resolveAndClaimRecoveryTarget(
     };
   }
   const { target } = resolution;
-
-  const claim = deps.store.claimPipelineStageAdmission({ pipelineId, stageId: target.stageId, branchKey });
-  if (claim.kind === "refused") {
-    return { ok: false, refusal: { kind: "stage_claimed", pipelineId, branchKey, stageId: target.stageId } };
-  }
-
-  return { ok: true, target };
+  const admission = claimResolvedPipelineBranchStageRecovery(args, target, deps.store);
+  return admission.kind === "admitted" ? { ok: true, target } : { ok: false, refusal: admission };
 }
 
 /**
@@ -446,20 +441,42 @@ export type PipelineStageRecoveryAdmission =
     }
   | { kind: "stage_claimed"; pipelineId: string; branchKey: string; stageId: string };
 
+/** Claims durable stage admission for a resolved recovery target. */
+export function claimResolvedPipelineBranchStageRecovery(
+  args: { pipelineId: string; branchKey: string },
+  target: PipelineStageRecoveryTarget,
+  store: StateStore,
+): Extract<PipelineStageRecoveryAdmission, { kind: "admitted" | "stage_claimed" }> {
+  const { pipelineId, branchKey } = args;
+  const claim = store.claimPipelineStageAdmission({ pipelineId, stageId: target.stageId, branchKey });
+  if (claim.kind === "refused") {
+    return { kind: "stage_claimed", pipelineId, branchKey, stageId: target.stageId };
+  }
+  return { kind: "admitted", pipelineId, branchKey, stageId: target.stageId, entryRunId: target.runId };
+}
+
+/** Runs a claimed recovery attempt; detaches when `detachContinuation` is true. */
+export async function executeClaimedPipelineBranchStageRecovery(
+  args: { pipelineId: string; branchKey: string },
+  target: PipelineStageRecoveryTarget,
+  deps: PipelineStageRecoveryExecutionDeps,
+  options: { detachContinuation?: boolean; onSettled?: () => void } = {},
+): Promise<void> {
+  const { pipelineId, branchKey } = args;
+  const run = runClaimedRecoveryAttempt(args, target, deps).finally(() => options.onSettled?.());
+  if (options.detachContinuation) {
+    void run.catch((err: unknown) => {
+      console.error(`Pipeline ${pipelineId} branch ${branchKey} recovery failed:`, err);
+    });
+    return;
+  }
+  await run;
+}
+
 /**
- * Resolves and durably claims a branch's blocked plan stage (see
- * {@link resolveAndClaimRecoveryTarget}), then runs the attempt, settlement, and branch
- * continuation via {@link runClaimedRecoveryAttempt} — awaited in place when
- * `options.detachContinuation` is falsy (the default; used directly by tests for deterministic
- * settlement observation without polling), or fired detached when `true` (the `pipeline_recover`
- * RPC handler's mode — a recovery attempt re-invokes review agents, so the caller's connection
- * cannot be held for it). Either way, a resolution or durable-claim refusal is always returned
- * synchronously, before any attempt runs — the same `{ detachContinuation? }` shape
- * `resumePipeline` (`pipeline-execution.ts`) already exposes. `options.onSettled`, when given, runs
- * once — after the full chain (attempt, settlement, and any success continuation) finishes,
- * regardless of outcome — so a caller holding a resource across the detached chain (the daemon's
- * `activeRuns` entry) releases it only once that chain is actually done, not merely once the
- * attempt itself returns.
+ * Resolves and claims a branch's blocked plan stage, then runs the attempt chain.
+ * With `detachContinuation: true` (RPC default) the response returns before settlement;
+ * `onSettled` runs after attempt, settlement, and any success continuation finish.
  */
 export async function admitAndRecoverPipelineBranchStage(
   args: { pipelineId: string; branchKey: string },
@@ -472,14 +489,7 @@ export async function admitAndRecoverPipelineBranchStage(
   const { target } = admission;
   const { stageId, runId: entryRunId } = target;
 
-  const run = runClaimedRecoveryAttempt(args, target, deps).finally(() => options.onSettled?.());
-  if (options.detachContinuation) {
-    void run.catch((err: unknown) => {
-      console.error(`Pipeline ${pipelineId} branch ${branchKey} recovery failed:`, err);
-    });
-  } else {
-    await run;
-  }
+  await executeClaimedPipelineBranchStageRecovery(args, target, deps, options);
 
   return { kind: "admitted", pipelineId, branchKey, stageId, entryRunId };
 }

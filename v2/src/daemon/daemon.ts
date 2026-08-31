@@ -105,7 +105,8 @@ import {
 } from "./pipeline-observation.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
 import {
-  admitAndRecoverPipelineBranchStage,
+  claimResolvedPipelineBranchStageRecovery,
+  executeClaimedPipelineBranchStageRecovery,
   type PipelineStageRecoveryAttempt,
   resolveBlockedPlanStageRecoveryTarget,
 } from "./pipeline-stage-recovery.ts";
@@ -837,6 +838,8 @@ export type RunControlHandlerDeps = {
   pipelineWait?: PipelineWorkflowWait;
   /** Test seam for `pipeline_recover`'s attempt; defaults to `recoverPlanStage`. */
   recoveryAttempt?: PipelineStageRecoveryAttempt;
+  /** Test seam for `pipeline_recover`'s settlement-scoped log resource. */
+  recoveryLogSinkFactory?: (storagePath: string) => LogSink;
   /** Test seam for pipeline terminal publication settlement. */
   executeTerminalPublication?: (input: TerminalPublicationInput) => Promise<TerminalPublicationResult>;
   /**
@@ -1207,9 +1210,9 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
    */
   const startWorkflowRun = (
     steps: AnyWorkflowStep[],
-    workflowKey: OwnershipKey,
     claimRunId: string,
     abortController: AbortController,
+    settleWorkflowStart: () => void,
   ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
     return new Promise((resolve) => {
       const workflowRunIds = new Set<string>();
@@ -1274,10 +1277,9 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
             return activeRun?.kind === "workflow" && activeRun.pendingKill;
           });
           for (const runId of workflowRunIds) activeRuns.delete(runId);
-          activeRuns.delete(claimRunId);
           settleKilledWorkflowOwnership({
             killedRunIds: killedWorkflowRuns,
-            releaseRegistry: () => _registry.release(workflowKey, claimRunId),
+            releaseRegistry: settleWorkflowStart,
             stateStore: store,
           });
           if (workflowInvocationId !== undefined) {
@@ -1295,6 +1297,78 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     | { kind: "response"; result: unknown }
     | { kind: "error"; code: string; message: string }
     | Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }>;
+
+  type WorkflowStartLifecycle = {
+    key: OwnershipKey;
+    ownership: WorktreeOwnership;
+    activeKey: string;
+    activeRun: ActiveRun;
+    admit: () =>
+      | { kind: "admitted" }
+      | { kind: "refused"; result: Awaited<StartResult> }
+      | Promise<{ kind: "admitted" } | { kind: "refused"; result: Awaited<StartResult> }>;
+    execute: (onSettled: () => void) => StartResult;
+    rollbackAdmission?: () => void;
+    settle?: () => void;
+  };
+
+  /** Shared ownership, memory, and lifecycle boundary for every daemon workflow execution. */
+  const admitWorkflowStart = async (lifecycle: WorkflowStartLifecycle): Promise<Awaited<StartResult>> => {
+    const existingWorkflowClaim = _registry.get(lifecycle.key);
+    if (existingWorkflowClaim?.workflow === true && activeRuns.get(existingWorkflowClaim.runId)?.kind !== "workflow") {
+      _registry.release(lifecycle.key, existingWorkflowClaim.runId);
+    }
+    const claimError = previewWorkflowStartClaimAdmissionRefusal(store, _registry, activeRuns, lifecycle.key);
+    if (claimError) return claimError;
+    if (!checkMemoryHeadroom()) {
+      return {
+        kind: "error",
+        code: "insufficient_memory",
+        message: "Insufficient memory headroom to start workflow",
+      };
+    }
+
+    let registryClaimed = false;
+    let activeRegistered = false;
+    let released = false;
+    const releaseCommonAdmission = (): void => {
+      if (released) return;
+      released = true;
+      if (activeRegistered && activeRuns.get(lifecycle.activeKey) === lifecycle.activeRun) {
+        activeRuns.delete(lifecycle.activeKey);
+      }
+      if (registryClaimed) _registry.release(lifecycle.key, lifecycle.ownership.runId);
+    };
+    const finishAdmission = (hook?: () => void): void => {
+      try {
+        hook?.();
+      } finally {
+        releaseCommonAdmission();
+      }
+    };
+
+    try {
+      _registry.claim(lifecycle.key, lifecycle.ownership);
+      registryClaimed = true;
+      activeRuns.set(lifecycle.activeKey, lifecycle.activeRun);
+      activeRegistered = true;
+      const admission = lifecycle.admit();
+      const resolvedAdmission = admission instanceof Promise ? await admission : admission;
+      if (resolvedAdmission.kind === "refused") {
+        finishAdmission(lifecycle.rollbackAdmission);
+        return resolvedAdmission.result;
+      }
+      const executeResult = lifecycle.execute(() => finishAdmission(lifecycle.settle));
+      const resolvedExecute = executeResult instanceof Promise ? await executeResult : executeResult;
+      if (resolvedExecute.kind === "error") {
+        finishAdmission(lifecycle.rollbackAdmission);
+      }
+      return resolvedExecute;
+    } catch (error) {
+      finishAdmission(lifecycle.rollbackAdmission);
+      throw error;
+    }
+  };
 
   const handleWorkflowStart = (steps: AnyWorkflowStep[]): StartResult => {
     if (steps.length === 0) {
@@ -1327,27 +1401,17 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
       }
     }
     const workflowKey = workflowStartOwnershipKey(steps);
-    const existingWorkflowClaim = _registry.get(workflowKey);
-    if (existingWorkflowClaim?.workflow === true && activeRuns.get(existingWorkflowClaim.runId)?.kind !== "workflow") {
-      _registry.release(workflowKey);
-    }
-    const workflowClaimError = previewWorkflowStartClaimAdmissionRefusal(store, _registry, activeRuns, workflowKey);
-    if (workflowClaimError) {
-      return workflowClaimError;
-    }
-    if (!checkMemoryHeadroom()) {
-      return {
-        kind: "error",
-        code: "insufficient_memory",
-        message: "Insufficient memory headroom to start workflow",
-      };
-    }
     const worktreePath = firstStep?.behavior === "write" ? getExternalWorktreePath(firstStep.worktree) : "";
     const claimRunId = crypto.randomUUID();
     const abortController = new AbortController();
-    _registry.claim(workflowKey, { runId: claimRunId, worktreePath, workflow: true });
-    activeRuns.set(claimRunId, { kind: "workflow", runId: claimRunId, abortController });
-    return startWorkflowRun(steps, workflowKey, claimRunId, abortController);
+    return admitWorkflowStart({
+      key: workflowKey,
+      ownership: { runId: claimRunId, worktreePath, workflow: true },
+      activeKey: claimRunId,
+      activeRun: { kind: "workflow", runId: claimRunId, abortController },
+      admit: () => ({ kind: "admitted" }),
+      execute: (onSettled) => startWorkflowRun(steps, claimRunId, abortController, onSettled),
+    });
   };
 
   const handleWriteLoopStart = (rawInput: WriteLoopInput): StartResult => {
@@ -2156,20 +2220,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     return { kind: "response", result: outcome };
   };
 
-  /**
-   * Admits branch-scoped blocked plan-stage recovery and detaches it: resolves the target
-   * (`resolveBlockedPlanStageRecoveryTarget`), claims the linked entry run's `(project, branch)`
-   * worktree ownership and a `recovery`-kind `activeRuns` entry before admitting — refusing
-   * `worktree_claimed` when that key is already held — then always passes
-   * `detachContinuation: true` to `admitAndRecoverPipelineBranchStage`: the attempt re-invokes
-   * review agents, so the client connection is never held for it. `releaseRecovery` (the worktree
-   * claim, the `activeRuns` entry, and the log sink) fires exactly once, via
-   * `admitAndRecoverPipelineBranchStage`'s `onSettled` hook once the full detached chain — attempt,
-   * settlement, and any success continuation — has actually finished, or here directly on a
-   * resolution/durable-claim refusal or an exception thrown before the attempt ever ran (`onSettled`
-   * never registers in either case). The outcome is not carried on the response — it is observable
-   * on the stage row via `pipeline_list`.
-   */
+  /** Resolves a recovery target before shared workflow admission, then detaches its distinct lifecycle. */
   const handlePipelineRecoverHandler: RpcHandler = async (frame) => {
     // `=== true` (not the bare `if (retiring)` every sibling handler uses) only so the
     // `@mutate` checkpoint in daemon-pipeline-recover.test.ts has a unique line to match —
@@ -2203,47 +2254,52 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     }
     const { target } = resolution;
     const key: OwnershipKey = { project: target.project, branch: target.branch };
-
-    const recoveryClaimError = checkWorktreeClaimed(_registry, key);
-    if (recoveryClaimError) return recoveryClaimError;
-
-    _registry.claim(key, { runId: target.runId, worktreePath: target.worktreePath });
     const activeKey = ownershipKeyString(key);
-    activeRuns.set(activeKey, { kind: "recovery", runId: target.runId });
-    const logSink = logsPath !== undefined ? openLogSink(logsPath) : undefined;
-
-    let released = false;
-    const releaseRecovery = (): void => {
-      if (released) return;
-      released = true;
-      activeRuns.delete(activeKey);
-      logSink?.close();
-      _registry.release(key);
-    };
-
-    const wrappedAttempt: PipelineStageRecoveryAttempt = (request) =>
-      (deps.recoveryAttempt ?? recoverPlanStage)(request);
-
-    let outcome: Awaited<ReturnType<typeof admitAndRecoverPipelineBranchStage>>;
-    try {
-      outcome = await admitAndRecoverPipelineBranchStage(
-        { pipelineId, branchKey },
-        { ...pipelineExecutionDeps(), attempt: wrappedAttempt, ...(logSink !== undefined ? { logSink } : {}) },
-        { detachContinuation: true, onSettled: releaseRecovery },
-      );
-    } catch (err) {
-      // Thrown before the attempt ever ran (e.g. a store error in resolution or the durable stage
-      // claim) — `onSettled` never registered, so nothing else releases the claim/activeRuns/log
-      // sink acquired above.
-      releaseRecovery();
-      throw err;
-    }
-    // A resolution or durable stage-claim refusal never starts the detached chain, so `onSettled`
-    // never registered for it — release here instead.
-    if (outcome.kind !== "admitted") {
-      releaseRecovery();
-    }
-    return { kind: "response", result: outcome };
+    const activeRun: ActiveRun = { kind: "recovery", runId: target.runId };
+    const stageAdmission = { pipelineId, stageId: target.stageId, branchKey };
+    let releaseDurableAdmission = false;
+    let logSink: LogSink | undefined;
+    return admitWorkflowStart({
+      key,
+      ownership: { runId: target.runId, worktreePath: target.worktreePath },
+      activeKey,
+      activeRun,
+      admit: () => {
+        logSink = logsPath !== undefined ? (deps.recoveryLogSinkFactory ?? openLogSink)(logsPath) : undefined;
+        try {
+          const outcome = claimResolvedPipelineBranchStageRecovery({ pipelineId, branchKey }, target, store);
+          if (outcome.kind === "admitted") {
+            releaseDurableAdmission = true;
+            return { kind: "admitted" };
+          }
+          return { kind: "refused", result: { kind: "response", result: outcome } };
+        } catch (error) {
+          store.releasePipelineStageAdmission(stageAdmission);
+          throw error;
+        }
+      },
+      execute: (onSettled) => {
+        void executeClaimedPipelineBranchStageRecovery(
+          { pipelineId, branchKey },
+          target,
+          {
+            ...pipelineExecutionDeps(),
+            attempt: deps.recoveryAttempt ?? recoverPlanStage,
+            ...(logSink !== undefined ? { logSink } : {}),
+          },
+          { detachContinuation: true, onSettled },
+        );
+        return {
+          kind: "response",
+          result: { kind: "admitted", pipelineId, branchKey, stageId: target.stageId, entryRunId: target.runId },
+        };
+      },
+      rollbackAdmission: () => {
+        if (releaseDurableAdmission) store.releasePipelineStageAdmission(stageAdmission);
+        logSink?.close();
+      },
+      settle: () => logSink?.close(),
+    });
   };
 
   const handlePipelineDismissalHandler =

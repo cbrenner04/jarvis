@@ -1,6 +1,6 @@
 # Structural-recovery traceability ledger
 
-Supplemental to `structural-recovery-brief.md`. Tracks each `seeds/*.md` seed through the pipeline: seed → ready-intent(s) → plan → implement. **Point-in-time snapshot as of 2026-08-30.** PR cells link to the GitHub PR that landed that stage; unverifiable cells are `—`. Grouped by the brief's priority tiers. Regenerate by re-tracing seeds/ready-intents against the brief and `git log --grep`.
+Supplemental to `structural-recovery-brief.md`. Tracks each `seeds/*.md` seed through the pipeline: seed → ready-intent(s) → plan → implement. **Point-in-time snapshot as of 2026-08-31 (regenerated end of the gates-closed session).** PR cells link to the GitHub PR that landed that stage; unverifiable cells are `—`. Grouped by the brief's priority tiers. Regenerate by re-tracing seeds/ready-intents against the brief and `git log --grep`.
 
 A seed with multiple ready-intents spans one row per ready-intent; the `Seed` and `Status` cells are filled on the seed's first row only. Each ready-intent's own `Plan`/`Implement` PRs sit on its row. Most on-disk seeds are pre-intent (`not-started`) — a seed file is typically reaped once its `intent` run lands, so an already-split seed's ready-intents appear in the orphan table below rather than beside a seed row.
 
@@ -9,14 +9,14 @@ A seed with multiple ready-intents spans one row per ready-intent; the `Seed` an
 | Seed | Status | Ready-intent | Plan | Implement |
 | --- | --- | --- | --- | --- |
 | pipeline-dispatch-shares-cli-front-door | in-flight | admit-pipeline-recovery-through-workflow-start | — | — |
-| | | dispatch-pipeline-stages-through-shared-preparation | [20260830T062000Z-dispatch-pipeline-stages-through-shared-preparation](https://github.com/cbrenner04/jarvis/pull/3165) (hand-landed) | — |
+| | | dispatch-pipeline-stages-through-shared-preparation | [20260830T062000Z-dispatch-pipeline-stages-through-shared-preparation](https://github.com/cbrenner04/jarvis/pull/3165) (hand-landed) | [#3170](https://github.com/cbrenner04/jarvis/pull/3170) |
 | | | require-complete-pipeline-context | [20260830T041003Z-require-complete-pipeline-context](https://github.com/cbrenner04/jarvis/pull/3148) | [#3155](https://github.com/cbrenner04/jarvis/pull/3155) |
 | | | share-workflow-start-preparation (intent #3076) | [20260830T025737Z-share-workflow-start-preparation](https://github.com/cbrenner04/jarvis/pull/3141) | [#3143](https://github.com/cbrenner04/jarvis/pull/3143) |
 | pipeline-settlement-derives-from-run-rows | intent-split | canonical-pipeline-execution-state-and-stage-claims | deferred — plan drafted 2026-08-30 but 00/01 subspecs near-duplicate; needs re-plan | — |
 | | | daemon-terminal-run-stage-settlement | blocked on canonical + durable-run-backed landing | — |
-| | | durable-run-backed-stage-settlement (intent #3075) | [20260830T062002Z-durable-run-backed-stage-settlement](https://github.com/cbrenner04/jarvis/pull/3165) (hand-landed) | — |
-| implement-admits-externally-landed-specs | held (P2; seq. behind front-door) | — | — | — |
-| all-spec-documents-external-capable | held (P2; seq. behind front-door) | — | — | — |
+| | | durable-run-backed-stage-settlement (intent #3075) | [20260830T062002Z-durable-run-backed-stage-settlement](https://github.com/cbrenner04/jarvis/pull/3165) (hand-landed) | [#3173](https://github.com/cbrenner04/jarvis/pull/3173) |
+| implement-admits-externally-landed-specs (#3122) | **UNBLOCKED, not started** — prereqs landed (`projectSafeId`, #3128 chained-stage matcher); front-door sequencing now soft (~3/4 done); **actively blocks operator homestead pipeline** | — | — | — |
+| all-spec-documents-external-capable | held (P2; seq. behind #3122) | — | — | — |
 | split-workflow-runner-resume-machines | not-started (P2) | — | — | — |
 | split-daemon-run-control-handlers | not-started (P2) | — | — | — |
 | dead-export-and-test-seam-gates | not-started (P2) | — | — | — |
@@ -44,14 +44,21 @@ A seed with multiple ready-intents spans one row per ready-intent; the `Seed` an
 | implement-publication-reuses-closed-same-branch-pr | not-started (point fix hand-published once as #3069) | — | — | — |
 | implement-completes-without-publishing | held (verify-or-reap; #3088; 2026-08-30 counter-evidence) | — | — | — |
 | plan-draft-contract-miss-reprompts-before-blocking | held (#3114; pending split-spec-guidance / plan-draft-rules) | — | — | — |
-| mutation-verifier-masks-type-generic-brackets | RE-SCOPED + removed 2026-08-30 → `mutation-verifier-scanner-based-candidates` (masking-loop approach a dead end; pipeline PRs #3164/#3166/#3169 closed unlanded; spec never on main) | — | — | — |
+| mutation-verifier-masks-type-generic-brackets | RE-SCOPED → `derive-mutation-candidates-from-typescript-scanner`, **LANDED #3202** (regex→AST operator-flip; masking-loop approach retired) | derive-mutation-candidates-from-typescript-scanner | [#3199](https://github.com/cbrenner04/jarvis/pull/3199) (hand-landed) | [#3202](https://github.com/cbrenner04/jarvis/pull/3202) |
 | diff-derived-verifier-resolves-split-test-files | implemented by hand 2026-08-30 (seed removed) — `resolveSiblingKillingTests` fallback to `<stem>-*.test.ts`, paired with restored implement/repair killing-test authoring rule (`IMPLEMENT_WRITE_STEP_RULES`) | — | — | hand PR |
-| idle-watchdog-counts-worktree-filesystem-activity | not-started (new 2026-08-30 #3153; intake #3150) | — | — | — |
-| stall-settlement-preserves-agent-stdout | not-started (new 2026-08-30; intake #3151) | — | — | — |
-| idle-output-timeout-preserves-committed-progress-resumable | not-started (new 2026-08-30; intake #3152) | — | — | — |
-| plan-draft-shape-accepts-nested-stage-layout | not-started (new 2026-08-30; intake #3156; pairs with #3154) | — | — | — |
-| mutation-verifier-serializes-per-file-candidates | not-started (NEW 2026-08-30 PM; P0 mutation-gate — concurrent same-file writes cause nondeterministic false survivors; found hand-finishing #3173) | — | — | — |
-| retire-mutate-dsl-from-default-write-step-rules | not-started (NEW 2026-08-30 PM; prompt-corpus — intent still injects retired `@mutate`/guard-inversion rules; contaminated 3/6 fresh ready-intents #3178/#3179) | — | — | — |
+| idle-watchdog-counts-worktree-filesystem-activity | **LANDED #3218** (watchdog trio; intake #3150 core; silent-edit false-kill fixed) | — (hand-authored spec) | [20260831T014031Z-idle-watchdog-counts-worktree-activity](https://github.com/cbrenner04/jarvis/pull/3217) | [#3218](https://github.com/cbrenner04/jarvis/pull/3218) |
+| stall-settlement-preserves-agent-stdout | **not-started (LAST watchdog-trio slice; intake #3151)** — trigger to relax serial-only implement | — | — | — |
+| idle-output-timeout-preserves-committed-progress-resumable | **LANDED (closes intake #3152)** — checkpoint resumability #3189 + resume-admission #3194 | idle-timeout-checkpoint-resumability + idle-timeout-resume-admission | [#3184](https://github.com/cbrenner04/jarvis/pull/3184) / [#3190](https://github.com/cbrenner04/jarvis/pull/3190) | [#3189](https://github.com/cbrenner04/jarvis/pull/3189) / [#3194](https://github.com/cbrenner04/jarvis/pull/3194) |
+| plan-draft-shape-accepts-nested-stage-layout | **LANDED #3212 (closes intake #3156)** — accepts flat or one nested `spec/<name>/`, flattens before normalization | accept-nested-plan-draft-stage-layout (#3203) | [20260830T211511Z-...](https://github.com/cbrenner04/jarvis/pull/3208) | [#3212](https://github.com/cbrenner04/jarvis/pull/3212) |
+| mutation-verifier-serializes-per-file-candidates | **LANDED #3191** (per-file serialize race-fix; nondeterministic false survivors) | serialize-per-file-mutation-candidates | [#3186](https://github.com/cbrenner04/jarvis/pull/3186) | [#3191](https://github.com/cbrenner04/jarvis/pull/3191) |
+| retire-mutate-dsl-from-default-write-step-rules | not-started (prompt-corpus — intent still injects retired `@mutate`/guard-inversion rules) | — | — | — |
+| mutation-gate P0 chain (escape-hatch → in-loop → scanner → importer-killing) | **COMPLETE 4/4** | (see below) | — | escape-hatch [#3188](https://github.com/cbrenner04/jarvis/pull/3188), in-loop [#3197](https://github.com/cbrenner04/jarvis/pull/3197), scanner [#3202](https://github.com/cbrenner04/jarvis/pull/3202), importer-killing [#3195](https://github.com/cbrenner04/jarvis/pull/3195) |
+| guard-flip-derivation-crash-is-contained | **containment LANDED #3211** (`contain-unappliable-mutation-candidate`); root-cause `!obj.method()` slice fix still not-started | — | [20260830T231801Z-contain-unappliable-mutation-candidate](https://github.com/cbrenner04/jarvis/pull/3209) | [#3211](https://github.com/cbrenner04/jarvis/pull/3211) (containment only) |
+| pipeline-implement-stage-honors-review-posture | **FIXED #3216** (`resolveImplementStage` now threads reviewPasses/reviewBehavior; fast pipelines run light not debate) | — | [20260831T005423Z-implement-stage-threads-review-posture](https://github.com/cbrenner04/jarvis/pull/3214) | [#3216](https://github.com/cbrenner04/jarvis/pull/3216) |
+| pipeline-resume-clears-blocked-lane-dirty-worktree | not-started (NEW; operator friction — pipeline resume refuses on a blocked lane's expected-dirty worktree) | — | — | — |
+| mutation-verifier-ignores-whitespace-only-line-changes | not-started (NEW; a formatter-reflowed pre-existing guard shouldn't become a new candidate — the reprompt detour) | — | — | — |
+| idle-watchdog-sidecar-filter-matches-any-path-segment | not-started (NEW; #3218 follow-up — sidecar filter is basename-only, nested sidecar writes re-arm) | — | — | — |
+| render-coverage-resolves-observer-map-from-worktree | not-started (NEW; verifier resolves observer map from daemon build not worktree → new-prompt PRs can't pass their own render-coverage gate) | — | — | — |
 | pipeline-fan-out-lanes-serial-chained-bases | not-started | — | — | — |
 | pipeline-fan-out-per-lane-terminal-settlement | not-started | — | — | — |
 | operator-killed-pipeline-stage-is-recoverable | superseded (into pipeline-settlement-derives-from-run-rows) | — | — | — |
@@ -78,8 +85,8 @@ Ready-intents whose originating seed is no longer on disk (seed reaped after its
 | resume-iteration-commit-failures | merged | [#3077](https://github.com/cbrenner04/jarvis/pull/3077) | 20260829T175608Z-record-iteration-commit-failure-cause | [#3100](https://github.com/cbrenner04/jarvis/pull/3100) |
 | daemon-terminal-run-settlement | in-flight | [#3074](https://github.com/cbrenner04/jarvis/pull/3074) | [20260830T025725Z-daemon-terminal-run-settlement](https://github.com/cbrenner04/jarvis/pull/3140) | [#3145](https://github.com/cbrenner04/jarvis/pull/3145) |
 | execution-terminal-run-settlement-invariant | in-flight (00 landed #3157; 01 salvaged #3167; 02 deferred) | [#3074](https://github.com/cbrenner04/jarvis/pull/3074) | [20260830T041008Z-execution-terminal-run-settlement-invariant](https://github.com/cbrenner04/jarvis/pull/3149) | [#3157](https://github.com/cbrenner04/jarvis/pull/3157) (00), [#3167](https://github.com/cbrenner04/jarvis/pull/3167) (01, hand-salvaged) |
-| cleanup-uses-lossless-git-status | intent-split; plan hand-landed | [#3065](https://github.com/cbrenner04/jarvis/pull/3065) | [20260830T061854Z-cleanup-uses-lossless-git-status](https://github.com/cbrenner04/jarvis/pull/3165) (hand-landed) | — |
-| harness-publication-push-uses-explicit-refspec | intent-split; plan hand-landed | [#3072](https://github.com/cbrenner04/jarvis/pull/3072) | [20260830T061852Z-harness-publication-push-uses-explicit-refspec](https://github.com/cbrenner04/jarvis/pull/3165) (hand-landed) | — |
+| cleanup-uses-lossless-git-status | **merged + archived to completed/** | [#3065](https://github.com/cbrenner04/jarvis/pull/3065) | [#3165](https://github.com/cbrenner04/jarvis/pull/3165) (hand-landed) | [#3205](https://github.com/cbrenner04/jarvis/pull/3205) (hand-salvaged verifier crash) |
+| harness-publication-push-uses-explicit-refspec | **merged** | [#3072](https://github.com/cbrenner04/jarvis/pull/3072) | [#3165](https://github.com/cbrenner04/jarvis/pull/3165) (hand-landed) | [#3201](https://github.com/cbrenner04/jarvis/pull/3201) |
 | inject-spec-guidance-agent-core | intent-split | [#3094](https://github.com/cbrenner04/jarvis/pull/3094) | — | — |
 | split-spec-guidance-documents | intent-split | [#3094](https://github.com/cbrenner04/jarvis/pull/3094) | — | — |
 | daemon-start-sweeps-orphan-gate-children | intent-split (kept; prereqs landed, orthogonal) | [#2828](https://github.com/cbrenner04/jarvis/pull/2828) | — | — |

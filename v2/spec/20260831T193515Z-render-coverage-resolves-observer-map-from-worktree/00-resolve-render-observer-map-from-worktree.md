@@ -23,19 +23,19 @@
 
 ## Acceptance criteria
 
-- [ ] `diff-derived-mutation-verifier.test.ts` drives a real worktree whose diff adds a registered prompt, a worktree-only `render-observer-tests.ts` entry absent from the process map, and a mapped observer that passes for the original prompt but fails for its sentinel body-line mutation; verification runs that worktree test and returns no surviving mutation, and the regression fails against the pre-fix static import with `missing-render-coverage`.
-- [ ] `diff-derived-mutation-verifier.test.ts` reuses one worktree across a map update and proves each verifier call reads the current worktree map rather than cached module state.
-- [ ] `diff-derived-mutation-verifier.test.ts` proves that a prompt present only in the daemon map, but absent from its worktree map, returns `missing-render-coverage` at `<promptPath>:1`; it fails against a process-map fallback.
-- [ ] `diff-derived-mutation-verifier.test.ts` proves an empty worktree mapping and a mapped observer that misses the sentinel each return `missing-render-coverage` at `<promptPath>:1`.
-- [ ] `diff-derived-mutation-verifier.test.ts` proves unreadable and syntactically invalid map source, missing map export, initialization failure, and malformed map values each fail closed as `missing-render-coverage` at `<promptPath>:1`.
-- [ ] `diff-derived-mutation-verifier.test.ts` proves absolute, traversing, non-normalized, and worktree-escaping observer paths fail closed as `missing-render-coverage` at `<promptPath>:1` without running an out-of-worktree test.
-- [ ] `v2/docs/write-behavior.md` is the canonical render-coverage contract: it specifies fresh data-only worktree map resolution, confined observer paths, and `missing-render-coverage` for every invalid or uncovered map state.
-- [ ] `v2/docs/workflow-runner.md` limits render-coverage guidance to the worktree execution boundary and links to `write-behavior.md` for the canonical contract.
-- [ ] `v2/docs/operator-runbook.md` § Gate trust limits guidance to salvage: a branch map repair needs neither merge nor daemon rebuild, and links to `write-behavior.md` for the contract.
-- [ ] `v2/docs/v1-behaviors.md` tersely records worktree-resolved render-observer lookup rather than process-static lookup.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `diff-derived-mutation-verifier.test.ts` drives a real worktree whose diff adds a registered prompt, a worktree-only `render-observer-tests.ts` entry absent from the process map, and a mapped observer that passes for the original prompt but fails for its sentinel body-line mutation; verification runs that worktree test and returns no surviving mutation, and the regression fails against the pre-fix static import with `missing-render-coverage`.
+- [x] `diff-derived-mutation-verifier.test.ts` reuses one worktree across a map update and proves each verifier call reads the current worktree map rather than cached module state.
+- [x] `diff-derived-mutation-verifier.test.ts` proves that a prompt present only in the daemon map, but absent from its worktree map, returns `missing-render-coverage` at `<promptPath>:1`; it fails against a process-map fallback.
+- [x] `diff-derived-mutation-verifier.test.ts` proves an empty worktree mapping and a mapped observer that misses the sentinel each return `missing-render-coverage` at `<promptPath>:1`.
+- [x] `diff-derived-mutation-verifier.test.ts` proves unreadable and syntactically invalid map source, missing map export, initialization failure, and malformed map values each fail closed as `missing-render-coverage` at `<promptPath>:1`.
+- [x] `diff-derived-mutation-verifier.test.ts` proves absolute, traversing, non-normalized, and worktree-escaping observer paths fail closed as `missing-render-coverage` at `<promptPath>:1` without running an out-of-worktree test.
+- [x] `v2/docs/write-behavior.md` is the canonical render-coverage contract: it specifies fresh data-only worktree map resolution, confined observer paths, and `missing-render-coverage` for every invalid or uncovered map state.
+- [x] `v2/docs/workflow-runner.md` limits render-coverage guidance to the worktree execution boundary and links to `write-behavior.md` for the canonical contract.
+- [x] `v2/docs/operator-runbook.md` § Gate trust limits guidance to salvage: a branch map repair needs neither merge nor daemon rebuild, and links to `write-behavior.md` for the contract.
+- [x] `v2/docs/v1-behaviors.md` tersely records worktree-resolved render-observer lookup rather than process-static lookup.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

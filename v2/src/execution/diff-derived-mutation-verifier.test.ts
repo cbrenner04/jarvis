@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -17,6 +17,22 @@ import {
   runDiffDerivedScopedTests,
   verifyDiffDerivedMutations,
 } from "./diff-derived-mutation-verifier.ts";
+
+const PROCESS_RENDER_OBSERVER_MAP = readFileSync(
+  join(import.meta.dir, "../../../shared/prompts/render-observer-tests.ts"),
+  "utf-8",
+);
+
+function seamReadFile(promptContent: string | (() => string), mapSource = PROCESS_RENDER_OBSERVER_MAP) {
+  return async (path: string) => {
+    if (path.endsWith("render-observer-tests.ts")) return mapSource;
+    return typeof promptContent === "function" ? promptContent() : promptContent;
+  };
+}
+
+function emptyRenderObserverMapSource(): string {
+  return `const RENDER_OBSERVER_TESTS = {};\nexport function resolveRenderObserverTests() { return undefined; }\n`;
+}
 
 // Helper to test diff parsing
 function testParseDiff(diff: string): { file: string; lineNumber: number; content: string }[] {
@@ -400,6 +416,7 @@ The diff comes from git merge-base <base> HEAD.
         gitDiff: async () => promptDiff,
         untrackedFiles: async () => [],
         registeredPromptPaths: registeredCritic,
+        readFile: seamReadFile(criticSource, emptyRenderObserverMapSource()),
         runScopedTests: async () => true,
       },
     );
@@ -416,7 +433,7 @@ The diff comes from git merge-base <base> HEAD.
         gitDiff: async () => promptDiff,
         untrackedFiles: async () => [],
         registeredPromptPaths: registeredCritic,
-        readFile: async () => prompt,
+        readFile: seamReadFile(() => prompt),
         writeFile: async (_path, content) => {
           prompt = content;
         },
@@ -440,7 +457,7 @@ The diff comes from git merge-base <base> HEAD.
         gitDiff: async () => promptDiff,
         untrackedFiles: async () => [],
         registeredPromptPaths: registeredCritic,
-        readFile: async () => prompt,
+        readFile: seamReadFile(() => prompt),
         writeFile: async (_path, content) => {
           prompt = content;
         },
@@ -459,7 +476,7 @@ The diff comes from git merge-base <base> HEAD.
         gitDiff: async () => promptDiff,
         untrackedFiles: async () => [],
         registeredPromptPaths: async () => ["prompts/implement/review-critic.md"],
-        readFile: async () => prompt,
+        readFile: seamReadFile(() => prompt),
         writeFile: async (_path, content) => {
           prompt = content;
         },
@@ -487,6 +504,7 @@ index be281d02..00000000
         gitDiff: async () => deletedDiff,
         untrackedFiles: async () => [],
         registeredPromptPaths: registeredCritic,
+        readFile: seamReadFile(criticSource, emptyRenderObserverMapSource()),
         runScopedTests: async () => true,
       },
     );
@@ -496,6 +514,7 @@ index be281d02..00000000
         gitDiff: async () => "",
         untrackedFiles: async () => ["prompts/implement/review-critic.md"],
         registeredPromptPaths: registeredCritic,
+        readFile: seamReadFile(criticSource, emptyRenderObserverMapSource()),
         runScopedTests: async () => true,
       },
     );
@@ -534,7 +553,7 @@ index 1234567..abcdefg 100644
         gitDiff: async () => diff,
         untrackedFiles: async () => [],
         registeredPromptPaths: async () => promptPaths,
-        readFile: async () => criticSource,
+        readFile: seamReadFile(criticSource),
         writeFile: async () => {},
         runScopedTests: async () => {
           scopedRuns += 1;
@@ -637,6 +656,7 @@ index f424d7da..be281d02 100644
         gitDiff: async () => patchPromptDiff,
         untrackedFiles: async () => [],
         registeredPromptPaths: async () => ["prompts/patch/review-critic.md"],
+        readFile: seamReadFile(criticSource, emptyRenderObserverMapSource()),
         runScopedTests: async () => false,
       },
     );
@@ -825,7 +845,7 @@ index f424d7da..be281d02 100644
         gitDiff: async () => diff,
         untrackedFiles: async () => [],
         registeredPromptPaths: registeredCritic,
-        readFile: async () => prompt,
+        readFile: seamReadFile(() => prompt),
         writeFile: async (_path, content) => {
           prompt = content;
         },
@@ -2617,5 +2637,263 @@ index 1234567..abcdefg 100644
     expect(scopes[0]).not.toContain(unrelatedImporter);
     expect(scopes[0]).not.toContain(transitiveImporter);
     expect(scopes[0]).not.toContain(crossSurfaceImporter);
+  });
+});
+
+describe("worktree render-observer map resolution", () => {
+  const branchPromptPath = "prompts/write/branch-only-prompt.md";
+  const branchBodyLine = "Branch-only prompt body line.";
+  const branchPromptSource = `---
+id: write.prompt.branch.only
+behavior: write
+kind: step
+revision: 1
+placeholders: []
+---
+${branchBodyLine}
+`;
+  const branchPromptDiff = `diff --git a/${branchPromptPath} b/${branchPromptPath}
+index 1234567..abcdefg 100644
+--- a/${branchPromptPath}
++++ b/${branchPromptPath}
+@@ -7,1 +7,1 @@
+-${branchBodyLine}
++${branchBodyLine} (changed)
+`;
+  const branchChangedPromptSource = branchPromptSource.replace(branchBodyLine, `${branchBodyLine} (changed)`);
+
+  function renderObserverMapSource(entries: Record<string, readonly string[]>): string {
+    const lines = Object.entries(entries).flatMap(([prompt, tests]) => {
+      const quotedTests = tests.map((testPath) => `"${testPath}"`).join(", ");
+      return `  "${prompt}": [${quotedTests}],`;
+    });
+    return `const RENDER_OBSERVER_TESTS = {\n${lines.join("\n")}\n};\nexport function resolveRenderObserverTests(promptPath: string) { return RENDER_OBSERVER_TESTS[promptPath]; }\n`;
+  }
+
+  function branchObserverTestSource(promptRelativePath: string, bodyNeedle: string): string {
+    return `import { expect, test } from "bun:test";\nimport { readFileSync } from "node:fs";\ntest("observes rendered prompt output", () => {\n  const rendered = readFileSync("${promptRelativePath}", "utf-8");\n  expect(rendered).toContain("${bodyNeedle}");\n  expect(rendered).not.toContain("__JARVIS_PROMPT_RENDER_COVERAGE_MUTATION__");\n});\n`;
+  }
+
+  function initWorktreeRepo(): string {
+    const dir = mkdtempSync(join(tmpdir(), "render-observer-worktree-"));
+    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+    execFileSync("git", ["config", "user.name", "test"], { cwd: dir });
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "fixture", type: "module" }));
+    return dir;
+  }
+
+  function writeBranchPromptFixture(
+    dir: string,
+    observerRelativePath: string,
+    mapEntries: Record<string, readonly string[]>,
+    observerSource: string,
+    promptSource = branchPromptSource,
+  ): void {
+    mkdirSync(join(dir, "prompts", "write"), { recursive: true });
+    mkdirSync(join(dir, "shared", "prompts"), { recursive: true });
+    mkdirSync(join(dir, observerRelativePath.split("/").slice(0, -1).join("/")), { recursive: true });
+    writeFileSync(join(dir, branchPromptPath), promptSource);
+    writeFileSync(join(dir, "prompts", "registry.txt"), "write/branch-only-prompt.md\n");
+    writeFileSync(join(dir, "shared/prompts/render-observer-tests.ts"), renderObserverMapSource(mapEntries));
+    writeFileSync(join(dir, observerRelativePath), observerSource);
+  }
+
+  function commitWorktreeBase(dir: string): string {
+    execFileSync("git", ["add", "-A"], { cwd: dir });
+    execFileSync("git", ["commit", "-q", "-m", "base"], { cwd: dir });
+    return execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();
+  }
+
+  function commitChangedBranchPrompt(dir: string): void {
+    writeFileSync(join(dir, branchPromptPath), branchChangedPromptSource);
+    execFileSync("git", ["commit", "-aq", "-m", "change prompt"], { cwd: dir });
+  }
+
+  function missingRenderCoverageAtPrompt(promptPath: string) {
+    return {
+      kind: "surviving-mutation" as const,
+      mutation: "missing-render-coverage",
+      sourceSite: { file: promptPath, line: 1 },
+    };
+  }
+
+  it("resolves a branch-only map entry from the worktree and runs its observer test", async () => {
+    const dir = initWorktreeRepo();
+    const observerPath = "shared/prompts/branch-only-prompt.test.ts";
+    writeBranchPromptFixture(
+      dir,
+      observerPath,
+      { [branchPromptPath]: [observerPath] },
+      branchObserverTestSource(branchPromptPath, branchBodyLine),
+    );
+    const baseSha = commitWorktreeBase(dir);
+    commitChangedBranchPrompt(dir);
+
+    const result = await verifyDiffDerivedMutations({ worktreePath: dir, runBase: baseSha });
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(0);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("re-reads the worktree map on each verifier call instead of cached module state", async () => {
+    const dir = initWorktreeRepo();
+    const observerPath = "shared/prompts/branch-only-prompt.test.ts";
+    writeBranchPromptFixture(dir, observerPath, {}, branchObserverTestSource(branchPromptPath, branchBodyLine));
+    const baseSha = commitWorktreeBase(dir);
+    commitChangedBranchPrompt(dir);
+
+    const beforeRepair = await verifyDiffDerivedMutations({ worktreePath: dir, runBase: baseSha });
+    expect(beforeRepair).toEqual(missingRenderCoverageAtPrompt(branchPromptPath));
+
+    writeFileSync(
+      join(dir, "shared/prompts/render-observer-tests.ts"),
+      renderObserverMapSource({ [branchPromptPath]: [observerPath] }),
+    );
+
+    const afterRepair = await verifyDiffDerivedMutations({ worktreePath: dir, runBase: baseSha });
+    expect(afterRepair.kind).toBe("pass");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("does not fall back to the process render-observer map when the worktree map lacks the prompt", async () => {
+    const dir = initWorktreeRepo();
+    const daemonMappedPrompt = "prompts/implement/review-critic.md";
+    mkdirSync(join(dir, "prompts", "implement"), { recursive: true });
+    mkdirSync(join(dir, "shared", "prompts"), { recursive: true });
+    writeFileSync(
+      join(dir, daemonMappedPrompt),
+      `---
+id: implement.prompt.review.critic
+behavior: review
+kind: step
+revision: 1
+placeholders: []
+---
+## Branch diff
+The diff comes from git merge-base <base> HEAD.
+`,
+    );
+    writeFileSync(join(dir, "prompts", "registry.txt"), "implement/review-critic.md\n");
+    writeFileSync(join(dir, "shared/prompts/render-observer-tests.ts"), emptyRenderObserverMapSource());
+    execFileSync("git", ["add", "-A"], { cwd: dir });
+    execFileSync("git", ["commit", "-q", "-m", "base"], { cwd: dir });
+    const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();
+    writeFileSync(
+      join(dir, daemonMappedPrompt),
+      `---
+id: implement.prompt.review.critic
+behavior: review
+kind: step
+revision: 1
+placeholders: []
+---
+## Branch diff (changed)
+The diff comes from git merge-base <base> HEAD.
+`,
+    );
+    execFileSync("git", ["commit", "-aq", "-m", "change prompt"], { cwd: dir });
+
+    const result = await verifyDiffDerivedMutations({ worktreePath: dir, runBase: baseSha });
+    expect(result).toEqual(missingRenderCoverageAtPrompt(daemonMappedPrompt));
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("returns missing-render-coverage for an empty worktree mapping", async () => {
+    const dir = initWorktreeRepo();
+    const observerPath = "shared/prompts/branch-only-prompt.test.ts";
+    writeBranchPromptFixture(
+      dir,
+      observerPath,
+      { [branchPromptPath]: [] },
+      branchObserverTestSource(branchPromptPath, branchBodyLine),
+    );
+    const baseSha = commitWorktreeBase(dir);
+    commitChangedBranchPrompt(dir);
+
+    const result = await verifyDiffDerivedMutations({ worktreePath: dir, runBase: baseSha });
+    expect(result).toEqual(missingRenderCoverageAtPrompt(branchPromptPath));
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("returns missing-render-coverage when the mapped observer misses the sentinel mutation", async () => {
+    const dir = initWorktreeRepo();
+    const observerPath = "shared/prompts/branch-only-prompt.test.ts";
+    const permissiveObserver = `import { test } from "bun:test";\ntest("always passes", () => {});\n`;
+    writeBranchPromptFixture(dir, observerPath, { [branchPromptPath]: [observerPath] }, permissiveObserver);
+    const baseSha = commitWorktreeBase(dir);
+    commitChangedBranchPrompt(dir);
+
+    const result = await verifyDiffDerivedMutations({ worktreePath: dir, runBase: baseSha });
+    expect(result).toEqual(missingRenderCoverageAtPrompt(branchPromptPath));
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("fails closed for unreadable, invalid, missing-export, initialization, and malformed map source", async () => {
+    const invalidSources = [
+      "",
+      "const RENDER_OBSERVER_TESTS = {",
+      "export function resolveRenderObserverTests() { return undefined; }",
+      "const RENDER_OBSERVER_TESTS = initializeMap();",
+      `const RENDER_OBSERVER_TESTS = { "${branchPromptPath}": "not-an-array" };`,
+      `const RENDER_OBSERVER_TESTS = { [dynamicKey]: ["shared/prompts/branch-only-prompt.test.ts"] };`,
+    ];
+    for (const mapSource of invalidSources) {
+      const result = await verifyDiffDerivedMutations(
+        { worktreePath: "/test/path", runBase: "main" },
+        {
+          gitDiff: async () => branchPromptDiff,
+          untrackedFiles: async () => [],
+          registeredPromptPaths: async () => [branchPromptPath],
+          readFile: seamReadFile(branchChangedPromptSource, mapSource),
+          runScopedTests: async () => false,
+        },
+      );
+      expect(result).toEqual(missingRenderCoverageAtPrompt(branchPromptPath));
+    }
+  });
+
+  it("fails closed for absolute, traversing, non-normalized, and worktree-escaping observer paths without running them", async () => {
+    const dir = initWorktreeRepo();
+    mkdirSync(join(dir, "prompts", "write"), { recursive: true });
+    mkdirSync(join(dir, "shared", "prompts"), { recursive: true });
+    writeFileSync(join(dir, branchPromptPath), branchPromptSource);
+    writeFileSync(join(dir, "prompts", "registry.txt"), "write/branch-only-prompt.md\n");
+    const outside = mkdtempSync(join(tmpdir(), "render-observer-outside-"));
+    const outsideTest = join(outside, "outside.test.ts");
+    writeFileSync(outsideTest, "export {};\n");
+    const linkDir = join(dir, "shared/prompts/links");
+    mkdirSync(linkDir, { recursive: true });
+    execFileSync("ln", ["-s", outsideTest, join(linkDir, "escape.test.ts")], { cwd: dir });
+    const baseSha = commitWorktreeBase(dir);
+    commitChangedBranchPrompt(dir);
+
+    const invalidPaths = [
+      "/etc/passwd",
+      "../outside.test.ts",
+      "shared/prompts/../outside.test.ts",
+      "./shared/prompts/branch-only-prompt.test.ts",
+      "shared/prompts/links/escape.test.ts",
+    ];
+    for (const invalidPath of invalidPaths) {
+      writeFileSync(
+        join(dir, "shared/prompts/render-observer-tests.ts"),
+        renderObserverMapSource({ [branchPromptPath]: [invalidPath] }),
+      );
+      let scopedRuns = 0;
+      const result = await verifyDiffDerivedMutations(
+        { worktreePath: dir, runBase: baseSha },
+        {
+          runScopedTests: async () => {
+            scopedRuns += 1;
+            return false;
+          },
+        },
+      );
+      expect(result).toEqual(missingRenderCoverageAtPrompt(branchPromptPath));
+      expect(scopedRuns).toBe(0);
+    }
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
   });
 });

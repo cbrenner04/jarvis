@@ -8,7 +8,10 @@ import { composeRunOperatorError, findTerminalLogRecord } from "../daemon/run-op
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, withStateStore } from "../testing/write-fixtures.ts";
+import { createCompletionCommitter } from "./completion-commit.ts";
 import { createCompletionPublisher } from "./completion-publisher.ts";
+import { renderAttribution } from "./pr-attribution.ts";
+import { refreshPrBody } from "./pr-body-refresh.ts";
 import { baseRefProbeFailsSeam, gateFailureOutput, initGateScopeWorktree } from "./ready-finalize.test.ts";
 import {
   formatReadyGateOutOfScopeDetail,
@@ -31,6 +34,7 @@ import {
   roots,
   seedCompletedWriteRun,
   seedLandedIntentFiles,
+  stageReviewedIntent,
   TestLogSink,
 } from "./workflow-runner.test-support.ts";
 import { executeWorkflow, type ReviewWorkflowStep, type WriteWorkflowStep } from "./workflow-runner.ts";
@@ -2356,5 +2360,206 @@ describe("executeWorkflow completion publication", () => {
 
     expect(committerCalled).toBe(false);
     expect(publisherCalled).toBe(false);
+  });
+
+  function seedCompletedReviewRun(
+    store: ReturnType<typeof openStateStore>,
+    step: WriteWorkflowStep,
+    completionAgent: string,
+    completionReviewPass = 1,
+  ): void {
+    const workspace = step.worktree.localPath ?? step.worktree.projectRoot;
+    const reviewRunId = store.createRun({
+      project: "demo",
+      specRef: "",
+      worktreePath: workspace,
+      branch: step.worktree.branchName,
+      specPath: "",
+      stepId: "review",
+    });
+    const reviewAttemptId = store.recordAttemptStart(reviewRunId);
+    store.commitCompletionBoundary({
+      attemptId: reviewAttemptId,
+      runStatus: "completed",
+      outcomeKind: "done",
+      completionAgent,
+      completionReviewPass,
+    });
+  }
+
+  function seedCompletedWriteRunWithAgent(
+    store: ReturnType<typeof openStateStore>,
+    step: WriteWorkflowStep,
+    completionAgent: string,
+  ): void {
+    const workspace = step.worktree.localPath ?? step.worktree.projectRoot;
+    const invocationId = step.landing?.kind === "intent-stage" ? step.landing.invocationId : step.worktree.branchName;
+    const runId = store.createRun({
+      project: step.worktree.projectName,
+      specRef: "",
+      worktreePath: workspace,
+      branch: step.worktree.branchName,
+      specPath: step.specPath,
+      stepId: step.stepId,
+      workflowSnapshot: {
+        invocationId,
+        ...(step.creationTitle !== undefined ? { creationTitle: step.creationTitle } : {}),
+        steps: [
+          {
+            stepId: step.stepId,
+            role: step.role,
+            stepRules: step.stepRules,
+            expectedArtifactPath: step.expectedArtifactPath,
+            agents: step.agents,
+            agentModelConfig: step.agentModelConfig,
+          },
+        ],
+      },
+    });
+    const attemptId = store.recordAttemptStart(runId);
+    store.commitCompletionBoundary({
+      attemptId,
+      runStatus: "completed",
+      outcomeKind: "done",
+      completionAgent,
+    });
+  }
+
+  function reviewedIntentAttributionHarness(branchName: string): {
+    workspace: string;
+    baseRef: string;
+    writeStep: WriteWorkflowStep;
+    reviewStep: ReviewWorkflowStep;
+    invocationId: string;
+  } {
+    const { workspace, withExternalWorktree } = createIntentWorktreeHarness(branchName);
+    const baseRef = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
+    const invocationId = branchName;
+    const baseWriteStep = createStep({
+      stepId: "intent",
+      role: "plan",
+      branchName,
+      specPath: "ready-intents",
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId,
+        baseRef: "none",
+      },
+      creationTitle: "intent: reviewed-attribution",
+      workflowInvocationId: invocationId,
+      withExternalWorktree,
+      agentModelConfig: {
+        claude: {
+          plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+        },
+      },
+    });
+    const writeStep: WriteWorkflowStep = {
+      ...baseWriteStep,
+      worktree: { ...baseWriteStep.worktree, git: false, localPath: workspace, baseRef },
+    };
+    const reviewStep: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "review",
+      project: "demo",
+      branch: branchName,
+      cwd: workspace,
+      prompt: "review",
+      verdictPath: join(workspace, ".jarvis-intent-review-verdict.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: {
+        claude: { critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] } },
+        codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
+      },
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
+        stagingDir: join(workspace, ".jarvis-intent-stage"),
+        invocationId,
+        baseRef: "HEAD",
+      },
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        metadata: { agent: agentId, model: agentId },
+        invoke: async () => ({ kind: "ok" as const, stdout: agentId === "claude" ? "apply" : "done", stderr: "" }),
+      }),
+    };
+    return { workspace, baseRef, writeStep, reviewStep, invocationId };
+  }
+
+  async function runReviewedIntentAttributionPublication(
+    branchName: string,
+    writeAgent: string,
+    reviewAgent: string,
+  ): Promise<{ baseRef: string; writeStep: WriteWorkflowStep; commitMessage: string; writtenBody: string }> {
+    const { workspace, baseRef, writeStep, reviewStep, invocationId } = reviewedIntentAttributionHarness(branchName);
+    let writtenBody = "";
+    await withStateStore(async (store) => {
+      seedLandedIntentFiles(workspace, invocationId, ["reviewed.md"]);
+      stageReviewedIntent(workspace);
+      seedCompletedWriteRunWithAgent(store, writeStep, writeAgent);
+      seedCompletedReviewRun(store, writeStep, reviewAgent);
+      const result = await executeWorkflow({
+        steps: [writeStep, reviewStep],
+        stateStore: store,
+        completionCommitter: createCompletionCommitter(),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+    });
+    const commitMessage = execFileSync("git", ["log", "-1", "--format=%B"], {
+      cwd: workspace,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    await refreshPrBody({
+      specPath: writeStep.specPath,
+      branch: writeStep.worktree.branchName,
+      base: baseRef,
+      cwd: workspace,
+      fetchPrBody: async () => "",
+      writePrBody: async (_branch, body) => {
+        writtenBody = body;
+      },
+      renderFooter: renderAttribution,
+    });
+    return { baseRef, writeStep, commitMessage, writtenBody };
+  }
+
+  test("credits the write-stage agent in the attribution footer when write and review agents differ", async () => {
+    // @mutate v2/src/execution/workflow-runner.ts "? durableWriteAgent" -> "? publicationAgent"
+    const writeAgent = "Claude Writer";
+    const reviewAgent = "Codex Reviewer";
+    const { commitMessage, writtenBody } = await runReviewedIntentAttributionPublication(
+      "write-stage-attribution-footer",
+      writeAgent,
+      reviewAgent,
+    );
+
+    expect(commitMessage).toContain(`Jarvis-Agent: ${writeAgent}`);
+    expect(commitMessage).toContain("Jarvis-Step: review 1");
+    expect(commitMessage).not.toContain(`Jarvis-Agent: ${reviewAgent}`);
+    expect(writtenBody).toContain(`Written by ${writeAgent} through Jarvis.`);
+    expect(writtenBody).not.toContain(`Written by ${reviewAgent}`);
+    expect(writtenBody).not.toContain(`${writeAgent}, ${reviewAgent}`);
+  });
+
+  test("preserves single-agent attribution in the footer when write and review agents match", async () => {
+    const sharedAgent = "Claude Opus 4.8";
+    const { commitMessage, writtenBody } = await runReviewedIntentAttributionPublication(
+      "single-agent-attribution-footer",
+      sharedAgent,
+      sharedAgent,
+    );
+
+    expect((commitMessage.match(/Jarvis-Agent: /g) ?? []).length).toBe(1);
+    expect(writtenBody).toContain(`Written by ${sharedAgent} through Jarvis.`);
+    expect((writtenBody.match(new RegExp(sharedAgent.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) ?? []).length).toBe(
+      2,
+    );
   });
 });

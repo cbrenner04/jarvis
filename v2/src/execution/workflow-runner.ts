@@ -1115,7 +1115,9 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             worktreePath,
             baseRef: worktree.baseRef,
             specPath: publicationPath,
-            agent: publicationAgent,
+            agent: isReviewLastStep
+              ? (publishedCommitAgent(durableWriteAgent, publicationAgent) ?? publicationAgent)
+              : publicationAgent,
             title: commitStep !== undefined ? renderStepCommitTitle(commitStep, creationTitle) : creationTitle,
             forceDistinctCommit: true,
             iterationTimeoutMs: completionStep.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
@@ -2947,6 +2949,15 @@ function reviewCompletionAgent(run: NonNullable<ReturnType<StateStore["findRunBy
   return undefined;
 }
 
+/** `Jarvis-Agent` credit on the CAS-replaced published commit when write ≠ review boundary. */
+export function publishedCommitAgent(
+  durableWriteAgent: string | undefined,
+  boundaryAgent: string | undefined,
+): string | undefined {
+  if (boundaryAgent === undefined) return undefined;
+  return durableWriteAgent !== undefined && durableWriteAgent !== boundaryAgent ? durableWriteAgent : boundaryAgent;
+}
+
 /** Durable counterpart to {@link reviewCompletionAgent}: the mutating pass persisted alongside it. */
 function reviewCompletionPass(run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>): number | undefined {
   for (let index = run.attempts.length - 1; index >= 0; index -= 1) {
@@ -3497,7 +3508,16 @@ async function commitRecoveredPlanLanding(
     branch: context.branch,
     stepId: context.stepId,
   });
-  const agent = reviewRun ? reviewCompletionAgent(reviewRun) : undefined;
+  const boundaryAgent = reviewRun ? reviewCompletionAgent(reviewRun) : undefined;
+  const writeStepId = reviewRun?.workflowSnapshot
+    ? findDurableWriteStepId(reviewRun.workflowSnapshot.steps)
+    : undefined;
+  const writeRun =
+    writeStepId !== undefined
+      ? store.findRunByProjectBranch({ project: context.project, branch: context.branch, stepId: writeStepId })
+      : null;
+  const durableWriteAgent = writeRun ? reviewCompletionAgent(writeRun) : undefined;
+  const agent = publishedCommitAgent(durableWriteAgent, boundaryAgent);
   if (agent === undefined) {
     return {
       kind: "completion_commit_failed",
@@ -3919,6 +3939,17 @@ async function runIntentResumeCommitAndPublish(
 ): Promise<IntentFinalizationResumeOutcome> {
   const creationTitle = resolvePublicationTitle(context.worktreePath, context.durableDir, context.creationTitleHint);
   store.setCreationTitle(context.runId, creationTitle);
+  const boundaryAgent = context.completionAgent;
+  const reviewRun = store.loadRun(context.runId);
+  const writeStepId = reviewRun?.workflowSnapshot
+    ? findDurableWriteStepId(reviewRun.workflowSnapshot.steps)
+    : undefined;
+  const writeRun =
+    writeStepId !== undefined
+      ? store.findRunByProjectBranch({ project: context.project, branch: context.branch, stepId: writeStepId })
+      : null;
+  const durableWriteAgent = writeRun ? reviewCompletionAgent(writeRun) : undefined;
+  const commitAgent = publishedCommitAgent(durableWriteAgent, boundaryAgent) ?? boundaryAgent;
   const committer = deps.completionCommitter ?? createCompletionCommitter();
   let published: Awaited<ReturnType<CompletionCommitter>>;
   try {
@@ -3926,7 +3957,7 @@ async function runIntentResumeCommitAndPublish(
       worktreePath: context.worktreePath,
       baseRef: context.baseRef,
       specPath: context.durableDir,
-      agent: context.completionAgent as string,
+      agent: commitAgent as string,
       ...reviewStepCommitFields(context.behavior, context.reviewPass, creationTitle),
       forceDistinctCommit: true,
       iterationTimeoutMs: DEFAULT_ITERATION_TIMEOUT_MS,

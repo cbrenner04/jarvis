@@ -27,14 +27,14 @@ Git-enabled plan and implement workflows publish one commit off base whose tip i
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner-publication.test.ts` test `credits the write-stage agent in the attribution footer when write and review agents differ` fails against the current review-only footer.
-- [ ] `completion-commit.test.ts` test `published completion commit carries write-stage Jarvis-Agent when write and review agents differ` fails against the pre-fix path where only `review-debate` stamps the commit.
-- [ ] `workflow-runner-publication.test.ts` test `preserves single-agent attribution in the footer when write and review agents match` stays green.
-- [ ] `pr-body-refresh.test.ts` stays green.
-- [ ] `pr-attribution.test.ts` stays green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `workflow-runner-publication.test.ts` test `credits the write-stage agent in the attribution footer when write and review agents differ` fails against the current review-only footer.
+- [x] `completion-commit.test.ts` test `published completion commit carries write-stage Jarvis-Agent when write and review agents differ` fails against the pre-fix path where only `review-debate` stamps the commit.
+- [x] `workflow-runner-publication.test.ts` test `preserves single-agent attribution in the footer when write and review agents match` stays green.
+- [x] `pr-body-refresh.test.ts` stays green.
+- [x] `pr-attribution.test.ts` stays green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

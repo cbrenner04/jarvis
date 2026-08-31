@@ -78,6 +78,7 @@ Every completion commit also carries a `Jarvis-Step` trailer classifying its wor
 - **Subject prefix**: a matching `review(<n>):`, `review-debate(<n>):`, `mutation-repair:`, or `ready-gate:` prefix on the subject; a `write` step keeps the bare title.
 - **Default**: a direct write/completion commit defaults to `write` when the caller omits a step. A legacy trailer-less pending commit is upgraded once to `write` on resume; a pending commit that already carries a valid `Jarvis-Step` is retried verbatim (retry-time metadata cannot reclassify it).
 - **Ownership**: a review commit belongs to the latest review pass that left the tracked mutation included in that publication, and to that pass's mutating actuator agent; a later non-mutating approval cannot take ownership.
+- **Step vs authorship on the single published commit**: git-enabled plan and implement workflows publish one commit off base whose tip is CAS-replaced at each terminal boundary (`write` → optional `~shrink` → `review`/`review-debate`). On that surviving commit, `Jarvis-Step` and any review-classified subject prefix stay truthful to the terminal publication boundary; when the write-stage agent differs from the review boundary agent, `Jarvis-Agent` and the PR footer `Written by` line credit the write-stage agent (the durable agent that ran the write step), not the review agent alone.
 
 ### Attribution footer step counts
 

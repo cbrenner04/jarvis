@@ -10,6 +10,7 @@ import {
 } from "../../../shared/subprocess.ts";
 import { trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter, shouldReuseHeadWithoutNewCommit } from "./completion-commit.ts";
+import { publishedCommitAgent } from "./workflow-runner.ts";
 
 const { roots } = trackedTempRoots();
 const repoRoot = join(import.meta.dir, "../../..");
@@ -890,5 +891,42 @@ describe("createCompletionCommitter", () => {
       .trim()
       .split("\n");
     expect(topLevel).toContain("node_modules");
+  });
+
+  test("published completion commit carries write-stage Jarvis-Agent when write and review agents differ", async () => {
+    // @mutate v2/src/execution/workflow-runner.ts "durableWriteAgent !== undefined && durableWriteAgent !== boundaryAgent" -> "false &&"
+    const { worktreePath, seedHead } = initRealGitWorktree();
+    const writeAgent = "Claude Writer";
+    const reviewAgent = "Codex Reviewer";
+    writeFileSync(join(worktreePath, "v2/spec/test/index.md"), "# Test Spec Title\n\nUpdated body.\n");
+
+    await createCompletionCommitter()({
+      worktreePath,
+      baseRef: seedHead,
+      specPath: "v2/spec/test/index.md",
+      agent: writeAgent,
+      title: "Test Spec Title",
+      forceDistinctCommit: true,
+      step: { kind: "write" },
+    });
+
+    await createCompletionCommitter()({
+      worktreePath,
+      baseRef: seedHead,
+      specPath: "v2/spec/test/index.md",
+      agent: publishedCommitAgent(writeAgent, reviewAgent) as string,
+      title: "review-debate(1): Test Spec Title",
+      forceDistinctCommit: true,
+      step: { kind: "review-debate", pass: 1 },
+    });
+
+    const message = execFileSync("git", ["log", "-1", "--format=%B"], {
+      cwd: worktreePath,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    expect(message).toContain(`Jarvis-Agent: ${writeAgent}`);
+    expect(message).toContain("Jarvis-Step: review-debate 1");
+    expect(message).not.toContain(`Jarvis-Agent: ${reviewAgent}`);
   });
 });

@@ -22,12 +22,12 @@ Operator docs and injected spec guidance still describe plan-draft staging as to
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/write-behavior.md` documents that plan-draft staging accepts flat or single-nested input, flattens nested trees before normalization, and lands one identical durable spec layout.
-- [ ] `v2/docs/v1-behaviors.md` records the flat-or-single-nested plan-draft staging acceptance relative to the prior top-level-only shape contract.
-- [ ] `v1/docs/spec-guidance.md` clarifies plan-draft staging accepts flat or single-nested input without changing durable spec layout guidance.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/docs/write-behavior.md` documents that plan-draft staging accepts flat or single-nested input, flattens nested trees before normalization, and lands one identical durable spec layout.
+- [x] `v2/docs/v1-behaviors.md` records the flat-or-single-nested plan-draft staging acceptance relative to the prior top-level-only shape contract.
+- [x] `v1/docs/spec-guidance.md` clarifies plan-draft staging accepts flat or single-nested input without changing durable spec layout guidance.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

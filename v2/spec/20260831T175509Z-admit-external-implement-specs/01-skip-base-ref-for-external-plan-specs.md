@@ -16,8 +16,8 @@ After external admission lands, `resolveImplementLaunch` still runs `isSpecAvail
 
 ## Acceptance criteria
 
-- [ ] `implement-workflow-steps.test.ts` builds an incomplete external plan index without requiring membership in `--base` and emits write-step `specPath` as the external-absolute `absoluteSpecPath`; it fails against the pre-fix `Spec path unavailable in base ref` refusal reachable on `resolveImplementLaunch`.
-- [ ] `implement-workflow-steps.test.ts` `accepts a base-tracked spec launched below the registered project root` stays green (in-repo base-ref availability unchanged).
+- [x] `implement-workflow-steps.test.ts` builds an incomplete external plan index without requiring membership in `--base` and emits write-step `specPath` as the external-absolute `absoluteSpecPath`; it fails against the pre-fix `Spec path unavailable in base ref` refusal reachable on `resolveImplementLaunch`.
+- [x] `implement-workflow-steps.test.ts` `accepts a base-tracked spec launched below the registered project root` stays green (in-repo base-ref availability unchanged).
 
 ## Documentation updates
 

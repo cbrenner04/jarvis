@@ -145,7 +145,7 @@ jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md
 jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md --detach  # return after admission; track via printed run ID
 ```
 
-`--spec` is resolved from the caller's cwd (launch from the project root; a project subdirectory is supported), then checked at its resolved project-relative path in `--base` before daemon contact. If it is unavailable, commit or select a base ref that contains the spec and retry.
+For ordinary in-repo input, `--spec` is resolved from the caller's cwd (launch from the project root; a project subdirectory is supported), then checked at its resolved project-relative path in `--base` before daemon contact. If it is unavailable, commit or select a base ref that contains the spec and retry. Jarvis-owned external plan indexes use the separate [external admission contract](./workflow-runner.md#external-plan-implement-admission).
 
 ### Detached vs attached
 
@@ -161,7 +161,17 @@ Before concluding a run committed nothing or dropped its work, check `jarvis run
 
 ### Implement workflow
 
-Before daemon contact, `jarvis run workflow implement` reads the requested spec tree. If all non-human-only criteria are checked, it exits `1` with `implement.already_complete`; no worktree, agent invocation, or run row exists. Linked-index checkboxes are not the completion source of truth. Subspec *routing* (which link runs next) keys off the same unticked-criteria rule, so a hand-finished-and-merged subspec with a lagging index box is skipped automatically on re-run rather than needing its box hand-ticked first.
+Before workflow loading, `jarvis run workflow implement` reads the requested spec tree. If all non-human-only criteria are checked, it may contact the daemon solely to probe a recoverable failed lineage; when none is admitted, it exits `1` with `implement.already_complete` without a worktree, agent invocation, or run row. Linked-index checkboxes are not the completion source of truth. Subspec *routing* (which link runs next) keys off the same unticked-criteria rule, so a hand-finished-and-merged subspec with a lagging index box is skipped automatically on re-run rather than needing its box hand-ticked first.
+
+#### External plan admission and preflight
+
+For a registered project whose `planSource` publishes to `~/.jarvis/specs/<safeId>/plans/`, launch its canonical external index by absolute path:
+
+```sh
+jarvis run workflow implement --base main --spec "$HOME/.jarvis/specs/<safeId>/plans/<name>/index.md" --review-passes 0
+```
+
+The [workflow-runner contract](./workflow-runner.md#external-plan-implement-admission) owns the admission predicate, project identity, canonical paths, base-ref bypass, and build/recovery completeness rules. On an incomplete re-run, successful preflight applies the normal stale code-worktree reset for the owning `(project, branch)`, skips worktree-relative landed-criteria comparison for the external path, and leaves the external tree intact. The command above documents support only through that successful reset boundary; do not treat admission as end-to-end agent-loop support. External linked routing, prompt access, criteria/index writes, review, and shrink are tracked by [`route-external-implement-spec-trees`](../spec/ready-intents/route-external-implement-spec-trees.md); keep review disabled until that execution contract lands and pins external verdict-path behavior.
 
 Before linked routing, the daemon materializes and validates the managed worktree. If that fails, it returns `worktree_materialization_failed`; the message names the managed path and the underlying Git or validation reason. Fix the checkout problem and retry: no routing read, run row, or agent invocation occurred. A later routing index read returns `routing_read_failed`; its message names the resolved index path and underlying read reason.
 

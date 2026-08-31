@@ -18,9 +18,9 @@ An incomplete external plan re-run must pass implement build preflight, reach th
 
 ## Acceptance criteria
 
-- [ ] `workflow.test.ts` drives an incomplete external plan re-run through production implement build into `maybeResetStaleWorkspace` with a stale code worktree and write-step `specPath` as the external-absolute path from `01`; it fails against the pre-fix landed-criteria refusal reachable when drift collection resolves `specPath` relative to the code worktree.
-- [ ] `workflow.test.ts` `implement preflight stale workspace reset` stays green (in-repo stale-reset landed-criteria unchanged).
-- [ ] `workflow.test.ts` proves the stale-workspace reset orchestrator runs for an incomplete external plan re-run while the external index and subspec files remain on disk; it fails against the pre-fix `implement.link_out_of_tree` or missing-spec refusal reachable before reset.
+- [x] `workflow.test.ts` drives an incomplete external plan re-run through production implement build into `maybeResetStaleWorkspace` with a stale code worktree and write-step `specPath` as the external-absolute path from `01`; it fails against the pre-fix landed-criteria refusal reachable when drift collection resolves `specPath` relative to the code worktree.
+- [x] `workflow.test.ts` `implement preflight stale workspace reset` stays green (in-repo stale-reset landed-criteria unchanged).
+- [x] `workflow.test.ts` proves the stale-workspace reset orchestrator runs for an incomplete external plan re-run while the external index and subspec files remain on disk; it fails against the pre-fix `implement.link_out_of_tree` or missing-spec refusal reachable before reset.
 
 ## Documentation updates
 

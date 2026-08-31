@@ -18,8 +18,8 @@
 
 ## Acceptance criteria
 
-- [ ] `implement-workflow-steps.test.ts` returns `implement.already_complete` for a fully checked external plan tree before `loadWorkflowSteps` is invoked; it fails against the pre-fix code that resolves completeness relative to the registered project root.
-- [ ] `workflow.test.ts` or `implement-workflow-steps.test.ts` exercises `resolveImplementRecoveryRequest` for a fully checked external plan tree using `specReadRoot` instead of `projectRoot`; it fails against the pre-fix recovery call site that passes `identity.projectRoot` into `validateImplementSpecTreeCompletion`.
+- [x] `implement-workflow-steps.test.ts` returns `implement.already_complete` for a fully checked external plan tree before `loadWorkflowSteps` is invoked; it fails against the pre-fix code that resolves completeness relative to the registered project root.
+- [x] `workflow.test.ts` or `implement-workflow-steps.test.ts` exercises `resolveImplementRecoveryRequest` for a fully checked external plan tree using `specReadRoot` instead of `projectRoot`; it fails against the pre-fix recovery call site that passes `identity.projectRoot` into `validateImplementSpecTreeCompletion`.
 
 ## Documentation updates
 

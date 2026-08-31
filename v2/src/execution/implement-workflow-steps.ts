@@ -1,10 +1,11 @@
 import { readFileSync, realpathSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   hasUncheckedNonHumanOnlyCriteria,
   resolveActiveLinkedSubspec as realResolveActiveLinkedSubspec,
 } from "../../../shared/linked-subspec-routing.ts";
 import { findProjectMatch, type ProjectMatch } from "../../../shared/project-registry.ts";
+import { projectSafeId } from "../../../shared/project-safe-id.ts";
 import {
   implementReviewPromptProfile,
   PATCH_REVIEW_CRITIC_PROMPT_ID,
@@ -19,7 +20,7 @@ import {
   readProjectImplementReviewPasses,
   readProjectRegistry,
 } from "../config/machine-config-loader.ts";
-import { MACHINE_CONFIG_PATH } from "../paths.ts";
+import { jarvisHome, MACHINE_CONFIG_PATH } from "../paths.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { PipelineDefinition } from "./pipeline-definition.ts";
 import {
@@ -73,6 +74,12 @@ export type BuildImplementWorkflowStepsResult =
   | { ok: true; steps: AnyWorkflowStep[]; pipelineDefinition?: PipelineDefinition }
   | { ok: false; error: string };
 
+type ResolvedImplementLaunch = BuildImplementWorkflowStepsInput & {
+  absoluteSpecPath?: string;
+  specReadRoot?: string;
+  externalPlanSpec?: true;
+};
+
 function resolveImplementReviewPasses(reviewPasses: number): number | { error: string } {
   if (!Number.isInteger(reviewPasses) || reviewPasses < 0) {
     return { error: "implement: reviewPasses must be a non-negative integer" };
@@ -108,17 +115,91 @@ export type ImplementSpecIdentity = {
   projectRoot: string;
   specPath: string;
   absoluteSpecPath: string;
+  externalPlanSpec?: true;
+  specReadRoot?: string;
 };
+
+function isProjectConfigRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Matches `planSource` external publication: `git === false` or `plan.commit === false`. */
+export function planSourcePublishesExternally(projectConfig: Record<string, unknown>): boolean {
+  return (
+    projectConfig.git === false || (isProjectConfigRecord(projectConfig.plan) && projectConfig.plan.commit === false)
+  );
+}
+
+function parseExternalPlanSpecPath(resolvedSpecPath: string): { safeId: string; specReadRoot: string } | undefined {
+  const specsRoot = join(jarvisHome(), "specs");
+  let resolvedSpecsRoot = specsRoot;
+  try {
+    resolvedSpecsRoot = realpathSync(specsRoot);
+  } catch {
+    return undefined;
+  }
+  if (!insideResolvedPath(resolvedSpecsRoot, resolvedSpecPath)) return undefined;
+  const rel = relative(resolvedSpecsRoot, resolvedSpecPath);
+  if (rel.startsWith("..") || isAbsolute(rel)) return undefined;
+  const segments = rel.split(sep).filter((segment) => segment.length > 0);
+  if (segments.length !== 4 || segments[1] !== "plans" || segments[3] !== "index.md") return undefined;
+  const safeId = segments[0];
+  if (safeId === undefined) return undefined;
+  return {
+    safeId,
+    specReadRoot: dirname(resolvedSpecPath),
+  };
+}
+
+function resolveExternalPlanSpecIdentity(
+  resolvedSpecPath: string,
+  projectRegistry: Record<string, { root: string; origin?: string }>,
+  configPath: string,
+): ImplementSpecIdentity | { error: string } | undefined {
+  const parsed = parseExternalPlanSpecPath(resolvedSpecPath);
+  if (parsed === undefined) return undefined;
+  const owners = Object.keys(projectRegistry).filter((key) => projectSafeId(key) === parsed.safeId);
+  if (owners.length !== 1) {
+    return { error: `Spec path outside registered project roots: ${resolvedSpecPath}` };
+  }
+  const project = owners[0]!;
+  const projectConfig = readProjectConfigRecord(project, configPath);
+  if (projectConfig === undefined || !planSourcePublishesExternally(projectConfig)) {
+    return { error: `Spec path outside registered project roots: ${resolvedSpecPath}` };
+  }
+  const root = resolveExistingImplementPath("Registered project root", projectRegistry[project]!.root);
+  if (typeof root === "object") return root;
+  if (!insideResolvedPath(parsed.specReadRoot, resolvedSpecPath)) {
+    return { error: `Spec path outside registered project roots: ${resolvedSpecPath}` };
+  }
+  let resolvedJarvisHome = jarvisHome();
+  try {
+    resolvedJarvisHome = realpathSync(jarvisHome());
+  } catch {
+    // keep lexical home when the directory is absent
+  }
+  return {
+    project,
+    projectRoot: root,
+    specPath: relative(resolvedJarvisHome, resolvedSpecPath),
+    absoluteSpecPath: resolvedSpecPath,
+    externalPlanSpec: true,
+    specReadRoot: parsed.specReadRoot,
+  };
+}
 
 /** Resolve the canonical project and spec identity shared by implement preflight and recovery. */
 export function resolveImplementSpecIdentity(
   cwd: string,
   specPath: string,
   projectRegistry: Record<string, { root: string; origin?: string }>,
+  configPath: string = MACHINE_CONFIG_PATH,
 ): ImplementSpecIdentity | { error: string } {
   const requestedSpecPath = resolve(cwd, specPath);
   const resolvedSpecPath = resolveExistingImplementPath("Spec", requestedSpecPath);
   if (typeof resolvedSpecPath === "object") return resolvedSpecPath;
+  const external = resolveExternalPlanSpecIdentity(resolvedSpecPath, projectRegistry, configPath);
+  if (external !== undefined) return external;
   const lexicalMatch =
     findProjectMatch(requestedSpecPath, projectRegistry) ?? findProjectMatch(resolvedSpecPath, projectRegistry);
   if (lexicalMatch === undefined) {
@@ -135,18 +216,6 @@ export function resolveImplementSpecIdentity(
     specPath: relative(root, resolvedSpecPath),
     absoluteSpecPath: resolvedSpecPath,
   };
-}
-
-function resolveImplementSpecAndProject(
-  input: BuildImplementWorkflowStepsInput,
-  deps: BuildImplementWorkflowStepsDeps,
-): { match: ProjectMatch; resolvedSpecPath: string } | { error: string } {
-  const registry =
-    input.projectRegistry ??
-    (deps.readProjectRegistry ?? (() => readProjectRegistry(input.configPath ?? deps.configPath)))();
-  const identity = resolveImplementSpecIdentity(input.cwd, input.specPath, registry);
-  if ("error" in identity) return identity;
-  return { match: { key: identity.project, root: identity.projectRoot }, resolvedSpecPath: identity.absoluteSpecPath };
 }
 
 function insideResolvedPath(parent: string, child: string): boolean {
@@ -167,6 +236,7 @@ function resolveImplementArtifact(
   input: BuildImplementWorkflowStepsInput,
   resolvedSpecPath: string,
   match: ProjectMatch,
+  externalPlanSpec?: true,
 ): { isIndexSpec: boolean; artifactPath?: string } | { error: string } {
   const isIndexSpec = basename(resolvedSpecPath) === "index.md";
   const artifactPath = isIndexSpec ? resolvedSpecPath : input.artifactPath;
@@ -179,7 +249,10 @@ function resolveImplementArtifact(
     if (!insideResolvedPath(input.preflightGitRoot, resolvedArtifactPath)) {
       return { error: `Artifact path outside chained worktree: ${resolvedArtifactPath}` };
     }
-  } else if (findProjectMatch(resolvedArtifactPath, { [match.key]: { root: match.root } }) === undefined) {
+  } else if (
+    externalPlanSpec !== true &&
+    findProjectMatch(resolvedArtifactPath, { [match.key]: { root: match.root } }) === undefined
+  ) {
     return { error: `Artifact path outside registered project root: ${resolvedArtifactPath}` };
   }
   return {
@@ -252,10 +325,11 @@ async function resolveChainedImplementLaunch(
   };
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: external-plan admission adds base-ref-bypass and specPath branches; extraction would fragment the reviewed launch flow
 async function resolveImplementLaunch(
   input: BuildImplementWorkflowStepsInput,
   deps: BuildImplementWorkflowStepsDeps,
-): Promise<BuildImplementWorkflowStepsInput | { error: string }> {
+): Promise<ResolvedImplementLaunch | { error: string }> {
   const runner = deps.asyncSubprocessRunner ?? realAsyncSubprocessRunner;
   const skipPreflight =
     (input.projectRoot !== undefined || deps.resolveProjectMatch !== undefined) && input.preflightGitRoot === undefined;
@@ -273,18 +347,31 @@ async function resolveImplementLaunch(
     return await resolveChainedImplementLaunch(input, deps, input.preflightGitRoot, runner);
   }
 
-  const resolvedSpec = resolveImplementSpecAndProject(input, deps);
-  if ("error" in resolvedSpec) return resolvedSpec;
-  const { match, resolvedSpecPath } = resolvedSpec;
+  const registry =
+    input.projectRegistry ??
+    (deps.readProjectRegistry ?? (() => readProjectRegistry(input.configPath ?? deps.configPath)))();
+  const identity = resolveImplementSpecIdentity(
+    input.cwd,
+    input.specPath,
+    registry,
+    input.configPath ?? deps.configPath,
+  );
+  if ("error" in identity) return identity;
+  const match = { key: identity.project, root: identity.projectRoot };
+  const resolvedSpecPath = identity.absoluteSpecPath;
+  const specReadRoot = identity.specReadRoot ?? identity.projectRoot;
+  const externalPlanSpec = identity.externalPlanSpec === true ? (true as const) : undefined;
   const projectRelativeSpecPath = relative(match.root, resolvedSpecPath);
+  const launchSpecPath = externalPlanSpec === true ? resolvedSpecPath : projectRelativeSpecPath;
 
-  const artifact = resolveImplementArtifact(input, resolvedSpecPath, match);
+  const artifact = resolveImplementArtifact(input, resolvedSpecPath, match, externalPlanSpec);
   if ("error" in artifact) return artifact;
 
   const reviewConfig = resolveImplementReviewConfig(input, match, input.configPath ?? deps.configPath);
   if ("error" in reviewConfig) return reviewConfig;
 
   if (
+    externalPlanSpec !== true &&
     !(await isSpecAvailableInBaseRef(
       match.root,
       input.baseRef,
@@ -298,9 +385,12 @@ async function resolveImplementLaunch(
   return {
     ...input,
     branchName: input.branchName ?? basename(dirname(resolvedSpecPath)),
-    specPath: projectRelativeSpecPath,
+    specPath: launchSpecPath,
     projectRoot: match.root,
     projectName: match.key,
+    absoluteSpecPath: resolvedSpecPath,
+    specReadRoot,
+    ...(externalPlanSpec === true ? { externalPlanSpec } : {}),
     ...(artifact.isIndexSpec ? {} : { artifactPath: artifact.artifactPath }),
     reviewPasses: reviewConfig.reviewPasses,
     reviewBehavior: reviewConfig.reviewBehavior,
@@ -338,13 +428,13 @@ function resolveImplementExpectedArtifactPath(
 function validateLinkedIndexRouting(
   isIndexSpec: boolean,
   absoluteSpecPath: string,
-  projectRoot: string,
+  specReadRoot: string,
   resolveLinkedSubspec: NonNullable<BuildImplementWorkflowStepsDeps["resolveActiveLinkedSubspec"]>,
 ): { error: string } | undefined {
   if (!isIndexSpec) {
     return undefined;
   }
-  const routingResult = resolveLinkedSubspec(absoluteSpecPath, projectRoot);
+  const routingResult = resolveLinkedSubspec(absoluteSpecPath, specReadRoot);
   if (routingResult.ok || routingResult.errorKind === "empty_index" || routingResult.errorKind === "already_complete") {
     return undefined;
   }
@@ -356,7 +446,7 @@ const ALREADY_COMPLETE_ERROR =
 
 export function validateImplementSpecTreeCompletion(
   absoluteSpecPath: string,
-  projectRoot: string,
+  specReadRoot: string,
   readSpecFile: (path: string) => string,
 ): string | undefined {
   let specContent: string;
@@ -371,7 +461,7 @@ export function validateImplementSpecTreeCompletion(
   }
   for (const subspec of linkedSubspecs) {
     const subspecPath = isAbsolute(subspec.path) ? subspec.path : resolve(dirname(absoluteSpecPath), subspec.path);
-    if (relative(projectRoot, subspecPath).startsWith("..")) {
+    if (!insideResolvedPath(specReadRoot, subspecPath)) {
       return `implement.link_out_of_tree: Linked path is outside project: ${subspec.path}`;
     }
     try {
@@ -459,6 +549,7 @@ function admitProjectPipeline(
 }
 
 /** Build the implement preset workflow for cwd + run args. */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: external-plan preflight/completeness branches; kept inline to preserve the reviewed build sequence
 export async function buildImplementWorkflowSteps(
   input: BuildImplementWorkflowStepsInput,
   deps: BuildImplementWorkflowStepsDeps = {},
@@ -480,17 +571,22 @@ export async function buildImplementWorkflowSteps(
   const match = resolveImplementProjectMatch(resolvedInput, resolveProjectMatch);
   if ("error" in match) return { ok: false, error: match.error };
 
-  const specTreeRoot = resolvedInput.preflightGitRoot ?? match.root;
+  const specReadRoot = resolvedInput.specReadRoot ?? resolvedInput.preflightGitRoot ?? match.root;
   const absoluteSpecPath =
-    resolvedInput.preflightGitRoot !== undefined
+    resolvedInput.absoluteSpecPath ??
+    (resolvedInput.preflightGitRoot !== undefined
       ? resolve(resolvedInput.cwd, resolvedInput.specPath)
-      : resolve(match.root, resolvedInput.specPath);
+      : resolve(match.root, resolvedInput.specPath));
   const isIndexSpec = basename(absoluteSpecPath) === "index.md";
 
-  if (deps.resolveActiveLinkedSubspec === undefined || deps.readSpecFile !== undefined) {
+  if (
+    resolvedInput.externalPlanSpec === true ||
+    deps.resolveActiveLinkedSubspec === undefined ||
+    deps.readSpecFile !== undefined
+  ) {
     const completionError = validateImplementSpecTreeCompletion(
       absoluteSpecPath,
-      specTreeRoot,
+      specReadRoot,
       deps.readSpecFile ?? ((path) => readFileSync(path, "utf8")),
     );
     if (completionError !== undefined) return { ok: false, error: completionError };
@@ -503,7 +599,7 @@ export async function buildImplementWorkflowSteps(
   );
   if (typeof expectedArtifactPath === "object") return { ok: false, error: expectedArtifactPath.error };
 
-  const routingError = validateLinkedIndexRouting(isIndexSpec, absoluteSpecPath, specTreeRoot, resolveLinkedSubspec);
+  const routingError = validateLinkedIndexRouting(isIndexSpec, absoluteSpecPath, specReadRoot, resolveLinkedSubspec);
   if (routingError !== undefined) return { ok: false, error: routingError.error };
 
   const sourceStep: WriteWorkflowSourceStep = {
@@ -521,6 +617,7 @@ export async function buildImplementWorkflowSteps(
     specPath: resolvedInput.specPath,
     expectedArtifactPath,
     linkedIndexRouting: isIndexSpec,
+    ...(resolvedInput.externalPlanSpec === true ? { externalPlanSpec: true as const } : {}),
   };
   const pipelineConfigPath = resolvedInput.configPath ?? deps.configPath;
 

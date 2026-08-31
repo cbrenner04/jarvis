@@ -11,14 +11,20 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { ProjectMatch } from "../../../shared/project-registry.ts";
+import { projectSafeId } from "../../../shared/project-safe-id.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { createChainedStageProjectMatch } from "../daemon/pipeline-stage-resolve.ts";
+import { jarvisHome } from "../paths.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import type { WithExternalWorktreeResult } from "./external-worktree.ts";
-import { buildImplementWorkflowSteps } from "./implement-workflow-steps.ts";
+import {
+  buildImplementWorkflowSteps,
+  planSourcePublishesExternally,
+  resolveImplementSpecIdentity,
+} from "./implement-workflow-steps.ts";
 import { loadWorkflowSteps, type WorkflowSourceStep } from "./workflow-loader.ts";
 import { executeWorkflow, type WriteWorkflowStep } from "./workflow-runner.ts";
 import { IMPLEMENT_WRITE_STEP_RULES } from "./write-loop-input.ts";
@@ -582,6 +588,146 @@ describe("buildImplementWorkflowSteps", () => {
     expect(result.steps[0]).toMatchObject({ specPath: "spec/index.md" });
   });
 
+  test("builds an incomplete external plan index without base-ref membership", async () => {
+    const projectKey = "Org/Repo";
+    const planName = "feature";
+    const { root, specReadRoot, indexPath, configPath, registry } = writeRegisteredExternalPlanFixture(
+      projectKey,
+      planName,
+      { git: false },
+    );
+    const machineConfigPath = writeJson("config.json", {
+      agents: ["claude"],
+      projects: { [projectKey]: { root, git: false } },
+    });
+    const machineProfile = writeValidProfile();
+    const absoluteIndexPath = realpathSync(indexPath);
+    let catFileCalled = false;
+    let routingRoot: string | undefined;
+    const runner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd, options) => {
+        if (cmd === "git" && args[0] === "cat-file") {
+          catFileCalled = true;
+          throw new Error("cat-file should not run for external plan specs");
+        }
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd, options);
+      },
+    };
+
+    try {
+      const result = await buildImplementWorkflowSteps(
+        {
+          cwd: root,
+          baseRef: "main",
+          specPath: indexPath,
+          reviewPasses: 0,
+          configPath: machineConfigPath,
+          projectRegistry: registry,
+        },
+        {
+          asyncSubprocessRunner: runner,
+          loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
+          resolveActiveLinkedSubspec: (_specPath, readRoot) => {
+            routingRoot = readRoot;
+            return { ok: false, error: "empty", errorKind: "empty_index" };
+          },
+        },
+      );
+
+      expect(catFileCalled).toBe(false);
+      expect(routingRoot).toBe(realpathSync(specReadRoot));
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      const write = result.steps[0];
+      expect(write?.behavior).toBe("write");
+      expect(write).toMatchObject({
+        specPath: absoluteIndexPath,
+        expectedArtifactPath: absoluteIndexPath,
+        externalPlanSpec: true,
+      });
+    } finally {
+      removeTestPaths(root, specReadRoot);
+    }
+  });
+
+  test("rejects a complete external plan tree before loading workflow steps", async () => {
+    const projectKey = "Org/Complete-Repo";
+    const { root, specReadRoot, indexPath, configPath, registry } = writeRegisteredExternalPlanFixture(
+      projectKey,
+      "complete-feature",
+      { git: false },
+    );
+    writeFileSync(join(specReadRoot, "00-work.md"), "# Work\n\n## Acceptance criteria\n\n- [x] Work\n", "utf8");
+    let loadCalls = 0;
+
+    try {
+      const result = await buildImplementWorkflowSteps(
+        {
+          cwd: root,
+          baseRef: "main",
+          specPath: indexPath,
+          reviewPasses: 0,
+          configPath,
+          projectRegistry: registry,
+        },
+        {
+          loadWorkflowSteps: () => {
+            loadCalls += 1;
+            return [];
+          },
+        },
+      );
+
+      expect(result).toEqual({
+        ok: false,
+        error: "implement.already_complete: requested spec has no unchecked non-human-only acceptance criteria",
+      });
+      expect(loadCalls).toBe(0);
+    } finally {
+      removeTestPaths(root, specReadRoot);
+    }
+  });
+
+  test("rejects an external linked subspec symlink that escapes its plan root before routing", async () => {
+    const { root, specReadRoot, indexPath, configPath, registry } = writeRegisteredExternalPlanFixture(
+      "External/Linked-Escape",
+      "linked-escape",
+      { git: false },
+    );
+    const outside = mkdtempSync(join(tmpdir(), "implement-external-linked-escape-"));
+    const escapedPath = join(specReadRoot, "00-work.md");
+    writeFileSync(join(outside, "00-work.md"), "## Acceptance criteria\n\n- [ ] Outside\n", "utf8");
+    rmSync(escapedPath);
+    symlinkSync(join(outside, "00-work.md"), escapedPath);
+    let loaded = false;
+    let routed = false;
+
+    try {
+      const result = await buildImplementWorkflowSteps(
+        { cwd: root, baseRef: "main", specPath: indexPath, reviewPasses: 0, configPath, projectRegistry: registry },
+        {
+          loadWorkflowSteps: () => {
+            loaded = true;
+            return [];
+          },
+          resolveActiveLinkedSubspec: () => {
+            routed = true;
+            return { ok: false, error: "should not route", errorKind: "link_out_of_tree" };
+          },
+        },
+      );
+
+      expect(result).toEqual({
+        ok: false,
+        error: "implement.link_out_of_tree: Linked path is outside project: ./00-work.md",
+      });
+      expect(loaded).toBe(false);
+      expect(routed).toBe(false);
+    } finally {
+      removeTestPaths(root, specReadRoot, outside);
+    }
+  });
+
   test("rejects an unresolved launch whose spec symlink escapes the registered root", async () => {
     const root = mkdtempSync(join(tmpdir(), "implement-workflow-steps-contained-"));
     const outside = mkdtempSync(join(tmpdir(), "implement-workflow-steps-outside-"));
@@ -834,5 +980,213 @@ describe("buildImplementWorkflowSteps", () => {
     expect(wrongBaseRef.ok).toBe(false);
     if (wrongBaseRef.ok) return;
     expect(wrongBaseRef.error).toContain("Spec path unavailable in base ref main");
+  });
+});
+
+function writeRegisteredExternalPlanFixture(
+  projectKey: string,
+  planName: string,
+  projectConfig: Record<string, unknown> = { git: false },
+): {
+  root: string;
+  safeId: string;
+  specReadRoot: string;
+  indexPath: string;
+  configPath: string;
+  registry: Record<string, { root: string }>;
+} {
+  const root = mkdtempSync(join(tmpdir(), "implement-external-plan-project-"));
+  const safeId = projectSafeId(projectKey);
+  const specReadRoot = join(jarvisHome(), "specs", safeId, "plans", planName);
+  mkdirSync(specReadRoot, { recursive: true });
+  writeFileSync(join(specReadRoot, "index.md"), "- [ ] [Work](./00-work.md)\n", "utf8");
+  writeFileSync(join(specReadRoot, "00-work.md"), "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n", "utf8");
+  const configPath = writeJson("config.json", { projects: { [projectKey]: { root, ...projectConfig } } });
+  return {
+    root,
+    safeId,
+    specReadRoot,
+    indexPath: join(specReadRoot, "index.md"),
+    configPath,
+    registry: { [projectKey]: { root } },
+  };
+}
+
+function removeTestPaths(...paths: string[]): void {
+  for (const path of paths) rmSync(path, { recursive: true, force: true });
+}
+
+const OUTSIDE_ROOTS = /Spec path outside registered project roots/;
+
+describe("planSourcePublishesExternally", () => {
+  test("treats plan arrays as absent so commit defaults to in-repo publication", () => {
+    const plan = Object.assign([], { commit: false });
+    expect(planSourcePublishesExternally({ plan })).toBe(false);
+  });
+
+  test("reads plan.commit from a plain plan object", () => {
+    expect(planSourcePublishesExternally({ plan: { commit: false } })).toBe(true);
+    expect(planSourcePublishesExternally({ plan: { commit: true } })).toBe(false);
+  });
+
+  test("requires literal false publication flags", () => {
+    expect(planSourcePublishesExternally({ git: 0, plan: { commit: 0 } })).toBe(false);
+    expect(planSourcePublishesExternally({ git: "", plan: { commit: null } })).toBe(false);
+  });
+});
+
+describe("resolveImplementSpecIdentity external plan admission", () => {
+  test("admits an external plan index for a registered project whose planSource publishes externally", () => {
+    const projectKey = "Org/Repo";
+    const planName = "feature";
+    const { root, specReadRoot, indexPath, configPath, registry } = writeRegisteredExternalPlanFixture(
+      projectKey,
+      planName,
+      { git: false },
+    );
+    try {
+      const identity = resolveImplementSpecIdentity(root, indexPath, registry, configPath);
+      expect("error" in identity).toBe(false);
+      if ("error" in identity) return;
+      expect(identity.project).toBe(projectKey);
+      expect(identity.projectRoot).toBe(realpathSync(root));
+      expect(identity.externalPlanSpec).toBe(true);
+      expect(identity.specReadRoot).toBe(realpathSync(specReadRoot));
+      expect(identity.absoluteSpecPath).toBe(realpathSync(indexPath));
+      expect(planSourcePublishesExternally({ git: false })).toBe(true);
+    } finally {
+      removeTestPaths(root, specReadRoot);
+    }
+  });
+
+  test("rejects unregistered safe IDs", () => {
+    const safeId = "orphan-project";
+    const specReadRoot = join(jarvisHome(), "specs", safeId, "plans", "feature");
+    mkdirSync(specReadRoot, { recursive: true });
+    const indexPath = join(specReadRoot, "index.md");
+    writeFileSync(indexPath, "- [ ] Work\n", "utf8");
+    const root = mkdtempSync(join(tmpdir(), "implement-external-plan-reject-"));
+    const configPath = writeJson("config.json", { projects: { demo: { root, git: false } } });
+    try {
+      const identity = resolveImplementSpecIdentity(root, indexPath, { demo: { root } }, configPath);
+      expect("error" in identity).toBe(true);
+      if (!("error" in identity)) return;
+      expect(identity.error).toMatch(OUTSIDE_ROOTS);
+    } finally {
+      removeTestPaths(root, specReadRoot);
+    }
+  });
+
+  test("rejects paths outside plans/", () => {
+    const projectKey = "demo";
+    const { root, safeId, configPath, registry } = writeRegisteredExternalPlanFixture(projectKey, "feature");
+    const outsidePlans = join(jarvisHome(), "specs", safeId, "ready-intents", "feature", "index.md");
+    mkdirSync(dirname(outsidePlans), { recursive: true });
+    writeFileSync(outsidePlans, "- [ ] Work\n", "utf8");
+    try {
+      const identity = resolveImplementSpecIdentity(root, outsidePlans, registry, configPath);
+      expect("error" in identity).toBe(true);
+      if (!("error" in identity)) return;
+      expect(identity.error).toMatch(OUTSIDE_ROOTS);
+    } finally {
+      removeTestPaths(root, join(jarvisHome(), "specs", safeId));
+    }
+  });
+
+  test("rejects owners whose planSource would publish in-repo only", () => {
+    const projectKey = "demo";
+    const { root, specReadRoot, indexPath, configPath, registry } = writeRegisteredExternalPlanFixture(
+      projectKey,
+      "feature",
+      {},
+    );
+    try {
+      expect(planSourcePublishesExternally({})).toBe(false);
+      const identity = resolveImplementSpecIdentity(root, indexPath, registry, configPath);
+      expect("error" in identity).toBe(true);
+      if (!("error" in identity)) return;
+      expect(identity.error).toMatch(OUTSIDE_ROOTS);
+    } finally {
+      removeTestPaths(root, specReadRoot);
+    }
+  });
+
+  test("rejects external subspec file paths", () => {
+    const projectKey = "demo";
+    const { root, specReadRoot, configPath, registry } = writeRegisteredExternalPlanFixture(projectKey, "feature");
+    try {
+      const identity = resolveImplementSpecIdentity(root, join(specReadRoot, "00-work.md"), registry, configPath);
+      expect("error" in identity).toBe(true);
+      if (!("error" in identity)) return;
+      expect(identity.error).toMatch(OUTSIDE_ROOTS);
+    } finally {
+      removeTestPaths(root, specReadRoot);
+    }
+  });
+
+  test("rejects plan directories without index.md", () => {
+    const projectKey = "demo";
+    const { root, specReadRoot, configPath, registry } = writeRegisteredExternalPlanFixture(projectKey, "feature");
+    rmSync(join(specReadRoot, "index.md"));
+    try {
+      const identity = resolveImplementSpecIdentity(root, join(specReadRoot, "index.md"), registry, configPath);
+      expect("error" in identity).toBe(true);
+      if (!("error" in identity)) return;
+      expect(identity.error).toContain("Spec path does not exist");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(specReadRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects two registered keys sharing the same projectSafeId", () => {
+    const planName = "feature";
+    const safeId = projectSafeId("foo/bar");
+    const specReadRoot = join(jarvisHome(), "specs", safeId, "plans", planName);
+    mkdirSync(specReadRoot, { recursive: true });
+    const indexPath = join(specReadRoot, "index.md");
+    writeFileSync(indexPath, "- [ ] Work\n", "utf8");
+    const rootA = mkdtempSync(join(tmpdir(), "implement-external-plan-a-"));
+    const rootB = mkdtempSync(join(tmpdir(), "implement-external-plan-b-"));
+    const configPath = writeJson("config.json", {
+      projects: {
+        "foo/bar": { root: rootA, git: false },
+        "foo-bar": { root: rootB, git: false },
+      },
+    });
+    try {
+      const identity = resolveImplementSpecIdentity(
+        rootA,
+        indexPath,
+        { "foo/bar": { root: rootA }, "foo-bar": { root: rootB } },
+        configPath,
+      );
+      expect("error" in identity).toBe(true);
+      if (!("error" in identity)) return;
+      expect(identity.error).toMatch(OUTSIDE_ROOTS);
+    } finally {
+      removeTestPaths(rootA, rootB, specReadRoot);
+    }
+  });
+
+  test("rejects symlink escapes under external plan storage", () => {
+    const projectKey = "demo";
+    const { root, safeId, specReadRoot, configPath, registry } = writeRegisteredExternalPlanFixture(
+      projectKey,
+      "feature",
+    );
+    const outside = mkdtempSync(join(tmpdir(), "implement-external-plan-outside-"));
+    writeFileSync(join(outside, "index.md"), "- [ ] Work\n", "utf8");
+    const escapedLink = join(specReadRoot, "escaped.md");
+    rmSync(join(specReadRoot, "index.md"));
+    symlinkSync(join(outside, "index.md"), escapedLink);
+    try {
+      const identity = resolveImplementSpecIdentity(root, escapedLink, registry, configPath);
+      expect("error" in identity).toBe(true);
+      if (!("error" in identity)) return;
+      expect(identity.error).toMatch(OUTSIDE_ROOTS);
+    } finally {
+      removeTestPaths(root, outside, join(jarvisHome(), "specs", safeId));
+    }
   });
 });

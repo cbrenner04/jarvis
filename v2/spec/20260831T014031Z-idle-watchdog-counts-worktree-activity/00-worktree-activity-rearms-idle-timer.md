@@ -24,13 +24,13 @@ The idle-timer arming path in `shared/invocation/agents.ts` (`armIdleTimer` and 
 
 ## Acceptance criteria
 
-- [ ] An `agents.test.ts` test drives an invocation that emits no stdout, then fires the injected `watchWorktreeActivity` `onActivity` for a non-sidecar path under `cwd` before the injected idle budget elapses, and proves the idle timer is re-armed (the invocation does not settle `stall`); it fails against the pre-fix stdout-only watchdog.
-- [ ] An `agents.test.ts` test proves an invocation with no stdout and no filesystem activity still settles `stall` when the injected idle budget elapses (the watchdog still fires on a genuinely hung agent).
-- [ ] An `agents.test.ts` test proves `onActivity` for an ignored sidecar path (basename starting `.jarvis-`, or `verdict-*.md`) does NOT re-arm the timer — a sidecar-only stream still settles `stall`.
-- [ ] An `agents.test.ts` test proves the injected watcher is disposed when the invocation settles (its returned dispose/`signal` teardown is invoked), so no watcher leaks past invocation end.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] An `agents.test.ts` test drives an invocation that emits no stdout, then fires the injected `watchWorktreeActivity` `onActivity` for a non-sidecar path under `cwd` before the injected idle budget elapses, and proves the idle timer is re-armed (the invocation does not settle `stall`); it fails against the pre-fix stdout-only watchdog.
+- [x] An `agents.test.ts` test proves an invocation with no stdout and no filesystem activity still settles `stall` when the injected idle budget elapses (the watchdog still fires on a genuinely hung agent).
+- [x] An `agents.test.ts` test proves `onActivity` for an ignored sidecar path (basename starting `.jarvis-`, or `verdict-*.md`) does NOT re-arm the timer — a sidecar-only stream still settles `stall`.
+- [x] An `agents.test.ts` test proves the injected watcher is disposed when the invocation settles (its returned dispose/`signal` teardown is invoked), so no watcher leaks past invocation end.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

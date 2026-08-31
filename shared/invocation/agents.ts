@@ -1,9 +1,9 @@
 import type { ChildProcess, SpawnOptions, StdioOptions } from "node:child_process";
 import { spawn as realSpawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { type Dirent, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { type Dirent, readdirSync, readFileSync, realpathSync, statSync, watch as watchFs } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { computeCost, type Usage } from "../prices/cost.ts";
 import { loadPrices } from "../prices/load.ts";
 import { isClaudeZeroExitQuotaEnvelope, parseClaudeJsonOutput } from "./claude-json.ts";
@@ -21,6 +21,13 @@ export type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-ac
 
 type SpawnFn = (binary: string, argv: readonly string[], opts: SpawnOptions) => ChildProcess;
 
+type WatchWorktreeActivity = (args: {
+  cwd: string;
+  onActivity: (path: string) => void;
+  signal: AbortSignal;
+  // biome-ignore lint/suspicious/noConfusingVoidType: the `void` arm is an intentional "no teardown" return — a watcher optionally returns a dispose function or nothing.
+}) => void | (() => void);
+
 export type ResolvedAgentBindingOptions = {
   spawn?: SpawnFn;
   codexSandboxMode?: CodexSandboxMode;
@@ -28,6 +35,7 @@ export type ResolvedAgentBindingOptions = {
   randomUUID?: () => string;
   setTimeout?: typeof setTimeout;
   clearTimeout?: typeof clearTimeout;
+  watchWorktreeActivity?: WatchWorktreeActivity;
 };
 
 function createUnwiredBinding(id: string, stderr: string): InvocationBinding {
@@ -64,6 +72,7 @@ export function createResolvedAgentBinding(
           ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
           ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
           ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
+          ...(opts.watchWorktreeActivity !== undefined ? { watchWorktreeActivity: opts.watchWorktreeActivity } : {}),
           ...(signal !== undefined ? { signal } : {}),
         }),
     };
@@ -84,6 +93,7 @@ export function createResolvedAgentBinding(
           ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
           ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
           ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
+          ...(opts.watchWorktreeActivity !== undefined ? { watchWorktreeActivity: opts.watchWorktreeActivity } : {}),
           ...(opts.codexSessionsDir !== undefined ? { sessionsDir: opts.codexSessionsDir } : {}),
           ...(opts.randomUUID !== undefined ? { randomUUID: opts.randomUUID } : {}),
         }),
@@ -106,6 +116,7 @@ export function createResolvedAgentBinding(
             ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
             ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
             ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
+            ...(opts.watchWorktreeActivity !== undefined ? { watchWorktreeActivity: opts.watchWorktreeActivity } : {}),
             ...(signal !== undefined ? { signal } : {}),
           }),
           priceKey,
@@ -128,6 +139,7 @@ export function createResolvedAgentBinding(
           ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
           ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
           ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
+          ...(opts.watchWorktreeActivity !== undefined ? { watchWorktreeActivity: opts.watchWorktreeActivity } : {}),
           ...(signal !== undefined ? { signal } : {}),
         }),
     };
@@ -153,12 +165,19 @@ type AgentRunOptions = {
   onOutputProgress?: () => void;
   setTimeout?: typeof setTimeout;
   clearTimeout?: typeof clearTimeout;
+  watchWorktreeActivity?: WatchWorktreeActivity;
 };
 
 function pickAgentRunOptions(
   args: Pick<
     AgentRunOptions,
-    "signal" | "idleOutputMs" | "joinProcessOnIdleStall" | "onOutputProgress" | "setTimeout" | "clearTimeout"
+    | "signal"
+    | "idleOutputMs"
+    | "joinProcessOnIdleStall"
+    | "onOutputProgress"
+    | "setTimeout"
+    | "clearTimeout"
+    | "watchWorktreeActivity"
   >,
 ): AgentRunOptions {
   return {
@@ -168,8 +187,42 @@ function pickAgentRunOptions(
     ...(args.onOutputProgress !== undefined ? { onOutputProgress: args.onOutputProgress } : {}),
     ...(args.setTimeout !== undefined ? { setTimeout: args.setTimeout } : {}),
     ...(args.clearTimeout !== undefined ? { clearTimeout: args.clearTimeout } : {}),
+    ...(args.watchWorktreeActivity !== undefined ? { watchWorktreeActivity: args.watchWorktreeActivity } : {}),
   };
 }
+
+const WORKTREE_ACTIVITY_DEBOUNCE_MS = 100;
+
+function isIgnoredWorktreeActivityPath(path: string): boolean {
+  const name = basename(path);
+  return name.startsWith(".jarvis-") || /^verdict-.*\.md$/.test(name);
+}
+
+const defaultWatchWorktreeActivity: WatchWorktreeActivity = ({ cwd, onActivity, signal }) => {
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  const clearDebounce = () => {
+    if (debounceTimer !== null) {
+      clearTimeout(debounceTimer);
+      debounceTimer = null;
+    }
+  };
+  const watcher = watchFs(cwd, { recursive: true, signal }, (_eventType, filename) => {
+    const path = filename?.toString();
+    if (path === undefined || isIgnoredWorktreeActivityPath(path)) return;
+    clearDebounce();
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      onActivity(path);
+    }, WORKTREE_ACTIVITY_DEBOUNCE_MS);
+    debounceTimer.unref?.();
+  });
+  signal.addEventListener("abort", clearDebounce, { once: true });
+  return () => {
+    signal.removeEventListener("abort", clearDebounce);
+    clearDebounce();
+    watcher.close();
+  };
+};
 
 type SpawnConfig = {
   name: AgentName;
@@ -184,6 +237,7 @@ type SpawnConfig = {
 };
 
 function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions): Promise<InvocationResult> {
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: one invocation runtime coordinates spawn, stdout/stderr buffering, the idle-timer + worktree-activity watchdog, and settle in a single executor closure; splitting it would fragment the shared timer/stream/settle state.
   return new Promise((resolvePromise) => {
     const argv = config.buildArgv(prompt);
     const env = { ...process.env, PWD: config.cwd, GIT_TERMINAL_PROMPT: "0" } as Record<string, string>;
@@ -230,6 +284,8 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
     let removeAbortListener: (() => void) | undefined;
     let abortTimer: ReturnType<typeof setTimeout> | null = null;
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    let disposeWorktreeWatcher: (() => void) | undefined;
+    let worktreeWatcherController: AbortController | undefined;
     const setTimer = opts.setTimeout ?? setTimeout;
     const clearTimer = opts.clearTimeout ?? clearTimeout;
 
@@ -243,6 +299,12 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
       if (idleTimer !== null) {
         clearTimer(idleTimer);
         idleTimer = null;
+      }
+      worktreeWatcherController?.abort();
+      try {
+        disposeWorktreeWatcher?.();
+      } catch {
+        // Watcher disposal must not prevent invocation settlement.
       }
       removeAbortListener?.();
       resolvePromise(result);
@@ -426,6 +488,21 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
     }
 
     armIdleTimer();
+    if (opts.idleOutputMs !== undefined && opts.idleOutputMs > 0) {
+      worktreeWatcherController = new AbortController();
+      try {
+        const dispose = (opts.watchWorktreeActivity ?? defaultWatchWorktreeActivity)({
+          cwd: config.cwd,
+          onActivity: (path) => {
+            if (!isIgnoredWorktreeActivityPath(path)) armIdleTimer();
+          },
+          signal: worktreeWatcherController.signal,
+        });
+        if (dispose !== undefined) disposeWorktreeWatcher = dispose;
+      } catch {
+        worktreeWatcherController.abort();
+      }
+    }
 
     if (config.writeStdin && stdin) {
       config.writeStdin(stdin, prompt);
@@ -584,6 +661,7 @@ async function runClaudeBinding(args: {
   onOutputProgress?: () => void;
   setTimeout?: typeof setTimeout;
   clearTimeout?: typeof clearTimeout;
+  watchWorktreeActivity?: WatchWorktreeActivity;
   spawn?: SpawnFn;
 }): Promise<InvocationResult> {
   const result = await runAgent(
@@ -629,6 +707,7 @@ async function runCodexBinding(args: {
   onOutputProgress?: () => void;
   setTimeout?: typeof setTimeout;
   clearTimeout?: typeof clearTimeout;
+  watchWorktreeActivity?: WatchWorktreeActivity;
   spawn?: SpawnFn;
   sessionsDir?: string;
   randomUUID?: () => string;
@@ -861,6 +940,7 @@ async function runCursorBinding(args: {
   onOutputProgress?: () => void;
   setTimeout?: typeof setTimeout;
   clearTimeout?: typeof clearTimeout;
+  watchWorktreeActivity?: WatchWorktreeActivity;
   spawn?: SpawnFn;
 }): Promise<InvocationResult> {
   const result = await runAgent(
@@ -902,6 +982,7 @@ async function runOpencodeBinding(args: {
   onOutputProgress?: () => void;
   setTimeout?: typeof setTimeout;
   clearTimeout?: typeof clearTimeout;
+  watchWorktreeActivity?: WatchWorktreeActivity;
   spawn?: SpawnFn;
 }): Promise<InvocationResult> {
   const result = await runAgent(

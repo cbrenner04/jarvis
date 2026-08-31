@@ -422,6 +422,7 @@ describe("createResolvedAgentBinding", () => {
           return { unref() {} } as unknown as ReturnType<typeof setTimeout>;
         }) as typeof setTimeout,
         clearTimeout: (() => {}) as typeof clearTimeout,
+        watchWorktreeActivity: () => {},
       },
     );
 
@@ -430,6 +431,99 @@ describe("createResolvedAgentBinding", () => {
 
     await expect(promise).resolves.toEqual({ kind: "stall", stderr: "" });
     expect(fake.calls[0]?.child?.killedWith).toEqual([]);
+  });
+
+  test("worktree activity re-arms the idle timer for a silent child", async () => {
+    const fake = fakeSpawn([{ kind: "hang" }]);
+    const expiries: (() => void)[] = [];
+    const active = new Set<() => void>();
+    let onActivity: ((path: string) => void) | undefined;
+    let watchedCwd: string | undefined;
+    const binding = createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      {
+        spawn: fake.spawn,
+        setTimeout: ((callback: Parameters<typeof setTimeout>[0]) => {
+          const wrapped = () => {
+            if (active.has(wrapped)) callback();
+          };
+          active.add(wrapped);
+          expiries.push(wrapped);
+          return wrapped as unknown as ReturnType<typeof setTimeout>;
+        }) as typeof setTimeout,
+        clearTimeout: ((timer) => active.delete(timer as unknown as () => void)) as typeof clearTimeout,
+        watchWorktreeActivity: (args) => {
+          watchedCwd = args.cwd;
+          onActivity = args.onActivity;
+        },
+      },
+    );
+    let settled = false;
+    const promise = binding.invoke({ prompt: "p", cwd: "/repo", idleOutputMs: 100 }).finally(() => {
+      settled = true;
+    });
+
+    expect(watchedCwd).toBe("/repo");
+    onActivity?.("src/edited.ts");
+    expect(expiries).toHaveLength(2);
+    expiries[0]?.();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    expiries[1]?.();
+    await expect(promise).resolves.toEqual({ kind: "stall", stderr: "" });
+  });
+
+  test("sidecar-only worktree activity does not re-arm the idle timer", async () => {
+    for (const path of ["nested/.jarvis-state.json", "review/verdict-adjudicator.md"]) {
+      const fake = fakeSpawn([{ kind: "hang" }]);
+      const expiries: (() => void)[] = [];
+      let onActivity: ((activityPath: string) => void) | undefined;
+      const binding = createResolvedAgentBinding(
+        { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+        {
+          spawn: fake.spawn,
+          setTimeout: ((callback: Parameters<typeof setTimeout>[0]) => {
+            expiries.push(callback);
+            return callback as unknown as ReturnType<typeof setTimeout>;
+          }) as typeof setTimeout,
+          clearTimeout: (() => {}) as typeof clearTimeout,
+          watchWorktreeActivity: (args) => {
+            onActivity = args.onActivity;
+          },
+        },
+      );
+
+      const promise = binding.invoke({ prompt: "p", cwd: "/repo", idleOutputMs: 100 });
+      onActivity?.(path);
+      expect(expiries).toHaveLength(1);
+      expiries[0]?.();
+      await expect(promise).resolves.toEqual({ kind: "stall", stderr: "" });
+    }
+  });
+
+  test("settlement disposes the worktree watcher", async () => {
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: '{"type":"result","result":"done"}\n' }]);
+    let disposed = false;
+    let watcherSignal: AbortSignal | undefined;
+    const binding = createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      {
+        spawn: fake.spawn,
+        watchWorktreeActivity: ({ signal }) => {
+          watcherSignal = signal;
+          return () => {
+            disposed = true;
+          };
+        },
+      },
+    );
+
+    await expect(binding.invoke({ prompt: "p", cwd: "/repo", idleOutputMs: 100 })).resolves.toMatchObject({
+      kind: "ok",
+    });
+    expect(disposed).toBe(true);
+    expect(watcherSignal?.aborted).toBe(true);
   });
 
   test("idle output expiry joins the child before settling stall", async () => {

@@ -305,7 +305,10 @@ async function restagePendingTreeAfterStrictFormat(
   await runGit(input.worktreePath, ["read-tree", head], { GIT_INDEX_FILE: index });
   await runGit(input.worktreePath, completionStageArgs(input.worktreePath), { GIT_INDEX_FILE: index });
   const tree = await runGit(input.worktreePath, ["write-tree"], { GIT_INDEX_FILE: index });
-  const upgraded: PendingCommit = { ...pending, tree, formatMode: "strict" };
+  // Drop any checkpoint-stage commitSha so the strict boundary re-commits the re-formatted tree
+  // instead of reusing the stale checkpoint-tree commit object.
+  const { commitSha: _priorCheckpointSha, ...pendingWithoutSha } = pending;
+  const upgraded: PendingCommit = { ...pendingWithoutSha, tree, formatMode: "strict" };
   writeFileSync(pendingPath, `${JSON.stringify(upgraded)}\n`, "utf8");
   return upgraded;
 }

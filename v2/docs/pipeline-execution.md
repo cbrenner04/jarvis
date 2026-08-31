@@ -72,7 +72,7 @@ When a splitting intent stage artifact carries `downstreamInputs` with length �
 
 Approval boundary: `pending` → `awaiting` via `commitApprovalBoundary` (`approvalBoundaryAllowsStatus` in `state-store.ts`). Decision: `awaiting` → `approved` | `rejected` via `commitApprovalDecision` (`approvalDecisionAllowsStatus`). Refusals: `ApprovalRefusalReason` (`stage_not_found`, `not_approval_stage`, `status_not_pending`, `status_not_awaiting`, `invalid_decision`). Fan-out: `branch_key_required` when multiple branch rows exist and `branchKey` omitted (`commitPipelineApprovalDecision`).
 
-`approved` permits suffix dispatch scoped to `branchKey` when supplied (`applyPipelineApprovalDecision` → `continuePipeline`). `rejected` settles the branch/pipeline without later dispatch. Tests: `pipeline-execution.test.ts` — `pipeline approval decisions`, `approval execution guards`.
+`approved` permits suffix dispatch scoped to `branchKey` when supplied (`applyPipelineApprovalDecision` → `continuePipeline`); on the already-running admitting daemon, applied approve dispatches the successor immediately via `continuePipeline` without a daemon restart or `recoverContinuablePipelines` sweep. `branchKey: "default"` aliases unscoped whole-pipeline continuation (same as omission). `rejected` settles the branch/pipeline without later dispatch. Tests: `pipeline-execution.test.ts` — `pipeline approval decisions`, `approval execution guards`; `daemon-pipeline-approval.test.ts` — explicit `branchKey: "default"` successor linkage.
 
 ## Derived state
 
@@ -168,15 +168,15 @@ Malformed RPC params and transport errors: [`daemon-host.md`](./daemon-host.md).
 
 | Outcome | Condition | Durable effect |
 | --- | --- | --- |
-| **Admitted** `resumed` | Derived `failed` → `reopenFailedPipeline` then `continuePipeline`; derived `awaiting-approval` → `claimPipelineContinuation` only; derived `pending` after reopen → `continuePipeline`; derived `running` with `resumeDrivesDeferredSettlement` | Reopen mutates failed suffix; claim updates owner; continuation dispatches |
-| **Refused** | `pipeline_not_found`; `missing_context`; `claim_refused`; `pipeline_terminal_succeeded`; `pipeline_terminal_rejected`; `pipeline_not_resumable` (derived `running`/`interrupted`/`pending` without reopen, live entry run) | No dispatch |
+| **Admitted** `resumed` | Derived `failed` → `reopenFailedPipeline` then `continuePipeline`; derived `awaiting-approval` → `claimPipelineContinuation` only; derived `pending` after reopen → `continuePipeline`; derived `pending` with a reachable `approved` gate and undispatched pending workflow successor → `continuePipeline` scoped to that lane (not when aggregate derived state is `awaiting-approval` or `running`; unreopened failed siblings are not reopened or mis-scoped); derived `running` with `resumeDrivesDeferredSettlement` | Reopen mutates failed suffix; claim updates owner; continuation dispatches |
+| **Refused** | `pipeline_not_found`; `missing_context`; `claim_refused`; `pipeline_terminal_succeeded`; `pipeline_terminal_rejected`; `pipeline_not_resumable` (derived `running` without deferred settlement, `interrupted`, or `pending` without reopen or approved-gate pending strand, live entry run) | No dispatch |
 | **No-effect claim** | `awaiting-approval` with successful claim | Owner updated; no `continuePipeline` until approve |
 
-**Branch-scoped** (`branchKey` set, not `"default"`): bypasses aggregate `derivePipelineState`; uses `resolveBranchResumeAdmission` then `reopenFailedPipeline({ branchKey })` then `continuePipeline(branchKey)`. Continuation walks only the named branch suffix — shared prefix stages are not re-dispatched and sibling branch rows stay untouched.
+**Branch-scoped** (`branchKey` set, not `"default"`): bypasses aggregate `derivePipelineState`; uses `resolveBranchResumeAdmission` then `continuePipeline(branchKey)`. A replayable `failed` row runs `reopenFailedPipeline({ branchKey })` first; an approved-gate pending strand (`approved` gate with undispatched pending workflow successor) continues without reopen. Continuation walks only the named branch suffix — shared prefix stages are not re-dispatched and sibling branch rows stay untouched.
 
 | Outcome | Reason |
 | --- | --- |
-| **Admitted** | Branch suffix has replayable `failed` row, no blocking gate |
+| **Admitted** | Branch suffix has replayable `failed` row or approved-gate pending strand, no blocking gate |
 | **Refused** | `branch_not_found`; `branch_awaiting_approval`; `branch_rejected`; `branch_not_resumable`; reopen refusal from store |
 
 Resume captures the failed workflow row before reopen and scopes reset flags to that reopened stage and branch. `reopenFailedPipeline` persists a `pipeline_reopened_stage_reset` marker on the reopened row so `continuePipeline`, detached continuation, claim loss, and daemon restart continuation reconstruct the same stage/branch reset policy without caller-supplied flags. A failed `plan` redraft automatically sets only shared stale reset's dirty-worktree override, so ordinary uncommitted `.jarvis-plan-stage/` draft bytes are retired and the lane rematerializes from its resolved base before writer dispatch in both unscoped and branch-scoped continuation. RPC `resetDespiteDirty` and `resetDespiteLandedCriteria` independently set the matching shared flags; the automatic plan behavior never sets the landed-criteria flag.
@@ -185,7 +185,7 @@ Failed-plan redraft first refuses a remaining staged operator-authored `## Block
 
 Tests: `pipeline-execution.test.ts` — `resumePipeline`, `resumePipeline branch scope`; `commands/pipeline.test.ts`.
 
-Helper predicates (pinning): `resumeTerminalRefusalReason`, `resumeAwaitingClaimsOnly`, `resumeFailedRequiresReopen`, `resumeDeferredRefusalApplies`, `resumeReopenedPendingContinuation`, `resumeDrivesDeferredSettlement`.
+Helper predicates (pinning): `resumeTerminalRefusalReason`, `resumeAwaitingClaimsOnly`, `resumeFailedRequiresReopen`, `resumeDeferredRefusalApplies`, `resumeReopenedPendingContinuation`, `resumeApprovedGatePendingStrandApplies`, `resumeDrivesDeferredSettlement`.
 
 ### `pipeline recover` (`admitAndRecoverPipelineBranchStage`)
 

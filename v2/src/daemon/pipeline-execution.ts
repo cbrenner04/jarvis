@@ -228,6 +228,72 @@ export function resumeReopenedPendingContinuation(
   return derivedState === "pending" && isReopenedFailedContinuation(pipeline);
 }
 
+function isApprovedGatePendingSuccessor(
+  prior: { stage: PipelineStage; record: PipelineStageRecord } | undefined,
+  stage: PipelineStage,
+  record: PipelineStageRecord,
+): boolean {
+  return (
+    stage.kind === "workflow" &&
+    record.status === "pending" &&
+    prior !== undefined &&
+    prior.stage.kind === "approval" &&
+    prior.record.status === "approved"
+  );
+}
+
+/** True when the first unsatisfied stage on a lane is a pending workflow immediately after an approved gate. */
+function firstUnsatisfiedIsApprovedGatePendingSuccessor(
+  ordered: ReadonlyArray<{ stage: PipelineStage; record: PipelineStageRecord }>,
+): boolean {
+  for (let index = 0; index < ordered.length; index += 1) {
+    const entry = ordered[index];
+    if (entry === undefined) continue;
+    const { stage, record } = entry;
+    if (isAuthoredStageSatisfied(stage, record)) continue;
+    return isApprovedGatePendingSuccessor(index > 0 ? ordered[index - 1] : undefined, stage, record);
+  }
+  return false;
+}
+
+/** Branch key for the first lane whose next unsatisfied stage is a pending workflow after an approved gate. */
+function approvedGatePendingStrandBranchKey(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+): string | undefined {
+  const split = findFanOutSplit(pipeline);
+  if (split !== null) {
+    for (const branchKey of split.branchKeys) {
+      if (
+        firstUnsatisfiedIsApprovedGatePendingSuccessor(suffixStagesForBranch(pipeline, split.splitPosition, branchKey))
+      ) {
+        return branchKey;
+      }
+    }
+    return undefined;
+  }
+  if (
+    firstUnsatisfiedIsApprovedGatePendingSuccessor(
+      authoredStagesInPositionOrder(pipeline).filter(
+        (entry) => entry.record.branchKey === DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
+      ),
+    )
+  ) {
+    return DEFAULT_PIPELINE_STAGE_BRANCH_KEY;
+  }
+  return undefined;
+}
+
+/** True when unscoped resume may continue an approved-gate pending successor without reopen. */
+export function resumeApprovedGatePendingStrandApplies(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+): boolean {
+  return approvedGatePendingStrandBranchKey(pipeline) !== undefined;
+}
+
+function normalizeContinuationBranchKey(branchKey?: string): string | undefined {
+  return branchKey === DEFAULT_PIPELINE_STAGE_BRANCH_KEY ? undefined : branchKey;
+}
+
 /**
  * Restart-safe production continuation: load persisted admission context, claim one live
  * owner, and resume the ordered loop without caller-supplied admission input.
@@ -237,6 +303,7 @@ export async function continuePipeline(
   deps: Omit<PipelineExecutionDeps, "context"> & { context?: PipelineContext },
   continuationBranchKey?: string,
 ): Promise<ContinuePipelineOutcome> {
+  continuationBranchKey = normalizeContinuationBranchKey(continuationBranchKey);
   const { store, dispatch, wait } = deps;
   const resolveStage = deps.resolveStage ?? resolveStageWorkflowSteps;
 
@@ -351,7 +418,7 @@ function branchSuffixRowsPresent(
 }
 
 type BranchSuffixScanResult =
-  | { kind: "resumable" }
+  | { kind: "admissible"; reopenFailed: boolean }
   | { kind: "gate_awaiting"; stageId: string }
   | { kind: "gate_rejected"; stageId: string }
   | { kind: "not_resumable"; status: string };
@@ -362,8 +429,12 @@ function scanBranchSuffixForAdmission(
   boundary: number,
   branchKey: string,
 ): BranchSuffixScanResult {
-  for (const { stage, record } of suffixStagesForBranch(pipeline, boundary - 1, branchKey)) {
-    if (record.status === "failed") return { kind: "resumable" };
+  const ordered = suffixStagesForBranch(pipeline, boundary - 1, branchKey);
+  for (let index = 0; index < ordered.length; index += 1) {
+    const entry = ordered[index];
+    if (entry === undefined) continue;
+    const { stage, record } = entry;
+    if (record.status === "failed") return { kind: "admissible", reopenFailed: true };
     if (stage.kind === "approval" && record.status === "awaiting") {
       return { kind: "gate_awaiting", stageId: stage.stageId };
     }
@@ -371,6 +442,10 @@ function scanBranchSuffixForAdmission(
       return { kind: "gate_rejected", stageId: stage.stageId };
     }
     if (!isAuthoredStageSatisfied(stage, record)) {
+      const prior = index > 0 ? ordered[index - 1] : undefined;
+      if (isApprovedGatePendingSuccessor(prior, stage, record)) {
+        return { kind: "admissible", reopenFailed: false };
+      }
       return { kind: "not_resumable", status: record.status };
     }
   }
@@ -387,7 +462,7 @@ function scanBranchSuffixForAdmission(
 function resolveBranchResumeAdmission(
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
   branchKey: string,
-): { kind: "ok" } | { kind: "refused"; detail: BranchScopedResumeRefusalDetail } {
+): { kind: "ok"; reopenFailedStage: boolean } | { kind: "refused"; detail: BranchScopedResumeRefusalDetail } {
   if (branchKey.trim() === "") return { kind: "refused", detail: { reason: "branch_not_found" } };
   if (findFanOutSplit(pipeline) === null) return { kind: "refused", detail: { reason: "branch_not_found" } };
 
@@ -409,7 +484,39 @@ function resolveBranchResumeAdmission(
   if (scan.kind === "not_resumable") {
     return { kind: "refused", detail: { reason: "branch_not_resumable", status: scan.status } };
   }
-  return { kind: "ok" };
+  return { kind: "ok", reopenFailedStage: scan.reopenFailed };
+}
+
+function findFailedStageForReopen(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  branchScope: string | undefined,
+): PipelineStageRecord | undefined {
+  return pipeline.stages.find((record) => {
+    const stage = pipeline.definition.stages[record.position];
+    return (
+      record.status === "failed" &&
+      stage?.kind === "workflow" &&
+      (branchScope === undefined || record.branchKey === branchScope)
+    );
+  });
+}
+
+function buildReopenedStageReset(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  failedStage: PipelineStageRecord | undefined,
+  options: { resetDespiteDirty?: boolean; resetDespiteLandedCriteria?: boolean },
+): ReopenedStageReset | undefined {
+  if (failedStage === undefined) return undefined;
+  const failedWorkflow = pipeline.definition.stages[failedStage.position];
+  if (failedWorkflow?.kind !== "workflow") return undefined;
+  return {
+    stageId: failedStage.stageId,
+    branchKey: failedStage.branchKey,
+    flags: {
+      skipDirtyWorktreeGate: failedWorkflow.workflow === "plan" || options.resetDespiteDirty === true,
+      skipLandedCriteriaGate: options.resetDespiteLandedCriteria === true,
+    },
+  };
 }
 
 /**
@@ -436,35 +543,19 @@ export async function resumePipeline(
     return { kind: "refused", pipelineId, reason: "pipeline_not_found" };
   }
 
-  const branchScope = options.branchKey === DEFAULT_PIPELINE_STAGE_BRANCH_KEY ? undefined : options.branchKey;
+  const branchScope = normalizeContinuationBranchKey(options.branchKey);
 
-  const failedStage = pipeline.stages.find((record) => {
-    const stage = pipeline.definition.stages[record.position];
-    return (
-      record.status === "failed" &&
-      stage?.kind === "workflow" &&
-      (branchScope === undefined || record.branchKey === branchScope)
-    );
-  });
-  const failedWorkflow = failedStage === undefined ? undefined : pipeline.definition.stages[failedStage.position];
-  const reopenedStageReset =
-    failedStage === undefined || failedWorkflow?.kind !== "workflow"
-      ? undefined
-      : {
-          stageId: failedStage.stageId,
-          branchKey: failedStage.branchKey,
-          flags: {
-            skipDirtyWorktreeGate: failedWorkflow.workflow === "plan" || options.resetDespiteDirty === true,
-            skipLandedCriteriaGate: options.resetDespiteLandedCriteria === true,
-          },
-        };
-
-  const continueAfterAdmission = (): ResumePipelineOutcome | Promise<ResumePipelineOutcome> => {
+  const continueAfterAdmission = (
+    continuationBranchKey?: string,
+    continuationReopenedStageReset?: ReopenedStageReset,
+  ): ResumePipelineOutcome | Promise<ResumePipelineOutcome> => {
     const dispatchContinuation = async (): Promise<ResumePipelineOutcome> => {
       const continuation = await continuePipeline(
         pipelineId,
-        reopenedStageReset === undefined ? deps : { ...deps, reopenedStageReset },
-        branchScope,
+        continuationReopenedStageReset === undefined
+          ? deps
+          : { ...deps, reopenedStageReset: continuationReopenedStageReset },
+        continuationBranchKey ?? branchScope,
       );
       return continuation.kind === "refused"
         ? { kind: "refused", pipelineId, reason: continuation.reason }
@@ -484,12 +575,17 @@ export async function resumePipeline(
     if (admission.kind === "refused") {
       return { kind: "refused", pipelineId, branchKey: branchScope, ...admission.detail };
     }
-    const reopen = store.reopenFailedPipeline({ pipelineId, branchKey: branchScope });
-    if (reopen.kind === "refused") {
-      return { kind: "refused", pipelineId, branchKey: branchScope, reason: reopen.reason };
+    const reopenedStageReset = admission.reopenFailedStage
+      ? buildReopenedStageReset(pipeline, findFailedStageForReopen(pipeline, branchScope), options)
+      : undefined;
+    if (admission.reopenFailedStage) {
+      const reopen = store.reopenFailedPipeline({ pipelineId, branchKey: branchScope });
+      if (reopen.kind === "refused") {
+        return { kind: "refused", pipelineId, branchKey: branchScope, reason: reopen.reason };
+      }
+      if (reopenedStageReset !== undefined) persistReopenedStageReset(store, pipelineId, reopenedStageReset);
     }
-    if (reopenedStageReset !== undefined) persistReopenedStageReset(store, pipelineId, reopenedStageReset);
-    return continueAfterAdmission();
+    return continueAfterAdmission(undefined, reopenedStageReset);
   }
 
   const derivedState = derivePipelineState(pipeline);
@@ -498,8 +594,17 @@ export async function resumePipeline(
   if (terminalReason) {
     return { kind: "refused", pipelineId, reason: terminalReason };
   }
-  if (resumeDeferredRefusalApplies(derivedState, pipeline)) {
+  if (derivedState === "running") {
     if (resumeDrivesDeferredSettlement(store, derivedState, pipeline)) return continueAfterAdmission();
+    return { kind: "refused", pipelineId, reason: "pipeline_not_resumable" };
+  }
+  const approvedGateBranchKey = approvedGatePendingStrandBranchKey(pipeline);
+  if (!resumeAwaitingClaimsOnly(derivedState) && approvedGateBranchKey !== undefined) {
+    const continuationBranchKey =
+      approvedGateBranchKey === DEFAULT_PIPELINE_STAGE_BRANCH_KEY ? undefined : approvedGateBranchKey;
+    return continueAfterAdmission(continuationBranchKey, undefined);
+  }
+  if (resumeDeferredRefusalApplies(derivedState, pipeline)) {
     return { kind: "refused", pipelineId, reason: "pipeline_not_resumable" };
   }
 
@@ -521,12 +626,17 @@ export async function resumePipeline(
   }
 
   if (resumeFailedRequiresReopen(derivedState)) {
+    const reopenedStageReset = buildReopenedStageReset(
+      pipeline,
+      findFailedStageForReopen(pipeline, undefined),
+      options,
+    );
     const reopen = store.reopenFailedPipeline({ pipelineId });
     if (reopen.kind === "refused") {
       return { kind: "refused", pipelineId, reason: reopen.reason };
     }
     if (reopenedStageReset !== undefined) persistReopenedStageReset(store, pipelineId, reopenedStageReset);
-    return continueAfterAdmission();
+    return continueAfterAdmission(undefined, reopenedStageReset);
   }
 
   if (resumeReopenedPendingContinuation(derivedState, pipeline)) {
@@ -602,7 +712,7 @@ export function applyPipelineApprovalDecision(
     decision,
   });
   if (outcome.kind === "applied" && decision === "approved") {
-    void continuePipeline(pipelineId, deps, branchKey).catch((err: unknown) => {
+    void continuePipeline(pipelineId, deps, normalizeContinuationBranchKey(branchKey)).catch((err: unknown) => {
       console.error(`Pipeline ${pipelineId} continuation after approval failed:`, err);
     });
   }
@@ -2218,6 +2328,7 @@ export async function runPipeline(
   deps: PipelineExecutionDeps,
   continuationBranchKey?: string,
 ): Promise<void> {
+  continuationBranchKey = normalizeContinuationBranchKey(continuationBranchKey);
   const { store } = deps;
   const pipeline = store.loadPipeline(pipelineId);
   if (!pipeline) return;

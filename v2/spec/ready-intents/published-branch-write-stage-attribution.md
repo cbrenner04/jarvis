@@ -31,13 +31,13 @@ Unsplit rationale: Completion commit stamping, branch publication, and PR attrib
 
 ## Acceptance criteria
 
-- [ ] A test in `v2/src/execution/workflow-runner-publication.test.ts` or `v2/src/execution/completion-publisher.test.ts` proves that when write-stage and review-stage agents differ, the attribution footer names the write-stage agent, not only the review agent; it fails against the current review-only footer.
-- [ ] A test in `v2/src/execution/completion-commit.test.ts` or `v2/src/execution/workflow-runner-publication.test.ts` proves the surviving published commit carries the write-stage `Jarvis-Agent` trailer when write and review agents differ; it fails against pre-fix where only `review-debate` stamps the commit.
+- [ ] `v2/src/execution/workflow-runner-publication.test.ts` test `credits the write-stage agent in the attribution footer when write and review agents differ` fails against the current review-only footer.
+- [ ] `v2/src/execution/completion-commit.test.ts` test `published completion commit carries write-stage Jarvis-Agent when write and review agents differ` fails against pre-fix where only `review-debate` stamps the commit.
 - [ ] `v2/src/execution/pr-body-refresh.test.ts` and `v2/src/execution/pr-attribution.test.ts` stay green (narrative markers, `Spec:` header, and step-aware footer counts unchanged).
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
-- `v2/docs/worktrees-and-commits.md` — multi-stage authorship (write, shrink, review) on the single published commit and footer.
+- `v1/docs/worktrees-and-commits.md` — write-stage vs review-stage authorship on the single published commit and footer.
 - `v2/docs/workflow-runner.md` — PR-body footer credits the write stage, not only review.
 - `v2/docs/v1-behaviors.md` — record corrected published-branch attribution when write and review agents differ.

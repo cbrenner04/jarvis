@@ -119,7 +119,7 @@ type PriorArtifactContext = {
 function resolvePriorArtifactContext(
   stage: PipelineStage & { kind: "workflow" },
   priorArtifact: PipelineStageArtifact | undefined,
-  context: PipelineContext,
+  _context: PipelineContext,
   loadRun: NonNullable<PipelineStageResolveDeps["loadRun"]>,
 ): { ok: true; prior: PriorArtifactContext } | { ok: false; error: string } {
   if (priorArtifact === undefined) {

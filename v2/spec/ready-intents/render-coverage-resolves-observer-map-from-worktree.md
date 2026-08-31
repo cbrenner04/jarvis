@@ -33,9 +33,8 @@ Unsplit rationale: The fix, regressions, and durable documentation all live on t
 
 ## Acceptance criteria
 
-- [ ] A `diff-derived-mutation-verifier.test.ts` regression drives a worktree whose diff adds a new registered prompt and a `render-observer-tests.ts` entry mapping it to an observer test that catches the sentinel body-line mutation; the verifier resolves the entry from the worktree map and returns no surviving mutation; it fails against the pre-fix static-import derivation (`missing-render-coverage`).
-- [ ] A regression in `diff-derived-mutation-verifier.test.ts` asserts fail-closed: the same new-prompt diff with the worktree map entry absent, or present but mapped to an observer test that does not assert on the mutated body line, still returns `missing-render-coverage` at `<promptPath>:1`.
-- [ ] A regression in `diff-derived-mutation-verifier.test.ts` asserts the verifier reads the map from `input.worktreePath`, not the process's own `shared/prompts/render-observer-tests.ts` (a worktree entry the daemon build lacks is honored).
+- [ ] A `diff-derived-mutation-verifier.test.ts` regression drives a worktree whose diff adds a new registered prompt and a worktree-only `render-observer-tests.ts` entry (absent from the process map) mapping it to an observer test that catches the sentinel body-line mutation; the verifier resolves from the worktree map, not the process static import, and returns no surviving mutation; it fails against the pre-fix static-import derivation (`missing-render-coverage`).
+- [ ] A regression in `diff-derived-mutation-verifier.test.ts` asserts fail-closed for the same new-prompt worktree fixture when the map entry is present but maps to an observer test that does not assert on the mutated body line, or when the mapping is empty; still returns `missing-render-coverage` at `<promptPath>:1`.
 - [ ] `bun run typecheck` passes.
 - [ ] `bun run test:v2` passes.
 
@@ -43,4 +42,5 @@ Unsplit rationale: The fix, regressions, and durable documentation all live on t
 
 - `v2/docs/operator-runbook.md` — the `missing-render-coverage` salvage note (§ Diff-derived verification / Gate trust) states the worktree-resolved contract and drops the implicit assumption that a branch map entry suffices only after merge.
 - `v2/docs/workflow-runner.md` — render-coverage resolution reads the worktree observer map (parity with worktree killing-test resolution).
+- `v2/docs/write-behavior.md` — diff-derived verifier paragraph states render-coverage resolves the observer map from the worktree under test.
 - `v2/docs/v1-behaviors.md` — record that diff-derived render-coverage resolves the observer map from the worktree under test, not the daemon build.

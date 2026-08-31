@@ -187,6 +187,13 @@ Long autonomous throughput session (operator away). Landed, in order: front-door
 - **id-echo ([[pipeline-resume-echoes-pipeline-id-on-success]]) parked:** codex `exit_code:1` errors terminally (errors don't cascade to cursor/claude — only quota does); P3, revisit.
 - **New seeds this session** (in #3228, #3232, and this PR): per-turn-commit, published-branch-attribution, pipeline-resume-id-echo, pipeline-resume-durable, merge-at-gate, cleanup-reaps-aged-session-logs, cleanup-reaps-dead-daemon-log-and-pid-files.
 
+## This-session (2026-08-31 autonomous, continued — post-#3251 landings)
+
+- **Split-spec-guidance chain COMPLETE:** [[split-spec-guidance-documents]] #3253 (lossless partition of `v1/docs/spec-guidance.md` into `v2/docs/spec-guidance-agent-core.md` + `v1/docs/spec-guidance-operator.md`) then [[inject-spec-guidance-agent-core]] #3255 (all plan/intent/review consumers inject the compact agent-core via `readSpecGuidance()` instead of the 30KB monolith — recurring per-run cost cut).
+- **Prompt-corpus dead-weight sweep** (seed `prompt-corpus-dead-weight-sweep`, intent #3256 → 3 slices): `drop-unused-review-profile-prompt-ids` #3259 (removed the consumer-less `promptIds` field); `retire-dead-registry-prompt-artifacts` #3260 (removed ~1000 lines of dead registered prompt files AND fixed `diff-derived-mutation-verifier.ts` so a DELETED registered prompt is excluded from render-coverage — a #3199-class fix for deletions; salvaged from a blocked run + a coupled-slice rebase conflict); `retire-dormant-v1-plan-dead-paths` in flight.
+- **Recurring CI friction:** the v1 `rendered-snapshots` / snapshot-churn tests flake under full-aggregate CI load, blocking prompt-touching PRs (#3249, #3260) — each needed a CI re-run or a full-local-ready admin-merge. Candidate seed. `@mutate` contamination stopped needing per-stage scrubbing once #3249 landed, though agents still occasionally emit it from habit ([[sweep-dead-mutate-directives-from-test-corpus]]).
+- **Ops:** daemon restarted onto the latest build mid-session (biome-strand salvage tax gone for new implements — split-docs #3253 and inject #3255 auto-published clean). Heavy merge cadence periodically superseded/killed the daemon; it self-heals via auto-start on the next run.
+
 ## Gaps / low-confidence
 
 - `harness-publication-push-uses-explicit-refspec`, `inject-spec-guidance-agent-core`, `split-spec-guidance-documents`, `cleanup-uses-lossless-git-status`: confirmed as landed ready-intents (intent PRs verified), but no plan-spec dir or implement PR was verifiable from the brief or git — left `—`. May be planned/implemented under names not matched here.

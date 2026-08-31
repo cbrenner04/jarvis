@@ -29,3 +29,7 @@ Operator and v1-parity docs still list the three retired prompts as registered-b
 - `v1/docs/prompt-governance.md` — drop the registered-but-unwired rows for `plan.prompt.review`, `patch.prompt.review`, and `patch.prompt.review.critic`.
 - `v1/docs/plan-mode.md` — drop `prompts/plan/review.md` from prompt ownership.
 - `v2/docs/v1-behaviors.md` — record retirement of the three dead registry prompts.
+
+## Blocker
+
+The running daemon's pre-branch verifier unions the base registry and requires render coverage for deleted `prompts/patch/review-critic.md`, then fails before any observer test because the file is absent. Branch code now filters against the worktree registry and its regression passes, but that fix cannot affect the already-running daemon build; land the verifier fix separately or restart the workflow under a build containing it before completing this deletion.

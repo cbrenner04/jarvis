@@ -39,3 +39,12 @@ Re-prompt issued when publication-time confirm-only mutation verification finds 
 ### `write.coverage-advisory`
 
 Advisory re-prompt issued after a completing implement write when uncovered changed lines are detected. Injects `COVERAGE_REPORT` (the report text from `reportUncoveredChangedLines`). The advisory is **deliver-only**: the agent's response is logged but does not change the completion outcome, iteration count, or run status. Used by the write loop's completion path; see [`write-behavior.md`](./write-behavior.md#coverage-advisory).
+
+## Plan and intent prompts
+
+Plan draft and plan review inject `SPEC_GUIDANCE` from [`spec-guidance-agent-core.md`](./spec-guidance-agent-core.md) at the install root (agent core only; operator CLI guidance stays in [`v1/docs/spec-guidance.md`](../../v1/docs/spec-guidance.md)). Intent review injects the same agent core as `SPEC_GUIDANCE`; intent split has no `SPEC_GUIDANCE` placeholder and instead directs the agent to read [`spec-guidance-agent-core.md`](./spec-guidance-agent-core.md) for sizing and reviewability. See [`write-behavior.md`](./write-behavior.md#plan-write-step-seeding-and-completion-contract), [`workflow-runner.md`](./workflow-runner.md#execution-contract).
+
+- `plan.prompt.draft` — `WORKDIR`, `NAME`, `INTENT` (ready-intent seed)
+- `plan.prompt.review.*` — debate and light review roles with materialized draft context
+- `intent.prompt.split` — seed and staging placeholders; reads agent-core sizing guidance via prompt task (no `SPEC_GUIDANCE` injection)
+- `intent.prompt.review` / `intent.prompt.review-actuator` — staged ready-intent Markdown and critic verdict slot

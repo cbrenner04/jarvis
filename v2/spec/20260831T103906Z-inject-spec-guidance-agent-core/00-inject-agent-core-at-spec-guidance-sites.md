@@ -28,14 +28,14 @@ Every `SPEC_GUIDANCE` producer still reads `v1/docs/spec-guidance.md`, shipping 
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write.test.ts` test `plan preset draft step isolates bundled human-only marker guidance` asserts extracted `SPEC_GUIDANCE` has no `jarvis1` substring and no `## Plan same-seam siblings serially` or `~/.jarvis/specs/`, and still contains human-only marker guidance and agent-verifiable AC guidance; fails against the pre-fix monolith injection.
-- [ ] `v2/src/execution/write.test.ts` — co-located `// @mutate` inverting the shared agent-core path resolver (or read target) flips the operator exclusion assertions above; fails when applied.
-- [ ] `test/spec-guidance-doc-assertions.test.ts` reads `v2/docs/spec-guidance-agent-core.md`, not `v1/docs/spec-guidance.md`, and stays green.
-- [ ] `shared/prompts/plan-draft.test.ts` test `renders named pre-fix failing-test guidance without checkpoint authoring` stays green against the agent-core fixture.
-- [ ] `v1/test/modes/plan/prompts.test.ts` bundled-guidance tests stay green against the agent-core fixture (human-only marker guidance and agent-verifiable AC rule still render).
-- [ ] `shared/prompts/review-profile.test.ts` stays green with the new injection source.
-- [ ] `v1/test/prompts/rendered-snapshots.test.ts` stays green with the new injection source.
-- [ ] `v2/src/execution/plan-workflow-steps.test.ts` stays green with the new injection source.
+- [x] `v2/src/execution/write.test.ts` test `plan preset draft step isolates bundled human-only marker guidance` asserts extracted `SPEC_GUIDANCE` has no `jarvis1` substring and no `## Plan same-seam siblings serially` or `~/.jarvis/specs/`, and still contains human-only marker guidance and agent-verifiable AC guidance; fails against the pre-fix monolith injection.
+- [x] `v2/src/execution/write.test.ts` — co-located `// @mutate` inverting the shared agent-core path resolver (or read target) flips the operator exclusion assertions above; fails when applied.
+- [x] `test/spec-guidance-doc-assertions.test.ts` reads `v2/docs/spec-guidance-agent-core.md`, not `v1/docs/spec-guidance.md`, and stays green.
+- [x] `shared/prompts/plan-draft.test.ts` test `renders named pre-fix failing-test guidance without checkpoint authoring` stays green against the agent-core fixture.
+- [x] `v1/test/modes/plan/prompts.test.ts` bundled-guidance tests stay green against the agent-core fixture (human-only marker guidance and agent-verifiable AC rule still render).
+- [x] `shared/prompts/review-profile.test.ts` stays green with the new injection source.
+- [x] `v1/test/prompts/rendered-snapshots.test.ts` stays green with the new injection source.
+- [x] `v2/src/execution/plan-workflow-steps.test.ts` stays green with the new injection source.
 
 ## Documentation updates
 

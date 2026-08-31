@@ -26,7 +26,7 @@ export const INTENT_SPLIT_DECLARATION_PIN =
 export const INTENT_SPLIT_BASELINE_BODY_LENGTH = 1359;
 
 /** Max characters the artifact body may grow beyond `INTENT_SPLIT_BASELINE_BODY_LENGTH`. */
-export const INTENT_SPLIT_MAX_BODY_GROWTH = 300;
+export const INTENT_SPLIT_MAX_BODY_GROWTH = 310;
 
 export function buildIntentSplitPrompt(opts: {
   workdir: string;

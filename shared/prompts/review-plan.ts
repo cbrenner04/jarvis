@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { detectUnfalsifiablePremisesInMarkdown, formatUnfalsifiablePremisesSection } from "../premise-falsification.ts";
+import { readSpecGuidance } from "../spec-guidance-path.ts";
 import { assemblePromptForStep } from "./assemble.ts";
 import { loadPromptRegistry } from "./registry.ts";
 import { renderTemplateWithDeclarations } from "./render.ts";
@@ -55,7 +56,7 @@ function renderPlanReviewPrompt(
         ? readFileSync(join(context.specPath, "intent.md"), "utf8")
         : "",
       CURRENT_SPEC: readSpecFiles(context.specPath),
-      SPEC_GUIDANCE: readFileSync(join(import.meta.dir, "..", "..", "v1", "docs", "spec-guidance.md"), "utf8"),
+      SPEC_GUIDANCE: readSpecGuidance(),
       REVIEW_PASS_CONTEXT: "",
       VERDICT: verdict,
       ...extra,

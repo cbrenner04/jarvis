@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { readSpecGuidance } from "../spec-guidance-path.ts";
 import { assemblePromptForStep } from "./assemble.ts";
 import { listIntentStageMarkdownFiles } from "./intent-split.ts";
 import { loadPromptRegistry } from "./registry.ts";
@@ -13,10 +14,6 @@ export type IntentReviewPromptContext = {
   totalPasses?: number;
   priorCycleVerdict?: string;
 };
-
-function specGuidance(): string {
-  return readFileSync(join(import.meta.dir, "..", "..", "v1", "docs", "spec-guidance.md"), "utf8");
-}
 
 function stagedIntents(stagingDir: string): string {
   if (!existsSync(stagingDir)) return "";
@@ -48,7 +45,7 @@ function renderIntentReviewPrompt(
     artifact.metadata.placeholders,
     {
       STAGED_INTENT: staged,
-      SPEC_GUIDANCE: specGuidance(),
+      SPEC_GUIDANCE: readSpecGuidance(),
       VERDICT: verdict,
       VERDICT_PATH: context.verdictPath,
       REVIEW_PASS_NUMBER: String(context.passNumber ?? 1),

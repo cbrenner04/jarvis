@@ -1,6 +1,6 @@
 # Spec Guidance for Agents
 
-This file is stable guidance for agents that need to create or work from Jarvis specs. Operator guidance: [spec-guidance-operator.md](../../v1/docs/spec-guidance-operator.md).
+This file is stable guidance for agents that need to create or work from Jarvis specs. Operator guidance: [spec-guidance.md](../../v1/docs/spec-guidance.md).
 
 ## Authoring contracts
 
@@ -21,7 +21,7 @@ Treat reviewability as a warning, not a hard cap: if one spec looks likely to la
 
 Never collapse behavior-sized intents into one oversized subspec (e.g. to mirror a prior single-subspec spec): many small atomic subspecs is the goal, not a smell. When an intent split fans out to N behavior-scoped ready-intents, that is the split working — plan and implement each. Conversely, a single plan fanning out to many subspecs usually means the seed was under-split at the intent stage, not that the plan over-decomposed; the fix is more behavior intents, never a fatter subspec.
 
-For intent files, `seeds/` is the open raw-seed queue and `ready-intents/` is the open authored-intent queue. Successful promotion consumes a file seed: committed mode deletes its worktree copy in the split commit, while no-commit mode deletes it only after every ready-intent is written. Failed promotions leave it queued. Fan-out writes reviewed, one-per-surface intents to `ready-intents/`;
+For intent files, `seeds/` is the open raw-seed queue and `ready-intents/` is the open authored-intent queue. Successful promotion consumes a file seed: committed mode deletes its worktree copy in the split commit, while no-commit mode deletes it only after every ready-intent is written. Failed promotions leave it queued. Fan-out writes reviewed, one-per-surface intents to `ready-intents/`.
 
 ### Intent prerequisites
 

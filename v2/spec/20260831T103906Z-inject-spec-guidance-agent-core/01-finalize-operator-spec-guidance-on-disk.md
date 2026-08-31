@@ -24,9 +24,9 @@ The lossless split left `v1/docs/spec-guidance.md` byte-identical to the merge-b
 
 ## Acceptance criteria
 
-- [ ] `v1/docs/spec-guidance.md` contains operator sections from the split inventory (`## Spec location conventions`, `## Land the spec before implementing it`, `## Plan same-seam siblings serially`, operator `## Authoring`, `## Non-index spec handling`) and does not duplicate agent-core-only sections such as `## Subspecs` or `## Agent Workflow`.
-- [ ] `v1/docs/spec-guidance-operator.md` is absent from the repository.
-- [ ] `v2/docs/spec-guidance-agent-core.md` links to `v1/docs/spec-guidance.md`, not the removed staging path.
+- [x] `v1/docs/spec-guidance.md` contains operator sections from the split inventory (`## Spec location conventions`, `## Land the spec before implementing it`, `## Plan same-seam siblings serially`, operator `## Authoring`, `## Non-index spec handling`) and does not duplicate agent-core-only sections such as `## Subspecs` or `## Agent Workflow`.
+- [x] `v1/docs/spec-guidance-operator.md` is absent from the repository.
+- [x] `v2/docs/spec-guidance-agent-core.md` links to `v1/docs/spec-guidance.md`, not the removed staging path.
 - [ ] Every former merge-base `v1/docs/spec-guidance.md` section appears in exactly one on-disk document; the split inventory matches the landed files. (no automated guard)
 
 ## Documentation updates

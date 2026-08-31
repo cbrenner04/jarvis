@@ -3,6 +3,7 @@ import { join, relative } from "node:path";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
+import { readSpecGuidance } from "../../../../shared/spec-guidance-path.ts";
 import { detectBlocker } from "../../../../shared/spec-parser.ts";
 import { realSubprocessRunner, type SubprocessRunner } from "../../../../shared/subprocess.ts";
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
@@ -513,15 +514,13 @@ function createPlanReviewAdapter(args: {
       const specDirPath = resolvePlanSpecDirPath(opts.worktreePath, opts.name, opts.specDirPath, targetDir);
       const intentPath = join(specDirPath, "intent.md");
       const intent = readFileSync(intentPath, "utf8");
-      const docsPath = join(import.meta.dir, "..", "..", "..", "docs", "spec-guidance.md");
-      const specGuidance = readFileSync(docsPath, "utf8");
       const currentSpec = snapshotSpecFiles(opts.worktreePath, opts.name, opts.specDirPath, targetDir);
 
       try {
         const prompt = buildReviewPrompt({
           name: opts.name,
           intent,
-          specGuidance,
+          specGuidance: readSpecGuidance(),
           currentSpec,
           passNumber: displayPassNumber,
           totalPasses: displayTotalPasses,

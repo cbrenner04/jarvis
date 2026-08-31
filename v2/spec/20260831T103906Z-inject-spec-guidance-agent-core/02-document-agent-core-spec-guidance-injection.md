@@ -27,16 +27,16 @@ Durable docs still describe or imply full-monolith `SPEC_GUIDANCE` injection and
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/prompts.md` names `v2/docs/spec-guidance-agent-core.md` as the `SPEC_GUIDANCE` injection source for plan and intent prompts.
-- [ ] `v2/docs/write-behavior.md` names `v2/docs/spec-guidance-agent-core.md` as the `SPEC_GUIDANCE` injection source.
-- [ ] `v2/docs/v1-behaviors.md` records that plan and intent prompts inject the agent core only, not operator CLI guidance, and cross-links agent-core-only rule bullets to `v2/docs/spec-guidance-agent-core.md` (not stale `v1/docs/spec-guidance.md` anchors for content that lives only in the agent core).
-- [ ] `v2/docs/workflow-runner.md` names `v2/docs/spec-guidance-agent-core.md` for install-root `SPEC_GUIDANCE` resolution.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:shared` passes.
-- [ ] `bun run test:v1` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
-- [ ] `bun run lint:md` passes.
+- [x] `v2/docs/prompts.md` names `v2/docs/spec-guidance-agent-core.md` as the `SPEC_GUIDANCE` injection source for plan and intent prompts.
+- [x] `v2/docs/write-behavior.md` names `v2/docs/spec-guidance-agent-core.md` as the `SPEC_GUIDANCE` injection source.
+- [x] `v2/docs/v1-behaviors.md` records that plan and intent prompts inject the agent core only, not operator CLI guidance, and cross-links agent-core-only rule bullets to `v2/docs/spec-guidance-agent-core.md` (not stale `v1/docs/spec-guidance.md` anchors for content that lives only in the agent core).
+- [x] `v2/docs/workflow-runner.md` names `v2/docs/spec-guidance-agent-core.md` for install-root `SPEC_GUIDANCE` resolution.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:shared` passes.
+- [x] `bun run test:v1` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
+- [x] `bun run lint:md` passes.
 
 ## Documentation updates
 

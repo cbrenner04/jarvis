@@ -168,7 +168,7 @@ The `plan` preset's single write step executes with runtime seeding and prompt r
 - `WORKDIR`: the worktree root
 - `NAME`: the timestamped spec-directory basename (e.g., `2026-07-11T09-47-44Z-plan-workflow-draft`)
 - `INTENT`: the seeded ready-intent content (same as written to `intent.md`)
-- `SPEC_GUIDANCE`: the jarvis-bundled spec-guidance document from `v1/docs/spec-guidance.md`
+- `SPEC_GUIDANCE`: the jarvis-bundled agent-core spec-guidance document from [`spec-guidance-agent-core.md`](./spec-guidance-agent-core.md) (not operator CLI guidance from `v1/docs/spec-guidance.md`)
 
 All four placeholders are mandatory; a missing placeholder fails the render.
 
@@ -207,7 +207,7 @@ After the reprompt budget is spent with the violation unfixed, the write loop se
 
 Intent review is a specialized read-only-critic / write-actuator cycle that operates on staged ready-intent artifacts in `.jarvis-intent-stage/`. This distinguishes it from generic review's verdict-only actuator prompt.
 
-The intent-owned `intent.prompt.review` critic reads the staged intent artifact and emits a verdict using governed context about intent quality standards (clear prerequisites, properly scoped acceptance criteria, load-bearing decisions). The intent-owned `intent.prompt.review-actuator` receives the staged intent, spec guidance, and the unchanged critic verdict in an enforced delimited data slot, then applies refinements to the staged intent file in place.
+The intent-owned `intent.prompt.review` critic reads the staged intent artifact and emits a verdict using governed context about intent quality standards (clear prerequisites, properly scoped acceptance criteria, load-bearing decisions). The intent-owned `intent.prompt.review-actuator` receives the staged intent, install-root [`spec-guidance-agent-core.md`](./spec-guidance-agent-core.md) as `SPEC_GUIDANCE`, and the unchanged critic verdict in an enforced delimited data slot, then applies refinements to the staged intent file in place.
 
 Critic role is read-only on the staged intent; actuator role may write only within the `.jarvis-intent-stage/` directory. Both roles carry explicit worktree-boundary and directory-scope obligations stated in their governed prompts. The verdict is written to a reserved `.jarvis-intent-review-verdict.md` sibling of the staging directory before actuator invocation.
 
@@ -251,7 +251,7 @@ Unlike generic review's reusable verdict-only actuator, intent review's composed
 
 ## Plan light review cycle
 
-Plan light review is a specialized read-only-critic / write-actuator cycle over the materialized post-draft spec tree. Generic `review` forwards only a verdict to its actuator; plan light review renders `plan.prompt.review.critic` and `plan.prompt.review-actuator` against the built worktree state: spec files under `<spec-dir>/`, seeded `intent.md`, jarvis-bundled spec guidance, and the critic's stdout verdict. Builder-time metadata is not part of the live render context.
+Plan light review is a specialized read-only-critic / write-actuator cycle over the materialized post-draft spec tree. Generic `review` forwards only a verdict to its actuator; plan light review renders `plan.prompt.review.critic` and `plan.prompt.review-actuator` against the built worktree state: spec files under `<spec-dir>/`, seeded `intent.md`, install-root [`spec-guidance-agent-core.md`](./spec-guidance-agent-core.md) as `SPEC_GUIDANCE`, and the critic's stdout verdict. Builder-time metadata is not part of the live render context.
 
 Review `cwd` and `<spec-dir>/verdict-plan.md` resolve from the draft step's published worktree and timestamped spec directory. The executor clears `verdict-plan.md` before each critic invocation, writes the critic stdout verbatim on success, and skips the actuator when the trimmed verdict is empty. After the final cycle, the review completion seam re-lints staged plan Markdown before promotion (same post-actuator gate as intent review; see [`workflow-runner.md`](./workflow-runner.md#review-dispatch)), then plan landing excludes `verdict-plan.md` from staging and never publishes it — the durable spec root never carries the verdict, zero-byte or otherwise; landing retries reuse the review checkpoint, while a fresh dispatch runs review again.
 

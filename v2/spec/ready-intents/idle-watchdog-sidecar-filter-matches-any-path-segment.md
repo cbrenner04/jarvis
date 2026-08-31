@@ -17,7 +17,7 @@ Unsplit rationale: The filter change, its regressions, and the operator doc upda
 
 ## Problem
 
-`isIgnoredWorktreeActivityPath` in `shared/invocation/agents.ts` matches only the path basename against `.jarvis-*` / `verdict-*.md`. Recursive `fs.watch` reports nested paths as `.jarvis-plan-stage/plan-body.md`, whose basename (`plan-body.md`) matches neither filter, so a write inside a `.jarvis-*` directory re-arms the timer. This diverges from the any-segment sidecar convention in `v2/src/commands/cleanup.ts`.
+`isIgnoredWorktreeActivityPath` in `shared/invocation/agents.ts` matches only the path basename against `.jarvis-*` / `verdict-*.md`. Recursive `fs.watch` reports nested paths as `.jarvis-plan-stage/plan-body.md`, whose basename (`plan-body.md`) matches neither filter, so a write inside a `.jarvis-*` directory re-arms the timer. This diverges from the segment-level `.jarvis-` path convention in `v2/src/commands/cleanup.ts` (`isJarvisHarnessSidecarPath`); this filter must also cover `verdict-*.md` segments.
 
 ## Decision ledger
 
@@ -30,7 +30,7 @@ Unsplit rationale: The filter change, its regressions, and the operator doc upda
 - [ ] `agents.test.ts` proves `onActivity` for a nested non-sidecar path (e.g. `src/nested/edited.ts`) still re-arms the idle timer.
 - [ ] `agents.test.ts` `"sidecar-only worktree activity does not re-arm the idle timer"` stays green (top-level sidecar behavior unchanged).
 - [ ] `agents.test.ts` `"worktree activity re-arms the idle timer for a silent child"` stays green (non-sidecar re-arm unchanged).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [ ] `bun run typecheck` and `bun run test:shared` pass.
 
 ## Documentation updates
 

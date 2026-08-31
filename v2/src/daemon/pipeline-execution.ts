@@ -1,7 +1,10 @@
-import { basename } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { basename, join } from "node:path";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
+import type { WorkflowStartResetFlags } from "../commands/workflow-start-preparation.ts";
 import { stampWorkflowStepsWithMachineConfig } from "../commands/workflow-step-config-stamp.ts";
+import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import type { PipelineDefinition, PipelineStage, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
 import { normalizePublicationFailure, type PublicationFailure } from "../execution/publication-retry.ts";
 import {
@@ -87,7 +90,51 @@ export type PipelineExecutionDeps = {
    * Undefined skips the preflight entirely (e.g. in tests that don't exercise it).
    */
   staleResetPreflight?: { cliDeps: CliDeps; io: Io; connectClient: () => Promise<IpcClient> };
+  reopenedStageReset?: ReopenedStageReset;
 };
+
+type ReopenedStageReset = {
+  stageId: string;
+  branchKey: string;
+  flags: WorkflowStartResetFlags;
+};
+
+const REOPENED_STAGE_RESET_MARKER = "pipeline_reopened_stage_reset";
+
+type ReopenedStageResetMarker = ReopenedStageReset & { code: typeof REOPENED_STAGE_RESET_MARKER };
+
+function isReopenedStageResetMarker(detail: unknown): detail is ReopenedStageResetMarker {
+  if (detail === null || typeof detail !== "object") return false;
+  const marker = detail as Partial<ReopenedStageResetMarker>;
+  return (
+    marker.code === REOPENED_STAGE_RESET_MARKER &&
+    typeof marker.stageId === "string" &&
+    typeof marker.branchKey === "string" &&
+    marker.flags !== null &&
+    typeof marker.flags === "object" &&
+    typeof marker.flags.skipDirtyWorktreeGate === "boolean" &&
+    typeof marker.flags.skipLandedCriteriaGate === "boolean"
+  );
+}
+
+function persistedReopenedStageReset(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+): ReopenedStageReset | undefined {
+  for (const record of pipeline.stages) {
+    if (record.status !== "pending" || !isReopenedStageResetMarker(record.failureDetail)) continue;
+    return record.failureDetail;
+  }
+  return undefined;
+}
+
+function persistReopenedStageReset(store: StateStore, pipelineId: string, reset: ReopenedStageReset): void {
+  store.updateStage({
+    pipelineId,
+    stageId: reset.stageId,
+    branchKey: reset.branchKey,
+    patch: { failureDetail: { code: REOPENED_STAGE_RESET_MARKER, ...reset } },
+  });
+}
 
 export type PipelineContinuationRefusalReason = "pipeline_not_found" | "missing_context" | "claim_refused";
 
@@ -211,6 +258,12 @@ export async function continuePipeline(
     return { kind: "refused", pipelineId, reason: "claim_refused" };
   }
 
+  const persistedReset = persistedReopenedStageReset(pipeline);
+  const reopenedStageReset = deps.reopenedStageReset ?? persistedReset;
+  const persistedBranchScope =
+    reopenedStageReset?.branchKey === DEFAULT_PIPELINE_STAGE_BRANCH_KEY ? undefined : reopenedStageReset?.branchKey;
+  const effectiveContinuationBranchKey = continuationBranchKey ?? persistedBranchScope;
+
   await runPipeline(
     pipelineId,
     {
@@ -223,9 +276,10 @@ export async function continuePipeline(
         ? { executeTerminalPublication: deps.executeTerminalPublication }
         : {}),
       ...(deps.staleResetPreflight !== undefined ? { staleResetPreflight: deps.staleResetPreflight } : {}),
+      ...(reopenedStageReset !== undefined ? { reopenedStageReset } : {}),
       ...(deps.loadLogRecords !== undefined ? { loadLogRecords: deps.loadLogRecords } : {}),
     },
-    continuationBranchKey,
+    effectiveContinuationBranchKey,
   );
   return { kind: "continued", pipelineId };
 }
@@ -365,10 +419,16 @@ function resolveBranchResumeAdmission(
  * branch, bypassing aggregate `derivePipelineState` admission entirely; omission and
  * `branchKey: "default"` retain the unscoped whole-pipeline path above.
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: resume admission coordinates whole-pipeline vs branch-scoped continuation, failed-plan-lane stale-reset policy with the two reset-override flags, and terminal-vs-dispatch branching in one entry point; splitting would fragment the admission decision.
 export async function resumePipeline(
   pipelineId: string,
   deps: Omit<PipelineExecutionDeps, "context"> & { context?: PipelineContext },
-  options: { detachContinuation?: boolean; branchKey?: string } = {},
+  options: {
+    detachContinuation?: boolean;
+    branchKey?: string;
+    resetDespiteDirty?: boolean;
+    resetDespiteLandedCriteria?: boolean;
+  } = {},
 ): Promise<ResumePipelineOutcome> {
   const { store } = deps;
   const pipeline = store.loadPipeline(pipelineId);
@@ -378,9 +438,34 @@ export async function resumePipeline(
 
   const branchScope = options.branchKey === DEFAULT_PIPELINE_STAGE_BRANCH_KEY ? undefined : options.branchKey;
 
+  const failedStage = pipeline.stages.find((record) => {
+    const stage = pipeline.definition.stages[record.position];
+    return (
+      record.status === "failed" &&
+      stage?.kind === "workflow" &&
+      (branchScope === undefined || record.branchKey === branchScope)
+    );
+  });
+  const failedWorkflow = failedStage === undefined ? undefined : pipeline.definition.stages[failedStage.position];
+  const reopenedStageReset =
+    failedStage === undefined || failedWorkflow?.kind !== "workflow"
+      ? undefined
+      : {
+          stageId: failedStage.stageId,
+          branchKey: failedStage.branchKey,
+          flags: {
+            skipDirtyWorktreeGate: failedWorkflow.workflow === "plan" || options.resetDespiteDirty === true,
+            skipLandedCriteriaGate: options.resetDespiteLandedCriteria === true,
+          },
+        };
+
   const continueAfterAdmission = (): ResumePipelineOutcome | Promise<ResumePipelineOutcome> => {
     const dispatchContinuation = async (): Promise<ResumePipelineOutcome> => {
-      const continuation = await continuePipeline(pipelineId, deps, branchScope);
+      const continuation = await continuePipeline(
+        pipelineId,
+        reopenedStageReset === undefined ? deps : { ...deps, reopenedStageReset },
+        branchScope,
+      );
       return continuation.kind === "refused"
         ? { kind: "refused", pipelineId, reason: continuation.reason }
         : { kind: "resumed", pipelineId };
@@ -403,6 +488,7 @@ export async function resumePipeline(
     if (reopen.kind === "refused") {
       return { kind: "refused", pipelineId, branchKey: branchScope, reason: reopen.reason };
     }
+    if (reopenedStageReset !== undefined) persistReopenedStageReset(store, pipelineId, reopenedStageReset);
     return continueAfterAdmission();
   }
 
@@ -439,6 +525,7 @@ export async function resumePipeline(
     if (reopen.kind === "refused") {
       return { kind: "refused", pipelineId, reason: reopen.reason };
     }
+    if (reopenedStageReset !== undefined) persistReopenedStageReset(store, pipelineId, reopenedStageReset);
     return continueAfterAdmission();
   }
 
@@ -1303,7 +1390,70 @@ type AdvanceWorkflowStageArgs = {
   peerClaimTimeoutMs: number;
   loadLogRecords?: (entryRunId: string) => PersistedRecord[];
   staleResetPreflight?: PipelineExecutionDeps["staleResetPreflight"];
+  reopenedStageReset?: PipelineExecutionDeps["reopenedStageReset"];
 };
+
+function reopenedStageResetFlags(
+  args: AdvanceWorkflowStageArgs,
+  branchKey = args.branchKey,
+): WorkflowStartResetFlags | undefined {
+  const reset = args.reopenedStageReset;
+  if (reset?.stageId !== args.stage.stageId || reset.branchKey !== branchKey) return undefined;
+  return reset.flags;
+}
+
+/** Failed-plan redraft must not dispatch until shared stale-reset preparation completes. */
+function failedPlanRedraftRequiresStaleReset(
+  stage: Extract<PipelineStage, { kind: "workflow" }>,
+  flags: WorkflowStartResetFlags | undefined,
+): boolean {
+  return stage.workflow === "plan" && flags?.skipDirtyWorktreeGate === true;
+}
+
+function stagedPlanOperatorBlocker(steps: readonly AnyWorkflowStep[]): string | undefined {
+  const writeStep = steps.find((step) => step.behavior === "write");
+  if (writeStep?.behavior !== "write" || writeStep.worktree?.git === false) return undefined;
+  const intentPath = join(getExternalWorktreePath(writeStep.worktree), ".jarvis-plan-stage", "intent.md");
+  if (!existsSync(intentPath)) return undefined;
+  const lines = readFileSync(intentPath, "utf8").replace(/\r\n/g, "\n").split("\n");
+  const reservedMarker = "Artifact contract check failed:";
+  for (let index = 0; index < lines.length; index += 1) {
+    if (lines[index] !== "## Blocker") continue;
+    let end = lines.length;
+    for (let next = index + 1; next < lines.length; next += 1) {
+      if (/^##\s/.test(lines[next] ?? "")) {
+        end = next;
+        break;
+      }
+    }
+    if (
+      !lines
+        .slice(index + 1, end)
+        .join("\n")
+        .trim()
+        .startsWith(reservedMarker)
+    ) {
+      return "operator blocker: staged plan carries an operator-authored ## Blocker";
+    }
+    index = end - 1;
+  }
+  return undefined;
+}
+
+function refuseReopenedPlanOperatorBlocker(
+  args: AdvanceWorkflowStageArgs,
+  steps: readonly AnyWorkflowStep[],
+  capture: { message: string },
+  branchKey = args.branchKey,
+): { ok: true } | { ok: false; message: string } {
+  if (args.stage.workflow !== "plan" || reopenedStageResetFlags(args, branchKey) === undefined) return { ok: true };
+  const blocker = stagedPlanOperatorBlocker(steps);
+  if (blocker === undefined) return { ok: true };
+  const message = `Error: Cannot redraft failed plan stage: ${blocker}`;
+  capture.message += `${message}\n`;
+  args.staleResetPreflight?.io.stderr(`${message}\n`);
+  return { ok: false, message };
+}
 
 export function stampPipelineDispatchSteps(
   steps: readonly AnyWorkflowStep[],
@@ -1669,13 +1819,20 @@ async function runFanOutBranchAction(
     return "skip";
   }
   if (steps === undefined) return "skip";
+  const preflightCapture = opts.preflightCapture ?? { message: "" };
+  const blocker = refuseReopenedPlanOperatorBlocker(args, steps, preflightCapture, targetBranchKey);
+  if (!blocker.ok) {
+    failWorkflowStageAt(store, pipelineId, stage.stageId, targetBranchKey, stageRecords, index + 1, blocker.message);
+    return "acted";
+  }
   const staleReset =
     args.staleResetPreflight === undefined
       ? ({ ok: true } as const)
       : await runSharedStaleResetPreflight(
           opts.runStaleResetPreflight ?? noopStaleResetPreflight,
           args.staleResetPreflight,
-          opts.preflightCapture ?? { message: "" },
+          preflightCapture,
+          failedPlanRedraftRequiresStaleReset(stage, reopenedStageResetFlags(args, targetBranchKey)),
         );
   if (!staleReset.ok) {
     failWorkflowStageAt(store, pipelineId, stage.stageId, targetBranchKey, stageRecords, index + 1, staleReset.message);
@@ -1752,18 +1909,18 @@ async function runSharedStaleResetPreflight(
   runStaleResetPreflight: StaleResetPreflight,
   injection: PipelineExecutionDeps["staleResetPreflight"],
   captured: { message: string },
+  failClosed = false,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   if (injection === undefined) return { ok: true };
   let client: IpcClient;
   try {
     client = await injection.connectClient();
   } catch (error) {
-    injection.io.stderr(
-      `pipeline stale-reset preflight skipped: could not open daemon control socket: ${
-        error instanceof Error ? error.message : String(error)
-      }\n`,
-    );
-    return { ok: true };
+    const connectMessage = `could not open daemon control socket: ${
+      error instanceof Error ? error.message : String(error)
+    }`;
+    injection.io.stderr(`pipeline stale-reset preflight skipped: ${connectMessage}\n`);
+    return failClosed ? { ok: false, message: captured.message.trim() || connectMessage } : { ok: true };
   }
   let exitCode: number | undefined;
   try {
@@ -1829,11 +1986,16 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
     if (record?.status === "skipped") return "continue";
 
     const preflightCapture = { message: "" };
+    const resetFlags = reopenedStageResetFlags(args);
     const staleResetForResolve =
       args.staleResetPreflight === undefined
         ? undefined
         : capturingStaleReset(
-            { deps: args.staleResetPreflight.cliDeps, io: args.staleResetPreflight.io },
+            {
+              deps: args.staleResetPreflight.cliDeps,
+              io: args.staleResetPreflight.io,
+              ...(resetFlags !== undefined ? { flags: resetFlags } : {}),
+            },
             preflightCapture,
           );
     const resolution = await resolveStage(definition, index, context, stageArtifacts, {
@@ -1862,6 +2024,10 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
     }
 
     const resolvedSteps = singleStageResolutionSteps(resolution);
+    const blocker = refuseReopenedPlanOperatorBlocker(args, resolvedSteps, preflightCapture);
+    if (!blocker.ok) {
+      return failWorkflowStageAt(store, pipelineId, stage.stageId, branchKey, stageRecords, index + 1, blocker.message);
+    }
     const staleReset =
       args.staleResetPreflight === undefined
         ? ({ ok: true } as const)
@@ -1869,6 +2035,7 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
             resolution.runStaleResetPreflight ?? noopStaleResetPreflight,
             args.staleResetPreflight,
             preflightCapture,
+            failedPlanRedraftRequiresStaleReset(stage, resetFlags),
           );
     if (!staleReset.ok) {
       return failWorkflowStageAt(
@@ -2033,6 +2200,7 @@ async function runAuthoredStages(args: {
             peerClaimTimeoutMs,
             ...(deps.loadLogRecords !== undefined ? { loadLogRecords: deps.loadLogRecords } : {}),
             ...(deps.staleResetPreflight !== undefined ? { staleResetPreflight: deps.staleResetPreflight } : {}),
+            ...(deps.reopenedStageReset !== undefined ? { reopenedStageReset: deps.reopenedStageReset } : {}),
           });
     if (outcome === "stop") return;
     pipeline.stages = store.loadPipeline(pipelineId)?.stages ?? pipeline.stages;
@@ -2075,16 +2243,18 @@ export async function runPipeline(
 
   try {
     const initialSplit = findFanOutSplit(pipeline);
-    await runAuthoredStages({
-      pipelineId,
-      deps: executionDeps,
-      split: initialSplit,
-      branchKey: DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
-      fromIndex: 0,
-      toIndex: initialSplit?.splitPosition ?? definition.stages.length - 1,
-      dispatchClaims,
-      sharedStageArtifacts: stageArtifacts,
-    });
+    if (continuationBranchKey === undefined) {
+      await runAuthoredStages({
+        pipelineId,
+        deps: executionDeps,
+        split: initialSplit,
+        branchKey: DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
+        fromIndex: 0,
+        toIndex: initialSplit?.splitPosition ?? definition.stages.length - 1,
+        dispatchClaims,
+        sharedStageArtifacts: stageArtifacts,
+      });
+    }
     const activeSplit = findFanOutSplit(store.loadPipeline(pipelineId) ?? pipeline) ?? initialSplit;
     if (activeSplit !== null) {
       const lastIndex = definition.stages.length - 1;

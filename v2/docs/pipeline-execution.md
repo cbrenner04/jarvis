@@ -172,12 +172,16 @@ Malformed RPC params and transport errors: [`daemon-host.md`](./daemon-host.md).
 | **Refused** | `pipeline_not_found`; `missing_context`; `claim_refused`; `pipeline_terminal_succeeded`; `pipeline_terminal_rejected`; `pipeline_not_resumable` (derived `running`/`interrupted`/`pending` without reopen, live entry run) | No dispatch |
 | **No-effect claim** | `awaiting-approval` with successful claim | Owner updated; no `continuePipeline` until approve |
 
-**Branch-scoped** (`branchKey` set, not `"default"`): bypasses aggregate `derivePipelineState`; uses `resolveBranchResumeAdmission` then `reopenFailedPipeline({ branchKey })` then `continuePipeline(branchKey)`.
+**Branch-scoped** (`branchKey` set, not `"default"`): bypasses aggregate `derivePipelineState`; uses `resolveBranchResumeAdmission` then `reopenFailedPipeline({ branchKey })` then `continuePipeline(branchKey)`. Continuation walks only the named branch suffix — shared prefix stages are not re-dispatched and sibling branch rows stay untouched.
 
 | Outcome | Reason |
 | --- | --- |
 | **Admitted** | Branch suffix has replayable `failed` row, no blocking gate |
 | **Refused** | `branch_not_found`; `branch_awaiting_approval`; `branch_rejected`; `branch_not_resumable`; reopen refusal from store |
+
+Resume captures the failed workflow row before reopen and scopes reset flags to that reopened stage and branch. `reopenFailedPipeline` persists a `pipeline_reopened_stage_reset` marker on the reopened row so `continuePipeline`, detached continuation, claim loss, and daemon restart continuation reconstruct the same stage/branch reset policy without caller-supplied flags. A failed `plan` redraft automatically sets only shared stale reset's dirty-worktree override, so ordinary uncommitted `.jarvis-plan-stage/` draft bytes are retired and the lane rematerializes from its resolved base before writer dispatch in both unscoped and branch-scoped continuation. RPC `resetDespiteDirty` and `resetDespiteLandedCriteria` independently set the matching shared flags; the automatic plan behavior never sets the landed-criteria flag.
+
+Failed-plan redraft first refuses a remaining staged operator-authored `## Blocker` — any `## Blocker` section whose body does not start with the reserved harness marker `Artifact contract check failed:`; harness-only sections are cleared with ordinary draft dirt. Failed-plan redraft fails closed when stale-reset preparation cannot run (control-socket connect failure or non-zero preflight exit): the stage settles `failed`, preserves the worktree, and dispatches no writer. Shared stale reset still unconditionally refuses a live run or worktree claim and a worktree `HEAD` not descended from base; landed acceptance criteria also refuse unless `resetDespiteLandedCriteria` is explicitly true. These refusals settle the reopened stage `failed` with captured stderr in `failureDetail`, preserve the worktree, and dispatch no writer. Intent-stage redispatch and standalone plan/implement reset defaults are unchanged, including fail-open control-socket skips outside failed-plan redraft.
 
 Tests: `pipeline-execution.test.ts` — `resumePipeline`, `resumePipeline branch scope`; `commands/pipeline.test.ts`.
 

@@ -278,6 +278,7 @@ test("pipeline_recover admits and lands a corrected non-first fan-out branch wit
 
   const draftAgentInvocations: string[] = [];
   const dispatchCalls: AnyWorkflowStep[][] = [];
+  let staleResetConnections = 0;
   let settleAttempt!: () => void;
   const attemptSettled = new Promise<void>((resolve) => {
     settleAttempt = resolve;
@@ -287,6 +288,11 @@ test("pipeline_recover admits and lands a corrected non-first fan-out branch wit
     writeLoopExecutor: createFakeWriteLoopExecutor().executor,
     failureReporter: () => {},
     hasMemoryHeadroom: () => true,
+    daemonSocketPath: "/unused-pipeline-recover-reset.sock",
+    connectStaleResetClient: async () => {
+      staleResetConnections += 1;
+      throw new Error("pipeline_recover must not invoke stale reset");
+    },
     pipelineDispatch: async (steps) => {
       dispatchCalls.push(steps);
       return { ok: true, entryRunId: "unexpected-run", invocationId: "unexpected-inv" };
@@ -324,7 +330,12 @@ test("pipeline_recover admits and lands a corrected non-first fan-out branch wit
   });
 
   const response = await recoverHandlers.pipeline_recover(
-    requestFrame("r", "pipeline_recover", { pipelineId, branchKey: "branch-b" }),
+    requestFrame("r", "pipeline_recover", {
+      pipelineId,
+      branchKey: "branch-b",
+      resetDespiteDirty: true,
+      resetDespiteLandedCriteria: true,
+    }),
     new AbortController().signal,
   );
 
@@ -337,6 +348,7 @@ test("pipeline_recover admits and lands a corrected non-first fan-out branch wit
   expect(recoverHandlers.hasActiveRuns()).toBe(false);
   expect(draftAgentInvocations).toEqual([]);
   expect(dispatchCalls).toEqual([]);
+  expect(staleResetConnections).toBe(0);
   expect(readFileSync(join(durable, "00-first.md"), "utf8")).toBe(correctedBody);
 
   const pipeline = stateStore.loadPipeline(pipelineId);

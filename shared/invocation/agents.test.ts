@@ -220,8 +220,8 @@ describe("isIgnoredWorktreeActivityPath", () => {
   });
 
   test("does not ignore workflow staging directories or ordinary paths", () => {
-    expect(isIgnoredWorktreeActivityPath(".jarvis-plan-stage/plan-body.md")).toBe(false);
-    expect(isIgnoredWorktreeActivityPath(".jarvis-intent-stage/draft.md")).toBe(false);
+    expect(isIgnoredWorktreeActivityPath(".jarvis-plan-stage/index.md")).toBe(false);
+    expect(isIgnoredWorktreeActivityPath(".jarvis-intent-stage/my-feature.md")).toBe(false);
     expect(isIgnoredWorktreeActivityPath("src/nested/edited.ts")).toBe(false);
     expect(isIgnoredWorktreeActivityPath("edited.ts")).toBe(false);
   });
@@ -543,7 +543,7 @@ describe("createResolvedAgentBinding", () => {
   });
 
   test("workflow staging directory activity re-arms the idle timer", async () => {
-    for (const path of [".jarvis-plan-stage/plan-body.md", ".jarvis-intent-stage/draft.md"]) {
+    for (const path of [".jarvis-plan-stage/index.md", ".jarvis-intent-stage/my-feature.md"]) {
       const fake = fakeSpawn([{ kind: "hang" }]);
       const expiries: (() => void)[] = [];
       const active = new Set<() => void>();

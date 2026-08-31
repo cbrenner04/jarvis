@@ -1025,6 +1025,27 @@ describe("write behavior", () => {
     });
   }
 
+  test("plan draft preserves a stage kept alive only by a lint reprompt", async () => {
+    const { jarvisRoot } = createJarvisHome();
+    const branchName = "plan-preserve-via-reprompt";
+    // A stage dir that exists but has neither `index.md` nor a nested `spec/<name>/` dir: the
+    // content-preservation branch is false, so only the `reprompt !== undefined` short-circuit
+    // can keep it. Inverting that guard to `=== undefined` drops the stage (rmSync) and fails this.
+    const stagePath = join(jarvisRoot, "worktrees", "demo", branchName, ".jarvis-plan-stage");
+    mkdirSync(stagePath, { recursive: true });
+    writeFileSync(join(stagePath, "stray.md"), "# stray content\n", "utf8");
+
+    await runPreservedPlanDraft({
+      jarvisRoot,
+      branchName,
+      stagedMarkdownLintReprompt: { ruleId: "MD013", offendingFile: "stray.md", message: "line too long" },
+      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
+    });
+
+    expect(existsSync(stagePath)).toBe(true);
+    expect(existsSync(join(stagePath, "stray.md"))).toBe(true);
+  });
+
   test("plan redraft recognizes only reserved harness blocker sections", async () => {
     // @mutate v2/src/execution/write.ts "if (lines[i] !== BLOCKER_HEADING) continue;" -> "if (false) continue;"
     // @mutate v2/src/execution/write.ts "return body.startsWith(RESERVED_HARNESS_BLOCKER_MARKER);" -> "return true;"

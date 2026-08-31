@@ -11,8 +11,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
+import { projectSafeId } from "../../../shared/project-safe-id.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { createRunControlHandlers, WorktreeOwnershipRegistry } from "../daemon/daemon.ts";
 import { withExternalWorktree } from "../execution/external-worktree.ts";
@@ -21,12 +22,13 @@ import {
   buildImplementWorkflowSteps,
 } from "../execution/implement-workflow-steps.ts";
 import { ReadyGateError, SurvivingMutationError } from "../execution/ready-finalize.ts";
-import type { WorkflowSourceStep } from "../execution/workflow-loader.ts";
+import { loadWorkflowSteps, type WorkflowSourceStep } from "../execution/workflow-loader.ts";
 import type { AnyWorkflowStep, ReviewDebateWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
 import { connectIpcClient } from "../ipc/client.ts";
 import type { RpcHandler } from "../ipc/server.ts";
 import { type IpcServer, startIpcServer } from "../ipc/server.ts";
+import { jarvisHome } from "../paths.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import {
@@ -44,6 +46,7 @@ import {
   withStaleResetWorkflowUuids,
   withWorkflowUuids,
   workflowFrames,
+  writeHomeMachineConfig,
   writeMachineConfig,
 } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
@@ -283,6 +286,80 @@ describe("run workflow dispatch", () => {
     }
   });
 
+  test("recovery reads a complete external plan tree from its plan directory", async () => {
+    const projectKey = "Recovery/External-Plan";
+    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-external-recovery-project-"));
+    const specReadRoot = join(
+      jarvisHome(),
+      "specs",
+      projectSafeId(projectKey),
+      "plans",
+      `recovery-${process.pid}-${Date.now()}`,
+    );
+    mkdirSync(specReadRoot, { recursive: true });
+    writeFileSync(join(specReadRoot, "index.md"), "- [x] [work](./00-work.md)\n", "utf8");
+    writeFileSync(join(specReadRoot, "00-work.md"), "## Acceptance criteria\n\n- [x] done\n", "utf8");
+    const configPath = writeHomeMachineConfig({ projects: { [projectKey]: { root, git: false } } });
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    let built = false;
+
+    try {
+      const code = await withFixedUuid("00000000-0000-4000-8000-000000000116", () =>
+        main(
+          [
+            "run",
+            "workflow",
+            "implement",
+            "--branch",
+            "external-recovery",
+            "--base",
+            "HEAD",
+            "--spec",
+            join(specReadRoot, "index.md"),
+          ],
+          cap.io,
+          {
+            cwd: () => root,
+            machineConfigPath: configPath,
+            readProjectRegistry: () => ({ [projectKey]: { root } }),
+            workflowPresetBuilders: {
+              implement: () => {
+                built = true;
+                return { ok: false, error: "should not build" };
+              },
+            },
+            connectIpcClient: async () =>
+              makeIpcClient(
+                [
+                  {
+                    kind: "response",
+                    id: "00000000-0000-4000-8000-000000000116",
+                    result: { kind: "admitted", ok: true },
+                  },
+                ],
+                { sent },
+              ),
+          },
+        ),
+      );
+
+      expect(code).toBe(0);
+      expect(built).toBe(false);
+      expect(sent[0]).toMatchObject({
+        method: "implement.recover",
+        params: {
+          project: projectKey,
+          branch: "external-recovery",
+          specPath: realpathSync(join(specReadRoot, "index.md")),
+        },
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(specReadRoot, { recursive: true, force: true });
+    }
+  });
+
   test("run workflow implement reports the admitted recovery failure message", async () => {
     const cap = captureIo();
     const specPath = join(fx.repoSub, "index.md");
@@ -515,7 +592,7 @@ describe("ticked implement recovery", () => {
           stepId: "implement",
           role: "implement",
           stepRules: "rules",
-          expectedArtifactPath: "spec.md",
+          expectedArtifactPath: args.specPath ?? "spec.md",
           agents: ["codex"],
           agentModelConfig: {},
         },
@@ -622,6 +699,39 @@ describe("ticked implement recovery", () => {
       expect(readFileSync(join(fixture.root, "spec.md"), "utf8")).toContain("- [x] complete");
     } finally {
       fixture.cleanup();
+    }
+  });
+
+  test("admits a canonical external spec path lineage", async () => {
+    const specReadRoot = join(
+      jarvisHome(),
+      "specs",
+      projectSafeId("demo"),
+      "plans",
+      `recover-${process.pid}-${Date.now()}`,
+    );
+    const indexPath = join(specReadRoot, "index.md");
+    mkdirSync(specReadRoot, { recursive: true });
+    writeFileSync(indexPath, "## Acceptance criteria\n\n- [x] complete\n", "utf8");
+    const fixture = createRecoveryFixture({
+      outcomeKind: "surviving_mutation_failed",
+      specPath: realpathSync(indexPath),
+    });
+    try {
+      const frame = await fixture.handlers["implement.recover"](
+        {
+          kind: "request",
+          id: "recover",
+          method: "implement.recover",
+          params: { project: "demo", branch: "recover", specPath: realpathSync(indexPath) },
+        },
+        new AbortController().signal,
+      );
+      expect(frame).toMatchObject({ kind: "response", result: { kind: "admitted", ok: true } });
+      expect(fixture.calls()).toEqual({ writes: 0, ready: 1, publishes: 1 });
+    } finally {
+      fixture.cleanup();
+      rmSync(specReadRoot, { recursive: true, force: true });
     }
   });
 
@@ -2524,6 +2634,87 @@ describe("implement preflight stale workspace reset", () => {
     const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
     expect(list).not.toContain(worktreePath);
     expect(sent).toHaveLength(4);
+  });
+
+  test("run workflow implement resets stale code worktree for an incomplete external plan", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    const planName = `stale-reset-${process.pid}-${Date.now()}`;
+    const specReadRoot = join(jarvisHome(), "specs", projectSafeId("demo"), "plans", planName);
+    const indexPath = join(specReadRoot, "index.md");
+    const completedPath = join(specReadRoot, "00-completed.md");
+    const incompletePath = join(specReadRoot, "01-incomplete.md");
+    const indexContent = "- [x] [Completed](./00-completed.md)\n- [ ] [Incomplete](./01-incomplete.md)\n";
+    const completedContent = "# Completed\n\n## Acceptance criteria\n\n- [x] Done\n";
+    const incompleteContent = "# Incomplete\n\n## Acceptance criteria\n\n- [ ] Pending\n";
+    mkdirSync(specReadRoot, { recursive: true });
+    writeFileSync(indexPath, indexContent, "utf8");
+    writeFileSync(completedPath, completedContent, "utf8");
+    writeFileSync(incompletePath, incompleteContent, "utf8");
+    const configPath = writeHomeMachineConfig({
+      projects: { demo: { root: resetProjectRoot, plan: { commit: false } } },
+    });
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const teardownCalls: string[] = [];
+    let builtSpecPath: string | undefined;
+
+    try {
+      const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+        main(
+          [
+            "run",
+            "workflow",
+            "implement",
+            "--branch",
+            resetBranch,
+            "--base",
+            resetProjectBaseRef(),
+            "--spec",
+            indexPath,
+            "--review-passes",
+            "0",
+          ],
+          cap.io,
+          resetImplementDeps({
+            machineConfigPath: configPath,
+            workflowPresetBuilders: {
+              implement: async (input) => {
+                const built = await buildImplementWorkflowSteps(input, {
+                  loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath: configPath }),
+                });
+                if (built.ok) {
+                  const writeStep = built.steps.find((step) => step.behavior === "write");
+                  builtSpecPath = writeStep?.behavior === "write" ? writeStep.specPath : undefined;
+                }
+                return built;
+              },
+            },
+            subprocessRunner: staleResetSubprocessRunner((cmd, args) => {
+              if (cmd === "git" && args[0] === "worktree" && args[1] === "remove")
+                teardownCalls.push("worktree-remove");
+              return undefined;
+            }),
+            connectIpcClient: async () =>
+              makeStaleResetIpcClient(
+                workflowFrames("start", "wait", "run-reset-external-plan", COMPLETED_WAIT_RESULT),
+                { sent },
+              ),
+          }),
+        ),
+      );
+
+      expect(code).toBe(0);
+      expect(cap.read().stderr).toBe("");
+      expect(builtSpecPath).toBe(realpathSync(indexPath));
+      expect(teardownCalls).toEqual(["worktree-remove"]);
+      expect(existsSync(worktreePath)).toBe(false);
+      expect(ipcFramesWithMethod(sent, "start")).toHaveLength(1);
+      expect(readFileSync(indexPath, "utf8")).toBe(indexContent);
+      expect(readFileSync(completedPath, "utf8")).toBe(completedContent);
+      expect(readFileSync(incompletePath, "utf8")).toBe(incompleteContent);
+    } finally {
+      rmSync(specReadRoot, { recursive: true, force: true });
+    }
   });
 
   test("run workflow implement prints destroyed-artifact summary when retirement succeeds and dispatch fails", async () => {

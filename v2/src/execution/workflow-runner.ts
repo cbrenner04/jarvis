@@ -329,6 +329,8 @@ export type WriteWorkflowStep = Omit<WriteLoopInput, "bindings"> & {
   suppressShrink?: boolean;
   /** Resolved implement review behavior, stamped at workflow build time for snapshot retention. */
   implementReviewBehavior?: ImplementReviewBehavior;
+  /** Identifies an admitted external plan so stale reset does not inspect it as worktree content. */
+  externalPlanSpec?: true;
 };
 
 /** Per-role agent fallback orders for a `review-debate` step's four fixed debate roles. */

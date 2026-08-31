@@ -17,9 +17,9 @@ Operator and parity docs must record the external-plan implement admission contr
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/workflow-runner.md` documents external-plan implement admission, `planSource` publication predicate, project ownership, identity fields, canonical path handling, base-ref bypass, preflight completeness (build + recovery), and stale-reset landed-criteria handling consistent with `00`–`03`.
-- [ ] `v2/docs/operator-runbook.md` documents the standalone external-plan implement command through admission/preflight/stale-reset success, cross-links `workflow-runner.md` instead of duplicating the contract, and cross-links execution routing for the agent loop instead of implying full-loop support.
-- [ ] `v2/docs/v1-behaviors.md` records v2 external-plan implement admission through stale-reset preflight without changing v1.
+- [x] `v2/docs/workflow-runner.md` documents external-plan implement admission, `planSource` publication predicate, project ownership, identity fields, canonical path handling, base-ref bypass, preflight completeness (build + recovery), and stale-reset landed-criteria handling consistent with `00`–`03`.
+- [x] `v2/docs/operator-runbook.md` documents the standalone external-plan implement command through admission/preflight/stale-reset success, cross-links `workflow-runner.md` instead of duplicating the contract, and cross-links execution routing for the agent loop instead of implying full-loop support.
+- [x] `v2/docs/v1-behaviors.md` records v2 external-plan implement admission through stale-reset preflight without changing v1.
 
 ## Documentation updates
 

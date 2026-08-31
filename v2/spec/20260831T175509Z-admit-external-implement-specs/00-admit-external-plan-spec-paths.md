@@ -20,9 +20,9 @@
 
 ## Acceptance criteria
 
-- [ ] `implement-workflow-steps.test.ts` admits `--spec` at `~/.jarvis/specs/<safeId>/plans/<name>/index.md` for a registered project whose `planSource` publishes externally (including `git: false` with default `plan.commit`), resolves the owning project, sets `externalPlanSpec`/`specReadRoot`, and preserves the canonical external absolute path in `absoluteSpecPath`; it fails against the current `Spec path outside registered project roots` refusal from `resolveImplementSpecIdentity`.
-- [ ] `implement-workflow-steps.test.ts` rejects unregistered safe IDs, paths outside `plans/`, owners whose `planSource` would publish in-repo only, external subspec file paths, plan directories without `index.md`, two registered keys sharing the same `projectSafeId`, and symlink escapes under `~/.jarvis/specs/<safeId>/plans/...`; it fails against the pre-fix admission path.
-- [ ] `workflow.test.ts` `run workflow implement rejects escaping spec and artifact symlinks before builder or daemon contact` stays green (in-repo containment unchanged).
+- [x] `implement-workflow-steps.test.ts` admits `--spec` at `~/.jarvis/specs/<safeId>/plans/<name>/index.md` for a registered project whose `planSource` publishes externally (including `git: false` with default `plan.commit`), resolves the owning project, sets `externalPlanSpec`/`specReadRoot`, and preserves the canonical external absolute path in `absoluteSpecPath`; it fails against the current `Spec path outside registered project roots` refusal from `resolveImplementSpecIdentity`.
+- [x] `implement-workflow-steps.test.ts` rejects unregistered safe IDs, paths outside `plans/`, owners whose `planSource` would publish in-repo only, external subspec file paths, plan directories without `index.md`, two registered keys sharing the same `projectSafeId`, and symlink escapes under `~/.jarvis/specs/<safeId>/plans/...`; it fails against the pre-fix admission path.
+- [x] `workflow.test.ts` `run workflow implement rejects escaping spec and artifact symlinks before builder or daemon contact` stays green (in-repo containment unchanged).
 
 ## Documentation updates
 

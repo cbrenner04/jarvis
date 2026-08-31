@@ -178,10 +178,12 @@ function resolveImplementRecoveryRequest(
   deps: CliDeps,
 ): ImplementRecoveryRequest | undefined {
   const registry = deps.readProjectRegistry();
-  const identity = resolveImplementSpecIdentity(deps.cwd(), parsed.specPath, registry);
+  const identity = resolveImplementSpecIdentity(deps.cwd(), parsed.specPath, registry, deps.machineConfigPath);
   if ("error" in identity) return undefined;
-  const completion = validateImplementSpecTreeCompletion(identity.absoluteSpecPath, identity.projectRoot, (path) =>
-    readFileSync(path, "utf8"),
+  const completion = validateImplementSpecTreeCompletion(
+    identity.absoluteSpecPath,
+    identity.specReadRoot ?? identity.projectRoot,
+    (path) => readFileSync(path, "utf8"),
   );
   if (completion !== "implement.already_complete: requested spec has no unchecked non-human-only acceptance criteria") {
     return undefined;
@@ -190,7 +192,7 @@ function resolveImplementRecoveryRequest(
   return {
     project: identity.project,
     branch: parsed.branchName ?? basename(dirname(identity.absoluteSpecPath)),
-    specPath: identity.specPath,
+    specPath: identity.externalPlanSpec === true ? identity.absoluteSpecPath : identity.specPath,
     ...(mutationRepair !== undefined ? { mutationRepair } : {}),
   };
 }

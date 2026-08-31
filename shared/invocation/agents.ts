@@ -3,7 +3,7 @@ import { spawn as realSpawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { type Dirent, readdirSync, readFileSync, realpathSync, statSync, watch as watchFs } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { computeCost, type Usage } from "../prices/cost.ts";
 import { loadPrices } from "../prices/load.ts";
 import { isClaudeZeroExitQuotaEnvelope, parseClaudeJsonOutput } from "./claude-json.ts";
@@ -193,9 +193,14 @@ function pickAgentRunOptions(
 
 const WORKTREE_ACTIVITY_DEBOUNCE_MS = 100;
 
-function isIgnoredWorktreeActivityPath(path: string): boolean {
-  const name = basename(path);
-  return name.startsWith(".jarvis-") || /^verdict-.*\.md$/.test(name);
+/** Workflow staging dirs are active write surfaces; harness metadata `.jarvis-*` paths are not. */
+const WORKFLOW_STAGING_DIR_SEGMENTS = new Set([".jarvis-plan-stage", ".jarvis-intent-stage"]);
+
+export function isIgnoredWorktreeActivityPath(path: string): boolean {
+  const segments = path.split("/");
+  const basename = segments[segments.length - 1] ?? path;
+  if (/^verdict-.*\.md$/.test(basename)) return true;
+  return segments.some((segment) => segment.startsWith(".jarvis-") && !WORKFLOW_STAGING_DIR_SEGMENTS.has(segment));
 }
 
 const defaultWatchWorktreeActivity: WatchWorktreeActivity = ({ cwd, onActivity, signal }) => {

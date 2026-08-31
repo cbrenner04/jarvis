@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { computeCost } from "../prices/cost.ts";
 import { loadPrices } from "../prices/load.ts";
-import { createResolvedAgentBinding } from "./agents.ts";
+import { createResolvedAgentBinding, isIgnoredWorktreeActivityPath } from "./agents.ts";
 import { parseCursorJsonOutput } from "./cursor-json.ts";
 import { executeWithQuotaFallback, type InvocationCompletedRecord } from "./execute.ts";
 
@@ -211,6 +211,21 @@ function codexBindingOpts(
     randomUUID: () => CODEX_FIXTURE_MARKER_ID,
   };
 }
+
+describe("isIgnoredWorktreeActivityPath", () => {
+  test("ignores harness metadata sidecars and verdict basenames", () => {
+    expect(isIgnoredWorktreeActivityPath("nested/.jarvis-state.json")).toBe(true);
+    expect(isIgnoredWorktreeActivityPath(".jarvis-intent-review-verdict.md")).toBe(true);
+    expect(isIgnoredWorktreeActivityPath("review/verdict-adjudicator.md")).toBe(true);
+  });
+
+  test("does not ignore workflow staging directories or ordinary paths", () => {
+    expect(isIgnoredWorktreeActivityPath(".jarvis-plan-stage/plan-body.md")).toBe(false);
+    expect(isIgnoredWorktreeActivityPath(".jarvis-intent-stage/draft.md")).toBe(false);
+    expect(isIgnoredWorktreeActivityPath("src/nested/edited.ts")).toBe(false);
+    expect(isIgnoredWorktreeActivityPath("edited.ts")).toBe(false);
+  });
+});
 
 describe("createResolvedAgentBinding", () => {
   test("binding id distinguishes rungs that differ only by price key", () => {
@@ -479,7 +494,7 @@ describe("createResolvedAgentBinding", () => {
     });
 
     expect(watchedCwd).toBe("/repo");
-    onActivity?.("src/edited.ts");
+    onActivity?.("edited.ts");
     expect(expiries).toHaveLength(2);
     expiries[0]?.();
     await Promise.resolve();
@@ -489,8 +504,90 @@ describe("createResolvedAgentBinding", () => {
     await expect(promise).resolves.toEqual({ kind: "stall", stderr: "" });
   });
 
+  test("nested non-sidecar worktree activity re-arms the idle timer", async () => {
+    const fake = fakeSpawn([{ kind: "hang" }]);
+    const expiries: (() => void)[] = [];
+    const active = new Set<() => void>();
+    let onActivity: ((path: string) => void) | undefined;
+    const binding = createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      {
+        spawn: fake.spawn,
+        setTimeout: ((callback: Parameters<typeof setTimeout>[0]) => {
+          const wrapped = () => {
+            if (active.has(wrapped)) callback();
+          };
+          active.add(wrapped);
+          expiries.push(wrapped);
+          return wrapped as unknown as ReturnType<typeof setTimeout>;
+        }) as typeof setTimeout,
+        clearTimeout: ((timer) => active.delete(timer as unknown as () => void)) as typeof clearTimeout,
+        watchWorktreeActivity: (args) => {
+          onActivity = args.onActivity;
+        },
+      },
+    );
+    let settled = false;
+    const promise = binding.invoke({ prompt: "p", cwd: "/repo", idleOutputMs: 100 }).finally(() => {
+      settled = true;
+    });
+
+    onActivity?.("src/nested/edited.ts");
+    expect(expiries).toHaveLength(2);
+    expiries[0]?.();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    expiries[1]?.();
+    await expect(promise).resolves.toEqual({ kind: "stall", stderr: "" });
+  });
+
+  test("workflow staging directory activity re-arms the idle timer", async () => {
+    for (const path of [".jarvis-plan-stage/plan-body.md", ".jarvis-intent-stage/draft.md"]) {
+      const fake = fakeSpawn([{ kind: "hang" }]);
+      const expiries: (() => void)[] = [];
+      const active = new Set<() => void>();
+      let onActivity: ((activityPath: string) => void) | undefined;
+      const binding = createResolvedAgentBinding(
+        { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+        {
+          spawn: fake.spawn,
+          setTimeout: ((callback: Parameters<typeof setTimeout>[0]) => {
+            const wrapped = () => {
+              if (active.has(wrapped)) callback();
+            };
+            active.add(wrapped);
+            expiries.push(wrapped);
+            return wrapped as unknown as ReturnType<typeof setTimeout>;
+          }) as typeof setTimeout,
+          clearTimeout: ((timer) => active.delete(timer as unknown as () => void)) as typeof clearTimeout,
+          watchWorktreeActivity: (args) => {
+            onActivity = args.onActivity;
+          },
+        },
+      );
+      let settled = false;
+      const promise = binding.invoke({ prompt: "p", cwd: "/repo", idleOutputMs: 100 }).finally(() => {
+        settled = true;
+      });
+
+      onActivity?.(path);
+      expect(expiries).toHaveLength(2);
+      expiries[0]?.();
+      await Promise.resolve();
+      expect(settled).toBe(false);
+
+      expiries[1]?.();
+      await expect(promise).resolves.toEqual({ kind: "stall", stderr: "" });
+    }
+  });
+
   test("sidecar-only worktree activity does not re-arm the idle timer", async () => {
-    for (const path of ["nested/.jarvis-state.json", "review/verdict-adjudicator.md"]) {
+    for (const path of [
+      "nested/.jarvis-state.json",
+      "review/verdict-adjudicator.md",
+      ".jarvis-intent-review-verdict.md",
+    ]) {
       const fake = fakeSpawn([{ kind: "hang" }]);
       const expiries: (() => void)[] = [];
       let onActivity: ((activityPath: string) => void) | undefined;

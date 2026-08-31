@@ -776,6 +776,24 @@ describe("monitorLeftPaneAttentionRows", () => {
     expect(lines[2]).toContain("idle");
   });
 
+  test("failure attention glyph paints red (failure tone); gate glyph stays untoned", () => {
+    const gate = pipelineSnapshot({
+      pipelineId: "pipe-gate",
+      name: "full-review",
+      stages: [snapshotStage({ stageId: "approve-intent", position: 0, status: "awaiting" })],
+    });
+    const failed = workflowRun("run-fail", "failed", "inv-fail", { finishedAtMs: TREE_NOW_MS - 1_000, isLive: false });
+    const state = monitorState({
+      runs: [failed],
+      pipelineSnapshotsBySocketPath: { "/tmp/test.sock": { pipelines: [gate] } },
+    });
+
+    const segments = monitorLeftPaneAttentionRows(state, TREE_NOW_MS).flatMap((r) => r.segments);
+    // Reverting the failure-glyph tone would drop this to undefined.
+    expect(segments.find((s) => s.text === "✗")?.tone).toBe("failure");
+    expect(segments.find((s) => s.text === "✋")?.tone).toBeUndefined();
+  });
+
   test("Needs attention heading counts only surfaced incidents", () => {
     const freshFailure = workflowRun("run-fresh-count", "failed", "inv-fresh-count", {
       isLive: false,

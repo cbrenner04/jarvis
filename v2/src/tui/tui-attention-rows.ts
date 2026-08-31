@@ -51,7 +51,7 @@ export type AttentionProjection = {
 };
 
 const GATE_GLYPH = "✋";
-const FAILURE_GLYPH = "✗";
+export const FAILURE_GLYPH = "✗";
 const ATTENTION_ROW_CAP = 6;
 const GATE_KINDS = new Set<AttentionRowKind>(["awaiting-gate", "rejected-gate"]);
 /** Terminal incidents older than this against the caller's clock are suppressed from the attention segment. */

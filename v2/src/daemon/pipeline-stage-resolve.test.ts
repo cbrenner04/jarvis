@@ -467,9 +467,29 @@ describe("resolveStageWorkflowSteps", () => {
     expect(called).toBe(true);
   });
 
-  test("implement stage omits review overrides so builder resolves them from project config", async () => {
+  test("implement stage threads light review posture", async () => {
     let seenInput: BuildImplementWorkflowStepsInput | undefined;
-    const planBranch = "plan/feature";
+    const builders = fakeBuilders({
+      implement: async (input) => {
+        seenInput = input;
+        return { ok: true, steps: [okStep] };
+      },
+    });
+    const stageArtifacts = new Map([[stageArtifactKey("plan"), stageArtifact("run-plan", "spec/index.md")]]);
+
+    const result = await resolveStageWorkflowSteps(planImplementDefinition, 1, baseContext, stageArtifacts, {
+      builders,
+      ...chainedDeps(baseContext.cwd, planImplementBranch),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(seenInput).toMatchObject({ reviewBehavior: "light", reviewPasses: 1 });
+    expect(seenInput?.specPath).toBe("spec/index.md");
+    expect(seenInput?.baseRef).toBe(planImplementBranch);
+  });
+
+  test("implement stage threads debate review posture", async () => {
+    let seenInput: BuildImplementWorkflowStepsInput | undefined;
     const builders = fakeBuilders({
       implement: async (input) => {
         seenInput = input;
@@ -480,30 +500,27 @@ describe("resolveStageWorkflowSteps", () => {
       name: "p",
       stages: [
         { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
-        { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "debate" },
       ],
     };
     const stageArtifacts = new Map([[stageArtifactKey("plan"), stageArtifact("run-plan", "spec/index.md")]]);
 
     const result = await resolveStageWorkflowSteps(definition, 1, baseContext, stageArtifacts, {
       builders,
-      ...chainedDeps(baseContext.cwd, planBranch),
+      ...chainedDeps(baseContext.cwd, planImplementBranch),
     });
 
     expect(result.ok).toBe(true);
-    expect(seenInput?.reviewBehavior).toBeUndefined();
-    expect(seenInput?.reviewPasses).toBeUndefined();
-    expect(seenInput?.specPath).toBe("spec/index.md");
-    expect(seenInput?.baseRef).toBe(planBranch);
+    expect(seenInput).toMatchObject({ reviewBehavior: "debate", reviewPasses: 1 });
   });
 
-  test("pipeline implement resolution uses configured review passes and review behavior on the review step", async () => {
+  test("pipeline implement stage posture overrides project review config on the review step", async () => {
     const { repoRoot, planBranch, planWorktree, planSpecRel } = createChainedHandoffRepo();
     const configPath = writeHomeMachineConfig({
       projects: {
         demo: {
           root: repoRoot,
-          implement: { reviewPasses: 2, reviewBehavior: "light" },
+          implement: { reviewPasses: 2, reviewBehavior: "debate" },
         },
       },
     });
@@ -531,7 +548,7 @@ describe("resolveStageWorkflowSteps", () => {
     const review = steps.find((step) => step.behavior === "review");
     expect(review?.behavior).toBe("review");
     if (review?.behavior !== "review") return;
-    expect(review.maxCycles).toBe(2);
+    expect(review.maxCycles).toBe(1);
   });
 
   test("intent+debate maps to intent preset with debate reviewBehavior and one pass", async () => {
@@ -573,8 +590,14 @@ describe("resolveStageWorkflowSteps", () => {
     expect(seenInput?.reviewBehavior).toBeUndefined();
   });
 
-  test("a stage whose (workflow, review) pair has no table entry returns a resolution failure, not a throw", async () => {
-    const builders = fakeBuilders();
+  test("implement stage rejects an unrealizable none posture", async () => {
+    let called = false;
+    const builders = fakeBuilders({
+      implement: async () => {
+        called = true;
+        return { ok: true, steps: [okStep] };
+      },
+    });
     const definition: PipelineDefinition = {
       name: "p",
       stages: [{ stageId: "implement", kind: "workflow", workflow: "implement", review: "none" }],
@@ -584,7 +607,10 @@ describe("resolveStageWorkflowSteps", () => {
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.error).toContain("implement");
+    expect(result.error).toBe(
+      'pipeline-stage-resolve: no preset mapping for stage "implement" (workflow "implement", review "none")',
+    );
+    expect(called).toBe(false);
   });
 
   test("a builder call reporting failure returns a resolution failure, not a thrown error or a fallback preset", async () => {

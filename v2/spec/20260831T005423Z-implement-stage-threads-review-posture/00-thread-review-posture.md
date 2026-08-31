@@ -22,12 +22,12 @@ A pipeline implement stage ignores its defined `review` posture and always runs 
 
 ## Acceptance criteria
 
-- [ ] `pipeline-stage-resolve.test.ts` test `implement stage threads light review posture` resolves an implement stage with `review: "light"` and asserts the built input/steps carry `reviewBehavior: "light"` and `reviewPasses: 1` (a single critic pass, not debate); it fails against the pre-fix omission that defaults to debate.
-- [ ] `pipeline-stage-resolve.test.ts` test `implement stage threads debate review posture` resolves `review: "debate"` and asserts `reviewBehavior: "debate"`, `reviewPasses: 1` (no regression to the `full-review` posture).
-- [ ] `pipeline-stage-resolve.test.ts` test `implement stage rejects an unrealizable none posture` asserts an `implement` stage with `review: "none"` is refused as unmapped before `resolveImplementStage` (documenting that `implement` + `none` stays unrealizable, so posture threading only ever sees `light`/`debate`).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `pipeline-stage-resolve.test.ts` test `implement stage threads light review posture` resolves an implement stage with `review: "light"` and asserts the built input/steps carry `reviewBehavior: "light"` and `reviewPasses: 1` (a single critic pass, not debate); it fails against the pre-fix omission that defaults to debate.
+- [x] `pipeline-stage-resolve.test.ts` test `implement stage threads debate review posture` resolves `review: "debate"` and asserts `reviewBehavior: "debate"`, `reviewPasses: 1` (no regression to the `full-review` posture).
+- [x] `pipeline-stage-resolve.test.ts` test `implement stage rejects an unrealizable none posture` asserts an `implement` stage with `review: "none"` is refused as unmapped before `resolveImplementStage` (documenting that `implement` + `none` stays unrealizable, so posture threading only ever sees `light`/`debate`).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

@@ -14,7 +14,7 @@ v2 workflow publication destroys per-turn commit history — a regression from v
 
 ## Behavior
 
-- Every workflow (intent, plan, implement) preserves one distinct commit per turn on the published branch: each write/split iteration that produced changes, shrink edits when they change anything, and review-actuator edits each become their own commit.
+- Every workflow (intent, plan, implement) preserves one distinct commit per turn on the published branch: each write/split iteration that produced changes, shrink edits when they change anything, and each review/review-debate pass whose actuator produces edits each become their own commit; passes with no edits add no commit.
 - Each commit carries a subject unique to that turn's work, the turn's `Jarvis-Agent`, and that turn's `Jarvis-Step` (`write`, `review n`, `review-debate n`, `shrink`, etc.).
 - No terminal boundary (write completion, `~shrink`, review) rewrites, amends, resets, or CAS-replaces prior commits; branch commit count is monotonic non-decreasing across boundaries.
 - Publication renders a `## Commits` block (spec-run body summary and PR attribution footer) listing every per-turn commit ahead of base with its agent; the footer no longer credits only the review agent.
@@ -25,12 +25,14 @@ v2 workflow publication destroys per-turn commit history — a regression from v
 - Per-iteration `commitSettledIteration` SHAs survive to the published branch; rules out restaging the full worktree into one replacement commit at publication.
 - Plan and intent write turns generate descriptive per-turn commit subjects; rules out repeating the same boilerplate subject across turns.
 - Each turn's commit is attributed to that turn's agent and stage; rules out a single carried-forward `Jarvis-Agent` trailer on one surviving commit.
+- Multi-pass `review` and `review-debate` yield one commit per mutating pass (`Jarvis-Step` `review n` / `review-debate n`); rules out folding all debate passes into one terminal review commit.
 - Terminal boundaries may append new commits but never collapse prior ones; rules out amend, reset, or squash on the publication branch before merge.
 - Only the operator's squash-merge to `main` may squash; rules out any harness-side squash or history rewrite.
 
 ## Acceptance criteria
 
-- [ ] A `workflow-runner-publication.test.ts` regression drives a multi-subspec implement workflow to publication and asserts the branch retains one commit per completed subspec write turn plus a distinct review-actuator commit (≥ N+1 for N subspecs), each with a distinct subject and correct `Jarvis-Agent`/`Jarvis-Step`; it fails against the current single-commit-off-base collapse.
+- [ ] A `workflow-runner-publication.test.ts` regression drives a multi-subspec implement workflow with single-pass light review to publication and asserts the branch retains one commit per completed subspec write turn plus one mutating review commit (≥ N+1 for N subspecs), each with a distinct subject and correct `Jarvis-Agent`/`Jarvis-Step`; it fails against the current single-commit-off-base collapse.
+- [ ] A `workflow-runner-publication.test.ts` regression drives implement publication with multi-pass debate review and asserts each mutating debate pass yields its own `review-debate n` commit ahead of base; it fails when debate passes collapse to one terminal review commit.
 - [ ] A `workflow-runner-publication.test.ts` regression drives plan and intent publication and asserts per-turn commit subjects are distinct and describe each turn's work, not a repeated boilerplate line; it fails against the current duplicate-subject behavior.
 - [ ] A `workflow-runner-publication.test.ts` regression asserts branch commit count never decreases across write, shrink, and review terminal boundaries; it fails when a boundary CAS-replaces or removes a prior commit.
 - [ ] A `workflow-runner-publication.test.ts` regression renders the publication body summary `## Commits` block listing each per-turn commit with its `Jarvis-Agent`; it fails when only the review agent is credited.

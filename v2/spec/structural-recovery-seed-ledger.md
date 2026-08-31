@@ -194,6 +194,10 @@ Long autonomous throughput session (operator away). Landed, in order: front-door
 - **Recurring CI friction:** the v1 `rendered-snapshots` / snapshot-churn tests flake under full-aggregate CI load, blocking prompt-touching PRs (#3249, #3260) — each needed a CI re-run or a full-local-ready admin-merge. Candidate seed. `@mutate` contamination stopped needing per-stage scrubbing once #3249 landed, though agents still occasionally emit it from habit ([[sweep-dead-mutate-directives-from-test-corpus]]).
 - **Ops:** daemon restarted onto the latest build mid-session (biome-strand salvage tax gone for new implements — split-docs #3253 and inject #3255 auto-published clean). Heavy merge cadence periodically superseded/killed the daemon; it self-heals via auto-start on the next run.
 
+## This-session (2026-08-31 close)
+
+Full report: [`reports/20260831T155237Z-autonomous-structural-burndown.md`](../../reports/20260831T155237Z-autonomous-structural-burndown.md). **Chains COMPLETE:** front-door (`pipeline-dispatch-shares-cli-front-door`, 4/4, #3226), watchdog trio (3/3, #3227), pipeline-recovery pair (#3244+#3250), `@mutate` retirement (#3249), split-spec-guidance (#3253+#3255), per-turn-commit biome-strand fix (#3242). Prompt-corpus sweep: #3259, #3260, retire-dormant (landing). Commit-attribution #3234. New seeds: per-turn-commit, published-branch-attribution, pipeline-resume-id-echo, pipeline-resume-durable, merge-at-gate, cleanup-reaps-aged-session-logs, cleanup-reaps-dead-daemon-log-and-pid-files. **In flight at pause:** narrow #3122 `implement-admits-externally-landed-specs` (priority homestead unblock; intent running) — broader external-by-default flip to be spec'd separately (operator). retire-dead-registry subspec 02 withdrawn as redundant (#3263).
+
 ## Gaps / low-confidence
 
 - `harness-publication-push-uses-explicit-refspec`, `inject-spec-guidance-agent-core`, `split-spec-guidance-documents`, `cleanup-uses-lossless-git-status`: confirmed as landed ready-intents (intent PRs verified), but no plan-spec dir or implement PR was verifiable from the brief or git — left `—`. May be planned/implemented under names not matched here.

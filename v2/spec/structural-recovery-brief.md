@@ -21,6 +21,10 @@ Per-seed completion status (seed → ready-intent → plan → implement PR) liv
 
 The five structural retirements that close whole classes: one dispatch front door, settlement derived from run rows, atomic terminal writes, the workflow-runner/daemon module splits, and real dead-export/test-seam gates.
 
+## Close status (2026-08-31)
+
+Front-door chain COMPLETE (#3226); watchdog trio COMPLETE (#3227, serial-only-implement relaxed); [[per-turn-checkpoint-commit-never-gated-by-lint]] #3242 (biome-commit-strand class closed); pipeline-recovery pair #3244+#3250; [[retire-mutate-dsl-from-default-write-step-rules]] #3249; split-spec-guidance #3253+#3255; [[published-branch-attributes-all-authorship-to-review-debate]] #3234; prompt-corpus dead-weight sweep #3259/#3260/(retire-dormant landing). **Highest-value open item: narrow #3122 [[implement-admits-externally-landed-specs]]** (in flight) — it actively gates the operator's homestead work; broader external-spec-by-default flip ([[all-spec-documents-external-capable]]) to be spec'd separately. See `reports/20260831T155237Z-autonomous-structural-burndown.md`.
+
 ## In flight (2026-08-29)
 
 - **PR #3060 — MERGED 2026-08-29.** Dispatch-parity spec complete (subspecs 00–02): pipeline dispatch stamps the full step-config layer, watchdogs arm on daemon write steps, resume reads write-sibling stamped commands. The readyCommand cascade (#2976→#3060, five fixes) is closed; its seed is reaped. The test-file hang's true cause was stub steps without `worktree` (the stamp threw before `wait()`, starving microtask spin loops) — not timers; the watchdog unrefs landed as hygiene, leaving [[watchdog-timers-never-hold-the-event-loop]] as a pin-test seed. The spec dir awaits the next `jarvis cleanup` archival pass.

@@ -7,7 +7,6 @@ plan/decisions-ledger.md
 plan/defer-to-consumer.md
 plan/draft.md
 plan/pr-description.md
-plan/review.md
 plan/review-adversary.md
 plan/review-advocate.md
 plan/review-critic.md
@@ -15,11 +14,9 @@ plan/review-adjudicator.md
 plan/review-actuator.md
 patch/instructions.md
 patch/pr-description.md
-patch/review.md
 patch/review-adversary.md
 patch/review-advocate.md
 patch/review-adjudicator.md
-patch/review-critic.md
 patch/rules.md
 patch/shrink.md
 implement/review-adversary.md

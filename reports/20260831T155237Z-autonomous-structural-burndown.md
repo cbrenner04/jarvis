@@ -22,7 +22,7 @@ Plan/intent/chore PRs: #3223–#3225, #3228, #3229, #3232, #3238–#3241, #3245�
 
 ## Cost
 
-Awaiting operator `/cost`. Per-run agent-cost lives in `~/.jarvis/telemetry.jsonl` (queryable by `run_id`; see runbook § Reading telemetry). Cumulative CSVs under `reports/` to be updated with the `/cost` figures.
+**Operator opus-4-8: $173.54** (API 2h55m43s / wall 13h17m31s; 121.4k in / 715.0k out, 284.2M cache read, 1.6M cache write). Agent-side (codex quota/error, cursor actuator, claude) is not in this figure. Cumulative CSVs under `reports/` updated. Per-run agent-cost lives in `~/.jarvis/telemetry.jsonl` (queryable by `run_id`; see runbook § Reading telemetry). Cumulative CSVs under `reports/` to be updated with the `/cost` figures.
 
 ## Chains closed / advanced
 
@@ -55,11 +55,11 @@ Awaiting operator `/cost`. Per-run agent-cost lives in `~/.jarvis/telemetry.json
 
 - Closed **#3151** (→ #3227). #3040 (ready-gate repair dead-end) recurred twice this session (salvaged, not fixed) — fresh evidence. #3122 in progress (see below).
 
-## In-flight at pause
+## Final state (all in-flight landed)
 
-- **retire-dormant-v1-plan-dead-paths** implement — finalizing; land + archive.
-- **#3263** — held (withdraw redundant retire-dead-registry subspec 02 + archive); merge after retire-dormant.
-- **Narrow #3122** (`implement-admits-externally-landed-specs`, the priority homestead unblock) — intent running; ready-intent to be merged as a resumable checkpoint, then paused pending the operator's broader external-by-default scoping.
+- **retire-dormant-v1-plan-dead-paths** implement — LANDED #3265; prompt-corpus sweep complete (3/3).
+- **#3263** — LANDED (retire-dead-registry subspec 02 withdrawn + spec archived).
+- **Narrow #3122** (`implement-admits-externally-landed-specs`, priority homestead unblock) — ready-intent LANDED #3266; PAUSED at that checkpoint (narrow scope only, per operator; broader external-spec-by-default flip is operator-owned later). Resume with `jarvis run workflow plan --ready-intent v2/spec/ready-intents/<implement-admits-externally-landed-specs>.md`.
 
 ## Retention note (operator ask)
 

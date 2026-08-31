@@ -27,19 +27,19 @@
 
 ## Acceptance criteria
 
-- [ ] `shared/prompts/review-profile.test.ts` fails against the pre-fix shape (references `profile.promptIds` that no longer exist on `ReviewPromptProfile`); after the change it passes with domain/verdict/boundary assertions only and no `@mutate` pin on removed `promptIds.critic`.
-- [ ] `v2/src/execution/review-cycle.test.ts` stays green (review-cycle dispatch unchanged by the field removal).
-- [ ] `v2/src/execution/review-debate.test.ts` stays green (review-debate dispatch unchanged by the field removal).
-- [ ] `v2/src/daemon/daemon-workflow-start.test.ts` stays green (exported profile JSON round-trip unchanged by the field removal).
-- [ ] Grep under `shared/`, `v2/src/`, and `v2/docs/` finds no `patch.prompt.review-actuator` (reachable on main in `shared/prompts/review-profile.ts`, `v2/src/execution/review-cycle.test.ts`, `v2/src/execution/review-debate.test.ts`, `v2/docs/v1-behaviors.md`, and `v2/docs/workflow-runner.md`).
-- [ ] `v2/docs/v1-behaviors.md` implement-review parity bullet mentions neither `promptIds` nor `patch.prompt.review-actuator` and accurately describes the v2-owned implement review split.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v1` passes.
-- [ ] `bun run test:integration:v1` passes.
-- [ ] `bun run test:shared` passes.
-- [ ] `bun run test:integration:shared` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `shared/prompts/review-profile.test.ts` fails against the pre-fix shape (references `profile.promptIds` that no longer exist on `ReviewPromptProfile`); after the change it passes with domain/verdict/boundary assertions only and no `@mutate` pin on removed `promptIds.critic`.
+- [x] `v2/src/execution/review-cycle.test.ts` stays green (review-cycle dispatch unchanged by the field removal).
+- [x] `v2/src/execution/review-debate.test.ts` stays green (review-debate dispatch unchanged by the field removal).
+- [x] `v2/src/daemon/daemon-workflow-start.test.ts` stays green (exported profile JSON round-trip unchanged by the field removal).
+- [x] Grep under `shared/`, `v2/src/`, and `v2/docs/` finds no `patch.prompt.review-actuator` (reachable on main in `shared/prompts/review-profile.ts`, `v2/src/execution/review-cycle.test.ts`, `v2/src/execution/review-debate.test.ts`, `v2/docs/v1-behaviors.md`, and `v2/docs/workflow-runner.md`).
+- [x] `v2/docs/v1-behaviors.md` implement-review parity bullet mentions neither `promptIds` nor `patch.prompt.review-actuator` and accurately describes the v2-owned implement review split.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v1` passes.
+- [x] `bun run test:integration:v1` passes.
+- [x] `bun run test:shared` passes.
+- [x] `bun run test:integration:shared` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

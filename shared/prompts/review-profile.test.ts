@@ -28,28 +28,16 @@ describe("ReviewPromptProfile", () => {
 
     expect(profiles.map((profile) => profile.domain)).toEqual(["intent", "plan", "implement"]);
     for (const profile of profiles) {
-      expect(profile.promptIds.critic).toBeString();
-      expect(profile.promptIds.actuator).toBeString();
       expect(profile.verdict).toEqual({
         source: profile.domain === "implement" ? "adjudicator" : "critic",
         empty: "stop",
         persist: "stdout",
       });
-      expect(profile.boundaries.light).toEqual({ critic: "read-only", actuator: "write" });
-      expect(profile.boundaries.debate).toEqual({ critic: "read-only", actuator: "write" });
+      expect(profile.boundaries).toEqual({
+        light: { critic: "read-only", actuator: "write" },
+        debate: { critic: "read-only", actuator: "write" },
+      });
     }
-    expect(implementReviewProfile.promptIds.debate).toEqual({
-      adversary: "implement.prompt.review.adversary",
-      advocate: "implement.prompt.review.advocate",
-      adjudicator: "implement.prompt.review.adjudicator",
-    });
-    // @mutate shared/prompts/review-profile.ts "critic: \"implement.prompt.review.critic\"," -> "critic: \"patch.prompt.review.critic\","
-    expect(implementReviewProfile.promptIds.critic).toBe("implement.prompt.review.critic");
-    expect(intentReviewProfile.promptIds.debate).toEqual({
-      adversary: "intent.prompt.review.adversary",
-      advocate: "intent.prompt.review.advocate",
-      adjudicator: "intent.prompt.review.adjudicator",
-    });
   });
 
   test("renders governed intent debate roles with staged content and boundaries", () => {

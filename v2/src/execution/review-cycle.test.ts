@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
+import { bindReviewPromptProfile, implementReviewProfile } from "../../../shared/prompts/review-profile.ts";
 import { executeReviewCycle, type ReviewCycleInput } from "./review-cycle.ts";
 
 function binding(id: string, stdout: string, calls: string[], kind: "ok" | "quota" = "ok"): InvocationBinding {
@@ -191,22 +192,13 @@ test("stamps pass metadata onto serializable object profile contexts", async () 
   const path = join(dir(), "verdict.md");
   const result = await executeReviewCycle({
     cwd: "/fake",
-    profile: {
-      domain: "implement",
-      promptIds: { critic: "implement.prompt.review.critic", actuator: "patch.prompt.review-actuator" },
-      render: {
-        critic: (context: unknown) => {
-          contexts.push(context);
-          return "inspect";
-        },
-        actuator: () => "apply",
+    profile: bindReviewPromptProfile(implementReviewProfile, {
+      critic: (context: unknown) => {
+        contexts.push(context);
+        return "inspect";
       },
-      verdict: { source: "critic", empty: "stop", persist: "stdout" },
-      boundaries: {
-        light: { critic: "read-only", actuator: "write" },
-        debate: { critic: "read-only", actuator: "write" },
-      },
-    },
+      actuator: () => "apply",
+    }),
     profileContext: { specPath: "index.md", totalPasses: 2 },
     bindings: { critic: [binding("critic.1", "fix", calls)], actuator: [binding("actuator.1", "done", calls)] },
     verdictPath: path,

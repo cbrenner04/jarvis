@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
+import { bindReviewPromptProfile, implementReviewProfile } from "../../../shared/prompts/review-profile.ts";
 import { executeReviewDebate, type ReviewDebateInput } from "./review-debate.ts";
 
 function okBinding(id: string, stdout: string, calls: string[]): InvocationBinding {
@@ -308,23 +309,14 @@ test("stamps pass metadata onto serializable object profile contexts", async () 
   const input = baseInput({ calls, verdictPath, adjudicatorVerdict: "apply this fix", maxCycles: 2 });
   const result = await executeReviewDebate({
     ...input,
-    profile: {
-      domain: "implement",
-      promptIds: { critic: "implement.prompt.review.critic", actuator: "patch.prompt.review-actuator" },
-      render: {
-        critic: () => "inspect",
-        actuator: () => "apply",
-        debateRole: (role: string, context: unknown) => {
-          if (role === "adversary") contexts.push(context);
-          return role;
-        },
+    profile: bindReviewPromptProfile(implementReviewProfile, {
+      critic: () => "inspect",
+      actuator: () => "apply",
+      debateRole: (role: string, context: unknown) => {
+        if (role === "adversary") contexts.push(context);
+        return role;
       },
-      verdict: { source: "adjudicator", empty: "stop", persist: "stdout" },
-      boundaries: {
-        light: { critic: "read-only", actuator: "write" },
-        debate: { critic: "read-only", actuator: "write" },
-      },
-    },
+    }),
     profileContext: { specPath: "index.md", totalPasses: 2 },
   });
   expect(result.cycles).toHaveLength(2);

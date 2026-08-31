@@ -55,6 +55,8 @@ repo: owner/target-repo
 - [ ] [01 - Second task](./01-second-task.md)
 ```
 
+During v2 plan-draft, the agent writes to `.jarvis-plan-stage/` in the worktree before landing to the durable `<targetDir>/<timestamp>-<slug>/` path. Staging accepts either flat files at `.jarvis-plan-stage/{index.md,NN-*.md}` or exactly one nested tree at `.jarvis-plan-stage/spec/<name>/` with the same shape inside; the harness flattens nested staging to the root before normalization. Both forms land the same durable spec layout shown above.
+
 External specs (`commit: false`) may also use `repo: <https://example.com/repo>` when the origin is not a GitHub slug.
 
 Run Jarvis against the index:

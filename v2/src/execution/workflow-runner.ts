@@ -3391,7 +3391,10 @@ export function isPlanStageEntryRunRecoverable(
 }
 
 /**
- * Effect-free shape + contract-normalizer + landing-link validation against staged plan bytes.
+ * Shape + contract-normalizer + landing-link validation against staged plan bytes. On success,
+ * `checkStagedPlanDraft` resolves nested staging, flattens to the staging root, and runs the
+ * contract normalizer (mutating staged bytes the same way the write-step path does); on failure
+ * staged bytes are retained unchanged.
  * Recovery runs this before the first review and again (via `revalidateStagedPlanBeforeLanding`)
  * immediately before landing, so an operator edit or review-mutated stage is never trusted past
  * either boundary. Staged-Markdown linting before landing is already enforced for every review

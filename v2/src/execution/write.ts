@@ -4,6 +4,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -99,7 +100,38 @@ function assembleWriteStepPlaceholders(
 
 const PLAN_DRAFT_SHAPE_REASON = "plan.draft.shape";
 
-function validatePlanDraftShape(specDir: string): { valid: boolean; reason?: string } {
+function listNestedPlanDraftSpecDirs(stagingDir: string): string[] {
+  const specContainer = join(stagingDir, "spec");
+  if (!existsSync(specContainer) || !statSync(specContainer).isDirectory()) {
+    return [];
+  }
+  return readdirSync(specContainer).filter((name) => statSync(join(specContainer, name)).isDirectory());
+}
+
+type ResolvedPlanDraftStagingRoot = { ok: true; root: string } | { ok: false; reason: string };
+
+function resolvePlanDraftStagingRoot(stagingDir: string): ResolvedPlanDraftStagingRoot {
+  if (validatePlanDraftShapeAtRoot(stagingDir).valid) {
+    return { ok: true, root: stagingDir };
+  }
+
+  const nestedDirs = listNestedPlanDraftSpecDirs(stagingDir);
+  if (nestedDirs.length !== 1) {
+    return { ok: false, reason: PLAN_DRAFT_SHAPE_REASON };
+  }
+
+  return { ok: true, root: join(stagingDir, "spec", nestedDirs[0]!) };
+}
+
+function flattenNestedPlanDraftStaging(stagingDir: string, nestedRoot: string): void {
+  const specContainer = join(stagingDir, "spec");
+  for (const name of readdirSync(nestedRoot)) {
+    renameSync(join(nestedRoot, name), join(stagingDir, name));
+  }
+  rmSync(specContainer, { recursive: true, force: true });
+}
+
+function validatePlanDraftShapeAtRoot(specDir: string): { valid: boolean; reason?: string } {
   if (!existsSync(specDir)) {
     return { valid: false, reason: PLAN_DRAFT_SHAPE_REASON };
   }
@@ -119,16 +151,37 @@ function validatePlanDraftShape(specDir: string): { valid: boolean; reason?: str
   return { valid: true };
 }
 
+function validatePlanDraftShape(specDir: string): { valid: boolean; reason?: string } {
+  const resolved = resolvePlanDraftStagingRoot(specDir);
+  if (!resolved.ok) {
+    return { valid: false, reason: resolved.reason };
+  }
+  return validatePlanDraftShapeAtRoot(resolved.root);
+}
+
 function validatePlanDraft(
   draftDir: string,
   shapeValidator: (specDir: string) => { valid: boolean; reason?: string },
 ): { ok: true } | { ok: false; reason: string } {
+  const resolved = resolvePlanDraftStagingRoot(draftDir);
+  if (!resolved.ok) {
+    return resolved;
+  }
+
   const shape = shapeValidator(draftDir);
   if (!shape.valid) {
     return { ok: false, reason: shape.reason ?? PLAN_DRAFT_SHAPE_REASON };
   }
 
+  const structural = validatePlanDraftShapeAtRoot(resolved.root);
+  if (!structural.valid) {
+    return { ok: false, reason: structural.reason ?? PLAN_DRAFT_SHAPE_REASON };
+  }
+
   try {
+    if (resolved.root !== draftDir) {
+      flattenNestedPlanDraftStaging(draftDir, resolved.root);
+    }
     normalizePlanDraftSpecDir(draftDir);
   } catch (err) {
     // Mutation checkpoint: replacing `message` with PLAN_DRAFT_SHAPE_REASON here must turn
@@ -141,9 +194,10 @@ function validatePlanDraft(
 }
 
 /**
- * Reused by plan-stage recovery to revalidate staged bytes it did not itself draft: the same
- * shape (index/subspec presence) and contract-normalizer (index links and split boundary) checks the
- * ordinary plan-draft write step runs against its own output.
+ * Reused by plan-stage recovery to revalidate staged bytes it did not itself draft: on success,
+ * resolves nested staging, flattens it to the staging root, and runs the contract normalizer — the
+ * same shape, flatten, and normalizer checks the ordinary plan-draft write step runs against its
+ * own output.
  */
 export function checkStagedPlanDraft(draftDir: string): { ok: true } | { ok: false; reason: string } {
   return validatePlanDraft(draftDir, validatePlanDraftShape);
@@ -320,7 +374,10 @@ async function executePlanDraftWrite(
 ): Promise<StepRunResult> {
   const specDir = stagingPath;
   const reprompt = args.stagedMarkdownLintReprompt;
-  const preserveStage = reprompt !== undefined || (existsSync(specDir) && existsSync(join(specDir, "index.md")));
+  const preserveStage =
+    reprompt !== undefined ||
+    (existsSync(specDir) &&
+      (existsSync(join(specDir, "index.md")) || listNestedPlanDraftSpecDirs(specDir).length === 1));
   if (!preserveStage) {
     rmSync(specDir, { recursive: true, force: true });
   }

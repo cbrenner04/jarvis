@@ -59,13 +59,13 @@ none
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/spec-guidance-agent-core.md` exists, links to `v1/docs/spec-guidance-operator.md`, and contains the `## Subspecs`, `### Authored markdown style`, `### Behavioral acceptance criteria`, subspec heading-contract bullets, and `## Agent Workflow` sections from the split inventory.
-- [ ] `v1/docs/spec-guidance-operator.md` exists, links to `v2/docs/spec-guidance-agent-core.md`, and contains the `## Spec location conventions`, `## Land the spec before implementing it`, `## Plan same-seam siblings serially`, operator-facing `## Authoring` material, and `## Non-index spec handling` sections from the split inventory.
-- [ ] Together the two documents contain every paragraph of `v1/docs/spec-guidance.md` with no paragraph duplicated across them; the split inventory above matches the landed partition. (no automated guard)
-- [ ] `v1/docs/spec-guidance.md` is byte-identical to the merge-base version (`git diff <merge-base> -- v1/docs/spec-guidance.md` is empty).
-- [ ] `shared/prompts/plan-draft.test.ts` bundled-guidance assertions stay green.
-- [ ] `v1/test/modes/plan/prompts.test.ts` bundled-guidance assertions stay green.
-- [ ] `bun run lint:md` passes with the new documents in the lint corpus.
+- [x] `v2/docs/spec-guidance-agent-core.md` exists, links to `v1/docs/spec-guidance-operator.md`, and contains the `## Subspecs`, `### Authored markdown style`, `### Behavioral acceptance criteria`, subspec heading-contract bullets, and `## Agent Workflow` sections from the split inventory.
+- [x] `v1/docs/spec-guidance-operator.md` exists, links to `v2/docs/spec-guidance-agent-core.md`, and contains the `## Spec location conventions`, `## Land the spec before implementing it`, `## Plan same-seam siblings serially`, operator-facing `## Authoring` material, and `## Non-index spec handling` sections from the split inventory.
+- [x] Together the two documents contain every paragraph of `v1/docs/spec-guidance.md` with no paragraph duplicated across them; the split inventory above matches the landed partition. (no automated guard)
+- [x] `v1/docs/spec-guidance.md` is byte-identical to the merge-base version (`git diff <merge-base> -- v1/docs/spec-guidance.md` is empty).
+- [x] `shared/prompts/plan-draft.test.ts` bundled-guidance assertions stay green.
+- [x] `v1/test/modes/plan/prompts.test.ts` bundled-guidance assertions stay green.
+- [x] `bun run lint:md` passes with the new documents in the lint corpus.
 
 ## Documentation updates
 

@@ -1,0 +1,7 @@
+Reviewing the monolith and split documents against the spec to issue a verdict.
+Verifying the lossless partition and checking for gaps the advocate may have missed.
+## Required outcomes
+
+1. **Tick the lossless-partition acceptance criterion.** The subspec still has one unchecked AC: that the two split documents together contain every monolith paragraph with no duplication and that the landed partition matches the split inventory. Manual review confirms this is satisfied — all monolith units appear across `v2/docs/spec-guidance-agent-core.md` and `v1/docs/spec-guidance-operator.md`, with no cross-file duplication; `v1/docs/spec-guidance.md` is byte-identical to merge-base; agent-core has no `jarvis1` substring; the seeds/fan-out semicolon split matches the ledger; permitted rewrites (`this file` → agent-core link, new operator title/intro, heading regrouping under `## Authoring contracts`) are within spec. The `(no automated guard)` marker makes this human-verify, not a reason to skip sign-off. Index `[x]` reflects automated gates only; it does not close the spec’s central deliverable. Tick the AC to record verified lossless partition.
+
+**No content changes required** to the split documents on this branch. The dangling consumption sentence, operator-section reordering, interim staging cross-links, and triple-source coexistence with the untouched monolith are spec-intended for this transitional state. Inject-time cross-link, anchor, and pointer maintenance belong to the follow-on inject intent, not this actuator.

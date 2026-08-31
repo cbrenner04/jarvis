@@ -1,5 +1,7 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { isGitRepo } from "../../../shared/git.ts";
+import { realSubprocessRunner } from "../../../shared/subprocess.ts";
 import { resolveWorkflowPresetName } from "../commands/workflow-start-preparation.ts";
 import type { BuildImplementWorkflowStepsInput } from "../execution/implement-workflow-steps.ts";
 import type { PipelineDefinition, PipelineStage } from "../execution/pipeline-definition.ts";
@@ -167,82 +169,170 @@ function isChainedPlanReadyIntentPath(specPath: string): boolean {
   return specPath.endsWith(".md");
 }
 
-function resolveChainedImplementSpecPath(
-  worktreePath: string,
-  specPath: string,
-): { ok: true; specPath: string } | { ok: false; error: string } {
-  // Plan completion records specPath as the spec directory; normalize to index.md for implement.
-  if (isChainedPlanReadyIntentPath(specPath)) {
-    return { ok: true, specPath };
+function neverLandedDownstreamInputError(relativePath: string): string {
+  return `pipeline-stage-resolve: downstream input ${relativePath} never landed on the prior stage branch or pipeline admission base; re-drive the prior stage standalone with jarvis run workflow`;
+}
+
+function gitPathExistsOnBranch(projectRoot: string, branch: string, relativePath: string): boolean {
+  try {
+    realSubprocessRunner.run("git", ["cat-file", "-e", `${branch}:${relativePath}`], projectRoot);
+    return true;
+  } catch {
+    return false;
   }
-  const indexPath = join(specPath, "index.md");
-  if (!existsSync(join(worktreePath, indexPath))) {
+}
+
+function isRegisteredWorktreePath(projectRoot: string, worktreePath: string): boolean {
+  try {
+    const output = realSubprocessRunner.run("git", ["worktree", "list", "--porcelain"], projectRoot);
+    const resolved = resolve(worktreePath);
+    return output
+      .split("\n")
+      .some((line) => line.startsWith("worktree ") && resolve(line.slice("worktree ".length)) === resolved);
+  } catch {
+    return true;
+  }
+}
+
+function isUsablePriorWorktreePath(worktreePath: string, admissionRoot: string): boolean {
+  if (!existsSync(worktreePath)) return false;
+  if (isGitRepo(worktreePath)) return true;
+  return !isGitRepo(admissionRoot);
+}
+
+function cleanupRematerializationHusk(projectRoot: string, worktreePath: string): void {
+  if (!existsSync(worktreePath) || isGitRepo(worktreePath)) return;
+  if (isRegisteredWorktreePath(projectRoot, worktreePath)) return;
+  rmSync(worktreePath, { recursive: true, force: true });
+}
+
+function rematerializeWorktreeFromBranch(
+  projectRoot: string,
+  branch: string,
+  worktreePath: string,
+): { ok: true } | { ok: false; error: string } {
+  try {
+    mkdirSync(dirname(worktreePath), { recursive: true });
+    realSubprocessRunner.run("git", ["worktree", "prune"], projectRoot);
+    realSubprocessRunner.run("git", ["worktree", "add", "--checkout", worktreePath, branch], projectRoot);
+    if (!isGitRepo(worktreePath)) {
+      throw new Error("created path is not a git worktree");
+    }
+    return { ok: true };
+  } catch (error) {
+    cleanupRematerializationHusk(projectRoot, worktreePath);
+    const reason = error instanceof Error ? error.message : String(error);
     return {
       ok: false,
-      error: `pipeline-stage-resolve: expected index at ${indexPath} in prior worktree`,
+      error: `pipeline-stage-resolve: failed to rematerialize worktree at ${worktreePath} from ${branch}: ${reason}`,
     };
   }
-  return { ok: true, specPath: indexPath };
+}
+
+function locateAbsentWorktreeDownstreamInputReadRoot(
+  prior: PriorArtifactContext,
+  context: PipelineContext,
+  relativePath: string,
+): { ok: true; readRoot: string } | { ok: false; error: string } {
+  const admissionRoot = context.cwd;
+  const onAdmission = existsSync(join(admissionRoot, relativePath));
+  if (onAdmission) {
+    return { ok: true, readRoot: admissionRoot };
+  }
+
+  const onBranch = isGitRepo(admissionRoot) && gitPathExistsOnBranch(admissionRoot, prior.branch, relativePath);
+  if (onBranch) {
+    const rematerialized = rematerializeWorktreeFromBranch(admissionRoot, prior.branch, prior.worktreePath);
+    if (!rematerialized.ok) return rematerialized;
+    return { ok: true, readRoot: prior.worktreePath };
+  }
+
+  return { ok: false, error: neverLandedDownstreamInputError(relativePath) };
+}
+
+function resolveChainedImplementSpecPath(
+  prior: PriorArtifactContext,
+  context: PipelineContext,
+  specPath: string,
+): { ok: true; specPath: string; readRoot: string } | { ok: false; error: string } {
+  // Plan completion records specPath as the spec directory; normalize to index.md for implement.
+  const relativePath = isChainedPlanReadyIntentPath(specPath) ? specPath : join(specPath, "index.md");
+  if (isUsablePriorWorktreePath(prior.worktreePath, context.cwd)) {
+    if (!isChainedPlanReadyIntentPath(specPath) && !existsSync(join(prior.worktreePath, relativePath))) {
+      return {
+        ok: false,
+        error: `pipeline-stage-resolve: expected index at ${relativePath} in prior worktree`,
+      };
+    }
+    return { ok: true, specPath: relativePath, readRoot: prior.worktreePath };
+  }
+
+  const located = locateAbsentWorktreeDownstreamInputReadRoot(prior, context, relativePath);
+  if (!located.ok) return located;
+  return { ok: true, specPath: relativePath, readRoot: located.readRoot };
 }
 
 type ChainedReadyIntentPaths =
-  | { ok: true; kind: "single"; path: string }
+  | { ok: true; kind: "single"; path: string; readRoot: string }
   | { ok: true; kind: "fan-out"; paths: readonly string[] }
   | { ok: false; error: string };
 
 function verifyChainedReadyIntentPath(
   prior: PriorArtifactContext,
+  context: PipelineContext,
   path: string,
-): { ok: true } | { ok: false; error: string } {
+): { ok: true; readRoot: string } | { ok: false; error: string } {
   if (!isChainedPlanReadyIntentPath(path)) {
     return {
       ok: false,
       error: "pipeline-stage-resolve: downstream input must be a ready-intent file, not a directory",
     };
   }
-  if (!existsSync(join(prior.worktreePath, path))) {
-    return {
-      ok: false,
-      error: `pipeline-stage-resolve: downstream input ${path} not found in prior worktree`,
-    };
+  if (isUsablePriorWorktreePath(prior.worktreePath, context.cwd)) {
+    if (!existsSync(join(prior.worktreePath, path))) {
+      return {
+        ok: false,
+        error: `pipeline-stage-resolve: downstream input ${path} not found in prior worktree`,
+      };
+    }
+    return { ok: true, readRoot: prior.worktreePath };
   }
-  return { ok: true };
-}
-
-function resolveVerifiedChainedReadyIntentPath(
-  prior: PriorArtifactContext,
-  path: string,
-  asFanOut: boolean,
-): ChainedReadyIntentPaths {
-  const verified = verifyChainedReadyIntentPath(prior, path);
-  if (!verified.ok) return verified;
-  if (asFanOut) return { ok: true, kind: "fan-out", paths: [path] };
-  return { ok: true, kind: "single", path };
+  return locateAbsentWorktreeDownstreamInputReadRoot(prior, context, path);
 }
 
 /**
  * Fan-out happens only at the plan stage — the pipeline has already branched by the time implement
  * resolves, so this is called from the plan resolver alone.
  */
-function resolveChainedReadyIntentPaths(prior: PriorArtifactContext): ChainedReadyIntentPaths {
+function resolveChainedReadyIntentPaths(
+  prior: PriorArtifactContext,
+  context: PipelineContext,
+): ChainedReadyIntentPaths {
   const downstreamInputs = prior.artifact.downstreamInputs;
 
   // Mutation checkpoint: treating absent/empty downstreamInputs as a fan-out, treating length 1 as a
   // multi fan-out, or collapsing a multi-input list to its first entry each must turn the fan-out
   // regressions RED.
   if (downstreamInputs === undefined || downstreamInputs.length === 0) {
-    return { ok: true, kind: "single", path: prior.specPath };
+    if (!isUsablePriorWorktreePath(prior.worktreePath, context.cwd)) {
+      const verified = verifyChainedReadyIntentPath(prior, context, prior.specPath);
+      if (!verified.ok) return verified;
+      return { ok: true, kind: "single", path: prior.specPath, readRoot: verified.readRoot };
+    }
+    return { ok: true, kind: "single", path: prior.specPath, readRoot: prior.worktreePath };
   }
 
   if (downstreamInputs.length === 1) {
     const singlePath = downstreamInputs[0];
     if (singlePath !== undefined) {
-      return resolveVerifiedChainedReadyIntentPath(prior, singlePath, false);
+      const verified = verifyChainedReadyIntentPath(prior, context, singlePath);
+      if (!verified.ok) return verified;
+      return { ok: true, kind: "single", path: singlePath, readRoot: verified.readRoot };
     }
   }
 
   for (const path of downstreamInputs) {
-    const verified = verifyChainedReadyIntentPath(prior, path);
+    const verified = verifyChainedReadyIntentPath(prior, context, path);
     // Mutation checkpoint: falling back to the directory specPath here instead of surfacing the
     // error must turn the missing-downstream-input regression RED.
     if (!verified.ok) return verified;
@@ -256,6 +346,7 @@ function stageReviewPasses(stage: PipelineStage & { kind: "workflow" }): number 
 
 async function resolveForDownstreamPaths(
   prior: PriorArtifactContext,
+  context: PipelineContext,
   paths: readonly string[],
   resolveOne: (
     prior: PriorArtifactContext,
@@ -270,12 +361,14 @@ async function resolveForDownstreamPaths(
     preflightCapture?: { message: string };
   }> = [];
   for (const downstreamPath of paths) {
+    const verified = verifyChainedReadyIntentPath(prior, context, downstreamPath);
+    if (!verified.ok) return verified;
     const preflightCapture = staleReset === undefined ? undefined : { message: "" };
     const branchStaleReset =
       staleReset === undefined || preflightCapture === undefined
         ? undefined
         : capturingStaleReset(staleReset, preflightCapture);
-    const result = await resolveOne({ ...prior, specPath: downstreamPath }, branchStaleReset);
+    const result = await resolveOne({ ...prior, specPath: downstreamPath, cwd: verified.readRoot }, branchStaleReset);
     if (!result.ok) return result;
     if (isFanOutStageResolution(result)) {
       return {
@@ -299,13 +392,14 @@ async function resolveImplementStage(
   builders: typeof WORKFLOW_PRESET_BUILDERS,
   staleReset?: PipelineStaleResetPreparation,
 ): Promise<PipelineStageResolutionResult> {
-  const specPathResult = resolveChainedImplementSpecPath(prior.worktreePath, prior.specPath);
+  const specPathResult = resolveChainedImplementSpecPath(prior, context, prior.specPath);
   if (!specPathResult.ok) return specPathResult;
   const specPath = specPathResult.specPath;
+  const readRoot = specPathResult.readRoot;
 
   const usesDefaultBuilder = builders.implement === WORKFLOW_PRESET_BUILDERS.implement;
   let input: BuildImplementWorkflowStepsInput = {
-    cwd: prior.cwd,
+    cwd: readRoot,
     baseRef: prior.branch,
     specPath,
     reviewPasses: stageReviewPasses(stage),
@@ -314,18 +408,18 @@ async function resolveImplementStage(
     ...(context.projectRegistry !== undefined ? { projectRegistry: context.projectRegistry } : {}),
   };
   if (usesDefaultBuilder) {
-    const projectMatch = createChainedStageProjectMatch(context)(prior.worktreePath);
+    const projectMatch = createChainedStageProjectMatch(context)(readRoot);
     if (projectMatch === undefined) {
       return {
         ok: false,
-        error: `pipeline-stage-resolve: no registered project matches prior worktree ${prior.worktreePath}`,
+        error: `pipeline-stage-resolve: no registered project matches prior worktree ${readRoot}`,
       };
     }
     input = {
       ...input,
       projectRoot: projectMatch.root,
       projectName: projectMatch.key,
-      preflightGitRoot: prior.worktreePath,
+      preflightGitRoot: readRoot,
     };
   }
   const prepared = await preparePipelineStageWorkflow("implement", "implement", input, context, builders, staleReset);
@@ -447,12 +541,13 @@ async function resolvePlanWorkflowStage(
   const priorResult = resolvePriorArtifactContext(stage, priorArtifact, context, loadRun);
   if (!priorResult.ok) return priorResult;
 
-  const inputPaths = resolveChainedReadyIntentPaths(priorResult.prior);
+  const inputPaths = resolveChainedReadyIntentPaths(priorResult.prior, context);
   if (!inputPaths.ok) return inputPaths;
 
   if (inputPaths.kind === "fan-out") {
     return resolveForDownstreamPaths(
       priorResult.prior,
+      context,
       inputPaths.paths,
       (prior, branchStaleReset) => resolvePlanStage(stage, prior, context, presetName, builders, branchStaleReset),
       deps.staleReset,
@@ -460,7 +555,7 @@ async function resolvePlanWorkflowStage(
   }
 
   const bound = inputPaths.path;
-  const prior = { ...priorResult.prior, specPath: bound };
+  const prior = { ...priorResult.prior, specPath: bound, cwd: inputPaths.readRoot };
   return resolvePlanStage(stage, prior, context, presetName, builders, deps.staleReset);
 }
 

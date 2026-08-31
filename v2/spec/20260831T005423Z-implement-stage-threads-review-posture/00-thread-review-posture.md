@@ -11,7 +11,7 @@ A pipeline implement stage ignores its defined `review` posture and always runs 
 ## Decision ledger
 
 - Populate `resolveImplementStage`'s `BuildImplementWorkflowStepsInput` with `reviewPasses: stageReviewPasses(stage)` and `...(stage.review === "light" || stage.review === "debate" ? { reviewBehavior: stage.review } : {})`, mirroring `resolveIntentStage`/`resolvePlanStage` exactly. Rules out re-deriving or defaulting posture at the builder.
-- `stageReviewPasses` already maps `review: "none"` → 0; threading `reviewPasses` makes a `none` implement stage dispatch with no review, and `light`/`debate` dispatch 1 pass with the matching behavior. Rules out a `none` implement stage silently gaining a review.
+- An implement stage is only ever `light` or `debate` — `implement` + `none` is intentionally unrealizable (`resolveImplementWorkflowStage` returns `unmappedResult` for a non-`light`/`debate` implement stage before `resolveImplementStage` runs), so `stageReviewPasses(stage)` here always yields 1 and the `reviewBehavior` spread always fires. Threading both still mirrors the intent/plan resolvers exactly and future-proofs against the default. Rules out relying on the builder's debate default.
 - Applies before the `usesDefaultBuilder` projectRoot/projectName spread, so both default and injected builders receive the posture. Rules out threading it on only one builder path.
 
 ## Task checklist
@@ -24,7 +24,7 @@ A pipeline implement stage ignores its defined `review` posture and always runs 
 
 - [ ] `pipeline-stage-resolve.test.ts` test `implement stage threads light review posture` resolves an implement stage with `review: "light"` and asserts the built input/steps carry `reviewBehavior: "light"` and `reviewPasses: 1` (a single critic pass, not debate); it fails against the pre-fix omission that defaults to debate.
 - [ ] `pipeline-stage-resolve.test.ts` test `implement stage threads debate review posture` resolves `review: "debate"` and asserts `reviewBehavior: "debate"`, `reviewPasses: 1` (no regression to the `full-review` posture).
-- [ ] `pipeline-stage-resolve.test.ts` test `implement stage with review none dispatches no review` resolves `review: "none"` and asserts `reviewPasses: 0` and no `reviewBehavior`, so the drop does not silently add a review.
+- [ ] `pipeline-stage-resolve.test.ts` test `implement stage rejects an unrealizable none posture` asserts an `implement` stage with `review: "none"` is refused as unmapped before `resolveImplementStage` (documenting that `implement` + `none` stays unrealizable, so posture threading only ever sees `light`/`debate`).
 - [ ] `bun run typecheck` passes.
 - [ ] `bun run test:v2` passes.
 - [ ] `bun run test:integration:v2` passes.

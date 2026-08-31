@@ -38,3 +38,7 @@ name: pipeline-resume-auto-clears-blocked-plan-lane-dirt
 
 - `v2/docs/operator-runbook.md` — pipeline resume: a blocked plan lane's dirty worktree is auto-cleared on redraft-resume; manual `cleanup --abandon` remains only for preserved-refusal cases (live run, remaining `## Blocker`, descendant-check).
 - `v2/docs/v1-behaviors.md` — record pipeline failed-plan-lane auto-clear on resume.
+
+## Blocker
+
+Artifact contract check failed: Plan subspec 00-failed-plan-lane-resume-stale-reset.md has a multi-surface ## Acceptance criteria bullet: `daemon-pipeline-resume.test.ts` proves `pipeline_resume` threads `resetDespiteDirty` and `resetDespiteLandedCriteria` independently into the matching shared stale-reset flags for unscoped and branch-scoped continuation.

@@ -272,6 +272,17 @@ function registeredPromptPaths(manifest: string): string[] {
     .map((path) => `prompts/${path}`);
 }
 
+function currentRegisteredPromptPaths(cwd: string): { available: boolean; paths: Set<string> } {
+  try {
+    return {
+      available: true,
+      paths: new Set(registeredPromptPaths(readFileSync(`${cwd}/prompts/registry.txt`, "utf-8"))),
+    };
+  } catch {
+    return { available: false, paths: new Set() };
+  }
+}
+
 async function defaultRegisteredPromptPaths(cwd: string, baseRef: string): Promise<string[]> {
   try {
     return registeredPromptPaths(readFileSync(`${cwd}/prompts/registry.txt`, "utf-8"));
@@ -777,8 +788,13 @@ async function verifyChangedPrompts(
   now: () => number,
   deadline: number,
 ): Promise<SurvivingMutationResult | null> {
+  const currentRegistry = currentRegisteredPromptPaths(input.worktreePath);
   const registeredPrompts = new Set(await registeredPromptPaths(input.worktreePath, input.runBase));
-  const changedPrompts = changedPaths.filter((path) => registeredPrompts.has(path));
+  const changedPrompts = changedPaths.filter((path) => {
+    if (!registeredPrompts.has(path)) return false;
+    if (!currentRegistry.available) return true;
+    return currentRegistry.paths.has(path);
+  });
   for (const [index, promptPath] of changedPrompts.entries()) {
     if (index >= MAX_PROMPT_RENDER_VERIFICATIONS || now() >= deadline) return missingRenderCoverage(promptPath);
     const observerTests = resolveRenderObserverTests(promptPath);

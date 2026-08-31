@@ -649,8 +649,8 @@ index f424d7da..be281d02 100644
   });
 
   it("does not require render coverage for prompts retired from the worktree registry", async () => {
-    // Mutation checkpoint: inverting `defaultRegisteredPromptPaths` to union current+base registry
-    // must turn this RED (`missing-render-coverage` at `prompts/patch/review-critic.md:1`).
+    // Mutation checkpoint: dropping `currentRegistry.paths.has(path)` when the worktree registry
+    // is available must turn this RED (`missing-render-coverage` at `prompts/patch/review-critic.md:1`).
     const dir = mkdtempSync(join(tmpdir(), "mutation-retired-prompt-fixture-"));
     try {
       execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
@@ -679,7 +679,18 @@ placeholders: []
       execFileSync("git", ["add", "-A"], { cwd: dir });
       execFileSync("git", ["commit", "-q", "-m", "retire prompt"], { cwd: dir });
 
-      const result = await verifyDiffDerivedMutations({ worktreePath: dir, runBase: baseSha });
+      const unionBaseRegistry = async (_cwd: string, baseRef: string) => {
+        const manifest = execFileSync("git", ["show", `${baseRef}:prompts/registry.txt`], { cwd: dir }).toString();
+        return manifest
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((path) => `prompts/${path}`);
+      };
+      const result = await verifyDiffDerivedMutations(
+        { worktreePath: dir, runBase: baseSha },
+        { registeredPromptPaths: unionBaseRegistry },
+      );
 
       expect(result.kind).toBe("pass");
       expect(result).not.toEqual({

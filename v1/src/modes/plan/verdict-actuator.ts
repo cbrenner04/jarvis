@@ -4,6 +4,7 @@ import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
+import { readSpecGuidance } from "../../../../shared/spec-guidance-path.ts";
 import { createAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
@@ -139,16 +140,13 @@ export async function runVerdictActuator(opts: VerdictActuatorOptions): Promise<
   const intentBefore = readFileSync(intentPath, "utf8");
   const currentSpec = snapshotActuatorSpecFiles(specDir);
 
-  const docsPath = join(import.meta.dir, "..", "..", "..", "docs", "spec-guidance.md");
-  const specGuidance = readFileSync(docsPath, "utf8");
-
   let prompt: string;
   try {
     prompt = buildVerdictActuatorPrompt({
       name: opts.name,
       intent: intentBefore,
       currentSpec,
-      specGuidance,
+      specGuidance: readSpecGuidance(),
       verdict: opts.verdict,
       ...(flatSpecLayout ? { flatSpecLayout: true, workDirLabel: specDir } : {}),
       ...(opts.targetDir !== undefined ? { targetDir: opts.targetDir } : {}),

@@ -21,6 +21,7 @@ import {
 import { buildHarnessNormalizerDiagnosticsSection, buildPlanDraftPrompt } from "../../../shared/prompts/plan-draft.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { PromptRenderingError, renderArtifactTemplate } from "../../../shared/prompts/render.ts";
+import { readSpecGuidance } from "../../../shared/spec-guidance-path.ts";
 import { hasGenuineBlocker, parseSpec } from "../../../shared/spec-parser.ts";
 import { dualConstraintRepromptDetail, type SurvivingMutationRepromptContext } from "../persistence/log-stream.ts";
 import {
@@ -391,7 +392,6 @@ async function executePlanDraftWrite(
 
   const name = getSpecDirName(args.specPath);
   const targetDir = getTargetDir(args.specPath);
-  const specGuidance = readFileSync(getSpecGuidancePath(), "utf8");
 
   let prompt: string;
   try {
@@ -409,7 +409,7 @@ async function executePlanDraftWrite(
         : buildPlanDraftPrompt({
             name,
             intent: args.intentSeed ?? "",
-            specGuidance,
+            specGuidance: readSpecGuidance(),
             workDirLabel: args.promptPlaceholders?.WORKDIR ?? worktreePath,
             targetDir,
             specDir,
@@ -672,10 +672,4 @@ function getTargetDir(specPath: string): string {
   const normalized = specPath.replace(/\\/g, "/");
   const parts = normalized.split("/");
   return parts.slice(0, -1).join("/");
-}
-
-function getSpecGuidancePath(): string {
-  // Resolve spec-guidance.md from the jarvis installation
-  // write.ts is at v2/src/execution/, so we need to go up to the repo root
-  return join(import.meta.dir, "..", "..", "..", "v1", "docs", "spec-guidance.md");
 }

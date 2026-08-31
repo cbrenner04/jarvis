@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readSpecGuidance } from "../shared/spec-guidance-path.ts";
 
-const SPEC_GUIDANCE = readFileSync(join(import.meta.dir, "..", "v1", "docs", "spec-guidance.md"), "utf8");
+const SPEC_GUIDANCE = readSpecGuidance();
 const RULE_OUT_GUIDANCE =
   SPEC_GUIDANCE.match(
     /#### Rule-out and invariant guards: cite reachability on the base\n([\s\S]*?)(?=\n#### )/,

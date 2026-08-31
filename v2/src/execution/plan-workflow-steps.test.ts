@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import type { ProjectMatch } from "../../../shared/project-registry.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
+import { readSpecGuidance } from "../../../shared/spec-guidance-path.ts";
 import { jarvisHome } from "../paths.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import {
@@ -47,7 +48,7 @@ const builderDeps: PlanWorkflowDeps = {
 };
 
 const { roots } = trackedTempRoots();
-const specGuidance = readFileSync(join(import.meta.dir, "..", "..", "..", "v1", "docs", "spec-guidance.md"), "utf8");
+const specGuidance = readSpecGuidance();
 
 async function executeBuiltDraftStep(
   build: (deps: PlanWorkflowDeps) => Promise<PlanWorkflowResult>,

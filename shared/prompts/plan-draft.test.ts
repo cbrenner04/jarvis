@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { DEFAULT_WRITE_STEP_RULES } from "../../v2/src/execution/write-loop-input.ts";
+import { readSpecGuidance } from "../spec-guidance-path.ts";
 import { buildPlanDraftPrompt, PLAN_DRAFT_PROMPT_ID } from "./plan-draft.ts";
 import { PromptRenderingError } from "./render.ts";
 
@@ -9,7 +8,7 @@ const HARNESS_DIAGNOSTICS_HEADING = "## Prior harness normalizer diagnostics";
 
 const HUMAN_ONLY_STEP_RULES =
   "Human-only acceptance criteria contain `(Manual)`, `visual inspection only`, or `no automated guard` anywhere in the full bullet block (the first checklist line and any continuation lines). Recognition uses case-insensitive substring matching; markers need not be trailing or whole phrases.";
-const SPEC_GUIDANCE = readFileSync(join(import.meta.dir, "../../v1/docs/spec-guidance.md"), "utf8");
+const SPEC_GUIDANCE = readSpecGuidance();
 
 describe("buildPlanDraftPrompt", () => {
   test("omits runtime suffix sections when specDir and stepRules are absent", () => {

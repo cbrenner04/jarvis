@@ -108,4 +108,10 @@ describe("buildIntentSplitPrompt", () => {
   test("intent split artifact revision bumped past baseline", () => {
     expect(Number(artifact.metadata.revision)).toBeGreaterThan(1);
   });
+
+  test("intent split prompt pins agent-core sizing guidance pointer", () => {
+    expect(artifact.body).toContain("v2/docs/spec-guidance-agent-core.md");
+    expect(normalize(artifact.body)).toContain("sizing and reviewability rule");
+    expect(artifact.body).not.toContain("Read `v1/docs/spec-guidance.md`");
+  });
 });

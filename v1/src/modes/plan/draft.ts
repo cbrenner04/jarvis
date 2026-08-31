@@ -4,6 +4,7 @@ import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.
 import { normalizePlanDraftSpecDir } from "../../../../shared/module-boundary-surfaces.ts";
 import { buildPlanDraftPrompt } from "../../../../shared/prompts/plan-draft.ts";
 import { PromptRenderingError } from "../../../../shared/prompts/render.ts";
+import { readSpecGuidance } from "../../../../shared/spec-guidance-path.ts";
 import { detectBlocker, isStructuralAc, parseSpec } from "../../../../shared/spec-parser.ts";
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
@@ -88,18 +89,13 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
   const intentPath = join(specDirPath, "intent.md");
   const intent = opts.intentBefore ?? readFileSync(intentPath, "utf8");
 
-  // Read spec guidance from the main checkout
-  // Note: using import.meta.dir to find our location, then navigate back to docs/
-  const docsPath = join(import.meta.dir, "..", "..", "..", "docs", "spec-guidance.md");
-  const specGuidance = readFileSync(docsPath, "utf8");
-
   // Build the prompt
   let prompt: string;
   try {
     prompt = buildDraftPrompt({
       name: opts.name,
       intent,
-      specGuidance,
+      specGuidance: readSpecGuidance(),
       ...(flatSpecLayout ? { flatSpecLayout: true, workDirLabel: specDirPath } : {}),
       ...(opts.targetDir !== undefined ? { targetDir: opts.targetDir } : {}),
     });

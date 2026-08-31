@@ -1493,6 +1493,16 @@ describe("write behavior", () => {
     const specGuidance = extractSpecGuidance(capturedPrompt);
     expect(specGuidance).not.toContain("STEP_COMPLETION_SENTINEL");
     expect(specGuidance).toContain(HUMAN_ONLY_MARKER_GUIDANCE);
+    expect(specGuidance).not.toContain("jarvis1");
+    expect(specGuidance).not.toContain("## Plan same-seam siblings serially");
+    expect(specGuidance).not.toContain("~/.jarvis/specs/");
+    expect(specGuidance).toContain("without network or GitHub access");
+    expect(specGuidance).toContain("## Acceptance criteria");
+    expect(specGuidance).toContain("## Blocker");
+    expect(specGuidance).toContain("Do not hard-wrap authored markdown");
+    expect(specGuidance).toContain("Behavior-preserving (refactor) ACs");
+    expect(specGuidance).toContain("Rule-out and invariant guards");
+    // @mutate shared/spec-guidance-path.ts "\"v2\", \"docs\", \"spec-guidance-agent-core.md\"" -> "\"v1\", \"docs\", \"spec-guidance.md\""
   });
 
   test("plan-reviewed preset draft step invokes binding", async () => {

@@ -347,12 +347,13 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
       if (opts.idleOutputMs === undefined || opts.idleOutputMs <= 0 || settled) return;
       if (idleTimer !== null) clearTimer(idleTimer);
       idleTimer = setTimer(() => {
+        const stallDiagnostics = `${errBuf}${outBuf}`;
         if (opts.joinProcessOnIdleStall) {
-          forcedResult = { kind: "stall", stderr: errBuf };
+          forcedResult = { kind: "stall", stderr: stallDiagnostics };
           killProcessGroup();
           checkSettlement();
         } else {
-          settle({ kind: "stall", stderr: errBuf }, true);
+          settle({ kind: "stall", stderr: stallDiagnostics }, true);
         }
       }, opts.idleOutputMs);
       idleTimer.unref?.();

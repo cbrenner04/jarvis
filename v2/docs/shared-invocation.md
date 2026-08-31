@@ -23,15 +23,7 @@ Contract:
   with source metadata records those exact values on the row; results without
   them or non-`ok` results default to null usage and "unavailable" sources.
   Callers that omit that pair stay telemetry no-op.
-- When the caller also passes a `sessionLog` (opened via
-  `shared/invocation/session-log.ts`'s `openSessionLog`), every binding attempt
-  in the fallback chain writes `harness` (binding id, agent, model) and
-  `outbound` (prompt) lines before `binding.invoke` runs, then
-  `inbound_stdout`/`inbound_stderr` after it settles: an `ok` result writes
-  stdout under `inbound_stdout` and stderr under `inbound_stderr`; a
-  `quota`/`stall`/`model_config`/`error` result writes only its `stderr`, under
-  `inbound_stderr`. A throwing `sessionLog.append` is swallowed and never fails
-  the invocation. Callers that omit `sessionLog` stay unaffected.
+- When the caller also passes a `sessionLog` (opened via `shared/invocation/session-log.ts`'s `openSessionLog`), every binding attempt in the fallback chain writes `harness` (binding id, agent, model) and `outbound` (prompt) lines before `binding.invoke` runs, then `inbound_stdout`/`inbound_stderr` after it settles: an `ok` result writes stdout under `inbound_stdout` and stderr under `inbound_stderr`; a `quota`/`model_config`/`error` result writes only its `stderr` under `inbound_stderr`; a `stall` result carries buffered stderr followed by buffered stdout in its `stderr` diagnostics and writes that combined payload only under `inbound_stderr`, never `inbound_stdout`. An empty stalled inbound payload therefore means neither stream produced output. A throwing `sessionLog.append` is swallowed and never fails the invocation. Callers that omit `sessionLog` stay unaffected.
 
 Fallback default is quota-only: `model_config` and other `error` kinds are terminal unless a binding's `shouldAdvance` opts in (review actuator adds idle-timeout advance on non-final rungs).
 

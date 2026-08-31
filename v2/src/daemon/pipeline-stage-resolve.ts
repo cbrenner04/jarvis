@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { isGitRepo } from "../../../shared/git.ts";
-import { realSubprocessRunner } from "../../../shared/subprocess.ts";
+import { isGitRepoAsync } from "../../../shared/git.ts";
+import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { resolveWorkflowPresetName } from "../commands/workflow-start-preparation.ts";
 import type { BuildImplementWorkflowStepsInput } from "../execution/implement-workflow-steps.ts";
 import type { PipelineDefinition, PipelineStage } from "../execution/pipeline-definition.ts";
@@ -173,18 +173,18 @@ function neverLandedDownstreamInputError(relativePath: string): string {
   return `pipeline-stage-resolve: downstream input ${relativePath} never landed on the prior stage branch or pipeline admission base; re-drive the prior stage standalone with jarvis run workflow`;
 }
 
-function gitPathExistsOnBranch(projectRoot: string, branch: string, relativePath: string): boolean {
+async function gitPathExistsOnBranch(projectRoot: string, branch: string, relativePath: string): Promise<boolean> {
   try {
-    realSubprocessRunner.run("git", ["cat-file", "-e", `${branch}:${relativePath}`], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["cat-file", "-e", `${branch}:${relativePath}`], projectRoot);
     return true;
   } catch {
     return false;
   }
 }
 
-function isRegisteredWorktreePath(projectRoot: string, worktreePath: string): boolean {
+async function isRegisteredWorktreePath(projectRoot: string, worktreePath: string): Promise<boolean> {
   try {
-    const output = realSubprocessRunner.run("git", ["worktree", "list", "--porcelain"], projectRoot);
+    const output = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list", "--porcelain"], projectRoot);
     const resolved = resolve(worktreePath);
     return output
       .split("\n")
@@ -194,33 +194,37 @@ function isRegisteredWorktreePath(projectRoot: string, worktreePath: string): bo
   }
 }
 
-function isUsablePriorWorktreePath(worktreePath: string, admissionRoot: string): boolean {
+async function isUsablePriorWorktreePath(worktreePath: string, admissionRoot: string): Promise<boolean> {
   if (!existsSync(worktreePath)) return false;
-  if (isGitRepo(worktreePath)) return true;
-  return !isGitRepo(admissionRoot);
+  if (await isGitRepoAsync(worktreePath)) return true;
+  return !(await isGitRepoAsync(admissionRoot));
 }
 
-function cleanupRematerializationHusk(projectRoot: string, worktreePath: string): void {
-  if (!existsSync(worktreePath) || isGitRepo(worktreePath)) return;
-  if (isRegisteredWorktreePath(projectRoot, worktreePath)) return;
+async function cleanupRematerializationHusk(projectRoot: string, worktreePath: string): Promise<void> {
+  if (!existsSync(worktreePath) || (await isGitRepoAsync(worktreePath))) return;
+  if (await isRegisteredWorktreePath(projectRoot, worktreePath)) return;
   rmSync(worktreePath, { recursive: true, force: true });
 }
 
-function rematerializeWorktreeFromBranch(
+async function rematerializeWorktreeFromBranch(
   projectRoot: string,
   branch: string,
   worktreePath: string,
-): { ok: true } | { ok: false; error: string } {
+): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     mkdirSync(dirname(worktreePath), { recursive: true });
-    realSubprocessRunner.run("git", ["worktree", "prune"], projectRoot);
-    realSubprocessRunner.run("git", ["worktree", "add", "--checkout", worktreePath, branch], projectRoot);
-    if (!isGitRepo(worktreePath)) {
+    await realAsyncSubprocessRunner.runAsync("git", ["worktree", "prune"], projectRoot);
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["worktree", "add", "--checkout", worktreePath, branch],
+      projectRoot,
+    );
+    if (!(await isGitRepoAsync(worktreePath))) {
       throw new Error("created path is not a git worktree");
     }
     return { ok: true };
   } catch (error) {
-    cleanupRematerializationHusk(projectRoot, worktreePath);
+    await cleanupRematerializationHusk(projectRoot, worktreePath);
     const reason = error instanceof Error ? error.message : String(error);
     return {
       ok: false,
@@ -229,20 +233,21 @@ function rematerializeWorktreeFromBranch(
   }
 }
 
-function locateAbsentWorktreeDownstreamInputReadRoot(
+async function locateAbsentWorktreeDownstreamInputReadRoot(
   prior: PriorArtifactContext,
   context: PipelineContext,
   relativePath: string,
-): { ok: true; readRoot: string } | { ok: false; error: string } {
+): Promise<{ ok: true; readRoot: string } | { ok: false; error: string }> {
   const admissionRoot = context.cwd;
   const onAdmission = existsSync(join(admissionRoot, relativePath));
   if (onAdmission) {
     return { ok: true, readRoot: admissionRoot };
   }
 
-  const onBranch = isGitRepo(admissionRoot) && gitPathExistsOnBranch(admissionRoot, prior.branch, relativePath);
+  const onBranch =
+    (await isGitRepoAsync(admissionRoot)) && (await gitPathExistsOnBranch(admissionRoot, prior.branch, relativePath));
   if (onBranch) {
-    const rematerialized = rematerializeWorktreeFromBranch(admissionRoot, prior.branch, prior.worktreePath);
+    const rematerialized = await rematerializeWorktreeFromBranch(admissionRoot, prior.branch, prior.worktreePath);
     if (!rematerialized.ok) return rematerialized;
     return { ok: true, readRoot: prior.worktreePath };
   }
@@ -250,14 +255,14 @@ function locateAbsentWorktreeDownstreamInputReadRoot(
   return { ok: false, error: neverLandedDownstreamInputError(relativePath) };
 }
 
-function resolveChainedImplementSpecPath(
+async function resolveChainedImplementSpecPath(
   prior: PriorArtifactContext,
   context: PipelineContext,
   specPath: string,
-): { ok: true; specPath: string; readRoot: string } | { ok: false; error: string } {
+): Promise<{ ok: true; specPath: string; readRoot: string } | { ok: false; error: string }> {
   // Plan completion records specPath as the spec directory; normalize to index.md for implement.
   const relativePath = isChainedPlanReadyIntentPath(specPath) ? specPath : join(specPath, "index.md");
-  if (isUsablePriorWorktreePath(prior.worktreePath, context.cwd)) {
+  if (await isUsablePriorWorktreePath(prior.worktreePath, context.cwd)) {
     if (!isChainedPlanReadyIntentPath(specPath) && !existsSync(join(prior.worktreePath, relativePath))) {
       return {
         ok: false,
@@ -267,7 +272,7 @@ function resolveChainedImplementSpecPath(
     return { ok: true, specPath: relativePath, readRoot: prior.worktreePath };
   }
 
-  const located = locateAbsentWorktreeDownstreamInputReadRoot(prior, context, relativePath);
+  const located = await locateAbsentWorktreeDownstreamInputReadRoot(prior, context, relativePath);
   if (!located.ok) return located;
   return { ok: true, specPath: relativePath, readRoot: located.readRoot };
 }
@@ -277,18 +282,18 @@ type ChainedReadyIntentPaths =
   | { ok: true; kind: "fan-out"; paths: readonly string[] }
   | { ok: false; error: string };
 
-function verifyChainedReadyIntentPath(
+async function verifyChainedReadyIntentPath(
   prior: PriorArtifactContext,
   context: PipelineContext,
   path: string,
-): { ok: true; readRoot: string } | { ok: false; error: string } {
+): Promise<{ ok: true; readRoot: string } | { ok: false; error: string }> {
   if (!isChainedPlanReadyIntentPath(path)) {
     return {
       ok: false,
       error: "pipeline-stage-resolve: downstream input must be a ready-intent file, not a directory",
     };
   }
-  if (isUsablePriorWorktreePath(prior.worktreePath, context.cwd)) {
+  if (await isUsablePriorWorktreePath(prior.worktreePath, context.cwd)) {
     if (!existsSync(join(prior.worktreePath, path))) {
       return {
         ok: false,
@@ -304,18 +309,18 @@ function verifyChainedReadyIntentPath(
  * Fan-out happens only at the plan stage — the pipeline has already branched by the time implement
  * resolves, so this is called from the plan resolver alone.
  */
-function resolveChainedReadyIntentPaths(
+async function resolveChainedReadyIntentPaths(
   prior: PriorArtifactContext,
   context: PipelineContext,
-): ChainedReadyIntentPaths {
+): Promise<ChainedReadyIntentPaths> {
   const downstreamInputs = prior.artifact.downstreamInputs;
 
   // Mutation checkpoint: treating absent/empty downstreamInputs as a fan-out, treating length 1 as a
   // multi fan-out, or collapsing a multi-input list to its first entry each must turn the fan-out
   // regressions RED.
   if (downstreamInputs === undefined || downstreamInputs.length === 0) {
-    if (!isUsablePriorWorktreePath(prior.worktreePath, context.cwd)) {
-      const verified = verifyChainedReadyIntentPath(prior, context, prior.specPath);
+    if (!(await isUsablePriorWorktreePath(prior.worktreePath, context.cwd))) {
+      const verified = await verifyChainedReadyIntentPath(prior, context, prior.specPath);
       if (!verified.ok) return verified;
       return { ok: true, kind: "single", path: prior.specPath, readRoot: verified.readRoot };
     }
@@ -325,14 +330,14 @@ function resolveChainedReadyIntentPaths(
   if (downstreamInputs.length === 1) {
     const singlePath = downstreamInputs[0];
     if (singlePath !== undefined) {
-      const verified = verifyChainedReadyIntentPath(prior, context, singlePath);
+      const verified = await verifyChainedReadyIntentPath(prior, context, singlePath);
       if (!verified.ok) return verified;
       return { ok: true, kind: "single", path: singlePath, readRoot: verified.readRoot };
     }
   }
 
   for (const path of downstreamInputs) {
-    const verified = verifyChainedReadyIntentPath(prior, context, path);
+    const verified = await verifyChainedReadyIntentPath(prior, context, path);
     // Mutation checkpoint: falling back to the directory specPath here instead of surfacing the
     // error must turn the missing-downstream-input regression RED.
     if (!verified.ok) return verified;
@@ -361,7 +366,7 @@ async function resolveForDownstreamPaths(
     preflightCapture?: { message: string };
   }> = [];
   for (const downstreamPath of paths) {
-    const verified = verifyChainedReadyIntentPath(prior, context, downstreamPath);
+    const verified = await verifyChainedReadyIntentPath(prior, context, downstreamPath);
     if (!verified.ok) return verified;
     const preflightCapture = staleReset === undefined ? undefined : { message: "" };
     const branchStaleReset =
@@ -392,7 +397,7 @@ async function resolveImplementStage(
   builders: typeof WORKFLOW_PRESET_BUILDERS,
   staleReset?: PipelineStaleResetPreparation,
 ): Promise<PipelineStageResolutionResult> {
-  const specPathResult = resolveChainedImplementSpecPath(prior, context, prior.specPath);
+  const specPathResult = await resolveChainedImplementSpecPath(prior, context, prior.specPath);
   if (!specPathResult.ok) return specPathResult;
   const specPath = specPathResult.specPath;
   const readRoot = specPathResult.readRoot;
@@ -541,7 +546,7 @@ async function resolvePlanWorkflowStage(
   const priorResult = resolvePriorArtifactContext(stage, priorArtifact, context, loadRun);
   if (!priorResult.ok) return priorResult;
 
-  const inputPaths = resolveChainedReadyIntentPaths(priorResult.prior, context);
+  const inputPaths = await resolveChainedReadyIntentPaths(priorResult.prior, context);
   if (!inputPaths.ok) return inputPaths;
 
   if (inputPaths.kind === "fan-out") {

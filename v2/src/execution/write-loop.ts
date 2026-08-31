@@ -3757,6 +3757,7 @@ async function commitSettledIteration(
     agent,
     title,
     iterationTimeoutMs: args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
+    formatMode: "checkpoint",
   });
   if (committed.commitSha === undefined || committed.commitSha === headBefore) {
     return { kind: "skipped", skipReason: "no_file_changes" };

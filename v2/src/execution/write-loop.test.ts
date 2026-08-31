@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import {
   appendFileSync,
   chmodSync,
+  copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -6998,6 +6999,52 @@ index 1234567..abcdefg 100644
       return worktreePath;
     }
 
+    const biomeRepoRoot = join(import.meta.dir, "../../..");
+    const complexityDirtyRel = "v2/src/complexity-dirty.ts";
+
+    function initRealGitWorktree(jarvisRoot: string, branchName: string): string {
+      const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+      mkdirSync(worktreePath, { recursive: true });
+      execFileSync("git", ["init", worktreePath], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "config", "user.name", "Test User"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "config", "commit.gpgsign", "false"], { stdio: "pipe" });
+      copyFileSync(join(biomeRepoRoot, "biome.json"), join(worktreePath, "biome.json"));
+      copyFileSync(join(biomeRepoRoot, ".gitignore"), join(worktreePath, ".gitignore"));
+      try {
+        symlinkSync(join(biomeRepoRoot, "node_modules"), join(worktreePath, "node_modules"), "dir");
+      } catch {
+        /* reuse existing symlink */
+      }
+      writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
+      mkdirSync(join(worktreePath, "v2/src"), { recursive: true });
+      writeFileSync(join(worktreePath, "v2/src/example.ts"), "export const seeded = true;\n");
+      execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "commit", "-m", "seed"], { stdio: "pipe" });
+      return worktreePath;
+    }
+
+    function writeComplexityDirty(worktreePath: string): void {
+      const branches = Array.from({ length: 26 }, (_, i) => `  if (n === ${i}) return ${i};`).join("\n");
+      writeFileSync(
+        join(worktreePath, complexityDirtyRel),
+        `export function complexityDirty(n: number): number {\n${branches}\n  return -1;\n}\n`,
+      );
+    }
+
+    function blockedWrite(worktreePath: string) {
+      return {
+        worktreePath,
+        worktreeReused: false as const,
+        lock: { kind: "acquired" as const },
+        result: {
+          kind: "blocked" as const,
+          token: "blocked" as const,
+          invocation: progressInvocation,
+        },
+      };
+    }
+
     function progressWrite(worktreePath: string) {
       return {
         worktreePath,
@@ -7752,6 +7799,78 @@ index 1234567..abcdefg 100644
       }
     });
 
+    test("per-iteration checkpoint commits despite biome complexity lint on worktree edit", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "iter-checkpoint-complexity";
+      const worktreePath = initRealGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      const seedHead = gitIn(worktreePath, ["rev-parse", "HEAD"]);
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => {
+          writeComplexityDirty(worktreePath);
+          return blockedWrite(worktreePath);
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            bindings: simulatedBindings(["blocked"]),
+            logSink: sink,
+            completionCommitter: createCompletionCommitter(),
+          }),
+        );
+
+        expect(result.kind).toBe("blocked");
+        expect(result.kind).not.toBe("iteration_commit_failed");
+        const head = gitIn(worktreePath, ["rev-parse", "HEAD"]);
+        expect(head).not.toBe(seedHead);
+        expect(gitIn(worktreePath, ["show", `HEAD:${complexityDirtyRel}`])).toContain("complexityDirty");
+        expect(gitIn(worktreePath, ["status", "--porcelain"])).toBe("");
+        expect(
+          sink.getEventsForRun(result.runId).some((event) => event.kind === "iteration_commit" && "commitSha" in event),
+        ).toBe(true);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("checkpoint durability uses best-effort biome format not completion check", async () => {
+      // @mutate v2/src/execution/completion-commit.ts "await runCheckpointFormat({ cwd: input.worktreePath, paths: changedPaths, timeoutMs }, subprocessRunner)" -> "await runCompletionFormat({ cwd: input.worktreePath, paths: changedPaths, timeoutMs }, subprocessRunner)"
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "iter-checkpoint-format-mode";
+      const worktreePath = initRealGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => {
+          writeComplexityDirty(worktreePath);
+          return blockedWrite(worktreePath);
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            bindings: simulatedBindings(["blocked"]),
+            completionCommitter: createCompletionCommitter(),
+          }),
+        );
+
+        expect(result.kind).toBe("blocked");
+        expect(result.kind).not.toBe("iteration_commit_failed");
+        expect(gitIn(worktreePath, ["show", `HEAD:${complexityDirtyRel}`])).toContain("complexityDirty");
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
     test("single-iteration done without progress emits iteration_commit", async () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       roots.push(join(jarvisRoot, ".."));
@@ -8276,6 +8395,46 @@ index 1234567..abcdefg 100644
         );
         expect(commitIndex).toBeGreaterThanOrEqual(0);
         expect(boundaryIndex).toBeGreaterThan(commitIndex);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("controlled-loss checkpoint commits despite biome complexity lint on quiesced edit", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "watchdog-checkpoint-complexity";
+      const worktreePath = initRealGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      const seedHead = gitIn(worktreePath, ["rev-parse", "HEAD"]);
+
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => {
+          writeComplexityDirty(worktreePath);
+          return resolveOnAbort(input, progressWrite(worktreePath));
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            logSink: sink,
+            iterationTimeoutMs: 15,
+            completionCommitter: createCompletionCommitter(),
+          }),
+        );
+
+        expect(result.kind).toBe("iteration_timeout");
+        expect(result.kind).not.toBe("iteration_commit_failed");
+        const head = gitIn(worktreePath, ["rev-parse", "HEAD"]);
+        expect(head).not.toBe(seedHead);
+        expect(gitIn(worktreePath, ["show", `HEAD:${complexityDirtyRel}`])).toContain("complexityDirty");
+        expect(gitIn(worktreePath, ["status", "--porcelain"])).toBe("");
+        expect(
+          sink.getEventsForRun(result.runId).some((event) => event.kind === "iteration_commit" && "commitSha" in event),
+        ).toBe(true);
       } finally {
         store.close();
         mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));

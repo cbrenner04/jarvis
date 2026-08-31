@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -646,6 +646,43 @@ index f424d7da..be281d02 100644
       mutation: "missing-render-coverage",
       sourceSite: { file: "prompts/patch/review-critic.md", line: 1 },
     });
+  });
+
+  it("does not require render coverage for prompts retired from the worktree registry", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mutation-retired-prompt-fixture-"));
+    try {
+      execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
+      execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+      execFileSync("git", ["config", "user.name", "test"], { cwd: dir });
+      mkdirSync(join(dir, "prompts", "patch"), { recursive: true });
+      writeFileSync(
+        join(dir, "prompts", "patch", "review-critic.md"),
+        `---
+id: patch.prompt.review.critic
+behavior: patch
+kind: step
+revision: 1
+placeholders: []
+---
+# Critic body
+`,
+      );
+      writeFileSync(join(dir, "prompts", "registry.txt"), "patch/review-critic.md\n");
+      execFileSync("git", ["add", "-A"], { cwd: dir });
+      execFileSync("git", ["commit", "-q", "-m", "base"], { cwd: dir });
+      const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();
+
+      rmSync(join(dir, "prompts", "patch", "review-critic.md"));
+      writeFileSync(join(dir, "prompts", "registry.txt"), "\n");
+      execFileSync("git", ["add", "-A"], { cwd: dir });
+      execFileSync("git", ["commit", "-q", "-m", "retire prompt"], { cwd: dir });
+
+      const result = await verifyDiffDerivedMutations({ worktreePath: dir, runBase: baseSha });
+
+      expect(result.kind).toBe("pass");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("completes shared multi-candidate verification within MAX_VERIFICATION_MS", async () => {

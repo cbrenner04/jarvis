@@ -273,20 +273,18 @@ function registeredPromptPaths(manifest: string): string[] {
 }
 
 async function defaultRegisteredPromptPaths(cwd: string, baseRef: string): Promise<string[]> {
-  const paths = new Set<string>();
   try {
-    for (const path of registeredPromptPaths(readFileSync(`${cwd}/prompts/registry.txt`, "utf-8"))) paths.add(path);
+    return registeredPromptPaths(readFileSync(`${cwd}/prompts/registry.txt`, "utf-8"));
   } catch {
     // A deleted manifest can still have registered artifacts at the base.
   }
   try {
     const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
     const manifest = await realAsyncSubprocessRunner.runAsync("git", ["show", `${baseRef}:prompts/registry.txt`], cwd);
-    for (const path of registeredPromptPaths(manifest)) paths.add(path);
+    return registeredPromptPaths(manifest);
   } catch {
-    // The current registry remains enough when the base cannot be resolved.
+    return [];
   }
-  return [...paths];
 }
 
 function deriveGuardMutations(

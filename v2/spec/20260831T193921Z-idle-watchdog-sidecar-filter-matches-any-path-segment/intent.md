@@ -35,3 +35,7 @@ Unsplit rationale: The filter change, its regressions, and the operator doc upda
 ## Documentation updates
 
 - `v2/docs/write-behavior.md` — the idle-watchdog sidecar-ignore rule matches any path segment, not just the basename.
+
+## Blocker
+
+Artifact contract check failed: Plan index does not link 00-ignore-sidecar-activity-in-any-path-segment.md

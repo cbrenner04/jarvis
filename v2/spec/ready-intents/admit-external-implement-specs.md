@@ -38,6 +38,7 @@ CLI admission.
 
 - `v2/docs/workflow-runner.md` — define external-plan implement admission, project ownership, canonical path handling, and preflight completeness.
 - `v2/docs/operator-runbook.md` — document the standalone `plan.commit: false` implement command and preflight behavior; cross-link the workflow contract instead of duplicating it.
+- `v2/docs/v1-behaviors.md` — record the resulting v2 external-plan implement admission behavior without changing v1.
 
 ## Out of scope
 

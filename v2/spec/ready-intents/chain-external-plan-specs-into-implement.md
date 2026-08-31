@@ -39,6 +39,7 @@ A pipeline plan stage can publish its durable spec under the git-disabled extern
 - `v2/docs/daemon-host.md` — define git-disabled plan-artifact normalization and implement-stage dispatch; cross-link the shared admission/execution contract.
 - `v2/docs/workflow-runner.md` — record that standalone and chained implement share the external-spec contract without duplicating daemon resolution details.
 - `v2/docs/operator-runbook.md` — state that a git-disabled plan pipeline continues through v2 implement and uses the external plan home.
+- `v2/docs/v1-behaviors.md` — record the resulting v2 chained external-plan implement behavior without changing v1.
 
 ## Out of scope
 

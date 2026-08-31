@@ -40,7 +40,6 @@ rg '\bagent\.run\(' src --glob '*.ts' -l
 | `src/modes/review/run.ts` | Shared review pass loop (plan + patch): porcelain guard + **`applyQuotaFallbackWhenAllowed`**; **`quota`** rotates within a pass; **`model_config`** → exit `3`; other **`error`** exits that pass (no agent rotation). Agent chain resets each pass. |
 | `src/modes/plan/review.ts` | Plan review adapter + **`emitPlanAgentQuotaFallback`** via **`onQuotaRotation`**. |
 | `src/modes/patch/review.ts` | Patch review adapter; per-pass timeout in **`loadAgent`**; harness quota stderr via **`onQuotaRotation`**. |
-| `src/modes/plan/name-only.ts` | Naming-only phase inner loop (dormant export): porcelain + quota fallback; **`ok`** → return; **`quota`**, **`model_config`**, and **`error`** → next agent; no live operator path today. |
 
 ### Tests (`test/`)
 

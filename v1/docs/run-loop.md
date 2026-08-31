@@ -469,26 +469,7 @@ The `jarvis1 run` terminal, session files, and log server serve different purpos
   server is best-effort after the startup connectivity check: lines may
   arrive out of order or be silently dropped under load. The on-disk
   session log is the authoritative record.
-- **Run telemetry file**: append-only JSONL at `~/.jarvis/runs.jsonl` (or
-  `telemetryPath` from config). Patch mode emits one invocation line per agent outcome
-  (for example each `criteria-progress`, `criteria-complete`, `edited-unticked`, or `quota`). Every `ok`-result iteration writes exactly one invocation row with usage and cost information; exit reasons include `criteria-progress` (unchecked count decreased), `criteria-complete` (zero unchecked), `dirty-worktree` (exit 6 after editing with no criteria ticked), `edited-unticked` (loop-back after editing with no criteria ticked, below the retry bound), and others. Plan mode
-  emits analogous rows with **`mode: "plan"`** and **`plan_phase`** (`intent`,
-  `refine`, `name-only`, `draft`, or `review`). Intent and refine rows may
-  include **`outcome`** (`success`, `refined`, `skip`, `blocker`) after harness
-  validation; failed attempts omit it. Patch and plan summaries filter a shared
-  file safely. When an iteration finishes the checklist, Jarvis emits `criteria-complete` with tokens
-  and cost, followed by a short `completed-spec` line marked
-  **`record_role: "run_terminal"`** so end-of-run summaries do not sum usage twice.
-  Rows may include optional **`configured_model`** (patch `modes.patch.agentOrder`
-  entry at invocation time). Watchdog-triggered iteration timeouts include optional
-  **`watchdog_pgid`** (the killed agent process-group id), **`last_output_age_ms`**
-  (ms since the last stdout/stderr chunk at watchdog fire; `null` when no output
-  arrived), **`last_file_activity_age_ms`** (ms since the most-recent file
-  modification in the working tree at watchdog fire; `null` when no file activity
-  detected), and **`watchdog_descendants_alive`** (`true` when ≥1 descendant of the
-  agent root pid was live at snapshot; omitted when pgid was unavailable). Idle
-  watchdog fires only when both output and file activity are stale. Set
-  `telemetryPath` to `null` to disable.
+- **Run telemetry file**: append-only JSONL at `~/.jarvis/runs.jsonl` (or `telemetryPath` from config). Patch mode emits one invocation line per agent outcome (for example each `criteria-progress`, `criteria-complete`, `edited-unticked`, or `quota`). Every `ok`-result iteration writes exactly one invocation row with usage and cost information; exit reasons include `criteria-progress` (unchecked count decreased), `criteria-complete` (zero unchecked), `dirty-worktree` (exit 6 after editing with no criteria ticked), `edited-unticked` (loop-back after editing with no criteria ticked, below the retry bound), and others. Plan mode's live writer emits analogous rows with **`mode: "plan"`** and **`plan_phase`** (`draft` or `review`). The telemetry schema retains `intent` and `refine` phase types for historical-row compatibility; they are not live plan emitters. Patch and plan summaries filter a shared file safely. When an iteration finishes the checklist, Jarvis emits `criteria-complete` with tokens and cost, followed by a short `completed-spec` line marked **`record_role: "run_terminal"`** so end-of-run summaries do not sum usage twice. Rows may include optional **`configured_model`** (patch `modes.patch.agentOrder` entry at invocation time). Watchdog-triggered iteration timeouts include optional **`watchdog_pgid`** (the killed agent process-group id), **`last_output_age_ms`** (ms since the last stdout/stderr chunk at watchdog fire; `null` when no output arrived), **`last_file_activity_age_ms`** (ms since the most-recent file modification in the working tree at watchdog fire; `null` when no file activity detected), and **`watchdog_descendants_alive`** (`true` when ≥1 descendant of the agent root pid was live at snapshot; omitted when pgid was unavailable). Idle watchdog fires only when both output and file activity are stale. Set `telemetryPath` to `null` to disable.
 
 ### Token usage and cost tracking
 

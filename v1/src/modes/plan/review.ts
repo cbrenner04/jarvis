@@ -16,6 +16,7 @@ import { runReview } from "../review/run.ts";
 import {
   type ReviewAdapter,
   type ReviewAttemptContext,
+  type ReviewRole,
   type ReviewTelemetryEvent,
   ReviewTerminalError,
 } from "../review/types.ts";
@@ -54,8 +55,7 @@ export function buildReviewPrompt(opts: {
   workDirLabel?: string;
   /** Committed spec root (defaults to "spec" for backwards compatibility). */
   targetDir?: string;
-  /** Review role: adversary, advocate, adjudicator, or critic. */
-  role?: "adversary" | "advocate" | "adjudicator" | "critic";
+  role?: ReviewRole;
   /** Prior role's artifact (e.g., adversary findings for advocate). */
   priorArtifact?: string;
 }): string {
@@ -70,15 +70,7 @@ export function buildReviewPrompt(opts: {
 
   const registry = loadPromptRegistry();
 
-  // Select role-specific prompt template
-  const promptId =
-    role === "adjudicator"
-      ? "plan.prompt.review.adjudicator"
-      : role === "advocate"
-        ? "plan.prompt.review.advocate"
-        : role === "critic"
-          ? "plan.prompt.review.critic"
-          : "plan.prompt.review.adversary";
+  const promptId = `plan.prompt.review.${role}`;
 
   let template = assemblePromptForStep({
     registry,

@@ -85,6 +85,11 @@ describe("buildDraftPrompt", () => {
 });
 
 describe("buildReviewPrompt", () => {
+  test("rejects roles outside the shared review debate", () => {
+    // @ts-expect-error v1 plan review accepts only shared debate roles
+    buildReviewPrompt({ name: "x", intent: "i", specGuidance: "g", currentSpec: "spec", role: `critic` });
+  });
+
   test("replaces every placeholder including <CURRENT_SPEC>", () => {
     const prompt = buildReviewPrompt({
       name: "feat",

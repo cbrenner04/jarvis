@@ -23,13 +23,13 @@ The shared v1 review runner admits only `adversary`, `advocate`, and `adjudicato
 
 ## Acceptance criteria
 
-- [ ] `v1/src/modes/plan/review.ts` accepts the shared `ReviewRole` union and contains no `plan.prompt.review.critic` selection; the pre-fix branch in that file is reachable.
-- [ ] `v1/test/modes/plan/prompts.test.ts` rejects `role: "critic"` with a compile-time regression whose unused-error directive fails against the pre-fix builder signature.
-- [ ] `rg -n 'plan\.prompt\.review\.critic|role: "critic"|criticKey' v1/src v1/test` returns no matches; this searches only the stated production/test corpus, excluding `v1/spec/**`, `v2/spec/**`, `**/completed/**`, `.jarvis-plan-stage/**`, and Git history, and the pre-fix v1 source/snapshot pins match.
-- [ ] No files match `v1/test/fixtures/prompts/rendered/plan.prompt.review.critic@r*.shared.txt`; the orphan fixtures exist on the pre-fix base.
-- [ ] `shared/prompts/review-profile.test.ts` explicitly renders `plan.prompt.review.critic`, and `v2/src/execution/plan-workflow-steps.test.ts` proves the prompt remains registered and wired for positive v2 light plan review; both stay green after the v1 removal.
-- [ ] The existing review-flow entry in `v2/docs/v1-behaviors.md` identifies v1 plan review as debate-role-only and retains v2 light-review critic ownership without a duplicate retirement entry.
-- [ ] `bun run typecheck`, `bun run test:v1`, `bun run test:integration:v1`, `bun run test:v2`, `bun run test:integration:v2`, `bun run test:shared`, and `bun run test:integration:shared` pass.
+- [x] `v1/src/modes/plan/review.ts` accepts the shared `ReviewRole` union and contains no `plan.prompt.review.critic` selection; the pre-fix branch in that file is reachable.
+- [x] `v1/test/modes/plan/prompts.test.ts` rejects `role: "critic"` with a compile-time regression whose unused-error directive fails against the pre-fix builder signature.
+- [x] `rg -n 'plan\.prompt\.review\.critic|role: "critic"|criticKey' v1/src v1/test` returns no matches; this searches only the stated production/test corpus, excluding `v1/spec/**`, `v2/spec/**`, `**/completed/**`, `.jarvis-plan-stage/**`, and Git history, and the pre-fix v1 source/snapshot pins match.
+- [x] No files match `v1/test/fixtures/prompts/rendered/plan.prompt.review.critic@r*.shared.txt`; the orphan fixtures exist on the pre-fix base.
+- [x] `shared/prompts/review-profile.test.ts` explicitly renders `plan.prompt.review.critic`, and `v2/src/execution/plan-workflow-steps.test.ts` proves the prompt remains registered and wired for positive v2 light plan review; both stay green after the v1 removal.
+- [x] The existing review-flow entry in `v2/docs/v1-behaviors.md` identifies v1 plan review as debate-role-only and retains v2 light-review critic ownership without a duplicate retirement entry.
+- [x] `bun run typecheck`, `bun run test:v1`, `bun run test:integration:v1`, `bun run test:v2`, `bun run test:integration:v2`, `bun run test:shared`, and `bun run test:integration:shared` pass.
 
 ## Documentation updates
 

@@ -141,47 +141,34 @@ The provider prefix is the opencode provider name, and the suffix is the model n
 
 ## Plan-mode prompts
 
-Plan mode (`jarvis1 plan`) uses the same agent contract as patch mode. Plan-mode prompts live in `prompts/plan/` (`refine.md`, `name-only.md`, `draft.md`, `review.md`, `inline-draft.md`) and are short, focused prompts that inject intent and guidance without requiring any non-default permission-posture changes. The refine phase is non-interactive intent refinement. The agent may inspect the target repo and append planning notes, an explicit skip, or a `## Blocker` to `intent.md`, but it cannot pause to ask the terminal user questions. The same agents configured in `modes.plan.agentOrder` can serve both patch and plan work.
+Plan mode (`jarvis1 plan`) uses the same agent contract as patch mode. Current plan prompts in `prompts/plan/` cover draft authoring, decision ledgers, consumer deferral, PR descriptions, and review roles. They are short, focused prompts that inject intent and guidance without requiring non-default permission changes. Intent authoring is non-interactive: the agent may inspect the target repo and append planning notes, an explicit skip, or a `## Blocker` to `intent.md`, but it cannot pause to ask the terminal user questions. The same agents configured in `modes.plan.agentOrder` can serve both patch and plan work.
 
-Patch/plan prompt maintenance uses a metadata-first registry contract described in [prompt-governance.md](./prompt-governance.md). Runtime lookup is by stable prompt `id`, while prompt file paths remain organizational detail. The first rollout includes shared `global.documentation`, `global.naming`, and `global.terse` fragments plus `patch.prompt.body`, `patch.rules`, and plan `draft`/`review`/`refine` prompts; `name-only` and `inline-draft` remain outside that shared registry in this stage.
+Patch/plan prompt maintenance uses a metadata-first registry contract described in [prompt-governance.md](./prompt-governance.md). Runtime lookup is by stable prompt `id`, while prompt file paths remain organizational detail. The registry includes shared `global.documentation`, `global.naming`, and `global.terse` fragments plus the current patch, plan, and intent prompts.
 
 ## Prompt ownership (relocation stage one)
 
-Relocation stage one moved seven editable prompt text artifacts into the repo-level `prompts/` tree:
+Relocation stage one historically moved seven editable prompt text artifacts into the repo-level `prompts/` tree:
 
 - Patch mode stable instruction text: `prompts/patch/instructions.md`
 - Patch mode rules text: `prompts/patch/rules.md`
-- Plan templates: `prompts/plan/refine.md`, `prompts/plan/name-only.md`,
-  `prompts/plan/draft.md`, `prompts/plan/review.md`,
-  `prompts/plan/inline-draft.md`
+- Plan templates: `prompts/plan/refine.md`, `prompts/plan/name-only.md`, `prompts/plan/draft.md`, `prompts/plan/review.md`, `prompts/plan/inline-draft.md`
 
-The corresponding `v1/src/...` files now own loader/runtime behavior only (path loading, interpolation, and rendering flow), not editable prompt-body source text.
+Those paths describe the relocation event, not the current inventory. The current `prompts/plan/` inventory is `decisions-ledger.md`, `defer-to-consumer.md`, `draft.md`, `pr-description.md`, `review-actuator.md`, `review-adjudicator.md`, `review-adversary.md`, `review-advocate.md`, and `review-critic.md`; retired `name-only.md` and `review.md` have no loaders or runtime ownership.
 
 This relocation stage moved source files only. Subsequent prompt-governance work introduced registry metadata, revisioned snapshots, and shared `global.documentation`, `global.naming`, and `global.terse` fragments layered into assembled agent-facing prompts. Interactive/operator prompt surfaces such as repository disambiguation remain in runtime code and are explicitly out of scope for this stage.
 
 ## Plan invocation architecture
 
-Plan mode single-call phases (draft, intent-draft, name-only, and future review/shrink phases) route agent spawns and quota classification through a shared executor (`shared/invocation/execute.ts`). Each phase creates v1-owned invocation bindings that wrap agents and handle spawn + classification together:
+Plan mode single-call phases (draft, intent-draft, and verdict actuator) route agent spawns and quota classification through a shared executor (`shared/invocation/execute.ts`). Each phase creates v1-owned invocation bindings that wrap agents and handle spawn + classification together:
 
-- The binding factory (`createPlanInvocationBinding`) closes over per-consumer
-  parameters: stderr emitter, telemetry sink, spawn options (e.g.
-  `additionalReadDirs` for no-commit specs), pre-spin hooks (e.g. intent-split's
-  stage directory reset), and advance predicates (draft, intent-split, and
-  dormant `name-only` advance on `quota`, hard `error`, and `model_config`;
-  review/patch keep terminal `model_config`).
+- The binding factory (`createPlanInvocationBinding`) closes over per-consumer parameters: stderr emitter, telemetry sink, spawn options (e.g. `additionalReadDirs` for no-commit specs), pre-spin hooks (e.g. intent-split's stage directory reset), and advance predicates (draft and intent-split advance on `quota`, hard `error`, and `model_config`; review/patch keep terminal `model_config`).
 - The shared executor loops through bindings, advancing to the next only when the
   binding's advance predicate returns true (default: `result.kind === "quota"`).
 - Git porcelain snapshots and classification happen inside the binding's
   `invoke()` method; the executor and binding stay generic over
   `InvocationResult` subtypes and do not flatten rich results (e.g. cost/usage
   in ok results pass through unchanged).
-- Per-attempt telemetry and spawn/classification plumbing are shared;
-  advance/stop semantics remain phase-specific. Draft and intent-split rotate on
-  `model_config` (rotation stderr via `emitPlanAgentQuotaFallback` with `plan:` /
-  `intent:` prefixes); chain exhaustion still exits `3` via terminal handlers in
-  `plan/run.ts` and `intent.ts`. Review, patch, and prompt keep fatal
-  `model_config`. The `name-only` export shares the advance predicate but has no
-  live operator path and no `model_config` rotation-stderr requirement.
+- Per-attempt telemetry and spawn/classification plumbing are shared; advance/stop semantics remain phase-specific. Draft and intent-split rotate on `model_config` (rotation stderr via `emitPlanAgentQuotaFallback` with `plan:` / `intent:` prefixes); chain exhaustion still exits `3` via terminal handlers in `plan/run.ts` and `intent.ts`. Review, patch, and prompt keep fatal `model_config`.
 
 ## Patch invocation architecture
 

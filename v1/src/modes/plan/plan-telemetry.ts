@@ -7,6 +7,13 @@ import {
 } from "../../telemetry.ts";
 import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 
+type LivePlanTelemetryPhase = "draft" | "review";
+
+function requireLivePlanTelemetryPhase(phase: unknown): LivePlanTelemetryPhase {
+  if (phase === "draft" || phase === "review") return phase;
+  throw new Error("invalid plan telemetry phase");
+}
+
 function telemetryKindForResult(r: AgentResult): TelemetryKind {
   switch (r.kind) {
     case "ok":
@@ -20,7 +27,7 @@ function telemetryKindForResult(r: AgentResult): TelemetryKind {
   }
 }
 
-function exitReasonForPlanAttempt(phase: PlanTelemetryPhase, r: AgentResult): string {
+function exitReasonForPlanAttempt(phase: LivePlanTelemetryPhase, r: AgentResult): string {
   switch (r.kind) {
     case "quota":
       return "quota-fallback";
@@ -31,18 +38,7 @@ function exitReasonForPlanAttempt(phase: PlanTelemetryPhase, r: AgentResult): st
     case "ok":
       break;
   }
-  switch (phase) {
-    case "intent":
-      return "plan-intent-ok";
-    case "refine":
-      return "plan-refine-ok";
-    case "name-only":
-      return "plan-name-only-ok";
-    case "draft":
-      return "plan-draft-ok";
-    case "review":
-      return "plan-review-ok";
-  }
+  return `plan-${phase}-ok`;
 }
 
 export type PlanTelemetryWriter = {
@@ -74,6 +70,7 @@ export function createPlanTelemetryWriter(args: {
       result: AgentResult;
       outcome?: PlanStepOutcome | undefined;
     }): void {
+      const phase = requireLivePlanTelemetryPhase(opts.phase);
       const kind = telemetryKindForResult(opts.result);
       const base = {
         ts: new Date().toISOString(),
@@ -82,9 +79,9 @@ export function createPlanTelemetryWriter(args: {
         iteration: seq,
         duration_ms: opts.durationMs,
         kind,
-        exit_reason: exitReasonForPlanAttempt(opts.phase, opts.result),
+        exit_reason: exitReasonForPlanAttempt(phase, opts.result),
         mode: "plan" as const,
-        plan_phase: opts.phase,
+        plan_phase: phase,
         ...(opts.outcome !== undefined ? { outcome: opts.outcome } : {}),
         ...(opts.configuredModel !== undefined ? { configured_model: opts.configuredModel } : {}),
       };

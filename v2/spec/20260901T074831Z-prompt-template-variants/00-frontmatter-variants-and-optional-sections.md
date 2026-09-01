@@ -27,10 +27,10 @@
 
 ## Acceptance criteria
 
-- [ ] `shared/prompts/registry.test.ts` — fixture artifact with JSON `variants` and `optionalSections` frontmatter loads parsed metadata on `metadata.variants` and `metadata.optionalSections`; fails against the pre-fix registry that ignores the keys.
-- [ ] `shared/prompts/registry.test.ts` — malformed `variants` or `optionalSections` JSON fails at registry load time; fails against the pre-fix registry that never parses the keys.
-- [ ] `shared/prompts/registry.test.ts` — `variants` JSON with an empty variant id (e.g. `{ "": [{ "anchor": "X", "replacement": "Y" }] }`) fails at registry load time; fails against the pre-fix registry that never validates variant shape.
-- [ ] `shared/prompts/registry.test.ts` — `optionalSections` entry whose `placeholder` is not declared in artifact `placeholders` fails at registry load time; fails against the pre-fix registry that never validates optional-section bindings.
+- [x] `shared/prompts/registry.test.ts` — fixture artifact with JSON `variants` and `optionalSections` frontmatter loads parsed metadata on `metadata.variants` and `metadata.optionalSections`; fails against the pre-fix registry that ignores the keys.
+- [x] `shared/prompts/registry.test.ts` — malformed `variants` or `optionalSections` JSON fails at registry load time; fails against the pre-fix registry that never parses the keys.
+- [x] `shared/prompts/registry.test.ts` — `variants` JSON with an empty variant id (e.g. `{ "": [{ "anchor": "X", "replacement": "Y" }] }`) fails at registry load time; fails against the pre-fix registry that never validates variant shape.
+- [x] `shared/prompts/registry.test.ts` — `optionalSections` entry whose `placeholder` is not declared in artifact `placeholders` fails at registry load time; fails against the pre-fix registry that never validates optional-section bindings.
 
 ## Documentation updates
 

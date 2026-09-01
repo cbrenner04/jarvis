@@ -102,4 +102,69 @@ describe("prompt registry load validation", () => {
     );
     expect(() => createPromptRegistry([writePromptFixture(entry)])).toThrow("invalid placeholder declaration");
   });
+
+  test("loads variants and optionalSections from JSON frontmatter", () => {
+    const entry = withFrontmatter(
+      [
+        "id: variants.prompt",
+        "behavior: plan",
+        "kind: step",
+        "revision: 1",
+        "placeholders: [SPEC_PATH:string!]",
+        'variants: {"flat-layout":[{"anchor":"A","replacement":"B","replaceAll":true}]}',
+        'optionalSections: [{"header":"H","begin":"<<","end":">>","placeholder":"SPEC_PATH"}]',
+      ].join("\n"),
+      "<SPEC_PATH>",
+    );
+    const registry = createPromptRegistry([writePromptFixture(entry)]);
+    const metadata = registry.getById("variants.prompt").metadata;
+    expect(metadata.variants).toEqual({
+      "flat-layout": [{ anchor: "A", replacement: "B", replaceAll: true }],
+    });
+    expect(metadata.optionalSections).toEqual([{ header: "H", begin: "<<", end: ">>", placeholder: "SPEC_PATH" }]);
+  });
+
+  test("absent variants and optionalSections default to empty values", () => {
+    const entry = withFrontmatter("id: legacy.prompt\nbehavior: plan\nkind: step\nrevision: 1", "Body");
+    const registry = createPromptRegistry([writePromptFixture(entry)]);
+    const metadata = registry.getById("legacy.prompt").metadata;
+    expect(metadata.variants).toEqual({});
+    expect(metadata.optionalSections).toEqual([]);
+  });
+
+  test("malformed variants or optionalSections JSON fails during load", () => {
+    const badVariants = withFrontmatter(
+      "id: bad.variants\nbehavior: plan\nkind: step\nrevision: 1\nvariants: {not-json",
+    );
+    const badOptionalSections = withFrontmatter(
+      "id: bad.optional\nbehavior: plan\nkind: step\nrevision: 1\noptionalSections: [not-json",
+    );
+    expect(() => createPromptRegistry([writePromptFixture(badVariants)])).toThrow("invalid JSON for `variants`");
+    expect(() => createPromptRegistry([writePromptFixture(badOptionalSections)])).toThrow(
+      "invalid JSON for `optionalSections`",
+    );
+  });
+
+  test("empty variant id fails during load", () => {
+    const entry = withFrontmatter(
+      'id: empty.variant\nbehavior: plan\nkind: step\nrevision: 1\nvariants: {"":[{"anchor":"X","replacement":"Y"}]}',
+    );
+    expect(() => createPromptRegistry([writePromptFixture(entry)])).toThrow("variant id must not be empty");
+  });
+
+  test("optionalSections placeholder not declared in placeholders fails during load", () => {
+    const entry = withFrontmatter(
+      [
+        "id: bad.optional.binding",
+        "behavior: plan",
+        "kind: step",
+        "revision: 1",
+        "placeholders: [SPEC_PATH:string!]",
+        'optionalSections: [{"header":"H","begin":"<<","end":">>","placeholder":"MISSING"}]',
+      ].join("\n"),
+    );
+    expect(() => createPromptRegistry([writePromptFixture(entry)])).toThrow(
+      "optionalSections placeholder `MISSING` is not declared in placeholders",
+    );
+  });
 });

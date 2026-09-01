@@ -7,6 +7,7 @@ import {
   loadMachineConfig,
   readCodexSandboxMode,
   readMachineConfigDocument,
+  readNotificationSinkCommand,
   readProjectImplementReviewBehavior,
   readProjectImplementReviewPasses,
   readProjectReadyCommand,
@@ -309,6 +310,18 @@ describe("readProjectReadyCommand", () => {
   test("returns undefined when the project or readyCommand is absent", () => {
     expect(readProjectReadyCommand("demo", writeConfig({ projects: { demo: { root: "/tmp/repo" } } }))).toBeUndefined();
     expect(readProjectReadyCommand("missing", writeConfig({ projects: {} }))).toBeUndefined();
+  });
+});
+
+describe("readNotificationSinkCommand", () => {
+  test("reads a configured notificationSinkCommand", () => {
+    const configPath = writeConfig({ agents: ["claude"], notificationSinkCommand: "terminal-notifier -message -" });
+    expect(readNotificationSinkCommand(configPath)).toBe("terminal-notifier -message -");
+  });
+
+  test("ignores blank or non-string notificationSinkCommand", () => {
+    expect(readNotificationSinkCommand(writeConfig({ notificationSinkCommand: "   " }))).toBeUndefined();
+    expect(readNotificationSinkCommand(writeConfig({ notificationSinkCommand: 1 }))).toBeUndefined();
   });
 });
 

@@ -84,7 +84,7 @@ Two layers — do not conflate them:
 
 | Layer | Path | Contents |
 | --- | --- | --- |
-| **Per-machine** | `~/.jarvis/config.json` (expanded absolute path from `jarvis config path`) | Agent fallback order (`agents`), required `machineProfile` selector, optional `projects` registry |
+| **Per-machine** | `~/.jarvis/config.json` (expanded absolute path from `jarvis config path`) | Agent fallback order (`agents`), required `machineProfile` selector, optional `notificationSinkCommand`, optional `projects` registry |
 | **Machine-independent** | Repo `config/machines/<profileName>.json` | Role→model store (`models` map: agent → role → `rungs`); seeded profiles include `home` and `work` |
 
 Full schema and validation rules: [`agent-model-config.md`](./agent-model-config.md).
@@ -125,6 +125,10 @@ After `set-agents`, edit `~/.jarvis/config.json` and add a profile name that mat
 ```
 
 Use `work` when this machine should not load Claude bindings (`config/machines/work.json`). Profile contracts: [`agent-model-config.md`](./agent-model-config.md#storage-split).
+
+### Operator notification sink
+
+Optional top-level `notificationSinkCommand` (non-empty string) names a shell command the daemon spawns fire-and-forget when a derived operator incident becomes owed. The command receives one JSON object on stdin per notification (`incidentId`, `kind`, `transition`, `pipelineId`, `runId`, `cause`, …). Examples: `terminal-notifier -message -`, a Slack `curl` wrapper, or a script that re-invokes an agent session. A blank or non-string value is treated as absent — the sweep still maintains the delivery ledger but spawns nothing. There is no `jarvis config` subcommand for this field; hand-edit `~/.jarvis/config.json`. Semantics: [daemon-host.md § Operator notifications](./daemon-host.md#operator-notifications).
 
 ### Project registry
 

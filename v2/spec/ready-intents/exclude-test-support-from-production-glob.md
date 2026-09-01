@@ -29,6 +29,6 @@ name: exclude-test-support-from-production-glob
 
 ## Documentation updates
 
-- `v2/docs/coding-standards.md` — test-support file placement and production-glob exclusion.
+- `v2/docs/coding-standards.md` — append test-support file placement and production-glob exclusion (preserve prior intent sections).
 
 ## Prerequisites

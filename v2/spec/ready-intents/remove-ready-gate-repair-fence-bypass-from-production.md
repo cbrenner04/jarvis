@@ -23,14 +23,14 @@ name: remove-ready-gate-repair-fence-bypass-from-production
 
 ## Acceptance criteria
 
-- [ ] `scripts/guard-production-test-flags.test.ts` and a grep-level structural test fail if `bypassPersistedReadyGateRepairFenceForTest` reappears in production `v2/src/execution/**/*.ts` outside `*.test.ts`.
+- [ ] A new grep-level structural guard fails against the pre-fix tree where `bypassPersistedReadyGateRepairFenceForTest` is still present in production `v2/src/execution/**/*.ts` outside `*.test.ts`, and passes after removal; `scripts/guard-production-test-flags.test.ts` stays green throughout.
 - [ ] `v2/src/execution/workflow-runner-resume.test.ts` ready-gate repair fence cases stay green after bypass removal.
 - [ ] `v2/src/execution/write-loop.test.ts` repair-fence rejection tests stay green.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
-- `v2/docs/coding-standards.md` — no `ForTest` safety-fence bypasses in production types or call paths.
+- `v2/docs/coding-standards.md` — append no `ForTest` safety-fence bypasses in production types or call paths (preserve prior intent sections).
 - `v2/docs/test-writing.md` — how ready-gate repair fence tests avoid production bypass flags.
 
 ## Prerequisites

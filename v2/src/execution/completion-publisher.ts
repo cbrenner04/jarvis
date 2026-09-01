@@ -1,5 +1,6 @@
 import { branchExistsOnOriginAsync, getBaseBranch } from "../../../shared/git.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { type ExternalSpecGitScope, externalSpecGitScope } from "./external-spec-git.ts";
 import { type RefreshPrBodyInput, refreshPrBody } from "./pr-body-refresh.ts";
 import {
   defaultPublicationDelay,
@@ -10,7 +11,7 @@ import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
 
-export type CompletionPublisherInput = {
+export type CompletionPublisherInput = ExternalSpecGitScope & {
   worktreePath: string;
   baseRef: string;
   specPath: string;
@@ -122,6 +123,7 @@ export function createCompletionPublisher(seams?: Partial<PublisherSeams>): Comp
                 specPath: input.specPath,
                 baseRef: effectiveBaseRef,
                 git: async (cwd, args) => git(cwd, args),
+                ...externalSpecGitScope(input),
               })
             : input.bodySummary;
           await refreshPrBody({

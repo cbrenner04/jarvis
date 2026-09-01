@@ -45,6 +45,7 @@ import {
 } from "./completion-commit.ts";
 import type { CompletionPublisher } from "./completion-publisher.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
+import { type ExternalSpecGitScope, externalSpecGitScope } from "./external-spec-git.ts";
 import { getExternalWorktreePath, withExternalWorktree as realWithExternalWorktree } from "./external-worktree.ts";
 import { landImplementSpecTreeFromReadRoot } from "./implement-spec-landing.ts";
 import type { IntentPipelineHandoff } from "./intent-output.ts";
@@ -1138,6 +1139,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             agent: publicationAgent,
             title: commitStep !== undefined ? renderStepCommitTitle(commitStep, creationTitle) : creationTitle,
             iterationTimeoutMs: completionStep.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
+            ...externalSpecGitScope(completionStep),
             ...(commitStep !== undefined ? { step: commitStep } : {}),
           });
           const publicationSha = published.commitSha ?? headBeforeCompletionCommit;
@@ -1146,7 +1148,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               ? await readDiffOutcome(worktreePath, worktree.baseRef, publicationSha)
               : "changed";
           if (published.commitSha === undefined) {
-            const uncommitted = await getUncommittedPaths(worktreePath);
+            const uncommitted = await getUncommittedPaths(worktreePath, completionStep);
             const remainingStaged = remainingStagedIntentPaths(worktreePath, completionStep.landing);
             const namedPaths = [...new Set([...uncommitted, ...remainingStaged])];
             if (namedPaths.length > 0) {
@@ -1235,6 +1237,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 worktreePath,
                 specPath: publicationSpecPath ?? completionStep.specPath,
                 baseRef: worktree.baseRef,
+                ...externalSpecGitScope(completionStep),
               });
             }
             const repairInput = buildCompletionStepWriteLoopInput(completionStep, workflowSnapshot, args, store);
@@ -1250,6 +1253,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 specPath: publicationPath,
                 branch: worktree.branchName,
                 creationTitle,
+                ...externalSpecGitScope(completionStep),
                 ...(bodySummary !== undefined ? { bodySummary } : {}),
                 ...(specTemplate ? { specTemplate } : {}),
                 ...(shrinkNarrative !== undefined ? { narrative: shrinkNarrative } : {}),
@@ -2052,7 +2056,7 @@ function lastMutatingReviewPass<C extends { kind: string; actuatorRan?: boolean 
   return undefined;
 }
 
-type ReviewPassCommitDeps = {
+type ReviewPassCommitDeps = ExternalSpecGitScope & {
   completionCommitter?: CompletionCommitter;
   baseRef: string;
   specPath: string;
@@ -2074,6 +2078,7 @@ function buildReviewPassCommitDeps(
     specPath: writeStep.specPath,
     ...(workflowSnapshot.creationTitle !== undefined ? { creationTitleHint: workflowSnapshot.creationTitle } : {}),
     ...(writeStep.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: writeStep.iterationTimeoutMs } : {}),
+    ...externalSpecGitScope(writeStep),
   };
 }
 
@@ -2116,6 +2121,7 @@ async function commitMutatingReviewPass(
     step: fields.step,
     iterationTimeoutMs: deps.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
     formatMode: "checkpoint",
+    ...externalSpecGitScope(deps),
   });
   if (published.commitSha === undefined || published.commitSha === headBefore) return;
 }

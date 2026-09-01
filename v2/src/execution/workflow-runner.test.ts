@@ -1,10 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { projectSafeId } from "../../../shared/project-safe-id.ts";
 import { jarvisHome } from "../paths.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
+import { excludeExternalSpecGitPaths } from "./external-spec-git.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
 import { createStep, roots } from "./workflow-runner.test-support.ts";
 import { executeWorkflow, type WriteWorkflowStep } from "./workflow-runner.ts";
@@ -36,6 +48,126 @@ function writeExternalPlanFixture(
 }
 
 describe("executeWorkflow external linked implement routing", () => {
+  test("commits only code from an external linked implement", async () => {
+    const projectKey = "Org/External-Git-Surfaces";
+    const { projectRoot, specReadRoot, indexPath, firstSubspecPath } = writeExternalPlanFixture(
+      projectKey,
+      "git-surfaces",
+    );
+    roots.push(projectRoot, specReadRoot);
+    execFileSync("git", ["init", "-q"], { cwd: projectRoot });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: projectRoot });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: projectRoot });
+    writeFileSync(join(projectRoot, "README.md"), "base\n", "utf8");
+    execFileSync("git", ["add", "."], { cwd: projectRoot });
+    execFileSync("git", ["commit", "-qm", "base"], { cwd: projectRoot });
+    const baseRef = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: projectRoot,
+      encoding: "utf8",
+    }).trim();
+    const shadowLink = join(projectRoot, "external-spec-link");
+    const copiedSubspec = join(projectRoot, "00-work.md");
+    const copiedIndex = join(projectRoot, "index.md");
+    let invocation = 0;
+
+    const step: WriteWorkflowStep = {
+      ...createStep({
+        stepId: "implement",
+        role: "implement",
+        branchName: "external-git-surfaces",
+        promptId: "patch.prompt.body",
+        stepRules: IMPLEMENT_WRITE_STEP_RULES,
+        specPath: realpathSync(indexPath),
+        expectedArtifactPath: realpathSync(indexPath),
+        suppressShrink: true,
+        createBinding: ({ agentId, adapterModel }) => ({
+          id: `${agentId}/${adapterModel}`,
+          metadata: { agent: agentId, model: adapterModel },
+          invoke: async ({ prompt }) => {
+            invocation += 1;
+            const subspecPath = prompt.includes(realpathSync(firstSubspecPath))
+              ? firstSubspecPath
+              : join(specReadRoot, "01-more.md");
+            writeFileSync(subspecPath, readFileSync(subspecPath, "utf8").replace("- [ ]", "- [x]"), "utf8");
+            if (invocation === 1) {
+              mkdirSync(join(projectRoot, "src"), { recursive: true });
+              writeFileSync(join(projectRoot, "src", "feature.ts"), "export const feature = true;\n", "utf8");
+              symlinkSync(specReadRoot, shadowLink, "dir");
+              copyFileSync(firstSubspecPath, copiedSubspec);
+              copyFileSync(indexPath, copiedIndex);
+              const candidates = ["src/feature.ts", "external-spec-link", "00-work.md", "index.md"];
+              expect(
+                excludeExternalSpecGitPaths(projectRoot, candidates, {
+                  externalPlanSpec: true,
+                  specReadRoot,
+                }),
+              ).toEqual(["src/feature.ts"]);
+              expect(excludeExternalSpecGitPaths(projectRoot, candidates, {})).toEqual(candidates);
+            } else {
+              rmSync(shadowLink, { force: true });
+              rmSync(copiedSubspec, { force: true });
+              rmSync(copiedIndex, { force: true });
+            }
+            return { kind: "ok", stdout: "done", stderr: "" } as const;
+          },
+        }),
+      }),
+      externalPlanSpec: true,
+      specReadRoot: realpathSync(specReadRoot),
+      linkedIndexRouting: true,
+      worktree: {
+        projectRoot,
+        projectName: "demo",
+        branchName: "external-git-surfaces",
+        baseRef,
+        git: false,
+        localPath: projectRoot,
+      },
+      withExternalWorktree: async <T>(
+        _args: { branchName: string; projectName: string },
+        run: (worktree: ExternalWorktree) => Promise<T> | T,
+      ): Promise<WithExternalWorktreeResult<T>> => ({
+        worktree: { path: projectRoot, reused: true },
+        lock: { kind: "acquired" },
+        value: await run({ path: projectRoot, reused: true }),
+      }),
+    };
+
+    try {
+      await withStateStore(async (store) => {
+        const result = await executeWorkflow({
+          steps: [step],
+          stateStore: store,
+          completionPublisher: async () => ({}),
+          readyFinalizer: async () => {},
+        });
+        expect(result.kind).toBe("complete");
+      });
+
+      const log = execFileSync("git", ["log", "--format=%s", "--name-only", `${baseRef}..HEAD`], {
+        cwd: projectRoot,
+        encoding: "utf8",
+      });
+      const diff = execFileSync("git", ["diff", "--name-only", `${baseRef}..HEAD`], {
+        cwd: projectRoot,
+        encoding: "utf8",
+      });
+      const tracked = execFileSync("git", ["ls-tree", "-r", "--name-only", "HEAD"], {
+        cwd: projectRoot,
+        encoding: "utf8",
+      });
+      expect(log).toContain("src/feature.ts");
+      expect(log).not.toMatch(/00-work\.md|01-more\.md|index\.md|external-spec-link/);
+      expect(diff.trim()).toBe("src/feature.ts");
+      expect(tracked).toContain("src/feature.ts");
+      expect(tracked).not.toMatch(/00-work\.md|01-more\.md|index\.md|external-spec-link/);
+      expect(execFileSync("git", ["status", "--porcelain"], { cwd: projectRoot, encoding: "utf8" })).toBe("");
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+      rmSync(specReadRoot, { recursive: true, force: true });
+    }
+  });
+
   test("completes external linked subspecs in place while cwd stays in a spec-free worktree", async () => {
     // @mutate v2/src/execution/workflow-runner.ts "resolveLinkedImplementRoutingRoot(step, worktreePath)" -> "worktreePath"
     const projectKey = "Org/External-Linked";

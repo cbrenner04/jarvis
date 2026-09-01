@@ -16,8 +16,8 @@ Completion commits, dirty-worktree checks, and publication numstat currently tre
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/workflow-runner.test.ts` Git-fixture regression proves the implementation branch contains ordinary code changes and no external spec files, copied shadows, symlinks, or spec-tick commits after external linked implement completion; it fails against the pre-fix staging path.
-- [ ] `v2/src/execution/completion-commit.test.ts` stays green (in-repo completion staging unchanged).
+- [x] `v2/src/execution/workflow-runner.test.ts` Git-fixture regression proves the implementation branch contains ordinary code changes and no external spec files, copied shadows, symlinks, or spec-tick commits after external linked implement completion; it fails against the pre-fix staging path.
+- [x] `v2/src/execution/completion-commit.test.ts` stays green (in-repo completion staging unchanged).
 
 ## Documentation updates
 

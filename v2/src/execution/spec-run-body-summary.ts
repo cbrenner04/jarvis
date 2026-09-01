@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseSpec } from "../../../shared/spec-parser.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import { readBranchCommits } from "./pr-attribution.ts";
+import { type CommitInfo, readBranchCommits } from "./pr-attribution.ts";
 import { resolveSpecIndexPath } from "./spec-creation-title.ts";
 
 type DiffStat = { added: number; removed: number; path: string };
@@ -34,9 +34,14 @@ function riskCue(diffs: readonly DiffStat[]): string | undefined {
   return source && !tests ? "no test changes" : undefined;
 }
 
+function commitBullet(commit: CommitInfo): string {
+  const label = commit.jarvisAgentTrailers.length === 0 ? "unknown" : commit.jarvisAgentTrailers.join(", ");
+  return `- ${commit.subject} \u2014 ${label}`;
+}
+
 function renderTemplate(
   subspecs: readonly { title: string; why: string | undefined }[],
-  commits: readonly string[],
+  commits: readonly CommitInfo[],
   diffs: readonly DiffStat[],
 ): string {
   const lines: string[] = [];
@@ -48,7 +53,7 @@ function renderTemplate(
   }
   if (commits.length > 0) {
     if (lines.length > 0) lines.push("");
-    lines.push("## Commits", ...commits.map((subject) => `- ${subject}`));
+    lines.push("## Commits", ...commits.map(commitBullet));
   }
   if (diffs.length > 0) {
     if (lines.length > 0) lines.push("");
@@ -130,7 +135,7 @@ export async function deriveSpecRunBodySummary(input: {
   ]);
   return renderTemplate(
     index.linkedSubspecs.map((subspec, i) => ({ title: subspec.text, why: firstProseLine(bodies[i] ?? "") })),
-    commits.map((commit) => commit.subject),
+    commits,
     diffs,
   );
 }

@@ -54,6 +54,8 @@ export type ReviewDebateInput = {
   telemetry?: Omit<InvocationTelemetryContext, "role" | "invocationIds">;
   /** Called just before each role's invocation starts, in debate order, once per cycle. */
   onRoleStart?: (role: ReviewDebateRole) => void;
+  /** Called after a cycle whose actuator completed without role failure. */
+  onMutatingCycleComplete?: (cycle: { pass: number; agent: string | undefined }) => void | Promise<void>;
 };
 
 /**
@@ -150,6 +152,10 @@ export async function executeReviewDebate(args: ReviewDebateInput): Promise<Revi
     }
 
     cycles.push({ kind: "completed", verdict, actuatorRan: true, roleResults });
+    await args.onMutatingCycleComplete?.({
+      pass: cycle + 1,
+      agent: actuator.final?.result.kind === "ok" ? actuator.final.binding.metadata?.agent?.trim() : undefined,
+    });
   }
 
   return { cycles };

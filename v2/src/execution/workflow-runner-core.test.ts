@@ -878,7 +878,7 @@ describe("executeWorkflow", () => {
     });
   });
 
-  test("shrink/publication reset anchors at pre-implement HEAD when the last progress iteration already committed the clean tree", async () => {
+  test("shrink/publication preserves progress commits when the last iteration already committed the clean tree", async () => {
     const branchName = "shrink-reset-pre-implement-anchor";
     let calls = 0;
     const { harness, step } = createShrinkTestStep(branchName, async ({ cwd, shrink }) => {
@@ -910,8 +910,6 @@ describe("executeWorkflow", () => {
       });
 
       expect(result.kind).toBe("complete");
-      // The two progress-iteration commits are collapsed by the publication reset: only the
-      // single publication commit remains on top of preImplementHead.
       expect(
         Number(
           execFileSync("git", ["rev-list", "--count", `${preImplementHead}..HEAD`], {
@@ -919,16 +917,16 @@ describe("executeWorkflow", () => {
             encoding: "utf8",
           }).trim(),
         ),
-      ).toBe(1);
-      const publishedParent = execFileSync("git", ["rev-parse", "HEAD^"], {
+      ).toBe(2);
+      const progressParent = execFileSync("git", ["rev-parse", "HEAD^^"], {
         cwd: harness.workspace,
         encoding: "utf8",
       }).trim();
-      expect(publishedParent).toBe(preImplementHead);
+      expect(progressParent).toBe(preImplementHead);
     });
   });
 
-  test("shrink/publication reset anchors at pre-implement HEAD when the worktree is materialized lazily by the implement step's first iteration", async () => {
+  test("shrink/publication preserves progress commits when implement materializes the worktree lazily", async () => {
     const branchName = "shrink-reset-lazy-worktree";
     const harness = createLazyIntentWorktreeHarness(branchName);
     let calls = 0;
@@ -981,11 +979,11 @@ describe("executeWorkflow", () => {
         cwd: harness.workspace,
         encoding: "utf8",
       }).trim();
-      const publishedParent = execFileSync("git", ["rev-parse", "HEAD^"], {
+      const progressParent = execFileSync("git", ["rev-parse", "HEAD^^"], {
         cwd: harness.workspace,
         encoding: "utf8",
       }).trim();
-      expect(publishedParent).toBe(preImplementHead);
+      expect(progressParent).toBe(preImplementHead);
     });
   });
 

@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { type RunFixCommandOpts, runFixCommand } from "../../../shared/fix-command.ts";
 import { getCurrentHeadAsync, getGitStatusInventory } from "../../../shared/git.ts";
 import {
@@ -493,6 +493,22 @@ export async function getUncommittedPaths(worktreePath: string): Promise<string[
   }
 }
 
+/** A clean terminal boundary still publishes when earlier commits leave HEAD ahead of base. */
+async function shouldPublishSettledHead(worktreePath: string, baseRef: string, commitSha: string | undefined) {
+  if (commitSha !== undefined) return true;
+  if (!existsSync(join(worktreePath, ".git"))) return false;
+  try {
+    const output = await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["diff", "--name-only", baseRef, "HEAD"],
+      worktreePath,
+    );
+    return output.split("\n").some((line) => line.trim().length > 0);
+  } catch {
+    return true;
+  }
+}
+
 const REPAIR_FENCE_ALLOWSET_SEAMS = { gitUntracked: async () => "\0" };
 const REPAIR_FENCE_FAILURE_MESSAGE = "Ready-gate repair stages path outside run diff and spec tree: ";
 const REPAIR_FENCE_ATTRIBUTABLE_FAILURE_MESSAGE = "Ready-gate repair stages path outside attributable allowset: ";
@@ -954,11 +970,10 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             specPath: args.specPath,
             agent: prepared.result.completionAgent ?? "",
             title: creationTitle,
-            forceDistinctCommit: true,
             iterationTimeoutMs: args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
           });
           let publicationBaseRetarget: { requestedBase: string; resolvedBase: string } | undefined;
-          if (published.commitSha !== undefined) {
+          if (await shouldPublishSettledHead(worktreePath, args.worktree.baseRef, published.commitSha)) {
             const publication = await publishWithReadyRepair(args, store, prepared.result, 0, {
               worktreePath: getExternalWorktreePath(args.worktree),
               baseRef: args.worktree.baseRef,
@@ -1821,11 +1836,10 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           specPath: args.specPath,
           agent,
           title: creationTitle,
-          forceDistinctCommit: true,
           iterationTimeoutMs: args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
         });
         let publicationBaseRetarget: { requestedBase: string; resolvedBase: string } | undefined;
-        if (published.commitSha !== undefined) {
+        if (await shouldPublishSettledHead(worktreePath, args.worktree.baseRef, published.commitSha)) {
           store.setRunStatus(runId, "in-progress");
           const publication = await publishWithReadyRepair(args, store, attributed, iterationsConsumed, {
             worktreePath,
@@ -2970,7 +2984,6 @@ async function commitRepairAndRepublish(
           { kind: "ready-gate" },
           resolvePublicationTitle(input.worktreePath, input.specPath, input.creationTitle),
         ),
-        forceDistinctCommit: true,
         iterationTimeoutMs: args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
         step: { kind: "ready-gate" },
         ...(options?.readyGateAttribution !== undefined ? { readyGateAttribution: options.readyGateAttribution } : {}),
@@ -3724,6 +3737,100 @@ export type ProgressIterationCommitOutcome =
   | { kind: "committed"; commitSha: string }
   | { kind: "skipped"; skipReason: "no_git" | "no_file_changes" | "no_binding" };
 
+function activeSubspecTitle(args: WriteLoopInput, worktreePath: string): string | undefined {
+  if (args.promptId !== "patch.prompt.body") return undefined;
+  const specPath = resolveSpecPath(worktreePath, args.specPath);
+  let specTree: string;
+  if (basename(specPath) === "index.md") {
+    specTree = dirname(specPath);
+  } else {
+    try {
+      if (!statSync(specPath).isDirectory()) return undefined;
+      specTree = specPath;
+    } catch {
+      return undefined;
+    }
+  }
+
+  const artifactPath = resolveSpecPath(worktreePath, args.expectedArtifactPath);
+  const artifactRelative = relative(specTree, artifactPath);
+  if (
+    basename(artifactPath) === "index.md" ||
+    !artifactPath.endsWith(".md") ||
+    artifactRelative === "" ||
+    artifactRelative === ".." ||
+    artifactRelative.startsWith(`..${sep}`) ||
+    isAbsolute(artifactRelative)
+  ) {
+    return undefined;
+  }
+  try {
+    if (!statSync(artifactPath).isFile()) return undefined;
+    return parseSpec(readFileSync(artifactPath, "utf8")).h1?.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function intentSplitCommitTitle(stagingPath: string): string {
+  let count = 0;
+  try {
+    count = readdirSync(stagingPath, { withFileTypes: true }).filter(
+      (entry) => entry.isFile() && entry.name.endsWith(".md"),
+    ).length;
+  } catch {
+    // A missing stage is represented truthfully as zero emitted intents.
+  }
+  return `intent: split ${count} intent${count === 1 ? "" : "s"}`;
+}
+
+function iterationCommitFallbackTitle(args: WriteLoopInput, worktreePath: string): string | undefined {
+  const subspecTitle = activeSubspecTitle(args, worktreePath);
+  if (subspecTitle !== undefined) return subspecTitle;
+  if (args.promptId === PLAN_DRAFT_PROMPT_ID) return "plan: draft";
+  if (args.promptId === INTENT_SPLIT_PROMPT_ID) {
+    return intentSplitCommitTitle(resolveSpecPath(worktreePath, args.expectedArtifactPath));
+  }
+  return undefined;
+}
+
+function phaseSubjectOrdinal(subject: string, base: string): number | undefined {
+  if (subject === base) return 1;
+  const match = subject.match(new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} (\\d+)$`));
+  if (match === null) return undefined;
+  const ordinal = Number(match[1]);
+  return Number.isFinite(ordinal) ? ordinal : undefined;
+}
+
+async function countPhaseSubjectsInRun(worktreePath: string, baseRef: string, phaseSubject: string): Promise<number> {
+  try {
+    const output = await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["log", "--format=%s", `${baseRef}..HEAD`],
+      worktreePath,
+    );
+    return output.split("\n").filter((line) => phaseSubjectOrdinal(line, phaseSubject) !== undefined).length;
+  } catch {
+    return 0;
+  }
+}
+
+async function resolveIterationCommitTitle(
+  args: WriteLoopInput,
+  prepared: { creationTitle?: string },
+  store: StateStore,
+  runId: string,
+  worktreePath: string,
+): Promise<string> {
+  const fallback = iterationCommitFallbackTitle(args, worktreePath);
+  if (fallback === undefined) {
+    return resolveAndPersistCreationTitle(store, runId, worktreePath, args.specPath, prepared.creationTitle);
+  }
+  const priorCount = await countPhaseSubjectsInRun(worktreePath, args.worktree.baseRef, fallback);
+  if (priorCount > 0) return `${fallback} ${priorCount + 1}`;
+  return fallback;
+}
+
 async function commitSettledIteration(
   args: WriteLoopInput,
   prepared: { creationTitle?: string },
@@ -3746,9 +3853,7 @@ async function commitSettledIteration(
   const specPath = existsSync(artifactPath) ? artifactPath : args.specPath;
   const metadata = result.invocation.final?.binding.metadata as { title?: string } | undefined;
   const stepTitle = typeof metadata?.title === "string" ? metadata.title.trim() : "";
-  const title = stepTitle
-    ? stepTitle
-    : resolveAndPersistCreationTitle(store, runId, worktreePath, args.specPath, prepared.creationTitle);
+  const title = stepTitle || (await resolveIterationCommitTitle(args, prepared, store, runId, worktreePath));
   const headBefore = await getCurrentHeadAsync(worktreePath);
   const committed = await (args.completionCommitter ?? createCompletionCommitter())({
     worktreePath,
@@ -3758,6 +3863,7 @@ async function commitSettledIteration(
     title,
     iterationTimeoutMs: args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
     formatMode: "checkpoint",
+    step: args.bindingResolution?.role === "shrink" ? { kind: "shrink" } : { kind: "write" },
   });
   if (committed.commitSha === undefined || committed.commitSha === headBefore) {
     return { kind: "skipped", skipReason: "no_file_changes" };

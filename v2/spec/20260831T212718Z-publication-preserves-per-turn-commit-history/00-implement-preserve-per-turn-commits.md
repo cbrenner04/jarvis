@@ -31,12 +31,12 @@ Git-enabled implement workflows sample `headBeforeImplementStep`, commit a pre-s
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner-publication.test.ts` test `implement publication retains one commit per subspec write turn plus one mutating review commit` fails against the current pre-implement reset collapse and passes after the fix.
-- [ ] `workflow-runner-publication.test.ts` test `branch commit count never decreases across implement write, shrink, and review boundaries` fails when a terminal boundary CAS-replaces or removes a prior commit and passes after the fix.
-- [ ] `completion-commit.test.ts` regressions that assert `publishedCommitAgent` carry-forward on terminal publication commits fail against the pre-fix substitution and pass after inversion or removal per subspec 03.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `workflow-runner-publication.test.ts` test `implement publication retains one commit per subspec write turn plus one mutating review commit` fails against the current pre-implement reset collapse and passes after the fix.
+- [x] `workflow-runner-publication.test.ts` test `branch commit count never decreases across implement write, shrink, and review boundaries` fails when a terminal boundary CAS-replaces or removes a prior commit and passes after the fix.
+- [x] `completion-commit.test.ts` regressions that assert `publishedCommitAgent` carry-forward on terminal publication commits fail against the pre-fix substitution and pass after inversion or removal per subspec 03.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

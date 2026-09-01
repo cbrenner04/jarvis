@@ -65,6 +65,34 @@ describe("executeReviewDebate", () => {
     rmSync(verdictPath, { force: true });
   });
 
+  test("invokes onMutatingCycleComplete for each mutating cycle", async () => {
+    const calls: string[] = [];
+    const completed: Array<{ pass: number; agent: string | undefined }> = [];
+    const dir = mkdtempSync(join(tmpdir(), "review-debate-"));
+    const verdictPath = join(dir, "verdict.md");
+    let cycleIndex = 0;
+    const adjudicatorInvoke = async () => {
+      cycleIndex += 1;
+      return { kind: "ok" as const, stdout: cycleIndex < 3 ? "apply" : "", stderr: "" };
+    };
+    const input = baseInput({ calls, verdictPath, adjudicatorVerdict: "unused", maxCycles: 3 });
+    input.bindings.adjudicator = [
+      { id: "adjudicator.1", metadata: { agent: "adjudicator-agent", model: "m" }, invoke: adjudicatorInvoke },
+    ];
+    input.onMutatingCycleComplete = async (cycle) => {
+      completed.push(cycle);
+    };
+
+    const result = await executeReviewDebate(input);
+
+    expect(result.cycles.filter((cycle) => cycle.kind === "completed" && cycle.actuatorRan)).toHaveLength(2);
+    expect(completed).toEqual([
+      { pass: 1, agent: "agent-actuator.1" },
+      { pass: 2, agent: "agent-actuator.1" },
+    ]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   test("overwrites verdict file each cycle", async () => {
     const calls: string[] = [];
     const dir = mkdtempSync(join(tmpdir(), "review-debate-"));

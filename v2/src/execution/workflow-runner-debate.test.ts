@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import type { InvocationResult } from "../../../shared/invocation/execute.ts";
 import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
 import { createJarvisHome, withStateStore } from "../testing/write-fixtures.ts";
@@ -600,6 +600,69 @@ describe("executeWorkflow linked implement routing", () => {
       expect(result.kind).toBe("complete");
       expect(readFileSync(indexPath, "utf8")).toContain("- [x]");
       expect(readFileSync(join(worktreePath, "spec", "feature", "index.md"), "utf8")).toContain("- [x]");
+    });
+  });
+
+  test("terminal shrink labels an external spec tree from specReadRoot without granting it write access", async () => {
+    const specReadRoot = mkdtempSync(join(tmpdir(), "external-shrink-spec-"));
+    roots.push(specReadRoot);
+    const indexPath = join(specReadRoot, "index.md");
+    const subspecPath = join(specReadRoot, "00-work.md");
+    writeFileSync(indexPath, "- [ ] [Work](./00-work.md)\n", "utf8");
+    writeFileSync(subspecPath, "# Work\n\n## Acceptance criteria\n\n- [ ] criterion\n", "utf8");
+
+    const branchName = "external-terminal-shrink";
+    const { harness, step } = createShrinkTestStep(branchName, async () => ({
+      kind: "ok",
+      stdout: "done",
+      stderr: "",
+    }));
+    const readExternalTree = () => ({
+      index: readFileSync(indexPath, "utf8"),
+      subspec: readFileSync(subspecPath, "utf8"),
+    });
+    let shrinkPrompt = "";
+    let externalBeforeShrink: ReturnType<typeof readExternalTree> | undefined;
+    step.specPath = indexPath;
+    step.expectedArtifactPath = subspecPath;
+    step.externalPlanSpec = true;
+    step.specReadRoot = specReadRoot;
+    step.linkedIndexRouting = true;
+    step.createBinding = ({ agentId, adapterModel }) => ({
+      id: `${agentId}/${adapterModel}`,
+      metadata: { agent: agentId, model: adapterModel },
+      invoke: async ({ cwd, prompt, additionalReadDirs }) => {
+        expect(cwd).toBe(harness.workspace);
+        if (prompt.includes("Post-completion Shrink")) {
+          shrinkPrompt = prompt;
+          externalBeforeShrink = readExternalTree();
+          if (additionalReadDirs?.includes(specReadRoot)) {
+            writeFileSync(subspecPath, "shrink mutated external spec\n", "utf8");
+          }
+        } else {
+          writeFileSync(join(cwd, "proof.txt"), "implemented\n", "utf8");
+          writeFileSync(subspecPath, "# Work\n\n## Acceptance criteria\n\n- [x] criterion\n", "utf8");
+        }
+        return { kind: "ok", stdout: "done", stderr: "" } as const;
+      },
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionCommitter: createCompletionCommitter(),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(shrinkPrompt).toContain("## 00-work.md");
+      expect(shrinkPrompt).toContain("## index.md");
+      expect(shrinkPrompt).not.toContain(`## ${relative(harness.workspace, subspecPath)}`);
+      if (externalBeforeShrink === undefined) expect.unreachable("shrink did not run");
+      expect(readExternalTree()).toEqual(externalBeforeShrink);
+      expect(store.loadRun(result.runId)?.workflowSnapshot?.reviewPasses).toBe(0);
     });
   });
 });

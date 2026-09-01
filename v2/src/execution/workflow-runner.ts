@@ -1805,8 +1805,9 @@ async function runShrinkAfterImplementComplete(
   freshDispatch: boolean | undefined,
   touchedStepsInExecution: Set<string>,
 ): Promise<WriteLoopResult> {
+  const { externalPlanSpec: _externalPlanSpec, specReadRoot: _specReadRoot, ...shrinkBase } = step;
   const shrinkStep = {
-    ...step,
+    ...shrinkBase,
     stepId: `${step.stepId}${SHRINK_STEP_ID_SUFFIX}`,
     role: SHRINK_ROLE,
     promptId: SHRINK_PROMPT_ID,
@@ -1850,9 +1851,11 @@ async function shrinkPromptPlaceholders(
 ): Promise<Record<string, string>> {
   const worktreePath = getExternalWorktreePath(step.worktree);
   const allowlist = await changedFiles(worktreePath, step.worktree.baseRef, runner);
+  const specTreeLabelRoot =
+    step.externalPlanSpec === true ? resolveLinkedImplementRoutingRoot(step, worktreePath) : worktreePath;
   return {
     SPEC_PATH: step.specPath,
-    SPEC_TREE: readSpecTree(worktreePath, step.specPath),
+    SPEC_TREE: readSpecTree(worktreePath, step.specPath, specTreeLabelRoot),
     ALLOWLIST: (allowlist.length > 0 ? allowlist : [step.expectedArtifactPath]).map((path) => `- ${path}`).join("\n"),
     BRANCH_DIFF: (await gitOutput(worktreePath, ["diff", "--stat", step.worktree.baseRef, "--"], runner)) || "(empty)",
     RUN_SCOPED_DIFF:
@@ -1864,7 +1867,7 @@ async function shrinkPromptPlaceholders(
   };
 }
 
-function readSpecTree(worktreePath: string, specPath: string): string {
+function readSpecTree(worktreePath: string, specPath: string, labelRoot: string = worktreePath): string {
   const resolvedSpecPath = isAbsolute(specPath) ? specPath : join(worktreePath, specPath);
   const specRoot = dirname(resolvedSpecPath);
   if (!existsSync(specRoot)) return "(missing spec tree)";
@@ -1874,7 +1877,7 @@ function readSpecTree(worktreePath: string, specPath: string): string {
 
   return files
     .map((filePath) => {
-      const label = relative(worktreePath, filePath) || filePath;
+      const label = relative(labelRoot, filePath) || filePath;
       return `## ${label}\n\n${readFileSync(filePath, "utf8")}`;
     })
     .join("\n\n");

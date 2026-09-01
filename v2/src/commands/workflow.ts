@@ -36,17 +36,6 @@ import {
 import { prepareWorkflowStart, type WorkflowStartPreparationResult } from "./workflow-start-preparation.ts";
 import { stampWorkflowStepsWithMachineConfig } from "./workflow-step-config-stamp.ts";
 
-let forceSkipAttachClientWaitForTest = false;
-let attachWaitRunIdOverrideForTest: string | undefined;
-
-export function setForceSkipAttachClientWaitForTest(value: boolean): void {
-  forceSkipAttachClientWaitForTest = value;
-}
-
-export function setAttachWaitRunIdOverrideForTest(runId: string | undefined): void {
-  attachWaitRunIdOverrideForTest = runId;
-}
-
 function parseWorkflowDetachFlag(argv: readonly string[]): { rest: readonly string[]; detach: boolean } {
   const rest: string[] = [];
   let detach = false;
@@ -228,6 +217,7 @@ async function startWorkflowRun(
   isIntentPreset: boolean,
   detach: boolean,
   io: Io,
+  deps: CliDeps,
 ): Promise<number> {
   let result: unknown;
   try {
@@ -255,9 +245,9 @@ async function startWorkflowRun(
     }
   }
   io.stdout(`${start.runId}\n`);
-  const skipClientWait = detach || forceSkipAttachClientWaitForTest;
+  const skipClientWait = detach || deps.forceSkipAttachClientWait;
   if (skipClientWait) return 0;
-  return waitForRunCompletion(client, attachWaitRunIdOverrideForTest ?? start.runId, io);
+  return waitForRunCompletion(client, deps.attachWaitRunIdOverride ?? start.runId, io);
 }
 
 async function maybeRecoverImplement(
@@ -366,7 +356,7 @@ export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: 
     completedPreparation = prepared;
     const resetExitCode = await prepared.runStaleResetPreflight(client);
     if (resetExitCode !== undefined) return resetExitCode;
-    return startWorkflowRun(client, prepared.steps, prepared.built, isIntentPreset, detach, io);
+    return startWorkflowRun(client, prepared.steps, prepared.built, isIntentPreset, detach, io, deps);
   });
   const destroyedArtifacts = completedPreparation?.destroyedArtifacts;
   if (exitCode !== 0 && destroyedArtifacts !== undefined && Object.keys(destroyedArtifacts).length > 0) {

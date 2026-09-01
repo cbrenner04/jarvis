@@ -20,16 +20,16 @@
 
 ## Acceptance criteria
 
-- [ ] On main before this change, `v2/src/commands/workflow.test.ts` imports and calls `setForceSkipAttachClientWaitForTest` / `setAttachWaitRunIdOverrideForTest` from `workflow.ts`.
-- [ ] `v2/src/commands/workflow.ts` defines neither `forceSkipAttachClientWaitForTest` nor `attachWaitRunIdOverrideForTest` and exports neither `setForceSkipAttachClientWaitForTest` nor `setAttachWaitRunIdOverrideForTest`.
-- [ ] `v2/src/commands/workflow.test.ts` imports no setter symbols from `workflow.ts`.
-- [ ] `workflow.test.ts` — `run workflow implement with --detach admits and exits without client wait` stays green.
-- [ ] `workflow.test.ts` — `attached run workflow waits through a multi-step workflow until the entry run is terminal` stays green.
-- [ ] `workflow.test.ts` — `inverting attach client-wait guard fails attached run workflow waits through a multi-step workflow until the entry run is terminal` stays green using injected deps only.
-- [ ] `workflow.test.ts` — `retargeting attach client wait at a constituent run ID fails attached run workflow waits through a multi-step workflow until the entry run is terminal` stays green using injected deps only.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] On main before this change, `v2/src/commands/workflow.test.ts` imports and calls `setForceSkipAttachClientWaitForTest` / `setAttachWaitRunIdOverrideForTest` from `workflow.ts`.
+- [x] `v2/src/commands/workflow.ts` defines neither `forceSkipAttachClientWaitForTest` nor `attachWaitRunIdOverrideForTest` and exports neither `setForceSkipAttachClientWaitForTest` nor `setAttachWaitRunIdOverrideForTest`.
+- [x] `v2/src/commands/workflow.test.ts` imports no setter symbols from `workflow.ts`.
+- [x] `workflow.test.ts` — `run workflow implement with --detach admits and exits without client wait` stays green.
+- [x] `workflow.test.ts` — `attached run workflow waits through a multi-step workflow until the entry run is terminal` stays green.
+- [x] `workflow.test.ts` — `inverting attach client-wait guard fails attached run workflow waits through a multi-step workflow until the entry run is terminal` stays green using injected deps only.
+- [x] `workflow.test.ts` — `retargeting attach client wait at a constituent run ID fails attached run workflow waits through a multi-step workflow until the entry run is terminal` stays green using injected deps only.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

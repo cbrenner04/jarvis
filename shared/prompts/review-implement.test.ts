@@ -10,8 +10,8 @@ import { renderArtifactTemplate } from "./render.ts";
 import {
   type ReviewDebateRenderContext,
   renderPatchReviewCriticPrompt,
-  renderReviewDebateCyclePrompts,
   renderReviewDebateActuatorPrompt,
+  renderReviewDebateCyclePrompts,
 } from "./review-implement.ts";
 
 const tempDirs: string[] = [];

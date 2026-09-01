@@ -25,11 +25,11 @@
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner-publication.test.ts` test `multi-pass review-debate retains one commit per mutating pass` fails when debate passes collapse to one terminal review commit and passes after the fix.
-- [ ] `workflow-runner-publication.test.ts` test `multi-pass light review retains one commit per mutating pass` fails when review passes collapse via `lastMutatingReviewPass` at the terminal tail and passes after the fix.
-- [ ] `review-debate.test.ts` stays green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `workflow-runner-publication.test.ts` test `multi-pass review-debate retains one commit per mutating pass` fails when debate passes collapse to one terminal review commit and passes after the fix.
+- [x] `workflow-runner-publication.test.ts` test `multi-pass light review retains one commit per mutating pass` fails when review passes collapse via `lastMutatingReviewPass` at the terminal tail and passes after the fix.
+- [x] `review-debate.test.ts` stays green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

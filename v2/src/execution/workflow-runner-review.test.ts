@@ -564,7 +564,7 @@ describe("executeWorkflow implement patch light review", () => {
       expect(commits.at(-1)).toEqual({
         title: "review(1): spec.md",
         step: { kind: "review", pass: 1 },
-        agent: "claude",
+        agent: "pass-1-actuator",
       });
     });
   });

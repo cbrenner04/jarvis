@@ -16,6 +16,7 @@ import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
  * when the caller omits it; a pass number is a positive decimal (review cycle count). */
 export type CompletionStepMetadata =
   | { kind: "write" }
+  | { kind: "shrink" }
   | { kind: "review"; pass: number }
   | { kind: "review-debate"; pass: number }
   | { kind: "mutation-repair" }
@@ -28,8 +29,6 @@ export type CompletionCommitInput = {
   agent: string;
   /** Authoritative commit subject, resolved by the caller that owns workflow context. */
   title: string;
-  /** Terminal completion: create a new commit even when the index tree matches HEAD. */
-  forceDistinctCommit?: boolean;
   /** Ready-gate attribution trailer when autofix commits in-scope repair output. */
   readyGateAttribution?: "autofix";
   /** Formatter wall-clock budget; callers pass write-loop `iterationTimeoutMs` when known. */
@@ -136,6 +135,8 @@ function renderJarvisStepTrailer(step: CompletionStepMetadata): string {
   switch (step.kind) {
     case "write":
       return "Jarvis-Step: write";
+    case "shrink":
+      return "Jarvis-Step: shrink";
     case "review":
       return `Jarvis-Step: review ${step.pass}`;
     case "review-debate":
@@ -147,10 +148,22 @@ function renderJarvisStepTrailer(step: CompletionStepMetadata): string {
   }
 }
 
-/** Commit subject prefix matching `step`'s `Jarvis-Step` trailer; a write step keeps the bare title. */
+/** Title + `Jarvis-Step` metadata for one mutating review or review-debate pass commit. */
+export function mutatingReviewPassCommitFields(
+  behavior: "review" | "review-debate",
+  pass: number,
+  title: string,
+): { title: string; step: CompletionStepMetadata } {
+  const step: CompletionStepMetadata = { kind: behavior, pass };
+  return { title: renderStepCommitTitle(step, title), step };
+}
+
+/** Commit subject prefix matching `step`'s `Jarvis-Step` trailer; write and shrink keep the bare title. */
 export function renderStepCommitTitle(step: CompletionStepMetadata, title: string): string {
   switch (step.kind) {
     case "write":
+      return title;
+    case "shrink":
       return title;
     case "review":
       return `review(${step.pass}): ${title}`;
@@ -187,12 +200,8 @@ function git(cwd: string, args: readonly string[], env?: Record<string, string>)
 }
 
 /** When true, the committer reuses HEAD without creating a commit (iteration materialization no-op). */
-export function shouldReuseHeadWithoutNewCommit(
-  indexTree: string,
-  headTree: string,
-  forceDistinctCommit: boolean,
-): boolean {
-  return indexTree === headTree && !forceDistinctCommit;
+export function shouldReuseHeadWithoutNewCommit(indexTree: string, headTree: string): boolean {
+  return indexTree === headTree;
 }
 
 async function countFilesChanged(runGit: Git, cwd: string, baseTree: string, completionTree: string): Promise<number> {
@@ -250,7 +259,7 @@ async function preparePendingCommit(
   await runGit(input.worktreePath, completionStageArgs(input.worktreePath), { GIT_INDEX_FILE: index });
   const tree = await runGit(input.worktreePath, ["write-tree"], { GIT_INDEX_FILE: index });
   const baseTree = await runGit(input.worktreePath, ["rev-parse", `${head}^{tree}`]);
-  if (shouldReuseHeadWithoutNewCommit(tree, baseTree, input.forceDistinctCommit === true)) {
+  if (shouldReuseHeadWithoutNewCommit(tree, baseTree)) {
     // HEAD may already be a completion commit whose publish previously failed;
     // report its sha so the caller retries publication instead of no-op'ing.
     const headMessage = await runGit(input.worktreePath, ["log", "-1", "--format=%B", head]);

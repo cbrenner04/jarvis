@@ -24,10 +24,10 @@ Durable docs still describe v2's superseded single-commit-off-base publication (
 
 ## Acceptance criteria
 
-- [ ] `v1/docs/worktrees-and-commits.md` documents per-turn publication commits and retires single-commit-off-base / CAS-replace description.
-- [ ] `v2/docs/workflow-runner.md` documents per-turn publication commit preservation and that only merge to main may squash.
-- [ ] `v2/docs/write-behavior.md` retires pre-shrink reset collapse and suppress-per-step publish-once workflow prose.
-- [ ] `v2/docs/v1-behaviors.md` records v2/v1 parity on per-turn commit history, notes #3234 superseded, and replaces the implement collapse attribution cadence entry with per-turn preservation.
+- [x] `v1/docs/worktrees-and-commits.md` documents per-turn publication commits and retires single-commit-off-base / CAS-replace description.
+- [x] `v2/docs/workflow-runner.md` documents per-turn publication commit preservation and that only merge to main may squash.
+- [x] `v2/docs/write-behavior.md` retires pre-shrink reset collapse and suppress-per-step publish-once workflow prose.
+- [x] `v2/docs/v1-behaviors.md` records v2/v1 parity on per-turn commit history, notes #3234 superseded, and replaces the implement collapse attribution cadence entry with per-turn preservation.
 
 ## Documentation updates
 

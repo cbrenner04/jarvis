@@ -23,6 +23,7 @@ import {
 import { nonEmptyDiscoveryReason } from "./runtime-smoke-verifier.ts";
 import {
   createBindingFactory,
+  createDebateStep,
   createImplementBodySummaryStep,
   createIntentWorktreeHarness,
   createStep,
@@ -34,8 +35,10 @@ import {
   roots,
   seedCompletedWriteRun,
   seedLandedIntentFiles,
+  skipReviewWithoutHarnessMarkdownlint,
   stageReviewedIntent,
   TestLogSink,
+  writeLintCleanPlanStage,
 } from "./workflow-runner.test-support.ts";
 import { executeWorkflow, type ReviewWorkflowStep, type WriteWorkflowStep } from "./workflow-runner.ts";
 
@@ -1282,6 +1285,7 @@ describe("executeWorkflow completion publication", () => {
       role: "implement",
       branchName,
       workflowInvocationId: invocationId,
+      suppressShrink: true,
       createBinding: doneBindingFactory,
     });
     const jarvisRoot = step.worktree.jarvisRoot;
@@ -1982,7 +1986,7 @@ describe("executeWorkflow completion publication", () => {
       expect(summary).toContain("## Subspecs");
       expect(summary).toContain("- 00 - First — Implement the feature.");
       expect(summary).toContain("## Commits");
-      expect(summary).toContain("- add feature");
+      expect(summary).toContain("- add feature \u2014 unknown");
       expect(summary).toContain("## Risk cues\n- no test changes");
       expect(summary).toContain("## Change summary");
       expect(summary).toContain("v2/src");
@@ -2026,6 +2030,55 @@ describe("executeWorkflow completion publication", () => {
     });
   });
 
+  test("implement spec-run body summary Commits block lists each per-turn commit with its Jarvis-Agent", async () => {
+    const summaries: Array<string | undefined> = [];
+    const workspace = initGitWorkspace("implement-commits-agents-");
+    mkdirSync(join(workspace, "spec/publication-history"), { recursive: true });
+    writeFileSync(join(workspace, "spec/publication-history/index.md"), "# Publication history\n");
+    const baseRef = commitBaseRef(workspace, "base.txt", "base\n");
+    const branch = "implement-commits-agents";
+    const first = publicationWriteStep({
+      workspace,
+      baseRef,
+      branch,
+      stepId: "implement-first",
+      artifact: "first.txt",
+      title: "First subspec",
+      suppressShrink: true,
+    });
+    const second = publicationWriteStep({
+      workspace,
+      baseRef,
+      branch,
+      stepId: "implement-second",
+      artifact: "second.txt",
+      title: "Second subspec",
+      suppressShrink: true,
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [first, second, publicationReviewStep(workspace, branch)],
+        stateStore: store,
+        completionPublisher: async (input) => {
+          summaries.push(input.bodySummary);
+          return {};
+        },
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+    });
+
+    const summary = summaries[0];
+    expect(summary).toContain("## Commits");
+    expect(summary).toContain("- First subspec \u2014 claude");
+    expect(summary).toContain("- Second subspec \u2014 claude");
+    expect(summary).toContain("- review(1): Publication history \u2014 codex");
+    expect(summary).not.toMatch(
+      /## Commits[\s\S]*- review\(1\): Publication history \u2014 codex[\s\S]*- First subspec/,
+    );
+  });
+
   /** Commit `fileName` in `workspace` as the base commit, returning its sha. */
   function commitBaseRef(workspace: string, fileName: string, content: string): string {
     writeFileSync(join(workspace, fileName), content, "utf8");
@@ -2033,6 +2086,680 @@ describe("executeWorkflow completion publication", () => {
     execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
     return execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
   }
+
+  function publicationReviewStep(workspace: string, branch: string): ReviewWorkflowStep {
+    return {
+      behavior: "review",
+      stepId: "review",
+      project: "demo",
+      branch,
+      cwd: workspace,
+      prompt: "review",
+      verdictPath: join(workspace, ".jarvis-review-verdict.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: {
+        claude: { critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] } },
+        codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
+      },
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        metadata: { agent: agentId, model: agentId },
+        invoke: async () => {
+          if (agentId === "codex") writeFileSync(join(workspace, "review.txt"), "reviewed\n", "utf8");
+          return { kind: "ok" as const, stdout: agentId === "claude" ? "apply" : "done", stderr: "" };
+        },
+      }),
+    };
+  }
+
+  function publicationWriteStep(args: {
+    workspace: string;
+    baseRef: string;
+    branch: string;
+    stepId: string;
+    artifact: string;
+    title: string;
+    suppressShrink?: boolean;
+  }): WriteWorkflowStep {
+    const step = createStep({
+      stepId: args.stepId,
+      role: "implement",
+      branchName: args.branch,
+      specPath: "spec/publication-history",
+      expectedArtifactPath: args.artifact,
+      ...(args.suppressShrink !== undefined ? { suppressShrink: args.suppressShrink } : {}),
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel, title: args.title },
+        invoke: async ({ prompt }) => {
+          const shrink = prompt.includes("Post-completion Shrink");
+          writeFileSync(join(args.workspace, shrink ? "shrink.txt" : args.artifact), shrink ? "shrunk\n" : "done\n");
+          return { kind: "ok" as const, stdout: "done", stderr: "" };
+        },
+      }),
+    });
+    step.worktree = {
+      projectRoot: args.workspace,
+      projectName: "demo",
+      branchName: args.branch,
+      baseRef: args.baseRef,
+      git: false,
+      localPath: args.workspace,
+    };
+    step.withExternalWorktree = externalWorktreeBinding(args.workspace);
+    return step;
+  }
+
+  function commitRecord(workspace: string, sha: string): { subject: string; agent: string; step: string } {
+    const show = (format: string) =>
+      execFileSync("git", ["show", "-s", `--format=${format}`, sha], { cwd: workspace, encoding: "utf8" }).trim();
+    return {
+      subject: show("%s"),
+      agent: show("%(trailers:key=Jarvis-Agent,valueonly)"),
+      step: show("%(trailers:key=Jarvis-Step,valueonly)"),
+    };
+  }
+
+  function subjectsAheadOfBase(workspace: string, baseRef: string): string[] {
+    return execFileSync("git", ["log", "--reverse", "--format=%s", `${baseRef}..HEAD`], {
+      cwd: workspace,
+      encoding: "utf8",
+    })
+      .trim()
+      .split("\n")
+      .filter(Boolean);
+  }
+
+  test("plan publication uses distinct per-turn commit subjects", async () => {
+    const workspace = initGitWorkspace("plan-turn-subjects-");
+    const baseRef = commitBaseRef(workspace, "base.txt", "base\n");
+    const creationTitle = "plan: distinct-turns";
+    const durablePath = join(workspace, "spec/distinct-turns");
+    let turn = 0;
+    const step = createStep({
+      stepId: "plan",
+      role: "plan",
+      branchName: "plan-distinct-turns",
+      promptId: "plan.prompt.draft",
+      specPath: durablePath,
+      expectedArtifactPath: ".jarvis-plan-stage",
+      intentSeed: "---\nname: distinct-turns\n---\n\n# Distinct turns\n\n## Prerequisites\n",
+      creationTitle,
+      maxIterations: 3,
+      completionValidator: () => ({ valid: true }),
+      landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath },
+      agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "plan", priceKey: "plan" }] } } },
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: async ({ cwd }) => {
+          turn += 1;
+          if (turn < 3) {
+            writeFileSync(join(cwd, `turn-${turn}.txt`), `${turn}\n`);
+            return { kind: "ok" as const, stdout: "progress", stderr: "" };
+          }
+          const stage = join(cwd, ".jarvis-plan-stage");
+          mkdirSync(stage, { recursive: true });
+          writeFileSync(join(stage, "index.md"), "# Distinct turns\n\n- [ ] [00 - Work](./00-work.md)\n");
+          writeFileSync(join(stage, "00-work.md"), "# Work\n\n## Acceptance criteria\n\n- [ ] covered\n");
+          return { kind: "ok" as const, stdout: "done", stderr: "" };
+        },
+      }),
+    });
+    step.worktree = {
+      projectRoot: workspace,
+      projectName: "demo",
+      branchName: "plan-distinct-turns",
+      baseRef,
+      git: false,
+      localPath: workspace,
+    };
+    step.withExternalWorktree = externalWorktreeBinding(workspace);
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+    });
+
+    const subjects = subjectsAheadOfBase(workspace, baseRef);
+    expect(new Set(subjects).size).toBe(subjects.length);
+    expect(subjects).toContain("plan: draft");
+    expect(subjects).not.toEqual(subjects.map(() => creationTitle));
+  });
+
+  test("intent publication uses distinct per-turn commit subjects", async () => {
+    const workspace = initGitWorkspace("intent-turn-subjects-");
+    const baseRef = commitBaseRef(workspace, "base.txt", "base\n");
+    const creationTitle = "intent: distinct-turns";
+    const durableDir = join(workspace, "ready-intents");
+    const invocationId = "intent-distinct-turns";
+    let turn = 0;
+    const step = createStep({
+      stepId: "intent",
+      role: "plan",
+      branchName: "intent-distinct-turns",
+      promptId: "intent.prompt.split",
+      specPath: durableDir,
+      expectedArtifactPath: ".jarvis-intent-stage",
+      promptPlaceholders: { SEED_LABEL: "inline seed", SEED_CONTENT: "distinct turns" },
+      creationTitle,
+      workflowInvocationId: invocationId,
+      maxIterations: 3,
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId,
+        baseRef,
+      },
+      agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "plan", priceKey: "plan" }] } } },
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: async ({ cwd }) => {
+          turn += 1;
+          const stage = join(cwd, ".jarvis-intent-stage");
+          mkdirSync(stage, { recursive: true });
+          writeFileSync(
+            join(stage, "distinct-turns.md"),
+            `---\nname: distinct-turns\n---\n\n# Distinct turns\n\nTurn ${turn}.\n\n## Prerequisites\n`,
+          );
+          return { kind: "ok" as const, stdout: turn < 3 ? "progress" : "done", stderr: "" };
+        },
+      }),
+    });
+    step.worktree = {
+      projectRoot: workspace,
+      projectName: "demo",
+      branchName: "intent-distinct-turns",
+      baseRef,
+      git: false,
+      localPath: workspace,
+    };
+    step.withExternalWorktree = externalWorktreeBinding(workspace);
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+    });
+
+    const subjects = subjectsAheadOfBase(workspace, baseRef);
+    expect(new Set(subjects).size).toBe(subjects.length);
+    expect(subjects).toContain("intent: split 1 intent");
+    expect(subjects).not.toEqual(subjects.map(() => creationTitle));
+  });
+
+  test("implement publication write commits use active subspec H1 subjects", async () => {
+    const workspace = initGitWorkspace("implement-turn-subjects-");
+    const specDir = join(workspace, "spec/publication-history");
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(
+      join(specDir, "index.md"),
+      "# Publication history\n\n- [ ] [00 - First](./00-first.md)\n- [ ] [01 - Second](./01-second.md)\n",
+    );
+    writeFileSync(join(specDir, "00-first.md"), "# First active subspec\n\n## Acceptance criteria\n\n- [ ] first\n");
+    writeFileSync(join(specDir, "01-second.md"), "# Second active subspec\n\n## Acceptance criteria\n\n- [ ] second\n");
+    const baseRef = commitBaseRef(workspace, "base.txt", "base\n");
+    const logSink = new TestLogSink();
+    let turn = 0;
+    const step = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName: "implement-distinct-turns",
+      promptId: "patch.prompt.body",
+      specPath: "spec/publication-history/index.md",
+      expectedArtifactPath: "spec/publication-history/index.md",
+      linkedIndexRouting: true,
+      creationTitle: "Publication history",
+      suppressShrink: true,
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: async () => {
+          const file = join(specDir, turn === 0 ? "00-first.md" : "01-second.md");
+          writeFileSync(file, readFileSync(file, "utf8").replace("- [ ]", "- [x]"));
+          turn += 1;
+          return { kind: "ok" as const, stdout: "done", stderr: "" };
+        },
+      }),
+    });
+    step.worktree = {
+      projectRoot: workspace,
+      projectName: "demo",
+      branchName: "implement-distinct-turns",
+      baseRef,
+      git: false,
+      localPath: workspace,
+    };
+    step.withExternalWorktree = externalWorktreeBinding(workspace);
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [step],
+        stateStore: store,
+        logSink,
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+    });
+
+    const writeCommitSubjects = logSink.events.flatMap(({ event }) =>
+      event.kind === "iteration_commit" && "commitSha" in event
+        ? [commitRecord(workspace, event.commitSha).subject]
+        : [],
+    );
+    expect(writeCommitSubjects).toEqual(["First active subspec", "Second active subspec"]);
+  });
+
+  test("implement publication retains one commit per subspec write turn plus one mutating review commit", async () => {
+    const workspace = initGitWorkspace("per-turn-publication-");
+    mkdirSync(join(workspace, "spec/publication-history"), { recursive: true });
+    writeFileSync(join(workspace, "spec/publication-history/index.md"), "# Publication history\n");
+    const baseRef = commitBaseRef(workspace, "base.txt", "base\n");
+    const branch = "per-turn-publication";
+    const first = publicationWriteStep({
+      workspace,
+      baseRef,
+      branch,
+      stepId: "implement-first",
+      artifact: "first.txt",
+      title: "First subspec",
+      suppressShrink: true,
+    });
+    const second = publicationWriteStep({
+      workspace,
+      baseRef,
+      branch,
+      stepId: "implement-second",
+      artifact: "second.txt",
+      title: "Second subspec",
+      suppressShrink: true,
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [first, second, publicationReviewStep(workspace, branch)],
+        stateStore: store,
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+    });
+
+    const shas = execFileSync("git", ["rev-list", "--reverse", `${baseRef}..HEAD`], {
+      cwd: workspace,
+      encoding: "utf8",
+    })
+      .trim()
+      .split("\n");
+    expect(shas.length).toBeGreaterThanOrEqual(3);
+    expect(shas.slice(-3).map((sha) => commitRecord(workspace, sha))).toEqual([
+      { subject: "First subspec", agent: "claude", step: "write" },
+      { subject: "Second subspec", agent: "claude", step: "write" },
+      { subject: "review(1): Publication history", agent: "codex", step: "review 1" },
+    ]);
+  });
+
+  function multiPassLightReviewStep(workspace: string, branch: string): ReviewWorkflowStep {
+    let criticCalls = 0;
+    let actuatorCalls = 0;
+    return {
+      behavior: "review",
+      stepId: "review",
+      project: "demo",
+      branch,
+      cwd: workspace,
+      prompt: "review",
+      verdictPath: join(workspace, ".jarvis-review-verdict.md"),
+      maxCycles: 3,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: {
+        claude: { critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] } },
+        codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
+      },
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        metadata: { agent: agentId, model: agentId },
+        invoke: async () => {
+          if (agentId === "claude") {
+            criticCalls += 1;
+            if (criticCalls <= 2) {
+              writeFileSync(join(workspace, `review-pass-${criticCalls}.txt`), `pass-${criticCalls}\n`);
+              return { kind: "ok" as const, stdout: "apply", stderr: "" };
+            }
+            return { kind: "ok" as const, stdout: "", stderr: "" };
+          }
+          actuatorCalls += 1;
+          writeFileSync(join(workspace, `actuator-pass-${actuatorCalls}.txt`), `actuator-${actuatorCalls}\n`);
+          return { kind: "ok" as const, stdout: "done", stderr: "" };
+        },
+      }),
+    };
+  }
+
+  test("multi-pass light review retains one commit per mutating pass", async () => {
+    const workspace = initGitWorkspace("multi-pass-light-review-");
+    mkdirSync(join(workspace, "spec/publication-history"), { recursive: true });
+    writeFileSync(join(workspace, "spec/publication-history/index.md"), "# Publication history\n");
+    const baseRef = commitBaseRef(workspace, "base.txt", "base\n");
+    const branch = "multi-pass-light-review";
+    const implement = publicationWriteStep({
+      workspace,
+      baseRef,
+      branch,
+      stepId: "implement",
+      artifact: "implement.txt",
+      title: "Implement subspec",
+      suppressShrink: true,
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [implement, multiPassLightReviewStep(workspace, branch)],
+        stateStore: store,
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+    });
+
+    const reviewCommits = execFileSync("git", ["rev-list", "--reverse", `${baseRef}..HEAD`], {
+      cwd: workspace,
+      encoding: "utf8",
+    })
+      .trim()
+      .split("\n")
+      .map((sha) => commitRecord(workspace, sha))
+      .filter((record) => record.step.startsWith("review"));
+    expect(reviewCommits).toEqual([
+      { subject: "review(1): Publication history", agent: "codex", step: "review 1" },
+      { subject: "review(2): Publication history", agent: "codex", step: "review 2" },
+    ]);
+  });
+
+  function multiPassReviewDebateStep(workspace: string, branch: string) {
+    let cycle = 0;
+    return {
+      behavior: "review-debate" as const,
+      stepId: "review-debate",
+      project: "demo",
+      branch,
+      cwd: workspace,
+      prompts: { adversary: "find issues", advocate: "argue merits", adjudicator: "settle it" },
+      verdictPath: join(workspace, ".jarvis-review-debate-verdict.md"),
+      maxCycles: 3,
+      agents: {
+        adversary: ["claude"],
+        advocate: ["claude"],
+        adjudicator: ["claude"],
+        actuator: ["codex"],
+      },
+      agentModelConfig: {
+        claude: {
+          adversary: { rungs: [{ adapterModel: "adversary", priceKey: "adversary" }] },
+          advocate: { rungs: [{ adapterModel: "advocate", priceKey: "advocate" }] },
+          adjudicator: { rungs: [{ adapterModel: "adjudicator", priceKey: "adjudicator" }] },
+        },
+        codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
+      },
+      createBinding: ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: async () => {
+          if (agentId === "codex") {
+            cycle += 1;
+            writeFileSync(join(workspace, `debate-pass-${cycle}.txt`), `debate-${cycle}\n`);
+            return { kind: "ok" as const, stdout: "done", stderr: "" };
+          }
+          if (adapterModel === "adjudicator") {
+            return { kind: "ok" as const, stdout: cycle < 2 ? "apply this fix" : "", stderr: "" };
+          }
+          return { kind: "ok" as const, stdout: "ok", stderr: "" };
+        },
+      }),
+    };
+  }
+
+  test("multi-pass review-debate retains one commit per mutating pass", async () => {
+    const workspace = initGitWorkspace("multi-pass-review-debate-");
+    mkdirSync(join(workspace, "spec/publication-history"), { recursive: true });
+    writeFileSync(join(workspace, "spec/publication-history/index.md"), "# Publication history\n");
+    const baseRef = commitBaseRef(workspace, "base.txt", "base\n");
+    const branch = "multi-pass-review-debate";
+    const implement = publicationWriteStep({
+      workspace,
+      baseRef,
+      branch,
+      stepId: "implement",
+      artifact: "implement.txt",
+      title: "Implement subspec",
+      suppressShrink: true,
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [implement, multiPassReviewDebateStep(workspace, branch)],
+        stateStore: store,
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+    });
+
+    const debateCommits = execFileSync("git", ["rev-list", "--reverse", `${baseRef}..HEAD`], {
+      cwd: workspace,
+      encoding: "utf8",
+    })
+      .trim()
+      .split("\n")
+      .map((sha) => commitRecord(workspace, sha))
+      .filter((record) => record.step.startsWith("review-debate"));
+    expect(debateCommits).toEqual([
+      { subject: "review-debate(1): Publication history", agent: "codex", step: "review-debate 1" },
+      { subject: "review-debate(2): Publication history", agent: "codex", step: "review-debate 2" },
+    ]);
+  });
+
+  test("reviewed plan with landing omits per-pass review commits", async () => {
+    if (skipReviewWithoutHarnessMarkdownlint("reviewed plan with landing omits per-pass review commits")) return;
+
+    const workspace = initGitWorkspace("plan-landing-review-commits-");
+    const baseRef = commitBaseRef(workspace, "base.txt", "base\n");
+    const durablePath = join(workspace, "spec/plan-landing-review");
+    const branch = "plan-landing-review";
+    let draftTurn = 0;
+    let debateCycle = 0;
+    const writeStep = createStep({
+      stepId: "plan",
+      role: "plan",
+      branchName: branch,
+      promptId: "plan.prompt.draft",
+      specPath: durablePath,
+      expectedArtifactPath: ".jarvis-plan-stage",
+      intentSeed: "---\nname: plan-landing-review\n---\n\n# Plan\n\n## Prerequisites\n",
+      creationTitle: "plan: landing-review",
+      maxIterations: 4,
+      completionValidator: () => ({ valid: true }),
+      landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath },
+      agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "plan", priceKey: "plan" }] } } },
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: async ({ cwd }) => {
+          draftTurn += 1;
+          const stage = join(cwd, ".jarvis-plan-stage");
+          if (draftTurn < 3) {
+            writeFileSync(join(cwd, `draft-turn-${draftTurn}.txt`), `${draftTurn}\n`);
+            return { kind: "ok" as const, stdout: "progress", stderr: "" };
+          }
+          writeLintCleanPlanStage(stage);
+          return { kind: "ok" as const, stdout: "done", stderr: "" };
+        },
+      }),
+    });
+    writeStep.worktree = {
+      projectRoot: workspace,
+      projectName: "demo",
+      branchName: branch,
+      baseRef,
+      git: false,
+      localPath: workspace,
+    };
+    writeStep.withExternalWorktree = externalWorktreeBinding(workspace);
+    const reviewStep = createDebateStep({
+      stepId: "review-debate",
+      cwd: workspace,
+      branch,
+      verdictPath: join(workspace, ".jarvis-plan-stage/verdict-plan.md"),
+      landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath },
+      maxCycles: 2,
+      profileContext: { specPath: "index.md", cwd: workspace, baseBranch: "HEAD", passNumber: 1, totalPasses: 1 },
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: async ({ cwd }) => {
+          if (adapterModel === "ACT") {
+            debateCycle += 1;
+            writeFileSync(join(cwd, ".jarvis-plan-stage", `review-turn-${debateCycle}.txt`), `${debateCycle}\n`);
+            return { kind: "ok" as const, stdout: "done", stderr: "" };
+          }
+          return adapterModel === "ADJ"
+            ? ({ kind: "ok" as const, stdout: debateCycle < 2 ? "apply fix" : "", stderr: "" } as const)
+            : ({ kind: "ok" as const, stdout: "ok", stderr: "" } as const);
+        },
+      }),
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [writeStep, reviewStep],
+        stateStore: store,
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+    });
+
+    const records = execFileSync("git", ["rev-list", "--reverse", `${baseRef}..HEAD`], {
+      cwd: workspace,
+      encoding: "utf8",
+    })
+      .trim()
+      .split("\n")
+      .map((sha) => commitRecord(workspace, sha));
+    expect(records.some((record) => record.step === "write")).toBe(true);
+    expect(records.filter((record) => record.step.startsWith("review"))).toHaveLength(1);
+    expect(debateCycle).toBe(2);
+  });
+
+  test("mutating review pass with missing actuator agent fails the review step", async () => {
+    const workspace = initGitWorkspace("review-missing-agent-");
+    mkdirSync(join(workspace, "spec/publication-history"), { recursive: true });
+    writeFileSync(join(workspace, "spec/publication-history/index.md"), "# Publication history\n");
+    const baseRef = commitBaseRef(workspace, "base.txt", "base\n");
+    const branch = "review-missing-agent";
+    const implement = publicationWriteStep({
+      workspace,
+      baseRef,
+      branch,
+      stepId: "implement",
+      artifact: "implement.txt",
+      title: "Implement subspec",
+      suppressShrink: true,
+    });
+    const reviewStep = multiPassLightReviewStep(workspace, branch);
+    reviewStep.maxCycles = 1;
+    reviewStep.createBinding = ({ agentId }) => ({
+      id: agentId,
+      metadata: agentId === "codex" ? { agent: "", model: "" } : { agent: agentId, model: agentId },
+      invoke: async () => {
+        if (agentId === "claude") {
+          writeFileSync(join(workspace, "critic-edit.txt"), "edit\n");
+          return { kind: "ok" as const, stdout: "apply", stderr: "" };
+        }
+        writeFileSync(join(workspace, "actuator-edit.txt"), "edit\n");
+        return { kind: "ok" as const, stdout: "done", stderr: "" };
+      },
+    });
+
+    await withStateStore(async (store) => {
+      await expect(
+        executeWorkflow({
+          steps: [implement, reviewStep],
+          stateStore: store,
+          completionPublisher: async () => ({}),
+          readyFinalizer: async () => {},
+        }),
+      ).rejects.toThrow("completion attribution is missing");
+    });
+  });
+
+  test("branch commit count never decreases across implement write, shrink, and review boundaries", async () => {
+    // @mutate v2/src/execution/write-loop.ts "args.bindingResolution?.role === \"shrink\"" -> "args.bindingResolution?.role !== \"shrink\""
+    const workspace = initGitWorkspace("monotonic-publication-");
+    mkdirSync(join(workspace, "spec/publication-history"), { recursive: true });
+    writeFileSync(join(workspace, "spec/publication-history/index.md"), "# Publication history\n");
+    const baseRef = commitBaseRef(workspace, "base.txt", "base\n");
+    const branch = "monotonic-publication";
+    const counts: Array<{ step: string; count: number }> = [];
+    const committer = createCompletionCommitter();
+    const trackCommit = async (input: Parameters<typeof committer>[0]) => {
+      const result = await committer(input);
+      counts.push({
+        step: input.step?.kind ?? "write",
+        count: Number(
+          execFileSync("git", ["rev-list", "--count", `${baseRef}..HEAD`], { cwd: workspace, encoding: "utf8" }).trim(),
+        ),
+      });
+      return result;
+    };
+    const implement = publicationWriteStep({
+      workspace,
+      baseRef,
+      branch,
+      stepId: "implement",
+      artifact: "implement.txt",
+      title: "Implement subspec",
+    });
+    implement.completionCommitter = trackCommit;
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [implement, publicationReviewStep(workspace, branch)],
+        stateStore: store,
+        completionCommitter: trackCommit,
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+    });
+
+    const boundaries = ["write", "shrink", "review"].map((step) => counts.find((entry) => entry.step === step));
+    expect(boundaries).toEqual([
+      { step: "write", count: 1 },
+      { step: "shrink", count: 2 },
+      { step: "review", count: 3 },
+    ]);
+    expect(
+      counts.map(({ count }) => count).every((count, index, all) => index === 0 || count >= (all[index - 1] ?? 0)),
+    ).toBe(true);
+    expect(
+      commitRecord(workspace, execFileSync("git", ["rev-parse", "HEAD~1"], { cwd: workspace, encoding: "utf8" }).trim())
+        .step,
+    ).toBe("shrink");
+  });
 
   /**
    * A write step whose implement and shrink prompts both settle without touching any file —
@@ -2078,7 +2805,7 @@ describe("executeWorkflow completion publication", () => {
   }
 
   test("a completed run with no content ahead of base neither pushes nor opens a PR", async () => {
-    // @mutate v2/src/execution/workflow-runner.ts "if (published.commitSha !== undefined && baseDiffOutcome !== \"empty\") {" -> "if (published.commitSha !== undefined) {"
+    // @mutate v2/src/execution/workflow-runner.ts "if (publicationSha !== undefined && baseDiffOutcome !== \"empty\") {" -> "if (publicationSha !== undefined) {"
     const { workspace, step } = noWorkShrinkStep("no-content-ahead-of-base", false);
     const headBeforeCompletionCommit = execFileSync("git", ["rev-parse", "HEAD"], {
       cwd: workspace,
@@ -2490,16 +3217,26 @@ describe("executeWorkflow completion publication", () => {
     return { workspace, baseRef, writeStep, reviewStep, invocationId };
   }
 
+  function seedWriteStageIntentCommit(workspace: string, writeAgent: string, specPath: string, title: string): void {
+    execFileSync("git", ["add", "-A"], { cwd: workspace, stdio: "pipe" });
+    execFileSync("git", ["commit", "-q", "-F", "-"], {
+      cwd: workspace,
+      input: `${title}\n\nSpec: ${specPath}\n\nJarvis-Agent: ${writeAgent}\nJarvis-Step: write`,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+  }
+
   async function runReviewedIntentAttributionPublication(
     branchName: string,
     writeAgent: string,
     reviewAgent: string,
-  ): Promise<{ baseRef: string; writeStep: WriteWorkflowStep; commitMessage: string; writtenBody: string }> {
+  ): Promise<{ baseRef: string; writeStep: WriteWorkflowStep; writtenBody: string }> {
     const { workspace, baseRef, writeStep, reviewStep, invocationId } = reviewedIntentAttributionHarness(branchName);
     let writtenBody = "";
     await withStateStore(async (store) => {
       seedLandedIntentFiles(workspace, invocationId, ["reviewed.md"]);
       stageReviewedIntent(workspace);
+      seedWriteStageIntentCommit(workspace, writeAgent, writeStep.specPath, writeStep.creationTitle ?? "intent");
       seedCompletedWriteRunWithAgent(store, writeStep, writeAgent);
       seedCompletedReviewRun(store, writeStep, reviewAgent);
       const result = await executeWorkflow({
@@ -2510,11 +3247,6 @@ describe("executeWorkflow completion publication", () => {
         readyFinalizer: async () => {},
       });
       expect(result.kind).toBe("complete");
-    });
-    const commitMessage = execFileSync("git", ["log", "-1", "--format=%B"], {
-      cwd: workspace,
-      encoding: "utf8",
-      stdio: "pipe",
     });
     await refreshPrBody({
       specPath: writeStep.specPath,
@@ -2527,39 +3259,35 @@ describe("executeWorkflow completion publication", () => {
       },
       renderFooter: renderAttribution,
     });
-    return { baseRef, writeStep, commitMessage, writtenBody };
+    return { baseRef, writeStep, writtenBody };
   }
 
-  test("credits the write-stage agent in the attribution footer when write and review agents differ", async () => {
-    // @mutate v2/src/execution/workflow-runner.ts "? durableWriteAgent" -> "? publicationAgent"
+  test("credits every contributing agent in the attribution footer when write and review agents differ", async () => {
     const writeAgent = "Claude Writer";
     const reviewAgent = "Codex Reviewer";
-    const { commitMessage, writtenBody } = await runReviewedIntentAttributionPublication(
+    const { writtenBody } = await runReviewedIntentAttributionPublication(
       "write-stage-attribution-footer",
       writeAgent,
       reviewAgent,
     );
 
-    expect(commitMessage).toContain(`Jarvis-Agent: ${writeAgent}`);
-    expect(commitMessage).toContain("Jarvis-Step: review 1");
-    expect(commitMessage).not.toContain(`Jarvis-Agent: ${reviewAgent}`);
-    expect(writtenBody).toContain(`Written by ${writeAgent} through Jarvis.`);
-    expect(writtenBody).not.toContain(`Written by ${reviewAgent}`);
-    expect(writtenBody).not.toContain(`${writeAgent}, ${reviewAgent}`);
+    expect(writtenBody).toContain(`\u2014 ${writeAgent}`);
+    expect(writtenBody).toContain(`\u2014 ${reviewAgent}`);
+    expect(writtenBody).toContain(`Written by ${writeAgent}, ${reviewAgent} through Jarvis.`);
   });
 
   test("preserves single-agent attribution in the footer when write and review agents match", async () => {
     const sharedAgent = "Claude Opus 4.8";
-    const { commitMessage, writtenBody } = await runReviewedIntentAttributionPublication(
+    const { writtenBody } = await runReviewedIntentAttributionPublication(
       "single-agent-attribution-footer",
       sharedAgent,
       sharedAgent,
     );
 
-    expect((commitMessage.match(/Jarvis-Agent: /g) ?? []).length).toBe(1);
     expect(writtenBody).toContain(`Written by ${sharedAgent} through Jarvis.`);
-    expect((writtenBody.match(new RegExp(sharedAgent.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) ?? []).length).toBe(
-      2,
-    );
+    expect(writtenBody).not.toContain(`${sharedAgent}, ${sharedAgent}`);
+    const commitBullets = writtenBody.split("\n").filter((line) => line.startsWith("- ") && line.includes("\u2014"));
+    expect(commitBullets).toHaveLength(2);
+    expect(commitBullets.every((line) => line.endsWith(`\u2014 ${sharedAgent}`))).toBe(true);
   });
 });

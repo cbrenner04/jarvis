@@ -32,14 +32,15 @@ describe("deriveSpecRunBodySummary", () => {
       baseRef: "main",
       git: async (_cwd, args) =>
         args[0] === "log"
-          ? "a\x1folder subject\x1f\x1f\x1f\x1eb\x1fnew subject\x1f\x1f\x1f\x1e"
+          ? "a\x1folder subject\x1fClaude Opus 4.8\x1f\x1f\x1eb\x1fnew subject\x1fCodex GPT-5.3\x1f\x1f\x1e"
           : "10\t2\tv2/src/a.ts\n-\t-\tv2/assets/logo.bin\n3\t1\tv2/docs/a.md\n",
     });
     expect(summary).toContain(
       "- 00 - First — This is a deliberately long explanation that exceeds the fixed renderer bound an…",
     );
     expect(summary).toContain("- 01 - Second — Second why.");
-    expect(summary).toContain("- older subject\n- new subject");
+    expect(summary).toContain("- older subject \u2014 Claude Opus 4.8");
+    expect(summary).toContain("- new subject \u2014 Codex GPT-5.3");
     expect(summary).toContain("## Risk cues\n- no test changes");
     expect(summary).toContain("3 files changed (+13/-3)");
     expect(summary).toContain("- v2/src: 1 file (+10/-2)");

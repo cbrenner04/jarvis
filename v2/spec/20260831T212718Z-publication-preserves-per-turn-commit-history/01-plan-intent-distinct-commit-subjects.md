@@ -26,12 +26,12 @@ Write loops call `commitSettledIteration` each turn but fall back to the persist
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner-publication.test.ts` test `plan publication uses distinct per-turn commit subjects` fails against the current duplicate-`creationTitle` behavior and passes after the fix.
-- [ ] `workflow-runner-publication.test.ts` test `intent publication uses distinct per-turn commit subjects` fails against the current duplicate-`creationTitle` behavior and passes after the fix.
-- [ ] `workflow-runner-publication.test.ts` test `implement publication write commits use active subspec H1 subjects` fails when every write turn reuses persisted `creationTitle` and passes when each subject matches the active subspec H1.
-- [ ] `write-loop.test.ts` stays green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `workflow-runner-publication.test.ts` test `plan publication uses distinct per-turn commit subjects` fails against the current duplicate-`creationTitle` behavior and passes after the fix.
+- [x] `workflow-runner-publication.test.ts` test `intent publication uses distinct per-turn commit subjects` fails against the current duplicate-`creationTitle` behavior and passes after the fix.
+- [x] `workflow-runner-publication.test.ts` test `implement publication write commits use active subspec H1 subjects` fails when every write turn reuses persisted `creationTitle` and passes when each subject matches the active subspec H1.
+- [x] `write-loop.test.ts` stays green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

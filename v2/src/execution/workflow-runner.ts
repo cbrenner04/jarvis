@@ -40,6 +40,7 @@ import {
   type CompletionCommitter,
   type CompletionStepMetadata,
   createCompletionCommitter,
+  mutatingReviewPassCommitFields,
   renderStepCommitTitle,
 } from "./completion-commit.ts";
 import type { CompletionPublisher } from "./completion-publisher.ts";
@@ -518,6 +519,7 @@ async function runWorkflowStep(
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
   freshDispatch: boolean | undefined,
   touchedStepsInExecution: Set<string>,
+  reviewPassCommitDeps: ReviewPassCommitDeps | undefined,
 ): Promise<WorkflowStepOutcome> {
   if (step.behavior === "review-debate" || step.behavior === "review") {
     return runReviewDispatch(
@@ -530,6 +532,7 @@ async function runWorkflowStep(
       store,
       logSink,
       freshDispatch,
+      reviewPassCommitDeps,
     );
   }
 
@@ -813,11 +816,11 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     let lastStepId = "";
     let completionAgent: string | undefined;
     let shrinkNarrative: string | undefined;
-    let preImplementResetAnchor: { worktreePath: string; sha: string } | undefined;
     let boundaryTelemetryFailure: string | undefined;
     let implementReviewEligible = false;
     const touchedStepsInExecution = new Set<string>();
     const workflowSnapshot = buildWorkflowSnapshot(args.steps, store, args.freshDispatch);
+    const reviewPassCommitDeps = buildReviewPassCommitDeps(args, workflowSnapshot);
 
     for (let stepIndex = 0; stepIndex < args.steps.length; stepIndex++) {
       const step = args.steps[stepIndex];
@@ -832,17 +835,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         continue;
       }
 
-      // Per-iteration commits during this step's own write loop can advance HEAD before we ever
-      // reach the pre-shrink commit below, so the pre-implement anchor must be sampled here, before
-      // any of this step's iterations run — not read back out of HEAD after the fact. The worktree
-      // is materialized first so the sample never depends on lazy creation happening inside the step.
-      let headBeforeImplementStep: string | undefined;
       if (step.behavior === "write" && step.role === "implement" && !step.suppressShrink) {
-        const worktreePathForStep = getExternalWorktreePath(step.worktree);
         await (step.withExternalWorktree ?? realWithExternalWorktree)(step.worktree, () => undefined);
-        if (existsSync(join(worktreePathForStep, ".git"))) {
-          headBeforeImplementStep = await getCurrentHeadAsync(worktreePathForStep);
-        }
       }
 
       const stepResult = await runWorkflowStep(
@@ -856,6 +850,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         args.onStepRunCreated,
         args.freshDispatch,
         touchedStepsInExecution,
+        reviewPassCommitDeps,
       );
       totalIterationsConsumed += stepResult.iterationsConsumed;
       lastResult = stepResult;
@@ -888,20 +883,6 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
 
       if (step.behavior === "write" && step.role === "implement" && !step.suppressShrink && implementReviewEligible) {
         const worktreePath = getExternalWorktreePath(step.worktree);
-        step.specPath = resolveImplementSpecPathForPublication(step, worktreePath);
-        const title = resolvePublicationTitle(worktreePath, step.specPath, workflowSnapshot.creationTitle);
-        const committed = await createCompletionCommitter()({
-          worktreePath,
-          baseRef: step.worktree.baseRef,
-          specPath: step.specPath,
-          agent: completionAgent ?? step.agents[0] ?? "implement",
-          title,
-          iterationTimeoutMs: step.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
-        });
-        if (committed.commitSha !== undefined) {
-          // Same guard (write/implement/!suppressShrink) as the sampling block above, so this is always set.
-          preImplementResetAnchor = { worktreePath, sha: headBeforeImplementStep as string };
-        }
         let shrinkResult = await runShrinkAfterImplementComplete(
           step,
           stepIndex,
@@ -1110,13 +1091,6 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         const publicationPath =
           publicationSpecPath ?? landedSpecPath ?? writeStepRun?.specPath ?? completionStep.specPath;
         try {
-          if (preImplementResetAnchor !== undefined) {
-            await realAsyncSubprocessRunner.runAsync(
-              "git",
-              ["reset", "--mixed", preImplementResetAnchor.sha],
-              preImplementResetAnchor.worktreePath,
-            );
-          }
           const creationTitle = resolvePublicationTitle(worktreePath, publicationPath, workflowSnapshot.creationTitle);
           store.setCreationTitle(lastResult.runId, creationTitle);
           const completionRun = store.findRunByProjectBranch({
@@ -1145,17 +1119,15 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             worktreePath,
             baseRef: worktree.baseRef,
             specPath: publicationPath,
-            agent: isReviewLastStep
-              ? (publishedCommitAgent(durableWriteAgent, publicationAgent) ?? publicationAgent)
-              : publicationAgent,
+            agent: publicationAgent,
             title: commitStep !== undefined ? renderStepCommitTitle(commitStep, creationTitle) : creationTitle,
-            forceDistinctCommit: true,
             iterationTimeoutMs: completionStep.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
             ...(commitStep !== undefined ? { step: commitStep } : {}),
           });
+          const publicationSha = published.commitSha ?? headBeforeCompletionCommit;
           const baseDiffOutcome =
-            published.commitSha !== undefined
-              ? await readDiffOutcome(worktreePath, worktree.baseRef, published.commitSha)
+            publicationSha !== undefined
+              ? await readDiffOutcome(worktreePath, worktree.baseRef, publicationSha)
               : "changed";
           if (published.commitSha === undefined) {
             const uncommitted = await getUncommittedPaths(worktreePath);
@@ -1195,11 +1167,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             }
           }
           if (published.commitSha !== undefined && baseDiffOutcome === "empty") {
-            // The forced completion commit carries no content ahead of base (e.g. a no-work
-            // shrink boundary over an already-clean branch). Roll it back locally rather than
-            // publish an empty marker commit — but only when the commit is itself a no-op against
-            // its own parent; a boundary that legitimately reverts branch content back to base
-            // keeps its real commit instead of dumping that diff into the working tree.
+            // A legacy pending completion may still return an empty marker commit. Roll it back
+            // only when it is also a no-op against its own parent; a real revert stays intact.
             await suppressContentEmptyCompletionCommit(worktreePath, published.commitSha, headBeforeCompletionCommit);
             traceCompletionPublication(
               args.logSink,
@@ -1209,10 +1178,11 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               "no_content_ahead_of_base: completion commit matches base, nothing to publish",
             );
           }
-          if (published.commitSha !== undefined && baseDiffOutcome !== "empty") {
+          if (publicationSha !== undefined && baseDiffOutcome !== "empty") {
             const stamped = lastResult as WriteLoopResult;
-            stamped.commitSha = published.commitSha;
+            if (published.commitSha !== undefined) stamped.commitSha = published.commitSha;
             if (
+              published.commitSha !== undefined &&
               published.filesChanged !== undefined &&
               stamped.attemptId !== undefined &&
               stamped.outcomeKind !== undefined &&
@@ -2063,6 +2033,137 @@ function lastMutatingReviewPass<C extends { kind: string; actuatorRan?: boolean 
   return undefined;
 }
 
+type ReviewPassCommitDeps = {
+  completionCommitter?: CompletionCommitter;
+  baseRef: string;
+  specPath: string;
+  creationTitleHint?: string;
+  iterationTimeoutMs?: number;
+};
+
+function buildReviewPassCommitDeps(
+  args: WorkflowRunnerInput,
+  workflowSnapshot: WorkflowSnapshot,
+): ReviewPassCommitDeps | undefined {
+  const writeStep = [...args.steps].reverse().find(isWriteStep);
+  if (writeStep === undefined) return undefined;
+  const worktreePath = getExternalWorktreePath(writeStep.worktree);
+  if (!existsSync(join(worktreePath, ".git"))) return undefined;
+  return {
+    ...(args.completionCommitter !== undefined ? { completionCommitter: args.completionCommitter } : {}),
+    baseRef: writeStep.worktree.baseRef,
+    specPath: writeStep.specPath,
+    ...(workflowSnapshot.creationTitle !== undefined ? { creationTitleHint: workflowSnapshot.creationTitle } : {}),
+    ...(writeStep.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: writeStep.iterationTimeoutMs } : {}),
+  };
+}
+
+function reviewActuatorAgentFromCycle(cycle: Extract<ReviewCycleOutcome, { kind: "completed" }>): string | undefined {
+  return cycle.roleResults.actuator?.final?.result.kind === "ok"
+    ? cycle.roleResults.actuator.final.binding.metadata?.agent?.trim()
+    : undefined;
+}
+
+function reviewMutatingPassHandler(
+  deps: ReviewPassCommitDeps | undefined,
+  landing: ReviewWorkflowStep["landing"] | undefined,
+  worktreePath: string,
+  behavior: "review" | "review-debate",
+): ((pass: number, agent: string | undefined) => Promise<void>) | undefined {
+  if (deps === undefined || (landing !== undefined && landing.kind !== "none")) return undefined;
+  return (pass, agent) => commitMutatingReviewPass(deps, { behavior, pass, agent, worktreePath });
+}
+
+async function commitMutatingReviewPass(
+  deps: ReviewPassCommitDeps,
+  args: {
+    behavior: "review" | "review-debate";
+    pass: number;
+    agent: string | undefined;
+    worktreePath: string;
+  },
+): Promise<void> {
+  const agent = args.agent?.trim();
+  if (!agent) throw new Error("completion attribution is missing");
+  const title = resolvePublicationTitle(args.worktreePath, deps.specPath, deps.creationTitleHint);
+  const headBefore = await getCurrentHeadAsync(args.worktreePath);
+  const fields = mutatingReviewPassCommitFields(args.behavior, args.pass, title);
+  const published = await (deps.completionCommitter ?? createCompletionCommitter())({
+    worktreePath: args.worktreePath,
+    baseRef: deps.baseRef,
+    specPath: deps.specPath,
+    agent,
+    title: fields.title,
+    step: fields.step,
+    iterationTimeoutMs: deps.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
+    formatMode: "checkpoint",
+  });
+  if (published.commitSha === undefined || published.commitSha === headBefore) return;
+}
+
+/** Drop approval-cycle verdict edits so the publication tail does not restage them as another review pass. */
+async function discardEphemeralReviewVerdictDrift(worktreePath: string, verdictPath: string): Promise<void> {
+  if (!existsSync(join(worktreePath, ".git"))) return;
+  const relativePath = relative(worktreePath, verdictPath);
+  if (relativePath.startsWith("..")) return;
+  try {
+    await realAsyncSubprocessRunner.runAsync("git", ["restore", relativePath], worktreePath);
+  } catch {
+    if (existsSync(verdictPath)) rmSync(verdictPath, { force: true });
+  }
+}
+
+type IncrementalReviewCycleRun = {
+  result: ReviewCycleResult;
+  boundaryViolation?: string;
+  verdictState?: Awaited<ReturnType<typeof executeReviewCycleEnforced>>["verdictState"];
+};
+
+async function runReviewCyclesIncremental(
+  maxCycles: number,
+  buildSingleCycleInput: (pass: number, priorVerdict: string | undefined) => ReviewCycleInput,
+  runSingleCycle: (input: ReviewCycleInput) => Promise<IncrementalReviewCycleRun>,
+  onMutatingPass?: (pass: number, agent: string | undefined) => Promise<void>,
+): Promise<{
+  result: ReviewCycleResult;
+  boundaryViolation?: string;
+  verdictState: Awaited<ReturnType<typeof executeReviewCycleEnforced>>["verdictState"];
+}> {
+  const allCycles: ReviewCycleOutcome[] = [];
+  let priorVerdict: string | undefined;
+  let verdictState: Awaited<ReturnType<typeof executeReviewCycleEnforced>>["verdictState"] = { kind: "missing" };
+  for (let pass = 1; pass <= maxCycles; pass += 1) {
+    const cycleRun = await runSingleCycle(buildSingleCycleInput(pass, priorVerdict));
+    if (cycleRun.verdictState !== undefined) verdictState = cycleRun.verdictState;
+    allCycles.push(...cycleRun.result.cycles);
+    const lastCycle = cycleRun.result.cycles.at(-1);
+    if (lastCycle?.kind === "completed" && lastCycle.actuatorRan) {
+      await onMutatingPass?.(pass, reviewActuatorAgentFromCycle(lastCycle));
+    }
+    if (cycleRun.boundaryViolation !== undefined) {
+      const mergedResult: ReviewCycleResult =
+        cycleRun.result.kind === "invocation_failure"
+          ? { ...cycleRun.result, cycles: allCycles }
+          : { kind: "complete", cycles: allCycles };
+      return { result: mergedResult, verdictState, boundaryViolation: cycleRun.boundaryViolation };
+    }
+    if (cycleRun.result.kind === "invocation_failure") {
+      return { result: { ...cycleRun.result, cycles: allCycles }, verdictState };
+    }
+    if (lastCycle?.kind === "completed" && !lastCycle.actuatorRan) {
+      return { result: { kind: "complete", cycles: allCycles }, verdictState };
+    }
+    if (lastCycle?.kind !== "completed") {
+      return {
+        result: { kind: "invocation_failure", failureKind: "error", cycles: allCycles },
+        verdictState,
+      };
+    }
+    priorVerdict = lastCycle.verdict;
+  }
+  return { result: { kind: "complete", cycles: allCycles }, verdictState };
+}
+
 function reviewDebateResultOutcome(result: Awaited<ReturnType<typeof executeReviewDebate>>): {
   kind: "complete" | "invocation_failure";
   failureKind: InvocationFailureKind | undefined;
@@ -2195,6 +2296,7 @@ async function runReviewDebateStep(
   workflowSnapshot: WorkflowSnapshot,
   freshDispatch: boolean | undefined,
   logSink?: LogSink,
+  reviewPassCommitDeps?: ReviewPassCommitDeps,
 ): Promise<ReviewDebateStepOutcome | ReviewStepOutcome> {
   const {
     stepId,
@@ -2270,6 +2372,7 @@ async function runReviewDebateStep(
   });
 
   let invocationCount = 0;
+  const onMutatingDebatePass = reviewMutatingPassHandler(reviewPassCommitDeps, landing, step.cwd, "review-debate");
   const debateOutcome = await raceStepSuccessorShellIdle(
     step,
     { runId, attemptId, store, ...(logSink !== undefined ? { logSink } : {}) },
@@ -2286,6 +2389,9 @@ async function runReviewDebateStep(
           invocationCount += 1;
           onProgress?.(invocationId, stepId, { status: "in_progress", role });
         },
+        ...(onMutatingDebatePass !== undefined
+          ? { onMutatingCycleComplete: async ({ pass, agent }) => onMutatingDebatePass(pass, agent) }
+          : {}),
       });
     },
   );
@@ -2320,6 +2426,10 @@ async function runReviewDebateStep(
     if (landingFailure !== undefined) {
       return landingFailure;
     }
+  }
+
+  if (kind === "complete") {
+    await discardEphemeralReviewVerdictDrift(step.cwd, step.verdictPath);
   }
 
   const failed = result.cycles.at(-1);
@@ -2979,15 +3089,6 @@ function reviewCompletionAgent(run: NonNullable<ReturnType<StateStore["findRunBy
   return undefined;
 }
 
-/** `Jarvis-Agent` credit on the CAS-replaced published commit when write ≠ review boundary. */
-export function publishedCommitAgent(
-  durableWriteAgent: string | undefined,
-  boundaryAgent: string | undefined,
-): string | undefined {
-  if (boundaryAgent === undefined) return undefined;
-  return durableWriteAgent !== undefined && durableWriteAgent !== boundaryAgent ? durableWriteAgent : boundaryAgent;
-}
-
 /** Durable counterpart to {@link reviewCompletionAgent}: the mutating pass persisted alongside it. */
 function reviewCompletionPass(run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>): number | undefined {
   for (let index = run.attempts.length - 1; index >= 0; index -= 1) {
@@ -3557,7 +3658,6 @@ async function commitRecoveredPlanLanding(
       specPath: context.durablePath,
       agent,
       title: commitStep !== undefined ? renderStepCommitTitle(commitStep, title) : title,
-      forceDistinctCommit: true,
       iterationTimeoutMs: DEFAULT_ITERATION_TIMEOUT_MS,
       ...(commitStep !== undefined ? { step: commitStep } : {}),
     });
@@ -3902,22 +4002,6 @@ async function settleIntentResumeUncommittedFailure(
   );
 }
 
-/**
- * Committer title + optional `step` field for a review/review-debate publication: an undefined
- * `reviewPass` keeps the bare title and no step (unclassified write); a reached mutating pass
- * prefixes the subject and carries the matching `Jarvis-Step`. Folds the classify-then-apply
- * branching into one call so its callers stay under the cognitive-complexity budget.
- */
-function reviewStepCommitFields(
-  behavior: "review" | "review-debate",
-  reviewPass: number | undefined,
-  title: string,
-): { title: string; step?: CompletionStepMetadata } {
-  if (reviewPass === undefined) return { title };
-  const step: CompletionStepMetadata = { kind: behavior, pass: reviewPass };
-  return { title: renderStepCommitTitle(step, title), step };
-}
-
 function resumePublicationFailureBoundaryFields(
   failure: NonNullable<Awaited<ReturnType<typeof publishWithReadyRepair>>["failure"]>,
   message: string,
@@ -3961,16 +4045,6 @@ async function runIntentResumeCommitAndPublish(
   const creationTitle = resolvePublicationTitle(context.worktreePath, context.durableDir, context.creationTitleHint);
   store.setCreationTitle(context.runId, creationTitle);
   const boundaryAgent = context.completionAgent;
-  const reviewRun = store.loadRun(context.runId);
-  const writeStepId = reviewRun?.workflowSnapshot
-    ? findDurableWriteStepId(reviewRun.workflowSnapshot.steps)
-    : undefined;
-  const writeRun =
-    writeStepId !== undefined
-      ? store.findRunByProjectBranch({ project: context.project, branch: context.branch, stepId: writeStepId })
-      : null;
-  const durableWriteAgent = writeRun ? reviewCompletionAgent(writeRun) : undefined;
-  const commitAgent = publishedCommitAgent(durableWriteAgent, boundaryAgent) ?? boundaryAgent;
   const committer = deps.completionCommitter ?? createCompletionCommitter();
   let published: Awaited<ReturnType<CompletionCommitter>>;
   try {
@@ -3978,9 +4052,10 @@ async function runIntentResumeCommitAndPublish(
       worktreePath: context.worktreePath,
       baseRef: context.baseRef,
       specPath: context.durableDir,
-      agent: commitAgent as string,
-      ...reviewStepCommitFields(context.behavior, context.reviewPass, creationTitle),
-      forceDistinctCommit: true,
+      agent: boundaryAgent as string,
+      ...(context.reviewPass === undefined
+        ? { title: creationTitle }
+        : mutatingReviewPassCommitFields(context.behavior, context.reviewPass, creationTitle)),
       iterationTimeoutMs: DEFAULT_ITERATION_TIMEOUT_MS,
     });
   } catch (error) {
@@ -4410,7 +4485,6 @@ async function commitReviewMutationResumeChanges(
       specPath: context.specPath,
       agent: context.completionAgent as string,
       title: creationTitle,
-      forceDistinctCommit: true,
       iterationTimeoutMs: deps.mutationRepair?.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
     });
   } catch (error) {
@@ -4618,7 +4692,6 @@ async function runMutationRepairAttempt(
       specPath: context.specPath,
       agent: context.completionAgent ?? "",
       title: renderStepCommitTitle(mutationRepairStep, creationTitle),
-      forceDistinctCommit: true,
       iterationTimeoutMs: deps.mutationRepair?.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
       step: mutationRepairStep,
     });
@@ -5127,21 +5200,48 @@ async function runStandardReviewCycle(
   reviewInput: ReviewWorkflowCycleInput,
   landing: ReviewWorkflowStep["landing"],
   reviewCycleInput: ReviewCycleInput,
-) {
+  reviewPassCommitDeps: ReviewPassCommitDeps | undefined,
+): Promise<{
+  result: ReviewCycleResult;
+  verdictState: Awaited<ReturnType<typeof executeReviewCycleEnforced>>["verdictState"];
+  boundaryViolation?: string;
+}> {
+  const onMutatingPass = reviewMutatingPassHandler(reviewPassCommitDeps, landing, step.cwd, "review");
   if (landing?.kind === "intent-stage") {
-    return executeReviewCycleEnforced({
-      input: reviewCycleInput,
-      invocationId: landing.invocationId,
-      stagingDir: resolve(step.cwd, landing.stagingDir),
-      cwd: step.cwd,
-      verdictPath: reviewInput.verdictPath,
-    });
+    return runReviewCyclesIncremental(
+      reviewCycleInput.maxCycles,
+      (pass, priorVerdict) => ({
+        ...reviewCycleInput,
+        maxCycles: 1,
+        profileContext: cycleProfileContext(reviewCycleInput.profileContext, pass, priorVerdict),
+      }),
+      async (singleInput) => {
+        const enforced = await executeReviewCycleEnforced({
+          input: singleInput,
+          invocationId: landing.invocationId,
+          stagingDir: resolve(step.cwd, landing.stagingDir),
+          cwd: step.cwd,
+          verdictPath: reviewInput.verdictPath,
+        });
+        return {
+          result: enforced.result,
+          verdictState: enforced.verdictState,
+          ...(enforced.boundaryViolation !== undefined ? { boundaryViolation: enforced.boundaryViolation } : {}),
+        };
+      },
+      onMutatingPass,
+    );
   }
-  return {
-    result: await executeReviewCycle(reviewCycleInput),
-    verdictState: { kind: "missing" } as const,
-    boundaryViolation: undefined as string | undefined,
-  };
+  return runReviewCyclesIncremental(
+    reviewCycleInput.maxCycles,
+    (pass, priorVerdict) => ({
+      ...reviewCycleInput,
+      maxCycles: 1,
+      profileContext: cycleProfileContext(reviewCycleInput.profileContext, pass, priorVerdict),
+    }),
+    async (singleInput) => ({ result: await executeReviewCycle(singleInput) }),
+    onMutatingPass,
+  );
 }
 
 function standardReviewBoundaryFailureOutcome(
@@ -5343,11 +5443,12 @@ async function runProfileReviewStep(
   invocationId: string,
   onProgress: ((invocationId: string, stepId: string, progress: ReviewProgress) => void) | undefined,
   telemetry: WorkflowTelemetryContext | undefined,
+  reviewPassCommitDeps?: ReviewPassCommitDeps,
 ): Promise<ReviewStepOutcome> {
   const { stepId } = step;
   const invocationCount = { value: 0 };
   const profile = rehydrateReviewPromptProfile(step.profile);
-  const result = await executeReviewCycle({
+  const reviewCycleBase: ReviewCycleInput = {
     cwd: step.cwd,
     ...(profile !== undefined ? { profile } : {}),
     ...(step.profileContext !== undefined ? { profileContext: step.profileContext } : {}),
@@ -5364,10 +5465,25 @@ async function runProfileReviewStep(
     ...(reviewInput.signal !== undefined ? { signal: reviewInput.signal } : {}),
     ...buildReviewStepTelemetryFields(step, ids, telemetry),
     ...buildReviewStepOnRoleStart(invocationId, stepId, onProgress, invocationCount),
-  });
+  };
+  const onMutatingPass = reviewMutatingPassHandler(reviewPassCommitDeps, step.landing, step.cwd, "review");
+  const { result } = await runReviewCyclesIncremental(
+    reviewInput.maxCycles,
+    (pass, priorVerdict) => ({
+      ...reviewCycleBase,
+      maxCycles: 1,
+      profileContext: cycleProfileContext(reviewCycleBase.profileContext, pass, priorVerdict),
+    }),
+    async (singleInput) => ({ result: await executeReviewCycle(singleInput) }),
+    onMutatingPass,
+  );
 
   const lastCycle = result.cycles[result.cycles.length - 1];
   const { kind, terminalRole, completionAgent, reviewPass } = resolveProfileReviewCompletion(lastCycle, result.cycles);
+
+  if (kind === "complete") {
+    await discardEphemeralReviewVerdictDrift(step.cwd, reviewInput.verdictPath);
+  }
 
   onProgress?.(invocationId, stepId, {
     status: kind === "complete" ? "completed" : "stopped",
@@ -5411,6 +5527,7 @@ async function runStandardReviewStep(
   store: StateStore,
   logSink?: LogSink,
   shellIdle?: { signal?: AbortSignal; onRoleStart?: () => void },
+  reviewPassCommitDeps?: ReviewPassCommitDeps,
 ): Promise<ReviewStepOutcome> {
   const { stepId } = step;
   const workspaceFailureOutcome = standardReviewWorkspaceFailureOutcome(step, landing, ids, store);
@@ -5435,6 +5552,7 @@ async function runStandardReviewStep(
     reviewInput,
     landing,
     reviewCycleInput,
+    reviewPassCommitDeps,
   );
 
   if (boundaryViolationMsg !== undefined) {
@@ -5457,6 +5575,8 @@ async function runStandardReviewStep(
     return evidenceFailureOutcome;
   }
 
+  await discardEphemeralReviewVerdictDrift(step.cwd, reviewInput.verdictPath);
+
   return finalizeStandardReviewStep(step, landing, result, ids, bindings, telemetry, store, logSink, shellIdle);
 }
 
@@ -5470,6 +5590,7 @@ async function runReviewDispatch(
   store: StateStore,
   logSink: LogSink | undefined,
   freshDispatch: boolean | undefined,
+  reviewPassCommitDeps: ReviewPassCommitDeps | undefined,
 ): Promise<ReviewDebateStepOutcome | ReviewStepOutcome> {
   const { invocationId } = workflowSnapshot;
   if (step.behavior === "review-debate") {
@@ -5484,6 +5605,7 @@ async function runReviewDispatch(
       workflowSnapshot,
       freshDispatch,
       logSink,
+      reviewPassCommitDeps,
     );
   }
 
@@ -5561,10 +5683,20 @@ async function runReviewDispatch(
           store,
           logSink,
           { ...(signal !== undefined ? { signal } : {}), onRoleStart },
+          reviewPassCommitDeps,
         ),
     );
   } else {
-    outcome = await runProfileReviewStep(step, reviewInput, ids, bindings, invocationId, onProgress, telemetry);
+    outcome = await runProfileReviewStep(
+      step,
+      reviewInput,
+      ids,
+      bindings,
+      invocationId,
+      onProgress,
+      telemetry,
+      reviewPassCommitDeps,
+    );
   }
 
   if (isDurableWorkflowStep(step) && !isSuccessorShellStallOutcome(outcome)) {

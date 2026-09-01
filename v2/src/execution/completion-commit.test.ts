@@ -10,7 +10,6 @@ import {
 } from "../../../shared/subprocess.ts";
 import { trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter, shouldReuseHeadWithoutNewCommit } from "./completion-commit.ts";
-import { publishedCommitAgent } from "./workflow-runner.ts";
 
 const { roots } = trackedTempRoots();
 const repoRoot = join(import.meta.dir, "../../..");
@@ -240,38 +239,6 @@ describe("createCompletionCommitter", () => {
     // HEAD is already the completion commit (publish failed earlier); resume must
     // surface its sha so the caller retries publication instead of no-op'ing.
     expect(result).toEqual({ commitSha: "completion-commit", filesChanged: 1 });
-  });
-
-  test("forceDistinctCommit creates a new sha when the tree matches HEAD with Jarvis-Agent", async () => {
-    const { worktreePath, gitDir } = setupWorktree("v2/spec/test/index.md");
-    const calls: GitCall[] = [];
-
-    const runGit = async (_cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> => {
-      calls.push({ args, env });
-      if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;
-      if (args[0] === "rev-parse" && args[1] === "HEAD") return "iteration-head";
-      if (args[0] === "read-tree") return "";
-      if (args[0] === "add") return "";
-      if (args[0] === "write-tree") return "same-tree";
-      if (args[0] === "rev-parse" && args[1] === "iteration-head^{tree}") return "same-tree";
-      if (args[0] === "symbolic-ref") return "refs/heads/feature";
-      if (args[0] === "commit-tree") return "terminal-commit";
-      if (args[0] === "diff-tree") return "";
-      return "";
-    };
-
-    const committer = createCompletionCommitter(runGit);
-    const result = await committer({
-      worktreePath,
-      baseRef: "main",
-      specPath: "v2/spec/test/index.md",
-      agent: "claude",
-      title: "Test Spec Title",
-      forceDistinctCommit: true,
-    });
-
-    expect(result).toEqual({ commitSha: "terminal-commit", filesChanged: 0 });
-    expect(calls.some((c) => c.args[0] === "commit-tree")).toBe(true);
   });
 
   test("truly nothing to commit when HEAD is not a completion commit", async () => {
@@ -608,12 +575,11 @@ describe("createCompletionCommitter", () => {
   test("shouldReuseHeadWithoutNewCommit blocks spurious commits when trees match (inverted guard would commit)", () => {
     const tree = "same-tree";
     const headTree = "same-tree";
-    expect(shouldReuseHeadWithoutNewCommit(tree, headTree, false)).toBe(true);
-    expect(shouldReuseHeadWithoutNewCommit(tree, headTree, true)).toBe(false);
-    expect(shouldReuseHeadWithoutNewCommit(tree, "other-tree", false)).toBe(false);
+    expect(shouldReuseHeadWithoutNewCommit(tree, headTree)).toBe(true);
+    expect(shouldReuseHeadWithoutNewCommit(tree, "other-tree")).toBe(false);
     const invertedSkipGuard = tree !== headTree;
     expect(invertedSkipGuard).toBe(false);
-    expect(shouldReuseHeadWithoutNewCommit(tree, headTree, false)).not.toBe(invertedSkipGuard);
+    expect(shouldReuseHeadWithoutNewCommit(tree, headTree)).not.toBe(invertedSkipGuard);
   });
 
   test("stranded replacement in staged content allows completion", async () => {
@@ -916,42 +882,5 @@ describe("createCompletionCommitter", () => {
       .trim()
       .split("\n");
     expect(topLevel).toContain("node_modules");
-  });
-
-  test("published completion commit carries write-stage Jarvis-Agent when write and review agents differ", async () => {
-    // @mutate v2/src/execution/workflow-runner.ts "durableWriteAgent !== undefined && durableWriteAgent !== boundaryAgent" -> "false &&"
-    const { worktreePath, seedHead } = initRealGitWorktree();
-    const writeAgent = "Claude Writer";
-    const reviewAgent = "Codex Reviewer";
-    writeFileSync(join(worktreePath, "v2/spec/test/index.md"), "# Test Spec Title\n\nUpdated body.\n");
-
-    await createCompletionCommitter()({
-      worktreePath,
-      baseRef: seedHead,
-      specPath: "v2/spec/test/index.md",
-      agent: writeAgent,
-      title: "Test Spec Title",
-      forceDistinctCommit: true,
-      step: { kind: "write" },
-    });
-
-    await createCompletionCommitter()({
-      worktreePath,
-      baseRef: seedHead,
-      specPath: "v2/spec/test/index.md",
-      agent: publishedCommitAgent(writeAgent, reviewAgent) as string,
-      title: "review-debate(1): Test Spec Title",
-      forceDistinctCommit: true,
-      step: { kind: "review-debate", pass: 1 },
-    });
-
-    const message = execFileSync("git", ["log", "-1", "--format=%B"], {
-      cwd: worktreePath,
-      encoding: "utf8",
-      stdio: "pipe",
-    });
-    expect(message).toContain(`Jarvis-Agent: ${writeAgent}`);
-    expect(message).toContain("Jarvis-Step: review-debate 1");
-    expect(message).not.toContain(`Jarvis-Agent: ${reviewAgent}`);
   });
 });

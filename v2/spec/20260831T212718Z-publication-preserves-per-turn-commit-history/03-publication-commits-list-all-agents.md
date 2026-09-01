@@ -25,12 +25,12 @@
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner-publication.test.ts` test `implement spec-run body summary Commits block lists each per-turn commit with its Jarvis-Agent` fails when only the review agent is credited or agents are omitted from Commits bullets and passes after the fix.
-- [ ] `workflow-runner-publication.test.ts` test `credits every contributing agent in the attribution footer when write and review agents differ` fails against the current review-only footer on collapsed history and passes with per-turn commits.
-- [ ] `pr-attribution.test.ts` stays green.
-- [ ] `spec-run-body-summary.test.ts` stays green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `workflow-runner-publication.test.ts` test `implement spec-run body summary Commits block lists each per-turn commit with its Jarvis-Agent` fails when only the review agent is credited or agents are omitted from Commits bullets and passes after the fix.
+- [x] `workflow-runner-publication.test.ts` test `credits every contributing agent in the attribution footer when write and review agents differ` fails against the current review-only footer on collapsed history and passes with per-turn commits.
+- [x] `pr-attribution.test.ts` stays green.
+- [x] `spec-run-body-summary.test.ts` stays green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

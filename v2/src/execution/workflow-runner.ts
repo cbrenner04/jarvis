@@ -3957,6 +3957,12 @@ function settleIntentResumeStagedMarkdownLintFailure(
   return { ok: false, message: "staged markdown lint failed" };
 }
 
+function intentFinalizationSettlementResumable(store: StateStore, runId: string): boolean {
+  const settledRun = store.loadRun(runId);
+  if (settledRun === null) return false;
+  return resolveIntentFinalizationResumeContext(settledRun, store).ok;
+}
+
 /** Settle the resume attempt as a visible failure — never a silent no-op on an admitted resume. */
 function settleIntentResumeFailure(
   store: StateStore,
@@ -3979,7 +3985,7 @@ function settleIntentResumeFailure(
     kind: "loop_finished",
     loopOutcomeKind,
     iterationsConsumed,
-    resumable: true,
+    resumable: intentFinalizationSettlementResumable(store, context.runId),
     ...(loopOutcomeKind === "completion_commit_failed"
       ? { completionCommitError: intentResumeCommitErrorMessage }
       : {}),

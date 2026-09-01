@@ -215,6 +215,7 @@ describe("buildImplementWorkflowSteps", () => {
     });
     expect(step.specPath).toBe("index.md");
     expect(step.expectedArtifactPath).toBe("index.md");
+    expect(step.specReadRoot).toBeUndefined();
   });
 
   test("reviewPasses 0 returns a one-step implement workflow with no review step", async () => {
@@ -589,6 +590,7 @@ describe("buildImplementWorkflowSteps", () => {
   });
 
   test("builds an incomplete external plan index without base-ref membership", async () => {
+    // @mutate v2/src/execution/implement-workflow-steps.ts "resolvedInput.externalPlanSpec === true" -> "resolvedInput.externalPlanSpec !== true"
     const projectKey = "Org/Repo";
     const planName = "feature";
     const { root, specReadRoot, indexPath, configPath, registry } = writeRegisteredExternalPlanFixture(
@@ -644,6 +646,7 @@ describe("buildImplementWorkflowSteps", () => {
         specPath: absoluteIndexPath,
         expectedArtifactPath: absoluteIndexPath,
         externalPlanSpec: true,
+        specReadRoot: realpathSync(specReadRoot),
       });
     } finally {
       removeTestPaths(root, specReadRoot);

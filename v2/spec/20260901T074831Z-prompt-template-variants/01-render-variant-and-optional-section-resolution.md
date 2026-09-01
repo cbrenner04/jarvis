@@ -30,10 +30,10 @@
 
 ## Acceptance criteria
 
-- [ ] `shared/prompts/render.test.ts` — declared variant referencing a missing template anchor throws `PromptRenderingError` with reason `missing_template_anchor` at render time; fails against the pre-fix silent no-op behavior.
-- [ ] `shared/prompts/render.test.ts` — optional section with an empty bound placeholder value is omitted from rendered output while required sections still render; fails against the pre-fix path that always emits the section body.
-- [ ] `shared/prompts/render.test.ts` — `options.variant` naming an id absent from artifact `variants` throws `PromptRenderingError` with reason `unknown_variant`; fails against the pre-fix renderer that has no variant selection.
-- [ ] `shared/prompts/render.test.ts` — optional-section `header`, `begin`, or `end` anchor absent from the template body throws `PromptRenderingError` with reason `missing_template_anchor`; fails against the pre-fix `stripOptionalSection` silent no-op on drift (reachable on `shared/prompts/review-implement.ts`).
+- [x] `shared/prompts/render.test.ts` — declared variant referencing a missing template anchor throws `PromptRenderingError` with reason `missing_template_anchor` at render time; fails against the pre-fix silent no-op behavior.
+- [x] `shared/prompts/render.test.ts` — optional section with an empty bound placeholder value is omitted from rendered output while required sections still render; fails against the pre-fix path that always emits the section body.
+- [x] `shared/prompts/render.test.ts` — `options.variant` naming an id absent from artifact `variants` throws `PromptRenderingError` with reason `unknown_variant`; fails against the pre-fix renderer that has no variant selection.
+- [x] `shared/prompts/render.test.ts` — optional-section `header`, `begin`, or `end` anchor absent from the template body throws `PromptRenderingError` with reason `missing_template_anchor`; fails against the pre-fix `stripOptionalSection` silent no-op on drift (reachable on `shared/prompts/review-implement.ts`).
 
 ## Documentation updates
 

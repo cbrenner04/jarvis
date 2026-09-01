@@ -2,8 +2,9 @@
 id: plan.prompt.review-actuator
 behavior: plan
 kind: step
-revision: 6
-placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, CURRENT_SPEC:string!, SPEC_GUIDANCE:string!, VERDICT:string!]
+revision: 7
+placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, CURRENT_SPEC:string!, SPEC_GUIDANCE:string!, VERDICT:string!, TARGET_DIR:string!]
+variants: {"flat-layout":[{"anchor":"- **Only write files under `spec/<NAME>/`.**","replacement":"- **Only write files in the working directory.** Do not create `spec/` subdirectories or other parent paths."},{"anchor":"spec/<NAME>/intent.md","replacement":"intent.md","replaceAll":true}],"nested-target-dir":[{"anchor":"spec/<NAME>/","replacement":"<TARGET_DIR>/<NAME>/","replaceAll":true}]}
 remove: [global.naming]
 ---
 # Plan Mode — Review Actuator

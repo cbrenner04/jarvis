@@ -33,7 +33,7 @@ describe("buildPrompt", () => {
     const rules = loadPromptRegistry().getById("patch.rules").body.trim();
 
     expect(prompt).toContain("<<<ACTIVE_SUBSPEC_BEGIN>>>");
-    expect(prompt).toContain("spec/example/00-task.md");
+    expect(prompt).toContain("spec/example/00-task.md\n\n# Task");
     expect(prompt).toContain("# Task");
     expect(prompt).toContain("<<<ACTIVE_SUBSPEC_END>>>");
     expect(prompt).not.toContain("first unchecked");
@@ -121,6 +121,17 @@ describe("buildPrompt", () => {
       expect(prompt).not.toContain("<<<REPO_GUIDANCE_BEGIN>>>");
       expect(prompt).not.toContain("## Repo Guidance");
     });
+  });
+
+  test("omits repo-guidance block when guidance is whitespace-only", () => {
+    const prompt = buildPrompt("spec/example/index.md", undefined, {
+      repoGuidance: " \n\t ",
+      activeSubspecPath: "spec/example/00-task.md",
+      activeSubspecBody: "# Task",
+    });
+
+    expect(prompt).not.toContain("## Repo Guidance");
+    expect(prompt).not.toContain("<<<REPO_GUIDANCE_BEGIN>>>");
   });
 
   test("passes the spec path through verbatim with no resolution or quoting", () => {

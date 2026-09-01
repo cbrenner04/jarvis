@@ -1,8 +1,13 @@
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
+import { resolveDeclaredPlanSpecLayoutVariant } from "../../../../shared/prompts/plan-draft.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
-import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
+import {
+  enforceDelimiterPolicy,
+  PromptRenderingError,
+  renderArtifactTemplate,
+} from "../../../../shared/prompts/render.ts";
 import { readSpecGuidance } from "../../../../shared/spec-guidance-path.ts";
 import { detectBlocker } from "../../../../shared/spec-parser.ts";
 import { realSubprocessRunner, type SubprocessRunner } from "../../../../shared/subprocess.ts";
@@ -38,7 +43,6 @@ import {
   type SpecDirSnapshot,
   snapshotSpecDirFiles,
 } from "./spec-dir.ts";
-import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
 import { runVerdictActuator } from "./verdict-actuator.ts";
 
 /**
@@ -71,21 +75,19 @@ export function buildReviewPrompt(opts: {
   const registry = loadPromptRegistry();
 
   const promptId = `plan.prompt.review.${role}`;
+  const artifact = registry.getById(promptId);
 
-  let template = assemblePromptForStep({
+  const template = assemblePromptForStep({
     registry,
     stepPromptId: promptId,
   });
 
   const workDir = opts.workDirLabel ?? opts.name;
   const targetDir = opts.targetDir ?? "spec";
-
-  if (opts.flatSpecLayout) {
-    template = template.replaceAll("spec/<NAME>/intent.md", "intent.md");
-  } else {
-    // For commit specs, replace the placeholder with the actual committed root
-    template = template.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`);
-  }
+  const variant = resolveDeclaredPlanSpecLayoutVariant(
+    opts.flatSpecLayout === undefined ? { targetDir } : { flatSpecLayout: opts.flatSpecLayout, targetDir },
+    artifact.metadata.variants,
+  );
 
   enforceDelimiterPolicy({
     value: opts.intent,
@@ -137,26 +139,17 @@ export function buildReviewPrompt(opts: {
   }
 
   try {
-    const placeholderSet = new Set([
-      "WORKDIR",
-      "NAME",
-      "INTENT",
-      "SPEC_GUIDANCE",
-      "CURRENT_SPEC",
-      "REVIEW_PASS_CONTEXT",
-    ]);
-    if (role === "advocate") placeholderSet.add("ADVERSARY_FINDINGS");
-    if (role === "adjudicator") placeholderSet.add("ADVOCATE_RESPONSE");
-
-    template = renderTemplate(template, placeholderSet, values);
+    return renderArtifactTemplate(
+      { ...artifact, body: template },
+      values,
+      variant === undefined ? undefined : { variant },
+    );
   } catch (err) {
-    if (err instanceof TemplateRenderingError) {
+    if (err instanceof PromptRenderingError) {
       throw new Error(`review prompt configuration error: ${err.details}`);
     }
     throw err;
   }
-
-  return template;
 }
 
 /**
@@ -213,7 +206,7 @@ function isValidIntentModification(before: string, after: string): boolean {
   }
 
   // Try removing blocker from after and see if it matches before
-  const afterLines = after.replace(/\r\n/g, "\n").split("\n");
+  const afterLines = after.split("\r\n").join("\n").split("\n");
   let blockerIndex: number | undefined;
 
   for (let i = 0; i < afterLines.length; i += 1) {
@@ -238,7 +231,7 @@ function isValidIntentModification(before: string, after: string): boolean {
 }
 
 function readFrontmatter(text: string): string | null {
-  const normalized = text.replace(/\r\n/g, "\n");
+  const normalized = text.split("\r\n").join("\n");
   if (!normalized.startsWith("---\n")) {
     return null;
   }
@@ -343,7 +336,7 @@ export type PlanReviewPhaseOptions = {
 };
 
 function firstNonEmptyLine(text: string): string {
-  for (const rawLine of text.replace(/\r\n/g, "\n").split("\n")) {
+  for (const rawLine of text.split("\r\n").join("\n").split("\n")) {
     const line = rawLine.trim();
     if (line !== "") {
       return line;

@@ -26,6 +26,7 @@ const RENDER_OBSERVER_TESTS: Readonly<Record<string, readonly string[]>> = {
     "shared/prompts/review-plan-premise-falsification.test.ts",
     "shared/prompts/review-plan-hollow-pin.test.ts",
   ],
+  "prompts/plan/review-actuator.md": ["v1/test/modes/plan/prompts.test.ts"],
   "prompts/plan/review-critic.md": [
     "shared/prompts/review-profile.test.ts",
     "shared/prompts/review-plan-premise-falsification.test.ts",

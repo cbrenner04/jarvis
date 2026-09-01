@@ -15,8 +15,8 @@
 
 ## Acceptance criteria
 
-- [ ] `v1/test/modes/plan/prompts.test.ts` stays green.
-- [ ] `v1/test/modes/plan/prompts.test.ts` — `buildReviewPrompt` configuration-failure test asserts `review prompt configuration error:` prefix; fails against missing `PromptRenderingError` catch/wrap and passes after migration.
+- [x] `v1/test/modes/plan/prompts.test.ts` stays green.
+- [x] `v1/test/modes/plan/prompts.test.ts` — `buildReviewPrompt` configuration-failure test asserts `review prompt configuration error:` prefix; fails against missing `PromptRenderingError` catch/wrap and passes after migration.
 
 ## Documentation updates
 

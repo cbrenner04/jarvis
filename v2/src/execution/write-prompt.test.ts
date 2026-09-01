@@ -63,6 +63,7 @@ describe("write prompt", () => {
 
     const terseIndex = rendered.indexOf("Be terse in communication artifacts");
     const noHardWrapIndex = rendered.indexOf("Do not hard-wrap authored markdown");
+    expect(rendered).toContain("## Repo Guidance");
     expect(terseIndex).toBeGreaterThanOrEqual(0);
     expect(noHardWrapIndex).toBeGreaterThan(terseIndex);
   });

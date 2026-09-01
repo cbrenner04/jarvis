@@ -14,7 +14,7 @@ Post-render `.replace`, `.replaceAll`, and optional-section strip helpers on ass
 
 ## Acceptance criteria
 
-- [ ] `shared/prompts/no-prompt-surgery-guard.test.ts` fails when `stripOptionalSection`, `stripOptionalPromptSection`, `.replace(`, or `.replaceAll(` appears in `shared/prompts/plan-draft.ts`, `shared/prompts/review-implement.ts`, `v1/src/modes/plan/review.ts`, `v1/src/modes/plan/verdict-actuator.ts`, or `v1/src/modes/patch/prompt.ts`.
+- [x] `shared/prompts/no-prompt-surgery-guard.test.ts` fails when `stripOptionalSection`, `stripOptionalPromptSection`, `.replace(`, or `.replaceAll(` appears in `shared/prompts/plan-draft.ts`, `shared/prompts/review-implement.ts`, `v1/src/modes/plan/review.ts`, `v1/src/modes/plan/verdict-actuator.ts`, or `v1/src/modes/patch/prompt.ts`.
 
 ## Documentation updates
 

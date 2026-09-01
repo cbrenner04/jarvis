@@ -18,6 +18,7 @@ describe("buildPlanDraftPrompt", () => {
       specGuidance: SPEC_GUIDANCE,
     });
 
+    expect(prompt).toContain("# Plan Mode — Draft Phase");
     for (const phrase of [
       "fails against the pre-fix code and passes after the change",
       "without network or GitHub access",
@@ -62,6 +63,32 @@ describe("buildPlanDraftPrompt", () => {
     expect(stepRules).toContain("final line of your response");
     expect(stepRules).not.toContain("Guard-inversion criteria require");
     expect(stepRules).not.toContain("Place `// @mutate`");
+  });
+
+  test("uses the registered flat-layout variant for external staging", () => {
+    const prompt = buildPlanDraftPrompt({
+      name: "my-plan",
+      intent: "do thing",
+      specGuidance: "guidance",
+      flatSpecLayout: true,
+    });
+
+    expect(prompt).toContain("Only write files in the working directory");
+    expect(prompt).toContain("user-supplied content of `intent.md`");
+    expect(prompt).not.toContain("user-supplied content of `spec/my-plan/intent.md`");
+  });
+
+  test("uses the nested-target-dir variant without replacement-string expansion", () => {
+    const prompt = buildPlanDraftPrompt({
+      name: "my-plan",
+      intent: "do thing",
+      specGuidance: "guidance",
+      targetDir: "v2/$&-spec",
+    });
+
+    expect(prompt).toContain("user-supplied content of `v2/$&-spec/my-plan/intent.md`");
+    expect(prompt).toContain("Only write files under `v2/$&-spec/my-plan/`");
+    expect(prompt).not.toContain("spec/my-plan//v2");
   });
 
   test("renders named pre-fix failing-test guidance without checkpoint authoring", () => {

@@ -2,8 +2,13 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
+import { resolvePlanSpecLayoutVariant } from "../../../../shared/prompts/plan-draft.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
-import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
+import {
+  enforceDelimiterPolicy,
+  PromptRenderingError,
+  renderArtifactTemplate,
+} from "../../../../shared/prompts/render.ts";
 import { readSpecGuidance } from "../../../../shared/spec-guidance-path.ts";
 import { createAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName } from "../../agents/types.ts";
@@ -15,7 +20,6 @@ import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { createPlanInvocationBinding } from "./plan-invocation-binding.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { resolvePlanSpecDirPath } from "./spec-dir.ts";
-import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
 
 function snapshotActuatorSpecFiles(specDir: string): string {
   if (!existsSync(specDir)) {
@@ -48,22 +52,17 @@ export function buildVerdictActuatorPrompt(opts: {
   targetDir?: string;
 }): string {
   const registry = loadPromptRegistry();
-  let template = assemblePromptForStep({
+  const artifact = registry.getById("plan.prompt.review-actuator");
+  const template = assemblePromptForStep({
     registry,
     stepPromptId: "plan.prompt.review-actuator",
   });
 
   const workDir = opts.workDirLabel ?? opts.name;
   const targetDir = opts.targetDir ?? "spec";
-  if (opts.flatSpecLayout) {
-    template = template.replace(
-      "- **Only write files under `spec/<NAME>/`.**",
-      "- **Only write files in the working directory.** Do not create `spec/` subdirectories or other parent paths.",
-    );
-    template = template.replaceAll("spec/<NAME>/intent.md", "intent.md");
-  } else {
-    template = template.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`);
-  }
+  const variant = resolvePlanSpecLayoutVariant(
+    opts.flatSpecLayout === undefined ? { targetDir } : { flatSpecLayout: opts.flatSpecLayout, targetDir },
+  );
 
   enforceDelimiterPolicy({
     value: opts.intent,
@@ -91,9 +90,8 @@ export function buildVerdictActuatorPrompt(opts: {
   });
 
   try {
-    template = renderTemplate(
-      template,
-      new Set(["WORKDIR", "NAME", "INTENT", "CURRENT_SPEC", "SPEC_GUIDANCE", "VERDICT"]),
+    const rendered = renderArtifactTemplate(
+      { ...artifact, body: template },
       {
         WORKDIR: workDir,
         NAME: opts.name,
@@ -101,16 +99,17 @@ export function buildVerdictActuatorPrompt(opts: {
         CURRENT_SPEC: opts.currentSpec,
         SPEC_GUIDANCE: opts.specGuidance,
         VERDICT: opts.verdict,
+        TARGET_DIR: targetDir,
       },
+      variant === undefined ? undefined : { variant },
     );
+    return rendered.endsWith("\n") ? rendered : `${rendered}\n`;
   } catch (err) {
-    if (err instanceof TemplateRenderingError) {
+    if (err instanceof PromptRenderingError) {
       throw new Error(`review actuator prompt configuration error: ${err.details}`);
     }
     throw err;
   }
-
-  return template.endsWith("\n") ? template : `${template}\n`;
 }
 
 export type VerdictActuatorOptions = {

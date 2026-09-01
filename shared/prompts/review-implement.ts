@@ -3,7 +3,7 @@ import { dirname, join, relative } from "node:path";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../subprocess.ts";
 import { assemblePromptForStep } from "./assemble.ts";
 import { loadPromptRegistry } from "./registry.ts";
-import { renderTemplateWithDeclarations } from "./render.ts";
+import { renderArtifactTemplate, renderTemplateWithDeclarations } from "./render.ts";
 import { bindReviewPromptProfile, implementReviewProfile } from "./review-profile.ts";
 
 export const PATCH_REVIEW_CRITIC_PROMPT_ID = "implement.prompt.review.critic" as const;
@@ -72,47 +72,23 @@ function passContext(context: ReviewDebateRenderContext): string {
     : base;
 }
 
-function stripOptionalSection(text: string, header: string, begin: string, end: string): string {
-  const headerIndex = text.indexOf(header);
-  if (headerIndex < 0) return text;
-  const beginIndex = text.indexOf(begin, headerIndex);
-  const endIndex = text.indexOf(end, beginIndex);
-  if (beginIndex < 0 || endIndex < 0) return text;
-  let removeEnd = endIndex + end.length;
-  while (text[removeEnd] === "\n") removeEnd += 1;
-  return `${text.slice(0, headerIndex)}${text.slice(removeEnd)}`;
-}
-
 function patchBodyPrompt(specPath: string): string {
   const registry = loadPromptRegistry();
+  const artifact = registry.getById("patch.prompt.body");
   const template = assemblePromptForStep({ registry, stepPromptId: "patch.prompt.body" });
-  const declarations = [
-    { name: "SPEC_PATH", type: "string" as const, required: true },
-    { name: "SIBLINGS_BLOCK", type: "string" as const, required: true },
-    { name: "REPO_GUIDANCE", type: "string" as const, required: true },
-    { name: "ACTIVE_SUBSPEC_PATH", type: "string" as const, required: true },
-    { name: "ACTIVE_SUBSPEC_BODY", type: "string" as const, required: true },
-    { name: "PATCH_RULES", type: "string" as const, required: true },
-    { name: "TIMEOUT_CHECKPOINT_CONTEXT", type: "string" as const, required: true },
-    { name: "STEP_RULES", type: "string" as const, required: true },
-  ];
-  let rendered = renderTemplateWithDeclarations(template, declarations, {
-    SPEC_PATH: specPath,
-    SIBLINGS_BLOCK: "",
-    REPO_GUIDANCE: "",
-    ACTIVE_SUBSPEC_PATH: "",
-    ACTIVE_SUBSPEC_BODY: "",
-    PATCH_RULES: registry.getById("patch.rules").body.trim(),
-    TIMEOUT_CHECKPOINT_CONTEXT: "",
-    STEP_RULES: "",
-  });
-  for (const section of [
-    ["## Repo Guidance", "<<<REPO_GUIDANCE_BEGIN>>>", "<<<REPO_GUIDANCE_END>>>"] as const,
-    ["## Active Subspec", "<<<ACTIVE_SUBSPEC_BEGIN>>>", "<<<ACTIVE_SUBSPEC_END>>>"] as const,
-    ["## Timeout Checkpoint", "<<<TIMEOUT_CHECKPOINT_BEGIN>>>", "<<<TIMEOUT_CHECKPOINT_END>>>"] as const,
-  ])
-    rendered = stripOptionalSection(rendered, section[0], section[1], section[2]);
-  return rendered.replace("\n\nFollow these Jarvis rules:", "\nFollow these Jarvis rules:").trim();
+  return renderArtifactTemplate(
+    { ...artifact, body: template },
+    {
+      SPEC_PATH: specPath,
+      SIBLINGS_BLOCK: "",
+      REPO_GUIDANCE: "",
+      ACTIVE_SUBSPEC_PATH: "",
+      ACTIVE_SUBSPEC_BODY: "",
+      PATCH_RULES: registry.getById("patch.rules").body.trim(),
+      TIMEOUT_CHECKPOINT_CONTEXT: "",
+      STEP_RULES: "",
+    },
+  ).trim();
 }
 
 async function renderStep(

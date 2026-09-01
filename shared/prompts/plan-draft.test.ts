@@ -19,6 +19,7 @@ describe("buildPlanDraftPrompt", () => {
       specGuidance: SPEC_GUIDANCE,
     });
 
+    expect(prompt).toContain("# Plan Mode — Draft Phase");
     for (const phrase of [
       "fails against the pre-fix code and passes after the change",
       "without network or GitHub access",

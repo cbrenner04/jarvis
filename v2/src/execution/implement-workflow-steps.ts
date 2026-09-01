@@ -646,6 +646,7 @@ export async function buildImplementWorkflowSteps(
   const profileContext = {
     specPath: launchSpecPath,
     cwd,
+    ...(resolvedInput.externalPlanSpec === true ? { specReadRoot } : {}),
     baseBranch: input.baseRef,
     passNumber: 1,
     totalPasses: reviewPasses,
@@ -663,6 +664,7 @@ export async function buildImplementWorkflowSteps(
       maxCycles: reviewPasses,
       profile: implementReviewPromptProfile,
       profileContext,
+      ...(resolvedInput.externalPlanSpec === true ? { externalPlanSpec: true as const, specReadRoot } : {}),
     };
     return admitProjectPipeline(
       loadImplementWorkflowSteps(loadSteps, [sourceStep, reviewStep], reviewPasses, reviewBehavior),
@@ -687,6 +689,7 @@ export async function buildImplementWorkflowSteps(
     maxCycles: reviewPasses,
     profile: implementReviewPromptProfile,
     profileContext,
+    ...(resolvedInput.externalPlanSpec === true ? { externalPlanSpec: true as const, specReadRoot } : {}),
   };
 
   return admitProjectPipeline(

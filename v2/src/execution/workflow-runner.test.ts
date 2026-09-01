@@ -66,8 +66,8 @@ describe("executeWorkflow external linked implement routing", () => {
       encoding: "utf8",
     }).trim();
     const shadowLink = join(projectRoot, "external-spec-link");
-    const copiedSubspec = join(projectRoot, "00-work.md");
-    const copiedIndex = join(projectRoot, "index.md");
+    const copiedSubspec = join(projectRoot, "shadow", "nested", "00-work.md");
+    const copiedIndex = join(projectRoot, "shadow", "nested", "index.md");
     let invocation = 0;
 
     const step: WriteWorkflowStep = {
@@ -93,9 +93,15 @@ describe("executeWorkflow external linked implement routing", () => {
               mkdirSync(join(projectRoot, "src"), { recursive: true });
               writeFileSync(join(projectRoot, "src", "feature.ts"), "export const feature = true;\n", "utf8");
               symlinkSync(specReadRoot, shadowLink, "dir");
+              mkdirSync(join(projectRoot, "shadow", "nested"), { recursive: true });
               copyFileSync(firstSubspecPath, copiedSubspec);
               copyFileSync(indexPath, copiedIndex);
-              const candidates = ["src/feature.ts", "external-spec-link", "00-work.md", "index.md"];
+              const candidates = [
+                "src/feature.ts",
+                "external-spec-link",
+                "shadow/nested/00-work.md",
+                "shadow/nested/index.md",
+              ];
               expect(
                 excludeExternalSpecGitPaths(projectRoot, candidates, {
                   externalPlanSpec: true,

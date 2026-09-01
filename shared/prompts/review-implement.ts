@@ -16,13 +16,15 @@ export type ReviewDebateRenderRole = keyof typeof PATCH_REVIEW_DEBATE_ROLE_PROMP
 export type ReviewDebateRenderContext = {
   specPath: string;
   cwd: string;
+  /** External trees are labelled from their admitted root, never from the code worktree. */
+  specReadRoot?: string;
   passNumber: number;
   totalPasses: number;
   baseBranch?: string;
   priorCycleVerdict?: string;
 };
 
-function visit(dir: string, cwd: string, out: string[]): void {
+function visit(dir: string, labelRoot: string, out: string[]): void {
   let entries: Dirent<string>[];
   try {
     entries = readdirSync(dir, { withFileTypes: true, encoding: "utf8" });
@@ -32,11 +34,11 @@ function visit(dir: string, cwd: string, out: string[]): void {
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
     if (entry.name === ".git" || entry.name === "node_modules") continue;
     const path = join(dir, entry.name);
-    if (entry.isDirectory()) visit(path, cwd, out);
+    if (entry.isDirectory()) visit(path, labelRoot, out);
     else if (entry.name.endsWith(".md")) {
       const content = readFileSync(path, "utf8");
       out.push(
-        `<<<FILE name="${relative(cwd, path)}" BEGIN>>>\n${content}${content.endsWith("\n") ? "" : "\n"}<<<FILE END>>>\n`,
+        `<<<FILE name="${relative(labelRoot, path)}" BEGIN>>>\n${content}${content.endsWith("\n") ? "" : "\n"}<<<FILE END>>>\n`,
       );
     }
   }
@@ -123,7 +125,7 @@ async function renderStep(
   const template = assemblePromptForStep({ registry, stepPromptId });
   const tree: string[] = [];
   const specPath = context.specPath.startsWith("/") ? context.specPath : join(context.cwd, context.specPath);
-  visit(dirname(specPath), context.cwd, tree);
+  visit(dirname(specPath), context.specReadRoot ?? context.cwd, tree);
   return renderTemplateWithDeclarations(
     template,
     [

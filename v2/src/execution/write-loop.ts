@@ -1552,7 +1552,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         pendingStagedMarkdownLintReprompt = undefined;
       }
 
-      if (result.kind === "contract_miss") {
+      if (result.kind === "contract_miss" && args.externalSpecReadOnly !== true) {
         const reason = result.failureReason ?? result.failedContractId;
         // Every plan.prompt.draft contract miss routes to staged intent.md; the failed contract
         // ID is retained only as failure identity (reason), not as a routing input.
@@ -2427,6 +2427,7 @@ function buildWriteExecuteInput(
     ...(survivingMutationReprompt !== undefined ? { survivingMutationReprompt } : {}),
     ...(args.externalPlanSpec === true ? { externalPlanSpec: true as const } : {}),
     ...(args.specReadRoot !== undefined ? { specReadRoot: args.specReadRoot } : {}),
+    ...(args.externalSpecReadOnly === true ? { externalSpecReadOnly: true as const } : {}),
   };
 }
 

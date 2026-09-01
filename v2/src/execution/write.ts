@@ -247,6 +247,8 @@ export type WriteExecuteInput = {
   externalPlanSpec?: true;
   /** Linked-index routing root when the spec tree lives outside the implement worktree. */
   specReadRoot?: string;
+  /** Post-implement roles may read external specs only through prompt context. */
+  externalSpecReadOnly?: true;
 };
 
 type WriteExecuteResult = {
@@ -292,9 +294,9 @@ function runWriteStep(
 }
 
 function resolveImplementAdditionalReadDirs(
-  args: Pick<WriteExecuteInput, "externalPlanSpec" | "specReadRoot">,
+  args: Pick<WriteExecuteInput, "externalPlanSpec" | "specReadRoot" | "externalSpecReadOnly">,
 ): readonly string[] | undefined {
-  if (args.externalPlanSpec === true && args.specReadRoot !== undefined) {
+  if (args.externalPlanSpec === true && args.specReadRoot !== undefined && args.externalSpecReadOnly !== true) {
     return [args.specReadRoot];
   }
   return undefined;
@@ -596,7 +598,7 @@ async function executeDefaultWrite(
 
   // Add criteria-ticked contract for implement writes (patch.prompt.body)
   // Check the active subspec for unticked non-human-only acceptance criteria
-  if (promptId === "patch.prompt.body" && expectedArtifactPath.length > 0) {
+  if (promptId === "patch.prompt.body" && expectedArtifactPath.length > 0 && args.externalSpecReadOnly !== true) {
     const unticked = getUntickedNonHumanOnlyCriteria(expectedArtifactPath);
     if (unticked.length > 0) {
       contracts.push({
@@ -613,11 +615,13 @@ async function executeDefaultWrite(
   // Blocker-text contract applies to both run path (DEFAULT_PROMPT_ID on specPath)
   // and implement path (patch.prompt.body on expectedArtifactPath, the active subspec).
   const blockerTextTargetPath =
-    promptId === DEFAULT_PROMPT_ID
-      ? specPath
-      : promptId === "patch.prompt.body" && expectedArtifactPath.length > 0
-        ? expectedArtifactPath
-        : undefined;
+    args.externalSpecReadOnly === true
+      ? undefined
+      : promptId === DEFAULT_PROMPT_ID
+        ? specPath
+        : promptId === "patch.prompt.body" && expectedArtifactPath.length > 0
+          ? expectedArtifactPath
+          : undefined;
   const blockerTextContract: BlockerTextContract | undefined =
     blockerTextTargetPath !== undefined && existsSync(blockerTextTargetPath) && statSync(blockerTextTargetPath).isFile()
       ? {

@@ -79,3 +79,20 @@ describe("renderPatchReviewCriticPrompt branch diff", () => {
     expect(new Set(payloads).size).toBe(1);
   });
 });
+
+test("roots external critic and debate SPEC_TREE labels at specReadRoot", async () => {
+  const context = reviewContext();
+  const specReadRoot = mkdtempSync(join(tmpdir(), "review-implement-external-spec-"));
+  tempDirs.push(specReadRoot);
+  writeFileSync(join(specReadRoot, "index.md"), "# Index\n");
+  writeFileSync(join(specReadRoot, "00-task.md"), "# Task\n");
+  const externalContext = { ...context, specPath: join(specReadRoot, "index.md"), specReadRoot };
+
+  const critic = await renderPatchReviewCriticPrompt(externalContext, realAsyncSubprocessRunner);
+  const debate = await renderReviewDebateCyclePrompts(externalContext, {}, realAsyncSubprocessRunner);
+  for (const rendered of [critic, debate.adversary, debate.advocate, debate.adjudicator]) {
+    expect(rendered).toContain('<<<FILE name="00-task.md" BEGIN>>>');
+    expect(rendered).toContain('<<<FILE name="index.md" BEGIN>>>');
+    expect(rendered).not.toContain(`<<<FILE name="../`);
+  }
+});

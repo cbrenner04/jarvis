@@ -636,9 +636,8 @@ describe("executeWorkflow linked implement routing", () => {
         if (prompt.includes("Post-completion Shrink")) {
           shrinkPrompt = prompt;
           externalBeforeShrink = readExternalTree();
-          if (additionalReadDirs?.includes(specReadRoot)) {
-            writeFileSync(subspecPath, "shrink mutated external spec\n", "utf8");
-          }
+          expect(additionalReadDirs).toBeUndefined();
+          writeFileSync(subspecPath, "shrink mutated external spec\n", "utf8");
         } else {
           writeFileSync(join(cwd, "proof.txt"), "implemented\n", "utf8");
           writeFileSync(subspecPath, "# Work\n\n## Acceptance criteria\n\n- [x] criterion\n", "utf8");
@@ -648,21 +647,20 @@ describe("executeWorkflow linked implement routing", () => {
     });
 
     await withStateStore(async (store) => {
-      const result = await executeWorkflow({
-        steps: [step],
-        stateStore: store,
-        completionCommitter: createCompletionCommitter(),
-        completionPublisher: async () => ({}),
-        readyFinalizer: async () => {},
-      });
-
-      expect(result.kind).toBe("complete");
+      await expect(
+        executeWorkflow({
+          steps: [step],
+          stateStore: store,
+          completionCommitter: createCompletionCommitter(),
+          completionPublisher: async () => ({}),
+          readyFinalizer: async () => {},
+        }),
+      ).rejects.toThrow("external spec mutation blocked");
       expect(shrinkPrompt).toContain("## 00-work.md");
       expect(shrinkPrompt).toContain("## index.md");
       expect(shrinkPrompt).not.toContain(`## ${relative(harness.workspace, subspecPath)}`);
       if (externalBeforeShrink === undefined) expect.unreachable("shrink did not run");
       expect(readExternalTree()).toEqual(externalBeforeShrink);
-      expect(store.loadRun(result.runId)?.workflowSnapshot?.reviewPasses).toBe(0);
     });
   });
 });

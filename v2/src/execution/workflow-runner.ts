@@ -45,7 +45,12 @@ import {
 } from "./completion-commit.ts";
 import type { CompletionPublisher } from "./completion-publisher.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
-import { type ExternalSpecGitScope, externalSpecGitScope } from "./external-spec-git.ts";
+import {
+  type ExternalSpecGitScope,
+  excludeExternalSpecGitPaths,
+  externalSpecGitScope,
+  withExternalSpecTreeReadOnly,
+} from "./external-spec-git.ts";
 import { getExternalWorktreePath, withExternalWorktree as realWithExternalWorktree } from "./external-worktree.ts";
 import { landImplementSpecTreeFromReadRoot } from "./implement-spec-landing.ts";
 import type { IntentPipelineHandoff } from "./intent-output.ts";
@@ -356,6 +361,10 @@ export type ReviewDebateWorkflowStep = Omit<ReviewDebateInput, "bindings" | "onR
   stagedMarkdownLintMaxReprompts?: number;
   /** Set only by plan-stage recovery: revalidate staged plan bytes immediately before landing. */
   revalidateStagedPlanBeforeLanding?: boolean;
+  /** Identifies an admitted external plan whose markdown remains read-only during review. */
+  externalPlanSpec?: true;
+  /** External review prompt label root and recovery boundary. */
+  specReadRoot?: string;
 };
 
 /** Per-step critic/actuator review input; bindings are derived at execution. */
@@ -371,6 +380,10 @@ export type ReviewWorkflowStep = Omit<ReviewCycleInput, "bindings" | "onRoleStar
   stagedMarkdownLintMaxReprompts?: number;
   /** Set only by plan-stage recovery: revalidate staged plan bytes immediately before landing. */
   revalidateStagedPlanBeforeLanding?: boolean;
+  /** Identifies an admitted external plan whose markdown remains read-only during review. */
+  externalPlanSpec?: true;
+  /** External review prompt label root and recovery boundary. */
+  specReadRoot?: string;
 };
 
 /** Live/terminal progress for a review step's daemon-visible row, tracked in-memory only. */
@@ -523,17 +536,19 @@ async function runWorkflowStep(
   reviewPassCommitDeps: ReviewPassCommitDeps | undefined,
 ): Promise<WorkflowStepOutcome> {
   if (step.behavior === "review-debate" || step.behavior === "review") {
-    return runReviewDispatch(
-      step,
-      stepIndex,
-      workflowSnapshot,
-      onReviewDebateProgress,
-      telemetry,
-      onStepRunCreated,
-      store,
-      logSink,
-      freshDispatch,
-      reviewPassCommitDeps,
+    return withExternalSpecTreeReadOnly(externalSpecGitScope(step), [step.verdictPath], () =>
+      runReviewDispatch(
+        step,
+        stepIndex,
+        workflowSnapshot,
+        onReviewDebateProgress,
+        telemetry,
+        onStepRunCreated,
+        store,
+        logSink,
+        freshDispatch,
+        reviewPassCommitDeps,
+      ),
     );
   }
 
@@ -1573,6 +1588,8 @@ function buildWorkflowSnapshot(
           idleOutputMs: step.idleOutputMs,
           ...(step.fixCommand !== undefined ? { fixCommand: step.fixCommand } : {}),
           ...(step.readyCommand !== undefined ? { readyCommand: step.readyCommand } : {}),
+          ...(step.externalPlanSpec === true ? { externalPlanSpec: true as const } : {}),
+          ...(step.specReadRoot !== undefined ? { specReadRoot: step.specReadRoot } : {}),
         }
       : {}),
   }));
@@ -1809,12 +1826,13 @@ async function runShrinkAfterImplementComplete(
   freshDispatch: boolean | undefined,
   touchedStepsInExecution: Set<string>,
 ): Promise<WriteLoopResult> {
-  const { externalPlanSpec: _externalPlanSpec, specReadRoot: _specReadRoot, ...shrinkBase } = step;
+  const { ...shrinkBase } = step;
   const shrinkStep = {
     ...shrinkBase,
     stepId: `${step.stepId}${SHRINK_STEP_ID_SUFFIX}`,
     role: SHRINK_ROLE,
     promptId: SHRINK_PROMPT_ID,
+    ...(step.externalPlanSpec === true ? { externalSpecReadOnly: true as const } : {}),
     promptPlaceholders: await shrinkPromptPlaceholders(step),
   };
   const preparedStep = prepareWorkflowStep(
@@ -1842,10 +1860,12 @@ async function runShrinkAfterImplementComplete(
 
   touchedStepsInExecution.add(shrinkStep.stepId);
 
-  return executeWriteLoop(
-    onStepRunCreated
-      ? { ...preparedStep.input, onRunCreated: (runId) => onStepRunCreated(stepIndex, runId) }
-      : preparedStep.input,
+  return withExternalSpecTreeReadOnly(externalSpecGitScope(step), [], () =>
+    executeWriteLoop(
+      onStepRunCreated
+        ? { ...preparedStep.input, onRunCreated: (runId) => onStepRunCreated(stepIndex, runId) }
+        : preparedStep.input,
+    ),
   );
 }
 
@@ -1854,7 +1874,14 @@ async function shrinkPromptPlaceholders(
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
 ): Promise<Record<string, string>> {
   const worktreePath = getExternalWorktreePath(step.worktree);
-  const allowlist = await changedFiles(worktreePath, step.worktree.baseRef, runner);
+  const gitScope = externalSpecGitScope(step);
+  const allowlist = excludeExternalSpecGitPaths(
+    worktreePath,
+    await changedFiles(worktreePath, step.worktree.baseRef, runner),
+    gitScope,
+  );
+  const scopedPaths =
+    allowlist.length > 0 ? allowlist : step.externalPlanSpec === true ? [] : [step.expectedArtifactPath];
   return {
     SPEC_PATH: step.specPath,
     SPEC_TREE: readSpecTree(
@@ -1862,14 +1889,10 @@ async function shrinkPromptPlaceholders(
       step.specPath,
       step.externalPlanSpec === true ? resolveLinkedImplementRoutingRoot(step, worktreePath) : worktreePath,
     ),
-    ALLOWLIST: (allowlist.length > 0 ? allowlist : [step.expectedArtifactPath]).map((path) => `- ${path}`).join("\n"),
+    ALLOWLIST: scopedPaths.length > 0 ? scopedPaths.map((path) => `- ${path}`).join("\n") : "(no changed files)",
     BRANCH_DIFF: (await gitOutput(worktreePath, ["diff", "--stat", step.worktree.baseRef, "--"], runner)) || "(empty)",
     RUN_SCOPED_DIFF:
-      (await gitOutput(
-        worktreePath,
-        ["diff", step.worktree.baseRef, "--", ...(allowlist.length > 0 ? allowlist : [step.expectedArtifactPath])],
-        runner,
-      )) || "(empty)",
+      (await gitOutput(worktreePath, ["diff", step.worktree.baseRef, "--", ...scopedPaths], runner)) || "(empty)",
   };
 }
 
@@ -3973,7 +3996,7 @@ function settleIntentResumeFailure(
 /** Stub `WriteLoopInput` for `publishWithReadyRepair`: `maxIterations: 0` forbids the agent-driven
  * ready-gate repair branch (no agent bindings exist on resume) so any gate failure surfaces directly. */
 function inertResumeWriteLoopInput(
-  context: { worktreePath: string; project: string; branch: string; baseRef: string },
+  context: { worktreePath: string; project: string; branch: string; baseRef: string } & ExternalSpecGitScope,
   specPath: string,
   deps: IntentFinalizationResumeDeps,
   landing?: PublicationLanding,
@@ -4001,6 +4024,8 @@ function inertResumeWriteLoopInput(
     ...(deps.runFixCommand !== undefined ? { runFixCommand: deps.runFixCommand } : {}),
     ...(deps.logSink !== undefined ? { logSink: deps.logSink } : {}),
     ...(landing !== undefined ? { landing } : {}),
+    ...externalSpecGitScope(context),
+    ...(context.externalPlanSpec === true ? { externalSpecReadOnly: true as const } : {}),
   };
 }
 
@@ -4266,7 +4291,7 @@ export const REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS = new Set([
 ]);
 
 /** Reconstructed context for resuming a review-behavior row that settled `surviving_mutation_failed`. */
-export type ReviewMutationResumeContext = {
+export type ReviewMutationResumeContext = ExternalSpecGitScope & {
   runId: string;
   /** Durable write-step row carrying persisted ready-gate repair fence provenance. */
   writeSiblingRunId: string;
@@ -4285,6 +4310,16 @@ export type ReviewMutationResumeContext = {
 export type ReviewMutationResumeResolution =
   | { ok: true; context: ReviewMutationResumeContext }
   | { ok: false; message: string };
+
+function persistedExternalSpecGitScope(
+  writeRun: Pick<Run, "queuedInput">,
+  writeStep: WorkflowSnapshotStep | undefined,
+): ExternalSpecGitScope {
+  const persisted = writeStep?.externalPlanSpec === true ? writeStep : writeRun.queuedInput;
+  return persisted?.externalPlanSpec === true && persisted.specReadRoot !== undefined
+    ? { externalPlanSpec: true, specReadRoot: persisted.specReadRoot }
+    : {};
+}
 
 /** Reconstruct a durable review-mutation row's write-sibling context without admitting its outcome. */
 export function resolveReviewMutationLineageContext(run: Run, store: StateStore): ReviewMutationResumeResolution {
@@ -4306,6 +4341,7 @@ export function resolveReviewMutationLineageContext(run: Run, store: StateStore)
       landingKind: writeStep?.expectedArtifactPath === INTENT_STAGE_DIR ? "intent-stage" : "plain",
       completionAgent,
       creationTitleHint: snapshot.creationTitle,
+      ...persistedExternalSpecGitScope(writeRun, writeStep),
     },
   };
 }
@@ -4379,6 +4415,7 @@ function resolveOrdinaryWriteResumeContext(
       landingKind: step?.expectedArtifactPath === INTENT_STAGE_DIR ? "intent-stage" : "plain",
       completionAgent,
       creationTitleHint: snapshot?.creationTitle,
+      ...persistedExternalSpecGitScope(run, step),
     },
   };
 }
@@ -4513,13 +4550,14 @@ async function commitReviewMutationResumeChanges(
       agent: context.completionAgent as string,
       title: creationTitle,
       iterationTimeoutMs: deps.mutationRepair?.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
+      ...externalSpecGitScope(context),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return settleReviewMutationResumeFailure(store, context, attemptId, "completion_commit_failed", message, deps);
   }
   if (published.commitSha === undefined) {
-    const uncommitted = await getUncommittedPaths(context.worktreePath);
+    const uncommitted = await getUncommittedPaths(context.worktreePath, externalSpecGitScope(context));
     if (uncommitted.length > 0) {
       return settleReviewMutationResumeFailure(
         store,
@@ -4553,6 +4591,7 @@ async function deriveReviewMutationResumeBodySummary(
     worktreePath: context.worktreePath,
     specPath: context.specPath,
     baseRef: context.baseRef,
+    ...externalSpecGitScope(context),
   });
   return { bodySummary, specTemplate: true };
 }
@@ -4587,6 +4626,8 @@ function mutationRepairLoopInput(
     ...(deps.readyFinalizer !== undefined ? { readyFinalizer: deps.readyFinalizer } : {}),
     ...(deps.runFixCommand !== undefined ? { runFixCommand: deps.runFixCommand } : {}),
     ...(deps.logSink !== undefined ? { logSink: deps.logSink } : {}),
+    ...externalSpecGitScope(context),
+    ...(context.externalPlanSpec === true ? { externalSpecReadOnly: true as const } : {}),
   };
 }
 
@@ -4683,7 +4724,9 @@ async function runMutationRepairAttempt(
     resumable: false,
     ...(context.completionAgent !== undefined ? { completionAgent: context.completionAgent } : {}),
   };
-  const repairOutcome = await runMutationRepairIteration(repairArgs, store, result, mutationError, attempt);
+  const repairOutcome = await withExternalSpecTreeReadOnly(externalSpecGitScope(context), [], () =>
+    runMutationRepairIteration(repairArgs, store, result, mutationError, attempt),
+  );
   if (repairOutcome === "blocked") {
     return {
       kind: "settled",
@@ -4721,6 +4764,7 @@ async function runMutationRepairAttempt(
       title: renderStepCommitTitle(mutationRepairStep, creationTitle),
       iterationTimeoutMs: deps.mutationRepair?.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
       step: mutationRepairStep,
+      ...externalSpecGitScope(context),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -4761,6 +4805,7 @@ async function runMutationRepairAttempt(
     creationTitle,
     ...(body.bodySummary !== undefined ? { bodySummary: body.bodySummary } : {}),
     ...(body.specTemplate ? { specTemplate: true } : {}),
+    ...externalSpecGitScope(context),
   });
   if (
     publication.failure?.kind === "surviving_mutation_failed" &&
@@ -4983,6 +5028,7 @@ async function runReviewMutationCommitAndPublish(
       creationTitle,
       ...(bodySummary !== undefined ? { bodySummary } : {}),
       ...(specTemplate ? { specTemplate } : {}),
+      ...externalSpecGitScope(context),
     },
   );
 

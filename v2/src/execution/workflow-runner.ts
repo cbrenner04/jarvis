@@ -3957,12 +3957,7 @@ function settleIntentResumeStagedMarkdownLintFailure(
   return { ok: false, message: "staged markdown lint failed" };
 }
 
-/**
- * Terminal outcome kinds admitted for populated-stage intent-finalization resume: `landing_failed`
- * is the row's original failure (`isReviewLandingRecoveryAttempt`). Outcomes this resume path
- * settles via `settleIntentResumeFailure` — `completion_commit_failed` and `invocation_failure` —
- * run after stage promotion or harness failure and are excluded: retrying this tail cannot recover.
- */
+/** Outcome kinds kept resumable for populated-stage intent-finalization resume; must match `resolveIntentFinalizationResumeContext` admission. */
 export const INTENT_FINALIZATION_RESUMABLE_OUTCOME_KINDS = new Set<WriteLoopOutcomeKind>(["landing_failed"]);
 
 /** Settle the resume attempt as a visible failure — never a silent no-op on an admitted resume. */

@@ -49,6 +49,7 @@ export type InvocationBinding<T extends InvocationResult = InvocationResult> = {
     idleOutputMs?: number;
     joinProcessOnIdleStall?: boolean;
     onOutputProgress?: () => void;
+    additionalReadDirs?: readonly string[];
   }) => Promise<T>;
   shouldAdvance?: (result: T) => boolean;
   metadata?: { agent: string; model: string };
@@ -206,6 +207,7 @@ export async function executeWithQuotaFallback<T extends InvocationResult = Invo
   idleOutputMs?: number;
   joinProcessOnIdleStall?: boolean;
   onOutputProgress?: () => void;
+  additionalReadDirs?: readonly string[];
   telemetry?: InvocationTelemetryContext;
   sessionLog?: SessionLog;
 }): Promise<InvocationExecution<T>> {
@@ -222,6 +224,7 @@ export async function executeWithQuotaFallback<T extends InvocationResult = Invo
       ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
       ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
       ...(args.onOutputProgress !== undefined ? { onOutputProgress: args.onOutputProgress } : {}),
+      ...(args.additionalReadDirs !== undefined ? { additionalReadDirs: args.additionalReadDirs } : {}),
     });
     logBindingInbound(args.sessionLog, result);
     const invocationId = args.telemetry?.invocationIds[bindingIndex];

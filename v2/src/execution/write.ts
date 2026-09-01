@@ -243,6 +243,10 @@ export type WriteExecuteInput = {
   landingContractReprompt?: { violation: string; offendingFile: string };
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string };
   survivingMutationReprompt?: SurvivingMutationRepromptContext;
+  /** Admitted external plan implement: grant adapter read access to `specReadRoot` only. */
+  externalPlanSpec?: true;
+  /** Linked-index routing root when the spec tree lives outside the implement worktree. */
+  specReadRoot?: string;
 };
 
 type WriteExecuteResult = {
@@ -261,6 +265,7 @@ function runWriteStep(
     blockerTextContract?: BlockerTextContract;
   },
 ): Promise<StepRunResult> {
+  const additionalReadDirs = resolveImplementAdditionalReadDirs(write);
   return runStep({
     prompt: step.prompt,
     cwd: worktreePath,
@@ -282,7 +287,17 @@ function runWriteStep(
       : {}),
     ...(write.idleOutputMs !== undefined ? { idleOutputMs: write.idleOutputMs } : {}),
     ...(write.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
+    ...(additionalReadDirs !== undefined ? { additionalReadDirs } : {}),
   });
+}
+
+function resolveImplementAdditionalReadDirs(
+  args: Pick<WriteExecuteInput, "externalPlanSpec" | "specReadRoot">,
+): readonly string[] | undefined {
+  if (args.externalPlanSpec === true && args.specReadRoot !== undefined) {
+    return [args.specReadRoot];
+  }
+  return undefined;
 }
 
 /** Reserved marker `appendBlockerToSpec` writes; identifies a harness-authored `## Blocker`. */

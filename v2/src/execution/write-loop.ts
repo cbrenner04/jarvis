@@ -1552,12 +1552,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         const reason = result.failureReason ?? result.failedContractId;
         // Every plan.prompt.draft contract miss routes to staged intent.md; the failed contract
         // ID is retained only as failure identity (reason), not as a routing input.
-        const blockerPath =
-          result.failedContractId === "spec.criteria-ticked"
-            ? resolveSpecPath(worktreePath, args.expectedArtifactPath)
-            : args.promptId === PLAN_DRAFT_PROMPT_ID
-              ? resolveSpecPath(worktreePath, join(args.expectedArtifactPath, "intent.md"))
-              : resolveSpecPath(worktreePath, args.specPath);
+        const blockerPath = resolveContractMissBlockerPath(worktreePath, args, result.failedContractId);
 
         if (isEligibleBlockerAppendTarget(blockerPath)) {
           appendBlockerToSpec(blockerPath, reason);
@@ -2424,6 +2419,8 @@ function buildWriteExecuteInput(
     ...(landingContractReprompt !== undefined ? { landingContractReprompt } : {}),
     ...(stagedMarkdownLintReprompt !== undefined ? { stagedMarkdownLintReprompt } : {}),
     ...(survivingMutationReprompt !== undefined ? { survivingMutationReprompt } : {}),
+    ...(args.externalPlanSpec === true ? { externalPlanSpec: true as const } : {}),
+    ...(args.specReadRoot !== undefined ? { specReadRoot: args.specReadRoot } : {}),
   };
 }
 
@@ -3731,6 +3728,31 @@ function readyFailed(
 
 function resolveSpecPath(worktreePath: string, specPath: string): string {
   return isAbsolute(specPath) ? specPath : join(worktreePath, specPath);
+}
+
+function resolveImplementActiveSubspecPath(
+  worktreePath: string,
+  expectedArtifactPath: string,
+  externalPlanSpec?: true,
+): string {
+  if (externalPlanSpec === true && isAbsolute(expectedArtifactPath)) {
+    return expectedArtifactPath;
+  }
+  return resolveSpecPath(worktreePath, expectedArtifactPath);
+}
+
+function resolveContractMissBlockerPath(
+  worktreePath: string,
+  args: Pick<WriteLoopInput, "expectedArtifactPath" | "specPath" | "promptId" | "externalPlanSpec">,
+  failedContractId: string,
+): string {
+  if (failedContractId === "spec.criteria-ticked") {
+    return resolveImplementActiveSubspecPath(worktreePath, args.expectedArtifactPath, args.externalPlanSpec);
+  }
+  if (args.promptId === PLAN_DRAFT_PROMPT_ID) {
+    return resolveSpecPath(worktreePath, join(args.expectedArtifactPath, "intent.md"));
+  }
+  return resolveSpecPath(worktreePath, args.specPath);
 }
 
 export type ProgressIterationCommitOutcome =

@@ -10,6 +10,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   unlinkSync,
@@ -314,6 +315,8 @@ async function runLoop(args: {
   iterationTimeoutMs?: number;
   readyGateScopeSeams?: WriteLoopInput["readyGateScopeSeams"];
   verifyDiffDerivedMutations?: WriteLoopInput["verifyDiffDerivedMutations"];
+  externalPlanSpec?: WriteLoopInput["externalPlanSpec"];
+  specReadRoot?: WriteLoopInput["specReadRoot"];
 }) {
   // Track the parent directory for cleanup
   roots.push(join(args.jarvisRoot, ".."));
@@ -360,6 +363,8 @@ async function runLoop(args: {
     ...(args.verifyDiffDerivedMutations !== undefined
       ? { verifyDiffDerivedMutations: args.verifyDiffDerivedMutations }
       : {}),
+    ...(args.externalPlanSpec === true ? { externalPlanSpec: true as const } : {}),
+    ...(args.specReadRoot !== undefined ? { specReadRoot: args.specReadRoot } : {}),
   };
   try {
     return await executeWriteLoop(loopInput);
@@ -700,6 +705,88 @@ describe("write loop", () => {
     const spec = readFileSync(join(jarvisRoot, "worktrees", "demo", "write-run", "spec.md"), "utf8");
     expect(spec).toContain("## Blocker");
     expect(spec).toContain("artifact.exists");
+  });
+
+  describe("external implement adapter read dirs and subspec access", () => {
+    function writeExternalImplementFixture(): {
+      specReadRoot: string;
+      externalSubspec: string;
+      criterion: string;
+    } {
+      const specReadRoot = mkdtempSync(join(tmpdir(), "write-loop-external-spec-"));
+      roots.push(specReadRoot);
+      const criterion = "external criterion satisfied";
+      const externalSubspec = join(specReadRoot, "00-work.md");
+      writeFileSync(join(specReadRoot, "index.md"), "- [ ] [Work](./00-work.md)\n", "utf8");
+      writeFileSync(externalSubspec, `# Work\n\n## Acceptance criteria\n\n- [ ] ${criterion}\n`, "utf8");
+      return {
+        specReadRoot: realpathSync(specReadRoot),
+        externalSubspec: realpathSync(externalSubspec),
+        criterion,
+      };
+    }
+
+    test("passes specReadRoot as additionalReadDirs and completes when external subspec criteria are ticked from worktree cwd", async () => {
+      // @mutate v2/src/execution/write.ts "args.externalPlanSpec === true && args.specReadRoot !== undefined" -> "false"
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const { specReadRoot, externalSubspec, criterion } = writeExternalImplementFixture();
+      let observedAdditionalReadDirs: readonly string[] | undefined;
+      let observedCwd = "";
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        promptId: "patch.prompt.body",
+        specPath: join(specReadRoot, "index.md"),
+        artifactPath: externalSubspec,
+        externalPlanSpec: true,
+        specReadRoot,
+        bindings: [
+          {
+            id: "external-implement",
+            invoke: async ({ cwd, additionalReadDirs }) => {
+              observedCwd = cwd;
+              observedAdditionalReadDirs = additionalReadDirs;
+              writeFileSync(externalSubspec, `# Work\n\n## Acceptance criteria\n\n- [x] ${criterion}\n`, "utf8");
+              return { kind: "ok", stdout: "done", stderr: "" };
+            },
+          },
+        ],
+      });
+
+      const worktreePath = join(jarvisRoot, "worktrees", "demo", "write-run");
+      expect(observedCwd).toBe(worktreePath);
+      expect(observedAdditionalReadDirs).toEqual([specReadRoot]);
+      expect(result.kind).toBe("complete");
+    });
+
+    test("contract_miss appends blocker to external active subspec when expectedArtifactPath is absolute", async () => {
+      // @mutate v2/src/execution/write-loop.ts "externalPlanSpec === true && isAbsolute(expectedArtifactPath)" -> "false"
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const { specReadRoot, externalSubspec, criterion } = writeExternalImplementFixture();
+      const worktreePath = join(jarvisRoot, "worktrees", "demo", "write-run");
+      mkdirSync(worktreePath, { recursive: true });
+      const decoySubspec = join(worktreePath, "00-work.md");
+      writeFileSync(decoySubspec, `# Decoy\n\n## Acceptance criteria\n\n- [ ] ${criterion}\n`, "utf8");
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        promptId: "patch.prompt.body",
+        specPath: join(specReadRoot, "index.md"),
+        artifactPath: externalSubspec,
+        externalPlanSpec: true,
+        specReadRoot,
+        bindings: [{ id: "external-implement", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
+      });
+
+      expect(result.kind).toBe("contract_miss");
+      const externalContent = readFileSync(externalSubspec, "utf8");
+      expect(externalContent).toContain("## Blocker");
+      expect(externalContent).toContain(criterion);
+      const decoyContent = readFileSync(decoySubspec, "utf8");
+      expect(decoyContent).not.toContain("## Blocker");
+    });
   });
 
   test("contract_miss propagates append failure for eligible blocker target", async () => {

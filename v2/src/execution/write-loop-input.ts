@@ -15,7 +15,15 @@ export { DEFAULT_WRITE_STEP_RULES };
 const KILLING_TEST_RULE =
   "When you add or change a comparison operator, boolean guard, or branch condition in production code, add or extend a test that fails when that guard is inverted (for example flipping `===`/`!==`, `<`/`>=`, or dropping a negation). Put it in the file's co-located `<file>.test.ts`, an existing sibling `<file>-*.test.ts` in the same directory, or a direct-importing `*.test.ts` under the same test-surface root (`v1/src/`, `v2/src/`, or `shared/`) — the diff-derived mutation gate resolves killing tests from that co-located ∪ direct-importer union at implement `done`, not only at publication, and not from the wider suite or transitive importers. Do not use production invert hooks.";
 
-export const IMPLEMENT_WRITE_STEP_RULES = `${DEFAULT_WRITE_STEP_RULES}\n${KILLING_TEST_RULE}`;
+/**
+ * Agents routinely trip biome `lint/complexity/noExcessiveCognitiveComplexity` (max 24) on a new
+ * branchy function, stranding the completion commit. Pre-empt it: keep new functions under the limit,
+ * else add an inline ignore so neither the commit nor the ready gate strands.
+ */
+const COGNITIVE_COMPLEXITY_RULE =
+  "Keep every new or changed function under biome's cognitive-complexity limit (`noExcessiveCognitiveComplexity`, max 24). If a function is unavoidably over the limit, add `// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: <reason>` on the line directly above the function declaration (or extract a helper, preserving guard text so mutation tests still match). Do not leave an over-complexity function un-annotated — it fails the completion commit and the ready gate, neither of which can autofix it.";
+
+export const IMPLEMENT_WRITE_STEP_RULES = `${DEFAULT_WRITE_STEP_RULES}\n${KILLING_TEST_RULE}\n${COGNITIVE_COMPLEXITY_RULE}`;
 
 /** Default agent list when config has no `agents` override. */
 export const DEFAULT_WRITE_AGENTS = ["claude"] as const;

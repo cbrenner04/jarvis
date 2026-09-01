@@ -94,13 +94,12 @@ async function runCompletionFormat(
     if (err instanceof AsyncSubprocessError && err.code === "ETIMEDOUT") {
       throw new Error(`${displayCmd} exceeded ${opts.timeoutMs}ms budget`);
     }
-    const captured =
-      err instanceof AsyncSubprocessError
-        ? [err.stdout, err.stderr].filter(Boolean).join("\n").trim()
-        : err instanceof Error
-          ? err.message
-          : String(err);
-    throw new Error(captured ? `${displayCmd} failed:\n${captured}` : `${displayCmd} failed`);
+    // Best-effort, like the checkpoint format pass: `biome check --write` applies every safe fix, but a
+    // non-autofixable finding (cognitive-complexity, non-null assertion) exits non-zero. A durability
+    // commit is never gated by lint — the completion commit takes the autofixed tree as-is, and the
+    // ready gate + CI remain the lint enforcers (with bounded repair). This stops the recurring
+    // `completion_commit_failed`-on-lint strand that left correct, complete work uncommitted.
+    // A genuine timeout still throws above (a hang is not a lint result).
   }
 }
 

@@ -45,6 +45,11 @@ describe("buildWriteLoopInput", () => {
     expect("maxIterations" in fromCli.input).toBe(false);
   });
 
+  test("implement rules pre-empt the cognitive-complexity commit strand", () => {
+    expect(IMPLEMENT_WRITE_STEP_RULES).toContain("noExcessiveCognitiveComplexity");
+    expect(IMPLEMENT_WRITE_STEP_RULES).toContain("biome-ignore");
+  });
+
   test("includes optional maxIterations when provided", () => {
     const values = {
       ...FIXTURE_CLI_VALUES,

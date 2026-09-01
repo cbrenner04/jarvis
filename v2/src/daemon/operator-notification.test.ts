@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { IpcServer } from "../ipc/server.ts";
@@ -76,7 +75,12 @@ test("pipeline awaiting-approval then terminal fires the sink once per transitio
 
   expect(payloads).toHaveLength(2);
   const first = JSON.parse(payloads[0] ?? "{}") as { kind: string; pipelineId: string; transition: string };
-  const second = JSON.parse(payloads[1] ?? "{}") as { kind: string; pipelineId: string; transition: string; cause: string };
+  const second = JSON.parse(payloads[1] ?? "{}") as {
+    kind: string;
+    pipelineId: string;
+    transition: string;
+    cause: string;
+  };
   expect(first.kind).toBe("pipeline-awaiting-approval");
   expect(first.pipelineId).toBe(pipelineId);
   expect(first.transition).toBe("awaiting-approval:gate:default");
@@ -184,7 +188,10 @@ test("concurrent sweeps deliver an owed incident once", async () => {
     },
   });
 
-  await Promise.all([Promise.resolve().then(() => runNotificationSweep(deps)), Promise.resolve().then(() => runNotificationSweep(deps))]);
+  await Promise.all([
+    Promise.resolve().then(() => runNotificationSweep(deps)),
+    Promise.resolve().then(() => runNotificationSweep(deps)),
+  ]);
 
   expect(spawnCount).toBe(1);
   expect(

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import type { StateStore } from "../persistence/state-store.ts";
-import { deriveOperatorIncidents, serializeOperatorIncident, type OperatorIncident } from "./operator-incidents.ts";
+import { deriveOperatorIncidents, type OperatorIncident, serializeOperatorIncident } from "./operator-incidents.ts";
 
 export const NOTIFICATION_SWEEP_INTERVAL_MS = 5_000;
 

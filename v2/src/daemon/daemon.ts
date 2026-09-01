@@ -89,6 +89,11 @@ import {
 import { rollupWorkflowRunStatus } from "../persistence/workflow-run-status-rollup.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
 import {
+  NOTIFICATION_SWEEP_INTERVAL_MS,
+  type NotificationSinkSpawner,
+  runNotificationSweep,
+} from "./operator-notification-sweep.ts";
+import {
   applyPipelineApprovalDecision,
   derivePipelineState,
   type PipelineExecutionDeps,
@@ -112,11 +117,6 @@ import {
   resolveBlockedPlanStageRecoveryTarget,
 } from "./pipeline-stage-recovery.ts";
 import { resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
-import {
-  NOTIFICATION_SWEEP_INTERVAL_MS,
-  runNotificationSweep,
-  type NotificationSinkSpawner,
-} from "./operator-notification-sweep.ts";
 import {
   composeRunOperatorError,
   findTerminalLogRecord,
@@ -2804,14 +2804,11 @@ export async function startDaemonRuntime(
     recoveryLogSink.close();
   }
 
-  const readSink =
-    startupDeps.readNotificationSinkCommand ?? (() => readNotificationSinkCommand());
+  const readSink = startupDeps.readNotificationSinkCommand ?? (() => readNotificationSinkCommand());
   const notificationSweepDeps = {
     store,
     readSinkCommand: readSink,
-    ...(startupDeps.notificationSpawnSink === undefined
-      ? {}
-      : { spawnSink: startupDeps.notificationSpawnSink }),
+    ...(startupDeps.notificationSpawnSink === undefined ? {} : { spawnSink: startupDeps.notificationSpawnSink }),
   };
   runNotificationSweep(notificationSweepDeps);
   const notificationSweepTimer = setInterval(() => {

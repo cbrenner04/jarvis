@@ -1,15 +1,12 @@
 import type { Pipeline, PipelineStageRecord, Run, StateStore } from "../persistence/state-store.ts";
 import { isTerminalRunStatus } from "../persistence/state-store.ts";
 import {
-  derivePipelineBoundary,
-  type PipelineBoundaryResult,
-} from "./pipeline-observation.ts";
-import {
   derivePipelineState,
   hasPipelineTerminalPublicationFailure,
   isPipelineTerminal,
   type PipelineDerivedState,
 } from "./pipeline-execution.ts";
+import { derivePipelineBoundary, type PipelineBoundaryResult } from "./pipeline-observation.ts";
 import { redrivableDeferredSettlementEntryRunId } from "./pipeline-stage-dispatch.ts";
 
 export type OperatorIncidentKind =
@@ -102,9 +99,8 @@ function pushAwaitingApprovalIncident(
     stageId: boundary.stageId,
     branchKey: boundary.branchKey,
     sinceMs:
-      pipeline.stages.find(
-        (stage) => stage.stageId === boundary.stageId && stage.branchKey === boundary.branchKey,
-      )?.decidedAt ?? null,
+      pipeline.stages.find((stage) => stage.stageId === boundary.stageId && stage.branchKey === boundary.branchKey)
+        ?.decidedAt ?? null,
   });
 }
 
@@ -181,7 +177,12 @@ function collectPipelineIncidents(
   return { incidents, suppressedInvocationIds };
 }
 
-function pushRunIncident(incidents: OperatorIncident[], run: Run, kind: OperatorIncidentKind, transition: string): void {
+function pushRunIncident(
+  incidents: OperatorIncident[],
+  run: Run,
+  kind: OperatorIncidentKind,
+  transition: string,
+): void {
   incidents.push({
     incidentId: runIncidentId(run.id),
     kind,

@@ -2269,9 +2269,7 @@ class StateStoreImpl implements StateStore {
 
   hasNotificationDelivery(args: { incidentId: string; transition: string }): boolean {
     const row = this.db
-      .prepare(
-        "SELECT 1 FROM operator_notification_deliveries WHERE incident_id = ? AND transition = ? LIMIT 1",
-      )
+      .prepare("SELECT 1 FROM operator_notification_deliveries WHERE incident_id = ? AND transition = ? LIMIT 1")
       .get(args.incidentId, args.transition);
     return row !== null;
   }

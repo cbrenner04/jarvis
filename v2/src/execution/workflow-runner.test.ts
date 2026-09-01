@@ -36,7 +36,7 @@ function writeExternalPlanFixture(
 }
 
 describe("executeWorkflow external linked implement routing", () => {
-  test("routes admitted external plan indexes through specReadRoot while cwd stays in the worktree", async () => {
+  test("completes external linked subspecs in place while cwd stays in a spec-free worktree", async () => {
     // @mutate v2/src/execution/workflow-runner.ts "resolveLinkedImplementRoutingRoot(step, worktreePath)" -> "worktreePath"
     const projectKey = "Org/External-Linked";
     const planName = "feature";
@@ -54,6 +54,8 @@ describe("executeWorkflow external linked implement routing", () => {
     const resolvedSecondSubspecPath = realpathSync(join(specReadRoot, "01-more.md"));
     let observedCwd = "";
     let observedPrompt = "";
+    let observedSecondPrompt = "";
+    let indexBeforeSecondPass = "";
     let implementInvocations = 0;
 
     const implementStep: WriteWorkflowStep = {
@@ -76,6 +78,8 @@ describe("executeWorkflow external linked implement routing", () => {
             if (prompt.includes(resolvedFirstSubspecPath)) {
               writeFileSync(resolvedFirstSubspecPath, "# Work\n\n## Acceptance criteria\n\n- [x] Work\n", "utf8");
             } else if (prompt.includes(resolvedSecondSubspecPath)) {
+              observedSecondPrompt = prompt;
+              indexBeforeSecondPass = readFileSync(indexPath, "utf8");
               writeFileSync(resolvedSecondSubspecPath, "# More\n\n## Acceptance criteria\n\n- [x] More\n", "utf8");
             }
             return { kind: "ok", stdout: "done", stderr: "" } as const;
@@ -114,7 +118,15 @@ describe("executeWorkflow external linked implement routing", () => {
         expect(observedPrompt).toContain(resolvedFirstSubspecPath);
         expect(observedPrompt).toContain("## Acceptance criteria");
         expect(observedPrompt).toContain("- [ ] Work");
+        expect(indexBeforeSecondPass).toContain("- [x] [Work](./00-work.md)");
+        expect(indexBeforeSecondPass).toContain("- [ ] [More](./01-more.md)");
+        expect(observedSecondPrompt).toContain(resolvedSecondSubspecPath);
+        expect(observedSecondPrompt).toContain("- [ ] More");
         expect(readFileSync(indexPath, "utf8")).toContain("- [x] [Work](./00-work.md)");
+        expect(readFileSync(indexPath, "utf8")).toContain("- [x] [More](./01-more.md)");
+        expect(existsSync(join(worktreePath, "index.md"))).toBe(false);
+        expect(existsSync(join(worktreePath, "00-work.md"))).toBe(false);
+        expect(existsSync(join(worktreePath, "01-more.md"))).toBe(false);
       });
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });

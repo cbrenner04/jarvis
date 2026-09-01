@@ -18,8 +18,8 @@ After an external linked write loop completes, `runLinkedImplementStep` re-reads
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/workflow-runner.test.ts` regression completes one external linked subspec, ticks its external index checkbox, routes the next criteria-incomplete external link, and leaves the code worktree free of external spec files; it fails against the pre-fix worktree index tick path.
-- [ ] `shared/linked-subspec-routing.test.ts` stays green (pinned re-read and `completeLinkedSubspec` contract unchanged for in-repo trees).
+- [x] `v2/src/execution/workflow-runner.test.ts` regression completes one external linked subspec, ticks its external index checkbox, routes the next criteria-incomplete external link, and leaves the code worktree free of external spec files; it fails against the pre-fix worktree index tick path.
+- [x] `shared/linked-subspec-routing.test.ts` stays green (pinned re-read and `completeLinkedSubspec` contract unchanged for in-repo trees).
 
 ## Documentation updates
 

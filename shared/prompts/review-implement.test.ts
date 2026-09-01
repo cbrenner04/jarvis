@@ -4,10 +4,14 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { realAsyncSubprocessRunner } from "../subprocess.ts";
+import { assemblePromptForStep } from "./assemble.ts";
+import { loadPromptRegistry } from "./registry.ts";
+import { renderArtifactTemplate } from "./render.ts";
 import {
   type ReviewDebateRenderContext,
   renderPatchReviewCriticPrompt,
   renderReviewDebateCyclePrompts,
+  renderReviewDebateActuatorPrompt,
 } from "./review-implement.ts";
 
 const tempDirs: string[] = [];
@@ -95,4 +99,45 @@ test("roots external critic and debate SPEC_TREE labels at specReadRoot", async 
     expect(rendered).toContain('<<<FILE name="index.md" BEGIN>>>');
     expect(rendered).not.toContain(`<<<FILE name="../`);
   }
+});
+
+function renderPatchBody(repoGuidance: string): string {
+  const registry = loadPromptRegistry();
+  const artifact = registry.getById("patch.prompt.body");
+  const body = assemblePromptForStep({ registry, stepPromptId: artifact.metadata.id });
+  return renderArtifactTemplate(
+    { ...artifact, body },
+    {
+      SPEC_PATH: "spec/example/index.md",
+      SIBLINGS_BLOCK: "",
+      REPO_GUIDANCE: repoGuidance,
+      ACTIVE_SUBSPEC_PATH: "",
+      ACTIVE_SUBSPEC_BODY: "",
+      PATCH_RULES: "Rules.",
+      TIMEOUT_CHECKPOINT_CONTEXT: "",
+      STEP_RULES: "",
+    },
+  ).trim();
+}
+
+test("review actuator omits empty declared patch sections without spacing surgery", () => {
+  const rendered = renderReviewDebateActuatorPrompt("Apply the fix.", "spec/example/index.md");
+
+  expect(rendered).not.toContain("## Repo Guidance");
+  expect(rendered).not.toContain("## Active Subspec");
+  expect(rendered).not.toContain("## Timeout Checkpoint");
+  expect(rendered).toContain("Read the spec at spec/example/index.md.\nFollow these Jarvis rules:");
+  expect(
+    loadPromptRegistry()
+      .getById("patch.prompt.body")
+      .metadata.optionalSections.map(({ placeholder }) => placeholder),
+  ).toEqual(["REPO_GUIDANCE", "ACTIVE_SUBSPEC_PATH", "TIMEOUT_CHECKPOINT_CONTEXT"]);
+});
+
+test("whitespace-only repo guidance omits its declared optional section", () => {
+  const rendered = renderPatchBody(" \n\t ");
+
+  expect(rendered).not.toContain("## Repo Guidance");
+  expect(rendered).not.toContain("<<<REPO_GUIDANCE_BEGIN>>>");
+  expect(rendered).toContain("Read the spec at spec/example/index.md.\nFollow these Jarvis rules:");
 });

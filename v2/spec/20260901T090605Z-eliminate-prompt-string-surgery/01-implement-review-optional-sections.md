@@ -17,8 +17,8 @@
 
 ## Acceptance criteria
 
-- [ ] `shared/prompts/review-implement.test.ts` — optional-section omission regression test fails against pre-fix `stripOptionalSection` in `review-implement.ts` and passes after declared `optionalSections` migration.
-- [ ] `shared/prompts/review-implement.test.ts` — whitespace-only `REPO_GUIDANCE` omits `## Repo Guidance`; fails against pre-fix `stripOptionalSection` (length-only check) and passes after `renderArtifactTemplate` migration.
+- [x] `shared/prompts/review-implement.test.ts` — optional-section omission regression test fails against pre-fix `stripOptionalSection` in `review-implement.ts` and passes after declared `optionalSections` migration.
+- [x] `shared/prompts/review-implement.test.ts` — whitespace-only `REPO_GUIDANCE` omits `## Repo Guidance`; fails against pre-fix `stripOptionalSection` (length-only check) and passes after `renderArtifactTemplate` migration.
 
 ## Documentation updates
 

@@ -4,7 +4,7 @@ name: terminal-settlement-guard-line-independent-inventory
 
 # Terminal-settlement guard inventory keys ignore line drift
 
-Unsplit rationale: Inventory keying, permitted-write deduplication, line-drift regression, and the mutation-checkpoint extension all live in `execution-terminal-settlement-guard.test.ts` on the execution-loop guard seam; no persistence, daemon, or CLI boundary changes.
+Unsplit rationale: Inventory keying, permitted-write deduplication, and line-drift regression all live in `execution-terminal-settlement-guard.test.ts` on the execution-loop guard seam; no persistence, daemon, or CLI boundary changes.
 
 ## Primary implementation surface
 
@@ -24,19 +24,18 @@ Unsplit rationale: Inventory keying, permitted-write deduplication, line-drift r
 - Compare permitted and scanned terminal-write inventories using `(file, functionName, writer)` and nonterminal `setRunStatus` using `(file, functionName, status)`; keep `line` on violation reports for humans only.
 - Collapse duplicate permitted entries that share the same key when multiple settlement calls exist in one function.
 - Add a regression that inserts blank lines above a tracked call site and asserts the guard stays green.
-- Extend the mutation checkpoint to prove an unpermitted terminal write still produces `terminalSetRunStatus` or `unsettledTerminalBoundary` violations.
 
 ## Decision ledger
 
 - Drop `line` from `terminalWriteKey` and `nonterminalSetRunStatusKey`; rules out inventory equality keyed on absolute source position.
 - Permit multiple call sites per `(file, functionName, writer)` via count or multiset comparison rather than per-line inventory rows; rules out re-adding a line entry for every intra-function settlement call.
 - Preserve fail-closed violation detection for forbidden `setRunStatus`, standalone `setPrEvidence`, and unsettled terminal `commitCompletionBoundary`; rules out weakening the scanner to fix inventory drift.
-- `execution-terminal-settlement-guard.test.ts` test `guard rejects reintroduced terminal setRunStatus` stays green; rules out regressing the existing mutation checkpoint while extending coverage.
+- `execution-terminal-settlement-guard.test.ts` test `guard rejects reintroduced terminal setRunStatus` stays green; rules out regressing the existing mutation checkpoint.
 
 ## Acceptance criteria
 
 - [ ] `execution-terminal-settlement-guard.test.ts` test `inventory ignores line drift above tracked call sites` inserts blank lines above a tracked production settlement call, reruns the guard, and asserts no inventory mismatch while `violations` stays empty; it fails against the pre-fix line-keyed inventory.
-- [ ] `execution-terminal-settlement-guard.test.ts` test `guard rejects reintroduced terminal setRunStatus` still passes and a sibling or extended case proves an unpermitted terminal write or unsettled terminal boundary violation is reported; reachable on main today via the existing `// @mutate` checkpoint.
+- [ ] `execution-terminal-settlement-guard.test.ts` test `guard rejects reintroduced terminal setRunStatus` stays green.
 - [ ] `terminalWriteKey` and `nonterminalSetRunStatusKey` omit `line` from their returned equality strings.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 

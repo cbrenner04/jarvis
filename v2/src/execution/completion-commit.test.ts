@@ -753,7 +753,7 @@ describe("createCompletionCommitter", () => {
     expect(addCalled).toBe(false);
   });
 
-  test("throws before staging when formatter exits non-zero", async () => {
+  test("commits best-effort when the formatter exits non-zero (lint is enforced at the gate, not the commit)", async () => {
     const { worktreePath, seedHead } = initRealGitWorktree();
     writeUnformattedExample(worktreePath);
     let addCalled = false;
@@ -763,18 +763,43 @@ describe("createCompletionCommitter", () => {
       },
     };
 
+    const result = await createCompletionCommitter(
+      wrapGitWithAddTracker(() => {
+        addCalled = true;
+      }),
+      failingRunner,
+    )(completionInput(worktreePath));
+
+    // A non-autofixable lint finding no longer strands the completion commit; it commits the tree as-is
+    // and the ready gate + CI remain the lint enforcers. Removing the swallow re-strands (mutation guard).
+    expect(result.commitSha).toBeDefined();
+    expect(result.commitSha).not.toBe(seedHead);
+    expect(addCalled).toBe(true);
+    // biome could not run, so the unformatted content is committed as-is.
+    expect(readFileSync(examplePath(worktreePath), "utf8")).toBe(UNFORMATTED_TS);
+  });
+
+  test("throws when the completion formatter times out (a hang is not a lint result)", async () => {
+    const { worktreePath, seedHead } = initRealGitWorktree();
+    writeUnformattedExample(worktreePath);
+    let addCalled = false;
+    const timingOutRunner: AsyncSubprocessRunner = {
+      async runAsync() {
+        throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+      },
+    };
+
     await expect(
       createCompletionCommitter(
         wrapGitWithAddTracker(() => {
           addCalled = true;
         }),
-        failingRunner,
+        timingOutRunner,
       )(completionInput(worktreePath)),
-    ).rejects.toThrow("failed:\nformatter rejected");
+    ).rejects.toThrow("exceeded");
 
     expect(addCalled).toBe(false);
     expect(headSha(worktreePath)).toBe(seedHead);
-    expect(readFileSync(examplePath(worktreePath), "utf8")).toBe(UNFORMATTED_TS);
   });
 
   test("throws before staging when formatter times out", async () => {

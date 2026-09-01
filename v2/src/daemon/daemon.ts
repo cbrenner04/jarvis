@@ -86,10 +86,10 @@ import {
 } from "../persistence/state-store.ts";
 import { rollupWorkflowRunStatus } from "../persistence/workflow-run-status-rollup.ts";
 import {
-  enumerateOtherDaemonSockets,
-  supersedePeerDaemon,
   type EnumerateOtherDaemonSockets,
+  enumerateOtherDaemonSockets,
   type SupersedePeerDaemon,
+  supersedePeerDaemon,
 } from "./daemon-peer-socket.ts";
 import { createTailStreamHandler } from "./daemon-tail-stream.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";

@@ -587,6 +587,23 @@ function resolveInWorktree(worktreePath: string, path: string): string {
   return isAbsolute(path) ? path : join(worktreePath, path);
 }
 
+function resolveLinkedImplementIndexPath(step: WriteWorkflowStep, worktreePath: string): string {
+  if (step.externalPlanSpec === true) {
+    return step.specPath;
+  }
+  return resolveInWorktree(worktreePath, step.specPath);
+}
+
+function resolveLinkedImplementRoutingRoot(step: WriteWorkflowStep, worktreePath: string): string {
+  if (step.specReadRoot !== undefined) {
+    return step.specReadRoot;
+  }
+  if (step.externalPlanSpec === true && isAbsolute(step.specPath)) {
+    return dirname(step.specPath);
+  }
+  return worktreePath;
+}
+
 function resolveImplementSpecPathForPublication(step: WriteWorkflowStep, worktreePath: string): string {
   if (step.externalPlanSpec === true || step.specReadRoot === undefined) {
     return step.specPath;
@@ -728,12 +745,12 @@ async function runLinkedImplementStep(
 ): Promise<WorkflowStepOutcome> {
   const worktreePath = getExternalWorktreePath(step.worktree);
   await (step.withExternalWorktree ?? realWithExternalWorktree)(step.worktree, () => undefined);
-  const linkedProjectRoot = step.specReadRoot ?? worktreePath;
+  const linkedProjectRoot = resolveLinkedImplementRoutingRoot(step, worktreePath);
 
   let totalIterationsConsumed = 0;
 
   for (;;) {
-    const indexPath = resolveInWorktree(worktreePath, step.specPath);
+    const indexPath = resolveLinkedImplementIndexPath(step, worktreePath);
 
     let beforeIndexContent: string;
     try {
@@ -772,13 +789,12 @@ async function runLinkedImplementStep(
       return stepped;
     }
 
-    const worktreeIndexPath = resolveInWorktree(worktreePath, step.specPath);
-    const pinnedRouting = resolvePinnedLinkedSubspec(worktreeIndexPath, linkedProjectRoot, routing.active.index);
+    const pinnedRouting = resolvePinnedLinkedSubspec(indexPath, linkedProjectRoot, routing.active.index);
     if (!pinnedRouting.ok) {
       return linkedImplementRoutingFailureOutcome(pinnedRouting, totalIterationsConsumed, stepIndex, onStepRunCreated);
     }
 
-    const finalized = finalizeLinkedImplementPass(stepped, pinnedRouting, beforeIndexContent, worktreeIndexPath);
+    const finalized = finalizeLinkedImplementPass(stepped, pinnedRouting, beforeIndexContent, indexPath);
     if (finalized !== undefined) {
       return finalized;
     }

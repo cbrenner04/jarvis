@@ -20,8 +20,8 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/workflow-runner.test.ts` regression drives `executeWorkflow` linked routing for an admitted external plan index, asserts the first criteria-incomplete linked subspec becomes `expectedArtifactPath` and appears in the implement prompt, and fails against the pre-fix worktree-relative `link_out_of_tree` routing path.
-- [ ] `v2/src/execution/workflow-runner-debate.test.ts` `executeWorkflow linked implement routing` stays green (in-repo linked routing unchanged).
+- [x] `v2/src/execution/workflow-runner.test.ts` regression drives `executeWorkflow` linked routing for an admitted external plan index, asserts the first criteria-incomplete linked subspec becomes `expectedArtifactPath` and appears in the implement prompt, and fails against the pre-fix worktree-relative `link_out_of_tree` routing path.
+- [x] `v2/src/execution/workflow-runner-debate.test.ts` `executeWorkflow linked implement routing` stays green (in-repo linked routing unchanged).
 
 ## Documentation updates
 

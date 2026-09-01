@@ -622,7 +622,7 @@ export async function buildImplementWorkflowSteps(
     specPath: launchSpecPath,
     expectedArtifactPath,
     linkedIndexRouting: isIndexSpec,
-    ...(chained ? { specReadRoot } : {}),
+    ...(chained || resolvedInput.externalPlanSpec === true ? { specReadRoot } : {}),
     ...(resolvedInput.externalPlanSpec === true ? { externalPlanSpec: true as const } : {}),
   };
   const pipelineConfigPath = resolvedInput.configPath ?? deps.configPath;

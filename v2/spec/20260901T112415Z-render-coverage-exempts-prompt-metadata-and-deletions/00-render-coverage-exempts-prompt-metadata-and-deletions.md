@@ -31,16 +31,16 @@ Render-coverage applies a sentinel body-line mutation for changed registered pro
 
 ## Acceptance criteria
 
-- [ ] `diff-derived-mutation-verifier.test.ts` proves a registered-prompt diff that only bumps frontmatter `revision` passes render-coverage by running mapped observer tests on unmutated content (no `missing-render-coverage`); it fails against the pre-fix verifier.
-- [ ] `diff-derived-mutation-verifier.test.ts` proves an in-file body-deletion-only registered-prompt diff via a worktree fixture with honest post-deletion observer coverage passes render-coverage by running mapped observer tests on unmutated post-deletion content; it fails against the pre-fix verifier (fallback-on-surviving-line `missing-render-coverage`).
-- [ ] `diff-derived-mutation-verifier.test.ts` case `returns missing-render-coverage when the mapped observer misses the sentinel mutation` stays green (reachable on main; body-line sentinel enforcement unchanged).
-- [ ] `diff-derived-mutation-verifier.test.ts` case `fails deleted and untracked registered prompts without render coverage` stays green (reachable on main; whole-file deletion stays fail-closed).
-- [ ] `v2/docs/write-behavior.md` § Diff-derived mutation verification records metadata-only and deletion-only render-coverage exemptions, observer-only unmutated verification, and preserves body add/change sentinel enforcement.
-- [ ] `v2/docs/operator-runbook.md` § Diff-derived verification stall adds a `missing-render-coverage` recovery note for metadata-only and deletion-only prompt diffs with a link to the canonical contract.
-- [ ] `v2/docs/v1-behaviors.md` records render-coverage metadata/deletion exemption behavior in the diff-derived verification bullet.
-- [ ] `v2/docs/test-writing.md` § Prompt changes records metadata-only and deletion-only exemptions and points to `write-behavior.md` § Diff-derived mutation verification.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `diff-derived-mutation-verifier.test.ts` proves a registered-prompt diff that only bumps frontmatter `revision` passes render-coverage by running mapped observer tests on unmutated content (no `missing-render-coverage`); it fails against the pre-fix verifier.
+- [x] `diff-derived-mutation-verifier.test.ts` proves an in-file body-deletion-only registered-prompt diff via a worktree fixture with honest post-deletion observer coverage passes render-coverage by running mapped observer tests on unmutated post-deletion content; it fails against the pre-fix verifier (fallback-on-surviving-line `missing-render-coverage`).
+- [x] `diff-derived-mutation-verifier.test.ts` case `returns missing-render-coverage when the mapped observer misses the sentinel mutation` stays green (reachable on main; body-line sentinel enforcement unchanged).
+- [x] `diff-derived-mutation-verifier.test.ts` case `fails deleted and untracked registered prompts without render coverage` stays green (reachable on main; whole-file deletion stays fail-closed).
+- [x] `v2/docs/write-behavior.md` § Diff-derived mutation verification records metadata-only and deletion-only render-coverage exemptions, observer-only unmutated verification, and preserves body add/change sentinel enforcement.
+- [x] `v2/docs/operator-runbook.md` § Diff-derived verification stall adds a `missing-render-coverage` recovery note for metadata-only and deletion-only prompt diffs with a link to the canonical contract.
+- [x] `v2/docs/v1-behaviors.md` records render-coverage metadata/deletion exemption behavior in the diff-derived verification bullet.
+- [x] `v2/docs/test-writing.md` § Prompt changes records metadata-only and deletion-only exemptions and points to `write-behavior.md` § Diff-derived mutation verification.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

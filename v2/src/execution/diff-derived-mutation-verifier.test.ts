@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   type DiffDerivedMutationVerifierInput,
+  classifyRenderCoverageMode,
   extractRenderObserverMapFromSource,
   MAX_CONCURRENT_VERIFIER_TEST_RUNS,
   MAX_INSPECTED_MUTATIONS,
@@ -425,6 +426,41 @@ The diff comes from git merge-base <base> HEAD.
     expect(result).toEqual(missingCriticRenderCoverage);
   });
 
+  it("passes render-coverage for frontmatter-only revision bumps via unmutated observer verification", async () => {
+    const frontmatterDiff = `diff --git a/prompts/implement/review-critic.md b/prompts/implement/review-critic.md
+index f424d7da..be281d02 100644
+--- a/prompts/implement/review-critic.md
++++ b/prompts/implement/review-critic.md
+@@ -4,1 +4,1 @@
+-revision: 1
++revision: 2
+`;
+    const bumpedSource = criticSource.replace("revision: 1", "revision: 2");
+    const observerPath = "v2/src/execution/review-critic-render.test.ts";
+    const mapSource = `const RENDER_OBSERVER_TESTS = { "prompts/implement/review-critic.md": ["${observerPath}"] };\nexport function resolveRenderObserverTests() { return undefined; }\n`;
+    let writeCount = 0;
+    let scopedRuns = 0;
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => frontmatterDiff,
+        untrackedFiles: async () => [],
+        registeredPromptPaths: registeredCritic,
+        readFile: seamReadFile(bumpedSource, mapSource),
+        writeFile: async () => {
+          writeCount += 1;
+        },
+        runScopedTests: async () => {
+          scopedRuns += 1;
+          return true;
+        },
+      },
+    );
+    expect(result.kind).toBe("pass");
+    expect(writeCount).toBe(0);
+    expect(scopedRuns).toBe(1);
+  });
+
   it("accepts a changed registered prompt only when a scoped test observes its rendered output", async () => {
     let scopedRuns = 0;
     let prompt = criticSource;
@@ -535,15 +571,17 @@ index be281d02..00000000
     ];
     const uncoveredPath = promptPaths[5];
     if (uncoveredPath === undefined) throw new Error("expected six prompt paths");
+    const bodyLine = "The diff comes from git merge-base <base> HEAD.";
+    const changedBodyLine = `${bodyLine} (changed)`;
     const diff = promptPaths
       .map(
         (path) => `diff --git a/${path} b/${path}
 index 1234567..abcdefg 100644
 --- a/${path}
 +++ b/${path}
-@@ -1 +1 @@
--old output
-+new output
+@@ -9,1 +9,1 @@
+-${bodyLine}
++${changedBodyLine}
 `,
       )
       .join("");
@@ -554,7 +592,7 @@ index 1234567..abcdefg 100644
         gitDiff: async () => diff,
         untrackedFiles: async () => [],
         registeredPromptPaths: async () => promptPaths,
-        readFile: seamReadFile(criticSource),
+        readFile: seamReadFile(criticSource.replace(bodyLine, changedBodyLine)),
         writeFile: async () => {},
         runScopedTests: async () => {
           scopedRuns += 1;
@@ -829,16 +867,18 @@ index 1234567..abcdefg 100644
   });
 
   it("invokes only that prompt's render-observer test file(s) per changed prompt", async () => {
+    const bodyLine = "The diff comes from git merge-base <base> HEAD.";
+    const changedBodyLine = `${bodyLine} (mutated)`;
     const diff = `diff --git a/prompts/implement/review-critic.md b/prompts/implement/review-critic.md
 index f424d7da..be281d02 100644
 --- a/prompts/implement/review-critic.md
 +++ b/prompts/implement/review-critic.md
-@@ -22,1 +22,1 @@
--The merge-base branch diff.
-+The merge-base branch diff (mutated).
+@@ -9,1 +9,1 @@
+-${bodyLine}
++${changedBodyLine}
 `;
     const invoked: string[][] = [];
-    let prompt = criticSource.replace("merge-base branch diff", "merge-base branch diff (mutated)");
+    let prompt = criticSource.replace(bodyLine, changedBodyLine);
 
     await verifyDiffDerivedMutations(
       { worktreePath: "/test/path", runBase: "main" },
@@ -2641,6 +2681,29 @@ index 1234567..abcdefg 100644
   });
 });
 
+describe("classifyRenderCoverageMode", () => {
+  const samplePrompt = `---
+id: x
+revision: 1
+---
+Body line.
+`;
+
+  it("routes metadata-only diffs to observer-only and body adds to sentinel", () => {
+    expect(classifyRenderCoverageMode(samplePrompt, [])).toBe("observer-only");
+    expect(
+      classifyRenderCoverageMode(samplePrompt, [
+        { type: "add", lineNumber: 3, content: "revision: 2", file: "prompts/x.md" },
+      ]),
+    ).toBe("observer-only");
+    expect(
+      classifyRenderCoverageMode(samplePrompt, [
+        { type: "add", lineNumber: 5, content: "Body line changed.", file: "prompts/x.md" },
+      ]),
+    ).toBe("sentinel");
+  });
+});
+
 describe("worktree render-observer map resolution", () => {
   it("extractRenderObserverMapFromSource parses a string-literal-keyed observer map", () => {
     const src = 'const RENDER_OBSERVER_TESTS = { "prompts/write/x.md": ["v2/src/execution/x.test.ts"] };';
@@ -2834,6 +2897,51 @@ The diff comes from git merge-base <base> HEAD.
 
     const result = await verifyDiffDerivedMutations({ worktreePath: dir, runBase: baseSha });
     expect(result).toEqual(missingRenderCoverageAtPrompt(branchPromptPath));
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("passes render-coverage for in-file body-deletion-only diffs via unmutated observer verification", async () => {
+    const dedupPromptPath = "prompts/write/dedup-body-lines.md";
+    const keptBodyLine = "Keep this surviving body line.";
+    const deletedBodyLine = "Delete this redundant body line.";
+    const preDeletionSource = `---
+id: write.prompt.dedup.body
+behavior: write
+kind: step
+revision: 1
+placeholders: []
+---
+${keptBodyLine}
+${deletedBodyLine}
+`;
+    const postDeletionSource = `---
+id: write.prompt.dedup.body
+behavior: write
+kind: step
+revision: 1
+placeholders: []
+---
+${keptBodyLine}
+`;
+    const dir = initWorktreeRepo();
+    const observerPath = "shared/prompts/dedup-body-lines.test.ts";
+    mkdirSync(join(dir, "prompts", "write"), { recursive: true });
+    mkdirSync(join(dir, "shared", "prompts"), { recursive: true });
+    mkdirSync(join(dir, observerPath.split("/").slice(0, -1).join("/")), { recursive: true });
+    writeFileSync(join(dir, dedupPromptPath), preDeletionSource);
+    writeFileSync(join(dir, "prompts", "registry.txt"), "write/dedup-body-lines.md\n");
+    writeFileSync(
+      join(dir, "shared/prompts/render-observer-tests.ts"),
+      renderObserverMapSource({ [dedupPromptPath]: [observerPath] }),
+    );
+    writeFileSync(join(dir, observerPath), branchObserverTestSource(dedupPromptPath, keptBodyLine));
+    const baseSha = commitWorktreeBase(dir);
+    writeFileSync(join(dir, dedupPromptPath), postDeletionSource);
+    execFileSync("git", ["commit", "-aq", "-m", "dedup body lines"], { cwd: dir });
+
+    const result = await verifyDiffDerivedMutations({ worktreePath: dir, runBase: baseSha });
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(0);
     rmSync(dir, { recursive: true, force: true });
   });
 

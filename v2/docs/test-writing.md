@@ -15,7 +15,7 @@ These tests are the default because they are:
 
 ## Prompt changes
 
-When a registered `prompts/**` artifact changes, its scoped test must render the prompt through its production renderer and assert the rendered output. Reading or asserting raw template text does not cover the change and ready finalization fails with `missing-render-coverage`.
+When a registered `prompts/**` artifact changes, its scoped test must render the prompt through its production renderer and assert the rendered output. Reading or asserting raw template text does not cover the change and ready finalization fails with `missing-render-coverage`. Frontmatter-only metadata bumps and in-file body-deletion-only diffs (zero body `add` lines) are exempt from sentinel body-line mutation; mapped observers must pass on unmutated post-change content instead — see [write-behavior.md § Diff-derived mutation verification](./write-behavior.md#diff-derived-mutation-verification). Body add/change still requires observers that fail under the sentinel mutation.
 
 ## Real-process / real-clock tests (marked exception)
 

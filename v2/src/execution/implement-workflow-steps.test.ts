@@ -593,11 +593,9 @@ describe("buildImplementWorkflowSteps", () => {
     // @mutate v2/src/execution/implement-workflow-steps.ts "resolvedInput.externalPlanSpec === true" -> "resolvedInput.externalPlanSpec !== true"
     const projectKey = "Org/Repo";
     const planName = "feature";
-    const { root, specReadRoot, indexPath, configPath, registry } = writeRegisteredExternalPlanFixture(
-      projectKey,
-      planName,
-      { git: false },
-    );
+    const { root, specReadRoot, indexPath, registry } = writeRegisteredExternalPlanFixture(projectKey, planName, {
+      git: false,
+    });
     const machineConfigPath = writeJson("config.json", {
       agents: ["claude"],
       projects: { [projectKey]: { root, git: false } },

@@ -1568,6 +1568,7 @@ function buildWorkflowSnapshot(
   freshDispatch?: boolean,
 ): WorkflowSnapshot {
   const requestedInvocationId = steps.find(isWriteStep)?.workflowInvocationId;
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: linear per-step mapping resolving durable/write-step identity; extraction would split the 1:1 step-to-snapshot mapping across helpers and obscure it
   const authoredSteps = steps.map((step) => ({
     stepId: step.stepId,
     role: step.behavior === "write" ? step.role : "",

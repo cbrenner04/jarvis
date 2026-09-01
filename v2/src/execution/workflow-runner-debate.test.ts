@@ -569,7 +569,7 @@ describe("executeWorkflow linked implement routing", () => {
         branchName,
         specPath: indexPath,
         expectedArtifactPath: indexPath,
-        createBinding: createBindingFactory(async ({ cwd }) => {
+        createBinding: createBindingFactory(async () => {
           writeFileSync(join(specDir, "00-work.md"), "# Sub\n\n## Acceptance criteria\n\n- [x] criterion\n", "utf8");
           return { kind: "ok", stdout: "done", stderr: "" } as const;
         }),

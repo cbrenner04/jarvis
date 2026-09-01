@@ -24,7 +24,7 @@ describe("plan telemetry + planSummary", () => {
 
       phases.forEach(record);
       // @ts-expect-error name-only is a retired producer phase
-      const retiredPhase: PlanTelemetryPhase = "name-only";
+      const _retiredPhase: PlanTelemetryPhase = "name-only";
       const retainedCompatibilityPhases = ["intent", "refine"] as const satisfies readonly PlanTelemetryPhase[];
 
       const rows = readFileSync(telemetryPath, "utf8")

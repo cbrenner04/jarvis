@@ -10,11 +10,7 @@ name: v1-implement-prompt-id-migration
 
 ## Prerequisites
 
-- Fragment attachment is declared in artifact frontmatter (`behavior:`, `add:`, `remove:`) and honored by one assembler — rules out mislabeled silent attachment.
-- Plan and implement review-role prompts use the intent-family terse skeleton — rules out re-editing those files during implement id migration.
-- Implement write-step body and rules are registered as `implement.prompt.body` and `implement.rules` with implement vocabulary (no "Patch Mode") — rules out v1 wiring against retired patch ids.
-- Generic implement rules artifact is target-repo-neutral; jarvis-repo-specific tool commands live in injected repo guidance — rules out shipping bun-specific recovery rules to non-bun targets.
-- No registered artifact's `behavior:` silently attaches fragments its step did not explicitly opt into; intent-split fragment set is declared via explicit `add:` — rules out inherited plan-fragment attachment from a mislabeled behavior.
+- `implement.prompt.body` and `implement.rules` are registered; `patch.prompt.body` and `patch.rules` are absent from the registry.
 
 ## Problem
 
@@ -38,4 +34,3 @@ name: v1-implement-prompt-id-migration
 ## Documentation updates
 
 - `v1/docs/prompt-governance.md` — record v1 patch-mode resolution of implement-owned ids.
-- `v2/docs/v1-behaviors.md` — record v1 id migration alongside implement-owned artifact ownership.

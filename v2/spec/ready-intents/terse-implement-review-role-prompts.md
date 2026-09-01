@@ -22,11 +22,9 @@ Implement debate and light review roles (`prompts/implement/review-*.md`) are by
 - [ ] `shared/prompts/review-implement.test.ts` and `shared/prompts/review-prompt-divergence.test.ts` stay green with unchanged `implement.prompt.review.*` placeholder declarations.
 - [ ] Rewritten implement adjudicator and critic bodies still contain self-contained-verdict, empty-verdict, and read-only boundary contract substrings; implement adversary, advocate, and adjudicator still carry merge-base unified-diff prose and not summary-only patch wording; regressions fail against the pre-fix prompts.
 - [ ] `shared/prompts/review-prompt-divergence.test.ts` still proves patch and implement registry bodies diverge on branch-diff prose; removing an assertion fails against the pre-fix test.
-- [ ] A growth-budget test records each implement review role's pre-rewrite body length and asserts the rewritten body is strictly smaller; it fails when a body is not shortened.
+- [ ] `shared/prompts/review-implement-growth-budget.test.ts` test `implement review role body growth stays within budget` records each role's pre-rewrite body length and fails against the pre-fix prompts when a body is not shortened.
 - [ ] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
 ## Prerequisites
-
-- Plan review role prompts are rewritten in intent-family terse style with load-bearing contracts preserved.

@@ -25,7 +25,7 @@ Unsplit rationale: Stripping duplicate authoring rules from `plan.prompt.draft` 
 
 - Plan-draft and review-actuator Rules sections keep only step mechanics: write boundaries, no commit/push, no tests, blocker contract, frontmatter preservation, subspec/index linkage, and verdict-application mechanics.
 - Each authoring norm appears once in the assembled prompt, sourced from injected `SPEC_GUIDANCE`; removed prompt bullets do not survive in template bodies or appended step-rules sections.
-- Where a removed prompt bullet and the agent-core copy disagreed in wording, the agent-core wording is authoritative and the delta is inventoried in the spec decision ledger.
+- Where a removed prompt bullet and the agent-core copy disagreed in wording, the agent-core wording is authoritative.
 - Plan-draft normalizer and validator behavior stay unchanged.
 
 ## Decisions
@@ -33,15 +33,20 @@ Unsplit rationale: Stripping duplicate authoring rules from `plan.prompt.draft` 
 - Own authoring rules only in injected agent-core guidance; rules out retaining parallel normative copies in prompt Rules sections.
 - Sequence after the agent-core injection split and guard-inversion retirement; rules out deduping into guidance files that were about to be split or deleting prose that checkpoint retirement already removed.
 - Drop guard-inversion single-occurrence pins; rules out reintroducing retired checkpoint-authoring contract phrases solely to satisfy a stale seed bullet.
-- Pin dedup with render tests that count contract phrases on the fully assembled plan-draft prompt (template plus injected `SPEC_GUIDANCE`); rules out body-only substring checks that miss duplicate injection zones.
+- Pin dedup with render tests that count contract phrases on the fully assembled plan-draft and review-actuator prompts (template plus injected `SPEC_GUIDANCE`); rules out body-only substring checks that miss duplicate injection zones.
 - Preserve normalizer and validator behavior by citing existing plan workflow tests; rules out paraphrasing unchanged behavior in new AC prose.
+- Plan draft inventories wording deltas for removed Rules bullets that disagreed with agent-core in the spec decision ledger; rules out treating that inventory as an implement-time AC.
 
 ## Acceptance criteria
 
 - [ ] `shared/prompts/plan-draft.test.ts` asserts the fully assembled plan-draft prompt contains the failing-test contract phrase `fails against the pre-fix code and passes after the change` exactly once; it fails against the pre-fix duplicate Rules copy.
 - [ ] The same test asserts `verifiable from the implement worktree without network or GitHub access` appears exactly once on the assembled plan-draft prompt; it fails against the pre-fix duplicate Rules copy.
+- [ ] The same test asserts `self-referential deliverables` appears exactly once on the assembled plan-draft prompt; it fails against the pre-fix duplicate Rules copy.
+- [ ] The same test asserts the assembled plan-draft prompt does not contain `observable behavior, not implementation structure`; it fails against the pre-fix duplicate Rules paraphrase.
 - [ ] `shared/prompts/plan-draft.test.ts` `renders named pre-fix failing-test guidance without checkpoint authoring` stays green.
-- [ ] Existing plan workflow tests covering plan-draft normalization and draft-contract validation stay green (behavior unchanged by the dedup).
+- [ ] A `shared/prompts/review-plan.ts` render test asserts the fully assembled review-actuator prompt contains `when structure is the contract` exactly once; it fails against the pre-fix duplicate Rules copy.
+- [ ] `v2/src/execution/write.test.ts` plan-draft normalization and shape-contract tests stay green (behavior unchanged by the dedup).
+- [ ] `v2/src/execution/write-loop.test.ts` plan-draft normalizer contract_miss tests stay green (behavior unchanged by the dedup).
 - [ ] `bun run typecheck`, `bun run test:v1`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

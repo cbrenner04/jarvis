@@ -601,50 +601,34 @@ export function resolveSiblingKillingTests(
   return matches.map((entry) => (dir ? `${dir}/${entry}` : entry));
 }
 
-function promptBodyStartLineNumber(content: string): number | null {
-  const delimiterIndex = content.indexOf("\n---\n");
-  if (delimiterIndex < 0) return null;
-  return content.slice(0, delimiterIndex + 5).split("\n").length;
+function promptBodyBounds(content: string): { bodyStart: number; bodyStartLine: number } | null {
+  const bodyStart = content.indexOf("\n---\n");
+  if (bodyStart < 0) return null;
+  return { bodyStart, bodyStartLine: content.slice(0, bodyStart + 5).split("\n").length };
 }
 
-function bodyAddLines(changedLines: ChangedLine[], bodyStartLine: number): ChangedLine[] {
-  return changedLines.filter(
+function hasBodyAddLines(changedLines: ChangedLine[], bodyStartLine: number): boolean {
+  return changedLines.some(
     (line) => line.type === "add" && line.lineNumber >= bodyStartLine && line.content.trim().length > 0,
   );
 }
 
-type RenderCoverageMode = "sentinel" | "observer-only";
-
-export function classifyRenderCoverageMode(
-  postChangeContent: string,
-  changedLines: ChangedLine[],
-): RenderCoverageMode | null {
-  const bodyStartLine = promptBodyStartLineNumber(postChangeContent);
-  if (bodyStartLine === null) return null;
-  if (bodyAddLines(changedLines, bodyStartLine).length > 0) return "sentinel";
-  return "observer-only";
-}
-
 function mutateRenderedPrompt(content: string, changedLines: ChangedLine[]): string | null {
-  const bodyStart = content.indexOf("\n---\n");
-  if (bodyStart < 0) return null;
-  const body = content.slice(bodyStart + 5);
-  const bodyStartLine = promptBodyStartLineNumber(content);
-  if (bodyStartLine === null) return null;
-  const changedBody = bodyAddLines(changedLines, bodyStartLine)
-    .filter((line) => body.includes(line.content))
+  const bounds = promptBodyBounds(content);
+  if (bounds === null) return null;
+  const body = content.slice(bounds.bodyStart + 5);
+  const changedBody = changedLines
+    .filter(
+      (line) =>
+        line.type === "add" &&
+        line.lineNumber >= bounds.bodyStartLine &&
+        line.content.trim().length > 0 &&
+        body.includes(line.content),
+    )
     .map((line) => line.content);
   const original = changedBody[0];
   if (original === undefined) return null;
-  return `${content.slice(0, bodyStart + 5)}${body.replace(original, "__JARVIS_PROMPT_RENDER_COVERAGE_MUTATION__")}`;
-}
-
-async function verifyPromptObserverOnly(
-  input: DiffDerivedMutationVerifierInput,
-  runScopedTests: RunScopedTests,
-  observerTests: readonly string[],
-): Promise<boolean> {
-  return runScopedTests(input.worktreePath, [...observerTests]);
+  return `${content.slice(0, bounds.bodyStart + 5)}${body.replace(original, "__JARVIS_PROMPT_RENDER_COVERAGE_MUTATION__")}`;
 }
 
 class UnappliableMutationError extends Error {
@@ -727,6 +711,10 @@ async function verifyPromptRenderCoverage(
     original = await readFile(filePath);
   } catch {
     return false;
+  }
+  const bounds = promptBodyBounds(original);
+  if (bounds !== null && !hasBodyAddLines(changedLines, bounds.bodyStartLine)) {
+    return await runScopedTests(input.worktreePath, [...observerTests]);
   }
   const mutated = mutateRenderedPrompt(original, changedLines);
   if (mutated === null) return false;
@@ -903,23 +891,9 @@ async function verifyChangedPrompts(
     for (const observerPath of observerTests) {
       if (!observerPathConfinedToWorktree(input.worktreePath, observerPath)) return missingRenderCoverage(promptPath);
     }
-    let original: string;
-    try {
-      original = await readFile(`${input.worktreePath}/${promptPath}`);
-    } catch {
-      return missingRenderCoverage(promptPath);
-    }
-    const changedLines = changedLinesByFile.get(promptPath) ?? [];
-    const mode = classifyRenderCoverageMode(original, changedLines);
-    if (mode === "observer-only") {
-      if (!(await verifyPromptObserverOnly(input, runScopedTests, observerTests))) {
-        return missingRenderCoverage(promptPath);
-      }
-      continue;
-    }
     const renderedOutputObserved = await verifyPromptRenderCoverage(
       promptPath,
-      changedLines,
+      changedLinesByFile.get(promptPath) ?? [],
       input,
       readFile,
       writeFile,

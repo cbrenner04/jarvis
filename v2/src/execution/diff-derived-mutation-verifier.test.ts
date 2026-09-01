@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   type DiffDerivedMutationVerifierInput,
-  classifyRenderCoverageMode,
   extractRenderObserverMapFromSource,
   MAX_CONCURRENT_VERIFIER_TEST_RUNS,
   MAX_INSPECTED_MUTATIONS,
@@ -2681,29 +2680,6 @@ index 1234567..abcdefg 100644
   });
 });
 
-describe("classifyRenderCoverageMode", () => {
-  const samplePrompt = `---
-id: x
-revision: 1
----
-Body line.
-`;
-
-  it("routes metadata-only diffs to observer-only and body adds to sentinel", () => {
-    expect(classifyRenderCoverageMode(samplePrompt, [])).toBe("observer-only");
-    expect(
-      classifyRenderCoverageMode(samplePrompt, [
-        { type: "add", lineNumber: 3, content: "revision: 2", file: "prompts/x.md" },
-      ]),
-    ).toBe("observer-only");
-    expect(
-      classifyRenderCoverageMode(samplePrompt, [
-        { type: "add", lineNumber: 5, content: "Body line changed.", file: "prompts/x.md" },
-      ]),
-    ).toBe("sentinel");
-  });
-});
-
 describe("worktree render-observer map resolution", () => {
   it("extractRenderObserverMapFromSource parses a string-literal-keyed observer map", () => {
     const src = 'const RENDER_OBSERVER_TESTS = { "prompts/write/x.md": ["v2/src/execution/x.test.ts"] };';
@@ -2754,6 +2730,23 @@ index 1234567..abcdefg 100644
     return dir;
   }
 
+  function writePromptFixture(
+    dir: string,
+    promptPath: string,
+    observerRelativePath: string,
+    mapEntries: Record<string, readonly string[]>,
+    observerSource: string,
+    promptSource: string,
+  ): void {
+    mkdirSync(join(dir, promptPath.split("/").slice(0, -1).join("/")), { recursive: true });
+    mkdirSync(join(dir, "shared", "prompts"), { recursive: true });
+    mkdirSync(join(dir, observerRelativePath.split("/").slice(0, -1).join("/")), { recursive: true });
+    writeFileSync(join(dir, promptPath), promptSource);
+    writeFileSync(join(dir, "prompts", "registry.txt"), `${promptPath.slice("prompts/".length)}\n`);
+    writeFileSync(join(dir, "shared/prompts/render-observer-tests.ts"), renderObserverMapSource(mapEntries));
+    writeFileSync(join(dir, observerRelativePath), observerSource);
+  }
+
   function writeBranchPromptFixture(
     dir: string,
     observerRelativePath: string,
@@ -2761,13 +2754,7 @@ index 1234567..abcdefg 100644
     observerSource: string,
     promptSource = branchPromptSource,
   ): void {
-    mkdirSync(join(dir, "prompts", "write"), { recursive: true });
-    mkdirSync(join(dir, "shared", "prompts"), { recursive: true });
-    mkdirSync(join(dir, observerRelativePath.split("/").slice(0, -1).join("/")), { recursive: true });
-    writeFileSync(join(dir, branchPromptPath), promptSource);
-    writeFileSync(join(dir, "prompts", "registry.txt"), "write/branch-only-prompt.md\n");
-    writeFileSync(join(dir, "shared/prompts/render-observer-tests.ts"), renderObserverMapSource(mapEntries));
-    writeFileSync(join(dir, observerRelativePath), observerSource);
+    writePromptFixture(dir, branchPromptPath, observerRelativePath, mapEntries, observerSource, promptSource);
   }
 
   function commitWorktreeBase(dir: string): string {
@@ -2925,16 +2912,14 @@ ${keptBodyLine}
 `;
     const dir = initWorktreeRepo();
     const observerPath = "shared/prompts/dedup-body-lines.test.ts";
-    mkdirSync(join(dir, "prompts", "write"), { recursive: true });
-    mkdirSync(join(dir, "shared", "prompts"), { recursive: true });
-    mkdirSync(join(dir, observerPath.split("/").slice(0, -1).join("/")), { recursive: true });
-    writeFileSync(join(dir, dedupPromptPath), preDeletionSource);
-    writeFileSync(join(dir, "prompts", "registry.txt"), "write/dedup-body-lines.md\n");
-    writeFileSync(
-      join(dir, "shared/prompts/render-observer-tests.ts"),
-      renderObserverMapSource({ [dedupPromptPath]: [observerPath] }),
+    writePromptFixture(
+      dir,
+      dedupPromptPath,
+      observerPath,
+      { [dedupPromptPath]: [observerPath] },
+      branchObserverTestSource(dedupPromptPath, keptBodyLine),
+      preDeletionSource,
     );
-    writeFileSync(join(dir, observerPath), branchObserverTestSource(dedupPromptPath, keptBodyLine));
     const baseSha = commitWorktreeBase(dir);
     writeFileSync(join(dir, dedupPromptPath), postDeletionSource);
     execFileSync("git", ["commit", "-aq", "-m", "dedup body lines"], { cwd: dir });

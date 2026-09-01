@@ -12,12 +12,13 @@ The hidden aliases `intent-reviewed`, `plan-reviewed`, and `plan-reviewed-light`
 
 ## Behavior
 
-`run workflow intent-reviewed`, `run workflow plan-reviewed`, and `run workflow plan-reviewed-light` resolve to unknown-workflow errors at CLI admission. Remove `LEGACY_WORKFLOW_ALIASES`, alias resolution, deprecation stderr, and related types from workflow CLI admission (`workflow.ts`, `workflow-args.ts`).
+`run workflow intent-reviewed`, `run workflow plan-reviewed`, and `run workflow plan-reviewed-light` resolve to unknown-workflow errors at CLI admission only. Remove `LEGACY_WORKFLOW_ALIASES`, alias resolution, deprecation stderr, and related types from workflow CLI admission (`workflow.ts`, `workflow-args.ts`). Internal pipeline preset names in `workflow-presets.ts` and daemon stage resolution for those presets are unchanged.
 
 ## Decision ledger
 
-- Delete aliases without a sunset window; rules out keeping deprecation plumbing for a single-operator repo with no external consumers.
+- Delete CLI aliases without a sunset window; rules out keeping deprecation plumbing for a single-operator repo with no external consumers.
 - Resolve alias strings as unknown workflows at CLI admission; rules out silently forwarding to canonical names with injected review flags.
+- Keep internal preset resolution for `intent-reviewed`, `plan-reviewed`, and `plan-reviewed-light`; rules out removing `workflow-presets.ts` entries or conflating pipeline preset names with retired CLI admission.
 
 ## Acceptance criteria
 
@@ -28,4 +29,4 @@ The hidden aliases `intent-reviewed`, `plan-reviewed`, and `plan-reviewed-light`
 
 ## Documentation updates
 
-- `v2/docs/v1-behaviors.md` — record that legacy reviewed alias strings are rejected at CLI admission.
+- `v2/docs/v1-behaviors.md` — minimal note that legacy reviewed alias strings are rejected at CLI admission; operator-doc alias prose deferred to `align-docs-after-write-retirement`.

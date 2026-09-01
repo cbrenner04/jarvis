@@ -12,7 +12,7 @@ name: retire-jarvis-write-command
 
 ## Behavior
 
-`jarvis write` is unknown at top-level dispatch and absent from `jarvis help`. Remove the write command handler, command-tree entry, `CliDeps.executeWriteLoop`, `writeStdoutJson`, the write parity CLI path, and `write.test.ts`. Keep `parseWriteCliInput` and the shared write-flag parser consumed by `jarvis run start`.
+`jarvis write` is unknown at top-level dispatch and absent from `jarvis help`. Remove the write command handler, command-tree entry, `v2/src/cli/usage.ts` write usage string, help-tree write node, `CliDeps.executeWriteLoop`, `writeStdoutJson`, the write parity CLI path, and `v2/src/commands/write.test.ts`. Keep `parseWriteCliInput`, the shared write-flag parser consumed by `jarvis run start`, and `v2/src/execution/write.test.ts`.
 
 ## Decision ledger
 
@@ -28,4 +28,4 @@ name: retire-jarvis-write-command
 
 ## Documentation updates
 
-- `v2/docs/v1-behaviors.md` — record removal of the `jarvis write` top-level command; `run start` and workflow write steps remain.
+- `v2/docs/v1-behaviors.md` — minimal note that the `jarvis write` top-level command is removed; `run start` and workflow write steps remain; comprehensive catalog sweep deferred to `align-docs-after-write-retirement`.

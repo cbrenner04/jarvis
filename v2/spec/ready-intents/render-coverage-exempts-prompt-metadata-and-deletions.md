@@ -35,7 +35,7 @@ Unsplit rationale: Metadata/deletion exemptions, sentinel-mutation enforcement f
 
 - [ ] `diff-derived-mutation-verifier.test.ts` proves a registered-prompt diff that only bumps frontmatter `revision` passes render-coverage (no `missing-render-coverage`); fails against the pre-fix verifier.
 - [ ] `diff-derived-mutation-verifier.test.ts` proves a registered-prompt diff that only deletes body lines passes render-coverage when the mapped observer entry is present and green; fails against the pre-fix verifier.
-- [ ] `diff-derived-mutation-verifier.test.ts` proves a registered-prompt diff that adds or changes a body line still returns `missing-render-coverage` when the mapped observer test does not catch the sentinel mutation.
+- [ ] `diff-derived-mutation-verifier.test.ts` case `returns missing-render-coverage when the mapped observer misses the sentinel mutation` stays green (reachable on main; body-line sentinel enforcement unchanged).
 - [ ] `bun run typecheck` passes.
 - [ ] `bun run test:v2` passes.
 

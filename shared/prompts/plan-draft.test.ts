@@ -11,17 +11,33 @@ const HUMAN_ONLY_STEP_RULES =
 const SPEC_GUIDANCE = readSpecGuidance();
 
 describe("buildPlanDraftPrompt", () => {
+  test("injects authoring norms once via SPEC_GUIDANCE without duplicate draft Rules copies", () => {
+    const prompt = buildPlanDraftPrompt({
+      name: "my-plan",
+      intent: "do thing",
+      specGuidance: SPEC_GUIDANCE,
+    });
+
+    for (const phrase of [
+      "fails against the pre-fix code and passes after the change",
+      "without network or GitHub access",
+      "self-referential deliverables",
+    ]) {
+      expect(prompt.split(phrase).length - 1).toBe(1);
+    }
+    expect(prompt).not.toContain("observable behavior, not implementation structure");
+  });
+
   test("omits runtime suffix sections when specDir and stepRules are absent", () => {
     const prompt = buildPlanDraftPrompt({
       name: "my-plan",
       intent: "do thing",
-      specGuidance: "guidance",
+      specGuidance: SPEC_GUIDANCE,
     });
 
     expect(prompt).not.toContain("## File output");
     expect(prompt).not.toContain("## Step completion");
     expect(PLAN_DRAFT_PROMPT_ID).toBe("plan.prompt.draft");
-    expect(prompt).toContain("fails against the pre-fix code and passes after the change");
     expect(prompt).not.toContain("each added or modified guard is inverted");
   });
 

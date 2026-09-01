@@ -25,12 +25,6 @@ name: prompt-template-variants
 - Pin variant ids `flat-layout` and `nested-target-dir` for plan-review and plan-draft spec-path substitution; rules out deferring the catalog to `eliminate-prompt-string-surgery`.
 - Missing variant or section anchors are hard render errors; rules out silent no-op when prompt prose drifts.
 
-## Acceptance criteria
-
-- [ ] `shared/prompts/render.test.ts` — declared variant referencing a missing template anchor throws at render time; fails against the pre-fix silent no-op behavior.
-- [ ] `shared/prompts/render.test.ts` — optional section with an empty bound placeholder value is omitted from rendered output while required sections still render.
-- [ ] `bun run typecheck` and `bun run test:shared` pass.
-
 ## Documentation updates
 
 - `v2/docs/prompts.md` — `variants` and `optionalSections` frontmatter contract and render-time anchor errors.

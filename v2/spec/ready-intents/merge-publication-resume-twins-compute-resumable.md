@@ -8,6 +8,8 @@ name: merge-publication-resume-twins-compute-resumable
 
 Execution loop — intent-finalization and review-mutation publication resume settlement in `v2/src/execution/`
 
+Unsplit rationale: Merging the twin settlement helpers and correcting intent-finalization `resumable` projection are one publication-resume settlement contract on `workflow-runner-resume.ts`; no other module-boundary surface owns either twin.
+
 ## Problem
 
 Intent-finalization and review-mutation publication resume are copy-paste twins; `settleIntentResumeFailure` hardcodes `loop_finished.resumable: true` while the review-mutation twin computes it from admitted outcome kinds, so non-resumable intent-finalization failures incorrectly advertise retryability.
@@ -37,4 +39,4 @@ One parameterized publication-resume settlement helper serves both intent-finali
 ## Prerequisites
 
 - Review-debate step landing orchestration lives in a sibling module wired from workflow-runner step dispatch.
-- Plan recovery, intent-finalization resume, and review-mutation resume live in sibling module(s) with co-located tests and a recorded inventory match to the pre-extraction baseline.
+- Plan recovery, intent-finalization resume, and review-mutation resume live in `workflow-runner-resume.ts` with co-located tests and a recorded inventory match to the pre-extraction baseline.

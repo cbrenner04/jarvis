@@ -36,7 +36,6 @@ import {
 } from "./workflow-runner.test-support.ts";
 import {
   executeWorkflow,
-  INTENT_FINALIZATION_RESUMABLE_OUTCOME_KINDS,
   type ReviewDebateWorkflowStep,
   type ReviewWorkflowStep,
   resolveIntentFinalizationResumeContext,
@@ -464,9 +463,9 @@ describe("executeWorkflow review dispatch", () => {
       expect(terminal).toMatchObject({
         kind: "loop_finished",
         loopOutcomeKind: "invocation_failure",
-        resumable: false,
+        resumable: true,
       });
-      // @mutate v2/src/execution/workflow-runner.ts "INTENT_FINALIZATION_RESUMABLE_OUTCOME_KINDS.has(loopOutcomeKind)" -> "true"
+      // @mutate v2/src/execution/workflow-runner.ts "intentFinalizationSettlementResumable(store, context.runId)" -> "true"
     });
   });
 
@@ -503,30 +502,70 @@ describe("executeWorkflow review dispatch", () => {
     });
   });
 
-  test("INTENT_FINALIZATION_RESUMABLE_OUTCOME_KINDS agrees with resolveIntentFinalizationResumeContext admission", async () => {
-    expect(INTENT_FINALIZATION_RESUMABLE_OUTCOME_KINDS.has("landing_failed")).toBe(true);
-    expect(INTENT_FINALIZATION_RESUMABLE_OUTCOME_KINDS.has("completion_commit_failed")).toBe(false);
-    expect(INTENT_FINALIZATION_RESUMABLE_OUTCOME_KINDS.has("invocation_failure")).toBe(false);
+  test("a settled intent-finalization resume failure emits a loop_finished whose resumable field agrees with resolveIntentFinalizationResumeContext admission", async () => {
+    const admissibleWorkspace = mkdtempSync(join(tmpdir(), "intent-finalize-settle-agrees-admit-"));
+    mkdirSync(join(admissibleWorkspace, ".jarvis-intent-stage"), { recursive: true });
+    writeLintCleanIntentStageFile(join(admissibleWorkspace, ".jarvis-intent-stage"), "example.md");
+    mkdirSync(join(admissibleWorkspace, "ready-intents"), { recursive: true });
 
-    const workspace = mkdtempSync(join(tmpdir(), "intent-resumable-kinds-agree-"));
-    mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
-    writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"), "example.md");
-    mkdirSync(join(workspace, "ready-intents"), { recursive: true });
+    const inadmissibleWorkspace = mkdtempSync(join(tmpdir(), "intent-finalize-settle-agrees-refuse-"));
+    mkdirSync(join(inadmissibleWorkspace, ".jarvis-intent-stage"), { recursive: true });
+    writeLintCleanIntentStageFile(join(inadmissibleWorkspace, ".jarvis-intent-stage"), "example.md");
+    mkdirSync(join(inadmissibleWorkspace, "ready-intents"), { recursive: true });
 
     try {
       await withStateStore(async (store) => {
-        for (const loopOutcomeKind of INTENT_FINALIZATION_RESUMABLE_OUTCOME_KINDS) {
-          const reviewRunId = seedFailedIntentReviewResumeRun(store, workspace, {
-            branch: `intent/resumable-${loopOutcomeKind}`,
-            invocationId: `intent-resumable-${loopOutcomeKind}`,
-          });
-          const run = store.loadRun(reviewRunId);
-          if (!run) throw new Error("expected review run");
-          expect(resolveIntentFinalizationResumeContext(run, store).ok).toBe(true);
-        }
+        const admissibleRunId = seedFailedIntentReviewResumeRun(store, admissibleWorkspace, {
+          branch: "intent/settle-agrees-admit",
+          invocationId: "intent-settle-agrees-admit",
+          intentAgents: [],
+        });
+        const admissibleRun = store.loadRun(admissibleRunId);
+        if (!admissibleRun) throw new Error("expected review run");
+        const admissibleLogSink = new TestLogSink();
+        const admissibleOutcome = await resumePopulatedIntentPublication(admissibleRun, store, {
+          logSink: admissibleLogSink,
+        });
+        expect(admissibleOutcome).toMatchObject({ ok: false });
+        const admissibleTerminal = admissibleLogSink
+          .getEventsForRun(admissibleRunId)
+          .find((event) => event.kind === "loop_finished");
+        if (admissibleTerminal?.kind !== "loop_finished") throw new Error("expected a settled loop_finished");
+        expect(admissibleTerminal.loopOutcomeKind).toBe("invocation_failure");
+        const admissibleSettledRun = store.loadRun(admissibleRunId);
+        if (!admissibleSettledRun) throw new Error("expected settled review run");
+        const admissibleResolved = resolveIntentFinalizationResumeContext(admissibleSettledRun, store);
+        expect(admissibleTerminal.resumable).toBe(admissibleResolved.ok);
+        expect(admissibleTerminal.resumable).toBe(true);
+
+        const inadmissibleRunId = seedFailedIntentReviewResumeRun(store, inadmissibleWorkspace, {
+          branch: "intent/settle-agrees-refuse",
+          invocationId: "intent-settle-agrees-refuse",
+        });
+        const inadmissibleRun = store.loadRun(inadmissibleRunId);
+        if (!inadmissibleRun) throw new Error("expected review run");
+        const inadmissibleLogSink = new TestLogSink();
+        const inadmissibleOutcome = await resumePopulatedIntentPublication(inadmissibleRun, store, {
+          logSink: inadmissibleLogSink,
+          completionCommitter: async () => {
+            throw new Error("commit exploded");
+          },
+        });
+        expect(inadmissibleOutcome).toMatchObject({ ok: false, message: "commit exploded" });
+        const inadmissibleTerminal = inadmissibleLogSink
+          .getEventsForRun(inadmissibleRunId)
+          .find((event) => event.kind === "loop_finished");
+        if (inadmissibleTerminal?.kind !== "loop_finished") throw new Error("expected a settled loop_finished");
+        expect(inadmissibleTerminal.loopOutcomeKind).toBe("completion_commit_failed");
+        const inadmissibleSettledRun = store.loadRun(inadmissibleRunId);
+        if (!inadmissibleSettledRun) throw new Error("expected settled review run");
+        const inadmissibleResolved = resolveIntentFinalizationResumeContext(inadmissibleSettledRun, store);
+        expect(inadmissibleTerminal.resumable).toBe(inadmissibleResolved.ok);
+        expect(inadmissibleTerminal.resumable).toBe(false);
       });
     } finally {
-      rmSync(workspace, { recursive: true, force: true });
+      rmSync(admissibleWorkspace, { recursive: true, force: true });
+      rmSync(inadmissibleWorkspace, { recursive: true, force: true });
     }
   });
 

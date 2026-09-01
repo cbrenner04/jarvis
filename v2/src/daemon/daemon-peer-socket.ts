@@ -1,16 +1,8 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
-import { connectIpcClient } from "../ipc/client.ts";
+import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
 
-export type EnumerateOtherDaemonSockets = (jarvisHomeDir: string, ownSocketPath: string) => string[];
-
-export type SupersedePeerDaemon = (socketPath: string) => Promise<void>;
-
-/**
- * Default implementation: enumerate `daemon-*.sock` files in jarvisHome,
- * excluding the daemon's own socket path.
- */
 export function enumerateOtherDaemonSockets(jarvisHomeDir: string, ownSocketPath: string): string[] {
   try {
     const entries = readdirSync(jarvisHomeDir);
@@ -23,20 +15,19 @@ export function enumerateOtherDaemonSockets(jarvisHomeDir: string, ownSocketPath
   }
 }
 
-/**
- * Default implementation: connect to a peer daemon socket and send `supersede`.
- * Errors are ignored (socket unreachable, RPC error, etc.).
- */
+/** Errors ignored (unreachable socket, RPC failure, timeout, etc.). */
 export async function supersedePeerDaemon(socketPath: string): Promise<void> {
+  let client: IpcClient | undefined;
   try {
-    const client = await connectIpcClient(socketPath);
+    client = await connectIpcClient(socketPath);
     const transport = createRpcTransport(client);
-    try {
-      await transport.request("supersede", undefined, { timeoutMs: 1_000 });
-    } finally {
-      transport.close();
-    }
+    await transport.request("supersede", undefined, { timeoutMs: 1_000 });
   } catch {
     // Ignore all errors: unreachable socket, RPC failure, timeout, etc.
+  } finally {
+    client?.close();
   }
 }
+
+export type EnumerateOtherDaemonSockets = typeof enumerateOtherDaemonSockets;
+export type SupersedePeerDaemon = typeof supersedePeerDaemon;

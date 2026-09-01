@@ -2,19 +2,13 @@ import type { StreamHandler } from "../ipc/server.ts";
 import { FOLLOW_POLL_MS, type LogReader, type PersistedRecord } from "../persistence/log-stream.ts";
 import { isTerminalRunStatus, type StateStore } from "../persistence/state-store.ts";
 
-/**
- * Injectable dependencies for {@link createTailStreamHandler}.
- *
- * `loadRun` and `follow`/`onData` failures propagate to IPC as error `stream-end`.
- */
+/** `loadRun` and `follow`/`onData` failures propagate to IPC as error `stream-end`. */
 export type TailStreamHandlerDeps = {
   stateStore: StateStore;
   logReader: LogReader;
-  /** Interval to re-check run status independent of `follow()` yields; defaults to `FOLLOW_POLL_MS`. */
   followStatusPollMs?: number;
 };
 
-/** Resolves after `ms`, or immediately once `signal` aborts (whichever comes first). */
 function sleepOrAbort(ms: number, signal: AbortSignal): Promise<void> {
   if (signal.aborted) return Promise.resolve();
   return new Promise((resolve) => {
@@ -126,13 +120,7 @@ export async function streamRunLogRecords(
   if (!signal.aborted) drainRemaining();
 }
 
-/**
- * Tail-log stream handler factory for IPC `stream-open` on run logs.
- *
- * @param deps - {@link TailStreamHandlerDeps}
- * @throws N/A at factory call — returned handler may throw/reject on string-payload `JSON.parse`,
- *   `loadRun`, `follow`, or `onData` failures; IPC server maps those to error `stream-end`.
- */
+/** Returned handler may throw on payload parse, `loadRun`, `follow`, or `onData`; IPC maps those to error `stream-end`. */
 export function createTailStreamHandler(deps: TailStreamHandlerDeps): StreamHandler {
   return async (_streamId, payload, onData, onClose, signal) => {
     const params = parseTailStreamParams(payload);

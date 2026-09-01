@@ -8,5 +8,5 @@ Ordered: `00` pins external routing roots and active subspec selection; `01` wir
 - [x] [01 - External subspec write access and adapter read dirs](./01-external-subspec-write-access-and-adapter-read-dirs.md)
 - [x] [02 - Complete external linked implement passes](./02-complete-external-linked-implement-passes.md)
 - [x] [03 - Review and shrink read-only external spec context](./03-review-shrink-read-only-external-spec-context.md)
-- [ ] [04 - Exclude external spec bytes from Git surfaces](./04-exclude-external-spec-bytes-from-git-surfaces.md)
+- [x] [04 - Exclude external spec bytes from Git surfaces](./04-exclude-external-spec-bytes-from-git-surfaces.md)
 - [ ] [05 - Document external implement execution boundary](./05-document-external-implement-execution-boundary.md)

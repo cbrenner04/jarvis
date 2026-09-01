@@ -601,16 +601,34 @@ export function resolveSiblingKillingTests(
   return matches.map((entry) => (dir ? `${dir}/${entry}` : entry));
 }
 
-function mutateRenderedPrompt(content: string, changedLines: ChangedLine[]): string | null {
+function promptBodyBounds(content: string): { bodyStart: number; bodyStartLine: number } | null {
   const bodyStart = content.indexOf("\n---\n");
   if (bodyStart < 0) return null;
-  const body = content.slice(bodyStart + 5);
+  return { bodyStart, bodyStartLine: content.slice(0, bodyStart + 5).split("\n").length };
+}
+
+function hasBodyAddLines(changedLines: ChangedLine[], bodyStartLine: number): boolean {
+  return changedLines.some(
+    (line) => line.type === "add" && line.lineNumber >= bodyStartLine && line.content.trim().length > 0,
+  );
+}
+
+function mutateRenderedPrompt(content: string, changedLines: ChangedLine[]): string | null {
+  const bounds = promptBodyBounds(content);
+  if (bounds === null) return null;
+  const body = content.slice(bounds.bodyStart + 5);
   const changedBody = changedLines
-    .filter((line) => line.type === "add" && line.content.trim().length > 0 && body.includes(line.content))
+    .filter(
+      (line) =>
+        line.type === "add" &&
+        line.lineNumber >= bounds.bodyStartLine &&
+        line.content.trim().length > 0 &&
+        body.includes(line.content),
+    )
     .map((line) => line.content);
-  const original = changedBody[0] ?? body.split("\n").find((line) => line.trim().length > 0);
+  const original = changedBody[0];
   if (original === undefined) return null;
-  return `${content.slice(0, bodyStart + 5)}${body.replace(original, "__JARVIS_PROMPT_RENDER_COVERAGE_MUTATION__")}`;
+  return `${content.slice(0, bounds.bodyStart + 5)}${body.replace(original, "__JARVIS_PROMPT_RENDER_COVERAGE_MUTATION__")}`;
 }
 
 class UnappliableMutationError extends Error {
@@ -651,9 +669,14 @@ async function buildChangedFiles(
   changedLines: ChangedLine[],
   untrackedFilesFunc: UntrackedFiles,
   worktreePath: string,
-): Promise<{ changedFiles: Set<string>; changedLinesByFile: Map<string, ChangedLine[]> }> {
+): Promise<{
+  changedFiles: Set<string>;
+  changedLinesByFile: Map<string, ChangedLine[]>;
+  diffPaths: Set<string>;
+}> {
   const changedFiles = new Set<string>();
   const changedLinesByFile = new Map<string, ChangedLine[]>();
+  const diffPaths = new Set(changedPathsFromDiff(diffOutput));
 
   for (const line of changedLines) {
     if (isProductionFile(line.file)) {
@@ -668,19 +691,20 @@ async function buildChangedFiles(
     }
   }
 
-  for (const file of changedPathsFromDiff(diffOutput)) changedFiles.add(file);
+  for (const file of diffPaths) changedFiles.add(file);
 
   const untracked = await untrackedFilesFunc(worktreePath);
   for (const file of untracked) {
     changedFiles.add(file);
   }
 
-  return { changedFiles, changedLinesByFile };
+  return { changedFiles, changedLinesByFile, diffPaths };
 }
 
 async function verifyPromptRenderCoverage(
   promptPath: string,
   changedLines: ChangedLine[],
+  inDiff: boolean,
   input: DiffDerivedMutationVerifierInput,
   readFile: ReadFile,
   writeFile: WriteFile,
@@ -693,6 +717,10 @@ async function verifyPromptRenderCoverage(
     original = await readFile(filePath);
   } catch {
     return false;
+  }
+  const bounds = promptBodyBounds(original);
+  if (bounds !== null && inDiff && !hasBodyAddLines(changedLines, bounds.bodyStartLine)) {
+    return await runScopedTests(input.worktreePath, [...observerTests]);
   }
   const mutated = mutateRenderedPrompt(original, changedLines);
   if (mutated === null) return false;
@@ -840,6 +868,7 @@ function importerDiscoveryCapExceeded(candidate: Candidate): SurvivingMutationRe
 async function verifyChangedPrompts(
   changedPaths: string[],
   changedLinesByFile: Map<string, ChangedLine[]>,
+  diffPaths: Set<string>,
   input: DiffDerivedMutationVerifierInput,
   registeredPromptPaths: RegisteredPromptPaths,
   readFile: ReadFile,
@@ -872,6 +901,7 @@ async function verifyChangedPrompts(
     const renderedOutputObserved = await verifyPromptRenderCoverage(
       promptPath,
       changedLinesByFile.get(promptPath) ?? [],
+      diffPaths.has(promptPath),
       input,
       readFile,
       writeFile,
@@ -1206,7 +1236,7 @@ export async function verifyDiffDerivedMutations(
   const diffOutput = await gitDiff(input.worktreePath, input.runBase);
   const changedLines = parseDiff(diffOutput);
 
-  const { changedFiles, changedLinesByFile } = await buildChangedFiles(
+  const { changedFiles, changedLinesByFile, diffPaths } = await buildChangedFiles(
     diffOutput,
     changedLines,
     untrackedFilesFunc,
@@ -1231,6 +1261,7 @@ export async function verifyDiffDerivedMutations(
   const promptResult = await verifyChangedPrompts(
     changedPaths,
     changedLinesByFile,
+    diffPaths,
     input,
     registeredPromptPaths,
     readFile,

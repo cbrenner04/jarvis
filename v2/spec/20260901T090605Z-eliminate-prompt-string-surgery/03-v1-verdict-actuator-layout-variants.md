@@ -15,7 +15,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v1/test/modes/plan/prompts.test.ts` stays green.
+- [x] `v1/test/modes/plan/prompts.test.ts` stays green.
 
 ## Documentation updates
 

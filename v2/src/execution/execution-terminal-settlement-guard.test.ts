@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { TERMINAL_RUN_STATUSES, type RunStatus } from "../persistence/state-store.ts";
+import { type RunStatus, TERMINAL_RUN_STATUSES } from "../persistence/state-store.ts";
 
 const EXECUTION_DIR = import.meta.dir;
 const NONTERMINAL_RUN_STATUSES = new Set<RunStatus>(["in-progress", "paused", "queued", "budget-soft-stopped"]);

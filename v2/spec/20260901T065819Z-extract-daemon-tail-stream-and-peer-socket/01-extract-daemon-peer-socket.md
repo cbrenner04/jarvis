@@ -26,11 +26,11 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-lifecycle.sandbox-unrunnable.test.ts` enumerate/supersede cases stay green (behavior unchanged by the extraction).
-- [ ] `bun run typecheck` passes with no errors introduced by the move.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
-- [ ] `daemon.ts` no longer defines `enumerateOtherDaemonSockets`, `supersedePeerDaemon`, `EnumerateOtherDaemonSockets`, or `SupersedePeerDaemon`; they live only in `v2/src/daemon/daemon-peer-socket.ts`.
+- [x] `v2/src/daemon/daemon-lifecycle.sandbox-unrunnable.test.ts` enumerate/supersede cases stay green (behavior unchanged by the extraction).
+- [x] `bun run typecheck` passes with no errors introduced by the move.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
+- [x] `daemon.ts` no longer defines `enumerateOtherDaemonSockets`, `supersedePeerDaemon`, `EnumerateOtherDaemonSockets`, or `SupersedePeerDaemon`; they live only in `v2/src/daemon/daemon-peer-socket.ts`.
 
 ## Documentation updates
 

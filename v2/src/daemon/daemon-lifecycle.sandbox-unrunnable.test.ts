@@ -563,7 +563,7 @@ describe("daemon-lifecycle", () => {
         writeFileSync(join(tmpDir, "daemon-0123456789abcdef.log"), "");
         writeFileSync(join(tmpDir, "config.json"), "");
 
-        const { enumerateOtherDaemonSockets } = await import("./daemon.ts");
+        const { enumerateOtherDaemonSockets } = await import("./daemon-peer-socket.ts");
         const result = enumerateOtherDaemonSockets(tmpDir, ownSocket);
 
         expect(result).toContain(otherSocket1);
@@ -576,13 +576,13 @@ describe("daemon-lifecycle", () => {
     });
 
     test("enumerateOtherDaemonSockets returns empty array when jarvisHome is missing", async () => {
-      const { enumerateOtherDaemonSockets } = await import("./daemon.ts");
+      const { enumerateOtherDaemonSockets } = await import("./daemon-peer-socket.ts");
       const result = enumerateOtherDaemonSockets("/nonexistent/dir", "/nonexistent/socket");
       expect(result).toEqual([]);
     });
 
     test("supersedePeerDaemon silently ignores unreachable sockets", async () => {
-      const { supersedePeerDaemon } = await import("./daemon.ts");
+      const { supersedePeerDaemon } = await import("./daemon-peer-socket.ts");
       // Should not throw or reject for unreachable sockets
       await expect(supersedePeerDaemon("/nonexistent/socket")).resolves.toBeUndefined();
     });

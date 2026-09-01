@@ -2,7 +2,11 @@ import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "no
 import { join, relative } from "node:path";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
-import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
+import {
+  enforceDelimiterPolicy,
+  PromptRenderingError,
+  renderArtifactTemplate,
+} from "../../../../shared/prompts/render.ts";
 import { readSpecGuidance } from "../../../../shared/spec-guidance-path.ts";
 import { detectBlocker } from "../../../../shared/spec-parser.ts";
 import { realSubprocessRunner, type SubprocessRunner } from "../../../../shared/subprocess.ts";
@@ -38,7 +42,7 @@ import {
   type SpecDirSnapshot,
   snapshotSpecDirFiles,
 } from "./spec-dir.ts";
-import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
+import { TemplateRenderingError } from "./template-renderer.ts";
 import { runVerdictActuator } from "./verdict-actuator.ts";
 
 /**
@@ -71,21 +75,20 @@ export function buildReviewPrompt(opts: {
   const registry = loadPromptRegistry();
 
   const promptId = `plan.prompt.review.${role}`;
+  const artifact = registry.getById(promptId);
 
-  let template = assemblePromptForStep({
+  const template = assemblePromptForStep({
     registry,
     stepPromptId: promptId,
   });
 
   const workDir = opts.workDirLabel ?? opts.name;
   const targetDir = opts.targetDir ?? "spec";
-
-  if (opts.flatSpecLayout) {
-    template = template.replaceAll("spec/<NAME>/intent.md", "intent.md");
-  } else {
-    // For commit specs, replace the placeholder with the actual committed root
-    template = template.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`);
-  }
+  const requestedVariant = opts.flatSpecLayout ? "flat-layout" : targetDir !== "spec" ? "nested-target-dir" : undefined;
+  const variant =
+    requestedVariant !== undefined && artifact.metadata.variants[requestedVariant] !== undefined
+      ? requestedVariant
+      : undefined;
 
   enforceDelimiterPolicy({
     value: opts.intent,
@@ -137,26 +140,17 @@ export function buildReviewPrompt(opts: {
   }
 
   try {
-    const placeholderSet = new Set([
-      "WORKDIR",
-      "NAME",
-      "INTENT",
-      "SPEC_GUIDANCE",
-      "CURRENT_SPEC",
-      "REVIEW_PASS_CONTEXT",
-    ]);
-    if (role === "advocate") placeholderSet.add("ADVERSARY_FINDINGS");
-    if (role === "adjudicator") placeholderSet.add("ADVOCATE_RESPONSE");
-
-    template = renderTemplate(template, placeholderSet, values);
+    return renderArtifactTemplate(
+      { ...artifact, body: template },
+      values,
+      variant === undefined ? undefined : { variant },
+    );
   } catch (err) {
-    if (err instanceof TemplateRenderingError) {
+    if (err instanceof PromptRenderingError || err instanceof TemplateRenderingError) {
       throw new Error(`review prompt configuration error: ${err.details}`);
     }
     throw err;
   }
-
-  return template;
 }
 
 /**

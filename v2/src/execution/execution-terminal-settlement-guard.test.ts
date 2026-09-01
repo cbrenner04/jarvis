@@ -1,4 +1,4 @@
-// Terminal/nonterminal settlement inventory keys are (file, functionName, writer/status) and intentionally omit line numbers.
+// Settlement inventory keys: terminal writes file:writer:functionName; nonterminal setRunStatus file:setRunStatus:status:functionName. Line numbers intentionally omitted.
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -370,17 +370,35 @@ test("guard rejects reintroduced terminal setRunStatus", () => {
 });
 
 test("inventory ignores line drift above tracked call sites", () => {
+  const driftNeedle = "  args.store.commitCompletionBoundary({";
   const sources = listProductionExecutionSources();
-  expect(scanExecutionTerminalSettlement(sources).violations).toEqual([]);
+  const maybeBaseline = sources["successor-step-idle-watchdog.ts"];
+  expect(maybeBaseline).toBeDefined();
+  const baselineSource = maybeBaseline!;
+  expect(baselineSource).toContain(driftNeedle);
 
-  const driftedSuccessor = sources["successor-step-idle-watchdog.ts"]?.replace(
-    "  args.store.commitCompletionBoundary({",
-    "\n\n  args.store.commitCompletionBoundary({",
-  );
+  const baseline = scanExecutionTerminalSettlement(sources);
+  expect(baseline.violations).toEqual([]);
+
+  const driftedSource = baselineSource.replace(driftNeedle, `\n\n${driftNeedle}`);
+  expect(driftedSource).not.toBe(baselineSource);
+
   const drifted = scanExecutionTerminalSettlement({
     ...sources,
-    "successor-step-idle-watchdog.ts": driftedSuccessor ?? "",
+    "successor-step-idle-watchdog.ts": driftedSource,
   });
+
+  const trackedSite = (result: ReturnType<typeof scanExecutionTerminalSettlement>) =>
+    result.terminalWrites.find(
+      (site) =>
+        site.file === "successor-step-idle-watchdog.ts" &&
+        site.functionName === "settleSuccessorShellStall" &&
+        site.writer === "commitCompletionBoundary",
+    );
+  const baselineLine = trackedSite(baseline)?.line;
+  const driftedLine = trackedSite(drifted)?.line;
+  expect(baselineLine).toBeDefined();
+  expect(driftedLine).toBe(baselineLine! + 2);
 
   expect(drifted.violations).toEqual([]);
   expectPermittedInventoryMatches(drifted);

@@ -207,7 +207,7 @@ function isValidIntentModification(before: string, after: string): boolean {
   }
 
   // Try removing blocker from after and see if it matches before
-  const afterLines = after.replace(/\r\n/g, "\n").split("\n");
+  const afterLines = after.split("\r\n").join("\n").split("\n");
   let blockerIndex: number | undefined;
 
   for (let i = 0; i < afterLines.length; i += 1) {
@@ -232,7 +232,7 @@ function isValidIntentModification(before: string, after: string): boolean {
 }
 
 function readFrontmatter(text: string): string | null {
-  const normalized = text.replace(/\r\n/g, "\n");
+  const normalized = text.split("\r\n").join("\n");
   if (!normalized.startsWith("---\n")) {
     return null;
   }
@@ -337,7 +337,7 @@ export type PlanReviewPhaseOptions = {
 };
 
 function firstNonEmptyLine(text: string): string {
-  for (const rawLine of text.replace(/\r\n/g, "\n").split("\n")) {
+  for (const rawLine of text.split("\r\n").join("\n").split("\n")) {
     const line = rawLine.trim();
     if (line !== "") {
       return line;

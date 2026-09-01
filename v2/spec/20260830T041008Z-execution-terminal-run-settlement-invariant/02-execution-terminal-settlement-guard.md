@@ -28,13 +28,13 @@ After subspecs 00 and 01 migrate callers, nothing in `v2/src/execution/` prevent
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/execution-terminal-settlement-guard.test.ts` test `execution production terminal writers are restricted to atomic settlement` scans production execution sources, fails against the pre-migration tree where `write-loop.ts` and `workflow-runner.ts` call `setRunStatus` with terminal literals, and passes only when terminal run-row commits go through `commitTerminalRunSettlement` or settlement-backed `commitCompletionBoundary` as inventoried.
-- [ ] `v2/src/execution/execution-terminal-settlement-guard.test.ts` test `guard rejects reintroduced terminal setRunStatus` embeds a `// @mutate` directive that adds a forbidden terminal `setRunStatus` to a listed production file and proves the scanner turns RED when applied; reachable on main today because no execution production guard exists.
-- [ ] `v2/docs/workflow-runner.md` names atomic terminal settlement for every workflow-owned completion, publication, pre-publication, shrink/review, and resume tail covered by subspec 01, with no remaining instructions to persist PR evidence before a separate terminal status write.
-- [ ] `v2/docs/write-behavior.md` aligns completion and publication semantics with atomic settlement, immediate completed-row PR evidence, and durable failure cause/detail for execution-owned tails.
-- [ ] `v2/docs/state-store.md` states that execution-owned terminal run writers are `commitTerminalRunSettlement` and settlement-backed `commitCompletionBoundary` only, distinct from daemon-owned settlement.
-- [ ] `v2/docs/v1-behaviors.md` records execution-loop atomic terminal settlement, the completed-observer contract, and failure cause/detail durability.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/execution/execution-terminal-settlement-guard.test.ts` test `execution production terminal writers are restricted to atomic settlement` scans production execution sources, fails against the pre-migration tree where `write-loop.ts` and `workflow-runner.ts` call `setRunStatus` with terminal literals, and passes only when terminal run-row commits go through `commitTerminalRunSettlement` or settlement-backed `commitCompletionBoundary` as inventoried.
+- [x] `v2/src/execution/execution-terminal-settlement-guard.test.ts` test `guard rejects reintroduced terminal setRunStatus` embeds a `// @mutate` directive that adds a forbidden terminal `setRunStatus` to a listed production file and proves the scanner turns RED when applied; reachable on main today because no execution production guard exists.
+- [x] `v2/docs/workflow-runner.md` names atomic terminal settlement for every workflow-owned completion, publication, pre-publication, shrink/review, and resume tail covered by subspec 01, with no remaining instructions to persist PR evidence before a separate terminal status write.
+- [x] `v2/docs/write-behavior.md` aligns completion and publication semantics with atomic settlement, immediate completed-row PR evidence, and durable failure cause/detail for execution-owned tails.
+- [x] `v2/docs/state-store.md` states that execution-owned terminal run writers are `commitTerminalRunSettlement` and settlement-backed `commitCompletionBoundary` only, distinct from daemon-owned settlement.
+- [x] `v2/docs/v1-behaviors.md` records execution-loop atomic terminal settlement, the completed-observer contract, and failure cause/detail durability.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

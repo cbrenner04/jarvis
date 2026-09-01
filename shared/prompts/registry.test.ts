@@ -159,4 +159,47 @@ describe("prompt registry load validation", () => {
       "optionalSections placeholder `MISSING` is not declared in placeholders",
     );
   });
+
+  test("variants JSON that is not a plain object fails during load", () => {
+    const entry = withFrontmatter(`${stepPromptMeta("bad.variants.shape")}\nvariants: []`);
+    expect(() => createPromptRegistry([writePromptFixture(entry)])).toThrow("expected a JSON object");
+  });
+
+  test("variant entry that is not an array fails during load", () => {
+    const entry = withFrontmatter(`${stepPromptMeta("bad.variant.entries")}\nvariants: {"v":{}}`);
+    expect(() => createPromptRegistry([writePromptFixture(entry)])).toThrow("variant `v` must be an array");
+  });
+
+  test("invalid variant substitution shape fails during load", () => {
+    const notObject = withFrontmatter(`${stepPromptMeta("bad.sub.not-object")}\nvariants: {"v":["x"]}`);
+    const missingFields = withFrontmatter(`${stepPromptMeta("bad.sub.fields")}\nvariants: {"v":[{"anchor":"A"}]}`);
+    const badReplaceAll = withFrontmatter(
+      `${stepPromptMeta("bad.sub.replace-all")}\nvariants: {"v":[{"anchor":"A","replacement":"B","replaceAll":"yes"}]}`,
+    );
+    expect(() => createPromptRegistry([writePromptFixture(notObject)])).toThrow(
+      "invalid variant substitution at index 0 for variant `v`",
+    );
+    expect(() => createPromptRegistry([writePromptFixture(missingFields)])).toThrow(
+      "expected string anchor and replacement",
+    );
+    expect(() => createPromptRegistry([writePromptFixture(badReplaceAll)])).toThrow("replaceAll must be boolean");
+  });
+
+  test("optionalSections JSON that is not an array fails during load", () => {
+    const entry = withFrontmatter(`${stepPromptMeta("bad.optional.shape")}\noptionalSections: {}`);
+    expect(() => createPromptRegistry([writePromptFixture(entry)])).toThrow("expected a JSON array");
+  });
+
+  test("invalid optionalSections entry shape fails during load", () => {
+    const notObject = withFrontmatter(`${stepPromptMeta("bad.optional.not-object")}\noptionalSections: [1]`);
+    const missingFields = withFrontmatter(
+      `${stepPromptMeta("bad.optional.fields")}\noptionalSections: [{"header":"H"}]`,
+    );
+    expect(() => createPromptRegistry([writePromptFixture(notObject)])).toThrow(
+      "invalid optionalSections entry at index 0",
+    );
+    expect(() => createPromptRegistry([writePromptFixture(missingFields)])).toThrow(
+      "expected string header, begin, end, and placeholder",
+    );
+  });
 });

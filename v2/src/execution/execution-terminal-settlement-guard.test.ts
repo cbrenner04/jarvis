@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test";
+// Settlement inventory keys: terminal writes file:writer:functionName; nonterminal setRunStatus file:setRunStatus:status:functionName. Line numbers intentionally omitted.
+import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type RunStatus, TERMINAL_RUN_STATUSES } from "../persistence/state-store.ts";
@@ -17,194 +18,109 @@ export type TerminalSettlementViolation = {
 
 export type PermittedTerminalWrite = {
   file: string;
-  line: number;
   functionName: string;
   writer: "commitTerminalRunSettlement" | "commitCompletionBoundary";
+  count?: number;
 };
 
 export type PermittedNonterminalSetRunStatus = {
   file: string;
-  line: number;
   functionName: string;
   status: RunStatus;
+  count?: number;
 };
 
 const PERMITTED_TERMINAL_WRITES: PermittedTerminalWrite[] = [
   {
     file: "successor-step-idle-watchdog.ts",
-    line: 89,
     functionName: "settleSuccessorShellStall",
     writer: "commitCompletionBoundary",
   },
+  { file: "workflow-runner.ts", functionName: "settleCompletedPublication", writer: "commitTerminalRunSettlement" },
   {
     file: "workflow-runner.ts",
-    line: 204,
-    functionName: "settleCompletedPublication",
-    writer: "commitTerminalRunSettlement",
-  },
-  {
-    file: "workflow-runner.ts",
-    line: 251,
     functionName: "settleWorkflowPublicationFailure",
     writer: "commitTerminalRunSettlement",
   },
-  { file: "workflow-runner.ts", line: 1029, functionName: "executeWorkflow", writer: "commitTerminalRunSettlement" },
-  { file: "workflow-runner.ts", line: 1082, functionName: "executeWorkflow", writer: "commitTerminalRunSettlement" },
+  { file: "workflow-runner.ts", functionName: "executeWorkflow", writer: "commitTerminalRunSettlement", count: 2 },
   {
     file: "workflow-runner.ts",
-    line: 2518,
     functionName: "commitReviewDebateOutcome",
     writer: "commitCompletionBoundary",
+    count: 2,
   },
   {
     file: "workflow-runner.ts",
-    line: 2527,
-    functionName: "commitReviewDebateOutcome",
-    writer: "commitCompletionBoundary",
-  },
-  {
-    file: "workflow-runner.ts",
-    line: 2570,
     functionName: "settleReviewedStagedMarkdownLintFailure",
     writer: "commitCompletionBoundary",
   },
   {
     file: "workflow-runner.ts",
-    line: 2708,
     functionName: "repromptReviewedStagedMarkdownLintOrFail",
     writer: "commitCompletionBoundary",
   },
   {
     file: "workflow-runner.ts",
-    line: 2747,
     functionName: "landReviewedOutputOrFail",
     writer: "commitCompletionBoundary",
+    count: 2,
   },
   {
     file: "workflow-runner.ts",
-    line: 2788,
-    functionName: "landReviewedOutputOrFail",
-    writer: "commitCompletionBoundary",
-  },
-  {
-    file: "workflow-runner.ts",
-    line: 2851,
     functionName: "tryActuatorOnlyReviewDebateRetry",
     writer: "commitCompletionBoundary",
+    count: 3,
   },
+  { file: "workflow-runner.ts", functionName: "finishReviewedLanding", writer: "commitCompletionBoundary" },
+  { file: "workflow-runner.ts", functionName: "settleIntentResumeFailure", writer: "commitCompletionBoundary" },
   {
     file: "workflow-runner.ts",
-    line: 2933,
-    functionName: "tryActuatorOnlyReviewDebateRetry",
-    writer: "commitCompletionBoundary",
-  },
-  {
-    file: "workflow-runner.ts",
-    line: 3005,
-    functionName: "tryActuatorOnlyReviewDebateRetry",
-    writer: "commitCompletionBoundary",
-  },
-  { file: "workflow-runner.ts", line: 3218, functionName: "finishReviewedLanding", writer: "commitCompletionBoundary" },
-  {
-    file: "workflow-runner.ts",
-    line: 3976,
-    functionName: "settleIntentResumeFailure",
-    writer: "commitCompletionBoundary",
-  },
-  {
-    file: "workflow-runner.ts",
-    line: 4159,
     functionName: "runIntentResumeCommitAndPublish",
     writer: "commitCompletionBoundary",
+    count: 2,
   },
+  { file: "workflow-runner.ts", functionName: "settleReviewMutationResumeFailure", writer: "commitCompletionBoundary" },
+  { file: "workflow-runner.ts", functionName: "settleMutationRepairExhausted", writer: "commitCompletionBoundary" },
+  { file: "workflow-runner.ts", functionName: "runMutationRepairAttempt", writer: "commitCompletionBoundary" },
   {
     file: "workflow-runner.ts",
-    line: 4196,
-    functionName: "runIntentResumeCommitAndPublish",
-    writer: "commitCompletionBoundary",
-  },
-  {
-    file: "workflow-runner.ts",
-    line: 4493,
-    functionName: "settleReviewMutationResumeFailure",
-    writer: "commitCompletionBoundary",
-  },
-  {
-    file: "workflow-runner.ts",
-    line: 4649,
-    functionName: "settleMutationRepairExhausted",
-    writer: "commitCompletionBoundary",
-  },
-  {
-    file: "workflow-runner.ts",
-    line: 4840,
-    functionName: "runMutationRepairAttempt",
-    writer: "commitCompletionBoundary",
-  },
-  {
-    file: "workflow-runner.ts",
-    line: 4904,
     functionName: "settleFailedReviewMutationPublication",
     writer: "commitCompletionBoundary",
   },
   {
     file: "workflow-runner.ts",
-    line: 4956,
     functionName: "settleSuccessfulReviewMutationPublication",
     writer: "commitCompletionBoundary",
   },
   {
     file: "workflow-runner.ts",
-    line: 5242,
     functionName: "commitIntentStageInvocationFailure",
     writer: "commitCompletionBoundary",
   },
-  {
-    file: "workflow-runner.ts",
-    line: 5457,
-    functionName: "finalizeStandardReviewStep",
-    writer: "commitCompletionBoundary",
-  },
-  {
-    file: "write-loop.ts",
-    line: 190,
-    functionName: "settleCompletedPublication",
-    writer: "commitTerminalRunSettlement",
-  },
-  { file: "write-loop.ts", line: 1246, functionName: "executeWriteLoop", writer: "commitCompletionBoundary" },
-  { file: "write-loop.ts", line: 1323, functionName: "executeWriteLoop", writer: "commitCompletionBoundary" },
-  { file: "write-loop.ts", line: 1396, functionName: "executeWriteLoop", writer: "commitCompletionBoundary" },
-  { file: "write-loop.ts", line: 1448, functionName: "executeWriteLoop", writer: "commitCompletionBoundary" },
-  { file: "write-loop.ts", line: 1521, functionName: "executeWriteLoop", writer: "commitCompletionBoundary" },
-  { file: "write-loop.ts", line: 1603, functionName: "executeWriteLoop", writer: "commitCompletionBoundary" },
-  { file: "write-loop.ts", line: 1704, functionName: "executeWriteLoop", writer: "commitCompletionBoundary" },
-  { file: "write-loop.ts", line: 1784, functionName: "executeWriteLoop", writer: "commitTerminalRunSettlement" },
-  { file: "write-loop.ts", line: 2130, functionName: "finishIterationTimeout", writer: "commitCompletionBoundary" },
-  { file: "write-loop.ts", line: 2250, functionName: "finishExecuteWriteThrow", writer: "commitCompletionBoundary" },
-  { file: "write-loop.ts", line: 2698, functionName: "runReadyRepairIteration", writer: "commitCompletionBoundary" },
-  { file: "write-loop.ts", line: 2756, functionName: "runMutationRepairIteration", writer: "commitCompletionBoundary" },
-  { file: "write-loop.ts", line: 3581, functionName: "completionCommitFailed", writer: "commitTerminalRunSettlement" },
-  { file: "write-loop.ts", line: 3684, functionName: "readyFailed", writer: "commitTerminalRunSettlement" },
-  { file: "write-loop.ts", line: 3982, functionName: "iterationCommitFailed", writer: "commitTerminalRunSettlement" },
+  { file: "workflow-runner.ts", functionName: "finalizeStandardReviewStep", writer: "commitCompletionBoundary" },
+  { file: "write-loop.ts", functionName: "settleCompletedPublication", writer: "commitTerminalRunSettlement" },
+  { file: "write-loop.ts", functionName: "executeWriteLoop", writer: "commitCompletionBoundary", count: 7 },
+  { file: "write-loop.ts", functionName: "executeWriteLoop", writer: "commitTerminalRunSettlement" },
+  { file: "write-loop.ts", functionName: "finishIterationTimeout", writer: "commitCompletionBoundary" },
+  { file: "write-loop.ts", functionName: "finishExecuteWriteThrow", writer: "commitCompletionBoundary" },
+  { file: "write-loop.ts", functionName: "runReadyRepairIteration", writer: "commitCompletionBoundary" },
+  { file: "write-loop.ts", functionName: "runMutationRepairIteration", writer: "commitCompletionBoundary" },
+  { file: "write-loop.ts", functionName: "completionCommitFailed", writer: "commitTerminalRunSettlement" },
+  { file: "write-loop.ts", functionName: "readyFailed", writer: "commitTerminalRunSettlement" },
+  { file: "write-loop.ts", functionName: "iterationCommitFailed", writer: "commitTerminalRunSettlement" },
 ];
 
 const PERMITTED_NONTERMINAL_SET_RUN_STATUS: PermittedNonterminalSetRunStatus[] = [
-  { file: "workflow-runner.ts", line: 282, functionName: "settlePostCommitShrinkForResume", status: "paused" },
-  { file: "workflow-runner.ts", line: 1259, functionName: "executeWorkflow", status: "in-progress" },
-  { file: "workflow-runner.ts", line: 4138, functionName: "runIntentResumeCommitAndPublish", status: "in-progress" },
-  { file: "workflow-runner.ts", line: 4762, functionName: "runMutationRepairAttempt", status: "in-progress" },
-  { file: "workflow-runner.ts", line: 5024, functionName: "runReviewMutationCommitAndPublish", status: "in-progress" },
-  { file: "workflow-runner.ts", line: 5062, functionName: "replayMutationFinalization", status: "in-progress" },
-  { file: "write-loop.ts", line: 968, functionName: "executeWriteLoop", status: "in-progress" },
-  { file: "write-loop.ts", line: 1084, functionName: "executeWriteLoop", status: "in-progress" },
-  { file: "write-loop.ts", line: 1216, functionName: "executeWriteLoop", status: "paused" },
-  { file: "write-loop.ts", line: 1299, functionName: "executeWriteLoop", status: "paused" },
-  { file: "write-loop.ts", line: 1378, functionName: "executeWriteLoop", status: "paused" },
-  { file: "write-loop.ts", line: 1503, functionName: "executeWriteLoop", status: "paused" },
-  { file: "write-loop.ts", line: 1650, functionName: "executeWriteLoop", status: "paused" },
-  { file: "write-loop.ts", line: 1843, functionName: "executeWriteLoop", status: "in-progress" },
-  { file: "write-loop.ts", line: 1937, functionName: "executeWriteLoop", status: "budget-soft-stopped" },
-  { file: "write-loop.ts", line: 3958, functionName: "_commitRepromptProgressBoundary", status: "paused" },
+  { file: "workflow-runner.ts", functionName: "settlePostCommitShrinkForResume", status: "paused" },
+  { file: "workflow-runner.ts", functionName: "executeWorkflow", status: "in-progress" },
+  { file: "workflow-runner.ts", functionName: "runIntentResumeCommitAndPublish", status: "in-progress" },
+  { file: "workflow-runner.ts", functionName: "runMutationRepairAttempt", status: "in-progress" },
+  { file: "workflow-runner.ts", functionName: "runReviewMutationCommitAndPublish", status: "in-progress" },
+  { file: "workflow-runner.ts", functionName: "replayMutationFinalization", status: "in-progress" },
+  { file: "write-loop.ts", functionName: "executeWriteLoop", status: "in-progress", count: 3 },
+  { file: "write-loop.ts", functionName: "executeWriteLoop", status: "paused", count: 5 },
+  { file: "write-loop.ts", functionName: "executeWriteLoop", status: "budget-soft-stopped" },
+  { file: "write-loop.ts", functionName: "_commitRepromptProgressBoundary", status: "paused" },
 ];
 
 function isProductionExecutionSource(name: string): boolean {
@@ -251,11 +167,23 @@ function isTerminalBoundaryCall(call: string): boolean {
 }
 
 function terminalWriteKey(site: PermittedTerminalWrite): string {
-  return `${site.file}:${String(site.line)}:${site.writer}:${site.functionName}`;
+  return `${site.file}:${site.writer}:${site.functionName}`;
 }
 
 function nonterminalSetRunStatusKey(site: PermittedNonterminalSetRunStatus): string {
-  return `${site.file}:${String(site.line)}:setRunStatus:${site.status}:${site.functionName}`;
+  return `${site.file}:setRunStatus:${site.status}:${site.functionName}`;
+}
+
+function permittedInventoryKeys<T extends { count?: number }>(
+  entries: readonly T[],
+  keyFn: (entry: T) => string,
+): string[] {
+  const keys: string[] = [];
+  for (const entry of entries) {
+    const key = keyFn(entry);
+    for (let i = 0; i < (entry.count ?? 1); i += 1) keys.push(key);
+  }
+  return keys;
 }
 
 export function listProductionExecutionSources(
@@ -270,12 +198,12 @@ export function listProductionExecutionSources(
 
 export function scanExecutionTerminalSettlement(sources: Readonly<Record<string, string>>): {
   violations: TerminalSettlementViolation[];
-  terminalWrites: PermittedTerminalWrite[];
-  nonterminalSetRunStatus: PermittedNonterminalSetRunStatus[];
+  terminalWrites: Array<PermittedTerminalWrite & { line: number }>;
+  nonterminalSetRunStatus: Array<PermittedNonterminalSetRunStatus & { line: number }>;
 } {
   const violations: TerminalSettlementViolation[] = [];
-  const terminalWrites: PermittedTerminalWrite[] = [];
-  const nonterminalSetRunStatus: PermittedNonterminalSetRunStatus[] = [];
+  const terminalWrites: Array<PermittedTerminalWrite & { line: number }> = [];
+  const nonterminalSetRunStatus: Array<PermittedNonterminalSetRunStatus & { line: number }> = [];
 
   for (const [file, source] of Object.entries(sources).sort(([a], [b]) => a.localeCompare(b))) {
     for (const match of source.matchAll(
@@ -346,36 +274,64 @@ export function scanExecutionTerminalSettlement(sources: Readonly<Record<string,
   return { violations, terminalWrites, nonterminalSetRunStatus };
 }
 
+function keyOccurrenceCounts(keys: readonly string[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const key of keys) {
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
 function inventoryMismatchMessage(
   label: string,
   expected: readonly string[],
   actual: readonly string[],
 ): string | undefined {
-  const missing = expected.filter((entry) => !actual.includes(entry));
-  const extra = actual.filter((entry) => !expected.includes(entry));
-  if (missing.length === 0 && extra.length === 0) return undefined;
-  return `${label} mismatch\nmissing: ${missing.join(", ") || "(none)"}\nextra: ${extra.join(", ") || "(none)"}`;
+  const expectedCounts = keyOccurrenceCounts(expected);
+  const actualCounts = keyOccurrenceCounts(actual);
+  const missing: string[] = [];
+  const extra: string[] = [];
+  const countDeltas: string[] = [];
+
+  for (const key of [...new Set([...expectedCounts.keys(), ...actualCounts.keys()])].sort()) {
+    const expectedCount = expectedCounts.get(key) ?? 0;
+    const actualCount = actualCounts.get(key) ?? 0;
+    if (expectedCount > 0 && actualCount === 0) {
+      missing.push(key);
+    } else if (expectedCount === 0 && actualCount > 0) {
+      extra.push(key);
+    } else if (expectedCount !== actualCount) {
+      countDeltas.push(`${key}: expected ${expectedCount}, got ${actualCount}`);
+    }
+  }
+
+  if (missing.length === 0 && extra.length === 0 && countDeltas.length === 0) return undefined;
+  return `${label} mismatch\nmissing: ${missing.join(", ") || "(none)"}\nextra: ${extra.join(", ") || "(none)"}\ncount deltas: ${countDeltas.join(", ") || "(none)"}`;
+}
+
+function expectPermittedInventoryMatches(result: ReturnType<typeof scanExecutionTerminalSettlement>): void {
+  expect(
+    inventoryMismatchMessage(
+      "terminal writes",
+      permittedInventoryKeys(PERMITTED_TERMINAL_WRITES, terminalWriteKey),
+      result.terminalWrites.map(terminalWriteKey),
+    ),
+  ).toBeUndefined();
+  expect(
+    inventoryMismatchMessage(
+      "nonterminal setRunStatus",
+      permittedInventoryKeys(PERMITTED_NONTERMINAL_SET_RUN_STATUS, nonterminalSetRunStatusKey),
+      result.nonterminalSetRunStatus.map(nonterminalSetRunStatusKey),
+    ),
+  ).toBeUndefined();
 }
 
 test("execution production terminal writers are restricted to atomic settlement", () => {
   const sources = listProductionExecutionSources();
-  const { violations, terminalWrites, nonterminalSetRunStatus } = scanExecutionTerminalSettlement(sources);
+  const result = scanExecutionTerminalSettlement(sources);
 
-  expect(violations).toEqual([]);
-
-  const terminalMismatch = inventoryMismatchMessage(
-    "terminal writes",
-    PERMITTED_TERMINAL_WRITES.map(terminalWriteKey).sort(),
-    terminalWrites.map(terminalWriteKey).sort(),
-  );
-  expect(terminalMismatch).toBeUndefined();
-
-  const nonterminalMismatch = inventoryMismatchMessage(
-    "nonterminal setRunStatus",
-    PERMITTED_NONTERMINAL_SET_RUN_STATUS.map(nonterminalSetRunStatusKey).sort(),
-    nonterminalSetRunStatus.map(nonterminalSetRunStatusKey).sort(),
-  );
-  expect(nonterminalMismatch).toBeUndefined();
+  expect(result.violations).toEqual([]);
+  expectPermittedInventoryMatches(result);
 
   const preMigrationWriteLoop = sources["write-loop.ts"]?.replace(
     "store.commitTerminalRunSettlement({",
@@ -411,4 +367,39 @@ test("guard rejects reintroduced terminal setRunStatus", () => {
       detail: "completed",
     },
   ]);
+});
+
+test("inventory ignores line drift above tracked call sites", () => {
+  const driftNeedle = "  args.store.commitCompletionBoundary({";
+  const sources = listProductionExecutionSources();
+  const maybeBaseline = sources["successor-step-idle-watchdog.ts"];
+  expect(maybeBaseline).toBeDefined();
+  const baselineSource = maybeBaseline!;
+  expect(baselineSource).toContain(driftNeedle);
+
+  const baseline = scanExecutionTerminalSettlement(sources);
+  expect(baseline.violations).toEqual([]);
+
+  const driftedSource = baselineSource.replace(driftNeedle, `\n\n${driftNeedle}`);
+  expect(driftedSource).not.toBe(baselineSource);
+
+  const drifted = scanExecutionTerminalSettlement({
+    ...sources,
+    "successor-step-idle-watchdog.ts": driftedSource,
+  });
+
+  const trackedSite = (result: ReturnType<typeof scanExecutionTerminalSettlement>) =>
+    result.terminalWrites.find(
+      (site) =>
+        site.file === "successor-step-idle-watchdog.ts" &&
+        site.functionName === "settleSuccessorShellStall" &&
+        site.writer === "commitCompletionBoundary",
+    );
+  const baselineLine = trackedSite(baseline)?.line;
+  const driftedLine = trackedSite(drifted)?.line;
+  expect(baselineLine).toBeDefined();
+  expect(driftedLine).toBe(baselineLine! + 2);
+
+  expect(drifted.violations).toEqual([]);
+  expectPermittedInventoryMatches(drifted);
 });

@@ -29,12 +29,12 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/execution-terminal-settlement-guard.test.ts` test `inventory ignores line drift above tracked call sites` inserts blank lines above a tracked production settlement call, reruns the guard, and asserts no inventory mismatch while `violations` stays empty; it fails against the pre-fix line-keyed inventory.
-- [ ] `v2/src/execution/execution-terminal-settlement-guard.test.ts` test `guard rejects reintroduced terminal setRunStatus` stays green.
-- [ ] `v2/src/execution/execution-terminal-settlement-guard.test.ts` test `execution production terminal writers are restricted to atomic settlement` stays green.
-- [ ] `v2/src/execution/execution-terminal-settlement-guard.test.ts` `terminalWriteKey` and `nonterminalSetRunStatusKey` omit `line` from their returned equality strings.
-- [ ] `v2/src/execution/execution-terminal-settlement-guard.test.ts` header comment states inventory keys are `(file, functionName, writer/status)` and intentionally omit line numbers.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/execution/execution-terminal-settlement-guard.test.ts` test `inventory ignores line drift above tracked call sites` inserts blank lines above a tracked production settlement call, reruns the guard, and asserts no inventory mismatch while `violations` stays empty; it fails against the pre-fix line-keyed inventory.
+- [x] `v2/src/execution/execution-terminal-settlement-guard.test.ts` test `guard rejects reintroduced terminal setRunStatus` stays green.
+- [x] `v2/src/execution/execution-terminal-settlement-guard.test.ts` test `execution production terminal writers are restricted to atomic settlement` stays green.
+- [x] `v2/src/execution/execution-terminal-settlement-guard.test.ts` `terminalWriteKey` and `nonterminalSetRunStatusKey` omit `line` from their returned equality strings.
+- [x] `v2/src/execution/execution-terminal-settlement-guard.test.ts` header comment states inventory keys are `(file, functionName, writer/status)` and intentionally omit line numbers.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

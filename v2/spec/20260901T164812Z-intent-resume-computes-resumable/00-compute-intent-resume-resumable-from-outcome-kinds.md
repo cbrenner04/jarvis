@@ -23,11 +23,11 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/workflow-runner.test.ts` (or the co-located settlement test file) asserts `settleIntentResumeFailure` emits `loop_finished.resumable: false` for an outcome kind absent from `INTENT_FINALIZATION_RESUMABLE_OUTCOME_KINDS`; the test fails against the pre-fix hardcoded `true`.
-- [ ] The same test file asserts `settleIntentResumeFailure` emits `loop_finished.resumable: true` for an outcome kind in the set.
-- [ ] A test asserts every kind in `INTENT_FINALIZATION_RESUMABLE_OUTCOME_KINDS` is one `resolveIntentFinalizationResumeContext` admits (and no admitted kind is omitted), so the projected `resumable` cannot disagree with resume admission.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `v2/src/execution/workflow-runner.test.ts` (or the co-located settlement test file) asserts `settleIntentResumeFailure` emits `loop_finished.resumable: false` for an outcome kind absent from `INTENT_FINALIZATION_RESUMABLE_OUTCOME_KINDS`; the test fails against the pre-fix hardcoded `true`.
+- [x] The same test file asserts `settleIntentResumeFailure` emits `loop_finished.resumable: true` for an outcome kind in the set.
+- [x] A test asserts every kind in `INTENT_FINALIZATION_RESUMABLE_OUTCOME_KINDS` is one `resolveIntentFinalizationResumeContext` admits (and no admitted kind is omitted), so the projected `resumable` cannot disagree with resume admission.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

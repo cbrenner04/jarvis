@@ -36,6 +36,7 @@ import {
 } from "./workflow-runner.test-support.ts";
 import {
   executeWorkflow,
+  INTENT_FINALIZATION_RESUMABLE_OUTCOME_KINDS,
   type ReviewDebateWorkflowStep,
   type ReviewWorkflowStep,
   resolveIntentFinalizationResumeContext,
@@ -487,10 +488,72 @@ describe("executeWorkflow review dispatch", () => {
       expect(terminal).toMatchObject({
         kind: "loop_finished",
         loopOutcomeKind: "completion_commit_failed",
+        resumable: false,
         completionCommitError: "commit exploded",
       });
       // @mutate v2/src/execution/workflow-runner.ts "completionCommitError: intentResumeCommitErrorMessage" -> ""
     });
+  });
+
+  test("a settled intent-finalization resume failure emits loop_finished whose resumable field agrees with admission", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-settle-agrees-"));
+    mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
+    writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"), "example.md");
+    mkdirSync(join(workspace, "ready-intents"), { recursive: true });
+
+    try {
+      await withStateStore(async (store) => {
+        const reviewRunId = seedFailedIntentReviewResumeRun(store, workspace, {
+          branch: "intent/settle-agrees",
+          invocationId: "intent-settle-agrees",
+          intentAgents: [],
+        });
+        const run = store.loadRun(reviewRunId);
+        if (!run) throw new Error("expected review run");
+        const logSink = new TestLogSink();
+        const outcome = await resumePopulatedIntentPublication(run, store, { logSink });
+        expect(outcome).toMatchObject({ ok: false });
+
+        const terminal = logSink.getEventsForRun(reviewRunId).find((event) => event.kind === "loop_finished");
+        expect(terminal).toMatchObject({
+          kind: "loop_finished",
+          loopOutcomeKind: "invocation_failure",
+          resumable: false,
+        });
+        // @mutate v2/src/execution/workflow-runner.ts "INTENT_FINALIZATION_RESUMABLE_OUTCOME_KINDS.has(loopOutcomeKind)" -> "true"
+      });
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  test("settleIntentResumeFailure emits loop_finished.resumable true for outcome kinds in INTENT_FINALIZATION_RESUMABLE_OUTCOME_KINDS", () => {
+    expect(INTENT_FINALIZATION_RESUMABLE_OUTCOME_KINDS.has("landing_failed")).toBe(true);
+    expect(INTENT_FINALIZATION_RESUMABLE_OUTCOME_KINDS.has("completion_commit_failed")).toBe(false);
+    expect(INTENT_FINALIZATION_RESUMABLE_OUTCOME_KINDS.has("invocation_failure")).toBe(false);
+  });
+
+  test("INTENT_FINALIZATION_RESUMABLE_OUTCOME_KINDS agrees with resolveIntentFinalizationResumeContext admission", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "intent-resumable-kinds-agree-"));
+    mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
+    writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"), "example.md");
+    mkdirSync(join(workspace, "ready-intents"), { recursive: true });
+
+    try {
+      await withStateStore(async (store) => {
+        for (const loopOutcomeKind of INTENT_FINALIZATION_RESUMABLE_OUTCOME_KINDS) {
+          const reviewRunId = seedFailedIntentReviewResumeRun(store, workspace, {
+            branch: `intent/resumable-${loopOutcomeKind}`,
+            invocationId: `intent-resumable-${loopOutcomeKind}`,
+          });
+          const run = store.loadRun(reviewRunId);
+          if (!run) throw new Error("expected review run");
+          expect(resolveIntentFinalizationResumeContext(run, store).ok).toBe(true);
+        }
+      });
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
   });
 
   test("retains workflow step across publication and finalization resume", async () => {

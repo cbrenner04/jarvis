@@ -33,7 +33,7 @@ describe("buildPrompt", () => {
     const rules = loadPromptRegistry().getById("patch.rules").body.trim();
 
     expect(prompt).toContain("<<<ACTIVE_SUBSPEC_BEGIN>>>");
-    expect(prompt).toContain("spec/example/00-task.md");
+    expect(prompt).toContain("spec/example/00-task.md\n\n# Task");
     expect(prompt).toContain("# Task");
     expect(prompt).toContain("<<<ACTIVE_SUBSPEC_END>>>");
     expect(prompt).not.toContain("first unchecked");

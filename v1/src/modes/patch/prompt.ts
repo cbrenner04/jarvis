@@ -44,13 +44,15 @@ export function buildPrompt(specPath: string, siblings?: string[], extras?: Buil
     siblingsBlock = `${lines.join("\n")}\n`;
   }
 
+  const activeSubspecPath = extras?.activeSubspecPath ?? "";
+
   return renderArtifactTemplate(
     { ...artifact, body: template },
     {
       SPEC_PATH: specPath,
       SIBLINGS_BLOCK: siblingsBlock,
       REPO_GUIDANCE: extras?.repoGuidance ?? "",
-      ACTIVE_SUBSPEC_PATH: extras?.activeSubspecPath ?? "",
+      ACTIVE_SUBSPEC_PATH: activeSubspecPath.trim() !== "" ? `${activeSubspecPath}\n` : "",
       ACTIVE_SUBSPEC_BODY: extras?.activeSubspecBody ?? "",
       PATCH_RULES: registry.getById("patch.rules").body.trim(),
       TIMEOUT_CHECKPOINT_CONTEXT: extras?.timeoutCheckpointContext ?? "",

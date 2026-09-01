@@ -61,19 +61,16 @@ export function createResolvedAgentBinding(
     return {
       id,
       metadata,
-      invoke: ({ prompt, cwd, signal, idleOutputMs, joinProcessOnIdleStall, onOutputProgress }) =>
+      invoke: (invokeArgs) =>
         runClaudeBinding({
-          prompt,
-          cwd,
+          prompt: invokeArgs.prompt,
+          cwd: invokeArgs.cwd,
           adapterModel,
-          ...(idleOutputMs !== undefined ? { idleOutputMs } : {}),
-          ...(joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
-          ...(onOutputProgress !== undefined ? { onOutputProgress } : {}),
+          ...pickAgentRunOptions(invokeArgs),
           ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
           ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
           ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
           ...(opts.watchWorktreeActivity !== undefined ? { watchWorktreeActivity: opts.watchWorktreeActivity } : {}),
-          ...(signal !== undefined ? { signal } : {}),
         }),
     };
   }
@@ -166,7 +163,14 @@ type AgentRunOptions = {
   setTimeout?: typeof setTimeout;
   clearTimeout?: typeof clearTimeout;
   watchWorktreeActivity?: WatchWorktreeActivity;
+  additionalReadDirs?: readonly string[];
 };
+
+function appendAdditionalReadDirFlags(argv: string[], additionalReadDirs: readonly string[] | undefined): void {
+  for (const dir of additionalReadDirs ?? []) {
+    argv.push("--add-dir", dir);
+  }
+}
 
 function pickAgentRunOptions(
   args: Pick<
@@ -178,6 +182,7 @@ function pickAgentRunOptions(
     | "setTimeout"
     | "clearTimeout"
     | "watchWorktreeActivity"
+    | "additionalReadDirs"
   >,
 ): AgentRunOptions {
   return {
@@ -188,6 +193,7 @@ function pickAgentRunOptions(
     ...(args.setTimeout !== undefined ? { setTimeout: args.setTimeout } : {}),
     ...(args.clearTimeout !== undefined ? { clearTimeout: args.clearTimeout } : {}),
     ...(args.watchWorktreeActivity !== undefined ? { watchWorktreeActivity: args.watchWorktreeActivity } : {}),
+    ...(args.additionalReadDirs !== undefined ? { additionalReadDirs: args.additionalReadDirs } : {}),
   };
 }
 
@@ -668,6 +674,7 @@ async function runClaudeBinding(args: {
   setTimeout?: typeof setTimeout;
   clearTimeout?: typeof clearTimeout;
   watchWorktreeActivity?: WatchWorktreeActivity;
+  additionalReadDirs?: readonly string[];
   spawn?: SpawnFn;
 }): Promise<InvocationResult> {
   const result = await runAgent(
@@ -675,17 +682,19 @@ async function runClaudeBinding(args: {
       name: "claude",
       binary: "claude",
       cwd: args.cwd,
-      buildArgv: () => [
-        "-p",
-        "--permission-mode",
-        "acceptEdits",
-        "--model",
-        args.adapterModel,
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        "--include-partial-messages",
-      ],
+      buildArgv: () => {
+        const argv = ["-p", "--permission-mode", "acceptEdits"];
+        appendAdditionalReadDirFlags(argv, args.additionalReadDirs);
+        argv.push(
+          "--model",
+          args.adapterModel,
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--include-partial-messages",
+        );
+        return argv;
+      },
       stdio: ["pipe", "pipe", "pipe"],
       writeStdin: (stdin, text) => {
         stdin.write(text);
@@ -714,6 +723,7 @@ async function runCodexBinding(args: {
   setTimeout?: typeof setTimeout;
   clearTimeout?: typeof clearTimeout;
   watchWorktreeActivity?: WatchWorktreeActivity;
+  additionalReadDirs?: readonly string[];
   spawn?: SpawnFn;
   sessionsDir?: string;
   randomUUID?: () => string;
@@ -727,17 +737,20 @@ async function runCodexBinding(args: {
       name: "codex",
       binary: "codex",
       cwd: args.cwd,
-      buildArgv: () => [
-        "exec",
-        "--skip-git-repo-check",
-        "--color",
-        "never",
-        "--sandbox",
-        args.sandboxMode,
-        ...(args.sandboxMode !== "danger-full-access" ? ["-c", 'approval_policy="on-request"'] : []),
-        "--model",
-        args.adapterModel,
-      ],
+      buildArgv: () => {
+        const argv = [
+          "exec",
+          "--skip-git-repo-check",
+          "--color",
+          "never",
+          "--sandbox",
+          args.sandboxMode,
+          ...(args.sandboxMode !== "danger-full-access" ? ["-c", 'approval_policy="on-request"'] : []),
+        ];
+        appendAdditionalReadDirFlags(argv, args.additionalReadDirs);
+        argv.push("--model", args.adapterModel);
+        return argv;
+      },
       stdio: ["pipe", "pipe", "pipe"],
       writeStdin: (stdin, text) => {
         stdin.write(text);

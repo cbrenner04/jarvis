@@ -243,6 +243,12 @@ export type WriteExecuteInput = {
   landingContractReprompt?: { violation: string; offendingFile: string };
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string };
   survivingMutationReprompt?: SurvivingMutationRepromptContext;
+  /** Admitted external plan implement: grant adapter read access to `specReadRoot` only. */
+  externalPlanSpec?: true;
+  /** Linked-index routing root when the spec tree lives outside the implement worktree. */
+  specReadRoot?: string;
+  /** Post-implement roles may read external specs only through prompt context. */
+  externalSpecReadOnly?: true;
 };
 
 type WriteExecuteResult = {
@@ -261,6 +267,7 @@ function runWriteStep(
     blockerTextContract?: BlockerTextContract;
   },
 ): Promise<StepRunResult> {
+  const additionalReadDirs = resolveImplementAdditionalReadDirs(write);
   return runStep({
     prompt: step.prompt,
     cwd: worktreePath,
@@ -282,7 +289,17 @@ function runWriteStep(
       : {}),
     ...(write.idleOutputMs !== undefined ? { idleOutputMs: write.idleOutputMs } : {}),
     ...(write.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
+    ...(additionalReadDirs !== undefined ? { additionalReadDirs } : {}),
   });
+}
+
+function resolveImplementAdditionalReadDirs(
+  args: Pick<WriteExecuteInput, "externalPlanSpec" | "specReadRoot" | "externalSpecReadOnly">,
+): readonly string[] | undefined {
+  if (args.externalPlanSpec === true && args.specReadRoot !== undefined && args.externalSpecReadOnly !== true) {
+    return [args.specReadRoot];
+  }
+  return undefined;
 }
 
 /** Reserved marker `appendBlockerToSpec` writes; identifies a harness-authored `## Blocker`. */
@@ -581,7 +598,7 @@ async function executeDefaultWrite(
 
   // Add criteria-ticked contract for implement writes (patch.prompt.body)
   // Check the active subspec for unticked non-human-only acceptance criteria
-  if (promptId === "patch.prompt.body" && expectedArtifactPath.length > 0) {
+  if (promptId === "patch.prompt.body" && expectedArtifactPath.length > 0 && args.externalSpecReadOnly !== true) {
     const unticked = getUntickedNonHumanOnlyCriteria(expectedArtifactPath);
     if (unticked.length > 0) {
       contracts.push({
@@ -598,11 +615,13 @@ async function executeDefaultWrite(
   // Blocker-text contract applies to both run path (DEFAULT_PROMPT_ID on specPath)
   // and implement path (patch.prompt.body on expectedArtifactPath, the active subspec).
   const blockerTextTargetPath =
-    promptId === DEFAULT_PROMPT_ID
-      ? specPath
-      : promptId === "patch.prompt.body" && expectedArtifactPath.length > 0
-        ? expectedArtifactPath
-        : undefined;
+    args.externalSpecReadOnly === true
+      ? undefined
+      : promptId === DEFAULT_PROMPT_ID
+        ? specPath
+        : promptId === "patch.prompt.body" && expectedArtifactPath.length > 0
+          ? expectedArtifactPath
+          : undefined;
   const blockerTextContract: BlockerTextContract | undefined =
     blockerTextTargetPath !== undefined && existsSync(blockerTextTargetPath) && statSync(blockerTextTargetPath).isFile()
       ? {

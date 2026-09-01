@@ -22,11 +22,11 @@ The write loop re-reads `spec.criteria-ticked` and injects the active subspec fr
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop.test.ts` regression drives an implement write with `externalPlanSpec: true`, records adapter `additionalReadDirs` equal to the admitted `specReadRoot`, ticks a criterion on the external subspec from the worktree `cwd`, and fails against the pre-fix binding that omits external read access.
-- [ ] `v2/src/execution/write-loop.test.ts` regression drives an external implement `contract_miss`, asserts `appendBlockerToSpec` / `write.blocker-text` targets the external active subspec when `expectedArtifactPath` is absolute, and fails while `00` still emits worktree-relative blocker paths.
-- [ ] `v2/src/execution/write.test.ts` `patch.prompt.body` criteria and active-subspec coverage stays green for in-repo artifacts.
-- [ ] `shared/invocation/agents.test.ts` stays green.
-- [ ] `shared/invocation/execute.test.ts` stays green.
+- [x] `v2/src/execution/write-loop.test.ts` regression drives an implement write with `externalPlanSpec: true`, records adapter `additionalReadDirs` equal to the admitted `specReadRoot`, ticks a criterion on the external subspec from the worktree `cwd`, and fails against the pre-fix binding that omits external read access.
+- [x] `v2/src/execution/write-loop.test.ts` regression drives an external implement `contract_miss`, asserts `appendBlockerToSpec` / `write.blocker-text` targets the external active subspec when `expectedArtifactPath` is absolute, and fails while `00` still emits worktree-relative blocker paths.
+- [x] `v2/src/execution/write.test.ts` `patch.prompt.body` criteria and active-subspec coverage stays green for in-repo artifacts.
+- [x] `shared/invocation/agents.test.ts` stays green.
+- [x] `shared/invocation/execute.test.ts` stays green.
 
 ## Documentation updates
 

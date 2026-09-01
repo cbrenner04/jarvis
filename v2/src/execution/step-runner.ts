@@ -46,6 +46,7 @@ type StepRunInput = {
   onInvocationOutputProgress?: () => void;
   idleOutputMs?: number;
   joinProcessOnIdleStall?: boolean;
+  additionalReadDirs?: readonly string[];
 };
 
 /** The first (token-less) response plus the token-only re-prompt's own invocation. */
@@ -117,6 +118,7 @@ function sharedInvocationExtras(args: StepRunInput) {
     ...(args.onInvocationOutputProgress !== undefined ? { onOutputProgress: args.onInvocationOutputProgress } : {}),
     ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
     ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
+    ...(args.additionalReadDirs !== undefined ? { additionalReadDirs: args.additionalReadDirs } : {}),
   };
 }
 

@@ -45,6 +45,12 @@ import {
 } from "./completion-commit.ts";
 import type { CompletionPublisher } from "./completion-publisher.ts";
 import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
+import {
+  type ExternalSpecGitScope,
+  excludeExternalSpecGitPaths,
+  externalSpecGitScope,
+  withExternalSpecTreeReadOnly,
+} from "./external-spec-git.ts";
 import { getExternalWorktreePath, withExternalWorktree as realWithExternalWorktree } from "./external-worktree.ts";
 import { landImplementSpecTreeFromReadRoot } from "./implement-spec-landing.ts";
 import type { IntentPipelineHandoff } from "./intent-output.ts";
@@ -355,6 +361,10 @@ export type ReviewDebateWorkflowStep = Omit<ReviewDebateInput, "bindings" | "onR
   stagedMarkdownLintMaxReprompts?: number;
   /** Set only by plan-stage recovery: revalidate staged plan bytes immediately before landing. */
   revalidateStagedPlanBeforeLanding?: boolean;
+  /** Identifies an admitted external plan whose markdown remains read-only during review. */
+  externalPlanSpec?: true;
+  /** External review prompt label root and recovery boundary. */
+  specReadRoot?: string;
 };
 
 /** Per-step critic/actuator review input; bindings are derived at execution. */
@@ -370,6 +380,10 @@ export type ReviewWorkflowStep = Omit<ReviewCycleInput, "bindings" | "onRoleStar
   stagedMarkdownLintMaxReprompts?: number;
   /** Set only by plan-stage recovery: revalidate staged plan bytes immediately before landing. */
   revalidateStagedPlanBeforeLanding?: boolean;
+  /** Identifies an admitted external plan whose markdown remains read-only during review. */
+  externalPlanSpec?: true;
+  /** External review prompt label root and recovery boundary. */
+  specReadRoot?: string;
 };
 
 /** Live/terminal progress for a review step's daemon-visible row, tracked in-memory only. */
@@ -522,17 +536,19 @@ async function runWorkflowStep(
   reviewPassCommitDeps: ReviewPassCommitDeps | undefined,
 ): Promise<WorkflowStepOutcome> {
   if (step.behavior === "review-debate" || step.behavior === "review") {
-    return runReviewDispatch(
-      step,
-      stepIndex,
-      workflowSnapshot,
-      onReviewDebateProgress,
-      telemetry,
-      onStepRunCreated,
-      store,
-      logSink,
-      freshDispatch,
-      reviewPassCommitDeps,
+    return withExternalSpecTreeReadOnly(externalSpecGitScope(step), [step.verdictPath], () =>
+      runReviewDispatch(
+        step,
+        stepIndex,
+        workflowSnapshot,
+        onReviewDebateProgress,
+        telemetry,
+        onStepRunCreated,
+        store,
+        logSink,
+        freshDispatch,
+        reviewPassCommitDeps,
+      ),
     );
   }
 
@@ -585,6 +601,23 @@ async function runWorkflowStep(
 /** Resolve `path` inside a materialized worktree. */
 function resolveInWorktree(worktreePath: string, path: string): string {
   return isAbsolute(path) ? path : join(worktreePath, path);
+}
+
+function resolveLinkedImplementIndexPath(step: WriteWorkflowStep, worktreePath: string): string {
+  if (step.externalPlanSpec === true) {
+    return step.specPath;
+  }
+  return resolveInWorktree(worktreePath, step.specPath);
+}
+
+function resolveLinkedImplementRoutingRoot(step: WriteWorkflowStep, worktreePath: string): string {
+  if (step.specReadRoot !== undefined) {
+    return step.specReadRoot;
+  }
+  if (step.externalPlanSpec === true && isAbsolute(step.specPath)) {
+    return dirname(step.specPath);
+  }
+  return worktreePath;
 }
 
 function resolveImplementSpecPathForPublication(step: WriteWorkflowStep, worktreePath: string): string {
@@ -728,12 +761,12 @@ async function runLinkedImplementStep(
 ): Promise<WorkflowStepOutcome> {
   const worktreePath = getExternalWorktreePath(step.worktree);
   await (step.withExternalWorktree ?? realWithExternalWorktree)(step.worktree, () => undefined);
-  const linkedProjectRoot = step.specReadRoot ?? worktreePath;
+  const linkedProjectRoot = resolveLinkedImplementRoutingRoot(step, worktreePath);
 
   let totalIterationsConsumed = 0;
 
   for (;;) {
-    const indexPath = resolveInWorktree(worktreePath, step.specPath);
+    const indexPath = resolveLinkedImplementIndexPath(step, worktreePath);
 
     let beforeIndexContent: string;
     try {
@@ -772,13 +805,12 @@ async function runLinkedImplementStep(
       return stepped;
     }
 
-    const worktreeIndexPath = resolveInWorktree(worktreePath, step.specPath);
-    const pinnedRouting = resolvePinnedLinkedSubspec(worktreeIndexPath, linkedProjectRoot, routing.active.index);
+    const pinnedRouting = resolvePinnedLinkedSubspec(indexPath, linkedProjectRoot, routing.active.index);
     if (!pinnedRouting.ok) {
       return linkedImplementRoutingFailureOutcome(pinnedRouting, totalIterationsConsumed, stepIndex, onStepRunCreated);
     }
 
-    const finalized = finalizeLinkedImplementPass(stepped, pinnedRouting, beforeIndexContent, worktreeIndexPath);
+    const finalized = finalizeLinkedImplementPass(stepped, pinnedRouting, beforeIndexContent, indexPath);
     if (finalized !== undefined) {
       return finalized;
     }
@@ -1122,6 +1154,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             agent: publicationAgent,
             title: commitStep !== undefined ? renderStepCommitTitle(commitStep, creationTitle) : creationTitle,
             iterationTimeoutMs: completionStep.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
+            ...externalSpecGitScope(completionStep),
             ...(commitStep !== undefined ? { step: commitStep } : {}),
           });
           const publicationSha = published.commitSha ?? headBeforeCompletionCommit;
@@ -1130,7 +1163,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               ? await readDiffOutcome(worktreePath, worktree.baseRef, publicationSha)
               : "changed";
           if (published.commitSha === undefined) {
-            const uncommitted = await getUncommittedPaths(worktreePath);
+            const uncommitted = await getUncommittedPaths(worktreePath, completionStep);
             const remainingStaged = remainingStagedIntentPaths(worktreePath, completionStep.landing);
             const namedPaths = [...new Set([...uncommitted, ...remainingStaged])];
             if (namedPaths.length > 0) {
@@ -1219,6 +1252,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 worktreePath,
                 specPath: publicationSpecPath ?? completionStep.specPath,
                 baseRef: worktree.baseRef,
+                ...externalSpecGitScope(completionStep),
               });
             }
             const repairInput = buildCompletionStepWriteLoopInput(completionStep, workflowSnapshot, args, store);
@@ -1234,6 +1268,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 specPath: publicationPath,
                 branch: worktree.branchName,
                 creationTitle,
+                ...externalSpecGitScope(completionStep),
                 ...(bodySummary !== undefined ? { bodySummary } : {}),
                 ...(specTemplate ? { specTemplate } : {}),
                 ...(shrinkNarrative !== undefined ? { narrative: shrinkNarrative } : {}),
@@ -1533,6 +1568,7 @@ function buildWorkflowSnapshot(
   freshDispatch?: boolean,
 ): WorkflowSnapshot {
   const requestedInvocationId = steps.find(isWriteStep)?.workflowInvocationId;
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: linear per-step mapping resolving durable/write-step identity; extraction would split the 1:1 step-to-snapshot mapping across helpers and obscure it
   const authoredSteps = steps.map((step) => ({
     stepId: step.stepId,
     role: step.behavior === "write" ? step.role : "",
@@ -1553,6 +1589,8 @@ function buildWorkflowSnapshot(
           idleOutputMs: step.idleOutputMs,
           ...(step.fixCommand !== undefined ? { fixCommand: step.fixCommand } : {}),
           ...(step.readyCommand !== undefined ? { readyCommand: step.readyCommand } : {}),
+          ...(step.externalPlanSpec === true ? { externalPlanSpec: true as const } : {}),
+          ...(step.specReadRoot !== undefined ? { specReadRoot: step.specReadRoot } : {}),
         }
       : {}),
   }));
@@ -1789,11 +1827,13 @@ async function runShrinkAfterImplementComplete(
   freshDispatch: boolean | undefined,
   touchedStepsInExecution: Set<string>,
 ): Promise<WriteLoopResult> {
+  const { ...shrinkBase } = step;
   const shrinkStep = {
-    ...step,
+    ...shrinkBase,
     stepId: `${step.stepId}${SHRINK_STEP_ID_SUFFIX}`,
     role: SHRINK_ROLE,
     promptId: SHRINK_PROMPT_ID,
+    ...(step.externalPlanSpec === true ? { externalSpecReadOnly: true as const } : {}),
     promptPlaceholders: await shrinkPromptPlaceholders(step),
   };
   const preparedStep = prepareWorkflowStep(
@@ -1821,10 +1861,12 @@ async function runShrinkAfterImplementComplete(
 
   touchedStepsInExecution.add(shrinkStep.stepId);
 
-  return executeWriteLoop(
-    onStepRunCreated
-      ? { ...preparedStep.input, onRunCreated: (runId) => onStepRunCreated(stepIndex, runId) }
-      : preparedStep.input,
+  return withExternalSpecTreeReadOnly(externalSpecGitScope(step), [], () =>
+    executeWriteLoop(
+      onStepRunCreated
+        ? { ...preparedStep.input, onRunCreated: (runId) => onStepRunCreated(stepIndex, runId) }
+        : preparedStep.input,
+    ),
   );
 }
 
@@ -1833,22 +1875,29 @@ async function shrinkPromptPlaceholders(
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
 ): Promise<Record<string, string>> {
   const worktreePath = getExternalWorktreePath(step.worktree);
-  const allowlist = await changedFiles(worktreePath, step.worktree.baseRef, runner);
+  const gitScope = externalSpecGitScope(step);
+  const allowlist = excludeExternalSpecGitPaths(
+    worktreePath,
+    await changedFiles(worktreePath, step.worktree.baseRef, runner),
+    gitScope,
+  );
+  const scopedPaths =
+    allowlist.length > 0 ? allowlist : step.externalPlanSpec === true ? [] : [step.expectedArtifactPath];
   return {
     SPEC_PATH: step.specPath,
-    SPEC_TREE: readSpecTree(worktreePath, step.specPath),
-    ALLOWLIST: (allowlist.length > 0 ? allowlist : [step.expectedArtifactPath]).map((path) => `- ${path}`).join("\n"),
+    SPEC_TREE: readSpecTree(
+      worktreePath,
+      step.specPath,
+      step.externalPlanSpec === true ? resolveLinkedImplementRoutingRoot(step, worktreePath) : worktreePath,
+    ),
+    ALLOWLIST: scopedPaths.length > 0 ? scopedPaths.map((path) => `- ${path}`).join("\n") : "(no changed files)",
     BRANCH_DIFF: (await gitOutput(worktreePath, ["diff", "--stat", step.worktree.baseRef, "--"], runner)) || "(empty)",
     RUN_SCOPED_DIFF:
-      (await gitOutput(
-        worktreePath,
-        ["diff", step.worktree.baseRef, "--", ...(allowlist.length > 0 ? allowlist : [step.expectedArtifactPath])],
-        runner,
-      )) || "(empty)",
+      (await gitOutput(worktreePath, ["diff", step.worktree.baseRef, "--", ...scopedPaths], runner)) || "(empty)",
   };
 }
 
-function readSpecTree(worktreePath: string, specPath: string): string {
+function readSpecTree(worktreePath: string, specPath: string, labelRoot: string): string {
   const resolvedSpecPath = isAbsolute(specPath) ? specPath : join(worktreePath, specPath);
   const specRoot = dirname(resolvedSpecPath);
   if (!existsSync(specRoot)) return "(missing spec tree)";
@@ -1858,7 +1907,7 @@ function readSpecTree(worktreePath: string, specPath: string): string {
 
   return files
     .map((filePath) => {
-      const label = relative(worktreePath, filePath) || filePath;
+      const label = relative(labelRoot, filePath) || filePath;
       return `## ${label}\n\n${readFileSync(filePath, "utf8")}`;
     })
     .join("\n\n");
@@ -2033,7 +2082,7 @@ function lastMutatingReviewPass<C extends { kind: string; actuatorRan?: boolean 
   return undefined;
 }
 
-type ReviewPassCommitDeps = {
+type ReviewPassCommitDeps = ExternalSpecGitScope & {
   completionCommitter?: CompletionCommitter;
   baseRef: string;
   specPath: string;
@@ -2055,6 +2104,7 @@ function buildReviewPassCommitDeps(
     specPath: writeStep.specPath,
     ...(workflowSnapshot.creationTitle !== undefined ? { creationTitleHint: workflowSnapshot.creationTitle } : {}),
     ...(writeStep.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: writeStep.iterationTimeoutMs } : {}),
+    ...externalSpecGitScope(writeStep),
   };
 }
 
@@ -2097,6 +2147,7 @@ async function commitMutatingReviewPass(
     step: fields.step,
     iterationTimeoutMs: deps.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
     formatMode: "checkpoint",
+    ...externalSpecGitScope(deps),
   });
   if (published.commitSha === undefined || published.commitSha === headBefore) return;
 }
@@ -3946,7 +3997,7 @@ function settleIntentResumeFailure(
 /** Stub `WriteLoopInput` for `publishWithReadyRepair`: `maxIterations: 0` forbids the agent-driven
  * ready-gate repair branch (no agent bindings exist on resume) so any gate failure surfaces directly. */
 function inertResumeWriteLoopInput(
-  context: { worktreePath: string; project: string; branch: string; baseRef: string },
+  context: { worktreePath: string; project: string; branch: string; baseRef: string } & ExternalSpecGitScope,
   specPath: string,
   deps: IntentFinalizationResumeDeps,
   landing?: PublicationLanding,
@@ -3974,6 +4025,8 @@ function inertResumeWriteLoopInput(
     ...(deps.runFixCommand !== undefined ? { runFixCommand: deps.runFixCommand } : {}),
     ...(deps.logSink !== undefined ? { logSink: deps.logSink } : {}),
     ...(landing !== undefined ? { landing } : {}),
+    ...externalSpecGitScope(context),
+    ...(context.externalPlanSpec === true ? { externalSpecReadOnly: true as const } : {}),
   };
 }
 
@@ -4239,7 +4292,7 @@ export const REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS = new Set([
 ]);
 
 /** Reconstructed context for resuming a review-behavior row that settled `surviving_mutation_failed`. */
-export type ReviewMutationResumeContext = {
+export type ReviewMutationResumeContext = ExternalSpecGitScope & {
   runId: string;
   /** Durable write-step row carrying persisted ready-gate repair fence provenance. */
   writeSiblingRunId: string;
@@ -4258,6 +4311,16 @@ export type ReviewMutationResumeContext = {
 export type ReviewMutationResumeResolution =
   | { ok: true; context: ReviewMutationResumeContext }
   | { ok: false; message: string };
+
+function persistedExternalSpecGitScope(
+  writeRun: Pick<Run, "queuedInput">,
+  writeStep: WorkflowSnapshotStep | undefined,
+): ExternalSpecGitScope {
+  const persisted = writeStep?.externalPlanSpec === true ? writeStep : writeRun.queuedInput;
+  return persisted?.externalPlanSpec === true && persisted.specReadRoot !== undefined
+    ? { externalPlanSpec: true, specReadRoot: persisted.specReadRoot }
+    : {};
+}
 
 /** Reconstruct a durable review-mutation row's write-sibling context without admitting its outcome. */
 export function resolveReviewMutationLineageContext(run: Run, store: StateStore): ReviewMutationResumeResolution {
@@ -4279,6 +4342,7 @@ export function resolveReviewMutationLineageContext(run: Run, store: StateStore)
       landingKind: writeStep?.expectedArtifactPath === INTENT_STAGE_DIR ? "intent-stage" : "plain",
       completionAgent,
       creationTitleHint: snapshot.creationTitle,
+      ...persistedExternalSpecGitScope(writeRun, writeStep),
     },
   };
 }
@@ -4352,6 +4416,7 @@ function resolveOrdinaryWriteResumeContext(
       landingKind: step?.expectedArtifactPath === INTENT_STAGE_DIR ? "intent-stage" : "plain",
       completionAgent,
       creationTitleHint: snapshot?.creationTitle,
+      ...persistedExternalSpecGitScope(run, step),
     },
   };
 }
@@ -4486,13 +4551,14 @@ async function commitReviewMutationResumeChanges(
       agent: context.completionAgent as string,
       title: creationTitle,
       iterationTimeoutMs: deps.mutationRepair?.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
+      ...externalSpecGitScope(context),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return settleReviewMutationResumeFailure(store, context, attemptId, "completion_commit_failed", message, deps);
   }
   if (published.commitSha === undefined) {
-    const uncommitted = await getUncommittedPaths(context.worktreePath);
+    const uncommitted = await getUncommittedPaths(context.worktreePath, externalSpecGitScope(context));
     if (uncommitted.length > 0) {
       return settleReviewMutationResumeFailure(
         store,
@@ -4526,6 +4592,7 @@ async function deriveReviewMutationResumeBodySummary(
     worktreePath: context.worktreePath,
     specPath: context.specPath,
     baseRef: context.baseRef,
+    ...externalSpecGitScope(context),
   });
   return { bodySummary, specTemplate: true };
 }
@@ -4560,6 +4627,8 @@ function mutationRepairLoopInput(
     ...(deps.readyFinalizer !== undefined ? { readyFinalizer: deps.readyFinalizer } : {}),
     ...(deps.runFixCommand !== undefined ? { runFixCommand: deps.runFixCommand } : {}),
     ...(deps.logSink !== undefined ? { logSink: deps.logSink } : {}),
+    ...externalSpecGitScope(context),
+    ...(context.externalPlanSpec === true ? { externalSpecReadOnly: true as const } : {}),
   };
 }
 
@@ -4656,7 +4725,9 @@ async function runMutationRepairAttempt(
     resumable: false,
     ...(context.completionAgent !== undefined ? { completionAgent: context.completionAgent } : {}),
   };
-  const repairOutcome = await runMutationRepairIteration(repairArgs, store, result, mutationError, attempt);
+  const repairOutcome = await withExternalSpecTreeReadOnly(externalSpecGitScope(context), [], () =>
+    runMutationRepairIteration(repairArgs, store, result, mutationError, attempt),
+  );
   if (repairOutcome === "blocked") {
     return {
       kind: "settled",
@@ -4694,6 +4765,7 @@ async function runMutationRepairAttempt(
       title: renderStepCommitTitle(mutationRepairStep, creationTitle),
       iterationTimeoutMs: deps.mutationRepair?.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
       step: mutationRepairStep,
+      ...externalSpecGitScope(context),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -4734,6 +4806,7 @@ async function runMutationRepairAttempt(
     creationTitle,
     ...(body.bodySummary !== undefined ? { bodySummary: body.bodySummary } : {}),
     ...(body.specTemplate ? { specTemplate: true } : {}),
+    ...externalSpecGitScope(context),
   });
   if (
     publication.failure?.kind === "surviving_mutation_failed" &&
@@ -4956,6 +5029,7 @@ async function runReviewMutationCommitAndPublish(
       creationTitle,
       ...(bodySummary !== undefined ? { bodySummary } : {}),
       ...(specTemplate ? { specTemplate } : {}),
+      ...externalSpecGitScope(context),
     },
   );
 

@@ -61,6 +61,7 @@ import {
   type VerificationResult,
   verifyDiffDerivedMutations,
 } from "./diff-derived-mutation-verifier.ts";
+import { type ExternalSpecGitScope, excludeExternalSpecGitPaths, externalSpecGitScope } from "./external-spec-git.ts";
 import { getExternalWorktreePath, isMaterializedNodeModulesPath } from "./external-worktree.ts";
 import { evaluateIntentSplitLandingGate } from "./intent-output.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
@@ -483,11 +484,12 @@ export function shouldFailTerminalCompletionForDirtyWorktree(
 }
 
 /** Lossless uncommitted paths from shared inventory, minus materialized node_modules; fail-soft to []. */
-export async function getUncommittedPaths(worktreePath: string): Promise<string[]> {
+export async function getUncommittedPaths(worktreePath: string, scope: ExternalSpecGitScope = {}): Promise<string[]> {
   try {
-    return (await getGitStatusInventory(worktreePath))
+    const paths = (await getGitStatusInventory(worktreePath))
       .map((entry) => entry.currentPath)
       .filter((path) => !isMaterializedNodeModulesPath(worktreePath, path));
+    return excludeExternalSpecGitPaths(worktreePath, paths, scope);
   } catch {
     return [];
   }
@@ -971,6 +973,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             agent: prepared.result.completionAgent ?? "",
             title: creationTitle,
             iterationTimeoutMs: args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
+            ...externalSpecGitScope(args),
           });
           let publicationBaseRetarget: { requestedBase: string; resolvedBase: string } | undefined;
           if (await shouldPublishSettledHead(worktreePath, args.worktree.baseRef, published.commitSha)) {
@@ -980,6 +983,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               specPath: args.specPath,
               branch: args.worktree.branchName,
               creationTitle,
+              ...externalSpecGitScope(args),
               ...(args.requiredIntegrationScope ? { requiredIntegrationScope: args.requiredIntegrationScope } : {}),
             });
             if (publication.failure !== undefined) {
@@ -1029,7 +1033,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             }
           }
           if (published.commitSha === undefined) {
-            const uncommitted = await getUncommittedPaths(getExternalWorktreePath(args.worktree));
+            const uncommitted = await getUncommittedPaths(getExternalWorktreePath(args.worktree), args);
             if (shouldFailTerminalCompletionForDirtyWorktree(published.commitSha, uncommitted)) {
               return completionCommitFailed(
                 args,
@@ -1548,16 +1552,11 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         pendingStagedMarkdownLintReprompt = undefined;
       }
 
-      if (result.kind === "contract_miss") {
+      if (result.kind === "contract_miss" && args.externalSpecReadOnly !== true) {
         const reason = result.failureReason ?? result.failedContractId;
         // Every plan.prompt.draft contract miss routes to staged intent.md; the failed contract
         // ID is retained only as failure identity (reason), not as a routing input.
-        const blockerPath =
-          result.failedContractId === "spec.criteria-ticked"
-            ? resolveSpecPath(worktreePath, args.expectedArtifactPath)
-            : args.promptId === PLAN_DRAFT_PROMPT_ID
-              ? resolveSpecPath(worktreePath, join(args.expectedArtifactPath, "intent.md"))
-              : resolveSpecPath(worktreePath, args.specPath);
+        const blockerPath = resolveContractMissBlockerPath(worktreePath, args, result.failedContractId);
 
         if (isEligibleBlockerAppendTarget(blockerPath)) {
           appendBlockerToSpec(blockerPath, reason);
@@ -1779,7 +1778,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       };
       if (args.publishCompletion === false) {
         if (terminal.outcomeKind === "no-work") {
-          const uncommitted = await getUncommittedPaths(worktreePath);
+          const uncommitted = await getUncommittedPaths(worktreePath, args);
           if (shouldFailTerminalCompletionForDirtyWorktree(undefined, uncommitted)) {
             const error = new Error(`Uncommitted changes: ${uncommitted.join(", ")}`);
             store.commitTerminalRunSettlement({
@@ -1837,6 +1836,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           agent,
           title: creationTitle,
           iterationTimeoutMs: args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
+          ...externalSpecGitScope(args),
         });
         let publicationBaseRetarget: { requestedBase: string; resolvedBase: string } | undefined;
         if (await shouldPublishSettledHead(worktreePath, args.worktree.baseRef, published.commitSha)) {
@@ -1847,6 +1847,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             specPath: args.specPath,
             branch: args.worktree.branchName,
             creationTitle,
+            ...externalSpecGitScope(args),
             ...(args.promptId === "patch.prompt.body" || args.promptId === "plan.prompt.draft"
               ? { specTemplate: true }
               : {}),
@@ -1894,7 +1895,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           }
         }
         if (published.commitSha === undefined) {
-          const uncommitted = await getUncommittedPaths(worktreePath);
+          const uncommitted = await getUncommittedPaths(worktreePath, args);
           if (shouldFailTerminalCompletionForDirtyWorktree(published.commitSha, uncommitted)) {
             return completionCommitFailed(
               args,
@@ -2424,6 +2425,9 @@ function buildWriteExecuteInput(
     ...(landingContractReprompt !== undefined ? { landingContractReprompt } : {}),
     ...(stagedMarkdownLintReprompt !== undefined ? { stagedMarkdownLintReprompt } : {}),
     ...(survivingMutationReprompt !== undefined ? { survivingMutationReprompt } : {}),
+    ...(args.externalPlanSpec === true ? { externalPlanSpec: true as const } : {}),
+    ...(args.specReadRoot !== undefined ? { specReadRoot: args.specReadRoot } : {}),
+    ...(args.externalSpecReadOnly === true ? { externalSpecReadOnly: true as const } : {}),
   };
 }
 
@@ -2987,6 +2991,7 @@ async function commitRepairAndRepublish(
         iterationTimeoutMs: args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
         step: { kind: "ready-gate" },
         ...(options?.readyGateAttribution !== undefined ? { readyGateAttribution: options.readyGateAttribution } : {}),
+        ...externalSpecGitScope(args),
       });
     }
     const onGateGroupId = (pgid: number | null): void => store.setReadyGatePgid(result.runId, pgid);
@@ -3390,7 +3395,7 @@ async function runPublisher(
     bodySummary?: string;
     specTemplate?: boolean;
     requiredIntegrationScope?: string;
-  },
+  } & ExternalSpecGitScope,
 ): Promise<Awaited<ReturnType<CompletionPublisher>> | undefined> {
   return await (seams.completionPublisher ?? createCompletionPublisher())(input);
 }
@@ -3512,7 +3517,7 @@ export async function publishCompletionArtifacts(
     bodySummary?: string;
     specTemplate?: boolean;
     requiredIntegrationScope?: string;
-  },
+  } & ExternalSpecGitScope,
   onGateGroupId?: (pgid: number | null) => void,
 ): Promise<CompletionPublishFailure | (CompletionPublishSuccess & { kind: "success" })> {
   let publisherResult: Awaited<ReturnType<CompletionPublisher>> | undefined;
@@ -3733,6 +3738,22 @@ function resolveSpecPath(worktreePath: string, specPath: string): string {
   return isAbsolute(specPath) ? specPath : join(worktreePath, specPath);
 }
 
+function resolveContractMissBlockerPath(
+  worktreePath: string,
+  args: Pick<WriteLoopInput, "expectedArtifactPath" | "specPath" | "promptId" | "externalPlanSpec">,
+  failedContractId: string,
+): string {
+  if (failedContractId === "spec.criteria-ticked") {
+    return args.externalPlanSpec === true && isAbsolute(args.expectedArtifactPath)
+      ? args.expectedArtifactPath
+      : resolveSpecPath(worktreePath, args.expectedArtifactPath);
+  }
+  if (args.promptId === PLAN_DRAFT_PROMPT_ID) {
+    return resolveSpecPath(worktreePath, join(args.expectedArtifactPath, "intent.md"));
+  }
+  return resolveSpecPath(worktreePath, args.specPath);
+}
+
 export type ProgressIterationCommitOutcome =
   | { kind: "committed"; commitSha: string }
   | { kind: "skipped"; skipReason: "no_git" | "no_file_changes" | "no_binding" };
@@ -3864,6 +3885,7 @@ async function commitSettledIteration(
     iterationTimeoutMs: args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
     formatMode: "checkpoint",
     step: args.bindingResolution?.role === "shrink" ? { kind: "shrink" } : { kind: "write" },
+    ...externalSpecGitScope(args),
   });
   if (committed.commitSha === undefined || committed.commitSha === headBefore) {
     return { kind: "skipped", skipReason: "no_file_changes" };

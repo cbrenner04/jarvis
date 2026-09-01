@@ -10,11 +10,11 @@ name: generalize-production-test-seam-guard
 
 ## Problem
 
-`guard-production-test-flags.ts` regexes only the historical `invert*ForTest` family and misses `ForTest`/`ForTests` setters and other module-level mutable production test seams.
+`guard-production-test-flags.ts` regexes only the historical `invert*ForTest` family and misses generalized `ForTest`/`ForTests` setters and module variables in production `src/`.
 
 ## Behavior
 
-- Generalize the guard to flag any `ForTest`/`ForTests` identifier or module-level mutable test seam in production `src/` outside `testing/`.
+- Generalize the guard to flag `ForTest`/`ForTests` identifiers (setters, module variables, parameters, type members) in production `src/` outside `testing/`.
 - Retain existing `invert*` detection; add guard self-tests for the broadened shapes.
 
 ## Decision ledger
@@ -37,3 +37,4 @@ name: generalize-production-test-seam-guard
 ## Documentation updates
 
 - `v2/docs/coding-standards.md` — broaden the production test-seam prohibition to cover generalized `ForTest`/`ForTests` shapes enforced by the guard.
+- `v2/docs/test-writing.md` — align the forbidden production test-seam list with the generalized guard scope.

@@ -10,11 +10,11 @@ Daemon
 
 ## Problem
 
-Tail-stream handling and peer-socket enumeration/supersede live inline in `daemon.ts` with no coupling to run-control handler state, inflating the file targeted for handler modularization.
+Tail-stream handling and startup peer enumeration/supersede (`enumerateOtherDaemonSockets`, `supersedePeerDaemon`) live inline in `daemon.ts`; `discoverLiveDaemonSockets` is already in `live-daemon-socket-discovery.ts`. Inline code has no coupling to run-control handler state, inflating the file targeted for handler modularization.
 
 ## Behavior
 
-- Move tail-stream parsing/streaming and peer-socket discovery/supersede into dedicated daemon modules wired from `daemon.ts`.
+- Move tail-stream parsing/streaming and startup `enumerateOtherDaemonSockets` / `supersedePeerDaemon` into dedicated daemon modules wired from `daemon.ts`.
 - Preserve stream-open, supersede RPC, and startup ordering semantics.
 
 ## Decision ledger
@@ -27,7 +27,7 @@ Tail-stream handling and peer-socket enumeration/supersede live inline in `daemo
 ## Acceptance criteria
 
 - [ ] `v2/src/daemon/daemon-tail-stream.test.ts` stays green (behavior unchanged by the extraction).
-- [ ] `v2/src/daemon/live-daemon-socket-discovery.test.ts` and `v2/src/commands/cleanup-cli.test.ts` peer-supersede paths stay green (behavior unchanged by the extraction).
+- [ ] `v2/src/daemon/daemon-lifecycle.sandbox-unrunnable.test.ts` enumerate/supersede cases stay green (behavior unchanged by the extraction).
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

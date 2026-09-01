@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
 import { projectSafeId } from "../../../shared/project-safe-id.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import type { CliDeps } from "../cli/deps.ts";
 import { createRunControlHandlers, WorktreeOwnershipRegistry } from "../daemon/daemon.ts";
 import { withExternalWorktree } from "../execution/external-worktree.ts";
 import {
@@ -54,7 +55,6 @@ import { makeIpcClient as makeDeferredIpcClient } from "../testing/ipc-client-fa
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import { STALE_RESET_LANDED_CRITERIA_OVERRIDE_CLI_FLAG, STALE_RESET_OVERRIDE_CLI_FLAG } from "./cleanup.ts";
 import { STALE_RESET_WORKFLOWS } from "./stale-reset-workspace.ts";
-import { setAttachWaitRunIdOverrideForTest, setForceSkipAttachClientWaitForTest } from "./workflow.ts";
 
 let fx: CliRepoFixture;
 
@@ -1309,19 +1309,15 @@ async function assertAttachedEntryTerminalWait(): Promise<void> {
   }
 }
 
-async function expectAttachedWorkflowMissesEntryTerminalContract(mutate: () => void): Promise<void> {
-  mutate();
+async function expectAttachedWorkflowMissesEntryTerminalContract(overrides: Partial<CliDeps> = {}): Promise<void> {
   const { server, socketPath } = await startAttachedEntryWaitWorkflowServer();
   const machineConfigPath = writeMachineConfig({ projects: { "test-project": { root: fx.repoRoot } } });
   const cap = captureIo();
   try {
-    const code = await main(
-      [...IMPLEMENT_ARGS],
-      cap.io,
-      attachedEntryWaitWorkflowDeps(socketPath, machineConfigPath, fx.repoSub, fx.fakeImplementSteps) as NonNullable<
-        Parameters<typeof main>[2]
-      >,
-    );
+    const code = await main([...IMPLEMENT_ARGS], cap.io, {
+      ...attachedEntryWaitWorkflowDeps(socketPath, machineConfigPath, fx.repoSub, fx.fakeImplementSteps),
+      ...overrides,
+    } as NonNullable<Parameters<typeof main>[2]>);
     const stdout = cap.read().stdout;
     expect(code === ATTACHED_HELD_ENTRY_WAIT_EXIT && stdout === ATTACHED_HELD_ENTRY_WAIT_STDOUT).toBe(false);
   } finally {
@@ -1333,11 +1329,6 @@ async function expectAttachedWorkflowMissesEntryTerminalContract(mutate: () => v
 describe("workflow attached entry-terminal wait", () => {
   const attachedSocketTest = test.skipIf(!canUseUnixSockets());
 
-  afterEach(() => {
-    setForceSkipAttachClientWaitForTest(false);
-    setAttachWaitRunIdOverrideForTest(undefined);
-  });
-
   attachedSocketTest(
     "attached run workflow waits through a multi-step workflow until the entry run is terminal",
     async () => {
@@ -1348,16 +1339,16 @@ describe("workflow attached entry-terminal wait", () => {
   attachedSocketTest(
     "inverting attach client-wait guard fails attached run workflow waits through a multi-step workflow until the entry run is terminal",
     async () => {
-      await expectAttachedWorkflowMissesEntryTerminalContract(() => setForceSkipAttachClientWaitForTest(true));
+      await expectAttachedWorkflowMissesEntryTerminalContract({ forceSkipAttachClientWait: true });
     },
   );
 
   attachedSocketTest(
     "retargeting attach client wait at a constituent run ID fails attached run workflow waits through a multi-step workflow until the entry run is terminal",
     async () => {
-      await expectAttachedWorkflowMissesEntryTerminalContract(() =>
-        setAttachWaitRunIdOverrideForTest(ATTACHED_CONSTITUENT_WAIT_RUN_ID),
-      );
+      await expectAttachedWorkflowMissesEntryTerminalContract({
+        attachWaitRunIdOverride: ATTACHED_CONSTITUENT_WAIT_RUN_ID,
+      });
     },
   );
 });

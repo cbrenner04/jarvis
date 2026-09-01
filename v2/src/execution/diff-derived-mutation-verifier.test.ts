@@ -559,6 +559,28 @@ index be281d02..00000000
     expect(untracked).toEqual(missingCriticRenderCoverage);
   });
 
+  it("fails untracked registered prompts even when mapped observers pass on unmutated content", async () => {
+    const observerPath = "v2/src/execution/review-critic-render.test.ts";
+    const mapSource = `const RENDER_OBSERVER_TESTS = { "prompts/implement/review-critic.md": ["${observerPath}"] };\nexport function resolveRenderObserverTests() { return undefined; }\n`;
+    let scopedRuns = 0;
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => "",
+        untrackedFiles: async () => ["prompts/implement/review-critic.md"],
+        registeredPromptPaths: registeredCritic,
+        readFile: seamReadFile(criticSource, mapSource),
+        runScopedTests: async () => {
+          scopedRuns += 1;
+          return true;
+        },
+      },
+    );
+
+    expect(result).toEqual(missingCriticRenderCoverage);
+    expect(scopedRuns).toBe(0);
+  });
+
   it("bounds scoped render checks across changed prompts", async () => {
     const promptPaths = [
       "prompts/implement/review-critic.md",

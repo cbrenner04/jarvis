@@ -48,6 +48,7 @@ Long-lived v2 reference docs live in `v2/docs/`. Multi-file specs go in `<target
 - **Concise updates.** When reporting back, report only what's needed: the command run and the landed result, plus a concise session summary after each landed intent. No running commentary. See [v1/docs/operator-runbook.md#operator-feedback-cadence](v1/docs/operator-runbook.md#operator-feedback-cadence).
 - **No planning labels in code.** Phase/milestone/slice names are sequencing artifacts — never bake them into identifiers, filenames, or public API. A spec saying "Phase 1 state store" names *the state store*; call it that.
 - **Log server is always running** on the operator machine (`jarvis1 log-server` on `127.0.0.1:4310`, started and owned outside agent sessions). **Never** start, stop, restart, or kill port-4310 processes from an agent session — a second instance fights for the port or displaces the operator's long-lived server. `plan`/`run` preflight `log server unreachable` is almost always sandbox blindness; see [operator-runbook.md § Log server](v1/docs/operator-runbook.md#log-server).
+- **Do not poll for completion.** Backgrounded pipelines and runs push operator-actionable boundaries through the daemon's `notificationSinkCommand` sweep when configured ([v2/docs/operator-runbook.md § Operator notifications](v2/docs/operator-runbook.md#operator-notifications)). Use `jarvis pipeline wait` / `jarvis run wait` only when foreground-blocking; reserve `run list` / `lsof` loops for missed-notification diagnosis.
 
 ## PR attribution
 

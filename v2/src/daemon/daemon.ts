@@ -25,6 +25,7 @@ import {
 import {
   readCodexSandboxMode,
   readIterationCeilingMs,
+  readNotificationSinkCommand,
   resolveMachineProfile,
 } from "../config/machine-config-loader.ts";
 import { loadMachineProfileModels } from "../config/machine-profile-loader.ts";
@@ -111,6 +112,11 @@ import {
   resolveBlockedPlanStageRecoveryTarget,
 } from "./pipeline-stage-recovery.ts";
 import { resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
+import {
+  NOTIFICATION_SWEEP_INTERVAL_MS,
+  runNotificationSweep,
+  type NotificationSinkSpawner,
+} from "./operator-notification-sweep.ts";
 import {
   composeRunOperatorError,
   findTerminalLogRecord,
@@ -2580,6 +2586,8 @@ export type DaemonStartupDeps = {
   recoverReconciledRuns?: typeof recoverReconciledRuns;
   enumerateOtherDaemonSockets?: EnumerateOtherDaemonSockets;
   supersedePeerDaemon?: SupersedePeerDaemon;
+  readNotificationSinkCommand?: () => string | undefined;
+  notificationSpawnSink?: NotificationSinkSpawner;
   /** Defaults to `process.exit`. */
   processExit?: (code: number) => never;
 };
@@ -2796,6 +2804,21 @@ export async function startDaemonRuntime(
     recoveryLogSink.close();
   }
 
+  const readSink =
+    startupDeps.readNotificationSinkCommand ?? (() => readNotificationSinkCommand());
+  const notificationSweepDeps = {
+    store,
+    readSinkCommand: readSink,
+    ...(startupDeps.notificationSpawnSink === undefined
+      ? {}
+      : { spawnSink: startupDeps.notificationSpawnSink }),
+  };
+  runNotificationSweep(notificationSweepDeps);
+  const notificationSweepTimer = setInterval(() => {
+    runNotificationSweep(notificationSweepDeps);
+  }, NOTIFICATION_SWEEP_INTERVAL_MS);
+  notificationSweepTimer.unref();
+
   const signalHandler = () => {
     shutdownRequested = true;
   };
@@ -2808,6 +2831,7 @@ export async function startDaemonRuntime(
     if (closed) return;
     closed = true;
     clearInterval(checkShutdown);
+    clearInterval(notificationSweepTimer);
     process.off("SIGTERM", signalHandler);
     process.off("SIGINT", signalHandler);
     _closeRunControlHandlers();

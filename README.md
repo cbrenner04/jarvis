@@ -64,7 +64,7 @@ jarvis run start --project-root <repo> --project <label> --branch <branch> \
 jarvis tui
 ```
 
-`run start` prints a run ID. Observe with `jarvis tui`, `jarvis run list`, `jarvis run log <id>`, or `jarvis daemon log --follow`; steer with `jarvis run pause|kill|wait <id>`. On completion the run commits, pushes, and opens a draft PR with a `Jarvis-Agent:` attribution footer. Full happy path: [v2/docs/first-workflow-walkthrough.md](v2/docs/first-workflow-walkthrough.md).
+`run start` prints a run ID. Observe with `jarvis tui`, `jarvis run list`, `jarvis run log <id>`, or `jarvis daemon log --follow`; steer with `jarvis run pause|kill|wait <id>`. For detached work, configure `notificationSinkCommand` in `~/.jarvis/config.json` so the daemon pushes pipeline gates and terminal boundaries instead of polling `run list` — see [v2/docs/operator-runbook.md](v2/docs/operator-runbook.md#operator-notifications). On completion the run commits, pushes, and opens a draft PR with a `Jarvis-Agent:` attribution footer. Full happy path: [v2/docs/first-workflow-walkthrough.md](v2/docs/first-workflow-walkthrough.md).
 
 Workflow presets mirror the v1 pipeline stages:
 

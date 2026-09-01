@@ -805,6 +805,18 @@ export interface StateStore {
   /** List all runs (durable rows only, no in-memory liveness). */
   listRuns(): Run[];
 
+  /** Whether `(incidentId, transition)` has been delivered. */
+  hasNotificationDelivery(args: { incidentId: string; transition: string }): boolean;
+
+  /**
+   * Record a delivered notification when absent; returns whether this caller won the insert.
+   * First writer among concurrent sweepers delivers.
+   */
+  tryRecordNotificationDelivery(args: { incidentId: string; transition: string; deliveredAt: number }): boolean;
+
+  /** Undo a claim so a failed sink spawn can retry on the next sweep. */
+  releaseNotificationDelivery(args: { incidentId: string; transition: string }): void;
+
   /** True once {@link close} has run — deferred daemon work must check this rather than race a closed DB. */
   isClosed(): boolean;
 
@@ -1011,6 +1023,17 @@ const SCHEMA_MIGRATIONS = [
     id: "029-run-terminal-settlement-columns",
     up: `ALTER TABLE runs ADD COLUMN terminal_cause TEXT;
         ALTER TABLE runs ADD COLUMN terminal_failure_detail TEXT`,
+  },
+  {
+    id: "030-operator-notification-delivery",
+    up: `
+      CREATE TABLE IF NOT EXISTS operator_notification_deliveries (
+        incident_id TEXT NOT NULL,
+        transition TEXT NOT NULL,
+        delivered_at INTEGER NOT NULL,
+        PRIMARY KEY (incident_id, transition)
+      );
+    `,
   },
 ] as const;
 
@@ -2242,6 +2265,30 @@ class StateStoreImpl implements StateStore {
         .prepare(`SELECT ${RUN_COLUMNS} FROM runs WHERE status = 'queued' ORDER BY created_at ASC`)
         .all() as RunRow[]
     ).map(mapRunRow);
+  }
+
+  hasNotificationDelivery(args: { incidentId: string; transition: string }): boolean {
+    const row = this.db
+      .prepare(
+        "SELECT 1 FROM operator_notification_deliveries WHERE incident_id = ? AND transition = ? LIMIT 1",
+      )
+      .get(args.incidentId, args.transition);
+    return row !== null;
+  }
+
+  tryRecordNotificationDelivery(args: { incidentId: string; transition: string; deliveredAt: number }): boolean {
+    const result = this.db
+      .prepare(
+        "INSERT OR IGNORE INTO operator_notification_deliveries (incident_id, transition, delivered_at) VALUES (?, ?, ?)",
+      )
+      .run(args.incidentId, args.transition, args.deliveredAt);
+    return result.changes > 0;
+  }
+
+  releaseNotificationDelivery(args: { incidentId: string; transition: string }): void {
+    this.db
+      .prepare("DELETE FROM operator_notification_deliveries WHERE incident_id = ? AND transition = ?")
+      .run(args.incidentId, args.transition);
   }
 
   private closed = false;

@@ -103,6 +103,35 @@ describe("prompt registry load validation", () => {
     expect(() => createPromptRegistry([writePromptFixture(entry)])).toThrow("invalid placeholder declaration");
   });
 
+  test("variant substitution without replaceAll parses successfully", () => {
+    const entry = withFrontmatter(
+      [
+        "id: no-replace-all.prompt",
+        "behavior: plan",
+        "kind: step",
+        "revision: 1",
+        'variants: {"v":[{"anchor":"A","replacement":"B"}]}',
+      ].join("\n"),
+    );
+    const registry = createPromptRegistry([writePromptFixture(entry)]);
+    expect(registry.getById("no-replace-all.prompt").metadata.variants).toEqual({
+      v: [{ anchor: "A", replacement: "B" }],
+    });
+  });
+
+  test("non-boolean replaceAll in variant substitution fails during load", () => {
+    const entry = withFrontmatter(
+      [
+        "id: bad.replace-all.prompt",
+        "behavior: plan",
+        "kind: step",
+        "revision: 1",
+        'variants: {"v":[{"anchor":"A","replacement":"B","replaceAll":"yes"}]}',
+      ].join("\n"),
+    );
+    expect(() => createPromptRegistry([writePromptFixture(entry)])).toThrow("replaceAll must be boolean");
+  });
+
   test("loads variants and optionalSections from JSON frontmatter", () => {
     const entry = withFrontmatter(
       [

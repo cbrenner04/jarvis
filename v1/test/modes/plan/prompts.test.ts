@@ -221,6 +221,19 @@ describe("buildReviewPrompt", () => {
 });
 
 describe("buildVerdictActuatorPrompt", () => {
+  test("renders the registered review-actuator heading from the template body", () => {
+    const prompt = buildVerdictActuatorPrompt({
+      name: "p",
+      intent: "# Intent\n",
+      currentSpec: "spec",
+      specGuidance: "guidance",
+      verdict: "Fix ACs.",
+    });
+
+    expect(prompt).toContain("# Plan Mode — Review Actuator");
+    expect(prompt).not.toContain("__JARVIS_PROMPT_RENDER_COVERAGE_MUTATION__");
+  });
+
   test("verdict actuator renders the bundled human-only marker guidance", () => {
     const prompt = buildVerdictActuatorPrompt({
       name: "p",

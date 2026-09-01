@@ -12,9 +12,7 @@ CLI
 
 - State store opens a fresh database and upgrades the operator's pre-squash database to the baselined schema without data loss.
 - Default SQLite store path is exported from `paths.ts` and persistence call sites no longer re-derive it inline.
-- Persistence-layer `isRecord` and shrink-suffix checks import from canonical shared homes.
-- Daemon `isLoadError`, `sleep`, `errorMessage`, and `isRecord` import from canonical homes with no local copies under `v2/src/daemon/` or `v2/src/ipc/`.
-- Daemon hidden-shrink resume uses shared shrink suffix helpers instead of raw literals or magic slice lengths.
+- `shared/is-record.ts` exports `isRecord`; `shared/shrink-step-id.ts` exports the hidden-shrink step-id suffix constant and strip/match helpers.
 
 ## Problem
 
@@ -39,3 +37,5 @@ CLI admission commands duplicate `isRecord` and `isLoadError` (`init.ts`, `write
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
+
+- None — purely internal helper moves; canonical homes are documented in `squash-state-store-migrations` and `dedupe-execution-loop-cruft` (`v2/docs/coding-standards.md`).

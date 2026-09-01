@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { StreamHandler } from "../ipc/server.ts";
 import { type LogReader, openLogReader, openLogSink, type PersistedRecord } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import { createTailStreamHandler, parseTailStreamParams, streamRunLogRecords } from "./daemon.ts";
+import { createTailStreamHandler, parseTailStreamParams, streamRunLogRecords } from "./daemon-tail-stream.ts";
 
 const LOGS_PATH = join(tmpdir(), `jarvis-daemon-tail-logs-${process.pid}.jsonl`);
 

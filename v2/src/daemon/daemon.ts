@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { getExecutableTreeDigest } from "../../../shared/executable-tree.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
@@ -63,11 +63,9 @@ import {
   type WriteLoopInput,
 } from "../execution/write-loop.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client";
-import { createRpcTransport } from "../ipc/rpc-transport";
-import { type IpcServer, type RpcHandler, type StreamHandler, startIpcServer } from "../ipc/server";
+import { type IpcServer, type RpcHandler, startIpcServer } from "../ipc/server";
 import { jarvisHome } from "../paths.ts";
 import {
-  FOLLOW_POLL_MS,
   type LogReader,
   type LogSink,
   type LoopFinishedEvent,
@@ -87,6 +85,13 @@ import {
   type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
 import { rollupWorkflowRunStatus } from "../persistence/workflow-run-status-rollup.ts";
+import {
+  type EnumerateOtherDaemonSockets,
+  enumerateOtherDaemonSockets,
+  type SupersedePeerDaemon,
+  supersedePeerDaemon,
+} from "./daemon-peer-socket.ts";
+import { createTailStreamHandler } from "./daemon-tail-stream.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
 import {
   NOTIFICATION_SWEEP_INTERVAL_MS,
@@ -2428,157 +2433,6 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   return handlersOut;
 }
 
-/**
- * Injectable dependencies for {@link createTailStreamHandler}.
- *
- * `loadRun` and `follow`/`onData` failures propagate to IPC as error `stream-end`.
- */
-export type TailStreamHandlerDeps = {
-  stateStore: StateStore;
-  logReader: LogReader;
-  /** Interval to re-check run status independent of `follow()` yields; defaults to `FOLLOW_POLL_MS`. */
-  followStatusPollMs?: number;
-};
-
-/** Resolves after `ms`, or immediately once `signal` aborts (whichever comes first). */
-function sleepOrAbort(ms: number, signal: AbortSignal): Promise<void> {
-  if (signal.aborted) return Promise.resolve();
-  return new Promise((resolve) => {
-    const onAbort = () => {
-      clearTimeout(timer);
-      resolve();
-    };
-    const timer = setTimeout(() => {
-      signal.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    timer.unref?.();
-    signal.addEventListener("abort", onAbort, { once: true });
-  });
-}
-
-export function parseTailStreamParams(
-  payload: unknown,
-): { runId: string; afterSeq: number; follow: boolean } | undefined {
-  const params = typeof payload === "string" && payload ? JSON.parse(payload) : payload;
-  if (typeof params !== "object" || params === null) return undefined;
-  const runId = (params as { runId?: unknown }).runId;
-  if (typeof runId !== "string") return undefined;
-  const afterSeq = (params as { afterSeq?: unknown }).afterSeq;
-  const parsedAfterSeq = typeof afterSeq === "number" && afterSeq >= 0 ? afterSeq : 0;
-  const follow = (params as { follow?: unknown }).follow === true;
-  return { runId, afterSeq: parsedAfterSeq, follow };
-}
-
-export async function streamRunLogRecords(
-  deps: TailStreamHandlerDeps,
-  runId: string,
-  afterSeq: number,
-  follow: boolean,
-  onData: (record: PersistedRecord) => void,
-  signal: AbortSignal,
-): Promise<void> {
-  const run = deps.stateStore.loadRun(runId);
-  if (!run) return;
-
-  const replay = deps.logReader.tail(runId);
-  let subscribeSeq = afterSeq;
-  for (const record of replay) {
-    if (signal.aborted) return;
-    if (record.seq <= afterSeq) continue;
-    onData(record);
-    subscribeSeq = record.seq;
-  }
-
-  if (!follow) return;
-
-  const drainRemaining = () => {
-    for (const record of deps.logReader.tail(runId)) {
-      if (record.seq > subscribeSeq) {
-        onData(record);
-        subscribeSeq = record.seq;
-      }
-    }
-  };
-
-  let current = deps.stateStore.loadRun(runId) ?? run;
-  if (isTerminalRunStatus(current.status)) {
-    drainRemaining();
-    return;
-  }
-
-  // followSignal aborts on either terminal settlement or the caller's own signal, so the
-  // follow() consumer and the independent status poller below can both stop it early.
-  const followSignal = new AbortController();
-  const abortFollow = () => followSignal.abort();
-  if (signal.aborted) abortFollow();
-  else signal.addEventListener("abort", abortFollow, { once: true });
-
-  const pollMs = deps.followStatusPollMs ?? FOLLOW_POLL_MS;
-  // Re-reads status on a timer independent of record arrival, so a run that settles without
-  // appending a further record (e.g. a kill) still closes the stream within a bounded interval.
-  const statusPoll = (async () => {
-    while (!followSignal.signal.aborted) {
-      await sleepOrAbort(pollMs, followSignal.signal);
-      if (followSignal.signal.aborted) return;
-      current = deps.stateStore.loadRun(runId) ?? current;
-      if (isTerminalRunStatus(current.status)) {
-        abortFollow();
-        return;
-      }
-    }
-  })();
-
-  try {
-    for await (const record of deps.logReader.follow(runId, followSignal.signal)) {
-      if (signal.aborted) break;
-      if (record.seq > subscribeSeq) {
-        onData(record);
-        subscribeSeq = record.seq;
-      }
-
-      current = deps.stateStore.loadRun(runId) ?? current;
-      if (isTerminalRunStatus(current.status)) {
-        abortFollow();
-        break;
-      }
-    }
-  } finally {
-    abortFollow();
-    signal.removeEventListener("abort", abortFollow);
-    await statusPoll;
-  }
-
-  if (!signal.aborted) drainRemaining();
-}
-
-/**
- * Tail-log stream handler factory for IPC `stream-open` on run logs.
- *
- * @param deps - {@link TailStreamHandlerDeps}
- * @throws N/A at factory call — returned handler may throw/reject on string-payload `JSON.parse`,
- *   `loadRun`, `follow`, or `onData` failures; IPC server maps those to error `stream-end`.
- */
-export function createTailStreamHandler(deps: TailStreamHandlerDeps): StreamHandler {
-  return async (_streamId, payload, onData, onClose, signal) => {
-    const params = parseTailStreamParams(payload);
-    if (!params || !deps.stateStore.loadRun(params.runId)) {
-      onClose();
-      return;
-    }
-
-    try {
-      await streamRunLogRecords(deps, params.runId, params.afterSeq, params.follow, onData, signal);
-    } finally {
-      onClose();
-    }
-  };
-}
-
-export type EnumerateOtherDaemonSockets = (jarvisHomeDir: string, ownSocketPath: string) => string[];
-
-export type SupersedePeerDaemon = (socketPath: string) => Promise<void>;
-
 export type DaemonStartupDeps = {
   logsPath?: string;
   openLogSink?: typeof openLogSink;
@@ -2630,40 +2484,6 @@ export async function recoverReconciledRuns(
     }
   }
   return { resumed };
-}
-
-/**
- * Default implementation: enumerate `daemon-*.sock` files in jarvisHome,
- * excluding the daemon's own socket path.
- */
-export function enumerateOtherDaemonSockets(jarvisHomeDir: string, ownSocketPath: string): string[] {
-  try {
-    const entries = readdirSync(jarvisHomeDir);
-    return entries
-      .filter((entry) => entry.match(/^daemon-[a-f0-9]{16}\.sock$/))
-      .map((entry) => join(jarvisHomeDir, entry))
-      .filter((path) => path !== ownSocketPath);
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Default implementation: connect to a peer daemon socket and send `supersede`.
- * Errors are ignored (socket unreachable, RPC error, etc.).
- */
-export async function supersedePeerDaemon(socketPath: string): Promise<void> {
-  try {
-    const client = await connectIpcClient(socketPath);
-    const transport = createRpcTransport(client);
-    try {
-      await transport.request("supersede", undefined, { timeoutMs: 1_000 });
-    } finally {
-      transport.close();
-    }
-  } catch {
-    // Ignore all errors: unreachable socket, RPC failure, timeout, etc.
-  }
 }
 
 export async function startDaemonRuntime(

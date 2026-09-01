@@ -2,5 +2,5 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Extract daemon tail-stream](./00-extract-daemon-tail-stream.md)
-- [ ] [01 - Extract daemon peer-socket supersede](./01-extract-daemon-peer-socket.md)
+- [x] [00 - Extract daemon tail-stream](./00-extract-daemon-tail-stream.md)
+- [x] [01 - Extract daemon peer-socket supersede](./01-extract-daemon-peer-socket.md)

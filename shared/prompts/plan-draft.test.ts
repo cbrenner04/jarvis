@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { DEFAULT_WRITE_STEP_RULES } from "../../v2/src/execution/write-loop-input.ts";
 import { readSpecGuidance } from "../spec-guidance-path.ts";
 import { buildPlanDraftPrompt, PLAN_DRAFT_PROMPT_ID } from "./plan-draft.ts";
+import { loadPromptRegistry } from "./registry.ts";
 import { PromptRenderingError } from "./render.ts";
 
 const HARNESS_DIAGNOSTICS_HEADING = "## Prior harness normalizer diagnostics";
@@ -62,6 +63,42 @@ describe("buildPlanDraftPrompt", () => {
     expect(stepRules).toContain("final line of your response");
     expect(stepRules).not.toContain("Guard-inversion criteria require");
     expect(stepRules).not.toContain("Place `// @mutate`");
+  });
+
+  test("uses the registered flat-layout variant for external staging", () => {
+    const artifact = loadPromptRegistry().getById(PLAN_DRAFT_PROMPT_ID);
+    expect(artifact.metadata.variants["flat-layout"]).toEqual([
+      {
+        anchor: "- **Only write files under `spec/<NAME>/`.**",
+        replacement:
+          "- **Only write files in the working directory.** Do not create `spec/` subdirectories or other parent paths.",
+      },
+      { anchor: "spec/<NAME>/intent.md", replacement: "intent.md", replaceAll: true },
+    ]);
+
+    const prompt = buildPlanDraftPrompt({
+      name: "my-plan",
+      intent: "do thing",
+      specGuidance: "guidance",
+      flatSpecLayout: true,
+    });
+
+    expect(prompt).toContain("Only write files in the working directory");
+    expect(prompt).toContain("user-supplied content of `intent.md`");
+    expect(prompt).not.toContain("user-supplied content of `spec/my-plan/intent.md`");
+  });
+
+  test("uses the nested-target-dir variant without replacement-string expansion", () => {
+    const prompt = buildPlanDraftPrompt({
+      name: "my-plan",
+      intent: "do thing",
+      specGuidance: "guidance",
+      targetDir: "v2/$&-spec",
+    });
+
+    expect(prompt).toContain("user-supplied content of `v2/$&-spec/my-plan/intent.md`");
+    expect(prompt).toContain("Only write files under `v2/$&-spec/my-plan/`");
+    expect(prompt).not.toContain("spec/my-plan//v2");
   });
 
   test("renders named pre-fix failing-test guidance without checkpoint authoring", () => {

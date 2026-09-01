@@ -2,8 +2,9 @@
 id: plan.prompt.draft
 behavior: plan
 kind: step
-revision: 16
-placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, SPEC_GUIDANCE:string!]
+revision: 17
+placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, SPEC_GUIDANCE:string!, TARGET_DIR:string!]
+variants: {"flat-layout":[{"anchor":"- **Only write files under `spec/<NAME>/`.**","replacement":"- **Only write files in the working directory.** Do not create `spec/` subdirectories or other parent paths."},{"anchor":"spec/<NAME>/intent.md","replacement":"intent.md","replaceAll":true}],"nested-target-dir":[{"anchor":"spec/<NAME>/","replacement":"<TARGET_DIR>/<NAME>/","replaceAll":true}]}
 remove: [global.naming]
 ---
 # Plan Mode — Draft Phase

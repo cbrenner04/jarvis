@@ -19,9 +19,9 @@
 
 ## Acceptance criteria
 
-- [ ] `shared/prompts/plan-draft.test.ts` — flat-layout and nested `targetDir` layout tests fail against pre-fix `.replace` surgery in `plan-draft.ts` and pass after template-variant migration.
-- [ ] `v1/test/modes/plan/spec-dir.test.ts` stays green.
-- [ ] `v1/test/prompts/rendered-snapshots.test.ts` stays green.
+- [x] `shared/prompts/plan-draft.test.ts` — flat-layout and nested `targetDir` layout tests fail against pre-fix `.replace` surgery in `plan-draft.ts` and pass after template-variant migration.
+- [x] `v1/test/modes/plan/spec-dir.test.ts` stays green.
+- [x] `v1/test/prompts/rendered-snapshots.test.ts` stays green.
 
 ## Documentation updates
 

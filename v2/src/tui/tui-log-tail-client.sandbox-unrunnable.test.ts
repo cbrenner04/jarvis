@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createTailStreamHandler } from "../daemon/daemon.ts";
+import { createTailStreamHandler } from "../daemon/daemon-tail-stream.ts";
 import { connectIpcClient } from "../ipc/client.ts";
 import { type IpcServer, startIpcServer } from "../ipc/server.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";

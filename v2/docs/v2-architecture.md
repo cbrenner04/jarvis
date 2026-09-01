@@ -13,7 +13,7 @@ Canonical `v2/src/` domain map, import direction, and entrypoint policy — not 
 | CLI host | `cli.ts` (entry) + `v2/src/cli/` (dispatch helpers: deps, IPC, revision/stale-dispatch checks, run completion, usage) |
 | Command handlers | `v2/src/commands/` (`run`, `workflow`, `write`, `daemon`, `config`, `tui`, `cleanup`) |
 | Config loading | `v2/src/config/` (machine config/profile loaders, `agent-model-config`) |
-| Daemon host | `v2/src/daemon/` (daemon, wire parsers, lifecycle, process log, memory watermark, run-operator-error, workflow rollup/snapshot) |
+| Daemon host | `v2/src/daemon/` (daemon, tail-stream, wire parsers, lifecycle, process log, memory watermark, run-operator-error, workflow rollup/snapshot) |
 | Execution library | `v2/src/execution/` (write loop, workflow runner/loader/presets, step builders, review cycles, publication, completion) |
 | IPC transport | `v2/src/ipc/` (framing codec, client/server, RPC transport/errors) |
 | Persistence library | `v2/src/persistence/` (`state-store`, `log-stream`) |

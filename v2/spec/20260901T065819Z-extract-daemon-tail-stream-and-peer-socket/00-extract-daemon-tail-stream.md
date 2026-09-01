@@ -24,10 +24,10 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-tail-stream.test.ts` stays green (behavior unchanged by the extraction).
-- [ ] `bun run typecheck` passes with no errors introduced by the move.
-- [ ] `bun run test:v2` passes.
-- [ ] `daemon.ts` no longer defines `TailStreamHandlerDeps`, `parseTailStreamParams`, `streamRunLogRecords`, or `createTailStreamHandler`; they live only in `v2/src/daemon/daemon-tail-stream.ts`.
+- [x] `v2/src/daemon/daemon-tail-stream.test.ts` stays green (behavior unchanged by the extraction).
+- [x] `bun run typecheck` passes with no errors introduced by the move.
+- [x] `bun run test:v2` passes.
+- [x] `daemon.ts` no longer defines `TailStreamHandlerDeps`, `parseTailStreamParams`, `streamRunLogRecords`, or `createTailStreamHandler`; they live only in `v2/src/daemon/daemon-tail-stream.ts`.
 
 ## Documentation updates
 

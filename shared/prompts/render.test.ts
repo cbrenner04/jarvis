@@ -7,6 +7,16 @@ import {
 } from "./render.ts";
 import type { PromptArtifact } from "./types.ts";
 
+function expectRenderReason(fn: () => void, reason: PromptRenderingError["reason"]): void {
+  try {
+    fn();
+    throw new Error("expected render to throw");
+  } catch (err) {
+    expect(err).toBeInstanceOf(PromptRenderingError);
+    expect((err as PromptRenderingError).reason).toBe(reason);
+  }
+}
+
 function testArtifact(overrides: Partial<PromptArtifact["metadata"]> & { body: string }): PromptArtifact {
   return {
     sourcePath: "test.prompt.md",
@@ -72,13 +82,10 @@ describe("renderArtifactTemplate", () => {
         "flat-layout": [{ anchor: "<<<MISSING>>>", replacement: "replacement" }],
       },
     });
-    try {
-      renderArtifactTemplate(artifact, { AA: "value" }, { variant: "flat-layout" });
-      throw new Error("expected renderArtifactTemplate to throw");
-    } catch (err) {
-      expect(err).toBeInstanceOf(PromptRenderingError);
-      expect((err as PromptRenderingError).reason).toBe("missing_template_anchor");
-    }
+    expectRenderReason(
+      () => renderArtifactTemplate(artifact, { AA: "value" }, { variant: "flat-layout" }),
+      "missing_template_anchor",
+    );
   });
 
   test("omits optional section when bound placeholder is empty", () => {
@@ -107,13 +114,10 @@ describe("renderArtifactTemplate", () => {
         "flat-layout": [{ anchor: "body", replacement: "layout" }],
       },
     });
-    try {
-      renderArtifactTemplate(artifact, { AA: "value" }, { variant: "nested-target-dir" });
-      throw new Error("expected renderArtifactTemplate to throw");
-    } catch (err) {
-      expect(err).toBeInstanceOf(PromptRenderingError);
-      expect((err as PromptRenderingError).reason).toBe("unknown_variant");
-    }
+    expectRenderReason(
+      () => renderArtifactTemplate(artifact, { AA: "value" }, { variant: "nested-target-dir" }),
+      "unknown_variant",
+    );
   });
 
   test("throws missing_template_anchor when optional-section anchors drift", () => {
@@ -132,13 +136,7 @@ describe("renderArtifactTemplate", () => {
         },
       ],
     });
-    try {
-      renderArtifactTemplate(artifact, { AA: "value", BB: "" });
-      throw new Error("expected renderArtifactTemplate to throw");
-    } catch (err) {
-      expect(err).toBeInstanceOf(PromptRenderingError);
-      expect((err as PromptRenderingError).reason).toBe("missing_template_anchor");
-    }
+    expectRenderReason(() => renderArtifactTemplate(artifact, { AA: "value", BB: "" }), "missing_template_anchor");
   });
 });
 

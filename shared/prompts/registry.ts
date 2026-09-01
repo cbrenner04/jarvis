@@ -189,21 +189,6 @@ function parseOptionalSectionsValue(value: string | undefined, sourcePath: strin
   return parsed.map((entry, index) => parseOptionalSection(entry, index, sourcePath));
 }
 
-function validateOptionalSectionPlaceholders(
-  optionalSections: PromptOptionalSection[],
-  placeholders: PromptPlaceholderDeclaration[],
-  sourcePath: string,
-): void {
-  const declared = new Set(placeholders.map((placeholder) => placeholder.name));
-  for (const section of optionalSections) {
-    if (!declared.has(section.placeholder)) {
-      throw new Error(
-        `optionalSections placeholder \`${section.placeholder}\` is not declared in placeholders in prompt artifact ${sourcePath}`,
-      );
-    }
-  }
-}
-
 function parseOrderValue(value: string | undefined, sourcePath: string): number | null {
   if (value === undefined || value.length === 0) return null;
   const parsed = Number(value);
@@ -227,7 +212,14 @@ function readPromptArtifact(sourcePath: string): PromptArtifact {
 
   const placeholders = parsePlaceholdersValue(fields.get("placeholders") ?? "");
   const optionalSections = parseOptionalSectionsValue(fields.get("optionalSections"), sourcePath);
-  validateOptionalSectionPlaceholders(optionalSections, placeholders, sourcePath);
+  const declaredPlaceholders = new Set(placeholders.map((placeholder) => placeholder.name));
+  for (const section of optionalSections) {
+    if (!declaredPlaceholders.has(section.placeholder)) {
+      throw new Error(
+        `optionalSections placeholder \`${section.placeholder}\` is not declared in placeholders in prompt artifact ${sourcePath}`,
+      );
+    }
+  }
 
   return {
     metadata: {

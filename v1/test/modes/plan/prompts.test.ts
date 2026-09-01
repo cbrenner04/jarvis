@@ -198,6 +198,26 @@ describe("buildReviewPrompt", () => {
       artifact.metadata.variants = originalVariants;
     }
   });
+
+  test("selects nested-target-dir only when targetDir is not the default spec root", () => {
+    const artifact = loadPromptRegistry().getById("plan.prompt.review.adversary");
+    const originalVariants = artifact.metadata.variants;
+    artifact.metadata.variants = {
+      ...originalVariants,
+      "nested-target-dir": [{ anchor: "missing nested layout anchor", replacement: "replacement" }],
+    };
+
+    const base = { name: "x", intent: "i", specGuidance: "g", currentSpec: "spec" };
+
+    try {
+      expect(() => buildReviewPrompt({ ...base, targetDir: "v1/spec" })).toThrow(
+        "review prompt configuration error: Variant `nested-target-dir` substitution: template anchor `missing nested layout anchor` is missing from body",
+      );
+      expect(() => buildReviewPrompt(base)).not.toThrow();
+    } finally {
+      artifact.metadata.variants = originalVariants;
+    }
+  });
 });
 
 describe("buildVerdictActuatorPrompt", () => {

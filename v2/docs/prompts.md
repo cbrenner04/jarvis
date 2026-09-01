@@ -1,6 +1,45 @@
 # Prompts
 
-Registered prompts are artifacts with stable IDs and versions, living in the `prompts/` directory and indexed via `prompts/registry.txt`. Each prompt serves one or more roles and workflows. This doc captures registry-level entries and their usage scope.
+Registered prompts are artifacts with stable IDs and versions, living in the `prompts/` directory and indexed via `prompts/registry.txt`. Each prompt serves one or more roles and workflows. This doc captures registry-level entries and their usage scope. Frontmatter keys, placeholder contracts, and delimiter policy are indexed in [`v1/docs/prompt-governance.md`](../../v1/docs/prompt-governance.md); variant and optional-section contracts below are the v2 durable home for those keys.
+
+## Variants and optionalSections
+
+Prompt artifacts may declare `variants` and `optionalSections` as single-line JSON frontmatter values (parsed in `shared/prompts/registry.ts`). Absent keys default to `{}` and `[]`.
+
+### Frontmatter shapes
+
+- `variants` — JSON object mapping variant id to an ordered array of `{ "anchor": string, "replacement": string, "replaceAll"?: boolean }`. Variant ids are non-empty strings.
+- `optionalSections` — JSON array of `{ "header": string, "begin": string, "end": string, "placeholder": string }`. Each `placeholder` must name a placeholder declared in the artifact `placeholders` frontmatter (`NAME:string` or `NAME:string!`).
+
+### Registry load-time validation
+
+Malformed JSON for either key fails registry load. Structural rejects at load time:
+
+- `variants` is not a plain object, any variant id is empty, any variant entry is not an array, or any substitution object lacks string `anchor`/`replacement` or has non-boolean `replaceAll`.
+- `optionalSections` is not an array, any entry is not a plain object, or any entry lacks string `header`/`begin`/`end`/`placeholder`.
+- Any `optionalSections[].placeholder` is not declared in `placeholders`.
+
+### Render pipeline (`renderArtifactTemplate`)
+
+Resolution runs on whatever `artifact.body` the caller passes (assembled or on-disk body). Order:
+
+1. **Variant selection** — when `options.variant` is set, apply that variant's substitution array to the body in array order, each entry on the evolving string. Omitted `options.variant` is a no-op even when `variants` is populated. `replaceAll` omitted substitutes the first `anchor` match only (`String.prototype.replace`); `replaceAll: true` uses `replaceAll`.
+2. **Optional-section omission** — for each `optionalSections` entry, when the bound placeholder value is empty (`undefined`, `null`, `""`, or whitespace-only string; non-string values coerce to `""` before the test), excise from the first `header` occurrence through the matching `end` inclusive, then consume trailing `\n` characters. `begin` is a positional validator: it must appear after `header` and before `end`, but excision starts at `header`, not `begin`. Non-empty bound values leave the section intact for normal placeholder substitution.
+3. **Placeholder substitution** — `renderTemplateWithDeclarations` on the post-variant, post-excision body.
+
+### Reserved plan variant ids
+
+- `flat-layout` — flat spec-path layout for plan draft and plan review prompts.
+- `nested-target-dir` — nested `targetDir` spec-path layout for plan draft and plan review prompts.
+
+Migration of call sites from post-render string surgery to these ids is scoped in [`v2/spec/ready-intents/eliminate-prompt-string-surgery.md`](../spec/ready-intents/eliminate-prompt-string-surgery.md).
+
+### Render-time anchor errors (`PromptRenderingError`)
+
+- `unknown_variant` — `options.variant` names an id absent from `artifact.metadata.variants`.
+- `missing_template_anchor` — a variant `anchor` or optional-section `header`/`begin`/`end` is absent from the template body before substitution or excision. No silent no-op on prompt prose drift.
+
+Other `PromptRenderingError` reasons (`unknown_placeholder`, `missing_value`, `type_mismatch`, `invalid_placeholder_pattern`, `delimiter_violation`) are covered in [`v1/docs/prompt-governance.md`](../../v1/docs/prompt-governance.md#validation-boundary).
 
 ## Write-step prompts
 

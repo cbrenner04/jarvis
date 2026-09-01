@@ -4,6 +4,24 @@ import { enforceDelimiterPolicy, renderArtifactTemplate } from "./render.ts";
 
 export const PLAN_DRAFT_PROMPT_ID = "plan.prompt.draft";
 
+export function resolvePlanSpecLayoutVariant(opts: {
+  flatSpecLayout?: boolean;
+  targetDir?: string;
+}): string | undefined {
+  const targetDir = opts.targetDir ?? "spec";
+  if (opts.flatSpecLayout) return "flat-layout";
+  if (targetDir !== "spec") return "nested-target-dir";
+  return undefined;
+}
+
+export function resolveDeclaredPlanSpecLayoutVariant(
+  opts: { flatSpecLayout?: boolean; targetDir?: string },
+  declaredVariants: Record<string, unknown>,
+): string | undefined {
+  const requested = resolvePlanSpecLayoutVariant(opts);
+  return requested !== undefined && declaredVariants[requested] !== undefined ? requested : undefined;
+}
+
 const HARNESS_NORMALIZER_DIAGNOSTICS_HEADING = "## Prior harness normalizer diagnostics";
 
 /**
@@ -41,7 +59,9 @@ export function buildPlanDraftPrompt(opts: {
 
   const workDir = opts.workDirLabel ?? opts.name;
   const targetDir = opts.targetDir ?? "spec";
-  const variant = opts.flatSpecLayout ? "flat-layout" : targetDir !== "spec" ? "nested-target-dir" : undefined;
+  const variant = resolvePlanSpecLayoutVariant(
+    opts.flatSpecLayout === undefined ? { targetDir } : { flatSpecLayout: opts.flatSpecLayout, targetDir },
+  );
 
   enforceDelimiterPolicy({
     value: opts.intent,

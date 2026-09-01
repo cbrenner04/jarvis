@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
+import { resolveDeclaredPlanSpecLayoutVariant } from "../../../../shared/prompts/plan-draft.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import {
   enforceDelimiterPolicy,
@@ -42,7 +43,6 @@ import {
   type SpecDirSnapshot,
   snapshotSpecDirFiles,
 } from "./spec-dir.ts";
-import { TemplateRenderingError } from "./template-renderer.ts";
 import { runVerdictActuator } from "./verdict-actuator.ts";
 
 /**
@@ -84,11 +84,10 @@ export function buildReviewPrompt(opts: {
 
   const workDir = opts.workDirLabel ?? opts.name;
   const targetDir = opts.targetDir ?? "spec";
-  const requestedVariant = opts.flatSpecLayout ? "flat-layout" : targetDir !== "spec" ? "nested-target-dir" : undefined;
-  const variant =
-    requestedVariant !== undefined && artifact.metadata.variants[requestedVariant] !== undefined
-      ? requestedVariant
-      : undefined;
+  const variant = resolveDeclaredPlanSpecLayoutVariant(
+    opts.flatSpecLayout === undefined ? { targetDir } : { flatSpecLayout: opts.flatSpecLayout, targetDir },
+    artifact.metadata.variants,
+  );
 
   enforceDelimiterPolicy({
     value: opts.intent,
@@ -146,7 +145,7 @@ export function buildReviewPrompt(opts: {
       variant === undefined ? undefined : { variant },
     );
   } catch (err) {
-    if (err instanceof PromptRenderingError || err instanceof TemplateRenderingError) {
+    if (err instanceof PromptRenderingError) {
       throw new Error(`review prompt configuration error: ${err.details}`);
     }
     throw err;

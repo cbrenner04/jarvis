@@ -1,10 +1,26 @@
 import { describe, expect, test } from "bun:test";
+import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import { readSpecGuidance } from "../../../../shared/spec-guidance-path.ts";
 import { buildDraftPrompt } from "../../../src/modes/plan/draft.ts";
 import { buildReviewPrompt } from "../../../src/modes/plan/review.ts";
 import { buildVerdictActuatorPrompt } from "../../../src/modes/plan/verdict-actuator.ts";
 
 const BUNDLED_SPEC_GUIDANCE = readSpecGuidance();
+
+function withArtifactVariants<T>(
+  artifactId: string,
+  variants: Record<string, Array<{ anchor: string; replacement: string }>>,
+  run: () => T,
+): T {
+  const artifact = loadPromptRegistry().getById(artifactId);
+  const original = artifact.metadata.variants;
+  artifact.metadata.variants = { ...original, ...variants };
+  try {
+    return run();
+  } finally {
+    artifact.metadata.variants = original;
+  }
+}
 
 function extractSpecGuidance(prompt: string): string {
   const beginMarker = "<<<SPEC_GUIDANCE_BEGIN>>>";
@@ -164,6 +180,52 @@ describe("buildReviewPrompt", () => {
 
     expect(extractSpecGuidance(prompt)).toContain(HUMAN_ONLY_MARKER_GUIDANCE);
   });
+
+  test("ignores layout variants absent from the review artifact", () => {
+    const opts = { name: "x", intent: "i", specGuidance: "g", currentSpec: "spec" };
+    const defaultPrompt = buildReviewPrompt(opts);
+    expect(buildReviewPrompt({ ...opts, flatSpecLayout: true })).toBe(defaultPrompt);
+    expect(buildReviewPrompt({ ...opts, targetDir: "v1/spec" })).toBe(defaultPrompt);
+  });
+
+  test("selects declared layout variants and maps configuration errors", () => {
+    const base = { name: "x", intent: "i", specGuidance: "g", currentSpec: "spec" };
+    withArtifactVariants(
+      "plan.prompt.review.adversary",
+      {
+        "flat-layout": [{ anchor: "missing flat anchor", replacement: "replacement" }],
+      },
+      () => {
+        expect(() => buildReviewPrompt({ ...base, flatSpecLayout: true })).toThrow(
+          "review prompt configuration error: Variant `flat-layout` substitution: template anchor `missing flat anchor` is missing from body",
+        );
+      },
+    );
+    withArtifactVariants(
+      "plan.prompt.review.adversary",
+      {
+        "nested-target-dir": [{ anchor: "missing nested anchor", replacement: "replacement" }],
+      },
+      () => {
+        expect(() => buildReviewPrompt({ ...base, targetDir: "v1/spec" })).toThrow(
+          "review prompt configuration error: Variant `nested-target-dir` substitution: template anchor `missing nested anchor` is missing from body",
+        );
+        expect(() => buildReviewPrompt(base)).not.toThrow();
+      },
+    );
+    withArtifactVariants(
+      "plan.prompt.review.adversary",
+      {
+        "flat-layout": [{ anchor: "missing flat precedence anchor", replacement: "replacement" }],
+        "nested-target-dir": [{ anchor: "missing nested precedence anchor", replacement: "replacement" }],
+      },
+      () => {
+        expect(() => buildReviewPrompt({ ...base, flatSpecLayout: true, targetDir: "v1/spec" })).toThrow(
+          "review prompt configuration error: Variant `flat-layout` substitution: template anchor `missing flat precedence anchor` is missing from body",
+        );
+      },
+    );
+  });
 });
 
 describe("buildVerdictActuatorPrompt", () => {
@@ -178,6 +240,51 @@ describe("buildVerdictActuatorPrompt", () => {
 
     expect(prompt).toContain("# Plan Mode — Review Actuator");
     expect(prompt).not.toContain("__JARVIS_PROMPT_RENDER_COVERAGE_MUTATION__");
+  });
+
+  test("selects declared layout variants and maps configuration errors", () => {
+    const base = {
+      name: "x",
+      intent: "i",
+      specGuidance: "g",
+      currentSpec: "spec",
+      verdict: "Apply the verdict.",
+    };
+    withArtifactVariants(
+      "plan.prompt.review-actuator",
+      {
+        "flat-layout": [{ anchor: "missing flat anchor", replacement: "replacement" }],
+      },
+      () => {
+        expect(() => buildVerdictActuatorPrompt({ ...base, flatSpecLayout: true })).toThrow(
+          "review actuator prompt configuration error: Variant `flat-layout` substitution: template anchor `missing flat anchor` is missing from body",
+        );
+      },
+    );
+    withArtifactVariants(
+      "plan.prompt.review-actuator",
+      {
+        "nested-target-dir": [{ anchor: "missing nested anchor", replacement: "replacement" }],
+      },
+      () => {
+        expect(() => buildVerdictActuatorPrompt({ ...base, targetDir: "v1/spec" })).toThrow(
+          "review actuator prompt configuration error: Variant `nested-target-dir` substitution: template anchor `missing nested anchor` is missing from body",
+        );
+        expect(() => buildVerdictActuatorPrompt(base)).not.toThrow();
+      },
+    );
+    withArtifactVariants(
+      "plan.prompt.review-actuator",
+      {
+        "flat-layout": [{ anchor: "missing flat precedence anchor", replacement: "replacement" }],
+        "nested-target-dir": [{ anchor: "missing nested precedence anchor", replacement: "replacement" }],
+      },
+      () => {
+        expect(() => buildVerdictActuatorPrompt({ ...base, flatSpecLayout: true, targetDir: "v1/spec" })).toThrow(
+          "review actuator prompt configuration error: Variant `flat-layout` substitution: template anchor `missing flat precedence anchor` is missing from body",
+        );
+      },
+    );
   });
 
   test("verdict actuator renders the bundled human-only marker guidance", () => {

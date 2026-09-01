@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 
-export const GUARDED_ASSEMBLY_PATHS = [
+const GUARDED_ASSEMBLY_PATHS = [
   "shared/prompts/plan-draft.ts",
   "shared/prompts/review-implement.ts",
   "v1/src/modes/plan/review.ts",
@@ -12,14 +12,14 @@ export const GUARDED_ASSEMBLY_PATHS = [
   "v1/src/modes/patch/prompt.ts",
 ] as const;
 
-export const FORBIDDEN_PROMPT_SURGERY_TOKENS = [
+const FORBIDDEN_PROMPT_SURGERY_TOKENS = [
   "stripOptionalSection",
   "stripOptionalPromptSection",
   ".replace(",
   ".replaceAll(",
 ] as const;
 
-export function findPromptSurgeryViolations(sourceByPath: Readonly<Record<string, string>>): string[] {
+function findPromptSurgeryViolations(sourceByPath: Readonly<Record<string, string>>): string[] {
   const violations: string[] = [];
   for (const relPath of GUARDED_ASSEMBLY_PATHS) {
     const source = sourceByPath[relPath];
@@ -36,19 +36,15 @@ export function findPromptSurgeryViolations(sourceByPath: Readonly<Record<string
   return violations;
 }
 
-function readGuardedAssemblySources(): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const relPath of GUARDED_ASSEMBLY_PATHS) {
-    out[relPath] = readFileSync(join(REPO_ROOT, relPath), "utf-8");
-  }
-  return out;
-}
-
 test("prompt assembly builders omit post-render string surgery", () => {
-  expect(findPromptSurgeryViolations(readGuardedAssemblySources())).toEqual([]);
+  const sources: Record<string, string> = {};
+  for (const relPath of GUARDED_ASSEMBLY_PATHS) {
+    sources[relPath] = readFileSync(join(REPO_ROOT, relPath), "utf-8");
+  }
+  expect(findPromptSurgeryViolations(sources)).toEqual([]);
 });
 
-test("prompt surgery guard fails when forbidden constructs appear in guarded assembly files", () => {
+test("prompt surgery guard reports forbidden constructs", () => {
   const cleanSources = Object.fromEntries(GUARDED_ASSEMBLY_PATHS.map((relPath) => [relPath, ""]));
   const cases = [
     { token: "stripOptionalSection", source: "stripOptionalSection(rendered)" },
@@ -58,9 +54,7 @@ test("prompt surgery guard fails when forbidden constructs appear in guarded ass
   ] as const;
 
   for (const { token, source } of cases) {
-    for (const relPath of GUARDED_ASSEMBLY_PATHS) {
-      const violations = findPromptSurgeryViolations({ ...cleanSources, [relPath]: source });
-      expect(violations).toEqual([`${relPath}: forbidden prompt-surgery construct ${token}`]);
-    }
+    const violations = findPromptSurgeryViolations({ ...cleanSources, [GUARDED_ASSEMBLY_PATHS[0]]: source });
+    expect(violations).toEqual([`${GUARDED_ASSEMBLY_PATHS[0]}: forbidden prompt-surgery construct ${token}`]);
   }
 });

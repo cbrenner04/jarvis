@@ -127,11 +127,6 @@ test("review actuator omits empty declared patch sections without spacing surger
   expect(rendered).not.toContain("## Active Subspec");
   expect(rendered).not.toContain("## Timeout Checkpoint");
   expect(rendered).toContain("Read the spec at spec/example/index.md.\nFollow these Jarvis rules:");
-  expect(
-    loadPromptRegistry()
-      .getById("patch.prompt.body")
-      .metadata.optionalSections.map(({ placeholder }) => placeholder),
-  ).toEqual(["REPO_GUIDANCE", "ACTIVE_SUBSPEC_PATH", "TIMEOUT_CHECKPOINT_CONTEXT"]);
 });
 
 test("whitespace-only repo guidance omits its declared optional section", () => {

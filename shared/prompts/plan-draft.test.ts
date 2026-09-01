@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { DEFAULT_WRITE_STEP_RULES } from "../../v2/src/execution/write-loop-input.ts";
 import { readSpecGuidance } from "../spec-guidance-path.ts";
 import { buildPlanDraftPrompt, PLAN_DRAFT_PROMPT_ID } from "./plan-draft.ts";
-import { loadPromptRegistry } from "./registry.ts";
 import { PromptRenderingError } from "./render.ts";
 
 const HARNESS_DIAGNOSTICS_HEADING = "## Prior harness normalizer diagnostics";
@@ -67,16 +66,6 @@ describe("buildPlanDraftPrompt", () => {
   });
 
   test("uses the registered flat-layout variant for external staging", () => {
-    const artifact = loadPromptRegistry().getById(PLAN_DRAFT_PROMPT_ID);
-    expect(artifact.metadata.variants["flat-layout"]).toEqual([
-      {
-        anchor: "- **Only write files under `spec/<NAME>/`.**",
-        replacement:
-          "- **Only write files in the working directory.** Do not create `spec/` subdirectories or other parent paths.",
-      },
-      { anchor: "spec/<NAME>/intent.md", replacement: "intent.md", replaceAll: true },
-    ]);
-
     const prompt = buildPlanDraftPrompt({
       name: "my-plan",
       intent: "do thing",

@@ -5,4 +5,4 @@
 - [x] [02 - v1 plan review layout variants](./02-v1-plan-review-layout-variants.md)
 - [x] [03 - v1 verdict actuator layout variants](./03-v1-verdict-actuator-layout-variants.md)
 - [x] [04 - v1 patch optional sections](./04-v1-patch-optional-sections.md)
-- [ ] [05 - No prompt surgery guard](./05-no-prompt-surgery-guard.md)
+- [x] [05 - No prompt surgery guard](./05-no-prompt-surgery-guard.md)

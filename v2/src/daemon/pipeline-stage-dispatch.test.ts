@@ -1150,7 +1150,8 @@ async function prepareImplementStageSteps(
   if (projectMatch === undefined) throw new Error("expected project match");
   const builderInput: BuildImplementWorkflowStepsInput = {
     cwd: handoff.planWorktree,
-    baseRef: handoff.planBranch,
+    baseRef: "main",
+    preflightBaseRef: handoff.planBranch,
     specPath: handoff.planSpecRel,
     configPath: handoff.configPath,
     projectRegistry: { demo: { root: handoff.repoRoot } },

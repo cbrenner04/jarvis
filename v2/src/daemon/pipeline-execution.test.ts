@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
@@ -13,9 +13,11 @@ import { PIPELINE_REGISTRY } from "../execution/pipeline-registry.ts";
 import { ReadyGateError } from "../execution/ready-finalize.ts";
 import { TerminalPublicationError } from "../execution/terminal-publication.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
+import { createBindingFactory } from "../execution/workflow-runner.test-support.ts";
 import type { AnyWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
 import { executeWorkflow, landReviewedPublicationOutput } from "../execution/workflow-runner.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
+import { publishCompletionArtifacts } from "../execution/write-loop.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { openLogReader, openLogSink, type PersistedRecord } from "../persistence/log-stream.ts";
@@ -6278,7 +6280,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     const intentWorktree = await materializeWorktree(intentBranch);
     await seedIntentReadyIntent(intentWorktree);
     const planWorktree = await materializeWorktree(planBranch, intentBranch);
-    const implementWorktree = await materializeWorktree(implementBranch, planBranch);
+    const implementWorktree = await materializeWorktree(implementBranch, "main");
     writeFileSync(join(implementWorktree, "README.md"), "dirty\n", "utf8");
 
     const { store, stages } = fakeStore(
@@ -6476,6 +6478,315 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     } finally {
       handlers.close();
       stateStore.close();
+    }
+  });
+});
+
+describe("pipeline chained plan and implement publication baseRef", () => {
+  const { roots, cleanup } = trackedTempRoots();
+  let previousJarvisHome: string | undefined;
+
+  afterEach(() => {
+    cleanup();
+    if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
+    else process.env.JARVIS_HOME = previousJarvisHome;
+  });
+
+  function initGitRepo(root: string): void {
+    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: root });
+    execFileSync("git", ["config", "user.email", "t@t.com"], { cwd: root });
+    execFileSync("git", ["config", "user.name", "T"], { cwd: root });
+  }
+
+  test("chained pipeline plan and implement publication target repository default branch", async () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "pipeline-publication-base-ref-"));
+    roots.push(repoRoot);
+    initGitRepo(repoRoot);
+    writeFileSync(join(repoRoot, "README.md"), "base\n", "utf8");
+    execFileSync("git", ["add", "README.md"], { cwd: repoRoot });
+    execFileSync("git", ["commit", "-qm", "base"], { cwd: repoRoot });
+
+    const defaultBranch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    }).trim();
+    const intentBranch = "intent/feature";
+    const planBranch = "plan/feature";
+    const readyIntentRel = "spec/ready-intents/feature.md";
+    const readyIntentContent = "---\nname: feature\n---\n\n## Prerequisites\n\n- none\n";
+    const intentWorktree = join(repoRoot, ".jarvis-worktrees", intentBranch);
+    mkdirSync(intentWorktree, { recursive: true });
+    execFileSync("git", ["branch", intentBranch], { cwd: repoRoot });
+    execFileSync("git", ["worktree", "add", intentWorktree, intentBranch], { cwd: repoRoot });
+    mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
+    writeFileSync(join(intentWorktree, readyIntentRel), readyIntentContent, "utf8");
+    execFileSync("git", ["add", "-A"], { cwd: intentWorktree });
+    execFileSync("git", ["commit", "-qm", "intent"], { cwd: intentWorktree });
+    mkdirSync(join(repoRoot, "spec", "ready-intents"), { recursive: true });
+    writeFileSync(join(repoRoot, readyIntentRel), readyIntentContent, "utf8");
+    execFileSync("git", ["add", "-A"], { cwd: repoRoot });
+    execFileSync("git", ["commit", "-qm", "ready-intent on main"], { cwd: repoRoot });
+
+    const planSpecDir = "spec/feature";
+    const planSpecRel = `${planSpecDir}/index.md`;
+    const planWorktree = join(repoRoot, ".jarvis-worktrees", planBranch);
+    mkdirSync(planWorktree, { recursive: true });
+    execFileSync("git", ["branch", planBranch], { cwd: repoRoot });
+    execFileSync("git", ["worktree", "add", planWorktree, planBranch], { cwd: repoRoot });
+    mkdirSync(join(planWorktree, planSpecDir), { recursive: true });
+    writeFileSync(join(planWorktree, planSpecRel), "# Feature\n\n- [ ] [Work](./00-work.md)\n", "utf8");
+    writeFileSync(
+      join(planWorktree, `${planSpecDir}/00-work.md`),
+      "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n",
+      "utf8",
+    );
+    execFileSync("git", ["add", "-A"], { cwd: planWorktree });
+    execFileSync("git", ["commit", "-qm", "plan"], { cwd: planWorktree });
+    expect(planBranch).not.toBe(defaultBranch);
+
+    previousJarvisHome = process.env.JARVIS_HOME;
+    const { jarvisRoot } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    process.env.JARVIS_HOME = jarvisRoot;
+    const configPath = writeHomeMachineConfig({ projects: { demo: { root: repoRoot } } });
+
+    const definition: PipelineDefinition = {
+      name: "p",
+      stages: [
+        { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+      ],
+    };
+    const context: PipelineContext = { cwd: repoRoot, configPath, seed: "unused" };
+    const store = openStateStore(":memory:");
+    const pipelineId = store.createPipeline({ definition, context });
+    const intentRunId = store.createRun({
+      project: "demo",
+      specRef: defaultBranch,
+      worktreePath: intentWorktree,
+      branch: intentBranch,
+      specPath: readyIntentRel,
+    });
+    store.updateStage({
+      pipelineId,
+      stageId: "intent",
+      patch: {
+        status: "succeeded",
+        artifact: { entryRunId: intentRunId, specPath: readyIntentRel },
+        workflowInvocationId: intentRunId,
+      },
+    });
+
+    const publicationCaptures: Array<{ stageId: "plan" | "implement"; baseRef: string }> = [];
+    let prCounter = 0;
+
+    try {
+      await runPipeline(pipelineId, {
+        store,
+        context,
+        resolveStage: resolveStageWorkflowSteps,
+        dispatch: async (steps) => {
+          const writeStep = steps.find((candidate): candidate is WriteWorkflowStep => candidate.behavior === "write");
+          if (writeStep === undefined) throw new Error("expected write step");
+          const stageId = writeStep.role === "plan" ? "plan" : "implement";
+          expect(writeStep.worktree.baseRef).toBe(defaultBranch);
+
+          const worktreePath =
+            stageId === "plan"
+              ? planWorktree
+              : (
+                  await withExternalWorktree(writeStep.worktree, async ({ path }) => {
+                    writeFileSync(join(path, "README.md"), "implement\n", "utf8");
+                    execFileSync("git", ["add", "README.md"], { cwd: path });
+                    execFileSync("git", ["commit", "-qm", "implement seed"], { cwd: path });
+                    return path;
+                  })
+                ).worktree.path;
+
+          const entryRunId = store.createRun({
+            project: writeStep.worktree.projectName,
+            specRef: writeStep.worktree.baseRef,
+            worktreePath,
+            branch: writeStep.worktree.branchName,
+            specPath: stageId === "plan" ? planSpecDir : writeStep.specPath,
+            stepId: writeStep.stepId,
+          });
+          const attemptId = store.recordAttemptStart(entryRunId);
+          const publication = await publishCompletionArtifacts(
+            {
+              skipReadyFinalization: true,
+              completionPublisher: async (input) => {
+                publicationCaptures.push({ stageId, baseRef: input.baseRef });
+                prCounter += 1;
+                return {
+                  pushSha: "deadbeef",
+                  prNumber: prCounter,
+                  prUrl: `https://example.test/pr/${prCounter}`,
+                };
+              },
+              readyFinalizer: async () => {},
+            },
+            {
+              worktreePath,
+              baseRef: writeStep.worktree.baseRef,
+              branch: writeStep.worktree.branchName,
+              specPath: stageId === "plan" ? planSpecDir : writeStep.specPath,
+            },
+          );
+          if (publication.kind !== "success") {
+            throw new Error(
+              publication.kind === "completion_commit_failed"
+                ? (publication.error?.message ?? publication.kind)
+                : publication.kind,
+            );
+          }
+          store.commitCompletionBoundary({
+            attemptId,
+            runStatus: "completed",
+            outcomeKind: "done",
+            completionAgent: "claude",
+          });
+          store.setPrEvidence(entryRunId, prCounter, `https://example.test/pr/${prCounter}`);
+          return { ok: true as const, entryRunId, invocationId: `inv-${stageId}` };
+        },
+        wait: async (entryRunId) => store.loadRun(entryRunId)?.status ?? "failed",
+      });
+
+      expect(publicationCaptures).toEqual([
+        { stageId: "plan", baseRef: defaultBranch },
+        { stageId: "implement", baseRef: defaultBranch },
+      ]);
+      expect(store.loadPipeline(pipelineId)?.stages.find((stage) => stage.stageId === "plan")?.status).toBe(
+        "succeeded",
+      );
+      expect(store.loadPipeline(pipelineId)?.stages.find((stage) => stage.stageId === "implement")?.status).toBe(
+        "succeeded",
+      );
+    } finally {
+      store.close();
+    }
+  });
+
+  test("chained implement resolution lands spec progress on the default-branch worktree during workflow execution", async () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "pipeline-chained-spec-landing-"));
+    roots.push(repoRoot);
+    initGitRepo(repoRoot);
+    writeFileSync(join(repoRoot, "README.md"), "base\n", "utf8");
+    execFileSync("git", ["add", "README.md"], { cwd: repoRoot });
+    execFileSync("git", ["commit", "-qm", "base"], { cwd: repoRoot });
+
+    const defaultBranch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    }).trim();
+    const intentBranch = "intent/feature";
+    const planBranch = "plan/feature";
+    const readyIntentRel = "spec/ready-intents/feature.md";
+    const readyIntentContent = "---\nname: feature\n---\n\n## Prerequisites\n\n- none\n";
+    const intentWorktree = join(repoRoot, ".jarvis-worktrees", intentBranch);
+    mkdirSync(intentWorktree, { recursive: true });
+    execFileSync("git", ["branch", intentBranch], { cwd: repoRoot });
+    execFileSync("git", ["worktree", "add", intentWorktree, intentBranch], { cwd: repoRoot });
+    mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
+    writeFileSync(join(intentWorktree, readyIntentRel), readyIntentContent, "utf8");
+    execFileSync("git", ["add", "-A"], { cwd: intentWorktree });
+    execFileSync("git", ["commit", "-qm", "intent"], { cwd: intentWorktree });
+    mkdirSync(join(repoRoot, "spec", "ready-intents"), { recursive: true });
+    writeFileSync(join(repoRoot, readyIntentRel), readyIntentContent, "utf8");
+    execFileSync("git", ["add", "-A"], { cwd: repoRoot });
+    execFileSync("git", ["commit", "-qm", "ready-intent on main"], { cwd: repoRoot });
+
+    const planSpecDir = "spec/feature";
+    const planSpecRel = `${planSpecDir}/index.md`;
+    const planWorktree = join(repoRoot, ".jarvis-worktrees", planBranch);
+    mkdirSync(planWorktree, { recursive: true });
+    execFileSync("git", ["branch", planBranch], { cwd: repoRoot });
+    execFileSync("git", ["worktree", "add", planWorktree, planBranch], { cwd: repoRoot });
+    mkdirSync(join(planWorktree, planSpecDir), { recursive: true });
+    writeFileSync(join(planWorktree, planSpecRel), "# Feature\n\n- [ ] [Work](./00-work.md)\n", "utf8");
+    writeFileSync(
+      join(planWorktree, `${planSpecDir}/00-work.md`),
+      "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n",
+      "utf8",
+    );
+    execFileSync("git", ["add", "-A"], { cwd: planWorktree });
+    execFileSync("git", ["commit", "-qm", "plan"], { cwd: planWorktree });
+
+    previousJarvisHome = process.env.JARVIS_HOME;
+    const { jarvisRoot } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    process.env.JARVIS_HOME = jarvisRoot;
+    const configPath = writeHomeMachineConfig({ projects: { demo: { root: repoRoot } } });
+
+    const definition: PipelineDefinition = {
+      name: "p",
+      stages: [
+        { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+      ],
+    };
+    const context: PipelineContext = { cwd: repoRoot, configPath, seed: "unused" };
+    const store = openStateStore(":memory:");
+    const intentRunId = store.createRun({
+      project: "demo",
+      specRef: defaultBranch,
+      worktreePath: intentWorktree,
+      branch: intentBranch,
+      specPath: readyIntentRel,
+    });
+    const planRunId = store.createRun({
+      project: "demo",
+      specRef: defaultBranch,
+      worktreePath: planWorktree,
+      branch: planBranch,
+      specPath: planSpecDir,
+    });
+
+    try {
+      const resolved = await resolveStageWorkflowSteps(
+        definition,
+        2,
+        context,
+        new Map([
+          [stageArtifactKey("intent"), { entryRunId: intentRunId, specPath: readyIntentRel }],
+          [stageArtifactKey("plan"), { entryRunId: planRunId, specPath: planSpecDir }],
+        ]),
+        {
+          builders: WORKFLOW_PRESET_BUILDERS,
+          loadRun: (runId) => (runId === planRunId ? { worktreePath: planWorktree, branch: planBranch } : null),
+        },
+      );
+      expect(resolved.ok).toBe(true);
+      if (!resolved.ok) return;
+      const writeStep = singleStageResolutionSteps(resolved).find(
+        (step): step is WriteWorkflowStep => step.behavior === "write",
+      );
+      expect(writeStep).toBeDefined();
+      expect(writeStep?.specReadRoot).toBe(planWorktree);
+      expect(writeStep?.worktree.baseRef).toBe(defaultBranch);
+
+      const subspecPath = join(planWorktree, `${planSpecDir}/00-work.md`);
+      writeStep!.createBinding = createBindingFactory(async () => {
+        writeFileSync(subspecPath, "# Work\n\n## Acceptance criteria\n\n- [x] Work\n", "utf8");
+        return { kind: "ok", stdout: "done", stderr: "" } as const;
+      });
+
+      const result = await executeWorkflow({
+        steps: singleStageResolutionSteps(resolved),
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+
+      const implementWorktreePath = getExternalWorktreePath(writeStep!.worktree);
+      expect(readFileSync(join(implementWorktreePath, planSpecRel), "utf8")).toContain("- [x]");
+      expect(readFileSync(join(implementWorktreePath, `${planSpecDir}/00-work.md`), "utf8")).toContain("- [x] Work");
+    } finally {
+      store.close();
     }
   });
 });

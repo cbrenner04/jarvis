@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { isGitRepoAsync } from "../../../shared/git.ts";
+import { getBaseBranch, isGitRepoAsync } from "../../../shared/git.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { resolveWorkflowPresetName } from "../commands/workflow-start-preparation.ts";
 import type { BuildImplementWorkflowStepsInput } from "../execution/implement-workflow-steps.ts";
@@ -403,9 +403,10 @@ async function resolveImplementStage(
   const readRoot = specPathResult.readRoot;
 
   const usesDefaultBuilder = builders.implement === WORKFLOW_PRESET_BUILDERS.implement;
+  const baseRef = await getBaseBranch(context.cwd);
   let input: BuildImplementWorkflowStepsInput = {
     cwd: readRoot,
-    baseRef: prior.branch,
+    baseRef,
     specPath,
     reviewPasses: stageReviewPasses(stage),
     ...(stage.review === "light" || stage.review === "debate" ? { reviewBehavior: stage.review } : {}),
@@ -425,6 +426,7 @@ async function resolveImplementStage(
       projectRoot: projectMatch.root,
       projectName: projectMatch.key,
       preflightGitRoot: readRoot,
+      preflightBaseRef: prior.branch,
     };
   }
   const prepared = await preparePipelineStageWorkflow("implement", "implement", input, context, builders, staleReset);

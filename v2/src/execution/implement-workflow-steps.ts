@@ -54,6 +54,8 @@ export type BuildImplementWorkflowStepsInput = {
   projectRegistry?: Record<string, { root: string; origin?: string }>;
   /** Git root for chained pipeline preflight; defaults to the resolved project root. */
   preflightGitRoot?: string;
+  /** Prior stage branch for chained spec-availability preflight; publication `baseRef` stays the default branch. */
+  preflightBaseRef?: string;
 };
 
 /** Test-only seams for project resolution and machine-config loading. */
@@ -284,9 +286,9 @@ function resolveImplementReviewConfig(
 }
 
 /**
- * Pipeline-chained launch: the spec tree lives on the prior stage's worktree, so both the spec
- * read root and the base-ref availability check run against `preflightGitRoot` rather than the
- * registered project root.
+ * Pipeline-chained launch: the spec tree lives on the prior stage's worktree, so the spec read root
+ * and spec-availability preflight run against `preflightGitRoot` / `preflightBaseRef` rather than
+ * publication `baseRef` or the registered project root.
  */
 async function resolveChainedImplementLaunch(
   input: BuildImplementWorkflowStepsInput,
@@ -310,8 +312,9 @@ async function resolveChainedImplementLaunch(
   if ("error" in artifact) return artifact;
   const reviewConfig = resolveImplementReviewConfig(input, match, input.configPath ?? deps.configPath);
   if ("error" in reviewConfig) return reviewConfig;
-  if (!(await isSpecAvailableInBaseRef(specReadRoot, input.baseRef, input.specPath, runner))) {
-    return { error: `Spec path unavailable in base ref ${input.baseRef}: ${input.specPath}` };
+  const preflightBaseRef = input.preflightBaseRef ?? input.baseRef;
+  if (!(await isSpecAvailableInBaseRef(specReadRoot, preflightBaseRef, input.specPath, runner))) {
+    return { error: `Spec path unavailable in base ref ${preflightBaseRef}: ${input.specPath}` };
   }
   return {
     ...input,
@@ -592,9 +595,11 @@ export async function buildImplementWorkflowSteps(
     if (completionError !== undefined) return { ok: false, error: completionError };
   }
 
+  const chained = resolvedInput.preflightGitRoot !== undefined;
+  const launchSpecPath = chained ? absoluteSpecPath : resolvedInput.specPath;
   const expectedArtifactPath = resolveImplementExpectedArtifactPath(
     isIndexSpec,
-    resolvedInput.specPath,
+    launchSpecPath,
     resolvedInput.artifactPath,
   );
   if (typeof expectedArtifactPath === "object") return { ok: false, error: expectedArtifactPath.error };
@@ -614,9 +619,10 @@ export async function buildImplementWorkflowSteps(
       branchName: resolvedInput.branchName ?? "",
       baseRef: resolvedInput.baseRef,
     },
-    specPath: resolvedInput.specPath,
+    specPath: launchSpecPath,
     expectedArtifactPath,
     linkedIndexRouting: isIndexSpec,
+    ...(chained ? { specReadRoot } : {}),
     ...(resolvedInput.externalPlanSpec === true ? { externalPlanSpec: true as const } : {}),
   };
   const pipelineConfigPath = resolvedInput.configPath ?? deps.configPath;
@@ -631,11 +637,14 @@ export async function buildImplementWorkflowSteps(
   }
 
   const cwd = getExternalWorktreePath(sourceStep.worktree);
-  const verdictPath = join(cwd, dirname(resolvedInput.specPath), "verdict-patch.md");
+  const verdictPath = join(
+    dirname(isAbsolute(launchSpecPath) ? launchSpecPath : join(cwd, launchSpecPath)),
+    "verdict-patch.md",
+  );
   // Serializable: steps cross the daemon IPC boundary as JSON, which drops functions.
   // The review executors stamp passNumber/priorCycleVerdict per cycle.
   const profileContext = {
-    specPath: resolvedInput.specPath,
+    specPath: launchSpecPath,
     cwd,
     baseBranch: input.baseRef,
     passNumber: 1,

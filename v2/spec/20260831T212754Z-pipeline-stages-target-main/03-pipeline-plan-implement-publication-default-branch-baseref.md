@@ -30,8 +30,8 @@ Primary: `v2/src/daemon/pipeline-execution.test.ts`. In-scope: `runPipeline` / s
 
 ## Acceptance criteria
 
-- [ ] `pipeline-execution.test.ts` — `chained pipeline plan and implement publication target repository default branch` drives `runPipeline` with real `WORKFLOW_PRESET_BUILDERS` through plan and implement completion publication and asserts each stage's captured publication `baseRef` is the repository default branch, not `prior.branch`; fails when implement publication stacks on the plan branch (reachable on main: chained implement resolution pins `baseRef: prior.branch` in `resolveImplementStage` and baseline e2e fixtures parent implement worktrees on `planBranch`; must not use `resolveStageWithFixedImplementSteps`).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `pipeline-execution.test.ts` — `chained pipeline plan and implement publication target repository default branch` drives `runPipeline` with real `WORKFLOW_PRESET_BUILDERS` through plan and implement completion publication and asserts each stage's captured publication `baseRef` is the repository default branch, not `prior.branch`; fails when implement publication stacks on the plan branch (reachable on main: chained implement resolution pins `baseRef: prior.branch` in `resolveImplementStage` and baseline e2e fixtures parent implement worktrees on `planBranch`; must not use `resolveStageWithFixedImplementSteps`).
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -600,6 +600,10 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
         : null,
     finishRunReconciliation: () => order.push("finished"),
     listPipelines: () => [],
+    listRuns: () => [],
+    isClosed: () => false,
+    hasNotificationDelivery: () => false,
+    tryRecordNotificationDelivery: () => true,
     reconcilePipelines: async () => {
       order.push("pipelines");
       return [];

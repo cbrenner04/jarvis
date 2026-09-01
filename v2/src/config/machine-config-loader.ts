@@ -189,6 +189,12 @@ export function readProjectReadyCommand(
   return typeof readyCommand === "string" && readyCommand.trim() !== "" ? readyCommand : undefined;
 }
 
+/** Reads top-level `notificationSinkCommand` when set to a non-empty string. */
+export function readNotificationSinkCommand(configPath: string = MACHINE_CONFIG_PATH): string | undefined {
+  const command = readMachineConfigDocument(configPath)?.notificationSinkCommand;
+  return typeof command === "string" && command.trim() !== "" ? command : undefined;
+}
+
 /** Reads the raw pipeline fragment without changing the project-registry projection. */
 export function readProjectPipelineConfig(
   projectKey: string,

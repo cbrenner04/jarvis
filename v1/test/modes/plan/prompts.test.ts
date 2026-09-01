@@ -6,18 +6,6 @@ import { buildVerdictActuatorPrompt } from "../../../src/modes/plan/verdict-actu
 
 const BUNDLED_SPEC_GUIDANCE = readSpecGuidance();
 
-function countOccurrences(haystack: string, needle: string): number {
-  let count = 0;
-  let index = 0;
-  while (index !== -1) {
-    index = haystack.indexOf(needle, index);
-    if (index === -1) break;
-    count += 1;
-    index += needle.length;
-  }
-  return count;
-}
-
 function extractSpecGuidance(prompt: string): string {
   const beginMarker = "<<<SPEC_GUIDANCE_BEGIN>>>";
   const endMarker = "<<<SPEC_GUIDANCE_END>>>";
@@ -79,9 +67,8 @@ describe("buildDraftPrompt", () => {
       specGuidance: BUNDLED_SPEC_GUIDANCE,
     });
     expect(prompt).toContain("#### Agent-verifiable acceptance criteria");
-    expect(prompt).toContain("without network or GitHub access");
     expect(prompt).not.toContain("**Agent-verifiable acceptance criteria:**");
-    expect(countOccurrences(prompt, "without network or GitHub access")).toBe(1);
+    expect(prompt.split("without network or GitHub access").length - 1).toBe(1);
   });
 
   test("draft prompt renders the bundled human-only marker guidance", () => {
@@ -281,10 +268,9 @@ describe("draft/review prompts", () => {
       specGuidance: BUNDLED_SPEC_GUIDANCE,
     });
     expect(
-      countOccurrences(
-        prompt,
+      prompt.split(
         "Every subspec that changes runtime behavior must carry an acceptance criterion naming a test that fails against the pre-fix code and passes after the change",
-      ),
+      ).length - 1,
     ).toBe(1);
     expect(prompt).not.toContain("each runtime-behavior subspec needs a dedicated new or updated failing test");
     expect(prompt).toContain("Docs-only and spec-only subspecs are exempt");

@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildPlanReviewPassContext, renderPlanReviewDebateRolePrompt } from "./review-plan.ts";
+import {
+  buildPlanReviewPassContext,
+  renderPlanReviewActuatorPrompt,
+  renderPlanReviewDebateRolePrompt,
+} from "./review-plan.ts";
 
 function specDirWithIntent(): string {
   const dir = mkdtempSync(join(tmpdir(), "plan-review-hollow-pin-"));
@@ -12,7 +16,26 @@ function specDirWithIntent(): string {
 
 const HOLLOW_CRITERION = '- [ ] `guard.test.ts`; // @mutate v2/src/guard.ts "a > 0" -> "a >= 0" requires a linked pin.';
 
+function countOccurrences(haystack: string, needle: string): number {
+  let count = 0;
+  let index = 0;
+  while (index !== -1) {
+    index = haystack.indexOf(needle, index);
+    if (index === -1) break;
+    count += 1;
+    index += needle.length;
+  }
+  return count;
+}
+
 describe("plan review hollow-pin pass", () => {
+  test("assembled review-actuator prompt carries structural product rewrite once", () => {
+    const specPath = specDirWithIntent();
+    const context = { worktreePath: "/repo", specPath };
+    const prompt = renderPlanReviewActuatorPrompt(context, "Tighten behavioral ACs.");
+    expect(countOccurrences(prompt, "Rewrite structural **product**")).toBe(1);
+  });
+
   test("does not inject hollow-pin findings into plan review", () => {
     const specPath = specDirWithIntent();
     writeFileSync(

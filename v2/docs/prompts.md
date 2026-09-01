@@ -44,7 +44,8 @@ Advisory re-prompt issued after a completing implement write when uncovered chan
 
 Plan draft and plan review inject `SPEC_GUIDANCE` from [`spec-guidance-agent-core.md`](./spec-guidance-agent-core.md) at the install root (agent core only; operator CLI guidance stays in [`v1/docs/spec-guidance.md`](../../v1/docs/spec-guidance.md)). Intent review injects the same agent core as `SPEC_GUIDANCE`; intent split has no `SPEC_GUIDANCE` placeholder and instead directs the agent to read [`spec-guidance-agent-core.md`](./spec-guidance-agent-core.md) for sizing and reviewability. See [`write-behavior.md`](./write-behavior.md#plan-write-step-seeding-and-completion-contract), [`workflow-runner.md`](./workflow-runner.md#execution-contract).
 
-- `plan.prompt.draft` — `WORKDIR`, `NAME`, `INTENT` (ready-intent seed)
+- `plan.prompt.draft` — `WORKDIR`, `NAME`, `INTENT` (ready-intent seed); Rules carry step mechanics only (write boundaries, blocker contract, frontmatter preservation, subspec/index linkage), with authoring norms owned by injected `SPEC_GUIDANCE`
 - `plan.prompt.review.*` — debate and light review roles with materialized draft context
+- `plan.prompt.review-actuator` — verdict-application step mechanics including structural product-AC rewrite, plus injected `SPEC_GUIDANCE`
 - `intent.prompt.split` — seed and staging placeholders; reads agent-core sizing guidance via prompt task (no `SPEC_GUIDANCE` injection)
 - `intent.prompt.review` / `intent.prompt.review-actuator` — staged ready-intent Markdown and critic verdict slot

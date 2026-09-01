@@ -10,18 +10,42 @@ const HUMAN_ONLY_STEP_RULES =
   "Human-only acceptance criteria contain `(Manual)`, `visual inspection only`, or `no automated guard` anywhere in the full bullet block (the first checklist line and any continuation lines). Recognition uses case-insensitive substring matching; markers need not be trailing or whole phrases.";
 const SPEC_GUIDANCE = readSpecGuidance();
 
+function countOccurrences(haystack: string, needle: string): number {
+  let count = 0;
+  let index = 0;
+  while (index !== -1) {
+    index = haystack.indexOf(needle, index);
+    if (index === -1) break;
+    count += 1;
+    index += needle.length;
+  }
+  return count;
+}
+
 describe("buildPlanDraftPrompt", () => {
+  test("injects authoring norms once via SPEC_GUIDANCE without duplicate draft Rules copies", () => {
+    const prompt = buildPlanDraftPrompt({
+      name: "my-plan",
+      intent: "do thing",
+      specGuidance: SPEC_GUIDANCE,
+    });
+
+    expect(countOccurrences(prompt, "fails against the pre-fix code and passes after the change")).toBe(1);
+    expect(countOccurrences(prompt, "without network or GitHub access")).toBe(1);
+    expect(countOccurrences(prompt, "self-referential deliverables")).toBe(1);
+    expect(prompt).not.toContain("observable behavior, not implementation structure");
+  });
+
   test("omits runtime suffix sections when specDir and stepRules are absent", () => {
     const prompt = buildPlanDraftPrompt({
       name: "my-plan",
       intent: "do thing",
-      specGuidance: "guidance",
+      specGuidance: SPEC_GUIDANCE,
     });
 
     expect(prompt).not.toContain("## File output");
     expect(prompt).not.toContain("## Step completion");
     expect(PLAN_DRAFT_PROMPT_ID).toBe("plan.prompt.draft");
-    expect(prompt).toContain("fails against the pre-fix code and passes after the change");
     expect(prompt).not.toContain("each added or modified guard is inverted");
   });
 

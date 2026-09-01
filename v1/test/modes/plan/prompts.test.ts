@@ -6,6 +6,18 @@ import { buildVerdictActuatorPrompt } from "../../../src/modes/plan/verdict-actu
 
 const BUNDLED_SPEC_GUIDANCE = readSpecGuidance();
 
+function countOccurrences(haystack: string, needle: string): number {
+  let count = 0;
+  let index = 0;
+  while (index !== -1) {
+    index = haystack.indexOf(needle, index);
+    if (index === -1) break;
+    count += 1;
+    index += needle.length;
+  }
+  return count;
+}
+
 function extractSpecGuidance(prompt: string): string {
   const beginMarker = "<<<SPEC_GUIDANCE_BEGIN>>>";
   const endMarker = "<<<SPEC_GUIDANCE_END>>>";
@@ -60,17 +72,16 @@ describe("buildDraftPrompt", () => {
     expect(prompt.slice(end)).toContain("Rules");
   });
 
-  test("draft prompt states the agent-verifiable acceptance criteria rule", () => {
+  test("draft prompt states the agent-verifiable acceptance criteria rule from SPEC_GUIDANCE", () => {
     const prompt = buildDraftPrompt({
       name: "x",
       intent: "intent",
-      specGuidance: "(none)",
+      specGuidance: BUNDLED_SPEC_GUIDANCE,
     });
-    expect(prompt).toContain("Agent-verifiable acceptance criteria");
-    expect(prompt).toContain("verifiable from the implement worktree without network or GitHub");
-    expect(prompt).toContain("PR body/title");
-    expect(prompt).toContain("CI status");
-    expect(prompt).toContain("review state");
+    expect(prompt).toContain("#### Agent-verifiable acceptance criteria");
+    expect(prompt).toContain("without network or GitHub access");
+    expect(prompt).not.toContain("**Agent-verifiable acceptance criteria:**");
+    expect(countOccurrences(prompt, "without network or GitHub access")).toBe(1);
   });
 
   test("draft prompt renders the bundled human-only marker guidance", () => {
@@ -241,36 +252,41 @@ describe("draft/review prompts", () => {
     expect(prompt).toContain("keep coupled changes together");
   });
 
-  test("draft prompt includes anti-self-reference acceptance criteria contract", () => {
+  test("draft prompt includes anti-self-reference acceptance criteria contract from SPEC_GUIDANCE", () => {
     const prompt = buildDraftPrompt({
       name: "test-name",
       intent: "intent",
-      specGuidance: "guidance",
+      specGuidance: BUNDLED_SPEC_GUIDANCE,
     });
-    expect(prompt).toContain("Do not propose self-referential deliverables");
-    expect(prompt).toContain("outside the active spec directory");
+    expect(prompt).toContain("self-referential deliverables");
+    expect(prompt).not.toContain("Do not propose self-referential deliverables");
+    expect(prompt).toContain("outside that directory");
   });
 
-  test("draft prompt includes behavioral acceptance criteria contract", () => {
+  test("draft prompt includes behavioral acceptance criteria contract from SPEC_GUIDANCE", () => {
     const prompt = buildDraftPrompt({
       name: "test-name",
       intent: "intent",
-      specGuidance: "guidance",
+      specGuidance: BUNDLED_SPEC_GUIDANCE,
     });
-    expect(prompt).toContain("observable behavior, not implementation structure");
-    expect(prompt).toContain("quota exhaustion falls through to the next configured agent");
-    expect(prompt).toContain("quota classification lives in a dedicated module");
+    expect(prompt).not.toContain("observable behavior, not implementation structure");
+    expect(prompt).toContain("Behavioral acceptance criteria");
+    expect(prompt).toContain("when structure is the contract");
   });
 
-  test("draft prompt instructs that every runtime-behavior subspec must carry a failing-test AC", () => {
+  test("draft prompt instructs that every runtime-behavior subspec must carry a failing-test AC from SPEC_GUIDANCE", () => {
     const prompt = buildDraftPrompt({
       name: "test-name",
       intent: "intent",
-      specGuidance: "guidance",
+      specGuidance: BUNDLED_SPEC_GUIDANCE,
     });
-    expect(prompt).toContain(
-      "Every subspec that changes runtime behavior must carry an acceptance criterion naming a test that fails against the pre-fix code and passes after the change",
-    );
+    expect(
+      countOccurrences(
+        prompt,
+        "Every subspec that changes runtime behavior must carry an acceptance criterion naming a test that fails against the pre-fix code and passes after the change",
+      ),
+    ).toBe(1);
+    expect(prompt).not.toContain("each runtime-behavior subspec needs a dedicated new or updated failing test");
     expect(prompt).toContain("Docs-only and spec-only subspecs are exempt");
     expect(prompt).toContain("Existing tests stay green");
   });

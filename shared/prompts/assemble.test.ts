@@ -31,6 +31,8 @@ function fakeArtifact(id: string, body: string): PromptArtifact {
       add: [],
       remove: [],
       placeholders: [],
+      variants: {},
+      optionalSections: [],
     },
     sourcePath: `/tmp/${id}.md`,
     body,

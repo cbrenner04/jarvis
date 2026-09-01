@@ -1,5 +1,42 @@
 import { describe, expect, test } from "bun:test";
-import { enforceDelimiterPolicy, PromptRenderingError, renderTemplateWithDeclarations } from "./render.ts";
+import {
+  enforceDelimiterPolicy,
+  PromptRenderingError,
+  renderArtifactTemplate,
+  renderTemplateWithDeclarations,
+} from "./render.ts";
+import type { PromptArtifact } from "./types.ts";
+
+function expectRenderReason(fn: () => void, reason: PromptRenderingError["reason"]): void {
+  try {
+    fn();
+    throw new Error("expected render to throw");
+  } catch (err) {
+    expect(err).toBeInstanceOf(PromptRenderingError);
+    expect((err as PromptRenderingError).reason).toBe(reason);
+  }
+}
+
+function testArtifact(overrides: Partial<PromptArtifact["metadata"]> & { body: string }): PromptArtifact {
+  return {
+    sourcePath: "test.prompt.md",
+    body: overrides.body,
+    metadata: {
+      id: "test.prompt",
+      behavior: "test",
+      kind: "step",
+      revision: "1",
+      order: null,
+      fragmentOf: [],
+      overrides: [],
+      add: [],
+      remove: [],
+      placeholders: overrides.placeholders ?? [{ name: "AA", type: "string", required: true }],
+      variants: overrides.variants ?? {},
+      optionalSections: overrides.optionalSections ?? [],
+    },
+  };
+}
 
 describe("renderTemplateWithDeclarations", () => {
   const declarations = [
@@ -34,6 +71,72 @@ describe("renderTemplateWithDeclarations", () => {
         BB: "replaced",
       }),
     ).toBe("value with <BB> token");
+  });
+});
+
+describe("renderArtifactTemplate", () => {
+  test("throws missing_template_anchor when variant substitution anchor is absent", () => {
+    const artifact = testArtifact({
+      body: "unchanged body",
+      variants: {
+        "flat-layout": [{ anchor: "<<<MISSING>>>", replacement: "replacement" }],
+      },
+    });
+    expectRenderReason(
+      () => renderArtifactTemplate(artifact, { AA: "value" }, { variant: "flat-layout" }),
+      "missing_template_anchor",
+    );
+  });
+
+  test("omits optional section when bound placeholder is empty", () => {
+    const artifact = testArtifact({
+      body: ["required <AA>", "## Optional", "<<<OPT_BEGIN>>>", "optional <BB>", "<<<OPT_END>>>", "tail"].join("\n"),
+      placeholders: [
+        { name: "AA", type: "string", required: true },
+        { name: "BB", type: "string", required: false },
+      ],
+      optionalSections: [
+        {
+          header: "## Optional",
+          begin: "<<<OPT_BEGIN>>>",
+          end: "<<<OPT_END>>>",
+          placeholder: "BB",
+        },
+      ],
+    });
+    expect(renderArtifactTemplate(artifact, { AA: "kept", BB: "" })).toBe("required kept\ntail");
+  });
+
+  test("throws unknown_variant when options.variant is absent from artifact variants", () => {
+    const artifact = testArtifact({
+      body: "body <AA>",
+      variants: {
+        "flat-layout": [{ anchor: "body", replacement: "layout" }],
+      },
+    });
+    expectRenderReason(
+      () => renderArtifactTemplate(artifact, { AA: "value" }, { variant: "nested-target-dir" }),
+      "unknown_variant",
+    );
+  });
+
+  test("throws missing_template_anchor when optional-section anchors drift", () => {
+    const artifact = testArtifact({
+      body: "## Optional\n<<<OPT_BEGIN>>>\noptional <BB>\n<<<OPT_END>>>",
+      placeholders: [
+        { name: "AA", type: "string", required: true },
+        { name: "BB", type: "string", required: false },
+      ],
+      optionalSections: [
+        {
+          header: "## Missing header",
+          begin: "<<<OPT_BEGIN>>>",
+          end: "<<<OPT_END>>>",
+          placeholder: "BB",
+        },
+      ],
+    });
+    expectRenderReason(() => renderArtifactTemplate(artifact, { AA: "value", BB: "" }), "missing_template_anchor");
   });
 });
 

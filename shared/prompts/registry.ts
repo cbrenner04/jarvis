@@ -1,6 +1,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { PromptArtifact, PromptPlaceholderDeclaration, PromptPlaceholderType, PromptRegistry } from "./types.ts";
+import type {
+  PromptArtifact,
+  PromptOptionalSection,
+  PromptPlaceholderDeclaration,
+  PromptPlaceholderType,
+  PromptRegistry,
+  PromptVariantSubstitution,
+} from "./types.ts";
 
 const PROMPTS_DIR = join(import.meta.dir, "..", "..", "prompts");
 const REGISTRY_MANIFEST = join(PROMPTS_DIR, "registry.txt");
@@ -90,6 +97,98 @@ function requireField(fields: Map<string, string>, field: string, sourcePath: st
   return value;
 }
 
+function parseJsonField(value: string | undefined, field: string, sourcePath: string): unknown {
+  if (value === undefined || value.length === 0) return undefined;
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw new Error(`invalid JSON for \`${field}\` in prompt artifact ${sourcePath}`);
+  }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseVariantSubstitution(
+  entry: unknown,
+  variantId: string,
+  index: number,
+  sourcePath: string,
+): PromptVariantSubstitution {
+  if (!isPlainObject(entry)) {
+    throw new Error(
+      `invalid variant substitution at index ${index} for variant \`${variantId}\` in prompt artifact ${sourcePath}`,
+    );
+  }
+  const anchor = entry.anchor;
+  const replacement = entry.replacement;
+  if (typeof anchor !== "string" || typeof replacement !== "string") {
+    throw new Error(
+      `invalid variant substitution at index ${index} for variant \`${variantId}\` in prompt artifact ${sourcePath}; expected string anchor and replacement`,
+    );
+  }
+  const replaceAll = entry.replaceAll;
+  if (replaceAll !== undefined && typeof replaceAll !== "boolean") {
+    throw new Error(
+      `invalid variant substitution at index ${index} for variant \`${variantId}\` in prompt artifact ${sourcePath}; replaceAll must be boolean`,
+    );
+  }
+  return replaceAll === undefined ? { anchor, replacement } : { anchor, replacement, replaceAll };
+}
+
+function parseVariantsValue(
+  value: string | undefined,
+  sourcePath: string,
+): Record<string, PromptVariantSubstitution[]> {
+  const parsed = parseJsonField(value, "variants", sourcePath);
+  if (parsed === undefined) return {};
+  if (!isPlainObject(parsed)) {
+    throw new Error(`invalid variants in prompt artifact ${sourcePath}; expected a JSON object`);
+  }
+  const variants: Record<string, PromptVariantSubstitution[]> = {};
+  for (const [variantId, entries] of Object.entries(parsed)) {
+    if (variantId.length === 0) {
+      throw new Error(`invalid variants in prompt artifact ${sourcePath}; variant id must not be empty`);
+    }
+    if (!Array.isArray(entries)) {
+      throw new Error(`invalid variants in prompt artifact ${sourcePath}; variant \`${variantId}\` must be an array`);
+    }
+    variants[variantId] = entries.map((entry, index) => parseVariantSubstitution(entry, variantId, index, sourcePath));
+  }
+  return variants;
+}
+
+function parseOptionalSection(entry: unknown, index: number, sourcePath: string): PromptOptionalSection {
+  if (!isPlainObject(entry)) {
+    throw new Error(`invalid optionalSections entry at index ${index} in prompt artifact ${sourcePath}`);
+  }
+  const header = entry.header;
+  const begin = entry.begin;
+  const end = entry.end;
+  const placeholder = entry.placeholder;
+  if (
+    typeof header !== "string" ||
+    typeof begin !== "string" ||
+    typeof end !== "string" ||
+    typeof placeholder !== "string"
+  ) {
+    throw new Error(
+      `invalid optionalSections entry at index ${index} in prompt artifact ${sourcePath}; expected string header, begin, end, and placeholder`,
+    );
+  }
+  return { header, begin, end, placeholder };
+}
+
+function parseOptionalSectionsValue(value: string | undefined, sourcePath: string): PromptOptionalSection[] {
+  const parsed = parseJsonField(value, "optionalSections", sourcePath);
+  if (parsed === undefined) return [];
+  if (!Array.isArray(parsed)) {
+    throw new Error(`invalid optionalSections in prompt artifact ${sourcePath}; expected a JSON array`);
+  }
+  return parsed.map((entry, index) => parseOptionalSection(entry, index, sourcePath));
+}
+
 function parseOrderValue(value: string | undefined, sourcePath: string): number | null {
   if (value === undefined || value.length === 0) return null;
   const parsed = Number(value);
@@ -111,6 +210,17 @@ function readPromptArtifact(sourcePath: string): PromptArtifact {
     throw new Error(`invalid kind \`${kind}\` in prompt artifact ${sourcePath}; expected step|fragment`);
   }
 
+  const placeholders = parsePlaceholdersValue(fields.get("placeholders") ?? "");
+  const optionalSections = parseOptionalSectionsValue(fields.get("optionalSections"), sourcePath);
+  const declaredPlaceholders = new Set(placeholders.map((placeholder) => placeholder.name));
+  for (const section of optionalSections) {
+    if (!declaredPlaceholders.has(section.placeholder)) {
+      throw new Error(
+        `optionalSections placeholder \`${section.placeholder}\` is not declared in placeholders in prompt artifact ${sourcePath}`,
+      );
+    }
+  }
+
   return {
     metadata: {
       id,
@@ -122,7 +232,9 @@ function readPromptArtifact(sourcePath: string): PromptArtifact {
       overrides: parseListValue(fields.get("overrides") ?? ""),
       add: parseListValue(fields.get("add") ?? ""),
       remove: parseListValue(fields.get("remove") ?? ""),
-      placeholders: parsePlaceholdersValue(fields.get("placeholders") ?? ""),
+      placeholders,
+      variants: parseVariantsValue(fields.get("variants"), sourcePath),
+      optionalSections,
     },
     sourcePath,
     body,

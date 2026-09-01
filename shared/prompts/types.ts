@@ -1,3 +1,16 @@
+export type PromptVariantSubstitution = {
+  anchor: string;
+  replacement: string;
+  replaceAll?: boolean;
+};
+
+export type PromptOptionalSection = {
+  header: string;
+  begin: string;
+  end: string;
+  placeholder: string;
+};
+
 export type PromptMetadata = {
   id: string;
   behavior: string;
@@ -10,6 +23,8 @@ export type PromptMetadata = {
   add: string[];
   remove: string[];
   placeholders: PromptPlaceholderDeclaration[];
+  variants: Record<string, PromptVariantSubstitution[]>;
+  optionalSections: PromptOptionalSection[];
 };
 
 export type PromptPlaceholderType = "string";

@@ -19,8 +19,8 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/prompts.md` documents `variants` and `optionalSections` frontmatter, registry load-time validation, reserved plan variant ids, excision and variant render semantics, and render-time anchor errors.
-- [ ] `bun run typecheck` and `bun run test:shared` pass after all subspecs in this spec land.
+- [x] `v2/docs/prompts.md` documents `variants` and `optionalSections` frontmatter, registry load-time validation, reserved plan variant ids, excision and variant render semantics, and render-time anchor errors.
+- [x] `bun run typecheck` and `bun run test:shared` pass after all subspecs in this spec land.
 
 ## Documentation updates
 

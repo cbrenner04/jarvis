@@ -1,4 +1,4 @@
-import type { PromptArtifact, PromptPlaceholderDeclaration } from "./types.ts";
+import type { PromptArtifact, PromptOptionalSection, PromptPlaceholderDeclaration } from "./types.ts";
 
 export class PromptRenderingError extends Error {
   constructor(
@@ -7,7 +7,9 @@ export class PromptRenderingError extends Error {
       | "missing_value"
       | "type_mismatch"
       | "invalid_placeholder_pattern"
-      | "delimiter_violation",
+      | "delimiter_violation"
+      | "unknown_variant"
+      | "missing_template_anchor",
     public details: string,
   ) {
     super(`Prompt rendering error: ${details}`);
@@ -15,8 +17,56 @@ export class PromptRenderingError extends Error {
   }
 }
 
-export function renderArtifactTemplate(artifact: PromptArtifact, values: Record<string, unknown>): string {
-  return renderTemplateWithDeclarations(artifact.body, artifact.metadata.placeholders, values, artifact.metadata.id);
+function findTemplateAnchor(body: string, anchor: string, context: string, fromIndex = 0): number {
+  const index = body.indexOf(anchor, fromIndex);
+  if (index < 0) {
+    throw new PromptRenderingError(
+      "missing_template_anchor",
+      `${context}: template anchor \`${anchor}\` is missing from body`,
+    );
+  }
+  return index;
+}
+
+function removeOptionalSection(body: string, section: PromptOptionalSection): string {
+  const context = `Optional section for \`${section.placeholder}\``;
+  const headerIndex = findTemplateAnchor(body, section.header, context);
+  const beginIndex = findTemplateAnchor(body, section.begin, context, headerIndex);
+  const endIndex = findTemplateAnchor(body, section.end, context, beginIndex);
+  let removeEnd = endIndex + section.end.length;
+  while (body[removeEnd] === "\n") removeEnd += 1;
+  return `${body.slice(0, headerIndex)}${body.slice(removeEnd)}`;
+}
+
+export function renderArtifactTemplate(
+  artifact: PromptArtifact,
+  values: Record<string, unknown>,
+  options?: { variant?: string },
+): string {
+  let body = artifact.body;
+  const variantId = options?.variant;
+  if (variantId !== undefined) {
+    const substitutions = artifact.metadata.variants[variantId];
+    if (substitutions === undefined) {
+      throw new PromptRenderingError(
+        "unknown_variant",
+        `Prompt \`${artifact.metadata.id}\`: unknown variant \`${variantId}\``,
+      );
+    }
+    for (const substitution of substitutions) {
+      findTemplateAnchor(body, substitution.anchor, `Variant \`${variantId}\` substitution`);
+      body = substitution.replaceAll
+        ? body.replaceAll(substitution.anchor, substitution.replacement)
+        : body.replace(substitution.anchor, substitution.replacement);
+    }
+  }
+  for (const section of artifact.metadata.optionalSections) {
+    const bound = values[section.placeholder];
+    if ((typeof bound === "string" ? bound : "").trim() === "") {
+      body = removeOptionalSection(body, section);
+    }
+  }
+  return renderTemplateWithDeclarations(body, artifact.metadata.placeholders, values, artifact.metadata.id);
 }
 
 export function renderTemplateWithDeclarations(

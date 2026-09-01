@@ -18,11 +18,10 @@ function isWithin(root: string, candidate: string): boolean {
 }
 
 function resolvesUnderExternalSpecRoot(worktreePath: string, path: string, specReadRoot: string): boolean {
-  const root = realpathSync(specReadRoot);
   const absolute = resolve(worktreePath, path);
-  if (isWithin(root, absolute)) return true;
+  if (isWithin(specReadRoot, absolute)) return true;
   try {
-    return isWithin(root, realpathSync(absolute));
+    return isWithin(specReadRoot, realpathSync(absolute));
   } catch {
     return false;
   }

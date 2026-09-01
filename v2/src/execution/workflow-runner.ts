@@ -1855,11 +1855,13 @@ async function shrinkPromptPlaceholders(
 ): Promise<Record<string, string>> {
   const worktreePath = getExternalWorktreePath(step.worktree);
   const allowlist = await changedFiles(worktreePath, step.worktree.baseRef, runner);
-  const specTreeLabelRoot =
-    step.externalPlanSpec === true ? resolveLinkedImplementRoutingRoot(step, worktreePath) : worktreePath;
   return {
     SPEC_PATH: step.specPath,
-    SPEC_TREE: readSpecTree(worktreePath, step.specPath, specTreeLabelRoot),
+    SPEC_TREE: readSpecTree(
+      worktreePath,
+      step.specPath,
+      step.externalPlanSpec === true ? resolveLinkedImplementRoutingRoot(step, worktreePath) : worktreePath,
+    ),
     ALLOWLIST: (allowlist.length > 0 ? allowlist : [step.expectedArtifactPath]).map((path) => `- ${path}`).join("\n"),
     BRANCH_DIFF: (await gitOutput(worktreePath, ["diff", "--stat", step.worktree.baseRef, "--"], runner)) || "(empty)",
     RUN_SCOPED_DIFF:
@@ -1871,7 +1873,7 @@ async function shrinkPromptPlaceholders(
   };
 }
 
-function readSpecTree(worktreePath: string, specPath: string, labelRoot: string = worktreePath): string {
+function readSpecTree(worktreePath: string, specPath: string, labelRoot: string): string {
   const resolvedSpecPath = isAbsolute(specPath) ? specPath : join(worktreePath, specPath);
   const specRoot = dirname(resolvedSpecPath);
   if (!existsSync(specRoot)) return "(missing spec tree)";

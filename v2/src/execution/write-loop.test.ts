@@ -761,7 +761,7 @@ describe("write loop", () => {
     });
 
     test("contract_miss appends blocker to external active subspec when expectedArtifactPath is absolute", async () => {
-      // @mutate v2/src/execution/write-loop.ts "externalPlanSpec === true && isAbsolute(expectedArtifactPath)" -> "false"
+      // @mutate v2/src/execution/write-loop.ts "args.externalPlanSpec === true && isAbsolute(args.expectedArtifactPath)" -> "false"
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       const { specReadRoot, externalSubspec, criterion } = writeExternalImplementFixture();
       const worktreePath = join(jarvisRoot, "worktrees", "demo", "write-run");

@@ -3737,24 +3737,15 @@ function resolveSpecPath(worktreePath: string, specPath: string): string {
   return isAbsolute(specPath) ? specPath : join(worktreePath, specPath);
 }
 
-function resolveImplementActiveSubspecPath(
-  worktreePath: string,
-  expectedArtifactPath: string,
-  externalPlanSpec?: true,
-): string {
-  if (externalPlanSpec === true && isAbsolute(expectedArtifactPath)) {
-    return expectedArtifactPath;
-  }
-  return resolveSpecPath(worktreePath, expectedArtifactPath);
-}
-
 function resolveContractMissBlockerPath(
   worktreePath: string,
   args: Pick<WriteLoopInput, "expectedArtifactPath" | "specPath" | "promptId" | "externalPlanSpec">,
   failedContractId: string,
 ): string {
   if (failedContractId === "spec.criteria-ticked") {
-    return resolveImplementActiveSubspecPath(worktreePath, args.expectedArtifactPath, args.externalPlanSpec);
+    return args.externalPlanSpec === true && isAbsolute(args.expectedArtifactPath)
+      ? args.expectedArtifactPath
+      : resolveSpecPath(worktreePath, args.expectedArtifactPath);
   }
   if (args.promptId === PLAN_DRAFT_PROMPT_ID) {
     return resolveSpecPath(worktreePath, join(args.expectedArtifactPath, "intent.md"));

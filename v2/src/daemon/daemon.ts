@@ -63,7 +63,6 @@ import {
   type WriteLoopInput,
 } from "../execution/write-loop.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client";
-import { createRpcTransport } from "../ipc/rpc-transport";
 import { type IpcServer, type RpcHandler, startIpcServer } from "../ipc/server";
 import { jarvisHome } from "../paths.ts";
 import {

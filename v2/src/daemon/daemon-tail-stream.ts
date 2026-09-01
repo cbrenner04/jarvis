@@ -6,6 +6,7 @@ import { isTerminalRunStatus, type StateStore } from "../persistence/state-store
 export type TailStreamHandlerDeps = {
   stateStore: StateStore;
   logReader: LogReader;
+  /** Interval to re-check run status independent of `follow()` yields; defaults to `FOLLOW_POLL_MS`. */
   followStatusPollMs?: number;
 };
 

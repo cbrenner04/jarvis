@@ -1,5 +1,4 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { readSpecGuidance } from "../spec-guidance-path.ts";
 import { assemblePromptForStep } from "./assemble.ts";
 import { listIntentStageMarkdownFiles } from "./intent-split.ts";

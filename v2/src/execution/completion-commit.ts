@@ -9,6 +9,7 @@ import {
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
 import { DEFAULT_ITERATION_TIMEOUT_MS } from "../config/machine-config-loader.ts";
+import { type ExternalSpecGitScope, excludeExternalSpecGitPaths } from "./external-spec-git.ts";
 import { isMaterializedNodeModulesPath, MATERIALIZED_NODE_MODULES_PATH } from "./external-worktree.ts";
 import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 
@@ -22,7 +23,7 @@ export type CompletionStepMetadata =
   | { kind: "mutation-repair" }
   | { kind: "ready-gate" };
 
-export type CompletionCommitInput = {
+export type CompletionCommitInput = ExternalSpecGitScope & {
   worktreePath: string;
   baseRef: string;
   specPath: string;
@@ -224,9 +225,12 @@ const EXCLUDE_MATERIALIZED_NODE_MODULES = ["--", ".", `:(exclude)${NODE_MODULES_
 
 /** `git add -A` pathspec for a completion commit; excludes the materialized node_modules
  * symlink when present so no harness completion commit ever stages it. */
-export function completionStageArgs(worktreePath: string): string[] {
-  if (!isMaterializedNodeModulesPath(worktreePath, MATERIALIZED_NODE_MODULES_PATH)) return [...ADD_ALL_ARGS];
-  return [...ADD_ALL_ARGS, ...EXCLUDE_MATERIALIZED_NODE_MODULES];
+export function completionStageArgs(worktreePath: string, excludedPaths: readonly string[] = []): string[] {
+  const exclusions = excludedPaths.map((path) => `:(exclude,literal)${path}`);
+  if (isMaterializedNodeModulesPath(worktreePath, MATERIALIZED_NODE_MODULES_PATH)) {
+    exclusions.push(EXCLUDE_MATERIALIZED_NODE_MODULES[2]);
+  }
+  return exclusions.length === 0 ? [...ADD_ALL_ARGS] : [...ADD_ALL_ARGS, "--", ".", ...exclusions];
 }
 
 /**
@@ -246,7 +250,11 @@ async function preparePendingCommit(
       return runGit(cwd, args);
     },
   });
-  const changedPaths = inventory.map((entry) => entry.currentPath);
+  const inventoryPaths = inventory.flatMap((entry) =>
+    entry.kind === "rename" ? [entry.currentPath, entry.originalPath] : [entry.currentPath],
+  );
+  const changedPaths = excludeExternalSpecGitPaths(input.worktreePath, inventoryPaths, input);
+  const excludedPaths = inventoryPaths.filter((path) => !changedPaths.includes(path));
   const timeoutMs = input.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS;
   const formatMode = input.formatMode ?? "strict";
   if (formatMode === "checkpoint") {
@@ -256,7 +264,7 @@ async function preparePendingCommit(
   }
   const head = await runGit(input.worktreePath, ["rev-parse", "HEAD"]);
   await runGit(input.worktreePath, ["read-tree", head], { GIT_INDEX_FILE: index });
-  await runGit(input.worktreePath, completionStageArgs(input.worktreePath), { GIT_INDEX_FILE: index });
+  await runGit(input.worktreePath, completionStageArgs(input.worktreePath, excludedPaths), { GIT_INDEX_FILE: index });
   const tree = await runGit(input.worktreePath, ["write-tree"], { GIT_INDEX_FILE: index });
   const baseTree = await runGit(input.worktreePath, ["rev-parse", `${head}^{tree}`]);
   if (shouldReuseHeadWithoutNewCommit(tree, baseTree)) {
@@ -306,12 +314,16 @@ async function restagePendingTreeAfterStrictFormat(
       return runGit(cwd, args);
     },
   });
-  const changedPaths = inventory.map((entry) => entry.currentPath);
+  const inventoryPaths = inventory.flatMap((entry) =>
+    entry.kind === "rename" ? [entry.currentPath, entry.originalPath] : [entry.currentPath],
+  );
+  const changedPaths = excludeExternalSpecGitPaths(input.worktreePath, inventoryPaths, input);
+  const excludedPaths = inventoryPaths.filter((path) => !changedPaths.includes(path));
   const timeoutMs = input.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS;
   await runCompletionFormat({ cwd: input.worktreePath, paths: changedPaths, timeoutMs }, subprocessRunner);
   const head = await runGit(input.worktreePath, ["rev-parse", "HEAD"]);
   await runGit(input.worktreePath, ["read-tree", head], { GIT_INDEX_FILE: index });
-  await runGit(input.worktreePath, completionStageArgs(input.worktreePath), { GIT_INDEX_FILE: index });
+  await runGit(input.worktreePath, completionStageArgs(input.worktreePath, excludedPaths), { GIT_INDEX_FILE: index });
   const tree = await runGit(input.worktreePath, ["write-tree"], { GIT_INDEX_FILE: index });
   // Drop any checkpoint-stage commitSha so the strict boundary re-commits the re-formatted tree
   // instead of reusing the stale checkpoint-tree commit object.

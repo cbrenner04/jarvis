@@ -78,6 +78,10 @@ export type WorkflowSnapshotStep = {
   idleOutputMs?: number;
   fixCommand?: string;
   readyCommand?: string;
+  /** Preserves external-plan boundaries for recovery and finalization. */
+  externalPlanSpec?: true;
+  /** Authoritative external routing root for an admitted plan. */
+  specReadRoot?: string;
 };
 
 /** Durable workflow invocation snapshot shared by every step run in that workflow. */

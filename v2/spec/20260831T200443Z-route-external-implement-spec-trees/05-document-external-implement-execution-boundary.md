@@ -20,14 +20,14 @@ Operator docs still end external-plan implement admission at stale-reset and def
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/workflow-runner.md` documents the split external-spec/code-worktree execution boundary and linked routing lifecycle consistent with `00`–`04`.
-- [ ] `v2/docs/write-behavior.md` documents external prompt access, criteria/index writes, review/shrink read-only behavior, and Git exclusion for external specs.
-- [ ] `v2/docs/v1-behaviors.md` records v2 parity with v1 external-spec in-place routing and names remaining observable adapter-access differences (admitted `specReadRoot` only; deferred `cursor`/`opencode` read-dir parity).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
-- [ ] `bun run test:shared` passes.
-- [ ] `bun run test:integration:shared` passes.
+- [x] `v2/docs/workflow-runner.md` documents the split external-spec/code-worktree execution boundary and linked routing lifecycle consistent with `00`–`04`.
+- [x] `v2/docs/write-behavior.md` documents external prompt access, criteria/index writes, review/shrink read-only behavior, and Git exclusion for external specs.
+- [x] `v2/docs/v1-behaviors.md` records v2 parity with v1 external-spec in-place routing and names remaining observable adapter-access differences (admitted `specReadRoot` only; deferred `cursor`/`opencode` read-dir parity).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
+- [x] `bun run test:shared` passes.
+- [x] `bun run test:integration:shared` passes.
 
 ## Documentation updates
 

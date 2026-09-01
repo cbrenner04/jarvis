@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseSpec } from "../../../shared/spec-parser.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { type ExternalSpecGitScope, excludeExternalSpecGitPaths } from "./external-spec-git.ts";
 import { type CommitInfo, readBranchCommits } from "./pr-attribution.ts";
 import { resolveSpecIndexPath } from "./spec-creation-title.ts";
 
@@ -94,10 +95,10 @@ function renderDiffSummary(diffs: readonly DiffStat[]): string[] {
   return lines;
 }
 
-async function readDiffStats(cwd: string, base: string, git: Git): Promise<DiffStat[]> {
+async function readDiffStats(cwd: string, base: string, git: Git, scope: ExternalSpecGitScope): Promise<DiffStat[]> {
   try {
     const output = await git(cwd, ["diff", "--numstat", `${base}...HEAD`]);
-    return output.split("\n").flatMap((line) => {
+    const diffs = output.split("\n").flatMap((line) => {
       const [added, removed, path] = line.split("\t");
       if (path === undefined || added === undefined || removed === undefined) return [];
       const parsedAdded = added === "-" ? 0 : Number.parseInt(added, 10);
@@ -106,18 +107,28 @@ async function readDiffStats(cwd: string, base: string, git: Git): Promise<DiffS
         ? []
         : [{ added: parsedAdded, removed: parsedRemoved, path }];
     });
+    const included = new Set(
+      excludeExternalSpecGitPaths(
+        cwd,
+        diffs.map((diff) => diff.path),
+        scope,
+      ),
+    );
+    return diffs.filter((diff) => included.has(diff.path));
   } catch {
     return [];
   }
 }
 
 /** Derive the v1-shaped plan/implement template from the current worktree. */
-export async function deriveSpecRunBodySummary(input: {
-  worktreePath: string;
-  specPath: string;
-  baseRef: string;
-  git?: Git;
-}): Promise<string> {
+export async function deriveSpecRunBodySummary(
+  input: {
+    worktreePath: string;
+    specPath: string;
+    baseRef: string;
+    git?: Git;
+  } & ExternalSpecGitScope,
+): Promise<string> {
   const indexPath = resolveSpecIndexPath(input.worktreePath, input.specPath);
   if (!existsSync(indexPath)) return "(no content)";
   const index = parseSpec(readFileSync(indexPath, "utf8"));
@@ -131,7 +142,7 @@ export async function deriveSpecRunBodySummary(input: {
   const git = input.git ?? ((cwd, args) => realAsyncSubprocessRunner.runAsync("git", [...args], cwd));
   const [commits, diffs] = await Promise.all([
     readBranchCommits({ cwd: input.worktreePath, base: input.baseRef, git }).catch(() => []),
-    readDiffStats(input.worktreePath, input.baseRef, git),
+    readDiffStats(input.worktreePath, input.baseRef, git, input),
   ]);
   return renderTemplate(
     index.linkedSubspecs.map((subspec, i) => ({ title: subspec.text, why: firstProseLine(bodies[i] ?? "") })),

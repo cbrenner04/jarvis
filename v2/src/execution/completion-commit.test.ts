@@ -373,6 +373,53 @@ describe("createCompletionCommitter", () => {
     expect(result).toEqual({ commitSha: "existing-commit", filesChanged: 1 });
   });
 
+  test("strict restaging excludes external spec paths instead of changed code paths", async () => {
+    const { worktreePath, gitDir } = setupWorktree();
+    const specReadRoot = mkdtempSync(join(tmpdir(), "jarvis-v2-completion-external-spec-"));
+    roots.push(specReadRoot);
+    writeFileSync(join(specReadRoot, "index.md"), "# External spec\n");
+    symlinkSync(join(specReadRoot, "index.md"), join(worktreePath, "external-index.md"));
+    writeFileSync(
+      join(gitDir, "jarvis-completion-pending.json"),
+      `${JSON.stringify({
+        baseHead: "base-head",
+        tree: "checkpoint-tree",
+        branchRef: "refs/heads/feature",
+        message: "Test Spec Title\n\nJarvis-Agent: claude\nJarvis-Step: write",
+        agent: "claude",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        formatMode: "checkpoint",
+      })}\n`,
+      "utf8",
+    );
+    const calls: GitCall[] = [];
+    const runGit = async (_cwd: string, args: readonly string[], env?: Record<string, string>): Promise<string> => {
+      calls.push({ args, env });
+      if (args[0] === "rev-parse" && args[1] === "--git-dir") return gitDir;
+      if (args.join("\0") === ["status", "--porcelain=v1", "-z", "--untracked-files=all"].join("\0")) {
+        return " M src/code.ts\0?? external-index.md\0";
+      }
+      if (args[0] === "rev-parse" && args[1] === "HEAD") return "base-head";
+      if (args[0] === "write-tree") return "strict-tree";
+      if (args[0] === "commit-tree") return "strict-commit";
+      if (args[0] === "diff-tree") return "src/code.ts";
+      return "";
+    };
+
+    await createCompletionCommitter(runGit)({
+      worktreePath,
+      baseRef: "main",
+      specPath: join(specReadRoot, "index.md"),
+      agent: "claude",
+      title: "Test Spec Title",
+      externalPlanSpec: true,
+      specReadRoot,
+    });
+
+    const restage = calls.find((call) => call.args[0] === "add");
+    expect(restage?.args).toEqual(["add", "-A", "--", ".", ":(exclude,literal)external-index.md"]);
+  });
+
   test("defaults absent and legacy pending step metadata to write", async () => {
     // @mutate v2/src/execution/completion-commit.ts "}\\n${renderJarvisStepTrailer(step)}`," -> "}`,"
     // Fresh direct completion: bare title, `Jarvis-Step: write` added beside `Jarvis-Agent`.

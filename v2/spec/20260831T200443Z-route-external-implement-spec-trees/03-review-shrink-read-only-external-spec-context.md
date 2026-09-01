@@ -18,9 +18,9 @@ Terminal shrink and implement review prompts build `SPEC_TREE` from `readSpecTre
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/workflow-runner-debate.test.ts` regression drives terminal shrink for an external linked implement completion, asserts `SPEC_TREE` entry labels are rooted under admitted `specReadRoot` (not `relative(worktreePath, externalFile)` escape paths), and fails against the pre-fix label path on main today.
-- [ ] `v2/src/execution/workflow-runner-debate.test.ts` regression drives terminal shrink for an external linked implement completion and proves no file under `specReadRoot` changes during shrink; it fails against the pre-fix shrink path that could mutate external bytes.
-- [ ] `v2/src/execution/workflow-runner-debate.test.ts` `executeWorkflow implement patch review` stays green (in-repo shrink + review unchanged).
+- [x] `v2/src/execution/workflow-runner-debate.test.ts` regression drives terminal shrink for an external linked implement completion, asserts `SPEC_TREE` entry labels are rooted under admitted `specReadRoot` (not `relative(worktreePath, externalFile)` escape paths), and fails against the pre-fix label path on main today.
+- [x] `v2/src/execution/workflow-runner-debate.test.ts` regression drives terminal shrink for an external linked implement completion and proves no file under `specReadRoot` changes during shrink; it fails against the pre-fix shrink path that could mutate external bytes.
+- [x] `v2/src/execution/workflow-runner-debate.test.ts` `executeWorkflow implement patch review` stays green (in-repo shrink + review unchanged).
 
 ## Documentation updates
 

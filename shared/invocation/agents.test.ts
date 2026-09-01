@@ -280,6 +280,48 @@ describe("createResolvedAgentBinding", () => {
     expect(fake.calls[0]?.child?.stdinChunks.join("")).toBe("implement it");
   });
 
+  test("claude binding appends --add-dir for each additionalReadDirs entry", async () => {
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: '{"type":"result","result":"done"}\n', stderr: "" }]);
+    const binding = createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "claude-sonnet-4-6", priceKey: "claude-sonnet-4-6" },
+      { spawn: fake.spawn },
+    );
+
+    await binding.invoke({
+      prompt: "implement it",
+      cwd: "/repo",
+      additionalReadDirs: ["/abs/specs/foo", "/abs/specs/bar"],
+    });
+
+    expect(fake.calls[0]?.argv).toEqual([
+      "-p",
+      "--permission-mode",
+      "acceptEdits",
+      "--add-dir",
+      "/abs/specs/foo",
+      "--add-dir",
+      "/abs/specs/bar",
+      "--model",
+      "claude-sonnet-4-6",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--include-partial-messages",
+    ]);
+  });
+
+  test("claude binding omits --add-dir when additionalReadDirs is unset", async () => {
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: '{"type":"result","result":"done"}\n', stderr: "" }]);
+    const binding = createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "claude-sonnet-4-6", priceKey: "claude-sonnet-4-6" },
+      { spawn: fake.spawn },
+    );
+
+    await binding.invoke({ prompt: "implement it", cwd: "/repo" });
+
+    expect(fake.calls[0]?.argv).not.toContain("--add-dir");
+  });
+
   test("claude binding unwraps JSON stdout into display text with usage and cost", async () => {
     const envelope = JSON.stringify({
       type: "result",
@@ -858,6 +900,53 @@ describe("createResolvedAgentBinding", () => {
       "implement it\n<!-- jarvis-codex-invocation: marker-id -->",
     );
     expect(fake.calls[0]?.child?.killedWith).toContain("SIGTERM");
+  });
+
+  test("codex binding appends --add-dir for each additionalReadDirs entry", async () => {
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: "ok", stderr: "" }]);
+    await createResolvedAgentBinding(
+      { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
+      {
+        spawn: fake.spawn,
+        codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")),
+        randomUUID: () => "marker-id",
+      },
+    ).invoke({
+      prompt: "implement it",
+      cwd: "/repo",
+      additionalReadDirs: ["/abs/specs/foo", "/abs/specs/bar"],
+    });
+
+    expect(fake.calls[0]?.argv).toEqual([
+      "exec",
+      "--skip-git-repo-check",
+      "--color",
+      "never",
+      "--sandbox",
+      "workspace-write",
+      "-c",
+      'approval_policy="on-request"',
+      "--add-dir",
+      "/abs/specs/foo",
+      "--add-dir",
+      "/abs/specs/bar",
+      "--model",
+      "gpt-5.4",
+    ]);
+  });
+
+  test("codex binding omits --add-dir when additionalReadDirs is unset", async () => {
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: "ok", stderr: "" }]);
+    await createResolvedAgentBinding(
+      { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
+      {
+        spawn: fake.spawn,
+        codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")),
+        randomUUID: () => "marker-id",
+      },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+
+    expect(fake.calls[0]?.argv).not.toContain("--add-dir");
   });
 
   test("Codex sandbox argv retains approval policy only when sandboxed", async () => {

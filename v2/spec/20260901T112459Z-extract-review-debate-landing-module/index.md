@@ -1,0 +1,5 @@
+# Extract review-debate landing into a sibling module
+
+- [ ] [00 - Extract review-debate landing module](./00-extract-review-debate-landing-module.md)
+- [ ] [01 - Co-locate debate landing tests](./01-co-locate-debate-landing-tests.md)
+- [ ] [02 - Document module map entry](./02-document-module-map-entry.md)

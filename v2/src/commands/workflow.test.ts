@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
 import { projectSafeId } from "../../../shared/project-safe-id.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import type { CliDeps } from "../cli/deps.ts";
 import { createRunControlHandlers, WorktreeOwnershipRegistry } from "../daemon/daemon.ts";
 import { withExternalWorktree } from "../execution/external-worktree.ts";
 import {
@@ -1259,7 +1260,6 @@ function attachedEntryWaitWorkflowDeps(
   machineConfigPath: string,
   cwd: string,
   steps: AnyWorkflowStep[],
-  overrides: Partial<NonNullable<Parameters<typeof main>[2]>> = {},
 ) {
   const socketDir = dirname(socketPath);
   return {
@@ -1273,7 +1273,6 @@ function attachedEntryWaitWorkflowDeps(
     readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
     workflowPresetBuilders: { implement: () => ({ ok: true, steps }) },
     getExecutableDigest: async () => TEST_EXECUTABLE_DIGEST,
-    ...overrides,
   };
 }
 
@@ -1309,24 +1308,15 @@ async function assertAttachedEntryTerminalWait(): Promise<void> {
   }
 }
 
-async function expectAttachedWorkflowMissesEntryTerminalContract(
-  overrides: Partial<NonNullable<Parameters<typeof main>[2]>> = {},
-): Promise<void> {
+async function expectAttachedWorkflowMissesEntryTerminalContract(overrides: Partial<CliDeps> = {}): Promise<void> {
   const { server, socketPath } = await startAttachedEntryWaitWorkflowServer();
   const machineConfigPath = writeMachineConfig({ projects: { "test-project": { root: fx.repoRoot } } });
   const cap = captureIo();
   try {
-    const code = await main(
-      [...IMPLEMENT_ARGS],
-      cap.io,
-      attachedEntryWaitWorkflowDeps(
-        socketPath,
-        machineConfigPath,
-        fx.repoSub,
-        fx.fakeImplementSteps,
-        overrides,
-      ) as NonNullable<Parameters<typeof main>[2]>,
-    );
+    const code = await main([...IMPLEMENT_ARGS], cap.io, {
+      ...attachedEntryWaitWorkflowDeps(socketPath, machineConfigPath, fx.repoSub, fx.fakeImplementSteps),
+      ...overrides,
+    } as NonNullable<Parameters<typeof main>[2]>);
     const stdout = cap.read().stdout;
     expect(code === ATTACHED_HELD_ENTRY_WAIT_EXIT && stdout === ATTACHED_HELD_ENTRY_WAIT_STDOUT).toBe(false);
   } finally {

@@ -43,9 +43,9 @@ export type CliDeps = {
   sleep?: (ms: number) => Promise<void>;
   /** Discover live daemon sockets; defaults to `discoverLiveDaemonSockets`. */
   socketDiscovery?: SocketDiscovery;
-  /** Force skip attach client wait; defaults to false. Injectable for tests. */
+  /** Force skip attach client wait; defaults to false. */
   forceSkipAttachClientWait?: boolean;
-  /** Override attach wait run ID; defaults to start run ID. Injectable for tests. */
+  /** Override attach-wait run ID; defaults to start run ID. */
   attachWaitRunIdOverride?: string;
   socketPath: string;
   pidPath: string;

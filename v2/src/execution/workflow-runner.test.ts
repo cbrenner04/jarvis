@@ -121,4 +121,84 @@ describe("executeWorkflow external linked implement routing", () => {
       rmSync(specReadRoot, { recursive: true, force: true });
     }
   });
+
+  test("routes external linked index through dirname(specPath) when specReadRoot is absent", async () => {
+    // @mutate v2/src/execution/workflow-runner.ts "step.externalPlanSpec === true" -> "step.externalPlanSpec !== true"
+    const projectKey = "Org/External-Linked-Fallback";
+    const planName = "feature-fallback";
+    const { projectRoot, specReadRoot, indexPath, firstSubspecPath } = writeExternalPlanFixture(projectKey, planName);
+    roots.push(projectRoot, specReadRoot);
+
+    const homeJarvisRoot = join(mkdtempSync(join(tmpdir(), "workflow-runner-external-home-")), ".jarvis");
+    roots.push(homeJarvisRoot);
+    const branchName = "external-linked-fallback";
+    const worktreePath = join(homeJarvisRoot, "worktrees", "demo", branchName);
+    mkdirSync(worktreePath, { recursive: true });
+    writeFileSync(join(worktreePath, "README.md"), "implement only\n", "utf8");
+
+    const resolvedFirstSubspecPath = realpathSync(firstSubspecPath);
+    const resolvedSecondSubspecPath = realpathSync(join(specReadRoot, "01-more.md"));
+    let observedPrompt = "";
+    let implementInvocations = 0;
+
+    const implementStep: WriteWorkflowStep = {
+      ...createStep({
+        stepId: "implement",
+        role: "implement",
+        branchName,
+        promptId: "patch.prompt.body",
+        stepRules: IMPLEMENT_WRITE_STEP_RULES,
+        specPath: realpathSync(indexPath),
+        expectedArtifactPath: realpathSync(indexPath),
+        createBinding: ({ agentId, adapterModel }) => ({
+          id: `${agentId}/${adapterModel}`,
+          invoke: async ({ prompt }) => {
+            implementInvocations += 1;
+            if (implementInvocations === 1) {
+              observedPrompt = prompt;
+            }
+            if (prompt.includes(resolvedFirstSubspecPath)) {
+              writeFileSync(resolvedFirstSubspecPath, "# Work\n\n## Acceptance criteria\n\n- [x] Work\n", "utf8");
+            } else if (prompt.includes(resolvedSecondSubspecPath)) {
+              writeFileSync(resolvedSecondSubspecPath, "# More\n\n## Acceptance criteria\n\n- [x] More\n", "utf8");
+            }
+            return { kind: "ok", stdout: "done", stderr: "" } as const;
+          },
+          metadata: { agent: agentId, model: adapterModel },
+        }),
+      }),
+      externalPlanSpec: true,
+      linkedIndexRouting: true,
+      worktree: {
+        projectRoot,
+        projectName: "demo",
+        branchName,
+        baseRef: "HEAD",
+        jarvisRoot: homeJarvisRoot,
+      },
+      withExternalWorktree: async <T>(
+        args: { branchName: string; projectName: string },
+        run: (worktree: ExternalWorktree) => Promise<T> | T,
+      ): Promise<WithExternalWorktreeResult<T>> => {
+        const wtPath = join(homeJarvisRoot, "worktrees", args.projectName, args.branchName);
+        const existed = existsSync(wtPath);
+        mkdirSync(wtPath, { recursive: true });
+        const value = await run({ path: wtPath, reused: existed });
+        return { worktree: { path: wtPath, reused: existed }, lock: { kind: "acquired" }, value };
+      },
+    };
+
+    try {
+      await withStateStore(async (store) => {
+        const result = await executeWorkflow({ steps: [implementStep], stateStore: store });
+
+        expect(result.kind).toBe("complete");
+        expect(observedPrompt).toContain(resolvedFirstSubspecPath);
+        expect(readFileSync(indexPath, "utf8")).toContain("- [x] [Work](./00-work.md)");
+      });
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+      rmSync(specReadRoot, { recursive: true, force: true });
+    }
+  });
 });

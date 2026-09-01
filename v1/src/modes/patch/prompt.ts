@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
-import { renderTemplateWithDeclarations } from "../../../../shared/prompts/render.ts";
+import { renderArtifactTemplate, renderTemplateWithDeclarations } from "../../../../shared/prompts/render.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../../../../shared/prompts/step-rules.ts";
 
 export type BuildPromptExtras = {
@@ -25,30 +25,9 @@ export function readRepoGuidance(projectRoot: string): string {
   return parts.join(parts.length > 1 ? "\n\n" : "");
 }
 
-function stripOptionalPromptSection(
-  text: string,
-  sectionHeader: string,
-  beginMarker: string,
-  endMarker: string,
-): string {
-  const headerIndex = text.indexOf(sectionHeader);
-  if (headerIndex === -1) {
-    return text;
-  }
-  const beginIndex = text.indexOf(beginMarker, headerIndex);
-  const endIndex = text.indexOf(endMarker, beginIndex);
-  if (beginIndex === -1 || endIndex === -1) {
-    return text;
-  }
-  let removeEnd = endIndex + endMarker.length;
-  while (text[removeEnd] === "\n") {
-    removeEnd += 1;
-  }
-  return `${text.slice(0, headerIndex)}${text.slice(removeEnd)}`;
-}
-
 export function buildPrompt(specPath: string, siblings?: string[], extras?: BuildPromptExtras): string {
   const registry = loadPromptRegistry();
+  const artifact = registry.getById("patch.prompt.body");
   const template = assemblePromptForStep({
     registry,
     stepPromptId: "patch.prompt.body",
@@ -65,63 +44,19 @@ export function buildPrompt(specPath: string, siblings?: string[], extras?: Buil
     siblingsBlock = `${lines.join("\n")}\n`;
   }
 
-  const repoGuidance = extras?.repoGuidance ?? "";
-  const activeSubspecPath = extras?.activeSubspecPath ?? "";
-  const activeSubspecBody = extras?.activeSubspecBody ?? "";
-  const timeoutCheckpointContext = extras?.timeoutCheckpointContext ?? "";
-  const activeSubspecPathLine = activeSubspecPath.length > 0 ? `${activeSubspecPath}\n` : "";
-
-  let rendered = renderTemplateWithDeclarations(
-    template,
-    [
-      { name: "SPEC_PATH", type: "string", required: true },
-      { name: "SIBLINGS_BLOCK", type: "string", required: true },
-      { name: "REPO_GUIDANCE", type: "string", required: true },
-      { name: "ACTIVE_SUBSPEC_PATH", type: "string", required: true },
-      { name: "ACTIVE_SUBSPEC_BODY", type: "string", required: true },
-      { name: "PATCH_RULES", type: "string", required: true },
-      { name: "TIMEOUT_CHECKPOINT_CONTEXT", type: "string", required: true },
-      { name: "STEP_RULES", type: "string", required: true },
-    ],
+  return renderArtifactTemplate(
+    { ...artifact, body: template },
     {
       SPEC_PATH: specPath,
       SIBLINGS_BLOCK: siblingsBlock,
-      REPO_GUIDANCE: repoGuidance,
-      ACTIVE_SUBSPEC_PATH: activeSubspecPathLine,
-      ACTIVE_SUBSPEC_BODY: activeSubspecBody,
+      REPO_GUIDANCE: extras?.repoGuidance ?? "",
+      ACTIVE_SUBSPEC_PATH: extras?.activeSubspecPath ?? "",
+      ACTIVE_SUBSPEC_BODY: extras?.activeSubspecBody ?? "",
       PATCH_RULES: registry.getById("patch.rules").body.trim(),
-      TIMEOUT_CHECKPOINT_CONTEXT: timeoutCheckpointContext,
+      TIMEOUT_CHECKPOINT_CONTEXT: extras?.timeoutCheckpointContext ?? "",
       STEP_RULES: DEFAULT_WRITE_STEP_RULES,
     },
-  );
-
-  const optionalSections = [
-    {
-      content: repoGuidance,
-      header: "## Repo Guidance",
-      begin: "<<<REPO_GUIDANCE_BEGIN>>>",
-      end: "<<<REPO_GUIDANCE_END>>>",
-    },
-    {
-      content: activeSubspecPath,
-      header: "## Active Subspec",
-      begin: "<<<ACTIVE_SUBSPEC_BEGIN>>>",
-      end: "<<<ACTIVE_SUBSPEC_END>>>",
-    },
-    {
-      content: timeoutCheckpointContext,
-      header: "## Timeout Checkpoint",
-      begin: "<<<TIMEOUT_CHECKPOINT_BEGIN>>>",
-      end: "<<<TIMEOUT_CHECKPOINT_END>>>",
-    },
-  ];
-  for (const section of optionalSections) {
-    if (section.content.length === 0) {
-      rendered = stripOptionalPromptSection(rendered, section.header, section.begin, section.end);
-    }
-  }
-
-  return rendered.replace("\n\nFollow these Jarvis rules:", "\nFollow these Jarvis rules:").trim();
+  ).trim();
 }
 
 export type ReviewPromptOpts = {

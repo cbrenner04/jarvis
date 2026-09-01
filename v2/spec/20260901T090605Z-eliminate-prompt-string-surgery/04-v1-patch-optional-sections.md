@@ -15,9 +15,9 @@
 
 ## Acceptance criteria
 
-- [ ] `v1/test/prompt.test.ts` stays green.
-- [ ] `v1/test/prompt.test.ts` — whitespace-only `repoGuidance` omits `## Repo Guidance`; fails against pre-fix `stripOptionalPromptSection` (length-only check) and passes after `renderArtifactTemplate` migration.
-- [ ] `v1/test/prompts/rendered-snapshots.test.ts` stays green after snapshot refresh for trim-based optional-section omission.
+- [x] `v1/test/prompt.test.ts` stays green.
+- [x] `v1/test/prompt.test.ts` — whitespace-only `repoGuidance` omits `## Repo Guidance`; fails against pre-fix `stripOptionalPromptSection` (length-only check) and passes after `renderArtifactTemplate` migration.
+- [x] `v1/test/prompts/rendered-snapshots.test.ts` stays green after snapshot refresh for trim-based optional-section omission.
 
 ## Documentation updates
 

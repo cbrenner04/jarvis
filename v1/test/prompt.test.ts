@@ -123,6 +123,17 @@ describe("buildPrompt", () => {
     });
   });
 
+  test("omits repo-guidance block when guidance is whitespace-only", () => {
+    const prompt = buildPrompt("spec/example/index.md", undefined, {
+      repoGuidance: " \n\t ",
+      activeSubspecPath: "spec/example/00-task.md",
+      activeSubspecBody: "# Task",
+    });
+
+    expect(prompt).not.toContain("## Repo Guidance");
+    expect(prompt).not.toContain("<<<REPO_GUIDANCE_BEGIN>>>");
+  });
+
   test("passes the spec path through verbatim with no resolution or quoting", () => {
     const weird = "/tmp/some dir/spec.md";
     expect(buildPrompt(weird)).toContain(`Read the spec at ${weird}.`);

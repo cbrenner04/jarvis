@@ -207,6 +207,29 @@ export const PIPELINE_LIST_PARSE_ARG_OPTIONS = {
   state: { type: "string" },
 } as const satisfies Record<string, { type: "boolean" | "string" }>;
 
+const PIPELINE_STALE_RESET_OVERRIDE_PARSE_OPTIONS = {
+  "reset-despite-dirty": { type: "boolean" },
+  "reset-despite-landed-criteria": { type: "boolean" },
+} as const satisfies Record<string, { type: "boolean" }>;
+
+/** `parseArgs` options for `parsePipelineResumeArgs` / `jarvis pipeline resume`. */
+export const PIPELINE_RESUME_PARSE_ARG_OPTIONS = PIPELINE_STALE_RESET_OVERRIDE_PARSE_OPTIONS;
+
+/** `parseArgs` options for `parsePipelineRecoverArgs` / `jarvis pipeline recover`. */
+export const PIPELINE_RECOVER_PARSE_ARG_OPTIONS = PIPELINE_STALE_RESET_OVERRIDE_PARSE_OPTIONS;
+
+/** Flags accepted by `parsePipelineResumeArgs`, in help declaration order. */
+export const PIPELINE_RESUME_HELP_FLAGS: readonly CommandFlag[] = [
+  WORKFLOW_STALE_RESET_OVERRIDE_FLAG,
+  WORKFLOW_LANDED_CRITERIA_OVERRIDE_FLAG,
+];
+
+/** Flags accepted by `parsePipelineRecoverArgs`, in help declaration order. */
+export const PIPELINE_RECOVER_HELP_FLAGS: readonly CommandFlag[] = [
+  WORKFLOW_STALE_RESET_OVERRIDE_FLAG,
+  WORKFLOW_LANDED_CRITERIA_OVERRIDE_FLAG,
+];
+
 /** Flags accepted by `parsePipelineListArgs`, in help declaration order. */
 export const PIPELINE_LIST_HELP_FLAGS: readonly CommandFlag[] = [
   {

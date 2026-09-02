@@ -3,6 +3,8 @@ import {
   DAEMON_LOG_HELP_FLAGS,
   INIT_HELP_FLAGS,
   PIPELINE_LIST_HELP_FLAGS,
+  PIPELINE_RECOVER_HELP_FLAGS,
+  PIPELINE_RESUME_HELP_FLAGS,
   PIPELINE_START_HELP_FLAGS,
   RUN_KILL_HELP_FLAGS,
   RUN_LIST_HELP_FLAGS,
@@ -248,11 +250,13 @@ export const commandTree: CommandNode = {
           name: "resume",
           summary: "Resume a failed or awaiting-approval pipeline.",
           usage: PIPELINE_RESUME_USAGE,
+          flags: PIPELINE_RESUME_HELP_FLAGS,
         },
         {
           name: "recover",
           summary: "Revalidate a corrected blocked branch stage.",
           usage: PIPELINE_RECOVER_USAGE,
+          flags: PIPELINE_RECOVER_HELP_FLAGS,
         },
         {
           name: "dismiss",

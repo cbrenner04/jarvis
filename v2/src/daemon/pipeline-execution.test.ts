@@ -6186,6 +6186,142 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     }
   });
 
+  // @mutate v2/src/daemon/pipeline-execution.ts "skipLandedCriteriaGate: options.resetDespiteLandedCriteria === true," -> "skipLandedCriteriaGate: false,"
+  test("failed plan resume with resetDespiteLandedCriteria clears landed-criteria refusal and dispatches", async () => {
+    mkdirSync(join(projectRoot, "spec", "plan"), { recursive: true });
+    writeFileSync(
+      join(projectRoot, "spec", "plan", "index.md"),
+      "# Plan\n\n## Acceptance criteria\n\n- [ ] Keep work\n",
+      "utf8",
+    );
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "plan base"], projectRoot);
+    const intentWorktree = await materializeWorktree(intentBranch);
+    await seedIntentReadyIntent(intentWorktree);
+    const planWorktree = await materializeWorktree(planBranch, intentBranch);
+    writeFileSync(
+      join(planWorktree, "spec", "plan", "index.md"),
+      "# Plan\n\n## Acceptance criteria\n\n- [x] Keep work\n",
+      "utf8",
+    );
+
+    const { store, stages } = fakeStore(
+      planChainDefinition(),
+      {
+        "run-intent": { specPath: readyIntentRel, worktreePath: intentWorktree, branch: intentBranch },
+        "run-plan": { specPath: "spec/plan/index.md" },
+      },
+      { context: { ...persistedContext, cwd: projectRoot }, ownerIdentity: PRIOR_OWNER },
+    );
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      patch: { status: "succeeded", artifact: intentArtifact() },
+    });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "plan", patch: { status: "failed" } });
+
+    const rpc = daemonRpcClient();
+    const dispatchOrder: string[] = [];
+    try {
+      const outcome = await resumePipeline(
+        PIPELINE_ID,
+        {
+          store,
+          dispatch: async () => {
+            expect(existsSync(planWorktree)).toBe(false);
+            dispatchOrder.push("reset");
+            await withExternalWorktree(managedWorktree(planBranch, intentBranch), async ({ path }) => {
+              dispatchOrder.push("dispatch");
+              expect(path).toBe(planWorktree);
+              const [head, base] = await Promise.all([
+                realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], path),
+                realAsyncSubprocessRunner.runAsync("git", ["rev-parse", intentBranch], projectRoot),
+              ]);
+              expect(head.trim()).toBe(base.trim());
+            });
+            return { ok: true, entryRunId: "run-plan", invocationId: "inv-plan" };
+          },
+          wait: async () => "completed",
+          resolveStage: fixedPlanStepResolver("spec/plan/index.md"),
+          staleResetPreflight: staleResetBundle(rpc),
+        },
+        { resetDespiteLandedCriteria: true },
+      );
+
+      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(dispatchOrder).toEqual(["reset", "dispatch"]);
+      expect(stageRecord(stages(), "plan")?.status).toBe("succeeded");
+      expect(existsSync(planWorktree)).toBe(true);
+    } finally {
+      rpc.close();
+    }
+  });
+
+  test("failed plan resume with resetDespiteDirty alone preserves landed-criteria refusal", async () => {
+    mkdirSync(join(projectRoot, "spec", "plan"), { recursive: true });
+    writeFileSync(
+      join(projectRoot, "spec", "plan", "index.md"),
+      "# Plan\n\n## Acceptance criteria\n\n- [ ] Keep work\n",
+      "utf8",
+    );
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "plan base"], projectRoot);
+    const intentWorktree = await materializeWorktree(intentBranch);
+    await seedIntentReadyIntent(intentWorktree);
+    const planWorktree = await materializeWorktree(planBranch, intentBranch);
+    writeFileSync(
+      join(planWorktree, "spec", "plan", "index.md"),
+      "# Plan\n\n## Acceptance criteria\n\n- [x] Keep work\n",
+      "utf8",
+    );
+
+    const { store, stages } = fakeStore(
+      planChainDefinition(),
+      { "run-intent": { specPath: readyIntentRel, worktreePath: intentWorktree, branch: intentBranch } },
+      { context: { ...persistedContext, cwd: projectRoot }, ownerIdentity: PRIOR_OWNER },
+    );
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      patch: { status: "succeeded", artifact: intentArtifact() },
+    });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "plan", patch: { status: "failed" } });
+    let stderr = "";
+    let dispatched = false;
+    const rpc = daemonRpcClient();
+    try {
+      const outcome = await resumePipeline(
+        PIPELINE_ID,
+        {
+          store,
+          dispatch: async () => {
+            dispatched = true;
+            return { ok: true, entryRunId: "run-plan", invocationId: "inv-plan" };
+          },
+          wait: async () => "completed",
+          resolveStage: fixedPlanStepResolver("spec/plan/index.md"),
+          staleResetPreflight: staleResetBundle(rpc, {
+            stdout: () => {},
+            stderr: (text) => {
+              stderr += text;
+            },
+          }),
+        },
+        { resetDespiteDirty: true },
+      );
+
+      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(dispatched).toBe(false);
+      expect(existsSync(planWorktree)).toBe(true);
+      expect(stderr).toContain("acceptance criteria ticked");
+      expect((stageRecord(stages(), "plan")?.failureDetail as { message?: string })?.message).toContain(
+        "acceptance criteria ticked",
+      );
+    } finally {
+      rpc.close();
+    }
+  });
+
   test("failed plan auto-dirty reset preserves landed-criteria refusal", async () => {
     mkdirSync(join(projectRoot, "spec", "plan"), { recursive: true });
     writeFileSync(
@@ -6290,6 +6426,130 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
         resolveStage: resolveStageWithFixedImplementSteps,
         staleResetPreflight: staleResetBundle(rpc),
       });
+
+      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(dispatchCalled).toBe(false);
+      const record = stageRecord(stages(), "implement");
+      expect(record?.status).toBe("failed");
+      expect((record?.failureDetail as { message?: string } | null)?.message).toContain(
+        "Cannot re-run incomplete spec",
+      );
+      expect(existsSync(implementWorktree)).toBe(true);
+    } finally {
+      rpc.close();
+    }
+  });
+
+  // @mutate v2/src/daemon/pipeline-execution.ts "options.resetDespiteDirty === true" -> "false"
+  test("failed implement resume with resetDespiteDirty clears dirty reuse and dispatches", async () => {
+    const intentWorktree = await materializeWorktree(intentBranch);
+    await seedIntentReadyIntent(intentWorktree);
+    const planWorktree = await materializeWorktree(planBranch, intentBranch);
+    const implementWorktree = await materializeWorktree(implementBranch, planBranch);
+    writeFileSync(join(implementWorktree, "README.md"), "dirty\n", "utf8");
+
+    const { store, stages } = fakeStore(
+      implementChainDefinition(),
+      {
+        "run-intent": { specPath: readyIntentRel, worktreePath: intentWorktree, branch: intentBranch },
+        "run-plan": { specPath: "spec/plan/index.md", worktreePath: planWorktree, branch: planBranch },
+        "run-implement": { specPath: "spec/plan/index.md" },
+      },
+      { context: { ...persistedContext, cwd: projectRoot }, ownerIdentity: PRIOR_OWNER },
+    );
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      patch: { status: "succeeded", artifact: intentArtifact() },
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "plan",
+      patch: { status: "succeeded", artifact: { entryRunId: "run-plan", specPath: "spec/plan/index.md" } },
+    });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "implement", patch: { status: "failed" } });
+
+    const rpc = daemonRpcClient();
+    const dispatchOrder: string[] = [];
+    try {
+      const outcome = await resumePipeline(
+        PIPELINE_ID,
+        {
+          store,
+          dispatch: async () => {
+            expect(existsSync(implementWorktree)).toBe(false);
+            dispatchOrder.push("reset");
+            await withExternalWorktree(managedWorktree(implementBranch, planBranch), async ({ path }) => {
+              dispatchOrder.push("dispatch");
+              expect(path).toBe(implementWorktree);
+              const [head, base] = await Promise.all([
+                realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], path),
+                realAsyncSubprocessRunner.runAsync("git", ["rev-parse", planBranch], projectRoot),
+              ]);
+              expect(head.trim()).toBe(base.trim());
+            });
+            return { ok: true, entryRunId: "run-implement", invocationId: "inv-implement" };
+          },
+          wait: async () => "completed",
+          resolveStage: resolveStageWithFixedImplementSteps,
+          staleResetPreflight: staleResetBundle(rpc),
+        },
+        { resetDespiteDirty: true },
+      );
+
+      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(dispatchOrder).toEqual(["reset", "dispatch"]);
+      expect(stageRecord(stages(), "implement")?.status).toBe("succeeded");
+      expect(existsSync(implementWorktree)).toBe(true);
+    } finally {
+      rpc.close();
+    }
+  });
+
+  test("failed implement resume with resetDespiteLandedCriteria alone preserves dirty reuse refusal", async () => {
+    const intentWorktree = await materializeWorktree(intentBranch);
+    await seedIntentReadyIntent(intentWorktree);
+    const planWorktree = await materializeWorktree(planBranch, intentBranch);
+    const implementWorktree = await materializeWorktree(implementBranch, "main");
+    writeFileSync(join(implementWorktree, "README.md"), "dirty\n", "utf8");
+
+    const { store, stages } = fakeStore(
+      implementChainDefinition(),
+      {
+        "run-intent": { specPath: readyIntentRel, worktreePath: intentWorktree, branch: intentBranch },
+        "run-plan": { specPath: "spec/plan/index.md", worktreePath: planWorktree, branch: planBranch },
+      },
+      { context: { ...persistedContext, cwd: projectRoot }, ownerIdentity: PRIOR_OWNER },
+    );
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      patch: { status: "succeeded", artifact: intentArtifact() },
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "plan",
+      patch: { status: "succeeded", artifact: { entryRunId: "run-plan", specPath: "spec/plan/index.md" } },
+    });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "implement", patch: { status: "failed" } });
+
+    const rpc = daemonRpcClient();
+    let dispatchCalled = false;
+    try {
+      const outcome = await resumePipeline(
+        PIPELINE_ID,
+        {
+          store,
+          dispatch: async () => {
+            dispatchCalled = true;
+            return { ok: true, entryRunId: "run-implement", invocationId: "inv-implement" };
+          },
+          wait: async () => "completed",
+          resolveStage: resolveStageWithFixedImplementSteps,
+          staleResetPreflight: staleResetBundle(rpc),
+        },
+        { resetDespiteLandedCriteria: true },
+      );
 
       expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
       expect(dispatchCalled).toBe(false);

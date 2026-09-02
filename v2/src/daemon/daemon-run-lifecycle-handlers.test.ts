@@ -282,6 +282,89 @@ test("resume admits a paused direct write run with durable queuedInput", async (
   expect(resumed).toEqual({ kind: "response", result: { ok: true } });
 });
 
+test("resume admits a paused workflow write step with exact snapshot stepId", async () => {
+  const resumedInputs: WriteLoopInput[] = [];
+  const localFake = createFakeWriteLoopExecutor((input) => resumedInputs.push(input));
+  const profileHome = mkdtempSync(join(tmpdir(), "jarvis-exact-step-profile-"));
+  const machinesDir = join(profileHome, "machines");
+  const machineProfile = "exact-step-profile";
+  const previousJarvisHome = process.env.JARVIS_HOME;
+  mkdirSync(machinesDir, { recursive: true });
+  const rung = (adapterModel: string) => ({ rungs: [{ adapterModel, priceKey: adapterModel }] });
+  writeFileSync(
+    join(machinesDir, `${machineProfile}.json`),
+    JSON.stringify({
+      models: {
+        claude: {
+          plan: rung("plan"),
+          implement: rung("M1"),
+          shrink: rung("S1"),
+          adversary: rung("adv"),
+          critic: rung("crit"),
+          advocate: rung("advoc"),
+          adjudicator: rung("adj"),
+          actuator: rung("act"),
+        },
+      },
+    }),
+  );
+  writeFileSync(join(profileHome, "config.json"), JSON.stringify({ machineProfile, agents: ["claude"] }));
+  process.env.JARVIS_HOME = profileHome;
+  setWriteLoopBindingSourceDepsForTests({
+    machineConfigPath: join(profileHome, "config.json"),
+    machinesDir,
+  });
+  try {
+    const ctx = createRunControlHandlerContext({
+      stateStore,
+      logReader: { tail: () => [], async *follow() {} },
+      writeLoopExecutor: localFake.executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => memoryHeadroom,
+      settleDelayMs: 0,
+    });
+    const handlers = createRunLifecycleHandlers(ctx, {
+      handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
+    });
+    const signal = new AbortController().signal;
+    const branchName = "workflow-exact-step-resume";
+    const runId = stateStore.createRun({
+      project: branchName,
+      specRef: "main",
+      worktreePath: "/tmp/wt",
+      branch: branchName,
+      specPath: "/tmp/spec.md",
+      status: "paused",
+      stepId: "implement",
+      workflowSnapshot: {
+        invocationId: "exact-step",
+        steps: [
+          {
+            stepId: "implement",
+            role: "implement",
+            stepRules: "implement rules",
+            expectedArtifactPath: "/tmp/artifact",
+            agents: ["claude"],
+            agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+          },
+        ],
+      },
+    });
+
+    const resumed = await handlers.resume({ kind: "request", id: "r1", method: "resume", params: { runId } }, signal);
+    // @mutate v2/src/daemon/daemon-run-lifecycle-handlers.ts "candidate.stepId === stepId" -> "candidate.stepId !== stepId"
+    expect(resumed).toEqual({ kind: "response", result: { ok: true } });
+    expect(resumedInputs).toHaveLength(1);
+    expect(resumedInputs[0]?.stepId).toBe("implement");
+  } finally {
+    localFake.abortAll();
+    resetWriteLoopBindingSourceDepsForTests();
+    if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
+    else process.env.JARVIS_HOME = previousJarvisHome;
+    rmSync(profileHome, { recursive: true, force: true });
+  }
+});
+
 test("resume maps hidden ~shrink stepId to shrink role via snapshot base step", async () => {
   const resumedInputs: WriteLoopInput[] = [];
   const localFake = createFakeWriteLoopExecutor((input) => resumedInputs.push(input));

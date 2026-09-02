@@ -37,8 +37,10 @@ import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { makeIpcClient } from "../testing/ipc-client-fake.ts";
 import { flushBackgroundRuns } from "../testing/run-control.ts";
 import {
+  createMinimalDispatchWriteStep,
   DEFAULT_AGENT_MODEL_CONFIG,
   doneWithArtifactBindingFactory,
+  type MinimalDispatchWriteStep,
   writeStepFixtures,
 } from "../testing/workflow-step-fixtures.ts";
 import { createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
@@ -146,23 +148,16 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   return { promise, resolve };
 }
 
-/** A tagged step so a fake `dispatch`/`resolveStage` can tell which stage index it built. */
-// Dispatch stamps steps with machine config before dispatch, dereferencing worktree.projectName;
-// stub steps must carry a worktree or the stamp throws and the stage fails before wait().
-const STUB_STEP_WORKTREE = {
-  projectRoot: "/fake",
-  projectName: "demo",
-  branchName: "stub",
-  baseRef: "HEAD",
-  jarvisRoot: "/fake/.jarvis",
-} as const;
-
-function taggedStep(stageIndex: number): AnyWorkflowStep {
-  return { behavior: "write", stageIndex, worktree: STUB_STEP_WORKTREE } as unknown as AnyWorkflowStep;
-}
-
 function stageIndexOf(steps: AnyWorkflowStep[]): number {
-  return (steps[0] as unknown as { stageIndex: number }).stageIndex;
+  const step = steps[0];
+  if (step?.behavior !== "write") {
+    throw new Error("dispatch stub expects a write step");
+  }
+  const stageIndex = (step as MinimalDispatchWriteStep).stageIndex;
+  if (stageIndex === undefined) {
+    throw new Error("dispatch stub step missing stageIndex");
+  }
+  return stageIndex;
 }
 
 function noopStaleResetPreflightBundle(): NonNullable<PipelineExecutionDeps["staleResetPreflight"]> {
@@ -419,7 +414,7 @@ function resolveStageStub(): (
   stageArtifacts: ReadonlyMap<string, PipelineStageArtifact>,
   deps?: PipelineStageResolveDeps,
 ) => Promise<PipelineStageResolutionResult> {
-  return async (_definition, stageIndex) => ({ ok: true, steps: [taggedStep(stageIndex)] });
+  return async (_definition, stageIndex) => ({ ok: true, steps: [createMinimalDispatchWriteStep({ stageIndex })] });
 }
 
 const RESTART_SWEEP_DEFINITION: PipelineDefinition = {
@@ -954,7 +949,7 @@ describe("pipeline context loader at execution", () => {
       context: callerOverrideContext,
       resolveStage: async (_definition, stageIndex, context) => {
         if (stageIndex === 2) continuationResolution = { cwd: context.cwd, configPath: context.configPath };
-        return { ok: true, steps: [taggedStep(stageIndex)] };
+        return { ok: true, steps: [createMinimalDispatchWriteStep({ stageIndex })] };
       },
     });
 
@@ -992,7 +987,7 @@ describe("continuePipeline", () => {
       context: PipelineContext,
     ): Promise<PipelineStageResolutionResult> => {
       if (stageIndex === 2) resolvedContext = context;
-      return { ok: true, steps: [taggedStep(stageIndex)] };
+      return { ok: true, steps: [createMinimalDispatchWriteStep({ stageIndex })] };
     };
 
     const dispatchOrder: number[] = [];
@@ -2245,7 +2240,10 @@ describe("pipeline approval decisions", () => {
       writeLoopExecutor: fakeExecutor.executor,
       failureReporter: () => {},
       hasMemoryHeadroom: () => true,
-      resolveStage: async (_definition, stageIndex) => ({ ok: true, steps: [taggedStep(stageIndex)] }),
+      resolveStage: async (_definition, stageIndex) => ({
+        ok: true,
+        steps: [createMinimalDispatchWriteStep({ stageIndex })],
+      }),
     });
     const rejectResponse = await handlers.pipeline_reject(
       { kind: "request", id: "reject", method: "pipeline_reject", params: { pipelineId, stageId: "gate" } },
@@ -2293,7 +2291,7 @@ describe("pipeline approval decisions", () => {
       hasMemoryHeadroom: () => true,
       resolveStage: async (_definition, stageIndex) => ({
         ok: true,
-        steps: stageIndex === 2 ? [stage3Step] : [taggedStep(stageIndex)],
+        steps: stageIndex === 2 ? [stage3Step] : [createMinimalDispatchWriteStep({ stageIndex })],
       }),
     });
     const approveResponse = await handlers.pipeline_approve(
@@ -2975,12 +2973,12 @@ describe("resumePipeline", () => {
             ok: true,
             steps: [
               {
-                behavior: "write",
+                ...createMinimalDispatchWriteStep({
+                  stageIndex,
+                  ...(deps?.branchKey === undefined ? {} : { branchKey: deps.branchKey }),
+                }),
                 stageId: "plan",
-                stageIndex,
-                branchKey: deps?.branchKey,
-                worktree: STUB_STEP_WORKTREE,
-              } as unknown as AnyWorkflowStep,
+              },
             ],
           };
         }
@@ -3654,12 +3652,12 @@ describe("resumePipeline branch scope", () => {
       ok: true,
       steps: [
         {
-          behavior: "write",
+          ...createMinimalDispatchWriteStep({
+            stageIndex,
+            ...(deps?.branchKey === undefined ? {} : { branchKey: deps.branchKey }),
+          }),
           stageId: "implement",
-          stageIndex,
-          branchKey: deps?.branchKey,
-          worktree: STUB_STEP_WORKTREE,
-        } as unknown as AnyWorkflowStep,
+        },
       ],
     });
 
@@ -3906,12 +3904,12 @@ describe("resumePipeline branch scope", () => {
           ok: true,
           steps: [
             {
-              behavior: "write",
+              ...createMinimalDispatchWriteStep({
+                stageIndex,
+                ...(deps?.branchKey === undefined ? {} : { branchKey: deps.branchKey }),
+              }),
               stageId: "plan",
-              stageIndex,
-              branchKey: deps?.branchKey,
-              worktree: STUB_STEP_WORKTREE,
-            } as unknown as AnyWorkflowStep,
+            },
           ],
         };
       }
@@ -4475,19 +4473,20 @@ function fanOutResolveStageStub(
     if (stage?.kind === "workflow" && stage.workflow === "plan") {
       return {
         ok: true,
-        results: FAN_OUT_BRANCH_KEYS.map((branchKey) => ({ steps: [fanOutTaggedStep(stageIndex, branchKey)] })),
+        results: FAN_OUT_BRANCH_KEYS.map((branchKey) => ({
+          steps: [createMinimalDispatchWriteStep({ stageIndex, branchKey })],
+        })),
       };
     }
     const branchKey = deps?.branchKey ?? "default";
     const priorPlan = stageArtifacts.get(stageArtifactKey("plan", branchKey));
     const inferredBranchKey =
       typeof priorPlan?.entryRunId === "string" ? priorPlan.entryRunId.split("-")[1] : undefined;
-    return { ok: true, steps: [fanOutTaggedStep(stageIndex, inferredBranchKey ?? branchKey)] };
+    return {
+      ok: true,
+      steps: [createMinimalDispatchWriteStep({ stageIndex, branchKey: inferredBranchKey ?? branchKey })],
+    };
   };
-}
-
-function fanOutTaggedStep(stageIndex: number, branchKey?: string): AnyWorkflowStep {
-  return { behavior: "write", stageIndex, branchKey, worktree: STUB_STEP_WORKTREE } as unknown as AnyWorkflowStep;
 }
 
 function stageRecord(
@@ -5406,7 +5405,7 @@ describe("reopened pipeline continuation", () => {
         resetFlags = deps?.staleReset?.flags;
         return {
           ok: true,
-          steps: [{ behavior: "write", stageIndex: index, worktree: STUB_STEP_WORKTREE } as unknown as AnyWorkflowStep],
+          steps: [createMinimalDispatchWriteStep({ stageIndex: index })],
         };
       },
       staleResetPreflight: noopStaleResetPreflightBundle(),
@@ -5458,9 +5457,7 @@ describe("reopened pipeline continuation", () => {
           resetFlags = deps?.staleReset?.flags;
           return {
             ok: true,
-            steps: [
-              { behavior: "write", stageIndex: index, worktree: STUB_STEP_WORKTREE } as unknown as AnyWorkflowStep,
-            ],
+            steps: [createMinimalDispatchWriteStep({ stageIndex: index })],
           };
         },
         staleResetPreflight: noopStaleResetPreflightBundle(),

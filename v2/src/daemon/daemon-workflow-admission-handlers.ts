@@ -15,13 +15,15 @@ import type { InvocationFailureDetail, InvocationFailureKind } from "../executio
 import {
   type AnyWorkflowStep,
   executeWorkflow,
-  type IntentFinalizationResumeDeps,
   LinkedIndexReadError,
+  workflowTelemetryLabel,
+} from "../execution/workflow-runner.ts";
+import {
+  type IntentFinalizationResumeDeps,
   REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS,
   resolveReviewMutationLineageContext,
   resumeReviewMutationFinalization,
-  workflowTelemetryLabel,
-} from "../execution/workflow-runner.ts";
+} from "../execution/workflow-runner-resume.ts";
 import type { RpcHandler } from "../ipc/server.ts";
 import { type LogSink, openLogSink, truncateLogText } from "../persistence/log-stream.ts";
 import { isTerminalRunStatus, type Run, type RunStatus, type StateStore } from "../persistence/state-store.ts";

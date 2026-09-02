@@ -8,8 +8,8 @@ import {
 import { readIterationCeilingMs } from "../config/machine-config-loader.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import type { InvocationFailureDetail, InvocationFailureKind } from "../execution/invocation-failure.ts";
+import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import {
-  type AnyWorkflowStep,
   type IntentFinalizationResumeDeps,
   resolveExhaustedRedResumeContext,
   resolveIntentFinalizationResumeContext,
@@ -17,7 +17,7 @@ import {
   resolveWriteOutOfScopeResumeContext,
   resumePopulatedIntentPublication,
   resumeReviewMutationFinalization,
-} from "../execution/workflow-runner.ts";
+} from "../execution/workflow-runner-resume.ts";
 import {
   findLandingContractRepromptFromLog,
   findStagedMarkdownLintRepromptFromLog,

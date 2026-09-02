@@ -8,7 +8,7 @@ import { formatReadyGateOutOfScopeDetail, ReadyGateError } from "../execution/re
 import {
   resolveExhaustedRedResumeContext,
   resolveIntentFinalizationResumeContext,
-} from "../execution/workflow-runner.ts";
+} from "../execution/workflow-runner-resume.ts";
 import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "../execution/write.ts";
 import {
   executeWriteLoop,

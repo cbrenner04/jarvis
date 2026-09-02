@@ -2,7 +2,7 @@ import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type { TerminalPublicationInput, TerminalPublicationResult } from "../execution/terminal-publication.ts";
-import { recoverPlanStage } from "../execution/workflow-runner.ts";
+import { recoverPlanStage } from "../execution/workflow-runner-resume.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client";
 import type { RpcHandler } from "../ipc/server.ts";
 import { jarvisHome } from "../paths.ts";

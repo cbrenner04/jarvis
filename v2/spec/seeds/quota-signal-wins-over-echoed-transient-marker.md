@@ -37,11 +37,24 @@ The write steps fell back correctly; the shrink step did not. Applying `guardedS
 
 The workflow was stranded with no live row, no PR, and no sink incident; the operator hand-finished it (homestead-service#2).
 
+## Rarity, blast radius, and why v1 shrugs this off
+
+Quota classification is not broken. Codex telemetry records **1,458 `quota` against 16 `error` all-time** (2026-09-02 alone: 212 vs 2), so the quota path fires correctly ~99% of the time. This defect is the ~1% miss: it needs quota exhaustion *and* diagnostics that happen to carry transient-looking bytes. Its cost is not a wasted retry — the misread is terminal, so one miss kills a whole pipeline and skips every downstream stage.
+
+The transient-before-quota ordering is **not a regression** — it has been there since the first commit of both engines (`v1/src/agents/spawn.ts:91`, and `shared/invocation/agents.ts` from #1192). v1 tolerates it because it has a second-chance layer that v2 never received:
+
+`applyQuotaFallbackToAgentResult` (`v1/src/agents/quota.ts`) takes a settled `kind: "error"` result and upgrades it to `quota` when a weak-quota signal is present, **guarded** by a caller-supplied progress predicate — patch passes "no iteration progress", plan passes "git porcelain unchanged for this agent invocation". A first-pass misclassification is therefore recoverable in v1: nothing happened, the diagnostics smell like quota, so treat it as quota and advance.
+
+`grep -rn "applyQuotaFallback|isWeakQuotaSignal|weakQuota" v2/src shared` returns **nothing**. The shared-invocation port carried the classifier and its ordering across but left the rescue layer behind, so in v2 a single misclassification is terminal.
+
+So the ordering is not what changed, and fallback should **not** advance on any error — a blanket advance would mask real failures by silently retrying them on another agent. The primary fix is precedence plus scoping the transient check to a bounded stderr tail, which makes the miss rarer. The v1 parity layer is secondary: it is why a rare miss is a hiccup in v1 and terminal in v2.
+
 ## Decisions
 
 - **Quota and credential/auth signals take precedence over transient markers.** A quota-exhausted agent will not succeed on retry; retrying burns the cap and then blocks fallback. Rules out the current transient-first order.
 - **Scope the transient check to a bounded tail of stderr**, not the full concatenated diagnostics, so echoed prompt content cannot classify an exit. Rules out matching transient patterns against arbitrary agent-echoed input.
 - Align the non-zero-exit path's precedence with the zero-exit path's existing quota/auth-first order. Rules out leaving the two settlement paths inconsistent.
+- **Restore v1 parity: a guarded weak-quota upgrade.** An `error` result may be re-read as `quota` when a weak-quota signal is present **and** a caller-supplied progress predicate confirms nothing happened (no iteration progress / unchanged git porcelain), matching `applyQuotaFallbackWhenAllowed`. Rules out both the current no-recovery behavior and a blanket advance-on-any-error, which would mask genuine failures.
 - **A non-live, non-resumable `invocation_error` row must produce an operator incident.** Either settle it `failed` (matching what the run log already records) or derive a stranded-run incident. Rules out a run that is terminal in practice notifying nothing.
 
 ## Acceptance criteria
@@ -50,6 +63,7 @@ The workflow was stranded with no live row, no PR, and no sink incident; the ope
 - [ ] A quota line appearing only in echoed prompt content beyond the scoped stderr tail still settles `quota`, and a `502` appearing only in echoed prompt content does not settle `error` as transient — pinned by a test.
 - [ ] A genuine transport failure (transient marker in the stderr tail, no quota or auth match) still settles `error` and still retries to the cap — pinned by a test, so the fix does not disable transient retry.
 - [ ] `executeWithQuotaFallback` advances to the next binding for the misclassified case above — pinned by a test asserting the second rung is invoked.
+- [ ] An `error` result carrying a weak-quota signal is upgraded to `quota` and advances only when the progress predicate reports no progress; with progress reported it stays `error` and does not advance — pinned by tests covering both directions.
 - [ ] A non-live `invocation_error` row that is not resumable produces an operator incident — pinned by a test that fails against the current derivation.
 - [ ] `bun run typecheck` and the full `bun run test` pass (touches `shared/**`).
 

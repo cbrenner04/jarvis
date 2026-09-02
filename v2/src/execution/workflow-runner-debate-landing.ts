@@ -405,7 +405,7 @@ export async function runReviewDebateStep(
 
   const result = debateOutcome;
 
-  const { kind, terminalRole, completionAgent, reviewPass } = reviewDebateResultOutcome(result);
+  const { kind, failureKind, terminalRole, completionAgent, reviewPass } = reviewDebateResultOutcome(result);
 
   onProgress?.(invocationId, stepId, {
     status: kind === "complete" ? "completed" : "stopped",
@@ -438,8 +438,8 @@ export async function runReviewDebateStep(
 
   const failed = result.cycles.at(-1);
   const failureDetail =
-    kind === "invocation_failure" && failed?.kind === "role_failed"
-      ? buildReviewInvocationFailureDetail(failed.failureKind, failed.failedRole, failed.roleResults[failed.failedRole])
+    kind === "invocation_failure" && failureKind !== undefined && failed?.kind === "role_failed"
+      ? buildReviewInvocationFailureDetail(failureKind, failed.failedRole, failed.roleResults[failed.failedRole])
       : undefined;
 
   commitReviewDebateOutcome(store, attemptId, kind, failureDetail, completionAgent, reviewPass);

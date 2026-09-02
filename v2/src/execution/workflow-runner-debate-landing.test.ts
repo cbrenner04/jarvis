@@ -391,6 +391,7 @@ describe("executeWorkflow review-debate landing", () => {
       });
       expect(firstResult).toMatchObject({ kind: "invocation_failure", stepIndex: 1, resumable: false });
       expect(debateCalls).toEqual(["ADV", "ADVOC", "ADJ", "ACT"]);
+      // @mutate v2/src/execution/workflow-runner-debate-landing.ts 'lastCycle?.kind === "role_failed" ? lastCycle.failureKind : undefined' -> 'lastCycle?.kind !== "role_failed" ? lastCycle.failureKind : undefined'
       expect(store.loadRun(firstResult.runId)?.attempts.at(-1)?.invocationFailureDetail).toMatchObject({
         role: "actuator",
         failureKind: "timeout",

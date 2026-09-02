@@ -840,7 +840,7 @@ function hasInRepoArtifactOwner(
   );
 }
 
-function hasBranchKeyedArtifactOwner(
+export function hasBranchKeyedArtifactOwner(
   spec: ArtifactSpec,
   project: string,
   excludeWorktreePath: string,

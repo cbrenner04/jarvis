@@ -36,6 +36,7 @@ import {
   discoverMergedBranchRefCandidates,
   discoverStrandedArtifacts,
   exactOriginTrackingRefOid,
+  hasBranchKeyedArtifactOwner,
   inspectStrandedArtifacts,
   listDirtyWorktreePathsForStaleReset,
   mergedPrHeadAuthorityMatches,
@@ -51,7 +52,7 @@ import {
   STALE_RESET_OVERRIDE_CLI_FLAG,
   staleResetDirtyWorktreeGateReason,
 } from "./cleanup.ts";
-import { archiveCompletedSpec } from "./cleanup-artifacts.ts";
+import { type ArtifactSpec, archiveCompletedSpec } from "./cleanup-artifacts.ts";
 
 function daemonClientWithFreeClaimProbe(
   listRuns: (project: string, branch: string) => Promise<{ isLive: boolean }[]> = async () => [],
@@ -4504,5 +4505,31 @@ describe("cleanup: prune verified merged branch refs", () => {
     expect(stderr).toContain("Failed to retire");
     expect(stdout).not.toContain(`Retired: ${worktreePath}`);
     expect(await exactRefExists(projectRoot, `refs/heads/${branch}`)).toBe(true);
+  });
+});
+
+describe("hasBranchKeyedArtifactOwner", () => {
+  test("guard inversion: branch-keyed external plan ownership treats matching and detached branches as owners", () => {
+    const root = join(process.env.TMPDIR || "/tmp", `jarvis-branch-owner-${Date.now()}`);
+    const registry = { project: { root: "/repo" } };
+    const jarvis = join(root, "jarvis-home");
+    const worktreesRoot = join(jarvis, "worktrees", "project");
+    const spec: ArtifactSpec = {
+      home: join(jarvis, "specs", "project", "plans"),
+      source: join(jarvis, "specs", "project", "plans", "feature"),
+      name: "feature",
+      branch: "implement/feature",
+    };
+    const matching = { path: join(worktreesRoot, "implement", "feature"), branch: "implement/feature" };
+    const detached = { path: join(worktreesRoot, "detached"), branch: undefined };
+    const unrelated = { path: join(worktreesRoot, "feat", "other"), branch: "feat/other" };
+    const excluded = matching.path;
+
+    expect(hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [matching], jarvis)).toBe(false);
+    expect(hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [detached], jarvis)).toBe(true);
+    expect(hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [unrelated], jarvis)).toBe(false);
+    expect(
+      hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [matching, detached, unrelated], jarvis),
+    ).toBe(true);
   });
 });

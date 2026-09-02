@@ -1,6 +1,6 @@
 # Daemon test scaffolding: typed step stubs and bounded microtask spins
 
-- [ ] [00 - Test scaffolding helpers](./00-test-scaffolding-helpers.md)
+- [x] [00 - Test scaffolding helpers](./00-test-scaffolding-helpers.md)
 - [ ] [01 - Migrate pipeline-stage-dispatch tests](./01-migrate-pipeline-stage-dispatch-test.md)
 - [ ] [02 - Migrate pipeline-execution dispatch stubs](./02-migrate-pipeline-execution-dispatch-stubs.md)
 - [ ] [03 - Migrate pipeline-execution microtask spins](./03-migrate-pipeline-execution-microtask-spins.md)

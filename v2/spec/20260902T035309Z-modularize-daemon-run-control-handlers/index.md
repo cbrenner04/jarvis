@@ -5,7 +5,7 @@ repo: cbrenner04/jarvis
 - [x] [00 - Run-control handler context](./00-run-control-handler-context.md)
 - [x] [01 - Extract run-lifecycle handlers](./01-extract-run-lifecycle-handlers.md)
 - [x] [02 - Extract workflow-admission handlers](./02-extract-workflow-admission-handlers.md)
-- [ ] [03 - Extract pipeline handlers](./03-extract-pipeline-handlers.md)
+- [x] [03 - Extract pipeline handlers](./03-extract-pipeline-handlers.md)
 - [ ] [04 - Retire activeRun WeakMap back-channel](./04-retire-activerun-weakmap-backchannel.md)
 - [ ] [05 - Pin daemon test inventory](./05-pin-daemon-test-inventory.md)
 - [ ] [06 - Document handler module map](./06-document-handler-module-map.md)

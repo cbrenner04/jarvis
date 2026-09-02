@@ -12,7 +12,14 @@ import {
 
 const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
 
-const ALLOWED_RESOLVE_WRITE_LOOP_BINDINGS_CALLERS = ["v2/src/daemon/daemon.ts", "v2/src/cli.ts"] as const;
+// `daemon-run-lifecycle-handlers.ts` holds run-lifecycle handlers extracted from `daemon.ts`; the
+// binding-resolution seam moves with them. `inject-daemon-write-loop-binding-deps` retires this
+// caller entirely by injecting the deps, at which point it leaves this list.
+const ALLOWED_RESOLVE_WRITE_LOOP_BINDINGS_CALLERS = [
+  "v2/src/daemon/daemon.ts",
+  "v2/src/daemon/daemon-run-lifecycle-handlers.ts",
+  "v2/src/cli.ts",
+] as const;
 
 function listProductionTsSourcesUnderV2Src(): string[] {
   const srcRoot = join(REPO_ROOT, "v2/src");

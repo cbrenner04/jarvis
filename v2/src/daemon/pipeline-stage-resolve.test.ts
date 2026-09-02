@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { findProjectMatch } from "../../../shared/project-registry.ts";
@@ -1080,30 +1080,60 @@ describe("resolveStageWorkflowSteps", () => {
 
   test("implement stage resolves through real preset builders when plan spec exists only on git-disabled plan workspace", () =>
     withIsolatedJarvisHome((jarvisRoot) => {
-      const planSpecRel = "spec/feature/index.md";
       const planBranch = "plan/feature";
       const { admissionRoot, projectKey, context } = gitDisabledPipelineContext();
       const planWorktree = join(jarvisRoot, "specs", projectSafeId(projectKey), "plans", "feature");
-      mkdirSync(join(planWorktree, "spec", "feature"), { recursive: true });
-      writeFileSync(join(planWorktree, planSpecRel), "# Feature\n\n- [ ] [Work](./00-work.md)\n", "utf8");
-      writeFileSync(
-        join(planWorktree, "spec/feature/00-work.md"),
-        "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n",
-        "utf8",
-      );
+      mkdirSync(planWorktree, { recursive: true });
+      writeFileSync(join(planWorktree, "index.md"), "# Feature\n\n- [ ] [Work](./00-work.md)\n", "utf8");
+      writeFileSync(join(planWorktree, "00-work.md"), "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n", "utf8");
       initGitRepo(planWorktree);
       execFileSync("git", ["checkout", "-b", planBranch], { cwd: planWorktree });
       execFileSync("git", ["add", "-A"], { cwd: planWorktree });
       execFileSync("git", ["commit", "-qm", "plan"], { cwd: planWorktree });
-      expect(existsSync(join(admissionRoot, planSpecRel))).toBe(false);
+      expect(existsSync(join(admissionRoot, "index.md"))).toBe(false);
 
-      const stageArtifacts = new Map([[stageArtifactKey("plan"), stageArtifact("run-plan", planSpecRel)]]);
+      const stageArtifacts = new Map([[stageArtifactKey("plan"), stageArtifact("run-plan", planWorktree)]]);
       const deps = { builders: WORKFLOW_PRESET_BUILDERS, ...chainedDeps(planWorktree, planBranch) };
 
       return resolveStageWorkflowSteps(planImplementDefinition, 1, context, stageArtifacts, deps).then((result) => {
         expect(result.ok).toBe(true);
         if (!result.ok) return;
-        expect(singleStageResolutionSteps(result).some((step) => step.behavior === "write")).toBe(true);
+        const writeStep = singleStageResolutionSteps(result).find((step) => step.behavior === "write");
+        expect(writeStep?.behavior).toBe("write");
+        if (writeStep?.behavior !== "write") return;
+        const indexPath = realpathSync(join(planWorktree, "index.md"));
+        expect(writeStep.externalPlanSpec).toBe(true);
+        expect(writeStep.specPath).toBe(indexPath);
+        expect(writeStep.expectedArtifactPath).toBe(indexPath);
+        expect(writeStep.specReadRoot).toBe(realpathSync(planWorktree));
+        expect(writeStep.worktree.projectRoot).toBe(realpathSync(admissionRoot));
+        expect(writeStep.worktree.baseRef).toBe("main");
+        expect(writeStep.worktree.baseRef).not.toBe(planBranch);
+      });
+    }));
+
+  test("chained implement stage returns already_complete for complete git-disabled external plan tree", () =>
+    withIsolatedJarvisHome((jarvisRoot) => {
+      const planBranch = "plan/feature";
+      const { projectKey, context } = gitDisabledPipelineContext();
+      const planWorktree = join(jarvisRoot, "specs", projectSafeId(projectKey), "plans", "feature");
+      mkdirSync(planWorktree, { recursive: true });
+      writeFileSync(join(planWorktree, "index.md"), "# Feature\n\n- [x] [Work](./00-work.md)\n", "utf8");
+      writeFileSync(join(planWorktree, "00-work.md"), "# Work\n\n## Acceptance criteria\n\n- [x] Work\n", "utf8");
+      initGitRepo(planWorktree);
+      execFileSync("git", ["checkout", "-b", planBranch], { cwd: planWorktree });
+      execFileSync("git", ["add", "-A"], { cwd: planWorktree });
+      execFileSync("git", ["commit", "-qm", "plan"], { cwd: planWorktree });
+
+      const stageArtifacts = new Map([[stageArtifactKey("plan"), stageArtifact("run-plan", planWorktree)]]);
+      const deps = { builders: WORKFLOW_PRESET_BUILDERS, ...chainedDeps(planWorktree, planBranch) };
+
+      return resolveStageWorkflowSteps(planImplementDefinition, 1, context, stageArtifacts, deps).then((result) => {
+        expect(result.ok).toBe(false);
+        if (result.ok) return;
+        expect(result.error).toBe(
+          "implement.already_complete: requested spec has no unchecked non-human-only acceptance criteria",
+        );
       });
     }));
 

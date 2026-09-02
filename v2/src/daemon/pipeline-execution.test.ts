@@ -162,6 +162,15 @@ function stageIndexOf(steps: AnyWorkflowStep[]): number {
   return stageIndex;
 }
 
+type DispatchTaggedWriteStep = MinimalDispatchWriteStep & { stageId: string };
+
+function createDispatchTaggedWriteStep(
+  stageId: string,
+  overrides: Partial<MinimalDispatchWriteStep> = {},
+): DispatchTaggedWriteStep {
+  return { ...createMinimalDispatchWriteStep(overrides), stageId };
+}
+
 function noopStaleResetPreflightBundle(): NonNullable<PipelineExecutionDeps["staleResetPreflight"]> {
   return {
     cliDeps: {} as CliDeps,
@@ -2968,14 +2977,11 @@ describe("resumePipeline", () => {
           return {
             ok: true,
             steps: [
-              {
-                ...createMinimalDispatchWriteStep({
-                  stageIndex,
-                  ...(deps?.branchKey === undefined ? {} : { branchKey: deps.branchKey }),
-                }),
-                stageId: "plan",
-              },
-            ] as unknown as AnyWorkflowStep[],
+              createDispatchTaggedWriteStep("plan", {
+                stageIndex,
+                ...(deps?.branchKey === undefined ? {} : { branchKey: deps.branchKey }),
+              }),
+            ],
           };
         }
         return { ok: true, steps: [] };
@@ -3645,14 +3651,11 @@ describe("resumePipeline branch scope", () => {
     ): Promise<PipelineStageResolutionResult> => ({
       ok: true,
       steps: [
-        {
-          ...createMinimalDispatchWriteStep({
-            stageIndex,
-            ...(deps?.branchKey === undefined ? {} : { branchKey: deps.branchKey }),
-          }),
-          stageId: "implement",
-        },
-      ] as unknown as AnyWorkflowStep[],
+        createDispatchTaggedWriteStep("implement", {
+          stageIndex,
+          ...(deps?.branchKey === undefined ? {} : { branchKey: deps.branchKey }),
+        }),
+      ],
     });
 
     // Keystone checkpoint: rebinding branchScope to undefined restores whole-pipeline admission on the aggregate
@@ -3897,14 +3900,11 @@ describe("resumePipeline branch scope", () => {
         return {
           ok: true,
           steps: [
-            {
-              ...createMinimalDispatchWriteStep({
-                stageIndex,
-                ...(deps?.branchKey === undefined ? {} : { branchKey: deps.branchKey }),
-              }),
-              stageId: "plan",
-            },
-          ] as unknown as AnyWorkflowStep[],
+            createDispatchTaggedWriteStep("plan", {
+              stageIndex,
+              ...(deps?.branchKey === undefined ? {} : { branchKey: deps.branchKey }),
+            }),
+          ],
         };
       }
       if (stageIndex === 3) {

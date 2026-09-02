@@ -20,7 +20,7 @@
 ## Acceptance criteria
 
 - [x] `pipeline-execution.test.ts` stays green (behavior unchanged by the scaffolding extraction).
-- [ ] `pipeline-execution.test.ts` contains zero `as unknown as AnyWorkflowStep` casts (reachable on main today across `taggedStep`, inline literals, array casts, and the `plan` builder).
+- [x] `pipeline-execution.test.ts` contains zero `as unknown as AnyWorkflowStep` casts (reachable on main today across `taggedStep`, inline literals, array casts, and the `plan` builder).
 - [x] `pipeline-execution.test.ts` contains zero unbounded `while` loops (or condition polls) yielding only via `await Promise.resolve()` (reachable on main today via `stage0WaitCalled`, `stage1WaitCalled` ×2, `failedStageWaitCalled`, and the `implement` status poll).
 
 ## Documentation updates

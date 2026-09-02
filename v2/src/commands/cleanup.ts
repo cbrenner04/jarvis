@@ -30,7 +30,12 @@ import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { jarvisHome } from "../paths.ts";
 import { isTerminalRunStatus, type Run, type StateStore } from "../persistence/state-store.ts";
-import { type ArtifactSpec, archiveCompletedSpec, checkArtifactEligibility } from "./cleanup-artifacts.ts";
+import {
+  type ArtifactSpec,
+  archiveCompletedSpec,
+  checkArtifactEligibility,
+  isExternalPlanArtifact,
+} from "./cleanup-artifacts.ts";
 import { reapDeadDaemonSockets } from "./daemon.ts";
 
 export type DiscoveredWorktree = {
@@ -793,7 +798,7 @@ function sourceForRun(
 }
 
 function provenIntentPrune(spec: ArtifactSpec): boolean {
-  if (spec.source.endsWith(".md")) return false;
+  if (isExternalPlanArtifact(spec) || spec.source.endsWith(".md")) return false;
   try {
     const ready = join(spec.home, "ready-intents", `${spec.name}.md`);
     return (
@@ -823,12 +828,40 @@ async function listOpenPrsForBranch(branch: string, cwd: string, runner: AsyncSu
   });
 }
 
+function hasInRepoArtifactOwner(
+  spec: ArtifactSpec,
+  projectRoot: string,
+  excludeWorktreePath: string,
+  allWorktrees: readonly DiscoveredWorktree[],
+): boolean {
+  return allWorktrees.some(
+    (worktree) =>
+      worktree.path !== excludeWorktreePath && existsSync(join(worktree.path, relative(projectRoot, spec.source))),
+  );
+}
+
+function hasBranchKeyedArtifactOwner(
+  spec: ArtifactSpec,
+  project: string,
+  excludeWorktreePath: string,
+  registry: Record<string, ProjectRegistryEntry>,
+  allWorktrees: readonly DiscoveredWorktree[],
+  jarvisRoot: string,
+): boolean {
+  return allWorktrees.some((worktree) => {
+    if (worktree.path === excludeWorktreePath) return false;
+    if (projectForWorktree(worktree, registry, jarvisRoot) !== project) return false;
+    return worktree.branch === undefined || worktree.branch === spec.branch;
+  });
+}
+
 async function archiveRetiredArtifact(
   candidate: CleanupCandidate,
   registry: Record<string, ProjectRegistryEntry>,
   allWorktrees: readonly DiscoveredWorktree[],
   store: StateStore,
   runner: AsyncSubprocessRunner,
+  jarvisRoot: string,
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
 ): Promise<void> {
   const projectRoot = registry[candidate.project]?.root;
@@ -842,11 +875,16 @@ async function archiveRetiredArtifact(
   const eligibility = await checkArtifactEligibility(spec, {
     findOpenPrs: async (branch) => (await listOpenPrsForBranch(branch, projectRoot, runner)).length,
     hasMaterializedOwner: async () =>
-      allWorktrees.some(
-        (worktree) =>
-          worktree.path !== candidate.worktree.path &&
-          existsSync(join(worktree.path, relative(projectRoot, spec.source))),
-      ),
+      isExternalPlanArtifact(spec)
+        ? hasBranchKeyedArtifactOwner(
+            spec,
+            candidate.project,
+            candidate.worktree.path,
+            registry,
+            allWorktrees,
+            jarvisRoot,
+          )
+        : hasInRepoArtifactOwner(spec, projectRoot, candidate.worktree.path, allWorktrees),
   });
   if (eligibility.status === "ineligible") {
     io.stdout(`Skipped artifact: ${spec.source} — ${eligibility.reason}\n`);
@@ -856,9 +894,17 @@ async function archiveRetiredArtifact(
   reportArchive(spec, archiveCompletedSpec(spec), "artifact", io);
 }
 
+function artifactArchivePreviewTarget(spec: ArtifactSpec): string {
+  if (isExternalPlanArtifact(spec)) {
+    const name = basename(spec.source);
+    return `plans/${name} -> plans/completed/${name}`;
+  }
+  return `${spec.source} -> ${join(spec.home, "completed", basename(spec.source))}`;
+}
+
 function previewArtifact(spec: ArtifactSpec, io: { stdout: (s: string) => void }): void {
   io.stdout(
-    `  archive: ${spec.source} -> ${join(spec.home, "completed", basename(spec.source))}${provenIntentPrune(spec) ? " (prune consumed ready-intent)" : ""}\n`,
+    `  archive: ${artifactArchivePreviewTarget(spec)}${provenIntentPrune(spec) ? " (prune consumed ready-intent)" : ""}\n`,
   );
 }
 
@@ -1112,6 +1158,7 @@ async function retireEligibleWorktrees(
   discovered: readonly DiscoveredWorktree[],
   store: StateStore,
   runner: AsyncSubprocessRunner,
+  jarvisRoot: string,
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
   refPruneSnapshots: ReadonlyMap<string, MergedBranchRefSnapshot>,
   daemonClient: DaemonClient,
@@ -1124,7 +1171,7 @@ async function retireEligibleWorktrees(
     runner,
     io,
     async (candidate) => {
-      await archiveRetiredArtifact(candidate, registry, discovered, store, runner, io);
+      await archiveRetiredArtifact(candidate, registry, discovered, store, runner, jarvisRoot, io);
     },
     (candidate) => registry[candidate.project]?.root ?? ".",
     {
@@ -1375,6 +1422,7 @@ async function executeConfirmedCleanup(
     ctx.discovered,
     store,
     runner,
+    jarvisRoot,
     io,
     ctx.worktreeRefSnapshots,
     daemonClient,

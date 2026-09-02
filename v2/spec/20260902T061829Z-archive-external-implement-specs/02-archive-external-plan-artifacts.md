@@ -22,18 +22,18 @@ Even when cleanup can resolve and discover external plan trees, archival still a
 
 ## Acceptance criteria
 
-- [ ] `cleanup.test.ts` — `"dry-run previews external plan archive as plans/<name> -> plans/completed/<name> without mutation"` reports the external relative move shape and leaves the source tree and `plans/completed/` untouched; it fails against the pre-fix cleanup path that never discovers external plans.
-- [ ] `cleanup.test.ts` — `"archives eligible external plan after completeness and ownership checks"` moves a complete, unowned external plan into `plans/completed/<name>/` only when open-PR and materialized-owner inspection pass; it fails against the pre-fix code that never archives external trees.
-- [ ] `cleanup.test.ts` — `"rolls back failed external plan archival under the existing transaction contract"` restores the source directory and prints a skip reason when post-move cleanup fails; it fails against the pre-fix path that never reaches external archival.
-- [ ] `cleanup.test.ts` — `"archives open-home spec when retiring its owning worktree in one invocation"` stays green.
-- [ ] `cleanup.test.ts` — `"archives eligible stranded specs without retiring a worktree and retains refused siblings"` stays green.
-- [ ] `cleanup.test.ts` — `"dry-run previews archive and proven intent pruning without changes"` stays green.
-- [ ] `cleanup.test.ts` — `"retires before archiving a complete durable spec and prunes only its consumed intent"` stays green.
-- [ ] `cleanup.test.ts` — `"dry-run stranded archive preview matches apply when owning worktree is in retire preview set"` stays green.
-- [ ] `cleanup.test.ts` — `"preserves artifacts when retirement fails and reports post-retirement archive refusals"` stays green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `cleanup.test.ts` — `"dry-run previews external plan archive as plans/<name> -> plans/completed/<name> without mutation"` reports the external relative move shape and leaves the source tree and `plans/completed/` untouched; it fails against the pre-fix cleanup path that never discovers external plans.
+- [x] `cleanup.test.ts` — `"archives eligible external plan after completeness and ownership checks"` moves a complete, unowned external plan into `plans/completed/<name>/` only when open-PR and materialized-owner inspection pass; it fails against the pre-fix code that never archives external trees.
+- [x] `cleanup.test.ts` — `"rolls back failed external plan archival under the existing transaction contract"` restores the source directory and prints a skip reason when post-move cleanup fails; it fails against the pre-fix path that never reaches external archival.
+- [x] `cleanup.test.ts` — `"archives open-home spec when retiring its owning worktree in one invocation"` stays green.
+- [x] `cleanup.test.ts` — `"archives eligible stranded specs without retiring a worktree and retains refused siblings"` stays green.
+- [x] `cleanup.test.ts` — `"dry-run previews archive and proven intent pruning without changes"` stays green.
+- [x] `cleanup.test.ts` — `"retires before archiving a complete durable spec and prunes only its consumed intent"` stays green.
+- [x] `cleanup.test.ts` — `"dry-run stranded archive preview matches apply when owning worktree is in retire preview set"` stays green.
+- [x] `cleanup.test.ts` — `"preserves artifacts when retirement fails and reports post-retirement archive refusals"` stays green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

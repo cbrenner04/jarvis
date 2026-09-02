@@ -13,7 +13,10 @@ import {
   createShrinkTestStep,
   DEBATE_AGENT_MODEL_CONFIG,
   initGitWorkspace,
+  REVIEW_MD_LINT_FIXTURES,
+  skipReviewWithoutHarnessMarkdownlint,
   TestLogSink,
+  writeLintCleanPlanStage,
 } from "./workflow-runner.test-support.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
 import { executeWorkflow, type ReviewDebateWorkflowStep } from "./workflow-runner.ts";
@@ -523,5 +526,67 @@ describe("executeWorkflow review-debate landing", () => {
     const result = revalidateStagedPlanContract(stage);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain("staged spec tree has invalid shape");
+  });
+
+  test("finishReviewDebateLanding reprompts staged markdown lint only when the last cycle completed with actuator", async () => {
+    // @mutate v2/src/execution/workflow-runner-debate-landing.ts 'lastCycle?.kind === "completed" && lastCycle.actuatorRan' -> 'lastCycle?.kind !== "completed" && lastCycle.actuatorRan'
+    if (
+      skipReviewWithoutHarnessMarkdownlint(
+        "finishReviewDebateLanding reprompts staged markdown lint only when the last cycle completed with actuator",
+      )
+    ) {
+      return;
+    }
+
+    const root = mkdtempSync(join(tmpdir(), "debate-landing-md-lint-reprompt-"));
+    const stage = join(root, ".jarvis-plan-stage");
+    const durable = join(root, "spec", "2026-debate-landing-md-lint-reprompt");
+    const violationBytes = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md038-violation-subspec.md"), "utf8");
+    const cleanSubspec = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md038-clean-subspec.md"), "utf8");
+    writeLintCleanPlanStage(stage);
+    let actuatorInvocations = 0;
+
+    const step = createDebateStep({
+      stepId: "review-debate-landing-md-lint-reprompt",
+      cwd: root,
+      branch: "debate-landing-md-lint-reprompt",
+      verdictPath: join(stage, "verdict-plan.md"),
+      landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: durable },
+      stagedMarkdownLintMaxReprompts: 2,
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: async ({ cwd }) => {
+          if (adapterModel === "ACT") {
+            actuatorInvocations += 1;
+            const stageDir = join(cwd, ".jarvis-plan-stage");
+            if (actuatorInvocations === 1) {
+              writeFileSync(join(stageDir, "00-one.md"), violationBytes, "utf8");
+            } else {
+              writeFileSync(join(stageDir, "00-one.md"), cleanSubspec, "utf8");
+            }
+            return { kind: "ok", stdout: "done", stderr: "" };
+          }
+          return adapterModel === "ADJ"
+            ? ({ kind: "ok", stdout: "apply fix", stderr: "" } as const)
+            : ({ kind: "ok", stdout: "ok", stderr: "" } as const);
+        },
+      }),
+    });
+
+    const logSink = new TestLogSink();
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store, logSink });
+      expect(result.kind).toBe("complete");
+      expect(actuatorInvocations).toBe(2);
+      expect(existsSync(join(durable, "00-one.md"))).toBe(true);
+      expect(
+        logSink.getEventsForRun(result.runId).find((event) => event.kind === "staged_markdown_lint_reprompt"),
+      ).toMatchObject({
+        kind: "staged_markdown_lint_reprompt",
+        ruleId: "MD038",
+        offendingFile: ".jarvis-plan-stage/00-one.md",
+      });
+    });
   });
 });

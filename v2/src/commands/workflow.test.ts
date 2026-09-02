@@ -92,10 +92,7 @@ function ipcFramesWithMethod(sent: readonly unknown[], method: string): unknown[
 const REJECT_BASE_ARGS = {
   implement: IMPLEMENT_ARGS,
   intent: ["run", "workflow", "intent", "--seed-text", "Improve API"],
-  "intent-reviewed": ["run", "workflow", "intent-reviewed", "--seed-text", "Improve API"],
   plan: ["run", "workflow", "plan", "--ready-intent", "spec/ready-intents/demo.md"],
-  "plan-reviewed": ["run", "workflow", "plan-reviewed", "--ready-intent", "spec/ready-intents/demo.md"],
-  "plan-reviewed-light": ["run", "workflow", "plan-reviewed-light", "--ready-intent", "spec/ready-intents/demo.md"],
 } as const;
 
 function noDaemonDeps(extra: NonNullable<Parameters<typeof main>[2]> = {}): NonNullable<Parameters<typeof main>[2]> {
@@ -1020,26 +1017,8 @@ describe("workflow detach after admission", () => {
     ["implement", [...IMPLEMENT_ARGS, "--detach"], "implement", () => fx.repoSub],
     ["intent", ["run", "workflow", "intent", "--seed-text", "Improve API", "--detach"], "intent", () => fx.repoRoot],
     [
-      "intent-reviewed",
-      ["run", "workflow", "intent-reviewed", "--seed-text", "Improve API", "--detach"],
-      "intent",
-      () => fx.repoRoot,
-    ],
-    [
       "plan",
       ["run", "workflow", "plan", "--ready-intent", "spec/ready-intents/demo.md", "--detach"],
-      "plan",
-      () => fx.repoRoot,
-    ],
-    [
-      "plan-reviewed",
-      ["run", "workflow", "plan-reviewed", "--ready-intent", "spec/ready-intents/demo.md", "--detach"],
-      "plan",
-      () => fx.repoRoot,
-    ],
-    [
-      "plan-reviewed-light",
-      ["run", "workflow", "plan-reviewed-light", "--ready-intent", "spec/ready-intents/demo.md", "--detach"],
       "plan",
       () => fx.repoRoot,
     ],
@@ -1358,13 +1337,7 @@ describe("review-passes and review-behavior resolution", () => {
     ["implement", "--review-passes", "1x", IMPLEMENT_USAGE],
     ["implement", "--review-behavior", "heavy", IMPLEMENT_USAGE],
     ["intent", "--review-passes", "1x", INTENT_USAGE],
-    ["intent-reviewed", "--review-passes", "invalid", INTENT_USAGE],
     ["plan", "--review-passes", "1x", PLAN_USAGE],
-    ["plan-reviewed", "--review-passes", "-1", PLAN_USAGE],
-    ["plan-reviewed-light", "--review-passes", "-1", PLAN_USAGE],
-    ["plan-reviewed-light", "--review-passes", "1x", PLAN_USAGE],
-    ["plan-reviewed-light", "--review-passes", "1.5", PLAN_USAGE],
-    ["plan-reviewed-light", "--review-behavior", "heavy", PLAN_USAGE],
   ] as [
     keyof typeof REJECT_BASE_ARGS,
     string,
@@ -3493,166 +3466,19 @@ describe("intent and plan presets", () => {
     expect(cap.read()).toEqual({ stdout: "", stderr: INTENT_USAGE });
   });
 
-  test("run workflow intent-reviewed builds seed text with default review passes before one daemon start", async () => {
+  test.each([
+    ["intent-reviewed", ["run", "workflow", "intent-reviewed", "--seed-text", "Improve API"]],
+    ["plan-reviewed", ["run", "workflow", "plan-reviewed", "--ready-intent", "spec/ready-intents/demo.md"]],
+    ["plan-reviewed-light", ["run", "workflow", "plan-reviewed-light", "--ready-intent", "spec/ready-intents/demo.md"]],
+  ] as const)("run workflow %s rejects retired alias before daemon contact", async (_label, args) => {
     const cap = captureIo();
-    const sent: unknown[] = [];
-    let received: unknown;
 
-    const code = await withWorkflowUuids("start", "wait", () =>
-      main(["run", "workflow", "intent-reviewed", "--seed-text", "Improve API"], cap.io, {
-        cwd: () => fx.repoRoot,
-        workflowPresetBuilders: {
-          "intent-reviewed": (input) => {
-            received = input;
-            return { ok: true, steps: fx.fakeImplementSteps };
-          },
-        },
-        connectIpcClient: async () =>
-          makeIpcClient(workflowFrames("start", "wait", "intent-reviewed-1", COMPLETED_WAIT_RESULT), { sent }),
-      }),
-    );
+    const code = await main([...args], cap.io, noDaemonDeps());
 
-    expect(code).toBe(0);
-    expect(received).toMatchObject({ cwd: fx.repoRoot, seedText: "Improve API" });
-    expect(sent).toHaveLength(2);
-    expect(sent[0]).toMatchObject({ kind: "request", method: "start", params: { steps: fx.fakeImplementSteps } });
-    expect(sent[1]).toMatchObject({ kind: "request", method: "wait", params: { runId: "intent-reviewed-1" } });
-    expect(cap.read().stdout).toContain("intent-reviewed-1");
-    expect(cap.read().stdout).toContain('{"runStatus":"completed"');
-  });
-
-  test("run workflow intent-reviewed accepts review-passes before daemon start", async () => {
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    const requestId = "00000000-0000-4000-8000-000000000009";
-    let received: unknown;
-
-    const code = await withFixedUuid(requestId, () =>
-      main(["run", "workflow", "intent-reviewed", "--seed-text", "Improve API", "--review-passes", "2"], cap.io, {
-        cwd: () => fx.repoRoot,
-        workflowPresetBuilders: {
-          "intent-reviewed": (input) => {
-            received = input;
-            return { ok: true, steps: fx.fakeImplementSteps };
-          },
-        },
-        connectIpcClient: async () =>
-          makeIpcClient(
-            [
-              { kind: "response", id: requestId, result: { runId: "intent-reviewed-2" } },
-              { kind: "response", id: requestId, result: COMPLETED_WAIT_RESULT },
-            ],
-            { sent },
-          ),
-      }),
-    );
-
-    expect(code).toBe(0);
-    expect(received).toMatchObject({ cwd: fx.repoRoot, seedText: "Improve API", reviewPasses: 2 });
-    expect(sent).toHaveLength(2);
-    expect(sent[0]).toMatchObject({ kind: "request", method: "start", params: { steps: fx.fakeImplementSteps } });
-    expect(sent[1]).toMatchObject({ kind: "request", method: "wait", params: { runId: "intent-reviewed-2" } });
+    expect(code).toBe(1);
     expect(cap.read()).toEqual({
-      stdout: `intent-reviewed-2\n${COMPLETED_WAIT_JSON}\n`,
-      stderr: "deprecated: use intent --review-passes 1 --review-behavior light\n",
-    });
-  });
-
-  test("run workflow plan-reviewed routes review passes before one daemon start", async () => {
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    const requestId = "00000000-0000-4000-8000-000000000010";
-    let received: unknown;
-
-    const code = await withFixedUuid(requestId, () =>
-      main(
-        ["run", "workflow", "plan-reviewed", "--ready-intent", "spec/ready-intents/demo.md", "--review-passes", "2"],
-        cap.io,
-        {
-          cwd: () => fx.repoRoot,
-          workflowPresetBuilders: {
-            "plan-reviewed": (input) => {
-              received = input;
-              return { ok: true, steps: fx.fakeImplementSteps };
-            },
-          },
-          connectIpcClient: async () =>
-            makeIpcClient(
-              [
-                { kind: "response", id: requestId, result: { runId: "plan-reviewed-2" } },
-                { kind: "response", id: requestId, result: COMPLETED_WAIT_RESULT },
-              ],
-              { sent },
-            ),
-        },
-      ),
-    );
-
-    expect(code).toBe(0);
-    expect(received).toMatchObject({
-      cwd: fx.repoRoot,
-      readyIntent: "spec/ready-intents/demo.md",
-      reviewPasses: 2,
-    });
-    expect(sent).toHaveLength(2);
-    expect(sent[0]).toMatchObject({ kind: "request", method: "start" });
-    expect(sent[1]).toMatchObject({ kind: "request", method: "wait", params: { runId: "plan-reviewed-2" } });
-    expect(cap.read()).toEqual({
-      stdout: `plan-reviewed-2\n${COMPLETED_WAIT_JSON}\n`,
-      stderr: "deprecated: use plan --review-passes 1 --review-behavior debate\n",
-    });
-  });
-
-  test("run workflow plan-reviewed-light routes review passes before one daemon start", async () => {
-    const cap = captureIo();
-    const sent: unknown[] = [];
-    const requestId = "00000000-0000-4000-8000-000000000011";
-    let received: unknown;
-
-    const code = await withFixedUuid(requestId, () =>
-      main(
-        [
-          "run",
-          "workflow",
-          "plan-reviewed-light",
-          "--ready-intent",
-          "spec/ready-intents/demo.md",
-          "--review-passes",
-          "2",
-        ],
-        cap.io,
-        {
-          cwd: () => fx.repoRoot,
-          workflowPresetBuilders: {
-            "plan-reviewed-light": (input) => {
-              received = input;
-              return { ok: true, steps: fx.fakeImplementSteps };
-            },
-          },
-          connectIpcClient: async () =>
-            makeIpcClient(
-              [
-                { kind: "response", id: requestId, result: { runId: "plan-reviewed-light-2" } },
-                { kind: "response", id: requestId, result: COMPLETED_WAIT_RESULT },
-              ],
-              { sent },
-            ),
-        },
-      ),
-    );
-
-    expect(code).toBe(0);
-    expect(received).toMatchObject({
-      cwd: fx.repoRoot,
-      readyIntent: "spec/ready-intents/demo.md",
-      reviewPasses: 2,
-    });
-    expect(sent).toHaveLength(2);
-    expect(sent[0]).toMatchObject({ kind: "request", method: "start" });
-    expect(sent[1]).toMatchObject({ kind: "request", method: "wait", params: { runId: "plan-reviewed-light-2" } });
-    expect(cap.read()).toEqual({
-      stdout: `plan-reviewed-light-2\n${COMPLETED_WAIT_JSON}\n`,
-      stderr: "deprecated: use plan --review-passes 1 --review-behavior light\n",
+      stdout: "",
+      stderr: "usage: jarvis run workflow <intent|plan|implement> [flags]\n",
     });
   });
 });

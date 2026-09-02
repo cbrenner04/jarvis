@@ -192,11 +192,3 @@ export function parsePlanWorkflowArgs(argv: readonly string[]): PlanWorkflowCliI
     ...(resetDespiteLandedCriteria ? { resetDespiteLandedCriteria: true } : {}),
   };
 }
-
-export const LEGACY_WORKFLOW_ALIASES: Readonly<
-  Record<string, { canonical: "intent" | "plan"; passes: number; behavior: "debate" | "light" }>
-> = {
-  "intent-reviewed": { canonical: "intent", passes: 1, behavior: "light" },
-  "plan-reviewed": { canonical: "plan", passes: 1, behavior: "debate" },
-  "plan-reviewed-light": { canonical: "plan", passes: 1, behavior: "light" },
-};

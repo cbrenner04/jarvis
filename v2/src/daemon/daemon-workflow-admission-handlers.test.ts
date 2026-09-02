@@ -3,9 +3,11 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { WriteWorkflowStep } from "../execution/workflow-runner.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns, mockWriteLoopInput } from "../testing/run-control.ts";
+import { doneWithArtifactBindingFactory, writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { WorktreeOwnershipRegistry } from "./daemon.ts";
 import { createRunControlHandlerContext } from "./daemon-run-control-context.ts";
@@ -226,6 +228,107 @@ test("implement.recover returns not_admitted for excluded outcome kinds", async 
   } finally {
     fixture.cleanup();
   }
+});
+
+/** After `createRun` for `stepId`, pin paused settlement so later completion writes stay paused. */
+function lockPausedSettlementOnStepCreate(store: StateStore, stepId: string): StateStore {
+  const lockedRunIds = new Set<string>();
+  const lockedAttemptIds = new Set<string>();
+  return new Proxy(store, {
+    get(target, prop, receiver) {
+      if (prop === "createRun") {
+        return (...args: Parameters<StateStore["createRun"]>) => {
+          const runId = target.createRun(...args);
+          if (args[0]?.stepId === stepId) {
+            lockedRunIds.add(runId);
+            target.setRunStatus(runId, "paused");
+          }
+          return runId;
+        };
+      }
+      if (prop === "recordAttemptStart") {
+        return (...args: Parameters<StateStore["recordAttemptStart"]>) => {
+          const [runId] = args;
+          const attemptId = target.recordAttemptStart(...args);
+          if (lockedRunIds.has(runId)) lockedAttemptIds.add(attemptId);
+          return attemptId;
+        };
+      }
+      if (prop === "commitCompletionBoundary") {
+        return (...args: Parameters<StateStore["commitCompletionBoundary"]>) => {
+          const [boundary] = args;
+          if (lockedAttemptIds.has(boundary.attemptId)) {
+            return target.commitCompletionBoundary({ ...boundary, runStatus: "paused" });
+          }
+          return target.commitCompletionBoundary(...args);
+        };
+      }
+      if (prop === "setRunStatus") {
+        return (...args: Parameters<StateStore["setRunStatus"]>) => {
+          const [runId, nextStatus] = args;
+          if (lockedRunIds.has(runId) && nextStatus !== "paused") {
+            return;
+          }
+          return target.setRunStatus(...args);
+        };
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+}
+
+/** Wraps a real store so `recordAttemptStart`'s Nth call (1-indexed) throws. */
+function throwOnNthRecordAttemptStart(store: StateStore, n: number): StateStore {
+  let calls = 0;
+  return new Proxy(store, {
+    get(target, prop, receiver) {
+      if (prop === "recordAttemptStart") {
+        return (...args: Parameters<StateStore["recordAttemptStart"]>) => {
+          calls += 1;
+          if (calls === n) {
+            throw new Error("recordAttemptStart boom");
+          }
+          return target.recordAttemptStart(...args);
+        };
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+}
+
+function workflowStep(stepId: string, branch: string): WriteWorkflowStep {
+  const { createWriteStep } = writeStepFixtures();
+  return createWriteStep(stepId, branch, doneWithArtifactBindingFactory, { suppressShrink: true });
+}
+
+test("workflow failure does not re-demote a paused step run", async () => {
+  const branch = "workflow-paused-settled";
+  const logsPath = join(tmpdir(), `jarvis-admission-logs-${process.pid}-${Date.now()}.jsonl`);
+  const failingStore = throwOnNthRecordAttemptStart(lockPausedSettlementOnStepCreate(stateStore, "step-1"), 2);
+  const ctx = createRunControlHandlerContext({
+    stateStore: failingStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => memoryHeadroom,
+    settleDelayMs: 0,
+    logsPath,
+    logReader: openLogReader(logsPath),
+    registry,
+  });
+  const workflowStart = createWorkflowStartAdmission(ctx);
+  const lifecycle = createRunLifecycleHandlers(ctx, { handleWorkflowStart: workflowStart.handleWorkflowStart });
+
+  const response = await lifecycle.start(
+    requestFrame("s1", "start", { steps: [workflowStep("step-1", branch), workflowStep("step-2", branch)] }),
+    new AbortController().signal,
+  );
+  expect(response.kind).toBe("response");
+  await flushBackgroundRuns(5);
+
+  const pausedRunId = stateStore.findRunByProjectBranch({ project: "demo", branch, stepId: "step-1" })?.id;
+  expect(pausedRunId).toBeTruthy();
+  // @mutate v2/src/daemon/daemon-workflow-admission-handlers.ts "status === \"paused\"" -> "status !== \"paused\""
+  expect(stateStore.loadRun(pausedRunId as string)?.status).toBe("paused");
 });
 
 test("implement.recover refuses worktree_claimed without dispatch", async () => {

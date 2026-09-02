@@ -12,6 +12,12 @@ export const DAEMON_LOG_PATH = join(jarvisHome(), "daemon.log");
 export const MACHINE_CONFIG_PATH = join(jarvisHome(), "config.json");
 export const DAEMON_SOCKET_DISPLAY = "~/.jarvis/daemon.sock";
 
+export function orchestrationStorePath(jarvisHomeDir?: string): string {
+  return join(jarvisHomeDir ?? jarvisHome(), "state", "v2.sqlite");
+}
+
+export const ORCHESTRATION_STORE_PATH = orchestrationStorePath();
+
 /** Digest-keyed daemon paths: socket, PID, and log paths keyed by executable tree digest. */
 export function daemonPathsByDigest(digest: string): {
   socketPath: string;

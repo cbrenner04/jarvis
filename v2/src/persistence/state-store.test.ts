@@ -2504,8 +2504,14 @@ describe("pipelines", () => {
       expect(legacyRun.attempts).toHaveLength(1);
 
       const verify = new Database(legacyDbPath);
-      const migrationCount = verify.prepare("SELECT COUNT(*) AS total FROM _migrations").get() as { total: number };
-      expect(migrationCount.total).toBe(27);
+      // Post-squash: legacy rows are retained as history and the baseline marker is appended, so the
+      // meaningful assertion is the marker's presence, not a count that shifts with every schema change.
+      const squashMarker = verify.prepare("SELECT 1 FROM _migrations WHERE id = ?").get("031-baseline-squash");
+      expect(squashMarker).toBeTruthy();
+      const legacyRows = verify
+        .prepare("SELECT COUNT(*) AS total FROM _migrations WHERE id != ?")
+        .get("031-baseline-squash") as { total: number };
+      expect(legacyRows.total).toBe(9);
       verify.close();
 
       const pipelineId = migrated.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });

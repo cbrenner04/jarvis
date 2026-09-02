@@ -26,9 +26,13 @@ Review-debate landing orchestration (`runReviewDebateStep`, post-debate landing,
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner-debate-landing-structure.test.ts` fails if `runReviewDebateStep`, `tryActuatorOnlyReviewDebateRetry`, `landReviewedOutputOrFail`, or `finishReviewedLanding` remain defined in `workflow-runner.ts` (all four are private inline helpers reachable on main today).
-- [ ] `workflow-runner-debate-landing.test.ts` stays green for the debate-last intent promotion and landing-failure cases and the actuator-only retry eligibility cases moved from `workflow-runner-debate.test.ts` — `"promotes, cleans up, and traces a debate-last intent workflow the same as light review"`, `"settles a debate-last intent workflow's landing failure the same as light review, with a trace"`, `"propagates review idleOutputMs through actuator-only debate retry"`, `"exhausted review-debate actuator timeout is not actuator-only-retry eligible; re-dispatch replays the full debate on a fresh row"`, `"re-dispatching after a debate-role failure replays the full debate, not actuator-only"`, and `"multi-cycle review never takes actuator-only admission, even on a last-cycle actuator failure"`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `workflow-runner-debate-landing-structure.test.ts` fails if `runReviewDebateStep`, `tryActuatorOnlyReviewDebateRetry`, `landReviewedOutputOrFail`, `finishReviewedLanding`, `finishReviewDebateLanding`, `commitReviewDebateOutcome`, `buildReviewDebateLandingActuatorContext`, `buildStandardReviewLandingActuatorContext`, or `repromptReviewedStagedMarkdownLintOrFail` remain defined in `workflow-runner.ts` (all nine are private inline helpers reachable on main today or documented extraction boundaries).
+- [x] `execution-terminal-settlement-guard.test.ts` stays green after permitted-write paths follow moved landing functions into `workflow-runner-debate-landing.ts`.
+- [x] `workflow-runner-review.test.ts` and `workflow-runner-review-standard.test.ts` stay green (shared `landReviewedOutputOrFail` / `finishReviewedLanding` staged-markdown lint and checkpoint re-entry cases unchanged by the extraction).
+- [x] `workflow-runner-debate-landing.test.ts` stays green for the six moved cases (`promotes, cleans up, and traces a debate-last intent workflow the same as light review`, `settles a debate-last intent workflow's landing failure the same as light review, with a trace`, `propagates review idleOutputMs through actuator-only debate retry`, `exhausted review-debate actuator timeout is not actuator-only-retry eligible; re-dispatch replays the full debate on a fresh row`, `re-dispatching after a debate-role failure replays the full debate, not actuator-only`, `multi-cycle review never takes actuator-only admission, even on a last-cycle actuator failure`).
+- [x] `workflow-runner-debate.test.ts` stays green for the remaining dispatch cases after the move.
+- [x] `v2/docs/workflow-runner.md` documents review-debate landing ownership in a module map entry for `workflow-runner-debate-landing.ts`, including that `workflow-runner.ts` imports `landReviewedOutputOrFail` and `finishReviewedLanding` for light-review and checkpoint re-entry (not debate-only).
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

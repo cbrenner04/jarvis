@@ -8,6 +8,7 @@ import { createJarvisHome, withStateStore } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter } from "./completion-commit.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
+import type { InvocationFailureKind } from "./invocation-failure.ts";
 import { SurvivingMutationError } from "./ready-finalize.ts";
 import {
   createBindingFactory,
@@ -25,6 +26,7 @@ import {
 } from "./workflow-runner.test-support.ts";
 import {
   executeWorkflow,
+  isPostCommitReviewRetryableFailureKind,
   LinkedIndexReadError,
   type ReviewDebateWorkflowStep,
   type WriteWorkflowStep,
@@ -1267,6 +1269,16 @@ describe("executeWorkflow implement patch review", () => {
       expect(actuatorPrompts[1]).toBe(actuatorPrompts[0]);
       expect(actuatorPrompts[1]).toContain(verdictBefore);
     });
+  });
+
+  test("post-commit review retryability settle admits non-exhausted timeout and stall", () => {
+    for (const failureKind of ["timeout", "stall"] as const) {
+      expect(isPostCommitReviewRetryableFailureKind({ failureKind })).toBe(true);
+    }
+    const timeoutOnly = (failureKind: InvocationFailureKind) => failureKind === "timeout";
+    expect(isPostCommitReviewRetryableFailureKind({ failureKind: "stall" })).not.toBe(timeoutOnly("stall"));
+    expect(isPostCommitReviewRetryableFailureKind({ failureKind: "error" })).toBe(false);
+    expect(isPostCommitReviewRetryableFailureKind({ failureKind: "timeout", exhaustedRoleTimeout: true })).toBe(false);
   });
 
   test("settles review-debate stall after committed implement write step with resumable=true and preserves commit and verdict", async () => {

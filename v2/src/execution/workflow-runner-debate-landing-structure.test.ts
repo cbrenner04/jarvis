@@ -12,6 +12,7 @@ const EXTRACTED_FROM_WORKFLOW_RUNNER = [
   "finishReviewDebateLanding",
   "commitReviewDebateOutcome",
   "buildReviewDebateLandingActuatorContext",
+  "buildStandardReviewLandingActuatorContext",
   "repromptReviewedStagedMarkdownLintOrFail",
 ] as const;
 

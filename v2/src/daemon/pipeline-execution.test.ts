@@ -33,6 +33,7 @@ import type {
 import { analyzeFailedPipelineReopenShape, openStateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
 import { rollupWorkflowRunStatus } from "../persistence/workflow-run-status-rollup.ts";
+import { spinUntilMicrotask } from "../testing/bounded-microtask-spin.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { makeIpcClient } from "../testing/ipc-client-fake.ts";
 import { flushBackgroundRuns } from "../testing/run-control.ts";
@@ -610,9 +611,7 @@ describe("runPipeline", () => {
       resolveStage: resolveStageStub(),
     });
 
-    while (!stage0WaitCalled) {
-      await Promise.resolve();
-    }
+    await spinUntilMicrotask(() => stage0WaitCalled, "stage0WaitCalled");
 
     expect(dispatchOrder).toEqual([0]);
     expect(stages().find((s) => s.stageId === "s2")?.status).toBe("pending");
@@ -1923,9 +1922,7 @@ describe("pipeline activation after restart", () => {
       async () => false,
     );
 
-    while (!stage1WaitCalled) {
-      await Promise.resolve();
-    }
+    await spinUntilMicrotask(() => stage1WaitCalled, "stage1WaitCalled");
 
     expect(dispatchOrder).toEqual([1]);
     const byId = new Map(stages().map((s) => [s.stageId, s]));
@@ -2768,9 +2765,7 @@ describe("resumePipeline", () => {
           return "completed";
         },
       });
-      while (!stage1WaitCalled) {
-        await Promise.resolve();
-      }
+      await spinUntilMicrotask(() => stage1WaitCalled, "stage1WaitCalled");
       expect(dispatchOrder).toEqual([1]);
       expect(stages().find((s) => s.stageId === "s1")?.workflowInvocationId).toBe("inv-1");
       stage1Wait.resolve("completed");
@@ -3233,9 +3228,7 @@ describe("resumePipeline", () => {
       },
       resolveStage: resolveStageStub(),
     });
-    while (!failedStageWaitCalled) {
-      await Promise.resolve();
-    }
+    await spinUntilMicrotask(() => failedStageWaitCalled, "failedStageWaitCalled");
     expect(failedDispatch).toEqual([1]);
     expect(
       failedStore.loadPipeline(failedPipelineId)?.stages.find((stage) => stage.stageId === "s1")?.workflowInvocationId,
@@ -4205,9 +4198,10 @@ describe("pipeline terminal publication settlement", () => {
 
       const runPromise = runPipeline(PIPELINE_ID, terminalRunDeps(store, executeTerminalPublication));
 
-      while (stages().find((s) => s.stageId === "implement")?.status !== "succeeded") {
-        await Promise.resolve();
-      }
+      await spinUntilMicrotask(
+        () => stages().find((s) => s.stageId === "implement")?.status === "succeeded",
+        "implement stage succeeded",
+      );
 
       const midPipeline = store.loadPipeline(PIPELINE_ID);
       if (!midPipeline) throw new Error("expected pipeline");

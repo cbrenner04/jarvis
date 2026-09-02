@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,11 +12,15 @@ import {
   createDebateStep,
   createShrinkTestStep,
   DEBATE_AGENT_MODEL_CONFIG,
+  initGitWorkspace,
   TestLogSink,
 } from "./workflow-runner.test-support.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
 import { executeWorkflow, type ReviewDebateWorkflowStep } from "./workflow-runner.ts";
-import { isPostCommitReviewRetryableFailureKind } from "./workflow-runner-debate-landing.ts";
+import {
+  discardEphemeralReviewVerdictDrift,
+  isPostCommitReviewRetryableFailureKind,
+} from "./workflow-runner-debate-landing.ts";
 
 describe("executeWorkflow review-debate landing", () => {
   function debateIntentStep(
@@ -405,6 +410,20 @@ describe("executeWorkflow review-debate landing", () => {
       expect(debateCalls).toEqual(["ADV", "ADVOC", "ADJ", "ACT"]);
       expect(secondResult.runId).not.toBe(firstResult.runId);
     });
+  });
+
+  test("discardEphemeralReviewVerdictDrift restores tracked verdict edits in git worktrees", async () => {
+    // @mutate v2/src/execution/workflow-runner-debate-landing.ts "if (!existsSync(join(worktreePath, \".git\"))) return;" -> "if (existsSync(join(worktreePath, \".git\"))) return;"
+    const worktreePath = initGitWorkspace("debate-landing-verdict-drift-");
+    const verdictPath = join(worktreePath, "verdict-patch.md");
+    writeFileSync(verdictPath, "committed\n", "utf8");
+    execFileSync("git", ["add", verdictPath], { cwd: worktreePath });
+    execFileSync("git", ["commit", "-qm", "seed verdict"], { cwd: worktreePath });
+    writeFileSync(verdictPath, "ephemeral drift\n", "utf8");
+
+    await discardEphemeralReviewVerdictDrift(worktreePath, verdictPath);
+
+    expect(readFileSync(verdictPath, "utf8")).toBe("committed\n");
   });
 
   test("post-commit review retryability settle admits non-exhausted timeout and stall", () => {

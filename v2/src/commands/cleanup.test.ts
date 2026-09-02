@@ -33,6 +33,7 @@ import {
   type DiscoveredWorktree,
   discoverMaterializedWorktrees,
   discoverMergedBranchRefCandidates,
+  discoverStrandedArtifacts,
   exactOriginTrackingRefOid,
   inspectStrandedArtifacts,
   listDirtyWorktreePathsForStaleReset,
@@ -820,6 +821,47 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       expect(eligible).toHaveLength(1);
       expect(eligible[0]?.branch).toBe(branch);
       expect(stdout).not.toContain("no durable implementation branch");
+    }));
+
+  test("discovers completed external plan directories for planSourcePublishesExternally projects and ignores completed sibling and unrelated storage", async () =>
+    withJarvisHome(async () => {
+      writeMachineConfig({ git: false });
+      const eligibleName = "20260902T100001Z-external-discover-eligible";
+      const { plansHome, specReadRoot } = createExternalPlan(eligibleName, "[x] Done");
+      const completedName = "archived-external-plan";
+      mkdirSync(join(plansHome, "completed", completedName), { recursive: true });
+      writeFileSync(join(plansHome, "completed", completedName, "index.md"), "# archived\n");
+      const otherPlansHome = join(jarvisRoot, "specs", projectSafeId("other-project"), "plans", "unrelated");
+      mkdirSync(otherPlansHome, { recursive: true });
+      writeFileSync(join(otherPlansHome, "index.md"), "# other\n");
+      const readyIntent = join(jarvisRoot, "specs", projectSafeId("project"), "ready-intents", "ignored.md");
+      mkdirSync(dirname(readyIntent), { recursive: true });
+      writeFileSync(readyIntent, "# ready\n");
+      mkdirSync(join(plansHome, "no-index-plan"), { recursive: true });
+
+      const discovered = discoverStrandedArtifacts({ project: { root: projectRoot } });
+      const external = discovered.filter((artifact) => artifact.home === plansHome);
+
+      expect(external).toHaveLength(1);
+      expect(external[0]).toMatchObject({
+        home: plansHome,
+        source: realpathSync(specReadRoot),
+        name: eligibleName,
+        project: "project",
+      });
+    }));
+
+  test("skips external plans scan for registered projects where planSourcePublishesExternally is false", async () =>
+    withJarvisHome(async () => {
+      writeMachineConfig({});
+      createExternalPlan("20260902T100002Z-external-inrepo-only", "[x] Done");
+
+      const discovered = discoverStrandedArtifacts({ project: { root: projectRoot } });
+      const external = discovered.filter((artifact) =>
+        artifact.source.includes(join("specs", projectSafeId("project"))),
+      );
+
+      expect(external).toHaveLength(0);
     }));
 
   test("refuses open-home stranded archival while a materialized owner is not retired", async () => {

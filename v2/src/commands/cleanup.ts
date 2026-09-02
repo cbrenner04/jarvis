@@ -8,6 +8,7 @@ import {
   originTrackingRefResolvesAsync,
 } from "../../../shared/git.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
+import { projectSafeId } from "../../../shared/project-safe-id.ts";
 import { parseSpec } from "../../../shared/spec-parser.ts";
 import {
   AsyncSubprocessError,
@@ -20,7 +21,11 @@ import { parseListRuns } from "../daemon/daemon-wire.ts";
 import { mergeRunLists } from "../daemon/merge-run-lists.ts";
 import { type QueryDaemonListsDeps, queryDaemonListsFromSockets } from "../daemon/query-daemon-lists-from-sockets.ts";
 import { isMaterializedNodeModulesPath } from "../execution/external-worktree.ts";
-import { resolveExternalPlanSpecIdentity } from "../execution/implement-workflow-steps.ts";
+import {
+  planSourcePublishesExternally,
+  resolveExternalPlanSpecIdentity,
+} from "../execution/implement-workflow-steps.ts";
+import { readProjectConfigRecord } from "../config/machine-config-loader.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { jarvisHome } from "../paths.ts";
@@ -857,10 +862,21 @@ function previewArtifact(spec: ArtifactSpec, io: { stdout: (s: string) => void }
   );
 }
 
-type DiscoveredStrandedArtifact = Omit<ArtifactSpec, "branch"> & { project: string };
+export type DiscoveredStrandedArtifact = Omit<ArtifactSpec, "branch"> & { project: string };
 type StrandedArtifact = DiscoveredStrandedArtifact & { branch: string };
 
-function discoverStrandedArtifacts(registry: Record<string, ProjectRegistryEntry>): DiscoveredStrandedArtifact[] {
+function ownersBySafeId(registry: Record<string, ProjectRegistryEntry>): Map<string, string[]> {
+  const bySafeId = new Map<string, string[]>();
+  for (const project of Object.keys(registry)) {
+    const safeId = projectSafeId(project);
+    const owners = bySafeId.get(safeId) ?? [];
+    owners.push(project);
+    bySafeId.set(safeId, owners);
+  }
+  return bySafeId;
+}
+
+function discoverInRepoStrandedArtifacts(registry: Record<string, ProjectRegistryEntry>): DiscoveredStrandedArtifact[] {
   const artifacts: DiscoveredStrandedArtifact[] = [];
   for (const [project, entry] of Object.entries(registry)) {
     const home = join(entry.root, "v2", "spec");
@@ -875,6 +891,59 @@ function discoverStrandedArtifacts(registry: Record<string, ProjectRegistryEntry
     }
   }
   return artifacts;
+}
+
+function discoverExternalPlanStrandedArtifacts(
+  registry: Record<string, ProjectRegistryEntry>,
+  configPath: string,
+  safeIdOwners: Map<string, string[]>,
+): DiscoveredStrandedArtifact[] {
+  const artifacts: DiscoveredStrandedArtifact[] = [];
+  for (const [project] of Object.entries(registry)) {
+    const safeId = projectSafeId(project);
+    if ((safeIdOwners.get(safeId)?.length ?? 0) !== 1) continue;
+    const projectConfig = readProjectConfigRecord(project, configPath);
+    if (projectConfig === undefined || !planSourcePublishesExternally(projectConfig)) continue;
+
+    const plansHome = join(jarvisHome(), "specs", safeId, "plans");
+    if (!existsSync(plansHome)) continue;
+    try {
+      for (const child of readdirSync(plansHome, { withFileTypes: true })) {
+        if (!child.isDirectory() || child.name === "completed") continue;
+        const indexPath = join(plansHome, child.name, "index.md");
+        if (!existsSync(indexPath)) continue;
+        let resolvedIndexPath = indexPath;
+        try {
+          resolvedIndexPath = realpathSync(indexPath);
+        } catch {
+          continue;
+        }
+        const identity = resolveExternalPlanSpecIdentity(resolvedIndexPath, registry, configPath);
+        if (identity === undefined || "error" in identity || identity.project !== project) continue;
+        if (identity.specReadRoot === undefined) continue;
+        artifacts.push({
+          home: plansHome,
+          source: identity.specReadRoot,
+          name: child.name,
+          project,
+        });
+      }
+    } catch {
+      // A plans home that cannot be read has no safely inspectable candidates.
+    }
+  }
+  return artifacts;
+}
+
+export function discoverStrandedArtifacts(
+  registry: Record<string, ProjectRegistryEntry>,
+): DiscoveredStrandedArtifact[] {
+  const configPath = join(jarvisHome(), "config.json");
+  const safeIdOwners = ownersBySafeId(registry);
+  return [
+    ...discoverInRepoStrandedArtifacts(registry),
+    ...discoverExternalPlanStrandedArtifacts(registry, configPath, safeIdOwners),
+  ];
 }
 
 function recordedStrandedBranch(

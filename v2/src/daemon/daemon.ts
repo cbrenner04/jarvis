@@ -8,7 +8,6 @@ import {
 } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import type { CliDeps } from "../cli/deps.ts";
 import {
   FILTERED_LIST_DEFAULT_LIMIT,
   type ListRpcParams,
@@ -29,13 +28,10 @@ import {
 } from "../config/machine-config-loader.ts";
 import { loadMachineProfileModels } from "../config/machine-profile-loader.ts";
 import type { InvocationFailureDetail, InvocationFailureKind } from "../execution/invocation-failure.ts";
-import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
-import type { TerminalPublicationInput, TerminalPublicationResult } from "../execution/terminal-publication.ts";
 import {
   type AnyWorkflowStep,
   type IntentFinalizationResumeDeps,
   type ReviewProgress,
-  recoverPlanStage,
   resolveExhaustedRedResumeContext,
   resolveIntentFinalizationResumeContext,
   resolveReviewMutationResumeContext,
@@ -50,7 +46,6 @@ import {
   findSurvivingMutationRepromptFromLog,
   type WriteLoopInput,
 } from "../execution/write-loop.ts";
-import { connectIpcClient, type IpcClient } from "../ipc/client";
 import { type IpcServer, type RpcHandler, startIpcServer } from "../ipc/server";
 import { jarvisHome } from "../paths.ts";
 import {
@@ -65,7 +60,6 @@ import {
 import {
   type Attempt,
   isTerminalRunStatus,
-  loadPipelineContext,
   openStateStore,
   type Run,
   type RunStatus,
@@ -80,6 +74,7 @@ import {
   supersedePeerDaemon,
 } from "./daemon-peer-socket.ts";
 import { createRunControlHandlerContext, type RunControlHandlerContextDeps } from "./daemon-run-control-context.ts";
+import { createPipelineHandlers } from "./daemon-pipeline-handlers.ts";
 import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 import { createImplementRecoverHandler, createWorkflowStartAdmission } from "./daemon-workflow-admission-handlers.ts";
 import { createTailStreamHandler } from "./daemon-tail-stream.ts";
@@ -88,28 +83,6 @@ import {
   type NotificationSinkSpawner,
   runNotificationSweep,
 } from "./operator-notification-sweep.ts";
-import {
-  applyPipelineApprovalDecision,
-  derivePipelineState,
-  type PipelineExecutionDeps,
-  recoverContinuablePipelines,
-  resumePipeline,
-  runPipeline,
-} from "./pipeline-execution.ts";
-import {
-  PIPELINE_WAIT_ABORTED,
-  PipelineWaitAbortedError,
-  projectPipelineSnapshot,
-  waitForPipelineBoundary,
-} from "./pipeline-observation.ts";
-import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
-import {
-  claimResolvedPipelineBranchStageRecovery,
-  executeClaimedPipelineBranchStageRecovery,
-  type PipelineStageRecoveryAttempt,
-  resolveBlockedPlanStageRecoveryTarget,
-} from "./pipeline-stage-recovery.ts";
-import { resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
 import {
   composeRunOperatorError,
   findTerminalLogRecord,
@@ -542,9 +515,8 @@ export function runListTerminalFinishAtMs(
  * Read bound for the intent-stage stale-reset preflight's self-RPCs (`list`, `check_workflow_start_claim`).
  * These are fast local handlers; the bound only exists so a wedged reply can't hang the preflight
  * indefinitely (`connectIpcClient`'s own 5s bound covers connect, not reply). On timeout the preflight
- * fails open (see `runSharedStaleResetPreflight`).
+ * fails open (see `runSharedStaleResetPreflight`). Defined in `daemon-pipeline-handlers.ts`.
  */
-const STALE_RESET_RPC_TIMEOUT_MS = 30_000;
 
 export type RunControlHandlerDeps = RunControlHandlerContextDeps;
 
@@ -672,17 +644,10 @@ export function promoteQueuedRunImpl(deps: PromoteQueuedRunDeps, bypassSettleDel
  */
 export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const ctx = createRunControlHandlerContext(deps);
-  const _registry = ctx.registry;
   const activeRuns = ctx.activeRuns;
   const waitAbortControllers = ctx.waitAbortControllers;
   const reportReviewProgress = ctx.reportReviewProgress;
   const clearLiveReviewProgress = ctx.clearLiveReviewProgress;
-  const pipelineWaitObserver = ctx.pipelineWaitObserver;
-  const store = ctx.store;
-  const { logReader, writeLoopExecutor, failureReporter, logsPath, intentFinalizationResumeDeps } = ctx;
-  const checkMemoryHeadroom = ctx.checkMemoryHeadroom;
-  const settleDelayMs = ctx.settleDelayMs;
-  const settleState = ctx.settleState;
 
   const workflowStart = createWorkflowStartAdmission(ctx);
   const {
@@ -713,261 +678,21 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     resumeFinalizationOnly: lifecycle.resumeFinalizationOnly,
   });
 
-  const resolveStage = deps.resolveStage ?? resolveStageWorkflowSteps;
-
-  const pipelineExecutionDeps = (): Omit<PipelineExecutionDeps, "context"> => {
-    const daemonSocketPath = deps.daemonSocketPath;
-    const connectStaleResetClient = deps.connectStaleResetClient;
-    return {
-      store,
-      dispatch: pipelineDispatch,
-      wait: pipelineWait,
-      resolveStage,
-      ...(logReader !== undefined ? { loadLogRecords: (entryRunId: string) => logReader.tail(entryRunId) } : {}),
-      ...(deps.executeTerminalPublication !== undefined
-        ? { executeTerminalPublication: deps.executeTerminalPublication }
-        : {}),
-      ...(daemonSocketPath !== undefined
-        ? {
-            staleResetPreflight: {
-              cliDeps:
-                deps.staleResetCliDeps ??
-                ({ jarvisRoot: jarvisHome(), subprocessRunner: realAsyncSubprocessRunner } as unknown as CliDeps),
-              io: { stdout: () => {}, stderr: (text: string) => console.error(text) },
-              connectClient: connectStaleResetClient
-                ? () => connectStaleResetClient(daemonSocketPath)
-                : () => connectIpcClient(daemonSocketPath, STALE_RESET_RPC_TIMEOUT_MS),
-            },
-          }
-        : {}),
-    };
-  };
-
-  /**
-   * Admit an already-validated pipeline definition: create its durable rows, start the
-   * ordered daemon-owned loop, and resolve once those rows exist — not once the pipeline
-   * finishes. The loop keeps running after this handler resolves and the client disconnects.
-   */
-  const handlePipelineStartHandler: RpcHandler = (frame) => {
-    const params = frame.params as { definition?: PipelineDefinition; context?: unknown } | undefined;
-    if (!params?.definition || !params?.context) {
-      return { kind: "error", code: "invalid_params", message: "definition and context required" };
-    }
-    const { definition } = params;
-    const admittedContext = loadPipelineContext(params.context);
-    if (!admittedContext.ok) {
-      return { kind: "error", code: "invalid_params", message: admittedContext.error.errors.join("; ") };
-    }
-    const pipelineId = store.createPipeline({ definition, context: admittedContext.context });
-    const admitted = store.loadPipeline(pipelineId);
-    if (!admitted?.context) {
-      return {
-        kind: "error",
-        code: "admission_failed",
-        message: "pipeline context was not durably persisted",
-      };
-    }
-    const executionContext = loadPipelineContext(admitted.context);
-    if (!executionContext.ok) {
-      return {
-        kind: "error",
-        code: "admission_failed",
-        message: executionContext.error.errors.join("; "),
-      };
-    }
-    void runPipeline(pipelineId, { ...pipelineExecutionDeps(), context: executionContext.context }).catch(
-      (err: unknown) => {
-        console.error(`Pipeline ${pipelineId} execution failed:`, err);
-      },
-    );
-    return { kind: "response", result: { pipelineId } };
-  };
-
-  const handlePipelineApprovalDecisionHandler =
-    (decision: "approved" | "rejected"): RpcHandler =>
-    (frame) => {
-      if (ctx.retiring) {
-        return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
-      }
-      const params = frame.params as { pipelineId?: string; stageId?: string; branchKey?: string } | undefined;
-      if (!params?.pipelineId || !params?.stageId) {
-        return { kind: "error", code: "invalid_params", message: "pipelineId and stageId required" };
-      }
-      const { pipelineId, stageId, branchKey } = params;
-      const outcome = applyPipelineApprovalDecision(pipelineId, stageId, decision, pipelineExecutionDeps(), branchKey);
-      return { kind: "response", result: outcome };
-    };
-
-  const handlePipelineApproveHandler = handlePipelineApprovalDecisionHandler("approved");
-  const handlePipelineRejectHandler = handlePipelineApprovalDecisionHandler("rejected");
-
-  const handlePipelineResumeHandler: RpcHandler = async (frame) => {
-    if (ctx.retiring) {
-      return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
-    }
-    const params = frame.params as
-      | {
-          pipelineId?: string;
-          branchKey?: unknown;
-          resetDespiteDirty?: boolean;
-          resetDespiteLandedCriteria?: boolean;
-        }
-      | undefined;
-    if (!params?.pipelineId) {
-      return { kind: "error", code: "invalid_params", message: "pipelineId required" };
-    }
-    if (params.branchKey !== undefined && (typeof params.branchKey !== "string" || params.branchKey.trim() === "")) {
-      return { kind: "error", code: "invalid_params", message: "branchKey must be a non-blank string" };
-    }
-    const { pipelineId } = params;
-    const branchKey = params.branchKey as string | undefined;
-    const outcome = await resumePipeline(pipelineId, pipelineExecutionDeps(), {
-      detachContinuation: true,
-      ...(branchKey !== undefined ? { branchKey } : {}),
-      resetDespiteDirty: params.resetDespiteDirty === true,
-      resetDespiteLandedCriteria: params.resetDespiteLandedCriteria === true,
-    });
-    return { kind: "response", result: outcome };
-  };
-
-  /** Resolves a recovery target before shared workflow admission, then detaches its distinct lifecycle. */
-  const handlePipelineRecoverHandler: RpcHandler = async (frame) => {
-    // `=== true` (not the bare `if (retiring)` every sibling handler uses) only so the
-    // `@mutate` checkpoint in daemon-pipeline-recover.test.ts has a unique line to match —
-    // do not "normalize" this back to the bare form without updating that directive.
-    if (ctx.retiring === true) {
-      return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
-    }
-    const params = frame.params as
-      | {
-          pipelineId?: string;
-          branchKey?: string;
-          resetDespiteDirty?: boolean;
-          resetDespiteLandedCriteria?: boolean;
-        }
-      | undefined;
-    if (
-      typeof params?.pipelineId !== "string" ||
-      params.pipelineId.length === 0 ||
-      typeof params?.branchKey !== "string" ||
-      params.branchKey.length === 0
-    ) {
-      return { kind: "error", code: "invalid_params", message: "pipelineId and branchKey required" };
-    }
-    const { pipelineId, branchKey } = params;
-
-    const resolution = await resolveBlockedPlanStageRecoveryTarget({ pipelineId, branchKey }, { store, resolveStage });
-    if (!resolution.ok) {
-      return {
-        kind: "response",
-        result: {
-          kind: "resolution_refused",
-          pipelineId,
-          branchKey,
-          reason: resolution.reason,
-          message: resolution.message,
-        },
-      };
-    }
-    const { target } = resolution;
-    const key: OwnershipKey = { project: target.project, branch: target.branch };
-    const activeKey = ownershipKeyString(key);
-    const activeRun: ActiveRun = { kind: "recovery", runId: target.runId };
-    const stageAdmission = { pipelineId, stageId: target.stageId, branchKey };
-    let releaseDurableAdmission = false;
-    let logSink: LogSink | undefined;
-    return admitWorkflowStart({
-      key,
-      ownership: { runId: target.runId, worktreePath: target.worktreePath },
-      activeKey,
-      activeRun,
-      admit: () => {
-        logSink = logsPath !== undefined ? (deps.recoveryLogSinkFactory ?? openLogSink)(logsPath) : undefined;
-        try {
-          const outcome = claimResolvedPipelineBranchStageRecovery({ pipelineId, branchKey }, target, store);
-          if (outcome.kind === "admitted") {
-            releaseDurableAdmission = true;
-            return { kind: "admitted" };
-          }
-          return { kind: "refused", result: { kind: "response", result: outcome } };
-        } catch (error) {
-          store.releasePipelineStageAdmission(stageAdmission);
-          throw error;
-        }
-      },
-      execute: (onSettled) => {
-        void executeClaimedPipelineBranchStageRecovery(
-          { pipelineId, branchKey },
-          target,
-          {
-            ...pipelineExecutionDeps(),
-            attempt: deps.recoveryAttempt ?? recoverPlanStage,
-            ...(logSink !== undefined ? { logSink } : {}),
-          },
-          { detachContinuation: true, onSettled },
-        );
-        return {
-          kind: "response",
-          result: { kind: "admitted", pipelineId, branchKey, stageId: target.stageId, entryRunId: target.runId },
-        };
-      },
-      rollbackAdmission: () => {
-        if (releaseDurableAdmission) store.releasePipelineStageAdmission(stageAdmission);
-        logSink?.close();
-      },
-      settle: () => logSink?.close(),
-    });
-  };
-
-  const handlePipelineDismissalHandler =
-    (mode: "dismiss" | "undismiss"): RpcHandler =>
-    (frame) => {
-      const params = frame.params as { pipelineId?: unknown } | undefined;
-      const pipelineId = typeof params?.pipelineId === "string" ? params.pipelineId : "";
-      if (pipelineId.length === 0) {
-        return { kind: "error", code: "invalid_params", message: "pipelineId required" };
-      }
-      const outcome =
-        mode === "dismiss" ? store.dismissPipeline({ pipelineId }) : store.undismissPipeline({ pipelineId });
-      if (outcome.kind === "refused") {
-        return { kind: "response", result: outcome };
-      }
-      // biome-ignore lint/style/noNonNullAssertion: dismissal returned non-refused, so the pipeline is present
-      const pipeline = store.loadPipeline(pipelineId)!;
-      return { kind: "response", result: { ...outcome, state: derivePipelineState(pipeline) } };
-    };
-
-  const handlePipelineDismissHandler = handlePipelineDismissalHandler("dismiss");
-  const handlePipelineUndismissHandler = handlePipelineDismissalHandler("undismiss");
-
-  const handlePipelineListHandler: RpcHandler = (frame) => {
-    const params = frame.params as { includeDismissed?: unknown } | undefined;
-    const includeDismissed = params?.includeDismissed === true;
-    const pipelines = store.listPipelines().filter((pipeline) => includeDismissed || pipeline.dismissedAt === null);
-    return { kind: "response", result: { pipelines: pipelines.map(projectPipelineSnapshot) } };
-  };
-
-  const handlePipelineWaitHandler: RpcHandler = async (frame, signal) => {
-    const params = frame.params as { pipelineId?: unknown } | undefined;
-    if (typeof params?.pipelineId !== "string" || params.pipelineId.length === 0) {
-      return { kind: "error", code: "invalid_params", message: "Missing pipelineId" };
-    }
-
-    const pipelineId = params.pipelineId;
-    if (!store.loadPipeline(pipelineId)) {
-      return { kind: "error", code: "unknown_pipeline", message: `Pipeline ${pipelineId} not found` };
-    }
-
-    try {
-      const boundary = await waitForPipelineBoundary(store, pipelineId, signal, pipelineWaitObserver);
-      return { kind: "response", result: boundary };
-    } catch (error) {
-      if (signal.aborted || error instanceof PipelineWaitAbortedError) {
-        throw new Error(PIPELINE_WAIT_ABORTED);
-      }
-      throw error;
-    }
-  };
+  const pipeline = createPipelineHandlers(ctx, {
+    pipelineDispatch,
+    pipelineWait,
+    admitWorkflowStart,
+    ...(deps.resolveStage !== undefined ? { resolveStage: deps.resolveStage } : {}),
+    ...(deps.recoveryAttempt !== undefined ? { recoveryAttempt: deps.recoveryAttempt } : {}),
+    ...(deps.recoveryLogSinkFactory !== undefined ? { recoveryLogSinkFactory: deps.recoveryLogSinkFactory } : {}),
+    ...(deps.executeTerminalPublication !== undefined
+      ? { executeTerminalPublication: deps.executeTerminalPublication }
+      : {}),
+    ...(deps.daemonSocketPath !== undefined ? { daemonSocketPath: deps.daemonSocketPath } : {}),
+    ...(deps.connectStaleResetClient !== undefined ? { connectStaleResetClient: deps.connectStaleResetClient } : {}),
+    ...(deps.staleResetCliDeps !== undefined ? { staleResetCliDeps: deps.staleResetCliDeps } : {}),
+    ...(deps.reconciledRunIds !== undefined ? { reconciledRunIds: deps.reconciledRunIds } : {}),
+  });
 
   const hasActiveRuns = (): boolean => activeRuns.size > 0;
 
@@ -988,19 +713,18 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     wait: waitHandler,
     dismiss: dismissRunHandler,
     undismiss: undismissRunHandler,
-    pipeline_start: handlePipelineStartHandler,
-    pipeline_approve: handlePipelineApproveHandler,
-    pipeline_reject: handlePipelineRejectHandler,
-    pipeline_resume: handlePipelineResumeHandler,
-    pipeline_recover: handlePipelineRecoverHandler,
-    pipeline_dismiss: handlePipelineDismissHandler,
-    pipeline_undismiss: handlePipelineUndismissHandler,
-    pipeline_list: handlePipelineListHandler,
-    pipeline_wait: handlePipelineWaitHandler,
-    continueContinuablePipelines: async () =>
-      recoverContinuablePipelines(store, pipelineExecutionDeps(), undefined, new Set(deps.reconciledRunIds ?? [])),
+    pipeline_start: pipeline.pipeline_start,
+    pipeline_approve: pipeline.pipeline_approve,
+    pipeline_reject: pipeline.pipeline_reject,
+    pipeline_resume: pipeline.pipeline_resume,
+    pipeline_recover: pipeline.pipeline_recover,
+    pipeline_dismiss: pipeline.pipeline_dismiss,
+    pipeline_undismiss: pipeline.pipeline_undismiss,
+    pipeline_list: pipeline.pipeline_list,
+    pipeline_wait: pipeline.pipeline_wait,
+    continueContinuablePipelines: pipeline.continueContinuablePipelines,
     /** Non-RPC seam: exposes the built pipeline-execution deps so tests can assert stale-reset wiring. */
-    pipelineExecutionDeps,
+    pipelineExecutionDeps: pipeline.pipelineExecutionDeps,
     /** Records a review step's currently-executing or terminal role/outcome. */
     reportReviewDebateProgress: reportReviewProgress,
     /** Clears live review progress for an invocation; frozen terminal snapshots are retained. */

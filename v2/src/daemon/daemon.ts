@@ -91,8 +91,8 @@ import {
   type SupersedePeerDaemon,
   supersedePeerDaemon,
 } from "./daemon-peer-socket.ts";
+import { createRunControlHandlerContext, type RunControlHandlerContextDeps } from "./daemon-run-control-context.ts";
 import { createTailStreamHandler } from "./daemon-tail-stream.ts";
-import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
 import {
   NOTIFICATION_SWEEP_INTERVAL_MS,
   type NotificationSinkSpawner,
@@ -107,10 +107,8 @@ import {
   runPipeline,
 } from "./pipeline-execution.ts";
 import {
-  bindPipelineWaitObserver,
   PIPELINE_WAIT_ABORTED,
   PipelineWaitAbortedError,
-  PipelineWaitObserver,
   projectPipelineSnapshot,
   waitForPipelineBoundary,
 } from "./pipeline-observation.ts";
@@ -144,7 +142,7 @@ export type OwnershipKey = {
   branch: string;
 };
 
-type ActiveRun =
+export type ActiveRun =
   | {
       kind: "write-loop";
       runId: string;
@@ -823,49 +821,7 @@ export function runListTerminalFinishAtMs(
  */
 const STALE_RESET_RPC_TIMEOUT_MS = 30_000;
 
-export type RunControlHandlerDeps = {
-  stateStore: StateStore;
-  logReader?: LogReader;
-  /** When set, workflow `start` passes a log sink into `executeWorkflow`. */
-  logsPath?: string;
-  /** Daemon session id stamped on workflow telemetry; required when `logsPath` is set. */
-  operatorSessionId?: string;
-  writeLoopExecutor: (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => Promise<void>;
-  failureReporter: (runId: string, reason: unknown) => void | Promise<void>;
-  /** `revise`'s dirty-worktree gate; defaults to a real `git status --porcelain` check. */
-  /** `start`'s memory-watermark admission check; defaults to the real free-memory reader. */
-  hasMemoryHeadroom?: () => boolean;
-  /** Delay (ms) after promoting a queued run before the next promotion re-checks headroom; defaults to configured `memory.settleDelayMs`. */
-  settleDelayMs?: number;
-  /** Test seam for pre-existing daemon-memory ownership. */
-  registry?: WorktreeOwnershipRegistry;
-  /** Test seam for {@link resumePopulatedIntentPublication}'s commit/publish/ready-finalize calls. */
-  intentFinalizationResumeDeps?: Omit<IntentFinalizationResumeDeps, "logSink">;
-  /** Test seam for `pipeline_start`'s stage resolution; defaults to the real preset resolver. */
-  resolveStage?: typeof resolveStageWorkflowSteps;
-  /** Test seam replacing the daemon's workflow dispatch closure for pipeline stages. */
-  pipelineDispatch?: PipelineWorkflowDispatch;
-  /** Test seam replacing the daemon's workflow wait closure for pipeline stages. */
-  pipelineWait?: PipelineWorkflowWait;
-  /** Test seam for `pipeline_recover`'s attempt; defaults to `recoverPlanStage`. */
-  recoveryAttempt?: PipelineStageRecoveryAttempt;
-  /** Test seam for `pipeline_recover`'s settlement-scoped log resource. */
-  recoveryLogSinkFactory?: (storagePath: string) => LogSink;
-  /** Test seam for pipeline terminal publication settlement. */
-  executeTerminalPublication?: (input: TerminalPublicationInput) => Promise<TerminalPublicationResult>;
-  /**
-   * The daemon's own socket path. When set, pipeline workflow-stage re-dispatch runs the shared
-   * stale-reset preflight, opening an `IpcClient` against this socket per preflight. Undefined
-   * (most tests) leaves the preflight unwired.
-   */
-  daemonSocketPath?: string;
-  /** Test seam for the stale-reset preflight's client factory; defaults to {@link connectIpcClient}. */
-  connectStaleResetClient?: (socketPath: string) => Promise<IpcClient>;
-  /** Test seam for the stale-reset preflight's `CliDeps` (only `jarvisRoot`/`subprocessRunner` are read). */
-  staleResetCliDeps?: CliDeps;
-  /** Entry run ids reconciled by this same daemon start; excludes their stages from the deferred-settlement redrive. */
-  reconciledRunIds?: readonly string[];
-};
+export type RunControlHandlerDeps = RunControlHandlerContextDeps;
 
 export type WaitRunCompletionResult = {
   runStatus: RunStatus;
@@ -1020,51 +976,20 @@ export function promoteQueuedRunImpl(deps: PromoteQueuedRunDeps, bypassSettleDel
  *   await `failureReporter`, then release — they do not propagate to RPC callers.
  */
 export function createRunControlHandlers(deps: RunControlHandlerDeps) {
-  const _registry = deps.registry ?? new WorktreeOwnershipRegistry();
-  const activeRuns = new Map<string, ActiveRun>();
-  const waitAbortControllers = new Set<AbortController>();
-  let retiring = false;
-  /**
-   * Live/terminal role progress for review steps, keyed by `invocationId` then
-   * `stepId` — mirroring `runsByWorkflowInvocation`'s scoping so two concurrent invocations
-   * sharing a `stepId` don't collide. Tracked in-memory only — a review step has
-   * no durable run row, so this map is the sole source for its `list` row, populated via
-   * `reportReviewDebateProgress`.
-   */
-  const reviewDebateProgressByInvocation = new Map<string, Map<string, ReviewProgress>>();
-  const reportReviewProgress = (invocationId: string, stepId: string, progress: ReviewProgress): void => {
-    let steps = reviewDebateProgressByInvocation.get(invocationId);
-    if (!steps) {
-      steps = new Map<string, ReviewProgress>();
-      reviewDebateProgressByInvocation.set(invocationId, steps);
-    }
-    if (progress.status === "in_progress") {
-      steps.set(stepId, progress);
-      return;
-    }
-    steps.set(stepId, { ...progress, attemptCount: Math.max(progress.attemptCount ?? 0, 1) });
-  };
-  const clearLiveReviewProgress = (invocationId: string): void => {
-    const steps = reviewDebateProgressByInvocation.get(invocationId);
-    if (steps === undefined) return;
-    for (const [stepId, progress] of steps) {
-      if (progress.status === "in_progress") steps.delete(stepId);
-    }
-    if (steps.size === 0) reviewDebateProgressByInvocation.delete(invocationId);
-  };
-  // Tracks `executeWorkflow` promises by entry run id (step 0), allowing wait to await the full workflow
-  const workflowPromisesByEntryRunId = new Map<string, Promise<void>>();
-  const pipelineWaitObserver = new PipelineWaitObserver();
-  const store = bindPipelineWaitObserver(deps.stateStore, pipelineWaitObserver);
+  const ctx = createRunControlHandlerContext(deps);
+  const _registry = ctx.registry;
+  const activeRuns = ctx.activeRuns;
+  const waitAbortControllers = ctx.waitAbortControllers;
+  const reportReviewProgress = ctx.reportReviewProgress;
+  const clearLiveReviewProgress = ctx.clearLiveReviewProgress;
+  const workflowPromisesByEntryRunId = ctx.workflowPromisesByEntryRunId;
+  const pipelineWaitObserver = ctx.pipelineWaitObserver;
+  const store = ctx.store;
   const { logReader, writeLoopExecutor, failureReporter, logsPath, operatorSessionId, intentFinalizationResumeDeps } =
-    deps;
-  const checkMemoryHeadroom = deps.hasMemoryHeadroom ?? (() => hasMemoryHeadroom(resolveMachineProfile()));
-  const injectedSettleDelayMs = deps.settleDelayMs;
-  const settleDelayMs: () => number =
-    injectedSettleDelayMs !== undefined
-      ? () => injectedSettleDelayMs
-      : () => loadSettleDelayMs(resolveMachineProfile());
-  const settleState: PromotionSettleState = { suppressedUntil: 0 };
+    ctx;
+  const checkMemoryHeadroom = ctx.checkMemoryHeadroom;
+  const settleDelayMs = ctx.settleDelayMs;
+  const settleState = ctx.settleState;
 
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: wait-completion result assembly branches on status, record, and resume context
   const resultFrom = (runId: string, runStatus: RunStatus, record?: TerminalLogRecord): WaitRunCompletionResult => {
@@ -1174,7 +1099,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   };
 
   const promoteQueuedRun = (bypassSettleDelay = false): void => {
-    if (retiring) {
+    if (ctx.retiring) {
       return;
     }
     promoteQueuedRunImpl(
@@ -1502,7 +1427,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   };
 
   const startHandler: RpcHandler = (frame) => {
-    if (retiring) {
+    if (ctx.retiring) {
       return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
     }
     const params = frame.params as { input?: WriteLoopInput; steps?: AnyWorkflowStep[] } | undefined;
@@ -1589,7 +1514,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
         fullRun,
         workflowRuns,
         liveRunIds,
-        reviewDebateProgressByInvocation,
+        ctx.reviewDebateProgressByInvocation,
         workflowEntryRollupStatus(fullRun, workflowRuns),
       ),
     };
@@ -1926,7 +1851,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   };
 
   const implementRecoverHandler: RpcHandler = async (frame) => {
-    if (retiring) {
+    if (ctx.retiring) {
       return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
     }
     const params = frame.params as ImplementRecoverParams | undefined;
@@ -1960,7 +1885,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   }
 
   const resumeHandler: RpcHandler = async (frame) => {
-    if (retiring) {
+    if (ctx.retiring) {
       return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
     }
     const params = frame.params as { runId?: string } | undefined;
@@ -2196,7 +2121,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const handlePipelineApprovalDecisionHandler =
     (decision: "approved" | "rejected"): RpcHandler =>
     (frame) => {
-      if (retiring) {
+      if (ctx.retiring) {
         return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
       }
       const params = frame.params as { pipelineId?: string; stageId?: string; branchKey?: string } | undefined;
@@ -2212,7 +2137,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const handlePipelineRejectHandler = handlePipelineApprovalDecisionHandler("rejected");
 
   const handlePipelineResumeHandler: RpcHandler = async (frame) => {
-    if (retiring) {
+    if (ctx.retiring) {
       return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
     }
     const params = frame.params as
@@ -2245,7 +2170,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     // `=== true` (not the bare `if (retiring)` every sibling handler uses) only so the
     // `@mutate` checkpoint in daemon-pipeline-recover.test.ts has a unique line to match —
     // do not "normalize" this back to the bare form without updating that directive.
-    if (retiring === true) {
+    if (ctx.retiring === true) {
       return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
     }
     const params = frame.params as
@@ -2382,10 +2307,10 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const hasActiveRuns = (): boolean => activeRuns.size > 0;
 
   const setRetiring = (): void => {
-    retiring = true;
+    ctx.retiring = true;
   };
 
-  const isRetiring = (): boolean => retiring;
+  const isRetiring = (): boolean => ctx.retiring;
 
   const handlersOut = {
     start: startHandler,
@@ -2428,6 +2353,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     setRetiring,
     /** Whether daemon is currently retiring. */
     isRetiring,
+    context: ctx,
   };
   activeRunsByHandler.set(handlersOut, activeRuns);
   return handlersOut;
@@ -2560,6 +2486,7 @@ export async function startDaemonRuntime(
     hasActiveRuns,
     isRetiring,
     pipelineExecutionDeps: _pipelineExecutionDeps,
+    context: _runControlContext,
     ...runControlHandlers
   } = createRunControlHandlers({
     stateStore: store,

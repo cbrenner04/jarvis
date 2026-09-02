@@ -20,9 +20,9 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-run-control-context.test.ts` constructs context via `createRunControlHandlerContext` and reads `activeRuns` without `activeRunForHandler`; it fails against the pre-fix tree where no context export exists.
-- [ ] `v2/src/daemon/daemon-start-list.test.ts` stays green (behavior unchanged by the context introduction).
-- [ ] `bun run typecheck` passes.
+- [x] `v2/src/daemon/daemon-run-control-context.test.ts` constructs context via `createRunControlHandlerContext` and reads `activeRuns` without `activeRunForHandler`; it fails against the pre-fix tree where no context export exists.
+- [x] `v2/src/daemon/daemon-start-list.test.ts` stays green (behavior unchanged by the context introduction).
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

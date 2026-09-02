@@ -22,11 +22,11 @@ Run lifecycle RPC handlers (`start`, `list`, `pause`, `resume`, `kill`, `wait`, 
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-run-lifecycle-handlers.test.ts` exercises lifecycle handlers through the extracted module with injected fakes; it fails against the pre-fix tree where handlers live only inside `daemon.ts`.
-- [ ] `v2/src/daemon/daemon-start-list.test.ts` stays green (behavior unchanged by the extraction).
-- [ ] `v2/src/daemon/daemon-resume.test.ts` stays green (behavior unchanged by the extraction).
-- [ ] `v2/src/daemon/daemon-wait-run-completion.test.ts` stays green (behavior unchanged by the extraction).
-- [ ] `bun run typecheck` passes.
+- [x] `v2/src/daemon/daemon-run-lifecycle-handlers.test.ts` exercises lifecycle handlers through the extracted module with injected fakes; it fails against the pre-fix tree where handlers live only inside `daemon.ts`.
+- [x] `v2/src/daemon/daemon-start-list.test.ts` stays green (behavior unchanged by the extraction).
+- [x] `v2/src/daemon/daemon-resume.test.ts` stays green (behavior unchanged by the extraction).
+- [x] `v2/src/daemon/daemon-wait-run-completion.test.ts` stays green (behavior unchanged by the extraction).
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

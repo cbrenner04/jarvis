@@ -324,3 +324,29 @@ test("pipeline_resume requires pipelineId", async () => {
     result: { kind: "refused", pipelineId: "missing-pipeline", reason: "pipeline_not_found" },
   });
 });
+
+test("pipeline_resume rejects malformed branchKey with invalid_params", async () => {
+  const handlers = pipelineHandlers();
+
+  for (const branchKey of ["", "   "]) {
+    const response = await handlers.pipeline_resume(
+      requestFrame("resume-blank", "pipeline_resume", { pipelineId: "any-pipeline", branchKey }),
+      new AbortController().signal,
+    );
+    expect(response).toEqual({
+      kind: "error",
+      code: "invalid_params",
+      message: "branchKey must be a non-blank string",
+    });
+  }
+
+  const nonStringResponse = await handlers.pipeline_resume(
+    requestFrame("resume-non-string", "pipeline_resume", { pipelineId: "any-pipeline", branchKey: 5 }),
+    new AbortController().signal,
+  );
+  expect(nonStringResponse).toEqual({
+    kind: "error",
+    code: "invalid_params",
+    message: "branchKey must be a non-blank string",
+  });
+});

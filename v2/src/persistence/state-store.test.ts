@@ -2508,9 +2508,9 @@ describe("pipelines", () => {
       // meaningful assertion is the marker's presence, not a count that shifts with every schema change.
       const squashMarker = verify.prepare("SELECT 1 FROM _migrations WHERE id = ?").get("031-baseline-squash");
       expect(squashMarker).toBeTruthy();
-      const legacyRows = verify.prepare("SELECT COUNT(*) AS total FROM _migrations WHERE id != ?").get(
-        "031-baseline-squash",
-      ) as { total: number };
+      const legacyRows = verify
+        .prepare("SELECT COUNT(*) AS total FROM _migrations WHERE id != ?")
+        .get("031-baseline-squash") as { total: number };
       expect(legacyRows.total).toBe(9);
       verify.close();
 

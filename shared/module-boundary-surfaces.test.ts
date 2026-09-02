@@ -7,6 +7,7 @@ import {
   moduleBoundariesForAcceptanceCriteria,
   normalizePlanDraftSpecDir,
   orderModuleBoundariesForSplit,
+  referencedArtifactPaths,
   spansMultipleModuleBoundaries,
   splitResiduePattern,
 } from "./module-boundary-surfaces.ts";
@@ -435,5 +436,48 @@ describe("plan draft criterion admission", () => {
     stageDraft(brokenLinkDir, "00-persistence.md", "- [ ] Keystone checkpoint: legacy shape.");
     writeFileSync(join(brokenLinkDir, "index.md"), "# Staged plan\n\n- [ ] [Missing](./00-missing.md)\n");
     expect(() => normalizePlanDraftSpecDir(brokenLinkDir)).toThrow("Plan index links unknown subspec");
+  });
+});
+
+describe("single-artifact acceptance-criteria bullets", () => {
+  test("a bullet naming exactly one artifact path is not reported multi-surface", () => {
+    const fixture = MANIFEST.fixtures[0];
+    if (!fixture) throw new Error("k2 fixture is missing");
+    const dir = stagedFixture(fixture.name);
+    const sourcePath = join(dir, `00-${fixture.parentSlug}.md`);
+    // Verbatim from the plan run blocked 2026-09-02: one doc file, but "daemon" in the prose and
+    // "workflow-runner" in the filename each match a surface pattern.
+    const singleFile =
+      "- [ ] `v2/docs/workflow-runner.md` records that standalone and chained implement share the external-spec contract without duplicating daemon resolution detail.";
+    writeFileSync(
+      sourcePath,
+      readFileSync(sourcePath, "utf8").replace("- [ ] The state-store persists completed runs atomically.", singleFile),
+    );
+
+    expect(classifyModuleBoundaryText(singleFile).length).toBeGreaterThan(1);
+    // Pre-fix this threw the multi-surface error for that bullet; other fixture-union errors are unrelated.
+    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow("multi-surface ## Acceptance criteria bullet");
+  });
+
+  test("a multi-surface bullet naming two artifact paths is still rejected", () => {
+    const fixture = MANIFEST.fixtures[0];
+    if (!fixture) throw new Error("k2 fixture is missing");
+    const dir = stagedFixture(fixture.name);
+    const sourcePath = join(dir, `00-${fixture.parentSlug}.md`);
+    writeFileSync(
+      sourcePath,
+      readFileSync(sourcePath, "utf8").replace(
+        "- [ ] The state-store persists completed runs atomically.",
+        "- [ ] `v2/src/persistence/state-store.ts` persists completed runs and `v2/src/cli.ts` exposes them.",
+      ),
+    );
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow("multi-surface ## Acceptance criteria bullet");
+  });
+
+  test("referencedArtifactPaths extracts distinct backticked paths and ignores prose and flags", () => {
+    expect(referencedArtifactPaths("`v2/docs/a.md` and `v2/docs/a.md` again")).toEqual(["v2/docs/a.md"]);
+    expect(referencedArtifactPaths("`--reset-despite-dirty` names no file")).toEqual([]);
+    expect(referencedArtifactPaths("`a/b.ts` plus `c/d.md`")).toEqual(["a/b.ts", "c/d.md"]);
   });
 });

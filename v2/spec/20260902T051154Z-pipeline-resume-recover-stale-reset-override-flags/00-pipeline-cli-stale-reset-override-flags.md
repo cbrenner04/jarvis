@@ -35,7 +35,7 @@ Standalone `plan`/`implement` re-runs accept `--reset-despite-dirty` and `--rese
 - [x] `pipeline.test.ts` — `pipeline recover admits a branch-scoped recovery request` and `pipeline recover rejects malformed arity before daemon connect` stay green.
 - [x] `pipeline.test.ts` — `help pipeline resume matches resume usage` and `help pipeline recover matches recover usage` stay green against the updated usage constants naming both override flags.
 - [x] `daemon-pipeline-resume.test.ts` and `daemon-pipeline-recover.test.ts` stay green (daemon RPC admission unchanged by this slice).
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

@@ -11,6 +11,37 @@ export const DEFAULT_AGENT_MODEL_CONFIG = {
   },
 };
 
+const DEFAULT_DISPATCH_STUB_WORKTREE = {
+  projectRoot: "/fake",
+  projectName: "demo",
+  branchName: "stub",
+  baseRef: "HEAD",
+  jarvisRoot: "/fake/.jarvis",
+} as const;
+
+export type MinimalDispatchWriteStep = WriteWorkflowStep & {
+  stageIndex?: number;
+  branchKey?: string;
+};
+
+/** Type-complete write-step stub for dispatch-only daemon pipeline tests. */
+export function createMinimalDispatchWriteStep(
+  overrides: Partial<MinimalDispatchWriteStep> = {},
+): MinimalDispatchWriteStep {
+  return {
+    behavior: "write",
+    worktree: { ...DEFAULT_DISPATCH_STUB_WORKTREE },
+    specPath: "spec.md",
+    stepRules: "Return exactly one terminal token.",
+    expectedArtifactPath: "proof.txt",
+    role: "implement",
+    agents: ["claude"],
+    agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+    stepId: "step-1",
+    ...overrides,
+  };
+}
+
 export function createBindingFactory(
   invoke: (binding: {
     agentId: string;

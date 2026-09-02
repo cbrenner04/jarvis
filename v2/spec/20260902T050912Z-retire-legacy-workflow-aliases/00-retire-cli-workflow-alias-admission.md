@@ -25,7 +25,7 @@ The hidden aliases `intent-reviewed`, `plan-reviewed`, and `plan-reviewed-light`
 - [x] `workflow.ts` contains no `applyLegacyWorkflowAlias` helper and no alias-resolution branch in workflow preset builder lookup.
 - [x] `workflow.test.ts` tests `run workflow implement sends start and wait IPC requests, blocks on completion, and prints run ID and wait JSON`, `run workflow intent with --detach prints intent paths stderr before run ID without client wait`, and `run workflow plan resets a stale worktree before daemon start` stay green.
 - [x] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

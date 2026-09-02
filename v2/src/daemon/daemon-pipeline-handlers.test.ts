@@ -5,6 +5,7 @@ import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type { PipelineStageResolutionResult } from "./pipeline-stage-resolve.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns } from "../testing/run-control.ts";
+import { makeIpcClient } from "../testing/ipc-client-fake.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlerContext } from "./daemon-run-control-context.ts";
 import { createPipelineHandlers } from "./daemon-pipeline-handlers.ts";
@@ -159,6 +160,41 @@ test("pipelineExecutionDeps wires executeTerminalPublication from deps", () => {
     executeTerminalPublication,
   });
   expect(handlers.pipelineExecutionDeps().executeTerminalPublication).toBe(executeTerminalPublication);
+});
+
+test("pipelineExecutionDeps omits staleResetPreflight without daemonSocketPath", () => {
+  const handlers = pipelineHandlers();
+  expect(handlers.pipelineExecutionDeps()).not.toHaveProperty("staleResetPreflight");
+});
+
+test("pipelineExecutionDeps wires staleResetPreflight when daemonSocketPath is set", async () => {
+  const marker = makeIpcClient([], { gated: true, deferred: true });
+  let connectedTo: string | undefined;
+  const ctx = createRunControlHandlerContext({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+  });
+  const workflowStart = createWorkflowStartAdmission(ctx);
+  const lifecycle = createRunLifecycleHandlers(ctx, {
+    handleWorkflowStart: workflowStart.handleWorkflowStart,
+  });
+  const handlers = createPipelineHandlers(ctx, {
+    pipelineDispatch: lifecycle.pipelineDispatch,
+    pipelineWait: lifecycle.pipelineWait,
+    admitWorkflowStart: workflowStart.admitWorkflowStart,
+    daemonSocketPath: "/marker-daemon.sock",
+    connectStaleResetClient: async (socketPath) => {
+      connectedTo = socketPath;
+      return marker;
+    },
+  });
+  const built = handlers.pipelineExecutionDeps();
+  expect(built.staleResetPreflight).toBeDefined();
+  const client = await built.staleResetPreflight?.connectClient();
+  expect(connectedTo).toBe("/marker-daemon.sock");
+  expect(client).toBe(marker);
 });
 
 test("pipelineExecutionDeps wires loadLogRecords from logReader", () => {

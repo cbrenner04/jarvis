@@ -21,6 +21,34 @@ Per-seed completion status (seed → ready-intent → plan → implement PR) liv
 
 The five structural retirements that close whole classes: one dispatch front door, settlement derived from run rows, atomic terminal writes, the workflow-runner/daemon module splits, and real dead-export/test-seam gates.
 
+## Close status (2026-09-01 — dogfood-driven throughput, gate fixes, split-workflow-runner started)
+
+Operator-present session. Route external-spec lane LANDED (#3297, hand-finished from the repo-wide-autofix strand). Notification sweep ([[operator-notified-without-polling]] #3295, other agent) wired + dogfooded end-to-end: 86 incidents delivered, zero run-status polling; it reliably surfaced the actionable subset (5 `terminal:failed`, 4 `run-blocked`). Chatty for standalone workflows (one incident per terminal *run row* → ~75 `terminal:completed` for ~20 workflows; entry-run fires before publication) — needs an invocation-rollup follow-up (candidate seed; the seed's one-incident dedup targets pipelines, not standalone runs).
+
+**Parallelization limits characterized** (operator ask): intents/plans ~free (13 concurrent workflows = load ~4); **implements: 2 clean, 3 saturates** — 3 concurrent implement gates peaked load 15.6 / ~30 `bun` workers and lost 1 review step to an `invocation_error` (write work intact — recoverable). 2 is the comfortable ceiling.
+
+**Gate fixes (the two dominant throughput taxes, both landed):**
+
+- **render-coverage over-strictness FIXED** ([[render-coverage-exempts-prompt-metadata-and-deletions]] #3324): the gate demanded a killing mutation on every changed line of a registered prompt including frontmatter `revision` bumps and pure deletions — stranding correct prompt-corpus dedups. Now `promptBodyBounds` excludes frontmatter and `hasBodyAddLines` gates the exemption so metadata/deletions are exempt while body adds still require coverage (no hole).
+- **Brittle settlement-guard inventory FIXED** ([[terminal-settlement-guard-line-independent-inventory]] #3330): `execution-terminal-settlement-guard.test.ts` keyed `PERMITTED_TERMINAL_WRITES` on absolute line numbers, so any line shift in `workflow-runner.ts`/`write-loop.ts` — merges included — reddened it and it stranded *unrelated* implements at ready-gate repair (eliminate-prompt-string #3325). Keys now `(file, writer/status, functionName)`, line dropped. **This unblocks every `workflow-runner.ts` extraction** (was the extract-review-debate strand cause).
+- **#3114 plan-gate multi-surface-AC strictness STILL OPEN** — blocked ~4 sound plan drafts this session (inject-daemon-write-loop, exclude-test-support, generalize-guard was a real dep-block). Plan lane circuit-broken on it; the fix approach is still operator-flagged-held (reprompt-loop vs prompt-enforcement) — decide direction before building.
+
+**Resumable-honesty bug FIXED** ([[merge-publication-resume-twins-compute-resumable]] core, #3327): the operator-prioritized bug — `settleIntentResumeFailure` hardcoded `loop_finished.resumable: true` while its twin computed it. Fixed as a targeted point-fix (`resumable` now derived from the actual `resolveIntentFinalizationResumeContext(...).ok` admission predicate, so it can never disagree with what `run resume` accepts). The twin-merge/extraction packaging stays deferred to the split-workflow-runner chain. Review-debate caught+corrected a flaw in the spec (a static outcome-kind set would have inverted the bug for populated-stage paths — intent admission is row/state-based, not `loopOutcomeKind`-based).
+
+**split-daemon-run-control-handlers:** extract-daemon-tail-stream-and-peer-socket #3312 + inject-cli-workflow-attach-wait-deps #3311 LANDED. Remaining: inject-daemon-write-loop-binding-deps (blocked once on #3114), generalize-production-test-seam-guard (dep-blocked on the inject-* slices), modularize-daemon-run-control-handlers (the main closure split, WeakMap back-channel retirement).
+
+### split-workflow-runner-resume-machines — extract-review-debate HANDOFF (to land)
+
+`extract-review-debate-landing-module` (spec `v2/spec/20260901T112459Z-extract-review-debate-landing-module/`) is **2/3 done, NOT merged.** The extraction (subspec 00, 5/5) + test co-location (subspec 01, 3/3) are complete in the worktree: new `v2/src/execution/workflow-runner-debate-landing.ts` (+~1,116; `runReviewDebateStep`, post-debate landing, actuator-only retry) with `workflow-runner.ts` shrunk ~958 lines. **Two strands, both now unblocked:** first run died on a transient daemon supersede (from merging PRs during a live implement — don't); the fresh re-run stranded `surviving_mutation_failed` after 10 reprompt iterations on **real uncovered guards in the extracted module** (previously integration-covered, now needing direct killing tests). To land, add killing tests in the co-located test for these `workflow-runner-debate-landing.ts` guards, then complete subspec 02 (doc-map entry in `v2/docs/workflow-runner.md`):
+
+- L222 `if (!agent) throw` — missing completion-attribution guard
+- L246 `if (deps === undefined || (landing !== undefined && landing.kind !== "none")) return undefined` — mutating-review-pass committer gate
+- L251 `if (!existsSync(join(worktreePath, ".git"))) return` — git-presence guard before discarding verdict drift
+- L282 `if (!draft.ok) return draft` — staged-plan-draft validity
+- (L237 `=== → !==` already carries a valid `@mutate-equivalent` directive.)
+
+The re-run worktree was abandoned at close; re-dispatch `implement` fresh (guard fix #3330 means it no longer strands on line drift) and let its in-loop verifier reprompt, or hand-author the killing tests then resume. After this: extract-workflow-runner-resume-machines (~1,600-line move), then merge-publication-resume-twins (now **pure dedup** — its bug is already fixed by #3327). Full report: `reports/20260902T032711Z-dogfood-throughput-gate-fixes-refactor-start.md`.
+
 ## Close status (2026-08-31)
 
 Front-door chain COMPLETE (#3226); watchdog trio COMPLETE (#3227, serial-only-implement relaxed); [[per-turn-checkpoint-commit-never-gated-by-lint]] #3242 (biome-commit-strand class closed); pipeline-recovery pair #3244+#3250; [[retire-mutate-dsl-from-default-write-step-rules]] #3249; split-spec-guidance #3253+#3255; [[published-branch-attributes-all-authorship-to-review-debate]] #3234; prompt-corpus dead-weight sweep #3259/#3260/#3265. **Highest-value open item: narrow #3122 [[implement-admits-externally-landed-specs]]** — ready-intent landed #3266, PAUSED at that checkpoint (narrow-only, resume via `plan --ready-intent`); it actively gates the operator's homestead work. Broader external-spec-by-default flip ([[all-spec-documents-external-capable]]) is operator-owned, to be spec'd separately. See `reports/20260831T155237Z-autonomous-structural-burndown.md`.

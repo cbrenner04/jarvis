@@ -45,6 +45,7 @@ import {
   deriveGateAllowedPaths,
   ReadyFlipError,
   ReadyGateError,
+  type ReadyFinalizer,
   RuntimeSmokeFailedError,
   SurvivingMutationError,
 } from "./ready-finalize.ts";
@@ -2500,6 +2501,22 @@ describe("write loop", () => {
       );
     }
 
+    function commitAutofixAgentWork(worktreePath: string, changedRel: string): void {
+      writeFileSync(join(worktreePath, changedRel), "export const changed=1\n", "utf8");
+      writeFileSync(join(worktreePath, "proof.txt"), "ok\n", "utf8");
+      execFileSync("git", ["-C", worktreePath, "add", changedRel, "proof.txt"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "commit", "-m", "agent work"], { stdio: "pipe" });
+    }
+
+    function autofixFormattingGate(changedRel: string, onGate: () => void): ReadyFinalizer {
+      return async ({ worktreePath: gateWorktree }) => {
+        onGate();
+        if (!readFileSync(join(gateWorktree, changedRel), "utf8").includes("export const changed = 1")) {
+          throw new ReadyGateError("bun run ready", 1, "formatting required");
+        }
+      };
+    }
+
     describe("ready-gate repair autofix", () => {
       test("labels ready-gate repair commits", async () => {
         // @mutate v2/src/execution/write-loop.ts "step: { kind: \"ready-gate\" }," -> ""
@@ -2973,10 +2990,7 @@ describe("write loop", () => {
           stdio: "pipe",
         }).trim();
         const changedRel = "v2/src/changed.ts";
-        writeFileSync(join(worktreePath, changedRel), "export const changed=1\n", "utf8");
-        writeFileSync(join(worktreePath, "proof.txt"), "ok\n", "utf8");
-        execFileSync("git", ["-C", worktreePath, "add", changedRel, "proof.txt"], { stdio: "pipe" });
-        execFileSync("git", ["-C", worktreePath, "commit", "-m", "agent work"], { stdio: "pipe" });
+        commitAutofixAgentWork(worktreePath, changedRel);
         const runId = store.createRun({
           project: "demo",
           specRef: "HEAD",
@@ -3014,13 +3028,9 @@ describe("write loop", () => {
               completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
               completionPublisher: async () => ({}),
               runAutofixTypecheck: async () => ({ exitCode: 0, output: "" }),
-              readyFinalizer: async ({ worktreePath: gateWorktree }) => {
+              readyFinalizer: autofixFormattingGate(changedRel, () => {
                 gateCalls += 1;
-                const changed = readFileSync(join(gateWorktree, changedRel), "utf8");
-                if (!changed.includes("export const changed = 1")) {
-                  throw new ReadyGateError("bun run ready", 1, "formatting required");
-                }
-              },
+              }),
             },
             store,
             { kind: "complete", runId, iterationsConsumed: 0, resumable: false, completionAgent: "codex" },
@@ -3090,10 +3100,7 @@ describe("write loop", () => {
           stdio: "pipe",
         }).trim();
         const changedRel = "v2/src/changed.ts";
-        writeFileSync(join(worktreePath, changedRel), "export const changed=1\n", "utf8");
-        writeFileSync(join(worktreePath, "proof.txt"), "ok\n", "utf8");
-        execFileSync("git", ["-C", worktreePath, "add", changedRel, "proof.txt"], { stdio: "pipe" });
-        execFileSync("git", ["-C", worktreePath, "commit", "-m", "agent work"], { stdio: "pipe" });
+        commitAutofixAgentWork(worktreePath, changedRel);
         const runId = store.createRun({
           project: "demo",
           specRef: "HEAD",
@@ -3144,13 +3151,9 @@ describe("write loop", () => {
                 writeFileSync(join(opts.cwd, changedRel), "export const changed = 1;\n", "utf8");
               },
               runAutofixTypecheck: async () => ({ exitCode: 0, output: "" }),
-              readyFinalizer: async ({ worktreePath: gateWorktree }) => {
+              readyFinalizer: autofixFormattingGate(changedRel, () => {
                 gateCalls += 1;
-                const changed = readFileSync(join(gateWorktree, changedRel), "utf8");
-                if (!changed.includes("export const changed = 1")) {
-                  throw new ReadyGateError("bun run ready", 1, "formatting required");
-                }
-              },
+              }),
             },
             store,
             { kind: "complete", runId, iterationsConsumed: 0, resumable: false, completionAgent: "codex" },

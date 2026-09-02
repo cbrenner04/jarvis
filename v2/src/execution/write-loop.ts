@@ -78,7 +78,6 @@ import {
   deriveGateAllowedPaths,
   outOfScopeSettlementResumable,
   parseGitNameStatusZ,
-  parseNulDelimitedPaths,
   type ReadyFinalizer,
   ReadyFlipError,
   ReadyGateError,
@@ -3262,7 +3261,6 @@ async function runAutofixTypecheckVerification(
 }
 
 const READY_GATE_AUTOFIX_MAX_DIAGNOSTICS = 256;
-const READY_GATE_AUTOFIX_GIT_MAX_BUFFER = 16 * 1024 * 1024;
 
 export type RunBuiltInReadyGateAutofixBiomeOpts = ExternalSpecGitScope & {
   cwd: string;
@@ -3275,76 +3273,18 @@ async function enumerateAutofixChangedPaths(
   opts: RunBuiltInReadyGateAutofixBiomeOpts,
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
 ): Promise<string[] | undefined> {
-  const seams = opts.readyGateScopeSeams;
-  let diffOutput: string | null;
-  try {
-    diffOutput =
-      seams?.gitDiffNameStatus !== undefined
-        ? await seams.gitDiffNameStatus(opts.cwd, opts.baseRef)
-        : await runner.runAsync(
-            "git",
-            ["diff", "--name-status", "-z", "--diff-filter=ACDMRTUXB", `${opts.baseRef}...HEAD`],
-            opts.cwd,
-            { maxBuffer: READY_GATE_AUTOFIX_GIT_MAX_BUFFER },
-          );
-  } catch {
+  const allowed = await deriveGateAllowedPaths(
+    { worktreePath: opts.cwd, baseRef: opts.baseRef, specPath: "" },
+    { ...opts.readyGateScopeSeams, listSpecTreePaths: async () => [] },
+    runner,
+  );
+  if (allowed === undefined) {
     return undefined;
   }
-  if (diffOutput === null) {
-    return undefined;
-  }
-
-  let untrackedOutput: string | null;
-  try {
-    untrackedOutput =
-      seams?.gitUntracked !== undefined
-        ? await seams.gitUntracked(opts.cwd)
-        : await runner.runAsync("git", ["ls-files", "--others", "--exclude-standard", "-z"], opts.cwd);
-  } catch {
-    return undefined;
-  }
-  if (untrackedOutput === null) {
-    return undefined;
-  }
-
-  const diffPaths = parseGitNameStatusZ(diffOutput);
-  if (diffPaths === undefined) {
-    return undefined;
-  }
-  const untrackedPaths = parseNulDelimitedPaths(untrackedOutput);
-  if (untrackedPaths === undefined) {
-    return undefined;
-  }
-
-  const unioned: string[] = [];
-  for (const rawPath of [...diffPaths, ...untrackedPaths]) {
-    const normalized = validateRepoRelativePath(rawPath);
-    if (normalized === undefined) {
-      return undefined;
-    }
-    if (!unioned.includes(normalized)) {
-      unioned.push(normalized);
-    }
-  }
-
-  const scoped = excludeExternalSpecGitPaths(opts.cwd, unioned, opts);
+  const scoped = excludeExternalSpecGitPaths(opts.cwd, [...allowed], opts);
   return biomeEligiblePaths(opts.cwd, scoped);
 }
 
-function toBuiltInAutofixBiomeError(
-  displayCmd: string,
-  opts: RunBuiltInReadyGateAutofixBiomeOpts,
-  err: unknown,
-): FixCommandError {
-  if (err instanceof AsyncSubprocessError && err.code === "ETIMEDOUT") {
-    return new FixCommandError(`${displayCmd} exceeded ${opts.timeoutMs}ms budget`);
-  }
-  const out = err as NodeJS.ErrnoException & { stdout?: Buffer | string; stderr?: Buffer | string };
-  const captured = [out.stdout?.toString(), out.stderr?.toString()].filter(Boolean).join("\n").trim();
-  return new FixCommandError(captured ? `${displayCmd} failed:\n${captured}` : `${displayCmd} failed`);
-}
-
-/** Built-in ready-gate repair autofix: scoped `biome check --write --unsafe` on changed paths only. */
 export async function runBuiltInReadyGateAutofixBiome(
   opts: RunBuiltInReadyGateAutofixBiomeOpts,
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
@@ -3368,7 +3308,12 @@ export async function runBuiltInReadyGateAutofixBiome(
       { timeoutMs: opts.timeoutMs, env: process.env },
     );
   } catch (err) {
-    throw toBuiltInAutofixBiomeError(displayCmd, opts, err);
+    if (err instanceof AsyncSubprocessError && err.code === "ETIMEDOUT") {
+      throw new FixCommandError(`${displayCmd} exceeded ${opts.timeoutMs}ms budget`);
+    }
+    const out = err as NodeJS.ErrnoException & { stdout?: Buffer | string; stderr?: Buffer | string };
+    const captured = [out.stdout?.toString(), out.stderr?.toString()].filter(Boolean).join("\n").trim();
+    throw new FixCommandError(captured ? `${displayCmd} failed:\n${captured}` : `${displayCmd} failed`);
   }
 }
 

@@ -760,16 +760,11 @@ function externalPlanSourceForRun(
   registry: Record<string, ProjectRegistryEntry>,
   configPath: string,
 ): string | undefined {
-  const candidates =
-    basename(resolvedSpecPath) === "index.md"
-      ? [resolvedSpecPath]
-      : [resolvedSpecPath, join(dirname(resolvedSpecPath), "index.md")];
-  for (const candidate of candidates) {
-    const identity = resolveExternalPlanSpecIdentity(candidate, registry, configPath);
-    if (identity === undefined || "error" in identity || identity.project !== run.project) continue;
-    return identity.specReadRoot;
-  }
-  return undefined;
+  const indexPath =
+    basename(resolvedSpecPath) === "index.md" ? resolvedSpecPath : join(dirname(resolvedSpecPath), "index.md");
+  const identity = resolveExternalPlanSpecIdentity(indexPath, registry, configPath);
+  if (identity === undefined || "error" in identity || identity.project !== run.project) return undefined;
+  return identity.specReadRoot;
 }
 
 function sourceForRun(
@@ -894,50 +889,15 @@ async function archiveRetiredArtifact(
   reportArchive(spec, archiveCompletedSpec(spec), "artifact", io);
 }
 
-function artifactArchivePreviewTarget(spec: ArtifactSpec): string {
-  if (isExternalPlanArtifact(spec)) {
-    const name = basename(spec.source);
-    return `plans/${name} -> plans/completed/${name}`;
-  }
-  return `${spec.source} -> ${join(spec.home, "completed", basename(spec.source))}`;
-}
-
 function previewArtifact(spec: ArtifactSpec, io: { stdout: (s: string) => void }): void {
-  io.stdout(
-    `  archive: ${artifactArchivePreviewTarget(spec)}${provenIntentPrune(spec) ? " (prune consumed ready-intent)" : ""}\n`,
-  );
+  const target = isExternalPlanArtifact(spec)
+    ? `plans/${basename(spec.source)} -> plans/completed/${basename(spec.source)}`
+    : `${spec.source} -> ${join(spec.home, "completed", basename(spec.source))}`;
+  io.stdout(`  archive: ${target}${provenIntentPrune(spec) ? " (prune consumed ready-intent)" : ""}\n`);
 }
 
-export type DiscoveredStrandedArtifact = Omit<ArtifactSpec, "branch"> & { project: string };
+type DiscoveredStrandedArtifact = Omit<ArtifactSpec, "branch"> & { project: string };
 type StrandedArtifact = DiscoveredStrandedArtifact & { branch: string };
-
-function ownersBySafeId(registry: Record<string, ProjectRegistryEntry>): Map<string, string[]> {
-  const bySafeId = new Map<string, string[]>();
-  for (const project of Object.keys(registry)) {
-    const safeId = projectSafeId(project);
-    const owners = bySafeId.get(safeId) ?? [];
-    owners.push(project);
-    bySafeId.set(safeId, owners);
-  }
-  return bySafeId;
-}
-
-function discoverInRepoStrandedArtifacts(registry: Record<string, ProjectRegistryEntry>): DiscoveredStrandedArtifact[] {
-  const artifacts: DiscoveredStrandedArtifact[] = [];
-  for (const [project, entry] of Object.entries(registry)) {
-    const home = join(entry.root, "v2", "spec");
-    if (!existsSync(home)) continue;
-    try {
-      for (const child of readdirSync(home, { withFileTypes: true })) {
-        if (!child.isDirectory() || ["completed", "seeds", "ready-intents"].includes(child.name)) continue;
-        artifacts.push({ home, source: join(home, child.name), name: child.name, project });
-      }
-    } catch {
-      // A home that cannot be read has no safely inspectable candidates.
-    }
-  }
-  return artifacts;
-}
 
 function discoverExternalPlanStrandedArtifacts(
   registry: Record<string, ProjectRegistryEntry>,
@@ -966,10 +926,9 @@ function discoverExternalPlanStrandedArtifacts(
         }
         const identity = resolveExternalPlanSpecIdentity(resolvedIndexPath, registry, configPath);
         if (identity === undefined || "error" in identity || identity.project !== project) continue;
-        if (identity.specReadRoot === undefined) continue;
         artifacts.push({
           home: plansHome,
-          source: identity.specReadRoot,
+          source: identity.specReadRoot!,
           name: child.name,
           project,
         });
@@ -984,12 +943,28 @@ function discoverExternalPlanStrandedArtifacts(
 export function discoverStrandedArtifacts(
   registry: Record<string, ProjectRegistryEntry>,
 ): DiscoveredStrandedArtifact[] {
+  const artifacts: DiscoveredStrandedArtifact[] = [];
+  for (const [project, entry] of Object.entries(registry)) {
+    const home = join(entry.root, "v2", "spec");
+    if (!existsSync(home)) continue;
+    try {
+      for (const child of readdirSync(home, { withFileTypes: true })) {
+        if (!child.isDirectory() || ["completed", "seeds", "ready-intents"].includes(child.name)) continue;
+        artifacts.push({ home, source: join(home, child.name), name: child.name, project });
+      }
+    } catch {
+      // A home that cannot be read has no safely inspectable candidates.
+    }
+  }
   const configPath = join(jarvisHome(), "config.json");
-  const safeIdOwners = ownersBySafeId(registry);
-  return [
-    ...discoverInRepoStrandedArtifacts(registry),
-    ...discoverExternalPlanStrandedArtifacts(registry, configPath, safeIdOwners),
-  ];
+  const safeIdOwners = new Map<string, string[]>();
+  for (const project of Object.keys(registry)) {
+    const safeId = projectSafeId(project);
+    const owners = safeIdOwners.get(safeId) ?? [];
+    owners.push(project);
+    safeIdOwners.set(safeId, owners);
+  }
+  return [...artifacts, ...discoverExternalPlanStrandedArtifacts(registry, configPath, safeIdOwners)];
 }
 
 function recordedStrandedBranch(
@@ -1016,18 +991,6 @@ function recordedStrandedBranch(
   return undefined;
 }
 
-function hasStrandedOwner(
-  artifact: StrandedArtifact,
-  registry: Record<string, ProjectRegistryEntry>,
-  allWorktrees: readonly DiscoveredWorktree[],
-  jarvisRoot: string,
-): boolean {
-  return allWorktrees.some((worktree) => {
-    if (projectForWorktree(worktree, registry, jarvisRoot) !== artifact.project) return false;
-    return worktree.branch === undefined || worktree.branch === artifact.branch;
-  });
-}
-
 export async function inspectStrandedArtifacts(
   artifacts: readonly DiscoveredStrandedArtifact[],
   registry: Record<string, ProjectRegistryEntry>,
@@ -1047,7 +1010,7 @@ export async function inspectStrandedArtifacts(
       continue;
     }
     const identified = { ...artifact, branch };
-    if (hasStrandedOwner(identified, registry, allWorktrees, jarvisRoot)) {
+    if (hasBranchKeyedArtifactOwner(identified, artifact.project, "", registry, allWorktrees, jarvisRoot)) {
       io.stdout(`Skipped stranded artifact: ${artifact.source} — another materialized worktree owns this spec\n`);
       continue;
     }
@@ -1256,7 +1219,7 @@ async function retireStrandedArtifacts(
 ): Promise<void> {
   for (const spec of stranded) {
     const current = await discoverMaterializedWorktrees(registry, jarvisRoot, runner);
-    if (hasStrandedOwner(spec, registry, current, jarvisRoot)) {
+    if (hasBranchKeyedArtifactOwner(spec, spec.project, "", registry, current, jarvisRoot)) {
       io.stdout(`Skipped stranded artifact: ${spec.source} — another materialized worktree owns this spec\n`);
       continue;
     }

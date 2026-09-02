@@ -143,6 +143,54 @@ test("list retains aged-out terminal workflow steps when a live sibling shares t
   expect(runIds.has(agedTerminalStepId)).toBe(true);
 });
 
+test("list retains aged-out terminal workflow steps when a kept terminal sibling shares the invocation", async () => {
+  const { handlers } = lifecycleHandlers();
+  const signal = new AbortController().signal;
+  const snapshot = workflowSnapshot("wf-retain-terminal", [
+    { stepId: "step-1", role: "implement" },
+    { stepId: "step-2", role: "review" },
+  ]);
+  const agedTerminalStepId = stateStore.createRun({
+    project: "wf",
+    specRef: "main",
+    worktreePath: "/tmp/wt",
+    branch: "wf-br",
+    specPath: "/tmp/spec.md",
+    status: "completed",
+    stepId: "step-2",
+    workflowSnapshot: snapshot,
+  });
+  for (let index = 0; index < 55; index++) {
+    stateStore.createRun({
+      project: "noise",
+      specRef: "main",
+      worktreePath: "/tmp/wt",
+      branch: `noise-${index}`,
+      specPath: "/tmp/spec.md",
+      status: "completed",
+    });
+  }
+  const keptTerminalStepId = stateStore.createRun({
+    project: "wf",
+    specRef: "main",
+    worktreePath: "/tmp/wt",
+    branch: "wf-br",
+    specPath: "/tmp/spec.md",
+    status: "completed",
+    stepId: "step-1",
+    workflowSnapshot: snapshot,
+  });
+
+  const listed = await handlers.list({ kind: "request", id: "l1", method: "list" }, signal);
+  expect(listed.kind).toBe("response");
+  if (listed.kind !== "response") return;
+
+  const runIds = new Set((listed.result as { runs: Array<{ runId: string }> }).runs.map((row) => row.runId));
+  // @mutate v2/src/daemon/daemon-run-lifecycle-handlers.ts "if (invocationId !== undefined) keptInvocationIds.add(invocationId);" -> "if (invocationId === undefined) keptInvocationIds.add(invocationId);"
+  expect(runIds.has(keptTerminalStepId)).toBe(true);
+  expect(runIds.has(agedTerminalStepId)).toBe(true);
+});
+
 test("list projects live in-progress runs", async () => {
   const { handlers } = lifecycleHandlers();
   const signal = new AbortController().signal;

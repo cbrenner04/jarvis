@@ -22,6 +22,7 @@ import {
   reconciliationStableStageStatus,
   reopenPredecessorAllowsStatus,
   reopenSuffixAllowsStatus,
+  RUN_STATUSES,
   type StateStore,
   TERMINAL_RUN_STATUSES,
 } from "./state-store";
@@ -4480,5 +4481,172 @@ describe("run dismissal", () => {
       reason: "run_not_found",
     });
     expect(loadRunOrThrow(store, runId).dismissedAt).toBeNull();
+  });
+});
+
+describe("incident candidate list queries", () => {
+  let store: StateStore;
+
+  const SINCE_MS = 1_000_000;
+  const OLD_MS = 100;
+  const RECENT_MS = 2_000_000;
+
+  beforeEach(() => {
+    removeOrchestrationStore(TEST_DB_PATH);
+    store = openStateStore(TEST_DB_PATH);
+  });
+
+  afterEach(() => {
+    store.close();
+    removeOrchestrationStore(TEST_DB_PATH);
+  });
+
+  function patchRunRow(
+    runId: string,
+    patch: { createdAt?: number; finishedAt?: number | null; status?: string },
+  ): void {
+    const raw = new Database(TEST_DB_PATH);
+    try {
+      if (patch.createdAt !== undefined) {
+        raw.prepare("UPDATE runs SET created_at = ? WHERE id = ?").run(patch.createdAt, runId);
+      }
+      if (patch.finishedAt !== undefined) {
+        raw.prepare("UPDATE runs SET finished_at = ? WHERE id = ?").run(patch.finishedAt, runId);
+      }
+      if (patch.status !== undefined) {
+        raw.prepare("UPDATE runs SET status = ? WHERE id = ?").run(patch.status, runId);
+      }
+    } finally {
+      raw.close();
+    }
+  }
+
+  function seedTerminalRun(status: string, finishedAt: number): string {
+    const runId = seedRun(store);
+    patchRunRow(runId, { status, finishedAt, createdAt: OLD_MS });
+    return runId;
+  }
+
+  function seedFullyTerminalPipeline(name: string, endedAt: number): string {
+    const definition: PipelineDefinition = {
+      ...singlePlanStagePipeline(name),
+      terminalAction: "ready",
+    };
+    const pipelineId = store.createPipeline({ definition });
+    store.updateStage({
+      pipelineId,
+      stageId: "plan",
+      patch: { status: "succeeded", endedAt },
+    });
+    store.commitTerminalPublicationSuccess({ pipelineId });
+    const raw = new Database(TEST_DB_PATH);
+    try {
+      raw.prepare("UPDATE pipelines SET created_at = ? WHERE id = ?").run(endedAt - 1, pipelineId);
+      raw.prepare("UPDATE pipelines SET terminal_publication_succeeded_at = ? WHERE id = ?").run(endedAt, pipelineId);
+    } finally {
+      raw.close();
+    }
+    return pipelineId;
+  }
+
+  test("listIncidentCandidateRuns excludes terminal runs finished before sinceMs", () => {
+    for (let index = 0; index < 40; index += 1) {
+      seedTerminalRun("completed", OLD_MS);
+    }
+    const inProgressId = seedRun(store);
+    const recentTerminalId = seedTerminalRun("blocked", RECENT_MS);
+
+    const first = store.listIncidentCandidateRuns({ statuses: RUN_STATUSES, sinceMs: SINCE_MS });
+    // @mutate v2/src/persistence/state-store.ts "finished_at >= ?" -> "finished_at > ?"
+    expect(first.map((run) => run.id).sort()).toEqual([inProgressId, recentTerminalId].sort());
+
+    for (let index = 0; index < 40; index += 1) {
+      seedTerminalRun("failed", OLD_MS);
+    }
+    const second = store.listIncidentCandidateRuns({ statuses: RUN_STATUSES, sinceMs: SINCE_MS });
+    expect(second).toHaveLength(first.length);
+    expect(second.map((run) => run.id).sort()).toEqual(first.map((run) => run.id).sort());
+  });
+
+  test("listIncidentCandidateRuns retains terminal runs with null finished_at", () => {
+    const runId = seedRun(store);
+    patchRunRow(runId, { status: "completed", finishedAt: null, createdAt: OLD_MS });
+
+    const candidates = store.listIncidentCandidateRuns({ statuses: RUN_STATUSES, sinceMs: SINCE_MS });
+    // @mutate v2/src/persistence/state-store.ts "finished_at IS NULL" -> "finished_at IS NOT NULL"
+    expect(candidates.map((run) => run.id)).toContain(runId);
+  });
+
+  test("listIncidentCandidatePipelines excludes terminal pipelines settled before sinceMs", () => {
+    for (let index = 0; index < 30; index += 1) {
+      seedFullyTerminalPipeline(`old-terminal-${index}`, OLD_MS);
+    }
+
+    const awaitingPipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+    store.updateStage({
+      pipelineId: awaitingPipelineId,
+      stageId: "plan",
+      patch: { status: "succeeded", endedAt: OLD_MS },
+    });
+    const gateStage = loadPipelineOrThrow(store, awaitingPipelineId).stages.find((stage) => stage.stageId === "gate");
+    if (!gateStage) throw new Error("gate stage should exist");
+    store.commitApprovalBoundary({ stageRecordId: gateStage.id });
+    const rawAwaiting = new Database(TEST_DB_PATH);
+    try {
+      rawAwaiting.prepare("UPDATE pipelines SET created_at = ? WHERE id = ?").run(OLD_MS, awaitingPipelineId);
+    } finally {
+      rawAwaiting.close();
+    }
+
+    const inFlightPipelineId = store.createPipeline({
+      definition: singlePlanStagePipeline("in-flight"),
+    });
+    store.updateStage({
+      pipelineId: inFlightPipelineId,
+      stageId: "plan",
+      patch: { status: "running", startedAt: RECENT_MS },
+    });
+
+    const recentTerminalPipelineId = seedFullyTerminalPipeline("recent-terminal", RECENT_MS);
+
+    const first = store.listIncidentCandidatePipelines({ sinceMs: SINCE_MS });
+    // @mutate v2/src/persistence/state-store.ts ") >= ?" -> ") > ?"
+    expect(first.map((pipeline) => pipeline.id).sort()).toEqual(
+      [awaitingPipelineId, inFlightPipelineId, recentTerminalPipelineId].sort(),
+    );
+    for (const pipeline of first) {
+      expect(pipeline.stages.length).toBeGreaterThan(0);
+    }
+
+    for (let index = 0; index < 30; index += 1) {
+      seedFullyTerminalPipeline(`old-terminal-padding-${index}`, OLD_MS);
+    }
+    const second = store.listIncidentCandidatePipelines({ sinceMs: SINCE_MS });
+    expect(second).toHaveLength(first.length);
+    expect(second.map((pipeline) => pipeline.id).sort()).toEqual(first.map((pipeline) => pipeline.id).sort());
+  });
+
+  test("listIncidentCandidatePipelines retains old awaiting-approval pipeline", () => {
+    const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+    store.updateStage({
+      pipelineId,
+      stageId: "plan",
+      patch: { status: "succeeded", endedAt: OLD_MS },
+    });
+    const gateStage = loadPipelineOrThrow(store, pipelineId).stages.find((stage) => stage.stageId === "gate");
+    if (!gateStage) throw new Error("gate stage should exist");
+    store.commitApprovalBoundary({ stageRecordId: gateStage.id });
+    const raw = new Database(TEST_DB_PATH);
+    try {
+      raw.prepare("UPDATE pipelines SET created_at = ? WHERE id = ?").run(OLD_MS, pipelineId);
+    } finally {
+      raw.close();
+    }
+
+    const candidates = store.listIncidentCandidatePipelines({ sinceMs: SINCE_MS });
+    // @mutate v2/src/persistence/state-store.ts "ps.status NOT IN (${INCIDENT_CANDIDATE_STABLE_STAGE_STATUSES_SQL})" -> "ps.status IN (${INCIDENT_CANDIDATE_STABLE_STAGE_STATUSES_SQL})"
+    const match = candidates.find((pipeline) => pipeline.id === pipelineId);
+    expect(match).toBeDefined();
+    expect(match?.stages.find((stage) => stage.stageId === "gate")?.status).toBe("awaiting");
   });
 });

@@ -42,8 +42,8 @@ import {
   WORKFLOW_IMPLEMENT_USAGE,
   WORKFLOW_INTENT_USAGE,
   WORKFLOW_PLAN_USAGE,
+  RUN_START_USAGE,
   WORKFLOW_USAGE,
-  WRITE_USAGE,
 } from "./usage.ts";
 
 export interface CommandFlag {
@@ -73,12 +73,6 @@ export const commandTree: CommandNode = {
       summary: "Configure this machine and register the current repository.",
       usage: INIT_USAGE,
       flags: INIT_HELP_FLAGS,
-    },
-    {
-      name: "write",
-      summary: "Run an in-process write loop.",
-      usage: WRITE_USAGE,
-      flags: WRITE_HELP_FLAGS,
     },
     {
       name: "daemon",
@@ -132,7 +126,7 @@ export const commandTree: CommandNode = {
         {
           name: "start",
           summary: "Start a new run.",
-          usage: WRITE_USAGE,
+          usage: RUN_START_USAGE,
           flags: WRITE_HELP_FLAGS,
         },
         {

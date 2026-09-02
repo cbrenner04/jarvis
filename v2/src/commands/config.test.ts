@@ -5,14 +5,15 @@ import {
   absentMachineConfigPath,
   type CliRepoFixture,
   captureIo,
-  completeResult,
   cliMain as main,
   makeCliRepoFixture,
+  makeIpcClient,
   stubAgentModelConfig,
   writeHomeMachineConfig,
   writeMachineConfig,
   writeRawMachineConfig,
 } from "../testing/cli-test-helpers.ts";
+import { withFixedUuid } from "../testing/fixed-uuid.ts";
 
 let fx: CliRepoFixture;
 
@@ -33,7 +34,7 @@ async function setAgents(configPath: string, csv: string, io = captureIo().io): 
 }
 
 describe("config command", () => {
-  test("config set-agents writes agents, preserves unrelated keys, and later write uses the persisted order", async () => {
+  test("config set-agents writes agents, preserves unrelated keys, and later run start uses the persisted order", async () => {
     const cap = captureIo();
     const configPath = writeHomeMachineConfig({ other: "value", agents: ["cursor"] });
 
@@ -49,14 +50,19 @@ describe("config command", () => {
 
     let capturedAgents: readonly string[] | undefined;
     const writeCap = captureIo();
-    const writeCode = await main(fx.writeArgs, writeCap.io, {
-      machineConfigPath: configPath,
-      loadAgentModelConfig: (agents) => {
-        capturedAgents = agents;
-        return stubAgentModelConfig(agents);
-      },
-      executeWriteLoop: async () => completeResult(),
-    });
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000055";
+    const writeCode = await withFixedUuid(requestId, () =>
+      main(fx.runStartArgs, writeCap.io, {
+        machineConfigPath: configPath,
+        loadAgentModelConfig: (agents) => {
+          capturedAgents = agents;
+          return stubAgentModelConfig(agents);
+        },
+        connectIpcClient: async () =>
+          makeIpcClient([{ kind: "response", id: requestId, result: { runId: "run-config" } }], { sent }),
+      }),
+    );
 
     expect(writeCode).toBe(0);
     expect(capturedAgents).toEqual(["claude", "codex"]);

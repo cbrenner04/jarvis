@@ -2,7 +2,7 @@ import type { CliDeps } from "../cli/deps.ts";
 import { exitCodeForWriteResult } from "../cli/run-completion.ts";
 import type { AgentModelConfig, LoadError } from "../config/agent-model-config.ts";
 import { loadMachineConfig, resolveWritePathIterationBounds } from "../config/machine-config-loader.ts";
-import type { WriteLoopInput, WriteLoopResult } from "../execution/write-loop.ts";
+import type { WriteLoopInput } from "../execution/write-loop.ts";
 import {
   buildWriteLoopInputFromCliValues,
   DEFAULT_WRITE_AGENTS,
@@ -54,28 +54,6 @@ export function parseWriteCliInput(argv: readonly string[], deps: CliDeps): Writ
     const message = error instanceof Error ? error.message : String(error);
     return { ok: false, message: `${message}\n` };
   }
-}
-
-export function writeStdoutJson(result: WriteLoopResult): string {
-  const payload: Record<string, unknown> = {
-    kind: result.kind,
-    runId: result.runId,
-    iterationsConsumed: result.iterationsConsumed,
-    resumable: result.resumable,
-  };
-  if (result.failureKind !== undefined) {
-    payload.failureKind = result.failureKind;
-    payload.bindingAttempts = result.bindingAttempts;
-  }
-  if (result.commitSha !== undefined) payload.commitSha = result.commitSha;
-  if (result.completionCommitError !== undefined) payload.completionCommitError = result.completionCommitError;
-  if (result.readyGateError !== undefined) payload.readyGateError = result.readyGateError;
-  if (result.readyGateOutsidePaths !== undefined) payload.readyGateOutsidePaths = result.readyGateOutsidePaths;
-  if (result.readyGateOutOfScopeDetail !== undefined)
-    payload.readyGateOutOfScopeDetail = result.readyGateOutOfScopeDetail;
-  if (result.readyFlipError !== undefined) payload.readyFlipError = result.readyFlipError;
-  if (result.publicationFailure !== undefined) payload.publicationFailure = result.publicationFailure;
-  return JSON.stringify(payload, null, 2);
 }
 
 export { exitCodeForWriteResult };

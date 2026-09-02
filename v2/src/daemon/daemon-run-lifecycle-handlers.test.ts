@@ -62,6 +62,39 @@ test("start admits a second project while another run is active", async () => {
   expect(second.kind).toBe("response");
 });
 
+test("list always retains non-terminal runs regardless of terminal retention bound", async () => {
+  const { handlers } = lifecycleHandlers();
+  const signal = new AbortController().signal;
+  for (let index = 0; index < 60; index++) {
+    stateStore.createRun({
+      project: `exempt-${index}`,
+      specRef: "main",
+      worktreePath: "/tmp/wt",
+      branch: `exempt-${index}`,
+      specPath: "/tmp/spec.md",
+      status: "paused",
+    });
+  }
+  for (let index = 0; index < 50; index++) {
+    stateStore.createRun({
+      project: "terminal",
+      specRef: "main",
+      worktreePath: "/tmp/wt",
+      branch: `terminal-${index}`,
+      specPath: "/tmp/spec.md",
+      status: "completed",
+    });
+  }
+
+  const listed = await handlers.list({ kind: "request", id: "l1", method: "list" }, signal);
+  expect(listed.kind).toBe("response");
+  if (listed.kind !== "response") return;
+
+  const runs = (listed.result as { runs: unknown[] }).runs;
+  // @mutate v2/src/daemon/daemon-run-lifecycle-handlers.ts "if (!isTerminalRunStatus(run.status)) {" -> "if (isTerminalRunStatus(run.status)) {"
+  expect(runs).toHaveLength(110);
+});
+
 test("list projects live in-progress runs", async () => {
   const { handlers } = lifecycleHandlers();
   const signal = new AbortController().signal;

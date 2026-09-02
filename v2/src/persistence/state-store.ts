@@ -631,6 +631,9 @@ export interface StateStore {
   /** Load a run and its attempt history for resume; null when unknown. */
   loadRun(runId: string): (Run & { attempts: Attempt[] }) | null;
 
+  /** Load runs with attempt history for a deduped ID set; unknown IDs are omitted. */
+  loadRunsByIds(runIds: readonly string[]): Array<Run & { attempts: Attempt[] }>;
+
   /** Most recent run for the `(project, branch, stepId)` resume key; null when none. */
   findRunByProjectBranch(args: {
     project: string;
@@ -643,6 +646,9 @@ export interface StateStore {
 
   /** All runs whose `workflowSnapshot.invocationId` matches the given id. */
   findRunsByInvocationId(invocationId: string): Run[];
+
+  /** All runs whose `workflowSnapshot.invocationId` is in the given set; creation order per invocation. */
+  findRunsByInvocationIds(invocationIds: readonly string[]): Run[];
 
   /**
    * Admit an already-validated pipeline definition: one pipeline row plus one
@@ -1555,6 +1561,41 @@ class StateStoreImpl implements StateStore {
     return { ...run, attempts };
   }
 
+  loadRunsByIds(runIds: readonly string[]): Array<Run & { attempts: Attempt[] }> {
+    if (runIds.length === 0) return [];
+
+    const uniqueIds = [...new Set(runIds)];
+    const placeholders = uniqueIds.map(() => "?").join(", ");
+    const runRows = this.db
+      .prepare(`SELECT ${RUN_COLUMNS} FROM runs WHERE id IN (${placeholders})`)
+      .all(...uniqueIds) as RunRow[];
+    if (runRows.length === 0) return [];
+
+    const foundIds = runRows.map((row) => row.id);
+    const attemptPlaceholders = foundIds.map(() => "?").join(", ");
+    const attemptRows = this.db
+      .prepare(
+        `SELECT ${ATTEMPT_COLUMNS} FROM attempts WHERE run_id IN (${attemptPlaceholders}) ORDER BY attempt_number ASC`,
+      )
+      .all(...foundIds) as Array<Attempt & { invocationFailureDetailJson: string | null }>;
+
+    const attemptsByRunId = new Map<string, Attempt[]>();
+    for (const row of attemptRows) {
+      const attempt = mapAttemptRow(row);
+      const existing = attemptsByRunId.get(attempt.runId);
+      if (existing) {
+        existing.push(attempt);
+      } else {
+        attemptsByRunId.set(attempt.runId, [attempt]);
+      }
+    }
+
+    return runRows.map((row) => {
+      const run = mapRunRow(row);
+      return { ...run, attempts: attemptsByRunId.get(run.id) ?? [] };
+    });
+  }
+
   findRunByProjectBranch(args: {
     project: string;
     branch: string;
@@ -1594,6 +1635,20 @@ class StateStoreImpl implements StateStore {
           `SELECT ${RUN_COLUMNS} FROM runs WHERE workflow_snapshot IS NOT NULL AND json_extract(workflow_snapshot, '$.invocationId') = ? ORDER BY created_at ASC`,
         )
         .all(invocationId) as RunRow[]
+    ).map(mapRunRow);
+  }
+
+  findRunsByInvocationIds(invocationIds: readonly string[]): Run[] {
+    if (invocationIds.length === 0) return [];
+
+    const uniqueIds = [...new Set(invocationIds)];
+    const placeholders = uniqueIds.map(() => "?").join(", ");
+    return (
+      this.db
+        .prepare(
+          `SELECT ${RUN_COLUMNS} FROM runs WHERE workflow_snapshot IS NOT NULL AND json_extract(workflow_snapshot, '$.invocationId') IN (${placeholders}) ORDER BY created_at ASC`,
+        )
+        .all(...uniqueIds) as RunRow[]
     ).map(mapRunRow);
   }
 

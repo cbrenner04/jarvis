@@ -569,6 +569,83 @@ describe("StateStore", () => {
     expect(runs.map((r) => r.id)).toEqual([run1Id, run2Id, run3Id]);
   });
 
+  test("loadRunsByIds uses batched store access independent of id count", () => {
+    const BATCH_LOAD_PREPARE_BOUND = 2;
+    const existingIds: string[] = [];
+    for (let index = 0; index < 12; index += 1) {
+      const runId = seedRun(store, { branch: `batch-load-branch-${index}` });
+      store.recordAttemptStart(runId);
+      existingIds.push(runId);
+    }
+
+    function measureLoadRunsByIdsPrepareCalls(idCount: number): number {
+      const db = (store as unknown as { db: Database }).db;
+      let prepareCount = 0;
+      const originalPrepare = db.prepare.bind(db);
+      db.prepare = (sql: string) => {
+        prepareCount += 1;
+        return originalPrepare(sql);
+      };
+
+      const requested = [...existingIds.slice(0, idCount), "missing-run-id"];
+      const results = store.loadRunsByIds(requested);
+      db.prepare = originalPrepare;
+
+      expect(results.map((run) => run.id).sort()).toEqual(existingIds.slice(0, idCount).sort());
+      for (const run of results) {
+        const loaded = loadRunOrThrow(store, run.id);
+        expect(run.attempts).toEqual(loaded.attempts);
+      }
+      return prepareCount;
+    }
+
+    const smallPrepareCount = measureLoadRunsByIdsPrepareCalls(3);
+    const largePrepareCount = measureLoadRunsByIdsPrepareCalls(10);
+    expect(smallPrepareCount).toBeLessThanOrEqual(BATCH_LOAD_PREPARE_BOUND);
+    expect(largePrepareCount).toBeLessThanOrEqual(BATCH_LOAD_PREPARE_BOUND);
+  });
+
+  test("findRunsByInvocationIds uses batched store access independent of invocation count", () => {
+    const BATCH_INVOCATION_PREPARE_BOUND = 1;
+    const invocations: Array<{ invocationId: string; runIds: string[] }> = [];
+    for (let index = 0; index < 8; index += 1) {
+      const invocationId = `batch-inv-${index}`;
+      const snapshot = { invocationId, steps: [] };
+      const runIds = [
+        seedRun(store, { stepId: "step-1", workflowSnapshot: snapshot, branch: `inv-${index}-b1` }),
+        seedRun(store, { stepId: "step-2", workflowSnapshot: snapshot, branch: `inv-${index}-b2` }),
+        seedRun(store, { stepId: "step-3", workflowSnapshot: snapshot, branch: `inv-${index}-b3` }),
+      ];
+      invocations.push({ invocationId, runIds });
+    }
+
+    function measureFindRunsByInvocationIdsPrepareCalls(invocationCount: number): number {
+      const db = (store as unknown as { db: Database }).db;
+      let prepareCount = 0;
+      const originalPrepare = db.prepare.bind(db);
+      db.prepare = (sql: string) => {
+        prepareCount += 1;
+        return originalPrepare(sql);
+      };
+
+      const requestedInvocationIds = invocations.slice(0, invocationCount).map((entry) => entry.invocationId);
+      const results = store.findRunsByInvocationIds(requestedInvocationIds);
+      db.prepare = originalPrepare;
+
+      for (const { invocationId, runIds } of invocations.slice(0, invocationCount)) {
+        const siblings = results.filter((run) => run.workflowSnapshot?.invocationId === invocationId);
+        expect(siblings.map((run) => run.id)).toEqual(runIds);
+        expect(siblings.map((run) => run.id)).toEqual(store.findRunsByInvocationId(invocationId).map((run) => run.id));
+      }
+      return prepareCount;
+    }
+
+    const smallPrepareCount = measureFindRunsByInvocationIdsPrepareCalls(2);
+    const largePrepareCount = measureFindRunsByInvocationIdsPrepareCalls(6);
+    expect(smallPrepareCount).toBeLessThanOrEqual(BATCH_INVOCATION_PREPARE_BOUND);
+    expect(largePrepareCount).toBeLessThanOrEqual(BATCH_INVOCATION_PREPARE_BOUND);
+  });
+
   test("setRunStatus stamps a finish timestamp on a terminal status", () => {
     for (const status of TERMINAL_RUN_STATUSES) {
       const runId = seedRun(store, { branch: `branch-${status}` });

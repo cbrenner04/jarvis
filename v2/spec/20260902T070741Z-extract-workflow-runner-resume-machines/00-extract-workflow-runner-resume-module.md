@@ -33,17 +33,17 @@ Primary: `v2/src/execution/workflow-runner-resume.ts` (new). In-scope: `workflow
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner-resume-structure.test.ts` fails against the pre-fix tree and fails if `recoverPlanStage`, `resumePopulatedIntentPublication`, `resumeReviewMutationFinalization`, `landReviewedPublicationOutput`, `settleIntentResumeFailure`, `settleReviewMutationResumeFailure`, `resolveReviewMutationRowHead`, `admitPlanRecoveryBlockerAndClaim`, `restoreVerdictSidecars`, `settleIntentResumeStagedMarkdownLintFailure`, `inertResumeWriteLoopInput`, `mutationRepairLoopInput`, or `settleSuccessfulReviewMutationPublication` remain defined in `workflow-runner.ts` (all thirteen are inline helpers reachable on main today).
-- [ ] `recover-review-failed-plan-draft.test.ts` stays green after `recoverPlanStage` imports move to `workflow-runner-resume.ts`.
-- [ ] `workflow-runner-debate-landing.test.ts` stays green after `landReviewedPublicationOutput` dep wiring sources `workflow-runner-resume.ts`.
-- [ ] `workflow-runner-resume.test.ts` stays green after moved-symbol imports re-point to `workflow-runner-resume.ts`.
-- [ ] `workflow-runner-review.test.ts` stays green after moved-symbol imports re-point to `workflow-runner-resume.ts`.
-- [ ] `daemon-resume.test.ts` stays green after moved-symbol imports re-point to `workflow-runner-resume.ts`.
-- [ ] `daemon-pipeline-recover.test.ts` stays green after `recoverPlanStage` imports move to `workflow-runner-resume.ts`.
-- [ ] `pipeline-execution.test.ts` stays green after `landReviewedPublicationOutput` imports move to `workflow-runner-resume.ts`.
-- [ ] `workflow-runner-publication.test.ts` stays green (no moved-symbol imports on merge-base).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `workflow-runner-resume-structure.test.ts` fails against the pre-fix tree and fails if `recoverPlanStage`, `resumePopulatedIntentPublication`, `resumeReviewMutationFinalization`, `landReviewedPublicationOutput`, `settleIntentResumeFailure`, `settleReviewMutationResumeFailure`, `resolveReviewMutationRowHead`, `admitPlanRecoveryBlockerAndClaim`, `restoreVerdictSidecars`, `settleIntentResumeStagedMarkdownLintFailure`, `inertResumeWriteLoopInput`, `mutationRepairLoopInput`, or `settleSuccessfulReviewMutationPublication` remain defined in `workflow-runner.ts` (all thirteen are inline helpers reachable on main today).
+- [x] `recover-review-failed-plan-draft.test.ts` stays green after `recoverPlanStage` imports move to `workflow-runner-resume.ts`.
+- [x] `workflow-runner-debate-landing.test.ts` stays green after `landReviewedPublicationOutput` dep wiring sources `workflow-runner-resume.ts`.
+- [x] `workflow-runner-resume.test.ts` stays green after moved-symbol imports re-point to `workflow-runner-resume.ts`.
+- [x] `workflow-runner-review.test.ts` stays green after moved-symbol imports re-point to `workflow-runner-resume.ts`.
+- [x] `daemon-resume.test.ts` stays green after moved-symbol imports re-point to `workflow-runner-resume.ts`.
+- [x] `daemon-pipeline-recover.test.ts` stays green after `recoverPlanStage` imports move to `workflow-runner-resume.ts`.
+- [x] `pipeline-execution.test.ts` stays green after `landReviewedPublicationOutput` imports move to `workflow-runner-resume.ts`.
+- [x] `workflow-runner-publication.test.ts` stays green (no moved-symbol imports on merge-base).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

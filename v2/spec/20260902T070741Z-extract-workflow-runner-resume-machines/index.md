@@ -1,6 +1,6 @@
 # Extract workflow-runner resume machines into a sibling module
 
-- [ ] [00 - Extract workflow-runner resume module](./00-extract-workflow-runner-resume-module.md)
+- [x] [00 - Extract workflow-runner resume module](./00-extract-workflow-runner-resume-module.md)
 - [ ] [01 - Pin resume test inventory](./01-pin-resume-test-inventory.md)
 - [ ] [02 - Co-locate and split resume tests](./02-co-locate-resume-tests.md)
 - [ ] [03 - Document resume module map](./03-document-resume-module-map.md)

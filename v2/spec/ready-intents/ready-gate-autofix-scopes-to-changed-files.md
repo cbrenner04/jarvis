@@ -23,9 +23,10 @@ Built-in ready-gate autofix runs repo-wide `bun run fix` (`bun biome check --wri
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts` regression with a pre-existing out-of-diff lint finding asserts ready-gate autofix does not run biome over `.` and does not settle `completion_commit_failed` for that finding; fails against the pre-fix repo-wide autofix path.
-- [ ] `write-loop.test.ts` regression asserts autofix biome subprocess argv includes a raised `--max-diagnostics` and run log output names the real blocking finding (not a truncation-only summary); fails against the pre-fix default-cap path.
-- [ ] `write-loop.test.ts` regression drives a run whose changed files are clean through autofix while out-of-diff `noNonNullAssertion` findings exist elsewhere and asserts autofix succeeds without `completion_commit_failed`; fails against the pre-fix path.
+- [ ] Built-in ready-gate autofix scopes biome to the run's changed paths (`<baseRef>...HEAD` ∪ untracked), not repo-wide `.`; a `write-loop.test.ts` regression with a pre-existing out-of-diff lint finding fails against the pre-fix repo-wide autofix path.
+- [ ] Pre-existing out-of-diff lint findings do not cause ready-gate autofix to settle `completion_commit_failed`; the same regression fails against the pre-fix path.
+- [ ] A genuine in-scope autofix failure names the blocking finding in run log output (not only a truncation summary such as `Diagnostics not shown: N`); a `write-loop.test.ts` regression fails against the pre-fix default-cap path.
+- [ ] A run whose changed files are clean succeeds through ready-gate autofix when out-of-diff `noNonNullAssertion` findings exist elsewhere; a `write-loop.test.ts` regression fails against the pre-fix path.
 - [ ] `bun run typecheck` and the `test:v2` pair pass.
 
 ## Documentation updates

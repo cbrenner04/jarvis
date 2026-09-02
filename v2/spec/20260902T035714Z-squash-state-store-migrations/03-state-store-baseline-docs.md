@@ -22,7 +22,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/state-store.md` documents the baselined schema as the durable contract and describes the single pre-squash upgrade path with no remaining per-migration `004`–`030` inventory bullets.
+- [x] `v2/docs/state-store.md` documents the baselined schema as the durable contract and describes the single pre-squash upgrade path with no remaining per-migration `004`–`030` inventory bullets.
 
 ## Documentation updates
 

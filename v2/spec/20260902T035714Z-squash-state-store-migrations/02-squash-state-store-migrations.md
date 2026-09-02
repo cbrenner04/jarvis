@@ -27,10 +27,10 @@
 
 ## Acceptance criteria
 
-- [ ] `state-store-baseline-migration.test.ts` opens a pre-squash fixture database and a fresh baseline database through `openStateStore` and asserts equivalent row visibility for representative runs, pipelines, and stages; it fails against the pre-fix sequential `SCHEMA_MIGRATIONS` chain reachable in `state-store.ts`.
-- [ ] `state-store.test.ts` legacy-migration fixture tests stay green.
-- [ ] `state-store.test.ts` terminal-settlement fixture tests stay green.
-- [ ] `state-store.ts` exposes no `SCHEMA_MIGRATIONS` sequential ALTER chain; the baselined `CREATE` is the durable schema contract for fresh stores.
+- [x] `state-store-baseline-migration.test.ts` opens a pre-squash fixture database and a fresh baseline database through `openStateStore` and asserts equivalent row visibility for representative runs, pipelines, and stages; it fails against the pre-fix sequential `SCHEMA_MIGRATIONS` chain reachable in `state-store.ts`.
+- [x] `state-store.test.ts` legacy-migration fixture tests stay green.
+- [x] `state-store.test.ts` terminal-settlement fixture tests stay green.
+- [x] `state-store.ts` exposes no `SCHEMA_MIGRATIONS` sequential ALTER chain; the baselined `CREATE` is the durable schema contract for fresh stores.
 
 ## Documentation updates
 

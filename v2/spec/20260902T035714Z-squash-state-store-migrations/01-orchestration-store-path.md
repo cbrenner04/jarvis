@@ -20,10 +20,10 @@
 
 ## Acceptance criteria
 
-- [ ] `paths.test.ts` asserts `ORCHESTRATION_STORE_PATH` and `orchestrationStorePath(customHome)` literal values; it fails against the pre-fix inline `join(jarvisHome(), "state", "v2.sqlite")` default in `state-store.ts`.
-- [ ] `state-store.ts` imports the default orchestration store path from `paths.ts` with no inline `join(jarvisHome(), "state", "v2.sqlite")` reachable in `openStateStore`.
-- [ ] `write-fixtures.ts` derives `stateDbPath` through `orchestrationStorePath` with no inline `"state"` / `"v2.sqlite"` join reachable in `createJarvisHome`.
-- [ ] `state-store.test.ts` stays green.
+- [x] `paths.test.ts` asserts `ORCHESTRATION_STORE_PATH` and `orchestrationStorePath(customHome)` literal values; it fails against the pre-fix inline `join(jarvisHome(), "state", "v2.sqlite")` default in `state-store.ts`.
+- [x] `state-store.ts` imports the default orchestration store path from `paths.ts` with no inline `join(jarvisHome(), "state", "v2.sqlite")` reachable in `openStateStore`.
+- [x] `write-fixtures.ts` derives `stateDbPath` through `orchestrationStorePath` with no inline `"state"` / `"v2.sqlite"` join reachable in `createJarvisHome`.
+- [x] `state-store.test.ts` stays green.
 
 ## Documentation updates
 

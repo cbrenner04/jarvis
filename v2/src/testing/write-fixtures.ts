@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "../execution/external-worktree.ts";
+import { orchestrationStorePath } from "../paths.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 
 /** Opens an in-memory state store for `callback`, closing it in `finally`. */
@@ -19,7 +20,7 @@ export async function withStateStore<T>(callback: (store: StateStore) => Promise
 export function createJarvisHome(): { jarvisRoot: string; stateDbPath: string } {
   const root = mkdtempSync(join(tmpdir(), "jarvis-v2-"));
   const jarvisRoot = join(root, "jarvis-home");
-  const stateDbPath = join(jarvisRoot, "state", "v2.sqlite");
+  const stateDbPath = orchestrationStorePath(jarvisRoot);
   return { jarvisRoot, stateDbPath };
 }
 

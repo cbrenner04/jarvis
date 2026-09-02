@@ -27,7 +27,6 @@ import { maybeResetStaleWorkspace } from "./stale-reset-workspace.ts";
 import {
   type ImplementWorkflowCliInput,
   type IntentWorkflowCliInput,
-  LEGACY_WORKFLOW_ALIASES,
   type PlanWorkflowCliInput,
   parseImplementWorkflowArgs,
   parseIntentWorkflowArgs,
@@ -110,7 +109,6 @@ function buildWorkflowBuilderInput(
 type ResolvedWorkflowPreset = {
   builder: WorkflowPresetBuilder;
   canonicalName: string;
-  alias: (typeof LEGACY_WORKFLOW_ALIASES)[string] | undefined;
 };
 
 type SuccessfulWorkflowBuild = Extract<WorkflowPresetBuilderResult, { ok: true }>;
@@ -188,26 +186,10 @@ function resolveImplementRecoveryRequest(
 
 function resolveWorkflowPresetBuilder(name: string | undefined, deps: CliDeps): ResolvedWorkflowPreset | undefined {
   if (name === undefined) return undefined;
-  const alias = LEGACY_WORKFLOW_ALIASES[name];
-  const canonicalName = alias?.canonical ?? name;
-  const builder = Object.hasOwn(deps.workflowPresetBuilders, canonicalName)
-    ? deps.workflowPresetBuilders[canonicalName]
-    : Object.hasOwn(deps.workflowPresetBuilders, name)
-      ? deps.workflowPresetBuilders[name]
-      : undefined;
+  if (name !== "intent" && name !== "plan" && name !== "implement") return undefined;
+  const builder = deps.workflowPresetBuilders[name];
   if (builder === undefined) return undefined;
-  return { builder, canonicalName, alias };
-}
-
-function applyLegacyWorkflowAlias(
-  parsed: ImplementWorkflowCliInput | IntentWorkflowCliInput | PlanWorkflowCliInput,
-  alias: ResolvedWorkflowPreset["alias"],
-  io: Io,
-): void {
-  if (alias === undefined) return;
-  if ("reviewPasses" in parsed && parsed.reviewPasses === undefined) parsed.reviewPasses = alias.passes;
-  if ("reviewBehavior" in parsed && parsed.reviewBehavior === undefined) parsed.reviewBehavior = alias.behavior;
-  io.stderr(`deprecated: use ${alias.canonical} --review-passes ${alias.passes} --review-behavior ${alias.behavior}\n`);
+  return { builder, canonicalName: name };
 }
 
 async function startWorkflowRun(
@@ -302,7 +284,7 @@ export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: 
     io.stderr(WORKFLOW_USAGE);
     return 1;
   }
-  const { builder, canonicalName, alias } = resolved;
+  const { builder, canonicalName } = resolved;
   const isIntentPreset = canonicalName === "intent";
   const isPlanPreset = canonicalName === "plan";
   const { rest: workflowArgv, detach } = parseWorkflowDetachFlag(argv.slice(1));
@@ -311,7 +293,6 @@ export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: 
     io.stderr(getWorkflowUsage(canonicalName));
     return 1;
   }
-  applyLegacyWorkflowAlias(parsed, alias, io);
   const builderInputResult = buildWorkflowBuilderInput(canonicalName, parsed, isIntentPreset, isPlanPreset, deps);
   if (!builderInputResult.ok) return 1;
   const recovery =

@@ -10,6 +10,9 @@ const ALLOWLIST = new Set([
   "../persistence/state-store.ts#openStateStore",
   "../daemon/daemon-lifecycle.ts#startDaemon",
   "../daemon/daemon-lifecycle.ts#isProcessAlive",
+  // Pure path derivation, not production behavior: fixtures must not re-hardcode the
+  // orchestration store location that `paths.ts` owns.
+  "../paths.ts#orchestrationStorePath",
 ]);
 
 function lineAt(source: string, index: number): number {

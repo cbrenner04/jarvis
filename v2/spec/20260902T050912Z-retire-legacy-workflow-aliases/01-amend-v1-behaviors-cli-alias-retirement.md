@@ -18,8 +18,8 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/v1-behaviors.md` records that `run workflow intent-reviewed`, `plan-reviewed`, and `plan-reviewed-light` are rejected at CLI admission and no longer lists them as accepted CLI workflow names; the pre-fix overview and admission bullets at `v2/docs/v1-behaviors.md` still claim alias acceptance reachable on main.
-- [ ] `bun run lint:md` passes.
+- [x] `v2/docs/v1-behaviors.md` records that `run workflow intent-reviewed`, `plan-reviewed`, and `plan-reviewed-light` are rejected at CLI admission and no longer lists them as accepted CLI workflow names; the pre-fix overview and admission bullets at `v2/docs/v1-behaviors.md` still claim alias acceptance reachable on main.
+- [x] `bun run lint:md` passes.
 
 ## Documentation updates
 

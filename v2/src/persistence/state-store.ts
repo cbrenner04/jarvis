@@ -824,8 +824,8 @@ export interface StateStore {
   close(): void;
 }
 
-// Bootstrap is idempotent (IF NOT EXISTS). Schema changes are forward-only:
-// append migration statements when the first incompatible change lands.
+// Baselined schema for fresh stores (post-030 on-disk shape). Pre-squash stores upgrade once via
+// `BASELINE_SQUASH_MIGRATION_ID` in `applySchemaMigrations`.
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS runs (
     id TEXT PRIMARY KEY,
@@ -836,7 +836,24 @@ const SCHEMA = `
     attempt_count INTEGER NOT NULL DEFAULT 0,
     worktree_path TEXT NOT NULL,
     branch TEXT NOT NULL,
-    spec_path TEXT NOT NULL
+    spec_path TEXT NOT NULL,
+    step_id TEXT,
+    workflow_snapshot TEXT,
+    queued_input TEXT,
+    creation_title TEXT,
+    reconciliation_pending INTEGER NOT NULL DEFAULT 0,
+    owner_identity TEXT,
+    pr_number INTEGER,
+    pr_url TEXT,
+    reconciled_at INTEGER,
+    ready_gate_repair_fence TEXT,
+    retained_finalization_checkpoint TEXT,
+    downstream_inputs TEXT,
+    finished_at INTEGER,
+    ready_gate_pgid INTEGER,
+    dismissed_at INTEGER,
+    terminal_cause TEXT,
+    terminal_failure_detail TEXT
   );
   CREATE TABLE IF NOT EXISTS attempts (
     id TEXT PRIMARY KEY,
@@ -846,7 +863,50 @@ const SCHEMA = `
     status TEXT NOT NULL,
     outcome_kind TEXT,
     completed_at INTEGER,
+    invocation_failure_detail TEXT,
+    completion_agent TEXT,
+    completion_review_pass INTEGER,
     FOREIGN KEY (run_id) REFERENCES runs(id)
+  );
+  CREATE TABLE IF NOT EXISTS pipelines (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    definition TEXT NOT NULL,
+    owner_identity TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    context TEXT,
+    terminal_publication_failure TEXT,
+    terminal_publication_succeeded_at INTEGER,
+    dismissed_at INTEGER
+  );
+  CREATE TABLE IF NOT EXISTS pipeline_stages (
+    id TEXT PRIMARY KEY,
+    pipeline_id TEXT NOT NULL REFERENCES pipelines(id),
+    stage_id TEXT NOT NULL,
+    branch_key TEXT NOT NULL DEFAULT '${DEFAULT_PIPELINE_STAGE_BRANCH_KEY}',
+    position INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    workflow_invocation_id TEXT,
+    started_at INTEGER,
+    ended_at INTEGER,
+    artifact TEXT,
+    failure_detail TEXT,
+    decided_at INTEGER,
+    UNIQUE (pipeline_id, stage_id, branch_key)
+  );
+  CREATE TABLE IF NOT EXISTS pipeline_stage_admission (
+    pipeline_id TEXT NOT NULL REFERENCES pipelines(id),
+    stage_id TEXT NOT NULL,
+    branch_key TEXT NOT NULL,
+    holder_identity TEXT NOT NULL,
+    PRIMARY KEY (pipeline_id, stage_id, branch_key)
+  );
+  CREATE TABLE IF NOT EXISTS operator_notification_deliveries (
+    incident_id TEXT NOT NULL,
+    transition TEXT NOT NULL,
+    delivered_at INTEGER NOT NULL,
+    PRIMARY KEY (incident_id, transition)
   );
 `;
 
@@ -879,47 +939,80 @@ const INSERT_PIPELINE_STAGE_SQL = `
   VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, NULL, NULL, NULL)
 `;
 
-const SCHEMA_MIGRATIONS = [
-  {
-    id: "004-invocation-failure-detail",
-    up: "ALTER TABLE attempts ADD COLUMN invocation_failure_detail TEXT",
-  },
-  {
-    id: "005-run-step-id",
-    up: "ALTER TABLE runs ADD COLUMN step_id TEXT",
-  },
-  {
-    id: "006-run-workflow-snapshot",
-    up: "ALTER TABLE runs ADD COLUMN workflow_snapshot TEXT",
-  },
-  {
-    id: "007-run-queued-input",
-    up: "ALTER TABLE runs ADD COLUMN queued_input TEXT",
-  },
-  {
-    id: "008-attempt-completion-agent",
-    up: "ALTER TABLE attempts ADD COLUMN completion_agent TEXT",
-  },
-  {
-    id: "009-run-creation-title",
-    up: "ALTER TABLE runs ADD COLUMN creation_title TEXT",
-  },
-  {
-    id: "010-run-reconciliation-pending",
-    up: "ALTER TABLE runs ADD COLUMN reconciliation_pending INTEGER NOT NULL DEFAULT 0",
-  },
-  {
-    id: "011-run-owner-identity",
-    up: "ALTER TABLE runs ADD COLUMN owner_identity TEXT",
-  },
-  {
-    id: "012-run-pr-evidence",
-    up: `ALTER TABLE runs ADD COLUMN pr_number INTEGER;
-        ALTER TABLE runs ADD COLUMN pr_url TEXT;`,
-  },
-  {
-    id: "013-pipelines-and-stages",
-    up: `
+const BASELINE_SQUASH_MIGRATION_ID = "031-baseline-squash";
+
+function tableExists(db: Database, name: string): boolean {
+  const row = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name);
+  return row !== undefined && row !== null;
+}
+
+function tableHasColumn(db: Database, table: string, column: string): boolean {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  return rows.some((row) => row.name === column);
+}
+
+function addColumnIfMissing(db: Database, table: string, column: string, definition: string): void {
+  if (!tableHasColumn(db, table, column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
+function upgradePipelineStagesBranchKey(db: Database): void {
+  if (!tableExists(db, "pipeline_stages") || tableHasColumn(db, "pipeline_stages", "branch_key")) {
+    return;
+  }
+  db.exec(`
+    ALTER TABLE pipeline_stages ADD COLUMN branch_key TEXT NOT NULL DEFAULT '${DEFAULT_PIPELINE_STAGE_BRANCH_KEY}';
+    CREATE TABLE pipeline_stages_new (
+      id TEXT PRIMARY KEY,
+      pipeline_id TEXT NOT NULL REFERENCES pipelines(id),
+      stage_id TEXT NOT NULL,
+      branch_key TEXT NOT NULL DEFAULT '${DEFAULT_PIPELINE_STAGE_BRANCH_KEY}',
+      position INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      workflow_invocation_id TEXT,
+      started_at INTEGER,
+      ended_at INTEGER,
+      artifact TEXT,
+      failure_detail TEXT,
+      UNIQUE (pipeline_id, stage_id, branch_key)
+    );
+    INSERT INTO pipeline_stages_new (
+      id, pipeline_id, stage_id, branch_key, position, status,
+      workflow_invocation_id, started_at, ended_at, artifact, failure_detail
+    )
+    SELECT
+      id, pipeline_id, stage_id, branch_key, position, status,
+      workflow_invocation_id, started_at, ended_at, artifact, failure_detail
+    FROM pipeline_stages;
+    DROP TABLE pipeline_stages;
+    ALTER TABLE pipeline_stages_new RENAME TO pipeline_stages;
+  `);
+}
+
+function upgradeFromLegacyEra(db: Database): void {
+  addColumnIfMissing(db, "attempts", "invocation_failure_detail", "TEXT");
+  addColumnIfMissing(db, "attempts", "completion_agent", "TEXT");
+  addColumnIfMissing(db, "attempts", "completion_review_pass", "INTEGER");
+  addColumnIfMissing(db, "runs", "step_id", "TEXT");
+  addColumnIfMissing(db, "runs", "workflow_snapshot", "TEXT");
+  addColumnIfMissing(db, "runs", "queued_input", "TEXT");
+  addColumnIfMissing(db, "runs", "creation_title", "TEXT");
+  addColumnIfMissing(db, "runs", "reconciliation_pending", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "runs", "owner_identity", "TEXT");
+  addColumnIfMissing(db, "runs", "pr_number", "INTEGER");
+  addColumnIfMissing(db, "runs", "pr_url", "TEXT");
+  addColumnIfMissing(db, "runs", "reconciled_at", "INTEGER");
+  addColumnIfMissing(db, "runs", "ready_gate_repair_fence", "TEXT");
+  addColumnIfMissing(db, "runs", "retained_finalization_checkpoint", "TEXT");
+  addColumnIfMissing(db, "runs", "downstream_inputs", "TEXT");
+  addColumnIfMissing(db, "runs", "finished_at", "INTEGER");
+  addColumnIfMissing(db, "runs", "ready_gate_pgid", "INTEGER");
+  addColumnIfMissing(db, "runs", "dismissed_at", "INTEGER");
+  addColumnIfMissing(db, "runs", "terminal_cause", "TEXT");
+  addColumnIfMissing(db, "runs", "terminal_failure_detail", "TEXT");
+  if (!tableExists(db, "pipelines")) {
+    db.exec(`
       CREATE TABLE pipelines (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -940,71 +1033,18 @@ const SCHEMA_MIGRATIONS = [
         UNIQUE (pipeline_id, stage_id),
         UNIQUE (pipeline_id, position)
       );
-    `,
-  },
-  {
-    id: "014-pipeline-owner-identity-and-status",
-    up: `ALTER TABLE pipelines ADD COLUMN owner_identity TEXT;
-        ALTER TABLE pipelines ADD COLUMN status TEXT NOT NULL DEFAULT 'active';`,
-  },
-  {
-    id: "015-pipeline-context",
-    up: "ALTER TABLE pipelines ADD COLUMN context TEXT",
-  },
-  {
-    id: "016-run-reconciled-at",
-    up: "ALTER TABLE runs ADD COLUMN reconciled_at INTEGER",
-  },
-  {
-    id: "017-run-ready-gate-repair-fence",
-    up: "ALTER TABLE runs ADD COLUMN ready_gate_repair_fence TEXT",
-  },
-  {
-    id: "018-pipeline-terminal-publication",
-    up: `ALTER TABLE pipelines ADD COLUMN terminal_publication_failure TEXT;
-        ALTER TABLE pipelines ADD COLUMN terminal_publication_succeeded_at INTEGER`,
-  },
-  {
-    id: "019-run-retained-finalization-checkpoint",
-    up: "ALTER TABLE runs ADD COLUMN retained_finalization_checkpoint TEXT",
-  },
-  {
-    id: "020-pipeline-stage-branch-key",
-    up: `
-      ALTER TABLE pipeline_stages ADD COLUMN branch_key TEXT NOT NULL DEFAULT '${DEFAULT_PIPELINE_STAGE_BRANCH_KEY}';
-      CREATE TABLE pipeline_stages_new (
-        id TEXT PRIMARY KEY,
-        pipeline_id TEXT NOT NULL REFERENCES pipelines(id),
-        stage_id TEXT NOT NULL,
-        branch_key TEXT NOT NULL DEFAULT '${DEFAULT_PIPELINE_STAGE_BRANCH_KEY}',
-        position INTEGER NOT NULL,
-        status TEXT NOT NULL,
-        workflow_invocation_id TEXT,
-        started_at INTEGER,
-        ended_at INTEGER,
-        artifact TEXT,
-        failure_detail TEXT,
-        UNIQUE (pipeline_id, stage_id, branch_key)
-      );
-      INSERT INTO pipeline_stages_new (
-        id, pipeline_id, stage_id, branch_key, position, status,
-        workflow_invocation_id, started_at, ended_at, artifact, failure_detail
-      )
-      SELECT
-        id, pipeline_id, stage_id, branch_key, position, status,
-        workflow_invocation_id, started_at, ended_at, artifact, failure_detail
-      FROM pipeline_stages;
-      DROP TABLE pipeline_stages;
-      ALTER TABLE pipeline_stages_new RENAME TO pipeline_stages;
-    `,
-  },
-  {
-    id: "021-run-downstream-inputs",
-    up: "ALTER TABLE runs ADD COLUMN downstream_inputs TEXT",
-  },
-  {
-    id: "022-pipeline-stage-admission",
-    up: `
+    `);
+  }
+  addColumnIfMissing(db, "pipelines", "owner_identity", "TEXT");
+  addColumnIfMissing(db, "pipelines", "status", "TEXT NOT NULL DEFAULT 'active'");
+  addColumnIfMissing(db, "pipelines", "context", "TEXT");
+  addColumnIfMissing(db, "pipelines", "terminal_publication_failure", "TEXT");
+  addColumnIfMissing(db, "pipelines", "terminal_publication_succeeded_at", "INTEGER");
+  addColumnIfMissing(db, "pipelines", "dismissed_at", "INTEGER");
+  upgradePipelineStagesBranchKey(db);
+  addColumnIfMissing(db, "pipeline_stages", "decided_at", "INTEGER");
+  if (!tableExists(db, "pipeline_stage_admission")) {
+    db.exec(`
       CREATE TABLE pipeline_stage_admission (
         pipeline_id TEXT NOT NULL REFERENCES pipelines(id),
         stage_id TEXT NOT NULL,
@@ -1012,31 +1052,53 @@ const SCHEMA_MIGRATIONS = [
         holder_identity TEXT NOT NULL,
         PRIMARY KEY (pipeline_id, stage_id, branch_key)
       );
-    `,
-  },
-  { id: "023-run-finished-at", up: "ALTER TABLE runs ADD COLUMN finished_at INTEGER" },
-  { id: "024-pipeline-stage-decided-at", up: "ALTER TABLE pipeline_stages ADD COLUMN decided_at INTEGER" },
-  { id: "025-run-ready-gate-pgid", up: "ALTER TABLE runs ADD COLUMN ready_gate_pgid INTEGER" },
-  { id: "026-attempts-completion-review-pass", up: "ALTER TABLE attempts ADD COLUMN completion_review_pass INTEGER" },
-  { id: "027-pipeline-dismissed-at", up: "ALTER TABLE pipelines ADD COLUMN dismissed_at INTEGER" },
-  { id: "028-run-dismissed-at", up: "ALTER TABLE runs ADD COLUMN dismissed_at INTEGER" },
-  {
-    id: "029-run-terminal-settlement-columns",
-    up: `ALTER TABLE runs ADD COLUMN terminal_cause TEXT;
-        ALTER TABLE runs ADD COLUMN terminal_failure_detail TEXT`,
-  },
-  {
-    id: "030-operator-notification-delivery",
-    up: `
-      CREATE TABLE IF NOT EXISTS operator_notification_deliveries (
+    `);
+  }
+  if (!tableExists(db, "operator_notification_deliveries")) {
+    db.exec(`
+      CREATE TABLE operator_notification_deliveries (
         incident_id TEXT NOT NULL,
         transition TEXT NOT NULL,
         delivered_at INTEGER NOT NULL,
         PRIMARY KEY (incident_id, transition)
       );
-    `,
-  },
-] as const;
+    `);
+  }
+}
+
+function hasLegacyEraMigrations(db: Database): boolean {
+  const row = db.prepare("SELECT 1 FROM _migrations WHERE id != ? LIMIT 1").get(BASELINE_SQUASH_MIGRATION_ID);
+  return row !== undefined && row !== null;
+}
+
+function applySchemaMigrations(db: Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS _migrations (
+      id TEXT PRIMARY KEY,
+      applied_at INTEGER NOT NULL
+    )
+  `);
+  const squashApplied = db.prepare("SELECT 1 FROM _migrations WHERE id = ?").get(BASELINE_SQUASH_MIGRATION_ID);
+  if (squashApplied) return;
+
+  if (hasLegacyEraMigrations(db)) {
+    db.exec("BEGIN");
+    try {
+      upgradeFromLegacyEra(db);
+      db.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(
+        BASELINE_SQUASH_MIGRATION_ID,
+        Date.now(),
+      );
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+    return;
+  }
+
+  db.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(BASELINE_SQUASH_MIGRATION_ID, Date.now());
+}
 
 const ORPHAN_STATUSES = "'queued', 'in-progress', 'paused', 'budget-soft-stopped'";
 
@@ -1142,31 +1204,6 @@ export async function isOwnerAlive(
   const currentEpoch = await readStartEpoch(pid);
   if (currentEpoch === null) return true;
   return currentEpoch === Number(epochPart);
-}
-
-function applySchemaMigrations(db: Database): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS _migrations (
-      id TEXT PRIMARY KEY,
-      applied_at INTEGER NOT NULL
-    )
-  `);
-  for (const migration of SCHEMA_MIGRATIONS) {
-    const exists = db.prepare("SELECT 1 FROM _migrations WHERE id = ?").get(migration.id);
-    if (exists) continue;
-    // One transaction per migration: a table-rebuild migration (drop + rename) that is
-    // interrupted partway would otherwise destroy its table and leave the store unopenable,
-    // because the earlier CREATE is already stamped and will not re-run.
-    db.exec("BEGIN");
-    try {
-      db.exec(migration.up);
-      db.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(migration.id, Date.now());
-      db.exec("COMMIT");
-    } catch (error) {
-      db.exec("ROLLBACK");
-      throw error;
-    }
-  }
 }
 
 function mapAttemptRow(row: Attempt & { invocationFailureDetailJson: string | null }): Attempt {

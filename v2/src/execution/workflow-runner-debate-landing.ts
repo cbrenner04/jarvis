@@ -7,7 +7,6 @@ import { resolveExecutableRole, resolveInvocationBindings } from "../config/agen
 import type { LogSink } from "../persistence/log-stream.ts";
 import { truncateLogText } from "../persistence/log-stream.ts";
 import type { Attempt, Run, StateStore, WorkflowSnapshot } from "../persistence/state-store.ts";
-import type { WriteLoopOutcomeKind } from "./write-loop.ts";
 import {
   type InvocationFailureDetail,
   type InvocationFailureKind,
@@ -32,13 +31,14 @@ import {
 import { isSuccessorShellStallOutcome, type SuccessorShellStallOutcome } from "./successor-step-idle-watchdog.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import { defaultTelemetrySinkPath } from "./work-boundary-telemetry.ts";
-import { checkStagedPlanDraft } from "./write.ts";
 import type {
   ReviewDebateProgress,
   ReviewDebateWorkflowStep,
   ReviewStepOutcome,
   ReviewWorkflowStep,
 } from "./workflow-runner.ts";
+import { checkStagedPlanDraft } from "./write.ts";
+import type { WriteLoopOutcomeKind } from "./write-loop.ts";
 
 const REVIEW_DEBATE_ROLES: readonly ReviewDebateRole[] = ["adversary", "advocate", "adjudicator", "actuator"];
 

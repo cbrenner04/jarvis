@@ -3,7 +3,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { RunFixCommandOpts } from "../../../shared/fix-command.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
-import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
+import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import {
   completeLinkedSubspec,
   type LinkedIndexRoutingResult,
@@ -25,7 +25,6 @@ import {
   type PersistedRecord,
   priorLogRecordsFromSink,
   type RunExecutionFailedEvent,
-  truncateLogText,
 } from "../persistence/log-stream.ts";
 import {
   type Attempt,
@@ -56,13 +55,9 @@ import { landImplementSpecTreeFromReadRoot } from "./implement-spec-landing.ts";
 import type { IntentPipelineHandoff } from "./intent-output.ts";
 import { configuredIntentDurableDir, listLandedIntentFiles } from "./intent-output.ts";
 import { deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
-import {
-  type InvocationFailureDetail,
-  type InvocationFailureKind,
-  isExhaustedRoleTimeout,
-} from "./invocation-failure.ts";
+import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import { readBranchCommits } from "./pr-attribution.ts";
-import { checkPlanTreeLanding, landPublication, type PublicationLanding } from "./publication-landing.ts";
+import { landPublication, type PublicationLanding } from "./publication-landing.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
 import {
@@ -81,27 +76,11 @@ import {
   type ReviewCycleResult,
   type ReviewCycleRole,
 } from "./review-cycle.ts";
-import {
-  executeReviewDebate,
-  type ReviewDebateInput,
-  type ReviewDebateRole,
-  type ReviewDebateRoleBindings,
-} from "./review-debate.ts";
+import type { ReviewDebateInput, ReviewDebateRole } from "./review-debate.ts";
 import { excludeVerdictFromStaging, executeReviewCycleEnforced, VERDICT_FILE } from "./review-intent-enforcement.ts";
 import { cycleProfileContext } from "./review-profile-context.ts";
 import { rehydrateReviewPromptProfile } from "./review-profile-registry.ts";
-import {
-  invokeReviewRole,
-  type ReviewRoleInvocationExecution,
-  reviewRoleFailureKind,
-} from "./review-role-invocation.ts";
-import {
-  lintReviewedStagedMarkdownOrFail,
-  REVIEW_STAGED_MARKDOWN_LINT_MAX_REPROMPTS,
-  type ReviewedStagedMarkdownLintReprompt,
-  renderReviewedStagedMarkdownLintReprompt,
-  reviewedStagingDir,
-} from "./reviewed-staged-markdown-lint.ts";
+import { lintReviewedStagedMarkdownOrFail } from "./reviewed-staged-markdown-lint.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
 import { lintStagedMarkdown } from "./staged-markdown-lint.ts";
@@ -126,13 +105,13 @@ import {
 } from "./workflow-runner-debate-landing.ts";
 
 export { isPostCommitReviewRetryableFailureKind };
+
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import {
   boundaryStampFromStoredRun,
   defaultTelemetrySinkPath,
   emitWorkBoundaryRecorded,
 } from "./work-boundary-telemetry.ts";
-import { checkStagedPlanDraft } from "./write.ts";
 import {
   appendRuntimeSmokeOutcome,
   DEFAULT_ITERATION_TIMEOUT_MS,

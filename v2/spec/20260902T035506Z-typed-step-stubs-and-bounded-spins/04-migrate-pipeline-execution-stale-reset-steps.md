@@ -19,8 +19,8 @@
 
 ## Acceptance criteria
 
-- [ ] `pipeline-execution.test.ts` stays green (behavior unchanged by the scaffolding extraction).
-- [ ] `intentSteps`, `planSteps`, and `implementSteps` contain zero `as unknown as AnyWorkflowStep[]` casts (reachable on main today via the stale-reset array helpers).
+- [x] `pipeline-execution.test.ts` stays green (behavior unchanged by the scaffolding extraction).
+- [x] `intentSteps`, `planSteps`, and `implementSteps` contain zero `as unknown as AnyWorkflowStep[]` casts (reachable on main today via the stale-reset array helpers).
 
 ## Documentation updates
 

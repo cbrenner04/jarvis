@@ -104,6 +104,8 @@ Generic daemon run-control request helpers (`mockWriteLoopInput`, `startRun`, `l
 
 Shared write-execution fixtures (`createJarvisHome`, `createFakeWithExternalWorktree`, `trackedTempRoots`) live in [`v2/src/testing/write-fixtures.ts`](../src/testing/write-fixtures.ts). Use them for tests exercising write-loop and write behaviors to unify temporary directory management, Jarvis-home creation, and fake worktree state.
 
+Write-step stubs for daemon pipeline tests live in [`v2/src/testing/workflow-step-fixtures.ts`](../src/testing/workflow-step-fixtures.ts). **`createMinimalDispatchWriteStep`** returns a type-complete `WriteWorkflowStep` (assignable to `AnyWorkflowStep` without a cast) with stub `worktree`, `agentModelConfig`, and dispatch metadata — use it for dispatch-only pipeline tests that only need steps in handler inputs or resolve-stage stubs. **`writeStepFixtures().createWriteStep`** (built on the [`write-fixtures.ts`](../src/testing/write-fixtures.ts) temp-root and Jarvis-home helpers) wires `createBinding`, `withExternalWorktree`, and tracked temp directories — prefer it when the test drives binding factories, artifact writes, or worktree materialization. Do not duplicate the full `createWriteStep` signature in specs; cross-link the module instead.
+
 The `setupSandboxGitRepo` fixture lives in [`v2/src/testing/sandbox-git-repo.ts`](../src/testing/sandbox-git-repo.ts) and is **sandbox-only** — it spawns real `git` commands and must only be imported from `.sandbox-unrunnable.test.ts` files. Agent-runnable tests must not import it.
 
 The daemon smoke test (`v2/src/daemon/daemon.sandbox-unrunnable.test.ts`) demonstrates the minimal real-process fixture. Detached daemons spawned by sandbox-unrunnable tests must use `createTestDaemonLifecycle`: it registers the PID before readiness can fail, force-reaps it after completed or failed tests, and opts it into launcher-death reaping for interrupted test runners. Production daemon launches must not opt in.
@@ -112,7 +114,7 @@ Pure in-memory logic (e.g., `WorktreeOwnershipRegistry`) belongs in agent-runnab
 
 ## Deterministic daemon and execution tests
 
-Agent-runnable daemon and execution tests (`v2/src/daemon/**/*.test.ts` and `v2/src/execution/**/*.test.ts` excluding `.sandbox-unrunnable.test.ts`) must not use direct timer-backed waits. **Bounded condition polling** is allowed; **sleep-as-wait** is forbidden.
+Agent-runnable daemon and execution tests (`v2/src/daemon/**/*.test.ts` and `v2/src/execution/**/*.test.ts` excluding `.sandbox-unrunnable.test.ts`) must not use direct timer-backed waits. **Bounded condition polling** and **bounded microtask spin** are allowed; **sleep-as-wait** is forbidden.
 
 - **Bounded condition polling** (allowed): a while loop that polls a condition until it becomes true, with either a deadline bound (`Date.now() < deadline`) or a signal bound (`!signal?.aborted`). Example:
   ```typescript
@@ -121,13 +123,15 @@ Agent-runnable daemon and execution tests (`v2/src/daemon/**/*.test.ts` and `v2/
     await new Promise((resolve) => setImmediate(resolve));
   }
   ```
-  The loop will terminate either when the condition is true or when the deadline passes, guaranteeing deterministic test behavior.
+  The loop will terminate either when the condition is true or when the deadline passes, guaranteeing deterministic test behavior. Prefer this over microtask spin when wall-clock slack or timer interleaving matters — the `setImmediate`/`setTimeout` yields advance the event loop in ways `Promise.resolve()` does not.
+
+- **Bounded microtask spin** (allowed for microtask-turn waits): [`spinUntilMicrotask`](../src/testing/bounded-microtask-spin.ts) yields via `await Promise.resolve()` until a boolean condition becomes true or an iteration cap is exhausted (default 10_000; override per call). Use when the waited-on flag is set on a microtask turn after async daemon dispatch — e.g. `await spinUntilMicrotask(() => waitCalled, "waitCalled")`. Do not use it where deadline-bound polling above is required. **Unbounded `Promise.resolve()` yield loops are forbidden:** `while (!flag) { await Promise.resolve(); }` never advances timers, so when a pre-`wait()` failure leaves the flag unset the event loop starves, per-test timeouts never fire, and the file hangs with no output ([#3060](https://github.com/cbrenner04/jarvis/pull/3060)).
 
 - **Sleep-as-wait** (forbidden): a direct timer-backed wait like `await new Promise((resolve) => setTimeout(resolve, 100))` or `Bun.sleep(100)` used as a synchronization mechanism without a bounded condition. This makes tests depend on real-clock timing and scheduler load.
 
 - **Timer-callback guards**: extract guards inside `setTimeout` or `setInterval` callbacks into pure exported predicates testable in both directions without a real timer, so mutation verification and this determinism guard are both satisfiable.
 
-A static guard (`scripts/guard-deterministic-daemon-tests.ts`) verifies this rule and runs as part of `bun run check`. Tests that require irreducible real-clock timing (e.g., testing timeout enforcement) must be moved to `.sandbox-unrunnable.test.ts` files and run only in the integration suite outside the agent sandbox.
+A static guard (`scripts/guard-deterministic-daemon-tests.ts`) enforces timer-backed sleep-as-wait and related determinism rules it actually matches (e.g. bare `Bun.sleep`, unbounded `setTimeout`/`setInterval` waits outside deadline- or signal-bounded loops); it runs as part of `bun run check`. The unbounded-microtask-spin prohibition above is policy/docs-only unless and until the guard is extended — CI does not block the #3060 hang pattern today. Tests that require irreducible real-clock timing (e.g., testing timeout enforcement) must be moved to `.sandbox-unrunnable.test.ts` files and run only in the integration suite outside the agent sandbox.
 
 ## Determinism smell checklist
 

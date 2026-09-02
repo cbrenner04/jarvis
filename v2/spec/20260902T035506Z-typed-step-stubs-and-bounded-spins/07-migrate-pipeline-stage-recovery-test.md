@@ -22,9 +22,9 @@
 
 ## Acceptance criteria
 
-- [ ] `pipeline-stage-recovery.test.ts` stays green (behavior unchanged by the scaffolding extraction).
-- [ ] `pipeline-stage-recovery.test.ts` contains zero `as unknown as AnyWorkflowStep` casts (reachable on main today via `WRITE_STEP` and inline write-step literals).
-- [ ] `bun run test:v2` passes; no test cases removed from the four migrated daemon files (`pipeline-execution.test.ts`, `pipeline-stage-dispatch.test.ts`, `daemon-pipeline-recover.test.ts`, `pipeline-stage-recovery.test.ts`).
+- [x] `pipeline-stage-recovery.test.ts` stays green (behavior unchanged by the scaffolding extraction).
+- [x] `pipeline-stage-recovery.test.ts` contains zero `as unknown as AnyWorkflowStep` casts (reachable on main today via `WRITE_STEP` and inline write-step literals).
+- [x] `bun run test:v2` passes; no test cases removed from the four migrated daemon files (`pipeline-execution.test.ts`, `pipeline-stage-dispatch.test.ts`, `daemon-pipeline-recover.test.ts`, `pipeline-stage-recovery.test.ts`).
 
 ## Documentation updates
 

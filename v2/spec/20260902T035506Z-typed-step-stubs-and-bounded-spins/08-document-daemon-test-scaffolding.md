@@ -22,8 +22,8 @@ Operators and agents writing daemon pipeline tests lack durable guidance for typ
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/test-writing.md` documents `createMinimalDispatchWriteStep`, `writeStepFixtures().createWriteStep`, `spinUntilMicrotask`, the choice versus deadline-bound `setImmediate` polling, and the #3060 unbounded-`Promise.resolve()` hang caution.
-- [ ] `bun run test:v2` passes.
+- [x] `v2/docs/test-writing.md` documents `createMinimalDispatchWriteStep`, `writeStepFixtures().createWriteStep`, `spinUntilMicrotask`, the choice versus deadline-bound `setImmediate` polling, and the #3060 unbounded-`Promise.resolve()` hang caution.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

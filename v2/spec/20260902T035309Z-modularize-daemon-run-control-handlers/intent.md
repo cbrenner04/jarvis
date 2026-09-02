@@ -31,10 +31,10 @@ Daemon
 
 ## Acceptance criteria
 
-- [ ] `activeRunsByHandler` and `activeRunForHandler` are absent from `v2/src/daemon/` (reachable on merge-base via `daemon.ts:165–169`, consumed in `daemon-workflow-start.test.ts` and `daemon-pipeline-recover.test.ts`).
+- [ ] `activeRunsByHandler` and `activeRunForHandler` are absent from `v2/src/daemon/` (reachable on merge-base via `daemon.ts:170–175`, consumed in `daemon-workflow-start.test.ts` and `daemon-pipeline-recover.test.ts`).
 - [ ] `v2/src/daemon/daemon-run-control-handler-guard.test.ts` fails when `activeRunsByHandler` or `activeRunForHandler` is reintroduced in `v2/src/daemon/`; passes on the clean tree.
 - [ ] Each handler-group module has co-located direct tests; existing daemon integration tests stay green when re-pointed.
-- [ ] `v2/src/daemon/daemon-test-inventory.test.ts` merge-base-to-branch comparison reports equal case counts and unchanged test titles across `v2/src/daemon/**/*.test.ts`.
+- [ ] `v2/src/daemon/daemon-test-inventory.test.ts` merge-base-to-branch comparison reports equal per-file case counts and unchanged title sets for each `v2/src/daemon/**/*.test.ts` file present on merge-base; net-new co-located unit-test files from handler extraction are additive and excluded.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

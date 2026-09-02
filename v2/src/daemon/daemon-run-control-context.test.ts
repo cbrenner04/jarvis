@@ -24,6 +24,53 @@ test("reportReviewProgress accumulates multiple steps per invocation", () => {
   }
 });
 
+test("clearLiveReviewProgress removes in_progress steps and retains terminal steps", () => {
+  const stateStorePath = join(tmpdir(), `jarvis-context-clear-${process.pid}-${Date.now()}.db`);
+  const stateStore: StateStore = openStateStore(stateStorePath);
+  try {
+    const ctx = createRunControlHandlerContext({
+      stateStore,
+      writeLoopExecutor: async () => undefined,
+      failureReporter: () => undefined,
+    });
+    const invocationId = "inv-clear";
+    ctx.reportReviewProgress(invocationId, "step-live", { status: "in_progress", role: "adversary" });
+    ctx.reportReviewProgress(invocationId, "step-done", {
+      status: "completed",
+      role: "advocate",
+      terminalOutcome: "complete",
+      attemptCount: 1,
+    });
+    ctx.clearLiveReviewProgress(invocationId);
+    const steps = ctx.reviewDebateProgressByInvocation.get(invocationId);
+    expect(steps?.has("step-live")).toBe(false);
+    expect(steps?.get("step-done")).toEqual({
+      status: "completed",
+      role: "advocate",
+      terminalOutcome: "complete",
+      attemptCount: 1,
+    });
+  } finally {
+    stateStore.close();
+  }
+});
+
+test("clearLiveReviewProgress is no-op for unknown invocation", () => {
+  const stateStorePath = join(tmpdir(), `jarvis-context-clear-unknown-${process.pid}-${Date.now()}.db`);
+  const stateStore: StateStore = openStateStore(stateStorePath);
+  try {
+    const ctx = createRunControlHandlerContext({
+      stateStore,
+      writeLoopExecutor: async () => undefined,
+      failureReporter: () => undefined,
+    });
+    ctx.clearLiveReviewProgress("unknown-invocation");
+    expect(ctx.reviewDebateProgressByInvocation.size).toBe(0);
+  } finally {
+    stateStore.close();
+  }
+});
+
 test("createRunControlHandlerContext exposes activeRuns without activeRunForHandler", () => {
   const stateStorePath = join(tmpdir(), `jarvis-context-${process.pid}-${Date.now()}.db`);
   const stateStore: StateStore = openStateStore(stateStorePath);

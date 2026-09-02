@@ -23,7 +23,7 @@ Primary: `v2/docs/workflow-runner.md`.
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/workflow-runner.md` documents review-debate landing ownership in a module map entry for `workflow-runner-debate-landing.ts`, including that `workflow-runner.ts` imports `landReviewedOutputOrFail` and `finishReviewedLanding` for light-review and checkpoint re-entry (not debate-only).
+- [x] `v2/docs/workflow-runner.md` documents review-debate landing ownership in a module map entry for `workflow-runner-debate-landing.ts`, including that `workflow-runner.ts` imports `landReviewedOutputOrFail` and `finishReviewedLanding` for light-review and checkpoint re-entry (not debate-only).
 
 ## Documentation updates
 

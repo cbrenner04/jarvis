@@ -13,8 +13,8 @@ import { PIPELINE_REGISTRY } from "../execution/pipeline-registry.ts";
 import { ReadyGateError } from "../execution/ready-finalize.ts";
 import { TerminalPublicationError } from "../execution/terminal-publication.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
-import { createBindingFactory } from "../execution/workflow-runner.test-support.ts";
-import type { AnyWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
+import { createBindingFactory, DEBATE_AGENT_MODEL_CONFIG } from "../execution/workflow-runner.test-support.ts";
+import type { AnyWorkflowStep, ReviewDebateWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
 import { executeWorkflow, landReviewedPublicationOutput } from "../execution/workflow-runner.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import { publishCompletionArtifacts } from "../execution/write-loop.ts";
@@ -40,6 +40,7 @@ import { flushBackgroundRuns } from "../testing/run-control.ts";
 import {
   createMinimalDispatchWriteStep,
   DEFAULT_AGENT_MODEL_CONFIG,
+  doneBindingFactory,
   doneWithArtifactBindingFactory,
   type MinimalDispatchWriteStep,
   writeStepFixtures,
@@ -2974,7 +2975,7 @@ describe("resumePipeline", () => {
                 }),
                 stageId: "plan",
               },
-            ],
+            ] as unknown as AnyWorkflowStep[],
           };
         }
         return { ok: true, steps: [] };
@@ -3651,7 +3652,7 @@ describe("resumePipeline branch scope", () => {
           }),
           stageId: "implement",
         },
-      ],
+      ] as unknown as AnyWorkflowStep[],
     });
 
     // Keystone checkpoint: rebinding branchScope to undefined restores whole-pipeline admission on the aggregate
@@ -3903,7 +3904,7 @@ describe("resumePipeline branch scope", () => {
               }),
               stageId: "plan",
             },
-          ],
+          ] as unknown as AnyWorkflowStep[],
         };
       }
       if (stageIndex === 3) {
@@ -5517,14 +5518,10 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
 
   function intentSteps(): AnyWorkflowStep[] {
     return [
-      {
-        behavior: "write",
-        stepId: "intent",
+      createWriteStep("intent", intentBranch, doneBindingFactory, {
         role: "plan",
         promptId: "intent.prompt.split",
         stepRules: DEFAULT_WRITE_STEP_RULES,
-        agents: ["claude"],
-        agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
         worktree: managedWorktree(intentBranch, "HEAD"),
         specPath: "spec/ready-intents",
         expectedArtifactPath: ".jarvis-intent-stage",
@@ -5537,67 +5534,63 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
           stagingDir: ".jarvis-intent-stage",
           invocationId: "intent-invocation",
         },
-      },
-    ] as unknown as AnyWorkflowStep[];
+      }),
+    ];
   }
 
   function planSteps(baseRef: string, specPath = "spec/plan"): AnyWorkflowStep[] {
     return [
-      {
-        behavior: "write",
-        stepId: "plan",
+      createWriteStep("plan", planBranch, doneBindingFactory, {
         role: "plan",
         promptId: "plan.prompt",
         stepRules: DEFAULT_WRITE_STEP_RULES,
-        agents: ["claude"],
-        agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
         worktree: managedWorktree(planBranch, baseRef),
         specPath,
         expectedArtifactPath: ".jarvis-plan-stage",
         publishCompletion: true,
         landing: {
           kind: "plan-tree",
-          baseRef,
-          inputs: { sourceRoot: projectRoot, paths: [readyIntentRel], consumeFrom: "worktree" },
-          output: { durableDir: "spec/plan" },
           stagingDir: ".jarvis-plan-stage",
-          invocationId: "plan-invocation",
+          durablePath: "spec/plan",
+          inputs: { sourceRoot: projectRoot, paths: [readyIntentRel], consumeFrom: "worktree" },
         },
+      }),
+    ];
+  }
+
+  function implementReviewStep(baseRef: string): ReviewDebateWorkflowStep {
+    return {
+      behavior: "review-debate",
+      stepId: "review",
+      project: "demo",
+      branch: implementBranch,
+      cwd: join(jarvisRoot, "worktrees", "demo", implementBranch),
+      prompts: { adversary: "review", advocate: "review", adjudicator: "review" },
+      verdictPath: "spec/plan/verdict-patch.md",
+      maxCycles: 1,
+      agents: { adversary: ["claude"], advocate: ["claude"], adjudicator: ["claude"], actuator: ["claude"] },
+      agentModelConfig: DEBATE_AGENT_MODEL_CONFIG,
+      landing: {
+        kind: "plan-tree",
+        stagingDir: ".jarvis-plan-stage",
+        durablePath: "spec/plan",
+        inputs: { sourceRoot: projectRoot, paths: ["spec/plan/index.md"], consumeFrom: "worktree" },
       },
-    ] as unknown as AnyWorkflowStep[];
+    };
   }
 
   function implementSteps(baseRef: string): AnyWorkflowStep[] {
     return [
-      {
-        behavior: "write",
-        stepId: "implement",
+      createWriteStep("implement", implementBranch, doneBindingFactory, {
         role: "implement",
         promptId: "implement.prompt",
         stepRules: DEFAULT_WRITE_STEP_RULES,
-        agents: ["claude"],
-        agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
         worktree: managedWorktree(implementBranch, baseRef),
         specPath: "spec/plan/index.md",
-      },
-      {
-        behavior: "review-debate",
-        stepId: "review",
-        role: "review",
-        promptId: "review.prompt",
-        agents: ["claude"],
-        agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
-        cwd: join(jarvisRoot, "worktrees", "demo", implementBranch),
-        landing: {
-          kind: "plan-tree",
-          baseRef,
-          inputs: { sourceRoot: projectRoot, paths: ["spec/plan/index.md"], consumeFrom: "worktree" },
-          output: { durableDir: "spec/plan" },
-          stagingDir: ".jarvis-plan-stage",
-          invocationId: "implement-invocation",
-        },
-      },
-    ] as unknown as AnyWorkflowStep[];
+        expectedArtifactPath: "spec/plan/index.md",
+      }),
+      implementReviewStep(baseRef),
+    ];
   }
 
   function intentDefinition(): PipelineDefinition {

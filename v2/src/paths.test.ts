@@ -9,6 +9,8 @@ import {
   DAEMON_SOCKET_PATH,
   jarvisHome,
   MACHINE_CONFIG_PATH,
+  ORCHESTRATION_STORE_PATH,
+  orchestrationStorePath,
 } from "./paths.ts";
 
 const REAL_HOME = join(homedir(), ".jarvis");
@@ -24,6 +26,15 @@ describe("paths", () => {
 
   test("MACHINE_CONFIG_PATH is <jarvis-home>/config.json", () => {
     expect(MACHINE_CONFIG_PATH).toBe(join(jarvisHome(), "config.json"));
+  });
+
+  test("ORCHESTRATION_STORE_PATH is <jarvis-home>/state/v2.sqlite", () => {
+    expect(ORCHESTRATION_STORE_PATH).toBe(join(jarvisHome(), "state", "v2.sqlite"));
+  });
+
+  test("orchestrationStorePath(customHome) preserves state/v2.sqlite suffix", () => {
+    const customHome = join(jarvisHome(), "custom-home");
+    expect(orchestrationStorePath(customHome)).toBe(join(customHome, "state", "v2.sqlite"));
   });
 
   test("DAEMON_SOCKET_DISPLAY is ~/.jarvis/daemon.sock", () => {

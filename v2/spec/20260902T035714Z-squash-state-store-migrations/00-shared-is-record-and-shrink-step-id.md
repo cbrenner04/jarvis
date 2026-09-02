@@ -22,11 +22,11 @@
 
 ## Acceptance criteria
 
-- [ ] `shared/is-record.test.ts` asserts the guard accepts plain objects and rejects arrays, `null`, and primitives; it fails against the pre-fix persistence-local definition remaining in `state-store.ts`.
-- [ ] `shared/shrink-step-id.test.ts` asserts suffix detection and strip behavior for representative hidden-shrink step ids; it fails against the pre-fix raw `~shrink` literal in `workflow-run-status-rollup.ts`.
-- [ ] `state-store.ts` imports `isRecord` from `shared/is-record.ts` with no local `function isRecord` definition reachable in the module.
-- [ ] `workflow-run-status-rollup.ts` imports shrink step-id helpers from `shared/shrink-step-id.ts` with no raw `~shrink` literal or local shrink-suffix logic reachable in the module.
-- [ ] `workflow-run-status-rollup.test.ts` stays green.
+- [x] `shared/is-record.test.ts` asserts the guard accepts plain objects and rejects arrays, `null`, and primitives; it fails against the pre-fix persistence-local definition remaining in `state-store.ts`.
+- [x] `shared/shrink-step-id.test.ts` asserts suffix detection and strip behavior for representative hidden-shrink step ids; it fails against the pre-fix raw `~shrink` literal in `workflow-run-status-rollup.ts`.
+- [x] `state-store.ts` imports `isRecord` from `shared/is-record.ts` with no local `function isRecord` definition reachable in the module.
+- [x] `workflow-run-status-rollup.ts` imports shrink step-id helpers from `shared/shrink-step-id.ts` with no raw `~shrink` literal or local shrink-suffix logic reachable in the module.
+- [x] `workflow-run-status-rollup.test.ts` stays green.
 
 ## Documentation updates
 

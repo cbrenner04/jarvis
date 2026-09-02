@@ -2,7 +2,7 @@
 
 Durable state for v2 runs and execution history: SQLite at `~/.jarvis/state/v2.sqlite`.
 
-`openStateStore(path?)` creates or opens the file and bootstraps the schema idempotently before any operation; tests pass a path override and write nothing under `~/.jarvis`. Schema changes are forward-only: append migration statements when the first incompatible change lands — never ahead of consumers.
+`openStateStore(path?)` creates or opens the file and bootstraps the schema idempotently before any operation; tests pass a path override and write nothing under `~/.jarvis`. Fresh stores receive a baselined `CREATE` matching the current on-disk contract. Stores that already ran pre-squash migrations `004`–`030` upgrade once on open to that same shape via `031-baseline-squash` in `_migrations`; row load/save semantics are unchanged and no operator action is required.
 
 ## Concurrency & journal mode
 
@@ -31,29 +31,9 @@ Backup, purge, or hand-copy of the orchestration store must move or delete `v2.s
 
 The store enables `PRAGMA foreign_keys=ON` on its connection, so `pipeline_stages.pipeline_id → pipelines(id)` and `attempts.run_id → runs(id)` are enforced, not merely declared.
 
-Forward-only migrations:
-- `004-invocation-failure-detail` adds `invocation_failure_detail`. Legacy `invocation_failure` rows with null detail omit `failureKind` and `bindingAttempts` on load and idempotent re-entry — no migrate-on-read synthesis.
-- `005-run-step-id` adds `step_id` (nullable). Resume key extends from `(project, branch)` to `(project, branch, step_id)`: `step_id` omitted (NULL) yields single-step behavior matching pre-migration runs.
-- `006-run-workflow-snapshot` adds `workflow_snapshot` (nullable). Workflow-backed step runs persist authored workflow metadata so daemon/TUI consumers can render pending, active, and completed steps after quiescence.
-- `007-run-queued-input` adds `queued_input` (nullable), the persisted `WriteLoopInput` for a run admitted `queued` (memory headroom unavailable at admission).
-- `008-attempt-completion-agent` adds `completion_agent` on `attempts`.
-- `009-run-creation-title` adds `creation_title` (nullable) on `runs`.
-- `010-run-reconciliation-pending` adds `reconciliation_pending` (default `0`) on `runs`, tracking a `run_reconciled` event still owed after a reconciliation kill.
-- `011-run-owner-identity` adds `owner_identity` (nullable) on `runs`: `<pid>:<process-start-epoch>` of the process that admitted the row, stamped by `createRun`. No backfill — pre-migration rows read back `NULL`. Not exposed on the `Run` type or `RUN_COLUMNS`; read only internally by `beginRunReconciliation` and `forceKillOwnerAdmits`. See [`daemon-host.md`](daemon-host.md#restart-reconciliation) for the reconciliation predicate this backs.
-- `014-pipeline-owner-identity-and-status` adds `owner_identity` (nullable) and `status` (`NOT NULL DEFAULT 'active'`) on `pipelines`. No backfill — pre-migration rows read back `owner_identity = NULL`, `status = 'active'`.
-- `015-pipeline-context` adds nullable `context` on `pipelines`. No backfill — pre-migration pipeline rows read back `context = NULL`; load never fabricates admission defaults from definition, stages, or runs.
-- `016-run-reconciled-at` adds `reconciled_at` (nullable) on `runs`. No backfill — pre-migration rows read back `NULL`.
-- `017-run-ready-gate-repair-fence` adds `ready_gate_repair_fence` (nullable) on `runs`.
-- `018-pipeline-terminal-publication` adds nullable `terminal_publication_failure` JSON and nullable `terminal_publication_succeeded_at` on `pipelines`. No backfill — pre-migration rows read back `NULL` for both; success marker is set only after `commitTerminalPublicationSuccess`.
-- `020-pipeline-stage-branch-key` adds `branch_key` (`NOT NULL DEFAULT 'default'`) on `pipeline_stages`, backfills existing rows with `'default'`, replaces `UNIQUE (pipeline_id, stage_id)` with `UNIQUE (pipeline_id, stage_id, branch_key)`, and drops `UNIQUE (pipeline_id, position)`.
-- `022-pipeline-stage-admission` adds `pipeline_stage_admission` keyed by `(pipeline_id, stage_id, branch_key)` with `holder_identity`. No backfill — pre-migration stores have no admission rows until claimed.
-- `023-run-finished-at` adds `finished_at` (nullable) on `runs`. No backfill — pre-migration rows read back `NULL`.
-- `024-pipeline-stage-decided-at` adds `decided_at` (nullable) on `pipeline_stages`. No backfill — pre-migration and undecided rows read back `NULL`.
-- `025-run-ready-gate-pgid` adds `ready_gate_pgid` (nullable) on `runs`. No backfill — pre-migration rows read back `NULL`.
-- `027-pipeline-dismissed-at` adds `dismissed_at` (nullable) on `pipelines`. No backfill — pre-migration rows read back `NULL`.
-- `028-run-dismissed-at` adds `dismissed_at` (nullable) on `runs`. No backfill — pre-migration rows read back `NULL`.
-- `029-run-terminal-settlement-columns` adds nullable `terminal_cause` TEXT and `terminal_failure_detail` TEXT on `runs`. No backfill — pre-migration rows read back `terminalCause: null` and `terminalFailureDetail: null`; invalid non-null JSON in `terminal_failure_detail` loads as `terminalFailureDetail: null` with `terminalFailureDetailCorrupt: true`.
-- `030-operator-notification-delivery` adds `operator_notification_deliveries` (`incident_id`, `transition`, `delivered_at`, `PRIMARY KEY (incident_id, transition)`). No backfill — pre-migration stores start with an empty ledger.
+**Baseline bootstrap:** Fresh stores apply only the baselined `CREATE` in [`state-store.ts`](../src/persistence/state-store.ts) (orchestration tables at the current durable shape) and stamp `_migrations` with `031-baseline-squash`.
+
+**Pre-squash upgrade:** Stores with any legacy `_migrations` id other than `031-baseline-squash` (the pre-squash `004`–`030` era) run `upgradeFromLegacyEra` once on open: idempotent `ADD COLUMN` / table-create / `pipeline_stages` branch-key rebuild to reach the baselined shape, then stamp `031-baseline-squash`. Partial-era files (migration chain interrupted) are covered. Row nullability, backfill behavior, and load/save semantics are unchanged from a fully migrated pre-squash store; no operator action on open. Subsequent opens are no-ops.
 
 ## API
 

@@ -56,6 +56,10 @@ export type BuildImplementWorkflowStepsInput = {
   preflightGitRoot?: string;
   /** Prior stage branch for chained spec-availability preflight; publication `baseRef` stays the default branch. */
   preflightBaseRef?: string;
+  /** Pre-resolved external plan identity from chained pipeline dispatch. */
+  absoluteSpecPath?: string;
+  specReadRoot?: string;
+  externalPlanSpec?: true;
 };
 
 /** Test-only seams for project resolution and machine-config loading. */
@@ -153,7 +157,7 @@ function parseExternalPlanSpecPath(resolvedSpecPath: string): { safeId: string; 
   };
 }
 
-function resolveExternalPlanSpecIdentity(
+export function resolveExternalPlanSpecIdentity(
   resolvedSpecPath: string,
   projectRegistry: Record<string, { root: string; origin?: string }>,
   configPath: string,
@@ -312,6 +316,31 @@ async function resolveChainedImplementLaunch(
   if ("error" in artifact) return artifact;
   const reviewConfig = resolveImplementReviewConfig(input, match, input.configPath ?? deps.configPath);
   if ("error" in reviewConfig) return reviewConfig;
+  const registry =
+    input.projectRegistry ??
+    (deps.readProjectRegistry ?? (() => readProjectRegistry(input.configPath ?? deps.configPath)))();
+  const externalIdentity = resolveExternalPlanSpecIdentity(
+    resolvedSpecPath,
+    registry,
+    input.configPath ?? deps.configPath ?? MACHINE_CONFIG_PATH,
+  );
+  if (externalIdentity !== undefined) {
+    if ("error" in externalIdentity) return externalIdentity;
+    const { preflightGitRoot: _preflightGitRoot, preflightBaseRef: _preflightBaseRef, ...chainedInput } = input;
+    return {
+      ...chainedInput,
+      branchName: input.branchName ?? basename(dirname(resolvedSpecPath)),
+      specPath: externalIdentity.absoluteSpecPath,
+      projectRoot: externalIdentity.projectRoot,
+      projectName: externalIdentity.project,
+      absoluteSpecPath: externalIdentity.absoluteSpecPath,
+      externalPlanSpec: true,
+      ...(externalIdentity.specReadRoot !== undefined ? { specReadRoot: externalIdentity.specReadRoot } : {}),
+      ...(artifact.isIndexSpec ? {} : { artifactPath: artifact.artifactPath }),
+      reviewPasses: reviewConfig.reviewPasses,
+      reviewBehavior: reviewConfig.reviewBehavior,
+    };
+  }
   const preflightBaseRef = input.preflightBaseRef ?? input.baseRef;
   if (!(await isSpecAvailableInBaseRef(specReadRoot, preflightBaseRef, input.specPath, runner))) {
     return { error: `Spec path unavailable in base ref ${preflightBaseRef}: ${input.specPath}` };
@@ -340,7 +369,13 @@ async function resolveImplementLaunch(
     return {
       ...input,
       ...(input.projectRoot !== undefined
-        ? { branchName: input.branchName ?? basename(dirname(resolve(input.projectRoot, input.specPath))) }
+        ? {
+            branchName:
+              input.branchName ??
+              basename(
+                dirname(isAbsolute(input.specPath) ? input.specPath : resolve(input.projectRoot, input.specPath)),
+              ),
+          }
         : {}),
       reviewPasses: input.reviewPasses ?? 1,
     };

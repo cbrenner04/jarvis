@@ -1,9 +1,13 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { getBaseBranch, isGitRepoAsync } from "../../../shared/git.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { resolveWorkflowPresetName } from "../commands/workflow-start-preparation.ts";
-import type { BuildImplementWorkflowStepsInput } from "../execution/implement-workflow-steps.ts";
+import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
+import {
+  type BuildImplementWorkflowStepsInput,
+  resolveExternalPlanSpecIdentity,
+} from "../execution/implement-workflow-steps.ts";
 import type { PipelineDefinition, PipelineStage } from "../execution/pipeline-definition.ts";
 import type { IntentWorkflowInput, PlanWorkflowInput } from "../execution/publication-workflow-steps.ts";
 import { type CliWorkflowPresetName, WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
@@ -262,11 +266,12 @@ async function resolveChainedImplementSpecPath(
 ): Promise<{ ok: true; specPath: string; readRoot: string } | { ok: false; error: string }> {
   // Plan completion records specPath as the spec directory; normalize to index.md for implement.
   const relativePath = isChainedPlanReadyIntentPath(specPath) ? specPath : join(specPath, "index.md");
+  const indexPath = isAbsolute(relativePath) ? relativePath : join(prior.worktreePath, relativePath);
   if (await isUsablePriorWorktreePath(prior.worktreePath, context.cwd)) {
-    if (!isChainedPlanReadyIntentPath(specPath) && !existsSync(join(prior.worktreePath, relativePath))) {
+    if (!isChainedPlanReadyIntentPath(specPath) && !existsSync(indexPath)) {
       return {
         ok: false,
-        error: `pipeline-stage-resolve: expected index at ${relativePath} in prior worktree`,
+        error: `pipeline-stage-resolve: expected index at ${indexPath} in prior worktree`,
       };
     }
     return { ok: true, specPath: relativePath, readRoot: prior.worktreePath };
@@ -390,6 +395,20 @@ async function resolveForDownstreamPaths(
   return { ok: true, results };
 }
 
+async function resolveChainedExternalPlanIdentity(
+  readRoot: string,
+  context: PipelineContext,
+): Promise<ReturnType<typeof resolveExternalPlanSpecIdentity>> {
+  if (context.configPath === undefined) return undefined;
+  const projects = readMachineConfigDocument(context.configPath)?.projects;
+  const registry =
+    context.projectRegistry ??
+    (projects && typeof projects === "object" && !Array.isArray(projects)
+      ? (projects as Record<string, { root: string; origin?: string }>)
+      : {});
+  return resolveExternalPlanSpecIdentity(resolve(readRoot, "index.md"), registry, context.configPath);
+}
+
 async function resolveImplementStage(
   stage: PipelineStage & { kind: "workflow" },
   prior: PriorArtifactContext,
@@ -421,13 +440,30 @@ async function resolveImplementStage(
         error: `pipeline-stage-resolve: no registered project matches prior worktree ${readRoot}`,
       };
     }
-    input = {
-      ...input,
-      projectRoot: projectMatch.root,
-      projectName: projectMatch.key,
-      preflightGitRoot: readRoot,
-      preflightBaseRef: prior.branch,
-    };
+    const externalIdentity = await resolveChainedExternalPlanIdentity(readRoot, context);
+    if (externalIdentity !== undefined) {
+      if ("error" in externalIdentity) {
+        return { ok: false, error: externalIdentity.error };
+      }
+      input = {
+        ...input,
+        cwd: context.cwd,
+        projectRoot: externalIdentity.projectRoot,
+        projectName: externalIdentity.project,
+        specPath: externalIdentity.absoluteSpecPath,
+        absoluteSpecPath: externalIdentity.absoluteSpecPath,
+        externalPlanSpec: true,
+        ...(externalIdentity.specReadRoot !== undefined ? { specReadRoot: externalIdentity.specReadRoot } : {}),
+      };
+    } else {
+      input = {
+        ...input,
+        projectRoot: projectMatch.root,
+        projectName: projectMatch.key,
+        preflightGitRoot: readRoot,
+        preflightBaseRef: prior.branch,
+      };
+    }
   }
   const prepared = await preparePipelineStageWorkflow("implement", "implement", input, context, builders, staleReset);
   return preparedStageResolution(prepared);

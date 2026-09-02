@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import { flushBackgroundRuns, loadRunOrThrow, mockWriteLoopInput } from "../testing/run-control.ts";
+import { flushBackgroundRuns, loadRunOrThrow, mockWriteLoopInput, workflowSnapshot } from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlerContext } from "./daemon-run-control-context.ts";
 import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
@@ -93,6 +93,54 @@ test("list always retains non-terminal runs regardless of terminal retention bou
   const runs = (listed.result as { runs: unknown[] }).runs;
   // @mutate v2/src/daemon/daemon-run-lifecycle-handlers.ts "if (!isTerminalRunStatus(run.status)) {" -> "if (isTerminalRunStatus(run.status)) {"
   expect(runs).toHaveLength(110);
+});
+
+test("list retains aged-out terminal workflow steps when a live sibling shares the invocation", async () => {
+  const { handlers } = lifecycleHandlers();
+  const signal = new AbortController().signal;
+  const snapshot = workflowSnapshot("wf-retain", [
+    { stepId: "step-1", role: "implement" },
+    { stepId: "step-2", role: "review" },
+  ]);
+  const agedTerminalStepId = stateStore.createRun({
+    project: "wf",
+    specRef: "main",
+    worktreePath: "/tmp/wt",
+    branch: "wf-br",
+    specPath: "/tmp/spec.md",
+    status: "completed",
+    stepId: "step-1",
+    workflowSnapshot: snapshot,
+  });
+  for (let index = 0; index < 55; index++) {
+    stateStore.createRun({
+      project: "noise",
+      specRef: "main",
+      worktreePath: "/tmp/wt",
+      branch: `noise-${index}`,
+      specPath: "/tmp/spec.md",
+      status: "completed",
+    });
+  }
+  const liveStepId = stateStore.createRun({
+    project: "wf",
+    specRef: "main",
+    worktreePath: "/tmp/wt",
+    branch: "wf-br",
+    specPath: "/tmp/spec.md",
+    status: "paused",
+    stepId: "step-2",
+    workflowSnapshot: snapshot,
+  });
+
+  const listed = await handlers.list({ kind: "request", id: "l1", method: "list" }, signal);
+  expect(listed.kind).toBe("response");
+  if (listed.kind !== "response") return;
+
+  const runIds = new Set((listed.result as { runs: Array<{ runId: string }> }).runs.map((row) => row.runId));
+  // @mutate v2/src/daemon/daemon-run-lifecycle-handlers.ts "if (invocationId !== undefined) keptInvocationIds.add(invocationId);" -> "if (invocationId === undefined) keptInvocationIds.add(invocationId);"
+  expect(runIds.has(liveStepId)).toBe(true);
+  expect(runIds.has(agedTerminalStepId)).toBe(true);
 });
 
 test("list projects live in-progress runs", async () => {

@@ -78,6 +78,43 @@ describe("executeWorkflow review-debate landing", () => {
     expect(existsSync(`${verdictPath}.owner`)).toBe(false);
   });
 
+  test("reuses a completed debate landing checkpoint on retry but not on a fresh dispatch", async () => {
+    // @mutate v2/src/execution/workflow-runner-debate-landing.ts 'if (landing !== undefined && landing.kind !== "none" && !freshDispatch)' -> 'if (landing !== undefined && landing.kind !== "none" && freshDispatch)'
+    const root = mkdtempSync(join(tmpdir(), "workflow-reviewed-debate-fresh-"));
+    const stage = join(root, ".jarvis-plan-stage");
+    const durable = join(root, "spec", "2026-reviewed-debate-fresh");
+    let adjudicatorCalls = 0;
+    const stagePlan = () => {
+      writeLintCleanPlanStage(stage, "01-test.md", "# Test\n");
+      writeFileSync(join(stage, "verdict-plan.md"), "", "utf8");
+    };
+    const step = createDebateStep({
+      stepId: "review-debate",
+      cwd: root,
+      verdictPath: join(stage, "verdict-plan.md"),
+      landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: durable },
+      createBinding: createDebateBindingFactory(async ({ adapterModel }) => {
+        if (adapterModel === "ADJ") adjudicatorCalls += 1;
+        return { kind: "ok", stdout: adapterModel === "ADJ" ? "" : "ok", stderr: "" } as const;
+      }),
+    });
+
+    await withStateStore(async (store) => {
+      stagePlan();
+      expect(await executeWorkflow({ steps: [step], stateStore: store })).toMatchObject({ kind: "complete" });
+      expect(adjudicatorCalls).toBe(1);
+
+      expect(await executeWorkflow({ steps: [step], stateStore: store })).toMatchObject({ kind: "complete" });
+      expect(adjudicatorCalls).toBe(1);
+
+      stagePlan();
+      expect(await executeWorkflow({ steps: [step], stateStore: store, freshDispatch: true })).toMatchObject({
+        kind: "complete",
+      });
+      expect(adjudicatorCalls).toBe(2);
+    });
+  });
+
   test("settles a debate-last intent workflow's landing failure the same as light review, with a trace", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "reviewed-intent-debate-fail-"));
     const stage = join(workspace, ".jarvis-intent-stage");

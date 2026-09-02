@@ -28,16 +28,15 @@ import {
 } from "../config/machine-config-loader.ts";
 import { loadMachineProfileModels } from "../config/machine-profile-loader.ts";
 import type { InvocationFailureDetail, InvocationFailureKind } from "../execution/invocation-failure.ts";
+import { type AnyWorkflowStep, type ReviewProgress } from "../execution/workflow-runner.ts";
 import {
-  type AnyWorkflowStep,
   type IntentFinalizationResumeDeps,
-  type ReviewProgress,
   resolveExhaustedRedResumeContext,
   resolveIntentFinalizationResumeContext,
   resolveReviewMutationResumeContext,
   resolveWriteOutOfScopeResumeContext,
   resumePopulatedIntentPublication,
-} from "../execution/workflow-runner.ts";
+} from "../execution/workflow-runner-resume.ts";
 import {
   applyOperatorSessionId,
   executeWriteLoop,

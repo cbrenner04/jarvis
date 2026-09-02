@@ -10,9 +10,9 @@ import {
   type AnyWorkflowStep,
   type ReviewDebateWorkflowStep,
   type ReviewWorkflowStep,
-  recoverPlanStage,
   type WriteWorkflowStep,
 } from "../execution/workflow-runner.ts";
+import { recoverPlanStage } from "../execution/workflow-runner-resume.ts";
 import type { LogEvent, LogSink, PersistedRecord } from "../persistence/log-stream.ts";
 import type { Pipeline, PipelineContext, PipelineStageRecord, Run, StateStore } from "../persistence/state-store.ts";
 import { createMinimalDispatchWriteStep, DEFAULT_AGENT_MODEL_CONFIG } from "../testing/workflow-step-fixtures.ts";

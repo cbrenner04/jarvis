@@ -8,7 +8,8 @@ import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { openStateStore } from "../persistence/state-store.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import { initGitWorkspace, REVIEW_MD_LINT_FIXTURES, writeLintCleanPlanStage } from "./workflow-runner.test-support.ts";
-import { type ReviewWorkflowStep, recoverPlanStage } from "./workflow-runner.ts";
+import type { ReviewWorkflowStep } from "./workflow-runner.ts";
+import { recoverPlanStage } from "./workflow-runner-resume.ts";
 
 describe("recoverPlanStage review-failed admission", () => {
   const PLAN_REVIEW_CONFIG: AgentModelConfig = {

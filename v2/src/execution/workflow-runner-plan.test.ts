@@ -26,12 +26,8 @@ import {
   TestLogSink,
   writeLintCleanPlanStage,
 } from "./workflow-runner.test-support.ts";
-import {
-  executeWorkflow,
-  type ReviewWorkflowStep,
-  recoverPlanStage,
-  type WriteWorkflowStep,
-} from "./workflow-runner.ts";
+import { executeWorkflow, type ReviewWorkflowStep, type WriteWorkflowStep } from "./workflow-runner.ts";
+import { recoverPlanStage } from "./workflow-runner-resume.ts";
 
 describe("executeWorkflow plan review dispatch", () => {
   const config: AgentModelConfig = {

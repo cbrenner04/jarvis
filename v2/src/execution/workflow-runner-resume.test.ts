@@ -38,12 +38,14 @@ import {
   executeWorkflow,
   type ReviewDebateWorkflowStep,
   type ReviewWorkflowStep,
+  type WriteWorkflowStep,
+} from "./workflow-runner.ts";
+import {
   resolveIntentFinalizationResumeContext,
   resolveReviewMutationResumeContext,
   resumePopulatedIntentPublication,
   resumeReviewMutationFinalization,
-  type WriteWorkflowStep,
-} from "./workflow-runner.ts";
+} from "./workflow-runner-resume.ts";
 import { findFirstMarkdownOnlyFenceViolation } from "./write-loop.ts";
 
 describe("executeWorkflow review dispatch", () => {

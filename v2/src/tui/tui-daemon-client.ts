@@ -74,7 +74,7 @@ function parsePipelineList(value: unknown): PipelineListResult | undefined {
  * Open a TUI daemon client on the provided socket.
  *
  * @param options Socket path is required; optional `connectIpcClient` seam.
- * @returns A client exposing `health`, `status`, `list`, `pause`, `resume`, `kill`, `wait`, and `close` on one connection.
+ * @returns A connected {@link TuiDaemonClient} on one IPC transport.
  * @throws {RpcConnectionError} When the socket is unreachable or RPC wire protocol fails.
  */
 export async function connectTuiDaemon(options: ConnectTuiDaemonOptions): Promise<TuiDaemonClient> {
@@ -90,7 +90,7 @@ export async function connectTuiDaemon(options: ConnectTuiDaemonOptions): Promis
 
   const transport = createRpcTransport(client);
 
-  const okRunRpc = async (method: "pause" | "kill", runId: string): Promise<TuiDaemonHealthResult> =>
+  const okRunRpc = async (method: "pause" | "resume" | "kill", runId: string): Promise<TuiDaemonHealthResult> =>
     parseOrThrow(
       parseHealthResult(await transport.request(method, { runId })),
       `malformed RPC reply: invalid ${method} result`,
@@ -119,12 +119,7 @@ export async function connectTuiDaemon(options: ConnectTuiDaemonOptions): Promis
       );
     },
     pause: (runId) => okRunRpc("pause", runId),
-    async resume(runId) {
-      return parseOrThrow(
-        parseHealthResult(await transport.request("resume", { runId })),
-        "malformed RPC reply: invalid resume result",
-      );
-    },
+    resume: (runId) => okRunRpc("resume", runId),
     kill: (runId) => okRunRpc("kill", runId),
     async pipelineApprove(params) {
       return (await transport.request("pipeline_approve", params)) as PipelineApprovalDecisionOutcome;

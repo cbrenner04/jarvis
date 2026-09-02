@@ -142,8 +142,6 @@ test("health then status reuse one connection without reconnecting", async () =>
   expect(connectCalls).toBe(1);
 });
 
-// Error frames map to RpcError uniformly across methods; representatives cover a plain RPC,
-// a steering RPC, and resume admission.
 test("daemon error replies reject as RpcError with code and message", async () => {
   await withFixedUuid([HEALTH_REQUEST_ID, PAUSE_REQUEST_ID, RESUME_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
@@ -308,7 +306,7 @@ test("rejects non-correlated RPC replies with RpcConnectionError", async () => {
 
 test("TuiDaemonClient omits start", () => {
   const client = {} as TuiDaemonClient;
-  // @ts-expect-error start removed from TuiDaemonClient — TUI admits via pipeline_start
+  // @ts-expect-error start removed
   void client.start;
 });
 

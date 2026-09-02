@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { getBaseBranch, isGitRepoAsync } from "../../../shared/git.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { resolveWorkflowPresetName } from "../commands/workflow-start-preparation.ts";
@@ -13,6 +13,7 @@ import type { IntentWorkflowInput, PlanWorkflowInput } from "../execution/public
 import { type CliWorkflowPresetName, WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { IpcClient } from "../ipc/client.ts";
+import { jarvisHome } from "../paths.ts";
 import type { PipelineContext } from "../persistence/state-store.ts";
 import { DEFAULT_PIPELINE_STAGE_BRANCH_KEY } from "../persistence/state-store.ts";
 import { createChainedStageProjectMatch } from "./pipeline-chained-workflow-deps.ts";
@@ -400,6 +401,10 @@ async function resolveChainedExternalPlanIdentity(
   context: PipelineContext,
 ): Promise<ReturnType<typeof resolveExternalPlanSpecIdentity>> {
   if (context.configPath === undefined) return undefined;
+  // Only Jarvis-owned external plan homes can yield an external identity. Ordinary chained Git
+  // worktrees must not pay for a machine-config read here, and must never fail this resolution.
+  const externalPlansHome = join(jarvisHome(), "specs");
+  if (!resolve(readRoot).startsWith(`${resolve(externalPlansHome)}${sep}`)) return undefined;
   const projects = readMachineConfigDocument(context.configPath)?.projects;
   const registry =
     context.projectRegistry ??

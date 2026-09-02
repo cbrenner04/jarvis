@@ -81,6 +81,13 @@ describe("executeWorkflow review-debate landing", () => {
     await withStateStore(async (store) => {
       const result = await executeWorkflow({ steps: [step], stateStore: store, logSink });
       expect(result).toMatchObject({ kind: "invocation_failure", resumable: true });
+      const settled = store.loadRun(result.runId);
+      expect(settled?.terminalCause).toBe("invocation_failure");
+      expect(settled?.terminalFailureDetail).toMatchObject({
+        failureKind: "landing",
+        bindingAttempts: [],
+        message: expect.stringMatching(/.+/),
+      });
       const finalizationEvents = logSink
         .getEventsForRun(result.runId)
         .filter((event) => event.kind === "intent_finalization");

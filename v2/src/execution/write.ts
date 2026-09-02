@@ -9,7 +9,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
 import type { SessionLog } from "../../../shared/invocation/session-log.ts";
 import { normalizePlanDraftSpecDir } from "../../../shared/module-boundary-surfaces.ts";
@@ -101,12 +101,36 @@ function assembleWriteStepPlaceholders(
 
 const PLAN_DRAFT_SHAPE_REASON = "plan.draft.shape";
 
-function listNestedPlanDraftSpecDirs(stagingDir: string): string[] {
-  const specContainer = join(stagingDir, "spec");
-  if (!existsSync(specContainer) || !statSync(specContainer).isDirectory()) {
+function visitStagingSubdirectories(root: string, visit: (dir: string) => void): void {
+  for (const name of readdirSync(root)) {
+    const path = join(root, name);
+    if (!statSync(path).isDirectory()) continue;
+    visit(path);
+    visitStagingSubdirectories(path, visit);
+  }
+}
+
+function isPlanDraftSpecLayoutSuffix(stagingDir: string, dir: string): boolean {
+  if (dir === stagingDir) return false;
+  const segments = relative(stagingDir, dir).split(sep).filter(Boolean);
+  return segments.length >= 2 && segments[segments.length - 2] === "spec";
+}
+
+function discoverNestedPlanDraftLayoutRoots(stagingDir: string): string[] {
+  if (!existsSync(stagingDir) || !statSync(stagingDir).isDirectory()) {
     return [];
   }
-  return readdirSync(specContainer).filter((name) => statSync(join(specContainer, name)).isDirectory());
+  const candidates: string[] = [];
+  visitStagingSubdirectories(stagingDir, (dir) => {
+    if (isPlanDraftSpecLayoutSuffix(stagingDir, dir)) {
+      candidates.push(dir);
+    }
+  });
+  return candidates;
+}
+
+function hasPreservablePlanDraftStageContent(stagingDir: string): boolean {
+  return existsSync(join(stagingDir, "index.md")) || discoverNestedPlanDraftLayoutRoots(stagingDir).length === 1;
 }
 
 type ResolvedPlanDraftStagingRoot = { ok: true; root: string } | { ok: false; reason: string };
@@ -116,20 +140,23 @@ function resolvePlanDraftStagingRoot(stagingDir: string): ResolvedPlanDraftStagi
     return { ok: true, root: stagingDir };
   }
 
-  const nestedDirs = listNestedPlanDraftSpecDirs(stagingDir);
-  if (nestedDirs.length !== 1) {
+  const candidates = discoverNestedPlanDraftLayoutRoots(stagingDir);
+  if (candidates.length !== 1) {
     return { ok: false, reason: PLAN_DRAFT_SHAPE_REASON };
   }
 
-  return { ok: true, root: join(stagingDir, "spec", nestedDirs[0]!) };
+  return { ok: true, root: candidates[0]! };
 }
 
 function flattenNestedPlanDraftStaging(stagingDir: string, nestedRoot: string): void {
-  const specContainer = join(stagingDir, "spec");
   for (const name of readdirSync(nestedRoot)) {
     renameSync(join(nestedRoot, name), join(stagingDir, name));
   }
-  rmSync(specContainer, { recursive: true, force: true });
+  let dir = nestedRoot;
+  while (dir !== stagingDir) {
+    rmSync(dir, { recursive: true, force: true });
+    dir = dirname(dir);
+  }
 }
 
 function validatePlanDraftShapeAtRoot(specDir: string): { valid: boolean; reason?: string } {
@@ -392,10 +419,7 @@ async function executePlanDraftWrite(
 ): Promise<StepRunResult> {
   const specDir = stagingPath;
   const reprompt = args.stagedMarkdownLintReprompt;
-  const preserveStage =
-    reprompt !== undefined ||
-    (existsSync(specDir) &&
-      (existsSync(join(specDir, "index.md")) || listNestedPlanDraftSpecDirs(specDir).length === 1));
+  const preserveStage = reprompt !== undefined || (existsSync(specDir) && hasPreservablePlanDraftStageContent(specDir));
   if (!preserveStage) {
     rmSync(specDir, { recursive: true, force: true });
   }

@@ -135,15 +135,36 @@ function seedFanOutPipeline(store: StateStore, args: { targetBranchKey: string; 
 }
 
 /** Minimal review step carrying a `plan-tree` landing at `worktreePath` — the only shape resolution requires. */
-function planReviewStep(args: { worktreePath: string; durable: string; branch: string }): AnyWorkflowStep {
+function planReviewStep(args: {
+  worktreePath: string;
+  stage: string;
+  durable: string;
+  branch: string;
+}): ReviewWorkflowStep {
   return {
     behavior: "review",
     stepId: "plan-review",
     project: "demo",
     branch: args.branch,
     cwd: args.worktreePath,
+    prompt: "",
+    verdictPath: join(args.stage, "verdict-plan.md"),
+    maxCycles: 1,
+    agents: { critic: ["claude"], actuator: ["codex"] },
+    agentModelConfig: PLAN_REVIEW_CONFIG,
+    profile: planReviewPromptProfile,
+    profileContext: { specPath: args.stage, worktreePath: args.worktreePath },
     landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: args.durable },
-  } as unknown as AnyWorkflowStep;
+    createBinding: ({ agentId }) => ({
+      id: agentId,
+      metadata: { agent: agentId, model: agentId },
+      invoke: async () => ({
+        kind: "ok" as const,
+        stdout: agentId === "claude" ? "Looks good" : "done",
+        stderr: "",
+      }),
+    }),
+  };
 }
 
 function realPlanReviewStep(args: {
@@ -217,6 +238,7 @@ function recoveryStageResolver(args: { branch: string; worktreePath: string; spe
         createWriteStep("plan", args.branch),
         planReviewStep({
           worktreePath: args.worktreePath,
+          stage: join(args.worktreePath, ".jarvis-plan-stage"),
           durable: join(args.worktreePath, args.specPath),
           branch: args.branch,
         }),
@@ -321,6 +343,7 @@ test("pipeline_recover admits and lands a corrected non-first fan-out branch wit
             ? realPlanReviewStep({ worktreePath, stage, durable, branch })
             : planReviewStep({
                 worktreePath: `${worktreePath}-${branchKey}`,
+                stage: `${stage}-${branchKey}`,
                 durable: `${durable}-${branchKey}`,
                 branch: `plan/${branchKey}`,
               }),
@@ -405,7 +428,7 @@ test("pipeline_recover admits one branch and advances it without redrafting", as
               return { kind: "ok", stdout: "done", stderr: "" };
             }),
           ),
-          planReviewStep({ worktreePath, durable, branch }),
+          planReviewStep({ worktreePath, stage: join(worktreePath, ".jarvis-plan-stage"), durable, branch }),
         ],
       })),
     }),
@@ -935,7 +958,12 @@ test("a retiring daemon waits for an in-flight detached recovery", async () => {
       results: BRANCH_KEYS.map(() => ({
         steps: [
           createWriteStep("plan", branch),
-          planReviewStep({ worktreePath, durable: join(worktreePath, specPath), branch }),
+          planReviewStep({
+            worktreePath,
+            stage: join(worktreePath, ".jarvis-plan-stage"),
+            durable: join(worktreePath, specPath),
+            branch,
+          }),
         ],
       })),
     }),

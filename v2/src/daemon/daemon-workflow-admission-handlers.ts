@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
-import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
+import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import {
   type AgentModelConfig,
   resolveExecutableRole,
@@ -32,9 +32,10 @@ import {
   previewWorkflowStartClaimAdmissionRefusal,
   productionAgentBindingFactory,
   settleKilledWorkflowOwnership,
+  type WorktreeOwnership,
   workflowStartOwnershipKey,
 } from "./daemon.ts";
-import type { RunControlHandlerContext } from "./daemon-run-control-context.ts";
+import { daemonFailureDetail, type RunControlHandlerContext } from "./daemon-run-control-context.ts";
 import type { RunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 import { findTerminalLogRecord } from "./run-operator-error.ts";
 
@@ -42,12 +43,6 @@ export type WorkflowStartResult =
   | { kind: "response"; result: unknown }
   | { kind: "error"; code: string; message: string }
   | Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }>;
-
-type WorktreeOwnership = {
-  runId: string;
-  worktreePath: string;
-  workflow?: true;
-};
 
 export type WorkflowStartLifecycle = {
   key: OwnershipKey;
@@ -84,10 +79,6 @@ type ImplementRecoverMutationRepairParams = {
 
 function isSettledRunStatus(status: RunStatus): boolean {
   return isTerminalRunStatus(status) || status === "paused";
-}
-
-function daemonFailureDetail(failureKind: InvocationFailureKind, message: string): InvocationFailureDetail {
-  return { failureKind, bindingAttempts: [], message: truncateLogText(message) };
 }
 
 /** Validate and resolve `implement.recover`'s optional mutation-repair params into resume deps. */
@@ -265,6 +256,7 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
     });
   };
 
+  /** Shared ownership, memory, and lifecycle boundary for every daemon workflow execution. */
   const admitWorkflowStart = async (lifecycle: WorkflowStartLifecycle): Promise<Awaited<WorkflowStartResult>> => {
     const existingWorkflowClaim = registry.get(lifecycle.key);
     if (existingWorkflowClaim?.workflow === true && activeRuns.get(existingWorkflowClaim.runId)?.kind !== "workflow") {
@@ -402,6 +394,7 @@ export function createImplementRecoverHandler(
     | { kind: "response"; result: unknown }
     | { kind: "error"; code: string; message: string };
 
+  /** Attempt recovery against a single lineage row; returns undefined to let the caller try the next row. */
   const tryImplementRecoverRow = async (
     row: Run,
     params: ImplementRecoverParams & { project: string; branch: string; specPath: string },

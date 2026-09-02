@@ -9,7 +9,7 @@ import { jarvisHome } from "../paths.ts";
 import { type LogSink, openLogSink } from "../persistence/log-stream.ts";
 import { loadPipelineContext } from "../persistence/state-store.ts";
 import type { ActiveRun, OwnershipKey } from "./daemon.ts";
-import type { RunControlHandlerContext } from "./daemon-run-control-context.ts";
+import { ownershipKeyString, type RunControlHandlerContext } from "./daemon-run-control-context.ts";
 import type { WorkflowStartAdmission } from "./daemon-workflow-admission-handlers.ts";
 import {
   applyPipelineApprovalDecision,
@@ -35,10 +35,6 @@ import {
 import { resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
 
 const STALE_RESET_RPC_TIMEOUT_MS = 30_000;
-
-function ownershipKeyString(key: OwnershipKey): string {
-  return `${key.project}:${key.branch}`;
-}
 
 export type PipelineHandlerDeps = {
   pipelineDispatch: PipelineWorkflowDispatch;

@@ -73,11 +73,16 @@ import {
   type SupersedePeerDaemon,
   supersedePeerDaemon,
 } from "./daemon-peer-socket.ts";
-import { createRunControlHandlerContext, type RunControlHandlerContextDeps } from "./daemon-run-control-context.ts";
 import { createPipelineHandlers } from "./daemon-pipeline-handlers.ts";
+import {
+  createRunControlHandlerContext,
+  daemonFailureDetail,
+  ownershipKeyString,
+  type RunControlHandlerContextDeps,
+} from "./daemon-run-control-context.ts";
 import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
-import { createImplementRecoverHandler, createWorkflowStartAdmission } from "./daemon-workflow-admission-handlers.ts";
 import { createTailStreamHandler } from "./daemon-tail-stream.ts";
+import { createImplementRecoverHandler, createWorkflowStartAdmission } from "./daemon-workflow-admission-handlers.ts";
 import {
   NOTIFICATION_SWEEP_INTERVAL_MS,
   type NotificationSinkSpawner,
@@ -93,7 +98,7 @@ import {
 } from "./run-operator-error.ts";
 import { workflowRowSnapshot } from "./workflow-list-snapshot.ts";
 
-type WorktreeOwnership = {
+export type WorktreeOwnership = {
   runId: string;
   worktreePath: string;
   /** Workflow claims are validated against daemon-local workflow liveness. */
@@ -190,10 +195,6 @@ export class DaemonDoubleClaimError extends Error {
     super(worktreeClaimedMessage(key));
     this.name = "DaemonDoubleClaimError";
   }
-}
-
-function ownershipKeyString(key: OwnershipKey): string {
-  return `${key.project}:${key.branch}`;
 }
 
 function worktreeClaimedMessage(key: OwnershipKey): string {
@@ -565,10 +566,6 @@ export { stoppedOutcomeForRun } from "./workflow-list-snapshot.ts";
 
 /** Mutated by {@link promoteQueuedRunImpl} on each promotion; shared across calls. */
 export type PromotionSettleState = { suppressedUntil: number };
-
-function daemonFailureDetail(failureKind: InvocationFailureKind, message: string): InvocationFailureDetail {
-  return { failureKind, bindingAttempts: [], message: truncateLogText(message) };
-}
 
 export type PromoteQueuedRunDeps = {
   store: StateStore;

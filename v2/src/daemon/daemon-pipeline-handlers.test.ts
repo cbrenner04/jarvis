@@ -2,16 +2,16 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
-import type { PipelineStageResolutionResult } from "./pipeline-stage-resolve.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import { flushBackgroundRuns } from "../testing/run-control.ts";
 import { makeIpcClient } from "../testing/ipc-client-fake.ts";
+import { flushBackgroundRuns } from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import { createRunControlHandlerContext } from "./daemon-run-control-context.ts";
 import { createPipelineHandlers } from "./daemon-pipeline-handlers.ts";
+import { createRunControlHandlerContext } from "./daemon-run-control-context.ts";
 import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 import { createWorkflowStartAdmission } from "./daemon-workflow-admission-handlers.ts";
 import { derivePipelineState } from "./pipeline-execution.ts";
+import type { PipelineStageResolutionResult } from "./pipeline-stage-resolve.ts";
 
 const ADMISSION_CONTEXT = {
   cwd: "/fake",

@@ -111,6 +111,7 @@ function worktreeClaimedMessage(key: OwnershipKey): string {
   return `Worktree already claimed for project=${key.project}, branch=${key.branch}`;
 }
 
+/** Terminal or paused — any status with no live write loop to disturb. */
 function isSettledRunStatus(status: RunStatus): boolean {
   return isTerminalRunStatus(status) || status === "paused";
 }

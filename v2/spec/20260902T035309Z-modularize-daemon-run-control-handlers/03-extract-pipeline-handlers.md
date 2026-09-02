@@ -22,11 +22,11 @@ All `pipeline_*` RPC handlers and `continueContinuablePipelines` / `pipelineExec
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-pipeline-handlers.test.ts` exercises pipeline handlers through the extracted module; it fails against the pre-fix tree where pipeline handlers live only inside `daemon.ts`.
-- [ ] `v2/src/daemon/daemon-pipeline-recover.test.ts` stays green (behavior unchanged by the extraction).
-- [ ] `v2/src/daemon/daemon-pipeline-start.test.ts` stays green (behavior unchanged by the extraction).
-- [ ] `v2/src/daemon/daemon.ts` defines no inline run-control `RpcHandler` bodies after wiring (reachable on merge-base inside `createRunControlHandlers`, ~lines 1504–2410); only imports, context construction, and handler-map assembly remain.
-- [ ] `bun run typecheck` passes.
+- [x] `v2/src/daemon/daemon-pipeline-handlers.test.ts` exercises pipeline handlers through the extracted module; it fails against the pre-fix tree where pipeline handlers live only inside `daemon.ts`.
+- [x] `v2/src/daemon/daemon-pipeline-recover.test.ts` stays green (behavior unchanged by the extraction).
+- [x] `v2/src/daemon/daemon-pipeline-start.test.ts` stays green (behavior unchanged by the extraction).
+- [x] `v2/src/daemon/daemon.ts` defines no inline run-control `RpcHandler` bodies after wiring (reachable on merge-base inside `createRunControlHandlers`, ~lines 1504–2410); only imports, context construction, and handler-map assembly remain.
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

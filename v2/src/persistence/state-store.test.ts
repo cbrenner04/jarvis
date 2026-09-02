@@ -19,10 +19,10 @@ import {
   type Pipeline,
   type PipelineContext,
   type PipelineStageRecord,
+  RUN_STATUSES,
   reconciliationStableStageStatus,
   reopenPredecessorAllowsStatus,
   reopenSuffixAllowsStatus,
-  RUN_STATUSES,
   type StateStore,
   TERMINAL_RUN_STATUSES,
 } from "./state-store";

@@ -2,7 +2,7 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Run-control handler context](./00-run-control-handler-context.md)
+- [x] [00 - Run-control handler context](./00-run-control-handler-context.md)
 - [ ] [01 - Extract run-lifecycle handlers](./01-extract-run-lifecycle-handlers.md)
 - [ ] [02 - Extract workflow-admission handlers](./02-extract-workflow-admission-handlers.md)
 - [ ] [03 - Extract pipeline handlers](./03-extract-pipeline-handlers.md)

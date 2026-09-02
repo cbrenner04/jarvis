@@ -1,6 +1,6 @@
 import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { isRecord } from "../../../shared/is-record.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
@@ -8,7 +8,7 @@ import type { InvocationFailureDetail } from "../execution/invocation-failure.ts
 import type { PipelineDefinition, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
 import type { PublicationFailure } from "../execution/publication-retry.ts";
 import { isWriteLoopOutcomeKind, type WriteLoopInput, type WriteLoopOutcomeKind } from "../execution/write-loop.ts";
-import { jarvisHome } from "../paths.ts";
+import { ORCHESTRATION_STORE_PATH } from "../paths.ts";
 import { stageArtifactFromEntryRun, stageFailureDetailFromEntryRun } from "./pipeline-stage-settlement.ts";
 import { rollupWorkflowRunStatus } from "./workflow-run-status-rollup.ts";
 
@@ -2307,5 +2307,5 @@ export function openStateStore(
   storePath?: string,
   overrides?: { currentIdentity?: string; isOwnerAlive?: OwnerLivenessProbe },
 ): StateStore {
-  return new StateStoreImpl(storePath ?? join(jarvisHome(), "state", "v2.sqlite"), overrides);
+  return new StateStoreImpl(storePath ?? ORCHESTRATION_STORE_PATH, overrides);
 }

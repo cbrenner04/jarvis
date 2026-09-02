@@ -276,8 +276,30 @@ function bulletsForBoundary(
   );
 }
 
+/** Backticked repo-relative artifact paths named by a bullet (`v2/docs/x.md`, `shared/y.ts`, …). */
+const BACKTICKED_PATH_PATTERN = /`([^`\s]*\/[^`\s]*\.[A-Za-z0-9]+)`/gu;
+
+export function referencedArtifactPaths(text: string): string[] {
+  const paths = new Set<string>();
+  for (const match of text.matchAll(BACKTICKED_PATH_PATTERN)) {
+    const path = match[1];
+    if (path !== undefined) paths.add(path);
+  }
+  return [...paths];
+}
+
+/**
+ * A bullet naming exactly one artifact path is single-surface by construction — that one file
+ * belongs to one module boundary. Keyword classification reads the whole bullet, so prose (and
+ * the filename itself: `workflow-runner.md` matches the execution-loop pattern) otherwise
+ * produces false multi-surface reports on correct single-file bullets.
+ */
+function namesExactlyOneArtifact(bullet: BulletBlock): boolean {
+  return referencedArtifactPaths(bullet.text).length === 1;
+}
+
 function assertSingleSurfaceBullets(file: string, heading: string, bullets: readonly BulletBlock[]): void {
-  const ambiguous = bullets.find((bullet) => bullet.surfaces.length > 1);
+  const ambiguous = bullets.find((bullet) => bullet.surfaces.length > 1 && !namesExactlyOneArtifact(bullet));
   if (ambiguous) {
     throw new Error(`Plan subspec ${file} has a multi-surface ${heading} bullet: ${ambiguous.text}`);
   }

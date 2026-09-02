@@ -13,8 +13,8 @@ import { PIPELINE_REGISTRY } from "../execution/pipeline-registry.ts";
 import { ReadyGateError } from "../execution/ready-finalize.ts";
 import { TerminalPublicationError } from "../execution/terminal-publication.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
-import { createBindingFactory } from "../execution/workflow-runner.test-support.ts";
-import type { AnyWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
+import { createBindingFactory, DEBATE_AGENT_MODEL_CONFIG } from "../execution/workflow-runner.test-support.ts";
+import type { AnyWorkflowStep, ReviewDebateWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
 import { executeWorkflow, landReviewedPublicationOutput } from "../execution/workflow-runner.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import { publishCompletionArtifacts } from "../execution/write-loop.ts";
@@ -33,12 +33,16 @@ import type {
 import { analyzeFailedPipelineReopenShape, openStateStore } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
 import { rollupWorkflowRunStatus } from "../persistence/workflow-run-status-rollup.ts";
+import { spinUntilMicrotask } from "../testing/bounded-microtask-spin.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { makeIpcClient } from "../testing/ipc-client-fake.ts";
 import { flushBackgroundRuns } from "../testing/run-control.ts";
 import {
+  createMinimalDispatchWriteStep,
   DEFAULT_AGENT_MODEL_CONFIG,
+  doneBindingFactory,
   doneWithArtifactBindingFactory,
+  type MinimalDispatchWriteStep,
   writeStepFixtures,
 } from "../testing/workflow-step-fixtures.ts";
 import { createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
@@ -146,23 +150,12 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   return { promise, resolve };
 }
 
-/** A tagged step so a fake `dispatch`/`resolveStage` can tell which stage index it built. */
-// Dispatch stamps steps with machine config before dispatch, dereferencing worktree.projectName;
-// stub steps must carry a worktree or the stamp throws and the stage fails before wait().
-const STUB_STEP_WORKTREE = {
-  projectRoot: "/fake",
-  projectName: "demo",
-  branchName: "stub",
-  baseRef: "HEAD",
-  jarvisRoot: "/fake/.jarvis",
-} as const;
-
-function taggedStep(stageIndex: number): AnyWorkflowStep {
-  return { behavior: "write", stageIndex, worktree: STUB_STEP_WORKTREE } as unknown as AnyWorkflowStep;
-}
-
 function stageIndexOf(steps: AnyWorkflowStep[]): number {
-  return (steps[0] as unknown as { stageIndex: number }).stageIndex;
+  const stageIndex = (steps[0] as MinimalDispatchWriteStep | undefined)?.stageIndex;
+  if (stageIndex === undefined) {
+    throw new Error("dispatch stub step missing stageIndex");
+  }
+  return stageIndex;
 }
 
 function noopStaleResetPreflightBundle(): NonNullable<PipelineExecutionDeps["staleResetPreflight"]> {
@@ -419,7 +412,7 @@ function resolveStageStub(): (
   stageArtifacts: ReadonlyMap<string, PipelineStageArtifact>,
   deps?: PipelineStageResolveDeps,
 ) => Promise<PipelineStageResolutionResult> {
-  return async (_definition, stageIndex) => ({ ok: true, steps: [taggedStep(stageIndex)] });
+  return async (_definition, stageIndex) => ({ ok: true, steps: [createMinimalDispatchWriteStep({ stageIndex })] });
 }
 
 const RESTART_SWEEP_DEFINITION: PipelineDefinition = {
@@ -615,9 +608,7 @@ describe("runPipeline", () => {
       resolveStage: resolveStageStub(),
     });
 
-    while (!stage0WaitCalled) {
-      await Promise.resolve();
-    }
+    await spinUntilMicrotask(() => stage0WaitCalled, "stage0WaitCalled");
 
     expect(dispatchOrder).toEqual([0]);
     expect(stages().find((s) => s.stageId === "s2")?.status).toBe("pending");
@@ -954,7 +945,7 @@ describe("pipeline context loader at execution", () => {
       context: callerOverrideContext,
       resolveStage: async (_definition, stageIndex, context) => {
         if (stageIndex === 2) continuationResolution = { cwd: context.cwd, configPath: context.configPath };
-        return { ok: true, steps: [taggedStep(stageIndex)] };
+        return { ok: true, steps: [createMinimalDispatchWriteStep({ stageIndex })] };
       },
     });
 
@@ -992,7 +983,7 @@ describe("continuePipeline", () => {
       context: PipelineContext,
     ): Promise<PipelineStageResolutionResult> => {
       if (stageIndex === 2) resolvedContext = context;
-      return { ok: true, steps: [taggedStep(stageIndex)] };
+      return { ok: true, steps: [createMinimalDispatchWriteStep({ stageIndex })] };
     };
 
     const dispatchOrder: number[] = [];
@@ -1928,9 +1919,7 @@ describe("pipeline activation after restart", () => {
       async () => false,
     );
 
-    while (!stage1WaitCalled) {
-      await Promise.resolve();
-    }
+    await spinUntilMicrotask(() => stage1WaitCalled, "stage1WaitCalled");
 
     expect(dispatchOrder).toEqual([1]);
     const byId = new Map(stages().map((s) => [s.stageId, s]));
@@ -2245,7 +2234,10 @@ describe("pipeline approval decisions", () => {
       writeLoopExecutor: fakeExecutor.executor,
       failureReporter: () => {},
       hasMemoryHeadroom: () => true,
-      resolveStage: async (_definition, stageIndex) => ({ ok: true, steps: [taggedStep(stageIndex)] }),
+      resolveStage: async (_definition, stageIndex) => ({
+        ok: true,
+        steps: [createMinimalDispatchWriteStep({ stageIndex })],
+      }),
     });
     const rejectResponse = await handlers.pipeline_reject(
       { kind: "request", id: "reject", method: "pipeline_reject", params: { pipelineId, stageId: "gate" } },
@@ -2293,7 +2285,7 @@ describe("pipeline approval decisions", () => {
       hasMemoryHeadroom: () => true,
       resolveStage: async (_definition, stageIndex) => ({
         ok: true,
-        steps: stageIndex === 2 ? [stage3Step] : [taggedStep(stageIndex)],
+        steps: stageIndex === 2 ? [stage3Step] : [createMinimalDispatchWriteStep({ stageIndex })],
       }),
     });
     const approveResponse = await handlers.pipeline_approve(
@@ -2770,9 +2762,7 @@ describe("resumePipeline", () => {
           return "completed";
         },
       });
-      while (!stage1WaitCalled) {
-        await Promise.resolve();
-      }
+      await spinUntilMicrotask(() => stage1WaitCalled, "stage1WaitCalled");
       expect(dispatchOrder).toEqual([1]);
       expect(stages().find((s) => s.stageId === "s1")?.workflowInvocationId).toBe("inv-1");
       stage1Wait.resolve("completed");
@@ -2974,13 +2964,11 @@ describe("resumePipeline", () => {
           return {
             ok: true,
             steps: [
-              {
-                behavior: "write",
+              createMinimalDispatchWriteStep({
                 stageId: "plan",
                 stageIndex,
-                branchKey: deps?.branchKey,
-                worktree: STUB_STEP_WORKTREE,
-              } as unknown as AnyWorkflowStep,
+                ...(deps?.branchKey === undefined ? {} : { branchKey: deps.branchKey }),
+              }),
             ],
           };
         }
@@ -3235,9 +3223,7 @@ describe("resumePipeline", () => {
       },
       resolveStage: resolveStageStub(),
     });
-    while (!failedStageWaitCalled) {
-      await Promise.resolve();
-    }
+    await spinUntilMicrotask(() => failedStageWaitCalled, "failedStageWaitCalled");
     expect(failedDispatch).toEqual([1]);
     expect(
       failedStore.loadPipeline(failedPipelineId)?.stages.find((stage) => stage.stageId === "s1")?.workflowInvocationId,
@@ -3653,13 +3639,11 @@ describe("resumePipeline branch scope", () => {
     ): Promise<PipelineStageResolutionResult> => ({
       ok: true,
       steps: [
-        {
-          behavior: "write",
+        createMinimalDispatchWriteStep({
           stageId: "implement",
           stageIndex,
-          branchKey: deps?.branchKey,
-          worktree: STUB_STEP_WORKTREE,
-        } as unknown as AnyWorkflowStep,
+          ...(deps?.branchKey === undefined ? {} : { branchKey: deps.branchKey }),
+        }),
       ],
     });
 
@@ -3905,13 +3889,11 @@ describe("resumePipeline branch scope", () => {
         return {
           ok: true,
           steps: [
-            {
-              behavior: "write",
+            createMinimalDispatchWriteStep({
               stageId: "plan",
               stageIndex,
-              branchKey: deps?.branchKey,
-              worktree: STUB_STEP_WORKTREE,
-            } as unknown as AnyWorkflowStep,
+              ...(deps?.branchKey === undefined ? {} : { branchKey: deps.branchKey }),
+            }),
           ],
         };
       }
@@ -4207,9 +4189,10 @@ describe("pipeline terminal publication settlement", () => {
 
       const runPromise = runPipeline(PIPELINE_ID, terminalRunDeps(store, executeTerminalPublication));
 
-      while (stages().find((s) => s.stageId === "implement")?.status !== "succeeded") {
-        await Promise.resolve();
-      }
+      await spinUntilMicrotask(
+        () => stages().find((s) => s.stageId === "implement")?.status === "succeeded",
+        "implement stage succeeded",
+      );
 
       const midPipeline = store.loadPipeline(PIPELINE_ID);
       if (!midPipeline) throw new Error("expected pipeline");
@@ -4475,19 +4458,20 @@ function fanOutResolveStageStub(
     if (stage?.kind === "workflow" && stage.workflow === "plan") {
       return {
         ok: true,
-        results: FAN_OUT_BRANCH_KEYS.map((branchKey) => ({ steps: [fanOutTaggedStep(stageIndex, branchKey)] })),
+        results: FAN_OUT_BRANCH_KEYS.map((branchKey) => ({
+          steps: [createMinimalDispatchWriteStep({ stageIndex, branchKey })],
+        })),
       };
     }
     const branchKey = deps?.branchKey ?? "default";
     const priorPlan = stageArtifacts.get(stageArtifactKey("plan", branchKey));
     const inferredBranchKey =
       typeof priorPlan?.entryRunId === "string" ? priorPlan.entryRunId.split("-")[1] : undefined;
-    return { ok: true, steps: [fanOutTaggedStep(stageIndex, inferredBranchKey ?? branchKey)] };
+    return {
+      ok: true,
+      steps: [createMinimalDispatchWriteStep({ stageIndex, branchKey: inferredBranchKey ?? branchKey })],
+    };
   };
-}
-
-function fanOutTaggedStep(stageIndex: number, branchKey?: string): AnyWorkflowStep {
-  return { behavior: "write", stageIndex, branchKey, worktree: STUB_STEP_WORKTREE } as unknown as AnyWorkflowStep;
 }
 
 function stageRecord(
@@ -5406,7 +5390,7 @@ describe("reopened pipeline continuation", () => {
         resetFlags = deps?.staleReset?.flags;
         return {
           ok: true,
-          steps: [{ behavior: "write", stageIndex: index, worktree: STUB_STEP_WORKTREE } as unknown as AnyWorkflowStep],
+          steps: [createMinimalDispatchWriteStep({ stageIndex: index })],
         };
       },
       staleResetPreflight: noopStaleResetPreflightBundle(),
@@ -5458,9 +5442,7 @@ describe("reopened pipeline continuation", () => {
           resetFlags = deps?.staleReset?.flags;
           return {
             ok: true,
-            steps: [
-              { behavior: "write", stageIndex: index, worktree: STUB_STEP_WORKTREE } as unknown as AnyWorkflowStep,
-            ],
+            steps: [createMinimalDispatchWriteStep({ stageIndex: index })],
           };
         },
         staleResetPreflight: noopStaleResetPreflightBundle(),
@@ -5526,14 +5508,10 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
 
   function intentSteps(): AnyWorkflowStep[] {
     return [
-      {
-        behavior: "write",
-        stepId: "intent",
+      createWriteStep("intent", intentBranch, doneBindingFactory, {
         role: "plan",
         promptId: "intent.prompt.split",
         stepRules: DEFAULT_WRITE_STEP_RULES,
-        agents: ["claude"],
-        agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
         worktree: managedWorktree(intentBranch, "HEAD"),
         specPath: "spec/ready-intents",
         expectedArtifactPath: ".jarvis-intent-stage",
@@ -5546,67 +5524,63 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
           stagingDir: ".jarvis-intent-stage",
           invocationId: "intent-invocation",
         },
-      },
-    ] as unknown as AnyWorkflowStep[];
+      }),
+    ];
   }
 
   function planSteps(baseRef: string, specPath = "spec/plan"): AnyWorkflowStep[] {
     return [
-      {
-        behavior: "write",
-        stepId: "plan",
+      createWriteStep("plan", planBranch, doneBindingFactory, {
         role: "plan",
         promptId: "plan.prompt",
         stepRules: DEFAULT_WRITE_STEP_RULES,
-        agents: ["claude"],
-        agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
         worktree: managedWorktree(planBranch, baseRef),
         specPath,
         expectedArtifactPath: ".jarvis-plan-stage",
         publishCompletion: true,
         landing: {
           kind: "plan-tree",
-          baseRef,
-          inputs: { sourceRoot: projectRoot, paths: [readyIntentRel], consumeFrom: "worktree" },
-          output: { durableDir: "spec/plan" },
           stagingDir: ".jarvis-plan-stage",
-          invocationId: "plan-invocation",
+          durablePath: "spec/plan",
+          inputs: { sourceRoot: projectRoot, paths: [readyIntentRel], consumeFrom: "worktree" },
         },
+      }),
+    ];
+  }
+
+  function implementReviewStep(): ReviewDebateWorkflowStep {
+    return {
+      behavior: "review-debate",
+      stepId: "review",
+      project: "demo",
+      branch: implementBranch,
+      cwd: join(jarvisRoot, "worktrees", "demo", implementBranch),
+      prompts: { adversary: "review", advocate: "review", adjudicator: "review" },
+      verdictPath: "spec/plan/verdict-patch.md",
+      maxCycles: 1,
+      agents: { adversary: ["claude"], advocate: ["claude"], adjudicator: ["claude"], actuator: ["claude"] },
+      agentModelConfig: DEBATE_AGENT_MODEL_CONFIG,
+      landing: {
+        kind: "plan-tree",
+        stagingDir: ".jarvis-plan-stage",
+        durablePath: "spec/plan",
+        inputs: { sourceRoot: projectRoot, paths: ["spec/plan/index.md"], consumeFrom: "worktree" },
       },
-    ] as unknown as AnyWorkflowStep[];
+    };
   }
 
   function implementSteps(baseRef: string): AnyWorkflowStep[] {
     return [
-      {
-        behavior: "write",
-        stepId: "implement",
+      createWriteStep("implement", implementBranch, doneBindingFactory, {
         role: "implement",
         promptId: "implement.prompt",
         stepRules: DEFAULT_WRITE_STEP_RULES,
-        agents: ["claude"],
-        agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
         worktree: managedWorktree(implementBranch, baseRef),
         specPath: "spec/plan/index.md",
-      },
-      {
-        behavior: "review-debate",
-        stepId: "review",
-        role: "review",
-        promptId: "review.prompt",
-        agents: ["claude"],
-        agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
-        cwd: join(jarvisRoot, "worktrees", "demo", implementBranch),
-        landing: {
-          kind: "plan-tree",
-          baseRef,
-          inputs: { sourceRoot: projectRoot, paths: ["spec/plan/index.md"], consumeFrom: "worktree" },
-          output: { durableDir: "spec/plan" },
-          stagingDir: ".jarvis-plan-stage",
-          invocationId: "implement-invocation",
-        },
-      },
-    ] as unknown as AnyWorkflowStep[];
+        expectedArtifactPath: "spec/plan/index.md",
+      }),
+      implementReviewStep(),
+    ];
   }
 
   function intentDefinition(): PipelineDefinition {
@@ -5772,14 +5746,12 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
           return {
             ok: true as const,
             steps: [
-              {
-                behavior: "write",
-                stepId: "plan",
+              createWriteStep("plan", branchName, doneBindingFactory, {
                 role: "plan",
                 worktree: managedWorktree(branchName, intentBranch),
                 specPath: "spec/plan",
-              },
-            ] as unknown as AnyWorkflowStep[],
+              }),
+            ],
             identity: {
               invocationId: `plan-${branchKey}`,
               project: "demo",

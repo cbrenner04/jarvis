@@ -580,3 +580,68 @@ export function reviewedIntentStep(workspace: string, overrides: Partial<ReviewW
     ...overrides,
   };
 }
+
+export function createPatchReviewDebateStep(args: {
+  branchName: string;
+  verdictPath: string;
+  cwd: string;
+  createBinding?: ReviewDebateWorkflowStep["createBinding"];
+  roleTimeoutMs?: number;
+  idleOutputMs?: number;
+  maxCycles?: number;
+}): ReviewDebateWorkflowStep {
+  return {
+    behavior: "review-debate",
+    stepId: "implement-review",
+    project: "demo",
+    branch: args.branchName,
+    cwd: args.cwd,
+    prompts: {
+      adversary: "implement.prompt.review.adversary",
+      advocate: "implement.prompt.review.advocate",
+      adjudicator: "implement.prompt.review.adjudicator",
+    },
+    verdictPath: args.verdictPath,
+    maxCycles: args.maxCycles ?? 1,
+    agents: { adversary: ["claude"], advocate: ["claude"], adjudicator: ["claude"], actuator: ["claude"] },
+    agentModelConfig: DEBATE_AGENT_MODEL_CONFIG,
+    profile: implementReviewPromptProfile,
+    profileContext: { specPath: "index.md", cwd: args.cwd, baseBranch: "HEAD", passNumber: 1, totalPasses: 1 },
+    ...(args.roleTimeoutMs !== undefined ? { roleTimeoutMs: args.roleTimeoutMs } : {}),
+    ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
+    ...(args.createBinding !== undefined ? { createBinding: args.createBinding } : {}),
+  };
+}
+
+export function createTrackedReviewDebateBindingFactory(
+  calls: string[],
+  actuatorFailureKind: "timeout" | "stall" | undefined,
+  actuatorPrompts?: string[],
+): NonNullable<ReviewDebateWorkflowStep["createBinding"]> {
+  return ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) => ({
+    id: `${agentId}/${adapterModel}`,
+    metadata: { agent: agentId, model: adapterModel },
+    invoke: ({ signal, prompt }) => {
+      calls.push(adapterModel);
+      if (adapterModel === "ACT") actuatorPrompts?.push(prompt);
+      if (adapterModel !== "ACT") {
+        return Promise.resolve(
+          adapterModel === "ADJ"
+            ? ({ kind: "ok", stdout: "apply this fix", stderr: "" } as const)
+            : ({ kind: "ok", stdout: "ok", stderr: "" } as const),
+        );
+      }
+      if (actuatorFailureKind === "stall") {
+        return Promise.resolve({ kind: "stall", stderr: "no output" } as const);
+      }
+      if (actuatorFailureKind === "timeout") {
+        return new Promise<InvocationResult>((resolve) => {
+          signal?.addEventListener("abort", () => resolve({ kind: "error", exitCode: 1, stderr: "aborted" }), {
+            once: true,
+          });
+        });
+      }
+      return Promise.resolve({ kind: "ok", stdout: "actuated", stderr: "" } as const);
+    },
+  });
+}

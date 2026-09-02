@@ -2,7 +2,7 @@
 id: patch.rules
 behavior: patch-rules
 kind: fragment
-revision: 11
+revision: 12
 ---
 # Patch Mode
 
@@ -26,8 +26,9 @@ Execute active spec only.
 - Jarvis re-invokes for the next iteration; iterate the same subspec until all its acceptance criteria are checked.
 - Use commands from target repo `AGENTS.md`; no equivalents.
 - Acceptance criteria flagged human-only (`(Manual)`, "visual inspection only", "no automated guard") are operator-verified: implement them, run the automated gate, leave them unchecked, and do not attempt in-sandbox visual verification (no dev-server port bind). Do not append a `## Blocker` for human-only criteria.
-- Run tests strategically: skip `bun run test` only when the iteration changed nothing under tested paths (no source files, test files, prompt fragments, or fixtures — only human-facing prose). Run `bun run typecheck` only when any typed source changed. This avoids flake exposure on docs-only iterations with zero signal.
-- If `bun run test` fails, re-run once serially as `bun test` (without `--parallel`, no path/filter args) before treating the failure as real or grounding a blocker; only a serially-reproducing failure is real. This recovers from parallel-load flakes without hiding genuine breakage.
+- **Run the scoped test script(s) for the surfaces you touched — never the full aggregate `bun run test` unless the scope rule resolves to it.** Resolve scope from the paths changed since the merge base exactly as target-repo `AGENTS.md` specifies. The aggregate suite runs every slice, takes minutes, and running it each turn exhausts the iteration budget before the work lands — that is the single most common way a correct implementation times out.
+- Skip tests entirely only when the iteration changed nothing under tested paths (no source files, test files, prompt fragments, or fixtures — only human-facing prose). Run `bun run typecheck` only when any typed source changed. This avoids flake exposure on docs-only iterations with zero signal.
+- If a scoped test run fails, re-run once serially as `bun test` (without `--parallel`, no path/filter args) before treating the failure as real or grounding a blocker; only a serially-reproducing failure is real. This recovers from parallel-load flakes without hiding genuine breakage.
 - Tests reaching machine/user-config resolution must inject an explicit config fixture/path and mocked profile; never read the ambient machine config. Use explicit profiles/fixtures so tests pass in CI and remain hermetic across machines.
 - When a guard sits inside a `setTimeout` or `setInterval` callback, extract it into a pure exported predicate and test both truth directions directly without a real-timer wait.
 - Leave tree compiling.

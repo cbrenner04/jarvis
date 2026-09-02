@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { parseSpec } from "../../../shared/spec-parser.ts";
+import { jarvisHome } from "../paths.ts";
 
 export type ArtifactSpec = {
   /** Configured v2 spec home containing this immediate child. */
@@ -14,6 +15,15 @@ export type ArtifactSpec = {
 };
 
 export type ArtifactEligibility = { status: "eligible" } | { status: "ineligible"; reason: string };
+
+/** True when `home` is `~/.jarvis/specs/<safeId>/plans`. */
+export function isExternalPlanArtifact(spec: ArtifactSpec): boolean {
+  const specsRoot = resolve(jarvisHome(), "specs");
+  const resolvedHome = resolve(spec.home);
+  if (basename(resolvedHome) !== "plans") return false;
+  const relativeToSpecs = relative(specsRoot, resolvedHome);
+  return relativeToSpecs !== "" && !relativeToSpecs.startsWith("..") && !isAbsolute(relativeToSpecs);
+}
 
 export type ArtifactInspection = {
   /** Returns the number of matching open PRs; errors must reject. */
@@ -115,19 +125,26 @@ export type ArchiveResult =
  * Move one already-eligible artifact and optionally consume its proven input.
  * Every post-move failure attempts to restore both paths before returning.
  */
-export function archiveCompletedSpec(spec: ArtifactSpec, fs: ArtifactFs = realFs): ArchiveResult {
+export function archiveCompletedSpec(
+  spec: ArtifactSpec,
+  fs: ArtifactFs = realFs,
+  options?: { intentPrune?: boolean },
+): ArchiveResult {
   const destination = join(spec.home, "completed", basename(spec.source));
   const readyIntent = join(spec.home, "ready-intents", `${spec.name}.md`);
   const sourceIntent = join(spec.source, "intent.md");
   if (fs.exists(destination))
     return { status: "skipped", reason: `archive destination already exists: ${destination}` };
 
+  const allowIntentPrune = options?.intentPrune ?? !isExternalPlanArtifact(spec);
   let pruneIntent = false;
-  try {
-    pruneIntent =
-      fs.exists(readyIntent) && fs.exists(sourceIntent) && fs.read(readyIntent).equals(fs.read(sourceIntent));
-  } catch (error) {
-    return { status: "skipped", reason: `failed to inspect ready-intent: ${String(error)}` };
+  if (allowIntentPrune) {
+    try {
+      pruneIntent =
+        fs.exists(readyIntent) && fs.exists(sourceIntent) && fs.read(readyIntent).equals(fs.read(sourceIntent));
+    } catch (error) {
+      return { status: "skipped", reason: `failed to inspect ready-intent: ${String(error)}` };
+    }
   }
 
   try {

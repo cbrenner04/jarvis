@@ -67,7 +67,7 @@ const BIOME_FORMATTABLE_EXTENSIONS = new Set([
   ".jsonc",
 ]);
 
-function biomeEligiblePaths(cwd: string, paths: readonly string[]): string[] {
+export function biomeEligiblePaths(cwd: string, paths: readonly string[]): string[] {
   return paths.filter((path) => {
     const dot = path.lastIndexOf(".");
     if (dot < 0) return false;

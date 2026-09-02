@@ -22,9 +22,9 @@
 
 ## Acceptance criteria
 
-- [ ] `pipeline-execution.test.ts` stays green (behavior unchanged by the scaffolding extraction).
-- [ ] `pipeline-execution.test.ts` contains zero `as unknown as AnyWorkflowStep` casts reachable on main today via `taggedStep`, `fanOutTaggedStep`, and inline dispatch write-step literals (~2983, ~3662, ~3914, ~5409, ~5462).
-- [ ] `stageIndexOf` contains no ad-hoc cast to read `stageIndex` (reachable on main today via `(steps[0] as unknown as { stageIndex: number })`).
+- [x] `pipeline-execution.test.ts` stays green (behavior unchanged by the scaffolding extraction).
+- [x] `pipeline-execution.test.ts` contains zero `as unknown as AnyWorkflowStep` casts reachable on main today via `taggedStep`, `fanOutTaggedStep`, and inline dispatch write-step literals (~2983, ~3662, ~3914, ~5409, ~5462).
+- [x] `stageIndexOf` contains no ad-hoc cast to read `stageIndex` (reachable on main today via `(steps[0] as unknown as { stageIndex: number })`).
 
 ## Documentation updates
 

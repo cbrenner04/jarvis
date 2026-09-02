@@ -22,9 +22,9 @@
 
 ## Acceptance criteria
 
-- [ ] `pipeline-stage-dispatch.test.ts` stays green (behavior unchanged by the scaffolding extraction).
-- [ ] `pipeline-stage-dispatch.test.ts` contains zero `as unknown as AnyWorkflowStep` casts (reachable on main today via `okStep`).
-- [ ] `pipeline-stage-dispatch.test.ts` contains zero unbounded `while` loops (or condition polls) yielding only via `await Promise.resolve()` (reachable on main today via the `waitCalled` loop).
+- [x] `pipeline-stage-dispatch.test.ts` stays green (behavior unchanged by the scaffolding extraction).
+- [x] `pipeline-stage-dispatch.test.ts` contains zero `as unknown as AnyWorkflowStep` casts (reachable on main today via `okStep`).
+- [x] `pipeline-stage-dispatch.test.ts` contains zero unbounded `while` loops (or condition polls) yielding only via `await Promise.resolve()` (reachable on main today via the `waitCalled` loop).
 
 ## Documentation updates
 

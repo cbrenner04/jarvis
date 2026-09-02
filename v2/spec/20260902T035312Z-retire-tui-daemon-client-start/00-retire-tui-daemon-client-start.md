@@ -28,14 +28,14 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/tui/tui-daemon-client.ts` exports `TuiDaemonClient` with no `start` member and `connectTuiDaemon` with no `start` implementation; a compile-time `@ts-expect-error` (or equivalent) on `client.start(...)` fails against the pre-fix export reachable in that module.
-- [ ] `v2/src/tui/tui-daemon-client.test.ts` no longer calls `client.start`; test `start sends one correlated IPC start request and returns runId` is absent; the compile-time `start`-absence regression fails against the pre-fix tests reachable in that file; `daemon error replies reject as RpcError with code and message` stays green.
-- [ ] `v2/src/commands/tui.test.ts` — `healthyTuiDaemonClient` omits `start` (typecheck fails against the pre-fix stub reachable in that file) and test `jarvis tui supplies monitor controls whose detached admission uses pipeline start seams` stays green.
-- [ ] `v2/src/tui/tui-entry.test.tsx` `fakeClient` and the single inline `TuiDaemonClient` literal omit `start`; typecheck fails against the pre-fix stubs reachable in that file.
-- [ ] `v2/src/tui/tui-monitor-terminal-window.test.ts` `fakeClient` omits `start`; typecheck fails against the pre-fix stub reachable in that file.
-- [ ] `v2/src/tui/tui-log-follow-entry.test.tsx` `makeMockDaemon` omits `start`; typecheck fails against the pre-fix stub reachable in that file.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `v2/src/tui/tui-daemon-client.ts` exports `TuiDaemonClient` with no `start` member and `connectTuiDaemon` with no `start` implementation; a compile-time `@ts-expect-error` (or equivalent) on `client.start(...)` fails against the pre-fix export reachable in that module.
+- [x] `v2/src/tui/tui-daemon-client.test.ts` no longer calls `client.start`; test `start sends one correlated IPC start request and returns runId` is absent; the compile-time `start`-absence regression fails against the pre-fix tests reachable in that file; `daemon error replies reject as RpcError with code and message` stays green.
+- [x] `v2/src/commands/tui.test.ts` — `healthyTuiDaemonClient` omits `start` (typecheck fails against the pre-fix stub reachable in that file) and test `jarvis tui supplies monitor controls whose detached admission uses pipeline start seams` stays green.
+- [x] `v2/src/tui/tui-entry.test.tsx` `fakeClient` and the single inline `TuiDaemonClient` literal omit `start`; typecheck fails against the pre-fix stubs reachable in that file.
+- [x] `v2/src/tui/tui-monitor-terminal-window.test.ts` `fakeClient` omits `start`; typecheck fails against the pre-fix stub reachable in that file.
+- [x] `v2/src/tui/tui-log-follow-entry.test.tsx` `makeMockDaemon` omits `start`; typecheck fails against the pre-fix stub reachable in that file.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

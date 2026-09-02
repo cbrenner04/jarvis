@@ -64,9 +64,6 @@ function healthyTuiDaemonClient(): TuiDaemonClient {
     async pipelineList(_params: { includeDismissed: boolean }) {
       return { pipelines: [] };
     },
-    async start() {
-      throw new Error("unexpected start");
-    },
     async wait() {
       throw new Error("unexpected wait");
     },

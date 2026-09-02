@@ -31,11 +31,11 @@ Primary: `v2/src/execution/workflow-runner-debate-landing.ts` (new). In-scope: `
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner-debate-landing-structure.test.ts` fails if `runReviewDebateStep`, `tryActuatorOnlyReviewDebateRetry`, `landReviewedOutputOrFail`, `finishReviewedLanding`, `finishReviewDebateLanding`, `commitReviewDebateOutcome`, `buildReviewDebateLandingActuatorContext`, or `repromptReviewedStagedMarkdownLintOrFail` remain defined in `workflow-runner.ts` (all eight are private inline helpers reachable on main today).
-- [ ] `execution-terminal-settlement-guard.test.ts` stays green after permitted-write paths follow moved landing functions into `workflow-runner-debate-landing.ts`.
-- [ ] `workflow-runner-review.test.ts` stays green (shared `landReviewedOutputOrFail` / `finishReviewedLanding` staged-markdown lint and checkpoint re-entry cases unchanged by the extraction).
-- [ ] `workflow-runner-review-standard.test.ts` stays green (standard-review landing paths unchanged by the extraction).
-- [ ] `bun run typecheck` passes.
+- [x] `workflow-runner-debate-landing-structure.test.ts` fails if `runReviewDebateStep`, `tryActuatorOnlyReviewDebateRetry`, `landReviewedOutputOrFail`, `finishReviewedLanding`, `finishReviewDebateLanding`, `commitReviewDebateOutcome`, `buildReviewDebateLandingActuatorContext`, or `repromptReviewedStagedMarkdownLintOrFail` remain defined in `workflow-runner.ts` (all eight are private inline helpers reachable on main today).
+- [x] `execution-terminal-settlement-guard.test.ts` stays green after permitted-write paths follow moved landing functions into `workflow-runner-debate-landing.ts`.
+- [x] `workflow-runner-review.test.ts` stays green (shared `landReviewedOutputOrFail` / `finishReviewedLanding` staged-markdown lint and checkpoint re-entry cases unchanged by the extraction).
+- [x] `workflow-runner-review-standard.test.ts` stays green (standard-review landing paths unchanged by the extraction).
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

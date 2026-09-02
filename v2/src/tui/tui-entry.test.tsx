@@ -1332,10 +1332,6 @@ function fakeClient(options: FakeClientOptions = {}): TuiDaemonClient {
       pipelineListIndex = nextIndex;
       return response ?? { pipelines: [] };
     },
-    async start() {
-      methods.push("start");
-      return { runId: "unused" };
-    },
     pause: steer("pause"),
     resume,
     kill: steer("kill"),
@@ -3592,9 +3588,6 @@ describe("runTuiEntry", () => {
       },
       async pipelineList(_params: { includeDismissed: boolean }) {
         return { pipelines: [] };
-      },
-      async start() {
-        return { runId: "unused" };
       },
       async pause() {
         return { ok: true };

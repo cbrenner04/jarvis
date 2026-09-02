@@ -21,8 +21,8 @@
 
 ## Acceptance criteria
 
-- [ ] `daemon-pipeline-recover.test.ts` stays green (behavior unchanged by the scaffolding extraction).
-- [ ] `daemon-pipeline-recover.test.ts` contains zero `as unknown as AnyWorkflowStep` casts (reachable on main today via `planReviewStep`).
+- [x] `daemon-pipeline-recover.test.ts` stays green (behavior unchanged by the scaffolding extraction).
+- [x] `daemon-pipeline-recover.test.ts` contains zero `as unknown as AnyWorkflowStep` casts (reachable on main today via `planReviewStep`).
 
 ## Documentation updates
 

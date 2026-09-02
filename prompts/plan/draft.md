@@ -2,7 +2,7 @@
 id: plan.prompt.draft
 behavior: plan
 kind: step
-revision: 17
+revision: 18
 placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, SPEC_GUIDANCE:string!, TARGET_DIR:string!]
 variants: {"flat-layout":[{"anchor":"- **Only write files under `spec/<NAME>/`.**","replacement":"- **Only write files in the working directory.** Do not create `spec/` subdirectories or other parent paths."},{"anchor":"spec/<NAME>/intent.md","replacement":"intent.md","replaceAll":true}],"nested-target-dir":[{"anchor":"spec/<NAME>/","replacement":"<TARGET_DIR>/<NAME>/","replaceAll":true}]}
 remove: [global.naming]
@@ -54,6 +54,7 @@ Your first action is to read existing repo files and confirm each behavior in th
 - Each subspec must have an exact `## Acceptance criteria` section with checkboxes.
 - Size each subspec as one normal patch iteration: one implementation path with focused verification. Do not bundle independently implementable builder, wiring, or validation paths; keep coupled changes together.
 - **One surface per acceptance-criteria bullet.** Each `- [ ]` bullet must reference exactly one file or module surface — one test file, or one doc file. Never list multiple files in a single bullet (for example ``` `daemon-host.md`, `state-store.md`, and `v1-behaviors.md` document … ```); split it into one bullet per file. A bullet that spans multiple module-boundary surfaces (daemon, persistence, execution, …) or their docs is rejected by the plan contract, which blocks the whole draft.
+- **Gate acceptance criteria name the scoped test script, never the bare aggregate.** When a subspec's closing criteria cover the mechanical gate, name the script(s) matching the surfaces that subspec touches — for this repo `bun run test:v2` / `bun run test:integration:v2` for `v2/**`, the v1 pair for `v1/**`, and all six for `shared/**` — following target-repo `AGENTS.md`. Write `- [ ] bun run test` only when the scope rule genuinely resolves to the full aggregate. The aggregate runs every slice and takes minutes; a subspec whose criteria demand it per iteration exhausts the implement budget and times out with the work already correct.
 - **Link every subspec file; leave no orphans.** `index.md` must link every numbered `.md` file you create under `spec/<NAME>/`. If you draft a subspec and then rename or rewrite it, delete the old file — an on-disk subspec that `index.md` does not link (for example an old `00-foo.md` you replaced with `00-foo-bar.md`) is rejected by the plan contract. Before finishing, confirm the set of numbered files on disk exactly matches the set linked from `index.md`.
 - If you identify a blocker that prevents you from drafting the spec, append an exact `## Blocker` section to `intent.md` describing what you need. Do not invent answers; ask for human input. Do not include a `## Blocker` section unless there is a genuine blocker.
 - Follow the heading contracts from the spec guidance: exact `## Acceptance criteria` and `## Blocker` headings (level 2, case-sensitive).

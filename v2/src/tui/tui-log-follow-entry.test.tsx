@@ -81,7 +81,6 @@ function makeMockDaemon(list: (params?: { includeDismissed: boolean }) => Promis
     status: async () => ({ state: "running" }),
     list,
     pipelineList: async (_params: { includeDismissed: boolean }) => ({ pipelines: [] }),
-    start: async () => ({ runId: "" }),
     pause: async () => ({ ok: true }),
     resume: async () => ({ ok: true }),
     kill: async () => ({ ok: true }),

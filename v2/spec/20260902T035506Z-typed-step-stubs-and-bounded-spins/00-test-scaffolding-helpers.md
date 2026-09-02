@@ -24,9 +24,9 @@ Daemon pipeline tests lie about write-step shape with `as unknown as AnyWorkflow
 
 ## Acceptance criteria
 
-- [ ] `bounded-microtask-spin.test.ts` proves a spin whose flag never sets throws the helper's named error instead of hanging; it fails against the pre-fix bare `while (!flag) { await Promise.resolve(); }` loop reachable in `pipeline-stage-dispatch.test.ts` today.
-- [ ] `workflow-step-fixtures.test.ts` assigns `createMinimalDispatchWriteStep(...)` to `AnyWorkflowStep` without a cast, asserts `step.worktree.projectName` is defined, and sets `stageIndex` / `branchKey` via overrides without casts; it fails against the pre-fix `{ behavior: "write" } as unknown as AnyWorkflowStep` pattern in `pipeline-stage-dispatch.test.ts` today.
-- [ ] `bun run typecheck` passes.
+- [x] `bounded-microtask-spin.test.ts` proves a spin whose flag never sets throws the helper's named error instead of hanging; it fails against the pre-fix bare `while (!flag) { await Promise.resolve(); }` loop reachable in `pipeline-stage-dispatch.test.ts` today.
+- [x] `workflow-step-fixtures.test.ts` assigns `createMinimalDispatchWriteStep(...)` to `AnyWorkflowStep` without a cast, asserts `step.worktree.projectName` is defined, and sets `stageIndex` / `branchKey` via overrides without casts; it fails against the pre-fix `{ behavior: "write" } as unknown as AnyWorkflowStep` pattern in `pipeline-stage-dispatch.test.ts` today.
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

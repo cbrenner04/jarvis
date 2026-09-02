@@ -15,7 +15,7 @@ import {
 } from "../execution/workflow-runner.ts";
 import type { LogEvent, LogSink, PersistedRecord } from "../persistence/log-stream.ts";
 import type { Pipeline, PipelineContext, PipelineStageRecord, Run, StateStore } from "../persistence/state-store.ts";
-import { DEFAULT_AGENT_MODEL_CONFIG } from "../testing/workflow-step-fixtures.ts";
+import { createMinimalDispatchWriteStep, DEFAULT_AGENT_MODEL_CONFIG } from "../testing/workflow-step-fixtures.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
 import {
@@ -110,8 +110,6 @@ function stubResolveError(error: string) {
   return async () => ({ ok: false as const, error });
 }
 
-const WRITE_STEP: AnyWorkflowStep = { behavior: "write", stepId: "plan" } as unknown as AnyWorkflowStep;
-
 function reviewDebateStep(args: { cwd: string; durablePath: string; branch?: string }): ReviewDebateWorkflowStep {
   return {
     behavior: "review-debate",
@@ -163,9 +161,7 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
       stepId: "plan",
     };
     const store = makeStore({ [PIPELINE_ID]: makePipeline(FAN_OUT_DEFINITION, stages) }, { "run-plan-b": entryRun });
-    const writeSteps = branchKeys.map(
-      (branchKey) => ({ behavior: "write", stepId: `plan-${branchKey}` }) as unknown as AnyWorkflowStep,
-    );
+    const writeSteps = branchKeys.map((branchKey) => createMinimalDispatchWriteStep({ stepId: `plan-${branchKey}` }));
     const reviewSteps = branchKeys.map((branchKey) =>
       reviewDebateStep({
         cwd: `/worktrees/demo/plan/${branchKey}`,
@@ -236,7 +232,10 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
       { pipelineId: PIPELINE_ID, branchKey: "branch-c" },
       {
         store: makeStore({ [PIPELINE_ID]: makePipeline(FAN_OUT_DEFINITION, stages) }, { "run-plan-c": entryRun }),
-        resolveStage: stubResolveFanOut([[WRITE_STEP], [WRITE_STEP]]),
+        resolveStage: stubResolveFanOut([
+          [createMinimalDispatchWriteStep({ stepId: "plan" })],
+          [createMinimalDispatchWriteStep({ stepId: "plan" })],
+        ]),
       },
     );
 
@@ -285,7 +284,7 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
         store: fanOutStore,
         resolveStage: stubResolveFanOut([
           [
-            WRITE_STEP,
+            createMinimalDispatchWriteStep({ stepId: "plan" }),
             reviewDebateStep({
               cwd: fanOutEntryRun.worktreePath as string,
               durablePath: staleDurablePath,
@@ -293,7 +292,7 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
             }),
           ],
           [
-            WRITE_STEP,
+            createMinimalDispatchWriteStep({ stepId: "plan" }),
             reviewDebateStep({
               cwd: "/worktrees/demo/plan/branch-b",
               durablePath: "/stale/branch-b",
@@ -352,7 +351,7 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
       {
         store: singleStore,
         resolveStage: stubResolveSteps([
-          WRITE_STEP,
+          createMinimalDispatchWriteStep({ stepId: "plan" }),
           reviewDebateStep({
             cwd: singleEntryRun.worktreePath as string,
             durablePath: "/worktrees/demo/plan/solo/.jarvis-plan-stage-stale",
@@ -480,10 +479,7 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
         { pipelineId, branchKey: "default" },
         {
           store,
-          resolveStage: stubResolveSteps([
-            { behavior: "write", stepId: "plan" } as unknown as AnyWorkflowStep,
-            reviewStep,
-          ]),
+          resolveStage: stubResolveSteps([createMinimalDispatchWriteStep({ stepId: "plan" }), reviewStep]),
         },
       );
 
@@ -691,7 +687,7 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
       { pipelineId: PIPELINE_ID, branchKey: "default" },
       {
         store: makeStore({ [PIPELINE_ID]: makePipeline(SINGLE_DEFINITION, failedStages) }, { "run-plan": entryRun }),
-        resolveStage: stubResolveSteps([WRITE_STEP]),
+        resolveStage: stubResolveSteps([createMinimalDispatchWriteStep({ stepId: "plan" })]),
       },
     );
     expect(noReviewResult).toEqual(expect.objectContaining({ ok: false, reason: "stage_not_recoverable" }));
@@ -702,7 +698,7 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
       {
         store: makeStore({ [PIPELINE_ID]: makePipeline(SINGLE_DEFINITION, failedStages) }, { "run-plan": entryRun }),
         resolveStage: stubResolveSteps([
-          WRITE_STEP,
+          createMinimalDispatchWriteStep({ stepId: "plan" }),
           reviewDebateStep({ cwd: "/somewhere/else", durablePath: "/somewhere/else/.jarvis-plan-stage-stale" }),
         ]),
       },
@@ -979,7 +975,7 @@ describe("recoverPipelineBranchStage", () => {
                   planReviewStep({ worktreePath, stage, durable, branch }),
                 ]
               : [
-                  { behavior: "write", stepId: `plan-${branchKey}` } as unknown as AnyWorkflowStep,
+                  createMinimalDispatchWriteStep({ stepId: `plan-${branchKey}` }),
                   planReviewStep({
                     worktreePath: `${worktreePath}-${branchKey}`,
                     stage: `${stage}-${branchKey}`,
@@ -1086,7 +1082,7 @@ describe("recoverPipelineBranchStage", () => {
           ok: true,
           results: BRANCH_KEYS.map(() => ({
             steps: [
-              { behavior: "write", stepId: "plan" } as unknown as AnyWorkflowStep,
+              createMinimalDispatchWriteStep({ stepId: "plan" }),
               planReviewStep({ worktreePath, stage, durable, branch }),
             ],
           })),
@@ -1293,7 +1289,7 @@ describe("recoverPipelineBranchStage", () => {
           ok: true,
           results: BRANCH_KEYS.map(() => ({
             steps: [
-              { behavior: "write", stepId: "plan" } as unknown as AnyWorkflowStep,
+              createMinimalDispatchWriteStep({ stepId: "plan" }),
               planReviewStep({ worktreePath, stage, durable, branch }),
             ],
           })),

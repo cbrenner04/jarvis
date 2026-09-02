@@ -87,7 +87,9 @@ Both belong to one pattern that showed up **four** times this session (with #333
 
 352 role invocations: **codex quota'd on all 176 of its attempts; cursor did all 166 successful ones** (10 errors). Same attribution correction as 2026-08-30 — the configured `codex, cursor, claude` order is de facto cursor-first.
 
-Agent-side cost **$31.37**, all cursor list-price. Operator cost is separate (see CSVs).
+Agent-side cost **$31.37**, all cursor list-price.
+
+Operator cost **$176.70** (claude-opus-5; API 1h18m58s, wall 17h23m9s; 5.6k in / 305.4k out, 314.1M cache read, 1.2M cache write, 750 requests). The wall figure includes the ~10.5h idle gap, so it overstates working time by roughly that much; API duration is the honest measure of effort.
 
 ## Open at close
 

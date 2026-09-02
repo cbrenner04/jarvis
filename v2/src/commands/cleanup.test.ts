@@ -180,7 +180,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     return { specReadRoot, indexPath: join(specReadRoot, "index.md"), plansHome };
   }
 
-  function storeForExternalStrandedPlan(planName: string, branch: string, indexPath: string): StateStore {
+  function storeForExternalStrandedPlan(_planName: string, branch: string, indexPath: string): StateStore {
     return {
       listRuns: () => [
         { project: "project", branch, worktreePath: projectRoot, specPath: indexPath, status: "completed" },

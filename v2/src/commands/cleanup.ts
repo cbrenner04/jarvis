@@ -17,6 +17,7 @@ import {
 } from "../../../shared/subprocess.ts";
 import { isProcessAlive, type WorktreeLock } from "../../../shared/worktree-lock.ts";
 import { request } from "../cli/ipc.ts";
+import { readProjectConfigRecord } from "../config/machine-config-loader.ts";
 import { parseListRuns } from "../daemon/daemon-wire.ts";
 import { mergeRunLists } from "../daemon/merge-run-lists.ts";
 import { type QueryDaemonListsDeps, queryDaemonListsFromSockets } from "../daemon/query-daemon-lists-from-sockets.ts";
@@ -25,7 +26,6 @@ import {
   planSourcePublishesExternally,
   resolveExternalPlanSpecIdentity,
 } from "../execution/implement-workflow-steps.ts";
-import { readProjectConfigRecord } from "../config/machine-config-loader.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { jarvisHome } from "../paths.ts";
@@ -899,6 +899,42 @@ function previewArtifact(spec: ArtifactSpec, io: { stdout: (s: string) => void }
 type DiscoveredStrandedArtifact = Omit<ArtifactSpec, "branch"> & { project: string };
 type StrandedArtifact = DiscoveredStrandedArtifact & { branch: string };
 
+/** One-time stdout note when several registered projects collapse to the same `projectSafeId`. */
+function reportSafeIdCollision(
+  safeId: string,
+  owners: readonly string[],
+  reported: Set<string>,
+  io?: { stdout: (s: string) => void },
+): void {
+  if (owners.length <= 1 || reported.has(safeId)) return;
+  reported.add(safeId);
+  io?.stdout(
+    `Skipped external plans discovery: ${safeId} — multiple registered projects share one projectSafeId (${owners.join(", ")})\n`,
+  );
+}
+
+/** Resolve one `plans/<name>/` directory to a stranded artifact, or undefined when it is not an admitted external tree. */
+function externalPlanArtifactForDirectory(
+  plansHome: string,
+  name: string,
+  project: string,
+  registry: Record<string, ProjectRegistryEntry>,
+  configPath: string,
+): DiscoveredStrandedArtifact | undefined {
+  const indexPath = join(plansHome, name, "index.md");
+  if (!existsSync(indexPath)) return undefined;
+  let resolvedIndexPath: string;
+  try {
+    resolvedIndexPath = realpathSync(indexPath);
+  } catch {
+    return undefined;
+  }
+  const identity = resolveExternalPlanSpecIdentity(resolvedIndexPath, registry, configPath);
+  if (identity === undefined || "error" in identity || identity.project !== project) return undefined;
+  const source = identity.specReadRoot;
+  return source === undefined ? undefined : { home: plansHome, source, name, project };
+}
+
 function discoverExternalPlanStrandedArtifacts(
   registry: Record<string, ProjectRegistryEntry>,
   configPath: string,
@@ -911,14 +947,7 @@ function discoverExternalPlanStrandedArtifacts(
     const safeId = projectSafeId(project);
     const owners = safeIdOwners.get(safeId) ?? [];
     if (owners.length !== 1) {
-      if (owners.length > 1 && !reportedCollisionSafeIds.has(safeId)) {
-        reportedCollisionSafeIds.add(safeId);
-        if (io !== undefined) {
-          io.stdout(
-            `Skipped external plans discovery: ${safeId} — multiple registered projects share one projectSafeId (${owners.join(", ")})\n`,
-          );
-        }
-      }
+      reportSafeIdCollision(safeId, owners, reportedCollisionSafeIds, io);
       continue;
     }
     const projectConfig = readProjectConfigRecord(project, configPath);
@@ -929,22 +958,8 @@ function discoverExternalPlanStrandedArtifacts(
     try {
       for (const child of readdirSync(plansHome, { withFileTypes: true })) {
         if (!child.isDirectory() || child.name === "completed") continue;
-        const indexPath = join(plansHome, child.name, "index.md");
-        if (!existsSync(indexPath)) continue;
-        let resolvedIndexPath = indexPath;
-        try {
-          resolvedIndexPath = realpathSync(indexPath);
-        } catch {
-          continue;
-        }
-        const identity = resolveExternalPlanSpecIdentity(resolvedIndexPath, registry, configPath);
-        if (identity === undefined || "error" in identity || identity.project !== project) continue;
-        artifacts.push({
-          home: plansHome,
-          source: identity.specReadRoot!,
-          name: child.name,
-          project,
-        });
+        const artifact = externalPlanArtifactForDirectory(plansHome, child.name, project, registry, configPath);
+        if (artifact !== undefined) artifacts.push(artifact);
       }
     } catch {
       // A plans home that cannot be read has no safely inspectable candidates.

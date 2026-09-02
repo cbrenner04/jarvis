@@ -3,13 +3,11 @@ import {
   type DaemonListResult,
   parseHealthResult,
   parseListRuns,
-  parseStartResult,
   parseStatusResult,
   parseWaitCompletion,
 } from "../daemon/daemon-wire.ts";
 import type { PipelineApprovalDecisionOutcome, ResumePipelineOutcome } from "../daemon/pipeline-execution.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
-import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { RpcConnectionError } from "../ipc/rpc-errors.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
@@ -20,9 +18,6 @@ type TuiDaemonHealthResult = { ok: true };
 /** Successful IPC `status` RPC payload when the daemon host is live. */
 type TuiDaemonStatusResult = { state: "running"; loadedRevision?: string; loadedExecutableDigest?: string };
 
-/** Successful IPC `start` RPC payload with the spawned run id. */
-type TuiDaemonStartResult = { runId: string };
-
 export type PipelineListResult = { pipelines: readonly PipelineSnapshot[] };
 
 export type PipelineStageMutationParams = { pipelineId: string; stageId: string; branchKey: string };
@@ -30,8 +25,7 @@ export type PipelineStageMutationParams = { pipelineId: string; stageId: string;
 export type PipelineResumeParams = { pipelineId: string };
 
 /**
- * Connected TUI daemon client over one IPC transport: liveness, run list, launch, steering,
- * wait, and close.
+ * Connected TUI daemon client over one IPC transport: liveness, run list, steering, wait, and close.
  * RPC methods throw {@link RpcConnectionError} on transport or wire failure and
  * {@link RpcError} on correlated daemon `error` frames.
  */
@@ -40,7 +34,6 @@ export type TuiDaemonClient = {
   status(): Promise<TuiDaemonStatusResult>;
   list(params?: { includeDismissed: boolean }): Promise<DaemonListResult>;
   pipelineList(params: { includeDismissed: boolean }): Promise<PipelineListResult>;
-  start(input: WriteLoopInput): Promise<TuiDaemonStartResult>;
   /** Signal graceful pause for an active run at the next iteration boundary; rejects with `unknown_run`/`run_not_active`. */
   pause(runId: string): Promise<TuiDaemonHealthResult>;
   /**
@@ -81,7 +74,7 @@ function parsePipelineList(value: unknown): PipelineListResult | undefined {
  * Open a TUI daemon client on the provided socket.
  *
  * @param options Socket path is required; optional `connectIpcClient` seam.
- * @returns A client exposing `health`, `status`, `list`, `start`, `pause`, `resume`, `kill`, `wait`, and `close` on one connection.
+ * @returns A connected {@link TuiDaemonClient} on one IPC transport.
  * @throws {RpcConnectionError} When the socket is unreachable or RPC wire protocol fails.
  */
 export async function connectTuiDaemon(options: ConnectTuiDaemonOptions): Promise<TuiDaemonClient> {
@@ -97,7 +90,7 @@ export async function connectTuiDaemon(options: ConnectTuiDaemonOptions): Promis
 
   const transport = createRpcTransport(client);
 
-  const okRunRpc = async (method: "pause" | "kill", runId: string): Promise<TuiDaemonHealthResult> =>
+  const okRunRpc = async (method: "pause" | "resume" | "kill", runId: string): Promise<TuiDaemonHealthResult> =>
     parseOrThrow(
       parseHealthResult(await transport.request(method, { runId })),
       `malformed RPC reply: invalid ${method} result`,
@@ -125,19 +118,8 @@ export async function connectTuiDaemon(options: ConnectTuiDaemonOptions): Promis
         "malformed RPC reply: invalid pipeline_list result",
       );
     },
-    async start(input) {
-      return parseOrThrow(
-        parseStartResult(await transport.request("start", { input })),
-        "malformed RPC reply: invalid start result",
-      );
-    },
     pause: (runId) => okRunRpc("pause", runId),
-    async resume(runId) {
-      return parseOrThrow(
-        parseHealthResult(await transport.request("resume", { runId })),
-        "malformed RPC reply: invalid resume result",
-      );
-    },
+    resume: (runId) => okRunRpc("resume", runId),
     kill: (runId) => okRunRpc("kill", runId),
     async pipelineApprove(params) {
       return (await transport.request("pipeline_approve", params)) as PipelineApprovalDecisionOutcome;

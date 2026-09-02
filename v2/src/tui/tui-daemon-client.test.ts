@@ -1,36 +1,19 @@
 import { expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { WriteLoopInput } from "../execution/write-loop.ts";
-import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { connectIpcClient } from "../ipc/client.ts";
 import { RpcConnectionError } from "../ipc/rpc-errors.ts";
 import type { IpcFrame } from "../ipc/types.ts";
-import { simulatedBindings } from "../testing/bindings.ts";
 import { TEST_EXECUTABLE_DIGEST } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import { makeIpcClient } from "../testing/ipc-client-fake.ts";
-import { connectTuiDaemon } from "./tui-daemon-client.ts";
-
-const START_INPUT: WriteLoopInput = {
-  worktree: {
-    projectRoot: "/tmp/repo",
-    projectName: "demo",
-    branchName: "write-run",
-    baseRef: "HEAD",
-  },
-  specPath: "spec.md",
-  stepRules: DEFAULT_WRITE_STEP_RULES,
-  expectedArtifactPath: "proof.txt",
-  bindings: simulatedBindings(["done"]),
-};
+import { connectTuiDaemon, type TuiDaemonClient } from "./tui-daemon-client.ts";
 
 const UNREACHABLE_SOCKET_PATH = join(tmpdir(), `jarvis-tui-daemon-client-missing-${process.pid}.sock`);
 
 const HEALTH_REQUEST_ID = "00000000-0000-4000-8000-000000000001";
 const STATUS_REQUEST_ID = "00000000-0000-4000-8000-000000000002";
-const START_REQUEST_ID = "00000000-0000-4000-8000-000000000003";
 const LIST_REQUEST_ID = "00000000-0000-4000-8000-000000000004";
 const WAIT_REQUEST_ID = "00000000-0000-4000-8000-000000000005";
 const PAUSE_REQUEST_ID = "00000000-0000-4000-8000-000000000008";
@@ -159,17 +142,16 @@ test("health then status reuse one connection without reconnecting", async () =>
   expect(connectCalls).toBe(1);
 });
 
-// Error frames map to RpcError uniformly across methods; representatives cover a plain RPC,
-// a steering RPC, and the revision-gated start path.
+// Daemon error frames map uniformly to RpcError; health, pause, and resume are representative RPC shapes.
 test("daemon error replies reject as RpcError with code and message", async () => {
-  await withFixedUuid([HEALTH_REQUEST_ID, PAUSE_REQUEST_ID, START_REQUEST_ID], async () => {
+  await withFixedUuid([HEALTH_REQUEST_ID, PAUSE_REQUEST_ID, RESUME_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({
       socketPath: "/tmp/test.sock",
       connectIpcClient: async () =>
         makeGatedIpcClient([
           { kind: "error", id: HEALTH_REQUEST_ID, code: "unhealthy", message: "daemon not ready" },
           { kind: "error", id: PAUSE_REQUEST_ID, code: "unknown_run", message: "missing run" },
-          { kind: "error", id: START_REQUEST_ID, code: "run_in_progress", message: "busy" },
+          { kind: "error", id: RESUME_REQUEST_ID, code: "run_in_progress", message: "busy" },
         ]),
     });
 
@@ -179,7 +161,7 @@ test("daemon error replies reject as RpcError with code and message", async () =
       message: "daemon not ready",
     });
     await expect(client.pause("run-404")).rejects.toMatchObject({ code: "unknown_run" });
-    await expect(client.start(START_INPUT)).rejects.toMatchObject({ code: "run_in_progress" });
+    await expect(client.resume("run-busy")).rejects.toMatchObject({ code: "run_in_progress" });
     client.close();
   });
 });
@@ -323,6 +305,12 @@ test("rejects non-correlated RPC replies with RpcConnectionError", async () => {
   });
 });
 
+test("TuiDaemonClient omits start", () => {
+  const client = {} as TuiDaemonClient;
+  // @ts-expect-error start removed
+  void client.start;
+});
+
 test("rejects unreachable socket with RpcConnectionError and sends no RPCs", async () => {
   const sent: unknown[] = [];
   const trackingConnect = async (socketPath: string): Promise<IpcClient> => {
@@ -341,30 +329,6 @@ test("rejects unreachable socket with RpcConnectionError and sends no RPCs", asy
     connectTuiDaemon({ socketPath: UNREACHABLE_SOCKET_PATH, connectIpcClient: trackingConnect }),
   ).rejects.toBeInstanceOf(RpcConnectionError);
   expect(sent).toEqual([]);
-});
-
-test("start sends one correlated IPC start request and returns runId", async () => {
-  const sent: unknown[] = [];
-  await withFixedUuid([START_REQUEST_ID], async () => {
-    const client = await connectTuiDaemon({
-      socketPath: "/tmp/test.sock",
-      connectIpcClient: async () =>
-        makeGatedIpcClient([{ kind: "response", id: START_REQUEST_ID, result: { runId: "run-999" } }], {
-          sent,
-        }),
-    });
-
-    await expect(client.start(START_INPUT)).resolves.toEqual({ runId: "run-999" });
-    expect(sent).toEqual([
-      {
-        kind: "request",
-        id: START_REQUEST_ID,
-        method: "start",
-        params: { input: START_INPUT },
-      },
-    ]);
-    client.close();
-  });
 });
 
 test.each([

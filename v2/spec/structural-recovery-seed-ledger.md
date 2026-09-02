@@ -241,6 +241,52 @@ Full report: `reports/20260902T032711Z-dogfood-throughput-gate-fixes-refactor-st
 - **New seeds this session:** `ci-test-scope-treats-root-docs-as-full` [#3296, merged — root-doc edits force full aggregate → the v1 intent-command flake], `ready-gate-autofix-scopes-to-changed-files` [#3313], `terminal-settlement-guard-inventory-is-line-brittle` [#3313 → FIXED #3330], `render-coverage-exempts-prompt-metadata-and-deletions` [#3318 → FIXED #3324]. Notification chattiness (invocation-rollup) is an un-filed candidate.
 - **Hand-finish pattern:** route, plan-draft-rules, eliminate-prompt-string, execution-terminal-02 all hand-finished (merge main + scoped biome + gate); the recurring causes (autofix repo-wide, brittle guard, render-coverage) are now seeded/fixed.
 
+## This-session (2026-09-02 — gate-fix trio, external-spec chain, parallelization ceiling)
+
+24 PRs merged. Full report: `reports/<this-session>`.
+
+**The three gates that taxed every run are fixed and live on the daemon:**
+
+- **Ready-gate autofix scoped to changed files** [#3343] (`ready-gate-autofix-scopes-to-changed-files`, landed via `full-review` pipeline dogfood). Built-in autofix ran repo-wide `bun run fix`, so pre-existing out-of-diff findings blew biome's diagnostic cap and settled `completion_commit_failed` on complete work. Now scoped to `<baseRef>...HEAD` ∪ untracked with `--max-diagnostics=256`, failing closed on enumeration error. Fittingly, its own implement run stranded on exactly this bug and was hand-finished.
+- **Plan-contract multi-surface false positive** [#3348] — the #3114 class. `classifyModuleBoundaryText` regex-matches surface keywords across a bullet's whole text, so `v2/docs/workflow-runner.md` contributed `execution-loop` **as a filename** while "daemon" in the prose contributed a second surface. A bullet naming exactly one artifact path is now exempt (the "one file **or** module surface" half of the documented rule that was never implemented); `bullet.surfaces` is untouched so split routing is unchanged. **Six** sound drafts were blocked by this before the fix, each hand-landed unchanged.
+- **Scoped test guidance in the prompt corpus** [#3344]. `prompts/patch/rules.md` told the implement loop to run the full aggregate `bun run test` every iteration — contradicting `AGENTS.md` — and `prompts/plan/draft.md` said nothing about which command a gate AC should name, so drafts closed with a bare `bun run test`. Both now direct the scoped script for the touched surfaces. Also added the **missing** `prompts/patch/rules.md` render-observer map entry (a #3199-class bootstrap trap) and bumped `patch.rules` r12, `plan.prompt.draft` r18, `patch.prompt.body` r14 with regenerated fixtures.
+
+**#3122 external-spec capability COMPLETE on main** (issue still open pending the archival lane): `chain-external-plan-specs-into-implement` [#3350] joins `admit` (#3272) and `route` (#3297). Chained implement now resolves the external plan home through the same `resolveExternalPlanSpecIdentity` standalone implement uses, with no `preflightGitRoot` against the non-Git plan workspace. CI caught a real regression first — the branch called that resolver on *every* chained stage, failing `pipeline_resume dispatches chained plan and implement stages after prior worktree removal`; gated to `<jarvisHome>/specs/` and re-verified on the runner. `archive-external-implement-specs` (plan #3354) is the last lane.
+
+**split-workflow-runner advancing:** `extract-review-debate-landing-module` [#3351] — the prior session's handoff — landed; `workflow-runner.ts` shrank ~1,005 lines into a 1,040-line sibling. Assertion inventory checked against main (35/152 → 36/161, nothing dropped). `extract-workflow-runner-resume-machines` planned [#3358], now unblocked.
+
+**split-daemon advancing:** `modularize-daemon-run-control-handlers` planned [#3337, 5 subspecs]; `inject-daemon-write-loop-binding-deps` planned [#3357, hand-landed]. `typed-step-stubs-and-bounded-spins` implemented [#3352] — zero `as unknown as AnyWorkflowStep` casts remain in either target file, assertion count up (198/1608 → 203/1621).
+
+**CLI trim:** `retire-tui-daemon-client-start` [#3349], `retire-legacy-workflow-aliases` [#3356]; `retire-jarvis-write-command` planned [#3336] but its implement has now `iteration_timeout`'d twice — circuit-breaker applies, hand-land it.
+
+**Prompt corpus:** `terse-plan-review-role-prompts` [#3342] (role bodies down 50-66%, with a growth-budget suite whose baselines equal the pre-fix registry lengths and a contract-preservation suite pinning the semantics that must survive); `terse-implement-review-role-prompts` planned [#3353].
+
+### Parallelization ceiling — measured
+
+- intents/plans fan out ~free (unchanged).
+- **2 concurrent implements clean; 3 saturates; 5-6 destroys work.** Pushed to 5-6 at load ~30 and lost three runs to `invocation_error` in one batch (`modularize-daemon` at 2/8 subspecs with 12 commits, `archive-external` at 7/8 on subspec 00, `terse-implement` at 0). `invocation_error` is non-resumable, so each loss is a full re-dispatch that discards the branch. The failure mode is the agent binding under contention, not a watchdog false-kill.
+- Corollary: never run a local `bun test` suite beside live implements. Two "failures" I diagnosed tonight (`init.test.ts` + `pipeline-start-admission.test.ts`, then `cli.test.ts` + `workflow.test.ts`) were pure contention — every file passed in isolation.
+
+### Strand taxonomy this session
+
+Every implement produced **correct work**; what failed was the settlement tail. Six hand-finishes: `ready_gate_command_missing` misclassification (×2), `iteration_timeout` from aggregate-suite ACs (×2), out-of-diff autofix (×1), publication leaving a complete PR draft (×1), plus one run that appended a `## Blocker` over its own unticked criteria instead of ticking them.
+
+### New seeds
+
+| Seed | PR | Note |
+| --- | --- | --- |
+| `run-list-cannot-reach-superseded-daemon-runs` | [#3341] | Same-key daemons share one socket, so a **live** run on a superseded generation renders `in-progress`/`not-live` — identical to the deadlock whose documented recovery is `kill -9`, which would destroy live work across all projects. Runbook fenced with liveness checks in the same PR. Operator-caught: I misdiagnosed this and was about to act on it. |
+| `ready-gate-command-missing-misclassifies-lint-failures` | [#3355] | `isMissingReadyGateCommandOutput` substring-scans the whole gate transcript for `/enoent/i`; a lint failure settles non-resumable `fix_config`. Stranded #3349 and #3351. Caveat recorded: the persisted `readyGateOutput` is a 4096-char tail with no marker, so the exact trigger is unproven — persisting the matched evidence is an AC. |
+| `boundary-split-emits-near-duplicate-subspecs` | [#3359] | Surface splitting copies whole-change framing into every child, yielding byte-identical subspecs titled by bare surface names, plus an unlinked file and a dangling sibling prerequisite. Two occurrences (`exclude-test-support` today; `canonical-pipeline-execution-state` already noted in the brief). |
+
+### Known-limit on the #3114 fix
+
+[#3348] exempts bullets naming exactly one **path-style** artifact (a backticked token containing `/`). `inject-daemon-write-loop-binding-deps` then blocked on a bullet naming two **bare filenames** (`` `cli.ts` ``, `` `daemon.ts` ``), which matches zero artifact paths, so the exemption did not apply. Recognizing bare `<name>.<ext>` would help, but a bullet naming two files needs its own answer — there the subject is `cli.ts` and `daemon.ts` is only the import source. Hand-landed [#3357]; follow-up not yet seeded.
+
+### Flake watch
+
+Three distinct load-sensitive CI failures, all unrelated to their diffs: `write-loop.test.ts:6515` `expect(elapsed).toBeLessThan(ceilingMs + 150)` (a 150 ms wall-clock margin, tripped by two independent PRs), `state-store-wal-concurrency.test.ts` `toBeGreaterThan`, and `v1/test/intent-command.test.ts` timing out (verified passing in isolation on two branches: 57 tests, 96-145 s). The last is the `ci-test-scope-treats-root-docs-as-full` seed's consequence — a root-level `prompts/` edit forces the full aggregate. Fresh evidence for the held `concurrent-load-suite-margin-check` family.
+
 ## Gaps / low-confidence
 
 - `harness-publication-push-uses-explicit-refspec`, `inject-spec-guidance-agent-core`, `split-spec-guidance-documents`, `cleanup-uses-lossless-git-status`: confirmed as landed ready-intents (intent PRs verified), but no plan-spec dir or implement PR was verifiable from the brief or git — left `—`. May be planned/implemented under names not matched here.

@@ -93,6 +93,25 @@ test("pipeline_start refuses context missing configPath without creating pipelin
   expect(stateStore.listPipelines()).toEqual([]);
 });
 
+test("pipeline_start admits valid context and returns durable pipelineId", async () => {
+  const handlers = pipelineHandlers();
+
+  const response = await handlers.pipeline_start(
+    requestFrame("admit", "pipeline_start", {
+      definition: SINGLE_STAGE_DEFINITION,
+      context: ADMISSION_CONTEXT,
+    }),
+    new AbortController().signal,
+  );
+
+  // @mutate v2/src/daemon/daemon-pipeline-handlers.ts "if (!admitted?.context) {" -> "if (admitted?.context) {"
+  expect(response).toEqual({ kind: "response", result: { pipelineId: expect.any(String) } });
+  const pipelineId = (response as { result: { pipelineId: string } }).result.pipelineId;
+  const admitted = stateStore.loadPipeline(pipelineId);
+  if (!admitted) throw new Error("expected pipeline to exist");
+  expect(admitted.context).toEqual(ADMISSION_CONTEXT);
+});
+
 test("pipeline_list projects admitted pipelines with derived state", async () => {
   const handlers = pipelineHandlers();
   const pipelineId = stateStore.createPipeline({

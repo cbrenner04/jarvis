@@ -412,6 +412,66 @@ describe("executeWorkflow review-debate landing", () => {
     });
   });
 
+  test("attributes a delayed debate review publication to its last mutating pass", async () => {
+    // @mutate v2/src/execution/workflow-runner-debate-landing.ts "for (let index = cycles.length - 1; index >= 0; index -= 1)" -> "for (let index = cycles.length - 1; index < 0; index -= 1)"
+    const branchName = "debate-review-delayed-attribution";
+    const { harness, step: implementStep } = createShrinkTestStep(branchName, async ({ cwd, shrink }) => {
+      if (!shrink) writeFileSync(join(cwd, "proof.txt"), "implemented\n", "utf8");
+      return { kind: "ok", stdout: "done", stderr: "" };
+    });
+    const worktreePath = harness.workspace;
+    let adjCalls = 0;
+    const reviewStep = createPatchReviewDebateStep({
+      branchName,
+      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
+      verdictPath: join(worktreePath, "verdict-patch.md"),
+      cwd: worktreePath,
+      maxCycles: 2,
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        invoke: async () => {
+          if (adapterModel === "ADJ") {
+            adjCalls += 1;
+            if (adjCalls === 1) {
+              return { kind: "ok", stdout: "apply this fix", stderr: "" } as const;
+            }
+            return { kind: "ok", stdout: "", stderr: "" } as const;
+          }
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        },
+        metadata: { agent: adapterModel === "ACT" ? "pass-1-actuator" : agentId, model: adapterModel },
+      }),
+    });
+    reviewStep.profileContext = {
+      specPath: "spec.md",
+      cwd: reviewStep.cwd,
+      baseBranch: "HEAD",
+      passNumber: 1,
+      totalPasses: 2,
+    };
+
+    const commits: Array<{ title: string; step: unknown; agent: string }> = [];
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        completionCommitter: async (input) => {
+          commits.push({ title: input.title, step: input.step, agent: input.agent });
+          return { commitSha: "review-commit", filesChanged: 1 };
+        },
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result).toMatchObject({ kind: "complete", commitSha: "review-commit" });
+      expect(commits.at(-1)).toEqual({
+        title: "review-debate(1): spec.md",
+        step: { kind: "review-debate", pass: 1 },
+        agent: "pass-1-actuator",
+      });
+    });
+  });
+
   test("discardEphemeralReviewVerdictDrift restores tracked verdict edits in git worktrees", async () => {
     // @mutate v2/src/execution/workflow-runner-debate-landing.ts "if (!existsSync(join(worktreePath, \".git\"))) return;" -> "if (existsSync(join(worktreePath, \".git\"))) return;"
     const worktreePath = initGitWorkspace("debate-landing-verdict-drift-");

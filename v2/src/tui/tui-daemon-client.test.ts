@@ -142,6 +142,7 @@ test("health then status reuse one connection without reconnecting", async () =>
   expect(connectCalls).toBe(1);
 });
 
+// Daemon error frames map uniformly to RpcError; health, pause, and resume are representative RPC shapes.
 test("daemon error replies reject as RpcError with code and message", async () => {
   await withFixedUuid([HEALTH_REQUEST_ID, PAUSE_REQUEST_ID, RESUME_REQUEST_ID], async () => {
     const client = await connectTuiDaemon({

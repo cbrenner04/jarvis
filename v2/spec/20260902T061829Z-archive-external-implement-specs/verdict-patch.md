@@ -1,0 +1,12 @@
+Verifying implementation against subspec requirements before issuing the verdict.
+## Verdict — required outcomes
+
+1. **`projectSafeId` collision must not be silent.** Subspec 01 requires that when multiple registered projects share one `projectSafeId`, external `plans/` discovery is skipped with an **explicit skip reason** and **no candidates**. The implementation only `continue`s with no operator-visible line, and no test pins collision behavior. Cleanup must emit a clear diagnostic when collision blocks external discovery, and a test must assert both zero candidates and that message.
+
+2. **Spec routing must match delivered subspec 00 work.** Subspec `00-resolve-external-spec-identity-for-cleanup.md` has all acceptance criteria checked and the branch implements `sourceForRun` / `externalPlanSourceForRun`, `recordedStrandedBranch`, and the two identity regression tests. `index.md` still leaves 00 unchecked, and intent-level identity acceptance is still open. Once verified, routing metadata (index checkbox and intent acceptance for external identity resolution) must reflect that 00 is complete so the spec tree matches the branch.
+
+3. **External refusal documentation must not imply ready-intent prune rollback.** Subspec 03 requires operator-runbook refusal prose consistent with 00–02; external archival never attempts ready-intent prune. The runbook currently lists “post-move rollback after a failed in-repo ready-intent prune” among reasons that apply to external archival (even with a trailing qualifier). External refusal documentation must state only reasons that can actually occur for external plans, or clearly separate in-repo-only reasons from external ones.
+
+**Rationale:** (1) is a direct subspec 01 decision violation (“rules out silent omission”). (2) is harness/spec consistency — behavior is shipped but routing still blocks spec completion. (3) is operator-facing accuracy required by subspec 03.
+
+**Not required for this pass:** detached-worktree blocking on external retire (subspec 02 design), rollback test that forces `{ intentPrune: true }` (meets subspec 02 AC via shared helper contract), missing `plan.commit: false` / open-PR / retire dry-run / subspec-file / same-invocation external tests (coverage gaps, not spec AC failures), symlink/`name` consistency, and `v1-behaviors.md` source breadth.

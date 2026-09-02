@@ -6,6 +6,7 @@ import {
   archiveCompletedSpec,
   checkArtifactEligibility,
   completedSpecEligibility,
+  isExternalPlanArtifact,
 } from "./cleanup-artifacts.ts";
 
 let sequence = 0;
@@ -121,5 +122,29 @@ describe("completed v2 artifact archival", () => {
     expect(result).toMatchObject({ status: "skipped", reason: expect.stringContaining("archive restored") });
     expect(existsSync(failing.source)).toBe(true);
     expect(existsSync(failingReady)).toBe(true);
+  });
+
+  test("guard inversion: external plan artifacts skip ready-intent pruning", () => {
+    const previousJarvisHome = process.env.JARVIS_HOME;
+    const root = join(process.env.TMPDIR ?? "/tmp", `jarvis-cleanup-artifacts-external-${sequence++}`);
+    roots.push(root);
+    process.env.JARVIS_HOME = root;
+    try {
+      const plansHome = join(root, "specs", "project-safe", "plans");
+      const source = join(plansHome, "feature");
+      mkdirSync(source, { recursive: true });
+      writeFileSync(join(source, "index.md"), complete);
+      writeFileSync(join(source, "intent.md"), "intent\n");
+      const trapReady = join(plansHome, "ready-intents", "feature.md");
+      mkdirSync(join(plansHome, "ready-intents"), { recursive: true });
+      writeFileSync(trapReady, "intent\n");
+      const spec: ArtifactSpec = { home: plansHome, source, name: "feature", branch: "plan/feature" };
+      expect(isExternalPlanArtifact(spec)).toBe(true);
+      expect(archiveCompletedSpec(spec)).toMatchObject({ status: "archived", intentPruned: false });
+      expect(existsSync(trapReady)).toBe(true);
+    } finally {
+      if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
+      else process.env.JARVIS_HOME = previousJarvisHome;
+    }
   });
 });

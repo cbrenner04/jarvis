@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -33,7 +34,9 @@ import {
   type DiscoveredWorktree,
   discoverMaterializedWorktrees,
   discoverMergedBranchRefCandidates,
+  discoverStrandedArtifacts,
   exactOriginTrackingRefOid,
+  hasBranchKeyedArtifactOwner,
   inspectStrandedArtifacts,
   listDirtyWorktreePathsForStaleReset,
   mergedPrHeadAuthorityMatches,
@@ -49,6 +52,7 @@ import {
   STALE_RESET_OVERRIDE_CLI_FLAG,
   staleResetDirtyWorktreeGateReason,
 } from "./cleanup.ts";
+import { type ArtifactSpec, archiveCompletedSpec } from "./cleanup-artifacts.ts";
 
 function daemonClientWithFreeClaimProbe(
   listRuns: (project: string, branch: string) => Promise<{ isLive: boolean }[]> = async () => [],
@@ -174,6 +178,29 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     mkdirSync(specReadRoot, { recursive: true });
     writeFileSync(join(specReadRoot, "index.md"), `# Plan\n\n## Acceptance criteria\n\n- ${criterion}\n`);
     return { specReadRoot, indexPath: join(specReadRoot, "index.md"), plansHome };
+  }
+
+  function storeForExternalStrandedPlan(_planName: string, branch: string, indexPath: string): StateStore {
+    return {
+      listRuns: () => [
+        { project: "project", branch, worktreePath: projectRoot, specPath: indexPath, status: "completed" },
+      ],
+    } as unknown as StateStore;
+  }
+
+  function prepareExternalStrandedPlan(planName: string, branch: string) {
+    writeMachineConfig({ git: false });
+    const created = createExternalPlan(planName, "[x] Done");
+    const specsReady = join(jarvisRoot, "specs", projectSafeId("project"), "ready-intents", `${planName}.md`);
+    mkdirSync(dirname(specsReady), { recursive: true });
+    writeFileSync(specsReady, "# ready\n");
+    writeFileSync(join(created.specReadRoot, "intent.md"), "# ready\n");
+    return {
+      ...created,
+      branch,
+      specsReady,
+      store: storeForExternalStrandedPlan(planName, branch, created.indexPath),
+    };
   }
 
   function withJarvisHome<T>(fn: () => Promise<T>): Promise<T> {
@@ -820,6 +847,174 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       expect(eligible).toHaveLength(1);
       expect(eligible[0]?.branch).toBe(branch);
       expect(stdout).not.toContain("no durable implementation branch");
+    }));
+
+  test("discovers completed external plan directories for planSourcePublishesExternally projects and ignores completed sibling and unrelated storage", async () =>
+    withJarvisHome(async () => {
+      writeMachineConfig({ git: false });
+      const eligibleName = "20260902T100001Z-external-discover-eligible";
+      const { plansHome, specReadRoot } = createExternalPlan(eligibleName, "[x] Done");
+      const completedName = "archived-external-plan";
+      mkdirSync(join(plansHome, "completed", completedName), { recursive: true });
+      writeFileSync(join(plansHome, "completed", completedName, "index.md"), "# archived\n");
+      const otherPlansHome = join(jarvisRoot, "specs", projectSafeId("other-project"), "plans", "unrelated");
+      mkdirSync(otherPlansHome, { recursive: true });
+      writeFileSync(join(otherPlansHome, "index.md"), "# other\n");
+      const readyIntent = join(jarvisRoot, "specs", projectSafeId("project"), "ready-intents", "ignored.md");
+      mkdirSync(dirname(readyIntent), { recursive: true });
+      writeFileSync(readyIntent, "# ready\n");
+      mkdirSync(join(plansHome, "no-index-plan"), { recursive: true });
+
+      const discovered = discoverStrandedArtifacts({ project: { root: projectRoot } });
+      const external = discovered.filter((artifact) => artifact.home === plansHome);
+
+      expect(external).toHaveLength(1);
+      expect(external[0]).toMatchObject({
+        home: plansHome,
+        source: realpathSync(specReadRoot),
+        name: eligibleName,
+        project: "project",
+      });
+    }));
+
+  test("dry-run previews external plan archive as plans/<name> -> plans/completed/<name> without mutation", async () =>
+    withJarvisHome(async () => {
+      const planName = "20260902T200001Z-external-dry-run";
+      const { specReadRoot, plansHome, store } = prepareExternalStrandedPlan(planName, "implement/external-dry-run");
+      const registry = { project: { root: projectRoot } };
+      let stdout = "";
+      const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+      expect(
+        await runCleanupCommand(
+          { dryRun: true },
+          registry,
+          jarvisRoot,
+          ghRunnerForPr("MERGED"),
+          async () => [],
+          store,
+          io,
+        ),
+      ).toBe(0);
+
+      expect(stdout).toContain(`archive: plans/${planName} -> plans/completed/${planName}`);
+      expect(stdout).not.toContain("(prune consumed ready-intent)");
+      expect(existsSync(specReadRoot)).toBe(true);
+      expect(existsSync(join(plansHome, "completed", planName))).toBe(false);
+    }));
+
+  test("archives eligible external plan after completeness and ownership checks", async () =>
+    withJarvisHome(async () => {
+      const planName = "20260902T200002Z-external-archive";
+      const { specReadRoot, plansHome, store, specsReady } = prepareExternalStrandedPlan(
+        planName,
+        "implement/external-archive",
+      );
+      const trapReady = join(plansHome, "ready-intents", `${planName}.md`);
+      mkdirSync(dirname(trapReady), { recursive: true });
+      writeFileSync(trapReady, "# ready\n");
+      const registry = { project: { root: projectRoot } };
+      const completedPlan = join(plansHome, "completed", planName);
+      let stdout = "";
+      const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+      expect(
+        await runCleanupCommand(
+          { promptConfirm: async () => true },
+          registry,
+          jarvisRoot,
+          ghRunnerForPr("MERGED"),
+          async () => [],
+          store,
+          io,
+        ),
+      ).toBe(0);
+
+      expect(stdout).toContain("Archived:");
+      expect(stdout).toContain(`plans/completed/${planName}`);
+      expect(existsSync(specReadRoot)).toBe(false);
+      expect(existsSync(completedPlan)).toBe(true);
+      expect(readFileSync(specsReady, "utf8")).toBe("# ready\n");
+      expect(existsSync(trapReady)).toBe(true);
+    }));
+
+  test("rolls back failed external plan archival under the existing transaction contract", async () =>
+    withJarvisHome(async () => {
+      writeMachineConfig({ git: false });
+      const planName = "20260902T200003Z-external-rollback";
+      const { specReadRoot, plansHome } = createExternalPlan(planName, "[x] Done");
+      writeFileSync(join(specReadRoot, "intent.md"), "intent\n");
+      const trapReady = join(plansHome, "ready-intents", `${planName}.md`);
+      mkdirSync(dirname(trapReady), { recursive: true });
+      writeFileSync(trapReady, "intent\n");
+      const spec = { home: plansHome, source: specReadRoot, name: planName, branch: "implement/external-rollback" };
+      const result = archiveCompletedSpec(
+        spec,
+        {
+          exists: existsSync,
+          mkdir: (path) => mkdirSync(path, { recursive: true }),
+          read: readFileSync,
+          rename: renameSync,
+          unlink: () => {
+            throw new Error("disk error");
+          },
+        },
+        { intentPrune: true },
+      );
+      expect(result).toMatchObject({ status: "skipped", reason: expect.stringContaining("archive restored") });
+      expect(existsSync(specReadRoot)).toBe(true);
+      expect(existsSync(trapReady)).toBe(true);
+      expect(existsSync(join(plansHome, "completed", planName))).toBe(false);
+    }));
+
+  test("skips external plans scan for registered projects where planSourcePublishesExternally is false", async () =>
+    withJarvisHome(async () => {
+      writeMachineConfig({});
+      createExternalPlan("20260902T100002Z-external-inrepo-only", "[x] Done");
+
+      const discovered = discoverStrandedArtifacts({ project: { root: projectRoot } });
+      const external = discovered.filter((artifact) =>
+        artifact.source.includes(join("specs", projectSafeId("project"))),
+      );
+
+      expect(external).toHaveLength(0);
+    }));
+
+  test("skips external plans discovery when multiple registered projects share one projectSafeId", async () =>
+    withJarvisHome(async () => {
+      const rootA = join(tempRoot, "project-a");
+      const rootB = join(tempRoot, "project-b");
+      mkdirSync(rootA, { recursive: true });
+      mkdirSync(rootB, { recursive: true });
+      const safeId = projectSafeId("foo/bar");
+      const planName = "20260902T100003Z-collision-plan";
+      const plansHome = join(jarvisRoot, "specs", safeId, "plans");
+      const specReadRoot = join(plansHome, planName);
+      mkdirSync(specReadRoot, { recursive: true });
+      writeFileSync(join(specReadRoot, "index.md"), `# Plan\n\n## Acceptance criteria\n\n- [x] Done\n`);
+      mkdirSync(jarvisRoot, { recursive: true });
+      writeFileSync(
+        join(jarvisRoot, "config.json"),
+        JSON.stringify({
+          projects: {
+            "foo/bar": { root: rootA, git: false },
+            "foo-bar": { root: rootB, git: false },
+          },
+        }),
+      );
+
+      let stdout = "";
+      const io = { stdout: (s: string) => (stdout += s) };
+      const registry = { "foo/bar": { root: rootA }, "foo-bar": { root: rootB } };
+      const discovered = discoverStrandedArtifacts(registry, io);
+      const external = discovered.filter((artifact) => artifact.source.includes(join("specs", safeId)));
+
+      expect(external).toHaveLength(0);
+      expect(stdout).toContain("Skipped external plans discovery:");
+      expect(stdout).toContain(safeId);
+      expect(stdout).toContain("multiple registered projects share one projectSafeId");
+      expect(stdout).toContain("foo/bar");
+      expect(stdout).toContain("foo-bar");
     }));
 
   test("refuses open-home stranded archival while a materialized owner is not retired", async () => {
@@ -4344,5 +4539,31 @@ describe("cleanup: prune verified merged branch refs", () => {
     expect(stderr).toContain("Failed to retire");
     expect(stdout).not.toContain(`Retired: ${worktreePath}`);
     expect(await exactRefExists(projectRoot, `refs/heads/${branch}`)).toBe(true);
+  });
+});
+
+describe("hasBranchKeyedArtifactOwner", () => {
+  test("guard inversion: branch-keyed external plan ownership treats matching and detached branches as owners", () => {
+    const root = join(process.env.TMPDIR || "/tmp", `jarvis-branch-owner-${Date.now()}`);
+    const registry = { project: { root: "/repo" } };
+    const jarvis = join(root, "jarvis-home");
+    const worktreesRoot = join(jarvis, "worktrees", "project");
+    const spec: ArtifactSpec = {
+      home: join(jarvis, "specs", "project", "plans"),
+      source: join(jarvis, "specs", "project", "plans", "feature"),
+      name: "feature",
+      branch: "implement/feature",
+    };
+    const matching = { path: join(worktreesRoot, "implement", "feature"), branch: "implement/feature" };
+    const detached = { path: join(worktreesRoot, "detached"), branch: undefined };
+    const unrelated = { path: join(worktreesRoot, "feat", "other"), branch: "feat/other" };
+    const excluded = matching.path;
+
+    expect(hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [matching], jarvis)).toBe(false);
+    expect(hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [detached], jarvis)).toBe(true);
+    expect(hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [unrelated], jarvis)).toBe(false);
+    expect(
+      hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [matching, detached, unrelated], jarvis),
+    ).toBe(true);
   });
 });

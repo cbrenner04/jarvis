@@ -23,12 +23,12 @@
 
 ## Acceptance criteria
 
-- [ ] `cleanup.test.ts` — `"discovers completed external plan directories for planSourcePublishesExternally projects and ignores completed sibling and unrelated storage"` lists only eligible open `plans/<name>/` trees for a registered project whose `planSourcePublishesExternally` predicate is true while skipping `plans/completed/`, unrelated `~/.jarvis/specs/<otherSafeId>/`, and `~/.jarvis/specs/<safeId>/ready-intents/`; it fails against the pre-fix scanner that only reads `<projectRoot>/v2/spec/`.
-- [ ] `cleanup.test.ts` — `"skips external plans scan for registered projects where planSourcePublishesExternally is false"` emits no external `plans/` candidates for an in-repo-only registered project; it fails against a pre-fix scanner that reads every registered project's external home regardless of `planSourcePublishesExternally`.
-- [ ] `cleanup.test.ts` — `"archives eligible stranded specs without retiring a worktree and retains refused siblings"` stays green.
-- [ ] `cleanup.test.ts` — `"keys stranded ownership to the recorded project branch and rechecks it before archival"` stays green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `cleanup.test.ts` — `"discovers completed external plan directories for planSourcePublishesExternally projects and ignores completed sibling and unrelated storage"` lists only eligible open `plans/<name>/` trees for a registered project whose `planSourcePublishesExternally` predicate is true while skipping `plans/completed/`, unrelated `~/.jarvis/specs/<otherSafeId>/`, and `~/.jarvis/specs/<safeId>/ready-intents/`; it fails against the pre-fix scanner that only reads `<projectRoot>/v2/spec/`.
+- [x] `cleanup.test.ts` — `"skips external plans scan for registered projects where planSourcePublishesExternally is false"` emits no external `plans/` candidates for an in-repo-only registered project; it fails against a pre-fix scanner that reads every registered project's external home regardless of `planSourcePublishesExternally`.
+- [x] `cleanup.test.ts` — `"archives eligible stranded specs without retiring a worktree and retains refused siblings"` stays green.
+- [x] `cleanup.test.ts` — `"keys stranded ownership to the recorded project branch and rechecks it before archival"` stays green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

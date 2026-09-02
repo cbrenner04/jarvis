@@ -19,11 +19,11 @@ Operator docs describe stranded archival only for in-repo `v2/spec/` homes; the 
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/write-behavior.md` defines external plan archival as the terminal artifact lifecycle and cross-links cleanup operations consistent with `00`–`02`.
-- [ ] `v2/docs/operator-runbook.md` documents external-home cleanup discovery, dry-run preview shape, refusal reasons, and `plans/completed/` destination consistent with `00`–`02`.
-- [ ] `v2/docs/v1-behaviors.md` records v2 external-plan archival behavior and states v1 does not perform this cleanup.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `v2/docs/write-behavior.md` defines external plan archival as the terminal artifact lifecycle and cross-links cleanup operations consistent with `00`–`02`.
+- [x] `v2/docs/operator-runbook.md` documents external-home cleanup discovery, dry-run preview shape, refusal reasons, and `plans/completed/` destination consistent with `00`–`02`.
+- [x] `v2/docs/v1-behaviors.md` records v2 external-plan archival behavior and states v1 does not perform this cleanup.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

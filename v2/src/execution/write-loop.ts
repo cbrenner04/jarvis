@@ -3317,6 +3317,31 @@ export async function runBuiltInReadyGateAutofixBiome(
   }
 }
 
+/** Ready-gate repair autofix dispatch: built-in scoped biome, or the configured/injected fix command. */
+async function dispatchReadyGateAutofix(
+  args: WriteLoopInput,
+  input: { worktreePath: string; baseRef: string },
+): Promise<void> {
+  const timeoutMs = args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS;
+  if (args.fixCommand === undefined && args.runFixCommand === undefined) {
+    await (args.runBuiltInReadyGateAutofixBiome ?? runBuiltInReadyGateAutofixBiome)({
+      cwd: input.worktreePath,
+      baseRef: input.baseRef,
+      timeoutMs,
+      ...externalSpecGitScope(args),
+      ...(args.readyGateScopeSeams !== undefined ? { readyGateScopeSeams: args.readyGateScopeSeams } : {}),
+    });
+    return;
+  }
+  const fixOpts: RunFixCommandOpts = {
+    cwd: input.worktreePath,
+    ...(args.fixCommand !== undefined ? { fixCommand: args.fixCommand } : {}),
+    timeoutMs,
+    ...(args.telemetry?.role !== undefined ? { agentLabel: args.telemetry.role } : {}),
+  };
+  await (args.runFixCommand ?? runFixCommand)(fixOpts);
+}
+
 export async function publishWithReadyRepair(
   args: WriteLoopInput,
   store: StateStore,
@@ -3352,27 +3377,8 @@ export async function publishWithReadyRepair(
   appendReadyGateBaseRefProbeLog(args, result.runId, outcome.error);
 
   const autofixBaseline = await snapshotAutofixBaseline(input.worktreePath);
-  const autofixTimeoutMs = args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS;
-  // @mutate args.fixCommand === undefined && args.runFixCommand === undefined -> false
-  const builtInScopedAutofix = args.fixCommand === undefined && args.runFixCommand === undefined;
   try {
-    if (builtInScopedAutofix) {
-      await (args.runBuiltInReadyGateAutofixBiome ?? runBuiltInReadyGateAutofixBiome)({
-        cwd: input.worktreePath,
-        baseRef: input.baseRef,
-        timeoutMs: autofixTimeoutMs,
-        ...externalSpecGitScope(args),
-        ...(args.readyGateScopeSeams !== undefined ? { readyGateScopeSeams: args.readyGateScopeSeams } : {}),
-      });
-    } else {
-      const fixOpts: RunFixCommandOpts = {
-        cwd: input.worktreePath,
-        ...(args.fixCommand !== undefined ? { fixCommand: args.fixCommand } : {}),
-        timeoutMs: autofixTimeoutMs,
-        ...(args.telemetry?.role !== undefined ? { agentLabel: args.telemetry.role } : {}),
-      };
-      await (args.runFixCommand ?? runFixCommand)(fixOpts);
-    }
+    await dispatchReadyGateAutofix(args, input);
   } catch (error) {
     return {
       failure: {

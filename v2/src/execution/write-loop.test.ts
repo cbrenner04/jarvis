@@ -43,9 +43,9 @@ import {
 import {
   createReadyFinalizer,
   deriveGateAllowedPaths,
+  type ReadyFinalizer,
   ReadyFlipError,
   ReadyGateError,
-  type ReadyFinalizer,
   RuntimeSmokeFailedError,
   SurvivingMutationError,
 } from "./ready-finalize.ts";

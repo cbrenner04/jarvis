@@ -266,3 +266,39 @@ test("pipeline_recover refuses resolution for an unknown pipeline", async () => 
     },
   });
 });
+
+test("pipeline_approve and pipeline_reject require pipelineId and stageId", async () => {
+  const handlers = pipelineHandlers();
+
+  for (const params of [{}, { pipelineId: "p1" }, { stageId: "gate" }]) {
+    const approve = await handlers.pipeline_approve(
+      requestFrame("approve-missing", "pipeline_approve", params),
+      new AbortController().signal,
+    );
+    expect(approve).toEqual({
+      kind: "error",
+      code: "invalid_params",
+      message: "pipelineId and stageId required",
+    });
+
+    const reject = await handlers.pipeline_reject(
+      requestFrame("reject-missing", "pipeline_reject", params),
+      new AbortController().signal,
+    );
+    expect(reject).toEqual({
+      kind: "error",
+      code: "invalid_params",
+      message: "pipelineId and stageId required",
+    });
+  }
+
+  const approve = await handlers.pipeline_approve(
+    requestFrame("approve-unknown", "pipeline_approve", { pipelineId: "missing", stageId: "gate" }),
+    new AbortController().signal,
+  );
+  // @mutate v2/src/daemon/daemon-pipeline-handlers.ts "!params?.pipelineId" -> "params?.pipelineId"
+  expect(approve).toEqual({
+    kind: "response",
+    result: { kind: "refused", pipelineId: "missing", stageId: "gate", reason: "pipeline_not_found" },
+  });
+});

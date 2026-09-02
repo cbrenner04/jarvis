@@ -130,6 +130,42 @@ test("pipeline_list omits dismissed pipelines unless includeDismissed is true", 
   );
 });
 
+test("pipelineExecutionDeps omits loadLogRecords without logReader", () => {
+  const handlers = pipelineHandlers();
+  expect(handlers.pipelineExecutionDeps()).not.toHaveProperty("loadLogRecords");
+});
+
+test("pipelineExecutionDeps wires loadLogRecords from logReader", () => {
+  const tailCalls: string[] = [];
+  const mockLogReader = {
+    tail: (runId: string) => {
+      tailCalls.push(runId);
+      return [];
+    },
+    async *follow() {},
+  };
+  const ctx = createRunControlHandlerContext({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    logReader: mockLogReader,
+  });
+  const workflowStart = createWorkflowStartAdmission(ctx);
+  const lifecycle = createRunLifecycleHandlers(ctx, {
+    handleWorkflowStart: workflowStart.handleWorkflowStart,
+  });
+  const handlers = createPipelineHandlers(ctx, {
+    pipelineDispatch: lifecycle.pipelineDispatch,
+    pipelineWait: lifecycle.pipelineWait,
+    admitWorkflowStart: workflowStart.admitWorkflowStart,
+  });
+  const deps = handlers.pipelineExecutionDeps();
+  expect(deps.loadLogRecords).toBeDefined();
+  deps.loadLogRecords?.("run-42");
+  expect(tailCalls).toEqual(["run-42"]);
+});
+
 test("pipeline_recover refuses resolution for an unknown pipeline", async () => {
   const handlers = pipelineHandlers();
 

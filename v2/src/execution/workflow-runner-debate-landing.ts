@@ -248,7 +248,7 @@ async function finishReviewDebateLanding(
 ): Promise<ReviewDebateStepOutcome | undefined> {
   const lastCycle = result.cycles.at(-1);
   const actuatorRan = lastCycle?.kind === "completed" && lastCycle.actuatorRan;
-  const verdict = lastCycle?.kind === "completed" || lastCycle?.kind === "role_failed" ? (lastCycle.verdict ?? "") : "";
+  const verdict = lastCycle?.kind === "completed" || lastCycle?.kind === "role_failed" ? (lastCycle.verdict ?? "") : ""; // @mutate-equivalent mutation="operator-flip: === → !==" reason="Landing lint reprompt always passes reprompt; verdict is only read when reprompt is undefined"
   const priorCycle = result.cycles.at(-2);
   const priorVerdict = priorCycle?.kind === "completed" ? priorCycle.verdict : undefined;
   const actuatorContext = actuatorRan

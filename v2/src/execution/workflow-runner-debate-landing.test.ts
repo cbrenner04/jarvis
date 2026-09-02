@@ -334,16 +334,22 @@ describe("executeWorkflow review-debate landing", () => {
     });
 
     await withStateStore(async (store) => {
+      const debateProgress: string[] = [];
       const firstResult = await executeWorkflow({
         steps: [implementStep, reviewStep],
         stateStore: store,
         completionCommitter: createCompletionCommitter(),
         completionPublisher: async () => ({}),
         readyFinalizer: async () => {},
+        onReviewDebateProgress: (_invocationId, _stepId, update) => {
+          debateProgress.push(`${update.status}:${update.role}`);
+        },
       });
       expect(firstResult).toMatchObject({ kind: "invocation_failure", stepIndex: 1, resumable: false });
       expect(debateCalls).toEqual(["ADV"]);
-      expect(store.loadRun(firstResult.runId)?.attempts.at(-1)?.invocationFailureDetail?.role).not.toBe("actuator");
+      // @mutate v2/src/execution/workflow-runner-debate-landing.ts 'lastCycle?.kind === "role_failed" ? lastCycle.failedRole : lastCycle?.actuatorRan ? "actuator" : "adjudicator"' -> 'lastCycle?.kind !== "role_failed" ? lastCycle.failedRole : lastCycle?.actuatorRan ? "actuator" : "adjudicator"'
+      expect(debateProgress.at(-1)).toBe("stopped:adversary");
+      expect(store.loadRun(firstResult.runId)?.attempts.at(-1)?.invocationFailureDetail?.role).toBe("adversary");
 
       debateCalls.length = 0;
       const secondResult = await executeWorkflow({

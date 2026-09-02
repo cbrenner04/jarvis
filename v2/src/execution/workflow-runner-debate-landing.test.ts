@@ -20,6 +20,7 @@ import { executeWorkflow, type ReviewDebateWorkflowStep } from "./workflow-runne
 import {
   discardEphemeralReviewVerdictDrift,
   isPostCommitReviewRetryableFailureKind,
+  revalidateStagedPlanContract,
 } from "./workflow-runner-debate-landing.ts";
 
 describe("executeWorkflow review-debate landing", () => {
@@ -502,5 +503,25 @@ describe("executeWorkflow review-debate landing", () => {
     expect(isPostCommitReviewRetryableFailureKind({ failureKind: "stall" })).not.toBe(timeoutOnly("stall"));
     expect(isPostCommitReviewRetryableFailureKind({ failureKind: "error" })).toBe(false);
     expect(isPostCommitReviewRetryableFailureKind({ failureKind: "timeout", exhaustedRoleTimeout: true })).toBe(false);
+  });
+
+  test("revalidateStagedPlanContract returns draft shape failures before landing checks", () => {
+    // @mutate v2/src/execution/workflow-runner-debate-landing.ts "if (!draft.ok) return draft;" -> "if (draft.ok) return draft;"
+    const emptyStage = mkdtempSync(join(tmpdir(), "revalidate-plan-empty-"));
+    const emptyResult = revalidateStagedPlanContract(emptyStage);
+    expect(emptyResult.ok).toBe(false);
+    if (!emptyResult.ok) expect(emptyResult.reason).toBe("plan.draft.shape");
+  });
+
+  test("revalidateStagedPlanContract runs landing checks after draft validation passes", () => {
+    // @mutate v2/src/execution/workflow-runner-debate-landing.ts "if (!draft.ok) return draft;" -> "if (draft.ok) return draft;"
+    const stage = mkdtempSync(join(tmpdir(), "revalidate-plan-missing-intent-"));
+    mkdirSync(stage, { recursive: true });
+    writeFileSync(join(stage, "index.md"), "# Index\n\n- [ ] [One](./00-one.md)\n", "utf8");
+    writeFileSync(join(stage, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] x\n", "utf8");
+
+    const result = revalidateStagedPlanContract(stage);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("staged spec tree has invalid shape");
   });
 });

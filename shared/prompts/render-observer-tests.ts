@@ -16,6 +16,7 @@ const RENDER_OBSERVER_TESTS: Readonly<Record<string, readonly string[]>> = {
     "v2/src/execution/intent-split-regression.test.ts",
   ],
   "prompts/patch/instructions.md": ["v2/src/execution/write-prompt.test.ts"],
+  "prompts/patch/rules.md": ["v2/src/execution/write-prompt.test.ts", "shared/prompts/review-implement.test.ts"],
   "prompts/patch/shrink.md": ["v2/src/execution/write-prompt.test.ts"],
   "prompts/plan/draft.md": ["shared/prompts/plan-draft.test.ts", "v2/src/execution/write-prompt.test.ts"],
   "prompts/plan/review-adjudicator.md": [

@@ -42,6 +42,18 @@ describe("buildPlanDraftPrompt", () => {
     expect(prompt).not.toContain("each added or modified guard is inverted");
   });
 
+  test("directs gate acceptance criteria to the scoped test script", () => {
+    const prompt = buildPlanDraftPrompt({
+      name: "my-plan",
+      intent: "do thing",
+      specGuidance: SPEC_GUIDANCE,
+    });
+
+    expect(prompt).toContain("Gate acceptance criteria name the scoped test script, never the bare aggregate");
+    expect(prompt).toContain("bun run test:v2");
+    expect(prompt).toContain("exhausts the implement budget and times out with the work already correct");
+  });
+
   test("appends file output and step completion sections when supplied", () => {
     const prompt = buildPlanDraftPrompt({
       name: "my-plan",

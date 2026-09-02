@@ -5756,14 +5756,12 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
           return {
             ok: true as const,
             steps: [
-              {
-                behavior: "write",
-                stepId: "plan",
+              createWriteStep("plan", branchName, doneBindingFactory, {
                 role: "plan",
                 worktree: managedWorktree(branchName, intentBranch),
                 specPath: "spec/plan",
-              },
-            ] as unknown as AnyWorkflowStep[],
+              }),
+            ],
             identity: {
               invocationId: `plan-${branchKey}`,
               project: "demo",

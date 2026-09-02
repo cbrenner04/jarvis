@@ -1,6 +1,7 @@
 import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { isRecord } from "../../../shared/is-record.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { InvocationFailureDetail } from "../execution/invocation-failure.ts";
@@ -190,10 +191,6 @@ export type PipelineContextLoaderError = {
 export type LoadPipelineContextResult =
   | { ok: true; context: PipelineContext }
   | { ok: false; error: PipelineContextLoaderError };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /** Validate persisted pipeline context JSON at consumption boundaries; opaque `mapPipelineRow` parse does not run this. */
 export function loadPipelineContext(value: unknown): LoadPipelineContextResult {

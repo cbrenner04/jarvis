@@ -104,8 +104,67 @@ describe("executeWorkflow review-debate landing", () => {
         .filter((event) => event.kind === "intent_finalization");
       expect(finalizationEvents.length).toBeGreaterThan(0);
       expect((finalizationEvents.at(-1) as { stopReason?: string }).stopReason).toBeTruthy();
+      // Mutation checkpoint: finishReviewDebateLanding must not emit landing_failed loop_finished for invocation_failure.
+      // @mutate v2/src/execution/workflow-runner-debate-landing.ts 'if (landingFailure.kind === "landing_failed")' -> 'if (landingFailure.kind !== "landing_failed")'
+      expect(
+        logSink
+          .getEventsForRun(result.runId)
+          .some((event) => event.kind === "loop_finished" && event.loopOutcomeKind === "landing_failed"),
+      ).toBe(false);
     });
     expect(existsSync(join(stage, "example.md"))).toBe(true);
+  });
+
+  test("finishReviewDebateLanding emits loop_finished when staged markdown lint budget exhausts landing_failed", async () => {
+    // @mutate v2/src/execution/workflow-runner-debate-landing.ts 'if (landingFailure.kind === "landing_failed")' -> 'if (landingFailure.kind !== "landing_failed")'
+    if (
+      skipReviewWithoutHarnessMarkdownlint(
+        "finishReviewDebateLanding emits loop_finished when staged markdown lint budget exhausts landing_failed",
+      )
+    ) {
+      return;
+    }
+
+    const root = mkdtempSync(join(tmpdir(), "debate-landing-md-lint-exhaust-"));
+    const stage = join(root, ".jarvis-plan-stage");
+    const durable = join(root, "spec", "2026-debate-landing-md-lint-exhaust");
+    const violationBytes = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md038-violation-subspec.md"), "utf8");
+    writeLintCleanPlanStage(stage);
+
+    const step = createDebateStep({
+      stepId: "review-debate-landing-md-lint-exhaust",
+      cwd: root,
+      branch: "debate-landing-md-lint-exhaust",
+      verdictPath: join(stage, "verdict-plan.md"),
+      landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: durable },
+      stagedMarkdownLintMaxReprompts: 2,
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: async ({ cwd }) => {
+          if (adapterModel === "ACT") {
+            writeFileSync(join(cwd, ".jarvis-plan-stage", "00-one.md"), violationBytes, "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" };
+          }
+          return adapterModel === "ADJ"
+            ? ({ kind: "ok", stdout: "apply fix", stderr: "" } as const)
+            : ({ kind: "ok", stdout: "ok", stderr: "" } as const);
+        },
+      }),
+    });
+
+    const logSink = new TestLogSink();
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [step], stateStore: store, logSink });
+      expect(result.kind).toBe("landing_failed");
+      expect(result.resumable).toBe(true);
+      expect(store.loadRun(result.runId)?.attempts.at(-1)?.outcomeKind).toBe("landing_failed");
+      expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "landing_failed",
+        resumable: true,
+      });
+    });
   });
 
   function createPatchReviewDebateStep(args: {

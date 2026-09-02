@@ -20,12 +20,12 @@ The hidden aliases `intent-reviewed`, `plan-reviewed`, and `plan-reviewed-light`
 
 ## Acceptance criteria
 
-- [ ] `workflow.test.ts` rejects `run workflow intent-reviewed`, `run workflow plan-reviewed`, and `run workflow plan-reviewed-light` with `WORKFLOW_USAGE`, exit code `1`, and no deprecation stderr before daemon contact; the cases fail against the pre-fix alias forwarding reachable from `v2/src/commands/workflow.ts`.
-- [ ] `workflow-args.ts` exports no `LEGACY_WORKFLOW_ALIASES` symbol.
-- [ ] `workflow.ts` contains no `applyLegacyWorkflowAlias` helper and no alias-resolution branch in workflow preset builder lookup.
-- [ ] `workflow.test.ts` tests `run workflow implement sends start and wait IPC requests, blocks on completion, and prints run ID and wait JSON`, `run workflow intent with --detach prints intent paths stderr before run ID without client wait`, and `run workflow plan resets a stale worktree before daemon start` stay green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `workflow.test.ts` rejects `run workflow intent-reviewed`, `run workflow plan-reviewed`, and `run workflow plan-reviewed-light` with `WORKFLOW_USAGE`, exit code `1`, and no deprecation stderr before daemon contact; the cases fail against the pre-fix alias forwarding reachable from `v2/src/commands/workflow.ts`.
+- [x] `workflow-args.ts` exports no `LEGACY_WORKFLOW_ALIASES` symbol.
+- [x] `workflow.ts` contains no `applyLegacyWorkflowAlias` helper and no alias-resolution branch in workflow preset builder lookup.
+- [x] `workflow.test.ts` tests `run workflow implement sends start and wait IPC requests, blocks on completion, and prints run ID and wait JSON`, `run workflow intent with --detach prints intent paths stderr before run ID without client wait`, and `run workflow plan resets a stale worktree before daemon start` stay green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

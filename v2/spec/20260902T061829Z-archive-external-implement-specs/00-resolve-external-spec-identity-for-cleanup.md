@@ -22,14 +22,14 @@
 
 ## Acceptance criteria
 
-- [ ] `cleanup.test.ts` — `"resolves absolute external plan specPath from durable implement run for retired-worktree archival"` archives a completed external plan tree after its owning merged worktree retires when the run row records the canonical external `index.md`; it fails against the pre-fix `sourceForRun` identity filter that returns undefined for absolute paths outside the worktree (reachable on main: `cleanup.ts` `sourceForRun` rejects `isAbsolute(identity)` after `relative(worktreePath, run.specPath)`).
-- [ ] `cleanup.test.ts` — `"recordedStrandedBranch matches external plan directory from chained implement specPath"` resolves the implementation branch for a discovered external plan artifact from a durable run whose `specPath` is absolute under `plans/<name>/`; it fails against the pre-fix `recordedStrandedBranch` path that never matches external sources.
-- [ ] `cleanup.test.ts` — `"archives open-home spec when retiring its owning worktree in one invocation"` stays green.
-- [ ] `cleanup.test.ts` — `"retires and archives the authored spec for a default $name workflow"` stays green.
-- [ ] `cleanup.test.ts` — `"refuses open-home stranded archival while a materialized owner is not retired"` stays green.
-- [ ] `cleanup.test.ts` — `"dry-run stranded archive preview matches apply when owning worktree is in retire preview set"` stays green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `cleanup.test.ts` — `"resolves absolute external plan specPath from durable implement run for retired-worktree archival"` archives a completed external plan tree after its owning merged worktree retires when the run row records the canonical external `index.md`; it fails against the pre-fix `sourceForRun` identity filter that returns undefined for absolute paths outside the worktree (reachable on main: `cleanup.ts` `sourceForRun` rejects `isAbsolute(identity)` after `relative(worktreePath, run.specPath)`).
+- [x] `cleanup.test.ts` — `"recordedStrandedBranch matches external plan directory from chained implement specPath"` resolves the implementation branch for a discovered external plan artifact from a durable run whose `specPath` is absolute under `plans/<name>/`; it fails against the pre-fix `recordedStrandedBranch` path that never matches external sources.
+- [x] `cleanup.test.ts` — `"archives open-home spec when retiring its owning worktree in one invocation"` stays green.
+- [x] `cleanup.test.ts` — `"retires and archives the authored spec for a default $name workflow"` stays green.
+- [x] `cleanup.test.ts` — `"refuses open-home stranded archival while a materialized owner is not retired"` stays green.
+- [x] `cleanup.test.ts` — `"dry-run stranded archive preview matches apply when owning worktree is in retire preview set"` stays green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

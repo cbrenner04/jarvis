@@ -1,4 +1,4 @@
-import { type Dirent, existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { type Dirent, existsSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   getBaseBranch,
@@ -20,6 +20,7 @@ import { parseListRuns } from "../daemon/daemon-wire.ts";
 import { mergeRunLists } from "../daemon/merge-run-lists.ts";
 import { type QueryDaemonListsDeps, queryDaemonListsFromSockets } from "../daemon/query-daemon-lists-from-sockets.ts";
 import { isMaterializedNodeModulesPath } from "../execution/external-worktree.ts";
+import { resolveExternalPlanSpecIdentity } from "../execution/implement-workflow-steps.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { jarvisHome } from "../paths.ts";
@@ -725,11 +726,13 @@ function artifactForRetiredWorktree(
   candidate: CleanupCandidate,
   projectRoot: string,
   store: StateStore,
+  registry: Record<string, ProjectRegistryEntry>,
+  configPath: string = join(jarvisHome(), "config.json"),
 ): ArtifactSpec | undefined {
   const sources = store
     .listRuns()
     .filter((run) => run.project === candidate.project && run.branch === candidate.worktree.branch)
-    .map((run) => sourceForRun(run, candidate.worktree.path, projectRoot))
+    .map((run) => sourceForRun(run, candidate.worktree.path, projectRoot, registry, configPath))
     .filter((path): path is string => path !== undefined);
   const source = sources.find((path) => existsSync(join(path, "index.md"))) ?? sources[0];
   if (source === undefined) return undefined;
@@ -741,7 +744,42 @@ function artifactForRetiredWorktree(
   };
 }
 
-function sourceForRun(run: Run, worktreePath: string, projectRoot: string): string | undefined {
+function externalPlanSourceForRun(
+  resolvedSpecPath: string,
+  run: Run,
+  registry: Record<string, ProjectRegistryEntry>,
+  configPath: string,
+): string | undefined {
+  const candidates =
+    basename(resolvedSpecPath) === "index.md"
+      ? [resolvedSpecPath]
+      : [resolvedSpecPath, join(dirname(resolvedSpecPath), "index.md")];
+  for (const candidate of candidates) {
+    const identity = resolveExternalPlanSpecIdentity(candidate, registry, configPath);
+    if (identity === undefined || "error" in identity || identity.project !== run.project) continue;
+    return identity.specReadRoot;
+  }
+  return undefined;
+}
+
+function sourceForRun(
+  run: Run,
+  worktreePath: string,
+  projectRoot: string,
+  registry: Record<string, ProjectRegistryEntry>,
+  configPath: string = join(jarvisHome(), "config.json"),
+): string | undefined {
+  if (isAbsolute(run.specPath)) {
+    let resolvedSpecPath = run.specPath;
+    try {
+      resolvedSpecPath = realpathSync(run.specPath);
+    } catch {
+      // keep lexical path when the run row points at a missing file
+    }
+    const externalSource = externalPlanSourceForRun(resolvedSpecPath, run, registry, configPath);
+    if (externalSource !== undefined) return externalSource;
+  }
+
   const identity = isAbsolute(run.specPath) ? relative(worktreePath, run.specPath) : run.specPath;
   if (identity === "" || identity === ".." || identity.startsWith("../") || isAbsolute(identity)) return undefined;
 
@@ -790,7 +828,7 @@ async function archiveRetiredArtifact(
 ): Promise<void> {
   const projectRoot = registry[candidate.project]?.root;
   if (projectRoot === undefined) return;
-  const spec = artifactForRetiredWorktree(candidate, projectRoot, store);
+  const spec = artifactForRetiredWorktree(candidate, projectRoot, store, registry);
   if (spec === undefined) {
     io.stdout(`Skipped artifact: ${candidate.worktree.path} — no durable spec identity\n`);
     return;
@@ -843,12 +881,22 @@ function recordedStrandedBranch(
   artifact: DiscoveredStrandedArtifact,
   projectRoot: string,
   store: StateStore,
+  registry: Record<string, ProjectRegistryEntry>,
+  configPath: string = join(jarvisHome(), "config.json"),
 ): string | undefined {
   for (const run of store.listRuns()) {
     if (run.project !== artifact.project) continue;
-    const source = sourceForRun(run, run.worktreePath, projectRoot);
+    const source = sourceForRun(run, run.worktreePath, projectRoot, registry, configPath);
     if (source === undefined) continue;
-    if (resolve(source) === resolve(artifact.source)) return run.branch;
+    let resolvedSource = source;
+    let resolvedArtifactSource = artifact.source;
+    try {
+      resolvedSource = realpathSync(source);
+      resolvedArtifactSource = realpathSync(artifact.source);
+    } catch {
+      // compare lexical paths when realpath is unavailable
+    }
+    if (resolve(resolvedSource) === resolve(resolvedArtifactSource)) return run.branch;
   }
   return undefined;
 }
@@ -878,7 +926,7 @@ export async function inspectStrandedArtifacts(
   for (const artifact of artifacts) {
     const projectRoot = registry[artifact.project]?.root;
     if (projectRoot === undefined) continue;
-    const branch = recordedStrandedBranch(artifact, projectRoot, store);
+    const branch = recordedStrandedBranch(artifact, projectRoot, store, registry);
     if (branch === undefined) {
       io.stdout(`Skipped stranded artifact: ${artifact.source} — no durable implementation branch\n`);
       continue;
@@ -963,7 +1011,7 @@ function previewWorktreeCandidates(
     io.stdout(`  ${candidate.worktree.path} (branch: ${candidate.worktree.branch})\n`);
     const projectRoot = registry[candidate.project]?.root;
     if (projectRoot === undefined) continue;
-    const spec = artifactForRetiredWorktree(candidate, projectRoot, store);
+    const spec = artifactForRetiredWorktree(candidate, projectRoot, store, registry);
     if (spec !== undefined) previewArtifact(spec, io);
   }
 }

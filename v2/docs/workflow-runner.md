@@ -4,6 +4,13 @@ v2/src gains a runner that executes an ordered array of steps: each step binds a
 
 See [`v2-architecture.md`](v2-architecture.md) (orchestration; multi-step workflows, resume) and [`role-resolution.md`](role-resolution.md) (step binding vocabulary) for broader context.
 
+## Module map
+
+Execution-library modules split from `workflow-runner.ts` as extraction seams mature. A seam filename labels the first extraction slice, not an exclusive behavioral boundary — callers may import shared helpers across step kinds.
+
+- **`workflow-runner-debate-landing.ts`** — owns `runReviewDebateStep`, post-debate landing, actuator-only retry, and the shared `landReviewedOutputOrFail` / `finishReviewedLanding` helpers.
+- **`workflow-runner.ts`** — imports `runReviewDebateStep` for `review-debate` step dispatch; imports `landReviewedOutputOrFail` and `finishReviewedLanding` from `workflow-runner-debate-landing.ts` for light-review landing and checkpoint re-entry (not debate-only). `landReviewedPublicationOutput` and resume machines remain here until the follow-on resume extraction.
+
 ## Execution contract
 
 `executeWorkflow(args: WorkflowRunnerInput)` sequences an ordered `steps` array. Each step carries `stepId` (unique within the workflow), `role` (the workflow-source validation key, checked against the current config before execution), its own `agents` order and `agentModelConfig`, all parameters of a single [`write-behavior.md`](write-behavior.md) write loop (minus `bindings`), and an optional `createBinding` test seam.

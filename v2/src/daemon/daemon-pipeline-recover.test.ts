@@ -167,38 +167,6 @@ function planReviewStep(args: {
   };
 }
 
-function realPlanReviewStep(args: {
-  worktreePath: string;
-  stage: string;
-  durable: string;
-  branch: string;
-}): ReviewWorkflowStep {
-  return {
-    behavior: "review",
-    stepId: "plan-review",
-    project: "demo",
-    branch: args.branch,
-    cwd: args.worktreePath,
-    prompt: "",
-    verdictPath: join(args.stage, "verdict-plan.md"),
-    maxCycles: 1,
-    agents: { critic: ["claude"], actuator: ["codex"] },
-    agentModelConfig: PLAN_REVIEW_CONFIG,
-    profile: planReviewPromptProfile,
-    profileContext: { specPath: args.stage, worktreePath: args.worktreePath },
-    landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: args.durable },
-    createBinding: ({ agentId }) => ({
-      id: agentId,
-      metadata: { agent: agentId, model: agentId },
-      invoke: async () => ({
-        kind: "ok" as const,
-        stdout: agentId === "claude" ? "Looks good" : "done",
-        stderr: "",
-      }),
-    }),
-  };
-}
-
 function createPlanWorktree(prefix: string): string {
   const worktreePath = mkdtempSync(join(tmpdir(), prefix));
   execFileSync("git", ["init", "-q"], { cwd: worktreePath });
@@ -340,7 +308,7 @@ test("pipeline_recover admits and lands a corrected non-first fan-out branch wit
             }),
           ),
           branchKey === "branch-b"
-            ? realPlanReviewStep({ worktreePath, stage, durable, branch })
+            ? planReviewStep({ worktreePath, stage, durable, branch })
             : planReviewStep({
                 worktreePath: `${worktreePath}-${branchKey}`,
                 stage: `${stage}-${branchKey}`,

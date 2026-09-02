@@ -151,24 +151,11 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 function stageIndexOf(steps: AnyWorkflowStep[]): number {
-  const step = steps[0];
-  if (step?.behavior !== "write") {
-    throw new Error("dispatch stub expects a write step");
-  }
-  const stageIndex = (step as MinimalDispatchWriteStep).stageIndex;
+  const stageIndex = (steps[0] as MinimalDispatchWriteStep | undefined)?.stageIndex;
   if (stageIndex === undefined) {
     throw new Error("dispatch stub step missing stageIndex");
   }
   return stageIndex;
-}
-
-type DispatchTaggedWriteStep = MinimalDispatchWriteStep & { stageId: string };
-
-function createDispatchTaggedWriteStep(
-  stageId: string,
-  overrides: Partial<MinimalDispatchWriteStep> = {},
-): DispatchTaggedWriteStep {
-  return { ...createMinimalDispatchWriteStep(overrides), stageId };
 }
 
 function noopStaleResetPreflightBundle(): NonNullable<PipelineExecutionDeps["staleResetPreflight"]> {
@@ -2977,7 +2964,8 @@ describe("resumePipeline", () => {
           return {
             ok: true,
             steps: [
-              createDispatchTaggedWriteStep("plan", {
+              createMinimalDispatchWriteStep({
+                stageId: "plan",
                 stageIndex,
                 ...(deps?.branchKey === undefined ? {} : { branchKey: deps.branchKey }),
               }),
@@ -3651,7 +3639,8 @@ describe("resumePipeline branch scope", () => {
     ): Promise<PipelineStageResolutionResult> => ({
       ok: true,
       steps: [
-        createDispatchTaggedWriteStep("implement", {
+        createMinimalDispatchWriteStep({
+          stageId: "implement",
           stageIndex,
           ...(deps?.branchKey === undefined ? {} : { branchKey: deps.branchKey }),
         }),
@@ -3900,7 +3889,8 @@ describe("resumePipeline branch scope", () => {
         return {
           ok: true,
           steps: [
-            createDispatchTaggedWriteStep("plan", {
+            createMinimalDispatchWriteStep({
+              stageId: "plan",
               stageIndex,
               ...(deps?.branchKey === undefined ? {} : { branchKey: deps.branchKey }),
             }),
@@ -5558,7 +5548,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     ];
   }
 
-  function implementReviewStep(baseRef: string): ReviewDebateWorkflowStep {
+  function implementReviewStep(): ReviewDebateWorkflowStep {
     return {
       behavior: "review-debate",
       stepId: "review",
@@ -5589,7 +5579,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
         specPath: "spec/plan/index.md",
         expectedArtifactPath: "spec/plan/index.md",
       }),
-      implementReviewStep(baseRef),
+      implementReviewStep(),
     ];
   }
 

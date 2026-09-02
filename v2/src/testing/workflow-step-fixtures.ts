@@ -22,6 +22,7 @@ const DEFAULT_DISPATCH_STUB_WORKTREE = {
 export type MinimalDispatchWriteStep = WriteWorkflowStep & {
   stageIndex?: number;
   branchKey?: string;
+  stageId?: string;
 };
 
 /** Type-complete write-step stub for dispatch-only daemon pipeline tests. */

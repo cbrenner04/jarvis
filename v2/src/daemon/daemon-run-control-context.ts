@@ -1,20 +1,18 @@
 import type { CliDeps } from "../cli/deps.ts";
+import { resolveMachineProfile } from "../config/machine-config-loader.ts";
 import type { TerminalPublicationInput, TerminalPublicationResult } from "../execution/terminal-publication.ts";
 import type { IntentFinalizationResumeDeps, ReviewProgress } from "../execution/workflow-runner.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import type { IpcClient } from "../ipc/client";
-import { resolveMachineProfile } from "../config/machine-config-loader.ts";
 import type { LogReader } from "../persistence/log-stream.ts";
 import type { StateStore } from "../persistence/state-store.ts";
-import type { WorktreeOwnershipRegistry } from "./daemon.ts";
+import type { ActiveRun, PromotionSettleState, WorktreeOwnershipRegistry } from "./daemon.ts";
 import { WorktreeOwnershipRegistry as WorktreeOwnershipRegistryImpl } from "./daemon.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
+import { bindPipelineWaitObserver, PipelineWaitObserver } from "./pipeline-observation.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
 import type { PipelineStageRecoveryAttempt } from "./pipeline-stage-recovery.ts";
 import type { resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
-import type { PromotionSettleState } from "./daemon.ts";
-import { bindPipelineWaitObserver, PipelineWaitObserver } from "./pipeline-observation.ts";
-import type { ActiveRun } from "./daemon.ts";
 
 export type RunControlHandlerContextDeps = {
   stateStore: StateStore;

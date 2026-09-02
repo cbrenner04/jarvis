@@ -148,8 +148,19 @@ beforeEach(() => {
 });
 
 test("workflow starts, pipeline dispatch, and recovery share daemon admission", () => {
-  const source = readFileSync(join(import.meta.dir, "daemon.ts"), "utf8");
-  const section = (start: string, end: string): string => source.slice(source.indexOf(start), source.indexOf(end));
+  // Run-control handlers are being extracted into sibling modules, so locate each section by its
+  // declaration in whichever module currently owns it rather than assuming one file.
+  const sources = ["daemon.ts", "daemon-run-lifecycle-handlers.ts"].map((name) =>
+    readFileSync(join(import.meta.dir, name), "utf8"),
+  );
+  const section = (start: string, end: string): string => {
+    const owner = sources.find((text) => text.includes(start));
+    if (owner === undefined) throw new Error(`no daemon module declares ${start}`);
+    const from = owner.indexOf(start);
+    const toIndex = owner.indexOf(end, from);
+    return owner.slice(from, toIndex === -1 ? undefined : toIndex);
+  };
+  const source = sources.join("\n");
   const workflowStart = section("const handleWorkflowStart", "const handleWriteLoopStart");
   const pipelineDispatch = section("const defaultPipelineDispatch", "const defaultPipelineWait");
   const pipelineRecovery = section("const handlePipelineRecoverHandler", "const handlePipelineDismissalHandler");

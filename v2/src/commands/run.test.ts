@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { RUN_DISMISS_USAGE, RUN_UNDISMISS_USAGE, RUN_USAGE } from "../cli/usage.ts";
+import { RUN_DISMISS_USAGE, RUN_START_USAGE, RUN_UNDISMISS_USAGE, RUN_USAGE } from "../cli/usage.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
+import type { WriteLoopInput } from "../execution/write-loop.ts";
 import {
   absentMachineConfigPath,
   type CliRepoFixture,
@@ -9,7 +10,9 @@ import {
   makeCliRepoFixture,
   makeIpcClient,
   stubAgentModelConfig,
+  writeHomeMachineConfig,
   writeMachineConfig,
+  writeRawMachineConfig,
 } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 
@@ -201,9 +204,6 @@ describe("run start", () => {
               message: "A run is already in progress; at most one in-flight run globally",
             },
           ]),
-        executeWriteLoop: async () => {
-          throw new Error("should not execute locally");
-        },
       }),
     );
 
@@ -211,6 +211,190 @@ describe("run start", () => {
     expect(cap.read()).toEqual({
       stdout: "",
       stderr: "run_in_progress: A run is already in progress; at most one in-flight run globally\n",
+    });
+  });
+
+  test("missing required write args prints usage and exits 1", async () => {
+    const cap = captureIo();
+
+    const code = await main(["run", "start", "--project", "demo"], cap.io);
+
+    expect(code).toBe(1);
+    expect(cap.read().stdout).toBe("");
+    expect(cap.read().stderr).toContain("usage: jarvis run start");
+  });
+
+  test("invalid --max-iterations prints usage and exits 1", async () => {
+    const cap = captureIo();
+
+    const code = await main([...fx.runStartArgs, "--max-iterations", "0"], cap.io, {
+      loadAgentModelConfig: stubAgentModelConfig,
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read().stdout).toBe("");
+    expect(cap.read().stderr).toBe(RUN_START_USAGE);
+  });
+
+  test("unknown write args print usage and exit 1", async () => {
+    const cap = captureIo();
+
+    const code = await main([...fx.runStartArgs, "--unknown", "x"], cap.io);
+
+    expect(code).toBe(1);
+    expect(cap.read().stdout).toBe("");
+    expect(cap.read().stderr).toContain("usage: jarvis run start");
+  });
+
+  test("run start resolves iterationTimeoutMs and iterationCeilingMs from machine config", async () => {
+    const cap = captureIo();
+    const configPath = writeHomeMachineConfig({
+      iterationTimeoutMs: 600_000,
+      iterationCeilingMs: 1_800_000,
+      idleOutputTimeoutMs: 0,
+    });
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000050";
+
+    const code = await withFixedUuid(requestId, () =>
+      main(fx.runStartArgs, cap.io, {
+        machineConfigPath: configPath,
+        loadAgentModelConfig: stubAgentModelConfig,
+        connectIpcClient: async () =>
+          makeIpcClient([{ kind: "response", id: requestId, result: { runId: "run-bounds" } }], { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    const input = (sent[0] as { params?: { input?: WriteLoopInput } }).params?.input;
+    expect(input?.iterationTimeoutMs).toBe(600_000);
+    expect(input?.iterationCeilingMs).toBe(1_800_000);
+  });
+
+  test("run start rejects inverted write-path iteration bounds before IPC dispatch", async () => {
+    const cap = captureIo();
+    const configPath = writeHomeMachineConfig({
+      iterationTimeoutMs: 60_000,
+      idleOutputTimeoutMs: 120_000,
+      iterationCeilingMs: 1_800_000,
+    });
+    const sent: unknown[] = [];
+
+    const code = await main(fx.runStartArgs, cap.io, {
+      machineConfigPath: configPath,
+      loadAgentModelConfig: stubAgentModelConfig,
+      connectIpcClient: async () => {
+        throw new Error("must not connect");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(sent).toHaveLength(0);
+    expect(cap.read().stderr).toContain("idleOutputTimeoutMs' (120000)");
+    expect(cap.read().stderr).toContain("iterationTimeoutMs' (60000)");
+  });
+
+  test("run start omits operatorSessionId from IPC payload when no caller telemetry is present", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000051";
+
+    await withFixedUuid(requestId, () =>
+      main(fx.runStartArgs, cap.io, {
+        machineConfigPath: writeHomeMachineConfig({ agents: ["claude"] }),
+        loadAgentModelConfig: stubAgentModelConfig,
+        connectIpcClient: async () =>
+          makeIpcClient([{ kind: "response", id: requestId, result: { runId: "run-telemetry" } }], { sent }),
+      }),
+    );
+
+    const input = (sent[0] as { params?: { input?: WriteLoopInput } }).params?.input;
+    expect(input?.telemetry?.operatorSessionId).toBeUndefined();
+  });
+
+  test("defaults to the claude agent when machine config has no override", async () => {
+    const cap = captureIo();
+    let capturedAgents: readonly string[] | undefined;
+    const requestId = "00000000-0000-4000-8000-000000000052";
+
+    await withFixedUuid(requestId, () =>
+      main(fx.runStartArgs, cap.io, {
+        machineConfigPath: absentMachineConfigPath(),
+        loadAgentModelConfig: (agents) => {
+          capturedAgents = agents;
+          return stubAgentModelConfig(agents);
+        },
+        connectIpcClient: async () =>
+          makeIpcClient([{ kind: "response", id: requestId, result: { runId: "run-default-agent" } }]),
+      }),
+    );
+
+    expect(capturedAgents).toEqual(["claude"]);
+  });
+
+  test("valid machine config supplies fallback agents", async () => {
+    const cap = captureIo();
+    const configPath = writeHomeMachineConfig({ agents: ["codex", "cursor"] });
+    let capturedAgents: readonly string[] | undefined;
+    const requestId = "00000000-0000-4000-8000-000000000053";
+
+    const code = await withFixedUuid(requestId, () =>
+      main(fx.runStartArgs, cap.io, {
+        machineConfigPath: configPath,
+        loadAgentModelConfig: (agents) => {
+          capturedAgents = agents;
+          return stubAgentModelConfig(agents);
+        },
+        connectIpcClient: async () =>
+          makeIpcClient([{ kind: "response", id: requestId, result: { runId: "run-agents" } }]),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(capturedAgents).toEqual(["codex", "cursor"]);
+  });
+
+  test("invalid machine config exits nonzero without contacting the daemon", async () => {
+    const cap = captureIo();
+    const configPath = writeRawMachineConfig("{ invalid json");
+    let loadAgentModelConfigCalled = false;
+
+    const code = await main(fx.runStartArgs, cap.io, {
+      machineConfigPath: configPath,
+      loadAgentModelConfig: (agents) => {
+        loadAgentModelConfigCalled = true;
+        return stubAgentModelConfig(agents);
+      },
+      connectIpcClient: async () => {
+        throw new Error("must not connect");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(loadAgentModelConfigCalled).toBe(false);
+    expect(cap.read().stderr).toContain("Failed to parse machine config");
+  });
+
+  test("run start carries bindingResolution from the agent model config in IPC payload", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const requestId = "00000000-0000-4000-8000-000000000054";
+
+    await withFixedUuid(requestId, () =>
+      main(fx.runStartArgs, cap.io, {
+        loadAgentModelConfig: stubAgentModelConfig,
+        machineConfigPath: writeHomeMachineConfig({ agents: ["claude"] }),
+        connectIpcClient: async () =>
+          makeIpcClient([{ kind: "response", id: requestId, result: { runId: "run-bindings" } }], { sent }),
+      }),
+    );
+
+    const input = (sent[0] as { params?: { input?: WriteLoopInput } }).params?.input;
+    expect(input?.bindings).toEqual([]);
+    expect(input?.bindingResolution).toEqual({
+      role: "implement",
+      agents: ["claude"],
+      agentModelConfig: stubAgentModelConfig(["claude"]),
     });
   });
 });

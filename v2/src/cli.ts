@@ -10,7 +10,6 @@ import type { CliDeps } from "./cli/deps.ts";
 import { createRuntimeDeps } from "./cli/deps.ts";
 import { getInvokingExecutableDigest } from "./cli/dispatch-revision.ts";
 import type { Io } from "./cli/io.ts";
-import { WRITE_USAGE } from "./cli/usage.ts";
 import { runCleanupCliCommand } from "./commands/cleanup-cli.ts";
 import { runConfigCommand } from "./commands/config.ts";
 import { runDaemonCommand } from "./commands/daemon.ts";
@@ -18,9 +17,6 @@ import { runInitCommand } from "./commands/init.ts";
 import { runPipelineCommand } from "./commands/pipeline.ts";
 import { runRunCommand } from "./commands/run.ts";
 import { runTuiCommand } from "./commands/tui.ts";
-import { exitCodeForWriteResult, parseWriteCliInput, writeStdoutJson } from "./commands/write.ts";
-import { resolveWriteLoopBindings, runWithWriteLoopMachineConfigPath } from "./daemon/daemon.ts";
-import { applyOperatorSessionId } from "./execution/write-loop.ts";
 import { daemonPathsByDigest } from "./paths.ts";
 
 type CommandHandler = (argv: readonly string[], io: Io, deps: CliDeps, operatorSessionId: string) => Promise<number>;
@@ -31,34 +27,6 @@ export type CommandEntry = {
   usage: string;
   handler: CommandHandler;
 };
-
-async function runWriteCommand(
-  argv: readonly string[],
-  out: Io,
-  runtimeDeps: CliDeps,
-  operatorSessionId: string,
-): Promise<number> {
-  const parsed = parseWriteCliInput(argv, runtimeDeps);
-  if (!parsed.ok) {
-    if (parsed.message !== undefined) out.stderr(parsed.message);
-    out.stderr(WRITE_USAGE);
-    return 1;
-  }
-
-  const resolved = runWithWriteLoopMachineConfigPath(runtimeDeps.machineConfigPath, () =>
-    resolveWriteLoopBindings(parsed.input),
-  );
-  if (!resolved.ok) {
-    out.stderr(`${resolved.message}\n`);
-    return 1;
-  }
-
-  const loopResult = await runtimeDeps.executeWriteLoop(applyOperatorSessionId(resolved.input, operatorSessionId));
-
-  out.stdout(`${writeStdoutJson(loopResult)}\n`);
-
-  return exitCodeForWriteResult(loopResult.kind);
-}
 
 /** Non-interactive: forwards argv and the two `CliDeps` fields `runInitCommand` accepts; every
  * other dependency (machine profiles, git, agent probes) uses its own production default. */
@@ -105,7 +73,6 @@ function commandEntry(name: string, handler: CommandHandler): CommandEntry {
 
 const commandEntries: readonly CommandEntry[] = [
   commandEntry("init", runInitCliCommand),
-  commandEntry("write", runWriteCommand),
   commandEntry("daemon", runDaemonCommand),
   commandEntry("config", runConfigCommand),
   commandEntry("run", runRunCommand),

@@ -18,7 +18,6 @@ import { type CommandFlag, type CommandNode, commandTree, resolveHelpPath } from
 
 const PARITY_PATHS = [
   ["init"],
-  ["write"],
   ["run", "start"],
   ["cleanup"],
   ["run", "list"],
@@ -40,7 +39,6 @@ export function parserAcceptedLongFlags(path: readonly string[]): readonly strin
   switch (key) {
     case "init":
       return parityFlagsFromParseOptions(INIT_PARSE_ARG_OPTIONS);
-    case "write":
     case "run start":
       return parseOptionKeysToLongFlags(Object.keys(WRITE_PARSE_ARG_OPTIONS));
     case "cleanup":

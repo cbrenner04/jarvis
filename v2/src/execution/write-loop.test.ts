@@ -27,6 +27,7 @@ import { INVALID_TOKEN_LOG_MAX_CHARS, truncateLogText } from "../persistence/log
 import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
 import { stubAgentModelConfig } from "../testing/cli-test-helpers.ts";
+import { mockWriteLoopInput } from "../testing/run-control.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter } from "./completion-commit.ts";
 import { createCompletionPublisher } from "./completion-publisher.ts";
@@ -55,6 +56,7 @@ import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "./write.ts";
 import {
   appendRuntimeSmokeOutcome,
+  applyOperatorSessionId,
   compareRepoPathsByUtf8Bytes,
   deriveMarkdownOutputRoots,
   enumerateRepairCompletionCandidates,
@@ -9425,5 +9427,19 @@ describe("persistRetainedFinalizationCheckpoint", () => {
       store.close();
       rmSync(stateDbPath, { force: true });
     }
+  });
+});
+
+describe("applyOperatorSessionId", () => {
+  test("overwrites caller-supplied operatorSessionId, preserves other telemetry fields", () => {
+    const callerTelemetry = { sinkPath: "/tmp/t.jsonl", operatorSessionId: "caller-id", workflow: "w", role: "r" };
+    const input: WriteLoopInput = { ...mockWriteLoopInput(), telemetry: callerTelemetry };
+
+    const result = applyOperatorSessionId(input, "minted-id");
+
+    expect(result.telemetry?.operatorSessionId).toBe("minted-id");
+    expect(result.telemetry?.sinkPath).toBe(callerTelemetry.sinkPath);
+    expect(result.telemetry?.workflow).toBe(callerTelemetry.workflow);
+    expect(result.telemetry?.role).toBe(callerTelemetry.role);
   });
 });

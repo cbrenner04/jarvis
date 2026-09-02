@@ -13,8 +13,8 @@ export const RUN_LIST_USAGE =
   "usage: jarvis run list [--since <duration|timestamp>] [--limit <positive-integer>] [--project <name>] [--branch <name>] [--spec <path>] [--status <terminal-status>] [--all]\n";
 export const TUI_USAGE = "usage: jarvis tui\n";
 export const TUI_LOG_USAGE = "usage: jarvis tui log <run-id>\n";
-export const WRITE_USAGE =
-  "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--max-iterations <n>]\n";
+export const RUN_START_USAGE =
+  "usage: jarvis run start --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--max-iterations <n>]\n";
 export const WORKFLOW_IMPLEMENT_USAGE =
   "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>] [--review-passes <n>] [--review-behavior debate|light] [--reset-despite-dirty] [--reset-despite-landed-criteria] [--detach]\n";
 export const WORKFLOW_INTENT_USAGE =

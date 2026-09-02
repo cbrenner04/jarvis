@@ -1,10 +1,14 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns, loadRunOrThrow, mockWriteLoopInput, workflowSnapshot } from "../testing/run-control.ts";
+import { DEFAULT_AGENT_MODEL_CONFIG } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlerContext } from "./daemon-run-control-context.ts";
+import { resetWriteLoopBindingSourceDepsForTests, setWriteLoopBindingSourceDepsForTests } from "./daemon.ts";
 import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 
 let stateStore: StateStore;
@@ -276,6 +280,89 @@ test("resume admits a paused direct write run with durable queuedInput", async (
   const resumed = await handlers.resume({ kind: "request", id: "r1", method: "resume", params: { runId } }, signal);
   // @mutate v2/src/daemon/daemon-run-lifecycle-handlers.ts "if (run.status !== \"paused\")" -> "if (run.status === \"paused\")"
   expect(resumed).toEqual({ kind: "response", result: { ok: true } });
+});
+
+test("resume maps hidden ~shrink stepId to shrink role via snapshot base step", async () => {
+  const resumedInputs: WriteLoopInput[] = [];
+  const localFake = createFakeWriteLoopExecutor((input) => resumedInputs.push(input));
+  const profileHome = mkdtempSync(join(tmpdir(), "jarvis-hidden-shrink-profile-"));
+  const machinesDir = join(profileHome, "machines");
+  const machineProfile = "hidden-shrink-profile";
+  const previousJarvisHome = process.env.JARVIS_HOME;
+  mkdirSync(machinesDir, { recursive: true });
+  const rung = (adapterModel: string) => ({ rungs: [{ adapterModel, priceKey: adapterModel }] });
+  writeFileSync(
+    join(machinesDir, `${machineProfile}.json`),
+    JSON.stringify({
+      models: {
+        claude: {
+          plan: rung("plan"),
+          implement: rung("M1"),
+          shrink: rung("S1"),
+          adversary: rung("adv"),
+          critic: rung("crit"),
+          advocate: rung("advoc"),
+          adjudicator: rung("adj"),
+          actuator: rung("act"),
+        },
+      },
+    }),
+  );
+  writeFileSync(join(profileHome, "config.json"), JSON.stringify({ machineProfile, agents: ["claude"] }));
+  process.env.JARVIS_HOME = profileHome;
+  setWriteLoopBindingSourceDepsForTests({
+    machineConfigPath: join(profileHome, "config.json"),
+    machinesDir,
+  });
+  try {
+    const ctx = createRunControlHandlerContext({
+      stateStore,
+      logReader: { tail: () => [], async *follow() {} },
+      writeLoopExecutor: localFake.executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => memoryHeadroom,
+      settleDelayMs: 0,
+    });
+    const handlers = createRunLifecycleHandlers(ctx, {
+      handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
+    });
+    const signal = new AbortController().signal;
+    const branchName = "hidden-shrink-resume";
+    const runId = stateStore.createRun({
+      project: branchName,
+      specRef: "main",
+      worktreePath: "/tmp/wt",
+      branch: branchName,
+      specPath: "/tmp/spec.md",
+      status: "paused",
+      stepId: "implement~shrink",
+      workflowSnapshot: {
+        invocationId: "hidden-shrink",
+        steps: [
+          {
+            stepId: "implement",
+            role: "implement",
+            stepRules: "shrink rules",
+            expectedArtifactPath: "/tmp/artifact",
+            agents: ["claude"],
+            agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+          },
+        ],
+      },
+    });
+
+    const resumed = await handlers.resume({ kind: "request", id: "r1", method: "resume", params: { runId } }, signal);
+    // @mutate v2/src/daemon/daemon-run-lifecycle-handlers.ts "stepId?.endsWith(\"~shrink\") === true" -> "stepId?.endsWith(\"~shrink\") !== true"
+    expect(resumed).toEqual({ kind: "response", result: { ok: true } });
+    expect(resumedInputs).toHaveLength(1);
+    expect(resumedInputs[0]?.bindingResolution?.role).toBe("shrink");
+  } finally {
+    localFake.abortAll();
+    resetWriteLoopBindingSourceDepsForTests();
+    if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
+    else process.env.JARVIS_HOME = previousJarvisHome;
+    rmSync(profileHome, { recursive: true, force: true });
+  }
 });
 
 test("pause and kill release write-loop ownership", async () => {

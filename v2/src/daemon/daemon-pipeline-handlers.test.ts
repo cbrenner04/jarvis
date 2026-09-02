@@ -302,3 +302,25 @@ test("pipeline_approve and pipeline_reject require pipelineId and stageId", asyn
     result: { kind: "refused", pipelineId: "missing", stageId: "gate", reason: "pipeline_not_found" },
   });
 });
+
+test("pipeline_resume requires pipelineId", async () => {
+  const handlers = pipelineHandlers();
+
+  for (const params of [{}, { pipelineId: "" }]) {
+    const response = await handlers.pipeline_resume(
+      requestFrame("resume-missing", "pipeline_resume", params),
+      new AbortController().signal,
+    );
+    expect(response).toEqual({ kind: "error", code: "invalid_params", message: "pipelineId required" });
+  }
+
+  const response = await handlers.pipeline_resume(
+    requestFrame("resume-unknown", "pipeline_resume", { pipelineId: "missing-pipeline" }),
+    new AbortController().signal,
+  );
+  // @mutate v2/src/daemon/daemon-pipeline-handlers.ts "!params" -> "params"
+  expect(response).toEqual({
+    kind: "response",
+    result: { kind: "refused", pipelineId: "missing-pipeline", reason: "pipeline_not_found" },
+  });
+});

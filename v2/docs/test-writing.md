@@ -131,7 +131,7 @@ Agent-runnable daemon and execution tests (`v2/src/daemon/**/*.test.ts` and `v2/
 
 - **Timer-callback guards**: extract guards inside `setTimeout` or `setInterval` callbacks into pure exported predicates testable in both directions without a real timer, so mutation verification and this determinism guard are both satisfiable.
 
-A static guard (`scripts/guard-deterministic-daemon-tests.ts`) verifies this rule and runs as part of `bun run check`. Tests that require irreducible real-clock timing (e.g., testing timeout enforcement) must be moved to `.sandbox-unrunnable.test.ts` files and run only in the integration suite outside the agent sandbox.
+A static guard (`scripts/guard-deterministic-daemon-tests.ts`) enforces timer-backed sleep-as-wait and related determinism rules it actually matches (e.g. bare `Bun.sleep`, unbounded `setTimeout`/`setInterval` waits outside deadline- or signal-bounded loops); it runs as part of `bun run check`. The unbounded-microtask-spin prohibition above is policy/docs-only unless and until the guard is extended — CI does not block the #3060 hang pattern today. Tests that require irreducible real-clock timing (e.g., testing timeout enforcement) must be moved to `.sandbox-unrunnable.test.ts` files and run only in the integration suite outside the agent sandbox.
 
 ## Determinism smell checklist
 

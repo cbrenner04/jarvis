@@ -30,8 +30,6 @@ import { preparePipelineStageWorkflow } from "./pipeline-workflow-preparation.ts
 import type { TerminalLogRecord } from "./run-operator-error.ts";
 import { composeRunOperatorError } from "./run-operator-error.ts";
 
-const okStep = createMinimalDispatchWriteStep();
-
 const STAGE_WRITE_SOURCE_PATHS = [
   join(import.meta.dir, "pipeline-stage-dispatch.ts"),
   join(import.meta.dir, "pipeline-execution.ts"),
@@ -465,7 +463,14 @@ describe("dispatchPipelineStage refused claim", () => {
       return { kind: "applied" };
     };
 
-    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+    await dispatchPipelineStage({
+      pipelineId: "p1",
+      stageId: "s1",
+      steps: [createMinimalDispatchWriteStep()],
+      dispatch,
+      wait,
+      store,
+    });
 
     expect(dispatchCalled).toBe(false);
     expect(releaseCount).toBe(0);
@@ -500,7 +505,14 @@ describe("dispatchPipelineStage refused claim", () => {
         ],
       }) as ReturnType<StateStore["loadPipeline"]>;
 
-    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+    await dispatchPipelineStage({
+      pipelineId: "p1",
+      stageId: "s1",
+      steps: [createMinimalDispatchWriteStep()],
+      dispatch,
+      wait,
+      store,
+    });
 
     expect(dispatchCalled).toBe(false);
     expect(patches.some((p) => p.patch.status === "failed")).toBe(true);
@@ -534,7 +546,14 @@ describe("dispatchPipelineStage refused claim", () => {
         ],
       }) as ReturnType<StateStore["loadPipeline"]>;
 
-    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+    await dispatchPipelineStage({
+      pipelineId: "p1",
+      stageId: "s1",
+      steps: [createMinimalDispatchWriteStep()],
+      dispatch,
+      wait,
+      store,
+    });
 
     expect(dispatchCalled).toBe(false);
     const successPatch = patches.find((p) => p.patch.status === "succeeded");
@@ -557,7 +576,14 @@ describe("dispatchPipelineStage refused claim", () => {
         stages: [stageRecord({ status: "running", workflowInvocationId: "entry-adopt" })],
       }) as ReturnType<StateStore["loadPipeline"]>;
 
-    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+    await dispatchPipelineStage({
+      pipelineId: "p1",
+      stageId: "s1",
+      steps: [createMinimalDispatchWriteStep()],
+      dispatch,
+      wait,
+      store,
+    });
 
     expect(dispatchCalled).toBe(false);
     expect(patches.some((p) => p.patch.status === "succeeded")).toBe(true);
@@ -577,7 +603,14 @@ describe("dispatchPipelineStage refused claim", () => {
       return originalRelease(args);
     };
 
-    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+    await dispatchPipelineStage({
+      pipelineId: "p1",
+      stageId: "s1",
+      steps: [createMinimalDispatchWriteStep()],
+      dispatch,
+      wait,
+      store,
+    });
 
     expect(releaseCount).toBe(1);
   });
@@ -601,7 +634,7 @@ describe("dispatchPipelineStage", () => {
     const donePromise = dispatchPipelineStage({
       pipelineId: "p1",
       stageId: "s1",
-      steps: [okStep],
+      steps: [createMinimalDispatchWriteStep()],
       dispatch,
       wait,
       store,
@@ -631,7 +664,14 @@ describe("dispatchPipelineStage", () => {
       "entry-2": { specPath: "spec/bar.md", prNumber: 42, prUrl: "https://example.com/pr/42" },
     });
 
-    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+    await dispatchPipelineStage({
+      pipelineId: "p1",
+      stageId: "s1",
+      steps: [createMinimalDispatchWriteStep()],
+      dispatch,
+      wait,
+      store,
+    });
 
     const successPatch = patches.find((p) => p.patch.status === "succeeded");
     expect(successPatch?.patch.endedAt).toBeDefined();
@@ -658,7 +698,14 @@ describe("dispatchPipelineStage", () => {
     const wait: PipelineWorkflowWait = async () => rollupStatus;
     const { store, patches } = fakeStore({ "entry-3": { specPath: "spec/baz.md", status: rollupStatus } });
 
-    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+    await dispatchPipelineStage({
+      pipelineId: "p1",
+      stageId: "s1",
+      steps: [createMinimalDispatchWriteStep()],
+      dispatch,
+      wait,
+      store,
+    });
 
     const terminalPatch = patches.find((p) => p.patch.status !== undefined && p.patch.status !== "running");
     expect(terminalPatch?.patch.status).toBe("failed");
@@ -680,7 +727,14 @@ describe("dispatchPipelineStage", () => {
     };
     const { store, patches } = fakeStore();
 
-    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+    await dispatchPipelineStage({
+      pipelineId: "p1",
+      stageId: "s1",
+      steps: [createMinimalDispatchWriteStep()],
+      dispatch,
+      wait,
+      store,
+    });
 
     expect(waitCalled).toBe(false);
     expect(patches).toHaveLength(1);
@@ -711,7 +765,14 @@ describe("dispatchPipelineStage", () => {
       originalUpdateStage(args);
     };
 
-    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+    await dispatchPipelineStage({
+      pipelineId: "p1",
+      stageId: "s1",
+      steps: [createMinimalDispatchWriteStep()],
+      dispatch,
+      wait,
+      store,
+    });
     expect(patches.some((p) => p.patch.status === "failed")).toBe(false);
 
     await adoptAndSettlePipelineStage({
@@ -747,7 +808,14 @@ describe("dispatchPipelineStage", () => {
       "entry-wait-fail": { specPath: "spec/wait-recover.md", status: "in-progress" },
     });
 
-    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+    await dispatchPipelineStage({
+      pipelineId: "p1",
+      stageId: "s1",
+      steps: [createMinimalDispatchWriteStep()],
+      dispatch,
+      wait,
+      store,
+    });
     expect(patches.some((p) => p.patch.status === "failed")).toBe(false);
     expect(patches.find((p) => p.patch.workflowInvocationId === "entry-wait-fail")).toBeDefined();
 
@@ -782,7 +850,14 @@ describe("dispatchPipelineStage", () => {
       [entryRunId]: { specPath: "spec/catch-defer.md", status: "in-progress" },
     });
 
-    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+    await dispatchPipelineStage({
+      pipelineId: "p1",
+      stageId: "s1",
+      steps: [createMinimalDispatchWriteStep()],
+      dispatch,
+      wait,
+      store,
+    });
 
     expect(patches.some((p) => p.patch.status === "failed")).toBe(false);
     expect(patches.some((p) => p.patch.status === "succeeded")).toBe(false);
@@ -808,7 +883,14 @@ describe("dispatchPipelineStage", () => {
       [entryRunId]: { specPath: "spec/live-defer.md", status: "in-progress" },
     });
 
-    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+    await dispatchPipelineStage({
+      pipelineId: "p1",
+      stageId: "s1",
+      steps: [createMinimalDispatchWriteStep()],
+      dispatch,
+      wait,
+      store,
+    });
 
     expectStageNotTerminalized(patches);
     const deferredPatch = patches.find((p) => p.patch.failureDetail !== undefined);
@@ -911,7 +993,7 @@ describe("dispatchPipelineStage", () => {
     await dispatchPipelineStage({
       pipelineId: "p1",
       stageId: "s1",
-      steps: [okStep],
+      steps: [createMinimalDispatchWriteStep()],
       dispatch,
       wait,
       store,
@@ -941,7 +1023,14 @@ describe("dispatchPipelineStage", () => {
     const wait: PipelineWorkflowWait = async () => "completed";
     const { store, patches } = fakeStore({ "entry-missing-spec": {} });
 
-    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+    await dispatchPipelineStage({
+      pipelineId: "p1",
+      stageId: "s1",
+      steps: [createMinimalDispatchWriteStep()],
+      dispatch,
+      wait,
+      store,
+    });
 
     const terminalPatch = patches.find((p) => p.patch.status === "failed");
     expect(terminalPatch?.patch.failureDetail).toMatchObject({
@@ -964,7 +1053,14 @@ describe("dispatchPipelineStage", () => {
       },
     });
 
-    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+    await dispatchPipelineStage({
+      pipelineId: "p1",
+      stageId: "s1",
+      steps: [createMinimalDispatchWriteStep()],
+      dispatch,
+      wait,
+      store,
+    });
 
     const successPatch = patches.find((p) => p.patch.status === "succeeded");
     // Mutation checkpoint: pipeline-stage-dispatch.test.ts multi-file downstreamInputs artifact
@@ -987,7 +1083,14 @@ describe("dispatchPipelineStage", () => {
       "entry-single-file": { specPath: "ready-intents/single.md" },
     });
 
-    await dispatchPipelineStage({ pipelineId: "p1", stageId: "s1", steps: [okStep], dispatch, wait, store });
+    await dispatchPipelineStage({
+      pipelineId: "p1",
+      stageId: "s1",
+      steps: [createMinimalDispatchWriteStep()],
+      dispatch,
+      wait,
+      store,
+    });
 
     const successPatch = patches.find((p) => p.patch.status === "succeeded");
     // Mutation checkpoint: pipeline-stage-dispatch.test.ts single-file no downstreamInputs artifact
@@ -1020,7 +1123,7 @@ describe("dispatchPipelineStage", () => {
     await dispatchPipelineStage({
       pipelineId: "p1",
       stageId: "s1",
-      steps: [okStep],
+      steps: [createMinimalDispatchWriteStep()],
       dispatch,
       wait,
       store,
@@ -1060,7 +1163,7 @@ describe("dispatchPipelineStage", () => {
     await dispatchPipelineStage({
       pipelineId: "p1",
       stageId: "s1",
-      steps: [okStep],
+      steps: [createMinimalDispatchWriteStep()],
       dispatch,
       wait,
       store,

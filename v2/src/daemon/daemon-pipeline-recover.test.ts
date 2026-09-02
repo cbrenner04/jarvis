@@ -134,7 +134,7 @@ function seedFanOutPipeline(store: StateStore, args: { targetBranchKey: string; 
   return pipelineId;
 }
 
-/** Minimal review step carrying a `plan-tree` landing at `worktreePath` — the only shape resolution requires. */
+/** Typed `ReviewWorkflowStep` for plan-stage recovery: `plan-tree` landing, per-role `agents`, `createBinding`, and `verdictPath` under `stage`. Use when resolution or recover handlers need a full review step after a write step, not a cast partial. */
 function planReviewStep(args: {
   worktreePath: string;
   stage: string;

@@ -6,11 +6,11 @@ import { join } from "node:path";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
-import {
-  type AnyWorkflowStep,
-  type ReviewDebateWorkflowStep,
-  type ReviewWorkflowStep,
-  type WriteWorkflowStep,
+import type {
+  AnyWorkflowStep,
+  ReviewDebateWorkflowStep,
+  ReviewWorkflowStep,
+  WriteWorkflowStep,
 } from "../execution/workflow-runner.ts";
 import { recoverPlanStage } from "../execution/workflow-runner-resume.ts";
 import type { LogEvent, LogSink, PersistedRecord } from "../persistence/log-stream.ts";

@@ -28,7 +28,7 @@ import {
 } from "../config/machine-config-loader.ts";
 import { loadMachineProfileModels } from "../config/machine-profile-loader.ts";
 import type { InvocationFailureDetail, InvocationFailureKind } from "../execution/invocation-failure.ts";
-import { type AnyWorkflowStep, type ReviewProgress } from "../execution/workflow-runner.ts";
+import type { AnyWorkflowStep, ReviewProgress } from "../execution/workflow-runner.ts";
 import {
   type IntentFinalizationResumeDeps,
   resolveExhaustedRedResumeContext,

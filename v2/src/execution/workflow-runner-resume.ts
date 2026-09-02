@@ -3,6 +3,22 @@ import { join, resolve } from "node:path";
 import type { RunFixCommandOpts } from "../../../shared/fix-command.ts";
 import { extractBlockerBody } from "../../../shared/spec-parser.ts";
 import {
+  type IntentFinalizationEvent,
+  type LogSink,
+  type LoopFinishedEvent,
+  type PersistedRecord,
+  priorLogRecordsFromSink,
+  type RunExecutionFailedEvent,
+} from "../persistence/log-stream.ts";
+import type {
+  Attempt,
+  OutcomeKind,
+  Run,
+  StateStore,
+  WorkflowSnapshot,
+  WorkflowSnapshotStep,
+} from "../persistence/state-store.ts";
+import {
   type CompletionCommitter,
   type CompletionStepMetadata,
   createCompletionCommitter,
@@ -16,22 +32,6 @@ import type { IntentPipelineHandoff } from "./intent-output.ts";
 import { configuredIntentDurableDir, listLandedIntentFiles } from "./intent-output.ts";
 import { deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
-import {
-  type IntentFinalizationEvent,
-  type LogSink,
-  type LoopFinishedEvent,
-  type PersistedRecord,
-  priorLogRecordsFromSink,
-  type RunExecutionFailedEvent,
-} from "../persistence/log-stream.ts";
-import {
-  type Attempt,
-  type OutcomeKind,
-  type Run,
-  type StateStore,
-  type WorkflowSnapshot,
-  type WorkflowSnapshotStep,
-} from "../persistence/state-store.ts";
 import { landPublication, type PublicationLanding } from "./publication-landing.ts";
 import { publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
@@ -49,8 +49,8 @@ import { lintReviewedStagedMarkdownOrFail } from "./reviewed-staged-markdown-lin
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
 import { lintStagedMarkdown } from "./staged-markdown-lint.ts";
-import { revalidateStagedPlanContract } from "./workflow-runner-debate-landing.ts";
 import type { AnyWorkflowStep, WorkflowResult, WorkflowRunnerInput, WriteWorkflowStep } from "./workflow-runner.ts";
+import { revalidateStagedPlanContract } from "./workflow-runner-debate-landing.ts";
 import {
   appendRuntimeSmokeOutcome,
   DEFAULT_ITERATION_TIMEOUT_MS,

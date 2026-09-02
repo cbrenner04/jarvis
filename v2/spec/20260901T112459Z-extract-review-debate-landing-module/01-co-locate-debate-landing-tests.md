@@ -26,9 +26,9 @@ Primary: `v2/src/execution/workflow-runner-debate-landing.test.ts` (new). In-sco
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner-debate-landing.test.ts` stays green for the six moved cases (`promotes, cleans up, and traces a debate-last intent workflow the same as light review`, `settles a debate-last intent workflow's landing failure the same as light review, with a trace`, `propagates review idleOutputMs through actuator-only debate retry`, `exhausted review-debate actuator timeout is not actuator-only-retry eligible; re-dispatch replays the full debate on a fresh row`, `re-dispatching after a debate-role failure replays the full debate, not actuator-only`, `multi-cycle review never takes actuator-only admission, even on a last-cycle actuator failure`).
-- [ ] `workflow-runner-debate.test.ts` stays green for the remaining dispatch cases after the move.
-- [ ] `bun run test:v2` passes.
+- [x] `workflow-runner-debate-landing.test.ts` stays green for the six moved cases (`promotes, cleans up, and traces a debate-last intent workflow the same as light review`, `settles a debate-last intent workflow's landing failure the same as light review, with a trace`, `propagates review idleOutputMs through actuator-only debate retry`, `exhausted review-debate actuator timeout is not actuator-only-retry eligible; re-dispatch replays the full debate on a fresh row`, `re-dispatching after a debate-role failure replays the full debate, not actuator-only`, `multi-cycle review never takes actuator-only admission, even on a last-cycle actuator failure`).
+- [x] `workflow-runner-debate.test.ts` stays green for the remaining dispatch cases after the move.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

@@ -1,9 +1,19 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer } from "node:net";
 import { basename, dirname, join } from "node:path";
 import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
+import { projectSafeId } from "../../../shared/project-safe-id.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
@@ -145,6 +155,34 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
         },
       ],
     } as unknown as StateStore;
+  }
+
+  function writeMachineConfig(projectConfig: Record<string, unknown> = { git: false }): void {
+    mkdirSync(jarvisRoot, { recursive: true });
+    writeFileSync(
+      join(jarvisRoot, "config.json"),
+      JSON.stringify({ projects: { project: { root: projectRoot, ...projectConfig } } }),
+    );
+  }
+
+  function createExternalPlan(
+    planName: string,
+    criterion: string,
+  ): { specReadRoot: string; indexPath: string; plansHome: string } {
+    const plansHome = join(jarvisRoot, "specs", projectSafeId("project"), "plans");
+    const specReadRoot = join(plansHome, planName);
+    mkdirSync(specReadRoot, { recursive: true });
+    writeFileSync(join(specReadRoot, "index.md"), `# Plan\n\n## Acceptance criteria\n\n- ${criterion}\n`);
+    return { specReadRoot, indexPath: join(specReadRoot, "index.md"), plansHome };
+  }
+
+  function withJarvisHome<T>(fn: () => Promise<T>): Promise<T> {
+    const previousJarvisHome = process.env.JARVIS_HOME;
+    process.env.JARVIS_HOME = jarvisRoot;
+    return fn().finally(() => {
+      if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
+      else process.env.JARVIS_HOME = previousJarvisHome;
+    });
   }
 
   beforeEach(async () => {
@@ -704,6 +742,85 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     ).toBe(0);
     expect(stdout).toContain("No eligible worktrees or stranded artifacts");
   });
+
+  test("resolves absolute external plan specPath from durable implement run for retired-worktree archival", async () =>
+    withJarvisHome(async () => {
+      const planName = "20260902T000001Z-external-retire";
+      writeMachineConfig({ git: false });
+      const { specReadRoot, indexPath, plansHome } = createExternalPlan(planName, "[x] Done");
+      const resolvedSpecReadRoot = realpathSync(specReadRoot);
+      const completedPlan = join(realpathSync(plansHome), "completed", planName);
+      const branch = "feat/external-plan-owner";
+      const worktreePath = await createWorktree(branch);
+      const store: StateStore = {
+        listRuns: () => [
+          {
+            project: "project",
+            branch,
+            worktreePath,
+            specPath: indexPath,
+            status: "completed",
+            stepId: "implement",
+          },
+        ],
+      } as unknown as StateStore;
+      const mockRunner = ghRunnerForPr("MERGED");
+      const registry = { project: { root: projectRoot } };
+      let stdout = "";
+      const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+      expect(
+        await runCleanupCommand(
+          { promptConfirm: async () => true },
+          registry,
+          jarvisRoot,
+          mockRunner,
+          async () => [],
+          store,
+          io,
+        ),
+      ).toBe(0);
+      expect(stdout).toContain(`Retired: ${worktreePath}`);
+      expect(stdout).toContain(`Archived: ${resolvedSpecReadRoot} ->`);
+      expect(existsSync(specReadRoot)).toBe(false);
+      expect(existsSync(completedPlan)).toBe(true);
+      expect(existsSync(worktreePath)).toBe(false);
+    }));
+
+  test("recordedStrandedBranch matches external plan directory from chained implement specPath", async () =>
+    withJarvisHome(async () => {
+      const planName = "20260902T000002Z-external-stranded";
+      writeMachineConfig({ git: false });
+      const { specReadRoot, indexPath, plansHome } = createExternalPlan(planName, "[x] Done");
+      const branch = "implement/external-plan";
+      const store: StateStore = {
+        listRuns: () => [
+          {
+            project: "project",
+            branch,
+            worktreePath: projectRoot,
+            specPath: indexPath,
+            status: "completed",
+            stepId: "implement",
+          },
+        ],
+      } as unknown as StateStore;
+      const registry = { project: { root: projectRoot } };
+      const mockRunner = ghRunnerForPr("MERGED");
+      let stdout = "";
+      const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+      const eligible = await inspectStrandedArtifacts(
+        [{ home: plansHome, source: specReadRoot, name: planName, project: "project" }],
+        registry,
+        [],
+        jarvisRoot,
+        store,
+        mockRunner,
+        io,
+      );
+      expect(eligible).toHaveLength(1);
+      expect(eligible[0]?.branch).toBe(branch);
+      expect(stdout).not.toContain("no durable implementation branch");
+    }));
 
   test("refuses open-home stranded archival while a materialized owner is not retired", async () => {
     const home = join(projectRoot, "v2", "spec");

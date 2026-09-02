@@ -135,6 +135,32 @@ test("pipelineExecutionDeps omits loadLogRecords without logReader", () => {
   expect(handlers.pipelineExecutionDeps()).not.toHaveProperty("loadLogRecords");
 });
 
+test("pipelineExecutionDeps omits executeTerminalPublication without injectable dep", () => {
+  const handlers = pipelineHandlers();
+  expect(handlers.pipelineExecutionDeps()).not.toHaveProperty("executeTerminalPublication");
+});
+
+test("pipelineExecutionDeps wires executeTerminalPublication from deps", () => {
+  const executeTerminalPublication = async () => ({ prNumber: 1 });
+  const ctx = createRunControlHandlerContext({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+  });
+  const workflowStart = createWorkflowStartAdmission(ctx);
+  const lifecycle = createRunLifecycleHandlers(ctx, {
+    handleWorkflowStart: workflowStart.handleWorkflowStart,
+  });
+  const handlers = createPipelineHandlers(ctx, {
+    pipelineDispatch: lifecycle.pipelineDispatch,
+    pipelineWait: lifecycle.pipelineWait,
+    admitWorkflowStart: workflowStart.admitWorkflowStart,
+    executeTerminalPublication,
+  });
+  expect(handlers.pipelineExecutionDeps().executeTerminalPublication).toBe(executeTerminalPublication);
+});
+
 test("pipelineExecutionDeps wires loadLogRecords from logReader", () => {
   const tailCalls: string[] = [];
   const mockLogReader = {

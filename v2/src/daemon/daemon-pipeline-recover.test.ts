@@ -522,7 +522,7 @@ test("pipeline_recover refuses invalid params, an unresolvable target, and a ret
     resolveStage: recoveryStageResolver({ branch, worktreePath, specPath }),
   });
 
-  // @mutate v2/src/daemon/daemon.ts "const claimError = previewWorkflowStartClaimAdmissionRefusal(store, _registry, activeRuns, lifecycle.key);" -> "const claimError = undefined;"
+  // @mutate v2/src/daemon/daemon-workflow-admission-handlers.ts "const claimError = previewWorkflowStartClaimAdmissionRefusal(store, registry, activeRuns, lifecycle.key);" -> "const claimError = undefined;"
   const claimedResponse = await claimedHandlers.pipeline_recover(
     requestFrame("r", "pipeline_recover", { pipelineId, branchKey: "branch-a" }),
     new AbortController().signal,

@@ -133,7 +133,7 @@ function completionBoundarySettlementFields(
   };
 }
 
-function isPostCommitReviewRetryableFailureKind(
+export function isPostCommitReviewRetryableFailureKind(
   detail: Pick<InvocationFailureDetail, "failureKind" | "exhaustedRoleTimeout">,
 ): boolean {
   if (detail.failureKind === "stall") return true;

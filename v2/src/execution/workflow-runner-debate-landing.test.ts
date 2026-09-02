@@ -13,7 +13,9 @@ import {
   DEBATE_AGENT_MODEL_CONFIG,
   TestLogSink,
 } from "./workflow-runner.test-support.ts";
+import type { InvocationFailureKind } from "./invocation-failure.ts";
 import { executeWorkflow, type ReviewDebateWorkflowStep } from "./workflow-runner.ts";
+import { isPostCommitReviewRetryableFailureKind } from "./workflow-runner-debate-landing.ts";
 
 describe("executeWorkflow review-debate landing", () => {
   function debateIntentStep(
@@ -403,5 +405,16 @@ describe("executeWorkflow review-debate landing", () => {
       expect(debateCalls).toEqual(["ADV", "ADVOC", "ADJ", "ACT"]);
       expect(secondResult.runId).not.toBe(firstResult.runId);
     });
+  });
+
+  test("post-commit review retryability settle admits non-exhausted timeout and stall", () => {
+    // @mutate v2/src/execution/workflow-runner-debate-landing.ts 'return detail.failureKind === "timeout" && !isExhaustedRoleTimeout(detail);' -> 'return detail.failureKind !== "timeout" && !isExhaustedRoleTimeout(detail);'
+    for (const failureKind of ["timeout", "stall"] as const) {
+      expect(isPostCommitReviewRetryableFailureKind({ failureKind })).toBe(true);
+    }
+    const timeoutOnly = (failureKind: InvocationFailureKind) => failureKind === "timeout";
+    expect(isPostCommitReviewRetryableFailureKind({ failureKind: "stall" })).not.toBe(timeoutOnly("stall"));
+    expect(isPostCommitReviewRetryableFailureKind({ failureKind: "error" })).toBe(false);
+    expect(isPostCommitReviewRetryableFailureKind({ failureKind: "timeout", exhaustedRoleTimeout: true })).toBe(false);
   });
 });

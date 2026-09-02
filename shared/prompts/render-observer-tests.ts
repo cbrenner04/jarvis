@@ -19,17 +19,31 @@ const RENDER_OBSERVER_TESTS: Readonly<Record<string, readonly string[]>> = {
   "prompts/patch/rules.md": ["v2/src/execution/write-prompt.test.ts", "shared/prompts/review-implement.test.ts"],
   "prompts/patch/shrink.md": ["v2/src/execution/write-prompt.test.ts"],
   "prompts/plan/draft.md": ["shared/prompts/plan-draft.test.ts", "v2/src/execution/write-prompt.test.ts"],
+  "prompts/plan/review-adjudicator.md": [
+    "shared/prompts/review-plan-contract-preservation.test.ts",
+    "shared/prompts/review-plan-growth-budget.test.ts",
+  ],
   "prompts/plan/review-adversary.md": [
+    "shared/prompts/review-plan-contract-preservation.test.ts",
+    "shared/prompts/review-plan-growth-budget.test.ts",
     "shared/prompts/review-plan-premise-falsification.test.ts",
     "shared/prompts/review-plan-hollow-pin.test.ts",
   ],
   "prompts/plan/review-advocate.md": [
+    "shared/prompts/review-plan-contract-preservation.test.ts",
+    "shared/prompts/review-plan-growth-budget.test.ts",
     "shared/prompts/review-plan-premise-falsification.test.ts",
     "shared/prompts/review-plan-hollow-pin.test.ts",
   ],
-  "prompts/plan/review-actuator.md": ["v1/test/modes/plan/prompts.test.ts"],
+  "prompts/plan/review-actuator.md": [
+    "shared/prompts/review-plan-contract-preservation.test.ts",
+    "shared/prompts/review-plan-growth-budget.test.ts",
+    "v1/test/modes/plan/prompts.test.ts",
+  ],
   "prompts/plan/review-critic.md": [
     "shared/prompts/review-profile.test.ts",
+    "shared/prompts/review-plan-contract-preservation.test.ts",
+    "shared/prompts/review-plan-growth-budget.test.ts",
     "shared/prompts/review-plan-premise-falsification.test.ts",
     "shared/prompts/review-plan-hollow-pin.test.ts",
   ],

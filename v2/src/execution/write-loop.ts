@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { type RunFixCommandOpts, runFixCommand } from "../../../shared/fix-command.ts";
+import { FixCommandError, type RunFixCommandOpts, runFixCommand } from "../../../shared/fix-command.ts";
 import { getCurrentHeadAsync, getGitStatusInventory } from "../../../shared/git.ts";
 import {
   executeWithQuotaFallback,
@@ -25,7 +25,11 @@ import { PLAN_DRAFT_PROMPT_ID } from "../../../shared/prompts/plan-draft.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import { parseSpec } from "../../../shared/spec-parser.ts";
-import { AsyncSubprocessError, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import {
+  AsyncSubprocessError,
+  type AsyncSubprocessRunner,
+  realAsyncSubprocessRunner,
+} from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
   dualConstraintRepromptDetail,
@@ -50,6 +54,7 @@ import {
   type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
 import {
+  biomeEligiblePaths,
   type CompletionCommitter,
   completionStageArgs,
   createCompletionCommitter,
@@ -341,6 +346,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   readyCommand?: string;
   /** Test seam overriding shared `runFixCommand` during ready-gate repair autofix. */
   runFixCommand?: (opts: RunFixCommandOpts) => Promise<void>;
+  /** Test seam overriding built-in scoped biome autofix during ready-gate repair. */
+  runBuiltInReadyGateAutofixBiome?: (opts: RunBuiltInReadyGateAutofixBiomeOpts) => Promise<void>;
   /** Test seam overriding post-autofix `bun run typecheck` verification. */
   runAutofixTypecheck?: (opts: { cwd: string; timeoutMs: number }) => Promise<AutofixTypecheckResult>;
   /** Test seam for ready-gate scope classification and base-ref reproduction. */
@@ -3253,6 +3260,88 @@ async function runAutofixTypecheckVerification(
   }
 }
 
+const READY_GATE_AUTOFIX_MAX_DIAGNOSTICS = 256;
+
+export type RunBuiltInReadyGateAutofixBiomeOpts = ExternalSpecGitScope & {
+  cwd: string;
+  baseRef: string;
+  timeoutMs: number;
+  readyGateScopeSeams?: ReadyGateScopeSeams;
+};
+
+async function enumerateAutofixChangedPaths(
+  opts: RunBuiltInReadyGateAutofixBiomeOpts,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<string[] | undefined> {
+  const allowed = await deriveGateAllowedPaths(
+    { worktreePath: opts.cwd, baseRef: opts.baseRef, specPath: "" },
+    { ...opts.readyGateScopeSeams, listSpecTreePaths: async () => [] },
+    runner,
+  );
+  if (allowed === undefined) {
+    return undefined;
+  }
+  const scoped = excludeExternalSpecGitPaths(opts.cwd, [...allowed], opts);
+  return biomeEligiblePaths(opts.cwd, scoped);
+}
+
+export async function runBuiltInReadyGateAutofixBiome(
+  opts: RunBuiltInReadyGateAutofixBiomeOpts,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<void> {
+  if (!existsSync(join(opts.cwd, "biome.json"))) {
+    return;
+  }
+  const eligible = await enumerateAutofixChangedPaths(opts, runner);
+  if (eligible === undefined) {
+    throw new FixCommandError("ready-gate autofix could not enumerate changed paths");
+  }
+  if (eligible.length === 0) {
+    return;
+  }
+  const displayCmd = `bun biome check --write --unsafe ${eligible.join(" ")}`;
+  try {
+    await runner.runAsync(
+      "bun",
+      ["biome", "check", "--write", "--unsafe", `--max-diagnostics=${READY_GATE_AUTOFIX_MAX_DIAGNOSTICS}`, ...eligible],
+      opts.cwd,
+      { timeoutMs: opts.timeoutMs, env: process.env },
+    );
+  } catch (err) {
+    if (err instanceof AsyncSubprocessError && err.code === "ETIMEDOUT") {
+      throw new FixCommandError(`${displayCmd} exceeded ${opts.timeoutMs}ms budget`);
+    }
+    const out = err as NodeJS.ErrnoException & { stdout?: Buffer | string; stderr?: Buffer | string };
+    const captured = [out.stdout?.toString(), out.stderr?.toString()].filter(Boolean).join("\n").trim();
+    throw new FixCommandError(captured ? `${displayCmd} failed:\n${captured}` : `${displayCmd} failed`);
+  }
+}
+
+/** Ready-gate repair autofix dispatch: built-in scoped biome, or the configured/injected fix command. */
+async function dispatchReadyGateAutofix(
+  args: WriteLoopInput,
+  input: { worktreePath: string; baseRef: string },
+): Promise<void> {
+  const timeoutMs = args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS;
+  if (args.fixCommand === undefined && args.runFixCommand === undefined) {
+    await (args.runBuiltInReadyGateAutofixBiome ?? runBuiltInReadyGateAutofixBiome)({
+      cwd: input.worktreePath,
+      baseRef: input.baseRef,
+      timeoutMs,
+      ...externalSpecGitScope(args),
+      ...(args.readyGateScopeSeams !== undefined ? { readyGateScopeSeams: args.readyGateScopeSeams } : {}),
+    });
+    return;
+  }
+  const fixOpts: RunFixCommandOpts = {
+    cwd: input.worktreePath,
+    ...(args.fixCommand !== undefined ? { fixCommand: args.fixCommand } : {}),
+    timeoutMs,
+    ...(args.telemetry?.role !== undefined ? { agentLabel: args.telemetry.role } : {}),
+  };
+  await (args.runFixCommand ?? runFixCommand)(fixOpts);
+}
+
 export async function publishWithReadyRepair(
   args: WriteLoopInput,
   store: StateStore,
@@ -3288,14 +3377,8 @@ export async function publishWithReadyRepair(
   appendReadyGateBaseRefProbeLog(args, result.runId, outcome.error);
 
   const autofixBaseline = await snapshotAutofixBaseline(input.worktreePath);
-  const fixOpts: RunFixCommandOpts = {
-    cwd: input.worktreePath,
-    ...(args.fixCommand !== undefined ? { fixCommand: args.fixCommand } : {}),
-    timeoutMs: args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
-    ...(args.telemetry?.role !== undefined ? { agentLabel: args.telemetry.role } : {}),
-  };
   try {
-    await (args.runFixCommand ?? runFixCommand)(fixOpts);
+    await dispatchReadyGateAutofix(args, input);
   } catch (error) {
     return {
       failure: {

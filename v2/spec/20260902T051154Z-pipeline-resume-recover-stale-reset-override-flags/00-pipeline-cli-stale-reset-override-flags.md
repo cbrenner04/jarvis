@@ -29,12 +29,12 @@ Standalone `plan`/`implement` re-runs accept `--reset-despite-dirty` and `--rese
 
 ## Acceptance criteria
 
-- [ ] `pipeline.test.ts` proves `pipeline resume` accepts `--reset-despite-dirty` and `--reset-despite-landed-criteria` on unscoped and branch-scoped invocations, forwards each true flag independently on the `pipeline_resume` frame (`resetDespiteDirty` / `resetDespiteLandedCriteria`), omits absent flags from params, and keeps refusal/usage behavior unchanged when flags are not supplied; fails against the pre-fix flagless CLI path reachable on main today (`ipcFramesWithMethod` params lack override fields).
-- [ ] `pipeline.test.ts` proves `pipeline recover` accepts `--reset-despite-dirty` and `--reset-despite-landed-criteria`, forwards each true flag independently on the `pipeline_recover` frame, omits absent flags, and keeps existing recover arity/refusal behavior; fails against the pre-fix flagless CLI path reachable on main today.
-- [ ] `pipeline.test.ts` — `pipeline resume forwards the branch positional as branchKey` and `pipeline resume usage errors reject malformed branch arity before daemon connect` stay green.
-- [ ] `pipeline.test.ts` — `pipeline recover admits a branch-scoped recovery request` and `pipeline recover rejects malformed arity before daemon connect` stay green.
-- [ ] `pipeline.test.ts` — `help pipeline resume matches resume usage` and `help pipeline recover matches recover usage` stay green against the updated usage constants naming both override flags.
-- [ ] `daemon-pipeline-resume.test.ts` and `daemon-pipeline-recover.test.ts` stay green (daemon RPC admission unchanged by this slice).
+- [x] `pipeline.test.ts` proves `pipeline resume` accepts `--reset-despite-dirty` and `--reset-despite-landed-criteria` on unscoped and branch-scoped invocations, forwards each true flag independently on the `pipeline_resume` frame (`resetDespiteDirty` / `resetDespiteLandedCriteria`), omits absent flags from params, and keeps refusal/usage behavior unchanged when flags are not supplied; fails against the pre-fix flagless CLI path reachable on main today (`ipcFramesWithMethod` params lack override fields).
+- [x] `pipeline.test.ts` proves `pipeline recover` accepts `--reset-despite-dirty` and `--reset-despite-landed-criteria`, forwards each true flag independently on the `pipeline_recover` frame, omits absent flags, and keeps existing recover arity/refusal behavior; fails against the pre-fix flagless CLI path reachable on main today.
+- [x] `pipeline.test.ts` — `pipeline resume forwards the branch positional as branchKey` and `pipeline resume usage errors reject malformed branch arity before daemon connect` stay green.
+- [x] `pipeline.test.ts` — `pipeline recover admits a branch-scoped recovery request` and `pipeline recover rejects malformed arity before daemon connect` stay green.
+- [x] `pipeline.test.ts` — `help pipeline resume matches resume usage` and `help pipeline recover matches recover usage` stay green against the updated usage constants naming both override flags.
+- [x] `daemon-pipeline-resume.test.ts` and `daemon-pipeline-recover.test.ts` stay green (daemon RPC admission unchanged by this slice).
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates

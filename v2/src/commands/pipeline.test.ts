@@ -1550,6 +1550,64 @@ describe("pipeline resume", () => {
   });
 
   test.each([
+    { scope: "unscoped", resetDespiteDirty: true, resetDespiteLandedCriteria: false },
+    { scope: "branch", resetDespiteDirty: true, resetDespiteLandedCriteria: false },
+    { scope: "unscoped", resetDespiteDirty: false, resetDespiteLandedCriteria: true },
+    { scope: "branch", resetDespiteDirty: false, resetDespiteLandedCriteria: true },
+  ] as const)("pipeline resume forwards stale-reset override flags ($scope dirty=$resetDespiteDirty landed=$resetDespiteLandedCriteria)", async ({
+    scope,
+    resetDespiteDirty,
+    resetDespiteLandedCriteria,
+  }) => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const argv =
+      scope === "branch"
+        ? [
+            "pipeline",
+            "resume",
+            "pipe-1",
+            "alpha",
+            ...(resetDespiteDirty ? ["--reset-despite-dirty"] : []),
+            ...(resetDespiteLandedCriteria ? ["--reset-despite-landed-criteria"] : []),
+          ]
+        : [
+            "pipeline",
+            "resume",
+            "pipe-1",
+            ...(resetDespiteDirty ? ["--reset-despite-dirty"] : []),
+            ...(resetDespiteLandedCriteria ? ["--reset-despite-landed-criteria"] : []),
+          ];
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-resume-flags"], () =>
+      main(argv, cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () =>
+          makeIpcClient([pipelineWaitFrame("pipe-resume-flags", { kind: "resumed", pipelineId: "pipe-1" })], {
+            sent,
+          }),
+      }),
+    );
+    // @mutate v2/src/commands/pipeline.ts "...(parsed.resetDespiteDirty ? { resetDespiteDirty: true } : {})," -> ""
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "" });
+    expect(ipcFramesWithMethod(sent, "pipeline_resume")).toEqual([
+      expect.objectContaining({
+        params: {
+          pipelineId: "pipe-1",
+          ...(scope === "branch" ? { branchKey: "alpha" } : {}),
+          ...(resetDespiteDirty ? { resetDespiteDirty: true } : {}),
+          ...(resetDespiteLandedCriteria ? { resetDespiteLandedCriteria: true } : {}),
+        },
+      }),
+    ]);
+    const frame = ipcFramesWithMethod(sent, "pipeline_resume")[0] as { params: Record<string, unknown> };
+    if (!resetDespiteDirty) expect(frame.params).not.toHaveProperty("resetDespiteDirty");
+    if (!resetDespiteLandedCriteria) expect(frame.params).not.toHaveProperty("resetDespiteLandedCriteria");
+  });
+
+  test.each([
     ["pipe-resume-done", "pipe-done", "pipeline_terminal_succeeded"],
     ["pipe-resume-rej", "pipe-rej", "pipeline_terminal_rejected"],
   ] as const)("pipeline resume on terminal pipeline prints %s on stderr", async (rpcId, pipelineId, reason) => {
@@ -1621,7 +1679,7 @@ describe("pipeline resume", () => {
         throw new Error("should not contact daemon");
       },
     });
-    // @mutate v2/src/commands/pipeline.ts "if (argv.length < 1 || argv.length > 2) return { ok: false };" -> "if (argv.length < 1) return { ok: false };"
+    // @mutate v2/src/commands/pipeline.ts "if (positionals.length < 1 || positionals.length > 2) return { ok: false };" -> "if (positionals.length < 1) return { ok: false };"
 
     expect(tooManyArgsCode).toBe(1);
     expect(tooManyArgsContacted).toBe(false);
@@ -1678,13 +1736,66 @@ describe("pipeline recover", () => {
         connectIpcClient: async () => makeIpcClient([pipelineWaitFrame("pipe-recover", result)], { sent }),
       }),
     );
-    // @mutate v2/src/commands/pipeline.ts "return runPipelineRecoverCommand(parsed.pipelineId, parsed.branchKey, io, deps);" -> "io.stderr(PIPELINE_USAGE); return 1;"
+    // @mutate v2/src/commands/pipeline.ts "return runPipelineRecoverCommand(parsed, io, deps);" -> "io.stderr(PIPELINE_USAGE); return 1;"
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: `${JSON.stringify(result)}\n`, stderr: "" });
     expect(ipcFramesWithMethod(sent, "pipeline_recover")).toEqual([
       expect.objectContaining({ params: { pipelineId: "pipe-1", branchKey: " alpha " } }),
     ]);
+  });
+
+  test.each([
+    { resetDespiteDirty: true, resetDespiteLandedCriteria: false },
+    { resetDespiteDirty: false, resetDespiteLandedCriteria: true },
+  ] as const)("pipeline recover forwards stale-reset override flags (dirty=$resetDespiteDirty landed=$resetDespiteLandedCriteria)", async ({
+    resetDespiteDirty,
+    resetDespiteLandedCriteria,
+  }) => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const result = {
+      kind: "admitted",
+      pipelineId: "pipe-1",
+      branchKey: "alpha",
+      stageId: "plan",
+      entryRunId: "run-9",
+    };
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-recover-flags"], () =>
+      main(
+        [
+          "pipeline",
+          "recover",
+          "pipe-1",
+          "alpha",
+          ...(resetDespiteDirty ? ["--reset-despite-dirty"] : []),
+          ...(resetDespiteLandedCriteria ? ["--reset-despite-landed-criteria"] : []),
+        ],
+        cap.io,
+        {
+          ...pipelineDeps(undefined),
+          connectIpcClient: async () => makeIpcClient([pipelineWaitFrame("pipe-recover-flags", result)], { sent }),
+        },
+      ),
+    );
+    // @mutate v2/src/commands/pipeline.ts "...(resetDespiteDirty ? { resetDespiteDirty: true } : {})," -> ""
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: `${JSON.stringify(result)}\n`, stderr: "" });
+    expect(ipcFramesWithMethod(sent, "pipeline_recover")).toEqual([
+      expect.objectContaining({
+        params: {
+          pipelineId: "pipe-1",
+          branchKey: "alpha",
+          ...(resetDespiteDirty ? { resetDespiteDirty: true } : {}),
+          ...(resetDespiteLandedCriteria ? { resetDespiteLandedCriteria: true } : {}),
+        },
+      }),
+    ]);
+    const frame = ipcFramesWithMethod(sent, "pipeline_recover")[0] as { params: Record<string, unknown> };
+    if (!resetDespiteDirty) expect(frame.params).not.toHaveProperty("resetDespiteDirty");
+    if (!resetDespiteLandedCriteria) expect(frame.params).not.toHaveProperty("resetDespiteLandedCriteria");
   });
 
   test("pipeline recover reports daemon refusals without admitting", async () => {
@@ -1782,7 +1893,7 @@ describe("pipeline recover", () => {
     await expectUsage(["pipeline", "recover", "pipe-1"]);
     await expectUsage(["pipeline", "recover", "pipe-1", "alpha", "extra"]);
     await expectUsage(["pipeline", "recover", "pipe-1", "   "]);
-    // @mutate v2/src/commands/pipeline.ts "if (argv.length !== 2) return { ok: false };" -> "if (argv.length < 2) return { ok: false };"
+    // @mutate v2/src/commands/pipeline.ts "if (positionals.length !== 2) return { ok: false };" -> "if (positionals.length < 2) return { ok: false };"
     // @mutate v2/src/commands/pipeline.ts "if (pipelineId.trim().length === 0 || branchKey.trim().length === 0) return { ok: false };" -> "if (pipelineId.length === 0 || branchKey.length === 0) return { ok: false };"
   });
 
@@ -1793,6 +1904,8 @@ describe("pipeline recover", () => {
 
     expect(code).toBe(0);
     expect(cap.read().stdout).toContain(PIPELINE_RECOVER_USAGE.trim());
+    expect(PIPELINE_RECOVER_USAGE).toContain("--reset-despite-dirty");
+    expect(PIPELINE_RECOVER_USAGE).toContain("--reset-despite-landed-criteria");
 
     const familyCap = captureIo();
     const familyCode = await main(["help", "pipeline"], familyCap.io);
@@ -2023,6 +2136,8 @@ describe("pipeline help", () => {
 
     expect(code).toBe(0);
     expect(cap.read().stdout).toContain(PIPELINE_RESUME_USAGE.trim());
+    expect(PIPELINE_RESUME_USAGE).toContain("--reset-despite-dirty");
+    expect(PIPELINE_RESUME_USAGE).toContain("--reset-despite-landed-criteria");
   });
 
   test("help pipeline dismiss matches dismiss usage", async () => {

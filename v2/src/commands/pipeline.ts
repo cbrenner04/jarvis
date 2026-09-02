@@ -1,6 +1,11 @@
 import { basename } from "node:path";
 import { parseArgs } from "node:util";
-import { PIPELINE_LIST_PARSE_ARG_OPTIONS, PIPELINE_START_PARSE_ARG_OPTIONS } from "../cli/command-help-flags.ts";
+import {
+  PIPELINE_LIST_PARSE_ARG_OPTIONS,
+  PIPELINE_RECOVER_PARSE_ARG_OPTIONS,
+  PIPELINE_RESUME_PARSE_ARG_OPTIONS,
+  PIPELINE_START_PARSE_ARG_OPTIONS,
+} from "../cli/command-help-flags.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { formatConnectionError, formatRpcError, request, withRunClient } from "../cli/ipc.ts";
@@ -99,27 +104,86 @@ function parsePipelineDecisionArgs(
   return { ok: true, pipelineId, stageId, branchKey };
 }
 
+type PipelineStaleResetOverrideFlags = {
+  resetDespiteDirty?: boolean;
+  resetDespiteLandedCriteria?: boolean;
+};
+
+type PipelineRpcParams = Record<string, string | boolean>;
+
+function readStaleResetOverrideFlags(
+  values: Record<string, string | boolean | undefined>,
+): PipelineStaleResetOverrideFlags {
+  const resetDespiteDirty = values["reset-despite-dirty"] === true;
+  const resetDespiteLandedCriteria = values["reset-despite-landed-criteria"] === true;
+  return {
+    ...(resetDespiteDirty ? { resetDespiteDirty: true } : {}),
+    ...(resetDespiteLandedCriteria ? { resetDespiteLandedCriteria: true } : {}),
+  };
+}
+
 function parsePipelineResumeArgs(
   argv: readonly string[],
-): { ok: true; pipelineId: string; branchKey?: string } | { ok: false } {
-  if (argv.length < 1 || argv.length > 2) return { ok: false };
-  const pipelineId = argv[0];
+): ({ ok: true; pipelineId: string; branchKey?: string } & PipelineStaleResetOverrideFlags) | { ok: false } {
+  let values: Record<string, string | boolean | undefined>;
+  let positionals: string[];
+  try {
+    const parsed = parseArgs({
+      args: [...argv],
+      allowPositionals: true,
+      strict: true,
+      options: PIPELINE_RESUME_PARSE_ARG_OPTIONS,
+    });
+    values = parsed.values;
+    positionals = parsed.positionals;
+  } catch {
+    return { ok: false };
+  }
+
+  if (positionals.length < 1 || positionals.length > 2) return { ok: false };
+  const pipelineId = positionals[0];
   if (pipelineId === undefined || pipelineId.trim().length === 0) return { ok: false };
-  const branchKey = argv[1];
-  if (branchKey === undefined) return { ok: true, pipelineId };
-  if (branchKey.trim().length === 0) return { ok: false };
-  return { ok: true, pipelineId, branchKey };
+  const branchKey = positionals[1];
+  if (branchKey !== undefined && branchKey.trim().length === 0) return { ok: false };
+
+  return {
+    ok: true,
+    pipelineId,
+    ...(branchKey !== undefined ? { branchKey } : {}),
+    ...readStaleResetOverrideFlags(values),
+  };
 }
 
 function parsePipelineRecoverArgs(
   argv: readonly string[],
-): { ok: true; pipelineId: string; branchKey: string } | { ok: false } {
-  if (argv.length !== 2) return { ok: false };
-  const pipelineId = argv[0];
-  const branchKey = argv[1];
+): ({ ok: true; pipelineId: string; branchKey: string } & PipelineStaleResetOverrideFlags) | { ok: false } {
+  let values: Record<string, string | boolean | undefined>;
+  let positionals: string[];
+  try {
+    const parsed = parseArgs({
+      args: [...argv],
+      allowPositionals: true,
+      strict: true,
+      options: PIPELINE_RECOVER_PARSE_ARG_OPTIONS,
+    });
+    values = parsed.values;
+    positionals = parsed.positionals;
+  } catch {
+    return { ok: false };
+  }
+
+  if (positionals.length !== 2) return { ok: false };
+  const pipelineId = positionals[0];
+  const branchKey = positionals[1];
   if (pipelineId === undefined || branchKey === undefined) return { ok: false };
   if (pipelineId.trim().length === 0 || branchKey.trim().length === 0) return { ok: false };
-  return { ok: true, pipelineId, branchKey };
+
+  return {
+    ok: true,
+    pipelineId,
+    branchKey,
+    ...readStaleResetOverrideFlags(values),
+  };
 }
 
 function parsePipelineStartArgs(argv: readonly string[]): PipelineStartCliInput {
@@ -468,7 +532,7 @@ async function runPipelineWaitCommand(pipelineId: string, io: Io, deps: CliDeps)
 async function requestPipelineRpc(
   client: IpcClient,
   method: string,
-  params: Record<string, string>,
+  params: PipelineRpcParams,
   io: Io,
 ): Promise<{ ok: true; response: unknown } | { ok: false }> {
   try {
@@ -481,7 +545,7 @@ async function requestPipelineRpc(
 
 async function runPipelineMutationCommand(
   method: "pipeline_approve" | "pipeline_reject" | "pipeline_resume",
-  params: Record<string, string>,
+  params: PipelineRpcParams,
   successKind: "applied" | "resumed",
   io: Io,
   deps: CliDeps,
@@ -538,13 +602,23 @@ function parsePipelineRecoverOutcome(value: unknown): PipelineRecoverOutcome | u
 }
 
 async function runPipelineRecoverCommand(
-  pipelineId: string,
-  branchKey: string,
+  params: { pipelineId: string; branchKey: string } & PipelineStaleResetOverrideFlags,
   io: Io,
   deps: CliDeps,
 ): Promise<number> {
+  const { pipelineId, branchKey, resetDespiteDirty, resetDespiteLandedCriteria } = params;
   return withRunClient(io, deps, async (client) => {
-    const result = await requestPipelineRpc(client, "pipeline_recover", { pipelineId, branchKey }, io);
+    const result = await requestPipelineRpc(
+      client,
+      "pipeline_recover",
+      {
+        pipelineId,
+        branchKey,
+        ...(resetDespiteDirty ? { resetDespiteDirty: true } : {}),
+        ...(resetDespiteLandedCriteria ? { resetDespiteLandedCriteria: true } : {}),
+      },
+      io,
+    );
     if (!result.ok) return 1;
     const outcome = parsePipelineRecoverOutcome(result.response);
     if (outcome === undefined) {
@@ -673,7 +747,12 @@ async function runPipelineControlSubcommand(
     return runPipelineMutationCommand(
       "pipeline_resume",
       // Mutation checkpoint: dropping `branchKey` here must turn the branch-scoped resume RPC test RED.
-      { pipelineId: parsed.pipelineId, ...(parsed.branchKey !== undefined ? { branchKey: parsed.branchKey } : {}) },
+      {
+        pipelineId: parsed.pipelineId,
+        ...(parsed.branchKey !== undefined ? { branchKey: parsed.branchKey } : {}),
+        ...(parsed.resetDespiteDirty ? { resetDespiteDirty: true } : {}),
+        ...(parsed.resetDespiteLandedCriteria ? { resetDespiteLandedCriteria: true } : {}),
+      },
       "resumed",
       io,
       deps,
@@ -685,7 +764,7 @@ async function runPipelineControlSubcommand(
       io.stderr(PIPELINE_RECOVER_USAGE);
       return 1;
     }
-    return runPipelineRecoverCommand(parsed.pipelineId, parsed.branchKey, io, deps);
+    return runPipelineRecoverCommand(parsed, io, deps);
   }
   if (subcommand === "dismiss" || subcommand === "undismiss") {
     const parsed = parsePipelineDismissalArgs(argv.slice(1));

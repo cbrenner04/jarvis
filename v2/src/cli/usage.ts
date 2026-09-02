@@ -31,8 +31,10 @@ export const PIPELINE_LIST_USAGE =
 export const PIPELINE_WAIT_USAGE = "usage: jarvis pipeline wait <pipeline-id>\n";
 export const PIPELINE_APPROVE_USAGE = "usage: jarvis pipeline approve <pipeline-id> <stage-id> <branch-key>\n";
 export const PIPELINE_REJECT_USAGE = "usage: jarvis pipeline reject <pipeline-id> <stage-id> <branch-key>\n";
-export const PIPELINE_RESUME_USAGE = "usage: jarvis pipeline resume <pipeline-id> [<branch-key>]\n";
-export const PIPELINE_RECOVER_USAGE = "usage: jarvis pipeline recover <pipeline-id> <branch-key>\n";
+export const PIPELINE_RESUME_USAGE =
+  "usage: jarvis pipeline resume <pipeline-id> [<branch-key>] [--reset-despite-dirty] [--reset-despite-landed-criteria]\n";
+export const PIPELINE_RECOVER_USAGE =
+  "usage: jarvis pipeline recover <pipeline-id> <branch-key> [--reset-despite-dirty] [--reset-despite-landed-criteria]\n";
 export const PIPELINE_DISMISS_USAGE = "usage: jarvis pipeline dismiss <pipeline-id>\n";
 export const PIPELINE_UNDISMISS_USAGE = "usage: jarvis pipeline undismiss <pipeline-id>\n";
 export const PIPELINE_USAGE =

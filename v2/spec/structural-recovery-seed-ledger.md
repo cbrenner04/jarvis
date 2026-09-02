@@ -279,6 +279,45 @@ Every implement produced **correct work**; what failed was the settlement tail. 
 | `ready-gate-command-missing-misclassifies-lint-failures` | [#3355] | `isMissingReadyGateCommandOutput` substring-scans the whole gate transcript for `/enoent/i`; a lint failure settles non-resumable `fix_config`. Stranded #3349 and #3351. Caveat recorded: the persisted `readyGateOutput` is a 4096-char tail with no marker, so the exact trigger is unproven — persisting the matched evidence is an AC. |
 | `boundary-split-emits-near-duplicate-subspecs` | [#3359] | Surface splitting copies whole-change framing into every child, yielding byte-identical subspecs titled by bare surface names, plus an unlinked file and a dangling sibling prerequisite. Two occurrences (`exclude-test-support` today; `canonical-pipeline-execution-state` already noted in the brief). |
 
+### Post-write landings (this section was written mid-session)
+
+Everything below landed after the section above was drafted; it is the second half of the same session.
+
+- **#3122 CLOSED.** `chain-external-plan-specs-into-implement` [#3350] then the archive lane in two slices — subspec 00 [#3360], subspecs 01–03 [#3363] (carries `Closes #3122`). A `plan.commit: false` project now rides v2 implement end to end. CI caught a real regression in #3350 pre-merge: the branch resolved external identity on *every* chained stage, breaking `pipeline_resume dispatches chained plan and implement stages after prior worktree removal` with a fail **and an error** that local isolated runs did not reproduce; gated to `<jarvisHome>/specs/`.
+- **split-workflow-runner:** `extract-review-debate-landing-module` [#3351] — the prior session's handoff, hand-finished at the gate only. ~1,005 lines out of `workflow-runner.ts`; assertion inventory 35/152 → 36/161, nothing dropped. `extract-workflow-runner-resume-machines` planned [#3358].
+- **split-daemon:** `typed-step-stubs-and-bounded-spins` [#3352] (zero `as unknown as AnyWorkflowStep` casts remain; assertions 198/1608 → 203/1621, publication had left it draft); `modularize-daemon` subspecs 00–01 [#3364].
+- **CLI trim:** `retire-legacy-workflow-aliases` [#3356], `retire-tui-daemon-client-start` [#3349].
+- **Persistence:** `squash-state-store-migrations` [#3362] — baselined schema, existing stores upgrade once via `031-baseline-squash` (transactional, idempotent, pre-squash fixture at migration `012` proves the partial-upgrade path).
+- **Pipeline recovery:** `pipeline-resume-recover-stale-reset-override-flags` subspecs 00–01 [#3365] — the override flags that exist for the very gate that blocked the PR.
+- **Seed:** `notifications-wait-is-the-operator-wake-primitive` [#3361].
+
+### The land-a-slice pattern (new, and it is what closed #3122)
+
+A multi-subspec spec that cannot finish inside one iteration budget **cannot converge by re-dispatch**. A re-run either resets the workspace (discarding completed subspecs) or is refused by the preserve-landed-criteria gate, which names the ticked files. Landing the completed subspecs to `main` clears the gate so the next dispatch routes to the first unfinished one. Used for the archive lane (#3360 → #3363, which is how #3122 actually closed), `modularize-daemon` [#3364], and `pipeline-resume-recover` [#3365]. Prefer it over `--reset-despite-landed-criteria`, which discards work.
+
+### Parallelization — the ceiling has a destructive edge
+
+Prior sessions recorded "2 clean / 3 saturates". This session pushed to **5–6 concurrent implements at load ~30 and lost three runs to `invocation_error`** in one batch (`modularize-daemon` at 2/8 subspecs with 12 commits, `archive-external` at 7/8 on subspec 00, `terse-implement` at 0). `invocation_error` is **non-resumable**, so each loss is a full re-dispatch that discards the branch. The failure is the agent binding under contention, not a watchdog false-kill. Revised guidance: **2 is the working ceiling; 3 only when lanes are small; never more.**
+
+Corollary, hit four separate times: **never run a local `bun test` suite beside live implements.** `init.test.ts` + `pipeline-start-admission.test.ts`, `cli.test.ts` + `workflow.test.ts`, two daemon suites at ~5010 ms, and three pipeline suites all "failed" in batch and passed in isolation.
+
+### Strand taxonomy — every implement produced correct work
+
+Nine hand-finishes, all settlement-tail failures rather than bad agent code: `ready_gate_command_missing` misclassification ×2 (seeded #3355), `iteration_timeout` from aggregate-suite ACs ×3 (prompt fixed #3344), out-of-diff repo-wide autofix ×1 (fixed #3343), publication leaving a complete PR draft ×1, a run appending a `## Blocker` over its own unticked criteria ×1, and one wedged at the tail with no process ×1.
+
+### Two defects caught only by reading the work
+
+1. **A stranded mutation mutant in production source.** `squash-state-store-migrations` completed all four subspecs, wedged, and left `run.status !== "failed"` applied to `workflow-run-status-rollup.ts` — inverted from the committed `=== "failed"`. It broke the hidden-shrink rollup so a *failed* shrink would roll the entry row up to `completed`; 4 tests failed in isolation while `main` was green. Committing the dirty tree unexamined would have shipped it (#2314 class). It sat in a file the spec touched only for one import line.
+2. **A structure pin asserting against an empty string.** `daemon-workflow-start.test.ts` slices `daemon.ts` between section markers to assert workflow start, pipeline dispatch, and recovery all route through `admitWorkflowStart`. The extraction moved two markers into the new module, `indexOf` missed, and the slice came back `""`. Re-homed to resolve each section from whichever module declares it, throwing if none does.
+
+**Both belong to one pattern that appeared four times this session** — with #3330's line-keyed guard inventory and #3348's whole-text keyword match: *invariants keyed to incidental structure rather than to the thing they assert.* Worth treating as a class rather than four point fixes.
+
+### Gate fix validated in production
+
+After [#3343] landed, the archive lane failed the same `completion_commit_failed` boundary — but scoped to its own 4 changed files, with findings genuinely in its own new code (a `noNonNullAssertion` and a complexity finding). Before the fix, that boundary failed on `noNonNullAssertion` in files the run never touched. Same failure code, entirely different quality of signal.
+
+Separately, the default biome diagnostic cap hid the real error **three times** this session; each needed `--diagnostic-level=error` to surface. Once it hid a *guard-script* failure (`guard-test-double-production-calls`) behind 27 unrelated warnings, so the failing line was not biome's at all.
+
 ### Known-limit on the #3114 fix
 
 [#3348] exempts bullets naming exactly one **path-style** artifact (a backticked token containing `/`). `inject-daemon-write-loop-binding-deps` then blocked on a bullet naming two **bare filenames** (`` `cli.ts` ``, `` `daemon.ts` ``), which matches zero artifact paths, so the exemption did not apply. Recognizing bare `<name>.<ext>` would help, but a bullet naming two files needs its own answer — there the subject is `cli.ts` and `daemon.ts` is only the import source. Hand-landed [#3357]; follow-up not yet seeded.

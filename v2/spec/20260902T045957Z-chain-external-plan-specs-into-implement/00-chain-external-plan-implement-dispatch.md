@@ -27,19 +27,8 @@
 - [x] `pipeline-stage-resolve.test.ts` — `"implement stage normalizes the recorded plan directory artifact through real preset builders"` stays green.
 - [x] `pipeline-stage-resolve.test.ts` — `"implement stage normalizes prior plan directory specPath to index.md"` stays green.
 - [x] `implement-workflow-steps.test.ts` — `"chained pipeline preflight uses prior worktree as git root and prior branch for spec availability while publication baseRef is default branch"` stays green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
 - None — operator and architecture prose for chained external-plan implement is owned by `01-document-chained-external-plan-implement.md`.
-
-## Blocker
-
-Artifact contract check failed: Unticked non-human-only acceptance criteria:
-- `pipeline-stage-resolve.test.ts` — `"implement stage resolves through real preset builders when plan spec exists only on git-disabled plan workspace"` asserts the resolved write step carries `externalPlanSpec: true`, canonical absolute external `specPath` / `expectedArtifactPath`, `specReadRoot` on the `plans/<name>/` directory, admission-root `worktree.projectRoot`, and publication default-branch `worktree.baseRef` rather than `preflightGitRoot` on the plan workspace; it fails against the pre-fix chained launch that omits `externalPlanSpec` (reachable on main: the test currently expects only `result.ok` and a write step).
-- `pipeline-stage-resolve.test.ts` — `"chained implement stage returns already_complete for complete git-disabled external plan tree"` returns `implement.already_complete` through real preset preparation without a materialized implement worktree or loaded workflow steps; it fails against the pre-fix chained launch that never reaches shared external completeness admission.
-- `pipeline-stage-resolve.test.ts` — `"implement stage resolves through real preset builders when plan spec exists only on plan worktree branch"` stays green.
-- `pipeline-stage-resolve.test.ts` — `"implement stage normalizes the recorded plan directory artifact through real preset builders"` stays green.
-- `pipeline-stage-resolve.test.ts` — `"implement stage normalizes prior plan directory specPath to index.md"` stays green.
-- `implement-workflow-steps.test.ts` — `"chained pipeline preflight uses prior worktree as git root and prior branch for spec availability while publication baseRef is default branch"` stays green.
-- `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.

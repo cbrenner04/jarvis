@@ -19,7 +19,7 @@ Operator and architecture docs describe standalone external-plan implement admis
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/daemon-host.md` documents git-disabled chained plan-artifact normalization, implement-stage external dispatch, and cross-links to the shared admission/execution contract.
-- [ ] `v2/docs/workflow-runner.md` records that standalone and chained implement share the external-spec contract without duplicating daemon resolution detail.
-- [ ] `v2/docs/operator-runbook.md` states that a git-disabled plan pipeline continues through v2 implement using the external plan home.
-- [ ] `v2/docs/v1-behaviors.md` records the resulting v2 chained external-plan implement behavior without changing v1.
+- [x] `v2/docs/daemon-host.md` documents git-disabled chained plan-artifact normalization, implement-stage external dispatch, and cross-links to the shared admission/execution contract.
+- [x] `v2/docs/workflow-runner.md` records that standalone and chained implement share the external-spec contract without duplicating daemon resolution detail.
+- [x] `v2/docs/operator-runbook.md` states that a git-disabled plan pipeline continues through v2 implement using the external plan home.
+- [x] `v2/docs/v1-behaviors.md` records the resulting v2 chained external-plan implement behavior without changing v1.

@@ -903,11 +903,24 @@ function discoverExternalPlanStrandedArtifacts(
   registry: Record<string, ProjectRegistryEntry>,
   configPath: string,
   safeIdOwners: Map<string, string[]>,
+  io?: { stdout: (s: string) => void },
 ): DiscoveredStrandedArtifact[] {
   const artifacts: DiscoveredStrandedArtifact[] = [];
+  const reportedCollisionSafeIds = new Set<string>();
   for (const [project] of Object.entries(registry)) {
     const safeId = projectSafeId(project);
-    if ((safeIdOwners.get(safeId)?.length ?? 0) !== 1) continue;
+    const owners = safeIdOwners.get(safeId) ?? [];
+    if (owners.length !== 1) {
+      if (owners.length > 1 && !reportedCollisionSafeIds.has(safeId)) {
+        reportedCollisionSafeIds.add(safeId);
+        if (io !== undefined) {
+          io.stdout(
+            `Skipped external plans discovery: ${safeId} — multiple registered projects share one projectSafeId (${owners.join(", ")})\n`,
+          );
+        }
+      }
+      continue;
+    }
     const projectConfig = readProjectConfigRecord(project, configPath);
     if (projectConfig === undefined || !planSourcePublishesExternally(projectConfig)) continue;
 
@@ -942,6 +955,7 @@ function discoverExternalPlanStrandedArtifacts(
 
 export function discoverStrandedArtifacts(
   registry: Record<string, ProjectRegistryEntry>,
+  io?: { stdout: (s: string) => void },
 ): DiscoveredStrandedArtifact[] {
   const artifacts: DiscoveredStrandedArtifact[] = [];
   for (const [project, entry] of Object.entries(registry)) {
@@ -964,7 +978,7 @@ export function discoverStrandedArtifacts(
     owners.push(project);
     safeIdOwners.set(safeId, owners);
   }
-  return [...artifacts, ...discoverExternalPlanStrandedArtifacts(registry, configPath, safeIdOwners)];
+  return [...artifacts, ...discoverExternalPlanStrandedArtifacts(registry, configPath, safeIdOwners, io)];
 }
 
 function recordedStrandedBranch(
@@ -1291,7 +1305,7 @@ async function gatherCleanupDiscoveryContext(
   );
   const worktreeRefSnapshots = await collectWorktreeRefSnapshots(candidates, registry, runner);
   const daemonUnreachableExit = daemonUnreachable.length > 0 ? 1 : 0;
-  const strandedArtifacts = discoverStrandedArtifacts(registry);
+  const strandedArtifacts = discoverStrandedArtifacts(registry, io);
   const retiringPaths = new Set(candidates.map((candidate) => candidate.worktree.path));
   const stranded = await inspectStrandedArtifacts(
     strandedArtifacts,

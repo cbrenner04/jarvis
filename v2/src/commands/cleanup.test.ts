@@ -980,6 +980,43 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       expect(external).toHaveLength(0);
     }));
 
+  test("skips external plans discovery when multiple registered projects share one projectSafeId", async () =>
+    withJarvisHome(async () => {
+      const rootA = join(tempRoot, "project-a");
+      const rootB = join(tempRoot, "project-b");
+      mkdirSync(rootA, { recursive: true });
+      mkdirSync(rootB, { recursive: true });
+      const safeId = projectSafeId("foo/bar");
+      const planName = "20260902T100003Z-collision-plan";
+      const plansHome = join(jarvisRoot, "specs", safeId, "plans");
+      const specReadRoot = join(plansHome, planName);
+      mkdirSync(specReadRoot, { recursive: true });
+      writeFileSync(join(specReadRoot, "index.md"), `# Plan\n\n## Acceptance criteria\n\n- [x] Done\n`);
+      mkdirSync(jarvisRoot, { recursive: true });
+      writeFileSync(
+        join(jarvisRoot, "config.json"),
+        JSON.stringify({
+          projects: {
+            "foo/bar": { root: rootA, git: false },
+            "foo-bar": { root: rootB, git: false },
+          },
+        }),
+      );
+
+      let stdout = "";
+      const io = { stdout: (s: string) => (stdout += s) };
+      const registry = { "foo/bar": { root: rootA }, "foo-bar": { root: rootB } };
+      const discovered = discoverStrandedArtifacts(registry, io);
+      const external = discovered.filter((artifact) => artifact.source.includes(join("specs", safeId)));
+
+      expect(external).toHaveLength(0);
+      expect(stdout).toContain("Skipped external plans discovery:");
+      expect(stdout).toContain(safeId);
+      expect(stdout).toContain("multiple registered projects share one projectSafeId");
+      expect(stdout).toContain("foo/bar");
+      expect(stdout).toContain("foo-bar");
+    }));
+
   test("refuses open-home stranded archival while a materialized owner is not retired", async () => {
     const home = join(projectRoot, "v2", "spec");
     const specName = "20260726T000002Z-open-home-blocked";

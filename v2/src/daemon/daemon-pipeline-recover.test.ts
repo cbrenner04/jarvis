@@ -13,12 +13,7 @@ import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns, mockWriteLoopInput } from "../testing/run-control.ts";
 import { createBindingFactory, writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import {
-  activeRunForHandler,
-  createRunControlHandlers,
-  shouldShutdownNow,
-  WorktreeOwnershipRegistry,
-} from "./daemon.ts";
+import { createRunControlHandlers, shouldShutdownNow, WorktreeOwnershipRegistry } from "./daemon.ts";
 import {
   admitAndRecoverPipelineBranchStage,
   type PipelineStageRecoveryAttempt,
@@ -730,7 +725,7 @@ test("recovery lifecycle admission refusal and exceptions roll back common acqui
     registry: WorktreeOwnershipRegistry,
   ) => {
     expect(registry.get({ project: "demo", branch })).toBeUndefined();
-    expect(activeRunForHandler(rollbackHandlers, `demo:${branch}`)).toBeUndefined();
+    expect(rollbackHandlers.context.activeRuns.get(`demo:${branch}`)).toBeUndefined();
     expect(rollbackHandlers.hasActiveRuns()).toBe(false);
     expect(recoveryStageRecord(stateStore, pipelineId)).toEqual(stageBefore);
   };
@@ -951,7 +946,7 @@ test("a retiring daemon waits for an in-flight detached recovery", async () => {
   // @mutate v2/src/daemon/daemon.ts "activeRuns.set(lifecycle.activeKey, lifecycle.activeRun);" -> "void lifecycle.activeKey;"
   // The attempt has not settled: hasActiveRuns() stays true, and retirement waits rather than shutting down.
   expect(waitHandlers.hasActiveRuns()).toBe(true);
-  expect(activeRunForHandler(waitHandlers, `demo:${branch}`)).toEqual({ kind: "recovery", runId: entryRunId });
+  expect(waitHandlers.context.activeRuns.get(`demo:${branch}`)).toEqual({ kind: "recovery", runId: entryRunId });
   waitHandlers.setRetiring();
   expect(shouldShutdownNow(false, waitHandlers.isRetiring(), waitHandlers.hasActiveRuns())).toBe(false);
 

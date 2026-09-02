@@ -132,13 +132,6 @@ export type ActiveRun =
       runId: string;
     };
 
-const activeRunsByHandler = new WeakMap<object, Map<string, ActiveRun>>();
-
-/** Test seam: lookup a live run row for a specific handler instance. */
-export function activeRunForHandler(handlers: object, id: string): ActiveRun | undefined {
-  return activeRunsByHandler.get(handlers)?.get(id);
-}
-
 /**
  * Whether `kill` may abort the named durable run id (write-loop or live workflow row).
  *
@@ -740,7 +733,6 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     isRetiring,
     context: ctx,
   };
-  activeRunsByHandler.set(handlersOut, activeRuns);
   return handlersOut;
 }
 

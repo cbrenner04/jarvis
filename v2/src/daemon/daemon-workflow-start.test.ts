@@ -31,7 +31,6 @@ import { createFakeWithExternalWorktree } from "../testing/write-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import {
   activeRunAcceptsKill,
-  activeRunForHandler,
   createRunControlHandlers,
   resetWriteLoopBindingSourceDepsForTests,
   setWriteLoopBindingSourceDepsForTests,
@@ -119,7 +118,7 @@ async function waitForStepRunId(branch: string, stepId: string): Promise<string>
 }
 
 async function waitUntilActiveRun(runId: string): Promise<void> {
-  await waitFor(() => activeRunForHandler(handlers, runId) !== undefined);
+  await waitFor(() => handlers.context.activeRuns.get(runId) !== undefined);
 }
 
 let stateStore: StateStore;
@@ -527,9 +526,9 @@ test("workflow claim and step activeRuns rows share one AbortController", async 
 
   const claimRunId = registry.get({ project: "demo", branch })?.runId;
   expect(claimRunId).toBeTruthy();
-  const claimRow = activeRunForHandler(handlers, claimRunId as string);
-  const entryRow = activeRunForHandler(handlers, entryRunId as string);
-  const step2Row = activeRunForHandler(handlers, step2RunId);
+  const claimRow = handlers.context.activeRuns.get(claimRunId as string);
+  const entryRow = handlers.context.activeRuns.get(entryRunId as string);
+  const step2Row = handlers.context.activeRuns.get(step2RunId);
   expect(claimRow?.kind).toBe("workflow");
   expect(entryRow?.kind).toBe("workflow");
   expect(step2Row?.kind).toBe("workflow");
@@ -551,7 +550,7 @@ test("kill on a completed sibling step runId aborts the in-flight step via the s
   const step2RunId = await waitForStepRunId(branch, "step-2");
   await waitUntilActiveRun(step2RunId);
   expect(stateStore.loadRun(step1RunId as string)?.status).toBe("completed");
-  expect(activeRunForHandler(handlers, step1RunId as string)?.kind).toBe("workflow");
+  expect(handlers.context.activeRuns.get(step1RunId as string)?.kind).toBe("workflow");
 
   const killResponse = await handlers.kill(
     requestFrame("k2", "kill", { runId: step1RunId }),

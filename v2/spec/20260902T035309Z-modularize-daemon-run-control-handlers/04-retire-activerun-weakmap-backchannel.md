@@ -19,10 +19,10 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-run-control-handler-guard.test.ts` reports violations when `activeRunsByHandler` or `activeRunForHandler` is present under `v2/src/daemon/`; it fails against the pre-fix tree where both symbols are reachable at `daemon.ts:170–175`.
-- [ ] `v2/src/daemon/daemon-workflow-start.test.ts` stays green after repointing off `activeRunForHandler`.
-- [ ] `v2/src/daemon/daemon-pipeline-recover.test.ts` stays green after repointing off `activeRunForHandler`.
-- [ ] `bun run typecheck` passes.
+- [x] `v2/src/daemon/daemon-run-control-handler-guard.test.ts` reports violations when `activeRunsByHandler` or `activeRunForHandler` is present under `v2/src/daemon/`; it fails against the pre-fix tree where both symbols are reachable at `daemon.ts:170–175`.
+- [x] `v2/src/daemon/daemon-workflow-start.test.ts` stays green after repointing off `activeRunForHandler`.
+- [x] `v2/src/daemon/daemon-pipeline-recover.test.ts` stays green after repointing off `activeRunForHandler`.
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

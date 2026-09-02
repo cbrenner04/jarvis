@@ -537,7 +537,7 @@ export async function classifyReadyGateFailure(
   return { kind: "ready_gate_out_of_scope", outsidePaths: confirmedOutsidePaths };
 }
 
-function parseNulDelimitedPaths(output: string): string[] | undefined {
+export function parseNulDelimitedPaths(output: string): string[] | undefined {
   if (output.length === 0) {
     return [];
   }

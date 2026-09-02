@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { type RunFixCommandOpts, runFixCommand } from "../../../shared/fix-command.ts";
+import { FixCommandError, type RunFixCommandOpts, runFixCommand } from "../../../shared/fix-command.ts";
 import { getCurrentHeadAsync, getGitStatusInventory } from "../../../shared/git.ts";
 import {
   executeWithQuotaFallback,
@@ -25,7 +25,11 @@ import { PLAN_DRAFT_PROMPT_ID } from "../../../shared/prompts/plan-draft.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import { parseSpec } from "../../../shared/spec-parser.ts";
-import { AsyncSubprocessError, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import {
+  AsyncSubprocessError,
+  type AsyncSubprocessRunner,
+  realAsyncSubprocessRunner,
+} from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import {
   dualConstraintRepromptDetail,
@@ -50,6 +54,7 @@ import {
   type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
 import {
+  biomeEligiblePaths,
   type CompletionCommitter,
   completionStageArgs,
   createCompletionCommitter,
@@ -73,6 +78,7 @@ import {
   deriveGateAllowedPaths,
   outOfScopeSettlementResumable,
   parseGitNameStatusZ,
+  parseNulDelimitedPaths,
   type ReadyFinalizer,
   ReadyFlipError,
   ReadyGateError,
@@ -341,6 +347,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   readyCommand?: string;
   /** Test seam overriding shared `runFixCommand` during ready-gate repair autofix. */
   runFixCommand?: (opts: RunFixCommandOpts) => Promise<void>;
+  /** Test seam overriding built-in scoped biome autofix during ready-gate repair. */
+  runBuiltInReadyGateAutofixBiome?: (opts: RunBuiltInReadyGateAutofixBiomeOpts) => Promise<void>;
   /** Test seam overriding post-autofix `bun run typecheck` verification. */
   runAutofixTypecheck?: (opts: { cwd: string; timeoutMs: number }) => Promise<AutofixTypecheckResult>;
   /** Test seam for ready-gate scope classification and base-ref reproduction. */
@@ -3253,6 +3261,117 @@ async function runAutofixTypecheckVerification(
   }
 }
 
+const READY_GATE_AUTOFIX_MAX_DIAGNOSTICS = 256;
+const READY_GATE_AUTOFIX_GIT_MAX_BUFFER = 16 * 1024 * 1024;
+
+export type RunBuiltInReadyGateAutofixBiomeOpts = ExternalSpecGitScope & {
+  cwd: string;
+  baseRef: string;
+  timeoutMs: number;
+  readyGateScopeSeams?: ReadyGateScopeSeams;
+};
+
+async function enumerateAutofixChangedPaths(
+  opts: RunBuiltInReadyGateAutofixBiomeOpts,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<string[] | undefined> {
+  const seams = opts.readyGateScopeSeams;
+  let diffOutput: string | null;
+  try {
+    diffOutput =
+      seams?.gitDiffNameStatus !== undefined
+        ? await seams.gitDiffNameStatus(opts.cwd, opts.baseRef)
+        : await runner.runAsync(
+            "git",
+            ["diff", "--name-status", "-z", "--diff-filter=ACDMRTUXB", `${opts.baseRef}...HEAD`],
+            opts.cwd,
+            { maxBuffer: READY_GATE_AUTOFIX_GIT_MAX_BUFFER },
+          );
+  } catch {
+    return undefined;
+  }
+  if (diffOutput === null) {
+    return undefined;
+  }
+
+  let untrackedOutput: string | null;
+  try {
+    untrackedOutput =
+      seams?.gitUntracked !== undefined
+        ? await seams.gitUntracked(opts.cwd)
+        : await runner.runAsync("git", ["ls-files", "--others", "--exclude-standard", "-z"], opts.cwd);
+  } catch {
+    return undefined;
+  }
+  if (untrackedOutput === null) {
+    return undefined;
+  }
+
+  const diffPaths = parseGitNameStatusZ(diffOutput);
+  if (diffPaths === undefined) {
+    return undefined;
+  }
+  const untrackedPaths = parseNulDelimitedPaths(untrackedOutput);
+  if (untrackedPaths === undefined) {
+    return undefined;
+  }
+
+  const unioned: string[] = [];
+  for (const rawPath of [...diffPaths, ...untrackedPaths]) {
+    const normalized = validateRepoRelativePath(rawPath);
+    if (normalized === undefined) {
+      return undefined;
+    }
+    if (!unioned.includes(normalized)) {
+      unioned.push(normalized);
+    }
+  }
+
+  const scoped = excludeExternalSpecGitPaths(opts.cwd, unioned, opts);
+  return biomeEligiblePaths(opts.cwd, scoped);
+}
+
+function toBuiltInAutofixBiomeError(
+  displayCmd: string,
+  opts: RunBuiltInReadyGateAutofixBiomeOpts,
+  err: unknown,
+): FixCommandError {
+  if (err instanceof AsyncSubprocessError && err.code === "ETIMEDOUT") {
+    return new FixCommandError(`${displayCmd} exceeded ${opts.timeoutMs}ms budget`);
+  }
+  const out = err as NodeJS.ErrnoException & { stdout?: Buffer | string; stderr?: Buffer | string };
+  const captured = [out.stdout?.toString(), out.stderr?.toString()].filter(Boolean).join("\n").trim();
+  return new FixCommandError(captured ? `${displayCmd} failed:\n${captured}` : `${displayCmd} failed`);
+}
+
+/** Built-in ready-gate repair autofix: scoped `biome check --write --unsafe` on changed paths only. */
+export async function runBuiltInReadyGateAutofixBiome(
+  opts: RunBuiltInReadyGateAutofixBiomeOpts,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<void> {
+  if (!existsSync(join(opts.cwd, "biome.json"))) {
+    return;
+  }
+  const eligible = await enumerateAutofixChangedPaths(opts, runner);
+  if (eligible === undefined) {
+    throw new FixCommandError("ready-gate autofix could not enumerate changed paths");
+  }
+  if (eligible.length === 0) {
+    return;
+  }
+  const displayCmd = `bun biome check --write --unsafe ${eligible.join(" ")}`;
+  try {
+    await runner.runAsync(
+      "bun",
+      ["biome", "check", "--write", "--unsafe", `--max-diagnostics=${READY_GATE_AUTOFIX_MAX_DIAGNOSTICS}`, ...eligible],
+      opts.cwd,
+      { timeoutMs: opts.timeoutMs, env: process.env },
+    );
+  } catch (err) {
+    throw toBuiltInAutofixBiomeError(displayCmd, opts, err);
+  }
+}
+
 export async function publishWithReadyRepair(
   args: WriteLoopInput,
   store: StateStore,
@@ -3288,14 +3407,27 @@ export async function publishWithReadyRepair(
   appendReadyGateBaseRefProbeLog(args, result.runId, outcome.error);
 
   const autofixBaseline = await snapshotAutofixBaseline(input.worktreePath);
-  const fixOpts: RunFixCommandOpts = {
-    cwd: input.worktreePath,
-    ...(args.fixCommand !== undefined ? { fixCommand: args.fixCommand } : {}),
-    timeoutMs: args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS,
-    ...(args.telemetry?.role !== undefined ? { agentLabel: args.telemetry.role } : {}),
-  };
+  const autofixTimeoutMs = args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS;
+  // @mutate args.fixCommand === undefined && args.runFixCommand === undefined -> false
+  const builtInScopedAutofix = args.fixCommand === undefined && args.runFixCommand === undefined;
   try {
-    await (args.runFixCommand ?? runFixCommand)(fixOpts);
+    if (builtInScopedAutofix) {
+      await (args.runBuiltInReadyGateAutofixBiome ?? runBuiltInReadyGateAutofixBiome)({
+        cwd: input.worktreePath,
+        baseRef: input.baseRef,
+        timeoutMs: autofixTimeoutMs,
+        ...externalSpecGitScope(args),
+        ...(args.readyGateScopeSeams !== undefined ? { readyGateScopeSeams: args.readyGateScopeSeams } : {}),
+      });
+    } else {
+      const fixOpts: RunFixCommandOpts = {
+        cwd: input.worktreePath,
+        ...(args.fixCommand !== undefined ? { fixCommand: args.fixCommand } : {}),
+        timeoutMs: autofixTimeoutMs,
+        ...(args.telemetry?.role !== undefined ? { agentLabel: args.telemetry.role } : {}),
+      };
+      await (args.runFixCommand ?? runFixCommand)(fixOpts);
+    }
   } catch (error) {
     return {
       failure: {

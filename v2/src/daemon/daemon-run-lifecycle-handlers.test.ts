@@ -259,6 +259,25 @@ test("spawnWriteLoop keeps paused runs settled when the executor unwinds on paus
   expect(loadRunOrThrow(stateStore, runRef.runId).status).toBe("paused");
 });
 
+test("resume admits a paused direct write run with durable queuedInput", async () => {
+  const { handlers } = lifecycleHandlers();
+  const signal = new AbortController().signal;
+  const branchName = "direct-resume-guard";
+  const runId = stateStore.createRun({
+    project: branchName,
+    specRef: "main",
+    worktreePath: "/tmp/wt",
+    branch: branchName,
+    specPath: "/tmp/spec.md",
+    status: "paused",
+    queuedInput: mockWriteLoopInput({ projectName: branchName, branchName }),
+  });
+
+  const resumed = await handlers.resume({ kind: "request", id: "r1", method: "resume", params: { runId } }, signal);
+  // @mutate v2/src/daemon/daemon-run-lifecycle-handlers.ts "if (run.status !== \"paused\")" -> "if (run.status === \"paused\")"
+  expect(resumed).toEqual({ kind: "response", result: { ok: true } });
+});
+
 test("pause and kill release write-loop ownership", async () => {
   const { ctx, handlers } = lifecycleHandlers();
   const signal = new AbortController().signal;

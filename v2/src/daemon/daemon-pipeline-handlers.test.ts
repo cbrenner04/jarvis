@@ -325,6 +325,29 @@ test("pipeline_resume requires pipelineId", async () => {
   });
 });
 
+test("pipeline_resume forwards branchKey to resumePipeline when provided", async () => {
+  const handlers = pipelineHandlers();
+  const pipelineId = stateStore.createPipeline({
+    definition: SINGLE_STAGE_DEFINITION,
+    context: ADMISSION_CONTEXT,
+  });
+  stateStore.updateStage({
+    pipelineId,
+    stageId: "only",
+    patch: { status: "succeeded", workflowInvocationId: "inv-1" },
+  });
+
+  const response = await handlers.pipeline_resume(
+    requestFrame("resume-branch", "pipeline_resume", { pipelineId, branchKey: "unknown-branch" }),
+    new AbortController().signal,
+  );
+  // @mutate v2/src/daemon/daemon-pipeline-handlers.ts "...(branchKey !== undefined ? { branchKey } : {})," -> "...(branchKey === undefined ? { branchKey } : {}),"
+  expect(response).toEqual({
+    kind: "response",
+    result: { kind: "refused", pipelineId, branchKey: "unknown-branch", reason: "branch_not_found" },
+  });
+});
+
 test("pipeline_resume rejects malformed branchKey with invalid_params", async () => {
   const handlers = pipelineHandlers();
 

@@ -276,12 +276,7 @@ async function finishReviewDebateLanding(
     return undefined;
   }
   if (landingFailure.kind === "landing_failed") {
-    logSink?.append(runId, {
-      kind: "loop_finished",
-      loopOutcomeKind: "landing_failed",
-      iterationsConsumed: landingFailure.iterationsConsumed,
-      resumable: landingFailure.resumable,
-    });
+    logReviewLandingFailed(logSink, runId, landingFailure);
   }
   return landingFailure;
 }
@@ -403,9 +398,7 @@ export async function runReviewDebateStep(
     return debateOutcome;
   }
 
-  const result = debateOutcome;
-
-  const { kind, failureKind, terminalRole, completionAgent, reviewPass } = reviewDebateResultOutcome(result);
+  const { kind, failureKind, terminalRole, completionAgent, reviewPass } = reviewDebateResultOutcome(debateOutcome);
 
   onProgress?.(invocationId, stepId, {
     status: kind === "complete" ? "completed" : "stopped",
@@ -418,7 +411,7 @@ export async function runReviewDebateStep(
     const landingFailure = await finishReviewDebateLanding(
       step,
       landing,
-      result,
+      debateOutcome,
       bindings,
       attemptId,
       runId,
@@ -436,7 +429,7 @@ export async function runReviewDebateStep(
     await discardEphemeralReviewVerdictDrift(step.cwd, step.verdictPath);
   }
 
-  const failed = result.cycles.at(-1);
+  const failed = debateOutcome.cycles.at(-1);
   const failureDetail =
     kind === "invocation_failure" && failureKind !== undefined && failed?.kind === "role_failed"
       ? buildReviewInvocationFailureDetail(failureKind, failed.failedRole, failed.roleResults[failed.failedRole])
@@ -452,7 +445,7 @@ export async function runReviewDebateStep(
   return {
     kind,
     runId,
-    iterationsConsumed: result.cycles.length,
+    iterationsConsumed: debateOutcome.cycles.length,
     resumable: retryableFailure,
     ...(completionAgent ? { completionAgent } : {}),
     ...(reviewPass !== undefined ? { reviewPass } : {}),
@@ -515,10 +508,23 @@ export function settleReviewedStagedMarkdownLintFailure(
   };
 }
 
-function buildReviewDebateLandingActuatorContext(
-  step: ReviewDebateWorkflowStep,
+function logReviewLandingFailed(
+  logSink: LogSink | undefined,
+  runId: string,
+  failure: Pick<Extract<ReviewDebateStepOutcome, { kind: "landing_failed" }>, "iterationsConsumed" | "resumable">,
+): void {
+  logSink?.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "landing_failed",
+    iterationsConsumed: failure.iterationsConsumed,
+    resumable: failure.resumable,
+  });
+}
+
+function buildReviewedLandingActuatorContext(
+  step: Pick<ReviewDebateWorkflowStep | ReviewWorkflowStep, "cwd" | "profile" | "roleTimeoutMs" | "idleOutputMs">,
   landing: Exclude<PublicationLanding, { kind: "none" }>,
-  bindings: ReviewDebateRoleBindings,
+  actuatorBindings: readonly InvocationBinding[],
   verdict: string,
   profileContext: unknown,
   telemetryFields: { telemetry?: Omit<InvocationTelemetryContext, "role" | "invocationIds"> },
@@ -528,7 +534,7 @@ function buildReviewDebateLandingActuatorContext(
   const stagingDir = reviewedStagingDir(landing) ?? "";
   return {
     cwd: step.cwd,
-    bindings: bindings.actuator,
+    bindings: actuatorBindings,
     resolveActuatorPrompt: async (reprompt) => {
       if (reprompt !== undefined) {
         return renderReviewedStagedMarkdownLintReprompt(reprompt, stagingDir);
@@ -546,6 +552,26 @@ function buildReviewDebateLandingActuatorContext(
   };
 }
 
+function buildReviewDebateLandingActuatorContext(
+  step: ReviewDebateWorkflowStep,
+  landing: Exclude<PublicationLanding, { kind: "none" }>,
+  bindings: ReviewDebateRoleBindings,
+  verdict: string,
+  profileContext: unknown,
+  telemetryFields: { telemetry?: Omit<InvocationTelemetryContext, "role" | "invocationIds"> },
+  hooks?: { signal?: AbortSignal; onActuatorStart?: () => void },
+): ReviewedLandingActuatorRepromptContext {
+  return buildReviewedLandingActuatorContext(
+    step,
+    landing,
+    bindings.actuator,
+    verdict,
+    profileContext,
+    telemetryFields,
+    hooks,
+  );
+}
+
 export function buildStandardReviewLandingActuatorContext(
   step: ReviewWorkflowStep,
   landing: Exclude<PublicationLanding, { kind: "none" }>,
@@ -555,26 +581,15 @@ export function buildStandardReviewLandingActuatorContext(
   telemetryFields: { telemetry?: Omit<InvocationTelemetryContext, "role" | "invocationIds"> },
   hooks?: { signal?: AbortSignal; onActuatorStart?: () => void },
 ): ReviewedLandingActuatorRepromptContext {
-  const profile = rehydrateReviewPromptProfile(step.profile);
-  const stagingDir = reviewedStagingDir(landing) ?? "";
-  return {
-    cwd: step.cwd,
-    bindings: bindings.actuator,
-    resolveActuatorPrompt: async (reprompt) => {
-      if (reprompt !== undefined) {
-        return renderReviewedStagedMarkdownLintReprompt(reprompt, stagingDir);
-      }
-      if (profile?.render.actuator) {
-        return await profile.render.actuator(profileContext, verdict);
-      }
-      return verdict;
-    },
-    ...(step.roleTimeoutMs !== undefined ? { roleTimeoutMs: step.roleTimeoutMs } : {}),
-    ...(step.idleOutputMs !== undefined ? { idleOutputMs: step.idleOutputMs } : {}),
-    ...(hooks?.signal !== undefined ? { signal: hooks.signal } : {}),
-    ...(telemetryFields.telemetry !== undefined ? { telemetry: telemetryFields.telemetry } : {}),
-    ...(hooks?.onActuatorStart !== undefined ? { onActuatorStart: hooks.onActuatorStart } : {}),
-  };
+  return buildReviewedLandingActuatorContext(
+    step,
+    landing,
+    bindings.actuator,
+    verdict,
+    profileContext,
+    telemetryFields,
+    hooks,
+  );
 }
 
 async function repromptReviewedStagedMarkdownLintOrFail(
@@ -910,12 +925,7 @@ async function tryActuatorOnlyReviewDebateRetry(
     );
     if (landingFailure !== undefined) {
       if (landingFailure.kind === "landing_failed") {
-        logSink?.append(runId, {
-          kind: "loop_finished",
-          loopOutcomeKind: "landing_failed",
-          iterationsConsumed: landingFailure.iterationsConsumed,
-          resumable: landingFailure.resumable,
-        });
+        logReviewLandingFailed(logSink, runId, landingFailure);
       }
       return landingFailure;
     }
@@ -990,12 +1000,7 @@ export async function finishReviewedLanding(
   );
   if (landingFailure !== undefined) {
     if (landingFailure.kind === "landing_failed") {
-      logSink?.append(runId, {
-        kind: "loop_finished",
-        loopOutcomeKind: "landing_failed",
-        iterationsConsumed: landingFailure.iterationsConsumed,
-        resumable: landingFailure.resumable,
-      });
+      logReviewLandingFailed(logSink, runId, landingFailure);
     } else if (
       landingFailure.kind === "invocation_failure" &&
       store.loadRun(runId)?.attempts.at(-1)?.invocationFailureDetail?.failureKind === "landing"

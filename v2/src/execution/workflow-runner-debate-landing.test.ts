@@ -4,14 +4,14 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationResult } from "../../../shared/invocation/execute.ts";
-import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter } from "./completion-commit.ts";
 import {
   createDebateBindingFactory,
   createDebateStep,
+  createPatchReviewDebateStep,
   createShrinkTestStep,
-  DEBATE_AGENT_MODEL_CONFIG,
+  createTrackedReviewDebateBindingFactory,
   initGitWorkspace,
   REVIEW_MD_LINT_FIXTURES,
   skipReviewWithoutHarnessMarkdownlint,
@@ -204,72 +204,6 @@ describe("executeWorkflow review-debate landing", () => {
     });
   });
 
-  function createPatchReviewDebateStep(args: {
-    branchName: string;
-    jarvisRoot: string;
-    verdictPath: string;
-    cwd: string;
-    createBinding?: ReviewDebateWorkflowStep["createBinding"];
-    roleTimeoutMs?: number;
-    idleOutputMs?: number;
-    maxCycles?: number;
-  }): ReviewDebateWorkflowStep {
-    return {
-      behavior: "review-debate",
-      stepId: "implement-review",
-      project: "demo",
-      branch: args.branchName,
-      cwd: args.cwd,
-      prompts: {
-        adversary: "implement.prompt.review.adversary",
-        advocate: "implement.prompt.review.advocate",
-        adjudicator: "implement.prompt.review.adjudicator",
-      },
-      verdictPath: args.verdictPath,
-      maxCycles: args.maxCycles ?? 1,
-      agents: { adversary: ["claude"], advocate: ["claude"], adjudicator: ["claude"], actuator: ["claude"] },
-      agentModelConfig: DEBATE_AGENT_MODEL_CONFIG,
-      profile: implementReviewPromptProfile,
-      profileContext: { specPath: "index.md", cwd: args.cwd, baseBranch: "HEAD", passNumber: 1, totalPasses: 1 },
-      ...(args.roleTimeoutMs !== undefined ? { roleTimeoutMs: args.roleTimeoutMs } : {}),
-      ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
-      ...(args.createBinding !== undefined ? { createBinding: args.createBinding } : {}),
-    };
-  }
-
-  function createTrackedReviewDebateBindingFactory(
-    calls: string[],
-    actuatorFailureKind: "timeout" | "stall" | undefined,
-    actuatorPrompts?: string[],
-  ): NonNullable<ReviewDebateWorkflowStep["createBinding"]> {
-    return ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) => ({
-      id: `${agentId}/${adapterModel}`,
-      metadata: { agent: agentId, model: adapterModel },
-      invoke: ({ signal, prompt }) => {
-        calls.push(adapterModel);
-        if (adapterModel === "ACT") actuatorPrompts?.push(prompt);
-        if (adapterModel !== "ACT") {
-          return Promise.resolve(
-            adapterModel === "ADJ"
-              ? ({ kind: "ok", stdout: "apply this fix", stderr: "" } as const)
-              : ({ kind: "ok", stdout: "ok", stderr: "" } as const),
-          );
-        }
-        if (actuatorFailureKind === "stall") {
-          return Promise.resolve({ kind: "stall", stderr: "no output" } as const);
-        }
-        if (actuatorFailureKind === "timeout") {
-          return new Promise<InvocationResult>((resolve) => {
-            signal?.addEventListener("abort", () => resolve({ kind: "error", exitCode: 1, stderr: "aborted" }), {
-              once: true,
-            });
-          });
-        }
-        return Promise.resolve({ kind: "ok", stdout: "actuated", stderr: "" } as const);
-      },
-    });
-  }
-
   test("propagates review idleOutputMs through actuator-only debate retry", async () => {
     const captured = new Map<number, number[]>();
 
@@ -284,7 +218,6 @@ describe("executeWorkflow review-debate landing", () => {
       let retried = false;
       const reviewStep = createPatchReviewDebateStep({
         branchName,
-        jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
         verdictPath: join(harness.workspace, "verdict-patch.md"),
         cwd: harness.workspace,
         idleOutputMs,
@@ -350,7 +283,6 @@ describe("executeWorkflow review-debate landing", () => {
     const debateCalls: string[] = [];
     const reviewStep = createPatchReviewDebateStep({
       branchName,
-      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
       verdictPath: join(worktreePath, "verdict-patch.md"),
       cwd: worktreePath,
       roleTimeoutMs: boundMs,
@@ -408,7 +340,6 @@ describe("executeWorkflow review-debate landing", () => {
     const debateCalls: string[] = [];
     const reviewStep = createPatchReviewDebateStep({
       branchName,
-      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
       verdictPath: join(worktreePath, "verdict-patch.md"),
       cwd: worktreePath,
       roleTimeoutMs: boundMs,
@@ -479,7 +410,6 @@ describe("executeWorkflow review-debate landing", () => {
     const debateCalls: string[] = [];
     const reviewStep = createPatchReviewDebateStep({
       branchName,
-      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
       verdictPath: join(worktreePath, "verdict-patch.md"),
       cwd: worktreePath,
       roleTimeoutMs: boundMs,
@@ -530,7 +460,6 @@ describe("executeWorkflow review-debate landing", () => {
     let adjCalls = 0;
     const reviewStep = createPatchReviewDebateStep({
       branchName,
-      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
       verdictPath: join(worktreePath, "verdict-patch.md"),
       cwd: worktreePath,
       maxCycles: 2,

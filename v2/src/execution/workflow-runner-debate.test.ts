@@ -4,21 +4,20 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, write
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import type { InvocationResult } from "../../../shared/invocation/execute.ts";
-import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
 import { createJarvisHome, withStateStore } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter } from "./completion-commit.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
-import type { InvocationFailureKind } from "./invocation-failure.ts";
 import { SurvivingMutationError } from "./ready-finalize.ts";
 import {
   createBindingFactory,
   createDebateBindingFactory,
   createDebateStep,
+  createPatchReviewDebateStep,
   createReviewDebateActuatorFailureBindingFactory,
   createShrinkTestStep,
   createStep,
-  DEBATE_AGENT_MODEL_CONFIG,
+  createTrackedReviewDebateBindingFactory,
   debateVerdictPath,
   externalWorktreeBinding,
   roots,
@@ -26,7 +25,6 @@ import {
 } from "./workflow-runner.test-support.ts";
 import {
   executeWorkflow,
-  isPostCommitReviewRetryableFailureKind,
   LinkedIndexReadError,
   type ReviewDebateWorkflowStep,
   type WriteWorkflowStep,
@@ -617,39 +615,6 @@ describe("executeWorkflow linked implement routing", () => {
 });
 
 describe("executeWorkflow implement patch review", () => {
-  function createPatchReviewDebateStep(args: {
-    branchName: string;
-    jarvisRoot: string;
-    verdictPath: string;
-    cwd: string;
-    createBinding?: ReviewDebateWorkflowStep["createBinding"];
-    roleTimeoutMs?: number;
-    idleOutputMs?: number;
-    maxCycles?: number;
-  }): ReviewDebateWorkflowStep {
-    return {
-      behavior: "review-debate",
-      stepId: "implement-review",
-      project: "demo",
-      branch: args.branchName,
-      cwd: args.cwd,
-      prompts: {
-        adversary: "implement.prompt.review.adversary",
-        advocate: "implement.prompt.review.advocate",
-        adjudicator: "implement.prompt.review.adjudicator",
-      },
-      verdictPath: args.verdictPath,
-      maxCycles: args.maxCycles ?? 1,
-      agents: { adversary: ["claude"], advocate: ["claude"], adjudicator: ["claude"], actuator: ["claude"] },
-      agentModelConfig: DEBATE_AGENT_MODEL_CONFIG,
-      profile: implementReviewPromptProfile,
-      profileContext: { specPath: "index.md", cwd: args.cwd, baseBranch: "HEAD", passNumber: 1, totalPasses: 1 },
-      ...(args.roleTimeoutMs !== undefined ? { roleTimeoutMs: args.roleTimeoutMs } : {}),
-      ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
-      ...(args.createBinding !== undefined ? { createBinding: args.createBinding } : {}),
-    };
-  }
-
   test("runs shrink before appended patch review and overwrites verdict-patch.md each cycle", async () => {
     const calls: string[] = [];
     const implementStep = createStep({
@@ -676,7 +641,6 @@ describe("executeWorkflow implement patch review", () => {
 
     const reviewStep = createPatchReviewDebateStep({
       branchName: implementStep.worktree.branchName,
-      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
       verdictPath,
       cwd: worktreePath,
       createBinding: createDebateBindingFactory(async ({ adapterModel }) => {
@@ -733,7 +697,6 @@ describe("executeWorkflow implement patch review", () => {
 
     const reviewStep = createPatchReviewDebateStep({
       branchName,
-      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
       verdictPath: join(worktreePath, "verdict-patch.md"),
       cwd: worktreePath,
       createBinding: createDebateBindingFactory(async () => {
@@ -781,7 +744,6 @@ describe("executeWorkflow implement patch review", () => {
 
     const reviewStep = createPatchReviewDebateStep({
       branchName,
-      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
       verdictPath: join(worktreePath, "verdict-patch.md"),
       cwd: worktreePath,
       createBinding: createDebateBindingFactory(async () => {
@@ -819,7 +781,6 @@ describe("executeWorkflow implement patch review", () => {
 
     const reviewStep = createPatchReviewDebateStep({
       branchName: implementStep.worktree.branchName,
-      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
       verdictPath: join(worktreePath, "verdict-patch.md"),
       cwd: worktreePath,
       createBinding: createDebateBindingFactory(async ({ adapterModel }) =>
@@ -858,7 +819,6 @@ describe("executeWorkflow implement patch review", () => {
 
     const reviewStep = createPatchReviewDebateStep({
       branchName: implementStep.worktree.branchName,
-      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
       verdictPath: join(worktreePath, "verdict-patch.md"),
       cwd: worktreePath,
       createBinding: createDebateBindingFactory(async ({ adapterModel }) => {
@@ -915,7 +875,6 @@ describe("executeWorkflow implement patch review", () => {
 
     const reviewStep = createPatchReviewDebateStep({
       branchName: implementStep.worktree.branchName,
-      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
       verdictPath: join(worktreePath, "verdict-patch.md"),
       cwd: worktreePath,
       createBinding: createDebateBindingFactory(async ({ adapterModel }) => {
@@ -973,7 +932,6 @@ describe("executeWorkflow implement patch review", () => {
 
     const reviewStep = createPatchReviewDebateStep({
       branchName: implementStep.worktree.branchName,
-      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
       verdictPath: join(worktreePath, "verdict-patch.md"),
       cwd: worktreePath,
       createBinding: createDebateBindingFactory(async ({ adapterModel }) => ({
@@ -1027,7 +985,6 @@ describe("executeWorkflow implement patch review", () => {
     const boundMs = 5;
     const reviewStep = createPatchReviewDebateStep({
       branchName: implementStep.worktree.branchName,
-      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
       verdictPath: join(worktreePath, "verdict-patch.md"),
       cwd: worktreePath,
       roleTimeoutMs: boundMs,
@@ -1060,39 +1017,6 @@ describe("executeWorkflow implement patch review", () => {
     });
   });
 
-  function createTrackedReviewDebateBindingFactory(
-    calls: string[],
-    actuatorFailureKind: "timeout" | "stall" | undefined,
-    actuatorPrompts?: string[],
-  ): NonNullable<ReviewDebateWorkflowStep["createBinding"]> {
-    return ({ agentId, adapterModel }: { agentId: string; adapterModel: string }) => ({
-      id: `${agentId}/${adapterModel}`,
-      metadata: { agent: agentId, model: adapterModel },
-      invoke: ({ signal, prompt }) => {
-        calls.push(adapterModel);
-        if (adapterModel === "ACT") actuatorPrompts?.push(prompt);
-        if (adapterModel !== "ACT") {
-          return Promise.resolve(
-            adapterModel === "ADJ"
-              ? ({ kind: "ok", stdout: "apply this fix", stderr: "" } as const)
-              : ({ kind: "ok", stdout: "ok", stderr: "" } as const),
-          );
-        }
-        if (actuatorFailureKind === "stall") {
-          return Promise.resolve({ kind: "stall", stderr: "no output" } as const);
-        }
-        if (actuatorFailureKind === "timeout") {
-          return new Promise<InvocationResult>((resolve) => {
-            signal?.addEventListener("abort", () => resolve({ kind: "error", exitCode: 1, stderr: "aborted" }), {
-              once: true,
-            });
-          });
-        }
-        return Promise.resolve({ kind: "ok", stdout: "actuated", stderr: "" } as const);
-      },
-    });
-  }
-
   function runActuatorOnlyRetryTest(failureKind: "stall"): void {
     test(`re-dispatching after review-debate actuator ${failureKind} retries only the actuator, skipping write, shrink, and debate roles`, async () => {
       const branchName = `implement-review-${failureKind}-actuator-only`;
@@ -1108,7 +1032,6 @@ describe("executeWorkflow implement patch review", () => {
       const actuatorPrompts: string[] = [];
       const reviewStep = createPatchReviewDebateStep({
         branchName,
-        jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
         verdictPath: join(worktreePath, "verdict-patch.md"),
         cwd: worktreePath,
         roleTimeoutMs: boundMs,
@@ -1182,7 +1105,6 @@ describe("executeWorkflow implement patch review", () => {
     const boundMs = 5;
     const reviewStep = createPatchReviewDebateStep({
       branchName,
-      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
       verdictPath,
       cwd: worktreePath,
       roleTimeoutMs: boundMs,
@@ -1224,7 +1146,6 @@ describe("executeWorkflow implement patch review", () => {
     const boundMs = 5;
     const reviewStep = createPatchReviewDebateStep({
       branchName,
-      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
       verdictPath,
       cwd: worktreePath,
       roleTimeoutMs: boundMs,
@@ -1270,7 +1191,6 @@ describe("executeWorkflow implement patch review", () => {
     let actuatorAttempts = 0;
     const reviewStep = createPatchReviewDebateStep({
       branchName,
-      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
       verdictPath: join(worktreePath, "verdict-patch.md"),
       cwd: worktreePath,
       roleTimeoutMs: boundMs,
@@ -1349,16 +1269,6 @@ describe("executeWorkflow implement patch review", () => {
     });
   });
 
-  test("post-commit review retryability settle admits non-exhausted timeout and stall", () => {
-    for (const failureKind of ["timeout", "stall"] as const) {
-      expect(isPostCommitReviewRetryableFailureKind({ failureKind })).toBe(true);
-    }
-    const timeoutOnly = (failureKind: InvocationFailureKind) => failureKind === "timeout";
-    expect(isPostCommitReviewRetryableFailureKind({ failureKind: "stall" })).not.toBe(timeoutOnly("stall"));
-    expect(isPostCommitReviewRetryableFailureKind({ failureKind: "error" })).toBe(false);
-    expect(isPostCommitReviewRetryableFailureKind({ failureKind: "timeout", exhaustedRoleTimeout: true })).toBe(false);
-  });
-
   test("settles review-debate stall after committed implement write step with resumable=true and preserves commit and verdict", async () => {
     const branchName = "implement-review-stall";
     const { harness, step: implementStep } = createShrinkTestStep(branchName, async ({ cwd, shrink }) => {
@@ -1369,7 +1279,6 @@ describe("executeWorkflow implement patch review", () => {
     const worktreePath = harness.workspace;
     const reviewStep = createPatchReviewDebateStep({
       branchName,
-      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
       verdictPath: join(worktreePath, "verdict-patch.md"),
       cwd: worktreePath,
       createBinding: createReviewDebateActuatorFailureBindingFactory("stall"),
@@ -1416,7 +1325,6 @@ describe("executeWorkflow implement patch review", () => {
 
     const reviewStep = createPatchReviewDebateStep({
       branchName: implementStep.worktree.branchName,
-      jarvisRoot: implementStep.worktree.jarvisRoot ?? "",
       verdictPath: join(worktreePath, "verdict-patch.md"),
       cwd: worktreePath,
       createBinding: createDebateBindingFactory(async ({ adapterModel }) =>

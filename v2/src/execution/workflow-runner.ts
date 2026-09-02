@@ -116,6 +116,7 @@ import {
   buildStandardReviewLandingActuatorContext,
   discardEphemeralReviewVerdictDrift,
   finishReviewedLanding,
+  isPostCommitReviewRetryableFailureKind,
   landReviewedOutputOrFail,
   type ReviewDebateLandingDeps,
   type ReviewDebateStepOutcome,
@@ -123,6 +124,8 @@ import {
   runReviewDebateStep,
   settleReviewedStagedMarkdownLintFailure,
 } from "./workflow-runner-debate-landing.ts";
+
+export { isPostCommitReviewRetryableFailureKind };
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import {
   boundaryStampFromStoredRun,
@@ -171,13 +174,6 @@ const WORKFLOW_PRESET_PINNED_FIELDS: Partial<Record<WorkflowPresetName, { role: 
   "plan-reviewed": { role: "plan", promptId: "plan.prompt.draft" },
   "plan-reviewed-light": { role: "plan", promptId: "plan.prompt.draft" },
 };
-
-export function isPostCommitReviewRetryableFailureKind(
-  detail: Pick<InvocationFailureDetail, "failureKind" | "exhaustedRoleTimeout">,
-): boolean {
-  if (detail.failureKind === "stall") return true;
-  return detail.failureKind === "timeout" && !isExhaustedRoleTimeout(detail);
-}
 
 function terminalFailureDetailFromError(error?: Error, fallbackMessage?: string): InvocationFailureDetail {
   const message = error?.message || fallbackMessage || "harness failure";
@@ -2202,17 +2198,6 @@ async function raceStepSuccessorShellIdle<T>(
   );
 }
 
-function buildReviewDebateLandingDeps(): ReviewDebateLandingDeps {
-  return {
-    findReviewLandingCheckpoint,
-    reviewCompletionAgent,
-    reviewCompletionPass,
-    raceStepSuccessorShellIdle,
-    landReviewedPublicationOutput,
-    resolveReviewStepBindings,
-  };
-}
-
 function persistIntentHandoff(
   store: StateStore,
   landing: PublicationLanding | undefined,
@@ -4221,6 +4206,15 @@ function resolveReviewStepBindings(step: ReviewWorkflowStep) {
   };
 }
 
+const REVIEW_DEBATE_LANDING_DEPS: ReviewDebateLandingDeps = {
+  findReviewLandingCheckpoint,
+  reviewCompletionAgent,
+  reviewCompletionPass,
+  raceStepSuccessorShellIdle,
+  landReviewedPublicationOutput,
+  resolveReviewStepBindings,
+};
+
 function buildReviewStepTelemetryFields(
   step: Pick<ReviewWorkflowStep, "stepId" | "project" | "branch" | "cwd">,
   ids: ReviewStepExecutionIds,
@@ -4529,7 +4523,7 @@ async function finalizeStandardReviewStep(
       result.cycles.length,
       store,
       logSink,
-      buildReviewDebateLandingDeps(),
+      REVIEW_DEBATE_LANDING_DEPS,
       actuatorContext,
     );
     if (landingFailure !== undefined) {
@@ -4775,7 +4769,7 @@ async function runReviewDispatch(
       workflowSnapshot,
       freshDispatch,
       logSink,
-      buildReviewDebateLandingDeps(),
+      REVIEW_DEBATE_LANDING_DEPS,
       reviewMutatingPassHandler(reviewPassCommitDeps, step.landing, step.cwd, "review-debate"),
     );
   }
@@ -4796,7 +4790,7 @@ async function runReviewDispatch(
         reviewCompletionAgent(checkpoint),
         reviewCompletionPass(checkpoint),
         logSink,
-        buildReviewDebateLandingDeps(),
+        REVIEW_DEBATE_LANDING_DEPS,
       );
     }
   }

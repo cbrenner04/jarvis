@@ -36,14 +36,14 @@ Artifact body bytes after frontmatter (`registry.getById(...).artifact.body.leng
 
 ## Acceptance criteria
 
-- [ ] `shared/prompts/review-plan-growth-budget.test.ts` test `plan review role body growth stays within budget` measures each `plan.prompt.review.*` registry `artifact.body.length` (post-frontmatter body bytes) and asserts strictly less than its pinned pre-rewrite baseline; it fails against the pre-fix prompts.
-- [ ] `shared/prompts/review-plan-growth-budget.test.ts` test `plan review role placeholders unchanged` asserts each `plan.prompt.review.*` frontmatter `placeholders` array matches the pre-rewrite declaration; it fails when any binding changes.
-- [ ] `shared/prompts/review-plan-contract-preservation.test.ts` test `plan review role contract substrings preserved` fails against the pre-fix prompts when adversary structural **product** flagging, advocate per-finding disposition, adjudicator self-contained verdict or empty-verdict semantics, oversized-subspec split language on any debate/actuator role, or critic editorial scope is removed or adversary-style identify lists are reintroduced.
-- [ ] `shared/prompts/review-plan-premise-falsification.test.ts` stays green.
-- [ ] `shared/prompts/review-plan-hollow-pin.test.ts` stays green.
-- [ ] `shared/prompts/review-profile.test.ts` stays green.
-- [ ] `v1/test/prompts/rendered-snapshots.test.ts` stays green against regenerated revision-keyed fixtures for `plan.prompt.review.adversary`, `plan.prompt.review.advocate`, `plan.prompt.review.adjudicator`, and `plan.prompt.review-actuator`.
-- [ ] `bun run typecheck` passes.
+- [x] `shared/prompts/review-plan-growth-budget.test.ts` test `plan review role body growth stays within budget` measures each `plan.prompt.review.*` registry `artifact.body.length` (post-frontmatter body bytes) and asserts strictly less than its pinned pre-rewrite baseline; it fails against the pre-fix prompts.
+- [x] `shared/prompts/review-plan-growth-budget.test.ts` test `plan review role placeholders unchanged` asserts each `plan.prompt.review.*` frontmatter `placeholders` array matches the pre-rewrite declaration; it fails when any binding changes.
+- [x] `shared/prompts/review-plan-contract-preservation.test.ts` test `plan review role contract substrings preserved` fails against the pre-fix prompts when adversary structural **product** flagging, advocate per-finding disposition, adjudicator self-contained verdict or empty-verdict semantics, oversized-subspec split language on any debate/actuator role, or critic editorial scope is removed or adversary-style identify lists are reintroduced.
+- [x] `shared/prompts/review-plan-premise-falsification.test.ts` stays green.
+- [x] `shared/prompts/review-plan-hollow-pin.test.ts` stays green.
+- [x] `shared/prompts/review-profile.test.ts` stays green.
+- [x] `v1/test/prompts/rendered-snapshots.test.ts` stays green against regenerated revision-keyed fixtures for `plan.prompt.review.adversary`, `plan.prompt.review.advocate`, `plan.prompt.review.adjudicator`, and `plan.prompt.review-actuator`.
+- [x] `bun run typecheck` passes.
 - [ ] `bun run test` passes.
 
 ## Documentation updates

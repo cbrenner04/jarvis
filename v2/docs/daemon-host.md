@@ -514,7 +514,7 @@ Resolution failure: a stage whose `(workflow, review)` pair has no table entry, 
 
 ## Pipeline stage dispatch
 
-`v2/src/daemon/pipeline-stage-dispatch.ts`'s `dispatchPipelineStage` takes one resolved stage's steps, a `PipelineWorkflowDispatch` callback, a `PipelineWorkflowWait` callback, and the `StateStore`, and drives one stage through to its terminal outcome. The daemon builds both callbacks as thin closures over `daemon-workflow-admission-handlers.ts`'s `handleWorkflowStart`/`startWorkflowRun` and `daemon-run-lifecycle-handlers.ts`'s `wait` handler — a standalone module cannot reach either directly.
+`v2/src/daemon/pipeline-stage-dispatch.ts`'s `dispatchPipelineStage` takes one resolved stage's steps, a `PipelineWorkflowDispatch` callback, a `PipelineWorkflowWait` callback, and the `StateStore`, and drives one stage through to its terminal outcome. `createRunControlHandlers` wires both callbacks as thin closures in `daemon-run-lifecycle-handlers.ts`: `defaultPipelineDispatch` over `handleWorkflowStart`/`startWorkflowRun` (`daemon-workflow-admission-handlers.ts`) and `defaultPipelineWait` over `waitForWorkflowEntryRun` — a standalone module cannot reach either directly.
 
 - `PipelineWorkflowDispatch = (steps) => Promise<{ ok: true; entryRunId; invocationId } | { ok: false; code; message }>`.
   A refusal (claimed worktree, insufficient memory, materialization failure,
@@ -531,8 +531,8 @@ Resolution failure: a stage whose `(workflow, review)` pair has no table entry, 
   is written while the linked entry run is still live.
 - The dispatcher then awaits settlement through `PipelineWorkflowWait`, not
   the dispatch callback's own promise (which resolves at run creation, before
-  the workflow's steps have run). This mirrors the daemon's own `wait` RPC
-  handler, which awaits the in-flight workflow promise and then reads
+  the workflow's steps have run). `defaultPipelineWait` awaits the in-flight
+  workflow promise via `waitForWorkflowEntryRun`, then reads
   `rollupWorkflowRunStatus` for the entry run.
 - Terminal success is `rollupWorkflowRunStatus` reporting `completed`: records
   `status: "succeeded"`, `endedAt`, and an artifact reference

@@ -21,7 +21,7 @@ Workflow/review realizability and posture → preset realization live in `workfl
 
 CLI admission (`admitPipelineStart` in `pipeline-start-admission.ts`) validates seed input, resolves project pipeline config, builds an immutable `PipelineContext`, and RPCs `pipeline_start`. Pre-admission refusals: `invalid-seed-input`, `unregistered-project`, `configuration-read-exception`, `missing-pipeline`, `missing-machine-model-configuration`, `invalid-machine-model-configuration`, `invalid-seed-path`, `invalid-project-pipeline`. Post-contact refusals: `daemon-refusal`, `malformed-daemon-response`, `rpc-transport-failure`, `connection-lifecycle-failure`. Tests: `pipeline-start-admission.test.ts`.
 
-Daemon `pipeline_start` (`handlePipelineStart` in `daemon.ts`) validates RPC `context` through `loadPipelineContext` before `createPipeline` (missing required fields → `invalid_params` with the loader message; no pipeline row or stage rows are created), persists the validated snapshot in the same transaction as definition and stage rows, reloads that snapshot through the same loader, and detaches `runPipeline` from the reloaded bytes — not from the RPC `context` object. It does not re-run `validatePipelineDefinition`. Missing `definition`/`context` → `invalid_params`; context not durably persisted or durable reload failing validation after admit → `admission_failed`.
+Daemon `pipeline_start` (`daemon-pipeline-handlers.ts`) validates RPC `context` through `loadPipelineContext` before `createPipeline` (missing required fields → `invalid_params` with the loader message; no pipeline row or stage rows are created), persists the validated snapshot in the same transaction as definition and stage rows, reloads that snapshot through the same loader, and detaches `runPipeline` from the reloaded bytes — not from the RPC `context` object. It does not re-run `validatePipelineDefinition`. Missing `definition`/`context` → `invalid_params`; context not durably persisted or durable reload failing validation after admit → `admission_failed`.
 
 ### `PipelineContext` immutability
 
@@ -37,7 +37,7 @@ Production path:
 
 1. `resolveStageWorkflowSteps` (`pipeline-stage-resolve.ts`) — `preparePipelineStageWorkflow` → `prepareWorkflowStart`: posture → preset realization, preset build, machine-config stamping via `stampWorkflowStepsWithMachineConfig`; returns stamped steps (no dispatch-time re-stamping). Chained stages supply `cwd` via `createChainedStageProjectMatch`; pipeline implement review pass count and behavior come from the resolved stage posture.
 2. Shared stale-reset preflight from the preparation result (`runStaleResetPreflight` in `advanceWorkflowStage` / fan-out branch dispatch in `pipeline-execution.ts`); guard refusal fails the stage with the same operator text as CLI `run workflow` and dispatches no workflow run.
-3. `dispatchPipelineStage` (`pipeline-stage-dispatch.ts`) — `claimPipelineStageAdmission`, `defaultPipelineDispatch` → `handleWorkflowStart` → shared daemon `admitWorkflowStart` → `startWorkflowRun`, `defaultPipelineWait` rollup.
+3. `dispatchPipelineStage` (`pipeline-stage-dispatch.ts`) — `claimPipelineStageAdmission`, `defaultPipelineDispatch` (`daemon-run-lifecycle-handlers.ts`) → `handleWorkflowStart`/`admitWorkflowStart`/`startWorkflowRun` (`daemon-workflow-admission-handlers.ts`), `defaultPipelineWait` → `waitForWorkflowEntryRun` rollup (`daemon-run-lifecycle-handlers.ts`).
 
 Stage row: `pending` → claim → `running` + `workflowInvocationId` (entry run id). Worktree claim refusal at dispatch records stage `failed`. Tests: `pipeline-stage-dispatch.test.ts`, `pipeline-stage-resolve.test.ts`, `pipeline-workflow-preparation-parity.test.ts`, `pipeline-execution.test.ts` (`runPipeline`, fan-out, stale-reset refusal).
 
@@ -45,7 +45,7 @@ Stage row: `pending` → claim → `running` + `workflowInvocationId` (entry run
 
 Current production path (pending replacement — see [Pending settlement boundary](#pending-settlement-boundary)):
 
-1. After dispatch, `pipelineWait` rolls up the entry run (`waitForWorkflowEntryRun`).
+1. After dispatch, `defaultPipelineWait` (`daemon-run-lifecycle-handlers.ts`) rolls up the entry run via `waitForWorkflowEntryRun`.
 2. `applyEntryRunSettlement` copies `specPath`, `prNumber`, `prUrl`, `downstreamInputs` from the durable entry run into stage `artifact`; terminal status `succeeded` or `failed`.
 3. If the entry run is still live when settlement would run, `failureDetail: { code: "settlement_deferred", reason: "entry_run_still_live" }` is recorded (`dispatchPipelineStage` catch path).
 4. On restart/resume, `adoptAndSettlePipelineStage` / `settlementLinkedEntryRunId` redrives settlement without re-dispatching workflow steps.

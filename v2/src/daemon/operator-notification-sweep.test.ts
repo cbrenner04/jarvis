@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 import type { StateStore } from "../persistence/state-store.ts";
 import {
   type NotificationSweepDeps,
-  type NotificationSweepIntervalState,
   runNotificationSweepIntervalTick,
   shouldSkipOverlappingNotificationSweep,
 } from "./operator-notification-sweep.ts";
@@ -13,7 +12,7 @@ test("shouldSkipOverlappingNotificationSweep: skips only while a sweep is in fli
 });
 
 test("notification sweep timer skips a tick while the prior sweep is still running", () => {
-  const state: NotificationSweepIntervalState = { sweepInProgress: false };
+  const state = { sweepInProgress: false };
   const deps: NotificationSweepDeps = {
     store: { isClosed: () => false } as StateStore,
     readSinkCommand: () => undefined,

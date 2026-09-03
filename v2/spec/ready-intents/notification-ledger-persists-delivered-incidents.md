@@ -16,9 +16,10 @@ name: notification-ledger-persists-delivered-incidents
 
 ## Decision ledger
 
-- `tryRecordNotificationDelivery` persists the same serialized incident JSON the sink receives on stdin alongside the existing dedupe key; rules out list/wait re-deriving incidents from runs and pipelines.
+- Migration adds nullable `incident_json` on `operator_notification_deliveries`; new deliveries persist the same serialized incident JSON the sink receives on stdin alongside the existing dedupe key; rules out list/wait re-deriving incidents from runs and pipelines.
+- Legacy key-only rows keep `incident_json` null and are excluded from delivered-incident list/wait queries; rules out backfill or re-derivation for pre-change ledger rows.
 - The store exposes an ordered delivered-incident query parameterized by `since` cursor or timestamp and optional kind set; rules out CLI or daemon reading sqlite ad hoc.
-- Consumer cursor is the delivered row identity (`deliveredAt`, `incidentId`, `transition`); rules out line-offset or file-position cursors.
+- Consumer cursor is the delivered row identity (`deliveredAt`, `incidentId`, `transition`); wire form is colon-delimited `deliveredAt:incidentId:transition` shared by the store query boundary, daemon RPC params, and CLI `--since`; rules out line-offset, file-position, or opaque blob cursors.
 - Deferred to first consumer: exact `--since` duration literal grammar — pin when CLI admission lands.
 
 ## Acceptance criteria
@@ -30,4 +31,5 @@ name: notification-ledger-persists-delivered-incidents
 
 ## Documentation updates
 
+- `v2/docs/state-store.md` — `operator_notification_deliveries` schema (`incident_json` column, legacy null exclusion), delivered-incident query, and cursor wire form.
 - `v2/docs/daemon-host.md` — § Operator notifications: delivery-ledger pull contract (persisted incident JSON, cursor semantics, shared by sink discharge and pull consumers).

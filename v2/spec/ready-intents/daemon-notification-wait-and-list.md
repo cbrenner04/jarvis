@@ -23,7 +23,8 @@ Even with a durable ledger, nothing wakes a sleeping operator: there is no daemo
 - `notification_wait` blocks until the next delivered row matching filters is owed to the caller's cursor, then returns one incident JSON object; rules out returning before the sweep records delivery.
 - `notification_list` returns matching ledger rows without blocking; rules out mixing list with the wait long-poll path.
 - The sweep wakes registered `notification_wait` callers when a new delivery lands; rules out sub-second client-side poll loops against the store.
-- Kind filtering is enforced at the RPC layer so non-matching deliveries do not satisfy a wait; rules out returning filtered incidents that the caller must discard.
+- Kind filtering is enforced at the RPC layer on both wait and list so non-matching deliveries do not satisfy a wait or appear in list results; rules out returning filtered incidents the caller must discard.
+- `since` cursor params use the store's colon-delimited `deliveredAt:incidentId:transition` wire form; rules out per-RPC cursor encodings.
 - Deferred to first consumer: `notification_list` follow/stream mode — pin when `jarvis notifications list --follow` lands.
 
 ## Acceptance criteria
@@ -32,6 +33,7 @@ Even with a durable ledger, nothing wakes a sleeping operator: there is no daemo
 - [ ] The new `daemon-notification-wait.test.ts` test `notification_wait returns delivery recorded while no waiter was armed` records a delivery before wait begins then asserts the next wait with a prior cursor returns it immediately; it fails against the pre-fix path that cannot catch up from the ledger.
 - [ ] The new `daemon-notification-wait.test.ts` test `notification_wait kind filter ignores non-matching deliveries` arms wait with a kind set, records a non-matching delivery, then a matching one, and asserts only the matching delivery satisfies the wait; it fails against the pre-fix unfiltered wait.
 - [ ] The new `daemon-notification-wait.test.ts` test `notification_list returns ledger rows without blocking` seeds delivered incidents and asserts list returns them for a since bound without entering the wait path; it fails against the pre-fix absent list RPC.
+- [ ] The new `daemon-notification-wait.test.ts` test `notification_list kind filter excludes non-matching deliveries` seeds mixed-kind deliveries and asserts list with a kind set returns only matching incidents; it fails against the pre-fix unfiltered list RPC.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates

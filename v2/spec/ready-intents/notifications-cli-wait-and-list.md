@@ -22,7 +22,8 @@ Operators wire `notificationSinkCommand` to append JSONL and hand-roll `tail -f`
 
 - Add `jarvis notifications wait` and `jarvis notifications list` subcommands delegating to the daemon RPCs; rules out documenting sink-only push as the only notification surface.
 - `notifications wait` prints one JSON line on stdout and exits `0` when the next owed incident arrives; rules out multi-line or streaming stdout on wait.
-- `--since` accepts cursor, duration, or timestamp and composes with `--kind`; rules out tail line-offset semantics.
+- `notifications list` prints one incident JSON object per line (NDJSON) on stdout without blocking; rules out a single JSON array wrapper or human table output.
+- `--since` accepts cursor (`deliveredAt:incidentId:transition`), duration, or timestamp and composes with `--kind` on wait and list; rules out tail line-offset semantics.
 - `notificationSinkCommand` stays unchanged; wait/list are the pull side of the same ledger, not a sink replacement.
 - Deferred to first consumer: `notifications list --follow` long-lived stream behavior — pin when an operator workflow needs streaming catch-up beyond one-shot list.
 
@@ -31,7 +32,8 @@ Operators wire `notificationSinkCommand` to append JSONL and hand-roll `tail -f`
 - [ ] The new notifications CLI test `notifications wait blocks until the next owed incident` arms `jarvis notifications wait`, records an incident after wait begins, and asserts one JSON line on stdout with exit `0`; it fails against the pre-fix missing subcommand.
 - [ ] The new notifications CLI test `notifications wait since cursor returns delivery recorded while no waiter was armed` records a delivery, then arms `jarvis notifications wait --since <prior cursor>`, and asserts the incident is returned rather than lost; it fails against the pre-fix path.
 - [ ] The new notifications CLI test `notifications wait kind filter ignores non-matching incidents` arms wait with `--kind`, delivers a non-matching incident then a matching one, and asserts only the matching incident wakes the wait; it fails against the pre-fix unfiltered wait.
-- [ ] The new notifications CLI test `notifications list since duration returns prior ledger incidents` seeds delivered incidents and asserts `jarvis notifications list --since <duration>` returns them without blocking; it fails against the pre-fix missing list subcommand.
+- [ ] The new notifications CLI test `notifications list since duration returns prior ledger incidents` seeds delivered incidents and asserts `jarvis notifications list --since <duration>` prints one JSON line per incident without blocking; it fails against the pre-fix missing list subcommand.
+- [ ] The new notifications CLI test `notifications list kind filter excludes non-matching incidents` seeds mixed-kind deliveries and asserts `jarvis notifications list --kind <set>` prints only matching incidents as NDJSON; it fails against the pre-fix unfiltered list.
 - [ ] `bun run typecheck` and the `test:v2` pair pass.
 
 ## Documentation updates

@@ -5,4 +5,4 @@ Twenty-eight sequential SQLite migrations in `state-store.ts` add review drag on
 - [x] [00 - Shared isRecord and shrink step-id helpers](./00-shared-is-record-and-shrink-step-id.md)
 - [x] [01 - Orchestration store path constant](./01-orchestration-store-path.md)
 - [x] [02 - Squash state store migrations to baseline schema](./02-squash-state-store-migrations.md)
-- [ ] [03 - State store baseline documentation](./03-state-store-baseline-docs.md)
+- [x] [03 - State store baseline documentation](./03-state-store-baseline-docs.md)

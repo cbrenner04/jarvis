@@ -210,15 +210,17 @@ describe("daemon test inventory", () => {
       const actualTitles = collectTestTitles(readFileSync(join(REPO_ROOT, repoPath), "utf8"));
       const missing = multisetDiff(expectedTitles, actualTitles);
 
+      // Asserts nothing the merge base covered was dropped. Deliberately not an exact-count
+      // equality: added tests are the normal case and must not redden this gate.
       expect({
         file: repoPath,
+        preservedCount: expectedTitles.length - missing.length,
         expectedCount: expectedTitles.length,
-        actualCount: actualTitles.length,
         missing,
       }).toEqual({
         file: repoPath,
-        expectedCount: actualTitles.length,
-        actualCount: actualTitles.length,
+        preservedCount: expectedTitles.length,
+        expectedCount: expectedTitles.length,
         missing: [],
       });
     }

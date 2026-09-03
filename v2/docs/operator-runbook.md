@@ -512,6 +512,8 @@ This replays only finalization — promoting `durableDir`, deleting the stage an
 
 When `landing_failed` follows review-path staged-Markdown lint budget exhaustion (`staged_markdown_lint_reprompt` events in `jarvis run log`), hand-edit the violating file under `.jarvis-intent-stage/` or `.jarvis-plan-stage/`, then resume the review row. Checkpoint re-entry (`finishReviewedLanding`) may reprompt the actuator while lint-reprompt budget remains; when exhausted, intent populated-stage resume (`resumePopulatedIntentPublication`) re-lints only — fix violations on disk first, then `jarvis run resume` — it never re-invokes critic or actuator.
 
+**Resume does not consume the seed (2026-09-03).** A `landing_failed` intent recovered with `jarvis run resume` lands its ready-intents but leaves the seed it split on disk, so the seed looks unstarted and gets re-split next session. Check the intent PR's diff for the seed deletion before merging; delete it by hand if absent. Seed: `v2/spec/seeds/intent-resume-consumes-its-seed.md`. Cleanup: delete this paragraph when that seed merges.
+
 Prerequisites: the failure must be git-enabled (git-disabled runs have nothing to commit/push) and the stage must still hold files — an empty/missing stage reports `unsupported_resume_context` and needs manual inspection.
 
 ### Workflow ends "complete" but produced no PR

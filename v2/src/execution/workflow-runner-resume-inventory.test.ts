@@ -67,12 +67,22 @@ function resolveMergeBase(): string {
   throw new Error(`merge-base resolution failed for every candidate base ref — ${failures.join("; ")}`);
 }
 
-function loadAtRef(ref: string, repoPath: string): string {
-  return execFileSync("git", ["show", `${ref}:${repoPath}`], {
-    cwd: REPO_ROOT,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+/**
+ * Returns undefined when the path does not exist at `ref`. A bucket whose source file
+ * is absent at the merge base has no titles to preserve — notably once the file has been
+ * deleted by the co-location work this inventory guards, at which point the merge base is
+ * a commit that no longer carries it.
+ */
+function loadAtRef(ref: string, repoPath: string): string | undefined {
+  try {
+    return execFileSync("git", ["show", `${ref}:${repoPath}`], {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch {
+    return undefined;
+  }
 }
 
 function readQuotedString(source: string, start: number): { value: string; end: number } | null {
@@ -391,6 +401,9 @@ function hasResumeModuleImport(source: string): boolean {
 
 function collectExpectedTitles(bucket: SourceBucket, mergeBase: string): string[] {
   const source = loadAtRef(mergeBase, bucket.repoPath);
+  if (source === undefined) {
+    return [];
+  }
   if (!hasResumeModuleImport(source)) {
     return [];
   }

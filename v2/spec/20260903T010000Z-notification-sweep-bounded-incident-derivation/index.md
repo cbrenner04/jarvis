@@ -1,6 +1,6 @@
 # Bounded operator-incident derivation and non-overlapping notification sweeps
 
-- [ ] [00 - Bounded incident candidate derivation](./00-bounded-incident-candidate-derivation.md)
+- [x] [00 - Bounded incident candidate derivation](./00-bounded-incident-candidate-derivation.md)
 - [ ] [01 - Batched stage-attributed resolution](./01-batched-stage-attributed-resolution.md)
 - [ ] [02 - Delivery-ledger derivation skip](./02-delivery-ledger-derivation-skip.md)
 - [ ] [03 - Non-overlapping notification sweep timer](./03-non-overlapping-notification-sweep-timer.md)

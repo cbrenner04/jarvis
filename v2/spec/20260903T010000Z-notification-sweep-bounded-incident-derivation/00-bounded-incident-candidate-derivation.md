@@ -27,11 +27,15 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/operator-notification.test.ts` test `deriveOperatorIncidents excludes terminal runs outside the recency bound` seeds many old terminal runs plus a small actionable set and asserts derived incidents contain only actionable rows; it fails against the pre-fix full-history derivation.
-- [ ] `v2/src/daemon/operator-notification.test.ts` test `deriveOperatorIncidents store work is unchanged when old terminal history is padded` asserts store-query count or rows decoded is identical between a small store and one padded with old terminal rows whose actionable set is identical; it fails against the pre-fix unbounded enumeration.
-- [ ] `v2/src/daemon/operator-notification.test.ts` — `pipeline awaiting-approval then terminal fires the sink once per transition` stays green (bounded derivation preserves actionable incidents inside the recency window).
-- [ ] `bun run test:v2` passes.
+- [x] `v2/src/daemon/operator-notification.test.ts` test `deriveOperatorIncidents excludes terminal runs outside the recency bound` seeds many old terminal runs plus a small actionable set and asserts derived incidents contain only actionable rows; it fails against the pre-fix full-history derivation.
+- [x] `v2/src/daemon/operator-notification.test.ts` test `deriveOperatorIncidents store work is unchanged when old terminal history is padded` asserts store-query count or rows decoded is identical between a small store and one padded with old terminal rows whose actionable set is identical; it fails against the pre-fix unbounded enumeration.
+- [x] `v2/src/daemon/operator-notification.test.ts` — `pipeline awaiting-approval then terminal fires the sink once per transition` stays green (bounded derivation preserves actionable incidents inside the recency window).
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 
 - Deferred to subspec 04.
+
+## Blocker
+
+`bun run test:v2` fails on `workflow-runner-resume-inventory.test.ts` (unrelated, on main `9fd4f4f0`): `collectExpectedTitles` runs `git show <merge-base>:recover-review-failed-plan-draft.test.ts` but that path was deleted in `b8aee2579` while the inventory bucket still references it. Subspec work is done (`operator-notification.test.ts` 8/8, `typecheck` green). Out of scope per patch-mode file list.

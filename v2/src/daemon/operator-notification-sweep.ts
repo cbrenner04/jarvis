@@ -61,9 +61,9 @@ export function runNotificationSweep(deps: NotificationSweepDeps): void {
 
   const sinkCommand = deps.readSinkCommand()?.trim() || undefined;
   const spawnSink = deps.spawnSink ?? spawnNotificationSinkCommand;
-  const deliveredAt = deps.nowMs?.() ?? Date.now();
+  const nowMs = deps.nowMs?.() ?? Date.now();
 
-  for (const incident of deriveOperatorIncidents(store)) {
-    deliverIncident(store, incident, sinkCommand, spawnSink, deliveredAt);
+  for (const incident of deriveOperatorIncidents(store, nowMs)) {
+    deliverIncident(store, incident, sinkCommand, spawnSink, nowMs);
   }
 }

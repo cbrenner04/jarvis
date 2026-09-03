@@ -1,3 +1,4 @@
+import { ATTENTION_TERMINAL_RECENCY_MS } from "../attention-terminal-recency.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { hasPipelineTerminalPublicationFailure } from "../daemon/pipeline-execution.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
@@ -18,6 +19,8 @@ import {
 } from "./tui-monitor-pipeline-tree.ts";
 import { workflowRoleLabel, workflowTableRowMembers } from "./tui-monitor-workflow-collapse.ts";
 import { monitorTreeRun } from "./tui-shell-layout.ts";
+
+export { ATTENTION_TERMINAL_RECENCY_MS };
 
 /** One projected operator-attention incident. */
 export type AttentionRowKind =
@@ -54,9 +57,6 @@ const GATE_GLYPH = "✋";
 export const FAILURE_GLYPH = "✗";
 const ATTENTION_ROW_CAP = 6;
 const GATE_KINDS = new Set<AttentionRowKind>(["awaiting-gate", "rejected-gate"]);
-/** Terminal incidents older than this against the caller's clock are suppressed from the attention segment. */
-export const ATTENTION_TERMINAL_RECENCY_MS = 12 * 60 * 60 * 1000;
-
 /** Gates surface at any age; a terminal incident surfaces only when dated and within the recency window. */
 function isSurfacedIncident(row: AttentionRow, nowMs: number): boolean {
   if (GATE_KINDS.has(row.kind)) return true;

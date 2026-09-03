@@ -9,4 +9,4 @@ repo: cbrenner04/jarvis
 - [x] [04 - Retire activeRun WeakMap back-channel](./04-retire-activerun-weakmap-backchannel.md)
 - [x] [05 - Pin daemon test inventory](./05-pin-daemon-test-inventory.md)
 - [x] [06 - Document handler module map](./06-document-handler-module-map.md)
-- [ ] [07 - Document handler context in tests](./07-document-handler-context-in-tests.md)
+- [x] [07 - Document handler context in tests](./07-document-handler-context-in-tests.md)

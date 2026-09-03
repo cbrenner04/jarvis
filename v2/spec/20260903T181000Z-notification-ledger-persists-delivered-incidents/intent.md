@@ -33,3 +33,7 @@ name: notification-ledger-persists-delivered-incidents
 
 - `v2/docs/state-store.md` — `operator_notification_deliveries` schema (`incident_json` column, legacy null exclusion), delivered-incident query, and cursor wire form.
 - `v2/docs/daemon-host.md` — § Operator notifications: delivery-ledger pull contract (persisted incident JSON, cursor semantics, shared by sink discharge and pull consumers).
+
+## Blocker
+
+Artifact contract check failed: Plan index does not link 00-delivery-ledger-persists-incident-json.md

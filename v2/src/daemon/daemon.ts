@@ -620,13 +620,20 @@ export function promoteQueuedRunImpl(deps: PromoteQueuedRunDeps, bypassSettleDel
 }
 
 /**
- * Run-control handler factory for `start`/`list`/`pause`/`resume`/`kill`.
+ * Run-control handler factory: lifecycle, workflow admission, pipeline RPCs, and control seams.
  *
  * @param deps - {@link RunControlHandlerDeps}
- * @returns `{ start, list, pause, resume, kill }` — each an {@link RpcHandler}.
- *   Handlers signal rejections via `{ kind: "error", code, message }`; they do not throw.
+ * @returns Handler map — lifecycle (`start`, `list`, `pause`, `resume`, `kill`, `wait`, `dismiss`,
+ *   `undismiss`), workflow admission (`check_workflow_start_claim`, `implement.recover`),
+ *   pipeline (`pipeline_start`, `pipeline_approve`, `pipeline_reject`, `pipeline_resume`,
+ *   `pipeline_recover`, `pipeline_dismiss`, `pipeline_undismiss`, `pipeline_list`,
+ *   `pipeline_wait`, `continueContinuablePipelines`), test seam (`pipelineExecutionDeps`),
+ *   review-progress hooks, `close`/`hasActiveRuns`/`setRetiring`/`isRetiring`, and shared
+ *   `context`. Each RPC handler signals rejections via `{ kind: "error", code, message }`; they do
+ *   not throw.
  * @throws Never — factory and handlers are non-throwing at the RPC boundary.
- * @invariant Each invocation gets a fresh `WorktreeOwnershipRegistry` and `activeRuns` map.
+ * @invariant Each invocation gets a fresh `activeRuns` map; `deps.registry` is injectable and
+ *   otherwise defaults to a new `WorktreeOwnershipRegistry`.
  * @invariant Write loops spawn fire-and-forget; settlement always releases registry and
  *   active-run entries. Spawn-boundary executor rejections best-effort settle `failed`,
  *   await `failureReporter`, then release — they do not propagate to RPC callers.

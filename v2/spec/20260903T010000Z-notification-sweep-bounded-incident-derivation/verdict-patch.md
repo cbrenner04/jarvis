@@ -1,0 +1,4 @@
+Verifying key implementation claims against the spec before issuing the verdict.
+No required outcomes. Implementation matches subspecs 00–04: bounded candidate derivation, batched attribution, delivery-ledger derivation skip, timer overlap guard wired through `runNotificationSweepIntervalTick`, and documentation in the three assigned files. Boot-time sweep outside the guard, timer-only (not bare concurrent) guarding, seam-based interval test, 12h terminal recency, unbounded non-terminal candidates, and all-or-nothing pipeline ledger skip are all spec-intentional.
+
+Stale `intent.md` acceptance criteria, uncleared `## Blocker` notes in subspecs 00–01, residual preview-path `loadRun`, missing pipeline-padding regression, `try`/`finally` around `sweepInProgress`, and runbook thinness on 12h recency consequences are housekeeping or follow-up scope — not acceptance misses and not actuator blockers for this spec.

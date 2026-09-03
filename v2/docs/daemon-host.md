@@ -30,6 +30,12 @@ Once orphaned-pipeline settlement completes, the daemon automatically admits eve
 
 After startup reconciliation completes, each live daemon runs an operator-notification sweep: recompute derived incidents from durable rows (`deriveOperatorIncidents` in [`operator-incidents.ts`](../src/daemon/operator-incidents.ts)), diff against the `operator_notification_deliveries` ledger, and discharge owed `(incidentId, transition)` pairs. The sweep does not add write paths to existing settlement funnels — it reads durable state only.
 
+**Bounded candidate set.** `deriveOperatorIncidents` loads candidate pipelines and runs through `listIncidentCandidatePipelines` and `listIncidentCandidateRuns` with `sinceMs = nowMs - ATTENTION_TERMINAL_RECENCY_MS` (twelve hours, shared with TUI attention recency), not unbounded `listPipelines` / `listRuns`. All non-terminal rows are always candidates; terminal rows enter only when finish time is within the recency window. Stage-attributed and deferred-settlement resolution uses one batched `loadRunsByIds` and one batched `findRunsByInvocationIds` per sweep.
+
+**Delivery-ledger derivation skip.** Before running pipeline/run collectors, the sweep loads existing `operator_notification_deliveries` rows for the bounded candidate incident ids and excludes already-recorded `(incidentId, transition)` pairs from derivation output — not only from re-delivery. Ledger insert semantics and multi-daemon races are unchanged.
+
+**No-overlap timer.** The five-second `setInterval` callback skips a tick when the prior sweep is still running; overlapping sweeps are not queued on the event loop. The boot-time initial sweep before the timer starts is unchanged.
+
 **Discharge semantics.** When `notificationSinkCommand` is configured in `~/.jarvis/config.json`, the daemon claims a ledger row with `INSERT OR IGNORE` (first writer wins), spawns the shell command fire-and-forget with one JSON incident on stdin, and keeps the row only when spawn succeeds. A failed spawn deletes the claim so the next sweep retries. When no sink is configured, the sweep still records delivery in the ledger and spawns nothing.
 
 **Multi-daemon.** Keyed daemons share one state store. Concurrent sweeps race on the ledger insert; losers observe an existing row and skip spawn. Delivery is at-least-once with ledger dedupe, not exactly-once.

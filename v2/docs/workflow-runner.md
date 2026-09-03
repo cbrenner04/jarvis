@@ -9,8 +9,8 @@ See [`v2-architecture.md`](v2-architecture.md) (orchestration; multi-step workfl
 Execution-library modules split from `workflow-runner.ts` as extraction seams mature. A seam filename labels the first extraction slice, not an exclusive behavioral boundary — callers may import shared helpers across step kinds.
 
 - **`workflow-runner-debate-landing.ts`** — owns `runReviewDebateStep`, post-debate landing, actuator-only retry, and the shared `landReviewedOutputOrFail` / `finishReviewedLanding` helpers.
-- **`workflow-runner-resume.ts`** — owns daemon-callable resume entrypoints (`recoverPlanStage`, `resumePopulatedIntentPublication`, `resumeReviewMutationFinalization`), shared `landReviewedPublicationOutput`, and their admission resolvers; not the debate-landing seam or the step loop.
-- **`workflow-runner.ts`** — owns the step loop; imports `runReviewDebateStep` for `review-debate` step dispatch; imports `landReviewedOutputOrFail` and `finishReviewedLanding` from `workflow-runner-debate-landing.ts` for light-review landing and checkpoint re-entry (not debate-only); imports resume entrypoints from `workflow-runner-resume.ts` for step dispatch and passes `landReviewedPublicationOutput` into `REVIEW_DEBATE_LANDING_DEPS` for `workflow-runner-debate-landing.ts`. `reviewCompletionAgent` and `reviewCompletionPass` stay here and feed that deps bag via `wireWorkflowRunnerResumeDeps`.
+- **`workflow-runner-resume.ts`** — owns `recoverPlanStage`, `resumePopulatedIntentPublication`, `resumeReviewMutationFinalization`, `landReviewedPublicationOutput`, and admission resolvers.
+- **`workflow-runner.ts`** — owns the step loop; imports `runReviewDebateStep` for `review-debate` step dispatch; imports `landReviewedOutputOrFail` and `finishReviewedLanding` from `workflow-runner-debate-landing.ts` for light-review landing and checkpoint re-entry (not debate-only); imports resume entrypoints from `workflow-runner-resume.ts` and passes `landReviewedPublicationOutput` through `REVIEW_DEBATE_LANDING_DEPS`. `reviewCompletionAgent` and `reviewCompletionPass` stay here.
 
 ## Execution contract
 

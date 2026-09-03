@@ -87,3 +87,4 @@ report,specs_driven,completed_specs,partial_or_blocked,session_active_tokens,ope
 20260831T023757Z-gates-closed-watchdog-and-dogfood,8,8,0,650700,650700,195400000,128.04,128.04,81338,16.01
 20260831T155237Z-autonomous-structural-burndown,14,12,2,836400,836400,284200000,173.54,173.54,69700,14.46
 20260902T032711Z-dogfood-throughput-gate-fixes-refactor-start,12,10,2,442200,442200,207900000,148.16,148.16,44220,14.82
+20260903T045555Z-daemon-blocker-root-caused-refactor-chains-complete,11,8,3,385700,385700,282100000,157.78,157.78,48213,19.72

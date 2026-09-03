@@ -59,7 +59,7 @@ import {
   type NotificationSinkSpawner,
   runNotificationSweep,
 } from "./operator-notification-sweep.ts";
-import { type RunOperatorError } from "./run-operator-error.ts";
+import type { RunOperatorError } from "./run-operator-error.ts";
 
 export type WorktreeOwnership = {
   runId: string;

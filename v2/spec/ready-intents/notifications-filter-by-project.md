@@ -29,6 +29,8 @@ A multi-project operator on one shared daemon receives an undifferentiated incid
 
 - [ ] The new notifications CLI test `wait filtered by project ignores other projects` arms `notifications wait --project <name>` and asserts an incident from another project does not wake it; it fails against the pre-fix unfiltered wait.
 - [ ] The new notifications CLI test `wait filtered by project wakes on own project` arms `notifications wait --project <name>` and asserts a matching incident returns on stdout; it fails against the pre-fix behavior or the ignore-only case above.
+- [ ] The new notifications CLI test `list filtered by project narrows ledger output` arms `notifications list --project <name>` against a mixed-project ledger and asserts only matching-project rows are returned; it fails against the pre-fix unfiltered list.
+- [ ] The new notifications CLI test `wait and list accept project and kind together` arms `--project` with `--kind` on wait and list and asserts only incidents matching both filters wake or print; it fails against the pre-fix behavior.
 - [ ] `bun run typecheck` and the `test:v2` pair pass.
 
 ## Documentation updates

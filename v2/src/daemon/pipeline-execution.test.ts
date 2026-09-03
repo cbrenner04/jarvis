@@ -74,6 +74,7 @@ import {
   resumeFailedRequiresReopen,
   resumePipeline,
   resumeReopenedPendingContinuation,
+  resolveFailedPlanDirtyGate,
   resumeTerminalRefusalReason,
   runPipeline,
 } from "./pipeline-execution.ts";
@@ -5378,7 +5379,7 @@ describe("reopened pipeline continuation", () => {
       code: "pipeline_reopened_stage_reset",
       stageId: "plan",
       branchKey: "default",
-      flags: { skipDirtyWorktreeGate: true, skipLandedCriteriaGate: false },
+      flags: { skipDirtyWorktreeGate: false, skipLandedCriteriaGate: false },
     });
 
     let resetFlags: unknown;
@@ -5397,7 +5398,7 @@ describe("reopened pipeline continuation", () => {
     });
 
     expect(resumed).toEqual({ kind: "continued", pipelineId: PIPELINE_ID });
-    expect(resetFlags).toEqual({ skipDirtyWorktreeGate: true, skipLandedCriteriaGate: false });
+    expect(resetFlags).toEqual({ skipDirtyWorktreeGate: false, skipLandedCriteriaGate: false });
     expect(stageRecord(stages(), "plan")?.status).toBe("succeeded");
   });
 
@@ -5426,7 +5427,7 @@ describe("reopened pipeline continuation", () => {
           code: "pipeline_reopened_stage_reset",
           stageId: "plan",
           branchKey: "default",
-          flags: { skipDirtyWorktreeGate: true, skipLandedCriteriaGate: false },
+          flags: { skipDirtyWorktreeGate: false, skipLandedCriteriaGate: false },
         },
       },
     });
@@ -5451,7 +5452,7 @@ describe("reopened pipeline continuation", () => {
     );
 
     expect(continued).toBe(1);
-    expect(resetFlags).toEqual({ skipDirtyWorktreeGate: true, skipLandedCriteriaGate: false });
+    expect(resetFlags).toEqual({ skipDirtyWorktreeGate: false, skipLandedCriteriaGate: false });
     expect(stageRecord(stages(), "plan")?.status).toBe("succeeded");
   });
 });
@@ -5900,7 +5901,8 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     const intentWorktree = await materializeWorktree(intentBranch);
     await seedIntentReadyIntent(intentWorktree);
     const planWorktree = await materializeWorktree(planBranch, intentBranch);
-    writeFileSync(join(planWorktree, "README.md"), "dirty\n", "utf8");
+    mkdirSync(join(planWorktree, ".jarvis-plan-stage"), { recursive: true });
+    writeFileSync(join(planWorktree, ".jarvis-plan-stage", "draft.md"), "draft\n", "utf8");
 
     const { store, stages } = fakeStore(
       planChainDefinition(),
@@ -5949,6 +5951,108 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
       const record = stageRecord(stages(), "plan");
       expect(record?.status).toBe("succeeded");
       expect(existsSync(planWorktree)).toBe(true);
+    } finally {
+      rpc.close();
+    }
+  });
+
+  test("failed plan resume dispatches with reserved harness-only blocker without manual edit", async () => {
+    const intentWorktree = await materializeWorktree(intentBranch);
+    await seedIntentReadyIntent(intentWorktree);
+    const planWorktree = await materializeWorktree(planBranch, intentBranch);
+    mkdirSync(join(planWorktree, ".jarvis-plan-stage"), { recursive: true });
+    writeFileSync(
+      join(planWorktree, ".jarvis-plan-stage", "intent.md"),
+      "# Intent\n\n## Blocker\n\nArtifact contract check failed: plan.draft.shape\n",
+      "utf8",
+    );
+
+    const { store, stages } = fakeStore(
+      planChainDefinition(),
+      {
+        "run-intent": { specPath: readyIntentRel, worktreePath: intentWorktree, branch: intentBranch },
+        "run-plan": { specPath: "spec/plan" },
+      },
+      { context: { ...persistedContext, cwd: projectRoot }, ownerIdentity: PRIOR_OWNER },
+    );
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      patch: { status: "succeeded", artifact: intentArtifact() },
+    });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "plan", patch: { status: "failed" } });
+
+    const rpc = daemonRpcClient();
+    let dispatchCalled = false;
+    try {
+      const outcome = await resumePipeline(PIPELINE_ID, {
+        store,
+        dispatch: async () => {
+          dispatchCalled = true;
+          return { ok: true, entryRunId: "run-plan", invocationId: "inv-plan" };
+        },
+        wait: async () => "completed",
+        resolveStage: resolveStageWithFixedPlanSteps,
+        staleResetPreflight: staleResetBundle(rpc),
+      });
+
+      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(dispatchCalled).toBe(true);
+      expect(stageRecord(stages(), "plan")?.status).toBe("succeeded");
+    } finally {
+      rpc.close();
+    }
+  });
+
+  test("failed plan resume refuses operator dirt outside harness draft stage and preserves worktree", async () => {
+    const intentWorktree = await materializeWorktree(intentBranch);
+    await seedIntentReadyIntent(intentWorktree);
+    const planWorktree = await materializeWorktree(planBranch, intentBranch);
+    writeFileSync(join(planWorktree, "README.md"), "operator edit\n", "utf8");
+
+    const { store, stages } = fakeStore(
+      planChainDefinition(),
+      {
+        "run-intent": { specPath: readyIntentRel, worktreePath: intentWorktree, branch: intentBranch },
+        "run-plan": { specPath: "spec/plan" },
+      },
+      { context: { ...persistedContext, cwd: projectRoot }, ownerIdentity: PRIOR_OWNER },
+    );
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      patch: { status: "succeeded", artifact: intentArtifact() },
+    });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "plan", patch: { status: "failed" } });
+
+    let stderr = "";
+    let dispatchCalled = false;
+    const rpc = daemonRpcClient();
+    try {
+      const outcome = await resumePipeline(PIPELINE_ID, {
+        store,
+        dispatch: async () => {
+          dispatchCalled = true;
+          return { ok: true, entryRunId: "run-plan", invocationId: "inv-plan" };
+        },
+        wait: async () => "completed",
+        resolveStage: resolveStageWithFixedPlanSteps,
+        staleResetPreflight: staleResetBundle(rpc, {
+          stdout: () => {},
+          stderr: (text) => {
+            stderr += text;
+          },
+        }),
+      });
+
+      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(dispatchCalled).toBe(false);
+      expect(existsSync(planWorktree)).toBe(true);
+      expect(readFileSync(join(planWorktree, "README.md"), "utf8")).toBe("operator edit\n");
+      const detail = (stageRecord(stages(), "plan")?.failureDetail as { message?: string } | null)?.message ?? "";
+      expect(stderr).toContain("README.md");
+      expect(detail).toContain("README.md");
+      expect(detail).toContain("operator changes");
     } finally {
       rpc.close();
     }
@@ -6711,6 +6815,36 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
       handlers.close();
       stateStore.close();
     }
+  });
+
+  // @mutate v2/src/daemon/pipeline-execution.ts "if (operatorPaths.length > 0) {" -> "if (false) {"
+  test("resolveFailedPlanDirtyGate refuses operator paths outside harness draft stage", async () => {
+    const intentWorktree = await materializeWorktree(intentBranch);
+    await seedIntentReadyIntent(intentWorktree);
+    const planWorktree = await materializeWorktree(planBranch, intentBranch);
+    writeFileSync(join(planWorktree, "README.md"), "operator edit\n", "utf8");
+    const steps = planSteps(intentBranch);
+    const refused = await resolveFailedPlanDirtyGate(steps, {
+      skipDirtyWorktreeGate: false,
+      skipLandedCriteriaGate: false,
+    });
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) {
+      expect(refused.message).toContain("README.md");
+      expect(refused.message).toContain("operator changes");
+    }
+    mkdirSync(join(planWorktree, ".jarvis-plan-stage"), { recursive: true });
+    writeFileSync(join(planWorktree, ".jarvis-plan-stage", "draft.md"), "draft\n", "utf8");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", ".jarvis-plan-stage/draft.md"], planWorktree);
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "README.md"], planWorktree);
+    const harnessOnly = await resolveFailedPlanDirtyGate(steps, {
+      skipDirtyWorktreeGate: false,
+      skipLandedCriteriaGate: false,
+    });
+    expect(harnessOnly).toEqual({
+      ok: true,
+      flags: { skipDirtyWorktreeGate: true, skipLandedCriteriaGate: false },
+    });
   });
 });
 

@@ -1,7 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
+import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
+import { listDirtyWorktreePathsForStaleReset } from "../commands/cleanup.ts";
+import { maybeResetStaleWorkspace } from "../commands/stale-reset-workspace.ts";
 import type { WorkflowStartResetFlags } from "../commands/workflow-start-preparation.ts";
 import { stampWorkflowStepsWithMachineConfig } from "../commands/workflow-step-config-stamp.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
@@ -513,7 +516,7 @@ function buildReopenedStageReset(
     stageId: failedStage.stageId,
     branchKey: failedStage.branchKey,
     flags: {
-      skipDirtyWorktreeGate: failedWorkflow.workflow === "plan" || options.resetDespiteDirty === true,
+      skipDirtyWorktreeGate: options.resetDespiteDirty === true,
       skipLandedCriteriaGate: options.resetDespiteLandedCriteria === true,
     },
   };
@@ -1512,12 +1515,54 @@ function reopenedStageResetFlags(
   return reset.flags;
 }
 
+const PLAN_HARNESS_DRAFT_DIR = ".jarvis-plan-stage";
+
+function isHarnessDraftDirtPath(path: string): boolean {
+  return path === PLAN_HARNESS_DRAFT_DIR || path.startsWith(`${PLAN_HARNESS_DRAFT_DIR}/`);
+}
+
+function writeStepWorktreePath(steps: readonly AnyWorkflowStep[]): string | undefined {
+  const writeStep = steps.find((step) => step.behavior === "write");
+  if (writeStep?.behavior !== "write" || writeStep.worktree?.git === false) return undefined;
+  return getExternalWorktreePath(writeStep.worktree);
+}
+
 /** Failed-plan redraft must not dispatch until shared stale-reset preparation completes. */
 function failedPlanRedraftRequiresStaleReset(
   stage: Extract<PipelineStage, { kind: "workflow" }>,
-  flags: WorkflowStartResetFlags | undefined,
+  resetFlags: WorkflowStartResetFlags | undefined,
 ): boolean {
-  return stage.workflow === "plan" && flags?.skipDirtyWorktreeGate === true;
+  return stage.workflow === "plan" && resetFlags !== undefined;
+}
+
+export async function resolveFailedPlanDirtyGate(
+  steps: readonly AnyWorkflowStep[],
+  baseFlags: WorkflowStartResetFlags,
+  runner = realAsyncSubprocessRunner,
+): Promise<{ ok: true; flags: WorkflowStartResetFlags } | { ok: false; message: string }> {
+  if (baseFlags.skipDirtyWorktreeGate) return { ok: true, flags: baseFlags };
+  if (baseFlags.skipLandedCriteriaGate) {
+    return { ok: true, flags: { ...baseFlags, skipDirtyWorktreeGate: true } };
+  }
+  const worktreePath = writeStepWorktreePath(steps);
+  if (worktreePath === undefined || !existsSync(worktreePath)) return { ok: true, flags: baseFlags };
+  const dirtyList = await listDirtyWorktreePathsForStaleReset(worktreePath, runner);
+  if (dirtyList.status === "clean" || dirtyList.status === "not-git-repository") {
+    return { ok: true, flags: baseFlags };
+  }
+  if (dirtyList.status === "error") {
+    const detail = `could not list worktree changes (${dirtyList.message})`;
+    return { ok: false, message: `Error: Cannot redraft failed plan stage: ${detail}` };
+  }
+  const operatorPaths = dirtyList.paths.filter((path) => !isHarnessDraftDirtPath(path));
+  if (operatorPaths.length > 0) {
+    const pathDetail = operatorPaths.join(", ");
+    return {
+      ok: false,
+      message: `Error: Cannot redraft failed plan stage: worktree has uncommitted operator changes (${pathDetail})`,
+    };
+  }
+  return { ok: true, flags: { ...baseFlags, skipDirtyWorktreeGate: true } };
 }
 
 function stagedPlanOperatorBlocker(steps: readonly AnyWorkflowStep[]): string | undefined {
@@ -1938,11 +1983,12 @@ async function runFanOutBranchAction(
   const staleReset =
     args.staleResetPreflight === undefined
       ? ({ ok: true } as const)
-      : await runSharedStaleResetPreflight(
+      : await runFailedPlanAwareStaleResetPreflight(
+          args,
+          steps,
+          targetBranchKey,
           opts.runStaleResetPreflight ?? noopStaleResetPreflight,
-          args.staleResetPreflight,
           preflightCapture,
-          failedPlanRedraftRequiresStaleReset(stage, reopenedStageResetFlags(args, targetBranchKey)),
         );
   if (!staleReset.ok) {
     failWorkflowStageAt(store, pipelineId, stage.stageId, targetBranchKey, stageRecords, index + 1, staleReset.message);
@@ -2044,6 +2090,51 @@ async function runSharedStaleResetPreflight(
   return { ok: true };
 }
 
+async function runFailedPlanAwareStaleResetPreflight(
+  args: AdvanceWorkflowStageArgs,
+  steps: readonly AnyWorkflowStep[],
+  branchKey: string,
+  basePreflight: StaleResetPreflight,
+  preflightCapture: { message: string },
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const injection = args.staleResetPreflight;
+  if (injection === undefined) return { ok: true };
+  const resetFlags = reopenedStageResetFlags(args, branchKey);
+  if (args.stage.workflow !== "plan" || resetFlags === undefined) {
+    return runSharedStaleResetPreflight(
+      basePreflight,
+      injection,
+      preflightCapture,
+      failedPlanRedraftRequiresStaleReset(args.stage, resetFlags),
+    );
+  }
+  const runner = injection.cliDeps.subprocessRunner ?? realAsyncSubprocessRunner;
+  const dirtyGate = await resolveFailedPlanDirtyGate(steps, resetFlags, runner);
+  if (!dirtyGate.ok) {
+    injection.io.stderr(`${dirtyGate.message}\n`);
+    return dirtyGate;
+  }
+  const staleResetRunner =
+    dirtyGate.flags.skipDirtyWorktreeGate === resetFlags.skipDirtyWorktreeGate &&
+    dirtyGate.flags.skipLandedCriteriaGate === resetFlags.skipLandedCriteriaGate
+      ? basePreflight
+      : async (client: IpcClient) =>
+          maybeResetStaleWorkspace(
+            "plan",
+            { ok: true, steps: [...steps] },
+            injection.cliDeps,
+            injection.io,
+            dirtyGate.flags,
+            client,
+          );
+  return runSharedStaleResetPreflight(
+    staleResetRunner,
+    injection,
+    preflightCapture,
+    failedPlanRedraftRequiresStaleReset(args.stage, resetFlags),
+  );
+}
+
 /**
  * Resolve and dispatch (or carry forward) one workflow stage. Re-reads the stage's row first,
  * so an already-`running`/settled stage is never re-dispatched — this guards a second loop
@@ -2141,11 +2232,12 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
     const staleReset =
       args.staleResetPreflight === undefined
         ? ({ ok: true } as const)
-        : await runSharedStaleResetPreflight(
+        : await runFailedPlanAwareStaleResetPreflight(
+            args,
+            resolvedSteps,
+            branchKey,
             resolution.runStaleResetPreflight ?? noopStaleResetPreflight,
-            args.staleResetPreflight,
             preflightCapture,
-            failedPlanRedraftRequiresStaleReset(stage, resetFlags),
           );
     if (!staleReset.ok) {
       return failWorkflowStageAt(

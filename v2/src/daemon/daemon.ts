@@ -188,28 +188,22 @@ export async function reconcileOrphanedRuns(
   return reconciledRunIds;
 }
 
-function signalReadyGateProcessGroup(pgid: number): void {
-  try {
-    process.kill(-pgid, "SIGTERM");
-  } catch {
-    // already gone (ESRCH) or not permitted (EPERM); treat as already-dead.
-  }
-  setTimeout(() => {
+/** Reap ready-gate test process groups whose owning run is not live. */
+export async function sweepOrphanReadyGateGroups(store: StateStore): Promise<void> {
+  for (const { runId, readyGatePgid } of await store.listReadyGateSweepCandidates()) {
     try {
-      process.kill(-pgid, "SIGKILL");
+      process.kill(-readyGatePgid, "SIGTERM");
     } catch {
       // already gone (ESRCH) or not permitted (EPERM); treat as already-dead.
     }
-  }, 50).unref?.();
-}
-
-/** Reap ready-gate test process groups whose owning run is not live. */
-export async function sweepOrphanReadyGateGroups(store: StateStore): Promise<void> {
-  const candidates = await store.listReadyGateSweepCandidates();
-  for (const candidate of candidates) {
-    if (candidate.ownerLive) continue;
-    signalReadyGateProcessGroup(candidate.readyGatePgid);
-    store.setReadyGatePgid(candidate.runId, null);
+    setTimeout(() => {
+      try {
+        process.kill(-readyGatePgid, "SIGKILL");
+      } catch {
+        // already gone (ESRCH) or not permitted (EPERM); treat as already-dead.
+      }
+    }, 50).unref?.();
+    store.setReadyGatePgid(runId, null);
   }
 }
 

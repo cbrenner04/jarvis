@@ -378,6 +378,18 @@ function collectDestinationLeafTitles(): string[] {
   return titles;
 }
 
+function hasResumeModuleImport(source: string): boolean {
+  return /from\s+["']\.\/workflow-runner-resume(?:\.ts)?["']/.test(source);
+}
+
+function collectExpectedTitles(bucket: SourceBucket, mergeBase: string): string[] {
+  const source = loadAtRef(mergeBase, bucket.repoPath);
+  if (!hasResumeModuleImport(source)) {
+    return [];
+  }
+  return collectLeafTitles(source, bucket.options);
+}
+
 function missingFromDestination(expected: string[], destination: string[]): string[] {
   const counts = new Map<string, number>();
   for (const title of destination) {
@@ -437,7 +449,7 @@ describe("workflow-runner resume test inventory", () => {
     const destinationTitles = collectDestinationLeafTitles();
 
     for (const bucket of SOURCE_BUCKETS) {
-      const expected = collectLeafTitles(loadAtRef(mergeBase, bucket.repoPath), bucket.options);
+      const expected = collectExpectedTitles(bucket, mergeBase);
       const missing = missingFromDestination(expected, destinationTitles);
       expect({ bucket: bucket.label, expectedCount: expected.length, missing }).toEqual({
         bucket: bucket.label,

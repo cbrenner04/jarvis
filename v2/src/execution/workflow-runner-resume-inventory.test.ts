@@ -42,22 +42,29 @@ const SOURCE_BUCKETS: SourceBucket[] = [
   },
 ];
 
+/**
+ * CI checks out a detached HEAD without a local `main`, so try each candidate base ref
+ * in turn. Fails with every attempt named rather than only the last, so a genuine
+ * inventory regression is never mistaken for a missing ref.
+ */
+const BASE_REF_CANDIDATES = ["main", "origin/main", "refs/remotes/origin/main"] as const;
+
 function resolveMergeBase(): string {
-  let output: string;
-  try {
-    output = execFileSync("git", ["merge-base", "HEAD", "main"], {
-      cwd: REPO_ROOT,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`merge-base resolution failed: ${message}`);
+  const failures: string[] = [];
+  for (const ref of BASE_REF_CANDIDATES) {
+    try {
+      const output = execFileSync("git", ["merge-base", "HEAD", ref], {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }).trim();
+      if (output.length > 0) return output;
+      failures.push(`${ref}: empty output`);
+    } catch (error) {
+      failures.push(`${ref}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
-  if (output.length === 0) {
-    throw new Error("merge-base resolution returned empty output");
-  }
-  return output;
+  throw new Error(`merge-base resolution failed for every candidate base ref — ${failures.join("; ")}`);
 }
 
 function loadAtRef(ref: string, repoPath: string): string {
@@ -240,7 +247,7 @@ function leafTitle(describeChain: readonly string[], testTitle: string): string 
 }
 
 function parseCallTitle(source: string, openParenIndex: number): { title: string; end: number } | null {
-  let index = skipWhitespace(source, openParenIndex + 1);
+  const index = skipWhitespace(source, openParenIndex + 1);
   const quoted = readQuotedString(source, index);
   if (!quoted) {
     return null;
@@ -440,7 +447,7 @@ describe("resume test title scanner", () => {
 });
 
 describe("workflow-runner resume test inventory", () => {
-  test("resolves merge-base via git merge-base HEAD main", () => {
+  test("resolves merge-base against the first available base ref", () => {
     expect(resolveMergeBase()).toMatch(/^[0-9a-f]{40}$/);
   });
 

@@ -1,9 +1,10 @@
 /**
  * Merge-base parity guard for resume-path tests moved into workflow-runner-resume*.test.ts.
- * Inventories merge-base cases from workflow-runner-resume.test.ts (full file),
- * workflow-runner-plan.test.ts (describe("recoverPlanStage") only),
+ * Per-source buckets scan merge-base files without an import gate: workflow-runner-resume.test.ts
+ * (full file), workflow-runner-plan.test.ts (describe("recoverPlanStage") only),
  * recover-review-failed-plan-draft.test.ts (describe("recoverPlanStage review-failed admission") in full),
- * and the zero-case workflow-runner-publication.test.ts bucket; compares leaf titles to co-located destinations.
+ * and workflow-runner-publication.test.ts (fixed zero-case bucket — no resume-path anchor on merge-base).
+ * Asserts equal per-bucket leaf-title multisets in co-located destinations (missing and surplus copies fail).
  */
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
@@ -22,6 +23,8 @@ type SourceBucket = {
   label: string;
   repoPath: string;
   options?: ScanOptions;
+  /** Merge-base had no resume-path cases in this file (publication bucket). */
+  expectEmpty?: boolean;
 };
 
 const SOURCE_BUCKETS: SourceBucket[] = [
@@ -39,6 +42,7 @@ const SOURCE_BUCKETS: SourceBucket[] = [
   {
     label: "workflow-runner-publication.test.ts",
     repoPath: "v2/src/execution/workflow-runner-publication.test.ts",
+    expectEmpty: true,
   },
 ];
 
@@ -395,36 +399,45 @@ function collectDestinationLeafTitles(): string[] {
   return titles;
 }
 
-function hasResumeModuleImport(source: string): boolean {
-  return /from\s+["']\.\/workflow-runner-resume(?:\.ts)?["']/.test(source);
-}
-
 function collectExpectedTitles(bucket: SourceBucket, mergeBase: string): string[] {
-  const source = loadAtRef(mergeBase, bucket.repoPath);
-  if (source === undefined) {
+  if (bucket.expectEmpty === true) {
     return [];
   }
-  if (!hasResumeModuleImport(source)) {
+  const source = loadAtRef(mergeBase, bucket.repoPath);
+  if (source === undefined) {
     return [];
   }
   return collectLeafTitles(source, bucket.options);
 }
 
-function missingFromDestination(expected: string[], destination: string[]): string[] {
-  const counts = new Map<string, number>();
+function multisetParity(expected: string[], destination: string[]): { missing: string[]; surplus: string[] } {
+  const destinationCounts = new Map<string, number>();
   for (const title of destination) {
-    counts.set(title, (counts.get(title) ?? 0) + 1);
+    destinationCounts.set(title, (destinationCounts.get(title) ?? 0) + 1);
   }
-  const missing: string[] = [];
+
+  const expectedCounts = new Map<string, number>();
   for (const title of expected) {
-    const remaining = counts.get(title) ?? 0;
-    if (remaining === 0) {
-      missing.push(title);
+    expectedCounts.set(title, (expectedCounts.get(title) ?? 0) + 1);
+  }
+
+  const missing: string[] = [];
+  const surplus: string[] = [];
+  for (const [title, need] of expectedCounts) {
+    const have = destinationCounts.get(title) ?? 0;
+    if (have < need) {
+      for (let index = 0; index < need - have; index += 1) {
+        missing.push(title);
+      }
       continue;
     }
-    counts.set(title, remaining - 1);
+    if (have > need) {
+      for (let index = 0; index < have - need; index += 1) {
+        surplus.push(title);
+      }
+    }
   }
-  return missing;
+  return { missing, surplus };
 }
 
 describe("resume test title scanner", () => {
@@ -457,6 +470,11 @@ describe("resume test title scanner", () => {
       "recoverPlanStage > nested > also kept",
     ]);
   });
+
+  test("multiset parity flags missing and surplus copies", () => {
+    expect(multisetParity(["a", "b"], ["a"])).toEqual({ missing: ["b"], surplus: [] });
+    expect(multisetParity(["a"], ["a", "a"])).toEqual({ missing: [], surplus: ["a"] });
+  });
 });
 
 describe("workflow-runner resume test inventory", () => {
@@ -470,11 +488,19 @@ describe("workflow-runner resume test inventory", () => {
 
     for (const bucket of SOURCE_BUCKETS) {
       const expected = collectExpectedTitles(bucket, mergeBase);
-      const missing = missingFromDestination(expected, destinationTitles);
-      expect({ bucket: bucket.label, expectedCount: expected.length, missing }).toEqual({
+      const { missing, surplus } = multisetParity(expected, destinationTitles);
+      expect({
         bucket: bucket.label,
         expectedCount: expected.length,
+        destinationCount: expected.length - missing.length,
+        missing,
+        surplus,
+      }).toEqual({
+        bucket: bucket.label,
+        expectedCount: expected.length,
+        destinationCount: expected.length,
         missing: [],
+        surplus: [],
       });
     }
   });

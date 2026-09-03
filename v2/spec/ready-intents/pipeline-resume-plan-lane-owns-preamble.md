@@ -21,6 +21,8 @@ Resuming a failed fan-out plan lane still expects a manual preamble — clean th
 - [ ] `pipeline-execution.test.ts` resumes a failed plan lane whose staged `intent.md` carries only the reserved `Artifact contract check failed:` section and proves dispatch without any manual edit; fails against a path that refuses or requires operator removal first.
 - [ ] `pipeline-execution.test.ts` resumes a failed plan lane over a dirty worktree containing only harness draft dirt and proves dispatch without a manual commit; fails against the pre-fix dirty-reuse refusal.
 - [ ] `pipeline-execution.test.ts` proves an operator-authored `## Blocker` still refuses and the refusal message contains the resolved absolute path of the staged `intent.md`; fails against a message that omits the path.
+- [ ] `pipeline-execution.test.ts` proves every other failed-plan resume refusal that names the staged plan file (for example reserved-harness-blocker or dirty-worktree paths constructible on main) prints the resolved absolute path of that staged file; fails against a message that omits the path.
+- [ ] `pipeline-execution.test.ts` proves failed-plan resume over a worktree with uncommitted changes outside harness draft dirt refuses without discarding them and names the blocking paths or preserved state in the refusal; fails against a path that silently clears or omits operator edits.
 - [ ] `pipeline-execution.test.ts` proves successful failed-plan resume reports retired-and-rematerialized versus reused worktree disposition on stdout or stderr; fails against a success path that omits disposition.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 

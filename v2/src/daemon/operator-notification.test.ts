@@ -352,6 +352,35 @@ test("boot sweep delivers an incident settled while no daemon was alive", async 
   }
 });
 
+test.each([{ label: "awaiting approval" }])("delivery ledger suppresses incident re-derivation on later sweeps", () => {
+  const pipelineId = store.createPipeline({
+    definition: { name: "gate-only", stages: [{ stageId: "gate", kind: "approval" }] },
+  });
+  store.updateStage({ pipelineId, stageId: "gate", patch: { status: "awaiting" } });
+
+  runNotificationSweep(
+    sweepDeps({
+      spawnSink: () => ({ ok: true }),
+    }),
+  );
+
+  expect(
+    store.hasNotificationDelivery({
+      incidentId: `pipeline:${pipelineId}`,
+      transition: "awaiting-approval:gate:default",
+    }),
+  ).toBe(true);
+
+  const lookupMetrics = instrumentStageAttributedLookups(store);
+  const incidents = deriveOperatorIncidents(store);
+  // @mutate v2/src/daemon/operator-incidents.ts "onlyDeliveredIncidents(delivered, previewPipelineIncidentKeys(store, pipeline))" -> "!onlyDeliveredIncidents(delivered, previewPipelineIncidentKeys(store, pipeline))"
+  expect(incidents).toEqual([]);
+  expect(lookupMetrics.read()).toEqual({
+    loadRunsByIdsCount: 0,
+    findRunsByInvocationIdsCount: 0,
+  });
+});
+
 test("concurrent sweeps deliver an owed incident once", async () => {
   const pipelineId = store.createPipeline({
     definition: { name: "gate-only", stages: [{ stageId: "gate", kind: "approval" }] },

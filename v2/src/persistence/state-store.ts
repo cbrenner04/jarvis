@@ -828,6 +828,11 @@ export interface StateStore {
   /** Whether `(incidentId, transition)` has been delivered. */
   hasNotificationDelivery(args: { incidentId: string; transition: string }): boolean;
 
+  /** Delivery-ledger rows for the given incident IDs; one sweep-level consult per derivation pass. */
+  listNotificationDeliveriesForIncidentIds(
+    incidentIds: readonly string[],
+  ): ReadonlyArray<{ incidentId: string; transition: string }>;
+
   /**
    * Record a delivered notification when absent; returns whether this caller won the insert.
    * First writer among concurrent sweepers delivers.
@@ -2469,6 +2474,18 @@ class StateStoreImpl implements StateStore {
       .prepare("SELECT 1 FROM operator_notification_deliveries WHERE incident_id = ? AND transition = ? LIMIT 1")
       .get(args.incidentId, args.transition);
     return row !== null;
+  }
+
+  listNotificationDeliveriesForIncidentIds(
+    incidentIds: readonly string[],
+  ): ReadonlyArray<{ incidentId: string; transition: string }> {
+    if (incidentIds.length === 0) return [];
+    const placeholders = incidentIds.map(() => "?").join(", ");
+    return this.db
+      .prepare(
+        `SELECT incident_id AS incidentId, transition FROM operator_notification_deliveries WHERE incident_id IN (${placeholders})`,
+      )
+      .all(...incidentIds) as Array<{ incidentId: string; transition: string }>;
   }
 
   tryRecordNotificationDelivery(args: { incidentId: string; transition: string; deliveredAt: number }): boolean {

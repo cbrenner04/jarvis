@@ -607,6 +607,7 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
     findRunsByInvocationIds: () => [],
     isClosed: () => false,
     hasNotificationDelivery: () => false,
+    listNotificationDeliveriesForIncidentIds: () => [],
     tryRecordNotificationDelivery: () => true,
     reconcilePipelines: async () => {
       order.push("pipelines");

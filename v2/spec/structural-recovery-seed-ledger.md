@@ -389,6 +389,37 @@ Continuation of the block above. **17 PRs merged.**
 
 **Agent order:** codex removed mid-session (`cursor, claude`). Session telemetry: **codex quota'd on 25 of 26 invocations**; cursor did all 35 successes.
 
+## This-session (2026-09-03 — operator asks landed, the leak that was faking every timeout)
+
+Operator-present. **12 PRs merged.** Both named operator asks split, planned, and their first slices landed; issue #3374 unblocked as a scope decision rather than another hop patch.
+
+| Ask | Seed | Intent | Plan | Implement |
+| --- | --- | --- | --- | --- |
+| Project-scoped notifications | operator-incidents-carry-and-filter-by-project | [#3406](https://github.com/cbrenner04/jarvis/pull/3406) | [#3412](https://github.com/cbrenner04/jarvis/pull/3412) | [#3418](https://github.com/cbrenner04/jarvis/pull/3418) (subspec 00; 01 docs open) |
+| Pipeline resume preamble | pipeline-resume-owns-the-plan-lane-preamble | [#3407](https://github.com/cbrenner04/jarvis/pull/3407) | [#3414](https://github.com/cbrenner04/jarvis/pull/3414), [#3411](https://github.com/cbrenner04/jarvis/pull/3411) | subspec 00 hand-gated, PR pending |
+| #3374 external chain | all-spec-documents-external-capable (amended [#3405](https://github.com/cbrenner04/jarvis/pull/3405)) | [#3413](https://github.com/cbrenner04/jarvis/pull/3413) → 3 ready-intents | [#3415](https://github.com/cbrenner04/jarvis/pull/3415) (admit lane) | not started |
+
+**The session's dominant finding: one dead lane's leaked test workers faked a concurrency ceiling.** Eleven `bun test --test-worker --only-failures` processes at ~96% CPU each, traced by parent PID and cwd to a single `iteration_timeout`ed lane, plus a live producer — a **3h35m-old orphaned `bun run test:v1`** whose parent was `launchd`, still re-spawning retry cohorts. Load sat at 20 with one live run on the machine. Killing the tree took load 30 → 13.
+
+This invalidates the intermediate reading recorded mid-session ("six concurrent implements is a zero-output ceiling"). Five of six implements failed, but the cause was CPU starvation from that leak, and each new timeout leaked more workers — a compounding failure whose shape is indistinguishable from a concurrency ceiling. **What the day does support:** plans and intents are robust to load (5/5 succeeded, several at load 30, including one that completed while three implements died around it); implements are fragile to CPU starvation from any source. Lane count was never measured cleanly.
+
+**Three implements committed complete, correct work and lost it in the settlement tail** — the brief's opening class. All three salvaged by cherry-pick onto clean branches and hand-gated rather than re-run: the ready-gate classifier ([#3420](https://github.com/cbrenner04/jarvis/pull/3420)), the incident payload ([#3418](https://github.com/cbrenner04/jarvis/pull/3418)), and the resume preamble. `pipeline resume` was deliberately **not** used on the pipeline stage: it replays the failed stage through its write step and stale-reset would have retired the worktree and deleted the branch, destroying the commit.
+
+**Gate fixes found by hitting them:**
+
+- **[#3422] daemon test inventory blocked adding any daemon test.** It asserted merge-base title count *equals* branch title count, so a branch adding three tests failed with `missing: []`. The guarantee was already carried by `missing`. Re-keyed to missing-only, matching the sibling resume inventory; verified both directions (additions pass, a renamed title still fails). Third instance of [[structural-invariants-key-on-behavior-not-incidental-structure]] (#3387) — **raise its priority**.
+- **[#3419] 29 dead imports** left by the two just-completed extraction chains (`workflow-runner.ts` 11, `daemon.ts` 11, the new daemon handler modules 6). Applied rule-scoped, not via `bun run fix`. The brief's DI trap was checked explicitly: `daemon.ts` lost its whole `workflow-runner-resume.ts` value-import block, but `daemon-workflow-admission-handlers.ts` still value-imports and uses `executeWorkflow`, so `wireWorkflowRunnerResumeDeps` still runs. **The implicit crutch has moved to that handler module** — record against the resume-DI follow-up. Residue fix: [#3421].
+
+**New seed:** [[intent-resume-consumes-its-seed]] ([#3410](https://github.com/cbrenner04/jarvis/pull/3410)) — a `landing_failed` intent recovered with `run resume` lands its ready-intents but never deletes the seed, silently queueing a duplicate split. Isolated: the same batch's other intent took the ordinary path and consumed correctly.
+
+**Queued durable fix for the leak:** [[daemon-start-sweeps-orphan-gate-children]] planned ([#3416](https://github.com/cbrenner04/jarvis/pull/3416)) — pre-IPC sweep of `ready_gate_pgid` rows whose owning run is not live. The plan names the runbook gotchas (lines 824–825) that currently prescribe manual `pkill` as needing retirement.
+
+**Two local measurements were wrong before CI corrected them, both retracted in-session:** `write-loop-ready-gate-reap.sandbox-unrunnable.test.ts` fails in this agent shell (the filename is literal; `dangerouslyDisableSandbox` does not make a real `bun run ready` child work here) and passes in CI — `test:integration:v2` is **not** red on `main`. And a "bun 1.3.13 swallows the fixture loop" diagnosis was an artifact of backgrounding `bun run ready` with `&` in a tool call that exited before the child ran. The runbook's "an empty query result is not evidence" applies to local reds too.
+
+**Pipeline dogfood:** `970db782` ran seed → intent → gate → plan → gate → implement with no manual detour; both gates approved after reading the artifacts. Its implement stage was the one that wedged `settlement_deferred: entry_run_dead` in the leak's load spike.
+
+**Agent order:** `cursor, claude` (codex removed by the prior session on 25-of-26 quota exits). Left unchanged.
+
 ## Gaps / low-confidence
 
 - `harness-publication-push-uses-explicit-refspec`, `inject-spec-guidance-agent-core`, `split-spec-guidance-documents`, `cleanup-uses-lossless-git-status`: confirmed as landed ready-intents (intent PRs verified), but no plan-spec dir or implement PR was verifiable from the brief or git — left `—`. May be planned/implemented under names not matched here.

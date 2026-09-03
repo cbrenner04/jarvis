@@ -18,7 +18,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/test-writing.md` documents `handlers.context.activeRuns` from `createRunControlHandlers` for integration tests and direct `createRunControlHandlerContext` for handler-module unit tests; the worked example uses `handlers.start`, not `handlers.startRun`.
+- [x] `v2/docs/test-writing.md` documents `handlers.context.activeRuns` from `createRunControlHandlers` for integration tests and direct `createRunControlHandlerContext` for handler-module unit tests; the worked example uses `handlers.start`, not `handlers.startRun`.
 
 ## Documentation updates
 

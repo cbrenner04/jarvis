@@ -21,9 +21,9 @@ Workflow admission RPC handlers (`check_workflow_start_claim`, `implement.recove
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-workflow-admission-handlers.test.ts` exercises workflow-admission handlers through the extracted module; it fails against the pre-fix tree where these handlers live only inside `daemon.ts`.
-- [ ] `v2/src/daemon/daemon-workflow-start.test.ts` stays green (behavior unchanged by the extraction).
-- [ ] `bun run typecheck` passes.
+- [x] `v2/src/daemon/daemon-workflow-admission-handlers.test.ts` exercises workflow-admission handlers through the extracted module; it fails against the pre-fix tree where these handlers live only inside `daemon.ts`.
+- [x] `v2/src/daemon/daemon-workflow-start.test.ts` stays green (behavior unchanged by the extraction).
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

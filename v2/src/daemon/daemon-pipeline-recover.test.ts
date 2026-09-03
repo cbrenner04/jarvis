@@ -6,18 +6,18 @@ import { join } from "node:path";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
-import { type AnyWorkflowStep, type ReviewWorkflowStep, recoverPlanStage } from "../execution/workflow-runner.ts";
+import type { AnyWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
+import { recoverPlanStage } from "../execution/workflow-runner-resume.ts";
+import { ensureWorkflowRunnerResumeDepsWired } from "../testing/workflow-runner-resume-wiring.ts";
+
+ensureWorkflowRunnerResumeDepsWired();
+
 import type { LogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns, mockWriteLoopInput } from "../testing/run-control.ts";
 import { createBindingFactory, writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import {
-  activeRunForHandler,
-  createRunControlHandlers,
-  shouldShutdownNow,
-  WorktreeOwnershipRegistry,
-} from "./daemon.ts";
+import { createRunControlHandlers, shouldShutdownNow, WorktreeOwnershipRegistry } from "./daemon.ts";
 import {
   admitAndRecoverPipelineBranchStage,
   type PipelineStageRecoveryAttempt,
@@ -522,7 +522,7 @@ test("pipeline_recover refuses invalid params, an unresolvable target, and a ret
     resolveStage: recoveryStageResolver({ branch, worktreePath, specPath }),
   });
 
-  // @mutate v2/src/daemon/daemon.ts "const claimError = previewWorkflowStartClaimAdmissionRefusal(store, _registry, activeRuns, lifecycle.key);" -> "const claimError = undefined;"
+  // @mutate v2/src/daemon/daemon-workflow-admission-handlers.ts "const claimError = previewWorkflowStartClaimAdmissionRefusal(store, registry, activeRuns, lifecycle.key);" -> "const claimError = undefined;"
   const claimedResponse = await claimedHandlers.pipeline_recover(
     requestFrame("r", "pipeline_recover", { pipelineId, branchKey: "branch-a" }),
     new AbortController().signal,
@@ -729,7 +729,7 @@ test("recovery lifecycle admission refusal and exceptions roll back common acqui
     registry: WorktreeOwnershipRegistry,
   ) => {
     expect(registry.get({ project: "demo", branch })).toBeUndefined();
-    expect(activeRunForHandler(rollbackHandlers, `demo:${branch}`)).toBeUndefined();
+    expect(rollbackHandlers.context.activeRuns.get(`demo:${branch}`)).toBeUndefined();
     expect(rollbackHandlers.hasActiveRuns()).toBe(false);
     expect(recoveryStageRecord(stateStore, pipelineId)).toEqual(stageBefore);
   };
@@ -950,7 +950,7 @@ test("a retiring daemon waits for an in-flight detached recovery", async () => {
   // @mutate v2/src/daemon/daemon.ts "activeRuns.set(lifecycle.activeKey, lifecycle.activeRun);" -> "void lifecycle.activeKey;"
   // The attempt has not settled: hasActiveRuns() stays true, and retirement waits rather than shutting down.
   expect(waitHandlers.hasActiveRuns()).toBe(true);
-  expect(activeRunForHandler(waitHandlers, `demo:${branch}`)).toEqual({ kind: "recovery", runId: entryRunId });
+  expect(waitHandlers.context.activeRuns.get(`demo:${branch}`)).toEqual({ kind: "recovery", runId: entryRunId });
   waitHandlers.setRetiring();
   expect(shouldShutdownNow(false, waitHandlers.isRetiring(), waitHandlers.hasActiveRuns())).toBe(false);
 

@@ -25,7 +25,7 @@ Primary: `v2/docs/test-writing.md`.
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/test-writing.md` documents where resume-machine tests live after co-location, the inventory guard buckets, and the split-when-cost-exceeds per-file health budget rule.
+- [x] `v2/docs/test-writing.md` documents where resume-machine tests live after co-location, the inventory guard buckets, and the split-when-cost-exceeds per-file health budget rule.
 
 ## Documentation updates
 

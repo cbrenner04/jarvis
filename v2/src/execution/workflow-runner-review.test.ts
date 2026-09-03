@@ -25,12 +25,8 @@ import {
   writeLintCleanIntentStageFile,
   writeLintCleanPlanStage,
 } from "./workflow-runner.test-support.ts";
-import {
-  executeWorkflow,
-  type ReviewWorkflowStep,
-  resolveIntentFinalizationResumeContext,
-  resumePopulatedIntentPublication,
-} from "./workflow-runner.ts";
+import { executeWorkflow, type ReviewWorkflowStep } from "./workflow-runner.ts";
+import { resolveIntentFinalizationResumeContext, resumePopulatedIntentPublication } from "./workflow-runner-resume.ts";
 
 describe("executeWorkflow implement patch light review", () => {
   const LIGHT_REVIEW_AGENT_MODEL_CONFIG: AgentModelConfig = {

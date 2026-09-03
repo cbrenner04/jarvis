@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { getExecutableTreeDigest } from "../../../shared/executable-tree.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
@@ -9,7 +8,6 @@ import {
 } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
-import type { CliDeps } from "../cli/deps.ts";
 import {
   FILTERED_LIST_DEFAULT_LIMIT,
   type ListRpcParams,
@@ -29,31 +27,16 @@ import {
   resolveMachineProfile,
 } from "../config/machine-config-loader.ts";
 import { loadMachineProfileModels } from "../config/machine-profile-loader.ts";
-import {
-  getExternalWorktreePath,
-  withExternalWorktree as realWithExternalWorktree,
-  WorktreeMaterializationError,
-} from "../execution/external-worktree.ts";
 import type { InvocationFailureDetail, InvocationFailureKind } from "../execution/invocation-failure.ts";
-import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
-import type { TerminalPublicationInput, TerminalPublicationResult } from "../execution/terminal-publication.ts";
+import type { AnyWorkflowStep, ReviewProgress } from "../execution/workflow-runner.ts";
 import {
-  type AnyWorkflowStep,
-  executeWorkflow,
   type IntentFinalizationResumeDeps,
-  LinkedIndexReadError,
-  REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS,
-  type ReviewProgress,
-  recoverPlanStage,
   resolveExhaustedRedResumeContext,
   resolveIntentFinalizationResumeContext,
-  resolveReviewMutationLineageContext,
   resolveReviewMutationResumeContext,
   resolveWriteOutOfScopeResumeContext,
   resumePopulatedIntentPublication,
-  resumeReviewMutationFinalization,
-  workflowTelemetryLabel,
-} from "../execution/workflow-runner.ts";
+} from "../execution/workflow-runner-resume.ts";
 import {
   applyOperatorSessionId,
   executeWriteLoop,
@@ -62,7 +45,6 @@ import {
   findSurvivingMutationRepromptFromLog,
   type WriteLoopInput,
 } from "../execution/write-loop.ts";
-import { connectIpcClient, type IpcClient } from "../ipc/client";
 import { type IpcServer, type RpcHandler, startIpcServer } from "../ipc/server";
 import { jarvisHome } from "../paths.ts";
 import {
@@ -77,7 +59,6 @@ import {
 import {
   type Attempt,
   isTerminalRunStatus,
-  loadPipelineContext,
   openStateStore,
   type Run,
   type RunStatus,
@@ -91,36 +72,21 @@ import {
   type SupersedePeerDaemon,
   supersedePeerDaemon,
 } from "./daemon-peer-socket.ts";
-import { createRunControlHandlerContext, type RunControlHandlerContextDeps } from "./daemon-run-control-context.ts";
+import { createPipelineHandlers } from "./daemon-pipeline-handlers.ts";
+import {
+  createRunControlHandlerContext,
+  daemonFailureDetail,
+  ownershipKeyString,
+  type RunControlHandlerContextDeps,
+} from "./daemon-run-control-context.ts";
 import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 import { createTailStreamHandler } from "./daemon-tail-stream.ts";
+import { createImplementRecoverHandler, createWorkflowStartAdmission } from "./daemon-workflow-admission-handlers.ts";
 import {
   NOTIFICATION_SWEEP_INTERVAL_MS,
   type NotificationSinkSpawner,
   runNotificationSweep,
 } from "./operator-notification-sweep.ts";
-import {
-  applyPipelineApprovalDecision,
-  derivePipelineState,
-  type PipelineExecutionDeps,
-  recoverContinuablePipelines,
-  resumePipeline,
-  runPipeline,
-} from "./pipeline-execution.ts";
-import {
-  PIPELINE_WAIT_ABORTED,
-  PipelineWaitAbortedError,
-  projectPipelineSnapshot,
-  waitForPipelineBoundary,
-} from "./pipeline-observation.ts";
-import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
-import {
-  claimResolvedPipelineBranchStageRecovery,
-  executeClaimedPipelineBranchStageRecovery,
-  type PipelineStageRecoveryAttempt,
-  resolveBlockedPlanStageRecoveryTarget,
-} from "./pipeline-stage-recovery.ts";
-import { resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
 import {
   composeRunOperatorError,
   findTerminalLogRecord,
@@ -131,7 +97,7 @@ import {
 } from "./run-operator-error.ts";
 import { workflowRowSnapshot } from "./workflow-list-snapshot.ts";
 
-type WorktreeOwnership = {
+export type WorktreeOwnership = {
   runId: string;
   worktreePath: string;
   /** Workflow claims are validated against daemon-local workflow liveness. */
@@ -165,13 +131,6 @@ export type ActiveRun =
       kind: "recovery";
       runId: string;
     };
-
-const activeRunsByHandler = new WeakMap<object, Map<string, ActiveRun>>();
-
-/** Test seam: lookup a live run row for a specific handler instance. */
-export function activeRunForHandler(handlers: object, id: string): ActiveRun | undefined {
-  return activeRunsByHandler.get(handlers)?.get(id);
-}
 
 /**
  * Whether `kill` may abort the named durable run id (write-loop or live workflow row).
@@ -228,10 +187,6 @@ export class DaemonDoubleClaimError extends Error {
     super(worktreeClaimedMessage(key));
     this.name = "DaemonDoubleClaimError";
   }
-}
-
-function ownershipKeyString(key: OwnershipKey): string {
-  return `${key.project}:${key.branch}`;
 }
 
 function worktreeClaimedMessage(key: OwnershipKey): string {
@@ -378,11 +333,6 @@ export function previewWorkflowStartClaimAdmissionRefusal(
   return checkWorktreeClaimed(registry, key);
 }
 
-/** Terminal or paused — any status with no live write loop to disturb. */
-function isSettledRunStatus(status: RunStatus): boolean {
-  return isTerminalRunStatus(status) || status === "paused";
-}
-
 /**
  * Production failure reporter: opens the log sink and appends one
  * `run_execution_failed` event. Used by {@link startDaemon}; exported for tests.
@@ -415,7 +365,7 @@ type WriteLoopBindingSourceDeps = {
  * Production binding factory. Stamps the configured Codex sandbox mode onto every write/implement
  * binding so both fresh and rehydrated resolution paths select the operator-trusted sandbox.
  */
-function productionAgentBindingFactory(): (binding: ResolvedAgentBinding) => InvocationBinding {
+export function productionAgentBindingFactory(): (binding: ResolvedAgentBinding) => InvocationBinding {
   const opts: ResolvedAgentBindingOptions = {
     codexSandboxMode: readCodexSandboxMode(writeLoopBindingSourceDeps.machineConfigPath),
   };
@@ -520,71 +470,6 @@ export function resolveWriteLoopBindings(input: WriteLoopInput): ResolvedWriteLo
   return { ok: true, input };
 }
 
-type ImplementRecoverMutationRepairParams = {
-  agents?: readonly string[];
-  agentModelConfig?: AgentModelConfig;
-  stepRules?: string;
-  iterationTimeoutMs?: number;
-  iterationCeilingMs?: number;
-  idleOutputMs?: number;
-};
-
-/** Validate and resolve `implement.recover`'s optional mutation-repair params into resume deps. */
-function buildImplementRecoverMutationRepairDeps(repair: ImplementRecoverMutationRepairParams | undefined):
-  | {
-      bindings: readonly InvocationBinding[];
-      stepRules: string;
-      iterationTimeoutMs?: number;
-      iterationCeilingMs?: number;
-      idleOutputMs?: number;
-    }
-  | undefined {
-  if (
-    repair === undefined ||
-    !Array.isArray(repair.agents) ||
-    repair.agentModelConfig === undefined ||
-    typeof repair.stepRules !== "string"
-  ) {
-    return undefined;
-  }
-  return {
-    bindings: resolveInvocationBindings(
-      resolveExecutableRole("implement"),
-      repair.agents,
-      repair.agentModelConfig,
-      productionAgentBindingFactory(),
-    ),
-    stepRules: repair.stepRules,
-    ...(repair.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: repair.iterationTimeoutMs } : {}),
-    ...(repair.iterationCeilingMs !== undefined ? { iterationCeilingMs: repair.iterationCeilingMs } : {}),
-    ...(repair.idleOutputMs !== undefined ? { idleOutputMs: repair.idleOutputMs } : {}),
-  };
-}
-
-/** Map a finalization-resume outcome to `implement.recover`'s admitted/not-admitted response shape. */
-function mapImplementRecoverOutcome(
-  outcome: { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string },
-): { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string } {
-  if (outcome.kind === "error") return outcome;
-  const result = outcome.result as { ok?: unknown; message?: unknown; prNumber?: unknown; prUrl?: unknown };
-  return {
-    kind: "response",
-    result:
-      result.ok === true
-        ? {
-            kind: "admitted",
-            ok: true,
-            ...(typeof result.prNumber === "number" ? { prNumber: result.prNumber } : {}),
-            ...(typeof result.prUrl === "string" ? { prUrl: result.prUrl } : {}),
-          }
-        : {
-            kind: "admitted",
-            ok: false,
-            message: typeof result.message === "string" ? result.message : "Recovery finalization failed",
-          },
-  };
-}
-
 export function runListTerminalFinishAtMs(
   attempts: Array<{ completedAt: number | null }>,
   reconciledAt: number | null | undefined,
@@ -623,9 +508,8 @@ export function runListTerminalFinishAtMs(
  * Read bound for the intent-stage stale-reset preflight's self-RPCs (`list`, `check_workflow_start_claim`).
  * These are fast local handlers; the bound only exists so a wedged reply can't hang the preflight
  * indefinitely (`connectIpcClient`'s own 5s bound covers connect, not reply). On timeout the preflight
- * fails open (see `runSharedStaleResetPreflight`).
+ * fails open (see `runSharedStaleResetPreflight`). Defined in `daemon-pipeline-handlers.ts`.
  */
-const STALE_RESET_RPC_TIMEOUT_MS = 30_000;
 
 export type RunControlHandlerDeps = RunControlHandlerContextDeps;
 
@@ -674,10 +558,6 @@ export { stoppedOutcomeForRun } from "./workflow-list-snapshot.ts";
 
 /** Mutated by {@link promoteQueuedRunImpl} on each promotion; shared across calls. */
 export type PromotionSettleState = { suppressedUntil: number };
-
-function daemonFailureDetail(failureKind: InvocationFailureKind, message: string): InvocationFailureDetail {
-  return { failureKind, bindingAttempts: [], message: truncateLogText(message) };
-}
 
 export type PromoteQueuedRunDeps = {
   store: StateStore;
@@ -740,279 +620,37 @@ export function promoteQueuedRunImpl(deps: PromoteQueuedRunDeps, bypassSettleDel
 }
 
 /**
- * Run-control handler factory for `start`/`list`/`pause`/`resume`/`kill`.
+ * Run-control handler factory: lifecycle, workflow admission, pipeline RPCs, and control seams.
  *
  * @param deps - {@link RunControlHandlerDeps}
- * @returns `{ start, list, pause, resume, kill }` — each an {@link RpcHandler}.
- *   Handlers signal rejections via `{ kind: "error", code, message }`; they do not throw.
+ * @returns Handler map — lifecycle (`start`, `list`, `pause`, `resume`, `kill`, `wait`, `dismiss`,
+ *   `undismiss`), workflow admission (`check_workflow_start_claim`, `implement.recover`),
+ *   pipeline (`pipeline_start`, `pipeline_approve`, `pipeline_reject`, `pipeline_resume`,
+ *   `pipeline_recover`, `pipeline_dismiss`, `pipeline_undismiss`, `pipeline_list`,
+ *   `pipeline_wait`, `continueContinuablePipelines`), test seam (`pipelineExecutionDeps`),
+ *   review-progress hooks, `close`/`hasActiveRuns`/`setRetiring`/`isRetiring`, and shared
+ *   `context`. Each RPC handler signals rejections via `{ kind: "error", code, message }`; they do
+ *   not throw.
  * @throws Never — factory and handlers are non-throwing at the RPC boundary.
- * @invariant Each invocation gets a fresh `WorktreeOwnershipRegistry` and `activeRuns` map.
+ * @invariant Each invocation gets a fresh `activeRuns` map; `deps.registry` is injectable and
+ *   otherwise defaults to a new `WorktreeOwnershipRegistry`.
  * @invariant Write loops spawn fire-and-forget; settlement always releases registry and
  *   active-run entries. Spawn-boundary executor rejections best-effort settle `failed`,
  *   await `failureReporter`, then release — they do not propagate to RPC callers.
  */
 export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   const ctx = createRunControlHandlerContext(deps);
-  const _registry = ctx.registry;
   const activeRuns = ctx.activeRuns;
   const waitAbortControllers = ctx.waitAbortControllers;
   const reportReviewProgress = ctx.reportReviewProgress;
   const clearLiveReviewProgress = ctx.clearLiveReviewProgress;
-  const workflowPromisesByEntryRunId = ctx.workflowPromisesByEntryRunId;
-  const pipelineWaitObserver = ctx.pipelineWaitObserver;
-  const store = ctx.store;
-  const { logReader, writeLoopExecutor, failureReporter, logsPath, operatorSessionId, intentFinalizationResumeDeps } =
-    ctx;
-  const checkMemoryHeadroom = ctx.checkMemoryHeadroom;
-  const settleDelayMs = ctx.settleDelayMs;
-  const settleState = ctx.settleState;
 
-  const settleFailedWorkflowRun = (runId: string, message: string, logSink: LogSink | undefined): void => {
-    const run = store.loadRun(runId);
-    if (!(run && isSettledRunStatus(run.status))) {
-      try {
-        store.commitTerminalRunSettlement({
-          runId,
-          status: "failed",
-          terminalCause: "invocation_failure",
-          terminalFailureDetail: daemonFailureDetail("error", message),
-        });
-      } catch {
-        // best-effort persist; append still runs
-      }
-    }
-    try {
-      logSink?.append(runId, { kind: "run_execution_failed", message });
-    } catch {
-      // append failure does not roll back the demote
-    }
-  };
-
-  /**
-   * Start a multi-step workflow: dispatch to `executeWorkflow` and resolve once step 0's
-   * run row is durably created, letting the workflow continue running in the background.
-   * A failure before that row exists (e.g. invalid step shape) settles the promise with
-   * an error instead of hanging. `workflowKey` stays claimed in `_registry` for the whole
-   * run (not just until step 0 resolves) so a later start on the same `(project, branch)`
-   * is blocked until this workflow finishes or fails.
-   */
-  const startWorkflowRun = (
-    steps: AnyWorkflowStep[],
-    _claimRunId: string,
-    abortController: AbortController,
-    settleWorkflowStart: () => void,
-  ): Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }> => {
-    return new Promise((resolve) => {
-      const workflowRunIds = new Set<string>();
-      let entryRunId: string | undefined;
-      let workflowInvocationId: string | undefined;
-      let trackPromiseResolve: (() => void) | undefined;
-      const trackPromise = new Promise<void>((res) => {
-        trackPromiseResolve = () => res();
-      });
-      const logSink = logsPath !== undefined ? openLogSink(logsPath) : undefined;
-      const telemetry =
-        operatorSessionId !== undefined ? { operatorSessionId, workflow: workflowTelemetryLabel(steps) } : undefined;
-      const stepsForExecution = steps.map((step) => ({ ...step, signal: abortController.signal }));
-      const execute = async () => {
-        const firstStep = stepsForExecution[0];
-        if (firstStep?.behavior === "write" && firstStep.role === "implement" && firstStep.linkedIndexRouting) {
-          await (firstStep.withExternalWorktree ?? realWithExternalWorktree)(firstStep.worktree, () => undefined);
-        }
-        return executeWorkflow({
-          steps: stepsForExecution,
-          stateStore: store,
-          freshDispatch: true,
-          ...(logSink !== undefined ? { logSink } : {}),
-          ...(telemetry !== undefined ? { telemetry } : {}),
-          onReviewDebateProgress: reportReviewProgress,
-          onStepRunCreated: (stepIndex, runId) => {
-            workflowRunIds.add(runId);
-            activeRuns.set(runId, { kind: "workflow", runId, abortController });
-            if (stepIndex === 0) {
-              entryRunId = runId;
-              workflowInvocationId = store.loadRun(runId)?.workflowSnapshot?.invocationId;
-              workflowPromisesByEntryRunId.set(runId, trackPromise);
-              resolve({ kind: "response", result: { runId } });
-            }
-          },
-        });
-      };
-      execute()
-        .catch((err) => {
-          const message = err instanceof Error ? err.message : String(err);
-          console.error(`Workflow execution failed (${workflowTelemetryLabel(steps)}): ${message}`);
-          if (workflowRunIds.size === 0) {
-            resolve({
-              kind: "error",
-              code:
-                err instanceof WorktreeMaterializationError
-                  ? "worktree_materialization_failed"
-                  : err instanceof LinkedIndexReadError
-                    ? "routing_read_failed"
-                    : "invalid_params",
-              message,
-            });
-          }
-          for (const runId of workflowRunIds) {
-            settleFailedWorkflowRun(runId, message, logSink);
-          }
-        })
-        .finally(() => {
-          logSink?.close();
-          const killedWorkflowRuns = [...workflowRunIds].filter((runId) => {
-            const activeRun = activeRuns.get(runId);
-            return activeRun?.kind === "workflow" && activeRun.pendingKill;
-          });
-          for (const runId of workflowRunIds) activeRuns.delete(runId);
-          settleKilledWorkflowOwnership({
-            killedRunIds: killedWorkflowRuns,
-            releaseRegistry: settleWorkflowStart,
-            stateStore: store,
-          });
-          if (workflowInvocationId !== undefined) {
-            clearLiveReviewProgress(workflowInvocationId);
-          }
-          if (entryRunId !== undefined) {
-            workflowPromisesByEntryRunId.delete(entryRunId);
-          }
-          trackPromiseResolve?.();
-        });
-    });
-  };
-
-  type StartResult =
-    | { kind: "response"; result: unknown }
-    | { kind: "error"; code: string; message: string }
-    | Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }>;
-
-  type WorkflowStartLifecycle = {
-    key: OwnershipKey;
-    ownership: WorktreeOwnership;
-    activeKey: string;
-    activeRun: ActiveRun;
-    admit: () =>
-      | { kind: "admitted" }
-      | { kind: "refused"; result: Awaited<StartResult> }
-      | Promise<{ kind: "admitted" } | { kind: "refused"; result: Awaited<StartResult> }>;
-    execute: (onSettled: () => void) => StartResult;
-    rollbackAdmission?: () => void;
-    settle?: () => void;
-  };
-
-  /** Shared ownership, memory, and lifecycle boundary for every daemon workflow execution. */
-  const admitWorkflowStart = async (lifecycle: WorkflowStartLifecycle): Promise<Awaited<StartResult>> => {
-    const existingWorkflowClaim = _registry.get(lifecycle.key);
-    if (existingWorkflowClaim?.workflow === true && activeRuns.get(existingWorkflowClaim.runId)?.kind !== "workflow") {
-      _registry.release(lifecycle.key, existingWorkflowClaim.runId);
-    }
-    const claimError = previewWorkflowStartClaimAdmissionRefusal(store, _registry, activeRuns, lifecycle.key);
-    if (claimError) return claimError;
-    if (!checkMemoryHeadroom()) {
-      return {
-        kind: "error",
-        code: "insufficient_memory",
-        message: "Insufficient memory headroom to start workflow",
-      };
-    }
-
-    let registryClaimed = false;
-    let activeRegistered = false;
-    let released = false;
-    const releaseCommonAdmission = (): void => {
-      if (released) return;
-      released = true;
-      if (activeRegistered && activeRuns.get(lifecycle.activeKey) === lifecycle.activeRun) {
-        activeRuns.delete(lifecycle.activeKey);
-      }
-      if (registryClaimed) _registry.release(lifecycle.key, lifecycle.ownership.runId);
-    };
-    const finishAdmission = (hook?: () => void): void => {
-      try {
-        hook?.();
-      } finally {
-        releaseCommonAdmission();
-      }
-    };
-
-    try {
-      _registry.claim(lifecycle.key, lifecycle.ownership);
-      registryClaimed = true;
-      activeRuns.set(lifecycle.activeKey, lifecycle.activeRun);
-      activeRegistered = true;
-      const admission = lifecycle.admit();
-      const resolvedAdmission = admission instanceof Promise ? await admission : admission;
-      if (resolvedAdmission.kind === "refused") {
-        finishAdmission(lifecycle.rollbackAdmission);
-        return resolvedAdmission.result;
-      }
-      const executeResult = lifecycle.execute(() => finishAdmission(lifecycle.settle));
-      const resolvedExecute = executeResult instanceof Promise ? await executeResult : executeResult;
-      if (resolvedExecute.kind === "error") {
-        finishAdmission(lifecycle.rollbackAdmission);
-      }
-      return resolvedExecute;
-    } catch (error) {
-      finishAdmission(lifecycle.rollbackAdmission);
-      throw error;
-    }
-  };
-
-  const handleWorkflowStart = (steps: AnyWorkflowStep[]): StartResult => {
-    if (steps.length === 0) {
-      return { kind: "error", code: "invalid_params", message: "steps must not be empty" };
-    }
-    const firstStep = steps[0];
-    if (firstStep?.behavior === "review-debate") {
-      return {
-        kind: "error",
-        code: "invalid_params",
-        message: "Workflow start's first step must not be review-debate: it has no durable run row",
-      };
-    }
-    if (firstStep?.behavior === "write" && firstStep.workflowInvocationId !== undefined) {
-      const existing = store.findRunByProjectBranch({
-        project: firstStep.worktree.projectName,
-        branch: firstStep.worktree.branchName,
-        stepId: firstStep.stepId,
-      });
-      if (
-        existing?.workflowSnapshot?.invocationId !== undefined &&
-        existing.workflowSnapshot.invocationId !== firstStep.workflowInvocationId &&
-        !isTerminalRunStatus(existing.status)
-      ) {
-        return {
-          kind: "error",
-          code: "worktree_claimed",
-          message: "intent: existing workflow is owned by another invocation; resume the recorded invocation",
-        };
-      }
-    }
-    const workflowKey = workflowStartOwnershipKey(steps);
-    const worktreePath = firstStep?.behavior === "write" ? getExternalWorktreePath(firstStep.worktree) : "";
-    const claimRunId = crypto.randomUUID();
-    const abortController = new AbortController();
-    return admitWorkflowStart({
-      key: workflowKey,
-      ownership: { runId: claimRunId, worktreePath, workflow: true },
-      activeKey: claimRunId,
-      activeRun: { kind: "workflow", runId: claimRunId, abortController },
-      admit: () => ({ kind: "admitted" }),
-      execute: (onSettled) => startWorkflowRun(steps, claimRunId, abortController, onSettled),
-    });
-  };
-  const checkWorkflowStartClaimHandler: RpcHandler = (frame) => {
-    const params = frame.params as { project?: string; branch?: string } | undefined;
-    if (typeof params?.project !== "string" || typeof params?.branch !== "string") {
-      return { kind: "error", code: "invalid_params", message: "project and branch required" };
-    }
-    const key: OwnershipKey = { project: params.project, branch: params.branch };
-    const refusal = previewWorkflowStartClaimAdmissionRefusal(store, _registry, activeRuns, key);
-    if (refusal) {
-      return refusal;
-    }
-    return { kind: "response", result: { ok: true } };
-  };
+  const workflowStart = createWorkflowStartAdmission(ctx);
+  const {
+    handleWorkflowStart,
+    admitWorkflowStart,
+    check_workflow_start_claim: checkWorkflowStartClaimHandler,
+  } = workflowStart;
 
   const lifecycle = createRunLifecycleHandlers(ctx, {
     handleWorkflowStart,
@@ -1030,351 +668,27 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     undismiss: undismissRunHandler,
     pipelineDispatch,
     pipelineWait,
-    resumeFinalizationOnly,
   } = lifecycle;
 
-  type ImplementRecoverParams = {
-    project?: string;
-    branch?: string;
-    specPath?: string;
-    detach?: boolean;
-    mutationRepair?: ImplementRecoverMutationRepairParams;
-  };
-  type ImplementRecoverResult =
-    | { kind: "response"; result: unknown }
-    | { kind: "error"; code: string; message: string };
+  const implementRecoverHandler = createImplementRecoverHandler(ctx, {
+    resumeFinalizationOnly: lifecycle.resumeFinalizationOnly,
+  });
 
-  /** Attempt recovery against a single lineage row; returns undefined to let the caller try the next row. */
-  const tryImplementRecoverRow = async (
-    row: Run,
-    params: ImplementRecoverParams & { project: string; branch: string; specPath: string },
-    key: OwnershipKey,
-  ): Promise<ImplementRecoverResult | undefined> => {
-    const resolved = resolveReviewMutationLineageContext(row, store);
-    if (!resolved.ok || resolved.context.specPath !== params.specPath) return undefined;
-    const run = store.loadRun(row.id);
-    if (!run) return undefined;
-    const terminalRecord = logReader ? findTerminalLogRecord(logReader.tail(run.id)) : undefined;
-    const outcomeKind =
-      terminalRecord?.event.kind === "loop_finished" ? terminalRecord.event.loopOutcomeKind : undefined;
-    if (outcomeKind === undefined || !REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS.has(outcomeKind)) {
-      return { kind: "response", result: { kind: "not_admitted" } };
-    }
-
-    if (!existsSync(resolved.context.worktreePath)) {
-      return {
-        kind: "error",
-        code: "implement.recovery_target_missing",
-        message: `Recovery worktree missing: ${resolved.context.worktreePath}`,
-      };
-    }
-    try {
-      await realAsyncSubprocessRunner.runAsync(
-        "git",
-        ["rev-parse", "--verify", `refs/heads/${resolved.context.branch}`],
-        resolved.context.worktreePath,
-        { stdio: "ignore" },
-      );
-    } catch {
-      return {
-        kind: "error",
-        code: "implement.recovery_target_missing",
-        message: `Recovery branch missing: ${resolved.context.branch}`,
-      };
-    }
-
-    const claimError = checkWorktreeClaimed(_registry, key);
-    if (claimError) return claimError;
-    const mutationRepair = buildImplementRecoverMutationRepairDeps(params.mutationRepair);
-    const execute = (deps: IntentFinalizationResumeDeps) =>
-      resumeReviewMutationFinalization(run, store, terminalRecord, {
-        ...deps,
-        ...(mutationRepair ? { mutationRepair } : {}),
-      });
-    if (params.detach === true) {
-      void resumeFinalizationOnly(run, key, execute, true);
-      return { kind: "response", result: { kind: "admitted", ok: true } };
-    }
-    return mapImplementRecoverOutcome(await resumeFinalizationOnly(run, key, execute, true));
-  };
-
-  const implementRecoverHandler: RpcHandler = async (frame) => {
-    if (ctx.retiring) {
-      return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
-    }
-    const params = frame.params as ImplementRecoverParams | undefined;
-    if (
-      typeof params?.project !== "string" ||
-      typeof params.branch !== "string" ||
-      typeof params.specPath !== "string"
-    ) {
-      return { kind: "error", code: "invalid_params", message: "project, branch, and specPath required" };
-    }
-
-    const key: OwnershipKey = { project: params.project, branch: params.branch };
-    const validatedParams = { ...params, project: params.project, branch: params.branch, specPath: params.specPath };
-    for (const row of store.findReviewMutationLineageRows(key)) {
-      const rowResult = await tryImplementRecoverRow(row, validatedParams, key);
-      if (rowResult !== undefined) return rowResult;
-    }
-    return { kind: "response", result: { kind: "not_admitted" } };
-  };
-
-  const resolveStage = deps.resolveStage ?? resolveStageWorkflowSteps;
-
-  const pipelineExecutionDeps = (): Omit<PipelineExecutionDeps, "context"> => {
-    const daemonSocketPath = deps.daemonSocketPath;
-    const connectStaleResetClient = deps.connectStaleResetClient;
-    return {
-      store,
-      dispatch: pipelineDispatch,
-      wait: pipelineWait,
-      resolveStage,
-      ...(logReader !== undefined ? { loadLogRecords: (entryRunId: string) => logReader.tail(entryRunId) } : {}),
-      ...(deps.executeTerminalPublication !== undefined
-        ? { executeTerminalPublication: deps.executeTerminalPublication }
-        : {}),
-      ...(daemonSocketPath !== undefined
-        ? {
-            staleResetPreflight: {
-              cliDeps:
-                deps.staleResetCliDeps ??
-                ({ jarvisRoot: jarvisHome(), subprocessRunner: realAsyncSubprocessRunner } as unknown as CliDeps),
-              io: { stdout: () => {}, stderr: (text: string) => console.error(text) },
-              connectClient: connectStaleResetClient
-                ? () => connectStaleResetClient(daemonSocketPath)
-                : () => connectIpcClient(daemonSocketPath, STALE_RESET_RPC_TIMEOUT_MS),
-            },
-          }
-        : {}),
-    };
-  };
-
-  /**
-   * Admit an already-validated pipeline definition: create its durable rows, start the
-   * ordered daemon-owned loop, and resolve once those rows exist — not once the pipeline
-   * finishes. The loop keeps running after this handler resolves and the client disconnects.
-   */
-  const handlePipelineStartHandler: RpcHandler = (frame) => {
-    const params = frame.params as { definition?: PipelineDefinition; context?: unknown } | undefined;
-    if (!params?.definition || !params?.context) {
-      return { kind: "error", code: "invalid_params", message: "definition and context required" };
-    }
-    const { definition } = params;
-    const admittedContext = loadPipelineContext(params.context);
-    if (!admittedContext.ok) {
-      return { kind: "error", code: "invalid_params", message: admittedContext.error.errors.join("; ") };
-    }
-    const pipelineId = store.createPipeline({ definition, context: admittedContext.context });
-    const admitted = store.loadPipeline(pipelineId);
-    if (!admitted?.context) {
-      return {
-        kind: "error",
-        code: "admission_failed",
-        message: "pipeline context was not durably persisted",
-      };
-    }
-    const executionContext = loadPipelineContext(admitted.context);
-    if (!executionContext.ok) {
-      return {
-        kind: "error",
-        code: "admission_failed",
-        message: executionContext.error.errors.join("; "),
-      };
-    }
-    void runPipeline(pipelineId, { ...pipelineExecutionDeps(), context: executionContext.context }).catch(
-      (err: unknown) => {
-        console.error(`Pipeline ${pipelineId} execution failed:`, err);
-      },
-    );
-    return { kind: "response", result: { pipelineId } };
-  };
-
-  const handlePipelineApprovalDecisionHandler =
-    (decision: "approved" | "rejected"): RpcHandler =>
-    (frame) => {
-      if (ctx.retiring) {
-        return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
-      }
-      const params = frame.params as { pipelineId?: string; stageId?: string; branchKey?: string } | undefined;
-      if (!params?.pipelineId || !params?.stageId) {
-        return { kind: "error", code: "invalid_params", message: "pipelineId and stageId required" };
-      }
-      const { pipelineId, stageId, branchKey } = params;
-      const outcome = applyPipelineApprovalDecision(pipelineId, stageId, decision, pipelineExecutionDeps(), branchKey);
-      return { kind: "response", result: outcome };
-    };
-
-  const handlePipelineApproveHandler = handlePipelineApprovalDecisionHandler("approved");
-  const handlePipelineRejectHandler = handlePipelineApprovalDecisionHandler("rejected");
-
-  const handlePipelineResumeHandler: RpcHandler = async (frame) => {
-    if (ctx.retiring) {
-      return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
-    }
-    const params = frame.params as
-      | {
-          pipelineId?: string;
-          branchKey?: unknown;
-          resetDespiteDirty?: boolean;
-          resetDespiteLandedCriteria?: boolean;
-        }
-      | undefined;
-    if (!params?.pipelineId) {
-      return { kind: "error", code: "invalid_params", message: "pipelineId required" };
-    }
-    if (params.branchKey !== undefined && (typeof params.branchKey !== "string" || params.branchKey.trim() === "")) {
-      return { kind: "error", code: "invalid_params", message: "branchKey must be a non-blank string" };
-    }
-    const { pipelineId } = params;
-    const branchKey = params.branchKey as string | undefined;
-    const outcome = await resumePipeline(pipelineId, pipelineExecutionDeps(), {
-      detachContinuation: true,
-      ...(branchKey !== undefined ? { branchKey } : {}),
-      resetDespiteDirty: params.resetDespiteDirty === true,
-      resetDespiteLandedCriteria: params.resetDespiteLandedCriteria === true,
-    });
-    return { kind: "response", result: outcome };
-  };
-
-  /** Resolves a recovery target before shared workflow admission, then detaches its distinct lifecycle. */
-  const handlePipelineRecoverHandler: RpcHandler = async (frame) => {
-    // `=== true` (not the bare `if (retiring)` every sibling handler uses) only so the
-    // `@mutate` checkpoint in daemon-pipeline-recover.test.ts has a unique line to match —
-    // do not "normalize" this back to the bare form without updating that directive.
-    if (ctx.retiring === true) {
-      return { kind: "error", code: "daemon_superseded", message: "Daemon is retiring and not accepting new work" };
-    }
-    const params = frame.params as
-      | {
-          pipelineId?: string;
-          branchKey?: string;
-          resetDespiteDirty?: boolean;
-          resetDespiteLandedCriteria?: boolean;
-        }
-      | undefined;
-    if (
-      typeof params?.pipelineId !== "string" ||
-      params.pipelineId.length === 0 ||
-      typeof params?.branchKey !== "string" ||
-      params.branchKey.length === 0
-    ) {
-      return { kind: "error", code: "invalid_params", message: "pipelineId and branchKey required" };
-    }
-    const { pipelineId, branchKey } = params;
-
-    const resolution = await resolveBlockedPlanStageRecoveryTarget({ pipelineId, branchKey }, { store, resolveStage });
-    if (!resolution.ok) {
-      return {
-        kind: "response",
-        result: {
-          kind: "resolution_refused",
-          pipelineId,
-          branchKey,
-          reason: resolution.reason,
-          message: resolution.message,
-        },
-      };
-    }
-    const { target } = resolution;
-    const key: OwnershipKey = { project: target.project, branch: target.branch };
-    const activeKey = ownershipKeyString(key);
-    const activeRun: ActiveRun = { kind: "recovery", runId: target.runId };
-    const stageAdmission = { pipelineId, stageId: target.stageId, branchKey };
-    let releaseDurableAdmission = false;
-    let logSink: LogSink | undefined;
-    return admitWorkflowStart({
-      key,
-      ownership: { runId: target.runId, worktreePath: target.worktreePath },
-      activeKey,
-      activeRun,
-      admit: () => {
-        logSink = logsPath !== undefined ? (deps.recoveryLogSinkFactory ?? openLogSink)(logsPath) : undefined;
-        try {
-          const outcome = claimResolvedPipelineBranchStageRecovery({ pipelineId, branchKey }, target, store);
-          if (outcome.kind === "admitted") {
-            releaseDurableAdmission = true;
-            return { kind: "admitted" };
-          }
-          return { kind: "refused", result: { kind: "response", result: outcome } };
-        } catch (error) {
-          store.releasePipelineStageAdmission(stageAdmission);
-          throw error;
-        }
-      },
-      execute: (onSettled) => {
-        void executeClaimedPipelineBranchStageRecovery(
-          { pipelineId, branchKey },
-          target,
-          {
-            ...pipelineExecutionDeps(),
-            attempt: deps.recoveryAttempt ?? recoverPlanStage,
-            ...(logSink !== undefined ? { logSink } : {}),
-          },
-          { detachContinuation: true, onSettled },
-        );
-        return {
-          kind: "response",
-          result: { kind: "admitted", pipelineId, branchKey, stageId: target.stageId, entryRunId: target.runId },
-        };
-      },
-      rollbackAdmission: () => {
-        if (releaseDurableAdmission) store.releasePipelineStageAdmission(stageAdmission);
-        logSink?.close();
-      },
-      settle: () => logSink?.close(),
-    });
-  };
-
-  const handlePipelineDismissalHandler =
-    (mode: "dismiss" | "undismiss"): RpcHandler =>
-    (frame) => {
-      const params = frame.params as { pipelineId?: unknown } | undefined;
-      const pipelineId = typeof params?.pipelineId === "string" ? params.pipelineId : "";
-      if (pipelineId.length === 0) {
-        return { kind: "error", code: "invalid_params", message: "pipelineId required" };
-      }
-      const outcome =
-        mode === "dismiss" ? store.dismissPipeline({ pipelineId }) : store.undismissPipeline({ pipelineId });
-      if (outcome.kind === "refused") {
-        return { kind: "response", result: outcome };
-      }
-      // biome-ignore lint/style/noNonNullAssertion: dismissal returned non-refused, so the pipeline is present
-      const pipeline = store.loadPipeline(pipelineId)!;
-      return { kind: "response", result: { ...outcome, state: derivePipelineState(pipeline) } };
-    };
-
-  const handlePipelineDismissHandler = handlePipelineDismissalHandler("dismiss");
-  const handlePipelineUndismissHandler = handlePipelineDismissalHandler("undismiss");
-
-  const handlePipelineListHandler: RpcHandler = (frame) => {
-    const params = frame.params as { includeDismissed?: unknown } | undefined;
-    const includeDismissed = params?.includeDismissed === true;
-    const pipelines = store.listPipelines().filter((pipeline) => includeDismissed || pipeline.dismissedAt === null);
-    return { kind: "response", result: { pipelines: pipelines.map(projectPipelineSnapshot) } };
-  };
-
-  const handlePipelineWaitHandler: RpcHandler = async (frame, signal) => {
-    const params = frame.params as { pipelineId?: unknown } | undefined;
-    if (typeof params?.pipelineId !== "string" || params.pipelineId.length === 0) {
-      return { kind: "error", code: "invalid_params", message: "Missing pipelineId" };
-    }
-
-    const pipelineId = params.pipelineId;
-    if (!store.loadPipeline(pipelineId)) {
-      return { kind: "error", code: "unknown_pipeline", message: `Pipeline ${pipelineId} not found` };
-    }
-
-    try {
-      const boundary = await waitForPipelineBoundary(store, pipelineId, signal, pipelineWaitObserver);
-      return { kind: "response", result: boundary };
-    } catch (error) {
-      if (signal.aborted || error instanceof PipelineWaitAbortedError) {
-        throw new Error(PIPELINE_WAIT_ABORTED);
-      }
-      throw error;
-    }
-  };
+  const pipeline = createPipelineHandlers(ctx, {
+    pipelineDispatch,
+    pipelineWait,
+    admitWorkflowStart,
+    ...(deps.resolveStage !== undefined ? { resolveStage: deps.resolveStage } : {}),
+    ...(deps.recoveryAttempt !== undefined ? { recoveryAttempt: deps.recoveryAttempt } : {}),
+    ...(deps.recoveryLogSinkFactory !== undefined ? { recoveryLogSinkFactory: deps.recoveryLogSinkFactory } : {}),
+    ...(deps.executeTerminalPublication !== undefined
+      ? { executeTerminalPublication: deps.executeTerminalPublication }
+      : {}),
+    ...(deps.daemonSocketPath !== undefined ? { daemonSocketPath: deps.daemonSocketPath } : {}),
+    ...(deps.connectStaleResetClient !== undefined ? { connectStaleResetClient: deps.connectStaleResetClient } : {}),
+    ...(deps.staleResetCliDeps !== undefined ? { staleResetCliDeps: deps.staleResetCliDeps } : {}),
+    ...(deps.reconciledRunIds !== undefined ? { reconciledRunIds: deps.reconciledRunIds } : {}),
+  });
 
   const hasActiveRuns = (): boolean => activeRuns.size > 0;
 
@@ -1395,19 +709,18 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     wait: waitHandler,
     dismiss: dismissRunHandler,
     undismiss: undismissRunHandler,
-    pipeline_start: handlePipelineStartHandler,
-    pipeline_approve: handlePipelineApproveHandler,
-    pipeline_reject: handlePipelineRejectHandler,
-    pipeline_resume: handlePipelineResumeHandler,
-    pipeline_recover: handlePipelineRecoverHandler,
-    pipeline_dismiss: handlePipelineDismissHandler,
-    pipeline_undismiss: handlePipelineUndismissHandler,
-    pipeline_list: handlePipelineListHandler,
-    pipeline_wait: handlePipelineWaitHandler,
-    continueContinuablePipelines: async () =>
-      recoverContinuablePipelines(store, pipelineExecutionDeps(), undefined, new Set(deps.reconciledRunIds ?? [])),
+    pipeline_start: pipeline.pipeline_start,
+    pipeline_approve: pipeline.pipeline_approve,
+    pipeline_reject: pipeline.pipeline_reject,
+    pipeline_resume: pipeline.pipeline_resume,
+    pipeline_recover: pipeline.pipeline_recover,
+    pipeline_dismiss: pipeline.pipeline_dismiss,
+    pipeline_undismiss: pipeline.pipeline_undismiss,
+    pipeline_list: pipeline.pipeline_list,
+    pipeline_wait: pipeline.pipeline_wait,
+    continueContinuablePipelines: pipeline.continueContinuablePipelines,
     /** Non-RPC seam: exposes the built pipeline-execution deps so tests can assert stale-reset wiring. */
-    pipelineExecutionDeps,
+    pipelineExecutionDeps: pipeline.pipelineExecutionDeps,
     /** Records a review step's currently-executing or terminal role/outcome. */
     reportReviewDebateProgress: reportReviewProgress,
     /** Clears live review progress for an invocation; frozen terminal snapshots are retained. */
@@ -1427,7 +740,6 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     isRetiring,
     context: ctx,
   };
-  activeRunsByHandler.set(handlersOut, activeRuns);
   return handlersOut;
 }
 

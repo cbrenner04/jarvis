@@ -31,11 +31,11 @@ Primary: `v2/src/execution/workflow-runner-resume.test.ts` and any new `workflow
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner-resume-inventory.test.ts` records merge-base vs branch case counts and unchanged leaf titles for every resume-path test moved from `workflow-runner-resume.test.ts`, `workflow-runner-plan.test.ts`, `workflow-runner-publication.test.ts`, and `recover-review-failed-plan-draft.test.ts`.
-- [ ] `workflow-runner-plan.test.ts` stays green for remaining plan-dispatch cases after `recoverPlanStage` moves out.
-- [ ] `recover-review-failed-plan-draft.test.ts` stays green after the review-failed admission block moves out (or is removed when empty).
-- [ ] `bun run test:cost` over each post-move `workflow-runner-resume*.test.ts` file reports at most 150s wall clock; the primary resume-path file reports at most 120s.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `workflow-runner-resume-inventory.test.ts` records merge-base vs branch case counts and unchanged leaf titles for every resume-path test moved from `workflow-runner-resume.test.ts`, `workflow-runner-plan.test.ts`, `workflow-runner-publication.test.ts`, and `recover-review-failed-plan-draft.test.ts`.
+- [x] `workflow-runner-plan.test.ts` stays green for remaining plan-dispatch cases after `recoverPlanStage` moves out.
+- [x] `recover-review-failed-plan-draft.test.ts` stays green after the review-failed admission block moves out (or is removed when empty).
+- [x] `bun run test:cost` over each post-move `workflow-runner-resume*.test.ts` file reports at most 150s wall clock; the primary resume-path file reports at most 120s.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

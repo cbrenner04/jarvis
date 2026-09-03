@@ -7,9 +7,8 @@ import {
 } from "../commands/run-list-rpc.ts";
 import { readIterationCeilingMs } from "../config/machine-config-loader.ts";
 import { getExternalWorktreePath } from "../execution/external-worktree.ts";
-import type { InvocationFailureDetail, InvocationFailureKind } from "../execution/invocation-failure.ts";
+import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import {
-  type AnyWorkflowStep,
   type IntentFinalizationResumeDeps,
   resolveExhaustedRedResumeContext,
   resolveIntentFinalizationResumeContext,
@@ -17,7 +16,7 @@ import {
   resolveWriteOutOfScopeResumeContext,
   resumePopulatedIntentPublication,
   resumeReviewMutationFinalization,
-} from "../execution/workflow-runner.ts";
+} from "../execution/workflow-runner-resume.ts";
 import {
   findLandingContractRepromptFromLog,
   findStagedMarkdownLintRepromptFromLog,
@@ -32,7 +31,6 @@ import {
   type LoopFinishedEvent,
   openLogSink,
   type PersistedRecord,
-  truncateLogText,
 } from "../persistence/log-stream.ts";
 import {
   type Attempt,
@@ -60,7 +58,11 @@ import {
   type WaitRunCompletionResult,
   workflowInvocationIsLive,
 } from "./daemon.ts";
-import type { RunControlHandlerContext } from "./daemon-run-control-context.ts";
+import {
+  daemonFailureDetail,
+  ownershipKeyString,
+  type RunControlHandlerContext,
+} from "./daemon-run-control-context.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
 import {
   composeRunOperatorError,
@@ -103,20 +105,13 @@ export type RunLifecycleHandlers = {
 
 const LIST_TERMINAL_RUN_LIMIT = 50;
 
-function ownershipKeyString(key: OwnershipKey): string {
-  return `${key.project}:${key.branch}`;
-}
-
 function worktreeClaimedMessage(key: OwnershipKey): string {
   return `Worktree already claimed for project=${key.project}, branch=${key.branch}`;
 }
 
+/** Terminal or paused — any status with no live write loop to disturb. */
 function isSettledRunStatus(status: RunStatus): boolean {
   return isTerminalRunStatus(status) || status === "paused";
-}
-
-function daemonFailureDetail(failureKind: InvocationFailureKind, message: string): InvocationFailureDetail {
-  return { failureKind, bindingAttempts: [], message: truncateLogText(message) };
 }
 
 /** Filter durable rows before list pays per-row loadRun/tail cost. Durable store is unchanged. */

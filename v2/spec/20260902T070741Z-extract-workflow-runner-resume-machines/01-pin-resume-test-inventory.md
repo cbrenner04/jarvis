@@ -29,8 +29,8 @@ Primary: `v2/src/execution/workflow-runner-resume-inventory.test.ts` (new).
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner-resume-inventory.test.ts` exists with merge-base resolution, `test.each` row expansion, and per-source resume-path scanners for `workflow-runner-resume.test.ts`, `workflow-runner-plan.test.ts` (`describe("recoverPlanStage")` only), `recover-review-failed-plan-draft.test.ts` (`describe("recoverPlanStage review-failed admission")` in full), and the zero-case `workflow-runner-publication.test.ts` bucket; it fails against the pre-fix tree where the file does not exist.
-- [ ] `bun run typecheck` passes.
+- [x] `workflow-runner-resume-inventory.test.ts` exists with merge-base resolution, `test.each` row expansion, and per-source resume-path scanners for `workflow-runner-resume.test.ts`, `workflow-runner-plan.test.ts` (`describe("recoverPlanStage")` only), `recover-review-failed-plan-draft.test.ts` (`describe("recoverPlanStage review-failed admission")` in full), and the zero-case `workflow-runner-publication.test.ts` bucket; it fails against the pre-fix tree where the file does not exist.
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

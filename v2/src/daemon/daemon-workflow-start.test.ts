@@ -31,7 +31,6 @@ import { createFakeWithExternalWorktree } from "../testing/write-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import {
   activeRunAcceptsKill,
-  activeRunForHandler,
   createRunControlHandlers,
   resetWriteLoopBindingSourceDepsForTests,
   setWriteLoopBindingSourceDepsForTests,
@@ -119,7 +118,7 @@ async function waitForStepRunId(branch: string, stepId: string): Promise<string>
 }
 
 async function waitUntilActiveRun(runId: string): Promise<void> {
-  await waitFor(() => activeRunForHandler(handlers, runId) !== undefined);
+  await waitFor(() => handlers.context.activeRuns.get(runId) !== undefined);
 }
 
 let stateStore: StateStore;
@@ -150,9 +149,12 @@ beforeEach(() => {
 test("workflow starts, pipeline dispatch, and recovery share daemon admission", () => {
   // Run-control handlers are being extracted into sibling modules, so locate each section by its
   // declaration in whichever module currently owns it rather than assuming one file.
-  const sources = ["daemon.ts", "daemon-run-lifecycle-handlers.ts"].map((name) =>
-    readFileSync(join(import.meta.dir, name), "utf8"),
-  );
+  const sources = [
+    "daemon.ts",
+    "daemon-run-lifecycle-handlers.ts",
+    "daemon-workflow-admission-handlers.ts",
+    "daemon-pipeline-handlers.ts",
+  ].map((name) => readFileSync(join(import.meta.dir, name), "utf8"));
   const section = (start: string, end: string): string => {
     const owner = sources.find((text) => text.includes(start));
     if (owner === undefined) throw new Error(`no daemon module declares ${start}`);
@@ -163,7 +165,7 @@ test("workflow starts, pipeline dispatch, and recovery share daemon admission", 
   const source = sources.join("\n");
   const workflowStart = section("const handleWorkflowStart", "const handleWriteLoopStart");
   const pipelineDispatch = section("const defaultPipelineDispatch", "const defaultPipelineWait");
-  const pipelineRecovery = section("const handlePipelineRecoverHandler", "const handlePipelineDismissalHandler");
+  const pipelineRecovery = section("const pipeline_recover", "const pipeline_dismiss");
 
   expect(source).toContain("const admitWorkflowStart");
   expect(workflowStart).toContain("return admitWorkflowStart({");
@@ -524,9 +526,9 @@ test("workflow claim and step activeRuns rows share one AbortController", async 
 
   const claimRunId = registry.get({ project: "demo", branch })?.runId;
   expect(claimRunId).toBeTruthy();
-  const claimRow = activeRunForHandler(handlers, claimRunId as string);
-  const entryRow = activeRunForHandler(handlers, entryRunId as string);
-  const step2Row = activeRunForHandler(handlers, step2RunId);
+  const claimRow = handlers.context.activeRuns.get(claimRunId as string);
+  const entryRow = handlers.context.activeRuns.get(entryRunId as string);
+  const step2Row = handlers.context.activeRuns.get(step2RunId);
   expect(claimRow?.kind).toBe("workflow");
   expect(entryRow?.kind).toBe("workflow");
   expect(step2Row?.kind).toBe("workflow");
@@ -548,7 +550,7 @@ test("kill on a completed sibling step runId aborts the in-flight step via the s
   const step2RunId = await waitForStepRunId(branch, "step-2");
   await waitUntilActiveRun(step2RunId);
   expect(stateStore.loadRun(step1RunId as string)?.status).toBe("completed");
-  expect(activeRunForHandler(handlers, step1RunId as string)?.kind).toBe("workflow");
+  expect(handlers.context.activeRuns.get(step1RunId as string)?.kind).toBe("workflow");
 
   const killResponse = await handlers.kill(
     requestFrame("k2", "kill", { runId: step1RunId }),

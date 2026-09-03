@@ -631,6 +631,9 @@ export interface StateStore {
   /** Load a run and its attempt history for resume; null when unknown. */
   loadRun(runId: string): (Run & { attempts: Attempt[] }) | null;
 
+  /** Load runs with attempt history for a deduped ID set; unknown IDs are omitted. */
+  loadRunsByIds(runIds: readonly string[]): Array<Run & { attempts: Attempt[] }>;
+
   /** Most recent run for the `(project, branch, stepId)` resume key; null when none. */
   findRunByProjectBranch(args: {
     project: string;
@@ -643,6 +646,9 @@ export interface StateStore {
 
   /** All runs whose `workflowSnapshot.invocationId` matches the given id. */
   findRunsByInvocationId(invocationId: string): Run[];
+
+  /** All runs whose `workflowSnapshot.invocationId` is in the given set; creation order per invocation. */
+  findRunsByInvocationIds(invocationIds: readonly string[]): Run[];
 
   /**
    * Admit an already-validated pipeline definition: one pipeline row plus one
@@ -806,8 +812,26 @@ export interface StateStore {
   /** List all runs (durable rows only, no in-memory liveness). */
   listRuns(): Run[];
 
+  /**
+   * Runs whose `status` is in `statuses` and that are incident candidates: non-terminal rows
+   * regardless of `finished_at`; terminal rows only when `finished_at` is null or `>= sinceMs`.
+   */
+  listIncidentCandidateRuns(args: { statuses: readonly RunStatus[]; sinceMs: number }): Run[];
+
+  /**
+   * Pipelines that are incident candidates per SQL lifecycle rules (non-terminal stage signals,
+   * settlement-pending publication, fan-out branch signals, or recent otherwise-terminal settlement).
+   * Each match returns once with all stage rows, same shape as `listPipelines` elements.
+   */
+  listIncidentCandidatePipelines(args: { sinceMs: number }): Array<Pipeline & { stages: PipelineStageRecord[] }>;
+
   /** Whether `(incidentId, transition)` has been delivered. */
   hasNotificationDelivery(args: { incidentId: string; transition: string }): boolean;
+
+  /** Delivery-ledger rows for the given incident IDs; one sweep-level consult per derivation pass. */
+  listNotificationDeliveriesForIncidentIds(
+    incidentIds: readonly string[],
+  ): ReadonlyArray<{ incidentId: string; transition: string }>;
 
   /**
    * Record a delivered notification when absent; returns whether this caller won the insert.
@@ -1128,6 +1152,68 @@ const RECONCILIATION_STABLE_STAGE_STATUSES: ReadonlySet<string> = new Set([
 ]);
 
 const NON_ACTIVE_STAGE_STATUSES = [...RECONCILIATION_STABLE_STAGE_STATUSES].map((status) => `'${status}'`).join(", ");
+
+/** Stage statuses that end candidacy for otherwise-terminal pipeline settlement-age filtering. */
+const INCIDENT_CANDIDATE_STABLE_STAGE_STATUSES_SQL =
+  "'succeeded','failed','interrupted','skipped','approved','rejected'";
+
+const INCIDENT_CANDIDATE_FAN_OUT_ACTIVE_STAGE_STATUSES_SQL = "'pending','awaiting','running'";
+
+const TERMINAL_RUN_STATUSES_SQL = [...TERMINAL_RUN_STATUSES].map((status) => `'${status}'`).join(", ");
+
+const INCIDENT_CANDIDATE_PIPELINE_WHERE = `
+  EXISTS (
+    SELECT 1 FROM pipeline_stages ps
+    WHERE ps.pipeline_id = p.id
+      AND ps.status NOT IN (${INCIDENT_CANDIDATE_STABLE_STAGE_STATUSES_SQL})
+  )
+  OR (
+    json_extract(p.definition, '$.terminalAction') IS NOT NULL
+    AND p.terminal_publication_succeeded_at IS NULL
+    AND p.terminal_publication_failure IS NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM pipeline_stages ps
+      WHERE ps.pipeline_id = p.id
+        AND ps.branch_key = '${DEFAULT_PIPELINE_STAGE_BRANCH_KEY}'
+        AND ps.status NOT IN (${INCIDENT_CANDIDATE_STABLE_STAGE_STATUSES_SQL})
+    )
+  )
+  OR EXISTS (
+    SELECT 1 FROM pipeline_stages ps
+    WHERE ps.pipeline_id = p.id
+      AND ps.branch_key != '${DEFAULT_PIPELINE_STAGE_BRANCH_KEY}'
+      AND ps.status IN (${INCIDENT_CANDIDATE_FAN_OUT_ACTIVE_STAGE_STATUSES_SQL})
+  )
+  OR (
+    NOT EXISTS (
+      SELECT 1 FROM pipeline_stages ps
+      WHERE ps.pipeline_id = p.id
+        AND ps.status NOT IN (${INCIDENT_CANDIDATE_STABLE_STAGE_STATUSES_SQL})
+    )
+    AND NOT (
+      json_extract(p.definition, '$.terminalAction') IS NOT NULL
+      AND p.terminal_publication_succeeded_at IS NULL
+      AND p.terminal_publication_failure IS NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM pipeline_stages ps
+        WHERE ps.pipeline_id = p.id
+          AND ps.branch_key = '${DEFAULT_PIPELINE_STAGE_BRANCH_KEY}'
+          AND ps.status NOT IN (${INCIDENT_CANDIDATE_STABLE_STAGE_STATUSES_SQL})
+      )
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM pipeline_stages ps
+      WHERE ps.pipeline_id = p.id
+        AND ps.branch_key != '${DEFAULT_PIPELINE_STAGE_BRANCH_KEY}'
+        AND ps.status IN (${INCIDENT_CANDIDATE_FAN_OUT_ACTIVE_STAGE_STATUSES_SQL})
+    )
+    AND COALESCE(
+      (SELECT MAX(COALESCE(ps.ended_at, ps.decided_at)) FROM pipeline_stages ps WHERE ps.pipeline_id = p.id),
+      p.terminal_publication_succeeded_at,
+      p.created_at
+    ) >= ?
+  )
+`;
 
 /** True when `reconcilePipelines` leaves a stage row untouched. */
 export function reconciliationStableStageStatus(status: string): boolean {
@@ -1480,6 +1566,41 @@ class StateStoreImpl implements StateStore {
     return { ...run, attempts };
   }
 
+  loadRunsByIds(runIds: readonly string[]): Array<Run & { attempts: Attempt[] }> {
+    if (runIds.length === 0) return [];
+
+    const uniqueIds = [...new Set(runIds)];
+    const placeholders = uniqueIds.map(() => "?").join(", ");
+    const runRows = this.db
+      .prepare(`SELECT ${RUN_COLUMNS} FROM runs WHERE id IN (${placeholders})`)
+      .all(...uniqueIds) as RunRow[];
+    if (runRows.length === 0) return [];
+
+    const foundIds = runRows.map((row) => row.id);
+    const attemptPlaceholders = foundIds.map(() => "?").join(", ");
+    const attemptRows = this.db
+      .prepare(
+        `SELECT ${ATTEMPT_COLUMNS} FROM attempts WHERE run_id IN (${attemptPlaceholders}) ORDER BY attempt_number ASC`,
+      )
+      .all(...foundIds) as Array<Attempt & { invocationFailureDetailJson: string | null }>;
+
+    const attemptsByRunId = new Map<string, Attempt[]>();
+    for (const row of attemptRows) {
+      const attempt = mapAttemptRow(row);
+      const existing = attemptsByRunId.get(attempt.runId);
+      if (existing) {
+        existing.push(attempt);
+      } else {
+        attemptsByRunId.set(attempt.runId, [attempt]);
+      }
+    }
+
+    return runRows.map((row) => {
+      const run = mapRunRow(row);
+      return { ...run, attempts: attemptsByRunId.get(run.id) ?? [] };
+    });
+  }
+
   findRunByProjectBranch(args: {
     project: string;
     branch: string;
@@ -1519,6 +1640,20 @@ class StateStoreImpl implements StateStore {
           `SELECT ${RUN_COLUMNS} FROM runs WHERE workflow_snapshot IS NOT NULL AND json_extract(workflow_snapshot, '$.invocationId') = ? ORDER BY created_at ASC`,
         )
         .all(invocationId) as RunRow[]
+    ).map(mapRunRow);
+  }
+
+  findRunsByInvocationIds(invocationIds: readonly string[]): Run[] {
+    if (invocationIds.length === 0) return [];
+
+    const uniqueIds = [...new Set(invocationIds)];
+    const placeholders = uniqueIds.map(() => "?").join(", ");
+    return (
+      this.db
+        .prepare(
+          `SELECT ${RUN_COLUMNS} FROM runs WHERE workflow_snapshot IS NOT NULL AND json_extract(workflow_snapshot, '$.invocationId') IN (${placeholders}) ORDER BY created_at ASC`,
+        )
+        .all(...uniqueIds) as RunRow[]
     ).map(mapRunRow);
   }
 
@@ -2290,6 +2425,35 @@ class StateStoreImpl implements StateStore {
     ).map(mapRunRow);
   }
 
+  listIncidentCandidateRuns(args: { statuses: readonly RunStatus[]; sinceMs: number }): Run[] {
+    if (args.statuses.length === 0) return [];
+    const statusPlaceholders = args.statuses.map(() => "?").join(", ");
+    return (
+      this.db
+        .prepare(
+          `SELECT ${RUN_COLUMNS} FROM runs
+           WHERE status IN (${statusPlaceholders})
+             AND (
+               status NOT IN (${TERMINAL_RUN_STATUSES_SQL})
+               OR finished_at IS NULL
+               OR finished_at >= ?
+             )
+           ORDER BY created_at DESC, rowid DESC`,
+        )
+        .all(...args.statuses, args.sinceMs) as RunRow[]
+    ).map(mapRunRow);
+  }
+
+  listIncidentCandidatePipelines(args: { sinceMs: number }): Array<Pipeline & { stages: PipelineStageRecord[] }> {
+    const pipelines = this.db
+      .prepare(`SELECT ${PIPELINE_COLUMNS} FROM pipelines p WHERE ${INCIDENT_CANDIDATE_PIPELINE_WHERE}`)
+      .all(args.sinceMs) as PipelineRow[];
+    return pipelines.map((pipelineRow) => ({
+      ...mapPipelineRow(pipelineRow),
+      stages: this.loadPipelineStages(pipelineRow.id),
+    }));
+  }
+
   hasQueuedRun(args: { project: string; branch: string }): boolean {
     const row = this.db
       .prepare("SELECT 1 FROM runs WHERE project = ? AND branch = ? AND status = 'queued' LIMIT 1")
@@ -2310,6 +2474,18 @@ class StateStoreImpl implements StateStore {
       .prepare("SELECT 1 FROM operator_notification_deliveries WHERE incident_id = ? AND transition = ? LIMIT 1")
       .get(args.incidentId, args.transition);
     return row !== null;
+  }
+
+  listNotificationDeliveriesForIncidentIds(
+    incidentIds: readonly string[],
+  ): ReadonlyArray<{ incidentId: string; transition: string }> {
+    if (incidentIds.length === 0) return [];
+    const placeholders = incidentIds.map(() => "?").join(", ");
+    return this.db
+      .prepare(
+        `SELECT incident_id AS incidentId, transition FROM operator_notification_deliveries WHERE incident_id IN (${placeholders})`,
+      )
+      .all(...incidentIds) as Array<{ incidentId: string; transition: string }>;
   }
 
   tryRecordNotificationDelivery(args: { incidentId: string; transition: string; deliveredAt: number }): boolean {

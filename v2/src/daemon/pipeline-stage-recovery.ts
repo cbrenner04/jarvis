@@ -1,15 +1,13 @@
 import type { CompletionCommitter } from "../execution/completion-commit.ts";
 import type { PipelineStage } from "../execution/pipeline-definition.ts";
 import type { PublicationLanding } from "../execution/publication-landing.ts";
+import type { AnyWorkflowStep, ReviewDebateWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
 import {
-  type AnyWorkflowStep,
   isPlanStageEntryRunRecoverable,
   type PlanStageRecoveryOutcome,
   type PlanStageRecoveryRequest,
-  type ReviewDebateWorkflowStep,
-  type ReviewWorkflowStep,
   recoverPlanStage,
-} from "../execution/workflow-runner.ts";
+} from "../execution/workflow-runner-resume.ts";
 import type { LogSink } from "../persistence/log-stream.ts";
 import type {
   Pipeline,

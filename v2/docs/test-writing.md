@@ -60,7 +60,7 @@ Some files are known to flake under concurrent load though they pass reliably al
 
 **2026-08-18 audit:** candidate set was every agent-slice file under `v2/src/daemon/**` opening a Unix socket, an `IpcClient`, or `mkdtemp` state, plus `v2/src/execution/workflow-runner.test.ts` — 13 files, run through `scripts/run-v2-tests.ts` at default concurrency for two rounds on quiet operator hardware. Joined (dated evidence already on record, 2026-08-17): `v2/src/daemon/daemon-resume.test.ts` (0-fail across four isolated runs, 106/354 failures co-run with `workflow-runner.test.ts` under load) and `v2/src/execution/workflow-runner.test.ts` (tipped the per-file agent wall-clock budget, red-gating two live PRs and post-merge `main` the same day, each passing an unchanged re-run). Stayed pooled (survived both audit rounds clean, no dated failure evidence): `daemon-process-log.test.ts`, `daemon-queue-promotion.test.ts`, `daemon-reconciliation.test.ts`, `daemon-state-store-lock-timeout.test.ts`, `daemon-wait-run-completion.test.ts`, `live-daemon-socket-discovery.test.ts`, `memory-watermark.test.ts`, `pipeline-execution.test.ts`, `pipeline-stage-resolve.test.ts`, `write-loop-binding-source-guard.test.ts` (all under `v2/src/daemon/`). `daemon-workflow-start.test.ts` was already a member going into this audit.
 
-**2026-08-25 (durable #2181 fix):** the `v2/src/execution/workflow-runner.test.ts` monolith (~12k lines / 224 tests, isolated above for tipping the per-file budget) was split into concern-grouped co-located files — `workflow-runner-core`, `-intent`, `-plan`, `-publication`, `-resume`, `-debate`, `-review`, `-review-standard`, `-validation` (`.test.ts`) — sharing `workflow-runner.test-support.ts`, with the full 224-case inventory preserved. Each split file is well under the per-file health budget, so the monolith's `LOAD_SENSITIVE_FILES` entry was removed and the split files run pooled; `SUPPORTED_HEALTHY_FILE_BUDGET_MS` returned to `180_000` (the #2992 stopgap is reverted). Isolate a specific split file (with dated loaded-red/idle-green evidence) only if one later proves load-sensitive. Rule of thumb: split a file before it approaches ~150s under the 180s budget rather than isolating an oversized one.
+**2026-08-25 (durable #2181 fix):** the `v2/src/execution/workflow-runner.test.ts` monolith (~12k lines / 224 tests, isolated above for tipping the per-file budget) was split into concern-grouped co-located files beside `workflow-runner.ts` — `workflow-runner-core`, `-intent`, `-plan`, `-publication`, `-resume`, `-debate`, `-review`, `-review-standard`, `-validation` (`.test.ts`) — sharing `workflow-runner.test-support.ts`, with the full 224-case inventory preserved; those split files are well under the per-file health budget, so the monolith's `LOAD_SENSITIVE_FILES` entry was removed and the split files run pooled; `SUPPORTED_HEALTHY_FILE_BUDGET_MS` returned to `180_000` (the #2992 stopgap is reverted). **Post-extraction (2026-09):** resume-machine production code and tests co-locate beside `workflow-runner-resume.ts` as `workflow-runner-resume*.test.ts`; the primary co-located resume test file may be large (~4k lines) and stays unsplit until `bun run test:cost` exceeds 150s wall clock (120s for the primary resume-path file). `workflow-runner-resume-inventory.test.ts` pins merge-base parity (`test.each` expansion) across per-source buckets from merge-base `workflow-runner-resume.test.ts` (full file), `workflow-runner-plan.test.ts` (`describe("recoverPlanStage")` only), `recover-review-failed-plan-draft.test.ts` (`recoverPlanStage review-failed admission` in full), and the zero-case `workflow-runner-publication.test.ts` bucket. Split an additional `workflow-runner-resume-*.test.ts` sibling only when measured cost crosses those thresholds; pre-budget splits stay deferred. Isolate a specific split file (with dated loaded-red/idle-green evidence) only if one later proves load-sensitive. Rule of thumb: split a file before it approaches ~150s under the 180s budget rather than isolating an oversized one.
 
 `runV2TestFiles` excludes `isLoadSensitive` files from the bounded pool and runs them one at a time after the pool has fully drained, with no co-runners in either direction — the pool finishes before an isolated file starts, and no other file starts while it runs. Mode semantics are unchanged for the isolated phase: `agent` mode keeps admitting past an isolated file's timeout and stops on a plain failure, matching pooled-file behavior; every other mode stops admitting further files after either.
 
@@ -164,19 +164,23 @@ When an exported production seam can be exercised with injected fakes, call that
 
 **Anti-pattern:** reimplementing run-control handler orchestration in test-local stubs when `createRunControlHandlers` already owns it. IPC assertions may pass against the fake handlers while production semantics drift unchecked.
 
-**Expected pattern:** call the exported factory with injected dependency fakes, then invoke the returned handlers directly, in-process — no socket:
+**Expected pattern (integration / full handler set):** call `createRunControlHandlers` with injected fakes, invoke returned handlers in-process (wire keys: `start`, `list`, `pause`, …). Assert live runs via `handlers.context.activeRuns` — not a parallel context:
 
 ```typescript
-const handlers = createRunControlHandlers({
-  stateStore,
-  writeLoopExecutor: fakeExecutor.executor,
-  failureReporter: () => {},
-});
-
-const response = await handlers.startRun(request);
+const handlers = createRunControlHandlers({ stateStore, writeLoopExecutor: fakeExecutor.executor, failureReporter: () => {} });
+const response = await handlers.start(request, signal);
+expect(handlers.context.activeRuns.get(runId)).toBeDefined();
 ```
 
-The write-loop executor fake is outside the owned boundary; assertions exercise real handler behavior without a wire round-trip. Tail-stream tests use the same factory-over-fakes pattern with `createTailStreamHandler`, invoking its returned handler directly.
+**Handler-module unit tests:** `createRunControlHandlerContext` then the module factory (same `activeRuns` map):
+
+```typescript
+const ctx = createRunControlHandlerContext({ stateStore, writeLoopExecutor: fakeExecutor.executor, failureReporter: () => {}, hasMemoryHeadroom: () => true, settleDelayMs: 0 });
+const handlers = createRunLifecycleHandlers(ctx, { handleWorkflowStart: stub });
+expect(ctx.activeRuns.size).toBe(1);
+```
+
+See [`daemon-run-lifecycle-handlers.test.ts`](../src/daemon/daemon-run-lifecycle-handlers.test.ts) and [`daemon-workflow-admission-handlers.test.ts`](../src/daemon/daemon-workflow-admission-handlers.test.ts). Tail-stream tests use the same factory-over-fakes pattern with `createTailStreamHandler`, invoking its returned handler directly.
 
 Reserve a real socket round-trip for transport coverage, and put every such test in a `.sandbox-unrunnable` file so the agent slice stays skip-free: the [`ipc.sandbox-unrunnable.test.ts`](../src/ipc/ipc.sandbox-unrunnable.test.ts) transport suite, plus at most 1-2 round-trip smokes per handler set (one budget per exported factory — `createRunControlHandlers` in [`daemon-start-list.sandbox-unrunnable.test.ts`](../src/daemon/daemon-start-list.sandbox-unrunnable.test.ts), `createTailStreamHandler` in [`tui-log-tail-client.sandbox-unrunnable.test.ts`](../src/tui/tui-log-tail-client.sandbox-unrunnable.test.ts)) proving JSON marshaling survives the wire. A `skipIf(!canUseUnixSockets())` gate in a non-suffixed file is a defect: it silently skips in the agent sandbox instead of routing to the integration slice.
 

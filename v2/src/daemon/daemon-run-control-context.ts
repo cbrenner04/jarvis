@@ -1,12 +1,15 @@
 import type { CliDeps } from "../cli/deps.ts";
 import { resolveMachineProfile } from "../config/machine-config-loader.ts";
+import type { InvocationFailureDetail, InvocationFailureKind } from "../execution/invocation-failure.ts";
 import type { TerminalPublicationInput, TerminalPublicationResult } from "../execution/terminal-publication.ts";
-import type { IntentFinalizationResumeDeps, ReviewProgress } from "../execution/workflow-runner.ts";
+import type { ReviewProgress } from "../execution/workflow-runner.ts";
+import type { IntentFinalizationResumeDeps } from "../execution/workflow-runner-resume.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import type { IpcClient } from "../ipc/client";
 import type { LogReader } from "../persistence/log-stream.ts";
+import { truncateLogText } from "../persistence/log-stream.ts";
 import type { StateStore } from "../persistence/state-store.ts";
-import type { ActiveRun, PromotionSettleState, WorktreeOwnershipRegistry } from "./daemon.ts";
+import type { ActiveRun, OwnershipKey, PromotionSettleState, WorktreeOwnershipRegistry } from "./daemon.ts";
 import { WorktreeOwnershipRegistry as WorktreeOwnershipRegistryImpl } from "./daemon.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
 import { bindPipelineWaitObserver, PipelineWaitObserver } from "./pipeline-observation.ts";
@@ -118,4 +121,14 @@ export function createRunControlHandlerContext(deps: RunControlHandlerContextDep
     settleDelayMs,
     settleState,
   };
+}
+
+/** Single owner for the `activeRuns` map key; handler modules must not re-derive it. */
+export function ownershipKeyString(key: OwnershipKey): string {
+  return `${key.project}:${key.branch}`;
+}
+
+/** Single owner for daemon-side invocation-failure details; keeps bounded message truncation uniform. */
+export function daemonFailureDetail(failureKind: InvocationFailureKind, message: string): InvocationFailureDetail {
+  return { failureKind, bindingAttempts: [], message: truncateLogText(message) };
 }

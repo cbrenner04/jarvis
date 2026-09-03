@@ -99,10 +99,36 @@ export class ReadyFlipError extends Error {
 
 export type ReadyGateFailureKind = "ready_gate_failed" | "ready_gate_out_of_scope" | "ready_gate_command_missing";
 
-/** True when trimmed gate output names a missing spawn target or script. */
-export function isMissingReadyGateCommandOutput(output: string): boolean {
-  const text = output.trim();
-  return /script not found/i.test(text) || /command not found/i.test(text) || /enoent/i.test(text);
+const READY_GATE_COMMAND_MISSING_EVIDENCE_MAX = 512;
+
+const ANCHORED_MISSING_COMMAND_LINE = /^(?:error:\s*)?script not found|^command not found:/i;
+
+function capReadyGateCommandMissingEvidence(text: string): string {
+  const trimmed = text.trim();
+  const codeUnits = [...trimmed];
+  if (codeUnits.length <= READY_GATE_COMMAND_MISSING_EVIDENCE_MAX) {
+    return trimmed;
+  }
+  return codeUnits.slice(0, READY_GATE_COMMAND_MISSING_EVIDENCE_MAX).join("");
+}
+
+/** Spawn `ENOENT` or an anchored package-manager/shell missing-command line; undefined otherwise. */
+export function findMissingReadyGateCommandEvidence(output: string, spawnCode?: string): string | undefined {
+  if (spawnCode === "ENOENT") {
+    return capReadyGateCommandMissingEvidence(spawnCode);
+  }
+  for (const line of output.split("\n")) {
+    const trimmed = line.trim();
+    if (ANCHORED_MISSING_COMMAND_LINE.test(trimmed)) {
+      return capReadyGateCommandMissingEvidence(trimmed);
+    }
+  }
+  return undefined;
+}
+
+/** True when spawn signal or anchored output names a missing gate command. */
+export function isMissingReadyGateCommandOutput(output: string, spawnCode?: string): boolean {
+  return findMissingReadyGateCommandEvidence(output, spawnCode) !== undefined;
 }
 
 export type ReadyGateClassification = {
@@ -110,6 +136,7 @@ export type ReadyGateClassification = {
   outsidePaths?: readonly string[];
   gateRepairAllowsetPaths?: readonly string[];
   baseRefProbeError?: string;
+  commandMissingEvidence?: string;
 };
 
 export type ReadyGateScopeInput = {
@@ -141,6 +168,7 @@ export class ReadyGateError extends Error {
   readonly gateRepairAllowsetPaths?: readonly string[];
   readonly baseRefProbeError?: string;
   readonly scopeBaseRef?: string;
+  readonly commandMissingEvidence?: string;
 
   constructor(
     readonly command: string,
@@ -149,6 +177,7 @@ export class ReadyGateError extends Error {
     readonly timedOut: boolean = false,
     classification?: ReadyGateClassification,
     scopeBaseRef?: string,
+    readonly spawnCode?: string,
   ) {
     super(`ready gate failed (exit ${exitCode ?? "unknown"}): ${output.trim()}`);
     this.name = "ReadyGateError";
@@ -161,6 +190,9 @@ export class ReadyGateError extends Error {
     }
     if (classification?.baseRefProbeError !== undefined) {
       this.baseRefProbeError = classification.baseRefProbeError;
+    }
+    if (classification?.commandMissingEvidence !== undefined) {
+      this.commandMissingEvidence = classification.commandMissingEvidence;
     }
     if (scopeBaseRef !== undefined) {
       this.scopeBaseRef = scopeBaseRef;
@@ -183,6 +215,9 @@ export function readyGateFailureLogFields(
   return {
     readyGateCommand: source.command,
     ...(output.length > 0 ? { readyGateOutput: output } : {}),
+    ...(loopOutcomeKind === "ready_gate_command_missing" && source.commandMissingEvidence !== undefined
+      ? { readyGateCommandMissingEvidence: source.commandMissingEvidence }
+      : {}),
   };
 }
 
@@ -484,7 +519,7 @@ async function probeOutsidePathsAtBaseRef(
 
 /** Classify a ready gate failure from terminal test evidence, allowed paths, and base-ref reproduction. */
 export async function classifyReadyGateFailure(
-  error: Pick<ReadyGateError, "command" | "output" | "timedOut">,
+  error: Pick<ReadyGateError, "command" | "output" | "timedOut" | "spawnCode">,
   failingPaths: string[] | undefined,
   allowedPaths: Set<string> | undefined,
   scope?: ReadyGateScopeInput,
@@ -494,8 +529,9 @@ export async function classifyReadyGateFailure(
   if (error.timedOut) {
     return { kind: "ready_gate_failed" };
   }
-  if (isMissingReadyGateCommandOutput(error.output)) {
-    return { kind: "ready_gate_command_missing" };
+  const commandMissingEvidence = findMissingReadyGateCommandEvidence(error.output, error.spawnCode);
+  if (commandMissingEvidence !== undefined) {
+    return { kind: "ready_gate_command_missing", commandMissingEvidence };
   }
   if (error.command !== resolveReadyGateCommand(scope?.readyCommand).display) {
     return { kind: "ready_gate_failed" };
@@ -719,11 +755,20 @@ export async function classifyReadyGateError(
     classification.kind === error.gateFailureKind &&
     classification.outsidePaths === error.outsidePaths &&
     classification.gateRepairAllowsetPaths === error.gateRepairAllowsetPaths &&
-    classification.baseRefProbeError === error.baseRefProbeError
+    classification.baseRefProbeError === error.baseRefProbeError &&
+    classification.commandMissingEvidence === error.commandMissingEvidence
   ) {
     return error;
   }
-  return new ReadyGateError(error.command, error.exitCode, error.output, error.timedOut, classification, scope.baseRef);
+  return new ReadyGateError(
+    error.command,
+    error.exitCode,
+    error.output,
+    error.timedOut,
+    classification,
+    scope.baseRef,
+    error.spawnCode,
+  );
 }
 
 export function resolveGateRepairAllowset(frozen: Set<string>, error: ReadyGateError): Set<string> {
@@ -967,7 +1012,7 @@ function createDefaultRunReadyGate(runner: AsyncSubprocessRunner): ReadyGate {
       if (error instanceof AsyncSubprocessError) {
         const output = `${error.stdout}${error.stderr}`;
         const timedOut = isDeadlineKilledGate(error.status, output);
-        throw new ReadyGateError(command.display, error.status, output, timedOut);
+        throw new ReadyGateError(command.display, error.status, output, timedOut, undefined, undefined, error.code);
       }
       const detail = error instanceof Error ? error.message : String(error);
       throw new ReadyGateError(command.display, undefined, detail);

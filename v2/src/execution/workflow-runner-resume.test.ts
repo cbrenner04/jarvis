@@ -1,7 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import type { InvocationResult } from "../../../shared/invocation/execute.ts";
-import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
-import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
@@ -16,6 +13,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { InvocationResult } from "../../../shared/invocation/execute.ts";
+import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
+import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { createRunControlHandlers, resetWriteLoopBindingSourceDepsForTests } from "../daemon/daemon.ts";
 import { stageArtifactKey } from "../daemon/pipeline-stage-dispatch.ts";
 import { resolveStageWorkflowSteps } from "../daemon/pipeline-stage-resolve.ts";
@@ -38,17 +38,17 @@ import {
   createIntentWorktreeHarness,
   createStep,
   DEFAULT_AGENT_MODEL_CONFIG,
-  externalWorktreeBinding,
   doneBindingFactory,
+  externalWorktreeBinding,
   initGitWorkspace,
   installWorkflowRunnerResumeProfile,
   REVIEW_MD_LINT_FIXTURES,
-  skipReviewWithoutHarnessMarkdownlint,
-  writeLintCleanPlanStage,
   seedFailedIntentReviewResumeRun,
+  skipReviewWithoutHarnessMarkdownlint,
   stageReviewedIntent,
   TestLogSink,
   writeLintCleanIntentStageFile,
+  writeLintCleanPlanStage,
 } from "./workflow-runner.test-support.ts";
 import {
   executeWorkflow,
@@ -57,10 +57,10 @@ import {
   type WriteWorkflowStep,
 } from "./workflow-runner.ts";
 import {
+  recoverPlanStage,
   resolveIntentFinalizationResumeContext,
   resolveReviewMutationResumeContext,
   resumePopulatedIntentPublication,
-  recoverPlanStage,
   resumeReviewMutationFinalization,
 } from "./workflow-runner-resume.ts";
 import { findFirstMarkdownOnlyFenceViolation } from "./write-loop.ts";

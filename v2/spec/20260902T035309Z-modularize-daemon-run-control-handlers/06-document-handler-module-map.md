@@ -17,7 +17,7 @@ After handler extraction, `v2/docs/daemon-host.md` still points operators and ag
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/daemon-host.md` contains a run-control handler module map covering context, lifecycle, workflow-admission, and pipeline modules with RPC family boundaries.
+- [x] `v2/docs/daemon-host.md` contains a run-control handler module map covering context, lifecycle, workflow-admission, and pipeline modules with RPC family boundaries.
 
 ## Documentation updates
 

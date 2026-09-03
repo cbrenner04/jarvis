@@ -164,7 +164,7 @@ When an exported production seam can be exercised with injected fakes, call that
 
 **Anti-pattern:** reimplementing run-control handler orchestration in test-local stubs when `createRunControlHandlers` already owns it. IPC assertions may pass against the fake handlers while production semantics drift unchecked.
 
-**Expected pattern:** call the exported factory with injected dependency fakes, then invoke the returned handlers directly, in-process — no socket:
+**Expected pattern (integration / full handler set):** call the exported factory with injected dependency fakes, then invoke the returned handlers directly, in-process — no socket. Wire keys match `handlersOut` (`start`, `list`, `pause`, …), not internal handler names:
 
 ```typescript
 const handlers = createRunControlHandlers({
@@ -173,10 +173,27 @@ const handlers = createRunControlHandlers({
   failureReporter: () => {},
 });
 
-const response = await handlers.startRun(request);
+const response = await handlers.start(request, signal);
+expect(handlers.context.activeRuns.get(runId)).toBeDefined();
 ```
 
-The write-loop executor fake is outside the owned boundary; assertions exercise real handler behavior without a wire round-trip. Tail-stream tests use the same factory-over-fakes pattern with `createTailStreamHandler`, invoking its returned handler directly.
+Read live run state from `handlers.context.activeRuns` on the factory return — do not reconstruct a parallel context for integration tests. The write-loop executor fake is outside the owned boundary; assertions exercise real handler behavior without a wire round-trip.
+
+**Handler-module unit tests:** when the unit under test is a single handler module (e.g. `createRunLifecycleHandlers`), build context with `createRunControlHandlerContext` and pass it into that module's factory — same `activeRuns` map the full stack shares:
+
+```typescript
+const ctx = createRunControlHandlerContext({
+  stateStore,
+  writeLoopExecutor: fakeExecutor.executor,
+  failureReporter: () => {},
+  hasMemoryHeadroom: () => true,
+  settleDelayMs: 0,
+});
+const handlers = createRunLifecycleHandlers(ctx, { handleWorkflowStart: stub });
+expect(ctx.activeRuns.size).toBe(1);
+```
+
+See [`daemon-run-lifecycle-handlers.test.ts`](../src/daemon/daemon-run-lifecycle-handlers.test.ts) and [`daemon-workflow-admission-handlers.test.ts`](../src/daemon/daemon-workflow-admission-handlers.test.ts). Tail-stream tests use the same factory-over-fakes pattern with `createTailStreamHandler`, invoking its returned handler directly.
 
 Reserve a real socket round-trip for transport coverage, and put every such test in a `.sandbox-unrunnable` file so the agent slice stays skip-free: the [`ipc.sandbox-unrunnable.test.ts`](../src/ipc/ipc.sandbox-unrunnable.test.ts) transport suite, plus at most 1-2 round-trip smokes per handler set (one budget per exported factory — `createRunControlHandlers` in [`daemon-start-list.sandbox-unrunnable.test.ts`](../src/daemon/daemon-start-list.sandbox-unrunnable.test.ts), `createTailStreamHandler` in [`tui-log-tail-client.sandbox-unrunnable.test.ts`](../src/tui/tui-log-tail-client.sandbox-unrunnable.test.ts)) proving JSON marshaling survives the wire. A `skipIf(!canUseUnixSockets())` gate in a non-suffixed file is a defect: it silently skips in the agent sandbox instead of routing to the integration slice.
 

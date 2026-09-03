@@ -27,9 +27,9 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/operator-notification.test.ts` test `deriveOperatorIncidents excludes terminal runs outside the recency bound` seeds many old terminal runs plus a small actionable set and asserts derived incidents contain only actionable rows; it fails against the pre-fix full-history derivation.
-- [ ] `v2/src/daemon/operator-notification.test.ts` test `deriveOperatorIncidents store work is unchanged when old terminal history is padded` asserts store-query count or rows decoded is identical between a small store and one padded with old terminal rows whose actionable set is identical; it fails against the pre-fix unbounded enumeration.
-- [ ] `v2/src/daemon/operator-notification.test.ts` — `pipeline awaiting-approval then terminal fires the sink once per transition` stays green (bounded derivation preserves actionable incidents inside the recency window).
+- [x] `v2/src/daemon/operator-notification.test.ts` test `deriveOperatorIncidents excludes terminal runs outside the recency bound` seeds many old terminal runs plus a small actionable set and asserts derived incidents contain only actionable rows; it fails against the pre-fix full-history derivation.
+- [x] `v2/src/daemon/operator-notification.test.ts` test `deriveOperatorIncidents store work is unchanged when old terminal history is padded` asserts store-query count or rows decoded is identical between a small store and one padded with old terminal rows whose actionable set is identical; it fails against the pre-fix unbounded enumeration.
+- [x] `v2/src/daemon/operator-notification.test.ts` — `pipeline awaiting-approval then terminal fires the sink once per transition` stays green (bounded derivation preserves actionable incidents inside the recency window).
 - [ ] `bun run test:v2` passes.
 
 ## Documentation updates

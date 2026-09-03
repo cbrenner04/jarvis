@@ -601,6 +601,8 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
     finishRunReconciliation: () => order.push("finished"),
     listPipelines: () => [],
     listRuns: () => [],
+    listIncidentCandidatePipelines: () => [],
+    listIncidentCandidateRuns: () => [],
     isClosed: () => false,
     hasNotificationDelivery: () => false,
     tryRecordNotificationDelivery: () => true,
@@ -676,6 +678,8 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
         store: {
           beginRunReconciliation: async () => [],
           listPipelines: () => [],
+          listIncidentCandidatePipelines: () => [],
+          listIncidentCandidateRuns: () => [],
           reconcilePipelines: () => {
             throw new Error("pipeline state unavailable");
           },

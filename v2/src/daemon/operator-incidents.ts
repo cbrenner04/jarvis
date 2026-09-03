@@ -1,5 +1,6 @@
+import { ATTENTION_TERMINAL_RECENCY_MS } from "../attention-terminal-recency.ts";
 import type { Pipeline, PipelineStageRecord, Run, StateStore } from "../persistence/state-store.ts";
-import { isTerminalRunStatus } from "../persistence/state-store.ts";
+import { isTerminalRunStatus, RUN_STATUSES } from "../persistence/state-store.ts";
 import {
   derivePipelineState,
   hasPipelineTerminalPublicationFailure,
@@ -68,9 +69,12 @@ function addSuppressedInvocationForFailedStage(
   if (invocationId !== undefined) suppressedInvocationIds.add(invocationId);
 }
 
-function collectPipelineAttributedRunIds(store: StateStore): Set<string> {
+function collectPipelineAttributedRunIds(
+  store: StateStore,
+  pipelines: readonly (Pipeline & { stages: PipelineStageRecord[] })[],
+): Set<string> {
   const runIds = new Set<string>();
-  for (const pipeline of store.listPipelines()) {
+  for (const pipeline of pipelines) {
     for (const stage of pipeline.stages) {
       const entryRunId = stage.workflowInvocationId;
       if (entryRunId === null) continue;
@@ -225,11 +229,15 @@ function collectRunIncidents(
 }
 
 /** Recompute every current operator-actionable incident from durable rows. */
-export function deriveOperatorIncidents(store: StateStore): OperatorIncident[] {
+export function deriveOperatorIncidents(store: StateStore, nowMs: number = Date.now()): OperatorIncident[] {
+  const sinceMs = nowMs - ATTENTION_TERMINAL_RECENCY_MS;
+  const candidatePipelines = store.listIncidentCandidatePipelines({ sinceMs });
+  const candidateRuns = store.listIncidentCandidateRuns({ statuses: RUN_STATUSES, sinceMs });
+
   const incidents: OperatorIncident[] = [];
   const suppressedInvocationIds = new Set<string>();
 
-  for (const pipeline of store.listPipelines()) {
+  for (const pipeline of candidatePipelines) {
     const pipelineIncidents = collectPipelineIncidents(store, pipeline);
     incidents.push(...pipelineIncidents.incidents);
     for (const invocationId of pipelineIncidents.suppressedInvocationIds) {
@@ -237,8 +245,8 @@ export function deriveOperatorIncidents(store: StateStore): OperatorIncident[] {
     }
   }
 
-  const pipelineAttributedRunIds = collectPipelineAttributedRunIds(store);
-  incidents.push(...collectRunIncidents(store.listRuns(), suppressedInvocationIds, pipelineAttributedRunIds));
+  const pipelineAttributedRunIds = collectPipelineAttributedRunIds(store, candidatePipelines);
+  incidents.push(...collectRunIncidents(candidateRuns, suppressedInvocationIds, pipelineAttributedRunIds));
   return incidents;
 }
 

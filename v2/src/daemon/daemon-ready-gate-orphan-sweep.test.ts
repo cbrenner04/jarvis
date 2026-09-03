@@ -24,6 +24,17 @@ function openSweepStore(isOwnerAlive: OwnerLivenessProbe): StateStore {
   return openStateStore(dbPath, { currentIdentity: CURRENT_IDENTITY, isOwnerAlive });
 }
 
+async function waitForKillSignal(
+  kills: Array<{ pid: number; signal: NodeJS.Signals }>,
+  signal: NodeJS.Signals,
+  timeoutMs = 5_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!kills.some((entry) => entry.signal === signal) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 function createRun(store: StateStore, status: RunStatus = "killed"): string {
   return store.createRun({
     project: "project",
@@ -62,7 +73,7 @@ test("sweeps a ready-gate pgid when the owning run owner is dead", async () => {
   await sweepOrphanReadyGateGroups(sweepStore);
 
   expect(kills).toEqual([{ pid: -pgid, signal: "SIGTERM" }]);
-  await new Promise((resolve) => setTimeout(resolve, 60));
+  await waitForKillSignal(kills, "SIGKILL");
   expect(kills).toEqual([
     { pid: -pgid, signal: "SIGTERM" },
     { pid: -pgid, signal: "SIGKILL" },
@@ -82,7 +93,7 @@ test("signalReadyGateProcessGroup escalates SIGTERM to SIGKILL", async () => {
   signalReadyGateProcessGroup(pgid);
 
   expect(kills).toEqual([{ pid: -pgid, signal: "SIGTERM" }]);
-  await new Promise((resolve) => setTimeout(resolve, 60));
+  await waitForKillSignal(kills, "SIGKILL");
   expect(kills).toEqual([
     { pid: -pgid, signal: "SIGTERM" },
     { pid: -pgid, signal: "SIGKILL" },

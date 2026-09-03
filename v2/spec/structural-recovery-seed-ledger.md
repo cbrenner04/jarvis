@@ -40,8 +40,8 @@ A seed with multiple ready-intents spans one row per ready-intent; the `Seed` an
 | ready-gate-repair-out-of-diff-edits | not-started (scheduled) | — | — | — |
 | implement-retirement-destroys-artifacts-before-materialization | not-started (scheduled) | — | — | — |
 | implement-resumes-stalled-unmerged-subspec-chain | not-started (scheduled) | — | — | — |
-| notification-sweep-derives-bounded-incident-set | **persistence half LANDED** [#3384]; daemon-derivation half is lane 2 of pipeline `310ae5fb`, awaiting its gate (prereq now merged) | notification-incident-candidate-store-queries | [#3378](https://github.com/cbrenner04/jarvis/pull/3378) | [#3384](https://github.com/cbrenner04/jarvis/pull/3384) |
-| | | notification-sweep-bounded-incident-derivation | — | — |
+| notification-sweep-derives-bounded-incident-set | **3 of 5 subspecs LANDED** — daemon CPU went from a constant 73-98% to 4.6-15% with no per-tick spike; 03 (non-overlap timer) + 04 (docs) in flight | notification-incident-candidate-store-queries | [#3378](https://github.com/cbrenner04/jarvis/pull/3378) | [#3384](https://github.com/cbrenner04/jarvis/pull/3384) |
+| | | notification-sweep-bounded-incident-derivation | [#3389](https://github.com/cbrenner04/jarvis/pull/3389) (hand-landed) | [#3391](https://github.com/cbrenner04/jarvis/pull/3391) (00), [#3396](https://github.com/cbrenner04/jarvis/pull/3396) (01-02) |
 | plan-draft-shape-accepts-repo-relative-stage-layout | **LANDED #3385** — `v2/spec/<name>/` staging accepted; `preserveStage` no longer wipes a sound repo-relative draft | plan-draft-shape-accepts-repo-relative-stage-layout | [#3378](https://github.com/cbrenner04/jarvis/pull/3378) | [#3385](https://github.com/cbrenner04/jarvis/pull/3385) |
 | structural-invariants-key-on-behavior-not-incidental-structure | not-started (NEW; six instances, two of them today) | — | — | — |
 | quota-signal-wins-over-echoed-transient-marker | **REAPED #3377** — ~1% misclassification (1458 quota vs 16 error all-time); not worth the spend | — | — | — |
@@ -344,7 +344,7 @@ Operator-visible shapes worth recording, because both mimic documented incidents
 - `jarvis daemon status` reports **`stopped`** for a live-but-saturated daemon (its probe connects and times out), so retrying `daemon start` stacks another 95 % spinner. Seven accumulated; late in the session new daemons could not clear `DaemonReadinessTimeoutError` (5 s) at all, making dispatch, `cleanup --abandon`, and `run list` unusable.
 - Pipeline stages read `running` indefinitely behind a wedged daemon. One sat 17 h and settled itself the moment the daemon answered again.
 
-Seeded [[notification-sweep-derives-bounded-incident-set]] (#3369) → persistence half **LANDED** [#3384] (`listIncidentCandidateRuns`/`listIncidentCandidatePipelines` bounded in SQL, batched run/invocation lookups replacing the N+1, cardinality-unchanged tests proving boundedness). The daemon-side derivation rewrite is lane 2 of pipeline `310ae5fb`, parked at its approval gate behind that prerequisite — **the remaining half, and the thing that actually stops the spin.** Independently filed by the concurrent homestead session as issue #3368.
+Seeded [[notification-sweep-derives-bounded-incident-set]] (#3369) → persistence half **LANDED** [#3384] (`listIncidentCandidateRuns`/`listIncidentCandidatePipelines` bounded in SQL, batched run/invocation lookups replacing the N+1, cardinality-unchanged tests proving boundedness). The daemon-side derivation rewrite landed as [#3391] (subspec 00, bounded candidate derivation) and [#3396] (01 batched stage resolution, 02 ledger derivation skip — the core defect: the ledger suppressed duplicate *delivery* while full *derivation* cost was paid every 5s regardless). Its plan was hand-landed [#3389] after the pipeline went terminal, where both `pipeline recover` (`stage_not_recoverable`) and resume refuse. **Measured in production: daemon CPU fell from a constant 73-98% to 4.6-15% with the per-tick spike gone.** Subspecs 03 (non-overlapping sweep timer) and 04 (docs) remain. Independently filed by the concurrent homestead session as issue #3368.
 
 **Plan-draft staging shape fixed** [#3385] (`plan-draft-shape-accepts-repo-relative-stage-layout`, seed #3371). `resolvePlanDraftStagingRoot` accepted flat or one nested `spec/<name>/`; agents stage at `v2/spec/<name>/` — the repo-relative path `AGENTS.md` trains them to use — and blocked with a sound draft on disk. #3212 closed the sibling case and left this one. **Third occurrence** (two of the five contract-miss plans hand-landed in #3165 were this shape). The reviewed intent caught what the seed missed: `preserveStage` counted only `spec/` children, so a shape `contract_miss` would have **wiped a sound repo-relative draft** before redraft. Observed live: pipeline `310ae5fb`'s plan lane blocked, hand-flattening plus `jarvis pipeline recover` landed the draft unchanged.
 
@@ -361,6 +361,33 @@ Seeded [[notification-sweep-derives-bounded-incident-set]] (#3369) → persisten
 **Operator lessons.** (1) `bun run check` output is not trustworthy without `--max-diagnostics`: biome's default cap hid 4 errors behind 47 suppressed diagnostics, reported locally as green and caught only by CI. (2) Merging while a lane is live rotates the daemon digest and strands that lane mid-subspec — done twice this session, costing one run each time. (3) The land-a-slice loop only converges if the re-dispatch happens **immediately** after the slice merges; treating the merge as the finish line is what leaves specs half-done and their documentation subspecs permanently unlanded.
 
 **Codex removed from the agent order** (`cursor, claude`) at operator instruction: its quota window is exhausted through Sep 6, and issue #3372 (concurrent session) showed a quota exit misclassified as transient, blocking fallback and stranding a run silently. Telemetry put that misread at ~1 % (1,458 `quota` vs 16 `error` all-time), so the seed was written and then **reaped** [#3377] as not worth the spend.
+
+## This-session (2026-09-02 late — both refactor chains COMPLETE, sweep fix landing)
+
+Continuation of the block above. **17 PRs merged.**
+
+**Both long-running P2 refactor specs converged**, no half-specs left on either:
+
+| Spec | Chain | Result |
+| --- | --- | --- |
+| `extract-workflow-runner-resume-machines` (5/5) | [#3380] → [#3388] → [#3393] | `workflow-runner.ts` −1,920 lines into `workflow-runner-resume.ts`; test inventory pinned; both doc subspecs landed |
+| `modularize-daemon-run-control-handlers` (8/8) | [#3364] → [#3379] → [#3386] → [#3392] → [#3394] | `daemon.ts` split into workflow-admission + pipeline handler modules, `activeRun` WeakMap back-channel retired, daemon test inventory pinned, handler module map documented |
+
+**The land-a-slice loop is what converged them**, and it only works if the re-dispatch happens *immediately* after each slice merges — treating the merge as the finish line is what had left specs half-done. Each cycle: merge slice → `cleanup --yes --abandon` the merged worktree (its `HEAD` is no longer a descendant of the new base) → re-dispatch → salvage whatever the settlement tail drops.
+
+**I reddened `main` and the harness caught it** [#3390]. #3388 landed an inventory test whose `collectExpectedTitles` ran `git show <merge-base>:…/recover-review-failed-plan-draft.test.ts` — a file deleted by that same commit. It passed pre-merge (the merge base still carried it) and could only fail after landing. **Both live implement lanes blocked with precise diagnoses** naming the file, the culprit commit, and confirming their own work complete and the failure out of patch scope. The criteria contract refusing completion over a red gate is what turned a silent-wrong-merge into a 10-minute fix.
+
+**Structural-invariant brittleness reached ten instances** — and the class now *propagates*: the daemon test inventory authored in subspec 05 reproduced the exact `git merge-base HEAD main` + unguarded `git show <ref>:<path>` fragility fixed hours earlier in #3390, because the agent copied the pattern from the sibling inventory test already on `main`. Hardened before landing [#3392]. This makes [[structural-invariants-key-on-behavior-not-incidental-structure]] ([#3387]) more valuable than a ten-test cleanup: the audit stops the shape reproducing itself through the corpus.
+
+**Recovery gaps observed:**
+
+- A **terminal pipeline strands a complete, correct plan draft.** Lane 2's plan stage settled `invocation_error` (its agent was killed with the stale daemons); the pipeline then went terminal, at which point `pipeline recover` refuses `stage_not_recoverable` and resume refuses terminal pipelines. A sound 5-subspec draft in `.jarvis-plan-stage/` was reachable only by hand-copying it out. Hand-landed unchanged [#3389]. Worth a seed if it recurs.
+- **`ready_gate_command_missing` misreported a lint failure** (live recurrence of the seeded `ready-gate-command-missing-misclassifies-lint-failures`, #3355): message read `Ready gate command missing: bun run ready` with a payload of `noUnusedImports`/`noNonNullAssertion` findings, and `nextAction: fix_config` would have sent an operator to edit `readyCommand` for a lint problem.
+- **`ready_gate_out_of_scope` fired on a false base-ref reproduction**: it named `completion-commit.test.ts` as also failing on `main`, where that file is 26 pass / 0 fail. Both the gate and its base-ref probe failed under the same contention. The mechanism behaved correctly — it refused to repair unrelated files — but its conclusion was load-induced.
+
+**Contention manufactures false failures at every layer, including diagnosis.** `write-loop.test.ts` is 255 pass / 0 fail run alone on the sweep branch and byte-identical to `main`; five failures appeared only when three suites ran concurrently. A `v1/test/intent-command.test.ts` CI timeout blocked [#3382] three times while passing 57/57 in isolation under *heavier* load, with zero v1 references to that diff. And an idle-detection monitor read a timed-out `run list` as "no lanes running" — the runbook's "an empty query result is not evidence", reproduced live.
+
+**Agent order:** codex removed mid-session (`cursor, claude`). Session telemetry: **codex quota'd on 25 of 26 invocations**; cursor did all 35 successes.
 
 ## Gaps / low-confidence
 

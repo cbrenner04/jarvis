@@ -10,7 +10,7 @@ import {
   type StateStore,
 } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk";
-import { startDaemonRuntime, sweepOrphanReadyGateGroups } from "./daemon.ts";
+import { signalReadyGateProcessGroup, startDaemonRuntime, sweepOrphanReadyGateGroups } from "./daemon.ts";
 
 const dbPath = join(tmpdir(), `jarvis-ready-gate-sweep-${process.pid}.sqlite`);
 
@@ -62,8 +62,31 @@ test("sweeps a ready-gate pgid when the owning run owner is dead", async () => {
   await sweepOrphanReadyGateGroups(sweepStore);
 
   expect(kills).toEqual([{ pid: -pgid, signal: "SIGTERM" }]);
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  expect(kills).toEqual([
+    { pid: -pgid, signal: "SIGTERM" },
+    { pid: -pgid, signal: "SIGKILL" },
+  ]);
   expect(sweepStore.loadRun(runId)?.readyGatePgid ?? null).toBeNull();
   sweepStore.close();
+});
+
+test("signalReadyGateProcessGroup escalates SIGTERM to SIGKILL", async () => {
+  const pgid = 616161;
+  const kills: Array<{ pid: number; signal: NodeJS.Signals }> = [];
+  process.kill = ((pid, signal) => {
+    kills.push({ pid: pid as number, signal: signal as NodeJS.Signals });
+    return true;
+  }) as typeof process.kill;
+
+  signalReadyGateProcessGroup(pgid);
+
+  expect(kills).toEqual([{ pid: -pgid, signal: "SIGTERM" }]);
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  expect(kills).toEqual([
+    { pid: -pgid, signal: "SIGTERM" },
+    { pid: -pgid, signal: "SIGKILL" },
+  ]);
 });
 
 test("leaves a ready-gate pgid alone when the owning run owner is live", async () => {

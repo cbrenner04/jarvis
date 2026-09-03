@@ -22,17 +22,9 @@ Handler extraction and new co-located tests can drop or rename cases silently; t
 
 - [x] `v2/src/daemon/daemon-test-inventory.test.ts` merge-base-to-branch comparison reports equal per-file case counts and unchanged title sets for each `v2/src/daemon/**/*.test.ts` file present on merge-base, excluding net-new co-located unit-test files; it fails against the pre-fix tree where the file does not exist.
 - [x] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 
 None — inventory guard is self-describing in its test header.
-
-## Blocker
-
-Artifact contract check failed: Unticked non-human-only acceptance criteria:
-- `v2/src/daemon/daemon-test-inventory.test.ts` merge-base-to-branch comparison reports equal per-file case counts and unchanged title sets for each `v2/src/daemon/**/*.test.ts` file present on merge-base, excluding net-new co-located unit-test files; it fails against the pre-fix tree where the file does not exist.
-- `bun run typecheck` passes.
-- `bun run test:v2` passes.
-- `bun run test:integration:v2` passes.

@@ -14,21 +14,29 @@ const REPO_ROOT = join(DAEMON_DIR, "..", "..", "..");
 const DAEMON_TEST_GLOB_PREFIX = "v2/src/daemon/";
 const INVENTORY_REPO_PATH = `${DAEMON_TEST_GLOB_PREFIX}daemon-test-inventory.test.ts`;
 
+/**
+ * CI checks out a detached HEAD without a local `main`, so try each candidate base ref in
+ * turn and name every attempt on failure — a missing ref must never read as an inventory
+ * regression.
+ */
+const BASE_REF_CANDIDATES = ["main", "origin/main", "refs/remotes/origin/main"] as const;
+
 function resolveMergeBase(): string {
-  try {
-    const output = execFileSync("git", ["merge-base", "HEAD", "main"], {
-      cwd: REPO_ROOT,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
-    if (output.length > 0) {
-      return output;
+  const failures: string[] = [];
+  for (const ref of BASE_REF_CANDIDATES) {
+    try {
+      const output = execFileSync("git", ["merge-base", "HEAD", ref], {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }).trim();
+      if (output.length > 0) return output;
+      failures.push(`${ref}: empty output`);
+    } catch (error) {
+      failures.push(`${ref}: ${error instanceof Error ? error.message : String(error)}`);
     }
-    throw new Error("merge-base resolution returned empty output");
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`merge-base resolution failed for HEAD main — ${detail}`);
   }
+  throw new Error(`merge-base resolution failed for every candidate base ref — ${failures.join("; ")}`);
 }
 
 function listDaemonTestFilesAtRef(ref: string): string[] {
@@ -44,12 +52,17 @@ function listDaemonTestFilesAtRef(ref: string): string[] {
     .filter((line) => line !== INVENTORY_REPO_PATH);
 }
 
-function loadAtRef(ref: string, repoPath: string): string {
-  return execFileSync("git", ["show", `${ref}:${repoPath}`], {
-    cwd: REPO_ROOT,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+/** Returns undefined when the path is absent at `ref`; a file that is not there has no titles to preserve. */
+function loadAtRef(ref: string, repoPath: string): string | undefined {
+  try {
+    return execFileSync("git", ["show", `${ref}:${repoPath}`], {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch {
+    return undefined;
+  }
 }
 
 function readQuotedString(source: string, start: number): { value: string; end: number } | null {
@@ -180,7 +193,7 @@ describe("daemon test title scanner", () => {
 });
 
 describe("daemon test inventory", () => {
-  test("resolves merge-base via git merge-base HEAD main", () => {
+  test("resolves merge-base against the first available base ref", () => {
     expect(resolveMergeBase()).toMatch(/^[0-9a-f]{40}$/);
   });
 
@@ -189,7 +202,11 @@ describe("daemon test inventory", () => {
     const repoPaths = listDaemonTestFilesAtRef(mergeBase);
 
     for (const repoPath of repoPaths) {
-      const expectedTitles = collectTestTitles(loadAtRef(mergeBase, repoPath));
+      const mergeBaseSource = loadAtRef(mergeBase, repoPath);
+      // Enumerated from the merge-base tree, so absence here means the file was removed
+      // between listing and reading; nothing to preserve.
+      if (mergeBaseSource === undefined) continue;
+      const expectedTitles = collectTestTitles(mergeBaseSource);
       const actualTitles = collectTestTitles(readFileSync(join(REPO_ROOT, repoPath), "utf8"));
       const missing = multisetDiff(expectedTitles, actualTitles);
 

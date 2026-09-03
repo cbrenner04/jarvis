@@ -487,6 +487,7 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
     clearRunDownstreamInputs: (runId) => inner.clearRunDownstreamInputs(runId),
     setPrEvidence: (runId, prNumber, prUrl) => inner.setPrEvidence(runId, prNumber, prUrl),
     setReadyGatePgid: (runId, pgid) => inner.setReadyGatePgid(runId, pgid),
+    listReadyGateSweepCandidates: () => inner.listReadyGateSweepCandidates(),
     setReadyGateRepairFence: (runId, fence) => inner.setReadyGateRepairFence(runId, fence),
     setRetainedFinalizationCheckpoint: (runId, checkpoint) =>
       inner.setRetainedFinalizationCheckpoint(runId, checkpoint),
@@ -579,6 +580,7 @@ function storeObservingCompletedWrites(inner: StateStore): {
     clearRunDownstreamInputs: (runId) => inner.clearRunDownstreamInputs(runId),
     setPrEvidence: (runId, prNumber, prUrl) => inner.setPrEvidence(runId, prNumber, prUrl),
     setReadyGatePgid: (runId, pgid) => inner.setReadyGatePgid(runId, pgid),
+    listReadyGateSweepCandidates: () => inner.listReadyGateSweepCandidates(),
     setReadyGateRepairFence: (runId, fence) => inner.setReadyGateRepairFence(runId, fence),
     setRetainedFinalizationCheckpoint: (runId, checkpoint) =>
       inner.setRetainedFinalizationCheckpoint(runId, checkpoint),
@@ -5172,6 +5174,7 @@ export function isLoadSensitive(file: string): boolean {
           clearRunDownstreamInputs: (runId) => inner.clearRunDownstreamInputs(runId),
           setPrEvidence: (runId, prNumber, prUrl) => inner.setPrEvidence(runId, prNumber, prUrl),
           setReadyGatePgid: (runId, pgid) => inner.setReadyGatePgid(runId, pgid),
+          listReadyGateSweepCandidates: () => inner.listReadyGateSweepCandidates(),
           setReadyGateRepairFence: (runId, fence) => inner.setReadyGateRepairFence(runId, fence),
           setRetainedFinalizationCheckpoint: (runId, checkpoint) =>
             inner.setRetainedFinalizationCheckpoint(runId, checkpoint),

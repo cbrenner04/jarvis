@@ -2,4 +2,4 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Daemon start sweeps orphaned ready-gate test process groups](./00-daemon-start-sweeps-orphan-gate-children.md)
+- [x] [00 - Daemon start sweeps orphaned ready-gate test process groups](./00-daemon-start-sweeps-orphan-gate-children.md)

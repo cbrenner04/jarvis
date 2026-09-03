@@ -35,3 +35,7 @@
 ## Documentation updates
 
 - Deferred to subspec 04.
+
+## Blocker
+
+`bun run test:v2` fails on `workflow-runner-resume-inventory.test.ts` (unrelated, on main `9fd4f4f0`): `collectExpectedTitles` runs `git show <merge-base>:recover-review-failed-plan-draft.test.ts` but that path was deleted in `b8aee2579` while the inventory bucket still references it. Subspec work is done (`operator-notification.test.ts` 8/8, `typecheck` green). Out of scope per patch-mode file list.

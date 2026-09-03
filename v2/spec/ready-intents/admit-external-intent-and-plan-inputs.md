@@ -20,6 +20,7 @@ Opted-in projects publish ready-intents and plan trees externally, but intent `-
 ## Decisions
 
 - Opt-in stays the contract (`plan.commit: false` / `git: false` per project); rules out flipping the in-repo default or relocating existing projects.
+- External-home layout under `~/.jarvis/specs/<projectSafeId>/`: `seeds/`, `ready-intents/`, `plans/<name>/`, and `plans/completed/<name>/` for archived plan trees; rules out a root-level `completed/` sibling in the external home (in-repo `v2/spec/completed/` remains unchanged).
 - Intent `--seed` accepts a file under `~/.jarvis/specs/<projectSafeId>/seeds/` and consumes it on landing; rules out repo-bound seeds as the only entry point.
 - Plan `--ready-intent` accepts a file under `~/.jarvis/specs/<projectSafeId>/ready-intents/`; rules out absolute-path rejection for the project's own managed home.
 - Plan's commit decision honors machine-level `modes.plan.commit` the same way intent's does; rules out leaving the split where intent consults machine config and plan does not.
@@ -27,13 +28,17 @@ Opted-in projects publish ready-intents and plan trees externally, but intent `-
 
 ## Acceptance criteria
 
-- [ ] An intent admission test proves `--seed` under the project's external seeds home admits, lands, and consumes for an opted-in project; it fails against the current relative-path/escape guards.
-- [ ] A plan admission test proves `--ready-intent` naming a file in the project's external ready-intents home admits and drafts; it fails against the current absolute-path rejection.
-- [ ] A config test pins one shared commit-decision rule for intent and plan (machine-level fallback honored by both or by neither), failing against the current split.
+- [ ] `intent-workflow-steps.test.ts` test `admits external seed under project specs home` asserts `--seed` naming a file under `~/.jarvis/specs/<safeId>/seeds/` admits, lands to external `ready-intents/`, and consumes the seed for a `git: false` project; it fails against the current relative-path and project-root escape guards in `resolveSeed`.
+- [ ] `plan-workflow-steps.test.ts` test `admits external ready-intent under project specs home` asserts `--ready-intent` naming a file under `~/.jarvis/specs/<safeId>/ready-intents/` drafts to external `plans/<name>/` for a `plan.commit: false` project; it fails against the current absolute-path rejection in `planSource`.
+- [ ] `publication-workflow-steps.test.ts` test `plan commit decision honors machine modes.plan.commit like intent` asserts plan's publish decision falls back to `modes.plan.commit` when project `plan.commit` is unset; it fails against the current plan-only `?? true` split in `planSource`.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
-- `v2/docs/install-and-config.md` — external-home layout (`seeds/`, `ready-intents/`, `plans/`, `completed/`) and opt-in keys in one authoritative table.
+- `v2/docs/install-and-config.md` — external-home layout (`seeds/`, `ready-intents/`, `plans/<name>/`, `plans/completed/<name>/`) and opt-in keys in one authoritative table.
 - `v2/docs/operator-runbook.md` — external seed and ready-intent admission paths for opted-in projects; cross-link install-and-config for layout.
 - `v2/docs/v1-behaviors.md` — record v2 external seed/ready-intent admission and commit-decision parity against v1.
+
+## Primary implementation surface
+
+v2/src/execution/publication-workflow-steps.ts

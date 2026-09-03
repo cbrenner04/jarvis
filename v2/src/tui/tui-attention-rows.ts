@@ -1,3 +1,4 @@
+import { ATTENTION_TERMINAL_RECENCY_MS } from "../attention-terminal-recency.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { hasPipelineTerminalPublicationFailure } from "../daemon/pipeline-execution.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
@@ -17,7 +18,6 @@ import {
   stageBranchCellValue,
 } from "./tui-monitor-pipeline-tree.ts";
 import { workflowRoleLabel, workflowTableRowMembers } from "./tui-monitor-workflow-collapse.ts";
-import { ATTENTION_TERMINAL_RECENCY_MS } from "../attention-terminal-recency.ts";
 import { monitorTreeRun } from "./tui-shell-layout.ts";
 
 export { ATTENTION_TERMINAL_RECENCY_MS };

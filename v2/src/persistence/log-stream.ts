@@ -56,6 +56,7 @@ export type LoopFinishedEvent = {
   readyGateOutOfScopeDetail?: string;
   readyGateCommand?: string;
   readyGateOutput?: string;
+  readyGateCommandMissingEvidence?: string;
   /** Normalized ready-gate failure origin when finalization lineage is distinct from operator reason. */
   readyGateOrigin?: "repair_budget_exhausted";
   /** Count of non-timeout `ready_gate_repair` events on the same run when `readyGateOrigin` is set. */

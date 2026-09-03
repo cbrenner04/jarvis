@@ -13,11 +13,13 @@ import {
   classifyReadyGateFailure,
   createReadyFinalizer,
   deriveGateAllowedPaths,
+  findMissingReadyGateCommandEvidence,
   formatReadyGateOutOfScopeDetail,
   outOfScopeSettlementResumable,
   parseGitNameStatusZ,
   ReadyGateError,
   type ReadyGateScopeSeams,
+  readyGateFailureLogFields,
   SurvivingMutationError,
   selectTerminalFailingPaths,
   validateRepoRelativePath,
@@ -199,7 +201,7 @@ describe("ready gate untouched-path classification", () => {
   });
 
   it("classifies missing-command gate output as ready_gate_command_missing and keeps ordinary red output on ready_gate_failed", async () => {
-    for (const output of ['Script not found "ready"', "command not found: bun", "spawn ENOENT"]) {
+    for (const output of ['Script not found "ready"', "command not found: bun"]) {
       const classified = await classifyReadyGateError(
         new ReadyGateError("bun run ready", 1, output),
         scope,
@@ -221,6 +223,67 @@ describe("ready gate untouched-path classification", () => {
       allowedSeams,
     );
     expect(ordinaryRed.gateFailureKind).toBe("ready_gate_failed");
+  });
+
+  it("does not classify ENOENT embedded in failing-test output as ready_gate_command_missing", async () => {
+    const output = gateOutput({
+      completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:v2", status: 1 }],
+      failingFiles: [{ attemptId: "2.1", path: "v2/src/changed.ts" }],
+      extra: "ENOENT: no such file or directory, open '/tmp/foo'",
+    });
+    const classified = await classifyReadyGateError(
+      new ReadyGateError("bun run ready", 1, output),
+      scope,
+      allowedSeams,
+    );
+    expect(classified.gateFailureKind).toBe("ready_gate_failed");
+  });
+
+  it("classifies spawn ENOENT and anchored Script not found as ready_gate_command_missing", async () => {
+    const spawnClassified = await classifyReadyGateError(
+      new ReadyGateError("bun run ready", undefined, "", false, undefined, undefined, "ENOENT"),
+      scope,
+      allowedSeams,
+    );
+    expect(spawnClassified.gateFailureKind).toBe("ready_gate_command_missing");
+    expect(spawnClassified.commandMissingEvidence).toBe("ENOENT");
+
+    const anchored = 'error: Script not found "ready"';
+    const scriptNotFound = await classifyReadyGateError(
+      new ReadyGateError("bun run ready", 1, anchored),
+      scope,
+      allowedSeams,
+    );
+    expect(scriptNotFound.gateFailureKind).toBe("ready_gate_command_missing");
+    expect(scriptNotFound.commandMissingEvidence).toBe(anchored);
+  });
+
+  it("projects readyGateCommandMissingEvidence on ready_gate_command_missing settlement", async () => {
+    const evidence = 'error: Script not found "ready"';
+    const classified = await classifyReadyGateError(
+      new ReadyGateError("bun run ready", 1, evidence),
+      scope,
+      allowedSeams,
+    );
+    expect(readyGateFailureLogFields("ready_gate_command_missing", classified)).toEqual({
+      readyGateCommand: "bun run ready",
+      readyGateOutput: evidence,
+      readyGateCommandMissingEvidence: evidence,
+    });
+
+    const longLine = `error: Script not found "${"x".repeat(600)}"`;
+    const longClassified = await classifyReadyGateError(
+      new ReadyGateError("bun run ready", 1, longLine),
+      scope,
+      allowedSeams,
+    );
+    const cappedEvidence = longClassified.commandMissingEvidence;
+    expect(cappedEvidence).toBeDefined();
+    expect([...cappedEvidence!]).toHaveLength(512);
+    expect(readyGateFailureLogFields("ready_gate_command_missing", longClassified)).toEqual(
+      expect.objectContaining({ readyGateCommandMissingEvidence: cappedEvidence }),
+    );
+    expect(readyGateFailureLogFields("ready_gate_failed", longClassified)).toEqual({});
   });
 
   it("keeps mixed, absent, malformed, stale-retry, later-non-test, and partial attribution on ready_gate_failed", async () => {
@@ -615,6 +678,10 @@ describe("ready gate untouched-path classification", () => {
         })
       ).kind,
     ).toBe("ready_gate_failed");
+
+    expect(findMissingReadyGateCommandEvidence("", "ENOENT")).toBe("ENOENT");
+    expect(findMissingReadyGateCommandEvidence("", "EEXIST")).toBeUndefined();
+    expect(findMissingReadyGateCommandEvidence("internal ENOENT error", undefined)).toBeUndefined();
   });
 });
 

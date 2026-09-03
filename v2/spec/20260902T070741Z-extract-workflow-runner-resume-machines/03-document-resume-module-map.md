@@ -29,8 +29,8 @@ Primary: `v2/docs/workflow-runner.md`. In-scope: `v2/docs/v1-behaviors.md` sourc
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/workflow-runner.md` documents resume-machine ownership in a module map entry for `workflow-runner-resume.ts`, including import boundaries for `workflow-runner.ts`, debate-landing `landReviewedPublicationOutput` wiring, and stay-behind `reviewCompletionAgent` / `reviewCompletionPass` in `REVIEW_DEBATE_LANDING_DEPS`.
-- [ ] `v2/docs/v1-behaviors.md` `Sources:` paths for `recoverPlanStage`, `resumePopulatedIntentPublication`, and `landReviewedPublicationOutput` cite `workflow-runner-resume.ts` instead of `workflow-runner.ts`.
+- [x] `v2/docs/workflow-runner.md` documents resume-machine ownership in a module map entry for `workflow-runner-resume.ts`, including import boundaries for `workflow-runner.ts`, debate-landing `landReviewedPublicationOutput` wiring, and stay-behind `reviewCompletionAgent` / `reviewCompletionPass` in `REVIEW_DEBATE_LANDING_DEPS`.
+- [x] `v2/docs/v1-behaviors.md` `Sources:` paths for `recoverPlanStage`, `resumePopulatedIntentPublication`, and `landReviewedPublicationOutput` cite `workflow-runner-resume.ts` instead of `workflow-runner.ts`.
 
 ## Documentation updates
 

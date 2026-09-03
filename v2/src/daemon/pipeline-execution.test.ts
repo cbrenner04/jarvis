@@ -6052,7 +6052,6 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
       const detail = (stageRecord(stages(), "plan")?.failureDetail as { message?: string } | null)?.message ?? "";
       expect(stderr).toContain("README.md");
       expect(detail).toContain("README.md");
-      expect(detail).toContain("operator changes");
     } finally {
       rpc.close();
     }
@@ -6818,21 +6817,22 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
   });
 
   // @mutate v2/src/daemon/pipeline-execution.ts "if (operatorPaths.length > 0) {" -> "if (false) {"
-  test("resolveFailedPlanDirtyGate refuses operator paths outside harness draft stage", async () => {
+  test("resolveFailedPlanDirtyGate arms the dirty gate for operator paths outside harness draft stage", async () => {
     const intentWorktree = await materializeWorktree(intentBranch);
     await seedIntentReadyIntent(intentWorktree);
     const planWorktree = await materializeWorktree(planBranch, intentBranch);
     writeFileSync(join(planWorktree, "README.md"), "operator edit\n", "utf8");
     const steps = planSteps(intentBranch);
-    const refused = await resolveFailedPlanDirtyGate(steps, {
+    const operatorDirt = await resolveFailedPlanDirtyGate(steps, {
       skipDirtyWorktreeGate: false,
       skipLandedCriteriaGate: false,
     });
-    expect(refused.ok).toBe(false);
-    if (!refused.ok) {
-      expect(refused.message).toContain("README.md");
-      expect(refused.message).toContain("operator changes");
-    }
+    // Operator dirt leaves the dirty gate armed so shared stale-reset preflight refuses it, in its
+    // documented landed-criteria-before-dirty order. Auto-skip is reserved for harness draft dirt.
+    expect(operatorDirt).toEqual({
+      ok: true,
+      flags: { skipDirtyWorktreeGate: false, skipLandedCriteriaGate: false },
+    });
     mkdirSync(join(planWorktree, ".jarvis-plan-stage"), { recursive: true });
     writeFileSync(join(planWorktree, ".jarvis-plan-stage", "draft.md"), "draft\n", "utf8");
     await realAsyncSubprocessRunner.runAsync("git", ["add", ".jarvis-plan-stage/draft.md"], planWorktree);

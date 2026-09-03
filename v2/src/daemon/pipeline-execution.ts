@@ -1555,13 +1555,9 @@ export async function resolveFailedPlanDirtyGate(
     return { ok: false, message: `Error: Cannot redraft failed plan stage: ${detail}` };
   }
   const operatorPaths = dirtyList.paths.filter((path) => !isHarnessDraftDirtPath(path));
-  if (operatorPaths.length > 0) {
-    const pathDetail = operatorPaths.join(", ");
-    return {
-      ok: false,
-      message: `Error: Cannot redraft failed plan stage: worktree has uncommitted operator changes (${pathDetail})`,
-    };
-  }
+  // Operator dirt is not auto-cleared: leave the dirty gate armed so shared stale-reset preflight
+  // refuses and names the paths, preserving its documented landed-criteria-before-dirty ordering.
+  if (operatorPaths.length > 0) return { ok: true, flags: baseFlags };
   return { ok: true, flags: { ...baseFlags, skipDirtyWorktreeGate: true } };
 }
 

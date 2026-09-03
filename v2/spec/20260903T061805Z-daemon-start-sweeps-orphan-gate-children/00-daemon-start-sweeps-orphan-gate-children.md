@@ -36,8 +36,8 @@ Depends on landed `ready_gate_pgid` recording (`setReadyGatePgid`, cleared on ga
 - [x] `v2/docs/state-store.md` `setReadyGatePgid` entry resolves the prior pgid-staleness deferral: documents `listReadyGateSweepCandidates`, sweep semantics relative to the column, and that dead-owner rows are signaled without recorded-at bounds (recycled-pgid risk accepted).
 - [x] `v2/docs/v1-behaviors.md` updates the ready-gate process-group bullet to record that daemon start now performs the deferred reap sweep (no longer "future").
 - [x] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

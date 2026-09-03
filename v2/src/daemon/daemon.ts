@@ -9,12 +9,6 @@ import {
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import {
-  FILTERED_LIST_DEFAULT_LIMIT,
-  type ListRpcParams,
-  listRpcRequestIsFiltered,
-  runMatchesListRpcParams,
-} from "../commands/run-list-rpc.ts";
-import {
   type AgentModelConfig,
   type LoadError,
   resolveExecutableRole,
@@ -22,29 +16,12 @@ import {
 } from "../config/agent-model-config.ts";
 import {
   readCodexSandboxMode,
-  readIterationCeilingMs,
   readNotificationSinkCommand,
   resolveMachineProfile,
 } from "../config/machine-config-loader.ts";
 import { loadMachineProfileModels } from "../config/machine-profile-loader.ts";
-import type { InvocationFailureDetail, InvocationFailureKind } from "../execution/invocation-failure.ts";
-import type { AnyWorkflowStep, ReviewProgress } from "../execution/workflow-runner.ts";
-import {
-  type IntentFinalizationResumeDeps,
-  resolveExhaustedRedResumeContext,
-  resolveIntentFinalizationResumeContext,
-  resolveReviewMutationResumeContext,
-  resolveWriteOutOfScopeResumeContext,
-  resumePopulatedIntentPublication,
-} from "../execution/workflow-runner-resume.ts";
-import {
-  applyOperatorSessionId,
-  executeWriteLoop,
-  findLandingContractRepromptFromLog,
-  findStagedMarkdownLintRepromptFromLog,
-  findSurvivingMutationRepromptFromLog,
-  type WriteLoopInput,
-} from "../execution/write-loop.ts";
+import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
+import { applyOperatorSessionId, executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
 import { type IpcServer, type RpcHandler, startIpcServer } from "../ipc/server";
 import { jarvisHome } from "../paths.ts";
 import {
@@ -53,19 +30,14 @@ import {
   type LoopFinishedEvent,
   openLogReader,
   openLogSink,
-  type PersistedRecord,
-  truncateLogText,
 } from "../persistence/log-stream.ts";
 import {
-  type Attempt,
   isTerminalRunStatus,
   openStateStore,
   type Run,
   type RunStatus,
   type StateStore,
-  type WorkflowSnapshot,
 } from "../persistence/state-store.ts";
-import { rollupWorkflowRunStatus } from "../persistence/workflow-run-status-rollup.ts";
 import {
   type EnumerateOtherDaemonSockets,
   enumerateOtherDaemonSockets,
@@ -87,15 +59,7 @@ import {
   type NotificationSinkSpawner,
   runNotificationSweep,
 } from "./operator-notification-sweep.ts";
-import {
-  composeRunOperatorError,
-  findTerminalLogRecord,
-  isResumeAdmitted,
-  type RunOperatorError,
-  type TerminalLogRecord,
-  terminalResumeRefusalMessage,
-} from "./run-operator-error.ts";
-import { workflowRowSnapshot } from "./workflow-list-snapshot.ts";
+import { type RunOperatorError } from "./run-operator-error.ts";
 
 export type WorktreeOwnership = {
   runId: string;

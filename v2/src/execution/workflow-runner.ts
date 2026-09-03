@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { RunFixCommandOpts } from "../../../shared/fix-command.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
@@ -18,19 +18,10 @@ import {
   resolveInvocationBindings,
 } from "../config/agent-model-config.ts";
 import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
-import {
-  type IntentFinalizationEvent,
-  type LogSink,
-  type LoopFinishedEvent,
-  type PersistedRecord,
-  priorLogRecordsFromSink,
-  type RunExecutionFailedEvent,
-} from "../persistence/log-stream.ts";
+import { type IntentFinalizationEvent, type LogSink, priorLogRecordsFromSink } from "../persistence/log-stream.ts";
 import {
   type Attempt,
-  type OutcomeKind,
   openStateStore,
-  type Run,
   type StateStore,
   type WorkflowSnapshot,
   type WorkflowSnapshotStep,
@@ -43,7 +34,6 @@ import {
   renderStepCommitTitle,
 } from "./completion-commit.ts";
 import type { CompletionPublisher } from "./completion-publisher.ts";
-import { verifyDiffDerivedMutations } from "./diff-derived-mutation-verifier.ts";
 import {
   type ExternalSpecGitScope,
   excludeExternalSpecGitPaths,
@@ -53,7 +43,7 @@ import {
 import { getExternalWorktreePath, withExternalWorktree as realWithExternalWorktree } from "./external-worktree.ts";
 import { landImplementSpecTreeFromReadRoot } from "./implement-spec-landing.ts";
 import type { IntentPipelineHandoff } from "./intent-output.ts";
-import { configuredIntentDurableDir, listLandedIntentFiles } from "./intent-output.ts";
+import { listLandedIntentFiles } from "./intent-output.ts";
 import { deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import { readBranchCommits } from "./pr-attribution.ts";
@@ -61,12 +51,10 @@ import { landPublication, type PublicationLanding } from "./publication-landing.
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
 import {
-  isResumableOutOfScopeTerminalEvidence,
   outOfScopeSettlementResumable,
   ReadyGateError,
   readyGateFailureLogFields,
   readyGateOutOfScopeLogFields,
-  SurvivingMutationError,
   survivingMutationLogFields,
 } from "./ready-finalize.ts";
 import {
@@ -77,13 +65,11 @@ import {
   type ReviewCycleRole,
 } from "./review-cycle.ts";
 import type { ReviewDebateInput, ReviewDebateRole } from "./review-debate.ts";
-import { excludeVerdictFromStaging, executeReviewCycleEnforced, VERDICT_FILE } from "./review-intent-enforcement.ts";
+import { executeReviewCycleEnforced } from "./review-intent-enforcement.ts";
 import { cycleProfileContext } from "./review-profile-context.ts";
 import { rehydrateReviewPromptProfile } from "./review-profile-registry.ts";
-import { lintReviewedStagedMarkdownOrFail } from "./reviewed-staged-markdown-lint.ts";
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
-import { lintStagedMarkdown } from "./staged-markdown-lint.ts";
 import {
   armSuccessorShellIdleWatchdog,
   isSuccessorShellStallOutcome,
@@ -99,7 +85,6 @@ import {
   landReviewedOutputOrFail,
   type ReviewDebateLandingDeps,
   type ReviewDebateStepOutcome,
-  revalidateStagedPlanContract,
   runReviewDebateStep,
   settleReviewedStagedMarkdownLintFailure,
 } from "./workflow-runner-debate-landing.ts";
@@ -116,15 +101,10 @@ import {
 import {
   appendRuntimeSmokeOutcome,
   DEFAULT_ITERATION_TIMEOUT_MS,
-  enforcePersistedReadyGateRepairFence,
   executeWriteLoop,
   exhaustedRedTerminalLogFields,
   getUncommittedPaths,
-  hasRetainedFinalizationCheckpoint,
-  isExhaustedRedTerminalEvidence,
-  MAX_MUTATION_REPAIR_ATTEMPTS,
   publishWithReadyRepair,
-  runMutationRepairIteration,
   type WriteLoopInput,
   type WriteLoopOutcomeKind,
   type WriteLoopResult,

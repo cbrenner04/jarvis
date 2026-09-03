@@ -40,7 +40,6 @@ import { makeIpcClient } from "../testing/ipc-client-fake.ts";
 import { flushBackgroundRuns } from "../testing/run-control.ts";
 import {
   createMinimalDispatchWriteStep,
-  DEFAULT_AGENT_MODEL_CONFIG,
   doneBindingFactory,
   doneWithArtifactBindingFactory,
   type MinimalDispatchWriteStep,

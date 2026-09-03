@@ -11,7 +11,6 @@ import {
   withExternalWorktree as realWithExternalWorktree,
   WorktreeMaterializationError,
 } from "../execution/external-worktree.ts";
-import type { InvocationFailureDetail, InvocationFailureKind } from "../execution/invocation-failure.ts";
 import {
   type AnyWorkflowStep,
   executeWorkflow,
@@ -25,8 +24,8 @@ import {
   resumeReviewMutationFinalization,
 } from "../execution/workflow-runner-resume.ts";
 import type { RpcHandler } from "../ipc/server.ts";
-import { type LogSink, openLogSink, truncateLogText } from "../persistence/log-stream.ts";
-import { isTerminalRunStatus, type Run, type RunStatus, type StateStore } from "../persistence/state-store.ts";
+import { type LogSink, openLogSink } from "../persistence/log-stream.ts";
+import { isTerminalRunStatus, type Run, type RunStatus } from "../persistence/state-store.ts";
 import {
   type ActiveRun,
   checkWorktreeClaimed,

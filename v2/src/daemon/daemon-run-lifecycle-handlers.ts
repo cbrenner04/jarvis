@@ -27,7 +27,6 @@ import type { RpcHandler } from "../ipc/server.ts";
 import { jarvisHome } from "../paths.ts";
 import {
   type LogReader,
-  type LogSink,
   type LoopFinishedEvent,
   openLogSink,
   type PersistedRecord,
@@ -42,7 +41,6 @@ import {
 } from "../persistence/state-store.ts";
 import { rollupWorkflowRunStatus } from "../persistence/workflow-run-status-rollup.ts";
 import {
-  type ActiveRun,
   activeRunAcceptsKill,
   checkWorktreeClaimed,
   forceSettleAdmitsRun,
@@ -68,7 +66,6 @@ import {
   composeRunOperatorError,
   findTerminalLogRecord,
   isResumeAdmitted,
-  type RunOperatorError,
   type TerminalLogRecord,
   terminalResumeRefusalMessage,
 } from "./run-operator-error.ts";

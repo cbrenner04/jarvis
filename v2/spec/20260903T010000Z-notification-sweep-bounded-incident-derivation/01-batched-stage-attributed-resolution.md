@@ -22,9 +22,13 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/operator-notification.test.ts` test `stage-attributed resolution uses one batched run lookup and one batched invocation lookup per sweep` counts store calls and asserts resolution issues one batched run lookup and one batched invocation lookup per sweep rather than per-stage `loadRun` or `findRunsByInvocationId`; it fails against the pre-fix N+1 resolution.
-- [ ] `v2/src/daemon/operator-notification.test.ts` — `a single failed stage produces one incident across stage, entry-run, and step-run rows` stays green (batched attribution preserves suppression semantics).
-- [ ] `bun run test:v2` passes.
+- [x] `v2/src/daemon/operator-notification.test.ts` test `stage-attributed resolution uses one batched run lookup and one batched invocation lookup per sweep` counts store calls and asserts resolution issues one batched run lookup and one batched invocation lookup per sweep rather than per-stage `loadRun` or `findRunsByInvocationId`; it fails against the pre-fix N+1 resolution.
+- [x] `v2/src/daemon/operator-notification.test.ts` — `a single failed stage produces one incident across stage, entry-run, and step-run rows` stays green (batched attribution preserves suppression semantics).
+- [x] `bun run test:v2` passes.
+
+## Blocker
+
+`bun run test:v2` intermittently fails on `completion-commit.test.ts` timeout under parallel agent load; passes serially (`bun test v2/src/execution/completion-commit.test.ts`). Subspec surface tests green (`operator-notification.test.ts` 9/9, `daemon-reconciliation.test.ts` 21/21, `typecheck` green). Out of scope per patch-mode file list.
 
 ## Documentation updates
 

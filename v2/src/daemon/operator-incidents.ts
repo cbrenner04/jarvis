@@ -58,36 +58,50 @@ function pipelineTerminalSinceMs(pipeline: Pipeline & { stages: PipelineStageRec
 }
 
 function addSuppressedInvocationForFailedStage(
-  store: StateStore,
   stage: PipelineStageRecord,
+  entryRunsById: ReadonlyMap<string, Run>,
   suppressedInvocationIds: Set<string>,
 ): void {
   const entryRunId = stage.workflowInvocationId;
   if (entryRunId === null) return;
-  const entryRun = store.loadRun(entryRunId);
+  const entryRun = entryRunsById.get(entryRunId);
   const invocationId = entryRun?.workflowSnapshot?.invocationId;
   if (invocationId !== undefined) suppressedInvocationIds.add(invocationId);
 }
 
-function collectPipelineAttributedRunIds(
-  store: StateStore,
-  pipelines: readonly (Pipeline & { stages: PipelineStageRecord[] })[],
-): Set<string> {
-  const runIds = new Set<string>();
+function collectEntryRunIds(pipelines: readonly (Pipeline & { stages: PipelineStageRecord[] })[]): Set<string> {
+  const entryRunIds = new Set<string>();
   for (const pipeline of pipelines) {
     for (const stage of pipeline.stages) {
       const entryRunId = stage.workflowInvocationId;
-      if (entryRunId === null) continue;
-      runIds.add(entryRunId);
-      const entryRun = store.loadRun(entryRunId);
-      const invocationId = entryRun?.workflowSnapshot?.invocationId;
-      if (invocationId === undefined) continue;
-      for (const run of store.findRunsByInvocationId(invocationId)) {
-        runIds.add(run.id);
-      }
+      if (entryRunId !== null) entryRunIds.add(entryRunId);
     }
   }
-  return runIds;
+  return entryRunIds;
+}
+
+function loadStageAttributedLookups(
+  store: StateStore,
+  pipelines: readonly (Pipeline & { stages: PipelineStageRecord[] })[],
+): { entryRunsById: Map<string, Run>; pipelineAttributedRunIds: Set<string> } {
+  const entryRunIds = collectEntryRunIds(pipelines);
+  const entryRunsById = new Map<string, Run>();
+  for (const run of store.loadRunsByIds([...entryRunIds])) {
+    entryRunsById.set(run.id, run);
+  }
+
+  const invocationIds = new Set<string>();
+  for (const run of entryRunsById.values()) {
+    const invocationId = run.workflowSnapshot?.invocationId;
+    if (invocationId !== undefined) invocationIds.add(invocationId);
+  }
+
+  const pipelineAttributedRunIds = new Set<string>(entryRunIds);
+  for (const run of store.findRunsByInvocationIds([...invocationIds])) {
+    pipelineAttributedRunIds.add(run.id);
+  }
+
+  return { entryRunsById, pipelineAttributedRunIds };
 }
 
 function pushAwaitingApprovalIncident(
@@ -140,6 +154,7 @@ function pushPublicationFailureIncident(
 function collectPipelineIncidents(
   store: StateStore,
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  entryRunsById: ReadonlyMap<string, Run>,
 ): { incidents: OperatorIncident[]; suppressedInvocationIds: Set<string> } {
   const incidents: OperatorIncident[] = [];
   const suppressedInvocationIds = new Set<string>();
@@ -158,7 +173,7 @@ function collectPipelineIncidents(
     }
     for (const stage of pipeline.stages) {
       if (stage.status === "failed") {
-        addSuppressedInvocationForFailedStage(store, stage, suppressedInvocationIds);
+        addSuppressedInvocationForFailedStage(stage, entryRunsById, suppressedInvocationIds);
       }
     }
   }
@@ -234,18 +249,19 @@ export function deriveOperatorIncidents(store: StateStore, nowMs: number = Date.
   const candidatePipelines = store.listIncidentCandidatePipelines({ sinceMs });
   const candidateRuns = store.listIncidentCandidateRuns({ statuses: RUN_STATUSES, sinceMs });
 
+  const { entryRunsById, pipelineAttributedRunIds } = loadStageAttributedLookups(store, candidatePipelines);
+
   const incidents: OperatorIncident[] = [];
   const suppressedInvocationIds = new Set<string>();
 
   for (const pipeline of candidatePipelines) {
-    const pipelineIncidents = collectPipelineIncidents(store, pipeline);
+    const pipelineIncidents = collectPipelineIncidents(store, pipeline, entryRunsById);
     incidents.push(...pipelineIncidents.incidents);
     for (const invocationId of pipelineIncidents.suppressedInvocationIds) {
       suppressedInvocationIds.add(invocationId);
     }
   }
 
-  const pipelineAttributedRunIds = collectPipelineAttributedRunIds(store, candidatePipelines);
   incidents.push(...collectRunIncidents(candidateRuns, suppressedInvocationIds, pipelineAttributedRunIds));
   return incidents;
 }

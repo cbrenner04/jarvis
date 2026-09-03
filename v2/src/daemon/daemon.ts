@@ -55,8 +55,8 @@ import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 import { createTailStreamHandler } from "./daemon-tail-stream.ts";
 import { createImplementRecoverHandler, createWorkflowStartAdmission } from "./daemon-workflow-admission-handlers.ts";
 import {
-  NOTIFICATION_SWEEP_INTERVAL_MS,
   type NotificationSinkSpawner,
+  registerNotificationSweepTimer,
   runNotificationSweep,
 } from "./operator-notification-sweep.ts";
 import type { RunOperatorError } from "./run-operator-error.ts";
@@ -932,9 +932,7 @@ export async function startDaemonRuntime(
     ...(startupDeps.notificationSpawnSink === undefined ? {} : { spawnSink: startupDeps.notificationSpawnSink }),
   };
   runNotificationSweep(notificationSweepDeps);
-  const notificationSweepTimer = setInterval(() => {
-    runNotificationSweep(notificationSweepDeps);
-  }, NOTIFICATION_SWEEP_INTERVAL_MS);
+  const notificationSweepTimer = registerNotificationSweepTimer(notificationSweepDeps);
   notificationSweepTimer.unref();
 
   const signalHandler = () => {

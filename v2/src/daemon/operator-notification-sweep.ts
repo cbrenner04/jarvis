@@ -54,6 +54,34 @@ function deliverIncident(
   }
 }
 
+export type NotificationSweepIntervalState = {
+  sweepInProgress: boolean;
+};
+
+export function shouldSkipOverlappingNotificationSweep(inProgress: boolean): boolean {
+  return inProgress;
+}
+
+export function runNotificationSweepIntervalTick(
+  state: NotificationSweepIntervalState,
+  deps: NotificationSweepDeps,
+  runSweep: (sweepDeps: NotificationSweepDeps) => void = runNotificationSweep,
+): void {
+  if (shouldSkipOverlappingNotificationSweep(state.sweepInProgress)) {
+    return;
+  }
+  state.sweepInProgress = true;
+  runSweep(deps);
+  state.sweepInProgress = false;
+}
+
+export function registerNotificationSweepTimer(deps: NotificationSweepDeps): ReturnType<typeof setInterval> {
+  const state: NotificationSweepIntervalState = { sweepInProgress: false };
+  return setInterval(() => {
+    runNotificationSweepIntervalTick(state, deps);
+  }, NOTIFICATION_SWEEP_INTERVAL_MS);
+}
+
 /** Diff derived incidents against the delivery ledger and discharge owed notifications. */
 export function runNotificationSweep(deps: NotificationSweepDeps): void {
   const store = deps.store;

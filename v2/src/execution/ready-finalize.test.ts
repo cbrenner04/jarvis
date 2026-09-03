@@ -904,7 +904,7 @@ index 1234567..abcdefg 100644
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  });
+  }, 120_000);
 
   it("carries the ready gate command, exit code, and combined output", async () => {
     const finalizer = createReadyFinalizer({

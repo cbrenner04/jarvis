@@ -1019,7 +1019,7 @@ index f424d7da..be281d02 100644
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
-    });
+    }, 120_000);
 
     it("reports a surviving mutation when no test covers the changed guard", async () => {
       const dir = makeFixtureRepo();

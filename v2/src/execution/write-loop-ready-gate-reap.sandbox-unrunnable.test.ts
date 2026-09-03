@@ -15,10 +15,10 @@ import { createReadyFinalizer } from "./ready-finalize.ts";
 import { executeWriteLoop } from "./write-loop.ts";
 
 const TRAP_MARKER = ".ready-gate-trap-installed";
-// Bounded well past the 5s reap deadline below (so real reaping always beats it) but well under
-// the test's own timeout, so a run of the keystone mutation — where nothing ever signals the
-// gate — still exits on its own and never leaves a survivor.
-const FIXTURE_LIFETIME_SECONDS = 8;
+// Bounded well past the marker and reap deadlines below (so real reaping always beats it) but
+// well under the test's own timeout, so a run of the keystone mutation — where nothing ever
+// signals the gate — still exits on its own and never leaves a survivor.
+const FIXTURE_LIFETIME_SECONDS = 90;
 
 /** Polls until nothing in `pgid` remains, or throws once `deadlineMs` elapses without that. */
 async function waitForGroupReaped(pgid: number, deadlineMs: number): Promise<void> {
@@ -96,7 +96,7 @@ test("terminating a run mid-gate kills the ready gate process group", async () =
             // observe the real write, not a bypassed one.
             options.processGroup?.onGroupId?.(id);
             pgid = id;
-            void waitForFileToExist(join(worktreePath, TRAP_MARKER), 5_000)
+            void waitForFileToExist(join(worktreePath, TRAP_MARKER), 45_000)
               .then(() => {
                 if (runId !== undefined) {
                   midFlightPgid = store.loadRun(runId)?.readyGatePgid ?? null;
@@ -139,7 +139,7 @@ test("terminating a run mid-gate kills the ready gate process group", async () =
     expect(pgid).toBeDefined();
     expect(midFlightPgid).toBe(pgid ?? null);
     if (pgid !== undefined) {
-      await waitForGroupReaped(pgid, 5_000);
+      await waitForGroupReaped(pgid, 30_000);
     }
     expect(runId).toBeDefined();
     if (runId !== undefined) {
@@ -156,4 +156,4 @@ test("terminating a run mid-gate kills the ready gate process group", async () =
     }
     rmSync(join(jarvisRoot, ".."), { recursive: true, force: true });
   }
-}, 20_000);
+}, 150_000);

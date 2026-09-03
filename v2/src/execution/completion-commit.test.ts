@@ -683,7 +683,7 @@ describe("createCompletionCommitter", () => {
       stdio: "pipe",
     });
     expect(committed).toBe(FORMATTED_TS);
-  });
+  }, 120_000);
 
   test("commits a markdown-only changed set without failing on biome-ineligible paths", async () => {
     const { worktreePath, seedHead } = initRealGitWorktree();

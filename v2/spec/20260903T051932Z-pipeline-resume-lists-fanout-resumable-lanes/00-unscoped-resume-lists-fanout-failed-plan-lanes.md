@@ -26,7 +26,7 @@ Fan-out is the norm after intent split, but `jarvis pipeline resume <pipeline-id
 - Add daemon unit coverage in `pipeline-execution.test.ts` using a production-shaped fan-out fixture (approved gate + failed `plan` on one branch, sibling gates `awaiting`, aggregate `awaiting-approval`).
 - Add handler coverage in `daemon-pipeline-resume.test.ts` driving unscoped `pipeline_resume` on the same fan-out fixture through the real handler/serialization path.
 - Add CLI coverage in `pipeline.test.ts` driving unscoped `pipeline resume` against the listing refusal envelope.
-- Update operator, architecture, wire, CLI, and v1-parity docs listed below.
+- Update the operator, pipeline-architecture, and wire docs listed below.
 
 ## Acceptance criteria
 
@@ -43,9 +43,7 @@ Fan-out is the norm after intent split, but `jarvis pipeline resume <pipeline-id
 - [ ] `daemon-pipeline-resume.test.ts` — `pipeline_resume on awaiting-approval returns missing_context without dispatch` and `pipeline_resume on awaiting-approval returns claim_refused without dispatch` stay green.
 - [ ] `v2/docs/operator-runbook.md` documents that omitting `branch-key` on a fan-out pipeline with resumable failed plan lanes lists those lanes (`branch_resume_required`) instead of claiming `awaiting-approval` or opaque refusal, and that unscoped paths without such lanes are unchanged.
 - [ ] `v2/docs/pipeline-execution.md` records the `branch_resume_required` listing refusal in § Operator recovery under unscoped `pipeline resume`, including failed-`plan`-only scope and unchanged paths when no such lanes exist.
-- [ ] `v2/docs/write-behavior.md` records that unscoped `pipeline resume` listing refusals print `branch_resume_required` plus listed `branchKey` values on stderr, distinct from reason-only branch-scoped refusals.
 - [ ] `v2/docs/daemon-host.md` records `branch_resume_required` with `branchKeys` in the `pipeline_resume` result union.
-- [ ] `v2/docs/v1-behaviors.md` records the `branch_resume_required` listing refusal against the v1 parity baseline for unscoped fan-out resume.
 - [ ] `bun run typecheck` passes.
 - [ ] `bun run test:v2` passes.
 - [ ] `bun run test:integration:v2` passes.
@@ -54,6 +52,4 @@ Fan-out is the norm after intent split, but `jarvis pipeline resume <pipeline-id
 
 - `v2/docs/operator-runbook.md` — § Pipeline resume: unscoped resume lists resumable failed plan branch keys (`branch_resume_required`) instead of claiming `awaiting-approval` or opaque refusal when such lanes exist; other unscoped paths unchanged.
 - `v2/docs/pipeline-execution.md` — § Operator recovery / unscoped `pipeline resume`: `branch_resume_required` listing refusal, failed-`plan`-only scope, preservation of existing whole-pipeline paths.
-- `v2/docs/write-behavior.md` — `pipeline resume` stderr contract: listing refusal prints `branch_resume_required` plus every listed `branchKey`.
 - `v2/docs/daemon-host.md` — `pipeline_resume` result union: `branch_resume_required` with `branchKeys`.
-- `v2/docs/v1-behaviors.md` — record unscoped fan-out resume `branch_resume_required` listing semantics and v1 gap.

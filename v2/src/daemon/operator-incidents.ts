@@ -24,6 +24,7 @@ export type OperatorIncident = {
   incidentId: string;
   kind: OperatorIncidentKind;
   transition: string;
+  project: string | null;
   pipelineId?: string;
   stageId?: string;
   branchKey?: string;
@@ -210,15 +211,33 @@ function loadStageAttributedLookups(
   return { entryRunsById, pipelineAttributedRunIds };
 }
 
+function resolvePipelineIncidentProject(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  entryRunsById: ReadonlyMap<string, Run>,
+): string | null {
+  const projects = new Set<string>();
+  for (const stage of pipeline.stages) {
+    const entryRunId = stage.workflowInvocationId;
+    if (entryRunId === null) continue;
+    const entryRun = entryRunsById.get(entryRunId);
+    if (entryRun === undefined) continue;
+    if (entryRun.project !== "") projects.add(entryRun.project);
+  }
+  if (projects.size !== 1) return null;
+  return [...projects][0] ?? null;
+}
+
 function pushAwaitingApprovalIncident(
   incidents: OperatorIncident[],
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
   boundary: Extract<PipelineBoundaryResult, { kind: "awaiting-approval" }>,
+  project: string | null,
 ): void {
   incidents.push({
     incidentId: pipelineIncidentId(pipeline.id),
     kind: "pipeline-awaiting-approval",
     transition: `awaiting-approval:${boundary.stageId}:${boundary.branchKey}`,
+    project,
     pipelineId: pipeline.id,
     stageId: boundary.stageId,
     branchKey: boundary.branchKey,
@@ -232,11 +251,13 @@ function pushPipelineTerminalIncident(
   incidents: OperatorIncident[],
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
   state: PipelineDerivedState,
+  project: string | null,
 ): void {
   incidents.push({
     incidentId: pipelineIncidentId(pipeline.id),
     kind: "pipeline-terminal",
     transition: `terminal:${state}`,
+    project,
     pipelineId: pipeline.id,
     cause: state,
     sinceMs: pipelineTerminalSinceMs(pipeline),
@@ -246,11 +267,13 @@ function pushPipelineTerminalIncident(
 function pushPublicationFailureIncident(
   incidents: OperatorIncident[],
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  project: string | null,
 ): void {
   incidents.push({
     incidentId: pipelineIncidentId(pipeline.id),
     kind: "publication-failure",
     transition: "publication-failed",
+    project,
     pipelineId: pipeline.id,
     cause: pipeline.terminalPublicationFailure?.failure.operation ?? "publication_failed",
     sinceMs: pipelineTerminalSinceMs(pipeline),
@@ -266,16 +289,17 @@ function collectPipelineIncidents(
   const suppressedInvocationIds = new Set<string>();
   const state = derivePipelineState(pipeline);
   const boundary = derivePipelineBoundary(pipeline);
+  const project = resolvePipelineIncidentProject(pipeline, entryRunsById);
 
   if (boundary?.kind === "awaiting-approval") {
-    pushAwaitingApprovalIncident(incidents, pipeline, boundary);
+    pushAwaitingApprovalIncident(incidents, pipeline, boundary, project);
   }
 
   if (isPipelineTerminal(state)) {
     if (hasPipelineTerminalPublicationFailure(pipeline)) {
-      pushPublicationFailureIncident(incidents, pipeline);
+      pushPublicationFailureIncident(incidents, pipeline, project);
     } else {
-      pushPipelineTerminalIncident(incidents, pipeline, state);
+      pushPipelineTerminalIncident(incidents, pipeline, state, project);
     }
     for (const stage of pipeline.stages) {
       if (stage.status === "failed") {
@@ -290,6 +314,7 @@ function collectPipelineIncidents(
         incidentId: stageIncidentId(pipeline.id, stage.stageId, stage.branchKey),
         kind: "stage-settlement-wedged",
         transition: "settlement_deferred:entry_run_dead",
+        project,
         pipelineId: pipeline.id,
         stageId: stage.stageId,
         branchKey: stage.branchKey,
@@ -312,6 +337,7 @@ function pushRunIncident(
     incidentId: runIncidentId(run.id),
     kind,
     transition,
+    project: run.project,
     runId: run.id,
     cause: run.status,
     sinceMs: run.finishedAt ?? run.createdAt,
@@ -399,6 +425,7 @@ export function serializeOperatorIncident(incident: OperatorIncident): string {
     incidentId: incident.incidentId,
     kind: incident.kind,
     transition: incident.transition,
+    project: incident.project,
     pipelineId: incident.pipelineId ?? null,
     stageId: incident.stageId ?? null,
     branchKey: incident.branchKey ?? null,

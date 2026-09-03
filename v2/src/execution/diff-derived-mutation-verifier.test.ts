@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { resolveRenderObserverTests } from "../../../shared/prompts/render-observer-tests.ts";
 import {
   type DiffDerivedMutationVerifierInput,
   extractRenderObserverMapFromSource,
@@ -919,7 +920,9 @@ index f424d7da..be281d02 100644
     );
 
     expect(invoked).toHaveLength(1);
-    expect(invoked[0]).toEqual(["shared/prompts/review-implement.test.ts"]);
+    // Assert the scoping behavior against the registered map, not a hardcoded copy of it:
+    // adding an observer for this prompt must not require editing this test.
+    expect(invoked[0]).toEqual([...(resolveRenderObserverTests("prompts/implement/review-critic.md") ?? [])]);
   });
 
   it("caps concurrent bun test invocations at MAX_CONCURRENT_VERIFIER_TEST_RUNS", async () => {

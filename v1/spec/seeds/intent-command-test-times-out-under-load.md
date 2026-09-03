@@ -2,7 +2,9 @@
 
 ## Problem
 
-`v1/test/intent-command.test.ts` (2198 lines, 57 tests, each `spawnSync`-ing the real `jarvis1` binary) intermittently times out or is killed under CI's parallel test load: `error: "agent" test run timed out or was killed on file "v1/test/intent-command.test.ts"`. It passes in isolation. Before the push-CI scoping fix (this PR), every push to main ran the full aggregate suite, so this flake reddened main on ~4 of 7 merges in one 2026-08-30 session — including markdown-only spec merges. Push-CI scoping removes the exposure for non-v1 changes, but a legitimate `v1/**` change still scopes `test:v1` and re-exposes the timeout, and PR CI on `v1/**` diffs runs it too.
+`v1/test/intent-command.test.ts` (2198 lines, 57 tests, each `spawnSync`-ing the real `jarvis1` binary) intermittently times out or is killed under CI's parallel test load: `error: "agent" test run timed out or was killed on file "v1/test/intent-command.test.ts"`. It passes in isolation. Before the push-CI scoping fix (this PR), every push to main ran the full aggregate suite, so this flake reddened main on ~4 of 7 merges in one 2026-08-30 session — including markdown-only spec merges. Push-CI scoping narrows the exposure but does **not** remove it for non-v1 changes: `shared/**` diffs classify to all six slices, so they run `test:v1` and hit this flake despite touching no `v1/**` file. Observed 2026-09-02 on PR #3382 (four `prompts/implement/*.md` bodies plus `shared/prompts/**`, zero v1 references): **three consecutive CI runs** failed on this file, while it passed **57/57 in 167.79s in isolation** on that same branch under heavier machine load than CI. A legitimate `v1/**` change scopes `test:v1` and re-exposes it as well, and PR CI on `v1/**` diffs runs it too.
+
+Two consequences for scoping the fix: the blast radius is every `shared/**` change, not only `v1/**` ones; and a PR that merely *adds test files* marginally widens contention for this already-marginal file, because the runner executes files concurrently.
 
 ## Decisions
 

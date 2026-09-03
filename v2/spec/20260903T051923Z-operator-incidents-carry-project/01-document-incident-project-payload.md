@@ -20,8 +20,8 @@ Operator-notification sink consumers and v1-behavior parity docs do not describe
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/daemon-host.md` § Operator notifications documents the incident payload `project` field and its `null` case.
-- [ ] `v2/docs/v1-behaviors.md` documents that the notification incident payload includes `project` (`null` when no single owner applies).
+- [x] `v2/docs/daemon-host.md` § Operator notifications documents the incident payload `project` field and its `null` case.
+- [x] `v2/docs/v1-behaviors.md` documents that the notification incident payload includes `project` (`null` when no single owner applies).
 
 ## Documentation updates
 

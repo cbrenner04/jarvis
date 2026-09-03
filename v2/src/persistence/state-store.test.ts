@@ -3042,6 +3042,62 @@ describe("pipeline reconciliation", () => {
   });
 });
 
+describe("ready gate sweep candidates", () => {
+  const PRIOR_IDENTITY = "11111:1000000";
+  const CURRENT_IDENTITY = "22222:2000000";
+
+  let seedStore: StateStore;
+
+  beforeEach(() => {
+    removeOrchestrationStore(TEST_DB_PATH);
+    seedStore = openStateStore(TEST_DB_PATH, { currentIdentity: PRIOR_IDENTITY });
+  });
+
+  afterEach(() => {
+    seedStore.close();
+    removeOrchestrationStore(TEST_DB_PATH);
+  });
+
+  function openSweepStore(isOwnerAliveProbe: OwnerLivenessProbe): StateStore {
+    return openStateStore(TEST_DB_PATH, { currentIdentity: CURRENT_IDENTITY, isOwnerAlive: isOwnerAliveProbe });
+  }
+
+  test("listReadyGateSweepCandidates omits live owners and includes dead, null, and non-terminal rows", async () => {
+    const LIVE_IDENTITY = "33333:3000000";
+
+    const deadOwnerRunId = seedRun(seedStore, { branch: "dead-owner", status: "killed" });
+    seedStore.setReadyGatePgid(deadOwnerRunId, 101);
+
+    const liveOwnerRunId = seedRun(seedStore, { branch: "live-owner", status: "killed" });
+    seedStore.setReadyGatePgid(liveOwnerRunId, 202);
+    const raw = new Database(TEST_DB_PATH);
+    raw.prepare("UPDATE runs SET owner_identity = ? WHERE id = ?").run(LIVE_IDENTITY, liveOwnerRunId);
+
+    const inProgressRunId = seedRun(seedStore, { branch: "in-progress-owner", status: "in-progress" });
+    seedStore.setReadyGatePgid(inProgressRunId, 303);
+
+    const nullOwnerRunId = seedRun(seedStore, { branch: "null-owner", status: "completed" });
+    seedStore.setReadyGatePgid(nullOwnerRunId, 404);
+    raw.prepare("UPDATE runs SET owner_identity = NULL WHERE id = ?").run(nullOwnerRunId);
+    raw.close();
+
+    let probeCalls = 0;
+    const sweepStore = openSweepStore(async (identity) => {
+      probeCalls += 1;
+      return identity === LIVE_IDENTITY;
+    });
+
+    const candidates = await sweepStore.listReadyGateSweepCandidates();
+    expect(candidates).toEqual([
+      { runId: deadOwnerRunId, readyGatePgid: 101 },
+      { runId: inProgressRunId, readyGatePgid: 303 },
+      { runId: nullOwnerRunId, readyGatePgid: 404 },
+    ]);
+    expect(probeCalls).toBe(2);
+    sweepStore.close();
+  });
+});
+
 describe("isOwnerAlive", () => {
   test("same pid with a matching start epoch is alive", async () => {
     expect(await isOwnerAlive(`${process.pid}:1000`, async () => 1000)).toBe(true);

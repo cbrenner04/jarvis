@@ -22,12 +22,12 @@ Operator docs describe plan-draft staging as flat or single-nested under `.jarvi
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/write-behavior.md` documents repo-relative `targetDir` nested staging acceptance, flatten-before-normalize behavior, and repo-relative-only `preserveStage` preservation.
-- [ ] `v2/docs/v1-behaviors.md` records plan-draft staging acceptance beyond flat-or-`spec/<name>/` to repo-relative prefixes ending in the spec directory.
-- [ ] `v2/docs/workflow-runner.md` cross-links `write-behavior.md` for recovery revalidation of accepted staging layouts including repo-relative prefixes.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/docs/write-behavior.md` documents repo-relative `targetDir` nested staging acceptance, flatten-before-normalize behavior, and repo-relative-only `preserveStage` preservation.
+- [x] `v2/docs/v1-behaviors.md` records plan-draft staging acceptance beyond flat-or-`spec/<name>/` to repo-relative prefixes ending in the spec directory.
+- [x] `v2/docs/workflow-runner.md` cross-links `write-behavior.md` for recovery revalidation of accepted staging layouts including repo-relative prefixes.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

@@ -505,3 +505,13 @@ test("deriveOperatorIncidents store work is unchanged when old terminal history 
   );
   expect(paddedMetrics).toEqual(baselineMetrics);
 });
+
+test.each([{ label: "actionable fixtures" }])("deriving project does not increase store calls", () => {
+  seedActionableDerivationFixtures();
+  const lookupMetrics = instrumentStageAttributedLookups(store);
+  deriveOperatorIncidents(store, DERIVATION_NOW_MS);
+  expect(lookupMetrics.read()).toEqual({
+    loadRunsByIdsCount: 1,
+    findRunsByInvocationIdsCount: 1,
+  });
+});

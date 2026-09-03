@@ -599,6 +599,10 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
           }
         : null,
     finishRunReconciliation: () => order.push("finished"),
+    listReadyGateSweepCandidates: async () => {
+      order.push("gate-sweep");
+      return [];
+    },
     listPipelines: () => [],
     listRuns: () => [],
     listIncidentCandidatePipelines: () => [],
@@ -635,7 +639,7 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
     },
   });
   try {
-    expect(order).toEqual(["state", "log", "finished", "ipc", "pipelines", "recovery"]);
+    expect(order).toEqual(["state", "log", "finished", "gate-sweep", "ipc", "pipelines", "recovery"]);
     const complete = await status?.({ kind: "request", id: "status", method: "status" }, new AbortController().signal);
     expect(complete).toMatchObject({
       kind: "response",
@@ -680,6 +684,7 @@ test("startup reconciles before opening IPC and reconciliation failures prevent 
       {
         store: {
           beginRunReconciliation: async () => [],
+          listReadyGateSweepCandidates: async () => [],
           listPipelines: () => [],
           listIncidentCandidatePipelines: () => [],
           listIncidentCandidateRuns: () => [],

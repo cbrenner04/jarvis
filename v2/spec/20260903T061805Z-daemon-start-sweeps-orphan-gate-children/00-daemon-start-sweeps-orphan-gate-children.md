@@ -19,23 +19,23 @@ Depends on landed `ready_gate_pgid` recording (`setReadyGatePgid`, cleared on ga
 
 ## Task checklist
 
-- [ ] Add `listReadyGateSweepCandidates()` to `StateStore` (non-null `ready_gate_pgid` rows with owner-liveness classification).
-- [ ] Add `sweepOrphanReadyGateGroups(store: StateStore): Promise<void>` that iterates sweep candidates, skips live owners, signals non-live groups, and clears each swept record.
-- [ ] Invoke it from `startDaemonRuntime` after revision/digest load and immediately before `createRunControlHandlers`.
-- [ ] Add `v2/src/daemon/daemon-ready-gate-orphan-sweep.test.ts` covering orphan signal+clear, live-owner skip, already-dead group clear without startup failure, startup wiring order, and sweep failure preventing IPC (drive the sweep directly or through `startDaemonRuntime` with injected IPC/deps as in `daemon-reconciliation.test.ts`).
-- [ ] Update durable docs per below.
+- [x] Add `listReadyGateSweepCandidates()` to `StateStore` (non-null `ready_gate_pgid` rows with owner-liveness classification).
+- [x] Add `sweepOrphanReadyGateGroups(store: StateStore): Promise<void>` that iterates sweep candidates, skips live owners, signals non-live groups, and clears each swept record.
+- [x] Invoke it from `startDaemonRuntime` after revision/digest load and immediately before `createRunControlHandlers`.
+- [x] Add `v2/src/daemon/daemon-ready-gate-orphan-sweep.test.ts` covering orphan signal+clear, live-owner skip, already-dead group clear without startup failure, startup wiring order, and sweep failure preventing IPC (drive the sweep directly or through `startDaemonRuntime` with injected IPC/deps as in `daemon-reconciliation.test.ts`).
+- [x] Update durable docs per below.
 
 ## Acceptance criteria
 
-- [ ] A seeded orphan `ready_gate_pgid` whose owning run is not live is signaled and its record cleared at daemon start, asserted in `v2/src/daemon/daemon-ready-gate-orphan-sweep.test.ts` test `sweeps a ready-gate pgid when the owning run owner is dead`; it fails against the pre-fix code.
-- [ ] A `ready_gate_pgid` whose owning run owner is still live is left untouched at daemon start, asserted in `v2/src/daemon/daemon-ready-gate-orphan-sweep.test.ts` test `leaves a ready-gate pgid alone when the owning run owner is live`; it fails against the pre-fix code.
-- [ ] A `ready_gate_pgid` that no longer exists on the host clears its record without failing daemon startup, asserted in `v2/src/daemon/daemon-ready-gate-orphan-sweep.test.ts` test `clears a stale ready-gate pgid when the process group is already gone`; it fails against the pre-fix code.
-- [ ] `startDaemonRuntime` invokes the ready-gate sweep after run reconciliation and immediately before `createRunControlHandlers`, and a sweep throw prevents `startIpcServer` from running, asserted in `v2/src/daemon/daemon-ready-gate-orphan-sweep.test.ts` test `startup sweeps ready-gate pgids before opening IPC and sweep failures prevent it` (mirror `daemon-reconciliation.test.ts` `startup reconciles before opening IPC and reconciliation failures prevent it`); it fails against the pre-fix code.
-- [ ] `v2/docs/daemon-host.md` § Restart reconciliation and recovery documents the pre-IPC ready-gate pgid sweep: candidate rows, live-owner skip via `owner_identity` liveness, SIGTERM→SIGKILL escalation, already-dead group handling, record clearing, recycled-pgid acceptance on dead-owner rows, and ordering after run reconciliation and revision/digest load and immediately before handler construction.
-- [ ] `v2/docs/operator-runbook.md` states that daemon start reaps orphaned ready-gate test process groups no live run owns (complementing the live run-termination reap path), and revises or retires the gotcha bullets at lines 824–825 that still prescribe manual `ps`/`pkill` sweeps or describe the daemon-start half as queued.
-- [ ] `v2/docs/state-store.md` `setReadyGatePgid` entry resolves the prior pgid-staleness deferral: documents `listReadyGateSweepCandidates`, sweep semantics relative to the column, and that dead-owner rows are signaled without recorded-at bounds (recycled-pgid risk accepted).
-- [ ] `v2/docs/v1-behaviors.md` updates the ready-gate process-group bullet to record that daemon start now performs the deferred reap sweep (no longer "future").
-- [ ] `bun run typecheck` passes.
+- [x] A seeded orphan `ready_gate_pgid` whose owning run is not live is signaled and its record cleared at daemon start, asserted in `v2/src/daemon/daemon-ready-gate-orphan-sweep.test.ts` test `sweeps a ready-gate pgid when the owning run owner is dead`; it fails against the pre-fix code.
+- [x] A `ready_gate_pgid` whose owning run owner is still live is left untouched at daemon start, asserted in `v2/src/daemon/daemon-ready-gate-orphan-sweep.test.ts` test `leaves a ready-gate pgid alone when the owning run owner is live`; it fails against the pre-fix code.
+- [x] A `ready_gate_pgid` that no longer exists on the host clears its record without failing daemon startup, asserted in `v2/src/daemon/daemon-ready-gate-orphan-sweep.test.ts` test `clears a stale ready-gate pgid when the process group is already gone`; it fails against the pre-fix code.
+- [x] `startDaemonRuntime` invokes the ready-gate sweep after run reconciliation and immediately before `createRunControlHandlers`, and a sweep throw prevents `startIpcServer` from running, asserted in `v2/src/daemon/daemon-ready-gate-orphan-sweep.test.ts` test `startup sweeps ready-gate pgids before opening IPC and sweep failures prevent it` (mirror `daemon-reconciliation.test.ts` `startup reconciles before opening IPC and reconciliation failures prevent it`); it fails against the pre-fix code.
+- [x] `v2/docs/daemon-host.md` § Restart reconciliation and recovery documents the pre-IPC ready-gate pgid sweep: candidate rows, live-owner skip via `owner_identity` liveness, SIGTERM→SIGKILL escalation, already-dead group handling, record clearing, recycled-pgid acceptance on dead-owner rows, and ordering after run reconciliation and revision/digest load and immediately before handler construction.
+- [x] `v2/docs/operator-runbook.md` states that daemon start reaps orphaned ready-gate test process groups no live run owns (complementing the live run-termination reap path), and revises or retires the gotcha bullets at lines 824–825 that still prescribe manual `ps`/`pkill` sweeps or describe the daemon-start half as queued.
+- [x] `v2/docs/state-store.md` `setReadyGatePgid` entry resolves the prior pgid-staleness deferral: documents `listReadyGateSweepCandidates`, sweep semantics relative to the column, and that dead-owner rows are signaled without recorded-at bounds (recycled-pgid risk accepted).
+- [x] `v2/docs/v1-behaviors.md` updates the ready-gate process-group bullet to record that daemon start now performs the deferred reap sweep (no longer "future").
+- [x] `bun run typecheck` passes.
 - [ ] `bun run test:v2` passes.
 - [ ] `bun run test:integration:v2` passes.
 

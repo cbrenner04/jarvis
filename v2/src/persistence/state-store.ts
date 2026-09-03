@@ -616,6 +616,13 @@ export interface StateStore {
   /** Record or clear (`null`) the process group id of the run's in-flight ready-gate test tree. */
   setReadyGatePgid(runId: string, pgid: number | null): void;
 
+  /**
+   * Every run row carrying a non-null `ready_gate_pgid`, classified by whether its
+   * `owner_identity` names a still-live process (`isOwnerAlive`). Null owners are
+   * not live. Backs daemon startup's orphan ready-gate group sweep.
+   */
+  listReadyGateSweepCandidates(): Promise<ReadonlyArray<{ runId: string; readyGatePgid: number; ownerLive: boolean }>>;
+
   /** Persist ready-gate repair fence provenance for restart-safe recovery. */
   setReadyGateRepairFence(runId: string, fence: ReadyGateRepairFenceProvenance): void;
 
@@ -1540,6 +1547,32 @@ class StateStoreImpl implements StateStore {
     if (pgid !== null) {
       this.db.prepare("UPDATE runs SET ready_gate_pgid = ? WHERE id = ?").run(pgid, runId);
     }
+  }
+
+  async listReadyGateSweepCandidates(): Promise<
+    ReadonlyArray<{ runId: string; readyGatePgid: number; ownerLive: boolean }>
+  > {
+    const candidates = this.db
+      .prepare(
+        "SELECT id, owner_identity AS ownerIdentity, ready_gate_pgid AS readyGatePgid FROM runs WHERE ready_gate_pgid IS NOT NULL",
+      )
+      .all() as Array<{ id: string; ownerIdentity: string | null; readyGatePgid: number }>;
+
+    const aliveByIdentity = new Map<string, boolean>();
+    const result: Array<{ runId: string; readyGatePgid: number; ownerLive: boolean }> = [];
+    for (const candidate of candidates) {
+      let ownerLive = false;
+      if (candidate.ownerIdentity !== null) {
+        let alive = aliveByIdentity.get(candidate.ownerIdentity);
+        if (alive === undefined) {
+          alive = await this.isOwnerAliveProbe(candidate.ownerIdentity);
+          aliveByIdentity.set(candidate.ownerIdentity, alive);
+        }
+        ownerLive = alive;
+      }
+      result.push({ runId: candidate.id, readyGatePgid: candidate.readyGatePgid, ownerLive });
+    }
+    return result;
   }
 
   setReadyGateRepairFence(runId: string, fence: ReadyGateRepairFenceProvenance): void {

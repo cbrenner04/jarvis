@@ -44,6 +44,112 @@ function runIncidentId(runId: string): string {
   return `run:${runId}`;
 }
 
+type IncidentKey = { incidentId: string; transition: string };
+
+function deliveredIncidentKey(incidentId: string, transition: string): string {
+  return `${incidentId}\0${transition}`;
+}
+
+function isDeliveredIncident(delivered: ReadonlySet<string>, incidentId: string, transition: string): boolean {
+  return delivered.has(deliveredIncidentKey(incidentId, transition));
+}
+
+function onlyDeliveredIncidents(delivered: ReadonlySet<string>, incidents: readonly IncidentKey[]): boolean {
+  if (incidents.length === 0) return false;
+  return incidents.every((incident) => isDeliveredIncident(delivered, incident.incidentId, incident.transition));
+}
+
+function collectCandidateIncidentIds(
+  pipelines: readonly (Pipeline & { stages: PipelineStageRecord[] })[],
+  runs: readonly Run[],
+): string[] {
+  const incidentIds = new Set<string>();
+  for (const pipeline of pipelines) {
+    incidentIds.add(pipelineIncidentId(pipeline.id));
+    for (const stage of pipeline.stages) {
+      incidentIds.add(stageIncidentId(pipeline.id, stage.stageId, stage.branchKey));
+    }
+  }
+  for (const run of runs) {
+    incidentIds.add(runIncidentId(run.id));
+  }
+  return [...incidentIds];
+}
+
+function loadDeliveredIncidentKeys(store: StateStore, incidentIds: readonly string[]): Set<string> {
+  const delivered = new Set<string>();
+  for (const row of store.listNotificationDeliveriesForIncidentIds(incidentIds)) {
+    delivered.add(deliveredIncidentKey(row.incidentId, row.transition));
+  }
+  return delivered;
+}
+
+function previewPipelineIncidentKeys(
+  store: StateStore,
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+): IncidentKey[] {
+  const keys: IncidentKey[] = [];
+  const state = derivePipelineState(pipeline);
+  const boundary = derivePipelineBoundary(pipeline);
+
+  if (boundary?.kind === "awaiting-approval") {
+    keys.push({
+      incidentId: pipelineIncidentId(pipeline.id),
+      transition: `awaiting-approval:${boundary.stageId}:${boundary.branchKey}`,
+    });
+  }
+
+  if (isPipelineTerminal(state)) {
+    if (hasPipelineTerminalPublicationFailure(pipeline)) {
+      keys.push({ incidentId: pipelineIncidentId(pipeline.id), transition: "publication-failed" });
+    } else {
+      keys.push({ incidentId: pipelineIncidentId(pipeline.id), transition: `terminal:${state}` });
+    }
+  }
+
+  for (const stage of pipeline.stages) {
+    if (redrivableDeferredSettlementEntryRunId(store, stage) !== undefined) {
+      keys.push({
+        incidentId: stageIncidentId(pipeline.id, stage.stageId, stage.branchKey),
+        transition: "settlement_deferred:entry_run_dead",
+      });
+    }
+  }
+
+  return keys;
+}
+
+function previewRunIncidentKeys(
+  run: Run,
+  suppressedInvocationIds: ReadonlySet<string>,
+  pipelineAttributedRunIds: ReadonlySet<string>,
+): IncidentKey[] {
+  const invocationId = run.workflowSnapshot?.invocationId;
+  if (invocationId !== undefined && suppressedInvocationIds.has(invocationId)) {
+    return [];
+  }
+
+  if (run.status === "budget-soft-stopped") {
+    return [{ incidentId: runIncidentId(run.id), transition: "budget-soft-stopped" }];
+  }
+  if (run.status === "blocked") {
+    return [{ incidentId: runIncidentId(run.id), transition: "blocked" }];
+  }
+  if (run.workflowSnapshot !== undefined && !pipelineAttributedRunIds.has(run.id) && isTerminalRunStatus(run.status)) {
+    return [{ incidentId: runIncidentId(run.id), transition: `terminal:${run.status}` }];
+  }
+  return [];
+}
+
+function pushUndeliveredIncident(
+  incidents: OperatorIncident[],
+  delivered: ReadonlySet<string>,
+  incident: OperatorIncident,
+): void {
+  if (isDeliveredIncident(delivered, incident.incidentId, incident.transition)) return;
+  incidents.push(incident);
+}
+
 function stageSinceMs(stage: PipelineStageRecord): number | null {
   return stage.endedAt ?? stage.decidedAt ?? stage.startedAt;
 }
@@ -58,36 +164,50 @@ function pipelineTerminalSinceMs(pipeline: Pipeline & { stages: PipelineStageRec
 }
 
 function addSuppressedInvocationForFailedStage(
-  store: StateStore,
   stage: PipelineStageRecord,
+  entryRunsById: ReadonlyMap<string, Run>,
   suppressedInvocationIds: Set<string>,
 ): void {
   const entryRunId = stage.workflowInvocationId;
   if (entryRunId === null) return;
-  const entryRun = store.loadRun(entryRunId);
+  const entryRun = entryRunsById.get(entryRunId);
   const invocationId = entryRun?.workflowSnapshot?.invocationId;
   if (invocationId !== undefined) suppressedInvocationIds.add(invocationId);
 }
 
-function collectPipelineAttributedRunIds(
-  store: StateStore,
-  pipelines: readonly (Pipeline & { stages: PipelineStageRecord[] })[],
-): Set<string> {
-  const runIds = new Set<string>();
+function collectEntryRunIds(pipelines: readonly (Pipeline & { stages: PipelineStageRecord[] })[]): Set<string> {
+  const entryRunIds = new Set<string>();
   for (const pipeline of pipelines) {
     for (const stage of pipeline.stages) {
       const entryRunId = stage.workflowInvocationId;
-      if (entryRunId === null) continue;
-      runIds.add(entryRunId);
-      const entryRun = store.loadRun(entryRunId);
-      const invocationId = entryRun?.workflowSnapshot?.invocationId;
-      if (invocationId === undefined) continue;
-      for (const run of store.findRunsByInvocationId(invocationId)) {
-        runIds.add(run.id);
-      }
+      if (entryRunId !== null) entryRunIds.add(entryRunId);
     }
   }
-  return runIds;
+  return entryRunIds;
+}
+
+function loadStageAttributedLookups(
+  store: StateStore,
+  pipelines: readonly (Pipeline & { stages: PipelineStageRecord[] })[],
+): { entryRunsById: Map<string, Run>; pipelineAttributedRunIds: Set<string> } {
+  const entryRunIds = collectEntryRunIds(pipelines);
+  const entryRunsById = new Map<string, Run>();
+  for (const run of store.loadRunsByIds([...entryRunIds])) {
+    entryRunsById.set(run.id, run);
+  }
+
+  const invocationIds = new Set<string>();
+  for (const run of entryRunsById.values()) {
+    const invocationId = run.workflowSnapshot?.invocationId;
+    if (invocationId !== undefined) invocationIds.add(invocationId);
+  }
+
+  const pipelineAttributedRunIds = new Set<string>(entryRunIds);
+  for (const run of store.findRunsByInvocationIds([...invocationIds])) {
+    pipelineAttributedRunIds.add(run.id);
+  }
+
+  return { entryRunsById, pipelineAttributedRunIds };
 }
 
 function pushAwaitingApprovalIncident(
@@ -140,6 +260,7 @@ function pushPublicationFailureIncident(
 function collectPipelineIncidents(
   store: StateStore,
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  entryRunsById: ReadonlyMap<string, Run>,
 ): { incidents: OperatorIncident[]; suppressedInvocationIds: Set<string> } {
   const incidents: OperatorIncident[] = [];
   const suppressedInvocationIds = new Set<string>();
@@ -158,7 +279,7 @@ function collectPipelineIncidents(
     }
     for (const stage of pipeline.stages) {
       if (stage.status === "failed") {
-        addSuppressedInvocationForFailedStage(store, stage, suppressedInvocationIds);
+        addSuppressedInvocationForFailedStage(stage, entryRunsById, suppressedInvocationIds);
       }
     }
   }
@@ -233,20 +354,42 @@ export function deriveOperatorIncidents(store: StateStore, nowMs: number = Date.
   const sinceMs = nowMs - ATTENTION_TERMINAL_RECENCY_MS;
   const candidatePipelines = store.listIncidentCandidatePipelines({ sinceMs });
   const candidateRuns = store.listIncidentCandidateRuns({ statuses: RUN_STATUSES, sinceMs });
+  const delivered = loadDeliveredIncidentKeys(store, collectCandidateIncidentIds(candidatePipelines, candidateRuns));
+
+  const activePipelines = candidatePipelines.filter(
+    (pipeline) => !onlyDeliveredIncidents(delivered, previewPipelineIncidentKeys(store, pipeline)),
+  );
+
+  const needsRunAttribution = candidateRuns.some(
+    (run) => run.workflowSnapshot !== undefined && isTerminalRunStatus(run.status),
+  );
+  const { entryRunsById, pipelineAttributedRunIds } =
+    activePipelines.length > 0 || needsRunAttribution
+      ? loadStageAttributedLookups(store, candidatePipelines)
+      : { entryRunsById: new Map<string, Run>(), pipelineAttributedRunIds: new Set<string>() };
 
   const incidents: OperatorIncident[] = [];
   const suppressedInvocationIds = new Set<string>();
 
-  for (const pipeline of candidatePipelines) {
-    const pipelineIncidents = collectPipelineIncidents(store, pipeline);
-    incidents.push(...pipelineIncidents.incidents);
+  for (const pipeline of activePipelines) {
+    const pipelineIncidents = collectPipelineIncidents(store, pipeline, entryRunsById);
+    for (const incident of pipelineIncidents.incidents) {
+      pushUndeliveredIncident(incidents, delivered, incident);
+    }
     for (const invocationId of pipelineIncidents.suppressedInvocationIds) {
       suppressedInvocationIds.add(invocationId);
     }
   }
 
-  const pipelineAttributedRunIds = collectPipelineAttributedRunIds(store, candidatePipelines);
-  incidents.push(...collectRunIncidents(candidateRuns, suppressedInvocationIds, pipelineAttributedRunIds));
+  const runsForCollection = candidateRuns.filter((run) => {
+    const keys = previewRunIncidentKeys(run, suppressedInvocationIds, pipelineAttributedRunIds);
+    return keys.length > 0 && !onlyDeliveredIncidents(delivered, keys);
+  });
+
+  for (const incident of collectRunIncidents(runsForCollection, suppressedInvocationIds, pipelineAttributedRunIds)) {
+    pushUndeliveredIncident(incidents, delivered, incident);
+  }
+
   return incidents;
 }
 

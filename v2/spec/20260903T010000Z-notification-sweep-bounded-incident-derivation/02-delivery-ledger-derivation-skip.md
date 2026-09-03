@@ -21,8 +21,8 @@ The sweep always runs full `deriveOperatorIncidents` before `hasNotificationDeli
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/operator-notification.test.ts` test `delivery ledger suppresses incident re-derivation on later sweeps` records a delivery-ledger row then asserts a later sweep does not re-derive that incident; it fails against the pre-fix derive-then-ledger-diff path.
-- [ ] `v2/src/daemon/operator-notification.test.ts` — `concurrent sweeps deliver an owed incident once` stays green (ledger discharge semantics unchanged).
+- [x] `v2/src/daemon/operator-notification.test.ts` test `delivery ledger suppresses incident re-derivation on later sweeps` records a delivery-ledger row then asserts a later sweep does not re-derive that incident; it fails against the pre-fix derive-then-ledger-diff path.
+- [x] `v2/src/daemon/operator-notification.test.ts` — `concurrent sweeps deliver an owed incident once` stays green (ledger discharge semantics unchanged).
 - [ ] `bun run test:v2` passes.
 
 ## Documentation updates

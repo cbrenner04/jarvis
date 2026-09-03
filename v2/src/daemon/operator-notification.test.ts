@@ -82,6 +82,46 @@ type CandidateQueryMetrics = {
   runRowsDecoded: number;
 };
 
+type StageAttributedLookupMetrics = {
+  loadRunsByIdsCount: number;
+  findRunsByInvocationIdsCount: number;
+};
+
+function instrumentStageAttributedLookups(targetStore: StateStore): {
+  read: () => StageAttributedLookupMetrics;
+} {
+  const metrics: StageAttributedLookupMetrics = {
+    loadRunsByIdsCount: 0,
+    findRunsByInvocationIdsCount: 0,
+  };
+  const loadRunsByIds = targetStore.loadRunsByIds.bind(targetStore);
+  const findRunsByInvocationIds = targetStore.findRunsByInvocationIds.bind(targetStore);
+  targetStore.loadRunsByIds = (runIds) => {
+    metrics.loadRunsByIdsCount += 1;
+    return loadRunsByIds(runIds);
+  };
+  targetStore.findRunsByInvocationIds = (invocationIds) => {
+    metrics.findRunsByInvocationIdsCount += 1;
+    return findRunsByInvocationIds(invocationIds);
+  };
+  return { read: () => ({ ...metrics }) };
+}
+
+function seedWorkflowStageEntryRun(invocationId: string, stepId: string): string {
+  const runId = store.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath: "/tmp/worktree",
+    branch: `branch-${invocationId}`,
+    specPath: "spec.md",
+    stepId,
+    workflowSnapshot: { invocationId, steps: [{ stepId, role: "plan" }] },
+  });
+  const attempt = store.recordAttemptStart(runId);
+  store.commitCompletionBoundary({ attemptId: attempt, runStatus: "completed", outcomeKind: "done" });
+  return runId;
+}
+
 function instrumentIncidentCandidateQueries(targetStore: StateStore): {
   read: () => CandidateQueryMetrics;
   reset: () => void;
@@ -253,6 +293,40 @@ test("a single failed stage produces one incident across stage, entry-run, and s
   ]);
 });
 
+test.each([
+  { label: "multi-stage pipelines" },
+])("stage-attributed resolution uses one batched run lookup and one batched invocation lookup per sweep", () => {
+  const stageSpecs = [
+    { stageId: "plan", invocationId: "inv-stage-0" },
+    { stageId: "implement", invocationId: "inv-stage-1" },
+    { stageId: "verify", invocationId: "inv-stage-2" },
+    { stageId: "ship", invocationId: "inv-stage-3" },
+    { stageId: "publish", invocationId: "inv-stage-4" },
+  ] as const;
+
+  for (const { stageId, invocationId } of stageSpecs) {
+    const entryRunId = seedWorkflowStageEntryRun(invocationId, stageId);
+    const pipelineId = store.createPipeline({
+      definition: {
+        name: `workflow-${stageId}`,
+        stages: [{ stageId, kind: "workflow", workflow: stageId, review: "none" }],
+      },
+    });
+    store.updateStage({
+      pipelineId,
+      stageId,
+      patch: { status: "failed", workflowInvocationId: entryRunId, failureDetail: { message: "failed" } },
+    });
+  }
+
+  const lookupMetrics = instrumentStageAttributedLookups(store);
+  deriveOperatorIncidents(store);
+  expect(lookupMetrics.read()).toEqual({
+    loadRunsByIdsCount: 1,
+    findRunsByInvocationIdsCount: 1,
+  });
+});
+
 test("boot sweep delivers an incident settled while no daemon was alive", async () => {
   const payloads: string[] = [];
   const pipelineId = store.createPipeline({
@@ -276,6 +350,35 @@ test("boot sweep delivers an incident settled while no daemon was alive", async 
     await runtime.close();
     bootStore.close();
   }
+});
+
+test.each([{ label: "awaiting approval" }])("delivery ledger suppresses incident re-derivation on later sweeps", () => {
+  const pipelineId = store.createPipeline({
+    definition: { name: "gate-only", stages: [{ stageId: "gate", kind: "approval" }] },
+  });
+  store.updateStage({ pipelineId, stageId: "gate", patch: { status: "awaiting" } });
+
+  runNotificationSweep(
+    sweepDeps({
+      spawnSink: () => ({ ok: true }),
+    }),
+  );
+
+  expect(
+    store.hasNotificationDelivery({
+      incidentId: `pipeline:${pipelineId}`,
+      transition: "awaiting-approval:gate:default",
+    }),
+  ).toBe(true);
+
+  const lookupMetrics = instrumentStageAttributedLookups(store);
+  const incidents = deriveOperatorIncidents(store);
+  // @mutate v2/src/daemon/operator-incidents.ts "onlyDeliveredIncidents(delivered, previewPipelineIncidentKeys(store, pipeline))" -> "!onlyDeliveredIncidents(delivered, previewPipelineIncidentKeys(store, pipeline))"
+  expect(incidents).toEqual([]);
+  expect(lookupMetrics.read()).toEqual({
+    loadRunsByIdsCount: 0,
+    findRunsByInvocationIdsCount: 0,
+  });
 });
 
 test("concurrent sweeps deliver an owed incident once", async () => {

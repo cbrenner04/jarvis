@@ -1060,4 +1060,67 @@ describe("createCompletionPublisher", () => {
 
     await expect(publisher(baseInput)).rejects.toThrow("git log failed");
   });
+  it("confirms a selected PR by number when the branch carries more than one PR", async () => {
+    // Reproduces cbrenner04/chess-mvp-yolo-2 `intent/04-persistence-and-resume`, which carried a
+    // MERGED #27 beside a CLOSED #32. `pr list --state merged` selects #27; `pr view <branch>`
+    // honors no state filter and answers #32, so confirming by branch compared two differently
+    // scoped lookups and failed a run whose work was complete.
+    const ghCalls: string[][] = [];
+    const publisher = createCompletionPublisher({
+      git: async (_cwd, args) => {
+        if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+        if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+        return "";
+      },
+      gh: async (_cwd, args) => {
+        ghCalls.push([...args]);
+        if (args[0] === "pr" && args[1] === "list") {
+          const merged = args.includes("merged");
+          return JSON.stringify(merged ? [{ number: 27, baseRefName: "main" }] : []);
+        }
+        if (args[0] === "pr" && args[1] === "view") {
+          // Answering by branch yields the unrelated closed PR; answering by number yields #27.
+          return args[2] === "27"
+            ? viewPr(27, "https://github.com/user/repo/pull/27")
+            : viewPr(32, "https://github.com/user/repo/pull/32");
+        }
+        return "";
+      },
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+
+    const result = await publisher(baseInput);
+
+    expect(result.prNumber).toBe(27);
+    expect(result.prUrl).toBe("https://github.com/user/repo/pull/27");
+    const viewCall = ghCalls.find((args) => args[0] === "pr" && args[1] === "view");
+    expect(viewCall?.[2]).toBe("27");
+  });
+
+  it("confirms by branch when no existing PR was selected", async () => {
+    const ghCalls: string[][] = [];
+    const publisher = createCompletionPublisher({
+      git: async (_cwd, args) => {
+        if (args[0] === "rev-parse" && args.includes(`${baseInput.branch}@{u}`)) throw new Error("no upstream");
+        if (args[0] === "rev-parse" && args[1] === "HEAD") return "abc123def456";
+        return "";
+      },
+      gh: async (_cwd, args) => {
+        ghCalls.push([...args]);
+        if (args[0] === "pr" && args[1] === "list") return JSON.stringify([]);
+        if (args[0] === "pr" && args[1] === "create") return "#42";
+        if (args[0] === "pr" && args[1] === "view") return viewPr(42, "https://github.com/user/repo/pull/42");
+        return "";
+      },
+      delay: noopDelay,
+      ...noopRefreshSeams,
+    });
+
+    const result = await publisher(baseInput);
+
+    expect(result.prNumber).toBe(42);
+    const viewCall = ghCalls.find((args) => args[0] === "pr" && args[1] === "view");
+    expect(viewCall?.[2]).toBe(baseInput.branch);
+  });
 });

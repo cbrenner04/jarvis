@@ -217,12 +217,15 @@ async function confirmPr(
   baseRef: string,
   expectedNumber?: number,
 ): Promise<PrEvidence> {
-  const prViewJson = await gh(cwd, ["pr", "view", branch, "--json", "number,url,baseRefName"]);
+  // Confirm by number once `findMatchingPr` has selected one. `gh pr view <branch>` resolves its
+  // own notion of "the" PR for a branch and honors no state filter, so on a branch carrying more
+  // than one PR it can return a different PR than the state-filtered list selected — a closed PR
+  // beside a merged one, for instance. Comparing one lookup against a differently-scoped lookup
+  // then fails on branches whose PR history is longer than one, which is every branch a pipeline
+  // has been re-run on. Addressing the PR by number has no such disagreement to resolve.
+  const selector = expectedNumber === undefined ? branch : String(expectedNumber);
+  const prViewJson = await gh(cwd, ["pr", "view", selector, "--json", "number,url,baseRefName"]);
   const pr = JSON.parse(prViewJson) as { number: number; url: string; baseRefName: string };
-
-  if (expectedNumber !== undefined && pr.number !== expectedNumber) {
-    throw new Error(`Confirmed PR number ${pr.number} does not match expected number ${expectedNumber}`);
-  }
 
   if (pr.baseRefName !== baseRef) {
     throw new Error(`PR base ${pr.baseRefName} does not match requested base ${baseRef}`);

@@ -314,3 +314,31 @@ test("notification_list kind filter excludes non-matching deliveries", async () 
   expect(results).toHaveLength(1);
   expect(results[0]?.incident).toEqual(sinkIncident(blockedIncident));
 });
+
+test("notification_list sinceCursor kind filter excludes non-matching deliveries", async () => {
+  const pipelineId = seedAwaitingPipeline();
+  const blockedRunId = seedBlockedRun();
+  const awaitingIncident = deriveOperatorIncidents(store, DERIVATION_NOW_MS).find(
+    (incident) => incident.pipelineId === pipelineId,
+  );
+  const blockedIncident = deriveOperatorIncidents(store, DERIVATION_NOW_MS).find(
+    (incident) => incident.runId === blockedRunId,
+  );
+  if (awaitingIncident === undefined || blockedIncident === undefined) {
+    throw new Error("expected awaiting and blocked incidents");
+  }
+  const awaitingDeliveredAt = DERIVATION_NOW_MS - 2;
+  const blockedDeliveredAt = DERIVATION_NOW_MS - 1;
+  recordDelivery(awaitingIncident, awaitingDeliveredAt);
+  recordDelivery(blockedIncident, blockedDeliveredAt);
+  const priorCursor = encodeNotificationDeliveryCursor({
+    deliveredAt: awaitingDeliveredAt - 1,
+    incidentId: "run:prior",
+    transition: "blocked",
+  });
+
+  const results = await invokeNotificationList({ sinceCursor: priorCursor, kinds: ["run-blocked"] });
+
+  expect(results).toHaveLength(1);
+  expect(results[0]?.incident).toEqual(sinkIncident(blockedIncident));
+});

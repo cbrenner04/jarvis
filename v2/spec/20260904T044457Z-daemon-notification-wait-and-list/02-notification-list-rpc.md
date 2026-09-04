@@ -34,3 +34,7 @@ Pull consumers need a non-blocking daemon RPC to read delivered incidents from t
 ## Documentation updates
 
 - Deferred to subspec 03.
+
+## Blocker
+
+Outcome misclassified: token parsing matched `blocked` in regression-test prose (`run-blocked`, `blocked incident`) although the session added the `sinceCursor`+`kinds` killing test for `daemon-notification-wait.ts:62` and ended with `done`. All acceptance criteria remain satisfied; remove this section and resume.

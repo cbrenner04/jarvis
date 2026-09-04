@@ -22,11 +22,11 @@ Operator docs and the v1 parity catalog still describe unbounded full-store inci
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/daemon-host.md` § Operator notifications documents bounded candidate filtering, delivery-ledger derivation skip, and the no-overlap sweep guarantee consistent with subspecs 00–03.
-- [ ] `v2/docs/operator-runbook.md` § Daemon lifecycle documents notification-sweep event-loop starvation presentation, the `daemon start` retry hazard, and distinguishing checks from superseded-daemon and deadlock shapes consistent with subspec 03.
-- [ ] `v2/docs/v1-behaviors.md` records that the notification sweep derives incidents from a bounded actionable set only.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `v2/docs/daemon-host.md` § Operator notifications documents bounded candidate filtering, delivery-ledger derivation skip, and the no-overlap sweep guarantee consistent with subspecs 00–03.
+- [x] `v2/docs/operator-runbook.md` § Daemon lifecycle documents notification-sweep event-loop starvation presentation, the `daemon start` retry hazard, and distinguishing checks from superseded-daemon and deadlock shapes consistent with subspec 03.
+- [x] `v2/docs/v1-behaviors.md` records that the notification sweep derives incidents from a bounded actionable set only.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

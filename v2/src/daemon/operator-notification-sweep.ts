@@ -54,6 +54,23 @@ function deliverIncident(
   }
 }
 
+export function shouldSkipOverlappingNotificationSweep(inProgress: boolean): boolean {
+  return inProgress;
+}
+
+export function runNotificationSweepIntervalTick(
+  state: { sweepInProgress: boolean },
+  deps: NotificationSweepDeps,
+  runSweep: (sweepDeps: NotificationSweepDeps) => void = runNotificationSweep,
+): void {
+  if (shouldSkipOverlappingNotificationSweep(state.sweepInProgress)) {
+    return;
+  }
+  state.sweepInProgress = true;
+  runSweep(deps);
+  state.sweepInProgress = false;
+}
+
 /** Diff derived incidents against the delivery ledger and discharge owed notifications. */
 export function runNotificationSweep(deps: NotificationSweepDeps): void {
   const store = deps.store;

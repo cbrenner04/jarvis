@@ -2,6 +2,13 @@ import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { NOTIFICATIONS_USAGE } from "../cli/usage.ts";
+import {
+  createNotificationListHandler,
+  createNotificationWaitHandler,
+  NotificationWaitRegistry,
+} from "../daemon/daemon-notification-wait.ts";
+import { deriveOperatorIncidents, serializeOperatorIncident } from "../daemon/operator-incidents.ts";
 import type { RpcHandler } from "../ipc/server.ts";
 import {
   encodeNotificationDeliveryCursor,
@@ -10,15 +17,8 @@ import {
   type StateStore,
 } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
-import { NOTIFICATIONS_USAGE } from "../cli/usage.ts";
 import { captureIo, cliMain as main } from "../testing/cli-test-helpers.ts";
 import { makeIpcClient as makeDeferredIpcClient } from "../testing/ipc-client-fake.ts";
-import {
-  createNotificationListHandler,
-  createNotificationWaitHandler,
-  NotificationWaitRegistry,
-} from "../daemon/daemon-notification-wait.ts";
-import { deriveOperatorIncidents, serializeOperatorIncident } from "../daemon/operator-incidents.ts";
 
 const DERIVATION_NOW_MS = 50_000_000;
 const DERIVATION_RECENT_MS = 10_000_000;

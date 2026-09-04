@@ -20,7 +20,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/state-store.md` documents `operator_notification_deliveries` `incident_json`, legacy null exclusion, `listDeliveredNotificationIncidents`, and cursor wire form consistent with subspecs 00–01.
+- [x] `v2/docs/state-store.md` documents `operator_notification_deliveries` `incident_json`, legacy null exclusion, `listDeliveredNotificationIncidents`, and cursor wire form consistent with subspecs 00–01.
 
 ## Documentation updates
 

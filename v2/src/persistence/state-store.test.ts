@@ -2,13 +2,15 @@ import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { serializeOperatorIncident } from "../daemon/operator-incidents.ts";
+import { type OperatorIncident, serializeOperatorIncident } from "../daemon/operator-incidents.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import {
   analyzeFailedPipelineReopenShape,
   approvalBoundaryAllowsStatus,
   approvalDecisionAllowsStatus,
   CURRENT_OWNER_IDENTITY,
+  decodeNotificationDeliveryCursor,
+  encodeNotificationDeliveryCursor,
   isApprovalAuthoredStage,
   isOwnerAlive,
   loadPipelineContext,
@@ -30,6 +32,10 @@ import {
 import { removeOrchestrationStore } from "./state-store-on-disk";
 
 const TEST_DB_PATH = join(tmpdir(), "jarvis-test-state.sqlite");
+
+function sinkIncident(incident: OperatorIncident): ReturnType<typeof JSON.parse> {
+  return JSON.parse(serializeOperatorIncident(incident));
+}
 
 const SAMPLE_PIPELINE_DEFINITION: PipelineDefinition = {
   name: "sample-pipeline",
@@ -183,10 +189,132 @@ describe("StateStore", () => {
         delivered_at: deliveredAt,
         incident_json: incidentJson,
       });
-      expect(JSON.parse(row.incident_json ?? "")).toEqual(JSON.parse(incidentJson));
     } finally {
       raw.close();
     }
+  });
+
+  test("list delivered notification incidents honors since cursor", () => {
+    const incidents = [
+      {
+        incidentId: "run:alpha",
+        kind: "run-blocked" as const,
+        transition: "blocked",
+        project: "demo",
+        sinceMs: 1_000,
+      },
+      {
+        incidentId: "run:beta",
+        kind: "run-budget-soft-stopped" as const,
+        transition: "budget-soft-stopped",
+        project: "demo",
+        sinceMs: 2_000,
+      },
+      {
+        incidentId: "stage:pipe-1:plan:default",
+        kind: "stage-settlement-wedged" as const,
+        transition: "settlement_deferred:entry_run_dead",
+        project: "demo",
+        pipelineId: "pipe-1",
+        stageId: "plan",
+        branchKey: "default",
+        sinceMs: 3_000,
+      },
+      {
+        incidentId: "run:gamma",
+        kind: "run-ad-hoc-terminal" as const,
+        transition: "terminal:failed",
+        project: "demo",
+        sinceMs: 4_000,
+      },
+    ];
+    const deliveredAtByIndex = [1_700_000_000_001, 1_700_000_000_002, 1_700_000_000_003, 1_700_000_000_004];
+    for (const [index, incident] of incidents.entries()) {
+      expect(
+        store.tryRecordNotificationDelivery({
+          incidentId: incident.incidentId,
+          transition: incident.transition,
+          deliveredAt: deliveredAtByIndex[index]!,
+          incidentJson: serializeOperatorIncident(incident),
+        }),
+      ).toBe(true);
+    }
+
+    const raw = new Database(TEST_DB_PATH);
+    try {
+      raw
+        .prepare(
+          "INSERT INTO operator_notification_deliveries (incident_id, transition, delivered_at, incident_json) VALUES (?, ?, ?, ?)",
+        )
+        .run("run:legacy", "blocked", 1_700_000_000_000, null);
+    } finally {
+      raw.close();
+    }
+
+    const middleCursor = encodeNotificationDeliveryCursor({
+      deliveredAt: deliveredAtByIndex[1]!,
+      incidentId: incidents[1]!.incidentId,
+      transition: incidents[1]!.transition,
+    });
+    // @mutate v2/src/persistence/state-store.ts ") >= (?, ?, ?)" -> ") > (?, ?, ?)"
+    // @mutate v2/src/persistence/state-store.ts "incident_json IS NOT NULL" -> "incident_json IS NULL"
+    const results = store.listDeliveredNotificationIncidents({ sinceCursor: middleCursor });
+    expect(results).toEqual([sinkIncident(incidents[1]!), sinkIncident(incidents[2]!), sinkIncident(incidents[3]!)]);
+  });
+
+  test("delivered incident is readable after recording with no active consumer", () => {
+    const incident = {
+      incidentId: "run:orphan",
+      kind: "run-blocked" as const,
+      transition: "blocked",
+      project: "demo",
+      sinceMs: 9_000,
+    };
+    const deliveredAt = 1_700_000_999_000;
+    const priorCursor = encodeNotificationDeliveryCursor({
+      deliveredAt: deliveredAt - 1,
+      incidentId: "run:prior",
+      transition: "blocked",
+    });
+
+    expect(
+      store.tryRecordNotificationDelivery({
+        incidentId: incident.incidentId,
+        transition: incident.transition,
+        deliveredAt,
+        incidentJson: serializeOperatorIncident(incident),
+      }),
+    ).toBe(true);
+
+    // @mutate v2/src/persistence/state-store.ts ") >= (?, ?, ?)" -> ") > (?, ?, ?)"
+    const results = store.listDeliveredNotificationIncidents({ sinceCursor: priorCursor });
+    expect(results).toEqual([sinkIncident(incident)]);
+  });
+
+  test("decode notification delivery cursor parses incident ids and rejects short wire", () => {
+    const stageCursor = {
+      deliveredAt: 1_700_000_000_003,
+      incidentId: "stage:pipe-1:plan:default",
+      transition: "settlement_deferred:entry_run_dead",
+    };
+    // @mutate v2/src/persistence/state-store.ts "if (parts.length < idPartCount + 1) {" -> "if (parts.length >= idPartCount + 1) {"
+    expect(decodeNotificationDeliveryCursor(encodeNotificationDeliveryCursor(stageCursor))).toEqual(stageCursor);
+    expect(
+      decodeNotificationDeliveryCursor(
+        encodeNotificationDeliveryCursor({
+          deliveredAt: 1_700_000_000_002,
+          incidentId: "run:beta",
+          transition: "budget-soft-stopped",
+        }),
+      ),
+    ).toEqual({
+      deliveredAt: 1_700_000_000_002,
+      incidentId: "run:beta",
+      transition: "budget-soft-stopped",
+    });
+    expect(() => decodeNotificationDeliveryCursor("1:stage:pipe-1:plan")).toThrow(
+      "invalid notification delivery cursor: 1:stage:pipe-1:plan",
+    );
   });
 
   test("schema bootstrap is idempotent on re-open", () => {

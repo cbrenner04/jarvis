@@ -828,6 +828,9 @@ export interface StateStore {
    */
   listIncidentCandidatePipelines(args: { sinceMs: number }): Array<Pipeline & { stages: PipelineStageRecord[] }>;
 
+  /** Sink-shaped incident JSON parsed from delivered ledger rows with non-null `incident_json`. */
+  listDeliveredNotificationIncidents(args: ListDeliveredNotificationIncidentsArgs): NotificationDeliveryIncident[];
+
   /** Whether `(incidentId, transition)` has been delivered. */
   hasNotificationDelivery(args: { incidentId: string; transition: string }): boolean;
 
@@ -854,6 +857,104 @@ export interface StateStore {
   isClosed(): boolean;
 
   close(): void;
+}
+
+/** Sink stdin JSON shape for one delivered operator notification incident. */
+export type NotificationDeliveryIncident = {
+  incidentId: string;
+  kind: string;
+  transition: string;
+  project: string | null;
+  pipelineId: string | null;
+  stageId: string | null;
+  branchKey: string | null;
+  runId: string | null;
+  cause: string | null;
+  sinceMs: number | null;
+};
+
+export type NotificationDeliveryCursor = {
+  deliveredAt: number;
+  incidentId: string;
+  transition: string;
+};
+
+export type ListDeliveredNotificationIncidentsArgs =
+  | { sinceCursor: string; kinds?: readonly string[] }
+  | { sinceMs: number; kinds?: readonly string[] };
+
+export function encodeNotificationDeliveryCursor(cursor: NotificationDeliveryCursor): string {
+  return `${cursor.deliveredAt}:${cursor.incidentId}:${cursor.transition}`;
+}
+
+export function decodeNotificationDeliveryCursor(cursor: string): NotificationDeliveryCursor {
+  const firstColon = cursor.indexOf(":");
+  if (firstColon === -1) {
+    throw new Error(`invalid notification delivery cursor: ${cursor}`);
+  }
+  const deliveredAt = Number(cursor.slice(0, firstColon));
+  const rest = cursor.slice(firstColon + 1);
+  const idPartCount = rest.startsWith("stage:") ? 4 : rest.startsWith("pipeline:") || rest.startsWith("run:") ? 2 : -1;
+  if (idPartCount === -1) {
+    throw new Error(`invalid notification delivery cursor: ${cursor}`);
+  }
+  const parts = rest.split(":");
+  if (parts.length < idPartCount + 1) {
+    throw new Error(`invalid notification delivery cursor: ${cursor}`);
+  }
+  const incidentId = parts.slice(0, idPartCount).join(":");
+  const transition = parts.slice(idPartCount).join(":");
+  if (!Number.isFinite(deliveredAt) || incidentId.length === 0 || transition.length === 0) {
+    throw new Error(`invalid notification delivery cursor: ${cursor}`);
+  }
+  return { deliveredAt, incidentId, transition };
+}
+
+function parseNotificationDeliveryIncidentJson(incidentJson: string): NotificationDeliveryIncident | null {
+  const jsonStringOrNull = (value: unknown): string | null =>
+    typeof value === "string" || value === null ? value : null;
+  try {
+    const parsed: unknown = JSON.parse(incidentJson);
+    if (!isRecord(parsed)) return null;
+    if (
+      typeof parsed.incidentId !== "string" ||
+      typeof parsed.kind !== "string" ||
+      typeof parsed.transition !== "string"
+    ) {
+      return null;
+    }
+    return {
+      incidentId: parsed.incidentId,
+      kind: parsed.kind,
+      transition: parsed.transition,
+      project: jsonStringOrNull(parsed.project),
+      pipelineId: jsonStringOrNull(parsed.pipelineId),
+      stageId: jsonStringOrNull(parsed.stageId),
+      branchKey: jsonStringOrNull(parsed.branchKey),
+      runId: jsonStringOrNull(parsed.runId),
+      cause: jsonStringOrNull(parsed.cause),
+      sinceMs: typeof parsed.sinceMs === "number" || parsed.sinceMs === null ? parsed.sinceMs : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function notificationDeliveryKindFilterSql(kinds: readonly string[] | undefined): {
+  sql: string;
+  bindings: SQLQueryBindings[];
+} {
+  if (kinds === undefined) {
+    return { sql: "", bindings: [] };
+  }
+  if (kinds.length === 0) {
+    return { sql: " AND 0", bindings: [] };
+  }
+  const placeholders = kinds.map(() => "?").join(", ");
+  return {
+    sql: ` AND json_extract(incident_json, '$.kind') IN (${placeholders})`,
+    bindings: [...kinds],
+  };
 }
 
 // Baselined schema for fresh stores (post-030 on-disk shape). Pre-squash stores upgrade once via
@@ -2502,6 +2603,37 @@ class StateStoreImpl implements StateStore {
         .prepare(`SELECT ${RUN_COLUMNS} FROM runs WHERE status = 'queued' ORDER BY created_at ASC`)
         .all() as RunRow[]
     ).map(mapRunRow);
+  }
+
+  listDeliveredNotificationIncidents(args: ListDeliveredNotificationIncidentsArgs): NotificationDeliveryIncident[] {
+    const kindFilter = notificationDeliveryKindFilterSql(args.kinds);
+    let boundSql: string;
+    let bindings: SQLQueryBindings[];
+    if ("sinceCursor" in args) {
+      const cursor = decodeNotificationDeliveryCursor(args.sinceCursor);
+      boundSql = `AND (delivered_at, incident_id, transition) >= (?, ?, ?)${kindFilter.sql}`;
+      bindings = [cursor.deliveredAt, cursor.incidentId, cursor.transition, ...kindFilter.bindings];
+    } else if ("sinceMs" in args) {
+      boundSql = `AND delivered_at >= ?${kindFilter.sql}`;
+      bindings = [args.sinceMs, ...kindFilter.bindings];
+    } else {
+      throw new Error("listDeliveredNotificationIncidents requires sinceCursor or sinceMs");
+    }
+    const rows = this.db
+      .prepare(
+        `SELECT incident_json AS incidentJson FROM operator_notification_deliveries
+        WHERE incident_json IS NOT NULL ${boundSql}
+        ORDER BY delivered_at ASC, incident_id ASC, transition ASC`,
+      )
+      .all(...bindings) as Array<{ incidentJson: string }>;
+    const incidents: NotificationDeliveryIncident[] = [];
+    for (const row of rows) {
+      const incident = parseNotificationDeliveryIncidentJson(row.incidentJson);
+      if (incident) {
+        incidents.push(incident);
+      }
+    }
+    return incidents;
   }
 
   hasNotificationDelivery(args: { incidentId: string; transition: string }): boolean {

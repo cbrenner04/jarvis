@@ -146,6 +146,6 @@ export async function runNotificationsCommand(argv: readonly string[], io: Io, d
   if (subcommand === "list") {
     return notificationRpc("notification_list", argv.slice(1), NOTIFICATIONS_LIST_USAGE, io, deps);
   }
-  io.stderr(subcommand === undefined ? NOTIFICATIONS_USAGE : NOTIFICATIONS_WAIT_USAGE);
+  io.stderr(NOTIFICATIONS_USAGE);
   return 1;
 }

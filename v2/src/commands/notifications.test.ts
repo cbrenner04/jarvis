@@ -10,6 +10,7 @@ import {
   type StateStore,
 } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
+import { NOTIFICATIONS_USAGE } from "../cli/usage.ts";
 import { captureIo, cliMain as main } from "../testing/cli-test-helpers.ts";
 import { makeIpcClient as makeDeferredIpcClient } from "../testing/ipc-client-fake.ts";
 import {
@@ -181,6 +182,15 @@ beforeEach(() => {
 afterEach(() => {
   store.close();
   removeOrchestrationStore(dbPath);
+});
+
+test("notifications rejects unknown subcommands with parent usage and exit 1", async () => {
+  const cap = captureIo();
+
+  const code = await main(["notifications", "bogus"], cap.io, notificationCliDeps());
+
+  expect(code).toBe(1);
+  expect(cap.read().stderr).toBe(NOTIFICATIONS_USAGE);
 });
 
 test("notifications wait blocks until the next owed incident", async () => {

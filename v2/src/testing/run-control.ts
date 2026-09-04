@@ -49,6 +49,7 @@ export function toIpcHandlers(handlers: RunControlHandlers): Record<string, RpcH
   const {
     reportReviewDebateProgress: _reportReviewDebateProgress,
     clearLiveReviewDebateProgress: _clearLiveReviewDebateProgress,
+    wakeNotificationWaiters: _wakeNotificationWaiters,
     close: _close,
     hasActiveRuns: _hasActiveRuns,
     setRetiring: _setRetiring,

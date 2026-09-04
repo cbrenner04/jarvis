@@ -14,6 +14,7 @@ import { WorktreeOwnershipRegistry as WorktreeOwnershipRegistryImpl } from "./da
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
 import { bindPipelineWaitObserver, PipelineWaitObserver } from "./pipeline-observation.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
+import type { NotificationWaitRegistry } from "./daemon-notification-wait.ts";
 import type { PipelineStageRecoveryAttempt } from "./pipeline-stage-recovery.ts";
 import type { resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
 
@@ -38,6 +39,7 @@ export type RunControlHandlerContextDeps = {
   connectStaleResetClient?: (socketPath: string) => Promise<IpcClient>;
   staleResetCliDeps?: CliDeps;
   reconciledRunIds?: readonly string[];
+  notificationWaitRegistry?: NotificationWaitRegistry;
 };
 
 export type RunControlHandlerContext = {

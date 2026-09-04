@@ -35,13 +35,13 @@ Even with a durable delivery ledger and store query API, nothing wakes a sleepin
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-notification-wait.test.ts` test `notification_wait blocks until sweep records the next delivery` arms wait after a cursor, drives a sweep that records a new delivery, and asserts the RPC returns the incident JSON and `deliveryCursor`; it fails against the pre-fix absent RPC.
-- [ ] `v2/src/daemon/daemon-notification-wait.test.ts` test `notification_wait returns delivery recorded while no waiter was armed` records a delivery before wait begins then asserts the next wait with a prior cursor returns it immediately; it fails against the pre-fix path that cannot catch up from the ledger.
-- [ ] `v2/src/daemon/daemon-notification-wait.test.ts` test `notification_wait kind filter ignores non-matching deliveries` arms wait with a kind set, records a non-matching delivery, then a matching one, and asserts only the matching delivery satisfies the wait; it fails against the pre-fix unfiltered wait.
-- [ ] `v2/src/daemon/daemon-notification-wait.test.ts` test `notification_wait abort drops armed waiter without late resolve` arms wait, aborts the client signal, records a later matching delivery, and asserts the aborted wait rejects with no late resolve; it fails against the pre-fix absent abort cleanup.
-- [ ] `v2/src/daemon/daemon-notification-wait.test.ts` test `notification_wait wakes when another daemon records the delivery` arms wait on one daemon, records a matching delivery on another, and asserts the first daemon's wait resolves; it fails against the pre-fix wake-only-on-winning-insert path.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `v2/src/daemon/daemon-notification-wait.test.ts` test `notification_wait blocks until sweep records the next delivery` arms wait after a cursor, drives a sweep that records a new delivery, and asserts the RPC returns the incident JSON and `deliveryCursor`; it fails against the pre-fix absent RPC.
+- [x] `v2/src/daemon/daemon-notification-wait.test.ts` test `notification_wait returns delivery recorded while no waiter was armed` records a delivery before wait begins then asserts the next wait with a prior cursor returns it immediately; it fails against the pre-fix path that cannot catch up from the ledger.
+- [x] `v2/src/daemon/daemon-notification-wait.test.ts` test `notification_wait kind filter ignores non-matching deliveries` arms wait with a kind set, records a non-matching delivery, then a matching one, and asserts only the matching delivery satisfies the wait; it fails against the pre-fix unfiltered wait.
+- [x] `v2/src/daemon/daemon-notification-wait.test.ts` test `notification_wait abort drops armed waiter without late resolve` arms wait, aborts the client signal, records a later matching delivery, and asserts the aborted wait rejects with no late resolve; it fails against the pre-fix absent abort cleanup.
+- [x] `v2/src/daemon/daemon-notification-wait.test.ts` test `notification_wait wakes when another daemon records the delivery` arms wait on one daemon, records a matching delivery on another, and asserts the first daemon's wait resolves; it fails against the pre-fix wake-only-on-winning-insert path.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

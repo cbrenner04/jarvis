@@ -831,6 +831,12 @@ export interface StateStore {
   /** Sink-shaped incident JSON parsed from delivered ledger rows with non-null `incident_json`. */
   listDeliveredNotificationIncidents(args: ListDeliveredNotificationIncidentsArgs): NotificationDeliveryIncident[];
 
+  /** One delivered ledger row with sink-shaped incident JSON, or null when absent or legacy key-only. */
+  loadDeliveredNotificationIncident(args: {
+    incidentId: string;
+    transition: string;
+  }): { incident: NotificationDeliveryIncident; deliveredAt: number } | null;
+
   /** Whether `(incidentId, transition)` has been delivered. */
   hasNotificationDelivery(args: { incidentId: string; transition: string }): boolean;
 
@@ -2634,6 +2640,24 @@ class StateStoreImpl implements StateStore {
       }
     }
     return incidents;
+  }
+
+  loadDeliveredNotificationIncident(args: {
+    incidentId: string;
+    transition: string;
+  }): { incident: NotificationDeliveryIncident; deliveredAt: number } | null {
+    const row = this.db
+      .prepare(
+        `SELECT delivered_at AS deliveredAt, incident_json AS incidentJson
+        FROM operator_notification_deliveries
+        WHERE incident_id = ? AND transition = ? AND incident_json IS NOT NULL
+        LIMIT 1`,
+      )
+      .get(args.incidentId, args.transition) as { deliveredAt: number; incidentJson: string } | undefined;
+    if (row === undefined) return null;
+    const incident = parseNotificationDeliveryIncidentJson(row.incidentJson);
+    if (incident === null) return null;
+    return { incident, deliveredAt: row.deliveredAt };
   }
 
   hasNotificationDelivery(args: { incidentId: string; transition: string }): boolean {

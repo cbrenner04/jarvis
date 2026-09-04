@@ -39,6 +39,11 @@ import {
   type StateStore,
 } from "../persistence/state-store.ts";
 import {
+  createNotificationListHandler,
+  createNotificationWaitHandler,
+  NotificationWaitRegistry,
+} from "./daemon-notification-wait.ts";
+import {
   type EnumerateOtherDaemonSockets,
   enumerateOtherDaemonSockets,
   type SupersedePeerDaemon,
@@ -53,11 +58,6 @@ import {
 } from "./daemon-run-control-context.ts";
 import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 import { createTailStreamHandler } from "./daemon-tail-stream.ts";
-import {
-  createNotificationListHandler,
-  createNotificationWaitHandler,
-  NotificationWaitRegistry,
-} from "./daemon-notification-wait.ts";
 import { createImplementRecoverHandler, createWorkflowStartAdmission } from "./daemon-workflow-admission-handlers.ts";
 import {
   NOTIFICATION_SWEEP_INTERVAL_MS,

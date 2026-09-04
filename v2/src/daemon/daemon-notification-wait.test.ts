@@ -5,8 +5,8 @@ import { join } from "node:path";
 import type { RpcHandler } from "../ipc/server.ts";
 import {
   encodeNotificationDeliveryCursor,
-  openStateStore,
   type NotificationDeliveryIncident,
+  openStateStore,
   type StateStore,
 } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
@@ -18,7 +18,7 @@ import {
   type NotificationWaitResult,
 } from "./daemon-notification-wait.ts";
 import { deriveOperatorIncidents, serializeOperatorIncident } from "./operator-incidents.ts";
-import { runNotificationSweep, type NotificationSweepDeps } from "./operator-notification-sweep.ts";
+import { type NotificationSweepDeps, runNotificationSweep } from "./operator-notification-sweep.ts";
 
 const DERIVATION_NOW_MS = 50_000_000;
 const DERIVATION_RECENT_MS = 10_000_000;

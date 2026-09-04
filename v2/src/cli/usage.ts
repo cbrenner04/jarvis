@@ -40,8 +40,8 @@ export const PIPELINE_UNDISMISS_USAGE = "usage: jarvis pipeline undismiss <pipel
 export const PIPELINE_USAGE =
   "usage: jarvis pipeline <start|list|wait|approve|reject|resume|recover|dismiss|undismiss> [args]\n";
 export const NOTIFICATIONS_WAIT_USAGE =
-  "usage: jarvis notifications wait [--since <cursor|duration|timestamp>] [--kind <incident-kind>]...\n";
+  "usage: jarvis notifications wait [--since <cursor|duration|timestamp>] [--kind <incident-kind>]... [--project <name>]\n";
 export const NOTIFICATIONS_LIST_USAGE =
-  "usage: jarvis notifications list [--since <cursor|duration|timestamp>] [--kind <incident-kind>]...\n";
+  "usage: jarvis notifications list [--since <cursor|duration|timestamp>] [--kind <incident-kind>]... [--project <name>]\n";
 export const NOTIFICATIONS_USAGE = "usage: jarvis notifications <wait|list> [args]\n";
 export const HELP_USAGE = "usage: jarvis help\n";

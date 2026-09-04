@@ -7,7 +7,7 @@ import { withConnectDispatch } from "../cli/stale-dispatch.ts";
 import { NOTIFICATIONS_LIST_USAGE, NOTIFICATIONS_USAGE, NOTIFICATIONS_WAIT_USAGE } from "../cli/usage.ts";
 import type { NotificationWaitResult } from "../daemon/daemon-notification-wait.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
-import { decodeNotificationDeliveryCursor } from "../persistence/state-store.ts";
+import { decodeNotificationDeliveryCursor, type NotificationDeliveryIncident } from "../persistence/state-store.ts";
 
 const SINCE_UNIT_MS = { d: 86_400_000, h: 3_600_000, m: 60_000, s: 1_000 } as const;
 
@@ -34,12 +34,9 @@ function parseSinceBound(value: string, nowMs: number): { sinceMs?: number; sinc
 
 type NotificationRpcParams = { sinceMs?: number; sinceCursor?: string; kinds?: string[] };
 
-function parseNotificationArgv(
-  rest: readonly string[],
-  usage: string,
-  io: Io,
-  deps: CliDeps,
-): { ok: true; params: NotificationRpcParams } | { ok: false } {
+type ParsedNotificationArgv = { ok: true; params: NotificationRpcParams; project?: string } | { ok: false };
+
+function parseNotificationArgv(rest: readonly string[], usage: string, io: Io, deps: CliDeps): ParsedNotificationArgv {
   let values: Record<string, string | boolean | string[] | undefined>;
   try {
     values = parseArgs({
@@ -78,7 +75,29 @@ function parseNotificationArgv(
     params.kinds = kinds;
   }
 
+  if (values.project !== undefined) {
+    if (typeof values.project !== "string" || values.project.length === 0) {
+      io.stderr("invalid_project: invalid value\n");
+      return { ok: false };
+    }
+    return { ok: true, params, project: values.project };
+  }
+
   return { ok: true, params };
+}
+
+function incidentMatchesProject(incident: NotificationDeliveryIncident, project: string | undefined): boolean {
+  return project === undefined || incident.project === project;
+}
+
+function advanceNotificationWaitParamsAfterSkip(
+  params: NotificationRpcParams,
+  deliveryCursor: string,
+): NotificationRpcParams {
+  const decoded = decodeNotificationDeliveryCursor(deliveryCursor);
+  const nextParams: NotificationRpcParams = { sinceMs: decoded.deliveredAt + 1 };
+  if (params.kinds !== undefined) nextParams.kinds = params.kinds;
+  return nextParams;
 }
 
 function parseNotificationWaitResult(value: unknown): NotificationWaitResult | undefined {
@@ -96,20 +115,48 @@ function parseNotificationListResult(value: unknown): NotificationWaitResult[] |
   return entries as NotificationWaitResult[];
 }
 
-async function notificationRpc(
-  method: "notification_wait" | "notification_list",
-  argv: readonly string[],
-  usage: string,
-  io: Io,
-  deps: CliDeps,
-): Promise<number> {
+async function notificationWaitRpc(argv: readonly string[], usage: string, io: Io, deps: CliDeps): Promise<number> {
   const parsed = parseNotificationArgv(argv, usage, io, deps);
   if (!parsed.ok) return 1;
+  const project = parsed.project;
+
+  return withConnectDispatch(io, deps, async (client) => {
+    let params = parsed.params;
+    for (;;) {
+      let response: unknown;
+      try {
+        response = await request(client, "notification_wait", params);
+      } catch (error) {
+        if (error instanceof RpcError) {
+          io.stderr(formatRpcError(error));
+          return 1;
+        }
+        throw error;
+      }
+      const result = parseNotificationWaitResult(response);
+      if (result === undefined) {
+        io.stderr("invalid daemon response\n");
+        return 1;
+      }
+      if (!incidentMatchesProject(result.incident, project)) {
+        params = advanceNotificationWaitParamsAfterSkip(params, result.deliveryCursor);
+        continue;
+      }
+      io.stdout(`${JSON.stringify(result)}\n`);
+      return 0;
+    }
+  });
+}
+
+async function notificationListRpc(argv: readonly string[], usage: string, io: Io, deps: CliDeps): Promise<number> {
+  const parsed = parseNotificationArgv(argv, usage, io, deps);
+  if (!parsed.ok) return 1;
+  const project = parsed.project;
 
   return withConnectDispatch(io, deps, async (client) => {
     let response: unknown;
     try {
-      response = await request(client, method, parsed.params);
+      response = await request(client, "notification_list", parsed.params);
     } catch (error) {
       if (error instanceof RpcError) {
         io.stderr(formatRpcError(error));
@@ -117,21 +164,13 @@ async function notificationRpc(
       }
       throw error;
     }
-    if (method === "notification_wait") {
-      const result = parseNotificationWaitResult(response);
-      if (result === undefined) {
-        io.stderr("invalid daemon response\n");
-        return 1;
-      }
-      io.stdout(`${JSON.stringify(result)}\n`);
-      return 0;
-    }
     const entries = parseNotificationListResult(response);
     if (entries === undefined) {
       io.stderr("invalid daemon response\n");
       return 1;
     }
     for (const entry of entries) {
+      if (!incidentMatchesProject(entry.incident, project)) continue;
       io.stdout(`${JSON.stringify(entry.incident)}\n`);
     }
     return 0;
@@ -141,10 +180,10 @@ async function notificationRpc(
 export async function runNotificationsCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
   const subcommand = argv[0];
   if (subcommand === "wait") {
-    return notificationRpc("notification_wait", argv.slice(1), NOTIFICATIONS_WAIT_USAGE, io, deps);
+    return notificationWaitRpc(argv.slice(1), NOTIFICATIONS_WAIT_USAGE, io, deps);
   }
   if (subcommand === "list") {
-    return notificationRpc("notification_list", argv.slice(1), NOTIFICATIONS_LIST_USAGE, io, deps);
+    return notificationListRpc(argv.slice(1), NOTIFICATIONS_LIST_USAGE, io, deps);
   }
   io.stderr(NOTIFICATIONS_USAGE);
   return 1;

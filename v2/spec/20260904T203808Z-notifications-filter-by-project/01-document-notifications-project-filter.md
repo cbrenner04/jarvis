@@ -21,8 +21,8 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/operator-runbook.md` § Operator notifications documents `--project` on `jarvis notifications wait` and `list` (exact project-name filter composable with `--kind`, machine-wide when omitted, stdout/wake only — no ledger suppression).
-- [ ] `v2/docs/v1-behaviors.md` catalogs `--project` on `jarvis notifications wait` and `list` as **[v2 additive]** (exact project-name match, composes with `--kind`, machine-wide when omitted, invalid empty `--project` exits `1` with `invalid_project: invalid value` before any notification RPC, stdout/wake filtering only — no ledger suppression).
+- [x] `v2/docs/operator-runbook.md` § Operator notifications documents `--project` on `jarvis notifications wait` and `list` (exact project-name filter composable with `--kind`, machine-wide when omitted, stdout/wake only — no ledger suppression).
+- [x] `v2/docs/v1-behaviors.md` catalogs `--project` on `jarvis notifications wait` and `list` as **[v2 additive]** (exact project-name match, composes with `--kind`, machine-wide when omitted, invalid empty `--project` exits `1` with `invalid_project: invalid value` before any notification RPC, stdout/wake filtering only — no ledger suppression).
 
 ## Documentation updates
 

@@ -23,7 +23,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/operator-runbook.md` § Operator notifications and § Deciding a workflow is finished document `jarvis notifications wait` as the supported wake primitive (stdout `{ incident, deliveryCursor }`, cursor usable as next `--since`), describe `notifications list` as incident-only NDJSON catch-up, cross-link `daemon-host.md`, and remove guidance to reach for `run list` loops when a notification is missed.
+- [x] `v2/docs/operator-runbook.md` § Operator notifications and § Deciding a workflow is finished document `jarvis notifications wait` as the supported wake primitive (stdout `{ incident, deliveryCursor }`, cursor usable as next `--since`), describe `notifications list` as incident-only NDJSON catch-up, cross-link `daemon-host.md`, and remove guidance to reach for `run list` loops when a notification is missed.
 
 ## Documentation updates
 

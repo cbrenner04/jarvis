@@ -343,15 +343,24 @@ Durable state: `~/.jarvis/state/v2.sqlite` ([`state-store.md`](./state-store.md)
 
 #### Operator notifications
 
-Configure a top-level `notificationSinkCommand` in `~/.jarvis/config.json` (see [install-and-config.md](./install-and-config.md#operator-notification-sink)). The daemon derives operator-actionable incidents from durable rows, diffs them against a delivery ledger, and spawns your command fire-and-forget with one JSON incident per stdin write. Dedupe key is `(incidentId, transition)` — a pipeline that reaches a gate and later fails notifies twice. Prefer this over inventing `run list` / `lsof` poll loops for backgrounded work. Full sweep placement and multi-daemon semantics: [daemon-host.md § Operator notifications](./daemon-host.md#operator-notifications).
+Configure a top-level `notificationSinkCommand` in `~/.jarvis/config.json` (see [install-and-config.md](./install-and-config.md#operator-notification-sink)). The daemon derives operator-actionable incidents from durable rows, diffs them against a delivery ledger, and spawns your command fire-and-forget with one JSON incident per stdin write. Dedupe key is `(incidentId, transition)` — a pipeline that reaches a gate and later fails notifies twice. Sink push is the primary path for backgrounded work; pull-side CLI complements it without replacing the sink.
+
+```sh
+jarvis notifications wait [--since <cursor|duration|timestamp>] [--kind <incident-kind>]...
+jarvis notifications list [--since <cursor|duration|timestamp>] [--kind <incident-kind>]...
+```
+
+`jarvis notifications wait` blocks on one daemon `notification_wait` call until the next owed delivery, prints one minified JSON line `{ incident, deliveryCursor }` on stdout, and exits `0`. Use `deliveryCursor` as the next `--since` to chain waits without gaps. `jarvis notifications list` issues one `notification_list` call, prints sink-shaped `incident` objects as incident-only NDJSON (one per line) without blocking, and exits `0`. Both accept `--since` as a delivery cursor (`deliveredAt:incidentId:transition`), relative duration (`2h`, `90m`, …), or absolute Unix ms / ISO 8601 timestamp, and optional repeated `--kind` filters. Cursor wire form, RPC params, and ledger semantics: [daemon-host.md § Operator notifications](./daemon-host.md#operator-notifications). Sweep placement and multi-daemon discharge: same section.
 
 #### Deciding a workflow is finished
 
 **Primary path: configure `notificationSinkCommand` in `~/.jarvis/config.json` and let the daemon push.** A live daemon sweeps derived operator incidents after startup reconciliation, on a five-second timer, and after state transitions. Each owed `(incidentId, transition)` fires your shell command once with one JSON object on stdin (`kind`, `pipelineId`/`runId`, `transition`, `cause`, …). Pipeline approval gates, terminal pipeline outcomes, publication failures, wedged settlement, blocked runs, budget-soft-stops, and ad-hoc workflow terminals surface at derived altitude — not as a burst of per-step run rows. See [install-and-config.md](./install-and-config.md#operator-notification-sink) and [daemon-host.md § Operator notifications](./daemon-host.md#operator-notifications). Without a sink configured the sweep still advances the delivery ledger silently; nothing spawns.
 
+**Pull wake for backgrounded work:** `jarvis notifications wait` is the supported wake primitive when you are not foreground-attached to a specific pipeline or run. It blocks until the next owed incident, prints `{ incident, deliveryCursor }` on stdout, and chains via `--since <deliveryCursor>`. Use `jarvis notifications list` for one-shot catch-up (incident-only NDJSON). See [Operator notifications](#operator-notifications).
+
 **Foreground blocking:** `jarvis pipeline wait <id>` and `jarvis run wait <id>` remain the right tools when you are already attached and want the CLI to block until a boundary.
 
-**Fallback diagnosis only** — do not build session wait loops on these; use them when a notification was missed or you are debugging:
+**Missed-notification diagnosis only** — do not build session wait loops on these; use them when a notification was missed or you are debugging:
 
 - **Post-completion mutation verification can lag every "done" signal.** Attached `jarvis run workflow` exit, `jarvis run list` showing every row `completed` / `not-live`, and an idle run table can all read finished while verifiers still run in the worktree. While either verifier runs, the tree may contain deliberately broken source. Before hand-finishing, confirm no live work remains.
 - **Match on any process, not on `bun`.** One-shot: `lsof +D ~/.jarvis/worktrees/<project>/<branch> | tail -n +2 | awk '{print $1}' | sort -u`. **Do not poll `lsof +D` on a loop** — it is expensive. To estimate fleet settle, count agent processes once: `ps ax -o comm= | grep -cE 'codex|cursor-agent|claude'`.

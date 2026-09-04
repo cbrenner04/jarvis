@@ -14,6 +14,7 @@ import { runCleanupCliCommand } from "./commands/cleanup-cli.ts";
 import { runConfigCommand } from "./commands/config.ts";
 import { runDaemonCommand } from "./commands/daemon.ts";
 import { runInitCommand } from "./commands/init.ts";
+import { runNotificationsCommand } from "./commands/notifications.ts";
 import { runPipelineCommand } from "./commands/pipeline.ts";
 import { runRunCommand } from "./commands/run.ts";
 import { runTuiCommand } from "./commands/tui.ts";
@@ -78,6 +79,7 @@ const commandEntries: readonly CommandEntry[] = [
   commandEntry("run", runRunCommand),
   commandEntry("tui", runTuiCommand),
   commandEntry("pipeline", runPipelineCommand),
+  commandEntry("notifications", runNotificationsCommand),
   commandEntry("cleanup", runCleanupCliCommand),
   commandEntry("help", (argv, io) => Promise.resolve(renderHelp(io, argv))),
 ];

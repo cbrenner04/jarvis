@@ -19,6 +19,7 @@ import {
   DAEMON_USAGE,
   HELP_USAGE,
   INIT_USAGE,
+  NOTIFICATIONS_USAGE,
   PIPELINE_USAGE,
   RUN_KILL_USAGE,
   RUN_LIST_USAGE,
@@ -33,7 +34,7 @@ import {
 import { enumerateCommands, findCommand, resolveHelpFlagAlias } from "./cli.ts";
 import { captureIo, cliMain as main, tempPaths, writeMachineConfig } from "./testing/cli-test-helpers.ts";
 
-const commandNames = "init, daemon, config, run, tui, pipeline, cleanup, help";
+const commandNames = "init, daemon, config, run, tui, pipeline, notifications, cleanup, help";
 
 function helpStdoutWithFlags(
   usage: string,
@@ -125,6 +126,7 @@ describe("v2 cli dispatch", () => {
         "run\tManage daemon-backed runs.\n" +
         "tui\tOpen the interactive run monitor.\n" +
         "pipeline\tManage daemon-backed pipelines.\n" +
+        "notifications\tPull operator notification deliveries from the daemon ledger.\n" +
         "cleanup\tRetire completed worktrees and specs.\n" +
         "help\tShow help for commands and subcommands.\n",
       stderr: "",
@@ -405,6 +407,7 @@ describe("v2 cli dispatch", () => {
       RUN_USAGE,
       TUI_USAGE,
       PIPELINE_USAGE,
+      NOTIFICATIONS_USAGE,
       CLEANUP_USAGE,
       HELP_USAGE,
     ]);
@@ -658,6 +661,7 @@ describe("v2 cli dispatch", () => {
       if (parent === "run workflow") return WORKFLOW_USAGE;
       if (parent === "tui") return TUI_USAGE;
       if (parent === "pipeline") return PIPELINE_USAGE;
+      if (parent === "notifications") return NOTIFICATIONS_USAGE;
       throw new Error(`dispatch-coverage: no unknown-subcommand output known for parent \`${parent}\``);
     }
 

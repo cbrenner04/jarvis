@@ -13,10 +13,12 @@ export type DiscoveryManifestRow = {
 
 const SCAN_ROOTS = ["v2/src", "shared"] as const;
 const STRUCTURAL_NAME_PATTERN = /(?:^|[-.])(?:inventory|structure|guard|boundary|parity)(?:\.|[-_]|$)/i;
+// Substring tokens, not anchored suffixes: a mirror named `..._BASELINES` or `..._BODY_LENGTH`
+// is the same defect as one named `..._BASELINE`, and anchoring on the exact ending is itself the
+// incidental-structure keying this audit exists to catalog.
 const REGISTRY_MIRROR_NAME =
-  /^(?:PERMITTED_|FORBIDDEN_|ALLOWED_|LOSSLESS_|CONSUMER_|SOURCE_BUCKETS|EXTRACTED_FROM_)|(?:INVENTORY|REGISTRY|_FILES|_MAP|SURFACES|BASELINE)$/i;
+  /PERMITTED|FORBIDDEN|ALLOWED|LOSSLESS|CONSUMER|EXTRACTED_FROM|INVENTORY|REGISTRY|SURFACES|BASELINE|EXPECTED|_FILES|_MAP|_TITLES|_CALLERS|_LENGTH|_BUCKETS/i;
 const FIXTURE_PATH_HINT = /(?:fixtures?\/|\.scratch\/|manifest\.json|mkdtemp|tmpdir)/i;
-const PRODUCTION_PATH_HINT = /(?:v[12]\/src\/|shared\/|import\.meta\.dir|\.tsx?(?:["'`\)]|$))/i;
 
 export function walkCoLocatedTestFiles(repoRoot: string): string[] {
   const files: string[] = [];
@@ -35,9 +37,13 @@ function matchesStructuralName(testPath: string): boolean {
   return STRUCTURAL_NAME_PATTERN.test(base);
 }
 
+// A read whose path is computed into a variable (`readFileSync(sourcePath, "utf8")`) carries no
+// literal path to match, which is the ordinary style — requiring a literal production hint inside
+// the call text silently drops most real source-reading tests. Fixture and temp-dir reads are
+// excluded positively; everything else counts. Over-inclusion is dispositioned at inventory time,
+// where it is visible; a false negative is invisible.
 function readCallLooksProduction(readCall: string): boolean {
-  if (FIXTURE_PATH_HINT.test(readCall)) return false;
-  return PRODUCTION_PATH_HINT.test(readCall);
+  return !FIXTURE_PATH_HINT.test(readCall);
 }
 
 function matchesSourceRead(source: string): boolean {

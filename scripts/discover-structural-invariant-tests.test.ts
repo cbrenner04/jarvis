@@ -4,18 +4,25 @@ import { join } from "node:path";
 import {
   classifyStructuralInvariantTestFile,
   discoverStructuralInvariantTests,
-  type DiscoveryRationale,
 } from "./discover-structural-invariant-tests.ts";
 
-const SEED_EXAMPLE_FILES: Readonly<Record<string, DiscoveryRationale>> = {
-  "v2/src/execution/execution-terminal-settlement-guard.test.ts": "source-read",
-  "v2/src/daemon/daemon-test-inventory.test.ts": "source-read",
-  "v2/src/execution/workflow-runner-resume-inventory.test.ts": "source-read",
-  "v2/src/execution/workflow-runner-resume-structure.test.ts": "source-read",
-  "v2/src/execution/diff-derived-mutation-verifier.test.ts": "source-read",
-  "v2/src/daemon/daemon-workflow-start.test.ts": "source-read",
-  "shared/module-boundary-surfaces.test.ts": "structural-name",
-};
+// Which rule catches a given file is incidental — rule evaluation order can change without the
+// guarantee changing. What must hold is that each file is selected by some rule rather than by a
+// path allowlist, so these are asserted in-scope with a named rule, not a pinned one.
+const SEED_EXAMPLE_FILES: readonly string[] = [
+  "v2/src/execution/execution-terminal-settlement-guard.test.ts",
+  "v2/src/daemon/daemon-test-inventory.test.ts",
+  "v2/src/execution/workflow-runner-resume-inventory.test.ts",
+  "v2/src/execution/workflow-runner-resume-structure.test.ts",
+  "v2/src/execution/diff-derived-mutation-verifier.test.ts",
+  "v2/src/daemon/daemon-workflow-start.test.ts",
+  "shared/module-boundary-surfaces.test.ts",
+];
+
+// Reads its production path through a variable (`readFileSync(sourcePath, "utf8")`) and mirrors a
+// production registry under a plural name. Both shapes were missed by the first implementation,
+// which required a literal production path inside the call text and an exact `BASELINE` suffix.
+const COMPUTED_PATH_READ_FILE = "shared/prompts/review-implement-growth-budget.test.ts";
 
 describe("discover structural invariant tests", () => {
   test("discovery emits in-scope for a source-reading test file", () => {
@@ -61,19 +68,24 @@ test("adds numbers", () => {
 
   test("discovery classifies every seed example file in-scope by rule", () => {
     const scriptSource = readFileSync(join(import.meta.dir, "discover-structural-invariant-tests.ts"), "utf8");
-    for (const testPath of Object.keys(SEED_EXAMPLE_FILES)) {
+    for (const testPath of SEED_EXAMPLE_FILES) {
       expect(scriptSource.includes(`"${testPath}"`)).toBe(false);
       expect(scriptSource.includes(`'${testPath}'`)).toBe(false);
     }
 
     const rows = discoverStructuralInvariantTests(process.cwd());
     const byPath = new Map(rows.map((row) => [row["test-path"], row]));
-    for (const [testPath, rule] of Object.entries(SEED_EXAMPLE_FILES)) {
-      expect(byPath.get(testPath)).toEqual({
-        "test-path": testPath,
-        scope: "in-scope",
-        rule,
-      });
+    for (const testPath of SEED_EXAMPLE_FILES) {
+      const row = byPath.get(testPath);
+      expect(row?.scope).toBe("in-scope");
+      expect(row?.rule).not.toBe("no-structural-signal");
     }
+  });
+
+  test("discovery emits in-scope for a corpus file whose read path is a variable", () => {
+    const rows = discoverStructuralInvariantTests(process.cwd());
+    const row = rows.find((candidate) => candidate["test-path"] === COMPUTED_PATH_READ_FILE);
+    expect(row?.scope).toBe("in-scope");
+    expect(row?.rule).not.toBe("no-structural-signal");
   });
 });

@@ -23,7 +23,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/daemon-host.md` § Operator notifications documents `notification_wait` / `notification_list` RPC contracts, `deliveryCursor` responses, waiter wake on sweep delivery, kind/since filter parameters, empty-`kinds` rejection, and retiring-daemon `notification_wait` availability consistent with subspecs 00–02.
+- [x] `v2/docs/daemon-host.md` § Operator notifications documents `notification_wait` / `notification_list` RPC contracts, `deliveryCursor` responses, waiter wake on sweep delivery, kind/since filter parameters, empty-`kinds` rejection, and retiring-daemon `notification_wait` availability consistent with subspecs 00–02.
 
 ## Documentation updates
 

@@ -11,6 +11,7 @@ import { truncateLogText } from "../persistence/log-stream.ts";
 import type { StateStore } from "../persistence/state-store.ts";
 import type { ActiveRun, OwnershipKey, PromotionSettleState, WorktreeOwnershipRegistry } from "./daemon.ts";
 import { WorktreeOwnershipRegistry as WorktreeOwnershipRegistryImpl } from "./daemon.ts";
+import type { NotificationWaitRegistry } from "./daemon-notification-wait.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
 import { bindPipelineWaitObserver, PipelineWaitObserver } from "./pipeline-observation.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
@@ -38,6 +39,7 @@ export type RunControlHandlerContextDeps = {
   connectStaleResetClient?: (socketPath: string) => Promise<IpcClient>;
   staleResetCliDeps?: CliDeps;
   reconciledRunIds?: readonly string[];
+  notificationWaitRegistry?: NotificationWaitRegistry;
 };
 
 export type RunControlHandlerContext = {

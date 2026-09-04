@@ -39,6 +39,11 @@ import {
   type StateStore,
 } from "../persistence/state-store.ts";
 import {
+  createNotificationListHandler,
+  createNotificationWaitHandler,
+  NotificationWaitRegistry,
+} from "./daemon-notification-wait.ts";
+import {
   type EnumerateOtherDaemonSockets,
   enumerateOtherDaemonSockets,
   type SupersedePeerDaemon,
@@ -687,6 +692,13 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
   const isRetiring = (): boolean => ctx.retiring;
 
+  const notificationWaitRegistry = deps.notificationWaitRegistry ?? new NotificationWaitRegistry();
+  const notification_wait = createNotificationWaitHandler(ctx.store, notificationWaitRegistry);
+  const notification_list = createNotificationListHandler(ctx.store);
+  const wakeNotificationWaiters = (): void => {
+    notificationWaitRegistry.wakeFromStore(ctx.store);
+  };
+
   const handlersOut = {
     start: startHandler,
     "implement.recover": implementRecoverHandler,
@@ -707,6 +719,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     pipeline_undismiss: pipeline.pipeline_undismiss,
     pipeline_list: pipeline.pipeline_list,
     pipeline_wait: pipeline.pipeline_wait,
+    notification_wait,
+    notification_list,
     continueContinuablePipelines: pipeline.continueContinuablePipelines,
     /** Non-RPC seam: exposes the built pipeline-execution deps so tests can assert stale-reset wiring. */
     pipelineExecutionDeps: pipeline.pipelineExecutionDeps,
@@ -714,6 +728,8 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     reportReviewDebateProgress: reportReviewProgress,
     /** Clears live review progress for an invocation; frozen terminal snapshots are retained. */
     clearLiveReviewDebateProgress: clearLiveReviewProgress,
+    /** Wakes armed `notification_wait` callers after a ledger delivery observation. */
+    wakeNotificationWaiters,
     /** Aborts every in-flight `wait` follow loop so it unwinds. */
     close: (): void => {
       for (const controller of waitAbortControllers) {
@@ -855,6 +871,7 @@ export async function startDaemonRuntime(
   const {
     reportReviewDebateProgress: _reportReviewDebateProgress,
     clearLiveReviewDebateProgress: _clearLiveReviewDebateProgress,
+    wakeNotificationWaiters,
     close: _closeRunControlHandlers,
     continueContinuablePipelines,
     setRetiring,
@@ -930,6 +947,7 @@ export async function startDaemonRuntime(
   const notificationSweepDeps = {
     store,
     readSinkCommand: readSink,
+    wakeNotificationWaiters,
     ...(startupDeps.notificationSpawnSink === undefined ? {} : { spawnSink: startupDeps.notificationSpawnSink }),
   };
   const notificationSweepState = { sweepInProgress: false };

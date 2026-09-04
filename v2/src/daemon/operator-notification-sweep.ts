@@ -29,6 +29,7 @@ export type NotificationSweepDeps = {
   readSinkCommand: () => string | undefined;
   spawnSink?: NotificationSinkSpawner;
   nowMs?: () => number;
+  wakeNotificationWaiters?: (store: StateStore) => void;
 };
 
 function deliverIncident(
@@ -37,14 +38,22 @@ function deliverIncident(
   sinkCommand: string | undefined,
   spawnSink: NotificationSinkSpawner,
   deliveredAt: number,
+  wakeNotificationWaiters?: (store: StateStore) => void,
 ): void {
   const { incidentId, transition } = incident;
-  if (store.hasNotificationDelivery({ incidentId, transition })) return;
+  if (store.hasNotificationDelivery({ incidentId, transition })) {
+    if (store.loadDeliveredNotificationIncident({ incidentId, transition }) !== null) {
+      wakeNotificationWaiters?.(store);
+    }
+    return;
+  }
 
   const incidentJson = serializeOperatorIncident(incident);
 
   if (sinkCommand === undefined) {
-    store.tryRecordNotificationDelivery({ incidentId, transition, deliveredAt, incidentJson });
+    if (store.tryRecordNotificationDelivery({ incidentId, transition, deliveredAt, incidentJson })) {
+      wakeNotificationWaiters?.(store);
+    }
     return;
   }
 
@@ -53,7 +62,9 @@ function deliverIncident(
   const spawnResult = spawnSink(sinkCommand, incidentJson);
   if (!spawnResult.ok) {
     store.releaseNotificationDelivery({ incidentId, transition });
+    return;
   }
+  wakeNotificationWaiters?.(store);
 }
 
 export function shouldSkipOverlappingNotificationSweep(inProgress: boolean): boolean {
@@ -82,7 +93,9 @@ export function runNotificationSweep(deps: NotificationSweepDeps): void {
   const spawnSink = deps.spawnSink ?? spawnNotificationSinkCommand;
   const nowMs = deps.nowMs?.() ?? Date.now();
 
+  const wakeNotificationWaiters = deps.wakeNotificationWaiters;
   for (const incident of deriveOperatorIncidents(store, nowMs)) {
-    deliverIncident(store, incident, sinkCommand, spawnSink, nowMs);
+    deliverIncident(store, incident, sinkCommand, spawnSink, nowMs, wakeNotificationWaiters);
   }
+  wakeNotificationWaiters?.(store);
 }

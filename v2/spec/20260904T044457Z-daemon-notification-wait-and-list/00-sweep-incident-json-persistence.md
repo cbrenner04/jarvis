@@ -27,7 +27,3 @@
 ## Documentation updates
 
 - Deferred to subspec 03.
-
-## Blocker
-
-Outcome misclassified: session log concatenated the terminal `done` with the follow-up summary (`doneSubspec`), so token parsing matched `blocked` in regression-test prose ('seeds a blocked run'). All acceptance criteria are satisfied; remove this section and resume.

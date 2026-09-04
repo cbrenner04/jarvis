@@ -894,25 +894,16 @@ export function decodeNotificationDeliveryCursor(cursor: string): NotificationDe
   }
   const deliveredAt = Number(cursor.slice(0, firstColon));
   const rest = cursor.slice(firstColon + 1);
-  let incidentId: string;
-  let transition: string;
-  if (rest.startsWith("stage:")) {
-    const parts = rest.split(":");
-    if (parts.length < 5) {
-      throw new Error(`invalid notification delivery cursor: ${cursor}`);
-    }
-    incidentId = parts.slice(0, 4).join(":");
-    transition = parts.slice(4).join(":");
-  } else if (rest.startsWith("pipeline:") || rest.startsWith("run:")) {
-    const parts = rest.split(":");
-    if (parts.length < 3) {
-      throw new Error(`invalid notification delivery cursor: ${cursor}`);
-    }
-    incidentId = parts.slice(0, 2).join(":");
-    transition = parts.slice(2).join(":");
-  } else {
+  const idPartCount = rest.startsWith("stage:") ? 4 : rest.startsWith("pipeline:") || rest.startsWith("run:") ? 2 : -1;
+  if (idPartCount === -1) {
     throw new Error(`invalid notification delivery cursor: ${cursor}`);
   }
+  const parts = rest.split(":");
+  if (parts.length < idPartCount + 1) {
+    throw new Error(`invalid notification delivery cursor: ${cursor}`);
+  }
+  const incidentId = parts.slice(0, idPartCount).join(":");
+  const transition = parts.slice(idPartCount).join(":");
   if (!Number.isFinite(deliveredAt) || incidentId.length === 0 || transition.length === 0) {
     throw new Error(`invalid notification delivery cursor: ${cursor}`);
   }
@@ -920,22 +911,28 @@ export function decodeNotificationDeliveryCursor(cursor: string): NotificationDe
 }
 
 function parseNotificationDeliveryIncidentJson(incidentJson: string): NotificationDeliveryIncident | null {
+  const jsonStringOrNull = (value: unknown): string | null =>
+    typeof value === "string" || value === null ? value : null;
   try {
     const parsed: unknown = JSON.parse(incidentJson);
     if (!isRecord(parsed)) return null;
-    if (typeof parsed.incidentId !== "string") return null;
-    if (typeof parsed.kind !== "string") return null;
-    if (typeof parsed.transition !== "string") return null;
+    if (
+      typeof parsed.incidentId !== "string" ||
+      typeof parsed.kind !== "string" ||
+      typeof parsed.transition !== "string"
+    ) {
+      return null;
+    }
     return {
       incidentId: parsed.incidentId,
       kind: parsed.kind,
       transition: parsed.transition,
-      project: typeof parsed.project === "string" || parsed.project === null ? parsed.project : null,
-      pipelineId: typeof parsed.pipelineId === "string" || parsed.pipelineId === null ? parsed.pipelineId : null,
-      stageId: typeof parsed.stageId === "string" || parsed.stageId === null ? parsed.stageId : null,
-      branchKey: typeof parsed.branchKey === "string" || parsed.branchKey === null ? parsed.branchKey : null,
-      runId: typeof parsed.runId === "string" || parsed.runId === null ? parsed.runId : null,
-      cause: typeof parsed.cause === "string" || parsed.cause === null ? parsed.cause : null,
+      project: jsonStringOrNull(parsed.project),
+      pipelineId: jsonStringOrNull(parsed.pipelineId),
+      stageId: jsonStringOrNull(parsed.stageId),
+      branchKey: jsonStringOrNull(parsed.branchKey),
+      runId: jsonStringOrNull(parsed.runId),
+      cause: jsonStringOrNull(parsed.cause),
       sinceMs: typeof parsed.sinceMs === "number" || parsed.sinceMs === null ? parsed.sinceMs : null,
     };
   } catch {
@@ -2610,43 +2607,25 @@ class StateStoreImpl implements StateStore {
 
   listDeliveredNotificationIncidents(args: ListDeliveredNotificationIncidentsArgs): NotificationDeliveryIncident[] {
     const kindFilter = notificationDeliveryKindFilterSql(args.kinds);
-    const baseSql = `SELECT incident_id AS incidentId, transition, delivered_at AS deliveredAt, incident_json AS incidentJson
-      FROM operator_notification_deliveries
-      WHERE incident_json IS NOT NULL`;
-    let rows: Array<{
-      incidentId: string;
-      transition: string;
-      deliveredAt: number;
-      incidentJson: string;
-    }>;
+    let boundSql: string;
+    let bindings: SQLQueryBindings[];
     if ("sinceCursor" in args) {
       const cursor = decodeNotificationDeliveryCursor(args.sinceCursor);
-      rows = this.db
-        .prepare(
-          `${baseSql} AND (delivered_at, incident_id, transition) >= (?, ?, ?)${kindFilter.sql}
-          ORDER BY delivered_at ASC, incident_id ASC, transition ASC`,
-        )
-        .all(cursor.deliveredAt, cursor.incidentId, cursor.transition, ...kindFilter.bindings) as Array<{
-        incidentId: string;
-        transition: string;
-        deliveredAt: number;
-        incidentJson: string;
-      }>;
+      boundSql = `AND (delivered_at, incident_id, transition) >= (?, ?, ?)${kindFilter.sql}`;
+      bindings = [cursor.deliveredAt, cursor.incidentId, cursor.transition, ...kindFilter.bindings];
     } else if ("sinceMs" in args) {
-      rows = this.db
-        .prepare(
-          `${baseSql} AND delivered_at >= ?${kindFilter.sql}
-          ORDER BY delivered_at ASC, incident_id ASC, transition ASC`,
-        )
-        .all(args.sinceMs, ...kindFilter.bindings) as Array<{
-        incidentId: string;
-        transition: string;
-        deliveredAt: number;
-        incidentJson: string;
-      }>;
+      boundSql = `AND delivered_at >= ?${kindFilter.sql}`;
+      bindings = [args.sinceMs, ...kindFilter.bindings];
     } else {
       throw new Error("listDeliveredNotificationIncidents requires sinceCursor or sinceMs");
     }
+    const rows = this.db
+      .prepare(
+        `SELECT incident_json AS incidentJson FROM operator_notification_deliveries
+        WHERE incident_json IS NOT NULL ${boundSql}
+        ORDER BY delivered_at ASC, incident_id ASC, transition ASC`,
+      )
+      .all(...bindings) as Array<{ incidentJson: string }>;
     const incidents: NotificationDeliveryIncident[] = [];
     for (const row of rows) {
       const incident = parseNotificationDeliveryIncidentJson(row.incidentJson);

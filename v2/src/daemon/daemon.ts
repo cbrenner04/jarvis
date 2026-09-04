@@ -399,7 +399,7 @@ function isLoadError(value: AgentModelConfig | LoadError): value is LoadError {
   return "errors" in value && Array.isArray(value.errors);
 }
 
-/** Same loader path as fresh write-step admission (`loadWorkflowSteps` / `jarvis write`). */
+/** Same loader path as fresh write-step admission (`loadWorkflowSteps`). */
 function loadAgentModelConfigForWriteLoopAgents(agents: readonly string[]): AgentModelConfig {
   const profile = resolveMachineProfile(writeLoopBindingSourceDeps.machineConfigPath);
   const loaded = loadMachineProfileModels(profile, agents, {

@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { main as runtimeMain } from "../cli.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
-import type { WriteLoopResult } from "../execution/write-loop.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import type { IpcFrame } from "../ipc/types.ts";
@@ -170,15 +169,6 @@ export function stubAgentModelConfig(agents: readonly string[]): AgentModelConfi
   return Object.fromEntries(agents.map((agent) => [agent, { implement: TEST_RUNG }]));
 }
 
-export function completeResult(): WriteLoopResult {
-  return {
-    kind: "complete",
-    runId: "run-123",
-    iterationsConsumed: 1,
-    resumable: false,
-  };
-}
-
 export function workflowFrames(
   startRequestId: string,
   waitRequestId: string,
@@ -224,7 +214,6 @@ export interface CliRepoFixture {
   repoRoot: string;
   repoSub: string;
   unregistered: string;
-  writeArgs: readonly string[];
   runStartArgs: readonly string[];
   fakeImplementSteps: AnyWorkflowStep[];
   cleanup: () => void;
@@ -265,7 +254,6 @@ export function makeCliRepoFixture(): CliRepoFixture {
     repoRoot,
     repoSub,
     unregistered,
-    writeArgs: ["write", ...workspaceArgs],
     runStartArgs: ["run", "start", ...workspaceArgs],
     fakeImplementSteps: [
       {

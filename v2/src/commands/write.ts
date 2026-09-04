@@ -1,5 +1,4 @@
 import type { CliDeps } from "../cli/deps.ts";
-import { exitCodeForWriteResult } from "../cli/run-completion.ts";
 import type { AgentModelConfig, LoadError } from "../config/agent-model-config.ts";
 import { loadMachineConfig, resolveWritePathIterationBounds } from "../config/machine-config-loader.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
@@ -55,5 +54,3 @@ export function parseWriteCliInput(argv: readonly string[], deps: CliDeps): Writ
     return { ok: false, message: `${message}\n` };
   }
 }
-
-export { exitCodeForWriteResult };

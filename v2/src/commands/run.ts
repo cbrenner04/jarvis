@@ -10,8 +10,8 @@ import {
   RUN_KILL_USAGE,
   RUN_LIST_USAGE,
   RUN_LOG_USAGE,
-  RUN_UNDISMISS_USAGE,
   RUN_START_USAGE,
+  RUN_UNDISMISS_USAGE,
   RUN_USAGE,
 } from "../cli/usage.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";

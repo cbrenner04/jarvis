@@ -21,9 +21,9 @@ Add a minimal `v1-behaviors.md` entry that the `jarvis write` top-level command 
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/v1-behaviors.md` records that the `jarvis write` top-level command is removed and that `jarvis run start` plus workflow write steps remain the supported write-admission paths; fails against the pre-fix catalog that still documents foreground `jarvis write`.
-- [ ] `v2/docs/v1-behaviors.md` `jarvis run wait` exit-code bullet no longer cites `jarvis write` as a live comparator; fails against line 579 on the pre-fix catalog.
-- [ ] `v2/docs/v1-behaviors.md` help-tree flag-example list no longer includes `write` as a live node; fails against line 45 on the pre-fix catalog.
+- [x] `v2/docs/v1-behaviors.md` records that the `jarvis write` top-level command is removed and that `jarvis run start` plus workflow write steps remain the supported write-admission paths; fails against the pre-fix catalog that still documents foreground `jarvis write`.
+- [x] `v2/docs/v1-behaviors.md` `jarvis run wait` exit-code bullet no longer cites `jarvis write` as a live comparator; fails against line 579 on the pre-fix catalog.
+- [x] `v2/docs/v1-behaviors.md` help-tree flag-example list no longer includes `write` as a live node; fails against line 45 on the pre-fix catalog.
 
 ## Documentation updates
 

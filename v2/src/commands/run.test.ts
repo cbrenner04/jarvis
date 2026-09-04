@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { RUN_DISMISS_USAGE, RUN_START_USAGE, RUN_UNDISMISS_USAGE, RUN_USAGE } from "../cli/usage.ts";
-import type { PersistedRecord } from "../persistence/log-stream.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
+import type { PersistedRecord } from "../persistence/log-stream.ts";
 import {
   absentMachineConfigPath,
   type CliRepoFixture,

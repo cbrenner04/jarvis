@@ -91,7 +91,7 @@ export function buildWriteLoopInputFromCliValues(
   return buildWriteLoopInput(toLaunchFields(values), agentModelConfig, fallbackAgents);
 }
 
-/** CLI flag names accepted by `jarvis write` and `jarvis run start`. */
+/** CLI flag names accepted by `jarvis run start`. */
 export function parseWriteArgs(argv: readonly string[]): Record<string, string | boolean | string[] | undefined> {
   return parseArgs({
     args: [...argv],

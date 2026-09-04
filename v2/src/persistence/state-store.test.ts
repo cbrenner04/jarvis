@@ -297,6 +297,20 @@ describe("StateStore", () => {
     expect(results).toEqual([JSON.parse(serializeOperatorIncident(incident))]);
   });
 
+  test("decode notification delivery cursor parses stage incident ids and rejects short stage wire", () => {
+    const stageCursor = {
+      deliveredAt: 1_700_000_000_003,
+      incidentId: "stage:pipe-1:plan:default",
+      transition: "settlement_deferred:entry_run_dead",
+    };
+    const encoded = encodeNotificationDeliveryCursor(stageCursor);
+    // @mutate v2/src/persistence/state-store.ts "if (parts.length < 5) {" -> "if (parts.length >= 5) {"
+    expect(decodeNotificationDeliveryCursor(encoded)).toEqual(stageCursor);
+    expect(() => decodeNotificationDeliveryCursor("1:stage:pipe-1:plan")).toThrow(
+      "invalid notification delivery cursor: 1:stage:pipe-1:plan",
+    );
+  });
+
   test("schema bootstrap is idempotent on re-open", () => {
     const runId = seedRun(store);
     store.close();

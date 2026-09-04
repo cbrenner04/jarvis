@@ -39,7 +39,7 @@ function parseNotificationArgv(
   usage: string,
   io: Io,
   deps: CliDeps,
-): { ok: true; params: NotificationRpcParams } | { ok: false } {
+): { ok: true; params: NotificationRpcParams; project?: string } | { ok: false } {
   let values: Record<string, string | boolean | string[] | undefined>;
   try {
     values = parseArgs({
@@ -78,7 +78,16 @@ function parseNotificationArgv(
     params.kinds = kinds;
   }
 
-  return { ok: true, params };
+  let project: string | undefined;
+  if (values.project !== undefined) {
+    if (typeof values.project !== "string" || values.project.length === 0) {
+      io.stderr("invalid_project: invalid value\n");
+      return { ok: false };
+    }
+    project = values.project;
+  }
+
+  return project !== undefined ? { ok: true, params, project } : { ok: true, params };
 }
 
 function parseNotificationWaitResult(value: unknown): NotificationWaitResult | undefined {
@@ -96,6 +105,65 @@ function parseNotificationListResult(value: unknown): NotificationWaitResult[] |
   return entries as NotificationWaitResult[];
 }
 
+type RpcOutcome = { ok: true; response: unknown } | { ok: false };
+
+/** One RPC, reporting an `RpcError` to stderr rather than throwing. Non-RPC errors still throw. */
+async function requestOrReport(
+  client: Parameters<typeof request>[0],
+  method: string,
+  params: NotificationRpcParams,
+  io: Io,
+): Promise<RpcOutcome> {
+  try {
+    return { ok: true, response: await request(client, method, params) };
+  } catch (error) {
+    if (error instanceof RpcError) {
+      io.stderr(formatRpcError(error));
+      return { ok: false };
+    }
+    throw error;
+  }
+}
+
+function withKinds(params: NotificationRpcParams, sinceCursor: string): NotificationRpcParams {
+  return { sinceCursor, ...(params.kinds !== undefined ? { kinds: params.kinds } : {}) };
+}
+
+/** Blocks until an incident matching `project` (or any, when undefined) is owed, printing one line. */
+async function waitForIncident(
+  client: Parameters<typeof request>[0],
+  initial: NotificationRpcParams,
+  project: string | undefined,
+  io: Io,
+): Promise<number> {
+  let params = initial;
+  for (;;) {
+    const waited = await requestOrReport(client, "notification_wait", params, io);
+    if (!waited.ok) return 1;
+    const result = parseNotificationWaitResult(waited.response);
+    if (result === undefined) {
+      io.stderr("invalid daemon response\n");
+      return 1;
+    }
+    if (project === undefined || result.incident.project === project) {
+      io.stdout(`${JSON.stringify(result)}\n`);
+      return 0;
+    }
+
+    // Non-matching wake: catch up through the ledger from this cursor before re-arming, so an
+    // incident that landed between wakes is not skipped.
+    params = withKinds(initial, result.deliveryCursor);
+    const listed = await requestOrReport(client, "notification_list", params, io);
+    if (!listed.ok) return 1;
+    const scan = scanForProject(parseNotificationListResult(listed.response), result.deliveryCursor, project);
+    if (scan.matched !== undefined) {
+      io.stdout(`${JSON.stringify(scan.matched)}\n`);
+      return 0;
+    }
+    if (scan.lastCursor !== undefined) params = withKinds(initial, scan.lastCursor);
+  }
+}
+
 async function notificationRpc(
   method: "notification_wait" | "notification_list",
   argv: readonly string[],
@@ -105,37 +173,41 @@ async function notificationRpc(
 ): Promise<number> {
   const parsed = parseNotificationArgv(argv, usage, io, deps);
   if (!parsed.ok) return 1;
+  const project = parsed.project;
 
   return withConnectDispatch(io, deps, async (client) => {
-    let response: unknown;
-    try {
-      response = await request(client, method, parsed.params);
-    } catch (error) {
-      if (error instanceof RpcError) {
-        io.stderr(formatRpcError(error));
-        return 1;
-      }
-      throw error;
-    }
-    if (method === "notification_wait") {
-      const result = parseNotificationWaitResult(response);
-      if (result === undefined) {
-        io.stderr("invalid daemon response\n");
-        return 1;
-      }
-      io.stdout(`${JSON.stringify(result)}\n`);
-      return 0;
-    }
-    const entries = parseNotificationListResult(response);
+    if (method === "notification_wait") return waitForIncident(client, parsed.params, project, io);
+
+    const listed = await requestOrReport(client, method, parsed.params, io);
+    if (!listed.ok) return 1;
+    const entries = parseNotificationListResult(listed.response);
     if (entries === undefined) {
       io.stderr("invalid daemon response\n");
       return 1;
     }
     for (const entry of entries) {
+      if (project !== undefined && entry.incident.project !== project) continue;
       io.stdout(`${JSON.stringify(entry.incident)}\n`);
     }
     return 0;
   });
+}
+
+/** Entries after `afterCursor`, up to the first whose incident matches `project`. Returns that
+ *  entry when found, plus the last cursor scanned so a caller can advance past what it consumed. */
+function scanForProject(
+  entries: readonly NotificationWaitResult[] | undefined,
+  afterCursor: string,
+  project: string,
+): { matched?: NotificationWaitResult; lastCursor?: string } {
+  if (entries === undefined) return {};
+  const startIndex = entries.findIndex((entry) => entry.deliveryCursor === afterCursor);
+  let lastCursor: string | undefined;
+  for (const entry of entries.slice(startIndex >= 0 ? startIndex + 1 : 0)) {
+    if (entry.incident.project === project) return { matched: entry };
+    lastCursor = entry.deliveryCursor;
+  }
+  return lastCursor === undefined ? {} : { lastCursor };
 }
 
 export async function runNotificationsCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {

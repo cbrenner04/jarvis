@@ -32,16 +32,16 @@ A multi-project operator on one shared daemon receives an undifferentiated incid
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/notifications.test.ts` test `empty --project exits 1 with invalid_project and skips notification RPC` asserts `notifications wait --project ""` and `notifications list --project ""` exit `1` with `invalid_project: invalid value\n` on stderr, empty stdout, and no notification RPC; it fails against the pre-fix behavior (mirror `run-list-dimension-filters.test.ts`).
-- [ ] `v2/src/commands/notifications.test.ts` test `wait filtered by project ignores other projects` arms `notifications wait --project <name>`, delivers an incident for another project first with no stdout wake, then a matching one, and asserts only the matching incident wakes wait; it fails against the pre-fix unfiltered wait.
-- [ ] `v2/src/commands/notifications.test.ts` test `wait filtered by project since cursor returns matching delivery recorded while no waiter was armed` records a non-matching-project delivery and a matching one, arms `notifications wait --project <name> --since <prior cursor>`, and asserts only the matching incident is returned; it fails against the pre-fix unfiltered wait or wait that filters only on the blocking wake path.
-- [ ] `v2/src/commands/notifications.test.ts` test `wait filtered by project wakes on own project` arms `notifications wait --project <name>` and asserts a matching incident returns on stdout; it fails against the pre-fix behavior or the ignore-only case above.
-- [ ] `v2/src/commands/notifications.test.ts` test `wait and list filtered by project ignore null-project incidents` arms wait/list with `--project <name>` against fixtures whose `project` is `null` and asserts no stdout wake or list rows; it fails against the pre-fix unfiltered behavior.
-- [ ] `v2/src/commands/notifications.test.ts` test `list filtered by project narrows ledger output` arms `notifications list --project <name>` against a mixed-project ledger and asserts only matching-project rows are returned; it fails against the pre-fix unfiltered list.
-- [ ] `v2/src/commands/notifications.test.ts` test `wait and list accept project and kind together` arms `--project` with `--kind` on wait and list and asserts only incidents matching both filters wake or print; it fails against the pre-fix behavior.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/commands/notifications.test.ts` test `empty --project exits 1 with invalid_project and skips notification RPC` asserts `notifications wait --project ""` and `notifications list --project ""` exit `1` with `invalid_project: invalid value\n` on stderr, empty stdout, and no notification RPC; it fails against the pre-fix behavior (mirror `run-list-dimension-filters.test.ts`).
+- [x] `v2/src/commands/notifications.test.ts` test `wait filtered by project ignores other projects` arms `notifications wait --project <name>`, delivers an incident for another project first with no stdout wake, then a matching one, and asserts only the matching incident wakes wait; it fails against the pre-fix unfiltered wait.
+- [x] `v2/src/commands/notifications.test.ts` test `wait filtered by project since cursor returns matching delivery recorded while no waiter was armed` records a non-matching-project delivery and a matching one, arms `notifications wait --project <name> --since <prior cursor>`, and asserts only the matching incident is returned; it fails against the pre-fix unfiltered wait or wait that filters only on the blocking wake path.
+- [x] `v2/src/commands/notifications.test.ts` test `wait filtered by project wakes on own project` arms `notifications wait --project <name>` and asserts a matching incident returns on stdout; it fails against the pre-fix behavior or the ignore-only case above.
+- [x] `v2/src/commands/notifications.test.ts` test `wait and list filtered by project ignore null-project incidents` arms wait/list with `--project <name>` against fixtures whose `project` is `null` and asserts no stdout wake or list rows; it fails against the pre-fix unfiltered behavior.
+- [x] `v2/src/commands/notifications.test.ts` test `list filtered by project narrows ledger output` arms `notifications list --project <name>` against a mixed-project ledger and asserts only matching-project rows are returned; it fails against the pre-fix unfiltered list.
+- [x] `v2/src/commands/notifications.test.ts` test `wait and list accept project and kind together` arms `--project` with `--kind` on wait and list and asserts only incidents matching both filters wake or print; it fails against the pre-fix behavior.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

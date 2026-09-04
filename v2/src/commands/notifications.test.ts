@@ -17,7 +17,7 @@ import {
   type StateStore,
 } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
-import { captureIo, cliMain as main } from "../testing/cli-test-helpers.ts";
+import { captureIo, cliMain as main, makeIpcClient } from "../testing/cli-test-helpers.ts";
 import { makeIpcClient as makeDeferredIpcClient } from "../testing/ipc-client-fake.ts";
 
 const DERIVATION_NOW_MS = 50_000_000;
@@ -49,9 +49,9 @@ function patchRunRow(runId: string, patch: { createdAt?: number; finishedAt?: nu
   }
 }
 
-function seedBlockedRun(): string {
+function seedBlockedRun(project = "demo"): string {
   const runId = store.createRun({
-    project: "demo",
+    project,
     specRef: "main",
     worktreePath: "/tmp/worktree",
     branch: `feature-${crypto.randomUUID()}`,
@@ -88,9 +88,21 @@ function seedTwoBlockedIncidents(): { first: DerivedIncident; second: DerivedInc
   };
 }
 
-function blockedIncident(): DerivedIncident {
-  const runId = seedBlockedRun();
+function blockedIncidentForProject(project = "demo"): DerivedIncident {
+  const runId = seedBlockedRun(project);
   return derivedIncident((row) => row.runId === runId);
+}
+
+function blockedIncident(): DerivedIncident {
+  return blockedIncidentForProject();
+}
+
+function demoAndOtherBlockedIncidents(): { demo: DerivedIncident; other: DerivedIncident } {
+  return { demo: blockedIncidentForProject("demo"), other: blockedIncidentForProject("other-project") };
+}
+
+function parseWaitIncident(lines: string[]): NotificationDeliveryIncident {
+  return (JSON.parse(lines[0] ?? "{}") as { incident: NotificationDeliveryIncident }).incident;
 }
 
 function seedAwaitingAndBlocked(): { awaiting: DerivedIncident; blocked: DerivedIncident } {
@@ -339,4 +351,178 @@ test("notifications list kind filter excludes non-matching incidents", async () 
   expect(result.code).toBe(0);
   expect(lines).toHaveLength(1);
   expect(lines[0]).toEqual(sinkShape(blocked));
+});
+
+async function expectNotificationsCliRejectsBeforeRpc(argv: readonly string[], expectedStderr: string): Promise<void> {
+  const cap = captureIo();
+  const sent: unknown[] = [];
+  const code = await main(["notifications", ...argv], cap.io, {
+    connectIpcClient: async () =>
+      makeIpcClient(
+        [
+          {
+            kind: "response",
+            id: "notification-rpc",
+            result: { incident: {}, deliveryCursor: "cursor" },
+          },
+        ],
+        { sent },
+      ),
+  });
+  expect(code).toBe(1);
+  expect(cap.read().stderr).toBe(expectedStderr);
+  expect(cap.read().stdout).toBe("");
+  expect(sent).toEqual([]);
+}
+
+test("empty --project exits 1 with invalid_project and skips notification RPC", async () => {
+  // Inversion target: empty --project guard in parseNotificationArgv — accepting empty project turns this test RED.
+  await expectNotificationsCliRejectsBeforeRpc(["wait", "--project", ""], "invalid_project: invalid value\n");
+  await expectNotificationsCliRejectsBeforeRpc(["list", "--project", ""], "invalid_project: invalid value\n");
+});
+
+test("wait filtered by project skips same-delivered_at non-matching delivery", async () => {
+  // Inversion target: cursor-based re-arm on project skip — sinceMs advance turns this test RED.
+  const sharedDeliveredAt = DERIVATION_NOW_MS - 1;
+  const nonMatching: NotificationDeliveryIncident = {
+    incidentId: "run:000-other",
+    kind: "run-blocked",
+    transition: "blocked",
+    project: "other-project",
+    pipelineId: null,
+    stageId: null,
+    branchKey: null,
+    runId: "000-other",
+    cause: null,
+    sinceMs: DERIVATION_RECENT_MS,
+  };
+  const matching: NotificationDeliveryIncident = {
+    incidentId: "run:999-demo",
+    kind: "run-blocked",
+    transition: "blocked",
+    project: "demo",
+    pipelineId: null,
+    stageId: null,
+    branchKey: null,
+    runId: "999-demo",
+    cause: null,
+    sinceMs: DERIVATION_RECENT_MS,
+  };
+  for (const incident of [nonMatching, matching]) {
+    store.tryRecordNotificationDelivery({
+      incidentId: incident.incidentId,
+      transition: incident.transition,
+      deliveredAt: sharedDeliveredAt,
+      incidentJson: JSON.stringify(incident),
+    });
+  }
+
+  const result = await runNotifications(["wait", "--since", "0", "--project", "demo"]);
+
+  expect(result.code).toBe(0);
+  expect(parseWaitIncident(result.stdoutLines())).toEqual(matching);
+});
+
+test("wait filtered by project ignores other projects", async () => {
+  // Inversion target: project filter in notificationRpc wait loop — waking on non-matching project turns this test RED.
+  const { other: otherIncident, demo: demoIncident } = demoAndOtherBlockedIncidents();
+
+  const pending = runNotifications(["wait", "--since", "0", "--project", "demo"]);
+  recordDelivery(otherIncident, DERIVATION_NOW_MS - 2);
+  wakeNotificationWaiters();
+  recordDelivery(demoIncident, DERIVATION_NOW_MS - 1);
+  wakeNotificationWaiters();
+  const result = await pending;
+
+  expect(result.code).toBe(0);
+  expect(result.stdoutLines()).toHaveLength(1);
+  expect(parseWaitIncident(result.stdoutLines())).toEqual(sinkShape(demoIncident));
+});
+
+test("wait filtered by project since cursor returns matching delivery recorded while no waiter was armed", async () => {
+  // Inversion target: project filter on catch-up path in notificationRpc — returning non-matching catch-up turns this test RED.
+  const { other: otherIncident, demo: demoIncident } = demoAndOtherBlockedIncidents();
+  const otherDeliveredAt = DERIVATION_NOW_MS - 2;
+  const demoDeliveredAt = DERIVATION_NOW_MS - 1;
+  recordDelivery(otherIncident, otherDeliveredAt);
+  recordDelivery(demoIncident, demoDeliveredAt);
+  const priorCursor = encodeNotificationDeliveryCursor({
+    deliveredAt: otherDeliveredAt - 1,
+    incidentId: "run:prior",
+    transition: "blocked",
+  });
+
+  const result = await runNotifications(["wait", "--since", priorCursor, "--project", "demo"]);
+
+  expect(result.code).toBe(0);
+  expect(parseWaitIncident(result.stdoutLines())).toEqual(sinkShape(demoIncident));
+});
+
+test("wait filtered by project wakes on own project", async () => {
+  // Inversion target: project filter in notificationRpc wait loop — skipping matching project turns this test RED.
+  const demoIncident = blockedIncidentForProject("demo");
+
+  const pending = runNotifications(["wait", "--project", "demo"]);
+  recordDelivery(demoIncident, DERIVATION_NOW_MS);
+  wakeNotificationWaiters();
+  const result = await pending;
+
+  expect(result.code).toBe(0);
+  expect(parseWaitIncident(result.stdoutLines())).toEqual(sinkShape(demoIncident));
+});
+
+test("wait and list filtered by project ignore null-project incidents", async () => {
+  // Inversion target: project filter null check in notificationRpc — matching null project to a named filter turns this test RED.
+  const pipelineId = seedAwaitingPipeline();
+  const nullProjectIncident = derivedIncident((row) => row.pipelineId === pipelineId);
+  recordDelivery(nullProjectIncident, DERIVATION_NOW_MS - 2);
+
+  const listResult = await runNotifications(["list", "--project", "demo"]);
+  expect(listResult.code).toBe(0);
+  expect(listResult.stdoutLines()).toHaveLength(0);
+
+  const demoIncident = blockedIncidentForProject("demo");
+  const pending = runNotifications(["wait", "--since", "0", "--project", "demo"]);
+  wakeNotificationWaiters();
+  recordDelivery(demoIncident, DERIVATION_NOW_MS - 1);
+  wakeNotificationWaiters();
+  const waitResult = await pending;
+
+  expect(waitResult.code).toBe(0);
+  expect(parseWaitIncident(waitResult.stdoutLines())).toEqual(sinkShape(demoIncident));
+});
+
+test("list filtered by project narrows ledger output", async () => {
+  // Inversion target: project filter in notificationRpc list path — listing non-matching project rows turns this test RED.
+  const { demo: demoIncident, other: otherIncident } = demoAndOtherBlockedIncidents();
+  recordDelivery(demoIncident, DERIVATION_NOW_MS - 2);
+  recordDelivery(otherIncident, DERIVATION_NOW_MS - 1);
+
+  const result = await runNotifications(["list", "--project", "demo"]);
+  const lines = result.stdoutLines().map((line) => JSON.parse(line) as NotificationDeliveryIncident);
+
+  expect(result.code).toBe(0);
+  expect(lines).toHaveLength(1);
+  expect(lines[0]).toEqual(sinkShape(demoIncident));
+});
+
+test("wait and list accept project and kind together", async () => {
+  // Inversion target: project and kind filters compose — matching only one dimension turns this test RED.
+  const { awaiting, blocked } = seedAwaitingAndBlocked();
+  const otherBlocked = blockedIncidentForProject("other-project");
+  recordDelivery(awaiting, DERIVATION_NOW_MS - 3);
+  recordDelivery(otherBlocked, DERIVATION_NOW_MS - 2);
+  recordDelivery(blocked, DERIVATION_NOW_MS - 1);
+
+  const listResult = await runNotifications(["list", "--project", "demo", "--kind", "run-blocked"]);
+  const listLines = listResult.stdoutLines().map((line) => JSON.parse(line) as NotificationDeliveryIncident);
+  expect(listResult.code).toBe(0);
+  expect(listLines).toHaveLength(1);
+  expect(listLines[0]).toEqual(sinkShape(blocked));
+
+  const pending = runNotifications(["wait", "--since", "0", "--project", "demo", "--kind", "run-blocked"]);
+  wakeNotificationWaiters();
+  const waitResult = await pending;
+  expect(waitResult.code).toBe(0);
+  expect(parseWaitIncident(waitResult.stdoutLines())).toEqual(sinkShape(blocked));
 });

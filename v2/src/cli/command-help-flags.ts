@@ -260,6 +260,7 @@ export const PIPELINE_LIST_HELP_FLAGS: readonly CommandFlag[] = [
 export const NOTIFICATIONS_PARSE_ARG_OPTIONS = {
   since: { type: "string" },
   kind: { type: "string", multiple: true },
+  project: { type: "string" },
 } as const satisfies Record<string, { type: "string"; multiple?: boolean }>;
 
 export const NOTIFICATIONS_HELP_FLAGS: readonly CommandFlag[] = [
@@ -273,6 +274,11 @@ export const NOTIFICATIONS_HELP_FLAGS: readonly CommandFlag[] = [
     name: "--kind",
     argumentShape: "<incident-kind>",
     description: "Repeatable incident-kind filter; omit to match all kinds.",
+  },
+  {
+    name: "--project",
+    argumentShape: "<name>",
+    description: "Only wake or list incidents whose project equals the given registered project name.",
   },
 ];
 

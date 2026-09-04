@@ -21,7 +21,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/daemon-host.md` § Operator notifications documents the delivery-ledger pull contract (persisted incident JSON, cursor semantics, legacy null exclusion, shared by sink discharge and pull consumers) consistent with subspecs 00–02.
+- [x] `v2/docs/daemon-host.md` § Operator notifications documents the delivery-ledger pull contract (persisted incident JSON, cursor semantics, legacy null exclusion, shared by sink discharge and pull consumers) consistent with subspecs 00–02.
 
 ## Documentation updates
 

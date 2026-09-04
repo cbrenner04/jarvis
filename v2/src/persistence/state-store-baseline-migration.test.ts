@@ -163,6 +163,7 @@ function createPreSquashFixtureDb(dbPath: string): FixtureSeed {
       incident_id TEXT NOT NULL,
       transition TEXT NOT NULL,
       delivered_at INTEGER NOT NULL,
+      incident_json TEXT,
       PRIMARY KEY (incident_id, transition)
     );
   `);

@@ -256,6 +256,26 @@ export const PIPELINE_LIST_HELP_FLAGS: readonly CommandFlag[] = [
   },
 ];
 
+/** `parseArgs` options for `jarvis notifications wait` and `jarvis notifications list`. */
+export const NOTIFICATIONS_PARSE_ARG_OPTIONS = {
+  since: { type: "string" },
+  kind: { type: "string", multiple: true },
+} as const satisfies Record<string, { type: "string"; multiple?: boolean }>;
+
+export const NOTIFICATIONS_HELP_FLAGS: readonly CommandFlag[] = [
+  {
+    name: "--since",
+    argumentShape: "<cursor|duration|timestamp>",
+    description:
+      "Only consider deliveries at or after the bound: a delivery cursor, positive <n>d|h|m|s duration, or Date.parse-accepted timestamp; defaults to ledger start when omitted.",
+  },
+  {
+    name: "--kind",
+    argumentShape: "<incident-kind>",
+    description: "Repeatable incident-kind filter; omit to match all kinds.",
+  },
+];
+
 export const WORKFLOW_IMPLEMENT_HELP_FLAGS: readonly CommandFlag[] = [
   { name: "--branch", argumentShape: "<name>", description: "Implementation branch name." },
   { name: "--base", argumentShape: "<ref>", description: "Base git ref for the branch." },

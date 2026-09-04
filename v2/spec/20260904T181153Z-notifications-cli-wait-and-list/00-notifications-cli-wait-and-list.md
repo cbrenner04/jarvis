@@ -34,18 +34,18 @@ Daemon `notification_wait` and `notification_list` RPCs read the delivery ledger
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/notifications.test.ts` test `notifications wait blocks until the next owed incident` arms `jarvis notifications wait`, records an incident after wait begins, and asserts one JSON line on stdout with exit `0`; it fails against the pre-fix missing subcommand.
-- [ ] `v2/src/commands/notifications.test.ts` test `notifications wait stdout is incident and deliveryCursor wrapper` arms wait, records one incident, and asserts stdout parses as `{ incident, deliveryCursor }` with `deliveryCursor` matching the delivery-cursor wire form; it fails against the pre-fix missing subcommand or incident-only stdout.
-- [ ] `v2/src/commands/notifications.test.ts` test `notifications wait since cursor returns delivery recorded while no waiter was armed` records a delivery, then arms `jarvis notifications wait --since <prior cursor>`, and asserts the incident is returned rather than lost; it fails against the pre-fix path.
-- [ ] `v2/src/commands/notifications.test.ts` test `notifications wait kind filter ignores non-matching incidents` arms wait with `--kind`, delivers a non-matching incident then a matching one, and asserts only the matching incident wakes the wait; it fails against the pre-fix unfiltered wait.
-- [ ] `v2/src/commands/notifications.test.ts` test `notifications list since duration returns prior ledger incidents` seeds delivered incidents and asserts `jarvis notifications list --since <duration>` prints one JSON line per incident without blocking; it fails against the pre-fix missing list subcommand.
-- [ ] `v2/src/commands/notifications.test.ts` test `notifications list stdout is incident-only NDJSON` seeds delivered incidents and asserts each stdout line parses as a sink-shaped `incident` object with no `deliveryCursor` wrapper; it fails against the pre-fix missing list subcommand or per-line cursor wrappers.
-- [ ] `v2/src/commands/notifications.test.ts` test `notifications list omitted since returns ledger from start` seeds delivered incidents predating the CLI call and asserts `jarvis notifications list` without `--since` returns them via `sinceMs: 0`; it fails against the pre-fix missing list subcommand or defaulting `--since` to now.
-- [ ] `v2/src/commands/notifications.test.ts` test `notifications list since cursor returns deliveries after cursor` records multiple deliveries, lists with `--since <prior cursor>`, and asserts only later incidents print; it fails against the pre-fix missing list subcommand or broken cursor CLI→RPC mapping.
-- [ ] `v2/src/commands/notifications.test.ts` test `notifications list kind filter excludes non-matching incidents` seeds mixed-kind deliveries and asserts `jarvis notifications list --kind <set>` prints only matching incidents as NDJSON; it fails against the pre-fix unfiltered list.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/commands/notifications.test.ts` test `notifications wait blocks until the next owed incident` arms `jarvis notifications wait`, records an incident after wait begins, and asserts one JSON line on stdout with exit `0`; it fails against the pre-fix missing subcommand.
+- [x] `v2/src/commands/notifications.test.ts` test `notifications wait stdout is incident and deliveryCursor wrapper` arms wait, records one incident, and asserts stdout parses as `{ incident, deliveryCursor }` with `deliveryCursor` matching the delivery-cursor wire form; it fails against the pre-fix missing subcommand or incident-only stdout.
+- [x] `v2/src/commands/notifications.test.ts` test `notifications wait since cursor returns delivery recorded while no waiter was armed` records a delivery, then arms `jarvis notifications wait --since <prior cursor>`, and asserts the incident is returned rather than lost; it fails against the pre-fix path.
+- [x] `v2/src/commands/notifications.test.ts` test `notifications wait kind filter ignores non-matching incidents` arms wait with `--kind`, delivers a non-matching incident then a matching one, and asserts only the matching incident wakes the wait; it fails against the pre-fix unfiltered wait.
+- [x] `v2/src/commands/notifications.test.ts` test `notifications list since duration returns prior ledger incidents` seeds delivered incidents and asserts `jarvis notifications list --since <duration>` prints one JSON line per incident without blocking; it fails against the pre-fix missing list subcommand.
+- [x] `v2/src/commands/notifications.test.ts` test `notifications list stdout is incident-only NDJSON` seeds delivered incidents and asserts each stdout line parses as a sink-shaped `incident` object with no `deliveryCursor` wrapper; it fails against the pre-fix missing list subcommand or per-line cursor wrappers.
+- [x] `v2/src/commands/notifications.test.ts` test `notifications list omitted since returns ledger from start` seeds delivered incidents predating the CLI call and asserts `jarvis notifications list` without `--since` returns them via `sinceMs: 0`; it fails against the pre-fix missing list subcommand or defaulting `--since` to now.
+- [x] `v2/src/commands/notifications.test.ts` test `notifications list since cursor returns deliveries after cursor` records multiple deliveries, lists with `--since <prior cursor>`, and asserts only later incidents print; it fails against the pre-fix missing list subcommand or broken cursor CLI→RPC mapping.
+- [x] `v2/src/commands/notifications.test.ts` test `notifications list kind filter excludes non-matching incidents` seeds mixed-kind deliveries and asserts `jarvis notifications list --kind <set>` prints only matching incidents as NDJSON; it fails against the pre-fix unfiltered list.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

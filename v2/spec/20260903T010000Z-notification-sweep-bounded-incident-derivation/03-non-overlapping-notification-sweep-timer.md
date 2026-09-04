@@ -25,9 +25,9 @@ none
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/operator-notification-sweep.test.ts` test `notification sweep timer skips a tick while the prior sweep is still running` drives the daemon `setInterval` guard (not concurrent `runNotificationSweep` calls alone) and asserts the second tick is skipped, not queued; it fails against the pre-fix overlap behavior.
-- [ ] `v2/src/daemon/operator-notification.test.ts` — `boot sweep delivers an incident settled while no daemon was alive` stays green (initial post-reconciliation sweep unchanged).
-- [ ] `bun run test:v2` passes.
+- [x] `v2/src/daemon/operator-notification-sweep.test.ts` test `notification sweep timer skips a tick while the prior sweep is still running` drives the daemon `setInterval` guard (not concurrent `runNotificationSweep` calls alone) and asserts the second tick is skipped, not queued; it fails against the pre-fix overlap behavior.
+- [x] `v2/src/daemon/operator-notification.test.ts` — `boot sweep delivers an incident settled while no daemon was alive` stays green (initial post-reconciliation sweep unchanged).
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

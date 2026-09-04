@@ -58,6 +58,7 @@ import {
   NOTIFICATION_SWEEP_INTERVAL_MS,
   type NotificationSinkSpawner,
   runNotificationSweep,
+  runNotificationSweepIntervalTick,
 } from "./operator-notification-sweep.ts";
 import type { RunOperatorError } from "./run-operator-error.ts";
 
@@ -931,9 +932,10 @@ export async function startDaemonRuntime(
     readSinkCommand: readSink,
     ...(startupDeps.notificationSpawnSink === undefined ? {} : { spawnSink: startupDeps.notificationSpawnSink }),
   };
+  const notificationSweepState = { sweepInProgress: false };
   runNotificationSweep(notificationSweepDeps);
   const notificationSweepTimer = setInterval(() => {
-    runNotificationSweep(notificationSweepDeps);
+    runNotificationSweepIntervalTick(notificationSweepState, notificationSweepDeps);
   }, NOTIFICATION_SWEEP_INTERVAL_MS);
   notificationSweepTimer.unref();
 

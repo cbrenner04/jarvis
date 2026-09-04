@@ -23,9 +23,6 @@ describe("daemon command", () => {
         called = { socketPath, pidPath: options?.pidPath ?? "" };
         return { pid: 42, socketPath };
       },
-      executeWriteLoop: async () => {
-        throw new Error("write loop should not run");
-      },
     });
 
     expect(code).toBe(0);

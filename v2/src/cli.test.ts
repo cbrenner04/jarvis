@@ -22,18 +22,18 @@ import {
   PIPELINE_USAGE,
   RUN_KILL_USAGE,
   RUN_LIST_USAGE,
+  RUN_START_USAGE,
   RUN_USAGE,
   TUI_USAGE,
   WORKFLOW_IMPLEMENT_USAGE,
   WORKFLOW_INTENT_USAGE,
   WORKFLOW_PLAN_USAGE,
   WORKFLOW_USAGE,
-  WRITE_USAGE,
 } from "./cli/usage.ts";
 import { enumerateCommands, findCommand, resolveHelpFlagAlias } from "./cli.ts";
 import { captureIo, cliMain as main, tempPaths, writeMachineConfig } from "./testing/cli-test-helpers.ts";
 
-const commandNames = "init, write, daemon, config, run, tui, pipeline, cleanup, help";
+const commandNames = "init, daemon, config, run, tui, pipeline, cleanup, help";
 
 function helpStdoutWithFlags(
   usage: string,
@@ -66,10 +66,6 @@ describe("v2 cli dispatch", () => {
   });
 
   test.each([
-    ["unique deletion", "wrte", "write"],
-    ["insertion", "writex", "write"],
-    ["substitution", "wrote", "write"],
-    ["distance two", "wte", "write"],
     ["Unicode distance two", "run😀😀", "run"],
   ])("a %s close match suggests the registered command", async (_kind, command, suggestion) => {
     const cap = captureIo();
@@ -87,6 +83,10 @@ describe("v2 cli dispatch", () => {
     ["absent", "zzzz"],
     ["ambiguous", "rux"],
     ["distance three", "wr"],
+    ["unique deletion", "wrte"],
+    ["insertion", "writex"],
+    ["substitution", "wrote"],
+    ["distance two", "wte"],
   ])("a %s match omits a suggestion", async (_kind, command) => {
     const cap = captureIo();
 
@@ -99,6 +99,18 @@ describe("v2 cli dispatch", () => {
     });
   });
 
+  test("jarvis write is unknown at top-level dispatch", async () => {
+    const cap = captureIo();
+
+    const code = await main(["write"], cap.io);
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: unknownCommandError("write"),
+    });
+  });
+
   test("help renders the complete command registry", async () => {
     const cap = captureIo();
 
@@ -108,7 +120,6 @@ describe("v2 cli dispatch", () => {
     expect(cap.read()).toEqual({
       stdout:
         "init\tConfigure this machine and register the current repository.\n" +
-        "write\tRun an in-process write loop.\n" +
         "daemon\tManage the background daemon.\n" +
         "config\tShow or update machine configuration.\n" +
         "run\tManage daemon-backed runs.\n" +
@@ -167,13 +178,13 @@ describe("v2 cli dispatch", () => {
     expect(cap.read().stdout).toBe(RUN_USAGE);
   });
 
-  test("help run start prints WRITE_USAGE", async () => {
+  test("help run start prints RUN_START_USAGE", async () => {
     const cap = captureIo();
 
     const code = await main(["help", "run", "start"], cap.io);
 
     expect(code).toBe(0);
-    expect(cap.read().stdout).toContain("usage: jarvis write");
+    expect(cap.read().stdout).toContain("usage: jarvis run start");
   });
 
   test("help run workflow intent prints WORKFLOW_INTENT_USAGE", async () => {
@@ -187,8 +198,7 @@ describe("v2 cli dispatch", () => {
 
   describe("command help lists registered flags", () => {
     const cases = [
-      ["write", ["help", "write"], WRITE_USAGE, WRITE_HELP_FLAGS],
-      ["run start", ["help", "run", "start"], WRITE_USAGE, WRITE_HELP_FLAGS],
+      ["run start", ["help", "run", "start"], RUN_START_USAGE, WRITE_HELP_FLAGS],
       ["cleanup", ["help", "cleanup"], CLEANUP_USAGE, CLEANUP_HELP_FLAGS],
       ["run list", ["help", "run", "list"], RUN_LIST_USAGE, RUN_LIST_HELP_FLAGS],
       ["run kill", ["help", "run", "kill"], RUN_KILL_USAGE, RUN_KILL_HELP_FLAGS],
@@ -207,18 +217,6 @@ describe("v2 cli dispatch", () => {
         expect(stdout).toBe(helpStdoutWithFlags(usage, flags));
       });
     }
-
-    test("help run start flag lines match help write", async () => {
-      const writeCap = captureIo();
-      await main(["help", "write"], writeCap.io);
-      const writeStdout = writeCap.read().stdout;
-
-      const startCap = captureIo();
-      await main(["help", "run", "start"], startCap.io);
-      const startStdout = startCap.read().stdout;
-
-      expect(startStdout.replace(WRITE_USAGE, "")).toBe(writeStdout.replace(WRITE_USAGE, ""));
-    });
   });
 
   describe("workflow preset help lists registered flags", () => {
@@ -313,18 +311,6 @@ describe("v2 cli dispatch", () => {
     });
   });
 
-  test("help write nope is unknown at depth 1 (past a leaf)", async () => {
-    const cap = captureIo();
-
-    const code = await main(["help", "write", "nope"], cap.io);
-
-    expect(code).toBe(1);
-    expect(cap.read()).toEqual({
-      stdout: "",
-      stderr: unknownCommandError("nope", undefined, ["write"]),
-    });
-  });
-
   test("help run workflow intent-reviewed is an unknown segment (legacy alias, absent from the tree)", async () => {
     const cap = captureIo();
 
@@ -414,7 +400,6 @@ describe("v2 cli dispatch", () => {
     expect(entries.map(({ name }) => name).join(", ")).toBe(commandNames);
     expect(entries.map(({ usage }) => usage)).toEqual([
       INIT_USAGE,
-      WRITE_USAGE,
       DAEMON_USAGE,
       CONFIG_USAGE,
       RUN_USAGE,
@@ -687,7 +672,6 @@ describe("v2 cli dispatch", () => {
 
     test("the driven paths are walked from the tree, not hand-written", () => {
       const joined = paths.map((path) => path.join(" "));
-      expect(joined).toContain("write");
       expect(joined).toContain("daemon start");
       expect(joined).toContain("run workflow implement");
     });

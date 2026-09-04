@@ -7,7 +7,6 @@ import { followDaemonProcessLog, readDaemonProcessLog } from "../daemon/daemon-p
 import { discoverLiveDaemonSockets } from "../daemon/live-daemon-socket-discovery.ts";
 import type { WorkflowPresetBuilder } from "../execution/workflow-presets.ts";
 import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
-import { executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { DAEMON_LOG_PATH, DAEMON_PID_PATH, DAEMON_SOCKET_PATH, MACHINE_CONFIG_PATH } from "../paths.ts";
 import { runTuiEntry } from "../tui/tui-entry.tsx";
@@ -17,7 +16,6 @@ import type { RunTuiEntryDeps, SocketDiscovery } from "../tui/tui-monitor-types.
 import { getInvokingExecutableDigest } from "./dispatch-revision.ts";
 
 export type CliDeps = {
-  executeWriteLoop: (input: WriteLoopInput) => Promise<Awaited<ReturnType<typeof executeWriteLoop>>>;
   loadAgentModelConfig: (agents: readonly string[]) => AgentModelConfig | LoadError;
   connectIpcClient: (socketPath: string) => Promise<IpcClient>;
   startDaemon: typeof startDaemon;
@@ -55,7 +53,6 @@ export type CliDeps = {
 
 export function createRuntimeDeps(deps?: Partial<CliDeps>): CliDeps {
   return {
-    executeWriteLoop,
     loadAgentModelConfig: (agents) => loadMachineProfileModels(resolveMachineProfile(), agents),
     connectIpcClient,
     startDaemon,

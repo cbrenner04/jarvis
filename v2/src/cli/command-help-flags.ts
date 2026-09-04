@@ -18,7 +18,7 @@ export const INIT_HELP_FLAGS: readonly CommandFlag[] = [
   { name: "--check", argumentShape: "", description: "Read-only: report readiness without writing config or repo." },
 ];
 
-/** `parseArgs` options for `parseWriteArgs` / `jarvis write` and `jarvis run start`. */
+/** `parseArgs` options for `parseWriteArgs` / `jarvis run start`. */
 export const WRITE_PARSE_ARG_OPTIONS = {
   "project-root": { type: "string" },
   project: { type: "string" },

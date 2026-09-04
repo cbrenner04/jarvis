@@ -32,7 +32,7 @@ describe("help flag parser parity", () => {
   });
 
   test("excluding a parser flag from the comparison set fails the guard", () => {
-    const fullParserFlags = parserAcceptedLongFlags(["write"]);
+    const fullParserFlags = parserAcceptedLongFlags(["run", "start"]);
     const helpWithoutArtifact = WRITE_HELP_FLAGS.filter((flag) => flag.name !== "--artifact");
     const staleParserFlags = fullParserFlags.filter((flag) => flag !== "--artifact");
 

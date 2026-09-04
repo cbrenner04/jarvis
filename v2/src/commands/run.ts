@@ -10,9 +10,9 @@ import {
   RUN_KILL_USAGE,
   RUN_LIST_USAGE,
   RUN_LOG_USAGE,
+  RUN_START_USAGE,
   RUN_UNDISMISS_USAGE,
   RUN_USAGE,
-  WRITE_USAGE,
 } from "../cli/usage.ts";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { parseStartResult } from "../daemon/daemon-wire.ts";
@@ -226,7 +226,7 @@ async function runStartSubcommand(argv: readonly string[], io: Io, deps: CliDeps
   const parsed = parseWriteCliInput(argv, deps);
   if (!parsed.ok) {
     if (parsed.message !== undefined) io.stderr(parsed.message);
-    io.stderr(WRITE_USAGE);
+    io.stderr(RUN_START_USAGE);
     return 1;
   }
 
@@ -474,6 +474,6 @@ export async function runRunCommand(argv: readonly string[], io: Io, deps: CliDe
     return withRunClient(io, deps, async (client) => waitForRunCompletion(client, runId, io), socketPath);
   }
 
-  io.stderr(subcommand === "start" ? WRITE_USAGE : RUN_USAGE);
+  io.stderr(subcommand === "start" ? RUN_START_USAGE : RUN_USAGE);
   return 1;
 }

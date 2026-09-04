@@ -381,6 +381,48 @@ test("empty --project exits 1 with invalid_project and skips notification RPC", 
   await expectNotificationsCliRejectsBeforeRpc(["list", "--project", ""], "invalid_project: invalid value\n");
 });
 
+test("wait filtered by project skips same-delivered_at non-matching delivery", async () => {
+  // Inversion target: cursor-based re-arm on project skip — sinceMs advance turns this test RED.
+  const sharedDeliveredAt = DERIVATION_NOW_MS - 1;
+  const nonMatching: NotificationDeliveryIncident = {
+    incidentId: "run:000-other",
+    kind: "run-blocked",
+    transition: "blocked",
+    project: "other-project",
+    pipelineId: null,
+    stageId: null,
+    branchKey: null,
+    runId: "000-other",
+    cause: null,
+    sinceMs: DERIVATION_RECENT_MS,
+  };
+  const matching: NotificationDeliveryIncident = {
+    incidentId: "run:999-demo",
+    kind: "run-blocked",
+    transition: "blocked",
+    project: "demo",
+    pipelineId: null,
+    stageId: null,
+    branchKey: null,
+    runId: "999-demo",
+    cause: null,
+    sinceMs: DERIVATION_RECENT_MS,
+  };
+  for (const incident of [nonMatching, matching]) {
+    store.tryRecordNotificationDelivery({
+      incidentId: incident.incidentId,
+      transition: incident.transition,
+      deliveredAt: sharedDeliveredAt,
+      incidentJson: JSON.stringify(incident),
+    });
+  }
+
+  const result = await runNotifications(["wait", "--since", "0", "--project", "demo"]);
+
+  expect(result.code).toBe(0);
+  expect(parseWaitIncident(result.stdoutLines())).toEqual(matching);
+});
+
 test("wait filtered by project ignores other projects", async () => {
   // Inversion target: project filter in notificationRpc wait loop — waking on non-matching project turns this test RED.
   const { other: otherIncident, demo: demoIncident } = demoAndOtherBlockedIncidents();

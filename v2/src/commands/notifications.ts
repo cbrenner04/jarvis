@@ -136,9 +136,33 @@ async function notificationRpc(
           return 1;
         }
         if (project !== undefined && result.incident.project !== project) {
-          const decoded = decodeNotificationDeliveryCursor(result.deliveryCursor);
-          params = { sinceMs: decoded.deliveredAt + 1 };
+          params = { sinceCursor: result.deliveryCursor };
           if (parsed.params.kinds !== undefined) params.kinds = parsed.params.kinds;
+
+          let listResponse: unknown;
+          try {
+            listResponse = await request(client, "notification_list", params);
+          } catch (error) {
+            if (error instanceof RpcError) {
+              io.stderr(formatRpcError(error));
+              return 1;
+            }
+            throw error;
+          }
+          const entries = parseNotificationListResult(listResponse);
+          if (entries !== undefined) {
+            const startIndex = entries.findIndex((entry) => entry.deliveryCursor === result.deliveryCursor);
+            const scanFrom = startIndex >= 0 ? startIndex + 1 : 0;
+            for (let i = scanFrom; i < entries.length; i++) {
+              const entry = entries[i]!;
+              if (entry.incident.project === project) {
+                io.stdout(`${JSON.stringify(entry)}\n`);
+                return 0;
+              }
+              params = { sinceCursor: entry.deliveryCursor };
+              if (parsed.params.kinds !== undefined) params.kinds = parsed.params.kinds;
+            }
+          }
           continue;
         }
         io.stdout(`${JSON.stringify(result)}\n`);

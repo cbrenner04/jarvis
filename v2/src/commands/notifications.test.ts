@@ -88,9 +88,21 @@ function seedTwoBlockedIncidents(): { first: DerivedIncident; second: DerivedInc
   };
 }
 
-function blockedIncident(): DerivedIncident {
-  const runId = seedBlockedRun();
+function blockedIncidentForProject(project = "demo"): DerivedIncident {
+  const runId = seedBlockedRun(project);
   return derivedIncident((row) => row.runId === runId);
+}
+
+function blockedIncident(): DerivedIncident {
+  return blockedIncidentForProject();
+}
+
+function demoAndOtherBlockedIncidents(): { demo: DerivedIncident; other: DerivedIncident } {
+  return { demo: blockedIncidentForProject("demo"), other: blockedIncidentForProject("other-project") };
+}
+
+function parseWaitIncident(lines: string[]): NotificationDeliveryIncident {
+  return (JSON.parse(lines[0] ?? "{}") as { incident: NotificationDeliveryIncident }).incident;
 }
 
 function seedAwaitingAndBlocked(): { awaiting: DerivedIncident; blocked: DerivedIncident } {
@@ -370,11 +382,8 @@ test("empty --project exits 1 with invalid_project and skips notification RPC", 
 });
 
 test("wait filtered by project ignores other projects", async () => {
-  // Inversion target: incidentMatchesProject in notificationWaitRpc — waking on non-matching project turns this test RED.
-  const otherRunId = seedBlockedRun("other-project");
-  const otherIncident = derivedIncident((row) => row.runId === otherRunId);
-  const demoRunId = seedBlockedRun("demo");
-  const demoIncident = derivedIncident((row) => row.runId === demoRunId);
+  // Inversion target: project filter in notificationRpc wait loop — waking on non-matching project turns this test RED.
+  const { other: otherIncident, demo: demoIncident } = demoAndOtherBlockedIncidents();
 
   const pending = runNotifications(["wait", "--since", "0", "--project", "demo"]);
   recordDelivery(otherIncident, DERIVATION_NOW_MS - 2);
@@ -382,19 +391,15 @@ test("wait filtered by project ignores other projects", async () => {
   recordDelivery(demoIncident, DERIVATION_NOW_MS - 1);
   wakeNotificationWaiters();
   const result = await pending;
-  const parsed = JSON.parse(result.stdoutLines()[0] ?? "{}") as { incident: NotificationDeliveryIncident };
 
   expect(result.code).toBe(0);
   expect(result.stdoutLines()).toHaveLength(1);
-  expect(parsed.incident).toEqual(sinkShape(demoIncident));
+  expect(parseWaitIncident(result.stdoutLines())).toEqual(sinkShape(demoIncident));
 });
 
 test("wait filtered by project since cursor returns matching delivery recorded while no waiter was armed", async () => {
-  // Inversion target: project filter on catch-up path in notificationWaitRpc — returning non-matching catch-up turns this test RED.
-  const otherRunId = seedBlockedRun("other-project");
-  const otherIncident = derivedIncident((row) => row.runId === otherRunId);
-  const demoRunId = seedBlockedRun("demo");
-  const demoIncident = derivedIncident((row) => row.runId === demoRunId);
+  // Inversion target: project filter on catch-up path in notificationRpc — returning non-matching catch-up turns this test RED.
+  const { other: otherIncident, demo: demoIncident } = demoAndOtherBlockedIncidents();
   const otherDeliveredAt = DERIVATION_NOW_MS - 2;
   const demoDeliveredAt = DERIVATION_NOW_MS - 1;
   recordDelivery(otherIncident, otherDeliveredAt);
@@ -406,29 +411,26 @@ test("wait filtered by project since cursor returns matching delivery recorded w
   });
 
   const result = await runNotifications(["wait", "--since", priorCursor, "--project", "demo"]);
-  const parsed = JSON.parse(result.stdoutLines()[0] ?? "{}") as { incident: NotificationDeliveryIncident };
 
   expect(result.code).toBe(0);
-  expect(parsed.incident).toEqual(sinkShape(demoIncident));
+  expect(parseWaitIncident(result.stdoutLines())).toEqual(sinkShape(demoIncident));
 });
 
 test("wait filtered by project wakes on own project", async () => {
-  // Inversion target: incidentMatchesProject in notificationWaitRpc — skipping matching project turns this test RED.
-  const demoRunId = seedBlockedRun("demo");
-  const demoIncident = derivedIncident((row) => row.runId === demoRunId);
+  // Inversion target: project filter in notificationRpc wait loop — skipping matching project turns this test RED.
+  const demoIncident = blockedIncidentForProject("demo");
 
   const pending = runNotifications(["wait", "--project", "demo"]);
   recordDelivery(demoIncident, DERIVATION_NOW_MS);
   wakeNotificationWaiters();
   const result = await pending;
-  const parsed = JSON.parse(result.stdoutLines()[0] ?? "{}") as { incident: NotificationDeliveryIncident };
 
   expect(result.code).toBe(0);
-  expect(parsed.incident).toEqual(sinkShape(demoIncident));
+  expect(parseWaitIncident(result.stdoutLines())).toEqual(sinkShape(demoIncident));
 });
 
 test("wait and list filtered by project ignore null-project incidents", async () => {
-  // Inversion target: incidentMatchesProject null check — matching null project to a named filter turns this test RED.
+  // Inversion target: project filter null check in notificationRpc — matching null project to a named filter turns this test RED.
   const pipelineId = seedAwaitingPipeline();
   const nullProjectIncident = derivedIncident((row) => row.pipelineId === pipelineId);
   recordDelivery(nullProjectIncident, DERIVATION_NOW_MS - 2);
@@ -437,25 +439,20 @@ test("wait and list filtered by project ignore null-project incidents", async ()
   expect(listResult.code).toBe(0);
   expect(listResult.stdoutLines()).toHaveLength(0);
 
-  const demoRunId = seedBlockedRun("demo");
-  const demoIncident = derivedIncident((row) => row.runId === demoRunId);
+  const demoIncident = blockedIncidentForProject("demo");
   const pending = runNotifications(["wait", "--since", "0", "--project", "demo"]);
   wakeNotificationWaiters();
   recordDelivery(demoIncident, DERIVATION_NOW_MS - 1);
   wakeNotificationWaiters();
   const waitResult = await pending;
-  const parsed = JSON.parse(waitResult.stdoutLines()[0] ?? "{}") as { incident: NotificationDeliveryIncident };
 
   expect(waitResult.code).toBe(0);
-  expect(parsed.incident).toEqual(sinkShape(demoIncident));
+  expect(parseWaitIncident(waitResult.stdoutLines())).toEqual(sinkShape(demoIncident));
 });
 
 test("list filtered by project narrows ledger output", async () => {
-  // Inversion target: incidentMatchesProject in notificationListRpc — listing non-matching project rows turns this test RED.
-  const demoRunId = seedBlockedRun("demo");
-  const demoIncident = derivedIncident((row) => row.runId === demoRunId);
-  const otherRunId = seedBlockedRun("other-project");
-  const otherIncident = derivedIncident((row) => row.runId === otherRunId);
+  // Inversion target: project filter in notificationRpc list path — listing non-matching project rows turns this test RED.
+  const { demo: demoIncident, other: otherIncident } = demoAndOtherBlockedIncidents();
   recordDelivery(demoIncident, DERIVATION_NOW_MS - 2);
   recordDelivery(otherIncident, DERIVATION_NOW_MS - 1);
 
@@ -470,8 +467,7 @@ test("list filtered by project narrows ledger output", async () => {
 test("wait and list accept project and kind together", async () => {
   // Inversion target: project and kind filters compose — matching only one dimension turns this test RED.
   const { awaiting, blocked } = seedAwaitingAndBlocked();
-  const otherRunId = seedBlockedRun("other-project");
-  const otherBlocked = derivedIncident((row) => row.runId === otherRunId);
+  const otherBlocked = blockedIncidentForProject("other-project");
   recordDelivery(awaiting, DERIVATION_NOW_MS - 3);
   recordDelivery(otherBlocked, DERIVATION_NOW_MS - 2);
   recordDelivery(blocked, DERIVATION_NOW_MS - 1);
@@ -485,7 +481,6 @@ test("wait and list accept project and kind together", async () => {
   const pending = runNotifications(["wait", "--since", "0", "--project", "demo", "--kind", "run-blocked"]);
   wakeNotificationWaiters();
   const waitResult = await pending;
-  const parsed = JSON.parse(waitResult.stdoutLines()[0] ?? "{}") as { incident: NotificationDeliveryIncident };
   expect(waitResult.code).toBe(0);
-  expect(parsed.incident).toEqual(sinkShape(blocked));
+  expect(parseWaitIncident(waitResult.stdoutLines())).toEqual(sinkShape(blocked));
 });

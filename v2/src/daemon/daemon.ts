@@ -53,7 +53,11 @@ import {
 } from "./daemon-run-control-context.ts";
 import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 import { createTailStreamHandler } from "./daemon-tail-stream.ts";
-import { createNotificationWaitHandler, NotificationWaitRegistry } from "./daemon-notification-wait.ts";
+import {
+  createNotificationListHandler,
+  createNotificationWaitHandler,
+  NotificationWaitRegistry,
+} from "./daemon-notification-wait.ts";
 import { createImplementRecoverHandler, createWorkflowStartAdmission } from "./daemon-workflow-admission-handlers.ts";
 import {
   NOTIFICATION_SWEEP_INTERVAL_MS,
@@ -690,6 +694,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
 
   const notificationWaitRegistry = deps.notificationWaitRegistry ?? new NotificationWaitRegistry();
   const notification_wait = createNotificationWaitHandler(ctx.store, notificationWaitRegistry);
+  const notification_list = createNotificationListHandler(ctx.store);
   const wakeNotificationWaiters = (): void => {
     notificationWaitRegistry.wakeFromStore(ctx.store);
   };
@@ -715,6 +720,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     pipeline_list: pipeline.pipeline_list,
     pipeline_wait: pipeline.pipeline_wait,
     notification_wait,
+    notification_list,
     continueContinuablePipelines: pipeline.continueContinuablePipelines,
     /** Non-RPC seam: exposes the built pipeline-execution deps so tests can assert stale-reset wiring. */
     pipelineExecutionDeps: pipeline.pipelineExecutionDeps,

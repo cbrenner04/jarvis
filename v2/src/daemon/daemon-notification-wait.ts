@@ -65,12 +65,10 @@ function parseNotificationWaitFilter(
   return { kind: "ok", filter: { sinceMs: params.sinceMs as number, ...(kinds !== undefined ? { kinds } : {}) } };
 }
 
-export function findNextNotificationWaitResult(
+function notificationResultFromIncident(
   store: StateStore,
-  filter: NotificationWaitFilter,
+  incident: NotificationDeliveryIncident,
 ): NotificationWaitResult | null {
-  const incident = store.listDeliveredNotificationIncidents(filter)[0];
-  if (incident === undefined) return null;
   const row = store.loadDeliveredNotificationIncident({
     incidentId: incident.incidentId,
     transition: incident.transition,
@@ -84,6 +82,26 @@ export function findNextNotificationWaitResult(
       transition: row.incident.transition,
     }),
   };
+}
+
+export function findNextNotificationWaitResult(
+  store: StateStore,
+  filter: NotificationWaitFilter,
+): NotificationWaitResult | null {
+  const incident = store.listDeliveredNotificationIncidents(filter)[0];
+  if (incident === undefined) return null;
+  return notificationResultFromIncident(store, incident);
+}
+
+export function listNotificationResults(store: StateStore, filter: NotificationWaitFilter): NotificationWaitResult[] {
+  const results: NotificationWaitResult[] = [];
+  for (const incident of store.listDeliveredNotificationIncidents(filter)) {
+    const result = notificationResultFromIncident(store, incident);
+    if (result !== null) {
+      results.push(result);
+    }
+  }
+  return results;
 }
 
 export class NotificationWaitRegistry {
@@ -152,5 +170,15 @@ export function createNotificationWaitHandler(store: StateStore, registry: Notif
       }
       throw error;
     }
+  };
+}
+
+export function createNotificationListHandler(store: StateStore): RpcHandler {
+  return (frame) => {
+    const parsed = parseNotificationWaitFilter(frame.params);
+    if (parsed.kind === "error") {
+      return { kind: "error", code: parsed.code, message: parsed.message };
+    }
+    return { kind: "response", result: { entries: listNotificationResults(store, parsed.filter) } };
   };
 }

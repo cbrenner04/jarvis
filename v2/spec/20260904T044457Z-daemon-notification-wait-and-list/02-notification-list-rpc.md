@@ -26,10 +26,10 @@ Pull consumers need a non-blocking daemon RPC to read delivered incidents from t
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-notification-wait.test.ts` test `notification_list returns seeded ledger rows without blocking` seeds delivered incidents and asserts list returns them for a since bound in store order without blocking; it fails against the pre-fix absent list RPC.
-- [ ] `v2/src/daemon/daemon-notification-wait.test.ts` test `notification_list kind filter excludes non-matching deliveries` seeds mixed-kind deliveries and asserts list with a kind set returns only matching incidents; it fails against the pre-fix unfiltered list RPC.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `v2/src/daemon/daemon-notification-wait.test.ts` test `notification_list returns seeded ledger rows without blocking` seeds delivered incidents and asserts list returns them for a since bound in store order without blocking; it fails against the pre-fix absent list RPC.
+- [x] `v2/src/daemon/daemon-notification-wait.test.ts` test `notification_list kind filter excludes non-matching deliveries` seeds mixed-kind deliveries and asserts list with a kind set returns only matching incidents; it fails against the pre-fix unfiltered list RPC.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

@@ -11,6 +11,7 @@ import {
 } from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
 import {
+  createNotificationListHandler,
   createNotificationWaitHandler,
   NOTIFICATION_WAIT_ABORTED,
   NotificationWaitRegistry,
@@ -26,6 +27,7 @@ let dbPath: string;
 let store: StateStore;
 let registry: NotificationWaitRegistry;
 let notification_wait: RpcHandler;
+let notification_list: RpcHandler;
 let wakeNotificationWaiters: () => void;
 
 function patchRunRow(runId: string, patch: { createdAt?: number; finishedAt?: number | null; status?: string }): void {
@@ -101,6 +103,17 @@ async function invokeNotificationWait(
   return frame.result as NotificationWaitResult;
 }
 
+async function invokeNotificationList(params: Record<string, unknown>): Promise<NotificationWaitResult[]> {
+  const frame = await notification_list(
+    { kind: "request", id: "list", method: "notification_list", params },
+    new AbortController().signal,
+  );
+  if (frame.kind !== "response") {
+    throw new Error(`notification_list failed: ${frame.kind === "error" ? frame.message : "not a response"}`);
+  }
+  return (frame.result as { entries: NotificationWaitResult[] }).entries;
+}
+
 function recordDelivery(incident: ReturnType<typeof deriveOperatorIncidents>[number], deliveredAt: number): void {
   store.tryRecordNotificationDelivery({
     incidentId: incident.incidentId,
@@ -116,6 +129,7 @@ beforeEach(() => {
   store = openStateStore(dbPath);
   registry = new NotificationWaitRegistry();
   notification_wait = createNotificationWaitHandler(store, registry);
+  notification_list = createNotificationListHandler(store);
   wakeNotificationWaiters = () => registry.wakeFromStore(store);
 });
 
@@ -234,4 +248,69 @@ test("notification_wait wakes when another daemon records the delivery", async (
 
   const result = await pending;
   expect(result.incident).toEqual(sinkIncident(deliveredIncident));
+});
+
+test("notification_list returns seeded ledger rows without blocking", async () => {
+  const firstRunId = seedBlockedRun();
+  const secondRunId = seedBlockedRun();
+  const incidents = deriveOperatorIncidents(store, DERIVATION_NOW_MS);
+  const firstIncident = incidents.find((incident) => incident.runId === firstRunId);
+  const secondIncident = incidents.find((incident) => incident.runId === secondRunId);
+  if (firstIncident === undefined || secondIncident === undefined) {
+    throw new Error("expected two blocked incidents");
+  }
+  const firstDeliveredAt = DERIVATION_NOW_MS - 2;
+  const secondDeliveredAt = DERIVATION_NOW_MS - 1;
+  recordDelivery(firstIncident, firstDeliveredAt);
+  recordDelivery(secondIncident, secondDeliveredAt);
+  const priorCursor = encodeNotificationDeliveryCursor({
+    deliveredAt: firstDeliveredAt - 1,
+    incidentId: "run:prior",
+    transition: "blocked",
+  });
+
+  const startedAt = performance.now();
+  const results = await invokeNotificationList({ sinceCursor: priorCursor });
+  const elapsedMs = performance.now() - startedAt;
+
+  expect(elapsedMs).toBeLessThan(100);
+  expect(results).toHaveLength(2);
+  expect(results[0]?.incident).toEqual(sinkIncident(firstIncident));
+  expect(results[0]?.deliveryCursor).toBe(
+    encodeNotificationDeliveryCursor({
+      deliveredAt: firstDeliveredAt,
+      incidentId: firstIncident.incidentId,
+      transition: firstIncident.transition,
+    }),
+  );
+  expect(results[1]?.incident).toEqual(sinkIncident(secondIncident));
+  expect(results[1]?.deliveryCursor).toBe(
+    encodeNotificationDeliveryCursor({
+      deliveredAt: secondDeliveredAt,
+      incidentId: secondIncident.incidentId,
+      transition: secondIncident.transition,
+    }),
+  );
+});
+
+test("notification_list kind filter excludes non-matching deliveries", async () => {
+  const pipelineId = seedAwaitingPipeline();
+  const blockedRunId = seedBlockedRun();
+  const awaitingIncident = deriveOperatorIncidents(store, DERIVATION_NOW_MS).find(
+    (incident) => incident.pipelineId === pipelineId,
+  );
+  const blockedIncident = deriveOperatorIncidents(store, DERIVATION_NOW_MS).find(
+    (incident) => incident.runId === blockedRunId,
+  );
+  if (awaitingIncident === undefined || blockedIncident === undefined) {
+    throw new Error("expected awaiting and blocked incidents");
+  }
+
+  recordDelivery(awaitingIncident, DERIVATION_NOW_MS - 2);
+  recordDelivery(blockedIncident, DERIVATION_NOW_MS - 1);
+
+  const results = await invokeNotificationList({ sinceMs: 0, kinds: ["run-blocked"] });
+
+  expect(results).toHaveLength(1);
+  expect(results[0]?.incident).toEqual(sinkIncident(blockedIncident));
 });

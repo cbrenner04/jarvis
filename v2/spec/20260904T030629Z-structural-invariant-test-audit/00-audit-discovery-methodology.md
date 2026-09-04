@@ -35,14 +35,14 @@ There are 183 co-located test files under those trees (~117k lines). A methodolo
 
 ## Acceptance criteria
 
-- [ ] `scripts/discover-structural-invariant-tests.ts` exists and emits one row per `v2/src/**/*.test.ts` and `shared/**/*.test.ts` file, each `in-scope` with a matched rule name (`source-read` | `registry-mirror` | `structural-name`) or `out-of-scope` with `no-structural-signal`.
-- [ ] The new script test `discovery emits in-scope for a source-reading test file` asserts a fixture referencing `readFileSync` on a production path is `in-scope` via `source-read`; it fails if rule A is dropped.
-- [ ] The new script test `discovery emits in-scope for a registry-mirroring test file` asserts a fixture holding a literal mirrored against a production registry is `in-scope` via `registry-mirror`; it fails if rule B is dropped.
-- [ ] The new script test `discovery emits out-of-scope for a purely behavioral test file` asserts a fixture with no structural signal is `out-of-scope` with `no-structural-signal`; it fails against a scanner that marks every file in-scope.
-- [ ] The new script test `discovery classifies every seed example file in-scope by rule` asserts each of the seven seed-named files is `in-scope` and names its matching rule, with no file-path allowlist in the script source; it fails against a script that special-cases them.
-- [ ] `v2/docs/structural-invariant-test-audit.md` methodology matches **Decisions**: scope, excluded trees with rationales, the three rules, output schema, classification rubric, manifest reconciliation, and the re-run command.
-- [ ] The artifact embeds the script's manifest output covering every `v2/src/**/*.test.ts` and `shared/**/*.test.ts` file.
-- [ ] `bun run typecheck` and the `test:v2` pair pass.
+- [x] `scripts/discover-structural-invariant-tests.ts` exists and emits one row per `v2/src/**/*.test.ts` and `shared/**/*.test.ts` file, each `in-scope` with a matched rule name (`source-read` | `registry-mirror` | `structural-name`) or `out-of-scope` with `no-structural-signal`.
+- [x] The new script test `discovery emits in-scope for a source-reading test file` asserts a fixture referencing `readFileSync` on a production path is `in-scope` via `source-read`; it fails if rule A is dropped.
+- [x] The new script test `discovery emits in-scope for a registry-mirroring test file` asserts a fixture holding a literal mirrored against a production registry is `in-scope` via `registry-mirror`; it fails if rule B is dropped.
+- [x] The new script test `discovery emits out-of-scope for a purely behavioral test file` asserts a fixture with no structural signal is `out-of-scope` with `no-structural-signal`; it fails against a scanner that marks every file in-scope.
+- [x] The new script test `discovery classifies every seed example file in-scope by rule` asserts each of the seven seed-named files is `in-scope` and names its matching rule, with no file-path allowlist in the script source; it fails against a script that special-cases them.
+- [x] `v2/docs/structural-invariant-test-audit.md` methodology matches **Decisions**: scope, excluded trees with rationales, the three rules, output schema, classification rubric, manifest reconciliation, and the re-run command.
+- [x] The artifact embeds the script's manifest output covering every `v2/src/**/*.test.ts` and `shared/**/*.test.ts` file.
+- [x] `bun run typecheck` and the `test:v2` pair pass.
 
 ## Documentation updates
 

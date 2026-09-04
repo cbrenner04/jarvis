@@ -12,14 +12,14 @@ Subspec 00 published the discovery contract and the script-generated candidate m
 
 ## Task checklist
 
-- [ ] For each script-emitted `in-scope` file under `shared/**`, read every case and record one row per in-scope anchor (guarded invariant, anchor mechanism, classification, disposition, `vacuous-pass-risk` when applicable).
-- [ ] Tag every `incidental` row `re-key` or `stay-incidental`; add a one-line `stay-incidental-rationale` on each `stay-incidental` row.
+- [x] For each script-emitted `in-scope` file under `shared/**`, read every case and record one row per in-scope anchor (guarded invariant, anchor mechanism, classification, disposition, `vacuous-pass-risk` when applicable).
+- [x] Tag every `incidental` row `re-key` or `stay-incidental`; add a one-line `stay-incidental-rationale` on each `stay-incidental` row.
 
 ## Acceptance criteria
 
-- [ ] Every script-emitted `in-scope` file under `shared/**` has ≥1 inventory row in `v2/docs/structural-invariant-test-audit.md`.
-- [ ] Every `shared/**` inventory row cites a manifested file and includes `row-id`, `test-path`, `case-scope`, `guarded-invariant`, `anchor-mechanism`, `classification`, `disposition` (and `stay-incidental-rationale` when required, `vacuous-pass-risk` when applicable).
-- [ ] Every `shared/**` `incidental` row is tagged `re-key` or `stay-incidental` with a one-line rationale on each `stay-incidental` row.
+- [x] Every script-emitted `in-scope` file under `shared/**` has ≥1 inventory row in `v2/docs/structural-invariant-test-audit.md`.
+- [x] Every `shared/**` inventory row cites a manifested file and includes `row-id`, `test-path`, `case-scope`, `guarded-invariant`, `anchor-mechanism`, `classification`, `disposition` (and `stay-incidental-rationale` when required, `vacuous-pass-risk` when applicable).
+- [x] Every `shared/**` `incidental` row is tagged `re-key` or `stay-incidental` with a one-line rationale on each `stay-incidental` row.
 
 ## Documentation updates
 

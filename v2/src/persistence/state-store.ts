@@ -840,7 +840,12 @@ export interface StateStore {
    * Record a delivered notification when absent; returns whether this caller won the insert.
    * First writer among concurrent sweepers delivers.
    */
-  tryRecordNotificationDelivery(args: { incidentId: string; transition: string; deliveredAt: number }): boolean;
+  tryRecordNotificationDelivery(args: {
+    incidentId: string;
+    transition: string;
+    deliveredAt: number;
+    incidentJson?: string;
+  }): boolean;
 
   /** Undo a claim so a failed sink spawn can retry on the next sweep. */
   releaseNotificationDelivery(args: { incidentId: string; transition: string }): void;
@@ -933,6 +938,7 @@ const SCHEMA = `
     incident_id TEXT NOT NULL,
     transition TEXT NOT NULL,
     delivered_at INTEGER NOT NULL,
+    incident_json TEXT,
     PRIMARY KEY (incident_id, transition)
   );
 `;
@@ -1087,10 +1093,12 @@ function upgradeFromLegacyEra(db: Database): void {
         incident_id TEXT NOT NULL,
         transition TEXT NOT NULL,
         delivered_at INTEGER NOT NULL,
+        incident_json TEXT,
         PRIMARY KEY (incident_id, transition)
       );
     `);
   }
+  addColumnIfMissing(db, "operator_notification_deliveries", "incident_json", "TEXT");
 }
 
 function hasLegacyEraMigrations(db: Database): boolean {
@@ -1472,6 +1480,7 @@ class StateStoreImpl implements StateStore {
     this.db.exec("PRAGMA journal_mode=WAL");
     this.db.exec("PRAGMA foreign_keys=ON");
     applySchemaMigrations(this.db);
+    addColumnIfMissing(this.db, "operator_notification_deliveries", "incident_json", "TEXT");
     this.currentIdentity = overrides?.currentIdentity ?? CURRENT_OWNER_IDENTITY;
     this.isOwnerAliveProbe = overrides?.isOwnerAlive ?? isOwnerAlive;
   }
@@ -2514,12 +2523,17 @@ class StateStoreImpl implements StateStore {
       .all(...incidentIds) as Array<{ incidentId: string; transition: string }>;
   }
 
-  tryRecordNotificationDelivery(args: { incidentId: string; transition: string; deliveredAt: number }): boolean {
+  tryRecordNotificationDelivery(args: {
+    incidentId: string;
+    transition: string;
+    deliveredAt: number;
+    incidentJson?: string;
+  }): boolean {
     const result = this.db
       .prepare(
-        "INSERT OR IGNORE INTO operator_notification_deliveries (incident_id, transition, delivered_at) VALUES (?, ?, ?)",
+        "INSERT OR IGNORE INTO operator_notification_deliveries (incident_id, transition, delivered_at, incident_json) VALUES (?, ?, ?, ?)",
       )
-      .run(args.incidentId, args.transition, args.deliveredAt);
+      .run(args.incidentId, args.transition, args.deliveredAt, args.incidentJson ?? null);
     return result.changes > 0;
   }
 

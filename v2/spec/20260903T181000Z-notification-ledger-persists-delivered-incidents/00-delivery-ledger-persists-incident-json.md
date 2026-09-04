@@ -25,9 +25,9 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/persistence/state-store.test.ts` test `notification delivery persists serialized incident JSON` records a delivery with a full incident payload and asserts the stored row round-trips the sink JSON shape; it fails against the pre-fix key-only ledger.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `v2/src/persistence/state-store.test.ts` test `notification delivery persists serialized incident JSON` records a delivery with a full incident payload and asserts the stored row round-trips the sink JSON shape; it fails against the pre-fix key-only ledger.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

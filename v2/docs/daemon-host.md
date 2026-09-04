@@ -40,6 +40,8 @@ After startup reconciliation completes, each live daemon runs an operator-notifi
 
 **Multi-daemon.** Keyed daemons share one state store. Concurrent sweeps race on the ledger insert; losers observe an existing row and skip spawn. Delivery is at-least-once with ledger dedupe, not exactly-once.
 
+**Incident payload.** Each sink stdin JSON object carries `project`: the registered project id of the owning run for run-derived incidents, or of the sole attributable entry run for pipeline- and stage-derived incidents. It is `null` when no single project owns the incident (no attributable entry run, or entry runs spanning more than one project) — the key is always present, so a consumer can branch on it without shape-sniffing. Derivation reuses rows the sweep already loads and adds no per-incident store lookup.
+
 **Incident altitude.** Notifications name derived operator boundaries — pipeline awaiting-approval, pipeline terminal (with cause), publication failure, wedged `settlement_deferred` stages, blocked runs, budget-soft-stops, ad-hoc workflow terminals — not every raw step-run terminal inside a pipeline stage failure.
 
 Configuration: [install-and-config.md § Operator notification sink](./install-and-config.md#operator-notification-sink). Operator practice: [operator-runbook.md § Operator notifications](./operator-runbook.md#operator-notifications).

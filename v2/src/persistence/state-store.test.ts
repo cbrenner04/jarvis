@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { serializeOperatorIncident } from "../daemon/operator-incidents.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import {
   analyzeFailedPipelineReopenShape,
@@ -137,6 +138,55 @@ describe("StateStore", () => {
     store.clearRunDownstreamInputs(runId);
     // Mutation checkpoint: state-store.test.ts clearRunDownstreamInputs
     expect(loadRunOrThrow(store, runId).downstreamInputs).toBeUndefined();
+  });
+
+  test("notification delivery persists serialized incident JSON", () => {
+    const incident = {
+      incidentId: "run:test-run",
+      kind: "run-blocked" as const,
+      transition: "blocked",
+      project: "demo",
+      pipelineId: "pipeline-1",
+      stageId: "plan",
+      branchKey: "default",
+      runId: "test-run",
+      cause: "blocked",
+      sinceMs: 10_000,
+    };
+    const incidentJson = serializeOperatorIncident(incident);
+    const deliveredAt = 1_700_000_123_456;
+
+    expect(
+      store.tryRecordNotificationDelivery({
+        incidentId: incident.incidentId,
+        transition: incident.transition,
+        deliveredAt,
+        incidentJson,
+      }),
+    ).toBe(true);
+
+    const raw = new Database(TEST_DB_PATH);
+    try {
+      const row = raw
+        .prepare(
+          "SELECT incident_id, transition, delivered_at, incident_json FROM operator_notification_deliveries WHERE incident_id = ? AND transition = ?",
+        )
+        .get(incident.incidentId, incident.transition) as {
+        incident_id: string;
+        transition: string;
+        delivered_at: number;
+        incident_json: string | null;
+      };
+      expect(row).toEqual({
+        incident_id: incident.incidentId,
+        transition: incident.transition,
+        delivered_at: deliveredAt,
+        incident_json: incidentJson,
+      });
+      expect(JSON.parse(row.incident_json ?? "")).toEqual(JSON.parse(incidentJson));
+    } finally {
+      raw.close();
+    }
   });
 
   test("schema bootstrap is idempotent on re-open", () => {

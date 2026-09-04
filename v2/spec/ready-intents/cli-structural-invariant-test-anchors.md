@@ -12,6 +12,7 @@ CLI structural-invariant tests read production source and pin symbol ownership a
 
 - Re-key every CLI structural-invariant test the audit tagged `re-key` to resolved symbols, discovered module sets, or property assertions over the CLI contract.
 - Adopt shared loud-failure locators for source slicing; pair absence with presence when the invariant is "this moved".
+- Leave `stay-incidental` anchors unchanged except to route through loud-failure locators.
 
 ## Decision ledger
 
@@ -23,7 +24,6 @@ CLI structural-invariant tests read production source and pin symbol ownership a
 - `v2/docs/structural-invariant-test-audit.md` catalogs structural-invariant tests and classifies each anchor.
 - Shared structural-invariant locators throw named errors when the subject cannot be located.
 - Every `shared/**` structural-invariant test tagged `re-key` in the audit anchors on its source of truth.
-- Daemon structural-invariant tests tagged `re-key` in the audit anchor on their source of truth.
 
 ## Primary implementation surface
 
@@ -31,8 +31,10 @@ CLI structural-invariant tests read production source and pin symbol ownership a
 
 ## Acceptance criteria
 
-- [ ] Every CLI structural-invariant test tagged `re-key` in `v2/docs/structural-invariant-test-audit.md` anchors on its source of truth or documents `stay-incidental` unchanged.
-- [ ] `workflow.test.ts` and `workflow-start-preparation.test.ts` structural pins stay green when guarded symbols move to a sibling module without changing CLI behavior.
+- [ ] Every CLI structural-invariant test tagged `re-key` in `v2/docs/structural-invariant-test-audit.md` anchors on its source of truth or remains `stay-incidental` per the audit with loud-failure locator routing only.
+- [ ] `workflow.test.ts` — `runWorkflowCommand delegates build stamp and stale-reset preparation to the shared owner` stays green.
+- [ ] `workflow-start-preparation.test.ts` — `production prepared-step assembly lives only in shared preparation and the pipeline adapter` stays green.
+- [ ] A regression test fails when a re-keyed CLI structural anchor still pins a fixed module path and passes when guarded symbols move to a sibling module without changing CLI behavior; fails against pre-fix path pins.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass for the CLI slice.
 
 ## Documentation updates

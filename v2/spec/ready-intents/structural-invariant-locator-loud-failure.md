@@ -32,7 +32,7 @@ Structural tests that slice source by marker, symbol, or discovered file can ret
 
 - [ ] A regression test per surviving locator shape named in `v2/docs/structural-invariant-test-audit.md` fails when the subject is absent and passes when present; each fails against a locator that returns an empty string on miss.
 - [ ] `shared/structural-test-locator.ts` exports locators that throw named errors on failed lookup rather than returning empty values.
-- [ ] Every `shared/**` structural-invariant test tagged `re-key` in `v2/docs/structural-invariant-test-audit.md` anchors on its source of truth or documents `stay-incidental` unchanged.
+- [ ] Every `shared/**` structural-invariant test tagged `re-key` in `v2/docs/structural-invariant-test-audit.md` anchors on its source of truth or remains `stay-incidental` per the audit with loud-failure locator routing only.
 - [ ] `bun run typecheck`, `bun run test:shared`, and `bun run test:integration:shared` pass.
 
 ## Documentation updates

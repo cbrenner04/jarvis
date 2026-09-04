@@ -32,9 +32,11 @@ Daemon structural-invariant tests anchor invariants to incidental structure — 
 
 ## Acceptance criteria
 
-- [ ] Every daemon structural-invariant test tagged `re-key` in `v2/docs/structural-invariant-test-audit.md` anchors on its source of truth or documents `stay-incidental` unchanged.
-- [ ] `daemon-workflow-start.test.ts` and `daemon-test-inventory.test.ts` stay green when a co-located daemon test file is added without renaming merge-base titles.
-- [ ] `daemon-workflow-start.test.ts` — `workflow starts, pipeline dispatch, and recovery share daemon admission` stays green after a symbol rename that preserves admission routing.
+- [ ] Every daemon structural-invariant test tagged `re-key` in `v2/docs/structural-invariant-test-audit.md` anchors on its source of truth or remains `stay-incidental` per the audit with loud-failure locator routing only.
+- [ ] Every daemon structural-invariant test tagged `re-key` for inventory semantics anchors on missing-only title preservation, not exact count equality with merge-base.
+- [ ] `daemon-test-inventory.test.ts` — `preserves merge-base test()/test.skip() titles per daemon test file` stays green.
+- [ ] `daemon-workflow-start.test.ts` — `workflow starts, pipeline dispatch, and recovery share daemon admission` stays green.
+- [ ] A regression test fails when daemon admission routing pins an incidental symbol name and passes after a symbol rename that preserves admission routing; fails against pre-fix symbol-name pins.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass for the daemon slice.
 
 ## Documentation updates

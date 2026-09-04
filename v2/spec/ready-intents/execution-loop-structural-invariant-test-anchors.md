@@ -25,8 +25,6 @@ Execution-loop structural-invariant tests anchor invariants to line numbers, cop
 - `v2/docs/structural-invariant-test-audit.md` catalogs structural-invariant tests and classifies each anchor.
 - Shared structural-invariant locators throw named errors when the subject cannot be located.
 - Every `shared/**` structural-invariant test tagged `re-key` in the audit anchors on its source of truth.
-- Daemon structural-invariant tests tagged `re-key` in the audit anchor on their source of truth.
-- CLI structural-invariant tests tagged `re-key` in the audit anchor on their source of truth.
 
 ## Primary implementation surface
 
@@ -34,10 +32,10 @@ Execution-loop structural-invariant tests anchor invariants to line numbers, cop
 
 ## Acceptance criteria
 
-- [ ] Every execution-loop structural-invariant test tagged `re-key` in `v2/docs/structural-invariant-test-audit.md` anchors on its source of truth or documents `stay-incidental` unchanged.
-- [ ] `execution-terminal-settlement-guard.test.ts` — `inventory ignores line drift above tracked call sites` stays green when tracked call sites shift line numbers without changing writer identity.
-- [ ] `diff-derived-mutation-verifier.test.ts` observer scoping assertions resolve expected observers through `resolveRenderObserverTests`, not a hardcoded literal list.
-- [ ] `workflow-runner-resume-structure.test.ts` pairs absence from `workflow-runner.ts` with presence in `workflow-runner-resume.ts` for every extracted helper.
+- [ ] Every execution-loop structural-invariant test tagged `re-key` in `v2/docs/structural-invariant-test-audit.md` anchors on its source of truth or remains `stay-incidental` per the audit with loud-failure locator routing only.
+- [ ] `execution-terminal-settlement-guard.test.ts` — `inventory ignores line drift above tracked call sites` stays green.
+- [ ] `diff-derived-mutation-verifier.test.ts` — `invokes only that prompt's render-observer test file(s) per changed prompt` stays green.
+- [ ] `workflow-runner-resume-structure.test.ts` — `resume helpers are not defined in workflow-runner.ts` and `resume helpers are defined in workflow-runner-resume.ts` stay green.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass for the execution-loop slice.
 
 ## Documentation updates

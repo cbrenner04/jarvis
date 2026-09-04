@@ -420,6 +420,31 @@ This invalidates the intermediate reading recorded mid-session ("six concurrent 
 
 **Agent order:** `cursor, claude` (codex removed by the prior session on 25-of-26 quota exits). Left unchanged.
 
+## This-session (2026-09-03 evening — closeout addendum)
+
+Supersedes the mid-session block above, written when 10 PRs were still ahead. **Final: 31 merged, 1 closed as duplicate (#3429, superseded by #3431).**
+
+| Lane | Chain | Final state |
+| --- | --- | --- |
+| operator-incidents-carry-project | [#3406] → [#3412] → [#3418] + [#3435] | **COMPLETE**, verified live in production |
+| pipeline-resume-plan-lane-owns-preamble | [#3407] → [#3414] → [#3424] | 00 landed; 01–02 open |
+| pipeline-resume-lists-fanout-resumable-lanes | [#3407] → [#3411] | planned, not implemented |
+| all-spec-documents-external-capable (#3374) | [#3405] → [#3413] → [#3415] | foundation planned; 2 lanes held on it |
+| daemon-start-sweeps-orphan-gate-children | [#3416] → [#3431] | **COMPLETE** |
+| ready-gate-command-missing-misclassifies | [#3408] → [#3409] → [#3420] | **COMPLETE** |
+| notification-sweep bounded derivation | prior session 00–01 → [#3434] | **COMPLETE 5/5** (hand-published) |
+| notifications-wait-is-the-operator-wake-primitive | [#3427] → [#3428] → [#3432] | ledger 00 landed; 01–03 + daemon + CLI lanes open |
+| intent-resume-consumes-its-seed | [#3410] | seeded, not started |
+
+**Hand-landed this session (7):** #3418, #3420, #3424, #3428, #3431, #3432, #3434, #3435 — every one a settlement-tail loss over complete work, salvaged by cherry-pick and hand-gating rather than re-run.
+
+**Standing items for the next operator:**
+
+- [[structural-invariants-key-on-behavior-not-incidental-structure]] (#3387) reached its **third** instance this session (#3422's exact-count inventory). Priority raise warranted.
+- The resume-DI crutch moved from `daemon.ts` to `daemon-workflow-admission-handlers.ts` (#3419). The split-workflow-runner follow-up should name the new location.
+- Two cursor implement invocations burned full 45-minute budgets producing nothing, streaming enough to keep the idle watchdog armed. Unexplained; not quota (458 ok / 13 error today). Worth a seed if it recurs.
+- `notifications-filter-by-project` — the operator's actual pain — is blocked until the wake-primitive CLI lands.
+
 ## Gaps / low-confidence
 
 - `harness-publication-push-uses-explicit-refspec`, `inject-spec-guidance-agent-core`, `split-spec-guidance-documents`, `cleanup-uses-lossless-git-status`: confirmed as landed ready-intents (intent PRs verified), but no plan-spec dir or implement PR was verifiable from the brief or git — left `—`. May be planned/implemented under names not matched here.

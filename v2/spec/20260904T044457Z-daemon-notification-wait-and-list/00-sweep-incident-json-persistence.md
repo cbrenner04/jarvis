@@ -20,10 +20,14 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/operator-notification-sweep.test.ts` test `sweep persists incident_json on winning delivery insert` drives a sweep discharge and asserts the ledger row carries non-null `incident_json` matching the serialized incident; it fails against the pre-fix `deliverIncident` path that omits `incidentJson`.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `v2/src/daemon/operator-notification-sweep.test.ts` test `sweep persists incident_json on winning delivery insert` drives a sweep discharge and asserts the ledger row carries non-null `incident_json` matching the serialized incident; it fails against the pre-fix `deliverIncident` path that omits `incidentJson`.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 
 - Deferred to subspec 03.
+
+## Blocker
+
+Outcome misclassified: session log concatenated the terminal `done` with the follow-up summary (`doneSubspec`), so token parsing matched `blocked` in regression-test prose ('seeds a blocked run'). All acceptance criteria are satisfied; remove this section and resume.

@@ -41,14 +41,16 @@ function deliverIncident(
   const { incidentId, transition } = incident;
   if (store.hasNotificationDelivery({ incidentId, transition })) return;
 
+  const incidentJson = serializeOperatorIncident(incident);
+
   if (sinkCommand === undefined) {
-    store.tryRecordNotificationDelivery({ incidentId, transition, deliveredAt });
+    store.tryRecordNotificationDelivery({ incidentId, transition, deliveredAt, incidentJson });
     return;
   }
 
-  if (!store.tryRecordNotificationDelivery({ incidentId, transition, deliveredAt })) return;
+  if (!store.tryRecordNotificationDelivery({ incidentId, transition, deliveredAt, incidentJson })) return;
 
-  const spawnResult = spawnSink(sinkCommand, serializeOperatorIncident(incident));
+  const spawnResult = spawnSink(sinkCommand, incidentJson);
   if (!spawnResult.ok) {
     store.releaseNotificationDelivery({ incidentId, transition });
   }

@@ -21,6 +21,26 @@ Per-seed completion status (seed → ready-intent → plan → implement PR) liv
 
 The five structural retirements that close whole classes: one dispatch front door, settlement derived from run rows, atomic terminal writes, the workflow-runner/daemon module splits, and real dead-export/test-seam gates.
 
+## Close status (2026-09-03 evening — operator asks landed, a leak faked the concurrency ceiling)
+
+Operator-present continuation, **31 PRs**. Full report: [`reports/20260903T214000Z-operator-asks-landed-leaked-workers-faked-a-ceiling.md`](../../reports/20260903T214000Z-operator-asks-landed-leaked-workers-faked-a-ceiling.md).
+
+**Both named operator asks landed.** [[operator-incidents-carry-and-filter-by-project]] is COMPLETE (#3418 payload, #3435 docs) and verified in production — the daemon emits `"project":"jarvis"` on live incidents. [[pipeline-resume-owns-the-plan-lane-preamble]] subspec 00 landed (#3424); 01–02 open. Issue #3374 was folded into [[all-spec-documents-external-capable]] (#3405) rather than point-fixed, per its own triage comment, then split into three lanes (#3413) with the foundation planned (#3415).
+
+**A single dead lane's leaked test workers faked a concurrency ceiling, and I reported the false version first.** Eleven `bun test --test-worker` processes at ~96% CPU each, traced by parent PID to one `iteration_timeout`ed lane, plus a live producer — a 3h35m-old orphaned `bun run test:v1` parented to `launchd`, still re-spawning `--only-failures` cohorts. Load sat at 20 with one live run; clearing the tree took load 30 → 13. **The mid-session claim that "six concurrent implements is a zero-output ceiling" is retracted**: five implements failed to CPU starvation, and each timeout leaked more workers, compounding into something indistinguishable from a lane-count limit. Lane count was never measured cleanly. What holds: plans and intents are robust to load (5/5, several at load 30); implements are fragile to starvation from any source. Durable fix landed — [[daemon-start-sweeps-orphan-gate-children]] (#3416/#3431) reaps ready-gate process groups whose owning run is not live, pre-IPC.
+
+**Four tests were budgeted for an idle machine** and false-red under the suite's own 20-way concurrency, blocking an implement outright (#3430). The reap test's budgets were re-scaled *together* so its fixture cannot self-exit before the abort and make `waitForGroupReaped` vacuous. This test alone produced four wrong diagnoses from me before the right one; every correction came from external data (CI, an implement agent's blocker, a parent-PID trace), not my own checking.
+
+**Gate fixes:** [#3422] the daemon test inventory asserted exact title-count equality, so **adding any daemon test reddened the gate** — third instance of [[structural-invariants-key-on-behavior-not-incidental-structure]] (#3387), **raise its priority**. [#3420] `ready_gate_command_missing` misclassified lint output mentioning `ENOENT` as a missing command, settling complete work non-resumable. [#3419] 29 dead imports from the two just-completed extraction chains; the resume-DI crutch has **moved from `daemon.ts` to `daemon-workflow-admission-handlers.ts`** — record against that follow-up.
+
+**Publication tail took six lanes.** All salvaged by cherry-pick and hand-gating, never re-run. One new shape: the notification-sweep lane ready-flipped **#3396**, a prior subspec's already-merged PR on the same branch, and settled `ready_flip_failed` with its completed 5/5 work holding no PR at all ([[implement-publication-reuses-closed-same-branch-pr]], live again). A regression in one salvage — an ordering inversion of the documented landed-criteria-before-dirty contract — was visible **only because [#3422] cleared the false inventory red first**.
+
+**Cursor is not quota'd** (458 `ok` / 13 `error` today, successes minutes after the failures), but two implement invocations each burned the full 45-minute budget producing zero file changes while streaming enough to keep the 15-minute idle watchdog armed. Root cause unexplained; the "partial re-dispatch onto merged subspecs" hypothesis died when the notification-sweep lane, exactly that shape, completed cleanly. Order unchanged (`cursor, claude`).
+
+**New seed:** [[intent-resume-consumes-its-seed]] (#3410) — a `landing_failed` intent recovered via `run resume` lands its ready-intents but never consumes the seed, silently queueing a duplicate split.
+
+**Wake-primitive chain started.** The operator's `--project` filter has nowhere to live until `jarvis notifications wait|list` exists: [[notifications-wait-is-the-operator-wake-primitive]] → intent #3427 → ledger/daemon/CLI lanes; ledger plan hand-landed #3428, subspec 00 #3432.
+
 ## Close status (2026-09-03 — daemon blocker root-caused, both refactor chains COMPLETE)
 
 Operator-present, 18 PRs. Full report: [`reports/`](../../reports/).

@@ -532,6 +532,7 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
     hasNotificationDelivery: (args) => inner.hasNotificationDelivery(args),
     listNotificationDeliveriesForIncidentIds: (incidentIds) =>
       inner.listNotificationDeliveriesForIncidentIds(incidentIds),
+    listDeliveredNotificationIncidents: (args) => inner.listDeliveredNotificationIncidents(args),
     tryRecordNotificationDelivery: (args) => inner.tryRecordNotificationDelivery(args),
     releaseNotificationDelivery: (args) => inner.releaseNotificationDelivery(args),
     isClosed: () => inner.isClosed(),
@@ -628,6 +629,7 @@ function storeObservingCompletedWrites(inner: StateStore): {
     hasNotificationDelivery: (args) => inner.hasNotificationDelivery(args),
     listNotificationDeliveriesForIncidentIds: (incidentIds) =>
       inner.listNotificationDeliveriesForIncidentIds(incidentIds),
+    listDeliveredNotificationIncidents: (args) => inner.listDeliveredNotificationIncidents(args),
     tryRecordNotificationDelivery: (args) => inner.tryRecordNotificationDelivery(args),
     releaseNotificationDelivery: (args) => inner.releaseNotificationDelivery(args),
     isClosed: () => inner.isClosed(),
@@ -5222,6 +5224,7 @@ export function isLoadSensitive(file: string): boolean {
           hasNotificationDelivery: (args) => inner.hasNotificationDelivery(args),
           listNotificationDeliveriesForIncidentIds: (incidentIds) =>
             inner.listNotificationDeliveriesForIncidentIds(incidentIds),
+          listDeliveredNotificationIncidents: (args) => inner.listDeliveredNotificationIncidents(args),
           tryRecordNotificationDelivery: (args) => inner.tryRecordNotificationDelivery(args),
           releaseNotificationDelivery: (args) => inner.releaseNotificationDelivery(args),
           isClosed: () => inner.isClosed(),

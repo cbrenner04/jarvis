@@ -27,10 +27,10 @@ No store operation returns delivered incidents for pull catch-up. Consumers cann
 
 ## Acceptance criteria
 
-- [ ] `v2/src/persistence/state-store.test.ts` test `list delivered notification incidents honors since cursor` seeds multiple delivered rows and asserts the query returns only rows at or after the cursor in stable order; it fails against the pre-fix absent query API.
-- [ ] `v2/src/persistence/state-store.test.ts` test `delivered incident is readable after recording with no active consumer` records a delivery then queries with a prior cursor and asserts the incident is returned; it fails against the pre-fix ledger that cannot serve pull catch-up.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `v2/src/persistence/state-store.test.ts` test `list delivered notification incidents honors since cursor` seeds multiple delivered rows and asserts the query returns only rows at or after the cursor in stable order; it fails against the pre-fix absent query API.
+- [x] `v2/src/persistence/state-store.test.ts` test `delivered incident is readable after recording with no active consumer` records a delivery then queries with a prior cursor and asserts the incident is returned; it fails against the pre-fix ledger that cannot serve pull catch-up.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

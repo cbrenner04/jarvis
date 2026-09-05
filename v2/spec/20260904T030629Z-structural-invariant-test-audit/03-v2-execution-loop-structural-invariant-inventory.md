@@ -17,9 +17,9 @@ Subspec 00 published the discovery contract and the script-generated candidate m
 
 ## Acceptance criteria
 
-- [ ] Every script-emitted `in-scope` file under `v2/src/execution/**` has ≥1 inventory row in `v2/docs/structural-invariant-test-audit.md`.
-- [ ] Every `v2/src/execution/**` inventory row cites a manifested file and includes `row-id`, `test-path`, `case-scope`, `guarded-invariant`, `anchor-mechanism`, `classification`, `disposition` (and `stay-incidental-rationale` when required, `vacuous-pass-risk` when applicable).
-- [ ] Every `v2/src/execution/**` `incidental` row is tagged `re-key` or `stay-incidental` with a one-line rationale on each `stay-incidental` row.
+- [x] Every script-emitted `in-scope` file under `v2/src/execution/**` has ≥1 inventory row in `v2/docs/structural-invariant-test-audit.md`.
+- [x] Every `v2/src/execution/**` inventory row cites a manifested file and includes `row-id`, `test-path`, `case-scope`, `guarded-invariant`, `anchor-mechanism`, `classification`, `disposition` (and `stay-incidental-rationale` when required, `vacuous-pass-risk` when applicable).
+- [x] Every `v2/src/execution/**` `incidental` row is tagged `re-key` or `stay-incidental` with a one-line rationale on each `stay-incidental` row.
 
 ## Documentation updates
 

@@ -169,7 +169,7 @@ function publish(
   return resolveWorkflowPreset(kind, writes);
 }
 
-type SeedDetails = { label: string; content: string; slug: string; name: string; paths: string[] };
+type SeedDetails = { label: string; content: string; slug: string; name: string; paths: string[]; sourceRoot: string };
 function externalSpecsDir(jarvisRoot: string, projectKey: string, segment: string): string {
   return join(jarvisRoot, "specs", projectSafeId(projectKey), segment);
 }
@@ -206,6 +206,10 @@ function seedDetailsFromCanonical(
     name,
     slug: slugify(name),
     paths: [canonical],
+    // The root this input was actually resolved against. Publication consumption skips any input
+    // that is not inside `sourceRoot`, so an external seed recorded against `project.root` is
+    // silently never consumed — the queue never drains and the next run re-splits the same seed.
+    sourceRoot: labelRoot,
   };
 }
 function effectivePublishGit(config: ProjectConfig, modePlan: Record<string, unknown>): boolean {
@@ -271,7 +275,8 @@ function resolveSeed(
   }
   const content = input.seedText ?? "";
   const slug = slugify(content.split(/\s+/u).slice(0, 6).join(" "));
-  return { label: "inline seed", content, slug, name: slug, paths: [] };
+  // Inline seed text has no file to consume, so the root is inert.
+  return { label: "inline seed", content, slug, name: slug, paths: [], sourceRoot: project.root };
 }
 /**
  * Machine-config `modes.plan` block, normalized. Shared by every publication row's
@@ -405,7 +410,7 @@ function intentSource(
         stagingDir: INTENT_STAGE,
         invocationId: identity.invocationId,
         baseRef,
-        inputs: { sourceRoot: project.root, paths: seed.paths, consumeFrom: publishGit ? "worktree" : "source" },
+        inputs: { sourceRoot: seed.sourceRoot, paths: seed.paths, consumeFrom: publishGit ? "worktree" : "source" },
       } satisfies PublicationLanding,
       workflowInvocationId: identity.invocationId,
       creationTitle: `intent: ${seed.name}`,
@@ -604,6 +609,7 @@ function planSource(
     let ready: { ok: true; name: string; content: string } | { ok: false; message: string };
     let readyIntentPath: string;
     let landingInputPath: string;
+    let landingSourceRoot: string;
     if (isAbsolute(input.readyIntent)) {
       if (git) return { error: "plan: --ready-intent must be a relative path" };
       const jarvisRoot = input.jarvisRoot ?? jarvisHome();
@@ -615,11 +621,13 @@ function planSource(
       ready = resolved;
       readyIntentPath = resolved.path;
       landingInputPath = resolved.path;
+      landingSourceRoot = resolveRealpathHome(externalSpecsDir(jarvisRoot, project.key, "ready-intents"));
     } else {
       readyIntentPath = join(input.cwd, input.readyIntent);
       ready = deps.readReadyIntent?.(readyIntentPath) ?? validateReadyIntent(readyIntentPath);
       if (!ready.ok) return { error: ready.message };
       landingInputPath = resolve(project.root, input.readyIntent);
+      landingSourceRoot = project.root;
     }
     const target = resolveTargetDir(
       input.targetDir,
@@ -657,7 +665,7 @@ function planSource(
         stagingDir: PLAN_STAGE,
         durablePath: durableSpecPath,
         inputs: {
-          sourceRoot: project.root,
+          sourceRoot: landingSourceRoot,
           paths: [landingInputPath],
           consumeFrom: git ? "worktree" : "source",
         },

@@ -28,10 +28,10 @@ Opted-in projects publish ready-intents and plan trees externally, but intent `-
 
 ## Acceptance criteria
 
-- [ ] `intent-workflow-steps.test.ts` test `admits external seed under project specs home` asserts `--seed` naming a file under `~/.jarvis/specs/<safeId>/seeds/` admits, lands to external `ready-intents/`, and consumes the seed for a `git: false` project; it fails against the current relative-path and project-root escape guards in `resolveSeed`.
-- [ ] `plan-workflow-steps.test.ts` test `admits external ready-intent under project specs home` asserts `--ready-intent` naming a file under `~/.jarvis/specs/<safeId>/ready-intents/` drafts to external `plans/<name>/` for a `plan.commit: false` project; it fails against the current absolute-path rejection in `planSource`.
-- [ ] `publication-workflow-steps.test.ts` test `plan commit decision honors machine modes.plan.commit like intent` asserts plan's publish decision falls back to `modes.plan.commit` when project `plan.commit` is unset; it fails against the current plan-only `?? true` split in `planSource`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `intent-workflow-steps.test.ts` test `admits external seed under project specs home` asserts `--seed` naming a file under `~/.jarvis/specs/<safeId>/seeds/` admits, lands to external `ready-intents/`, and consumes the seed for a `git: false` project; it fails against the current relative-path and project-root escape guards in `resolveSeed`.
+- [x] `plan-workflow-steps.test.ts` test `admits external ready-intent under project specs home` asserts `--ready-intent` naming a file under `~/.jarvis/specs/<safeId>/ready-intents/` drafts to external `plans/<name>/` for a `plan.commit: false` project; it fails against the current absolute-path rejection in `planSource`.
+- [x] `publication-workflow-steps.test.ts` test `plan commit decision honors machine modes.plan.commit like intent` asserts plan's publish decision falls back to `modes.plan.commit` when project `plan.commit` is unset; it fails against the current plan-only `?? true` split in `planSource`.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

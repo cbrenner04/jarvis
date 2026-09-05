@@ -32,10 +32,10 @@ Unsplit rationale: The stdout echo, mutation-outcome parsing, CLI tests, and ope
 
 ## Acceptance criteria
 
-- [ ] `pipeline resume exits 0 on resumed for %s` in `pipeline.test.ts` asserts daemon-returned `pipelineId` on stdout and exit 0; fails against the current `stdout: ""` pin.
-- [ ] `pipeline resume on terminal pipeline prints %s on stderr` and `pipeline resume prints a branch-scoped refusal verbatim on stderr` in `pipeline.test.ts` stay green.
-- [ ] `pipeline %s exits 0 on applied decision and sends branch-keyed IDs` and `pipeline reject prints invalid_decision on stderr with no success stdout` in `pipeline.test.ts` stay green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `pipeline resume exits 0 on resumed for %s` in `pipeline.test.ts` asserts daemon-returned `pipelineId` on stdout and exit 0; fails against the current `stdout: ""` pin.
+- [x] `pipeline resume on terminal pipeline prints %s on stderr` and `pipeline resume prints a branch-scoped refusal verbatim on stderr` in `pipeline.test.ts` stay green.
+- [x] `pipeline %s exits 0 on applied decision and sends branch-keyed IDs` and `pipeline reject prints invalid_decision on stderr with no success stdout` in `pipeline.test.ts` stay green.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

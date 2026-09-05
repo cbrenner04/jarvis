@@ -155,7 +155,7 @@ async function defaultCheckDaemon(): Promise<{ state: "running" | "stale" | "sto
   const pid = readDaemonPid(DAEMON_PID_PATH);
   if (pid === null) return { state: "stopped" };
   try {
-    return await getDaemonStatus(pid, DAEMON_SOCKET_PATH);
+    return await getDaemonStatus(DAEMON_SOCKET_PATH);
   } catch {
     return { state: "stopped" };
   }

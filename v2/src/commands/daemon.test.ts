@@ -110,8 +110,7 @@ describe("daemon command", () => {
     const code = await main(["daemon", "status"], cap.io, {
       socketPath: paths.socketPath,
       pidPath: paths.pidPath,
-      getDaemonStatus: async (pid, socketPath) => {
-        expect(pid).toBe(77);
+      getDaemonStatus: async (socketPath) => {
         expect(socketPath).toBe(paths.socketPath);
         return { state: "running", loadedRevision: "abc123", currentRevision: "abc123" };
       },
@@ -121,7 +120,27 @@ describe("daemon command", () => {
     expect(cap.read()).toEqual({ stdout: "running loaded=abc123 current=abc123\n", stderr: "" });
   });
 
-  test("daemon status prints stopped with exit 1 when pid is missing", async () => {
+  // The pid file is a hint, not the service. A doomed start clobbers it with a pid that never
+  // served, and short-circuiting on that reported `stopped` for a daemon answering normally.
+  test("daemon status reports running when the pid file is missing but the socket answers", async () => {
+    const cap = captureIo();
+    const paths = tempPaths();
+
+    const code = await main(["daemon", "status"], cap.io, {
+      socketPath: paths.socketPath,
+      pidPath: paths.pidPath,
+      getDaemonStatus: async () => ({
+        state: "running",
+        loadedRevision: "abc123",
+        currentRevision: "abc123",
+      }),
+    });
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "running loaded=abc123 current=abc123\n", stderr: "" });
+  });
+
+  test("daemon status prints stopped with exit 1 when the socket does not answer", async () => {
     const cap = captureIo();
     const paths = tempPaths();
 

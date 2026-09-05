@@ -119,6 +119,8 @@ lsof -a -p <agent-pid> -d cwd -Fn                            # which worktree a 
 
 A `worktree lock held by process <pid>` refusal is evidence, not noise: check whether that PID is a live daemon. Observed 2026-09-02 — three implements read `not-live` with zero live rows while a 40-minute-old `cursor-agent` was actively editing one of their worktrees. Seed: `v2/spec/seeds/run-list-cannot-reach-superseded-daemon-runs.md`.
 
+**`daemon status` answers from the socket, not the pid file (2026-09-04).** The pid file is recorded only once a daemon is actually serving, and status decides purely on whether the keyed socket answers. Before this, `startDaemon` wrote the pid at spawn time, so a start that never bound overwrote a healthy daemon's pid with a dead one and status reported `stopped` for a daemon answering normally — the shape that sends operators into destructive recovery on a working machine. A missing pid file is no longer reported as `stopped`.
+
 **`daemon status` reports on the *current* source digest, so a merge makes it read `stopped` (2026-07-30).** The `jarvis` launcher keys its daemon by a digest of the source tree, so every merge to `main` — including your own session's merges — rotates the key. `jarvis daemon status` probes only the current digest and prints `stopped`, while the daemon that owns your in-flight runs is alive and working on the previous key. This reads exactly like "the daemon died and my runs are orphaned," and it is not. Confirm before concluding anything:
 
 ```sh

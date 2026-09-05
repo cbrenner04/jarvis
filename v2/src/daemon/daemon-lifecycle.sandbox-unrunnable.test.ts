@@ -473,12 +473,10 @@ describe("daemon-lifecycle", () => {
 
   describe("getDaemonStatus", () => {
     test("returns running when executable digests match even if HEAD differs", async () => {
-      const processProber: ProcessProber = { isAlive: () => true };
       const socketProber: SocketProber = {
         probe: async () => true,
       };
-      const status = await getDaemonStatus(1000, "/fake/socket", {
-        processProber,
+      const status = await getDaemonStatus("/fake/socket", {
         socketProber,
         connectIpcClient: async () =>
           makeIpcClient([], {
@@ -495,12 +493,10 @@ describe("daemon-lifecycle", () => {
     });
 
     test("returns stale when executable digests differ", async () => {
-      const processProber: ProcessProber = { isAlive: () => true };
       const socketProber: SocketProber = {
         probe: async () => true,
       };
-      const status = await getDaemonStatus(1000, "/fake/socket", {
-        processProber,
+      const status = await getDaemonStatus("/fake/socket", {
         socketProber,
         connectIpcClient: async () =>
           makeIpcClient([], {
@@ -516,26 +512,39 @@ describe("daemon-lifecycle", () => {
       });
     });
 
+    // A doomed start used to overwrite the pid file with a pid that never served, and status
+    // short-circuited on it — reporting `stopped` for a daemon answering normally and sending
+    // operators into destructive recovery on a healthy machine.
+    // A dead daemon is still reported stopped — its socket stops answering. The pid is simply
+    // no longer what decides that.
     test("returns stopped if process not alive", async () => {
-      const processProber: ProcessProber = {
-        isAlive: () => false,
-      };
+      const socketProber: SocketProber = { probe: async () => false };
 
-      const status = await getDaemonStatus(9999, "/fake/socket", { processProber });
+      const status = await getDaemonStatus("/fake/socket", { socketProber });
       expect(status).toEqual({ state: "stopped" });
     });
 
-    test("returns stopped if socket probe fails", async () => {
-      const processProber: ProcessProber = {
-        isAlive: () => true,
-      };
+    test("reports running from the socket even when no live pid is recorded", async () => {
+      const socketProber: SocketProber = { probe: async () => true };
 
+      const status = await getDaemonStatus("/fake/socket", {
+        socketProber,
+        connectIpcClient: async () =>
+          makeIpcClient([], {
+            statusResult: { loadedRevision: "head", loadedExecutableDigest: "digest" },
+          }),
+        getCurrentRevision: async () => "head",
+        getExecutableDigest: async () => "digest",
+      });
+      expect(status).toEqual({ state: "running", loadedRevision: "head", currentRevision: "head" });
+    });
+
+    test("returns stopped if socket probe fails", async () => {
       const socketProber: SocketProber = {
         probe: async () => false,
       };
 
-      const status = await getDaemonStatus(1000, "/fake/socket", {
-        processProber,
+      const status = await getDaemonStatus("/fake/socket", {
         socketProber,
         healthTimeoutMs: 100,
       });

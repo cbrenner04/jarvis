@@ -150,12 +150,9 @@ export async function startDaemon(
   options?.onSpawn?.(pid);
   proc.unref();
 
-  if (options?.pidPath) {
-    const pidDir = dirname(options.pidPath);
-    if (!existsSync(pidDir)) {
-      throw new Error(`PID file directory does not exist: ${pidDir}`);
-    }
-    writeFileSync(options.pidPath, String(pid));
+  const pidDir = options?.pidPath === undefined ? undefined : dirname(options.pidPath);
+  if (options?.pidPath !== undefined && pidDir !== undefined && !existsSync(pidDir)) {
+    throw new Error(`PID file directory does not exist: ${pidDir}`);
   }
 
   const startTime = Date.now();
@@ -165,6 +162,12 @@ export async function startDaemon(
     }
     const up = await socketProber.probe(socketPath, 100);
     if (up) {
+      // Recorded only once this daemon is actually serving. Writing it at spawn time let a
+      // doomed start (one that never binds) overwrite a healthy daemon's pid with a dead one,
+      // which made `daemon status` report `stopped` for a daemon that was answering fine.
+      if (options?.pidPath !== undefined) {
+        writeFileSync(options.pidPath, String(pid));
+      }
       return { pid, socketPath };
     }
     await new Promise((r) => setTimeout(r, 50));
@@ -280,11 +283,9 @@ export type GetCurrentRevisionFn = () => Promise<string>;
 const jarvisRepoRoot = resolve(import.meta.dir, "../../..");
 
 export async function getDaemonStatus(
-  pid: number,
   socketPath: string,
   options?: {
     healthTimeoutMs?: number;
-    processProber?: ProcessProber;
     socketProber?: SocketProber;
     getCurrentRevision?: GetCurrentRevisionFn;
     getExecutableDigest?: () => Promise<string>;
@@ -292,13 +293,11 @@ export async function getDaemonStatus(
   },
 ): Promise<DaemonStatusResult> {
   const healthTimeoutMs = options?.healthTimeoutMs ?? 1_000;
-  const processProber = options?.processProber ?? { isAlive: isProcessAlive };
   const socketProber = options?.socketProber ?? { probe: probeSocket };
 
-  if (!processProber.isAlive(pid)) {
-    return { state: "stopped" };
-  }
-
+  // The socket is the service, so it decides. A recorded pid can be stale or absent while a
+  // daemon is serving normally, and reporting `stopped` for a reachable daemon sends operators
+  // into destructive recovery for a machine that is working.
   const up = await socketProber.probe(socketPath, healthTimeoutMs);
   if (!up) {
     return { state: "stopped" };

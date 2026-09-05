@@ -22,7 +22,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/v1-behaviors.md` records v2 external seed admission, v2 plan external ready-intent admission (restoring v1 absolute-path behavior at the publication builder, not net-new v1 capability), and plan commit-decision parity against v1, consistent with `00`–`02`.
+- [x] `v2/docs/v1-behaviors.md` records v2 external seed admission, v2 plan external ready-intent admission (restoring v1 absolute-path behavior at the publication builder, not net-new v1 capability), and plan commit-decision parity against v1, consistent with `00`–`02`.
 
 ## Documentation updates
 

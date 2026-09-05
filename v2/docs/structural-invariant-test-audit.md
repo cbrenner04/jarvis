@@ -262,16 +262,25 @@ v2/src/tui/tui-timestamp-format.test.ts out-of-scope no-structural-signal
 | shr-npsg-forbidden-tokens | shared/prompts/no-prompt-surgery-guard.test.ts | prompt assembly builders omit post-render string surgery | forbidden constructs are strip/replace call shapes | hand-maintained `FORBIDDEN_PROMPT_SURGERY_TOKENS` literal list | incidental | re-key | | |
 | shr-ricp-contract-markers | shared/prompts/review-implement-contract-preservation.test.ts | implement review role contract preservation > implement review role contract substrings preserved | implement review roles preserve merge-base diff instructions and role-specific contract phrases; critic omits adversary identify checklist | `MERGE_BASE_DIFF_MARKERS` and role contract substring presence; `ADVERSARY_IDENTIFY_LIST_MARKERS` one-way `.not.toContain` on registry bodies | incidental | re-key | | yes |
 | shr-ri-merge-base-prose | shared/prompts/review-implement.test.ts | renderPatchReviewCriticPrompt branch diff > renders stat, changed paths, and merge-base unified diff for critic and debate roles | critic and debate roles render merge-base diff provenance wording | substring pins for `merge-base branch diff`, `git merge-base <base> HEAD`, `git diff <mergeBase> HEAD`, and `.not.toContain("not a unified diff")` | incidental | re-key | | yes |
-| shr-rpd-patch-implement-divergence | shared/prompts/review-prompt-divergence.test.ts | patch vs implement review prompt registry-body divergence > * branch-diff prose diverges | each implement review role body diverges from patch on unified-diff wording | per-role substring presence/absence pins (`not a unified diff`, `merge-base branch diff`) plus `not.toEqual(patchBody)` | incidental | re-key | | |
+| shr-rpd-patch-implement-divergence | shared/prompts/review-prompt-divergence.test.ts | patch vs implement review prompt registry-body divergence > * branch-diff prose diverges | each implement review role body diverges from patch on unified-diff wording | per-role substring presence/absence pins (`not a unified diff`, `merge-base branch diff`) plus `not.toEqual(patchBody)` | incidental | re-key | | yes |
+| shr-is-stage-contract | shared/intent-stage.test.ts | intent stage contract > * | intent stage filename/content/structure validation and repair behave correctly | behavioral unit tests; `readFileSync` only on temp stage paths after repair | behavioral | n/a | | |
+| shr-cj-parse-fixtures | shared/invocation/claude-json.test.ts | parseClaudeJsonOutput / isClaudeZeroExitQuotaEnvelope > * | Claude JSON envelope parsing and quota classification handle fixtures correctly | behavioral tests; `readFileSync` on `v1/test/fixtures/claude` JSON fixtures only | behavioral | n/a | | |
+| shr-sl-writer | shared/invocation/session-log.test.ts | session log writer > * | session log writer creates namespaced files with stamped lines and close semantics | behavioral tests; `readFileSync` only on temp sessions dir paths | behavioral | n/a | | |
+| shr-rigb-body-baselines | shared/prompts/review-implement-growth-budget.test.ts | implement review role growth budget > implement review role body growth stays within budget | implement review role prompt bodies stay under committed length ceilings | `IMPLEMENT_REVIEW_ROLE_BASELINES` and exported `*_BASELINE_BODY_LENGTH` literals vs `registry.getById(id).body.length` | incidental | re-key | | |
+| shr-rigb-role-placeholders | shared/prompts/review-implement-growth-budget.test.ts | implement review role growth budget > implement review role placeholders unchanged | implement review role prompt frontmatter placeholders stay stable | `IMPLEMENT_REVIEW_ROLE_PLACEHOLDERS` literal map vs `readFileSync(artifact.sourcePath)` placeholders field parse | incidental | re-key | | |
+| shr-rpgb-body-baselines | shared/prompts/review-plan-growth-budget.test.ts | plan review role growth budget > plan review role body growth stays within budget | plan review role prompt bodies stay under committed length ceilings | `PLAN_REVIEW_ROLE_BASELINES` and exported `*_BASELINE_BODY_LENGTH` literals vs `registry.getById(id).body.length` | incidental | re-key | | |
+| shr-rpgb-role-placeholders | shared/prompts/review-plan-growth-budget.test.ts | plan review role growth budget > plan review role placeholders unchanged | plan review role prompt frontmatter placeholders stay stable | `PLAN_REVIEW_ROLE_PLACEHOLDERS` literal map vs `readFileSync(artifact.sourcePath)` placeholders field parse | incidental | re-key | | |
+| shr-sp-runner | shared/subprocess.test.ts | realSubprocessRunner / realAsyncSubprocessRunner / predicate parity > * | subprocess runners, abort/group semantics, and git predicate parity behave correctly | behavioral integration; `readFileSync` only on temp `.scratch` pid files in group-mode fixtures | behavioral | n/a | | |
+| shr-wtl-lock | shared/worktree-lock.test.ts | acquireLock / releaseLock / isProcessAlive > * | worktree lock acquire, busy/recovery paths, release, and pid liveness behave correctly | behavioral tests; `readFileSync` only on temp lock paths | behavioral | n/a | | |
 
 ## v2 daemon inventory
 
 | row-id | test-path | case-scope | guarded-invariant | anchor-mechanism | classification | disposition | stay-incidental-rationale | vacuous-pass-risk |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| dm-lifecycle-socket-filter | v2/src/daemon/daemon-lifecycle.sandbox-unrunnable.test.ts | daemon-lifecycle > supersede > enumerateOtherDaemonSockets returns daemon-*.sock files excluding own socket | peer supersede enumerates only valid daemon socket filenames under jarvisHome | hardcoded fixture filenames (`daemon-short.sock`, `.pid`, `.log`) and `result.length === 2` pin | incidental | re-key | | |
+| dm-lifecycle-socket-filter | v2/src/daemon/daemon-lifecycle.sandbox-unrunnable.test.ts | daemon-lifecycle > supersede > enumerateOtherDaemonSockets returns daemon-*.sock files excluding own socket | enumerateOtherDaemonSockets filters daemon-*.sock peers excluding own socket under jarvisHome | behavioral assertion on temp fixture tree; hardcoded exclusion files are harness setup, not production structure pins | behavioral | n/a | | |
 | dm-pipeline-recover-plan-fixture | v2/src/daemon/daemon-pipeline-recover.test.ts | pipeline_recover admits and lands a corrected non-first fan-out branch without redrafting | corrected plan stage body lands to durable spec unchanged | `readFileSync` of `execution/fixtures/write-loop-staged-markdown-lint/plan-md012-clean-subspec.md` as golden body | incidental | re-key | | |
 | dm-resume-intent-lint-fixture | v2/src/daemon/daemon-resume.test.ts | module scope (populated-stage intent finalization cases) | lint-clean intent stage markdown seeds landing/republication paths | module-level `readFileSync` of `execution/fixtures/write-loop-staged-markdown-lint/intent-md038-clean.md` golden | incidental | re-key | | |
-| dm-rchg-forbidden-weakmap-symbols | v2/src/daemon/daemon-run-control-handler-guard.test.ts | daemon production sources omit activeRunsByHandler and activeRunForHandler | daemon production tree must not reintroduce handler WeakMap back-channel symbols | `FORBIDDEN_SYMBOLS` literal list scanned across all production `v2/src/daemon/**/*.ts` via `readFileSync` | incidental | re-key | | |
+| dm-rchg-forbidden-weakmap-symbols | v2/src/daemon/daemon-run-control-handler-guard.test.ts | daemon production sources omit activeRunsByHandler and activeRunForHandler | daemon production tree must not reintroduce handler WeakMap back-channel symbols | `FORBIDDEN_SYMBOLS` literal list scanned across all production `v2/src/daemon/**/*.ts` via `readFileSync` | incidental | re-key | | yes |
 | dm-rchg-scanner-positive | v2/src/daemon/daemon-run-control-handler-guard.test.ts | guard reports reintroduced activeRun WeakMap back-channel symbols | scanner detects injected forbidden symbols | behavioral positive fixture on synthetic `daemon.ts` patch | behavioral | n/a | | |
 | dm-startlist-terminal-settlement-guard | v2/src/daemon/daemon-start-list.test.ts | daemon production terminal writers are restricted to atomic settlement | daemon must not call legacy `commitGuardedKill`; only admitted `setRunStatus` transition is in-progress; reconciliation admission must not UPDATE status | regex/substring scans of concatenated production daemon sources plus `state-store.ts` slice | incidental | re-key | | yes |
 | dm-test-inv-merge-base-titles | v2/src/daemon/daemon-test-inventory.test.ts | daemon test inventory > preserves merge-base test()/test.skip() titles per daemon test file | merge-base daemon test files must not drop existing test titles | `git merge-base`, `git ls-tree`, `git show`, worktree `readFileSync` title multiset diff per file | incidental | re-key | | |
@@ -355,13 +364,276 @@ v2/src/tui/tui-timestamp-format.test.ts out-of-scope no-structural-signal
 | cli-init-scaffold | v2/src/commands/init.test.ts | init planning directory > * | target-dir precedence, scaffold containment, and queue sentinels | behavioral integration with project-tree `readFileSync`/`listFiles` | behavioral | n/a | | |
 | cli-init-readiness | v2/src/commands/init.test.ts | init readiness / init read-only check > * | readiness report ordering, requiredness, probe normalization, and `--check` non-mutation | behavioral tests of `evaluateReadiness`/`renderReadinessReport` and check-mode integration | behavioral | n/a | | |
 | cli-wsp-posture-tables | v2/src/commands/workflow-start-preparation.test.ts | workflow-start preparation authority > realizes every supported workflow and review posture | base workflow names and review postures match exported registries | hardcoded equality against imported `BASE_WORKFLOW_NAMES` and `WORKFLOW_REVIEW_POSTURES` | incidental | re-key | | |
-| cli-wsp-single-owner | v2/src/commands/workflow-start-preparation.test.ts | workflow-start preparation authority > production realizability and posture-to-preset tables live only in the shared owner | realizability tables and forbidden declaration patterns stay in owner module | full `v2/src` production tree `readFileSync` scan with regex forbidden-declaration list | incidental | re-key | | |
+| cli-wsp-single-owner | v2/src/commands/workflow-start-preparation.test.ts | workflow-start preparation authority > production realizability and posture-to-preset tables live only in the shared owner | realizability tables and forbidden declaration patterns stay in owner module | full `v2/src` production tree `readFileSync` scan with regex forbidden-declaration list | incidental | re-key | | yes |
 | cli-wsp-prepare-calls | v2/src/commands/workflow-start-preparation.test.ts | workflow-start preparation authority > production prepared-step assembly lives only in shared preparation and the pipeline adapter | `prepareWorkflowStart` and resolver assembly stay on allowlisted modules | `PREPARE_CALL_ALLOWED_PATHS` set vs production tree scan plus resolver forbidden-assembly regex list | incidental | re-key | | |
 | cli-wf-dispatch | v2/src/commands/workflow.test.ts | run workflow dispatch / ticked implement recovery / workflow detach / review-passes / implement validation / stale workspace reset (non-structural cases) | workflow CLI dispatch, recovery, detach, review stamping, and stale-reset integration | behavioral CLI integration; `readFileSync` only on temp spec/worktree paths | behavioral | n/a | | |
 | cli-wf-prep-call-count | v2/src/commands/workflow.test.ts | shared workflow-start preparation > run workflow intent plan and implement preserve prepared start steps | `workflow.ts` calls `prepareWorkflowStart` exactly once | production `workflow.ts` `readFileSync` with `prepareWorkflowStart(` count pin | incidental | re-key | | |
 | cli-wf-prep-delegation | v2/src/commands/workflow.test.ts | shared workflow-start preparation > runWorkflowCommand delegates build stamp and stale-reset preparation to the shared owner | workflow command delegates stamp/stale-reset to shared owner without local duplicates | production `workflow.ts`/`workflow-start-preparation.ts` `readFileSync` with absence regex pins on command body | incidental | re-key | | yes |
 | cli-wf-stale-reset-workflows | v2/src/commands/workflow.test.ts | implement preflight stale workspace reset > STALE_RESET_WORKFLOWS membership includes intent | intent workflow is in stale-reset set | hardcoded `Set` equality against imported `STALE_RESET_WORKFLOWS` | incidental | re-key | | |
 | cli-paths-constants | v2/src/paths.test.ts | paths / jarvis home isolation (suite isolation cases) | jarvis-home path constants and isolated-home preload | behavioral unit tests of path exports and `JARVIS_HOME` isolation | behavioral | n/a | | |
-| cli-paths-homedir-guard | v2/src/paths.test.ts | jarvis home isolation > no v2 source resolves a jarvis-home path via homedir() directly | production tree must not call `homedir()` outside `paths.ts` | `readdirSync` + `readFileSync` scan of all `v2/src` production `.ts` for `homedir()` substring | incidental | re-key | | |
+| cli-paths-homedir-guard | v2/src/paths.test.ts | jarvis home isolation > no v2 source resolves a jarvis-home path via homedir() directly | production tree must not call `homedir()` outside `paths.ts` | `readdirSync` + `readFileSync` scan of all `v2/src` production `.ts` for `homedir()` substring | incidental | re-key | | yes |
 | cli-log-stream | v2/src/persistence/log-stream.test.ts | log-stream > * | sink/reader persistence, tail/follow ordering, and event round-trip | behavioral unit/integration tests; `readFileSync` only on temp storage paths | behavioral | n/a | | |
 | cli-timer-guard-predicate | v2/src/testing/timer-callback-guard-fixture.test.ts | shouldStopPolling: draining poller stops only once no work is pending | polling stops only when draining idle or stop requested | behavioral truth-table test of exported `shouldStopPolling` predicate | behavioral | n/a | | |
+
+## Downstream re-key queue
+
+Every inventory row with disposition `re-key`, grouped by `test-path` + `case-scope`. Counts are re-key rows per group.
+
+### shared/module-boundary-surfaces.test.ts
+
+**case-scope:** module boundary surfaces > classifies committed phrases
+
+**re-key (1):** shr-mbs-surfaces-registry
+
+### shared/module-boundary-surfaces.test.ts
+
+**case-scope:** module boundary surfaces > inverting draft dependency order guard fails k4
+
+**re-key (1):** shr-mbs-k4-cli-first-filename
+
+### shared/module-boundary-surfaces.test.ts
+
+**case-scope:** module boundary surfaces > normalizes the * staged tree without provenance
+
+**re-key (4):** shr-mbs-split-emitted-files, shr-mbs-split-index-links, shr-mbs-split-section-bullets, shr-mbs-manifest-union
+
+### shared/prompts/no-prompt-surgery-guard.test.ts
+
+**case-scope:** prompt assembly builders omit post-render string surgery
+
+**re-key (2):** shr-npsg-assembly-paths, shr-npsg-forbidden-tokens
+
+### shared/prompts/review-implement-contract-preservation.test.ts
+
+**case-scope:** implement review role contract preservation > implement review role contract substrings preserved
+
+**re-key (1):** shr-ricp-contract-markers
+
+### shared/prompts/review-implement-growth-budget.test.ts
+
+**case-scope:** implement review role growth budget > implement review role body growth stays within budget
+
+**re-key (1):** shr-rigb-body-baselines
+
+### shared/prompts/review-implement-growth-budget.test.ts
+
+**case-scope:** implement review role growth budget > implement review role placeholders unchanged
+
+**re-key (1):** shr-rigb-role-placeholders
+
+### shared/prompts/review-implement.test.ts
+
+**case-scope:** renderPatchReviewCriticPrompt branch diff > renders stat, changed paths, and merge-base unified diff for critic and debate roles
+
+**re-key (1):** shr-ri-merge-base-prose
+
+### shared/prompts/review-plan-growth-budget.test.ts
+
+**case-scope:** plan review role growth budget > plan review role body growth stays within budget
+
+**re-key (1):** shr-rpgb-body-baselines
+
+### shared/prompts/review-plan-growth-budget.test.ts
+
+**case-scope:** plan review role growth budget > plan review role placeholders unchanged
+
+**re-key (1):** shr-rpgb-role-placeholders
+
+### shared/prompts/review-prompt-divergence.test.ts
+
+**case-scope:** patch vs implement review prompt registry-body divergence > * branch-diff prose diverges
+
+**re-key (1):** shr-rpd-patch-implement-divergence
+
+### v2/src/cli/help-flags-parity.test.ts
+
+**case-scope:** help flag parser parity > every guarded path lists all parser-accepted flags
+
+**re-key (1):** cli-hfp-guarded-paths
+
+### v2/src/commands/init.test.ts
+
+**case-scope:** init machine bootstrap > profile bindings govern bootstrap
+
+**re-key (1):** cli-init-profile-files
+
+### v2/src/commands/workflow-start-preparation.test.ts
+
+**case-scope:** workflow-start preparation authority > production prepared-step assembly lives only in shared preparation and the pipeline adapter
+
+**re-key (1):** cli-wsp-prepare-calls
+
+### v2/src/commands/workflow-start-preparation.test.ts
+
+**case-scope:** workflow-start preparation authority > production realizability and posture-to-preset tables live only in the shared owner
+
+**re-key (1):** cli-wsp-single-owner
+
+### v2/src/commands/workflow-start-preparation.test.ts
+
+**case-scope:** workflow-start preparation authority > realizes every supported workflow and review posture
+
+**re-key (1):** cli-wsp-posture-tables
+
+### v2/src/commands/workflow.test.ts
+
+**case-scope:** implement preflight stale workspace reset > STALE_RESET_WORKFLOWS membership includes intent
+
+**re-key (1):** cli-wf-stale-reset-workflows
+
+### v2/src/commands/workflow.test.ts
+
+**case-scope:** shared workflow-start preparation > run workflow intent plan and implement preserve prepared start steps
+
+**re-key (1):** cli-wf-prep-call-count
+
+### v2/src/commands/workflow.test.ts
+
+**case-scope:** shared workflow-start preparation > runWorkflowCommand delegates build stamp and stale-reset preparation to the shared owner
+
+**re-key (1):** cli-wf-prep-delegation
+
+### v2/src/daemon/daemon-pipeline-recover.test.ts
+
+**case-scope:** pipeline_recover admits and lands a corrected non-first fan-out branch without redrafting
+
+**re-key (1):** dm-pipeline-recover-plan-fixture
+
+### v2/src/daemon/daemon-resume.test.ts
+
+**case-scope:** module scope (populated-stage intent finalization cases)
+
+**re-key (1):** dm-resume-intent-lint-fixture
+
+### v2/src/daemon/daemon-run-control-handler-guard.test.ts
+
+**case-scope:** daemon production sources omit activeRunsByHandler and activeRunForHandler
+
+**re-key (1):** dm-rchg-forbidden-weakmap-symbols
+
+### v2/src/daemon/daemon-start-list.test.ts
+
+**case-scope:** daemon production terminal writers are restricted to atomic settlement
+
+**re-key (1):** dm-startlist-terminal-settlement-guard
+
+### v2/src/daemon/daemon-test-inventory.test.ts
+
+**case-scope:** daemon test inventory > preserves merge-base test()/test.skip() titles per daemon test file
+
+**re-key (1):** dm-test-inv-merge-base-titles
+
+### v2/src/daemon/daemon-workflow-start.test.ts
+
+**case-scope:** workflow starts, pipeline dispatch, and recovery share daemon admission
+
+**re-key (1):** dm-workflow-start-admission-seam
+
+### v2/src/daemon/pipeline-stage-dispatch.test.ts
+
+**case-scope:** every terminal pipeline stage-run write carries endedAt
+
+**re-key (1):** dm-pipe-dispatch-ended-at-ast
+
+### v2/src/daemon/pipeline-stage-recovery.test.ts
+
+**case-scope:** recoverPipelineBranchStage > *
+
+**re-key (1):** dm-pipe-recovery-plan-fixture
+
+### v2/src/daemon/write-loop-binding-source-guard.test.ts
+
+**case-scope:** daemon binding resolution re-loads from the machine profile unless the snapshot replay test hook is set
+
+**re-key (1):** dm-wlbinding-source-markers
+
+### v2/src/daemon/write-loop-binding-source-guard.test.ts
+
+**case-scope:** only allowlisted modules call resolveWriteLoopBindings
+
+**re-key (1):** dm-wlbinding-callers-allowlist
+
+### v2/src/execution/diff-derived-mutation-verifier.test.ts
+
+**case-scope:** diff-derived-mutation-verifier > fails closed for registered prompts without render-observer map entries / invokes only that prompt's render-observer test file(s)
+
+**re-key (1):** ex-ddmv-render-coverage-needle
+
+### v2/src/execution/diff-derived-mutation-verifier.test.ts
+
+**case-scope:** module scope
+
+**re-key (1):** ex-ddmv-observer-map-source
+
+### v2/src/execution/execution-terminal-settlement-guard.test.ts
+
+**case-scope:** execution production terminal writers are restricted to atomic settlement
+
+**re-key (1):** ex-etsg-permitted-inventory
+
+### v2/src/execution/intent-split-regression.test.ts
+
+**case-scope:** intent split production write regression > multi-surface seed fans out by surface through the production split write
+
+**re-key (1):** ex-isr-primary-surfaces
+
+### v2/src/execution/intent-split-regression.test.ts
+
+**case-scope:** module scope / intent split production write regression
+
+**re-key (1):** ex-isr-fixture-seeds
+
+### v2/src/execution/plan-workflow-steps.test.ts
+
+**case-scope:** plan preset draft write step > `plan` invokes its binding through the production step-builder
+
+**re-key (1):** ex-pws-spec-guidance-prose
+
+### v2/src/execution/workflow-runner-debate-landing-structure.test.ts
+
+**case-scope:** review-debate landing helpers are not defined in workflow-runner.ts
+
+**re-key (1):** ex-wrdls-debate-absence
+
+### v2/src/execution/workflow-runner-resume-inventory.test.ts
+
+**case-scope:** workflow-runner resume test inventory > preserves merge-base resume-path leaf titles in workflow-runner-resume*.test.ts destinations
+
+**re-key (1):** ex-wri-merge-base-titles
+
+### v2/src/execution/workflow-runner-resume-structure.test.ts
+
+**case-scope:** resume helpers are not defined in workflow-runner.ts / resume helpers are defined in workflow-runner-resume.ts
+
+**re-key (1):** ex-wrrs-resume-extraction
+
+### v2/src/execution/workflow-runner-resume.test.ts
+
+**case-scope:** recoverPlanStage / resume mutation-repair cases using lint fixtures
+
+**re-key (1):** ex-wrr-resume-fixture-golden
+
+### v2/src/execution/workflow-runner-review.test.ts
+
+**case-scope:** review staged-markdown-lint reprompt cases
+
+**re-key (1):** ex-wrr-review-fixture-golden
+
+### v2/src/execution/write-loop-staged-markdown-lint.test.ts
+
+**case-scope:** plan/intent write step staged Markdown lint cases
+
+**re-key (1):** ex-wlsl-fixture-golden
+
+### v2/src/execution/write.test.ts
+
+**case-scope:** plan preset draft step isolates bundled human-only marker guidance
+
+**re-key (1):** ex-wr-spec-guidance-prose
+
+### v2/src/paths.test.ts
+
+**case-scope:** jarvis home isolation > no v2 source resolves a jarvis-home path via homedir() directly
+
+**re-key (1):** cli-paths-homedir-guard
+

@@ -1,22 +1,56 @@
 import { describe, expect, test } from "bun:test";
+import { locateMarkerSlice } from "../structural-test-locator.ts";
 import { loadPromptRegistry } from "./registry.ts";
 
-const ADVERSARY_IDENTIFY_LIST_MARKERS = [
-  "Edge cases not addressed by the implementation",
-  "Inconsistencies between the spec and the code",
-  "Code quality issues: complexity, redundancy, maintainability",
-  "Missing acceptance criteria or incomplete implementations",
-  "Potential bugs or subtle logic errors",
-] as const;
+const IMPLEMENT_REVIEW_CRITIC_ID = "implement.prompt.review.critic";
+const IMPLEMENT_REVIEW_ADVERSARY_ID = "implement.prompt.review.adversary";
 
-const MERGE_BASE_DIFF_MARKERS = [
-  "merge-base branch diff",
-  "git merge-base <base> HEAD",
-  "git diff <mergeBase> HEAD",
-] as const;
+function implementReviewBranchDiffProse(body: string): string {
+  return locateMarkerSlice({
+    text: body,
+    start: "## Branch diff\n\n",
+    end: "\n\n<<<DIFF_BEGIN>>>",
+    searchKey: "implement review branch diff prose",
+  });
+}
+
+function mergeBaseDiffMarkersFromProse(prose: string): readonly string[] {
+  return [
+    locateMarkerSlice({ text: prose, pattern: /(merge-base branch diff)/, searchKey: "merge-base branch diff" }),
+    locateMarkerSlice({
+      text: prose,
+      pattern: /`(git merge-base <base> HEAD)`/,
+      searchKey: "git merge-base <base> HEAD",
+    }).replaceAll("`", ""),
+    locateMarkerSlice({
+      text: prose,
+      pattern: /`(git diff <mergeBase> HEAD)`/,
+      searchKey: "git diff <mergeBase> HEAD",
+    }).replaceAll("`", ""),
+  ];
+}
+
+function adversaryIdentifyMarkers(adversaryBody: string): readonly string[] {
+  const rules = locateMarkerSlice({
+    text: adversaryBody,
+    pattern: /## Rules\n\n([\s\S]+)$/,
+    searchKey: "implement review adversary rules",
+  });
+  const findList = locateMarkerSlice({
+    text: rules,
+    pattern: /- Find (.+)\./,
+    searchKey: "adversary identify checklist",
+  });
+  return findList.split(/,\s+and\s+|,\s+/).map((part) => part.trim());
+}
 
 describe("implement review role contract preservation", () => {
   const registry = loadPromptRegistry();
+  const branchDiffProse = implementReviewBranchDiffProse(registry.getById(IMPLEMENT_REVIEW_CRITIC_ID).body);
+  const MERGE_BASE_DIFF_MARKERS = mergeBaseDiffMarkersFromProse(branchDiffProse);
+  const ADVERSARY_IDENTIFY_LIST_MARKERS = adversaryIdentifyMarkers(
+    registry.getById(IMPLEMENT_REVIEW_ADVERSARY_ID).body,
+  );
 
   test("implement review role contract substrings preserved", () => {
     const adversary = registry.getById("implement.prompt.review.adversary").body;
@@ -41,6 +75,7 @@ describe("implement review role contract preservation", () => {
     expect(critic).toContain("Self-contained: the actuator reads only your verdict");
     expect(critic).toContain("empty verdict (no content)");
     for (const marker of ADVERSARY_IDENTIFY_LIST_MARKERS) {
+      expect(adversary).toContain(marker);
       expect(critic).not.toContain(marker);
     }
   });

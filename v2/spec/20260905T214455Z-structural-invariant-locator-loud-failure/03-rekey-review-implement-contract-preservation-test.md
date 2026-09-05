@@ -12,15 +12,15 @@ Row `shr-ricp-contract-markers` pins implement review role contracts to hand-mai
 
 ## Task checklist
 
-- [ ] Re-key audit row `shr-ricp-contract-markers` per the decision ledger.
-- [ ] Pair critic absence assertions with adversary presence assertions for `ADVERSARY_IDENTIFY_LIST_MARKERS`.
+- [x] Re-key audit row `shr-ricp-contract-markers` per the decision ledger.
+- [x] Pair critic absence assertions with adversary presence assertions for `ADVERSARY_IDENTIFY_LIST_MARKERS`.
 
 ## Acceptance criteria
 
-- [ ] `shared/prompts/review-implement-contract-preservation.test.ts` test `implement review role contract substrings preserved` derives merge-base and role contract markers from a shared source-of-truth constant and pairs critic `.not.toContain` checks with adversary presence checks; it fails against the pre-fix one-way absence pins (`vacuous-pass-risk: yes` on audit row `shr-ricp-contract-markers`) and passes after re-key.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:shared` passes.
-- [ ] `bun run test:integration:shared` passes.
+- [x] `shared/prompts/review-implement-contract-preservation.test.ts` test `implement review role contract substrings preserved` derives merge-base and role contract markers from a shared source-of-truth constant and pairs critic `.not.toContain` checks with adversary presence checks; it fails against the pre-fix one-way absence pins (`vacuous-pass-risk: yes` on audit row `shr-ricp-contract-markers`) and passes after re-key.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:shared` passes.
+- [x] `bun run test:integration:shared` passes.
 
 ## Documentation updates
 

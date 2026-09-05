@@ -16,7 +16,10 @@ Land in dependency order:
 2. [`canonical-pipeline-execution-state-and-stage-claims`](../ready-intents/canonical-pipeline-execution-state-and-stage-claims.md) — durable stage claims and one derivation owner.
 3. [`daemon-terminal-run-stage-settlement`](../ready-intents/daemon-terminal-run-stage-settlement.md), [`daemon-terminal-run-settlement`](../ready-intents/daemon-terminal-run-settlement.md), [`execution-terminal-run-settlement-invariant`](../ready-intents/execution-terminal-run-settlement-invariant.md) — execution-loop and restart seams.
 
-Absorbs planning for [[operator-killed-pipeline-stage-is-recoverable]] and [[restart-reconciliation-preserves-paused-resumable-runs]].
+Absorbs planning for the two dead-end shapes below (their standalone seeds were folded here 2026-09-05; full detail in issues #2996 and #3030):
+
+- **Operator-killed stage is unrecoverable (#2996).** `run kill --force` on a pipeline-linked run settles the stage `interrupted`; `resumeDeferredRefusalApplies` refuses derived `interrupted` unconditionally and one `interrupted` stage row poisons `derivePipelineState`, so restart continuation skips the pipeline forever. The settlement restructure must make an operator-killed stage reopenable (treat `interrupted` like `failed`, or settle the kill as `failed`) and keep restart continuation un-poisoned by a single such row; refusals name the derived state, offending stage, and suggested verb; dismissed pipelines stay dismissed.
+- **Restart reconciliation kills paused/resumable runs (#3030).** A run with a durable `paused`/`resumable: true` terminal boundary has no live process to orphan, yet reconciliation flips it `killed` and settles the pipeline `failed` (observed 34 minutes after the boundary was durable). Reconciliation must preserve durably-paused/resumable rows across restart — flipping only genuinely-orphaned in-flight runs — and a pipeline whose only non-terminal lane is such a row stays resumable.
 
 ## Evidence: entry-row-only PR lookup fails a published stage (2026-09-05)
 

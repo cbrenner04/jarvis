@@ -34,3 +34,5 @@ name: remove-ready-gate-repair-fence-bypass-from-production
 - `v2/docs/test-writing.md` — how ready-gate repair fence tests avoid production bypass flags.
 
 ## Prerequisites
+
+- [[ready-gate-repair-out-of-diff-edits]] has landed (revert-on-refusal + non-resumable settlement) — same enforcement code in `write-loop.ts`/`workflow-runner.ts`; sequenced 2026-09-05 to avoid two runs racing on the fence.

@@ -6,5 +6,5 @@
 - [x] [03 - Re-key shared/prompts/review-implement-contract-preservation.test.ts](./03-rekey-review-implement-contract-preservation-test.md)
 - [x] [04 - Re-key shared/prompts/review-implement.test.ts merge-base prose pins](./04-rekey-review-implement-merge-base-prose-test.md)
 - [x] [05 - Re-key shared/prompts/review-implement-growth-budget.test.ts](./05-rekey-review-implement-growth-budget-test.md)
-- [ ] [06 - Re-key shared/prompts/review-plan-growth-budget.test.ts](./06-rekey-review-plan-growth-budget-test.md)
+- [x] [06 - Re-key shared/prompts/review-plan-growth-budget.test.ts](./06-rekey-review-plan-growth-budget-test.md)
 - [ ] [07 - Re-key shared/prompts/review-prompt-divergence.test.ts](./07-rekey-review-prompt-divergence-test.md)

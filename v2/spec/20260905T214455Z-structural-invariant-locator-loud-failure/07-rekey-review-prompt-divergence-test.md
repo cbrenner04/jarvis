@@ -17,10 +17,10 @@ Row `shr-rpd-patch-implement-divergence` pins patch versus implement review dive
 
 ## Acceptance criteria
 
-- [ ] `shared/prompts/review-prompt-divergence.test.ts` branch-diff divergence cases assert on non-empty patch and implement registry bodies using shared marker constants and fail when either body is empty; they fail against the pre-fix vacuous substring pins (`vacuous-pass-risk: yes` on audit row `shr-rpd-patch-implement-divergence`) and pass after re-key.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:shared` passes.
-- [ ] `bun run test:integration:shared` passes.
+- [x] `shared/prompts/review-prompt-divergence.test.ts` branch-diff divergence cases assert on non-empty patch and implement registry bodies using shared marker constants and fail when either body is empty; they fail against the pre-fix vacuous substring pins (`vacuous-pass-risk: yes` on audit row `shr-rpd-patch-implement-divergence`) and pass after re-key.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:shared` passes.
+- [x] `bun run test:integration:shared` passes.
 
 ## Documentation updates
 

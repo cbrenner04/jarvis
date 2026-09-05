@@ -600,7 +600,9 @@ function planSource(
     const project = (deps.resolveProjectMatch ?? ((p) => findProjectMatch(p, registry(input.configPath))))(input.cwd);
     if (!project) return { error: `plan: no registered project matches ${input.cwd}` };
     const config = projectConfig(input.configPath, project);
-    const git = config.git !== false && (config.plan?.commit ?? true);
+    const modePlan = machineModePlan(input.configPath);
+    const git =
+      config.git !== false && (config.plan?.commit ?? (typeof modePlan.commit === "boolean" ? modePlan.commit : true));
     let ready: { ok: true; name: string; content: string } | { ok: false; message: string };
     let routingPath: string;
     let landingInputPath: string;
@@ -619,7 +621,6 @@ function planSource(
       routingPath = readyIntentPath;
       landingInputPath = resolve(project.root, input.readyIntent);
     }
-    const modePlan = machineModePlan(input.configPath);
     const target = resolveTargetDir(
       input.targetDir,
       config,
@@ -663,7 +664,7 @@ function planSource(
       intentSeed: ready.content,
       workflowInvocationId: crypto.randomUUID(),
       creationTitle: `plan: ${ready.name}`,
-      publishCompletion: true,
+      publishCompletion: git,
     };
     return { source, identity: { name: ready.name, branch } };
   })();

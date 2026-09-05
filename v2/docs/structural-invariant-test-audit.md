@@ -39,7 +39,7 @@ Incidental rows default to `re-key`. `stay-incidental` requires a one-line ratio
 
 ### Manifest reconciliation
 
-Completeness is script output reconciliation: every `in-scope` file has ≥1 inventory row; every inventory row cites a file the script emitted `in-scope`. Re-run the script after discovery-rule changes and refresh the embedded manifest below.
+Completeness is script output reconciliation: every `in-scope` file has ≥1 inventory row; every inventory row cites a file the script emitted `in-scope`. Re-run the script after discovery-rule changes and refresh the embedded manifest below. Downstream re-key work filters inventory rows with disposition `re-key`, grouped by `test-path` and `case-scope`.
 
 ## Candidate manifest
 
@@ -365,49 +365,3 @@ v2/src/tui/tui-timestamp-format.test.ts out-of-scope no-structural-signal
 | cli-paths-homedir-guard | v2/src/paths.test.ts | jarvis home isolation > no v2 source resolves a jarvis-home path via homedir() directly | production tree must not call `homedir()` outside `paths.ts` | `readdirSync` + `readFileSync` scan of all `v2/src` production `.ts` for `homedir()` substring | incidental | re-key | | |
 | cli-log-stream | v2/src/persistence/log-stream.test.ts | log-stream > * | sink/reader persistence, tail/follow ordering, and event round-trip | behavioral unit/integration tests; `readFileSync` only on temp storage paths | behavioral | n/a | | |
 | cli-timer-guard-predicate | v2/src/testing/timer-callback-guard-fixture.test.ts | shouldStopPolling: draining poller stops only once no work is pending | polling stops only when draining idle or stop requested | behavioral truth-table test of exported `shouldStopPolling` predicate | behavioral | n/a | | |
-
-## Downstream re-key queue
-
-Every `re-key` row from subspecs 01–04, grouped by `test-path` and `case-scope`. Counts tally `re-key` rows in each group.
-
-| test-path | case-scope | re-key | row-ids |
-| --- | --- | --- | --- |
-| shared/module-boundary-surfaces.test.ts | module boundary surfaces > classifies committed phrases | 1 | shr-mbs-surfaces-registry |
-| shared/module-boundary-surfaces.test.ts | module boundary surfaces > normalizes the * staged tree without provenance | 4 | shr-mbs-split-emitted-files, shr-mbs-split-index-links, shr-mbs-split-section-bullets, shr-mbs-manifest-union |
-| shared/module-boundary-surfaces.test.ts | module boundary surfaces > inverting draft dependency order guard fails k4 | 1 | shr-mbs-k4-cli-first-filename |
-| shared/prompts/no-prompt-surgery-guard.test.ts | prompt assembly builders omit post-render string surgery | 2 | shr-npsg-assembly-paths, shr-npsg-forbidden-tokens |
-| shared/prompts/review-implement-contract-preservation.test.ts | implement review role contract preservation > implement review role contract substrings preserved | 1 | shr-ricp-contract-markers |
-| shared/prompts/review-implement.test.ts | renderPatchReviewCriticPrompt branch diff > renders stat, changed paths, and merge-base unified diff for critic and debate roles | 1 | shr-ri-merge-base-prose |
-| shared/prompts/review-prompt-divergence.test.ts | patch vs implement review prompt registry-body divergence > * branch-diff prose diverges | 1 | shr-rpd-patch-implement-divergence |
-| v2/src/cli/help-flags-parity.test.ts | help flag parser parity > every guarded path lists all parser-accepted flags | 1 | cli-hfp-guarded-paths |
-| v2/src/commands/init.test.ts | init machine bootstrap > profile bindings govern bootstrap | 1 | cli-init-profile-files |
-| v2/src/commands/workflow-start-preparation.test.ts | workflow-start preparation authority > realizes every supported workflow and review posture | 1 | cli-wsp-posture-tables |
-| v2/src/commands/workflow-start-preparation.test.ts | workflow-start preparation authority > production realizability and posture-to-preset tables live only in the shared owner | 1 | cli-wsp-single-owner |
-| v2/src/commands/workflow-start-preparation.test.ts | workflow-start preparation authority > production prepared-step assembly lives only in shared preparation and the pipeline adapter | 1 | cli-wsp-prepare-calls |
-| v2/src/commands/workflow.test.ts | shared workflow-start preparation > run workflow intent plan and implement preserve prepared start steps | 1 | cli-wf-prep-call-count |
-| v2/src/commands/workflow.test.ts | shared workflow-start preparation > runWorkflowCommand delegates build stamp and stale-reset preparation to the shared owner | 1 | cli-wf-prep-delegation |
-| v2/src/commands/workflow.test.ts | implement preflight stale workspace reset > STALE_RESET_WORKFLOWS membership includes intent | 1 | cli-wf-stale-reset-workflows |
-| v2/src/daemon/daemon-lifecycle.sandbox-unrunnable.test.ts | daemon-lifecycle > supersede > enumerateOtherDaemonSockets returns daemon-*.sock files excluding own socket | 1 | dm-lifecycle-socket-filter |
-| v2/src/daemon/daemon-pipeline-recover.test.ts | pipeline_recover admits and lands a corrected non-first fan-out branch without redrafting | 1 | dm-pipeline-recover-plan-fixture |
-| v2/src/daemon/daemon-resume.test.ts | module scope (populated-stage intent finalization cases) | 1 | dm-resume-intent-lint-fixture |
-| v2/src/daemon/daemon-run-control-handler-guard.test.ts | daemon production sources omit activeRunsByHandler and activeRunForHandler | 1 | dm-rchg-forbidden-weakmap-symbols |
-| v2/src/daemon/daemon-start-list.test.ts | daemon production terminal writers are restricted to atomic settlement | 1 | dm-startlist-terminal-settlement-guard |
-| v2/src/daemon/daemon-test-inventory.test.ts | daemon test inventory > preserves merge-base test()/test.skip() titles per daemon test file | 1 | dm-test-inv-merge-base-titles |
-| v2/src/daemon/daemon-workflow-start.test.ts | workflow starts, pipeline dispatch, and recovery share daemon admission | 1 | dm-workflow-start-admission-seam |
-| v2/src/daemon/pipeline-stage-dispatch.test.ts | every terminal pipeline stage-run write carries endedAt | 1 | dm-pipe-dispatch-ended-at-ast |
-| v2/src/daemon/pipeline-stage-recovery.test.ts | recoverPipelineBranchStage > * | 1 | dm-pipe-recovery-plan-fixture |
-| v2/src/daemon/write-loop-binding-source-guard.test.ts | only allowlisted modules call resolveWriteLoopBindings | 1 | dm-wlbinding-callers-allowlist |
-| v2/src/daemon/write-loop-binding-source-guard.test.ts | daemon binding resolution re-loads from the machine profile unless the snapshot replay test hook is set | 1 | dm-wlbinding-source-markers |
-| v2/src/execution/diff-derived-mutation-verifier.test.ts | module scope | 1 | ex-ddmv-observer-map-source |
-| v2/src/execution/diff-derived-mutation-verifier.test.ts | diff-derived-mutation-verifier > fails closed for registered prompts without render-observer map entries / invokes only that prompt's render-observer test file(s) | 1 | ex-ddmv-render-coverage-needle |
-| v2/src/execution/execution-terminal-settlement-guard.test.ts | execution production terminal writers are restricted to atomic settlement | 1 | ex-etsg-permitted-inventory |
-| v2/src/execution/intent-split-regression.test.ts | module scope / intent split production write regression > multi-surface seed fans out by surface through the production split write | 2 | ex-isr-fixture-seeds, ex-isr-primary-surfaces |
-| v2/src/execution/plan-workflow-steps.test.ts | plan preset draft write step > `plan` invokes its binding through the production step-builder | 1 | ex-pws-spec-guidance-prose |
-| v2/src/execution/workflow-runner-debate-landing-structure.test.ts | review-debate landing helpers are not defined in workflow-runner.ts | 1 | ex-wrdls-debate-absence |
-| v2/src/execution/workflow-runner-resume-inventory.test.ts | workflow-runner resume test inventory > preserves merge-base resume-path leaf titles in workflow-runner-resume*.test.ts destinations | 1 | ex-wri-merge-base-titles |
-| v2/src/execution/workflow-runner-resume-structure.test.ts | resume helpers are not defined in workflow-runner.ts / resume helpers are defined in workflow-runner-resume.ts | 1 | ex-wrrs-resume-extraction |
-| v2/src/execution/workflow-runner-resume.test.ts | recoverPlanStage / resume mutation-repair cases using lint fixtures | 1 | ex-wrr-resume-fixture-golden |
-| v2/src/execution/workflow-runner-review.test.ts | review staged-markdown-lint reprompt cases | 1 | ex-wrr-review-fixture-golden |
-| v2/src/execution/write-loop-staged-markdown-lint.test.ts | plan/intent write step staged Markdown lint cases | 1 | ex-wlsl-fixture-golden |
-| v2/src/execution/write.test.ts | plan preset draft step isolates bundled human-only marker guidance | 1 | ex-wr-spec-guidance-prose |
-| v2/src/paths.test.ts | jarvis home isolation > no v2 source resolves a jarvis-home path via homedir() directly | 1 | cli-paths-homedir-guard |

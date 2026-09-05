@@ -20,7 +20,9 @@ Orientation: [`onboarding.md`](./onboarding.md). Install path: [`install-and-con
 
 Check live `~/.jarvis/config.json` for `plan.targetDir`. For the jarvis project that is `v2/spec` (the default); v1 maintenance fixes use `--target-dir v1/spec`.
 
-| Artifact | Typical path |
+Git-enabled projects (the default) keep planning queues and durable specs in the registered repository:
+
+| Artifact | In-repo path |
 | --- | --- |
 | Seeds (open-work queue) | `<targetDir>/seeds/` (v2 seeds: `v2/spec/seeds/`) |
 | Ready intents (open-work queue) | `<targetDir>/ready-intents/` |
@@ -28,7 +30,16 @@ Check live `~/.jarvis/config.json` for `plan.targetDir`. For the jarvis project 
 | Completed specs | `<targetDir>/completed/` |
 | Operator scratch notes | repo `.scratch/` (gitignored) |
 
-Open work lives in `v2/spec/seeds/` and `v2/spec/ready-intents/`; the operator prioritizes across them per-session (there is no standing queue file).
+Projects whose effective publication is Git-disabled (`projects.<key>.git: false` or `projects.<key>.plan.commit: false`) route durable planning artifacts to `~/.jarvis/specs/<projectSafeId>/` instead. Layout and opt-in keys: [`install-and-config.md` § External specs home](./install-and-config.md#external-specs-home).
+
+| Artifact | External path (opted-in projects) |
+| --- | --- |
+| Seeds (open-work queue) | `~/.jarvis/specs/<projectSafeId>/seeds/` |
+| Ready intents (open-work queue) | `~/.jarvis/specs/<projectSafeId>/ready-intents/` |
+| Active specs | `~/.jarvis/specs/<projectSafeId>/plans/<name>/` |
+| Completed specs | `~/.jarvis/specs/<projectSafeId>/plans/completed/<name>/` |
+
+Open work for the jarvis project lives in `v2/spec/seeds/` and `v2/spec/ready-intents/`; opted-in projects queue under the external `seeds/` and `ready-intents/` homes above. The operator prioritizes across them per-session (there is no standing queue file).
 
 Successful publication consumes the queue input only after its durable output lands; see the [workflow publication contract](./workflow-runner.md#publication-landing).
 
@@ -164,6 +175,14 @@ jarvis run workflow plan --ready-intent v2/spec/ready-intents/my-intent.md --rev
 jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md
 # omit review: jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md --review-passes 0
 jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md --detach  # return after admission; track via printed run ID
+```
+
+For opted-in projects, standalone intent and plan admit absolute queue paths under that project's `~/.jarvis/specs/<projectSafeId>/` home. Launch from the owning registered project root or a subdirectory — `cwd` must resolve to the project that owns the external home; arbitrary absolute paths outside that project's `seeds/` or `ready-intents/` tree are refused. Admission predicates and publication routing: [`workflow-runner.md` § Authoring helper and presets](./workflow-runner.md#authoring-helper-and-presets). External home layout: [`install-and-config.md` § External specs home](./install-and-config.md#external-specs-home).
+
+```sh
+cd /path/to/registered-project
+jarvis run workflow intent --seed "$HOME/.jarvis/specs/<safeId>/seeds/my-seed.md"
+jarvis run workflow plan --ready-intent "$HOME/.jarvis/specs/<safeId>/ready-intents/my-intent.md"
 ```
 
 For ordinary in-repo input, `--spec` is resolved from the caller's cwd (launch from the project root; a project subdirectory is supported), then checked at its resolved project-relative path in `--base` before daemon contact. If it is unavailable, commit or select a base ref that contains the spec and retry. Jarvis-owned external plan indexes use the separate [external admission contract](./workflow-runner.md#external-plan-implement-admission).

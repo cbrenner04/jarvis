@@ -21,7 +21,7 @@ Unsplit rationale: The stdout echo, mutation-outcome parsing, CLI tests, and ope
 
 ## Behavior
 
-- On `pipeline resume` success (`kind: "resumed"`), write `${pipelineId}\n` to stdout and exit 0.
+- On `pipeline resume` success (`kind: "resumed"`), write the daemon-returned `pipelineId` plus `\n` to stdout and exit 0 (not the CLI positional when they differ).
 - Refusal and terminal-pipeline paths keep printing the daemon `reason` on stderr and exiting non-zero unchanged.
 
 ## Decision ledger
@@ -32,8 +32,9 @@ Unsplit rationale: The stdout echo, mutation-outcome parsing, CLI tests, and ope
 
 ## Acceptance criteria
 
-- [ ] A CLI test proves `pipeline resume` on a `resumed` outcome writes the pipeline id to stdout and still exits 0; it fails against the current silent-success path.
-- [ ] Refusal and terminal-pipeline cases still print the daemon reason on stderr and exit non-zero, unchanged.
+- [ ] `pipeline resume exits 0 on resumed for %s` in `pipeline.test.ts` asserts daemon-returned `pipelineId` on stdout and exit 0; fails against the current `stdout: ""` pin.
+- [ ] `pipeline resume on terminal pipeline prints %s on stderr` and `pipeline resume prints a branch-scoped refusal verbatim on stderr` in `pipeline.test.ts` stay green.
+- [ ] `pipeline %s exits 0 on applied decision and sends branch-keyed IDs` and `pipeline reject prints invalid_decision on stderr with no success stdout` in `pipeline.test.ts` stay green.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

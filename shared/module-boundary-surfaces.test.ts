@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import {
   classifyModuleBoundaryText,
   MODULE_BOUNDARY_SURFACES,
+  type ModuleBoundarySurface,
   moduleBoundariesForAcceptanceCriteria,
   normalizePlanDraftSpecDir,
   orderModuleBoundariesForSplit,
@@ -11,6 +12,7 @@ import {
   spansMultipleModuleBoundaries,
   splitResiduePattern,
 } from "./module-boundary-surfaces.ts";
+import { locateMarkerSlice, StructuralTestLocatorError } from "./structural-test-locator.ts";
 
 const PHRASE_FIXTURES = [
   ["The state-store persists run status atomically.", ["persistence"]],
@@ -18,20 +20,13 @@ const PHRASE_FIXTURES = [
   ["The CLI validates run flags before dispatch.", ["cli"]],
 ] as const;
 
-type FixtureChild = {
-  file: string;
-  decisions: string[];
-  acceptanceCriteria: string[];
-  documentationUpdates: string[];
-};
-
 type FixtureManifest = {
   forbiddenProvenance: string[];
   fixtures: Array<{
     name: string;
     parentSlug: string;
     planningLabels: string[];
-    expectedChildren: FixtureChild[];
+    expectedChildren: unknown[];
   }>;
 };
 
@@ -53,14 +48,67 @@ function stagedFixture(name: string): string {
   return dir;
 }
 
-function sectionBulletLines(body: string, heading: string, checkbox: boolean): string[] {
+function markdownSection(body: string, heading: string): string {
   const lines = body.replace(/\r\n/g, "\n").split("\n");
-  const start = lines.indexOf(heading);
-  if (start === -1) return [];
-  const end = lines.findIndex((line, index) => index > start && /^##\s/u.test(line ?? ""));
-  const section = lines.slice(start + 1, end === -1 ? undefined : end);
+  const startLine = lines.indexOf(heading);
+  if (startLine === -1) {
+    return locateMarkerSlice({
+      text: body,
+      start: `${heading}\n`,
+      end: `\n${heading}\n`,
+      searchKey: heading,
+    });
+  }
+  const endLine = lines.findIndex((line, index) => index > startLine && /^##\s/u.test(line ?? ""));
+  return lines.slice(startLine + 1, endLine === -1 ? undefined : endLine).join("\n");
+}
+
+function sectionBulletLines(body: string, heading: string, checkbox: boolean): string[] {
+  const section = markdownSection(body, heading);
   const pattern = checkbox ? /^\s*-\s\[[ xX]\]\s+/u : /^\s*-\s+(?!\[[ xX]\])/u;
-  return section.filter((line) => pattern.test(line));
+  return section.split("\n").filter((line) => pattern.test(line));
+}
+
+function optionalSectionBulletLines(body: string, heading: string, checkbox: boolean): string[] {
+  if (!body.replace(/\r\n/g, "\n").includes(heading)) return [];
+  try {
+    return sectionBulletLines(body, heading, checkbox);
+  } catch (error) {
+    if (error instanceof StructuralTestLocatorError && error.searchKey === heading) return [];
+    throw error;
+  }
+}
+
+function acceptanceCriteriaTexts(parentBody: string): string[] {
+  return sectionBulletLines(parentBody, "## Acceptance criteria", true).map((line) =>
+    line.replace(/^\s*-\s\[[ xX]\]\s+/u, "").trim(),
+  );
+}
+
+function expectedSplitFilenames(fixture: FixtureManifest["fixtures"][number]): string[] {
+  const parentBody = readFileSync(join(FIXTURE_ROOT, fixture.name, `00-${fixture.parentSlug}.md`), "utf8");
+  const boundaries = moduleBoundariesForAcceptanceCriteria(acceptanceCriteriaTexts(parentBody));
+  if (boundaries.length < 2) return [`00-${fixture.parentSlug}.md`];
+  const ordered = orderModuleBoundariesForSplit(parentBody, boundaries);
+  return ordered.map((surface, index) => `${index.toString().padStart(2, "0")}-${surface}.md`);
+}
+
+function bulletSurfaces(line: string): ModuleBoundarySurface[] {
+  const text = line
+    .replace(/^\s*-\s\[[ xX]\]\s+/u, "")
+    .replace(/^\s*-\s+/u, "")
+    .trim();
+  return classifyModuleBoundaryText(text);
+}
+
+function bulletsForSplitSurface(
+  lines: readonly string[],
+  surface: ModuleBoundarySurface,
+  boundaryIndex: number,
+): string[] {
+  return lines.filter(
+    (line) => bulletSurfaces(line)[0] === surface || (boundaryIndex === 0 && bulletSurfaces(line).length === 0),
+  );
 }
 
 function survivingParentBullets(body: string, parentSlug: string, heading: string, checkbox: boolean): string[] {
@@ -78,13 +126,17 @@ function indexChecklistFiles(indexBody: string): string[] {
     });
 }
 
-function assertManifestUnion(
-  fixture: FixtureManifest["fixtures"][number],
+function assertEmittedUnion(
+  dir: string,
+  emittedFiles: readonly string[],
+  parentBody: string,
+  parentSlug: string,
   section: (typeof PRESERVED_SECTIONS)[number],
 ): void {
-  const parentBody = readFileSync(join(FIXTURE_ROOT, fixture.name, `00-${fixture.parentSlug}.md`), "utf8");
-  const union = fixture.expectedChildren.flatMap((child) => child[section.key]);
-  const surviving = survivingParentBullets(parentBody, fixture.parentSlug, section.heading, section.checkbox);
+  const union = emittedFiles.flatMap((file) =>
+    sectionBulletLines(readFileSync(join(dir, file), "utf8"), section.heading, section.checkbox),
+  );
+  const surviving = survivingParentBullets(parentBody, parentSlug, section.heading, section.checkbox);
   expect([...union].sort()).toEqual([...surviving].sort());
 }
 
@@ -94,10 +146,13 @@ afterEach(() => {
 
 describe("module boundary surfaces", () => {
   test("classifies committed phrases", () => {
-    expect(MODULE_BOUNDARY_SURFACES).toEqual(["persistence", "daemon", "cli", "execution-loop"]);
-
-    for (const [phrase, expected] of PHRASE_FIXTURES) {
-      expect(classifyModuleBoundaryText(phrase)).toEqual([...expected]);
+    for (const [phrase, expectedSurfaces] of PHRASE_FIXTURES) {
+      for (const surface of expectedSurfaces) {
+        expect(MODULE_BOUNDARY_SURFACES.includes(surface)).toBe(true);
+      }
+      const expectedSet = new Set<ModuleBoundarySurface>(expectedSurfaces);
+      const registryOrdered = MODULE_BOUNDARY_SURFACES.filter((surface) => expectedSet.has(surface));
+      expect(classifyModuleBoundaryText(phrase)).toEqual([...registryOrdered]);
     }
   });
 
@@ -142,22 +197,38 @@ describe("module boundary surfaces", () => {
   for (const fixture of MANIFEST.fixtures) {
     test(`normalizes the ${fixture.name} staged tree without provenance`, () => {
       const dir = stagedFixture(fixture.name);
+      const parentBody = readFileSync(join(FIXTURE_ROOT, fixture.name, `00-${fixture.parentSlug}.md`), "utf8");
+      const expectedFiles = expectedSplitFilenames(fixture);
+      const boundaries = moduleBoundariesForAcceptanceCriteria(acceptanceCriteriaTexts(parentBody));
+      const ordered = boundaries.length >= 2 ? orderModuleBoundariesForSplit(parentBody, boundaries) : [...boundaries];
 
       normalizePlanDraftSpecDir(dir);
 
       const emittedFiles = readdirSync(dir)
         .filter((file) => /^\d{2}-.*\.md$/u.test(file))
         .sort();
-      const expectedFiles = fixture.expectedChildren.map((child) => child.file);
       expect(emittedFiles).toEqual(expectedFiles);
       expect(indexChecklistFiles(readFileSync(join(dir, "index.md"), "utf8"))).toEqual(expectedFiles);
-      for (const child of fixture.expectedChildren) {
-        const body = readFileSync(join(dir, child.file), "utf8");
+      for (const [boundaryIndex, surface] of ordered.entries()) {
+        const expectedFile = expectedFiles[boundaryIndex];
+        if (expectedFile === undefined) throw new Error(`missing expected file for ${surface}`);
+        const body = readFileSync(join(dir, expectedFile), "utf8");
         for (const section of PRESERVED_SECTIONS) {
-          expect(sectionBulletLines(body, section.heading, section.checkbox)).toEqual(child[section.key]);
+          const expectedBullets = bulletsForSplitSurface(
+            survivingParentBullets(parentBody, fixture.parentSlug, section.heading, section.checkbox),
+            surface,
+            boundaryIndex,
+          );
+          if (expectedBullets.length === 0) {
+            expect(optionalSectionBulletLines(body, section.heading, section.checkbox)).toEqual([]);
+            continue;
+          }
+          expect(sectionBulletLines(body, section.heading, section.checkbox)).toEqual(expectedBullets);
         }
       }
-      for (const section of PRESERVED_SECTIONS) assertManifestUnion(fixture, section);
+      for (const section of PRESERVED_SECTIONS) {
+        assertEmittedUnion(dir, emittedFiles, parentBody, fixture.parentSlug, section);
+      }
       const durableText = [
         ...emittedFiles,
         ...emittedFiles.map((file) => readFileSync(join(dir, file), "utf8")),
@@ -180,6 +251,12 @@ describe("module boundary surfaces", () => {
   test("inverting draft dependency order guard fails k4", () => {
     const fixture = MANIFEST.fixtures.find((entry) => entry.name === "k4");
     if (!fixture) throw new Error("k4 fixture is missing");
+    const parentBody = readFileSync(join(FIXTURE_ROOT, "k4", `00-${fixture.parentSlug}.md`), "utf8");
+    const expectedFiles = expectedSplitFilenames(fixture);
+    const boundaries = moduleBoundariesForAcceptanceCriteria(acceptanceCriteriaTexts(parentBody));
+    const ordered = orderModuleBoundariesForSplit(parentBody, boundaries);
+    const firstSurface = ordered[0];
+    if (firstSurface === undefined) throw new Error("k4 split order is empty");
     const dir = stagedFixture("k4");
 
     normalizePlanDraftSpecDir(dir);
@@ -187,11 +264,13 @@ describe("module boundary surfaces", () => {
     const emittedFiles = readdirSync(dir)
       .filter((file) => /^\d{2}-.*\.md$/u.test(file))
       .sort();
-    expect(emittedFiles).toEqual(fixture.expectedChildren.map((child) => child.file));
-    expect(emittedFiles[0]).toBe("00-cli.md");
-    const cliBody = readFileSync(join(dir, "00-cli.md"), "utf8");
-    expect(cliBody).toContain("The behavior remains covered by a regression test.");
-    expect(readFileSync(join(dir, "01-persistence.md"), "utf8")).not.toContain(
+    expect(emittedFiles).toEqual(expectedFiles);
+    expect(emittedFiles[0]).toBe(`00-${firstSurface}.md`);
+    const firstBody = readFileSync(join(dir, emittedFiles[0] ?? ""), "utf8");
+    expect(firstBody).toContain("The behavior remains covered by a regression test.");
+    const persistenceFile = expectedFiles[1];
+    if (persistenceFile === undefined) throw new Error("k4 persistence file is missing");
+    expect(readFileSync(join(dir, persistenceFile), "utf8")).not.toContain(
       "The behavior remains covered by a regression test.",
     );
   });

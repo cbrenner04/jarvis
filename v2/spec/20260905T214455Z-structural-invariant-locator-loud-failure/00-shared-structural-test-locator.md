@@ -16,18 +16,18 @@ Structural-invariant tests slice production or fixture source by marker, symbol,
 
 ## Task checklist
 
-- [ ] Add `shared/structural-test-locator.ts` exporting `StructuralTestLocatorError`, `locateMarkerSlice`, `locateSymbolSlice`, and `locateDiscoveredFile`.
-- [ ] Add `shared/structural-test-locator.test.ts` with one regression per locator shape that fails when the subject is absent and passes when present; each regression must fail against a pre-fix helper that returns `""` on miss.
+- [x] Add `shared/structural-test-locator.ts` exporting `StructuralTestLocatorError`, `locateMarkerSlice`, `locateSymbolSlice`, and `locateDiscoveredFile`.
+- [x] Add `shared/structural-test-locator.test.ts` with one regression per locator shape that fails when the subject is absent and passes when present; each regression must fail against a pre-fix helper that returns `""` on miss.
 
 ## Acceptance criteria
 
-- [ ] `shared/structural-test-locator.ts` exports locators that throw `StructuralTestLocatorError` with `kind` and `searchKey` on failed lookup rather than returning empty values; reachable on main via `daemon-workflow-start.test.ts` local `section()` returning `owner.slice(from, toIndex === -1 ? undefined : toIndex)` when `end` is absent and via `module-boundary-surfaces.test.ts` `sectionBulletLines` returning `[]` when a heading is absent.
-- [ ] `shared/structural-test-locator.test.ts` test `marker-slice fails loudly when bounds are absent` fails against a locator that returns `""` on miss and passes after loud-failure routing.
-- [ ] `shared/structural-test-locator.test.ts` test `symbol-slice fails loudly when the start anchor is absent` fails against a locator that returns `""` on miss and passes after loud-failure routing.
-- [ ] `shared/structural-test-locator.test.ts` test `discovered-file fails loudly when the path is missing` fails against a locator that returns `""` on miss and passes after loud-failure routing.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:shared` passes.
-- [ ] `bun run test:integration:shared` passes.
+- [x] `shared/structural-test-locator.ts` exports locators that throw `StructuralTestLocatorError` with `kind` and `searchKey` on failed lookup rather than returning empty values; reachable on main via `daemon-workflow-start.test.ts` local `section()` returning `owner.slice(from, toIndex === -1 ? undefined : toIndex)` when `end` is absent and via `module-boundary-surfaces.test.ts` `sectionBulletLines` returning `[]` when a heading is absent.
+- [x] `shared/structural-test-locator.test.ts` test `marker-slice fails loudly when bounds are absent` fails against a locator that returns `""` on miss and passes after loud-failure routing.
+- [x] `shared/structural-test-locator.test.ts` test `symbol-slice fails loudly when the start anchor is absent` fails against a locator that returns `""` on miss and passes after loud-failure routing.
+- [x] `shared/structural-test-locator.test.ts` test `discovered-file fails loudly when the path is missing` fails against a locator that returns `""` on miss and passes after loud-failure routing.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:shared` passes.
+- [x] `bun run test:integration:shared` passes.
 
 ## Documentation updates
 

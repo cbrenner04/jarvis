@@ -1523,7 +1523,7 @@ describe("pipeline resume", () => {
     );
 
     expect(code).toBe(0);
-    expect(cap.read()).toEqual({ stdout: "", stderr: "" });
+    expect(cap.read()).toEqual({ stdout: `${pipelineId}\n`, stderr: "" });
     expect(ipcFramesWithMethod(sent, "pipeline_resume")).toEqual([expect.objectContaining({ params: { pipelineId } })]);
   });
 
@@ -1543,7 +1543,7 @@ describe("pipeline resume", () => {
     // @mutate v2/src/commands/pipeline.ts "{ pipelineId: parsed.pipelineId, ...(parsed.branchKey !== undefined ? { branchKey: parsed.branchKey } : {}) }," -> "{ pipelineId: parsed.pipelineId },"
 
     expect(code).toBe(0);
-    expect(cap.read()).toEqual({ stdout: "", stderr: "" });
+    expect(cap.read()).toEqual({ stdout: "pipe-1\n", stderr: "" });
     expect(ipcFramesWithMethod(sent, "pipeline_resume")).toEqual([
       expect.objectContaining({ params: { pipelineId: "pipe-1", branchKey: " alpha " } }),
     ]);
@@ -1591,7 +1591,7 @@ describe("pipeline resume", () => {
     // @mutate v2/src/commands/pipeline.ts "...(parsed.resetDespiteDirty ? { resetDespiteDirty: true } : {})," -> ""
 
     expect(code).toBe(0);
-    expect(cap.read()).toEqual({ stdout: "", stderr: "" });
+    expect(cap.read()).toEqual({ stdout: "pipe-1\n", stderr: "" });
     expect(ipcFramesWithMethod(sent, "pipeline_resume")).toEqual([
       expect.objectContaining({
         params: {

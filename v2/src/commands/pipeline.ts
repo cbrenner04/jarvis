@@ -87,11 +87,10 @@ function parsePipelineMutationOutcome(
   if (typeof value !== "object" || value === null) return undefined;
   const record = value as { kind?: unknown; reason?: unknown; branchKeys?: unknown; pipelineId?: unknown };
   if (record.kind === successKind) {
-    if (successKind === "resumed") {
-      if (!isNonEmptyString(record.pipelineId)) return undefined;
-      return { kind: "resumed", pipelineId: record.pipelineId };
-    }
-    return { kind: "applied" };
+    if (successKind === "resumed" && !isNonEmptyString(record.pipelineId)) return undefined;
+    return successKind === "resumed"
+      ? { kind: "resumed", pipelineId: record.pipelineId as string }
+      : { kind: "applied" };
   }
   if (record.kind === "refused" && typeof record.reason === "string") {
     const branchKeys =
@@ -580,15 +579,12 @@ async function runPipelineMutationCommand(
       if (outcome.branchKeys !== undefined) {
         io.stderr(`${outcome.branchKeys.join("\n")}\n`);
       }
-      return 1;
+    } else if (outcome.kind === "resumed" && successKind === "resumed") {
+      io.stdout(`${outcome.pipelineId}\n`);
     }
-    if (outcome.kind === successKind) {
-      if (outcome.kind === "resumed") {
-        io.stdout(`${outcome.pipelineId}\n`);
-      }
-      return 0;
-    }
-    return 1;
+    // Mutation checkpoint: returning 0 unconditionally must turn the refused-decision
+    // exit-code tests RED.
+    return outcome.kind === successKind ? 0 : 1;
   });
 }
 

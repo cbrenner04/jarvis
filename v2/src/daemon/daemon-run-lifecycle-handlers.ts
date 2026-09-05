@@ -658,7 +658,7 @@ export function createRunLifecycleHandlers(
       rowOutcome?.error ??
       runListRowError(
         fullRun,
-        resumeContextForTerminalRecord(fullRun, terminalRecord, undefined, logTail),
+        resumeContextForTerminalRecord(fullRun, terminalRecord, undefined),
         terminalRecord,
         logTail,
       );

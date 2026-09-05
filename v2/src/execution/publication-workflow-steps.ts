@@ -169,30 +169,74 @@ function publish(
 }
 
 type SeedDetails = { label: string; content: string; slug: string; name: string; paths: string[] };
+function externalSeedsHome(jarvisRoot: string, projectKey: string): string {
+  return join(jarvisRoot, "specs", projectSafeId(projectKey), "seeds");
+}
+function resolveExternalSeed(
+  seedPath: string,
+  seedsHome: string,
+  readSeed: (path: string) => string,
+): SeedDetails | { error: string } {
+  try {
+    if (!statSync(seedPath).isFile()) return { error: `intent: seed is not a file: ${seedPath}` };
+    const canonical = realpathSync(seedPath);
+    let resolvedSeedsHome = seedsHome;
+    try {
+      resolvedSeedsHome = realpathSync(seedsHome);
+    } catch {
+      // keep lexical seeds home when the directory is absent
+    }
+    if (!inside(resolvedSeedsHome, canonical))
+      return { error: `intent: seed escapes project seeds home after symlink resolution: ${seedPath}` };
+    const name = basename(canonical).replace(/\.[^.]*$/u, "");
+    return {
+      label: relative(resolvedSeedsHome, canonical),
+      content: readSeed(canonical),
+      name,
+      slug: slugify(name),
+      paths: [canonical],
+    };
+  } catch (e) {
+    return { error: `intent: cannot resolve seed path: ${e instanceof Error ? e.message : String(e)}` };
+  }
+}
+function resolveInRepoSeed(
+  seed: string,
+  cwd: string,
+  project: ProjectMatch,
+  readSeed: (path: string) => string,
+): SeedDetails | { error: string } {
+  const path = join(cwd, seed);
+  try {
+    if (!statSync(path).isFile()) return { error: `intent: seed is not a file: ${seed}` };
+    const canonical = realpathSync(path);
+    if (!inside(realpathSync(project.root), canonical))
+      return { error: `intent: seed escapes registered project after symlink resolution: ${seed}` };
+    const name = basename(canonical).replace(/\.[^.]*$/u, "");
+    return {
+      label: relative(realpathSync(project.root), canonical),
+      content: readSeed(canonical),
+      name,
+      slug: slugify(name),
+      paths: [canonical],
+    };
+  } catch (e) {
+    return { error: `intent: cannot resolve seed path: ${e instanceof Error ? e.message : String(e)}` };
+  }
+}
 function resolveSeed(
   input: IntentWorkflowInput,
   project: ProjectMatch,
   readSeed: (path: string) => string,
+  allowsExternalSeeds: boolean,
 ): SeedDetails | { error: string } {
   if (input.seed !== undefined) {
-    if (isAbsolute(input.seed)) return { error: "intent: --seed must be a relative path" };
-    const path = join(input.cwd, input.seed);
-    try {
-      if (!statSync(path).isFile()) return { error: `intent: seed is not a file: ${input.seed}` };
-      const canonical = realpathSync(path);
-      if (!inside(realpathSync(project.root), canonical))
-        return { error: `intent: seed escapes registered project after symlink resolution: ${input.seed}` };
-      const name = basename(canonical).replace(/\.[^.]*$/u, "");
-      return {
-        label: relative(realpathSync(project.root), canonical),
-        content: readSeed(canonical),
-        name,
-        slug: slugify(name),
-        paths: [canonical],
-      };
-    } catch (e) {
-      return { error: `intent: cannot resolve seed path: ${e instanceof Error ? e.message : String(e)}` };
+    if (isAbsolute(input.seed)) {
+      if (!allowsExternalSeeds) return { error: "intent: --seed must be a relative path" };
+      const jarvisRoot = input.jarvisRoot ?? jarvisHome();
+      return resolveExternalSeed(input.seed, externalSeedsHome(jarvisRoot, project.key), readSeed);
     }
+    return resolveInRepoSeed(input.seed, input.cwd, project, readSeed);
   }
   const content = input.seedText ?? "";
   const slug = slugify(content.split(/\s+/u).slice(0, 6).join(" "));
@@ -258,7 +302,11 @@ function resolveIntentInput(
     return { error: "intent: --target-dir must be a relative non-traversing path" };
   const project = (deps.resolveProjectMatch ?? ((p) => findProjectMatch(p, registry(input.configPath))))(input.cwd);
   if (!project) return { error: `intent: no registered project matches ${input.cwd}` };
-  const seed = resolveSeed(input, project, deps.readSeed ?? ((p) => readFileSync(p, "utf8")));
+  const config = projectConfig(input.configPath, project);
+  const plan = machineModePlan(input.configPath);
+  const publishGit =
+    config.git !== false && (config.plan?.commit ?? (typeof plan.commit === "boolean" ? plan.commit : true));
+  const seed = resolveSeed(input, project, deps.readSeed ?? ((p) => readFileSync(p, "utf8")), !publishGit);
   if ("error" in seed) return seed;
   if (!seed.slug) return { error: "intent: seed does not produce a slug" };
   if (RESERVED_SLUGS.has(seed.slug)) return { error: `intent: reserved slug: ${seed.slug}` };

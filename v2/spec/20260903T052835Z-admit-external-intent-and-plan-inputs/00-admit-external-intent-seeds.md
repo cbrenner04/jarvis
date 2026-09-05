@@ -30,7 +30,7 @@ Execution-loop: `resolveSeed` in `v2/src/execution/publication-workflow-steps.ts
 
 ## Acceptance criteria
 
-- [ ] `intent-workflow-steps.test.ts` test `admits external seed under project specs home` asserts `--seed` naming a file under `~/.jarvis/specs/<safeId>/seeds/` admits for a project with external publication routing, lands to external `ready-intents/`, and sets write-step `landing.inputs.paths` to the canonical absolute seed path with `consumeFrom: "source"`; it fails against the current relative-path and project-root escape guards in `resolveSeed`.
+- [x] `intent-workflow-steps.test.ts` test `admits external seed under project specs home` asserts `--seed` naming a file under `~/.jarvis/specs/<safeId>/seeds/` admits for a project with external publication routing, lands to external `ready-intents/`, and sets write-step `landing.inputs.paths` to the canonical absolute seed path with `consumeFrom: "source"`; it fails against the current relative-path and project-root escape guards in `resolveSeed`.
 
 ## Documentation updates
 

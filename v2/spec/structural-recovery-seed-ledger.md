@@ -37,15 +37,15 @@ A seed with multiple ready-intents spans one row per ready-intent; the `Seed` an
 | implement-retirement-destroys-artifacts-before-materialization | not-started; fresh evidence #3433 | — | — | — |
 | implement-resumes-stalled-unmerged-subspec-chain | not-started | — | — | — |
 | notification-sweep-derives-bounded-incident-set | landed 3/5, CPU 73–98% → 4.6–15%; 03/04 residual | (see orphan table) | — | #3384, #3391, #3396 |
-| structural-invariants-key-on-behavior-not-incidental-structure | in-flight — audit doc [#3485](https://github.com/cbrenner04/jarvis/pull/3485); locator spec active (0/8); anchors RIs queued behind it | — | [#3442](https://github.com/cbrenner04/jarvis/pull/3442) (hand-landed), [#3447](https://github.com/cbrenner04/jarvis/pull/3447) | — |
+| structural-invariants-key-on-behavior-not-incidental-structure | in-flight — audit doc [#3485](https://github.com/cbrenner04/jarvis/pull/3485); **locator spec COMPLETE 8/8 [#3498](https://github.com/cbrenner04/jarvis/pull/3498) 2026-09-06**; the three `*-anchors` RIs are now unblocked | — | [#3442](https://github.com/cbrenner04/jarvis/pull/3442) (hand-landed), [#3447](https://github.com/cbrenner04/jarvis/pull/3447) | [#3498](https://github.com/cbrenner04/jarvis/pull/3498) |
 | watchdog trio (idle-activity / stall-stdout / committed-progress) | **COMPLETE** #3218, #3227, #3189+#3194; sidecar filter #3278 | — | — | — |
-| watchdog-timers-never-hold-the-event-loop | not-started (pin-test seed; audit confirmed the `.unref()` is still absent) | — | — | — |
+| watchdog-timers-never-hold-the-event-loop | in-flight — pipeline `97227fcb` started 2026-09-06 | — | — | — |
 | implement-publication-tail | **merged carrier 2026-09-05** (former implement-completes-without-publishing [verify-or-reap] + reuses-closed-same-branch-pr [live again 2026-09-03 via #3396]; includes the `defaultGhReadyFlip` state-filter gap) | — | — | — |
 | plan-draft-contract-miss-reprompts-before-blocking | largely fixed [#3348](https://github.com/cbrenner04/jarvis/pull/3348) (detection bug); bare-filename residue + #3383 evidence | — | — | — |
 | mutation-gate P0 chain | **COMPLETE 4/4** — #3188, #3197, #3202, #3195; containment #3211 | — | — | — |
 | guard-flip-derivation-crash-is-contained | containment landed #3211; root-cause slice open | — | — | — |
 | mutation-verifier-ignores-whitespace-only-line-changes | not-started | — | — | — |
-| importer-cap-counts-realized-not-surface-total | **P0 dated fuse** — cap 200, `v2/src` at 165 test files and growing | — | — | — |
+| importer-cap-counts-realized-not-surface-total | **P0 dated fuse** — in-flight, pipeline `c4202710` at implement 2026-09-06 (v2/src measured at 165/200) | skip-importer-discovery-for-covered-guards [#3494](https://github.com/cbrenner04/jarvis/pull/3494) | [#3495](https://github.com/cbrenner04/jarvis/pull/3495) | — |
 | sweep-dead-mutate-directives-from-test-corpus | not-started — 74 files, growing (agents copy directives forward) | — | — | — |
 | bind-verifier-spawns-to-run-termination | seeded [#3489](https://github.com/cbrenner04/jarvis/pull/3489) (the recurring CPU-orphan mode) | — | — | — |
 | ci-test-scope-treats-root-docs-as-full / outcome-token-parsing-matches-blocked-in-prose / boundary-split-emits-near-duplicate-subspecs / dismiss-accepts-a-bulk-terminal-selection / notification-incidents-roll-up-to-the-invocation | not-started (small, independent) | — | — | — |
@@ -56,8 +56,8 @@ A seed with multiple ready-intents spans one row per ready-intent; the `Seed` an
 | concurrent-load-suite-margin-check | held (verify-or-reap; the two isolation siblings were reaped — `LOAD_SENSITIVE_FILES` supersedes) | — | — | — |
 | superseded-pipeline-pr-hygiene | **merged carrier 2026-09-05** (former supersede trio); re-scope post-settlement | — | — | — |
 | rename-pipeline-lane-* (×4) | **PRUNED 2026-09-05** — 474 `branchKey` sites / 0 `laneKey`, blocked behind settlement; terminology churn | — | — | — |
-| linked-run-rows-resume-and-settle-uniformly | **NEW 2026-09-05 (P0)** — #3462 + #3463 + #3395, one matcher spec | — | — | — |
-| pipeline-restart-discards-disposable-stage-state | **NEW 2026-09-05 (operator ask)** — chess 3-lane restart refusals over throwaway state | — | — | — |
+| linked-run-rows-resume-and-settle-uniformly | **P0, in-flight** — pipeline `d2029fbd` fanned into two coupled lanes 2026-09-06; head lane approved first | write-sibling-step-id-matcher [#3497](https://github.com/cbrenner04/jarvis/pull/3497) | — | — |
+| pipeline-restart-discards-disposable-stage-state | **P0 operator ask, in-flight** — pipeline `14108361` fanned into two coupled lanes 2026-09-06; head lane approved first | stale-reset-disposable-lane-retirement-gates [#3496](https://github.com/cbrenner04/jarvis/pull/3496) | — | — |
 | superseded-daemon-releases-run-ownership | NEW 2026-09-05 (#3464) | — | — | — |
 | intent-split-covers-sibling-repo-surfaces | NEW 2026-09-05 (#3439) | — | — | — |
 | implement-respects-target-repo-doc-layout | NEW 2026-09-05 (#3426) | — | — | — |
@@ -65,6 +65,8 @@ A seed with multiple ready-intents spans one row per ready-intent; the `Seed` an
 | quota-classification-covers-every-step-role | NEW 2026-09-05 (#3372) | — | — | — |
 | detached-pipeline-plan-stage-consumes-ready-intents | NEW 2026-09-05 (#3041) | — | — | — |
 | per-project-config-overrides-seam | NEW 2026-09-05 (umbrella: #3026, #3150-residue, the readyCommand cascade class) | — | — | — |
+| implement-admission-persists-its-run-row | **NEW 2026-09-06** — detached implement printed a run id whose row was never persisted; workflow died `Run … not found` in the daemon log only, no durable row, no incident, lane silently lost | — | — | — |
+| notification-delivery-cursor-is-exclusive | **NEW 2026-09-06** — `notifications wait --since <deliveryCursor>` re-delivers the incident at that cursor forever, so the documented wake-chaining protocol is a fixed point; `list` shares the inclusive bound | — | — | — |
 
 ## Orphan / standalone ready-intents
 
@@ -92,6 +94,14 @@ Ready-intents whose originating seed is no longer on disk. `Origin intent` gives
 ## Compaction (2026-09-05)
 
 Executed the 2026-09-05 queue audit plus the operator's restart-pain report: merged the supersede trio → [[superseded-pipeline-pr-hygiene]], the publication-tail pair → [[implement-publication-tail]], the two cleanup-reap seeds + repo-wide-archival gap → [[cleanup-improvements]]; folded the two superseded settlement seeds' evidence into [[pipeline-settlement-derives-from-run-rows]] and deleted them; pruned the four rename-lane seeds; rewrote [[canonical-pipeline-execution-state-and-stage-claims]]; decided the ready-gate fence direction (absolute + honest settlement) and sequenced its chain; merged the two prompt-doc RIs; ticked + archived the retire-jarvis-write spec (#3445); added nine seeds (see table); closed issues #3461, #3465, #3397, #3039, #3368 as verified fixed. Brief rewritten to a standing document — session history lives in `reports/`.
+
+## Session 2026-09-06
+
+Parallelization experiment: up to seven concurrent lanes (four implements plus three pipeline stages) on an idle-start machine, load 6-11, zero watchdog kills and zero idle-output false-kills. The one load casualty was the `shared/**` locator implement, whose ready gate runs all six slices and went red on `v1/test/run.test.ts` and `snapshot-update-retest-runner.test.ts` timing out at 30s; CI on the identical commit passed in 11m43s. **A `shared/**`-scoped implement gate cannot share the machine — run it alone or expect a false red.** Local hand-run suites showed the same shape: two different tests timed out at 5s under load and both passed in isolation.
+
+Landed: [#3500](https://github.com/cbrenner04/jarvis/pull/3500) (stale-reset override-flag docs, hand-published), [#3498](https://github.com/cbrenner04/jarvis/pull/3498) (structural-invariant locator, 8/8), [#3499](https://github.com/cbrenner04/jarvis/pull/3499) (daemon write-loop binding injection), plus stage PRs [#3494](https://github.com/cbrenner04/jarvis/pull/3494), [#3495](https://github.com/cbrenner04/jarvis/pull/3495), [#3496](https://github.com/cbrenner04/jarvis/pull/3496), [#3497](https://github.com/cbrenner04/jarvis/pull/3497).
+
+Two hand-finishes, both on gates rather than logic: the publication tail reused an already-merged same-branch PR (#3365) and settled `ready_flip_failed` with no PR; and a factory-nesting refactor pushed `reconstructWriteResume` to cognitive complexity 34, the one rule no autofix repairs. Both fan-out pipelines split into hard-coupled lanes whose second lane names the first as a prerequisite — head lanes approved first per the serial-gate rule.
 
 ## Gaps / low-confidence
 

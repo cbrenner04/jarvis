@@ -33,6 +33,21 @@ test("removeStaleSocketPath unlinks a stale path left by a dead daemon", async (
   }
 });
 
+// A caller that cannot resolve the path gets ENOENT for a socket a live daemon is serving, which
+// classifies as `absent`. Removing on that false negative is what strands the running daemon, so
+// `absent` must leave the path alone — there is by definition nothing there to remove.
+test("removeStaleSocketPath leaves the path alone when the probe reports absent", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-guard-"));
+  const path = join(dir, "daemon.sock");
+  writeFileSync(path, "");
+  try {
+    await removeStaleSocketPath(path, probing("absent"));
+    expect(await Bun.file(path).exists()).toBe(true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("removeStaleSocketPath proceeds when nothing is at the path", async () => {
   const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-guard-"));
   const path = join(dir, "daemon.sock");

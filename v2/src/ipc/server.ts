@@ -328,7 +328,14 @@ export async function removeStaleSocketPath(
   if (liveness === "live") {
     throw new DaemonSocketInUseError(socketPath);
   }
-  rmSync(socketPath, { force: true });
+  // Only a proven-stale entry is removed. `absent` means the probe found nothing to remove, so
+  // unlinking there can never be necessary and is the one path by which a live socket can be
+  // deleted: a sandboxed caller that cannot resolve the path gets ENOENT for a socket a daemon
+  // is actively serving, which classifies as `absent`. Deleting on that false negative strands
+  // the running daemon behind a bound-but-unlinked inode.
+  if (liveness === "stale") {
+    rmSync(socketPath, { force: true });
+  }
 }
 
 export async function startIpcServer(

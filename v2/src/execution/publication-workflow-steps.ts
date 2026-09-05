@@ -591,6 +591,45 @@ export function validateReadyIntent(
     return { ok: false, message: `plan: could not read ready-intent: ${e instanceof Error ? e.message : String(e)}` };
   }
 }
+type ResolvedPlanReadyIntent = {
+  ready: { ok: true; name: string; content: string };
+  readyIntentPath: string;
+  landingInputPath: string;
+  /** The root the input was resolved against — publication consumption skips anything outside it. */
+  landingSourceRoot: string;
+};
+
+/** Resolve a plan's ready-intent from either the external specs home or the project checkout. */
+function resolvePlanReadyIntentInput(
+  input: PlanWorkflowInput,
+  project: { key: string; root: string },
+  git: boolean,
+  deps: PlanWorkflowDeps,
+): ResolvedPlanReadyIntent | { error: string } {
+  if (isAbsolute(input.readyIntent)) {
+    if (git) return { error: "plan: --ready-intent must be a relative path" };
+    const jarvisRoot = input.jarvisRoot ?? jarvisHome();
+    const externalHome = externalSpecsDir(jarvisRoot, project.key, "ready-intents");
+    const resolved = resolveExternalReadyIntent(input.readyIntent, externalHome);
+    if (!resolved.ok) return { error: resolved.message };
+    return {
+      ready: resolved,
+      readyIntentPath: resolved.path,
+      landingInputPath: resolved.path,
+      landingSourceRoot: resolveRealpathHome(externalHome),
+    };
+  }
+  const readyIntentPath = join(input.cwd, input.readyIntent);
+  const ready = deps.readReadyIntent?.(readyIntentPath) ?? validateReadyIntent(readyIntentPath);
+  if (!ready.ok) return { error: ready.message };
+  return {
+    ready,
+    readyIntentPath,
+    landingInputPath: resolve(project.root, input.readyIntent),
+    landingSourceRoot: project.root,
+  };
+}
+
 function planSource(
   input: PlanWorkflowInput,
   deps: PlanWorkflowDeps,
@@ -606,29 +645,9 @@ function planSource(
     const config = projectConfig(input.configPath, project);
     const modePlan = machineModePlan(input.configPath);
     const git = effectivePublishGit(config, modePlan);
-    let ready: { ok: true; name: string; content: string } | { ok: false; message: string };
-    let readyIntentPath: string;
-    let landingInputPath: string;
-    let landingSourceRoot: string;
-    if (isAbsolute(input.readyIntent)) {
-      if (git) return { error: "plan: --ready-intent must be a relative path" };
-      const jarvisRoot = input.jarvisRoot ?? jarvisHome();
-      const resolved = resolveExternalReadyIntent(
-        input.readyIntent,
-        externalSpecsDir(jarvisRoot, project.key, "ready-intents"),
-      );
-      if (!resolved.ok) return { error: resolved.message };
-      ready = resolved;
-      readyIntentPath = resolved.path;
-      landingInputPath = resolved.path;
-      landingSourceRoot = resolveRealpathHome(externalSpecsDir(jarvisRoot, project.key, "ready-intents"));
-    } else {
-      readyIntentPath = join(input.cwd, input.readyIntent);
-      ready = deps.readReadyIntent?.(readyIntentPath) ?? validateReadyIntent(readyIntentPath);
-      if (!ready.ok) return { error: ready.message };
-      landingInputPath = resolve(project.root, input.readyIntent);
-      landingSourceRoot = project.root;
-    }
+    const resolvedReady = resolvePlanReadyIntentInput(input, project, git, deps);
+    if ("error" in resolvedReady) return { error: resolvedReady.error };
+    const { ready, readyIntentPath, landingInputPath, landingSourceRoot } = resolvedReady;
     const target = resolveTargetDir(
       input.targetDir,
       config,

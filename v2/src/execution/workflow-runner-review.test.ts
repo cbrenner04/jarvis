@@ -16,12 +16,12 @@ import {
   createDebateStep,
   createStep,
   externalWorktreeBinding,
-  workflowRunnerResumeProfileDeps,
   LINT_CLEAN_INTENT_EXAMPLE_MD,
   REVIEW_MD_LINT_FIXTURES,
   roots,
   skipReviewWithoutHarnessMarkdownlint,
   TestLogSink,
+  workflowRunnerResumeProfileDeps,
   writeLintCleanIntentStageFile,
   writeLintCleanPlanStage,
 } from "./workflow-runner.test-support.ts";

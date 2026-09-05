@@ -274,6 +274,7 @@ export function createRunLifecycleHandlers(
     return resolveWriteLoopBindings(baseInput, writeLoopBindingSourceDeps);
   };
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: flat snapshot-step guard chain plus one conditional-spread write-loop input literal; nesting inside the binding-source factory adds the increments
   const reconstructWriteResume = (run: Run, logRecords?: readonly PersistedRecord[]): ResolvedWriteLoopInput => {
     const snapshot = run.workflowSnapshot;
     if (!snapshot) return reconstructDirectWriteResume(run);

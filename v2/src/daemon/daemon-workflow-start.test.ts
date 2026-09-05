@@ -32,8 +32,8 @@ import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../test
 import {
   activeRunAcceptsKill,
   createRunControlHandlers,
-  type WriteLoopBindingSourceDeps,
   WorktreeOwnershipRegistry,
+  type WriteLoopBindingSourceDeps,
 } from "./daemon.ts";
 
 const { createWriteStep } = writeStepFixtures();

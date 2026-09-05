@@ -13,8 +13,8 @@ import {
   type OwnershipKey,
   type PromoteQueuedRunDeps,
   promoteQueuedRunImpl,
-  type WriteLoopBindingSourceDeps,
   WorktreeOwnershipRegistry,
+  type WriteLoopBindingSourceDeps,
 } from "./daemon.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;

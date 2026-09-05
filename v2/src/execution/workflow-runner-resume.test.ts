@@ -41,12 +41,12 @@ import {
   doneBindingFactory,
   externalWorktreeBinding,
   initGitWorkspace,
-  workflowRunnerResumeProfileDeps,
   REVIEW_MD_LINT_FIXTURES,
   seedFailedIntentReviewResumeRun,
   skipReviewWithoutHarnessMarkdownlint,
   stageReviewedIntent,
   TestLogSink,
+  workflowRunnerResumeProfileDeps,
   writeLintCleanIntentStageFile,
   writeLintCleanPlanStage,
 } from "./workflow-runner.test-support.ts";

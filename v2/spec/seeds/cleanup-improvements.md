@@ -29,7 +29,21 @@ A 2026-08-28 `jarvis cleanup jarvis -y` sweep surfaced four defects that togethe
 - [ ] One skip line per artifact per run, pinned by a test over a fixture that previously duplicated.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
+## Folded slices (2026-09-05 compaction)
+
+Absorbs the former `cleanup-reaps-aged-session-logs` and `cleanup-reaps-dead-daemon-log-and-pid-files` seeds, plus a fifth defect from the 2026-09-05 queue audit.
+
+5. **Stranded-archival check is repo-wide, not spec-scoped.** One detached-HEAD worktree disabled archival for every spec in the project. Scope the check to the spec whose archival is being decided.
+6. **Session-log retention (was its own seed, P2).** `~/.jarvis/sessions/` observed at 833,785 files / 6.2 GB (2026-08-31), never reaped; `run log` replays from the state store, not `sessions/`. Reap `.log` files for terminally-settled runs older than a config-tunable window (default 14 days), keyed on the owning run's terminal finish time — never a live/non-terminal run's log. `--dry-run` reports count + reclaimed bytes + oldest-kept date, not 830K filenames. **Never touch `telemetry.jsonl` or `state/v2.sqlite`** — both back `v2/docs/research/` reproduction scripts; pin the exclusion with a guard.
+7. **Dead-daemon `.log`/`.pid` pairs (was its own seed, P3).** Socket reaping removes dead `.sock` files but leaves the paired `daemon-<digest>.log`/`.pid` accumulating one-per-digest since 2026-07-27. Reap them under the same liveness proof; optionally retain the most-recent-N dead logs for post-mortem; report in stdout and `--dry-run`.
+
+Additional acceptance criteria carried from the folded seeds:
+
+- [ ] Archival skip-scope: a detached-HEAD worktree on one spec does not block archival of unrelated completed specs, pinned by a test failing against the repo-wide check.
+- [ ] Session logs for terminal runs older than the window are reaped, recent and live-run logs preserved, and a guard pins that the slice touches only `~/.jarvis/sessions/`; fails against the pre-fix no-reap.
+- [ ] A dead digest's `.log`/`.pid` are removed with its dead `.sock`; a live daemon's triplet is preserved; fails against the socket-only reap.
+
 ## Documentation updates
 
-- `v2/docs/operator-runbook.md` — Cleanup section: reclaim rule for terminal-run worktree claims; where archive commits land.
+- `v2/docs/operator-runbook.md` — Cleanup section: reclaim rule for terminal-run worktree claims; where archive commits land; session-log retention (window, terminal-run guard, the explicit telemetry/state-store research exclusion); dead-daemon file reaping; spec-scoped archival skips.
 - `v2/docs/v1-behaviors.md` — record changed cleanup behavior.

@@ -12,7 +12,7 @@ Unsplit rationale: Merging the twin settlement helpers and correcting intent-fin
 
 ## Problem
 
-Intent-finalization and review-mutation publication resume are copy-paste twins; `settleIntentResumeFailure` hardcodes `loop_finished.resumable: true` while the review-mutation twin computes it from admitted outcome kinds, so non-resumable intent-finalization failures incorrectly advertise retryability.
+Intent-finalization and review-mutation publication resume are copy-paste twins; `settleIntentResumeFailure` hardcoded `loop_finished.resumable: true` while the review-mutation twin computes it from admitted outcome kinds. **The `resumable` bug half landed as a point fix (#3327, 2026-09-01) — what remains here is the pure dedup**: merge the twins onto one parameterized helper so the fixed projection cannot re-diverge. Demoted accordingly; slot with execution-loop hygiene, not bug work.
 
 ## Behavior
 

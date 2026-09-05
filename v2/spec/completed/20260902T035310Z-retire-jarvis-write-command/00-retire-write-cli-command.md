@@ -44,15 +44,15 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/cli.test.ts` rejects `jarvis write` at top-level dispatch with the standard unknown-command error and omits `write` from the `jarvis help` registry output; reachable today via `main(["write", ...])` and the `help` registry test — fails against the pre-fix command tree.
-- [ ] `v2/src/cli/deps.ts` exports a `CliDeps` type with no `executeWriteLoop` member; fails against the pre-fix type.
-- [ ] `v2/src/commands/write.test.ts` is absent from the tree.
-- [ ] `v2/src/cli.test.ts` `help run start prints …` and `run start` parse-error paths no longer emit `usage: jarvis write`; fails against the pre-fix tests that assert `WRITE_USAGE` / `usage: jarvis write`.
-- [ ] `v2/src/cli.test.ts` Levenshtein cases for `wrte`/`writex`/`wrote`/`wte` no longer suggest `write`; fails against the pre-fix `a %s close match suggests the registered command` table.
-- [ ] `v2/src/commands/run.test.ts` migrated parse-error cases (`missing required write args`, `invalid --max-iterations`, `unknown write args`) stay green on the `run start` path.
-- [ ] `v2/src/commands/run.test.ts` `run start sends one IPC start request carrying write-loop input and prints run ID` stays green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `v2/src/cli.test.ts` rejects `jarvis write` at top-level dispatch with the standard unknown-command error and omits `write` from the `jarvis help` registry output; reachable today via `main(["write", ...])` and the `help` registry test — fails against the pre-fix command tree.
+- [x] `v2/src/cli/deps.ts` exports a `CliDeps` type with no `executeWriteLoop` member; fails against the pre-fix type.
+- [x] `v2/src/commands/write.test.ts` is absent from the tree.
+- [x] `v2/src/cli.test.ts` `help run start prints …` and `run start` parse-error paths no longer emit `usage: jarvis write`; fails against the pre-fix tests that assert `WRITE_USAGE` / `usage: jarvis write`.
+- [x] `v2/src/cli.test.ts` Levenshtein cases for `wrte`/`writex`/`wrote`/`wte` no longer suggest `write`; fails against the pre-fix `a %s close match suggests the registered command` table.
+- [x] `v2/src/commands/run.test.ts` migrated parse-error cases (`missing required write args`, `invalid --max-iterations`, `unknown write args`) stay green on the `run start` path.
+- [x] `v2/src/commands/run.test.ts` `run start sends one IPC start request carrying write-loop input and prints run ID` stays green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

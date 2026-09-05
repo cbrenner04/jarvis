@@ -1,5 +1,5 @@
-import { existsSync, rmSync } from "node:fs";
-import { connect, createServer, type Server, type Socket } from "node:net";
+import { rmSync } from "node:fs";
+import { createServer, type Server, Socket } from "node:net";
 import { promisify } from "node:util";
 import { encodeFrame, FrameDecoder } from "./codec.ts";
 import type { ErrorFrame, IpcFrame, ResponseFrame, StreamDataFrame, StreamEndFrame } from "./types.ts";
@@ -265,6 +265,20 @@ export class DaemonSocketInUseError extends Error {
 const LIVENESS_PROBE_TIMEOUT_MS = 250;
 
 /**
+ * Map a connect failure to a liveness verdict.
+ *
+ * Only a definitive "nothing is accepting here" (ECONNREFUSED — a dead daemon's leftover entry)
+ * or "nothing is here" (ENOENT) permits removal. Every other failure is inconclusive and must
+ * read as live: unlinking on an inconclusive probe is exactly what strands a running daemon.
+ */
+function classifyConnectError(err: NodeJS.ErrnoException): SocketLiveness {
+  if (err.code === "ENOENT") {
+    return "absent";
+  }
+  return err.code === "ECONNREFUSED" ? "stale" : "live";
+}
+
+/**
  * Classify a socket path by attempting a connection.
  *
  * `absent` when nothing is at the path, `stale` when the entry exists but nothing accepts
@@ -272,11 +286,15 @@ const LIVENESS_PROBE_TIMEOUT_MS = 250;
  * within the probe timeout.
  */
 export function probeSocketLiveness(socketPath: string): Promise<SocketLiveness> {
-  if (!existsSync(socketPath)) {
-    return Promise.resolve("absent");
-  }
+  // Deliberately no `existsSync` short-circuit. A denied or failing `stat` returns false, which
+  // would classify a live peer's socket as absent and unlink it — the exact outage this guard
+  // exists to prevent. `connect()` reports a genuinely missing path as ENOENT, so the connect
+  // probe alone is both sufficient and the only check that cannot false-negative into deletion.
   return new Promise((resolve) => {
-    const socket = connect(socketPath);
+    // Handlers are attached before connecting: bun surfaces ENOENT on the socket rather than as
+    // a return value, and a handler registered after `connect()` can miss it and let the error
+    // escape as an uncaught exception — which would block every daemon start on a clean machine.
+    const socket = new Socket();
     let settled = false;
     const settle = (liveness: SocketLiveness): void => {
       if (settled) {
@@ -289,9 +307,8 @@ export function probeSocketLiveness(socketPath: string): Promise<SocketLiveness>
     };
     const timer = setTimeout(() => settle("live"), LIVENESS_PROBE_TIMEOUT_MS);
     socket.once("connect", () => settle("live"));
-    socket.once("error", (err: NodeJS.ErrnoException) => {
-      settle(err.code === "ECONNREFUSED" || err.code === "ENOENT" ? "stale" : "live");
-    });
+    socket.once("error", (err: NodeJS.ErrnoException) => settle(classifyConnectError(err)));
+    socket.connect(socketPath);
   });
 }
 

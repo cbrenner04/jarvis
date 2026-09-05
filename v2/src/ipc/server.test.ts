@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DaemonSocketInUseError, removeStaleSocketPath, type SocketLiveness } from "./server.ts";
+import { DaemonSocketInUseError, probeSocketLiveness, removeStaleSocketPath, type SocketLiveness } from "./server.ts";
 
 function probing(liveness: SocketLiveness) {
   return () => Promise.resolve(liveness);
@@ -48,4 +48,13 @@ test("DaemonSocketInUseError names the contested socket path", () => {
   const err = new DaemonSocketInUseError("/tmp/daemon-abc.sock");
   expect(err.socketPath).toBe("/tmp/daemon-abc.sock");
   expect(err.message).toContain("/tmp/daemon-abc.sock");
+});
+
+test("probeSocketLiveness reports a missing path absent without consulting the filesystem", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-probe-"));
+  try {
+    expect(await probeSocketLiveness(join(dir, "nobody-here.sock"))).toBe("absent");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

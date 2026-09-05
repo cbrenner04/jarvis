@@ -30,7 +30,7 @@ Git-enabled projects (the default) keep planning queues and durable specs in the
 | Completed specs | `<targetDir>/completed/` |
 | Operator scratch notes | repo `.scratch/` (gitignored) |
 
-Projects whose effective publication is Git-disabled (`projects.<key>.git: false` or `projects.<key>.plan.commit: false`) route durable planning artifacts to `~/.jarvis/specs/<projectSafeId>/` instead. Layout and opt-in keys: [`install-and-config.md` § External specs home](./install-and-config.md#external-specs-home).
+Projects whose effective Git publication is disabled route durable planning artifacts to `~/.jarvis/specs/<projectSafeId>/` instead; precedence is `projects.<key>.git: false` or effective `plan.commit: false` (`plan.commit`, then machine `modes.plan.commit`, then `true`) — see [`install-and-config.md` § External specs home](./install-and-config.md#external-specs-home).
 
 | Artifact | External path (opted-in projects) |
 | --- | --- |

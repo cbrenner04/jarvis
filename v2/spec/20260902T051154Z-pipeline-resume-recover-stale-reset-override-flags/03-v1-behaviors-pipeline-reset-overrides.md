@@ -16,7 +16,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/v1-behaviors.md` records pipeline resume/recover `--reset-despite-dirty` / `--reset-despite-landed-criteria` parity with standalone workflow re-runs and recover RPC-forwarding-only semantics; fails against the pre-fix baseline bullet on main that states no pipeline override flags.
+- [x] `v2/docs/v1-behaviors.md` records pipeline resume/recover `--reset-despite-dirty` / `--reset-despite-landed-criteria` parity with standalone workflow re-runs and recover RPC-forwarding-only semantics; fails against the pre-fix baseline bullet on main that states no pipeline override flags.
 
 ## Documentation updates
 

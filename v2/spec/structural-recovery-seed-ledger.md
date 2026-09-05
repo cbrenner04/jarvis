@@ -487,6 +487,29 @@ Operator-present. The session's asks were pipeline dogfooding and parallelizatio
 
 **#3374 sequencing, for the record.** Its fix is [[pipeline-external-chained-resolution]], which covers *both* halves — the external intent->plan resolution and the silent fan-out lane failure. It is not planned, and its four prerequisites are the unimplemented 6-subspec `20260903T052835Z-admit-external-intent-and-plan-inputs`, dispatched this session. Planning the fix before that foundation lands would settle `blocked`, per [[plan-bases-off-a-declared-prerequisite-branch]].
 
+## Queue audit (2026-09-05) — 108 items surveyed, ~78 remain
+
+Every seed, ready-intent, and open issue checked against `main` **by artifact, never by name**. Reaped 9 seeds and 3 ready-intents.
+
+**Reaped seeds** (landed, artifact verified): `idle-watchdog-counts-worktree-filesystem-activity` (`isIgnoredWorktreeActivityPath`), `ready-gate-autofix-scopes-to-changed-files` (scoped biome + `--max-diagnostics`), `pipeline-dispatch-shares-cli-front-door` (`FIXED_REVIEW_PASSES` now in the resolver's *forbidden* list), `implement-biome-complexity-commit-strand-is-resumable` (`formatMode` best-effort), `pipeline-implement-stage-honors-review-posture`, `render-coverage-resolves-observer-map-from-worktree` (`RENDER_OBSERVER_MAP_RELATIVE_PATH`), `blocker-contract-reads-the-chained-stage-spec-root` (stale premise — `specReadRoot` is absolute since #3297), and the two concurrent-load isolation seeds (superseded by `LOAD_SENSITIVE_FILES` in `scripts/test-slice.ts`).
+
+**Reaped ready-intents**: `structural-invariant-test-audit` (spec 5/5, doc on `main`), `plan-draft-shape-accepts-repo-relative-stage-layout`, `notification-incident-candidate-store-queries` (`listIncidentCandidateRuns`).
+
+**Two audit claims failed verification and were rejected** — worth recording, because the audit was otherwise accurate and this is exactly the failure mode the repo keeps hitting:
+
+- "`ready-finalize.ts` no longer exists, so the runbook's `JARVIS_READY_TIER` bullet is wrong" — **the file exists and line 973 still spreads `process.env` then overwrites the key**. The bullet is accurate; it stays.
+- "the watchdog `.unref()` fix is already at `write-loop.ts:275`" — **not present**. [[watchdog-timers-never-hold-the-event-loop]] stays open.
+
+**Collapse candidates** (verified as describing one root cause, not yet merged): the superseded-PR trio (`configure-pipeline-supersede-policy` is a knob on unlanded `settle-superseded-pipeline-prs`); the publication-tail pair (`implement-completes-without-publishing` + `implement-publication-reuses-closed-same-branch-pr` — never-dispatches and mis-resolves halves of one broken tail); the chain-resume pair; and the two prompt-doc intents that rewrite the same file.
+
+**Rewrite-not-reap**: `canonical-pipeline-execution-state-and-stage-claims` — the durable claim machinery it asks for is already wired, but its named acceptance test is absent and `pipeline-execution.ts` documents deliberate bypasses. It needs rewriting against what landed.
+
+**Prune candidates**: the four `rename-pipeline-lane-*` seeds are terminology churn across **474 `branchKey` sites, 0 `laneKey`**, and are themselves blocked behind [[pipeline-settlement-derives-from-run-rows]]. High cost, low value.
+
+**Issues**: 5 closeable as fixed on `main` (#3465, #3461, #3397, #3039, #3368), 12 duplicated by an existing seed, 2 needing re-repro after #3483 (#3374, #3417), and 7 open with no seed. Of those, **#3463 + #3462 + #3395 share one root cause** — `daemon-run-lifecycle-handlers.ts` special-cases only `~shrink` when matching the snapshot step while `workflow-runner.ts` mints `~link-N` rows and the resume module already understands them; the two matchers disagree. One spec, not three.
+
+**Gaps with no owner**: four runbook bullets cite seeds that do not exist (`reap-ready-gate-test-children-on-run-termination`, `mutation-checkpoint-verifier-trust`, `a-daemon-lost-run-row-deadlocks-the-daemon`, `gate-repair-fence`); three unbound sibling spawns still leak process groups (#3431 bounded only the gate group) — the recurring CPU-orphan mode, still unowned; cleanup's stranded-archival check is repo-wide rather than spec-scoped, so one detached-HEAD worktree disabled archival for every spec in the project; `defaultGhReadyFlip` still resolves by branch with no state filter (#3449 fixed a different call site); and no entry proposes the per-project config seam itself, so #3026/#3150/#3039 remain per-symptom fixes.
+
 ## Gaps / low-confidence
 
 - `harness-publication-push-uses-explicit-refspec`, `inject-spec-guidance-agent-core`, `split-spec-guidance-documents`, `cleanup-uses-lossless-git-status`: confirmed as landed ready-intents (intent PRs verified), but no plan-spec dir or implement PR was verifiable from the brief or git — left `—`. May be planned/implemented under names not matched here.

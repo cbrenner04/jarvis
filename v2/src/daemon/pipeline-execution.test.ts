@@ -2900,6 +2900,253 @@ describe("resumePipeline", () => {
     }
   });
 
+  const FAN_OUT_RESUME_BRANCH_TARGET = "resume-target";
+  const FAN_OUT_RESUME_BRANCH_SIBLING_A = "resume-sibling-a";
+  const FAN_OUT_RESUME_BRANCH_SIBLING_B = "resume-sibling-b";
+  const FAN_OUT_RESUME_BRANCH_KEYS = [
+    FAN_OUT_RESUME_BRANCH_TARGET,
+    FAN_OUT_RESUME_BRANCH_SIBLING_A,
+    FAN_OUT_RESUME_BRANCH_SIBLING_B,
+  ] as const;
+
+  function setupFanOutFailedPlanResumeFixture(
+    store: StateStore,
+    options: { extraFailedPlanBranches?: readonly string[] } = {},
+  ): void {
+    const intentArtifact: PipelineStageArtifact = {
+      entryRunId: "run-intent",
+      specPath: "ready-intents",
+      downstreamInputs: FAN_OUT_RESUME_BRANCH_KEYS.map((key) => `ready-intents/${key}.md`),
+    };
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      patch: { status: "succeeded", artifact: intentArtifact, workflowInvocationId: "run-intent" },
+    });
+    for (const branchKey of FAN_OUT_RESUME_BRANCH_KEYS) {
+      store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey });
+      store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "plan", branchKey });
+      store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "implement", branchKey });
+    }
+    for (const stageId of ["gate", "plan", "implement"] as const) {
+      store.updateStage({ pipelineId: PIPELINE_ID, stageId, branchKey: "default", patch: { status: "skipped" } });
+    }
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "gate",
+      branchKey: FAN_OUT_RESUME_BRANCH_TARGET,
+      patch: { status: "approved" },
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "plan",
+      branchKey: FAN_OUT_RESUME_BRANCH_TARGET,
+      patch: { status: "failed" },
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "implement",
+      branchKey: FAN_OUT_RESUME_BRANCH_TARGET,
+      patch: { status: "skipped" },
+    });
+    for (const branchKey of options.extraFailedPlanBranches ?? []) {
+      store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey, patch: { status: "approved" } });
+      store.updateStage({ pipelineId: PIPELINE_ID, stageId: "plan", branchKey, patch: { status: "failed" } });
+      store.updateStage({
+        pipelineId: PIPELINE_ID,
+        stageId: "implement",
+        branchKey,
+        patch: { status: "skipped" },
+      });
+    }
+    const extraFailedPlanBranchSet = new Set(options.extraFailedPlanBranches ?? []);
+    if (!extraFailedPlanBranchSet.has(FAN_OUT_RESUME_BRANCH_SIBLING_A)) {
+      store.updateStage({
+        pipelineId: PIPELINE_ID,
+        stageId: "gate",
+        branchKey: FAN_OUT_RESUME_BRANCH_SIBLING_A,
+        patch: { status: "awaiting" },
+      });
+    }
+    if (!extraFailedPlanBranchSet.has(FAN_OUT_RESUME_BRANCH_SIBLING_B)) {
+      store.updateStage({
+        pipelineId: PIPELINE_ID,
+        stageId: "gate",
+        branchKey: FAN_OUT_RESUME_BRANCH_SIBLING_B,
+        patch: { status: "awaiting" },
+      });
+    }
+  }
+
+  test("unscoped resume lists resumable failed plan branch keys on aggregate awaiting-approval", async () => {
+    for (const branchKey of [undefined, "default"] as const) {
+      const { store, stages } = fakeStore(
+        FAN_OUT_PIPELINE_DEFINITION,
+        { "run-intent": { specPath: "ready-intents" } },
+        { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+      );
+      setupFanOutFailedPlanResumeFixture(store);
+      const before = stages().map((stage) => ({ ...stage }));
+      const pipeline = store.loadPipeline(PIPELINE_ID);
+      if (!pipeline) throw new Error("expected pipeline");
+      expect(derivePipelineState(pipeline)).toBe("awaiting-approval");
+
+      const dispatchOrder: number[] = [];
+      const outcome = await resumePipeline(
+        PIPELINE_ID,
+        pipelineTestDeps(store, dispatchOrder),
+        branchKey === undefined ? {} : { branchKey },
+      );
+      expect(outcome).toEqual({
+        kind: "refused",
+        pipelineId: PIPELINE_ID,
+        reason: "branch_resume_required",
+        branchKeys: [FAN_OUT_RESUME_BRANCH_TARGET],
+      });
+      expect(dispatchOrder).toEqual([]);
+      expect(stages().map((stage) => ({ ...stage }))).toEqual(before);
+      // @mutate v2/src/daemon/pipeline-execution.ts "if (branchKeys.length > 0) {" -> "if (false) {"
+    }
+  });
+
+  test("unscoped resume lists every resumable failed plan branch key on aggregate awaiting-approval", async () => {
+    const { store, stages } = fakeStore(
+      FAN_OUT_PIPELINE_DEFINITION,
+      { "run-intent": { specPath: "ready-intents" } },
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+    );
+    setupFanOutFailedPlanResumeFixture(store, { extraFailedPlanBranches: [FAN_OUT_RESUME_BRANCH_SIBLING_A] });
+    const pipeline = store.loadPipeline(PIPELINE_ID);
+    if (!pipeline) throw new Error("expected pipeline");
+    expect(derivePipelineState(pipeline)).toBe("awaiting-approval");
+
+    const dispatchOrder: number[] = [];
+    const outcome = await resumePipeline(PIPELINE_ID, pipelineTestDeps(store, dispatchOrder));
+    expect(outcome.kind).toBe("refused");
+    if (outcome.kind !== "refused" || outcome.reason !== "branch_resume_required") {
+      throw new Error("expected branch_resume_required refusal");
+    }
+    expect(outcome.branchKeys).toHaveLength(2);
+    expect(outcome.branchKeys).toContain(FAN_OUT_RESUME_BRANCH_TARGET);
+    expect(outcome.branchKeys).toContain(FAN_OUT_RESUME_BRANCH_SIBLING_A);
+    expect(dispatchOrder).toEqual([]);
+    expect(stages().find((stage) => stage.stageId === "gate" && stage.branchKey === "default")?.status).toBe("skipped");
+    // @mutate v2/src/daemon/pipeline-execution.ts "failed.stage.workflow !== \"plan\"" -> "failed.stage.workflow === \"plan\""
+  });
+
+  test("unscoped resume does not list resumable non-plan failures on aggregate awaiting-approval", async () => {
+    const { store, stages } = fakeStore(
+      FAN_OUT_PIPELINE_DEFINITION,
+      {
+        "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
+        "run-beta-implement": { specPath: "spec/beta/implement.md" },
+      },
+      { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+    );
+    const intentArtifact: PipelineStageArtifact = {
+      entryRunId: "run-intent",
+      specPath: "ready-intents",
+      downstreamInputs: [...FAN_OUT_DOWNSTREAM],
+    };
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      patch: { status: "succeeded", artifact: intentArtifact, workflowInvocationId: "run-intent" },
+    });
+    for (const branchKeyName of FAN_OUT_BRANCH_KEYS) {
+      store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey: branchKeyName });
+      store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "plan", branchKey: branchKeyName });
+      store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "implement", branchKey: branchKeyName });
+    }
+    for (const stageId of ["gate", "plan", "implement"] as const) {
+      store.updateStage({ pipelineId: PIPELINE_ID, stageId, branchKey: "default", patch: { status: "skipped" } });
+    }
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey: "alpha", patch: { status: "awaiting" } });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey: "beta", patch: { status: "approved" } });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "plan",
+      branchKey: "beta",
+      patch: { status: "succeeded", workflowInvocationId: "run-beta-plan" },
+    });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "implement",
+      branchKey: "beta",
+      patch: { status: "failed" },
+    });
+    const pipeline = store.loadPipeline(PIPELINE_ID);
+    if (!pipeline) throw new Error("expected pipeline");
+    expect(derivePipelineState(pipeline)).toBe("awaiting-approval");
+
+    const dispatchOrder: number[] = [];
+    const outcome = await resumePipeline(PIPELINE_ID, pipelineTestDeps(store, dispatchOrder));
+    expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+    expect(dispatchOrder).toEqual([]);
+    expect(stages().find((stage) => stage.stageId === "gate" && stage.branchKey === "alpha")?.status).toBe("awaiting");
+    // @mutate v2/src/daemon/pipeline-execution.ts "failed.stage.workflow !== \"plan\"" -> "false"
+  });
+
+  test("unscoped resume does not list resumable failed plan branches under aggregate running", async () => {
+    for (const branchKey of [undefined, "default"] as const) {
+      const { store, stages } = fakeStore(
+        FAN_OUT_PIPELINE_DEFINITION,
+        {
+          "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
+          "run-alpha-plan": { specPath: "spec/alpha/plan.md" },
+        },
+        { context: persistedContext, ownerIdentity: PRIOR_OWNER },
+      );
+      const intentArtifact: PipelineStageArtifact = {
+        entryRunId: "run-intent",
+        specPath: "ready-intents",
+        downstreamInputs: [...FAN_OUT_DOWNSTREAM],
+      };
+      store.updateStage({
+        pipelineId: PIPELINE_ID,
+        stageId: "intent",
+        patch: { status: "succeeded", artifact: intentArtifact, workflowInvocationId: "run-intent" },
+      });
+      for (const branchKeyName of FAN_OUT_BRANCH_KEYS) {
+        store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey: branchKeyName });
+        store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "plan", branchKey: branchKeyName });
+        store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "implement", branchKey: branchKeyName });
+      }
+      for (const stageId of ["gate", "plan", "implement"] as const) {
+        store.updateStage({ pipelineId: PIPELINE_ID, stageId, branchKey: "default", patch: { status: "skipped" } });
+      }
+      store.updateStage({
+        pipelineId: PIPELINE_ID,
+        stageId: "plan",
+        branchKey: "alpha",
+        patch: { status: "running", workflowInvocationId: "run-alpha-plan" },
+      });
+      store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey: "beta", patch: { status: "approved" } });
+      store.updateStage({ pipelineId: PIPELINE_ID, stageId: "plan", branchKey: "beta", patch: { status: "failed" } });
+      store.updateStage({
+        pipelineId: PIPELINE_ID,
+        stageId: "implement",
+        branchKey: "beta",
+        patch: { status: "skipped" },
+      });
+      const before = stages().map((stage) => ({ ...stage }));
+      const pipeline = store.loadPipeline(PIPELINE_ID);
+      if (!pipeline) throw new Error("expected pipeline");
+      expect(derivePipelineState(pipeline)).toBe("running");
+
+      const dispatchOrder: number[] = [];
+      const outcome = await resumePipeline(
+        PIPELINE_ID,
+        pipelineTestDeps(store, dispatchOrder),
+        branchKey === undefined ? {} : { branchKey },
+      );
+      expect(outcome).toEqual({ kind: "refused", pipelineId: PIPELINE_ID, reason: "pipeline_not_resumable" });
+      expect(dispatchOrder).toEqual([]);
+      expect(stages().map((stage) => ({ ...stage }))).toEqual(before);
+      // @mutate v2/src/daemon/pipeline-execution.ts "if (resumeAwaitingClaimsOnly(derivedState)) {" -> "if (true) {"
+    }
+  });
+
   test("unscoped resume dispatches an approved-gate pending strand without scoping to a failed sibling", async () => {
     for (const branchKey of [undefined, "default"] as const) {
       const { store, stages } = fakeStore(

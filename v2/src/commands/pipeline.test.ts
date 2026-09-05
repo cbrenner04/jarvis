@@ -1648,6 +1648,33 @@ describe("pipeline resume", () => {
     expect(cap.read()).toEqual({ stdout: "", stderr: "branch_awaiting_approval\n" });
   });
 
+  test("pipeline resume lists resumable failed plan branch keys on stderr when branch key is omitted", async () => {
+    const cap = captureIo();
+    const branchKeys = ["resume-target", "resume-sibling-a"];
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-resume-list-branches"], () =>
+      main(["pipeline", "resume", "pipe-fan"], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () =>
+          makeIpcClient([
+            pipelineWaitFrame("pipe-resume-list-branches", {
+              kind: "refused",
+              pipelineId: "pipe-fan",
+              reason: "branch_resume_required",
+              branchKeys,
+            }),
+          ]),
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: `branch_resume_required\n${branchKeys.join("\n")}\n`,
+    });
+    // @mutate v2/src/commands/pipeline.ts "if (outcome.branchKeys !== undefined) {" -> "if (false) {"
+  });
+
   test.each([
     [PIPELINE_RESUME_USAGE, ["pipeline", "resume"]],
     [PIPELINE_RESUME_USAGE, ["pipeline", "resume", "   "]],

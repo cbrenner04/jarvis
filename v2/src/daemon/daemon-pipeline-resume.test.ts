@@ -25,6 +25,7 @@ import {
   type PipelineStageResolveDeps,
   resolveStageWorkflowSteps,
 } from "./pipeline-stage-resolve.ts";
+import { derivePipelineState } from "./pipeline-execution.ts";
 
 const APPROVAL_DEFINITION: PipelineDefinition = {
   name: "approval",
@@ -418,6 +419,29 @@ test("pipeline_resume on awaiting-approval returns claim_refused without dispatc
   expect(stateStore.loadPipeline(pipelineId)?.stages.find((stage) => stage.stageId === "s3")?.status).toBe("pending");
 });
 
+test("pipeline_resume lists resumable failed plan branch keys when branch key is omitted", async () => {
+  const { pipelineId, before } = setupFanOutResumePipeline(stateStore);
+  const pipeline = stateStore.loadPipeline(pipelineId);
+  if (!pipeline) throw new Error("expected pipeline");
+  expect(derivePipelineState(pipeline)).toBe("awaiting-approval");
+
+  const response = await handlers.pipeline_resume(
+    requestFrame("resume", "pipeline_resume", { pipelineId }),
+    new AbortController().signal,
+  );
+  expect(response).toEqual({
+    kind: "response",
+    result: {
+      kind: "refused",
+      pipelineId,
+      reason: "branch_resume_required",
+      branchKeys: [RESUME_BRANCH_TARGET],
+    },
+  });
+  expect(stateStore.loadPipeline(pipelineId)?.stages.map((stage) => ({ ...stage }))).toEqual(before);
+  // @mutate v2/src/daemon/pipeline-execution.ts "if (branchKeys.length > 0) {" -> "if (false) {"
+});
+
 test("pipeline_resume admits unscoped and explicit-default approved-gate pending strands", async () => {
   for (const branchKey of [undefined, "default"] as const) {
     const pipelineId = stateStore.createPipeline({ definition: APPROVAL_DEFINITION, context: ADMISSION_CONTEXT });
@@ -781,14 +805,21 @@ test("pipeline_resume forwards a non-blank branchKey unchanged, not trimmed", as
   expect(stateStore.loadPipeline(pipelineId)?.stages.map((stage) => ({ ...stage }))).toEqual(before);
 
   // `branchKey: "default"` aliases omission in the library, taking the unscoped aggregate path:
-  // this fixture's siblings are still `awaiting` their own gates, so unscoped resume claims
-  // ownership and returns `resumed` without reopening or dispatching any branch — unlike the
-  // branch-scoped `branch_not_found` refusal above.
+  // this fixture carries a resumable failed `plan` lane while siblings await their gates, so
+  // unscoped resume lists that branch instead of claiming awaiting-approval.
   const defaultAliasResponse = await handlers.pipeline_resume(
     requestFrame("resume", "pipeline_resume", { pipelineId, branchKey: "default" }),
     new AbortController().signal,
   );
-  expect(defaultAliasResponse).toEqual({ kind: "response", result: { kind: "resumed", pipelineId } });
+  expect(defaultAliasResponse).toEqual({
+    kind: "response",
+    result: {
+      kind: "refused",
+      pipelineId,
+      reason: "branch_resume_required",
+      branchKeys: [RESUME_BRANCH_TARGET],
+    },
+  });
   expect(stateStore.loadPipeline(pipelineId)?.stages.map((stage) => ({ ...stage }))).toEqual(before);
 });
 

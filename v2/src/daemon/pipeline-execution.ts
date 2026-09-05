@@ -172,6 +172,7 @@ export type PipelineResumeRefusalReason =
   | "pipeline_terminal_succeeded"
   | "pipeline_terminal_rejected"
   | "pipeline_not_resumable"
+  | "branch_resume_required"
   | PipelineBranchResumeRefusalReason;
 
 export type ResumePipelineOutcome =
@@ -179,7 +180,13 @@ export type ResumePipelineOutcome =
   | {
       kind: "refused";
       pipelineId: string;
-      reason: Exclude<PipelineResumeRefusalReason, PipelineBranchResumeRefusalReason>;
+      reason: Exclude<PipelineResumeRefusalReason, PipelineBranchResumeRefusalReason | "branch_resume_required">;
+    }
+  | {
+      kind: "refused";
+      pipelineId: string;
+      reason: "branch_resume_required";
+      branchKeys: string[];
     }
   | {
       kind: "refused";
@@ -490,6 +497,47 @@ function resolveBranchResumeAdmission(
   return { kind: "ok", reopenFailedStage: scan.reopenFailed };
 }
 
+function firstFailedWorkflowInBranchSuffix(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  boundary: number,
+  branchKey: string,
+): { stage: PipelineStage; record: PipelineStageRecord } | undefined {
+  for (const entry of suffixStagesForBranch(pipeline, boundary - 1, branchKey)) {
+    if (entry.record.status === "failed" && entry.stage.kind === "workflow") {
+      return entry;
+    }
+  }
+  return undefined;
+}
+
+function branchListableForFailedPlanResume(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  branchKey: string,
+): boolean {
+  const boundary = findBranchAdmissionBoundary(pipeline, branchKey);
+  if (boundary === BRANCH_ADMISSION_BOUNDARY_NOT_FOUND) return false;
+  if (!branchSuffixRowsPresent(pipeline, boundary, branchKey)) return false;
+
+  const failed = firstFailedWorkflowInBranchSuffix(pipeline, boundary, branchKey);
+  if (failed === undefined || failed.stage.kind !== "workflow" || failed.stage.workflow !== "plan") return false;
+
+  const admission = resolveBranchResumeAdmission(pipeline, branchKey);
+  return admission.kind === "ok" && admission.reopenFailedStage;
+}
+
+function listBranchResumeRequiredKeys(pipeline: Pipeline & { stages: PipelineStageRecord[] }): string[] {
+  const split = findFanOutSplit(pipeline);
+  if (split === null) return [];
+
+  const branchKeys: string[] = [];
+  for (const branchKey of split.branchKeys) {
+    if (branchListableForFailedPlanResume(pipeline, branchKey)) {
+      branchKeys.push(branchKey);
+    }
+  }
+  return branchKeys;
+}
+
 export function findFailedStageForReopen(
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
   branchScope: string | undefined,
@@ -612,6 +660,10 @@ export async function resumePipeline(
   }
 
   if (resumeAwaitingClaimsOnly(derivedState)) {
+    const branchKeys = listBranchResumeRequiredKeys(pipeline);
+    if (branchKeys.length > 0) {
+      return { kind: "refused", pipelineId, reason: "branch_resume_required", branchKeys };
+    }
     if (pipeline.context === null) {
       return { kind: "refused", pipelineId, reason: "missing_context" };
     }

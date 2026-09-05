@@ -17,7 +17,7 @@ Operators reading `v2/docs/operator-runbook.md` have no pipeline resume/recover 
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/operator-runbook.md` documents `pipeline resume` and `pipeline recover` `--reset-despite-dirty` / `--reset-despite-landed-criteria` (resume: force matching stale-reset gate skips when auto-clear or ordinary gates refuse; recover: RPC parity only); cross-links incomplete re-run preflight gates; fails against the pre-fix doc on main that documents pipeline workflow-stage re-dispatch without pipeline override flags.
+- [x] `v2/docs/operator-runbook.md` documents `pipeline resume` and `pipeline recover` `--reset-despite-dirty` / `--reset-despite-landed-criteria` (resume: force matching stale-reset gate skips when auto-clear or ordinary gates refuse; recover: RPC parity only); cross-links incomplete re-run preflight gates; fails against the pre-fix doc on main that documents pipeline workflow-stage re-dispatch without pipeline override flags.
 
 ## Documentation updates
 

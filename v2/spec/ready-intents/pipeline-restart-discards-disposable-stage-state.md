@@ -25,7 +25,10 @@ Restarting a pipeline lane refuses on stale worktrees and inherited draft-tree `
 
 - [ ] `pipeline-execution.test.ts` test `pipeline resume rematerializes a never-landed lane with stale worktree and draft-tree operator blocker` drives resume on a failed plan lane whose worktree is not descended from base and whose `.jarvis-plan-stage/intent.md` carries an operator `## Blocker`, with no PR and no unpushed real commits, and asserts rematerialization and dispatch without flags; it fails against the current pre-dispatch operator-blocker and descendant refusals.
 - [ ] `pipeline-execution.test.ts` test `pipeline resume refuses never-landed lane with unpushed commits and names salvage path` drives resume on a failed plan lane whose branch is ahead of base with no PR and asserts refusal without worktree retirement, naming salvage recovery; it fails against a path that rematerializes through unlanded commits.
-- [ ] `pipeline-execution.test.ts` — `failed plan resume preserves live worktree claim despite both reset overrides` and `failed plan resume refuses operator dirt outside harness draft stage and preserves worktree` stay green.
+- [ ] `pipeline-execution.test.ts` test `pipeline resume refuses operator blocker on landed staged intent` drives resume on a failed plan lane whose `.jarvis-plan-stage/intent.md` operator `## Blocker` is committed on base or associated with a live draft PR, and asserts refusal without rematerialization or dispatch; it fails against disposable rematerialization through landed blockers.
+- [ ] `pipeline-execution.test.ts` — `failed plan resume preserves live worktree claim despite both reset overrides` stays green (reachable on main: parameterized guard at ~6417).
+- [ ] `pipeline-execution.test.ts` — `failed plan resume refuses operator dirt outside harness draft stage and preserves worktree` stays green.
+- [ ] `pipeline-execution.test.ts` — `failed plan resume preserves %s despite both reset overrides` drops never-landed `operator blocker`, `mixed blockers`, and `non-descendant HEAD` parameters; rematerialization ACs own those outcomes on disposable fixtures.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

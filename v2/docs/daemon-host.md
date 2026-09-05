@@ -64,6 +64,8 @@ Multiple daemons coexisting by keyed socket create a corresponding accumulation 
 
 When a new daemon starts (after rebuilding the executable, for example), it sends a `supersede` RPC to every other `daemon-<key>.sock` in `~/.jarvis`, best-effort and non-blocking: supersede sends are fire-and-forget after the new daemon's own server is listening, do not gate startup, and errors (unreachable socket, RPC failure) are ignored. A superseded daemon continues answering on its socket but stops admitting new work: new `start`/`resume` requests on a superseded socket fail with code `daemon_superseded`. Runs launched by a superseded daemon remain in-progress until settled; once settled, the daemon disappears on its own as callers switch to the new keyed socket.
 
+The keyed pid file is written only after the daemon is serving, and `daemon status` decides from a socket health probe rather than from the recorded pid: a stale or absent pid never reports a reachable daemon as stopped.
+
 `jarvis cleanup` removes dead sockets (those whose listeners have exited) via a connect-attempt probe: if the probe receives `ECONNREFUSED` or `ENOENT`, the socket is dead and removed; all other error states (timeout, permission error, unexpected error) preserve the socket and are reported. Live sockets — those a daemon is currently answering on, whether the invoking digest or a superseded keyed daemon — are never removed.
 
 ### Socket discovery

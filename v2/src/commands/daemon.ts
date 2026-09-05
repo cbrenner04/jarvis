@@ -109,13 +109,8 @@ export async function runDaemonCommand(argv: readonly string[], io: Io, deps: Cl
   }
 
   if (subcommand === "status" && argv.length === 1) {
-    const pid = readPid(deps.pidPath);
-    if (pid === null) {
-      io.stdout("stopped\n");
-      return 1;
-    }
-
-    const status = await deps.getDaemonStatus(pid, deps.socketPath);
+    // A missing or stale pid file does not mean stopped: the socket probe is what decides.
+    const status = await deps.getDaemonStatus(deps.socketPath);
     if (status.state === "stopped") {
       io.stdout("stopped\n");
       return 1;

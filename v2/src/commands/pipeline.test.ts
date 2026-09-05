@@ -1730,18 +1730,44 @@ describe("pipeline resume", () => {
     expect(blankBranchCap.read()).toEqual({ stdout: "", stderr: PIPELINE_RESUME_USAGE });
   });
 
-  test("pipeline resume prints invalid daemon response for malformed envelope", async () => {
+  test.each([
+    { label: "unknown kind", response: { kind: "unknown" } },
+    { label: "resumed without pipelineId", response: { kind: "resumed" } },
+    { label: "resumed with empty pipelineId", response: { kind: "resumed", pipelineId: "" } },
+  ] as const)("pipeline resume prints invalid daemon response for malformed envelope (%s)", async ({ response }) => {
     const cap = captureIo();
 
     const code = await withFixedUuid([SESSION_UUID, "pipe-resume-bad"], () =>
       main(["pipeline", "resume", "pipe-1"], cap.io, {
         ...pipelineDeps(undefined),
-        connectIpcClient: async () => makeIpcClient([pipelineWaitFrame("pipe-resume-bad", { kind: "unknown" })]),
+        connectIpcClient: async () => makeIpcClient([pipelineWaitFrame("pipe-resume-bad", response)]),
       }),
     );
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
+  });
+
+  test("pipeline resume echoes daemon-returned pipelineId when it differs from the CLI positional", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-resume-id-mismatch"], () =>
+      main(["pipeline", "resume", "pipe-positional"], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () =>
+          makeIpcClient(
+            [pipelineWaitFrame("pipe-resume-id-mismatch", { kind: "resumed", pipelineId: "pipe-daemon" })],
+            { sent },
+          ),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(cap.read()).toEqual({ stdout: "pipe-daemon\n", stderr: "" });
+    expect(ipcFramesWithMethod(sent, "pipeline_resume")).toEqual([
+      expect.objectContaining({ params: { pipelineId: "pipe-positional" } }),
+    ]);
   });
 });
 

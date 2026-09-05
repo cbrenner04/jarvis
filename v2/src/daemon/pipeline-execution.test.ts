@@ -2949,32 +2949,21 @@ describe("resumePipeline", () => {
       branchKey: FAN_OUT_RESUME_BRANCH_TARGET,
       patch: { status: "skipped" },
     });
-    for (const branchKey of options.extraFailedPlanBranches ?? []) {
-      store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey, patch: { status: "approved" } });
-      store.updateStage({ pipelineId: PIPELINE_ID, stageId: "plan", branchKey, patch: { status: "failed" } });
-      store.updateStage({
-        pipelineId: PIPELINE_ID,
-        stageId: "implement",
-        branchKey,
-        patch: { status: "skipped" },
-      });
-    }
-    const extraFailedPlanBranchSet = new Set(options.extraFailedPlanBranches ?? []);
-    if (!extraFailedPlanBranchSet.has(FAN_OUT_RESUME_BRANCH_SIBLING_A)) {
-      store.updateStage({
-        pipelineId: PIPELINE_ID,
-        stageId: "gate",
-        branchKey: FAN_OUT_RESUME_BRANCH_SIBLING_A,
-        patch: { status: "awaiting" },
-      });
-    }
-    if (!extraFailedPlanBranchSet.has(FAN_OUT_RESUME_BRANCH_SIBLING_B)) {
-      store.updateStage({
-        pipelineId: PIPELINE_ID,
-        stageId: "gate",
-        branchKey: FAN_OUT_RESUME_BRANCH_SIBLING_B,
-        patch: { status: "awaiting" },
-      });
+    const extraFailedPlan = new Set(options.extraFailedPlanBranches ?? []);
+    for (const branchKey of FAN_OUT_RESUME_BRANCH_KEYS) {
+      if (branchKey === FAN_OUT_RESUME_BRANCH_TARGET) continue;
+      if (extraFailedPlan.has(branchKey)) {
+        store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey, patch: { status: "approved" } });
+        store.updateStage({ pipelineId: PIPELINE_ID, stageId: "plan", branchKey, patch: { status: "failed" } });
+        store.updateStage({
+          pipelineId: PIPELINE_ID,
+          stageId: "implement",
+          branchKey,
+          patch: { status: "skipped" },
+        });
+      } else {
+        store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey, patch: { status: "awaiting" } });
+      }
     }
   }
 

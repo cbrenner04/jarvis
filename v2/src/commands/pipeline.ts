@@ -91,11 +91,11 @@ function parsePipelineMutationOutcome(
     const branchKeys =
       record.reason === "branch_resume_required" && Array.isArray(record.branchKeys)
         ? record.branchKeys.filter((key): key is string => typeof key === "string")
-        : undefined;
+        : [];
     return {
       kind: "refused",
       reason: record.reason,
-      ...(branchKeys !== undefined && branchKeys.length > 0 ? { branchKeys } : {}),
+      ...(branchKeys.length > 0 ? { branchKeys } : {}),
     };
   }
   return undefined;
@@ -572,9 +572,7 @@ async function runPipelineMutationCommand(
     if (outcome.kind === "refused") {
       io.stderr(`${outcome.reason}\n`);
       if (outcome.branchKeys !== undefined) {
-        for (const branchKey of outcome.branchKeys) {
-          io.stderr(`${branchKey}\n`);
-        }
+        io.stderr(`${outcome.branchKeys.join("\n")}\n`);
       }
     }
     // Mutation checkpoint: returning 0 unconditionally must turn the refused-decision

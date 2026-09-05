@@ -47,6 +47,7 @@ export type PlanWorkflowInput = {
   readyIntent: string;
   targetDir?: string;
   configPath?: string;
+  jarvisRoot?: string;
   reviewPasses?: number;
   reviewBehavior?: "debate" | "light";
 };
@@ -168,35 +169,114 @@ function publish(
   return resolveWorkflowPreset(kind, writes);
 }
 
-type SeedDetails = { label: string; content: string; slug: string; name: string; paths: string[] };
+type SeedDetails = { label: string; content: string; slug: string; name: string; paths: string[]; sourceRoot: string };
+function externalSpecsDir(jarvisRoot: string, projectKey: string, segment: string): string {
+  return join(jarvisRoot, "specs", projectSafeId(projectKey), segment);
+}
+function resolveRealpathHome(home: string): string {
+  try {
+    return realpathSync(home);
+  } catch {
+    return home;
+  }
+}
+function canonicalContainedFile(
+  filePath: string,
+  home: string,
+): { ok: true; canonical: string; resolvedHome: string } | { ok: false; reason: "not-file" | "escape" | "io" } {
+  try {
+    if (!statSync(filePath).isFile()) return { ok: false, reason: "not-file" };
+    const canonical = realpathSync(filePath);
+    const resolvedHome = resolveRealpathHome(home);
+    if (!inside(resolvedHome, canonical)) return { ok: false, reason: "escape" };
+    return { ok: true, canonical, resolvedHome };
+  } catch {
+    return { ok: false, reason: "io" };
+  }
+}
+function seedDetailsFromCanonical(
+  canonical: string,
+  labelRoot: string,
+  readSeed: (path: string) => string,
+): SeedDetails {
+  const name = basename(canonical).replace(/\.[^.]*$/u, "");
+  return {
+    label: relative(labelRoot, canonical),
+    content: readSeed(canonical),
+    name,
+    slug: slugify(name),
+    paths: [canonical],
+    // The root this input was actually resolved against. Publication consumption skips any input
+    // that is not inside `sourceRoot`, so an external seed recorded against `project.root` is
+    // silently never consumed — the queue never drains and the next run re-splits the same seed.
+    sourceRoot: labelRoot,
+  };
+}
+function effectivePublishGit(config: ProjectConfig, modePlan: Record<string, unknown>): boolean {
+  return (
+    config.git !== false && (config.plan?.commit ?? (typeof modePlan.commit === "boolean" ? modePlan.commit : true))
+  );
+}
+function resolveExternalReadyIntent(
+  readyIntentPath: string,
+  readyIntentsHome: string,
+): { ok: true; name: string; content: string; path: string } | { ok: false; message: string } {
+  const contained = canonicalContainedFile(readyIntentPath, readyIntentsHome);
+  if (!contained.ok) {
+    if (contained.reason === "not-file")
+      return { ok: false, message: `plan: ready-intent file not found: ${readyIntentPath}` };
+    if (contained.reason === "escape")
+      return {
+        ok: false,
+        message: `plan: ready-intent escapes project ready-intents home after symlink resolution: ${readyIntentPath}`,
+      };
+    return { ok: false, message: `plan: could not read ready-intent: ${readyIntentPath}` };
+  }
+  const ready = validateReadyIntent(contained.canonical);
+  if (!ready.ok) return ready;
+  return { ok: true, name: ready.name, content: ready.content, path: contained.canonical };
+}
+function resolveContainedSeed(
+  filePath: string,
+  home: string,
+  readSeed: (path: string) => string,
+  errors: { notFile: string; escape: string; io: string },
+): SeedDetails | { error: string } {
+  const contained = canonicalContainedFile(filePath, home);
+  if (!contained.ok) {
+    if (contained.reason === "not-file") return { error: errors.notFile };
+    if (contained.reason === "escape") return { error: errors.escape };
+    return { error: errors.io };
+  }
+  return seedDetailsFromCanonical(contained.canonical, contained.resolvedHome, readSeed);
+}
 function resolveSeed(
   input: IntentWorkflowInput,
   project: ProjectMatch,
   readSeed: (path: string) => string,
+  allowsExternalSeeds: boolean,
 ): SeedDetails | { error: string } {
   if (input.seed !== undefined) {
-    if (isAbsolute(input.seed)) return { error: "intent: --seed must be a relative path" };
-    const path = join(input.cwd, input.seed);
-    try {
-      if (!statSync(path).isFile()) return { error: `intent: seed is not a file: ${input.seed}` };
-      const canonical = realpathSync(path);
-      if (!inside(realpathSync(project.root), canonical))
-        return { error: `intent: seed escapes registered project after symlink resolution: ${input.seed}` };
-      const name = basename(canonical).replace(/\.[^.]*$/u, "");
-      return {
-        label: relative(realpathSync(project.root), canonical),
-        content: readSeed(canonical),
-        name,
-        slug: slugify(name),
-        paths: [canonical],
-      };
-    } catch (e) {
-      return { error: `intent: cannot resolve seed path: ${e instanceof Error ? e.message : String(e)}` };
+    if (isAbsolute(input.seed)) {
+      if (!allowsExternalSeeds) return { error: "intent: --seed must be a relative path" };
+      const jarvisRoot = input.jarvisRoot ?? jarvisHome();
+      return resolveContainedSeed(input.seed, externalSpecsDir(jarvisRoot, project.key, "seeds"), readSeed, {
+        notFile: `intent: seed is not a file: ${input.seed}`,
+        escape: `intent: seed escapes project seeds home after symlink resolution: ${input.seed}`,
+        io: `intent: cannot resolve seed path: ${input.seed}`,
+      });
     }
+    const seedPath = join(input.cwd, input.seed);
+    return resolveContainedSeed(seedPath, project.root, readSeed, {
+      notFile: `intent: seed is not a file: ${input.seed}`,
+      escape: `intent: seed escapes registered project after symlink resolution: ${input.seed}`,
+      io: `intent: cannot resolve seed path: ${input.seed}`,
+    });
   }
   const content = input.seedText ?? "";
   const slug = slugify(content.split(/\s+/u).slice(0, 6).join(" "));
-  return { label: "inline seed", content, slug, name: slug, paths: [] };
+  // Inline seed text has no file to consume, so the root is inert.
+  return { label: "inline seed", content, slug, name: slug, paths: [], sourceRoot: project.root };
 }
 /**
  * Machine-config `modes.plan` block, normalized. Shared by every publication row's
@@ -250,6 +330,7 @@ function resolveIntentInput(
   | {
       project: NonNullable<ReturnType<typeof findProjectMatch>>;
       seed: Exclude<ReturnType<typeof resolveSeed>, { error: string }>;
+      publishGit: boolean;
     }
   | { error: string } {
   if ((input.seed === undefined) === (input.seedText === undefined))
@@ -258,11 +339,14 @@ function resolveIntentInput(
     return { error: "intent: --target-dir must be a relative non-traversing path" };
   const project = (deps.resolveProjectMatch ?? ((p) => findProjectMatch(p, registry(input.configPath))))(input.cwd);
   if (!project) return { error: `intent: no registered project matches ${input.cwd}` };
-  const seed = resolveSeed(input, project, deps.readSeed ?? ((p) => readFileSync(p, "utf8")));
+  const config = projectConfig(input.configPath, project);
+  const plan = machineModePlan(input.configPath);
+  const publishGit = effectivePublishGit(config, plan);
+  const seed = resolveSeed(input, project, deps.readSeed ?? ((p) => readFileSync(p, "utf8")), !publishGit);
   if ("error" in seed) return seed;
   if (!seed.slug) return { error: "intent: seed does not produce a slug" };
   if (RESERVED_SLUGS.has(seed.slug)) return { error: `intent: reserved slug: ${seed.slug}` };
-  return { project, seed };
+  return { project, seed, publishGit };
 }
 
 function intentSource(
@@ -275,7 +359,7 @@ function intentSource(
   return (async () => {
     const resolved = resolveIntentInput(input, deps);
     if ("error" in resolved) return resolved;
-    const { project, seed } = resolved;
+    const { project, seed, publishGit } = resolved;
     const config = projectConfig(input.configPath, project);
     const plan = machineModePlan(input.configPath);
     const targetDir = resolveTargetDir(
@@ -285,8 +369,6 @@ function intentSource(
       canonicalTargetDir(project, seed.paths[0], "seeds"),
     );
     if (!validTargetDir(targetDir)) return { error: "intent: configured targetDir is invalid" };
-    const publishGit =
-      config.git !== false && (config.plan?.commit ?? (typeof plan.commit === "boolean" ? plan.commit : true));
     const root = input.jarvisRoot ?? jarvisHome();
     const branch = `intent/${seed.slug}`;
     const localPath = join(root, "intent-work", projectSafeId(project.key), seed.slug);
@@ -328,7 +410,7 @@ function intentSource(
         stagingDir: INTENT_STAGE,
         invocationId: identity.invocationId,
         baseRef,
-        inputs: { sourceRoot: project.root, paths: seed.paths, consumeFrom: publishGit ? "worktree" : "source" },
+        inputs: { sourceRoot: seed.sourceRoot, paths: seed.paths, consumeFrom: publishGit ? "worktree" : "source" },
       } satisfies PublicationLanding,
       workflowInvocationId: identity.invocationId,
       creationTitle: `intent: ${seed.name}`,
@@ -509,6 +591,45 @@ export function validateReadyIntent(
     return { ok: false, message: `plan: could not read ready-intent: ${e instanceof Error ? e.message : String(e)}` };
   }
 }
+type ResolvedPlanReadyIntent = {
+  ready: { ok: true; name: string; content: string };
+  readyIntentPath: string;
+  landingInputPath: string;
+  /** The root the input was resolved against — publication consumption skips anything outside it. */
+  landingSourceRoot: string;
+};
+
+/** Resolve a plan's ready-intent from either the external specs home or the project checkout. */
+function resolvePlanReadyIntentInput(
+  input: PlanWorkflowInput,
+  project: { key: string; root: string },
+  git: boolean,
+  deps: PlanWorkflowDeps,
+): ResolvedPlanReadyIntent | { error: string } {
+  if (isAbsolute(input.readyIntent)) {
+    if (git) return { error: "plan: --ready-intent must be a relative path" };
+    const jarvisRoot = input.jarvisRoot ?? jarvisHome();
+    const externalHome = externalSpecsDir(jarvisRoot, project.key, "ready-intents");
+    const resolved = resolveExternalReadyIntent(input.readyIntent, externalHome);
+    if (!resolved.ok) return { error: resolved.message };
+    return {
+      ready: resolved,
+      readyIntentPath: resolved.path,
+      landingInputPath: resolved.path,
+      landingSourceRoot: resolveRealpathHome(externalHome),
+    };
+  }
+  const readyIntentPath = join(input.cwd, input.readyIntent);
+  const ready = deps.readReadyIntent?.(readyIntentPath) ?? validateReadyIntent(readyIntentPath);
+  if (!ready.ok) return { error: ready.message };
+  return {
+    ready,
+    readyIntentPath,
+    landingInputPath: resolve(project.root, input.readyIntent),
+    landingSourceRoot: project.root,
+  };
+}
+
 function planSource(
   input: PlanWorkflowInput,
   deps: PlanWorkflowDeps,
@@ -517,31 +638,30 @@ function planSource(
   | { error: string }
   | Promise<{ source: WriteWorkflowSourceStep; identity: PlanWorkflowIdentity } | { error: string }> {
   return (async () => {
-    if (isAbsolute(input.readyIntent)) return { error: "plan: --ready-intent must be a relative path" };
     if (input.targetDir !== undefined && !validTargetDir(input.targetDir))
       return { error: "plan: --target-dir must be a relative non-traversing path" };
     const project = (deps.resolveProjectMatch ?? ((p) => findProjectMatch(p, registry(input.configPath))))(input.cwd);
     if (!project) return { error: `plan: no registered project matches ${input.cwd}` };
-    const ready =
-      deps.readReadyIntent?.(join(input.cwd, input.readyIntent)) ??
-      validateReadyIntent(join(input.cwd, input.readyIntent));
-    if (!ready.ok) return { error: ready.message };
     const config = projectConfig(input.configPath, project);
     const modePlan = machineModePlan(input.configPath);
+    const git = effectivePublishGit(config, modePlan);
+    const resolvedReady = resolvePlanReadyIntentInput(input, project, git, deps);
+    if ("error" in resolvedReady) return { error: resolvedReady.error };
+    const { ready, readyIntentPath, landingInputPath, landingSourceRoot } = resolvedReady;
     const target = resolveTargetDir(
       input.targetDir,
       config,
       modePlan,
-      canonicalTargetDir(project, join(input.cwd, input.readyIntent), "ready-intents"),
+      canonicalTargetDir(project, readyIntentPath, "ready-intents"),
     );
     if (!validTargetDir(target)) return { error: "plan: configured targetDir is invalid" };
-    const git = config.git !== false && (config.plan?.commit ?? true);
-    const root = jarvisHome();
+    const root = input.jarvisRoot ?? jarvisHome();
     const branch = `plan/${ready.name}`;
     const cwd = join(root, "worktrees", project.key, branch);
     const timestamp = `${new Date().toISOString().replace(/[-:]/g, "").split(".")[0]}Z`;
     const specDir = join(target, `${timestamp}-${ready.name}`);
-    const durableSpecPath = git ? specDir : join(root, "specs", projectSafeId(project.key), "plans", ready.name);
+    const externalPlanPath = join(root, "specs", projectSafeId(project.key), "plans", ready.name);
+    const durableSpecPath = git ? specDir : externalPlanPath;
     const source: WriteWorkflowSourceStep = {
       behavior: "write",
       stepId: "plan",
@@ -555,7 +675,7 @@ function planSource(
         branchName: branch,
         baseRef: git ? await (deps.resolveBaseBranch ?? getBaseBranch)(project.root) : "none",
         jarvisRoot: root,
-        ...(git ? {} : { git: false, localPath: join(root, "specs", projectSafeId(project.key), "plans", ready.name) }),
+        ...(git ? {} : { git: false, localPath: externalPlanPath }),
       },
       specPath: durableSpecPath,
       expectedArtifactPath: PLAN_STAGE,
@@ -564,15 +684,15 @@ function planSource(
         stagingDir: PLAN_STAGE,
         durablePath: durableSpecPath,
         inputs: {
-          sourceRoot: project.root,
-          paths: [resolve(project.root, input.readyIntent)],
+          sourceRoot: landingSourceRoot,
+          paths: [landingInputPath],
           consumeFrom: git ? "worktree" : "source",
         },
       } satisfies PublicationLanding,
       intentSeed: ready.content,
       workflowInvocationId: crypto.randomUUID(),
       creationTitle: `plan: ${ready.name}`,
-      publishCompletion: true,
+      publishCompletion: git,
     };
     return { source, identity: { name: ready.name, branch } };
   })();

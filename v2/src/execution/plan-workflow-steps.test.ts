@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import type { ProjectMatch } from "../../../shared/project-registry.ts";
+import { projectSafeId } from "../../../shared/project-safe-id.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
 import { readSpecGuidance } from "../../../shared/spec-guidance-path.ts";
@@ -261,6 +262,45 @@ describe("plan ready-intent output routing", () => {
         worktree: { git: false, localPath: externalPlanPath },
       });
     }
+  });
+
+  test("admits external ready-intent under project specs home", async () => {
+    const { root, jarvisRoot, config, projectKey, externalReadyIntent } = stageExternalReadyIntent({ git: false });
+    const safeId = projectSafeId(projectKey);
+    const externalPlanPath = join(jarvisRoot, "specs", safeId, "plans", "feature");
+
+    const result = await buildPlanWorkflowSteps(
+      { cwd: root, readyIntent: externalReadyIntent, configPath: config, jarvisRoot },
+      { loadWorkflowSteps: load },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps[0]).toMatchObject({
+      specPath: externalPlanPath,
+      worktree: { git: false, localPath: externalPlanPath },
+      landing: {
+        kind: "plan-tree",
+        // The external home, not the project root: consumption skips any input not inside
+        // `sourceRoot`, so recording the project root here silently never consumes the input.
+        inputs: {
+          sourceRoot: realpathSync(join(jarvisRoot, "specs", safeId, "ready-intents")),
+          paths: [realpathSync(externalReadyIntent)],
+          consumeFrom: "source",
+        },
+      },
+    });
+  });
+
+  test("rejects external ready-intent paths for in-repo publication routing", async () => {
+    const { root, jarvisRoot, config, externalReadyIntent } = stageExternalReadyIntent({});
+
+    const result = await buildPlanWorkflowSteps(
+      { cwd: root, readyIntent: externalReadyIntent, configPath: config, jarvisRoot },
+      { loadWorkflowSteps: load, resolveBaseBranch: () => "trunk" },
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain("plan: --ready-intent must be a relative path");
   });
 });
 
@@ -554,3 +594,19 @@ describe("buildReviewedPlanLightWorkflowSteps", () => {
     expect(reviewStep.verdictPath.startsWith(`${localPath}/`)).toBe(true);
   });
 });
+
+function stageExternalReadyIntent(options: { git?: false }) {
+  const root = mkdtempSync(join(tmpdir(), "plan-external-ready-intent-"));
+  const jarvisRoot = join(root, "jarvis");
+  const config = join(root, "config.json");
+  const projectKey = options.git === false ? "Org/Repo" : "demo";
+  const readyIntentsHome = join(jarvisRoot, "specs", projectSafeId(projectKey), "ready-intents");
+  mkdirSync(readyIntentsHome, { recursive: true });
+  const externalReadyIntent = join(readyIntentsHome, "feature.md");
+  writeFileSync(externalReadyIntent, "---\nname: feature\n---\n\n## Prerequisites\n", "utf8");
+  writeFileSync(
+    config,
+    JSON.stringify({ projects: { [projectKey]: { root, ...(options.git === false ? { git: false } : {}) } } }),
+  );
+  return { root, jarvisRoot, config, projectKey, externalReadyIntent };
+}

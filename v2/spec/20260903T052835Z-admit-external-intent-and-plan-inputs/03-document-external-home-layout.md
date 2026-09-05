@@ -22,8 +22,8 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/install-and-config.md` documents external-home layout (`seeds/`, `ready-intents/`, `plans/<name>/`, `plans/completed/<name>/`) and opt-in keys in one authoritative table consistent with `00`–`02`.
-- [ ] `v2/docs/workflow-runner.md` updates intent `--seed` and plan `--ready-intent` admission rules for absolute paths under the owning project's `~/.jarvis/specs/<projectSafeId>/` home and documents plan commit precedence consistent with `02`.
+- [x] `v2/docs/install-and-config.md` documents external-home layout (`seeds/`, `ready-intents/`, `plans/<name>/`, `plans/completed/<name>/`) and opt-in keys in one authoritative table consistent with `00`–`02`.
+- [x] `v2/docs/workflow-runner.md` updates intent `--seed` and plan `--ready-intent` admission rules for absolute paths under the owning project's `~/.jarvis/specs/<projectSafeId>/` home and documents plan commit precedence consistent with `02`.
 
 ## Documentation updates
 

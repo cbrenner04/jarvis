@@ -25,7 +25,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/operator-runbook.md` documents external seed and ready-intent admission paths for opted-in projects (standalone `jarvis run workflow intent|plan` only; invocation `cwd` under the owning registered project; absolute paths under `~/.jarvis/specs/<projectSafeId>/`), extends queue-location guidance beyond the in-repo-only artifact table, and cross-links `install-and-config.md` for layout, consistent with `00`–`02`.
+- [x] `v2/docs/operator-runbook.md` documents external seed and ready-intent admission paths for opted-in projects (standalone `jarvis run workflow intent|plan` only; invocation `cwd` under the owning registered project; absolute paths under `~/.jarvis/specs/<projectSafeId>/`), extends queue-location guidance beyond the in-repo-only artifact table, and cross-links `install-and-config.md` for layout, consistent with `00`–`02`.
 
 ## Documentation updates
 

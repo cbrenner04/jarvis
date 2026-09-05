@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ProjectMatch } from "../../../shared/project-registry.ts";
+import { projectSafeId } from "../../../shared/project-safe-id.ts";
 import { buildIntentWorkflowSteps, buildReviewedIntentWorkflowSteps } from "./publication-workflow-steps.ts";
 import type { LoadedWorkflowStep, WorkflowSourceStep } from "./workflow-loader.ts";
 import type { ReviewWorkflowStep } from "./workflow-runner.ts";
@@ -247,6 +248,34 @@ describe("buildIntentWorkflowSteps", () => {
     if (result.ok) expect(result.steps[0]).toMatchObject({ specPath: "/jarvis/specs/demo/ready-intents" });
   });
 
+  test("admits external seed under project specs home", async () => {
+    const { root, jarvisRoot, config, projectKey, externalSeed } = stageExternalSeed({ git: false });
+    const safeId = projectSafeId(projectKey);
+
+    const result = await buildIntentWorkflowSteps(
+      { cwd: root, seed: externalSeed, configPath: config, jarvisRoot },
+      { loadWorkflowSteps: load },
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.steps[0]).toMatchObject({
+      specPath: join(jarvisRoot, "specs", safeId, "ready-intents"),
+      landing: { inputs: { paths: [realpathSync(externalSeed)], consumeFrom: "source" } },
+    });
+  });
+
+  test("rejects external seed paths for in-repo publication routing", async () => {
+    const { root, jarvisRoot, config, externalSeed } = stageExternalSeed({});
+
+    const result = await buildIntentWorkflowSteps(
+      { cwd: root, seed: externalSeed, configPath: config, jarvisRoot },
+      { loadWorkflowSteps: load, resolveBaseBranch: () => "trunk" },
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain("intent: --seed must be a relative path");
+  });
+
   test("only resumes a collision owned by the supplied invocation", async () => {
     const inspect = (recordedInvocationId: string) => ({
       resolveProjectMatch: () => match,
@@ -438,3 +467,19 @@ describe("buildReviewedIntentWorkflowSteps", () => {
     });
   });
 });
+
+function stageExternalSeed(options: { git?: false }) {
+  const root = mkdtempSync(join(tmpdir(), "intent-external-seed-"));
+  const jarvisRoot = join(root, "jarvis");
+  const config = join(root, "config.json");
+  const projectKey = options.git === false ? "Org/Repo" : "demo";
+  const seedsHome = join(jarvisRoot, "specs", projectSafeId(projectKey), "seeds");
+  mkdirSync(seedsHome, { recursive: true });
+  const externalSeed = join(seedsHome, "feature.md");
+  writeFileSync(externalSeed, "feature", "utf8");
+  writeFileSync(
+    config,
+    JSON.stringify({ projects: { [projectKey]: { root, ...(options.git === false ? { git: false } : {}) } } }),
+  );
+  return { root, jarvisRoot, config, projectKey, externalSeed };
+}

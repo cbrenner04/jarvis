@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  findPromptSurgeryViolations,
   FORBIDDEN_PROMPT_SURGERY_TOKENS,
+  findPromptSurgeryViolations,
   PROMPT_SURGERY_GUARDED_ASSEMBLY_PATHS,
 } from "./no-prompt-surgery-guard.ts";
 

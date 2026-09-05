@@ -4,7 +4,6 @@ import {
   locateMarkerSlice,
   locateSymbolSlice,
   type StructuralTestLocatorKind,
-  StructuralTestLocatorError,
 } from "./structural-test-locator.ts";
 
 function silentMarkerSlice(text: string, start: string, end: string): string {

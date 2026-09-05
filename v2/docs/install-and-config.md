@@ -134,6 +134,27 @@ Optional top-level `notificationSinkCommand` (non-empty string) names a shell co
 
 Optional `projects` entries map a registry key to a project object. `root` is required; `origin` is optional. Longest matching root wins when resolving a spec path to a project.
 
+### External specs home
+
+By default, intent and plan publication land in the registered project's repository (`<targetDir>/ready-intents/` and timestamped `<targetDir>/<UTC>-<name>/`). Projects that opt out of Git publication route durable specs to a Jarvis-owned home under `~/.jarvis/specs/<projectSafeId>/`, where `<projectSafeId>` is a path-safe form of the registered project key (see [`shared/project-safe-id.ts`](../../shared/project-safe-id.ts)). External homes are not created for every project — only for those whose effective publication is Git-disabled (see the opt-in table below).
+
+```
+~/.jarvis/specs/<projectSafeId>/
+  seeds/                      # operator queue for absolute intent --seed paths
+  ready-intents/              # intent output; operator queue for absolute plan --ready-intent paths
+  plans/<name>/               # plan output trees
+  plans/completed/<name>/     # archived completed plans (jarvis cleanup)
+```
+
+Completed external plans archive under `plans/completed/<name>/` within the same `plans/` home — there is no root-level `completed/` sibling in the external home. Admission rules for absolute queue paths: [`workflow-runner.md`](./workflow-runner.md#authoring-helper-and-presets).
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `projects.<key>.git` | boolean | `true` when absent | `false` hard-disables Git publication for intent and plan |
+| `projects.<key>.plan.commit` | boolean | machine `modes.plan.commit` when unset, else `true` | `false` routes durable intent/plan output to the external specs home |
+
+Effective Git publication is `projects.<key>.git !== false` **and** `(projects.<key>.plan.commit ?? modes.plan.commit ?? true)`. Either opt-out routes publication externally; both intent and plan share this precedence. In-repo `<targetDir>/seeds/` and `<targetDir>/ready-intents/` scaffolding (`jarvis init --scaffold`) remains the default queue for Git-enabled projects.
+
 Per-project implement defaults:
 
 | Key | Type | Default | Validation |

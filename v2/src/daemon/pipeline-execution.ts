@@ -172,6 +172,7 @@ export type PipelineResumeRefusalReason =
   | "pipeline_terminal_succeeded"
   | "pipeline_terminal_rejected"
   | "pipeline_not_resumable"
+  | "branch_resume_required"
   | PipelineBranchResumeRefusalReason;
 
 export type ResumePipelineOutcome =
@@ -180,6 +181,7 @@ export type ResumePipelineOutcome =
       kind: "refused";
       pipelineId: string;
       reason: Exclude<PipelineResumeRefusalReason, PipelineBranchResumeRefusalReason>;
+      branchKeys?: string[];
     }
   | {
       kind: "refused";
@@ -490,6 +492,30 @@ function resolveBranchResumeAdmission(
   return { kind: "ok", reopenFailedStage: scan.reopenFailed };
 }
 
+function branchListableForFailedPlanResume(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  branchKey: string,
+): boolean {
+  const admission = resolveBranchResumeAdmission(pipeline, branchKey);
+  if (admission.kind !== "ok" || !admission.reopenFailedStage) return false;
+
+  const boundary = findBranchAdmissionBoundary(pipeline, branchKey);
+  if (boundary === BRANCH_ADMISSION_BOUNDARY_NOT_FOUND) return false;
+
+  for (const { stage, record } of suffixStagesForBranch(pipeline, boundary - 1, branchKey)) {
+    if (record.status === "failed" && stage.kind === "workflow") {
+      return stage.workflow === "plan";
+    }
+  }
+  return false;
+}
+
+function listBranchResumeRequiredKeys(pipeline: Pipeline & { stages: PipelineStageRecord[] }): string[] {
+  const split = findFanOutSplit(pipeline);
+  if (split === null) return [];
+  return split.branchKeys.filter((branchKey) => branchListableForFailedPlanResume(pipeline, branchKey));
+}
+
 export function findFailedStageForReopen(
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
   branchScope: string | undefined,
@@ -612,6 +638,10 @@ export async function resumePipeline(
   }
 
   if (resumeAwaitingClaimsOnly(derivedState)) {
+    const branchKeys = listBranchResumeRequiredKeys(pipeline);
+    if (branchKeys.length > 0) {
+      return { kind: "refused", pipelineId, reason: "branch_resume_required", branchKeys };
+    }
     if (pipeline.context === null) {
       return { kind: "refused", pipelineId, reason: "missing_context" };
     }

@@ -18,13 +18,13 @@ The wall-segment, ceiling, and review-role watchdog timers are real `setTimeout`
 
 ## Decision ledger
 
-- Pin liveness: a process that arms each watchdog kind and reaches settle exits without waiting out the timer; rules out unpinned hygiene that the next timer site regresses.
-- Watchdog-behavior tests drive fake timers and never wait out a real watchdog bound; rules out reintroducing wall-clock hangs in the v2 suite.
+- Pin with fake timers and `hasRef()` on armed watchdog handles: each kind armed and early-settled leaves the handle unref'd; rules out unpinned hygiene that the next timer site regresses.
+- Never wait out a real watchdog bound in tests; rules out wall-clock hangs in the v2 suite.
 - Do not own the microtask-spin idiom that hid the #3060 misdiagnosis; rules out two seeds fixing the same test hazard.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/` regression coverage proves a process that arms each watchdog kind (wall-segment via `defaultWallSegmentSchedule`, ceiling via `awaitIteration`, review-role via `invokeReviewRole`), settles early, and would otherwise wait out a long bound exits without holding the event loop; the test fails when the armed timer is ref'd (reachable on main by omitting `.unref?.()` at those three sites).
+- [ ] `v2/src/execution/` regression coverage uses fake timers, arms each watchdog kind (wall-segment, ceiling via write-loop paths, review-role via `invokeReviewRole`), settles early, and asserts armed handles are unref'd via `hasRef()`; fails when `.unref?.()` is omitted at `defaultWallSegmentSchedule`, the `awaitIteration` ceiling arm, or `invokeReviewRole` (reachable on main).
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates

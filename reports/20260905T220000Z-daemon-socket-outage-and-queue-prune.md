@@ -2,7 +2,7 @@
 
 Operator-present session. Most of it went to an outage that made Jarvis unusable across every registered project. The fixes are the session's real output; the planned parallelization and pipeline-dogfood work happened around them.
 
-**16 PRs merged.** Full list at the end.
+**21 PRs merged.** Full list at the end.
 
 ## The outage
 
@@ -69,13 +69,13 @@ Two entries are now time-critical, both raised to P0:
 
 ## Agent attribution
 
-**102 role invocations, $14.11 agent cost, 4.4 agent-hours** — 101 cursor/Composer 2.5, 1 claude/sonnet-5. Codex remains out of the order at the operator's instruction.
+**102 role invocations, $14.11 agent cost, 4.4 agent-hours.** Operator cost was **$166.13** over 21h43m wall (1h40m API) — 101 cursor/Composer 2.5, 1 claude/sonnet-5. Codex remains out of the order at the operator's instruction.
 
 ## PRs
 
 - Outage and fixes: [#3468], [#3469], [#3471], [#3473], [#3480], [#3482]
 - Feature and salvage: [#3481], [#3483], [#3484], [#3485], [#3487]
-- Queue and bookkeeping: [#3470], [#3474], [#3476], [#3477], [#3478], [#3486], [#3488], [#3489], [#3490], [#3491]
+- Queue and bookkeeping: [#3467], [#3470], [#3474], [#3476], [#3477], [#3478], [#3486], [#3488], [#3489], [#3490], [#3491]
 
 ## Open at close
 

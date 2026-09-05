@@ -89,3 +89,4 @@ report,specs_driven,completed_specs,partial_or_blocked,session_active_tokens,ope
 20260902T032711Z-dogfood-throughput-gate-fixes-refactor-start,12,10,2,442200,442200,207900000,148.16,148.16,44220,14.82
 20260903T045555Z-daemon-blocker-root-caused-refactor-chains-complete,11,8,3,385700,385700,282100000,157.78,157.78,48213,19.72
 20260903T214000Z-operator-asks-landed-leaked-workers-faked-a-ceiling,9,6,3,215000,215000,150800000,95.45,95.45,35833,15.91
+20260905T220000Z-daemon-socket-outage-and-queue-prune,6,5,1,512400,512400,275700000,166.13,166.13,102480,33.23

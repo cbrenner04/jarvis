@@ -24,11 +24,7 @@ import { simulatedBindings } from "../testing/bindings.ts";
 import { flushBackgroundRuns, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import {
-  createRunControlHandlers,
-  resetWriteLoopBindingSourceDepsForTests,
-  setWriteLoopBindingSourceDepsForTests,
-} from "./daemon.ts";
+import { createRunControlHandlers, type WriteLoopBindingSourceDeps } from "./daemon.ts";
 import {
   composeRunOperatorError,
   isResumeAdmitted,
@@ -53,6 +49,7 @@ let dbPath: string;
 let profileHome: string;
 let machinesDir: string;
 let previousJarvisHome: string | undefined;
+const writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps = {};
 const MACHINE_PROFILE = "resume-binding-profile";
 
 function rung(adapterModel: string): { rungs: Array<{ adapterModel: string; priceKey: string }> } {
@@ -95,10 +92,8 @@ function installResumeProfile(implementRungs: string[]): void {
     JSON.stringify({ machineProfile: MACHINE_PROFILE, agents: ["codex"] }),
     "utf-8",
   );
-  setWriteLoopBindingSourceDepsForTests({
-    machineConfigPath: join(profileHome, "config.json"),
-    machinesDir,
-  });
+  writeLoopBindingSourceDeps.machineConfigPath = join(profileHome, "config.json");
+  writeLoopBindingSourceDeps.machinesDir = machinesDir;
 }
 
 beforeEach(() => {
@@ -119,7 +114,6 @@ beforeEach(() => {
 afterEach(async () => {
   fakeExecutor.abortAll();
   await flushBackgroundRuns();
-  resetWriteLoopBindingSourceDepsForTests();
   mock.module("../execution/write.ts", () => ({ executeWrite: realExecuteWrite }));
   if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
   else process.env.JARVIS_HOME = previousJarvisHome;
@@ -140,6 +134,7 @@ function createHandlers(logReader?: LogReader): Handlers {
     failureReporter: () => {},
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
+    writeLoopBindingSourceDeps,
   });
 }
 
@@ -196,6 +191,7 @@ function createGitBackedResumeHandlers(store: StateStore, logsPath: string, jarv
     failureReporter: () => {},
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
+    writeLoopBindingSourceDeps,
   });
 }
 
@@ -534,6 +530,7 @@ test("resumes implement write row after in-loop surviving_mutation_failed exhaus
       failureReporter: () => {},
       hasMemoryHeadroom: () => true,
       settleDelayMs: 0,
+      writeLoopBindingSourceDeps,
     });
 
     expect((await resumeDirect(localHandlers, exhausted.runId)).kind).toBe("response");
@@ -640,7 +637,7 @@ test("resume resolves iterationCeilingMs when snapshot step has wall segment onl
     join(isolatedHome, "config.json"),
     JSON.stringify({ machineProfile: MACHINE_PROFILE, agents: ["codex"], iterationCeilingMs: 2_222_222 }),
   );
-  setWriteLoopBindingSourceDepsForTests({
+  Object.assign(writeLoopBindingSourceDeps, {
     machineConfigPath: join(isolatedHome, "config.json"),
     machinesDir: isolatedMachines,
   });
@@ -678,7 +675,7 @@ test("resume keeps persisted iterationCeilingMs on snapshot steps", async () => 
     join(isolatedHome, "config.json"),
     JSON.stringify({ machineProfile: MACHINE_PROFILE, agents: ["codex"], iterationCeilingMs: 9_999_999 }),
   );
-  setWriteLoopBindingSourceDepsForTests({
+  Object.assign(writeLoopBindingSourceDeps, {
     machineConfigPath: join(isolatedHome, "config.json"),
     machinesDir: isolatedMachines,
   });
@@ -875,6 +872,7 @@ test("resume rejects unchanged-path ready_gate_out_of_scope finalization retry",
       failureReporter: () => {},
       hasMemoryHeadroom: () => true,
       settleDelayMs: 0,
+      writeLoopBindingSourceDeps,
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 0 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 4, prUrl: "https://example.test/pr/4" }),
@@ -923,6 +921,7 @@ test("changed-path ready_gate_out_of_scope admits resume", async () => {
       failureReporter: () => {},
       hasMemoryHeadroom: () => true,
       settleDelayMs: 0,
+      writeLoopBindingSourceDeps,
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 0 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 4, prUrl: "https://example.test/pr/4" }),
@@ -1516,6 +1515,7 @@ test("admits a populated-stage intent finalization landing_failed row instead of
       failureReporter: () => {},
       hasMemoryHeadroom: () => true,
       settleDelayMs: 0,
+      writeLoopBindingSourceDeps,
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 7, prUrl: "https://example.test/pr/7" }),
@@ -1556,6 +1556,7 @@ test("admits a lint-exhausted populated-stage landing_failed row instead of unsu
       failureReporter: () => {},
       hasMemoryHeadroom: () => true,
       settleDelayMs: 0,
+      writeLoopBindingSourceDeps,
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 7, prUrl: "https://example.test/pr/7" }),
@@ -1626,6 +1627,7 @@ test("resumes a populated-stage intent finalization end to end: landing_failed p
       failureReporter: () => {},
       hasMemoryHeadroom: () => true,
       settleDelayMs: 0,
+      writeLoopBindingSourceDeps,
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 7, prUrl: "https://example.test/pr/7" }),
@@ -1767,6 +1769,7 @@ test("unchanged-path ready_gate_out_of_scope rejects resume even when the gate w
       failureReporter: () => {},
       hasMemoryHeadroom: () => true,
       settleDelayMs: 0,
+      writeLoopBindingSourceDeps,
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 0 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 5, prUrl: "https://example.test/pr/5" }),
@@ -1803,6 +1806,7 @@ test("repeated untouched red on an ordinary write row settles ready_gate_out_of_
       failureReporter: () => {},
       hasMemoryHeadroom: () => true,
       settleDelayMs: 0,
+      writeLoopBindingSourceDeps,
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 0 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 6, prUrl: "https://example.test/pr/6" }),
@@ -1871,6 +1875,7 @@ test.each([
       failureReporter: () => {},
       hasMemoryHeadroom: () => true,
       settleDelayMs: 0,
+      writeLoopBindingSourceDeps,
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "should-not-run", filesChanged: 0 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 9, prUrl: "https://example.test/pr/9" }),
@@ -1914,6 +1919,7 @@ test("repeated untouched red on a review row settles ready_gate_out_of_scope wit
       failureReporter: () => {},
       hasMemoryHeadroom: () => true,
       settleDelayMs: 0,
+      writeLoopBindingSourceDeps,
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 0 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 10, prUrl: "https://example.test/pr/10" }),
@@ -1967,6 +1973,7 @@ test.each([
       failureReporter: () => {},
       hasMemoryHeadroom: () => true,
       settleDelayMs: 0,
+      writeLoopBindingSourceDeps,
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "should-not-run", filesChanged: 0 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 9, prUrl: "https://example.test/pr/9" }),
@@ -2016,6 +2023,7 @@ test("resumes surviving_mutation_failed when the durable write sibling is a link
       failureReporter: () => {},
       hasMemoryHeadroom: () => true,
       settleDelayMs: 0,
+      writeLoopBindingSourceDeps,
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "should-not-run", filesChanged: 0 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 11, prUrl: "https://example.test/pr/11" }),
@@ -2059,6 +2067,7 @@ test("a completed write sibling that is also the workflow's step-0 entry row sti
       failureReporter: () => {},
       hasMemoryHeadroom: () => true,
       settleDelayMs: 0,
+      writeLoopBindingSourceDeps,
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "should-not-run", filesChanged: 0 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 13, prUrl: "https://example.test/pr/13" }),
@@ -2099,6 +2108,7 @@ test("a completion_commit_failed from this tail stays retryable: a subsequent re
       failureReporter: () => {},
       hasMemoryHeadroom: () => true,
       settleDelayMs: 0,
+      writeLoopBindingSourceDeps,
       intentFinalizationResumeDeps: {
         completionCommitter: async () => {
           throw new Error("git push failed");
@@ -2127,6 +2137,7 @@ test("a completion_commit_failed from this tail stays retryable: a subsequent re
       failureReporter: () => {},
       hasMemoryHeadroom: () => true,
       settleDelayMs: 0,
+      writeLoopBindingSourceDeps,
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 21, prUrl: "https://example.test/pr/21" }),
@@ -2167,6 +2178,7 @@ test("a stale pre-fix resumable:true record projects unsupported_resume_context 
       failureReporter: () => {},
       hasMemoryHeadroom: () => true,
       settleDelayMs: 0,
+      writeLoopBindingSourceDeps,
     });
 
     const row = await listRow(localHandlers, reviewRunId);
@@ -2204,6 +2216,7 @@ test("closing and reopening the state store and log reader before list/wait/resu
       failureReporter: () => {},
       hasMemoryHeadroom: () => true,
       settleDelayMs: 0,
+      writeLoopBindingSourceDeps,
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "should-not-run", filesChanged: 0 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 13, prUrl: "https://example.test/pr/13" }),
@@ -2279,6 +2292,7 @@ test("resume on the workflow entry id and a completed hidden ~shrink row for the
       failureReporter: () => {},
       hasMemoryHeadroom: () => true,
       settleDelayMs: 0,
+      writeLoopBindingSourceDeps,
     });
 
     // The real workflow entry row (snapshot, no stepId) — the id an operator copies from launch.
@@ -2392,6 +2406,7 @@ function exhaustedRedHandlers(logsPath: string, store: StateStore, readyFinalize
     failureReporter: () => {},
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
+    writeLoopBindingSourceDeps,
     intentFinalizationResumeDeps: {
       completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
       completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 42, prUrl: "https://example.test/pr/42" }),
@@ -2467,6 +2482,7 @@ test("exhausted-red gate-only resume commits operator changes once and flips rea
       failureReporter: () => {},
       hasMemoryHeadroom: () => true,
       settleDelayMs: 0,
+      writeLoopBindingSourceDeps,
       intentFinalizationResumeDeps: {
         completionCommitter: async (input) => {
           commitCalls += 1;
@@ -3294,6 +3310,7 @@ test("resume after idle_output_timeout retains worktree commits without stale re
       failureReporter: () => {},
       hasMemoryHeadroom: () => true,
       settleDelayMs: 0,
+      writeLoopBindingSourceDeps,
     });
 
     expect((await resumeDirect(localHandlers, idleResult.runId)).kind).toBe("response");

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { InvocationResult } from "../../../shared/invocation/execute.ts";
 import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
-import { createRunControlHandlers, resetWriteLoopBindingSourceDepsForTests } from "../daemon/daemon.ts";
+import { createRunControlHandlers } from "../daemon/daemon.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import { createCompletionPublisher } from "./completion-publisher.ts";
@@ -16,7 +16,7 @@ import {
   createDebateStep,
   createStep,
   externalWorktreeBinding,
-  installWorkflowRunnerResumeProfile,
+  workflowRunnerResumeProfileDeps,
   LINT_CLEAN_INTENT_EXAMPLE_MD,
   REVIEW_MD_LINT_FIXTURES,
   roots,
@@ -337,7 +337,6 @@ describe("executeWorkflow implement patch light review", () => {
       });
 
       expect(result.kind).toBe("surviving_mutation_failed");
-      installWorkflowRunnerResumeProfile();
       const handlers = createRunControlHandlers({
         stateStore: store,
         logReader: openLogReader(logsPath),
@@ -345,6 +344,7 @@ describe("executeWorkflow implement patch light review", () => {
         failureReporter: () => undefined,
         hasMemoryHeadroom: () => true,
         settleDelayMs: 0,
+        writeLoopBindingSourceDeps: workflowRunnerResumeProfileDeps(),
       });
       try {
         const frame = await handlers.wait(
@@ -366,7 +366,6 @@ describe("executeWorkflow implement patch light review", () => {
         });
       } finally {
         handlers.close();
-        resetWriteLoopBindingSourceDepsForTests();
       }
     });
   });

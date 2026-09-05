@@ -23,25 +23,25 @@
 
 ## Acceptance criteria
 
-- [ ] On main before this change, `daemon.ts` exports `setWriteLoopBindingSourceDepsForTests` and `resetWriteLoopBindingSourceDepsForTests`.
-- [ ] `daemon.ts` exports neither `setWriteLoopBindingSourceDepsForTests` nor `resetWriteLoopBindingSourceDepsForTests`.
-- [ ] `daemon.ts` defines no module-level `writeLoopBindingSourceDeps` let.
-- [ ] `cli.ts` imports no `setWriteLoopBindingSourceDepsForTests` or `resetWriteLoopBindingSourceDepsForTests` symbols from `daemon.ts`.
-- [ ] `write-loop-binding-source-guard.test.ts` stays green with injection-only `resolveWriteLoopBindings` setup (no `setWriteLoopBindingSourceDepsForTests`).
-- [ ] `write-loop-codex-sandbox-mode.test.ts` stays green with injection-only `resolveWriteLoopBindings` setup (no `setWriteLoopBindingSourceDepsForTests`).
-- [ ] `daemon-workflow-start.test.ts` stays green.
-- [ ] `daemon-wait-run-completion.test.ts` stays green.
-- [ ] `daemon-state-store-lock-timeout.test.ts` stays green.
-- [ ] `daemon-start-list.test.ts` stays green.
-- [ ] `daemon-resume.test.ts` stays green.
-- [ ] `daemon-reconciliation.test.ts` stays green.
-- [ ] `daemon-queue-promotion.test.ts` stays green.
-- [ ] `workflow-runner.test-support.ts` imports no setter symbols from `daemon.ts` and exposes injectable binding-source deps for resume-profile setup.
-- [ ] `workflow-runner-resume.test.ts` stays green.
-- [ ] `workflow-runner-review.test.ts` stays green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] On main before this change, `daemon.ts` exports `setWriteLoopBindingSourceDepsForTests` and `resetWriteLoopBindingSourceDepsForTests`.
+- [x] `daemon.ts` exports neither `setWriteLoopBindingSourceDepsForTests` nor `resetWriteLoopBindingSourceDepsForTests`.
+- [x] `daemon.ts` defines no module-level `writeLoopBindingSourceDeps` let.
+- [x] `cli.ts` imports no `setWriteLoopBindingSourceDepsForTests` or `resetWriteLoopBindingSourceDepsForTests` symbols from `daemon.ts`.
+- [x] `write-loop-binding-source-guard.test.ts` stays green with injection-only `resolveWriteLoopBindings` setup (no `setWriteLoopBindingSourceDepsForTests`).
+- [x] `write-loop-codex-sandbox-mode.test.ts` stays green with injection-only `resolveWriteLoopBindings` setup (no `setWriteLoopBindingSourceDepsForTests`).
+- [x] `daemon-workflow-start.test.ts` stays green.
+- [x] `daemon-wait-run-completion.test.ts` stays green.
+- [x] `daemon-state-store-lock-timeout.test.ts` stays green.
+- [x] `daemon-start-list.test.ts` stays green.
+- [x] `daemon-resume.test.ts` stays green.
+- [x] `daemon-reconciliation.test.ts` stays green.
+- [x] `daemon-queue-promotion.test.ts` stays green.
+- [x] `workflow-runner.test-support.ts` imports no setter symbols from `daemon.ts` and exposes injectable binding-source deps for resume-profile setup.
+- [x] `workflow-runner-resume.test.ts` stays green.
+- [x] `workflow-runner-review.test.ts` stays green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

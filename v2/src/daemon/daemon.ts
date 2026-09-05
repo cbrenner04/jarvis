@@ -344,7 +344,7 @@ export function createRunExecutionFailureReporter(logsPath: string): (runId: str
 
 export type ResolvedWriteLoopInput = { ok: true; input: WriteLoopInput } | { ok: false; message: string };
 
-type WriteLoopBindingSourceDeps = {
+export type WriteLoopBindingSourceDeps = {
   machineConfigPath?: string;
   machinesDir?: string;
   /** When true, replay `bindingResolution.agentModelConfig` (guard tests only). */
@@ -359,25 +359,17 @@ type WriteLoopBindingSourceDeps = {
  * Production binding factory. Stamps the configured Codex sandbox mode onto every write/implement
  * binding so both fresh and rehydrated resolution paths select the operator-trusted sandbox.
  */
-export function productionAgentBindingFactory(): (binding: ResolvedAgentBinding) => InvocationBinding {
+export function productionAgentBindingFactory(
+  deps: WriteLoopBindingSourceDeps = {},
+): (binding: ResolvedAgentBinding) => InvocationBinding {
   const opts: ResolvedAgentBindingOptions = {
-    codexSandboxMode: readCodexSandboxMode(writeLoopBindingSourceDeps.machineConfigPath),
+    codexSandboxMode: readCodexSandboxMode(deps.machineConfigPath),
   };
-  if (writeLoopBindingSourceDeps.bindingSpawn !== undefined) opts.spawn = writeLoopBindingSourceDeps.bindingSpawn;
-  if (writeLoopBindingSourceDeps.codexSessionsDir !== undefined) {
-    opts.codexSessionsDir = writeLoopBindingSourceDeps.codexSessionsDir;
+  if (deps.bindingSpawn !== undefined) opts.spawn = deps.bindingSpawn;
+  if (deps.codexSessionsDir !== undefined) {
+    opts.codexSessionsDir = deps.codexSessionsDir;
   }
   return (binding) => createResolvedAgentBinding(binding, opts);
-}
-
-let writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps = {};
-
-export function setWriteLoopBindingSourceDepsForTests(deps: WriteLoopBindingSourceDeps): void {
-  writeLoopBindingSourceDeps = deps;
-}
-
-export function resetWriteLoopBindingSourceDepsForTests(): void {
-  writeLoopBindingSourceDeps = {};
 }
 
 /** Release workflow registry claim and persist deferred kills in settlement order. */
@@ -390,14 +382,13 @@ export function settleKilledWorkflowOwnership(args: {
   args.releaseRegistry();
 }
 
-export function runWithWriteLoopMachineConfigPath<T>(machineConfigPath: string | undefined, fn: () => T): T {
-  const prior = writeLoopBindingSourceDeps;
-  writeLoopBindingSourceDeps = machineConfigPath === undefined ? prior : { ...prior, machineConfigPath };
-  try {
-    return fn();
-  } finally {
-    writeLoopBindingSourceDeps = prior;
-  }
+export function runWithWriteLoopMachineConfigPath<T>(
+  machineConfigPath: string | undefined,
+  fn: (deps: WriteLoopBindingSourceDeps) => T,
+  baseDeps: WriteLoopBindingSourceDeps = {},
+): T {
+  const merged = machineConfigPath === undefined ? baseDeps : { ...baseDeps, machineConfigPath };
+  return fn(merged);
 }
 
 function isLoadError(value: AgentModelConfig | LoadError): value is LoadError {
@@ -405,10 +396,13 @@ function isLoadError(value: AgentModelConfig | LoadError): value is LoadError {
 }
 
 /** Same loader path as fresh write-step admission (`loadWorkflowSteps`). */
-function loadAgentModelConfigForWriteLoopAgents(agents: readonly string[]): AgentModelConfig {
-  const profile = resolveMachineProfile(writeLoopBindingSourceDeps.machineConfigPath);
+function loadAgentModelConfigForWriteLoopAgents(
+  agents: readonly string[],
+  deps: WriteLoopBindingSourceDeps,
+): AgentModelConfig {
+  const profile = resolveMachineProfile(deps.machineConfigPath);
   const loaded = loadMachineProfileModels(profile, agents, {
-    machinesDir: writeLoopBindingSourceDeps.machinesDir,
+    machinesDir: deps.machinesDir,
   });
   if (isLoadError(loaded)) {
     throw new Error(`Failed to load agent model config: ${loaded.errors.join(", ")}`);
@@ -416,11 +410,14 @@ function loadAgentModelConfigForWriteLoopAgents(agents: readonly string[]): Agen
   return loaded;
 }
 
-function resolveWriteLoopAgentModelConfig(context: NonNullable<WriteLoopInput["bindingResolution"]>): AgentModelConfig {
-  if (writeLoopBindingSourceDeps.forceSnapshotAgentModelConfig) {
+function resolveWriteLoopAgentModelConfig(
+  context: NonNullable<WriteLoopInput["bindingResolution"]>,
+  deps: WriteLoopBindingSourceDeps,
+): AgentModelConfig {
+  if (deps.forceSnapshotAgentModelConfig) {
     return context.agentModelConfig;
   }
-  return loadAgentModelConfigForWriteLoopAgents(context.agents);
+  return loadAgentModelConfigForWriteLoopAgents(context.agents, deps);
 }
 
 /**
@@ -428,11 +425,14 @@ function resolveWriteLoopAgentModelConfig(context: NonNullable<WriteLoopInput["b
  * re-resolved here; serialized binding husks (post-JSON objects without `invoke`) are
  * rejected rather than stubbed.
  */
-export function resolveWriteLoopBindings(input: WriteLoopInput): ResolvedWriteLoopInput {
+export function resolveWriteLoopBindings(
+  input: WriteLoopInput,
+  deps: WriteLoopBindingSourceDeps = {},
+): ResolvedWriteLoopInput {
   const context = input.bindingResolution;
   if (context !== undefined) {
     try {
-      const agentModelConfig = resolveWriteLoopAgentModelConfig(context);
+      const agentModelConfig = resolveWriteLoopAgentModelConfig(context, deps);
       return {
         ok: true,
         input: {
@@ -441,7 +441,7 @@ export function resolveWriteLoopBindings(input: WriteLoopInput): ResolvedWriteLo
             resolveExecutableRole(context.role),
             context.agents,
             agentModelConfig,
-            productionAgentBindingFactory(),
+            productionAgentBindingFactory(deps),
           ),
         },
       };
@@ -560,6 +560,7 @@ export type PromoteQueuedRunDeps = {
   settleDelayMs: () => number;
   settleState: PromotionSettleState;
   spawnWriteLoop: (key: OwnershipKey, runId: string, worktreePath: string, input: WriteLoopInput) => void;
+  writeLoopBindingSourceDeps?: WriteLoopBindingSourceDeps;
 };
 
 /**
@@ -572,7 +573,15 @@ export type PromoteQueuedRunDeps = {
  * performs on the row it just queued).
  */
 export function promoteQueuedRunImpl(deps: PromoteQueuedRunDeps, bypassSettleDelay = false): void {
-  const { store, registry, checkMemoryHeadroom, settleDelayMs, settleState, spawnWriteLoop } = deps;
+  const {
+    store,
+    registry,
+    checkMemoryHeadroom,
+    settleDelayMs,
+    settleState,
+    spawnWriteLoop,
+    writeLoopBindingSourceDeps = {},
+  } = deps;
   if (!bypassSettleDelay && Date.now() < settleState.suppressedUntil) {
     return;
   }
@@ -595,7 +604,7 @@ export function promoteQueuedRunImpl(deps: PromoteQueuedRunDeps, bypassSettleDel
       continue;
     }
 
-    const resolved = resolveWriteLoopBindings(run.queuedInput);
+    const resolved = resolveWriteLoopBindings(run.queuedInput, writeLoopBindingSourceDeps);
     if (!resolved.ok) {
       store.commitTerminalRunSettlement({
         runId: run.id,
@@ -757,6 +766,7 @@ export type DaemonStartupDeps = {
   supersedePeerDaemon?: SupersedePeerDaemon;
   readNotificationSinkCommand?: () => string | undefined;
   notificationSpawnSink?: NotificationSinkSpawner;
+  writeLoopBindingSourceDeps?: WriteLoopBindingSourceDeps;
   /** Defaults to `process.exit`. */
   processExit?: (code: number) => never;
 };
@@ -892,6 +902,9 @@ export async function startDaemonRuntime(
     // (the historical no-op); the unit test injects `daemonSocketPath` directly and cannot catch that.
     daemonSocketPath: socketPath,
     reconciledRunIds,
+    ...(startupDeps.writeLoopBindingSourceDeps !== undefined
+      ? { writeLoopBindingSourceDeps: startupDeps.writeLoopBindingSourceDeps }
+      : {}),
   });
 
   const supersedHandler: RpcHandler = () => {

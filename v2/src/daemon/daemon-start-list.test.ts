@@ -17,13 +17,7 @@ import {
   workflowSnapshot,
 } from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import {
-  createRunControlHandlers,
-  resetWriteLoopBindingSourceDepsForTests,
-  runListTerminalFinishAtMs,
-  settleKilledWorkflowOwnership,
-  setWriteLoopBindingSourceDepsForTests,
-} from "./daemon.ts";
+import { createRunControlHandlers, runListTerminalFinishAtMs, settleKilledWorkflowOwnership } from "./daemon.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 
@@ -131,6 +125,7 @@ test("start resolves serialized workflow-step input from binding context", async
     failureReporter: () => {},
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
+    writeLoopBindingSourceDeps: { forceSnapshotAgentModelConfig: true },
   });
   const input: WriteLoopInput = {
     ...mockWriteLoopInput({ projectName: "workflow-project", branchName: "workflow-branch" }),
@@ -143,18 +138,13 @@ test("start resolves serialized workflow-step input from binding context", async
     stepId: "step-1",
   };
 
-  setWriteLoopBindingSourceDepsForTests({ forceSnapshotAgentModelConfig: true });
-  try {
-    const runId = await startRunDirect(localHandlers, serialized(input));
+  const runId = await startRunDirect(localHandlers, serialized(input));
 
-    expect(runId).toBeDefined();
-    expect(starts[0]?.bindings.map((binding) => binding.id)).toEqual([
-      "codex/codex-fast/codex-fast",
-      "codex/codex-deep/codex-deep",
-    ]);
-  } finally {
-    resetWriteLoopBindingSourceDepsForTests();
-  }
+  expect(runId).toBeDefined();
+  expect(starts[0]?.bindings.map((binding) => binding.id)).toEqual([
+    "codex/codex-fast/codex-fast",
+    "codex/codex-deep/codex-deep",
+  ]);
 });
 
 test("start rejects a second start for a (project, branch) with an existing queued run", async () => {

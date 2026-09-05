@@ -5,12 +5,7 @@ import { join } from "node:path";
 import type { RpcHandler } from "../ipc/server.ts";
 import { type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
-import {
-  createRunControlHandlers,
-  projectWorkflowEntryResult,
-  resetWriteLoopBindingSourceDepsForTests,
-  setWriteLoopBindingSourceDepsForTests,
-} from "./daemon.ts";
+import { createRunControlHandlers, projectWorkflowEntryResult, type WriteLoopBindingSourceDeps } from "./daemon.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 
@@ -18,6 +13,7 @@ let stateStore: StateStore;
 let logSink: LogSink;
 let logsPath: string;
 let handlers: Handlers;
+let writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps;
 
 const WAIT_COMPLETION_MACHINE_PROFILE = "wait-completion-profile";
 const TIMEOUT_FIRST_SUBSPEC = "spec/implement/00-first.md";
@@ -46,10 +42,10 @@ function installWaitCompletionMachineProfile(): void {
     join(profileHome, "config.json"),
     JSON.stringify({ machineProfile: WAIT_COMPLETION_MACHINE_PROFILE, agents: ["codex"] }),
   );
-  setWriteLoopBindingSourceDepsForTests({
+  writeLoopBindingSourceDeps = {
     machineConfigPath: join(profileHome, "config.json"),
     machinesDir,
-  });
+  };
 }
 
 function createRun(): string {
@@ -146,11 +142,11 @@ beforeEach(() => {
     failureReporter: () => undefined,
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
+    writeLoopBindingSourceDeps,
   });
 });
 
 afterEach(() => {
-  resetWriteLoopBindingSourceDepsForTests();
   handlers.close();
   logSink.close();
   stateStore.close();

@@ -7,11 +7,7 @@ import { join } from "node:path";
 import type { RpcHandler } from "../ipc/server.ts";
 import { type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, STATE_STORE_BUSY_TIMEOUT_MS, type StateStore } from "../persistence/state-store.ts";
-import {
-  createRunControlHandlers,
-  resetWriteLoopBindingSourceDepsForTests,
-  setWriteLoopBindingSourceDepsForTests,
-} from "./daemon.ts";
+import { createRunControlHandlers, type WriteLoopBindingSourceDeps } from "./daemon.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 type RpcResult = Awaited<ReturnType<RpcHandler>>;
@@ -22,6 +18,7 @@ let logsPath: string;
 let dbPath: string;
 let worktreePath = "";
 let handlers: Handlers;
+let writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps;
 
 const LOCK_TIMEOUT_MACHINE_PROFILE = "lock-timeout-profile";
 
@@ -48,10 +45,10 @@ function installLockTimeoutMachineProfile(): void {
     join(profileHome, "config.json"),
     JSON.stringify({ machineProfile: LOCK_TIMEOUT_MACHINE_PROFILE, agents: ["codex"] }),
   );
-  setWriteLoopBindingSourceDepsForTests({
+  writeLoopBindingSourceDeps = {
     machineConfigPath: join(profileHome, "config.json"),
     machinesDir,
-  });
+  };
 }
 
 function createHandlers(store: StateStore, logPath: string): Handlers {
@@ -62,6 +59,7 @@ function createHandlers(store: StateStore, logPath: string): Handlers {
     failureReporter: () => undefined,
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
+    writeLoopBindingSourceDeps,
   });
 }
 
@@ -82,7 +80,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  resetWriteLoopBindingSourceDepsForTests();
   handlers.close();
   logSink.close();
   stateStore.close();

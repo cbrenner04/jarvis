@@ -1741,8 +1741,21 @@ function isJarvisHarnessSidecarPath(path: string): boolean {
   return path.split("/").some((segment) => segment.startsWith(".jarvis-"));
 }
 
+/** True when `absPath` resolves inside `root` (or is `root` itself). */
+function isPathInside(root: string, absPath: string): boolean {
+  const rel = relative(root, absPath);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
 export function isStaleResetLandedCriteriaSpecPath(projectRoot: string, specPath: string): boolean {
   const absoluteSpecPath = isAbsolute(specPath) ? specPath : resolve(projectRoot, specPath);
+  // The comparison reads each spec file at `join(worktreePath, relative(projectRoot, absPath))`,
+  // which is only meaningful for a tree inside the project root. A chained fan-out lane's spec
+  // lives in the prior stage's worktree under `~/.jarvis/worktrees/...`, so that relative path
+  // escapes upward (`../../.jarvis/...`), resolves nowhere under the managed worktree, and the
+  // gate reports `worktree spec unreadable` for a file that reads fine at its own location.
+  // Out-of-root trees skip the comparison, matching the documented external-plan-path behavior.
+  if (!isPathInside(projectRoot, absoluteSpecPath)) return false;
   if (!existsSync(absoluteSpecPath)) return false;
   try {
     if (statSync(absoluteSpecPath).isDirectory()) return false;

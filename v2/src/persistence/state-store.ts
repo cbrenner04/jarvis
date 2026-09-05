@@ -9,7 +9,11 @@ import type { PipelineDefinition, PipelineTerminalAction } from "../execution/pi
 import type { PublicationFailure } from "../execution/publication-retry.ts";
 import { isWriteLoopOutcomeKind, type WriteLoopInput, type WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import { ORCHESTRATION_STORE_PATH } from "../paths.ts";
-import { stageArtifactFromEntryRun, stageFailureDetailFromEntryRun } from "./pipeline-stage-settlement.ts";
+import {
+  resolvePrEvidenceAcrossInvocation,
+  stageArtifactFromEntryRun,
+  stageFailureDetailFromEntryRun,
+} from "./pipeline-stage-settlement.ts";
 import { rollupWorkflowRunStatus } from "./workflow-run-status-rollup.ts";
 
 /** Timeout for the state store to wait when the database is locked (busy_timeout in ms). Must exceed the longest single store transaction. */
@@ -2224,7 +2228,8 @@ class StateStoreImpl implements StateStore {
         const pipeline = this.loadPipeline(stage.pipelineId);
         const requiresPrEvidence =
           pipeline !== null && this.terminalPublicationStageRequiresPrEvidence(pipeline.definition, stage.stageId);
-        const missingPrEvidence = requiresPrEvidence && (entryRun.prNumber == null || entryRun.prUrl == null);
+        const prEvidence = resolvePrEvidenceAcrossInvocation(entryRun, siblingRuns);
+        const missingPrEvidence = requiresPrEvidence && prEvidence === undefined;
         if (entryRun.specPath.length === 0 || missingPrEvidence) {
           this.settleRunningStage(
             stage.id,
@@ -2243,7 +2248,13 @@ class StateStoreImpl implements StateStore {
           continue;
         }
 
-        this.settleRunningStage(stage.id, "succeeded", endedAt, stageArtifactFromEntryRun(entryRunId, entryRun), null);
+        this.settleRunningStage(
+          stage.id,
+          "succeeded",
+          endedAt,
+          stageArtifactFromEntryRun(entryRunId, entryRun, undefined, undefined, prEvidence),
+          null,
+        );
       }
     })();
   }

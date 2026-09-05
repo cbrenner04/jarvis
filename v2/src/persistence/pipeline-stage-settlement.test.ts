@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { InvocationFailureDetail } from "../execution/invocation-failure.ts";
-import { stageArtifactFromEntryRun, stageFailureDetailFromEntryRun } from "./pipeline-stage-settlement.ts";
+import {
+  resolvePrEvidenceAcrossInvocation,
+  stageArtifactFromEntryRun,
+  stageFailureDetailFromEntryRun,
+} from "./pipeline-stage-settlement.ts";
 import type { Attempt, Run, StateStore } from "./state-store.ts";
 
 function entryRun(
@@ -303,5 +307,54 @@ describe("pipeline stage settlement projections", () => {
         },
       ],
     });
+  });
+});
+
+describe("resolvePrEvidenceAcrossInvocation", () => {
+  // Completion publication dispatches late under its own run id, so the PR lands on a successor
+  // row. Reading the entry row alone settles `completion_publication_missing_pr_evidence` over
+  // work that published fine. Observed on jarvis pipeline d30dbfd3 (PR #3475 on a sibling row)
+  // and chess-mvp-yolo-2 pipeline a00ca258 lane board-move-history-panel (PR #55 on sibling
+  // c7d3d2cf while entry run 99834377 carried none).
+  test("falls back to a sibling row when the entry run carries no PR", () => {
+    expect(
+      resolvePrEvidenceAcrossInvocation({ prNumber: null, prUrl: null }, [
+        { prNumber: null, prUrl: null },
+        { prNumber: 55, prUrl: "https://example.test/pull/55" },
+      ]),
+    ).toEqual({ prNumber: 55, prUrl: "https://example.test/pull/55" });
+  });
+
+  test("prefers the entry run's own complete pair over a sibling's", () => {
+    expect(
+      resolvePrEvidenceAcrossInvocation({ prNumber: 1, prUrl: "https://example.test/pull/1" }, [
+        { prNumber: 2, prUrl: "https://example.test/pull/2" },
+      ]),
+    ).toEqual({ prNumber: 1, prUrl: "https://example.test/pull/1" });
+  });
+
+  test("ignores a half-populated row and keeps looking", () => {
+    expect(
+      resolvePrEvidenceAcrossInvocation({ prNumber: 7, prUrl: null }, [
+        { prNumber: 8, prUrl: "https://example.test/pull/8" },
+      ]),
+    ).toEqual({ prNumber: 8, prUrl: "https://example.test/pull/8" });
+  });
+
+  test("returns undefined when no row carries a complete pair", () => {
+    expect(resolvePrEvidenceAcrossInvocation({ prNumber: null, prUrl: null }, [{ prNumber: 9, prUrl: null }])).toBe(
+      undefined,
+    );
+  });
+});
+
+describe("stageArtifactFromEntryRun PR evidence", () => {
+  test("carries resolved sibling evidence onto the stage artifact", () => {
+    const artifact = stageArtifactFromEntryRun("entry-run", entryRun(), undefined, undefined, {
+      prNumber: 55,
+      prUrl: "https://example.test/pull/55",
+    });
+    expect(artifact.prNumber).toBe(55);
+    expect(artifact.prUrl).toBe("https://example.test/pull/55");
   });
 });

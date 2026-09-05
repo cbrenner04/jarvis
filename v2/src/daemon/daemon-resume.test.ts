@@ -138,6 +138,36 @@ function createHandlers(logReader?: LogReader): Handlers {
   });
 }
 
+function intentFinalizationHandlers(overrides: Partial<Parameters<typeof createRunControlHandlers>[0]>): Handlers {
+  return createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
+    writeLoopBindingSourceDeps,
+    ...overrides,
+  });
+}
+
+function logBackedHandlers(
+  logsPath: string,
+  overrides: Partial<Parameters<typeof createRunControlHandlers>[0]> = {},
+): Handlers {
+  const { stateStore: storeOverride, ...rest } = overrides;
+  return createRunControlHandlers({
+    stateStore: storeOverride ?? stateStore,
+    logReader: openLogReader(logsPath),
+    logsPath,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
+    writeLoopBindingSourceDeps,
+    ...rest,
+  });
+}
+
 const OK_INVOCATION = {
   attempts: [],
   final: { binding: { id: "sim.1", metadata: { agent: "Test Agent" } }, result: { kind: "ok" as const } },
@@ -166,10 +196,8 @@ function initResumeWorktree(jarvisRoot: string, branchName: string): string {
 }
 
 function createGitBackedResumeHandlers(store: StateStore, logsPath: string, jarvisRoot: string): Handlers {
-  return createRunControlHandlers({
+  return logBackedHandlers(logsPath, {
     stateStore: store,
-    logReader: openLogReader(logsPath),
-    logsPath,
     writeLoopExecutor: async (input, signal, pauseSignal) => {
       const resumeLogSink = openLogSink(logsPath);
       try {
@@ -188,10 +216,6 @@ function createGitBackedResumeHandlers(store: StateStore, logsPath: string, jarv
         resumeLogSink.close();
       }
     },
-    failureReporter: () => {},
-    hasMemoryHeadroom: () => true,
-    settleDelayMs: 0,
-    writeLoopBindingSourceDeps,
   });
 }
 
@@ -488,10 +512,8 @@ test("resumes implement write row after in-loop surviving_mutation_failed exhaus
     agentCalls = 0;
 
     let backgroundResume: Promise<void> | undefined;
-    const localHandlers = createRunControlHandlers({
+    const localHandlers = logBackedHandlers(logsPath, {
       stateStore: store,
-      logReader: openLogReader(logsPath),
-      logsPath,
       writeLoopExecutor: async (input, signal, pauseSignal) => {
         resumedInput = input;
         const resumeLogSink = openLogSink(logsPath);
@@ -527,10 +549,6 @@ test("resumes implement write row after in-loop surviving_mutation_failed exhaus
         })();
         return backgroundResume;
       },
-      failureReporter: () => {},
-      hasMemoryHeadroom: () => true,
-      settleDelayMs: 0,
-      writeLoopBindingSourceDeps,
     });
 
     expect((await resumeDirect(localHandlers, exhausted.runId)).kind).toBe("response");
@@ -864,15 +882,7 @@ test("resume rejects unchanged-path ready_gate_out_of_scope finalization retry",
   });
   seedSink.close();
   try {
-    const localHandlers = createRunControlHandlers({
-      stateStore,
-      logReader: openLogReader(logsPath),
-      logsPath,
-      writeLoopExecutor: fakeExecutor.executor,
-      failureReporter: () => {},
-      hasMemoryHeadroom: () => true,
-      settleDelayMs: 0,
-      writeLoopBindingSourceDeps,
+    const localHandlers = logBackedHandlers(logsPath, {
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 0 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 4, prUrl: "https://example.test/pr/4" }),
@@ -913,15 +923,7 @@ test("changed-path ready_gate_out_of_scope admits resume", async () => {
   seedSink.close();
   try {
     let finalizerCalls = 0;
-    const localHandlers = createRunControlHandlers({
-      stateStore,
-      logReader: openLogReader(logsPath),
-      logsPath,
-      writeLoopExecutor: fakeExecutor.executor,
-      failureReporter: () => {},
-      hasMemoryHeadroom: () => true,
-      settleDelayMs: 0,
-      writeLoopBindingSourceDeps,
+    const localHandlers = logBackedHandlers(logsPath, {
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 0 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 4, prUrl: "https://example.test/pr/4" }),
@@ -1508,14 +1510,8 @@ test("admits a populated-stage intent finalization landing_failed row instead of
       durableDir: "ready-intents",
     });
     failReviewRunAtLanding(reviewRunId);
-    const localHandlers = createRunControlHandlers({
-      stateStore,
+    const localHandlers = intentFinalizationHandlers({
       logReader: landingFailedLogReader(reviewRunId),
-      writeLoopExecutor: fakeExecutor.executor,
-      failureReporter: () => {},
-      hasMemoryHeadroom: () => true,
-      settleDelayMs: 0,
-      writeLoopBindingSourceDeps,
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 7, prUrl: "https://example.test/pr/7" }),
@@ -1549,14 +1545,8 @@ test("admits a lint-exhausted populated-stage landing_failed row instead of unsu
       durableDir: "ready-intents",
     });
     failReviewRunAtLintExhaustion(reviewRunId);
-    const localHandlers = createRunControlHandlers({
-      stateStore,
+    const localHandlers = intentFinalizationHandlers({
       logReader: lintExhaustedLandingFailedLogReader(reviewRunId),
-      writeLoopExecutor: fakeExecutor.executor,
-      failureReporter: () => {},
-      hasMemoryHeadroom: () => true,
-      settleDelayMs: 0,
-      writeLoopBindingSourceDeps,
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 7, prUrl: "https://example.test/pr/7" }),
@@ -1620,14 +1610,8 @@ test("resumes a populated-stage intent finalization end to end: landing_failed p
     });
     failReviewRunAtLanding(reviewRunId);
     const logReader = landingFailedLogReader(reviewRunId);
-    const localHandlers = createRunControlHandlers({
-      stateStore,
+    const localHandlers = intentFinalizationHandlers({
       logReader,
-      writeLoopExecutor: fakeExecutor.executor,
-      failureReporter: () => {},
-      hasMemoryHeadroom: () => true,
-      settleDelayMs: 0,
-      writeLoopBindingSourceDeps,
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 7, prUrl: "https://example.test/pr/7" }),
@@ -1761,15 +1745,7 @@ test("unchanged-path ready_gate_out_of_scope rejects resume even when the gate w
   const logsPath = seedOutOfScopeLogsPath("write-out-of-scope-green-logs", runId, outsidePath);
   try {
     let finalizerCalls = 0;
-    const localHandlers = createRunControlHandlers({
-      stateStore,
-      logReader: openLogReader(logsPath),
-      logsPath,
-      writeLoopExecutor: fakeExecutor.executor,
-      failureReporter: () => {},
-      hasMemoryHeadroom: () => true,
-      settleDelayMs: 0,
-      writeLoopBindingSourceDeps,
+    const localHandlers = logBackedHandlers(logsPath, {
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 0 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 5, prUrl: "https://example.test/pr/5" }),
@@ -1798,15 +1774,7 @@ test("repeated untouched red on an ordinary write row settles ready_gate_out_of_
   failWriteRunAtOutOfScopeGate(runId);
   const logsPath = seedOutOfScopeLogsPath("write-out-of-scope-repeat-red-logs", runId, outsidePath);
   try {
-    const localHandlers = createRunControlHandlers({
-      stateStore,
-      logReader: openLogReader(logsPath),
-      logsPath,
-      writeLoopExecutor: fakeExecutor.executor,
-      failureReporter: () => {},
-      hasMemoryHeadroom: () => true,
-      settleDelayMs: 0,
-      writeLoopBindingSourceDeps,
+    const localHandlers = logBackedHandlers(logsPath, {
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 0 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 6, prUrl: "https://example.test/pr/6" }),
@@ -1867,15 +1835,7 @@ test.each([
   const logsPath = seedOutOfScopeLogsPath(`review-out-of-scope-logs-${reviewBehavior}`, reviewRunId, outsidePath);
   try {
     let finalizerCalls = 0;
-    const localHandlers = createRunControlHandlers({
-      stateStore,
-      logReader: openLogReader(logsPath),
-      logsPath,
-      writeLoopExecutor: fakeExecutor.executor,
-      failureReporter: () => {},
-      hasMemoryHeadroom: () => true,
-      settleDelayMs: 0,
-      writeLoopBindingSourceDeps,
+    const localHandlers = logBackedHandlers(logsPath, {
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "should-not-run", filesChanged: 0 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 9, prUrl: "https://example.test/pr/9" }),
@@ -1911,15 +1871,7 @@ test("repeated untouched red on a review row settles ready_gate_out_of_scope wit
   stateStore.setRunStatus(reviewRunId, "failed");
   const logsPath = seedOutOfScopeLogsPath("review-out-of-scope-repeat-red-logs", reviewRunId, outsidePath);
   try {
-    const localHandlers = createRunControlHandlers({
-      stateStore,
-      logReader: openLogReader(logsPath),
-      logsPath,
-      writeLoopExecutor: fakeExecutor.executor,
-      failureReporter: () => {},
-      hasMemoryHeadroom: () => true,
-      settleDelayMs: 0,
-      writeLoopBindingSourceDeps,
+    const localHandlers = logBackedHandlers(logsPath, {
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 0 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 10, prUrl: "https://example.test/pr/10" }),
@@ -1965,15 +1917,7 @@ test.each([
   failReviewRunAtSurvivingMutation(reviewRunId);
   const logsPath = seedSurvivingMutationLogsPath(`review-mutation-logs-${reviewBehavior}`, reviewRunId);
   try {
-    const localHandlers = createRunControlHandlers({
-      stateStore,
-      logReader: openLogReader(logsPath),
-      logsPath,
-      writeLoopExecutor: fakeExecutor.executor,
-      failureReporter: () => {},
-      hasMemoryHeadroom: () => true,
-      settleDelayMs: 0,
-      writeLoopBindingSourceDeps,
+    const localHandlers = logBackedHandlers(logsPath, {
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "should-not-run", filesChanged: 0 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 9, prUrl: "https://example.test/pr/9" }),
@@ -2015,15 +1959,7 @@ test("resumes surviving_mutation_failed when the durable write sibling is a link
   failReviewRunAtSurvivingMutation(reviewRunId);
   const logsPath = seedSurvivingMutationLogsPath("review-mutation-linked-logs", reviewRunId);
   try {
-    const localHandlers = createRunControlHandlers({
-      stateStore,
-      logReader: openLogReader(logsPath),
-      logsPath,
-      writeLoopExecutor: fakeExecutor.executor,
-      failureReporter: () => {},
-      hasMemoryHeadroom: () => true,
-      settleDelayMs: 0,
-      writeLoopBindingSourceDeps,
+    const localHandlers = logBackedHandlers(logsPath, {
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "should-not-run", filesChanged: 0 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 11, prUrl: "https://example.test/pr/11" }),
@@ -2059,15 +1995,7 @@ test("a completed write sibling that is also the workflow's step-0 entry row sti
   failReviewRunAtSurvivingMutation(reviewRunId);
   const logsPath = seedSurvivingMutationLogsPath("review-mutation-write-is-entry-logs", reviewRunId);
   try {
-    const localHandlers = createRunControlHandlers({
-      stateStore,
-      logReader: openLogReader(logsPath),
-      logsPath,
-      writeLoopExecutor: fakeExecutor.executor,
-      failureReporter: () => {},
-      hasMemoryHeadroom: () => true,
-      settleDelayMs: 0,
-      writeLoopBindingSourceDeps,
+    const localHandlers = logBackedHandlers(logsPath, {
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "should-not-run", filesChanged: 0 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 13, prUrl: "https://example.test/pr/13" }),
@@ -2100,15 +2028,7 @@ test("a completion_commit_failed from this tail stays retryable: a subsequent re
   try {
     // First resume: the committer throws, settling `completion_commit_failed` — the row must stay
     // retryable, not stranded.
-    const failingHandlers = createRunControlHandlers({
-      stateStore,
-      logReader: openLogReader(logsPath),
-      logsPath,
-      writeLoopExecutor: fakeExecutor.executor,
-      failureReporter: () => {},
-      hasMemoryHeadroom: () => true,
-      settleDelayMs: 0,
-      writeLoopBindingSourceDeps,
+    const failingHandlers = logBackedHandlers(logsPath, {
       intentFinalizationResumeDeps: {
         completionCommitter: async () => {
           throw new Error("git push failed");
@@ -2129,15 +2049,7 @@ test("a completion_commit_failed from this tail stays retryable: a subsequent re
     expect(await listResumable(failingHandlers, reviewRunId)).toBe(true);
 
     // Second resume: a working committer — succeeds, still without re-invoking the write step's agent.
-    const succeedingHandlers = createRunControlHandlers({
-      stateStore,
-      logReader: openLogReader(logsPath),
-      logsPath,
-      writeLoopExecutor: fakeExecutor.executor,
-      failureReporter: () => {},
-      hasMemoryHeadroom: () => true,
-      settleDelayMs: 0,
-      writeLoopBindingSourceDeps,
+    const succeedingHandlers = logBackedHandlers(logsPath, {
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 21, prUrl: "https://example.test/pr/21" }),
@@ -2170,16 +2082,7 @@ test("a stale pre-fix resumable:true record projects unsupported_resume_context 
   failReviewRunAtSurvivingMutation(reviewRunId);
   const logsPath = seedSurvivingMutationLogsPath("review-mutation-stale-logs", reviewRunId);
   try {
-    const localHandlers = createRunControlHandlers({
-      stateStore,
-      logReader: openLogReader(logsPath),
-      logsPath,
-      writeLoopExecutor: fakeExecutor.executor,
-      failureReporter: () => {},
-      hasMemoryHeadroom: () => true,
-      settleDelayMs: 0,
-      writeLoopBindingSourceDeps,
-    });
+    const localHandlers = logBackedHandlers(logsPath, {});
 
     const row = await listRow(localHandlers, reviewRunId);
     expect(row.error?.reason).toBe("unsupported_resume_context");
@@ -2208,15 +2111,7 @@ test("closing and reopening the state store and log reader before list/wait/resu
   try {
     stateStore.close();
     stateStore = openStateStore(dbPath);
-    const localHandlers = createRunControlHandlers({
-      stateStore,
-      logReader: openLogReader(logsPath),
-      logsPath,
-      writeLoopExecutor: fakeExecutor.executor,
-      failureReporter: () => {},
-      hasMemoryHeadroom: () => true,
-      settleDelayMs: 0,
-      writeLoopBindingSourceDeps,
+    const localHandlers = logBackedHandlers(logsPath, {
       intentFinalizationResumeDeps: {
         completionCommitter: async () => ({ commitSha: "should-not-run", filesChanged: 0 }),
         completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 13, prUrl: "https://example.test/pr/13" }),
@@ -2284,16 +2179,7 @@ test("resume on the workflow entry id and a completed hidden ~shrink row for the
 
   const logsPath = seedSurvivingMutationLogsPath("review-mutation-refusal-logs", reviewRunId);
   try {
-    const localHandlers = createRunControlHandlers({
-      stateStore,
-      logReader: openLogReader(logsPath),
-      logsPath,
-      writeLoopExecutor: fakeExecutor.executor,
-      failureReporter: () => {},
-      hasMemoryHeadroom: () => true,
-      settleDelayMs: 0,
-      writeLoopBindingSourceDeps,
-    });
+    const localHandlers = logBackedHandlers(logsPath, {});
 
     // The real workflow entry row (snapshot, no stepId) — the id an operator copies from launch.
     const entryResponse = await resumeDirect(localHandlers, entryRunId);
@@ -2398,15 +2284,8 @@ async function driveExhaustedRedImplementCompletion(): Promise<{
 }
 
 function exhaustedRedHandlers(logsPath: string, store: StateStore, readyFinalizer: () => Promise<void>) {
-  return createRunControlHandlers({
+  return logBackedHandlers(logsPath, {
     stateStore: store,
-    logReader: openLogReader(logsPath),
-    logsPath,
-    writeLoopExecutor: fakeExecutor.executor,
-    failureReporter: () => {},
-    hasMemoryHeadroom: () => true,
-    settleDelayMs: 0,
-    writeLoopBindingSourceDeps,
     intentFinalizationResumeDeps: {
       completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
       completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 42, prUrl: "https://example.test/pr/42" }),
@@ -2474,15 +2353,8 @@ test("exhausted-red gate-only resume commits operator changes once and flips rea
     let commitCalls = 0;
     let publishCalls = 0;
     let flipCalls = 0;
-    const localHandlers = createRunControlHandlers({
+    const localHandlers = logBackedHandlers(logsPath, {
       stateStore: store,
-      logReader: openLogReader(logsPath),
-      logsPath,
-      writeLoopExecutor: fakeExecutor.executor,
-      failureReporter: () => {},
-      hasMemoryHeadroom: () => true,
-      settleDelayMs: 0,
-      writeLoopBindingSourceDeps,
       intentFinalizationResumeDeps: {
         completionCommitter: async (input) => {
           commitCalls += 1;
@@ -3282,10 +3154,8 @@ test("resume after idle_output_timeout retains worktree commits without stale re
     }).trim();
 
     let backgroundResume: Promise<void> | undefined;
-    const localHandlers = createRunControlHandlers({
+    const localHandlers = logBackedHandlers(logsPath, {
       stateStore: store,
-      logReader: openLogReader(logsPath),
-      logsPath,
       writeLoopExecutor: (input, signal, pauseSignal) => {
         const resumeLogSink = openLogSink(logsPath);
         backgroundResume = (async () => {
@@ -3307,10 +3177,6 @@ test("resume after idle_output_timeout retains worktree commits without stale re
         })();
         return backgroundResume;
       },
-      failureReporter: () => {},
-      hasMemoryHeadroom: () => true,
-      settleDelayMs: 0,
-      writeLoopBindingSourceDeps,
     });
 
     expect((await resumeDirect(localHandlers, idleResult.runId)).kind).toBe("response");

@@ -54,7 +54,6 @@ import {
   runListTerminalFinishAtMs,
   settleGuardedKill,
   type WaitRunCompletionResult,
-  type WriteLoopBindingSourceDeps,
   workflowInvocationIsLive,
 } from "./daemon.ts";
 import {
@@ -143,82 +142,6 @@ function retainListedRuns(runs: Run[]): Run[] {
 
   return runs.filter((run) => keptIds.has(run.id));
 }
-function reconstructDirectWriteResume(
-  run: Run,
-  writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps = {},
-): ResolvedWriteLoopInput {
-  if (run.status !== "paused") return { ok: false, message: "direct write resume requires a paused run" };
-  const input = run.queuedInput;
-  if (!input) return { ok: false, message: "run has no durable direct-write resume context" };
-  const {
-    initialIterationsConsumed: _initialIterationsConsumed,
-    mutationDirectiveReprompt: _mutationDirectiveReprompt,
-    guardCheckpointReprompt: _guardCheckpointReprompt,
-    keystoneDirectiveReprompt: _keystoneDirectiveReprompt,
-    ...baseInput
-  } = input as WriteLoopInput & Record<string, unknown>;
-  return resolveWriteLoopBindings(baseInput, writeLoopBindingSourceDeps);
-}
-
-function reconstructWriteResume(
-  run: Run,
-  logRecords?: readonly PersistedRecord[],
-  writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps = {},
-): ResolvedWriteLoopInput {
-  const snapshot = run.workflowSnapshot;
-  if (!snapshot) return reconstructDirectWriteResume(run, writeLoopBindingSourceDeps);
-  const stepId = run.stepId;
-  const hiddenShrink = stepId?.endsWith("~shrink") === true;
-  const step = snapshot?.steps.find(
-    (candidate) => candidate.stepId === stepId || (hiddenShrink && candidate.stepId === stepId.slice(0, -7)),
-  );
-
-  if (!stepId || !step) return { ok: false, message: "run has no matching workflow snapshot step" };
-  if (step.behavior === "review" || step.behavior === "review-debate") {
-    return { ok: false, message: `step "${step.stepId}" is not an executable write step` };
-  }
-  if (step.stepRules?.trim() === "") return { ok: false, message: "snapshot step has empty rules" };
-  if (step.expectedArtifactPath?.trim() === "") return { ok: false, message: "snapshot step has empty artifact path" };
-  if (!step.stepRules || !step.expectedArtifactPath || !step.agents?.length || !step.agentModelConfig) {
-    return { ok: false, message: "snapshot step is missing write resume context" };
-  }
-
-  const landingContractReprompt = findLandingContractRepromptFromLog(logRecords);
-  const stagedMarkdownLintReprompt = findStagedMarkdownLintRepromptFromLog(logRecords);
-  const survivingMutationReprompt =
-    run.status === "paused" ? findSurvivingMutationRepromptFromLog(logRecords) : undefined;
-  return resolveWriteLoopBindings(
-    {
-      worktree: {
-        projectRoot: run.worktreePath,
-        projectName: run.project,
-        branchName: run.branch,
-        baseRef: run.specRef,
-      },
-      specPath: run.specPath,
-      stepRules: step.stepRules,
-      expectedArtifactPath: step.expectedArtifactPath,
-      bindings: [],
-      bindingResolution: {
-        role: hiddenShrink ? "shrink" : step.role,
-        agents: step.agents,
-        agentModelConfig: step.agentModelConfig,
-      },
-      stepId,
-      workflowSnapshot: snapshot,
-      resumeReentry: true,
-      ...(step.promptId !== undefined ? { promptId: step.promptId } : {}),
-      ...(step.promptPlaceholders !== undefined ? { promptPlaceholders: step.promptPlaceholders } : {}),
-      ...(step.iterationTimeoutMs === undefined ? {} : { iterationTimeoutMs: step.iterationTimeoutMs }),
-      iterationCeilingMs: step.iterationCeilingMs ?? readIterationCeilingMs(join(jarvisHome(), "config.json")),
-      ...(step.idleOutputMs === undefined ? {} : { idleOutputMs: step.idleOutputMs }),
-      ...(landingContractReprompt !== undefined ? { landingContractReprompt } : {}),
-      ...(stagedMarkdownLintReprompt !== undefined ? { stagedMarkdownLintReprompt } : {}),
-      ...(survivingMutationReprompt !== undefined ? { survivingMutationReprompt } : {}),
-    },
-    writeLoopBindingSourceDeps,
-  );
-}
 /** Confirmed publication evidence, so `completed` is falsifiable from `run list` alone. */
 function runListPrEvidence(run: Run): { prNumber?: number; prUrl?: string } {
   return {
@@ -265,47 +188,6 @@ function isReviewMutationResumable(
   terminalRecord: TerminalLogRecord | undefined,
 ): boolean {
   return resolveReviewMutationResumeContext({ ...run, attempts: run.attempts ?? [] }, store, terminalRecord).ok;
-}
-
-function resumeContextForRun(
-  run: Run & { attempts?: Attempt[] },
-  store: StateStore,
-  terminalRecord?: TerminalLogRecord,
-  intentFinalizationResumable?: boolean,
-  logRecords?: PersistedRecord[],
-  writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps = {},
-): ResolvedWriteLoopInput | undefined {
-  // Admission is derived from the advertised row contract: if nextAction is
-  // "resume", snapshot reconstruction proceeds; otherwise undefined.
-  if (!isResumeAdmitted(run, terminalRecord)) return undefined;
-  if (intentFinalizationResumable ?? isIntentFinalizationResumable(run, store)) return undefined;
-  if (
-    isReviewMutationResumable(run, store, terminalRecord) ||
-    resolveExhaustedRedResumeContext({ ...run, attempts: run.attempts ?? [] }, store, terminalRecord).ok ||
-    resolveWriteOutOfScopeResumeContext({ ...run, attempts: run.attempts ?? [] }, store, terminalRecord).ok
-  ) {
-    return undefined;
-  }
-  return reconstructWriteResume(run, logRecords, writeLoopBindingSourceDeps);
-}
-
-function resumeContextForTerminalRecord(
-  run: (Run & { attempts?: Attempt[] }) | undefined,
-  store: StateStore,
-  terminalRecord: TerminalLogRecord | undefined,
-  intentFinalizationResumable?: boolean,
-  logRecords?: PersistedRecord[],
-  writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps = {},
-): ResolvedWriteLoopInput | undefined {
-  if (!run) return undefined;
-  return resumeContextForRun(
-    run,
-    store,
-    terminalRecord,
-    intentFinalizationResumable,
-    logRecords,
-    writeLoopBindingSourceDeps,
-  );
 }
 
 function runListRowError(
@@ -377,13 +259,111 @@ export function createRunLifecycleHandlers(
     writeLoopBindingSourceDeps = {},
   } = ctx;
   const logsPath = ctx.logsPath;
+
+  const reconstructDirectWriteResume = (run: Run): ResolvedWriteLoopInput => {
+    if (run.status !== "paused") return { ok: false, message: "direct write resume requires a paused run" };
+    const input = run.queuedInput;
+    if (!input) return { ok: false, message: "run has no durable direct-write resume context" };
+    const {
+      initialIterationsConsumed: _initialIterationsConsumed,
+      mutationDirectiveReprompt: _mutationDirectiveReprompt,
+      guardCheckpointReprompt: _guardCheckpointReprompt,
+      keystoneDirectiveReprompt: _keystoneDirectiveReprompt,
+      ...baseInput
+    } = input as WriteLoopInput & Record<string, unknown>;
+    return resolveWriteLoopBindings(baseInput, writeLoopBindingSourceDeps);
+  };
+
+  const reconstructWriteResume = (run: Run, logRecords?: readonly PersistedRecord[]): ResolvedWriteLoopInput => {
+    const snapshot = run.workflowSnapshot;
+    if (!snapshot) return reconstructDirectWriteResume(run);
+    const stepId = run.stepId;
+    const hiddenShrink = stepId?.endsWith("~shrink") === true;
+    const step = snapshot?.steps.find(
+      (candidate) => candidate.stepId === stepId || (hiddenShrink && candidate.stepId === stepId.slice(0, -7)),
+    );
+
+    if (!stepId || !step) return { ok: false, message: "run has no matching workflow snapshot step" };
+    if (step.behavior === "review" || step.behavior === "review-debate") {
+      return { ok: false, message: `step "${step.stepId}" is not an executable write step` };
+    }
+    if (step.stepRules?.trim() === "") return { ok: false, message: "snapshot step has empty rules" };
+    if (step.expectedArtifactPath?.trim() === "")
+      return { ok: false, message: "snapshot step has empty artifact path" };
+    if (!step.stepRules || !step.expectedArtifactPath || !step.agents?.length || !step.agentModelConfig) {
+      return { ok: false, message: "snapshot step is missing write resume context" };
+    }
+
+    const landingContractReprompt = findLandingContractRepromptFromLog(logRecords);
+    const stagedMarkdownLintReprompt = findStagedMarkdownLintRepromptFromLog(logRecords);
+    const survivingMutationReprompt =
+      run.status === "paused" ? findSurvivingMutationRepromptFromLog(logRecords) : undefined;
+    return resolveWriteLoopBindings(
+      {
+        worktree: {
+          projectRoot: run.worktreePath,
+          projectName: run.project,
+          branchName: run.branch,
+          baseRef: run.specRef,
+        },
+        specPath: run.specPath,
+        stepRules: step.stepRules,
+        expectedArtifactPath: step.expectedArtifactPath,
+        bindings: [],
+        bindingResolution: {
+          role: hiddenShrink ? "shrink" : step.role,
+          agents: step.agents,
+          agentModelConfig: step.agentModelConfig,
+        },
+        stepId,
+        workflowSnapshot: snapshot,
+        resumeReentry: true,
+        ...(step.promptId !== undefined ? { promptId: step.promptId } : {}),
+        ...(step.promptPlaceholders !== undefined ? { promptPlaceholders: step.promptPlaceholders } : {}),
+        ...(step.iterationTimeoutMs === undefined ? {} : { iterationTimeoutMs: step.iterationTimeoutMs }),
+        iterationCeilingMs: step.iterationCeilingMs ?? readIterationCeilingMs(join(jarvisHome(), "config.json")),
+        ...(step.idleOutputMs === undefined ? {} : { idleOutputMs: step.idleOutputMs }),
+        ...(landingContractReprompt !== undefined ? { landingContractReprompt } : {}),
+        ...(stagedMarkdownLintReprompt !== undefined ? { stagedMarkdownLintReprompt } : {}),
+        ...(survivingMutationReprompt !== undefined ? { survivingMutationReprompt } : {}),
+      },
+      writeLoopBindingSourceDeps,
+    );
+  };
+
+  const resumeContextForRun = (
+    run: Run & { attempts?: Attempt[] },
+    terminalRecord?: TerminalLogRecord,
+    intentFinalizationResumable?: boolean,
+    logRecords?: PersistedRecord[],
+  ): ResolvedWriteLoopInput | undefined => {
+    if (!isResumeAdmitted(run, terminalRecord)) return undefined;
+    if (intentFinalizationResumable ?? isIntentFinalizationResumable(run, store)) return undefined;
+    if (
+      isReviewMutationResumable(run, store, terminalRecord) ||
+      resolveExhaustedRedResumeContext({ ...run, attempts: run.attempts ?? [] }, store, terminalRecord).ok ||
+      resolveWriteOutOfScopeResumeContext({ ...run, attempts: run.attempts ?? [] }, store, terminalRecord).ok
+    ) {
+      return undefined;
+    }
+    return reconstructWriteResume(run, logRecords);
+  };
+
+  const resumeContextForTerminalRecord = (
+    run: (Run & { attempts?: Attempt[] }) | undefined,
+    terminalRecord: TerminalLogRecord | undefined,
+    intentFinalizationResumable?: boolean,
+    logRecords?: PersistedRecord[],
+  ): ResolvedWriteLoopInput | undefined => {
+    if (!run) return undefined;
+    return resumeContextForRun(run, terminalRecord, intentFinalizationResumable, logRecords);
+  };
+
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: wait-completion result assembly branches on status, record, and resume context
   const resultFrom = (runId: string, runStatus: RunStatus, record?: TerminalLogRecord): WaitRunCompletionResult => {
     const logTail = logReader?.tail(runId) ?? [];
     const run = store.loadRun(runId);
-    const resumeContext = run
-      ? resumeContextForRun(run, store, record, undefined, undefined, writeLoopBindingSourceDeps)
-      : undefined;
+    const resumeContext = run ? resumeContextForRun(run, record) : undefined;
     const error =
       run && resumeContext?.ok === false
         ? UNSUPPORTED_RESUME_ERROR
@@ -437,14 +417,7 @@ export function createRunLifecycleHandlers(
       ...(ownerError === undefined ? {} : { error: ownerError }),
     };
     const entryIntentFinalizationResumable = isIntentFinalizationResumable(entryRun, store);
-    const entryResumeContext = resumeContextForTerminalRecord(
-      entryRun,
-      store,
-      entryRecord,
-      entryIntentFinalizationResumable,
-      undefined,
-      writeLoopBindingSourceDeps,
-    );
+    const entryResumeContext = resumeContextForTerminalRecord(entryRun, entryRecord, entryIntentFinalizationResumable);
     const entryCanResume = entryResumeContext?.ok === true || entryIntentFinalizationResumable;
     return projectWorkflowEntryResult(entryResult, entryCanResume);
   };
@@ -685,7 +658,7 @@ export function createRunLifecycleHandlers(
       rowOutcome?.error ??
       runListRowError(
         fullRun,
-        resumeContextForTerminalRecord(fullRun, store, terminalRecord, undefined, logTail, writeLoopBindingSourceDeps),
+        resumeContextForTerminalRecord(fullRun, terminalRecord, undefined, logTail),
         terminalRecord,
         logTail,
       );
@@ -845,7 +818,7 @@ export function createRunLifecycleHandlers(
     key: OwnershipKey,
     runId: string,
   ): { kind: "response"; result: unknown } | { kind: "error"; code: string; message: string } => {
-    const reconstructed = reconstructWriteResume(run, logReader?.tail(runId), writeLoopBindingSourceDeps);
+    const reconstructed = reconstructWriteResume(run, logReader?.tail(runId));
     if (!reconstructed.ok) {
       return {
         kind: "error",
@@ -978,14 +951,7 @@ export function createRunLifecycleHandlers(
     }
 
     const logRecords = logReader?.tail(runId);
-    const reconstructed = resumeContextForTerminalRecord(
-      run,
-      store,
-      terminalRecord,
-      undefined,
-      logRecords,
-      writeLoopBindingSourceDeps,
-    );
+    const reconstructed = resumeContextForTerminalRecord(run, terminalRecord, undefined, logRecords);
     if (!reconstructed?.ok) {
       return {
         kind: "error",

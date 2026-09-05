@@ -24,16 +24,16 @@ Ready-gate finalization in `v2/src/execution/ready-finalize.ts`: missing-command
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/ready-finalize.test.ts` test `does not classify ENOENT embedded in failing-test output as ready_gate_command_missing` fails against the pre-fix substring classifier and asserts `ready_gate_failed`.
-- [ ] `v2/src/execution/ready-finalize.test.ts` test `classifies spawn ENOENT and anchored Script not found as ready_gate_command_missing` fails against the pre-fix classifier.
-- [ ] `v2/src/execution/ready-finalize.test.ts` test `classifies missing-command gate output as ready_gate_command_missing and keeps ordinary red output on ready_gate_failed` stays green with updated expectations for anchored `Script not found` and `command not found:` cases only.
-- [ ] `v2/src/execution/ready-finalize.test.ts` test `projects readyGateCommandMissingEvidence on ready_gate_command_missing settlement` fails against the pre-fix row shape and asserts the capped evidence string on `readyGateFailureLogFields` output.
-- [ ] `v2/docs/v1-behaviors.md` replaces the `Script not found` / `command not found` / `ENOENT` anywhere-in-output missing-command rule with spawn `ENOENT` plus anchored package-manager/shell failure lines and notes `readyGateCommandMissingEvidence`.
-- [ ] `v2/docs/write-behavior.md` aligns the ready-finalization missing-command classification contract with the spawn/anchored rule and cross-links `v1-behaviors.md` rather than duplicating prose.
-- [ ] `v2/docs/install-and-config.md` aligns the missing-`readyCommand` settlement classification contract with the spawn/anchored rule and cross-links `v1-behaviors.md` rather than duplicating prose.
-- [ ] `v2/docs/operator-runbook.md` **Missing gate command** paragraph states required evidence (`readyGateCommandMissingEvidence`, spawn code, or anchored failure line) and that lint findings mentioning `ENOENT` no longer trigger classification.
-- [ ] `bun run typecheck` exits zero.
-- [ ] `bun run test:v2` and `bun run test:integration:v2` exit zero.
+- [x] `v2/src/execution/ready-finalize.test.ts` test `does not classify ENOENT embedded in failing-test output as ready_gate_command_missing` fails against the pre-fix substring classifier and asserts `ready_gate_failed`.
+- [x] `v2/src/execution/ready-finalize.test.ts` test `classifies spawn ENOENT and anchored Script not found as ready_gate_command_missing` fails against the pre-fix classifier.
+- [x] `v2/src/execution/ready-finalize.test.ts` test `classifies missing-command gate output as ready_gate_command_missing and keeps ordinary red output on ready_gate_failed` stays green with updated expectations for anchored `Script not found` and `command not found:` cases only.
+- [x] `v2/src/execution/ready-finalize.test.ts` test `projects readyGateCommandMissingEvidence on ready_gate_command_missing settlement` fails against the pre-fix row shape and asserts the capped evidence string on `readyGateFailureLogFields` output.
+- [x] `v2/docs/v1-behaviors.md` replaces the `Script not found` / `command not found` / `ENOENT` anywhere-in-output missing-command rule with spawn `ENOENT` plus anchored package-manager/shell failure lines and notes `readyGateCommandMissingEvidence`.
+- [x] `v2/docs/write-behavior.md` aligns the ready-finalization missing-command classification contract with the spawn/anchored rule and cross-links `v1-behaviors.md` rather than duplicating prose.
+- [x] `v2/docs/install-and-config.md` aligns the missing-`readyCommand` settlement classification contract with the spawn/anchored rule and cross-links `v1-behaviors.md` rather than duplicating prose.
+- [x] `v2/docs/operator-runbook.md` **Missing gate command** paragraph states required evidence (`readyGateCommandMissingEvidence`, spawn code, or anchored failure line) and that lint findings mentioning `ENOENT` no longer trigger classification.
+- [x] `bun run typecheck` exits zero.
+- [x] `bun run test:v2` and `bun run test:integration:v2` exit zero.
 
 ## Documentation updates
 

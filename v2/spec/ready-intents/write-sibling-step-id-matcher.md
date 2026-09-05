@@ -24,7 +24,7 @@ name: write-sibling-step-id-matcher
 ## Acceptance criteria
 
 - [ ] A test in `v2/src/execution/workflow-runner-resume.test.ts` proves `surviving_mutation_failed` resume dispatches the review agent with the reprompt before re-running the mutation gate, or settles non-resumable with a named action; it fails against the current finalization-only replay that surfaces `internal_error` from a gate re-check.
-- [ ] A structural test proves `isWriteSiblingStepId` is absent from `v2/src/execution/` and the shared matcher is imported at every prior call site; it fails while the local copy remains.
+- [ ] `v2/src/execution/workflow-runner-resume-structure.test.ts` proves `isWriteSiblingStepId` is absent from `v2/src/execution/` and the shared matcher is imported at every prior call site; it fails while the local copy remains.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

@@ -5,4 +5,4 @@
 - [x] [02 - Plan commit decision parity](./02-plan-commit-decision-parity.md)
 - [x] [03 - Document external home layout](./03-document-external-home-layout.md)
 - [x] [04 - Document operator admission paths](./04-document-operator-admission-paths.md)
-- [ ] [05 - Document v1-behaviors admission parity](./05-document-v1-behaviors-admission-parity.md)
+- [x] [05 - Document v1-behaviors admission parity](./05-document-v1-behaviors-admission-parity.md)

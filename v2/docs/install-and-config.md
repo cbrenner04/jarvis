@@ -136,7 +136,7 @@ Optional `projects` entries map a registry key to a project object. `root` is re
 
 ### External specs home
 
-By default, intent and plan publication land in the registered project's repository (`<targetDir>/ready-intents/` and timestamped `<targetDir>/<UTC>-<name>/`). Projects that opt out of Git publication route durable specs to a Jarvis-owned home under `~/.jarvis/specs/<projectSafeId>/`, where `<projectSafeId>` is a path-safe form of the registered project key (see [`shared/project-safe-id.ts`](../../shared/project-safe-id.ts)). External homes are not created for every project — only for those whose effective publication is Git-disabled (see the opt-in table below).
+By default, intent and plan publication land in the registered project's repository (`<targetDir>/ready-intents/` and timestamped `<targetDir>/<UTC>-<name>/`). Projects that opt out of Git publication route durable specs to `~/.jarvis/specs/<projectSafeId>/` (path-safe registered key; see [`shared/project-safe-id.ts`](../../shared/project-safe-id.ts)). External homes exist only for Git-disabled effective publication (opt-in table below).
 
 ```
 ~/.jarvis/specs/<projectSafeId>/

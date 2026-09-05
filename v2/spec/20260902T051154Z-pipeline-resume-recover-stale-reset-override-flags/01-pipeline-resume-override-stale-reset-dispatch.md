@@ -29,7 +29,7 @@ Daemon `pipeline_resume` already admits `resetDespiteDirty` and `resetDespiteLan
 - [x] `pipeline-execution.test.ts` proves resume dispatch with `resetDespiteLandedCriteria: true` on a failed `plan` stage reaches shared `resetStaleWorkspace`, clears landed-criteria refusal, and dispatches the writer — matching standalone plan re-run preserve-gate override semantics; fails against the pre-fix path where `resumePipeline` omits the landed override (reachable today in `failed plan auto-dirty reset preserves landed-criteria refusal`).
 - [x] `pipeline-execution.test.ts` — `failed plan resume preserves %s despite both reset overrides` and `failed plan auto-dirty reset preserves landed-criteria refusal` stay green.
 - [x] `daemon-pipeline-resume.test.ts` stays green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

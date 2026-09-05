@@ -636,4 +636,3 @@ Every inventory row with disposition `re-key`, grouped by `test-path` + `case-sc
 **case-scope:** jarvis home isolation > no v2 source resolves a jarvis-home path via homedir() directly
 
 **re-key (1):** cli-paths-homedir-guard
-

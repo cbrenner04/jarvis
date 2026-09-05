@@ -19,13 +19,13 @@ import { flushBackgroundRuns } from "../testing/run-control.ts";
 import { createBindingFactory, writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers } from "./daemon.ts";
+import { derivePipelineState } from "./pipeline-execution.ts";
 import type { PipelineStageArtifact } from "./pipeline-stage-dispatch.ts";
 import {
   type PipelineStageResolutionResult,
   type PipelineStageResolveDeps,
   resolveStageWorkflowSteps,
 } from "./pipeline-stage-resolve.ts";
-import { derivePipelineState } from "./pipeline-execution.ts";
 
 const APPROVAL_DEFINITION: PipelineDefinition = {
   name: "approval",

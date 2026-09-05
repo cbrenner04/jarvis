@@ -12,15 +12,15 @@ Row `shr-ri-merge-base-prose` pins merge-base unified-diff provenance to hand-ma
 
 ## Task checklist
 
-- [ ] Re-key audit row `shr-ri-merge-base-prose` in case `renderPatchReviewCriticPrompt branch diff > renders stat, changed paths, and merge-base unified diff for critic and debate roles`.
-- [ ] Route diff-region extraction through `shared/structural-test-locator.ts` where markers bound rendered output.
+- [x] Re-key audit row `shr-ri-merge-base-prose` in case `renderPatchReviewCriticPrompt branch diff > renders stat, changed paths, and merge-base unified diff for critic and debate roles`.
+- [x] Route diff-region extraction through `shared/structural-test-locator.ts` where markers bound rendered output.
 
 ## Acceptance criteria
 
-- [ ] `shared/prompts/review-implement.test.ts` test `renders stat, changed paths, and merge-base unified diff for critic and debate roles` derives merge-base provenance markers from a shared source-of-truth constant and pairs `.not.toContain("not a unified diff")` with implement merge-base presence checks; it fails against the pre-fix one-way substring pins (`vacuous-pass-risk: yes` on audit row `shr-ri-merge-base-prose`) and passes after re-key.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:shared` passes.
-- [ ] `bun run test:integration:shared` passes.
+- [x] `shared/prompts/review-implement.test.ts` test `renders stat, changed paths, and merge-base unified diff for critic and debate roles` derives merge-base provenance markers from a shared source-of-truth constant and pairs `.not.toContain("not a unified diff")` with implement merge-base presence checks; it fails against the pre-fix one-way substring pins (`vacuous-pass-risk: yes` on audit row `shr-ri-merge-base-prose`) and passes after re-key.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:shared` passes.
+- [x] `bun run test:integration:shared` passes.
 
 ## Documentation updates
 

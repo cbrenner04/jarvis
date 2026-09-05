@@ -26,10 +26,10 @@ Execution-loop: `planSource` publish decision in `v2/src/execution/publication-w
 
 ## Acceptance criteria
 
-- [ ] `publication-workflow-steps.test.ts` test `plan commit decision honors machine modes.plan.commit like intent` asserts plan's publish decision falls back to `modes.plan.commit` when project `plan.commit` is unset; it fails against the current plan-only `?? true` split in `planSource`.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `publication-workflow-steps.test.ts` test `plan commit decision honors machine modes.plan.commit like intent` asserts plan's publish decision falls back to `modes.plan.commit` when project `plan.commit` is unset; it fails against the current plan-only `?? true` split in `planSource`.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

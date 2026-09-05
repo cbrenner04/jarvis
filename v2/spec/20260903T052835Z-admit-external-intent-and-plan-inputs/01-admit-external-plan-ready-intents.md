@@ -30,7 +30,7 @@ Execution-loop: `planSource` in `v2/src/execution/publication-workflow-steps.ts`
 
 ## Acceptance criteria
 
-- [ ] `plan-workflow-steps.test.ts` test `admits external ready-intent under project specs home` asserts `--ready-intent` naming a file under `~/.jarvis/specs/<safeId>/ready-intents/` drafts to external `plans/<name>/` for external publication routing and sets write-step `landing.inputs.paths` to the canonical absolute ready-intent path with `consumeFrom: "source"` (not `resolve(project.root, …)`), matching `records the ready-intent as the byte-identical plan input`; it fails against the current absolute-path rejection in `planSource`.
+- [x] `plan-workflow-steps.test.ts` test `admits external ready-intent under project specs home` asserts `--ready-intent` naming a file under `~/.jarvis/specs/<safeId>/ready-intents/` drafts to external `plans/<name>/` for external publication routing and sets write-step `landing.inputs.paths` to the canonical absolute ready-intent path with `consumeFrom: "source"` (not `resolve(project.root, …)`), matching `records the ready-intent as the byte-identical plan input`; it fails against the current absolute-path rejection in `planSource`.
 
 ## Documentation updates
 

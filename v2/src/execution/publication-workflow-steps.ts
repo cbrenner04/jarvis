@@ -47,6 +47,7 @@ export type PlanWorkflowInput = {
   readyIntent: string;
   targetDir?: string;
   configPath?: string;
+  jarvisRoot?: string;
   reviewPasses?: number;
   reviewBehavior?: "debate" | "light";
 };
@@ -171,6 +172,35 @@ function publish(
 type SeedDetails = { label: string; content: string; slug: string; name: string; paths: string[] };
 function externalSeedsHome(jarvisRoot: string, projectKey: string): string {
   return join(jarvisRoot, "specs", projectSafeId(projectKey), "seeds");
+}
+function externalReadyIntentsHome(jarvisRoot: string, projectKey: string): string {
+  return join(jarvisRoot, "specs", projectSafeId(projectKey), "ready-intents");
+}
+function resolveExternalReadyIntent(
+  readyIntentPath: string,
+  readyIntentsHome: string,
+): { ok: true; name: string; content: string; path: string } | { ok: false; message: string } {
+  try {
+    if (!statSync(readyIntentPath).isFile())
+      return { ok: false, message: `plan: ready-intent file not found: ${readyIntentPath}` };
+    const canonical = realpathSync(readyIntentPath);
+    let resolvedHome = readyIntentsHome;
+    try {
+      resolvedHome = realpathSync(readyIntentsHome);
+    } catch {
+      // keep lexical ready-intents home when the directory is absent
+    }
+    if (!inside(resolvedHome, canonical))
+      return {
+        ok: false,
+        message: `plan: ready-intent escapes project ready-intents home after symlink resolution: ${readyIntentPath}`,
+      };
+    const ready = validateReadyIntent(canonical);
+    if (!ready.ok) return ready;
+    return { ok: true, name: ready.name, content: ready.content, path: canonical };
+  } catch (e) {
+    return { ok: false, message: `plan: could not read ready-intent: ${e instanceof Error ? e.message : String(e)}` };
+  }
 }
 function resolveExternalSeed(
   seedPath: string,
@@ -565,26 +595,39 @@ function planSource(
   | { error: string }
   | Promise<{ source: WriteWorkflowSourceStep; identity: PlanWorkflowIdentity } | { error: string }> {
   return (async () => {
-    if (isAbsolute(input.readyIntent)) return { error: "plan: --ready-intent must be a relative path" };
     if (input.targetDir !== undefined && !validTargetDir(input.targetDir))
       return { error: "plan: --target-dir must be a relative non-traversing path" };
     const project = (deps.resolveProjectMatch ?? ((p) => findProjectMatch(p, registry(input.configPath))))(input.cwd);
     if (!project) return { error: `plan: no registered project matches ${input.cwd}` };
-    const ready =
-      deps.readReadyIntent?.(join(input.cwd, input.readyIntent)) ??
-      validateReadyIntent(join(input.cwd, input.readyIntent));
-    if (!ready.ok) return { error: ready.message };
     const config = projectConfig(input.configPath, project);
+    const git = config.git !== false && (config.plan?.commit ?? true);
+    let ready: { ok: true; name: string; content: string } | { ok: false; message: string };
+    let routingPath: string;
+    let landingInputPath: string;
+    if (isAbsolute(input.readyIntent)) {
+      if (git) return { error: "plan: --ready-intent must be a relative path" };
+      const jarvisRoot = input.jarvisRoot ?? jarvisHome();
+      const resolved = resolveExternalReadyIntent(input.readyIntent, externalReadyIntentsHome(jarvisRoot, project.key));
+      if (!resolved.ok) return { error: resolved.message };
+      ready = resolved;
+      routingPath = resolved.path;
+      landingInputPath = resolved.path;
+    } else {
+      const readyIntentPath = join(input.cwd, input.readyIntent);
+      ready = deps.readReadyIntent?.(readyIntentPath) ?? validateReadyIntent(readyIntentPath);
+      if (!ready.ok) return { error: ready.message };
+      routingPath = readyIntentPath;
+      landingInputPath = resolve(project.root, input.readyIntent);
+    }
     const modePlan = machineModePlan(input.configPath);
     const target = resolveTargetDir(
       input.targetDir,
       config,
       modePlan,
-      canonicalTargetDir(project, join(input.cwd, input.readyIntent), "ready-intents"),
+      canonicalTargetDir(project, routingPath, "ready-intents"),
     );
     if (!validTargetDir(target)) return { error: "plan: configured targetDir is invalid" };
-    const git = config.git !== false && (config.plan?.commit ?? true);
-    const root = jarvisHome();
+    const root = input.jarvisRoot ?? jarvisHome();
     const branch = `plan/${ready.name}`;
     const cwd = join(root, "worktrees", project.key, branch);
     const timestamp = `${new Date().toISOString().replace(/[-:]/g, "").split(".")[0]}Z`;
@@ -613,7 +656,7 @@ function planSource(
         durablePath: durableSpecPath,
         inputs: {
           sourceRoot: project.root,
-          paths: [resolve(project.root, input.readyIntent)],
+          paths: [landingInputPath],
           consumeFrom: git ? "worktree" : "source",
         },
       } satisfies PublicationLanding,

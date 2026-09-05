@@ -78,8 +78,8 @@ describe("StateStore WAL concurrency", () => {
       // Spawn a subprocess that holds a write transaction, then commits after a delay
       const subprocess = spawn("bun", ["--eval", subprocess_lock_holder_script(testPath, 500)]);
 
-      // Give subprocess time to acquire the lock
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      // Wait for the holder to report the lock is held, rather than guessing at a startup budget.
+      await waitForLockHeld(subprocess);
 
       const startTime = Date.now();
 
@@ -176,13 +176,44 @@ describe("StateStore WAL concurrency", () => {
 });
 
 function subprocess_lock_holder_script(dbPath: string, holdTimeMs: number): string {
+  // Announces on stdout once the write lock is actually held. A fixed sleep in the parent cannot
+  // stand in for this: under load `bun --eval` startup alone can exceed it, the parent then writes
+  // with no contention to wait for, and the elapsed-time assertion fails against a correct store.
   return `
 import { Database } from "bun:sqlite";
 const db = new Database("${dbPath}");
 db.exec("PRAGMA journal_mode=WAL");
 db.prepare("BEGIN IMMEDIATE").run();
+console.log("${LOCK_HELD_MARKER}");
 await new Promise(resolve => setTimeout(resolve, ${holdTimeMs}));
 db.exec("COMMIT");
 db.close();
 `;
+}
+
+const LOCK_HELD_MARKER = "jarvis-lock-held";
+
+/** Resolves once the lock holder reports it holds the write lock, or rejects on a bounded wait. */
+async function waitForLockHeld(subprocess: ReturnType<typeof spawn>, timeoutMs = 10_000): Promise<void> {
+  const stdout = subprocess.stdout;
+  if (stdout === null) throw new Error("lock holder subprocess has no stdout");
+  return await new Promise<void>((resolvePromise, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`lock holder did not report ${LOCK_HELD_MARKER} within ${timeoutMs}ms`));
+    }, timeoutMs);
+    let buffered = "";
+    const onData = (chunk: Buffer): void => {
+      buffered += chunk.toString();
+      if (buffered.includes(LOCK_HELD_MARKER)) {
+        cleanup();
+        resolvePromise();
+      }
+    };
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      stdout.off("data", onData);
+    };
+    stdout.on("data", onData);
+  });
 }

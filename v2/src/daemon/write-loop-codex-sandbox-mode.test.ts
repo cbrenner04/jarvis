@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { mkdtempSync, writeFileSync } from "node:fs";
@@ -7,11 +7,7 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
-import {
-  resetWriteLoopBindingSourceDepsForTests,
-  resolveWriteLoopBindings,
-  setWriteLoopBindingSourceDepsForTests,
-} from "./daemon.ts";
+import { resolveWriteLoopBindings } from "./daemon.ts";
 
 class FakeChild extends EventEmitter {
   readonly stdin = new PassThrough();
@@ -71,20 +67,16 @@ function writeConfig(codexSandboxMode: string): string {
   return configPath;
 }
 
-afterEach(() => {
-  resetWriteLoopBindingSourceDepsForTests();
-});
-
 test("configured danger-full-access reaches the shared Codex binding on the fresh write/implement path", async () => {
   const fake = fakeSpawn();
-  setWriteLoopBindingSourceDepsForTests({
+  const bindingDeps = {
     machineConfigPath: writeConfig("danger-full-access"),
     forceSnapshotAgentModelConfig: true,
     bindingSpawn: fake.spawn,
     codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-sandbox-sessions-")),
-  });
+  };
 
-  const resolved = resolveWriteLoopBindings(writeInput(codexContext));
+  const resolved = resolveWriteLoopBindings(writeInput(codexContext), bindingDeps);
   expect(resolved.ok).toBe(true);
   if (!resolved.ok) return;
   await resolved.input.bindings[0]?.invoke({ prompt: "implement it", cwd: "/repo" });
@@ -104,17 +96,17 @@ test("configured danger-full-access reaches the shared Codex binding on the fres
 
 test("configured Codex sandbox mode survives the daemon/JSON rehydration boundary", async () => {
   const fake = fakeSpawn();
-  setWriteLoopBindingSourceDepsForTests({
+  const bindingDeps = {
     machineConfigPath: writeConfig("danger-full-access"),
     forceSnapshotAgentModelConfig: true,
     bindingSpawn: fake.spawn,
     codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-sandbox-sessions-")),
-  });
+  };
 
   // Round-trip the input through JSON as the daemon does across the IPC boundary, dropping any
   // live binding husks, then re-resolve.
   const rehydrated = JSON.parse(JSON.stringify(writeInput(codexContext))) as WriteLoopInput;
-  const resolved = resolveWriteLoopBindings(rehydrated);
+  const resolved = resolveWriteLoopBindings(rehydrated, bindingDeps);
   expect(resolved.ok).toBe(true);
   if (!resolved.ok) return;
   await resolved.input.bindings[0]?.invoke({ prompt: "implement it", cwd: "/repo" });

@@ -10,7 +10,7 @@ import type {
 import { resolveHarnessRoot } from "../../../shared/markdownlint-repair.ts";
 import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
-import { setWriteLoopBindingSourceDepsForTests } from "../daemon/daemon.ts";
+import type { WriteLoopBindingSourceDeps } from "../daemon/daemon.ts";
 import type { LogEvent, LogSink, PersistedRecord } from "../persistence/log-stream.ts";
 import type { openStateStore } from "../persistence/state-store.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
@@ -56,7 +56,7 @@ export const DEFAULT_AGENT_MODEL_CONFIG = {
   },
 };
 
-export function installWorkflowRunnerResumeProfile(): void {
+export function workflowRunnerResumeProfileDeps(): WriteLoopBindingSourceDeps {
   const profileHome = mkdtempSync(join(tmpdir(), "jarvis-workflow-runner-profile-"));
   const machinesDir = join(profileHome, "machines");
   const profileName = "workflow-runner-profile";
@@ -74,10 +74,10 @@ export function installWorkflowRunnerResumeProfile(): void {
   };
   writeFileSync(join(machinesDir, `${profileName}.json`), JSON.stringify({ models: { claude: claudeRoles } }));
   writeFileSync(join(profileHome, "config.json"), JSON.stringify({ machineProfile: profileName, agents: ["claude"] }));
-  setWriteLoopBindingSourceDepsForTests({
+  return {
     machineConfigPath: join(profileHome, "config.json"),
     machinesDir,
-  });
+  };
 }
 
 export const TWO_AGENTS = ["claude", "codex"] as const;

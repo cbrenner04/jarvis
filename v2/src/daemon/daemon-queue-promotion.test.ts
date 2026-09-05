@@ -13,9 +13,8 @@ import {
   type OwnershipKey,
   type PromoteQueuedRunDeps,
   promoteQueuedRunImpl,
-  resetWriteLoopBindingSourceDepsForTests,
-  setWriteLoopBindingSourceDepsForTests,
   WorktreeOwnershipRegistry,
+  type WriteLoopBindingSourceDeps,
 } from "./daemon.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
@@ -27,6 +26,7 @@ let memoryHeadroom: boolean;
 let profileHome: string;
 let machinesDir: string;
 let previousJarvisHome: string | undefined;
+let writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps;
 const MACHINE_PROFILE = "queue-promotion-profile";
 
 function rung(adapterModel: string) {
@@ -64,10 +64,10 @@ function installQueuePromotionProfile(codexImplement: string[]): void {
     join(profileHome, "config.json"),
     JSON.stringify({ machineProfile: MACHINE_PROFILE, agents: ["codex", "cursor"] }),
   );
-  setWriteLoopBindingSourceDepsForTests({
+  writeLoopBindingSourceDeps = {
     machineConfigPath: join(profileHome, "config.json"),
     machinesDir,
-  });
+  };
 }
 
 const AGENT_MODEL_CONFIG: AgentModelConfig = {
@@ -100,6 +100,7 @@ function startHandlers(settleDelayMs: number): void {
     failureReporter: () => {},
     hasMemoryHeadroom: () => memoryHeadroom,
     settleDelayMs,
+    writeLoopBindingSourceDeps,
   });
 }
 
@@ -117,7 +118,6 @@ beforeEach(() => {
 afterEach(async () => {
   fakeExecutor.abortAll();
   await flushBackgroundRuns(2);
-  resetWriteLoopBindingSourceDepsForTests();
   if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
   else process.env.JARVIS_HOME = previousJarvisHome;
   rmSync(profileHome, { recursive: true, force: true });
@@ -197,6 +197,7 @@ function createPromotionHarness(
     settleDelayMs: () => 0,
     settleState: { suppressedUntil: 0 },
     spawnWriteLoop,
+    writeLoopBindingSourceDeps,
     ...overrides,
   };
   return {

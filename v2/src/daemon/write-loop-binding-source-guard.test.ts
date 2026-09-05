@@ -4,11 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
-import {
-  resetWriteLoopBindingSourceDepsForTests,
-  resolveWriteLoopBindings,
-  setWriteLoopBindingSourceDepsForTests,
-} from "./daemon.ts";
+import { resolveWriteLoopBindings } from "./daemon.ts";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
 
@@ -88,21 +84,17 @@ test("daemon binding resolution re-loads from the machine profile unless the sna
     JSON.stringify({ machineProfile: "absent-profile", agents: ["claude"] }),
   );
 
-  setWriteLoopBindingSourceDepsForTests({ ...badProfileDeps, forceSnapshotAgentModelConfig: true });
-  try {
-    const resolved = resolveWriteLoopBindings(minimalWriteInput(context));
-    expect(resolved.ok).toBe(true);
-    if (resolved.ok) {
-      expect(resolved.input.bindings[0]?.id).toContain("stale-model");
-    }
-  } finally {
-    resetWriteLoopBindingSourceDepsForTests();
+  const resolved = resolveWriteLoopBindings(minimalWriteInput(context), {
+    ...badProfileDeps,
+    forceSnapshotAgentModelConfig: true,
+  });
+  expect(resolved.ok).toBe(true);
+  if (resolved.ok) {
+    expect(resolved.input.bindings[0]?.id).toContain("stale-model");
   }
 
-  setWriteLoopBindingSourceDepsForTests({ ...badProfileDeps, forceSnapshotAgentModelConfig: false });
-  try {
-    expect(resolveWriteLoopBindings(minimalWriteInput(context)).ok).toBe(false);
-  } finally {
-    resetWriteLoopBindingSourceDepsForTests();
-  }
+  expect(
+    resolveWriteLoopBindings(minimalWriteInput(context), { ...badProfileDeps, forceSnapshotAgentModelConfig: false })
+      .ok,
+  ).toBe(false);
 });

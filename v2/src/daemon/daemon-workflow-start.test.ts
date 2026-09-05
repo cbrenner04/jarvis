@@ -32,9 +32,8 @@ import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../test
 import {
   activeRunAcceptsKill,
   createRunControlHandlers,
-  resetWriteLoopBindingSourceDepsForTests,
-  setWriteLoopBindingSourceDepsForTests,
   WorktreeOwnershipRegistry,
+  type WriteLoopBindingSourceDeps,
 } from "./daemon.ts";
 
 const { createWriteStep } = writeStepFixtures();
@@ -839,6 +838,7 @@ test("second write-loop admission on a live handler resolves rungs from the edit
     adjudicator: rung("adj"),
     actuator: rung("act"),
   });
+  const writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps = {};
   const writeProfile = (implementModel: string) => {
     mkdirSync(machinesDir, { recursive: true });
     writeFileSync(
@@ -846,10 +846,8 @@ test("second write-loop admission on a live handler resolves rungs from the edit
       JSON.stringify({ models: { claude: claudeBundle(implementModel) } }),
     );
     writeFileSync(join(profileHome, "config.json"), JSON.stringify({ machineProfile, agents: ["claude"] }));
-    setWriteLoopBindingSourceDepsForTests({
-      machineConfigPath: join(profileHome, "config.json"),
-      machinesDir,
-    });
+    writeLoopBindingSourceDeps.machineConfigPath = join(profileHome, "config.json");
+    writeLoopBindingSourceDeps.machinesDir = machinesDir;
   };
 
   const staleConfig: AgentModelConfig = {
@@ -865,6 +863,7 @@ test("second write-loop admission on a live handler resolves rungs from the edit
     failureReporter: () => {},
     hasMemoryHeadroom: () => true,
     registry,
+    writeLoopBindingSourceDeps,
   });
 
   try {
@@ -891,7 +890,6 @@ test("second write-loop admission on a live handler resolves rungs from the edit
     expect(admitted[0]?.bindings[0]?.id).toContain("first-admission-model");
     expect(admitted[1]?.bindings[0]?.id).toContain("second-admission-model");
   } finally {
-    resetWriteLoopBindingSourceDepsForTests();
     if (previousHome === undefined) delete process.env.JARVIS_HOME;
     else process.env.JARVIS_HOME = previousHome;
     rmSync(profileHome, { recursive: true, force: true });

@@ -9,7 +9,13 @@ import type { IpcClient } from "../ipc/client";
 import type { LogReader } from "../persistence/log-stream.ts";
 import { truncateLogText } from "../persistence/log-stream.ts";
 import type { StateStore } from "../persistence/state-store.ts";
-import type { ActiveRun, OwnershipKey, PromotionSettleState, WorktreeOwnershipRegistry } from "./daemon.ts";
+import type {
+  ActiveRun,
+  OwnershipKey,
+  PromotionSettleState,
+  WorktreeOwnershipRegistry,
+  WriteLoopBindingSourceDeps,
+} from "./daemon.ts";
 import { WorktreeOwnershipRegistry as WorktreeOwnershipRegistryImpl } from "./daemon.ts";
 import type { NotificationWaitRegistry } from "./daemon-notification-wait.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
@@ -40,6 +46,7 @@ export type RunControlHandlerContextDeps = {
   staleResetCliDeps?: CliDeps;
   reconciledRunIds?: readonly string[];
   notificationWaitRegistry?: NotificationWaitRegistry;
+  writeLoopBindingSourceDeps?: WriteLoopBindingSourceDeps;
 };
 
 export type RunControlHandlerContext = {
@@ -62,6 +69,7 @@ export type RunControlHandlerContext = {
   checkMemoryHeadroom: () => boolean;
   settleDelayMs: () => number;
   settleState: PromotionSettleState;
+  writeLoopBindingSourceDeps?: WriteLoopBindingSourceDeps;
 };
 
 export function createRunControlHandlerContext(deps: RunControlHandlerContextDeps): RunControlHandlerContext {
@@ -92,8 +100,15 @@ export function createRunControlHandlerContext(deps: RunControlHandlerContextDep
   const workflowPromisesByEntryRunId = new Map<string, Promise<void>>();
   const pipelineWaitObserver = new PipelineWaitObserver();
   const store = bindPipelineWaitObserver(deps.stateStore, pipelineWaitObserver);
-  const { logReader, writeLoopExecutor, failureReporter, logsPath, operatorSessionId, intentFinalizationResumeDeps } =
-    deps;
+  const {
+    logReader,
+    writeLoopExecutor,
+    failureReporter,
+    logsPath,
+    operatorSessionId,
+    intentFinalizationResumeDeps,
+    writeLoopBindingSourceDeps,
+  } = deps;
   const checkMemoryHeadroom = deps.hasMemoryHeadroom ?? (() => hasMemoryHeadroom(resolveMachineProfile()));
   const injectedSettleDelayMs = deps.settleDelayMs;
   const settleDelayMs: () => number =
@@ -122,6 +137,7 @@ export function createRunControlHandlerContext(deps: RunControlHandlerContextDep
     checkMemoryHeadroom,
     settleDelayMs,
     settleState,
+    ...(writeLoopBindingSourceDeps !== undefined ? { writeLoopBindingSourceDeps } : {}),
   };
 }
 

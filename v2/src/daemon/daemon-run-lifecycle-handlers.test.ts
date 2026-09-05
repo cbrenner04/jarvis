@@ -7,7 +7,7 @@ import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns, loadRunOrThrow, mockWriteLoopInput, workflowSnapshot } from "../testing/run-control.ts";
 import { DEFAULT_AGENT_MODEL_CONFIG } from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import { resetWriteLoopBindingSourceDepsForTests, setWriteLoopBindingSourceDepsForTests } from "./daemon.ts";
+import type { WriteLoopBindingSourceDeps } from "./daemon.ts";
 import { createRunControlHandlerContext } from "./daemon-run-control-context.ts";
 import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 
@@ -310,10 +310,10 @@ test("resume admits a paused workflow write step with exact snapshot stepId", as
   );
   writeFileSync(join(profileHome, "config.json"), JSON.stringify({ machineProfile, agents: ["claude"] }));
   process.env.JARVIS_HOME = profileHome;
-  setWriteLoopBindingSourceDepsForTests({
+  const writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps = {
     machineConfigPath: join(profileHome, "config.json"),
     machinesDir,
-  });
+  };
   try {
     const ctx = createRunControlHandlerContext({
       stateStore,
@@ -322,6 +322,7 @@ test("resume admits a paused workflow write step with exact snapshot stepId", as
       failureReporter: () => {},
       hasMemoryHeadroom: () => memoryHeadroom,
       settleDelayMs: 0,
+      writeLoopBindingSourceDeps,
     });
     const handlers = createRunLifecycleHandlers(ctx, {
       handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
@@ -358,7 +359,6 @@ test("resume admits a paused workflow write step with exact snapshot stepId", as
     expect(resumedInputs[0]?.stepId).toBe("implement");
   } finally {
     localFake.abortAll();
-    resetWriteLoopBindingSourceDepsForTests();
     if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
     else process.env.JARVIS_HOME = previousJarvisHome;
     rmSync(profileHome, { recursive: true, force: true });
@@ -393,10 +393,10 @@ test("resume maps hidden ~shrink stepId to shrink role via snapshot base step", 
   );
   writeFileSync(join(profileHome, "config.json"), JSON.stringify({ machineProfile, agents: ["claude"] }));
   process.env.JARVIS_HOME = profileHome;
-  setWriteLoopBindingSourceDepsForTests({
+  const writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps = {
     machineConfigPath: join(profileHome, "config.json"),
     machinesDir,
-  });
+  };
   try {
     const ctx = createRunControlHandlerContext({
       stateStore,
@@ -405,6 +405,7 @@ test("resume maps hidden ~shrink stepId to shrink role via snapshot base step", 
       failureReporter: () => {},
       hasMemoryHeadroom: () => memoryHeadroom,
       settleDelayMs: 0,
+      writeLoopBindingSourceDeps,
     });
     const handlers = createRunLifecycleHandlers(ctx, {
       handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
@@ -441,7 +442,6 @@ test("resume maps hidden ~shrink stepId to shrink role via snapshot base step", 
     expect(resumedInputs[0]?.bindingResolution?.role).toBe("shrink");
   } finally {
     localFake.abortAll();
-    resetWriteLoopBindingSourceDepsForTests();
     if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
     else process.env.JARVIS_HOME = previousJarvisHome;
     rmSync(profileHome, { recursive: true, force: true });

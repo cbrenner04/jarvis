@@ -18,9 +18,8 @@ import {
   createRunControlHandlers,
   reconcileOrphanedRuns,
   recoverReconciledRuns,
-  resetWriteLoopBindingSourceDepsForTests,
-  setWriteLoopBindingSourceDepsForTests,
   startDaemonRuntime,
+  type WriteLoopBindingSourceDeps,
 } from "./daemon.ts";
 
 const dbPath = join(tmpdir(), `jarvis-reconciliation-${process.pid}.sqlite`);
@@ -816,6 +815,7 @@ test("recoverReconciledRuns auto-resume re-resolves write bindings from the edit
     adjudicator: rung("adj"),
     actuator: rung("act"),
   });
+  const writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps = {};
   const writeProfile = (implementModels: string[]) => {
     mkdirSync(machinesDir, { recursive: true });
     writeFileSync(
@@ -823,10 +823,8 @@ test("recoverReconciledRuns auto-resume re-resolves write bindings from the edit
       JSON.stringify({ models: { codex: codexBundle(implementModels) } }),
     );
     writeFileSync(join(profileHome, "config.json"), JSON.stringify({ machineProfile, agents: ["codex"] }));
-    setWriteLoopBindingSourceDepsForTests({
-      machineConfigPath: join(profileHome, "config.json"),
-      machinesDir,
-    });
+    writeLoopBindingSourceDeps.machineConfigPath = join(profileHome, "config.json");
+    writeLoopBindingSourceDeps.machinesDir = machinesDir;
   };
 
   const snapshotConfig: AgentModelConfig = {
@@ -844,6 +842,7 @@ test("recoverReconciledRuns auto-resume re-resolves write bindings from the edit
     writeLoopExecutor: fakeExecutor.executor,
     failureReporter: () => {},
     hasMemoryHeadroom: () => true,
+    writeLoopBindingSourceDeps,
   });
 
   try {
@@ -884,7 +883,6 @@ test("recoverReconciledRuns auto-resume re-resolves write bindings from the edit
     expect(admitted).toEqual(["codex/recovery-new-model/recovery-new-model"]);
   } finally {
     fakeExecutor.abortAll();
-    resetWriteLoopBindingSourceDepsForTests();
     store.close();
     removeOrchestrationStore(recoveryDb);
     if (previousHome === undefined) delete process.env.JARVIS_HOME;

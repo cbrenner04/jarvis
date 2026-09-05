@@ -16,7 +16,7 @@ import { join } from "node:path";
 import type { InvocationResult } from "../../../shared/invocation/execute.ts";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
-import { createRunControlHandlers, resetWriteLoopBindingSourceDepsForTests } from "../daemon/daemon.ts";
+import { createRunControlHandlers } from "../daemon/daemon.ts";
 import { stageArtifactKey } from "../daemon/pipeline-stage-dispatch.ts";
 import { resolveStageWorkflowSteps } from "../daemon/pipeline-stage-resolve.ts";
 import { composeRunOperatorError, findTerminalLogRecord } from "../daemon/run-operator-error.ts";
@@ -41,12 +41,12 @@ import {
   doneBindingFactory,
   externalWorktreeBinding,
   initGitWorkspace,
-  installWorkflowRunnerResumeProfile,
   REVIEW_MD_LINT_FIXTURES,
   seedFailedIntentReviewResumeRun,
   skipReviewWithoutHarnessMarkdownlint,
   stageReviewedIntent,
   TestLogSink,
+  workflowRunnerResumeProfileDeps,
   writeLintCleanIntentStageFile,
   writeLintCleanPlanStage,
 } from "./workflow-runner.test-support.ts";
@@ -337,7 +337,6 @@ describe("executeWorkflow review dispatch", () => {
       // Clear the collision so promotion can succeed on resume, then republish through the
       // daemon's populated-stage resume path — never `spawnWriteLoop`.
       rmSync(join(durableDir, "example.md"));
-      installWorkflowRunnerResumeProfile();
       let writeLoopExecutorCalls = 0;
       let commitCalls = 0;
       let publishCalls = 0;
@@ -350,6 +349,7 @@ describe("executeWorkflow review dispatch", () => {
         failureReporter: () => undefined,
         hasMemoryHeadroom: () => true,
         settleDelayMs: 0,
+        writeLoopBindingSourceDeps: workflowRunnerResumeProfileDeps(),
         intentFinalizationResumeDeps: {
           completionCommitter: async () => {
             commitCalls += 1;
@@ -381,7 +381,6 @@ describe("executeWorkflow review dispatch", () => {
         expect(existsSync(join(workspace, ".jarvis-intent-stage", "example.md"))).toBe(false);
       } finally {
         handlers.close();
-        resetWriteLoopBindingSourceDepsForTests();
       }
     });
   });

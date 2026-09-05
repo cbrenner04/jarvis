@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { locateMarkerSlice } from "../structural-test-locator.ts";
+import { locateFrontmatterField } from "../structural-test-locator.ts";
 import { loadPromptRegistry } from "./registry.ts";
 import type { PromptPlaceholderDeclaration } from "./types.ts";
 
@@ -37,21 +37,6 @@ function formatPlaceholders(declarations: readonly PromptPlaceholderDeclaration[
   return `[${declarations.map((declaration) => `${declaration.name}:${declaration.type}${declaration.required ? "!" : ""}`).join(", ")}]`;
 }
 
-function readPlaceholdersField(sourcePath: string): string {
-  const raw = readFileSync(sourcePath, "utf8");
-  const frontmatter = locateMarkerSlice({
-    text: raw,
-    start: "---\n",
-    end: "\n---\n",
-    searchKey: `frontmatter in ${sourcePath}`,
-  });
-  return locateMarkerSlice({
-    text: frontmatter,
-    pattern: /^placeholders:\s*(.+)$/m,
-    searchKey: `placeholders in ${sourcePath}`,
-  }).trim();
-}
-
 describe("plan review role growth budget", () => {
   const registry = loadPromptRegistry();
 
@@ -65,7 +50,9 @@ describe("plan review role growth budget", () => {
   test("plan review role placeholders unchanged", () => {
     for (const id of PLAN_REVIEW_ROLE_IDS) {
       const artifact = registry.getById(id);
-      expect(readPlaceholdersField(artifact.sourcePath)).toBe(formatPlaceholders(artifact.metadata.placeholders));
+      expect(
+        locateFrontmatterField(readFileSync(artifact.sourcePath, "utf8"), "placeholders", artifact.sourcePath),
+      ).toBe(formatPlaceholders(artifact.metadata.placeholders));
     }
   });
 });

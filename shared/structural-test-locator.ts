@@ -12,10 +12,6 @@ export class StructuralTestLocatorError extends Error {
   }
 }
 
-function throwLocatorError(kind: StructuralTestLocatorKind, searchKey: string): never {
-  throw new StructuralTestLocatorError(kind, searchKey);
-}
-
 export type MarkerSliceInput =
   | {
       text: string;
@@ -34,11 +30,11 @@ export function locateMarkerSlice(input: MarkerSliceInput): string {
     const match = input.text.match(input.pattern);
     // @mutate shared/structural-test-locator.ts "match === null" -> "match !== null"
     if (match === null) {
-      throwLocatorError("marker-slice", input.searchKey ?? input.pattern.source);
+      throw new StructuralTestLocatorError("marker-slice", input.searchKey ?? input.pattern.source);
     }
     const capture = match[1] ?? match[0];
     if (capture === undefined || capture === "") {
-      throwLocatorError("marker-slice", input.searchKey ?? input.pattern.source);
+      throw new StructuralTestLocatorError("marker-slice", input.searchKey ?? input.pattern.source);
     }
     return capture;
   }
@@ -46,13 +42,13 @@ export function locateMarkerSlice(input: MarkerSliceInput): string {
   const startIndex = input.text.indexOf(input.start);
   // @mutate shared/structural-test-locator.ts "startIndex === -1" -> "startIndex !== -1"
   if (startIndex === -1) {
-    throwLocatorError("marker-slice", input.searchKey ?? input.start);
+    throw new StructuralTestLocatorError("marker-slice", input.searchKey ?? input.start);
   }
   const sliceStart = startIndex + input.start.length;
   const endIndex = input.text.indexOf(input.end, sliceStart);
   // @mutate shared/structural-test-locator.ts "endIndex === -1" -> "endIndex !== -1"
   if (endIndex === -1) {
-    throwLocatorError("marker-slice", input.searchKey ?? input.end);
+    throw new StructuralTestLocatorError("marker-slice", input.searchKey ?? input.end);
   }
   return input.text.slice(sliceStart, endIndex);
 }
@@ -68,16 +64,13 @@ export function locateSymbolSlice(input: SymbolSliceInput): string {
   const owner = input.candidates.find((text) => text.includes(input.start));
   // @mutate shared/structural-test-locator.ts "owner === undefined" -> "owner !== undefined"
   if (owner === undefined) {
-    throwLocatorError("symbol-slice", input.searchKey ?? input.start);
+    throw new StructuralTestLocatorError("symbol-slice", input.searchKey ?? input.start);
   }
   const from = owner.indexOf(input.start);
-  if (from === -1) {
-    throwLocatorError("symbol-slice", input.searchKey ?? input.start);
-  }
   const toIndex = owner.indexOf(input.end, from + input.start.length);
   // @mutate shared/structural-test-locator.ts "toIndex === -1" -> "toIndex !== -1"
   if (toIndex === -1) {
-    throwLocatorError("symbol-slice", input.searchKey ?? input.end);
+    throw new StructuralTestLocatorError("symbol-slice", input.searchKey ?? input.end);
   }
   return owner.slice(from, toIndex);
 }
@@ -86,7 +79,21 @@ export function locateDiscoveredFile(discovered: Readonly<Record<string, string>
   const content = discovered[relativePath];
   // @mutate shared/structural-test-locator.ts "content === undefined" -> "content !== undefined"
   if (content === undefined) {
-    throwLocatorError("discovered-file", relativePath);
+    throw new StructuralTestLocatorError("discovered-file", relativePath);
   }
   return content;
+}
+
+export function locateFrontmatterField(source: string, field: string, sourceLabel: string): string {
+  const frontmatter = locateMarkerSlice({
+    text: source,
+    start: "---\n",
+    end: "\n---\n",
+    searchKey: `frontmatter in ${sourceLabel}`,
+  });
+  return locateMarkerSlice({
+    text: frontmatter,
+    pattern: new RegExp(`^${field}:\\s*(.+)$`, "m"),
+    searchKey: `${field} in ${sourceLabel}`,
+  }).trim();
 }

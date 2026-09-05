@@ -15,15 +15,13 @@ import {
   renderReviewDebateCyclePrompts,
 } from "./review-implement.ts";
 
-const IMPLEMENT_REVIEW_CRITIC_ID = "implement.prompt.review.critic";
-
 const tempDirs: string[] = [];
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-function implementReviewBranchDiffProse(body: string): string {
+export function implementReviewBranchDiffProse(body: string): string {
   return locateMarkerSlice({
     text: body,
     start: "## Branch diff\n\n",
@@ -32,7 +30,7 @@ function implementReviewBranchDiffProse(body: string): string {
   });
 }
 
-function mergeBaseDiffMarkersFromProse(prose: string): readonly string[] {
+export function mergeBaseDiffMarkersFromProse(prose: string): readonly string[] {
   return [
     locateMarkerSlice({ text: prose, pattern: /(merge-base branch diff)/, searchKey: "merge-base branch diff" }),
     locateMarkerSlice({
@@ -81,7 +79,7 @@ function reviewContext(): ReviewDebateRenderContext {
 
 describe("renderPatchReviewCriticPrompt branch diff", () => {
   const registry = loadPromptRegistry();
-  const branchDiffProse = implementReviewBranchDiffProse(registry.getById(IMPLEMENT_REVIEW_CRITIC_ID).body);
+  const branchDiffProse = implementReviewBranchDiffProse(registry.getById("implement.prompt.review.critic").body);
   const MERGE_BASE_DIFF_MARKERS = mergeBaseDiffMarkersFromProse(branchDiffProse);
 
   test("renders stat, changed paths, and merge-base unified diff for critic and debate roles", async () => {

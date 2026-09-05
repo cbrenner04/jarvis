@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { locateMarkerSlice } from "../structural-test-locator.ts";
 import { loadPromptRegistry } from "./registry.ts";
+import { implementReviewBranchDiffProse, mergeBaseDiffMarkersFromProse } from "./review-implement.test.ts";
 
-const PATCH_REVIEW_REFERENCE_ROLE = "adversary";
-const IMPLEMENT_REVIEW_REFERENCE_ROLE = "adversary";
+const REFERENCE_ROLE = "adversary";
 
 function patchReviewBranchDiffProse(body: string): string {
   return locateMarkerSlice({
@@ -11,15 +11,6 @@ function patchReviewBranchDiffProse(body: string): string {
     start: "## Branch change summary\n\n",
     end: "\n\n<<<DIFF_BEGIN>>>",
     searchKey: "patch review branch change summary prose",
-  });
-}
-
-function implementReviewBranchDiffProse(body: string): string {
-  return locateMarkerSlice({
-    text: body,
-    start: "## Branch diff\n\n",
-    end: "\n\n<<<DIFF_BEGIN>>>",
-    searchKey: "implement review branch diff prose",
   });
 }
 
@@ -39,22 +30,6 @@ function patchSummaryOnlyMarkersFromProse(prose: string): readonly string[] {
   ];
 }
 
-function mergeBaseDiffMarkersFromProse(prose: string): readonly string[] {
-  return [
-    locateMarkerSlice({ text: prose, pattern: /(merge-base branch diff)/, searchKey: "merge-base branch diff" }),
-    locateMarkerSlice({
-      text: prose,
-      pattern: /`(git merge-base <base> HEAD)`/,
-      searchKey: "git merge-base <base> HEAD",
-    }).replaceAll("`", ""),
-    locateMarkerSlice({
-      text: prose,
-      pattern: /`(git diff <mergeBase> HEAD)`/,
-      searchKey: "git diff <mergeBase> HEAD",
-    }).replaceAll("`", ""),
-  ];
-}
-
 /**
  * v1 patch review and v2 implement review share role names but must render distinct
  * branch-diff prose: patch stays summary-only (`git diff --stat`, not a unified diff);
@@ -63,8 +38,8 @@ function mergeBaseDiffMarkersFromProse(prose: string): readonly string[] {
  */
 describe("patch vs implement review prompt registry-body divergence", () => {
   const registry = loadPromptRegistry();
-  const patchReferenceBody = registry.getById(`patch.prompt.review.${PATCH_REVIEW_REFERENCE_ROLE}`).body;
-  const implementReferenceBody = registry.getById(`implement.prompt.review.${IMPLEMENT_REVIEW_REFERENCE_ROLE}`).body;
+  const patchReferenceBody = registry.getById(`patch.prompt.review.${REFERENCE_ROLE}`).body;
+  const implementReferenceBody = registry.getById(`implement.prompt.review.${REFERENCE_ROLE}`).body;
   const PATCH_SUMMARY_ONLY_MARKERS = patchSummaryOnlyMarkersFromProse(patchReviewBranchDiffProse(patchReferenceBody));
   const MERGE_BASE_DIFF_MARKERS = mergeBaseDiffMarkersFromProse(implementReviewBranchDiffProse(implementReferenceBody));
 

@@ -1,34 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { locateMarkerSlice } from "../structural-test-locator.ts";
 import { loadPromptRegistry } from "./registry.ts";
+import { implementReviewBranchDiffProse, mergeBaseDiffMarkersFromProse } from "./review-implement.test.ts";
 
-const IMPLEMENT_REVIEW_CRITIC_ID = "implement.prompt.review.critic";
 const IMPLEMENT_REVIEW_ADVERSARY_ID = "implement.prompt.review.adversary";
-
-function implementReviewBranchDiffProse(body: string): string {
-  return locateMarkerSlice({
-    text: body,
-    start: "## Branch diff\n\n",
-    end: "\n\n<<<DIFF_BEGIN>>>",
-    searchKey: "implement review branch diff prose",
-  });
-}
-
-function mergeBaseDiffMarkersFromProse(prose: string): readonly string[] {
-  return [
-    locateMarkerSlice({ text: prose, pattern: /(merge-base branch diff)/, searchKey: "merge-base branch diff" }),
-    locateMarkerSlice({
-      text: prose,
-      pattern: /`(git merge-base <base> HEAD)`/,
-      searchKey: "git merge-base <base> HEAD",
-    }).replaceAll("`", ""),
-    locateMarkerSlice({
-      text: prose,
-      pattern: /`(git diff <mergeBase> HEAD)`/,
-      searchKey: "git diff <mergeBase> HEAD",
-    }).replaceAll("`", ""),
-  ];
-}
 
 function adversaryIdentifyMarkers(adversaryBody: string): readonly string[] {
   const rules = locateMarkerSlice({
@@ -46,7 +21,7 @@ function adversaryIdentifyMarkers(adversaryBody: string): readonly string[] {
 
 describe("implement review role contract preservation", () => {
   const registry = loadPromptRegistry();
-  const branchDiffProse = implementReviewBranchDiffProse(registry.getById(IMPLEMENT_REVIEW_CRITIC_ID).body);
+  const branchDiffProse = implementReviewBranchDiffProse(registry.getById("implement.prompt.review.critic").body);
   const MERGE_BASE_DIFF_MARKERS = mergeBaseDiffMarkersFromProse(branchDiffProse);
   const ADVERSARY_IDENTIFY_LIST_MARKERS = adversaryIdentifyMarkers(
     registry.getById(IMPLEMENT_REVIEW_ADVERSARY_ID).body,

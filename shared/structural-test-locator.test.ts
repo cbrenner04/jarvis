@@ -3,6 +3,7 @@ import {
   locateDiscoveredFile,
   locateMarkerSlice,
   locateSymbolSlice,
+  type StructuralTestLocatorKind,
   StructuralTestLocatorError,
 } from "./structural-test-locator.ts";
 
@@ -29,6 +30,15 @@ function silentDiscoveredFile(discovered: Readonly<Record<string, string>>, rela
   return discovered[relativePath] ?? "";
 }
 
+function expectLocatorMiss(fn: () => unknown, kind: StructuralTestLocatorKind, searchKey: string): void {
+  try {
+    fn();
+    expect.unreachable();
+  } catch (error) {
+    expect(error).toMatchObject({ kind, searchKey });
+  }
+}
+
 describe("structural test locators", () => {
   test("marker-slice fails loudly when bounds are absent", () => {
     const text = "alpha <<<START>>> body <<<END>>> omega";
@@ -42,22 +52,17 @@ describe("structural test locators", () => {
     expect(absentEnd).toBe("");
     expect(absentEnd).not.toContain("never-here");
 
-    expect(() => locateMarkerSlice({ text, start: "<<<MISSING>>>", end: "<<<END>>>" })).toThrow(
-      StructuralTestLocatorError,
+    expectLocatorMiss(
+      () => locateMarkerSlice({ text, start: "<<<MISSING>>>", end: "<<<END>>>" }),
+      "marker-slice",
+      "<<<MISSING>>>",
     );
-    expect(() => locateMarkerSlice({ text, start: "<<<START>>>", end: "<<<MISSING>>>" })).toThrow(
-      StructuralTestLocatorError,
+    expectLocatorMiss(
+      () => locateMarkerSlice({ text, start: "<<<START>>>", end: "<<<MISSING>>>" }),
+      "marker-slice",
+      "<<<MISSING>>>",
     );
-    expect(() => locateMarkerSlice({ text, pattern: /<<<MISSING>>>/ })).toThrow(StructuralTestLocatorError);
-
-    try {
-      locateMarkerSlice({ text, start: "<<<MISSING>>>", end: "<<<END>>>" });
-      expect.unreachable();
-    } catch (error) {
-      expect(error).toBeInstanceOf(StructuralTestLocatorError);
-      expect((error as StructuralTestLocatorError).kind).toBe("marker-slice");
-      expect((error as StructuralTestLocatorError).searchKey).toBe("<<<MISSING>>>");
-    }
+    expectLocatorMiss(() => locateMarkerSlice({ text, pattern: /<<<MISSING>>>/ }), "marker-slice", "<<<MISSING>>>");
   });
 
   test("symbol-slice fails loudly when the start anchor is absent", () => {
@@ -76,26 +81,16 @@ describe("structural test locators", () => {
     expect(absent).toBe("");
     expect(absent).not.toContain("never-here");
 
-    expect(() =>
-      locateSymbolSlice({
-        candidates,
-        start: "const missingAnchor",
-        end: "const handleWriteLoopStart",
-      }),
-    ).toThrow(StructuralTestLocatorError);
-
-    try {
-      locateSymbolSlice({
-        candidates,
-        start: "const missingAnchor",
-        end: "const handleWriteLoopStart",
-      });
-      expect.unreachable();
-    } catch (error) {
-      expect(error).toBeInstanceOf(StructuralTestLocatorError);
-      expect((error as StructuralTestLocatorError).kind).toBe("symbol-slice");
-      expect((error as StructuralTestLocatorError).searchKey).toBe("const missingAnchor");
-    }
+    expectLocatorMiss(
+      () =>
+        locateSymbolSlice({
+          candidates,
+          start: "const missingAnchor",
+          end: "const handleWriteLoopStart",
+        }),
+      "symbol-slice",
+      "const missingAnchor",
+    );
   });
 
   test("discovered-file fails loudly when the path is missing", () => {
@@ -108,15 +103,10 @@ describe("structural test locators", () => {
     expect(absent).toBe("");
     expect(absent).not.toContain("never-here");
 
-    expect(() => locateDiscoveredFile(discovered, "shared/prompts/missing.ts")).toThrow(StructuralTestLocatorError);
-
-    try {
-      locateDiscoveredFile(discovered, "shared/prompts/missing.ts");
-      expect.unreachable();
-    } catch (error) {
-      expect(error).toBeInstanceOf(StructuralTestLocatorError);
-      expect((error as StructuralTestLocatorError).kind).toBe("discovered-file");
-      expect((error as StructuralTestLocatorError).searchKey).toBe("shared/prompts/missing.ts");
-    }
+    expectLocatorMiss(
+      () => locateDiscoveredFile(discovered, "shared/prompts/missing.ts"),
+      "discovered-file",
+      "shared/prompts/missing.ts",
+    );
   });
 });

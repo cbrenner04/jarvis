@@ -60,14 +60,7 @@ function markdownSection(body: string, heading: string): string {
     });
   }
   const endLine = lines.findIndex((line, index) => index > startLine && /^##\s/u.test(line ?? ""));
-  const section = lines.slice(startLine + 1, endLine === -1 ? undefined : endLine).join("\n");
-  const wrapped = `<<<SECTION>>>\n${section}\n<<<END>>>`;
-  return locateMarkerSlice({
-    text: wrapped,
-    start: "<<<SECTION>>>\n",
-    end: "\n<<<END>>>",
-    searchKey: heading,
-  });
+  return lines.slice(startLine + 1, endLine === -1 ? undefined : endLine).join("\n");
 }
 
 function sectionBulletLines(body: string, heading: string, checkbox: boolean): string[] {
@@ -81,9 +74,7 @@ function optionalSectionBulletLines(body: string, heading: string, checkbox: boo
   try {
     return sectionBulletLines(body, heading, checkbox);
   } catch (error) {
-    if (error instanceof StructuralTestLocatorError && error.kind === "marker-slice" && error.searchKey === heading) {
-      return [];
-    }
+    if (error instanceof StructuralTestLocatorError && error.searchKey === heading) return [];
     throw error;
   }
 }
@@ -118,17 +109,6 @@ function bulletsForSplitSurface(
   return lines.filter(
     (line) => bulletSurfaces(line)[0] === surface || (boundaryIndex === 0 && bulletSurfaces(line).length === 0),
   );
-}
-
-function expectedChildSectionBullets(
-  parentBody: string,
-  parentSlug: string,
-  surface: ModuleBoundarySurface,
-  boundaryIndex: number,
-  section: (typeof PRESERVED_SECTIONS)[number],
-): string[] {
-  const parentLines = survivingParentBullets(parentBody, parentSlug, section.heading, section.checkbox);
-  return bulletsForSplitSurface(parentLines, surface, boundaryIndex);
 }
 
 function survivingParentBullets(body: string, parentSlug: string, heading: string, checkbox: boolean): string[] {
@@ -234,12 +214,10 @@ describe("module boundary surfaces", () => {
         if (expectedFile === undefined) throw new Error(`missing expected file for ${surface}`);
         const body = readFileSync(join(dir, expectedFile), "utf8");
         for (const section of PRESERVED_SECTIONS) {
-          const expectedBullets = expectedChildSectionBullets(
-            parentBody,
-            fixture.parentSlug,
+          const expectedBullets = bulletsForSplitSurface(
+            survivingParentBullets(parentBody, fixture.parentSlug, section.heading, section.checkbox),
             surface,
             boundaryIndex,
-            section,
           );
           if (expectedBullets.length === 0) {
             expect(optionalSectionBulletLines(body, section.heading, section.checkbox)).toEqual([]);

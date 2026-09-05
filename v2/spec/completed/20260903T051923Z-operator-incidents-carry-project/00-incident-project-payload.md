@@ -34,8 +34,8 @@
 - [x] `v2/src/daemon/operator-incidents.test.ts` test `pipeline and stage incidents emit project from entry runs and null when unowned` drives `deriveOperatorIncidents` on pipeline-terminal and stage-settlement-wedged fixtures with one attributable entry run (that run's `project`), fixtures with no attributable entry run or conflicting entry-run projects (`project: null`), and gate-only `pipeline-awaiting-approval` from `seedActionableDerivationFixtures` (`project: null`); it fails against pre-fix derivation omitting `project`.
 - [x] `v2/src/daemon/operator-notification.test.ts` test `deriving project does not increase store calls` seeds `seedActionableDerivationFixtures`, instruments store access with `instrumentStageAttributedLookups` during `deriveOperatorIncidents`, and asserts `{ loadRunsByIdsCount: 1, findRunsByInvocationIdsCount: 1 }`; it fails against pre-fix if project derivation adds per-incident lookups.
 - [x] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

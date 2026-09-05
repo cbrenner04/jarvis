@@ -207,3 +207,35 @@ socketTest("close() propagates a server.close() error and still cleans up the so
 
   closeSpy.mockRestore();
 });
+
+/** One health round-trip against `path`, returning the response result. */
+async function probeHealth(path: string): Promise<unknown> {
+  const client = await connectIpcClient(path);
+  try {
+    client.send(request("health-probe", "health"));
+    const frame = await client.nextFrame();
+    return frame.kind === "response" ? frame.result : frame;
+  } finally {
+    client.close();
+  }
+}
+
+// A live daemon's socket must survive a second daemon start. Unlinking it unconditionally left
+// the running daemon holding a bound-but-unlinked inode: it kept serving existing connections
+// while every new connect() resolved by path and got ENOENT, stranding the whole machine.
+socketTest("startIpcServer refuses to replace a socket a live server is listening on", async () => {
+  const path = join(tmpdir(), `jarvis-ipc-live-${process.pid}.sock`);
+  rmSync(path, { force: true });
+  const incumbent = await startIpcServer(path, {
+    health: () => ({ kind: "response", result: { ok: true } }),
+  });
+  try {
+    expect(startIpcServer(path)).rejects.toThrow(/already listening/);
+    // The incumbent's directory entry survives, so clients can still reach it.
+    expect(existsSync(path)).toBe(true);
+    expect(await probeHealth(path)).toEqual({ ok: true });
+  } finally {
+    await incumbent.close();
+    rmSync(path, { force: true });
+  }
+});

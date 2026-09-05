@@ -77,7 +77,7 @@ function readPipelineListResult(value: unknown): { pipelines: unknown[] } | unde
 
 export type PipelineMutationOutcome =
   | { kind: "applied" }
-  | { kind: "resumed" }
+  | { kind: "resumed"; pipelineId: string }
   | { kind: "refused"; reason: string; branchKeys?: string[] };
 
 function parsePipelineMutationOutcome(
@@ -85,8 +85,13 @@ function parsePipelineMutationOutcome(
   successKind: "applied" | "resumed",
 ): PipelineMutationOutcome | undefined {
   if (typeof value !== "object" || value === null) return undefined;
-  const record = value as { kind?: unknown; reason?: unknown; branchKeys?: unknown };
-  if (record.kind === successKind) return { kind: successKind };
+  const record = value as { kind?: unknown; reason?: unknown; branchKeys?: unknown; pipelineId?: unknown };
+  if (record.kind === successKind) {
+    if (successKind === "resumed" && !isNonEmptyString(record.pipelineId)) return undefined;
+    return successKind === "resumed"
+      ? { kind: "resumed", pipelineId: record.pipelineId as string }
+      : { kind: "applied" };
+  }
   if (record.kind === "refused" && typeof record.reason === "string") {
     const branchKeys =
       record.reason === "branch_resume_required" && Array.isArray(record.branchKeys)
@@ -574,6 +579,8 @@ async function runPipelineMutationCommand(
       if (outcome.branchKeys !== undefined) {
         io.stderr(`${outcome.branchKeys.join("\n")}\n`);
       }
+    } else if (outcome.kind === "resumed" && successKind === "resumed") {
+      io.stdout(`${outcome.pipelineId}\n`);
     }
     // Mutation checkpoint: returning 0 unconditionally must turn the refused-decision
     // exit-code tests RED.

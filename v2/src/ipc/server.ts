@@ -1,5 +1,5 @@
-import { rmSync } from "node:fs";
-import { createServer, type Server, type Socket } from "node:net";
+import { existsSync, rmSync } from "node:fs";
+import { connect, createServer, type Server, type Socket } from "node:net";
 import { promisify } from "node:util";
 import { encodeFrame, FrameDecoder } from "./codec.ts";
 import type { ErrorFrame, IpcFrame, ResponseFrame, StreamDataFrame, StreamEndFrame } from "./types.ts";
@@ -246,12 +246,80 @@ export type IpcServer = {
   close(options?: { drainTimeoutMs?: number }): Promise<void>;
 };
 
-export function startIpcServer(
+/** How a socket path responds to a connect probe. */
+export type SocketLiveness = "live" | "stale" | "absent";
+
+/** Raised instead of unlinking a socket path a live daemon is still serving. */
+export class DaemonSocketInUseError extends Error {
+  readonly socketPath: string;
+
+  constructor(socketPath: string) {
+    super(
+      `A daemon is already listening on ${socketPath}. ` + `Refusing to replace it — stop the running daemon first.`,
+    );
+    this.name = "DaemonSocketInUseError";
+    this.socketPath = socketPath;
+  }
+}
+
+const LIVENESS_PROBE_TIMEOUT_MS = 250;
+
+/**
+ * Classify a socket path by attempting a connection.
+ *
+ * `absent` when nothing is at the path, `stale` when the entry exists but nothing accepts
+ * (ECONNREFUSED — a dead daemon's leftover), `live` when a peer accepts or is too busy to answer
+ * within the probe timeout.
+ */
+export function probeSocketLiveness(socketPath: string): Promise<SocketLiveness> {
+  if (!existsSync(socketPath)) {
+    return Promise.resolve("absent");
+  }
+  return new Promise((resolve) => {
+    const socket = connect(socketPath);
+    let settled = false;
+    const settle = (liveness: SocketLiveness): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(liveness);
+    };
+    const timer = setTimeout(() => settle("live"), LIVENESS_PROBE_TIMEOUT_MS);
+    socket.once("connect", () => settle("live"));
+    socket.once("error", (err: NodeJS.ErrnoException) => {
+      settle(err.code === "ECONNREFUSED" || err.code === "ENOENT" ? "stale" : "live");
+    });
+  });
+}
+
+/**
+ * Remove a socket path only when no live daemon is listening on it.
+ *
+ * Unlinking unconditionally makes a healthy peer permanently unreachable: it keeps the bound
+ * inode and serves existing connections, but every later `connect()` resolves by path and gets
+ * ENOENT. A connect probe that times out is treated as live (fail-safe) — a saturated daemon is
+ * still serving, and must not be unlinked out of existence.
+ */
+export async function removeStaleSocketPath(
+  socketPath: string,
+  probe: (path: string) => Promise<SocketLiveness> = probeSocketLiveness,
+): Promise<void> {
+  const liveness = await probe(socketPath);
+  if (liveness === "live") {
+    throw new DaemonSocketInUseError(socketPath);
+  }
+  rmSync(socketPath, { force: true });
+}
+
+export async function startIpcServer(
   socketPath: string,
   handlers?: Record<string, RpcHandler>,
   streamHandler?: StreamHandler,
 ): Promise<IpcServer> {
-  rmSync(socketPath, { force: true });
+  await removeStaleSocketPath(socketPath);
 
   const activeSockets = new Set<Socket>();
   let acceptingConnections = true;
@@ -289,6 +357,11 @@ export function startIpcServer(
               throw drainResult.reason;
             }
           } finally {
+            // Note: `server.close()` already unlinks by path, and node keys that on the path
+            // rather than the inode it created — so a socket force-rebound by a successor is
+            // removed by node before this runs. Guarding here would be inert; the durable
+            // protection is the start-side liveness check, which stops the replacement from
+            // happening at all.
             rmSync(socketPath, { force: true });
           }
         },

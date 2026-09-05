@@ -17,11 +17,11 @@ Rows `shr-rigb-body-baselines` and `shr-rigb-role-placeholders` anchor growth an
 
 ## Acceptance criteria
 
-- [ ] `shared/prompts/review-implement-growth-budget.test.ts` test `implement review role body growth stays within budget` compares registry body lengths against the exported baseline constants without a duplicated private baseline map; it fails against the pre-fix `IMPLEMENT_REVIEW_ROLE_BASELINES` object literal and passes after re-key.
-- [ ] `shared/prompts/review-implement-growth-budget.test.ts` test `implement review role placeholders unchanged` reads placeholders from each artifact's committed frontmatter via a loud-failure helper rather than a hand-maintained expected map; it fails against the pre-fix `IMPLEMENT_REVIEW_ROLE_PLACEHOLDERS` literal map and passes after re-key.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:shared` passes.
-- [ ] `bun run test:integration:shared` passes.
+- [x] `shared/prompts/review-implement-growth-budget.test.ts` test `implement review role body growth stays within budget` compares registry body lengths against the exported baseline constants without a duplicated private baseline map; it fails against the pre-fix `IMPLEMENT_REVIEW_ROLE_BASELINES` object literal and passes after re-key.
+- [x] `shared/prompts/review-implement-growth-budget.test.ts` test `implement review role placeholders unchanged` reads placeholders from each artifact's committed frontmatter via a loud-failure helper rather than a hand-maintained expected map; it fails against the pre-fix `IMPLEMENT_REVIEW_ROLE_PLACEHOLDERS` literal map and passes after re-key.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:shared` passes.
+- [x] `bun run test:integration:shared` passes.
 
 ## Documentation updates
 

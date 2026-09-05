@@ -280,7 +280,13 @@ describe("plan ready-intent output routing", () => {
       worktree: { git: false, localPath: externalPlanPath },
       landing: {
         kind: "plan-tree",
-        inputs: { sourceRoot: root, paths: [realpathSync(externalReadyIntent)], consumeFrom: "source" },
+        // The external home, not the project root: consumption skips any input not inside
+        // `sourceRoot`, so recording the project root here silently never consumes the input.
+        inputs: {
+          sourceRoot: realpathSync(join(jarvisRoot, "specs", safeId, "ready-intents")),
+          paths: [realpathSync(externalReadyIntent)],
+          consumeFrom: "source",
+        },
       },
     });
   });

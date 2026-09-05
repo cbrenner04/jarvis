@@ -1,6 +1,6 @@
 # Pipeline resume owns the failed plan-lane preamble
 
-- [ ] [00 - Failed plan resume harness preamble](./00-failed-plan-resume-harness-preamble.md)
+- [x] [00 - Failed plan resume harness preamble](./00-failed-plan-resume-harness-preamble.md)
 - [ ] [01 - Failed plan resume staged-file paths](./01-failed-plan-resume-staged-file-paths.md)
 - [ ] [02 - Failed plan resume disposition reporting](./02-failed-plan-resume-disposition-reporting.md)
 

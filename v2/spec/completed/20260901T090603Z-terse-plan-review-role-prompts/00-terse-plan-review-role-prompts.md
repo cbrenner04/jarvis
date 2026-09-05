@@ -44,7 +44,7 @@ Artifact body bytes after frontmatter (`registry.getById(...).artifact.body.leng
 - [x] `shared/prompts/review-profile.test.ts` stays green.
 - [x] `v1/test/prompts/rendered-snapshots.test.ts` stays green against regenerated revision-keyed fixtures for `plan.prompt.review.adversary`, `plan.prompt.review.advocate`, `plan.prompt.review.adjudicator`, and `plan.prompt.review-actuator`.
 - [x] `bun run typecheck` passes.
-- [ ] `bun run test` passes.
+- [x] `bun run test` passes.
 
 ## Documentation updates
 

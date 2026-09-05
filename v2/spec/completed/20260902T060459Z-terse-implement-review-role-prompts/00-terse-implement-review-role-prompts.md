@@ -36,20 +36,20 @@ Artifact body bytes after frontmatter (`registry.getById(...).body.length`, meas
 
 ## Acceptance criteria
 
-- [ ] `shared/prompts/review-implement-growth-budget.test.ts` test `implement review role body growth stays within budget` measures each `implement.prompt.review.*` registry `body.length` (post-frontmatter body bytes) and asserts strictly less than its pinned pre-rewrite baseline; it fails against the pre-fix prompts.
-- [ ] `shared/prompts/review-implement-growth-budget.test.ts` test `implement review role placeholders unchanged` asserts each `implement.prompt.review.*` frontmatter `placeholders` array matches the pre-rewrite declaration; it fails when any binding changes.
-- [ ] `shared/prompts/review-implement-contract-preservation.test.ts` test `implement review role contract substrings preserved` fails against the pre-fix prompts when critic or adjudicator self-contained-verdict or empty-verdict semantics, any role's read-only boundary, merge-base unified-diff prose on debate/critic roles, or critic editorial scope (no adversary-style identify lists) is removed.
-- [ ] `shared/prompts/review-prompt-divergence.test.ts` still proves patch and implement registry bodies diverge on branch-diff prose; removing an assertion fails against the pre-fix test.
-- [ ] `shared/prompts/review-implement.test.ts` stays green.
-- [ ] `shared/prompts/review-profile.test.ts` stays green.
-- [ ] `shared/prompts/registry.test.ts` stays green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:shared` passes.
-- [ ] `bun run test:integration:shared` passes.
-- [ ] `bun run test:v1` passes.
-- [ ] `bun run test:integration:v1` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `shared/prompts/review-implement-growth-budget.test.ts` test `implement review role body growth stays within budget` measures each `implement.prompt.review.*` registry `body.length` (post-frontmatter body bytes) and asserts strictly less than its pinned pre-rewrite baseline; it fails against the pre-fix prompts.
+- [x] `shared/prompts/review-implement-growth-budget.test.ts` test `implement review role placeholders unchanged` asserts each `implement.prompt.review.*` frontmatter `placeholders` array matches the pre-rewrite declaration; it fails when any binding changes.
+- [x] `shared/prompts/review-implement-contract-preservation.test.ts` test `implement review role contract substrings preserved` fails against the pre-fix prompts when critic or adjudicator self-contained-verdict or empty-verdict semantics, any role's read-only boundary, merge-base unified-diff prose on debate/critic roles, or critic editorial scope (no adversary-style identify lists) is removed.
+- [x] `shared/prompts/review-prompt-divergence.test.ts` still proves patch and implement registry bodies diverge on branch-diff prose; removing an assertion fails against the pre-fix test.
+- [x] `shared/prompts/review-implement.test.ts` stays green.
+- [x] `shared/prompts/review-profile.test.ts` stays green.
+- [x] `shared/prompts/registry.test.ts` stays green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:shared` passes.
+- [x] `bun run test:integration:shared` passes.
+- [x] `bun run test:v1` passes.
+- [x] `bun run test:integration:v1` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

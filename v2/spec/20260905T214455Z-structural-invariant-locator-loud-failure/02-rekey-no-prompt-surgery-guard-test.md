@@ -12,16 +12,16 @@ Rows `shr-npsg-assembly-paths` and `shr-npsg-forbidden-tokens` anchor the guard 
 
 ## Task checklist
 
-- [ ] Re-key audit rows `shr-npsg-assembly-paths` and `shr-npsg-forbidden-tokens` per the decision ledger.
-- [ ] Route path resolution through `shared/structural-test-locator.ts` where discovery reads production sources.
+- [x] Re-key audit rows `shr-npsg-assembly-paths` and `shr-npsg-forbidden-tokens` per the decision ledger.
+- [x] Route path resolution through `shared/structural-test-locator.ts` where discovery reads production sources.
 
 ## Acceptance criteria
 
-- [ ] `shared/prompts/no-prompt-surgery-guard.test.ts` test `prompt assembly builders omit post-render string surgery` derives guarded assembly paths from a committed source-of-truth registry rather than a hand-maintained test list; it fails against the pre-fix `GUARDED_ASSEMBLY_PATHS` list and passes after re-key.
-- [ ] `shared/prompts/no-prompt-surgery-guard.test.ts` test `prompt surgery guard reports forbidden constructs` reads forbidden tokens from the same shared policy constant as production scanning; it fails against the pre-fix test-local `FORBIDDEN_PROMPT_SURGERY_TOKENS` literal and passes after re-key.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:shared` passes.
-- [ ] `bun run test:integration:shared` passes.
+- [x] `shared/prompts/no-prompt-surgery-guard.test.ts` test `prompt assembly builders omit post-render string surgery` derives guarded assembly paths from a committed source-of-truth registry rather than a hand-maintained test list; it fails against the pre-fix `GUARDED_ASSEMBLY_PATHS` list and passes after re-key.
+- [x] `shared/prompts/no-prompt-surgery-guard.test.ts` test `prompt surgery guard reports forbidden constructs` reads forbidden tokens from the same shared policy constant as production scanning; it fails against the pre-fix test-local `FORBIDDEN_PROMPT_SURGERY_TOKENS` literal and passes after re-key.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:shared` passes.
+- [x] `bun run test:integration:shared` passes.
 
 ## Documentation updates
 

@@ -129,7 +129,7 @@ function isProjectConfigRecord(value: unknown): value is Record<string, unknown>
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** Matches `planSource` external publication: `git === false` or `plan.commit === false`. */
+/** Project-only external plan admission: strict `git === false` or `plan.commit === false` (intent/plan also honor machine `modes.plan.commit`). */
 export function planSourcePublishesExternally(projectConfig: Record<string, unknown>): boolean {
   return (
     projectConfig.git === false || (isProjectConfigRecord(projectConfig.plan) && projectConfig.plan.commit === false)

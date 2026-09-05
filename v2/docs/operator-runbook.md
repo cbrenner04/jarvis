@@ -177,7 +177,7 @@ jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md
 jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md --detach  # return after admission; track via printed run ID
 ```
 
-For opted-in projects, standalone intent and plan admit absolute queue paths under that project's `~/.jarvis/specs/<projectSafeId>/` home. Launch from the owning registered project root or a subdirectory — `cwd` must resolve to the project that owns the external home; arbitrary absolute paths outside that project's `seeds/` or `ready-intents/` tree are refused. Admission predicates and publication routing: [`workflow-runner.md` § Authoring helper and presets](./workflow-runner.md#authoring-helper-and-presets). External home layout: [`install-and-config.md` § External specs home](./install-and-config.md#external-specs-home).
+For opted-in projects, standalone intent and plan admit absolute queue paths under that project's external specs home when `cwd` resolves to the owning registered project. Admission and routing: [`workflow-runner.md` § Authoring helper and presets](./workflow-runner.md#authoring-helper-and-presets); layout: [`install-and-config.md` § External specs home](./install-and-config.md#external-specs-home).
 
 ```sh
 cd /path/to/registered-project

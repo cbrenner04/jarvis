@@ -249,16 +249,8 @@ describe("buildIntentWorkflowSteps", () => {
   });
 
   test("admits external seed under project specs home", async () => {
-    const root = mkdtempSync(join(tmpdir(), "intent-external-seed-"));
-    const jarvisRoot = join(root, "jarvis");
-    const config = join(root, "config.json");
-    const projectKey = "Org/Repo";
+    const { root, jarvisRoot, config, projectKey, externalSeed } = stageExternalSeed({ git: false });
     const safeId = projectSafeId(projectKey);
-    const seedsHome = join(jarvisRoot, "specs", safeId, "seeds");
-    mkdirSync(seedsHome, { recursive: true });
-    const externalSeed = join(seedsHome, "feature.md");
-    writeFileSync(externalSeed, "feature", "utf8");
-    writeFileSync(config, JSON.stringify({ projects: { [projectKey]: { root, git: false } } }));
 
     const result = await buildIntentWorkflowSteps(
       { cwd: root, seed: externalSeed, configPath: config, jarvisRoot },
@@ -266,25 +258,14 @@ describe("buildIntentWorkflowSteps", () => {
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const canonicalSeed = realpathSync(externalSeed);
     expect(result.steps[0]).toMatchObject({
       specPath: join(jarvisRoot, "specs", safeId, "ready-intents"),
-      landing: {
-        inputs: { paths: [canonicalSeed], consumeFrom: "source" },
-      },
+      landing: { inputs: { paths: [realpathSync(externalSeed)], consumeFrom: "source" } },
     });
   });
 
   test("rejects external seed paths for in-repo publication routing", async () => {
-    const root = mkdtempSync(join(tmpdir(), "intent-external-seed-"));
-    const jarvisRoot = join(root, "jarvis");
-    const config = join(root, "config.json");
-    const projectKey = "demo";
-    const seedsHome = join(jarvisRoot, "specs", projectSafeId(projectKey), "seeds");
-    mkdirSync(seedsHome, { recursive: true });
-    const externalSeed = join(seedsHome, "feature.md");
-    writeFileSync(externalSeed, "feature", "utf8");
-    writeFileSync(config, JSON.stringify({ projects: { [projectKey]: { root } } }));
+    const { root, jarvisRoot, config, externalSeed } = stageExternalSeed({});
 
     const result = await buildIntentWorkflowSteps(
       { cwd: root, seed: externalSeed, configPath: config, jarvisRoot },
@@ -486,3 +467,19 @@ describe("buildReviewedIntentWorkflowSteps", () => {
     });
   });
 });
+
+function stageExternalSeed(options: { git?: false }) {
+  const root = mkdtempSync(join(tmpdir(), "intent-external-seed-"));
+  const jarvisRoot = join(root, "jarvis");
+  const config = join(root, "config.json");
+  const projectKey = options.git === false ? "Org/Repo" : "demo";
+  const seedsHome = join(jarvisRoot, "specs", projectSafeId(projectKey), "seeds");
+  mkdirSync(seedsHome, { recursive: true });
+  const externalSeed = join(seedsHome, "feature.md");
+  writeFileSync(externalSeed, "feature", "utf8");
+  writeFileSync(
+    config,
+    JSON.stringify({ projects: { [projectKey]: { root, ...(options.git === false ? { git: false } : {}) } } }),
+  );
+  return { root, jarvisRoot, config, projectKey, externalSeed };
+}

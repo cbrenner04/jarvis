@@ -3,6 +3,7 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   realpathSync,
   renameSync,
@@ -11,6 +12,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createServer } from "node:net";
+import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
@@ -38,6 +40,7 @@ import {
   exactOriginTrackingRefOid,
   hasBranchKeyedArtifactOwner,
   inspectStrandedArtifacts,
+  isStaleResetLandedCriteriaSpecPath,
   listDirtyWorktreePathsForStaleReset,
   mergedPrHeadAuthorityMatches,
   parseCheckedOutBranchesFromWorktreePorcelain,
@@ -4565,5 +4568,39 @@ describe("hasBranchKeyedArtifactOwner", () => {
     expect(
       hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [matching, detached, unrelated], jarvis),
     ).toBe(true);
+  });
+});
+
+describe("stale-reset landed-criteria spec-path gate", () => {
+  // A chained fan-out lane's spec lives in the PRIOR stage's worktree, outside the project root.
+  // The comparison reads each file at `join(worktreePath, relative(projectRoot, absPath))`, so an
+  // out-of-root spec produces `../../.jarvis/...`, escapes the managed worktree, and the gate
+  // refuses `worktree spec unreadable` for a file that reads fine where it actually lives.
+  // Observed on chess-mvp-yolo-2 pipeline a00ca258, lane home-win-rate-display — it made the lane
+  // permanently unresumable, whose only known workaround was discarding the whole pipeline.
+  test("excludes a readable spec that resolves outside the project root", () => {
+    const root = mkdtempSync(join(tmpdir(), "jarvis-landed-root-"));
+    const outside = mkdtempSync(join(tmpdir(), "jarvis-landed-outside-"));
+    const specPath = join(outside, "index.md");
+    writeFileSync(specPath, "# Spec\n\n- [ ] [00 - Thing](./00-thing.md)\n");
+    try {
+      expect(existsSync(specPath)).toBe(true);
+      expect(isStaleResetLandedCriteriaSpecPath(root, specPath)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("includes a readable spec inside the project root", () => {
+    const root = mkdtempSync(join(tmpdir(), "jarvis-landed-root-"));
+    const specPath = join(root, "spec", "index.md");
+    mkdirSync(dirname(specPath), { recursive: true });
+    writeFileSync(specPath, "# Spec\n\n- [ ] [00 - Thing](./00-thing.md)\n");
+    try {
+      expect(isStaleResetLandedCriteriaSpecPath(root, specPath)).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

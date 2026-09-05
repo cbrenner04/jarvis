@@ -12,19 +12,43 @@ export type PipelineStageArtifact = {
   resolvedBase?: string;
 };
 
+type PrEvidence = { prNumber: number; prUrl: string };
+
+/**
+ * Resolve published PR evidence across an invocation's rows.
+ *
+ * Completion publication dispatches late under its own run id, so the PR is frequently recorded
+ * on a successor row rather than on the entry run. Reading the entry row alone reports
+ * `completion_publication_missing_pr_evidence` for work that published fine, failing the stage
+ * and skipping its terminal action. Prefer the entry run when it carries a complete pair, then
+ * fall back to the first sibling that does.
+ */
+export function resolvePrEvidenceAcrossInvocation(
+  entryRun: { prNumber?: number | null; prUrl?: string | null },
+  siblingRuns: readonly { prNumber?: number | null; prUrl?: string | null }[],
+): PrEvidence | undefined {
+  const candidates = [entryRun, ...siblingRuns];
+  for (const candidate of candidates) {
+    if (candidate.prNumber != null && candidate.prUrl != null) {
+      return { prNumber: candidate.prNumber, prUrl: candidate.prUrl };
+    }
+  }
+  return undefined;
+}
+
 export function stageArtifactFromEntryRun(
   entryRunId: string,
   entryRun: NonNullable<ReturnType<StateStore["loadRun"]>>,
   invocationId: string | undefined = entryRun.workflowSnapshot?.invocationId,
   publicationBaseRetarget?: { requestedBase: string; resolvedBase: string },
+  prEvidence: PrEvidence | undefined = resolvePrEvidenceAcrossInvocation(entryRun, []),
 ): PipelineStageArtifact {
   return {
     entryRunId,
     ...(invocationId !== undefined ? { invocationId } : {}),
     specPath: entryRun.specPath,
     ...(entryRun.downstreamInputs?.length ? { downstreamInputs: [...entryRun.downstreamInputs] } : {}),
-    ...(entryRun.prNumber != null ? { prNumber: entryRun.prNumber } : {}),
-    ...(entryRun.prUrl != null ? { prUrl: entryRun.prUrl } : {}),
+    ...(prEvidence !== undefined ? { prNumber: prEvidence.prNumber, prUrl: prEvidence.prUrl } : {}),
     ...(publicationBaseRetarget ?? {}),
   };
 }

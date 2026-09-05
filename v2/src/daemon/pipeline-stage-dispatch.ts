@@ -1,6 +1,9 @@
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
-import { stageArtifactFromEntryRun } from "../persistence/pipeline-stage-settlement.ts";
+import {
+  resolvePrEvidenceAcrossInvocation,
+  stageArtifactFromEntryRun,
+} from "../persistence/pipeline-stage-settlement.ts";
 import {
   DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
   isTerminalRunStatus,
@@ -212,10 +215,15 @@ function applyEntryRunSettlement(args: {
   const { store, stageTarget, entryRunId, invocationId, rollupStatus, loadLogRecords } = args;
   if (rollupStatus === "completed") {
     const entryRun = store.loadRun(entryRunId);
+    // Publication dispatches late under its own run id, so the PR is often recorded on a
+    // successor row; resolving from the entry row alone fails a stage whose work published fine.
+    const invocationRows =
+      entryRun?.workflowSnapshot === undefined || entryRun?.workflowSnapshot === null
+        ? []
+        : store.findRunsByInvocationId(entryRun.workflowSnapshot.invocationId);
+    const prEvidence = entryRun === null ? undefined : resolvePrEvidenceAcrossInvocation(entryRun, invocationRows);
     const missingPublicationEvidence =
-      entryRun !== null &&
-      terminalPublicationStageRequiresPrEvidence(store, stageTarget) &&
-      (entryRun.prNumber == null || entryRun.prUrl == null);
+      entryRun !== null && terminalPublicationStageRequiresPrEvidence(store, stageTarget) && prEvidence === undefined;
     if (entryRun?.specPath === undefined || missingPublicationEvidence) {
       store.updateStage({
         ...stageTarget,
@@ -245,6 +253,7 @@ function applyEntryRunSettlement(args: {
           entryRun,
           invocationId,
           publicationBaseRetargetFromLogRecords(loadLogRecords?.(entryRunId) ?? []),
+          prEvidence,
         ),
       },
     });

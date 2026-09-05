@@ -18,12 +18,12 @@ Rows `shr-mbs-surfaces-registry`, `shr-mbs-split-emitted-files`, `shr-mbs-split-
 
 ## Acceptance criteria
 
-- [ ] `shared/module-boundary-surfaces.test.ts` test `classifies committed phrases` asserts registry membership via the imported `MODULE_BOUNDARY_SURFACES` export without a duplicated literal expected array; it fails against the pre-fix hardcoded literal and passes after re-key.
-- [ ] `shared/module-boundary-surfaces.test.ts` staged-tree normalization cases derive expected child filenames from normalization output rather than manifest `expectedChildren.file` lists; they fail against the pre-fix manifest list pins and pass after re-key.
-- [ ] `shared/module-boundary-surfaces.test.ts` case `module boundary surfaces > inverting draft dependency order guard fails k4` derives the first emitted surface file from split ordering, not a hardcoded filename pin; it fails against the pre-fix `emittedFiles[0] === "00-cli.md"` pin and passes after re-key.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:shared` passes.
-- [ ] `bun run test:integration:shared` passes.
+- [x] `shared/module-boundary-surfaces.test.ts` test `classifies committed phrases` asserts registry membership via the imported `MODULE_BOUNDARY_SURFACES` export without a duplicated literal expected array; it fails against the pre-fix hardcoded literal and passes after re-key.
+- [x] `shared/module-boundary-surfaces.test.ts` staged-tree normalization cases derive expected child filenames from normalization output rather than manifest `expectedChildren.file` lists; they fail against the pre-fix manifest list pins and pass after re-key.
+- [x] `shared/module-boundary-surfaces.test.ts` case `module boundary surfaces > inverting draft dependency order guard fails k4` derives the first emitted surface file from split ordering, not a hardcoded filename pin; it fails against the pre-fix `emittedFiles[0] === "00-cli.md"` pin and passes after re-key.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:shared` passes.
+- [x] `bun run test:integration:shared` passes.
 
 ## Documentation updates
 

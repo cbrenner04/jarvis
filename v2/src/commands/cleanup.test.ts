@@ -3578,6 +3578,152 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(listOutput).toContain(worktreePath);
   });
 
+  test("resetStaleWorkspace refuses unlanded commits with no PR before retirement", async () => {
+    // @mutate v2/src/commands/cleanup.ts "nonStagingPaths.length > 0" -> "false"
+    const branch = "impl/unlanded-no-pr";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const implRel = "impl-work.txt";
+    writeFileSync(join(worktreePath, implRel), "implementation\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", implRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "unlanded implementation"], worktreePath);
+    const tipSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
+    const commitCount = Number.parseInt(
+      (await realAsyncSubprocessRunner.runAsync("git", ["rev-list", "--count", `HEAD..${branch}`], projectRoot)).trim(),
+      10,
+    );
+
+    const teardownCalls: string[] = [];
+    const result = await callReset(
+      branch,
+      {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "list") return "[]";
+          if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+          if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        },
+      },
+      noLiveDaemon,
+      silentIo,
+      { baseRef: "HEAD" },
+    );
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(tipSha);
+    expect(reason).toContain(String(commitCount));
+    expect(reason).toContain("commit(s) not on base");
+    expect(reason).toContain("hand-finish");
+    expect(reason).toContain("jarvis cleanup --abandon");
+    expect(teardownCalls).toEqual([]);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+    const branchList = await realAsyncSubprocessRunner.runAsync("git", ["branch", "--list", branch], projectRoot);
+    expect(branchList.trim()).toContain(branch);
+  });
+
+  test("resetStaleWorkspace refuses unlanded commits even when disposableLane is set", async () => {
+    // @mutate v2/src/commands/cleanup.ts "prGate.pr === undefined" -> "prGate.pr === undefined && !disposableLane"
+    const branch = "impl/unlanded-disposable";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const implRel = "impl-disposable.txt";
+    writeFileSync(join(worktreePath, implRel), "implementation\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", implRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "unlanded implementation"], worktreePath);
+    const tipSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
+    const commitCount = Number.parseInt(
+      (await realAsyncSubprocessRunner.runAsync("git", ["rev-list", "--count", `HEAD..${branch}`], projectRoot)).trim(),
+      10,
+    );
+
+    const teardownCalls: string[] = [];
+    const result = await callReset(
+      branch,
+      {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "gh" && args[0] === "pr" && args[1] === "list") return "[]";
+          if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        },
+      },
+      noLiveDaemon,
+      silentIo,
+      { baseRef: "HEAD", disposableLane: true },
+    );
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(tipSha);
+    expect(reason).toContain(String(commitCount));
+    expect(reason).toContain("hand-finish");
+    expect(reason).toContain("jarvis cleanup --abandon");
+    expect(teardownCalls).toEqual([]);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace retires a disposable never-landed lane past descendant drift", async () => {
+    // @mutate v2/src/commands/cleanup.ts "options.disposableLane === true" -> "false"
+    const branch = "impl/disposable-descendant";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const worktreeHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
+    writeFileSync(join(projectRoot, "base-advance.md"), "advance\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "advance main"], projectRoot);
+    const baseHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], projectRoot)).trim();
+    expect(worktreeHead).not.toBe(baseHead);
+    const unlandedCount = Number.parseInt(
+      (await realAsyncSubprocessRunner.runAsync("git", ["rev-list", "--count", `HEAD..${branch}`], projectRoot)).trim(),
+      10,
+    );
+    expect(unlandedCount).toBe(0);
+
+    const result = await callReset(branch, ghPrListRunner([]), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      disposableLane: true,
+    });
+
+    expect(result.status).toBe("reset");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace retires a disposable never-landed lane past landed-criteria drift", async () => {
+    // @mutate v2/src/commands/cleanup.ts "!disposableLane" -> "false"
+    const branch = "impl/disposable-landed-criteria";
+    const specDir = join(projectRoot, "v2", "spec", "disposable-spec");
+    const subspecRel = "v2/spec/disposable-spec/00-task.md";
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00](./00-task.md)\n");
+    writeFileSync(join(specDir, "00-task.md"), "# Task\n\n## Acceptance criteria\n\n- [ ] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "add disposable spec"], projectRoot);
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    writeFileSync(join(worktreePath, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "land criterion on branch"], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["merge", branch], projectRoot);
+    writeFileSync(join(projectRoot, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [ ] done\n");
+    writeFileSync(join(projectRoot, "base-advance-landed.md"), "advance\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "revert spec tick on main"], projectRoot);
+    const unlandedCount = Number.parseInt(
+      (await realAsyncSubprocessRunner.runAsync("git", ["rev-list", "--count", `HEAD..${branch}`], projectRoot)).trim(),
+      10,
+    );
+    expect(unlandedCount).toBe(0);
+
+    const result = await callReset(branch, ghPrListRunner([]), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+      specPath: "v2/spec/disposable-spec/index.md",
+      disposableLane: true,
+    });
+
+    expect(result.status).toBe("reset");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
   test("resetStaleWorkspace prunes stale origin tracking ref when remote head is absent", async () => {
     const branch = "impl/stale-origin-tracking";
     const worktreePath = await setupWorktreeAndBranch(branch);

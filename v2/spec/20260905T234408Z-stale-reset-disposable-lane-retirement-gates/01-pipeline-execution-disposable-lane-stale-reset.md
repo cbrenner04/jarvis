@@ -15,7 +15,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/pipeline-execution.md` cross-links the disposable-lane stale-reset gate sequence used by pipeline restart and defers the full operator contract to [[pipeline-restart-discards-disposable-stage-state]].
+- [x] `v2/docs/pipeline-execution.md` cross-links the disposable-lane stale-reset gate sequence used by pipeline restart and defers the full operator contract to [[pipeline-restart-discards-disposable-stage-state]].
 
 ## Documentation updates
 

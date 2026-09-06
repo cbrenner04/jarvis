@@ -1741,6 +1741,43 @@ function isJarvisHarnessSidecarPath(path: string): boolean {
   return path.split("/").some((segment) => segment.startsWith(".jarvis-"));
 }
 
+function isHarnessWorkflowStagingPath(path: string): boolean {
+  const normalized = path.replace(/\\/g, "/");
+  if (normalized === ".jarvis-plan-stage" || normalized.startsWith(".jarvis-plan-stage/")) return true;
+  if (normalized === ".jarvis-intent-stage" || normalized.startsWith(".jarvis-intent-stage/")) return true;
+  return isJarvisHarnessSidecarPath(path);
+}
+
+const staleResetUnlandedSalvageRecovery =
+  "hand-finish the branch or run `jarvis cleanup --abandon <branch>` before retiring the workspace";
+
+export function staleResetUnlandedCommitsGateReason(tipSha: string, commitCount: number): string {
+  return `branch has ${commitCount} commit(s) not on base (tip ${tipSha}); ${staleResetUnlandedSalvageRecovery}`;
+}
+
+async function unlandedNonStagingPaths(
+  projectRoot: string,
+  branch: string,
+  baseRef: string,
+  runner: AsyncSubprocessRunner,
+): Promise<string[]> {
+  const output = await runner.runAsync("git", ["diff", "--name-only", `${baseRef}..${branch}`], projectRoot);
+  return output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !isHarnessWorkflowStagingPath(line));
+}
+
+async function unlandedCommitCount(
+  projectRoot: string,
+  branch: string,
+  baseRef: string,
+  runner: AsyncSubprocessRunner,
+): Promise<number> {
+  const output = await runner.runAsync("git", ["rev-list", "--count", `${baseRef}..${branch}`], projectRoot);
+  return Number.parseInt(output.trim(), 10);
+}
+
 /** True when `absPath` resolves inside `root` (or is `root` itself). */
 function isPathInside(root: string, absPath: string): boolean {
   const rel = relative(root, absPath);
@@ -1814,6 +1851,7 @@ export function staleResetDirtyWorktreeGateReason(
 export type ResetStaleWorkspaceOptions = {
   skipDirtyWorktreeGate?: boolean;
   skipLandedCriteriaGate?: boolean;
+  disposableLane?: boolean;
   baseRef?: string;
   specPath?: string;
 };
@@ -1864,6 +1902,7 @@ export async function resetStaleWorkspace(
   const refusalParts: string[] = [];
   const skipDirtyWorktreeGate = options.skipDirtyWorktreeGate === true;
   const skipLandedCriteriaGate = options.skipLandedCriteriaGate === true;
+  const disposableLane = options.disposableLane === true;
   const baseRef = options.baseRef;
   const specPath = options.specPath;
 
@@ -1872,14 +1911,25 @@ export async function resetStaleWorkspace(
       resolveStaleResetRef(worktreePath, "HEAD", runner),
       resolveStaleResetRef(projectRoot, baseRef, runner),
     ]);
-    if (!(await isDescendantOfBase(worktreeHead, baseRef, projectRoot, runner))) {
-      refusalParts.push(staleResetDescendantGateReason(baseRef, baseHead, worktreeHead));
+    if (prGate.pr === undefined) {
+      const commitCount = await unlandedCommitCount(projectRoot, branch, baseRef, runner);
+      if (commitCount > 0) {
+        const nonStagingPaths = await unlandedNonStagingPaths(projectRoot, branch, baseRef, runner);
+        if (nonStagingPaths.length > 0) {
+          refusalParts.push(staleResetUnlandedCommitsGateReason(worktreeHead, commitCount));
+        }
+      }
     }
-    if (specPath !== undefined && isStaleResetLandedCriteriaSpecPath(projectRoot, specPath)) {
-      const specTree = { projectRoot, worktreePath, baseRef, specPath, runner };
-      const driftedSubspecPaths = await landedCriteriaAbsentFromBase(specTree);
-      if (driftedSubspecPaths.length > 0 && !skipLandedCriteriaGate) {
-        refusalParts.push(staleResetLandedCriteriaGateReason(driftedSubspecPaths));
+    if (!disposableLane) {
+      if (!(await isDescendantOfBase(worktreeHead, baseRef, projectRoot, runner))) {
+        refusalParts.push(staleResetDescendantGateReason(baseRef, baseHead, worktreeHead));
+      }
+      if (specPath !== undefined && isStaleResetLandedCriteriaSpecPath(projectRoot, specPath)) {
+        const specTree = { projectRoot, worktreePath, baseRef, specPath, runner };
+        const driftedSubspecPaths = await landedCriteriaAbsentFromBase(specTree);
+        if (driftedSubspecPaths.length > 0 && !skipLandedCriteriaGate) {
+          refusalParts.push(staleResetLandedCriteriaGateReason(driftedSubspecPaths));
+        }
       }
     }
   }

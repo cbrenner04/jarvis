@@ -37,15 +37,15 @@ Shared `resetStaleWorkspace` still refuses retirement on descendant drift and la
 
 ## Acceptance criteria
 
-- [ ] `cleanup.test.ts` test `resetStaleWorkspace refuses unlanded commits with no PR before retirement` builds a worktree whose branch is ahead of base with a non-staging commit and no PR, asserts retirement refuses without removing the worktree or deleting branches, and names tip SHA, commit count, and salvage recovery; it fails against the pre-fix path that retires it.
-- [ ] `cleanup.test.ts` test `resetStaleWorkspace refuses unlanded commits even when disposableLane is set` builds a worktree whose branch is ahead of base with a non-staging commit and no PR, passes `disposableLane: true`, and asserts the same refusal without teardown; it fails against a path that bypasses unlanded-commits when disposable.
-- [ ] `cleanup.test.ts` test `resetStaleWorkspace retires a disposable never-landed lane past descendant drift` builds a worktree whose HEAD is not descended from base with zero non-staging commits ahead of base, passes the disposable-lane marker, and asserts `status: "reset"` with the worktree absent from `git worktree list` per existing reset pins; it fails against the pre-fix descendant refusal.
-- [ ] `cleanup.test.ts` test `resetStaleWorkspace retires a disposable never-landed lane past landed-criteria drift` builds a worktree using the committed-tick-plus-advanced-base fixture (zero commits ahead of base, ticked criteria absent from base), passes the disposable-lane marker, and asserts `status: "reset"` with the worktree absent from `git worktree list` per existing reset pins; it fails against the pre-fix landed-criteria refusal.
-- [ ] `cleanup.test.ts` — `reset refuses when worktree spec has criteria ticked absent from base` stays green (default non-disposable path unchanged).
-- [ ] `cleanup.test.ts` — `reset proceeds with reset-despite-landed-criteria when worktree spec has criteria ticked absent from base` stays green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `cleanup.test.ts` test `resetStaleWorkspace refuses unlanded commits with no PR before retirement` builds a worktree whose branch is ahead of base with a non-staging commit and no PR, asserts retirement refuses without removing the worktree or deleting branches, and names tip SHA, commit count, and salvage recovery; it fails against the pre-fix path that retires it.
+- [x] `cleanup.test.ts` test `resetStaleWorkspace refuses unlanded commits even when disposableLane is set` builds a worktree whose branch is ahead of base with a non-staging commit and no PR, passes `disposableLane: true`, and asserts the same refusal without teardown; it fails against a path that bypasses unlanded-commits when disposable.
+- [x] `cleanup.test.ts` test `resetStaleWorkspace retires a disposable never-landed lane past descendant drift` builds a worktree whose HEAD is not descended from base with zero non-staging commits ahead of base, passes the disposable-lane marker, and asserts `status: "reset"` with the worktree absent from `git worktree list` per existing reset pins; it fails against the pre-fix descendant refusal.
+- [x] `cleanup.test.ts` test `resetStaleWorkspace retires a disposable never-landed lane past landed-criteria drift` builds a worktree using the committed-tick-plus-advanced-base fixture (zero commits ahead of base, ticked criteria absent from base), passes the disposable-lane marker, and asserts `status: "reset"` with the worktree absent from `git worktree list` per existing reset pins; it fails against the pre-fix landed-criteria refusal.
+- [x] `cleanup.test.ts` — `reset refuses when worktree spec has criteria ticked absent from base` stays green (default non-disposable path unchanged).
+- [x] `cleanup.test.ts` — `reset proceeds with reset-despite-landed-criteria when worktree spec has criteria ticked absent from base` stays green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

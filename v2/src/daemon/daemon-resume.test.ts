@@ -2645,6 +2645,66 @@ Still prose after budget exhaustion.
   expect(resolveIntentFinalizationResumeContext({ ...run, attempts: run.attempts }, stateStore).ok).toBe(false);
 });
 
+test("resumes paused implement~link-N into linked subspec routing and records iteration_started", async () => {
+  const worktreePath = mkdtempSync(join(tmpdir(), "daemon-paused-linked-resume-"));
+  writeFileSync(join(worktreePath, "index.md"), "- [ ] [One](./one.md)\n- [ ] [Two](./two.md)\n", "utf8");
+  writeFileSync(join(worktreePath, "one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] One\n", "utf8");
+  writeFileSync(join(worktreePath, "two.md"), "# Two\n\n## Acceptance criteria\n\n- [ ] Two\n", "utf8");
+
+  const runId = stateStore.createRun({
+    project: "demo",
+    specRef: "main",
+    worktreePath,
+    branch: "paused-linked/resume",
+    specPath: "index.md",
+    stepId: "implement~link-1",
+    workflowSnapshot: {
+      invocationId: "paused-linked-resume",
+      steps: [
+        {
+          stepId: "implement",
+          role: "implement",
+          stepRules: "implement rules",
+          expectedArtifactPath: "index.md",
+          agents: ["codex"],
+          agentModelConfig: AGENT_MODEL_CONFIG,
+        },
+      ],
+    },
+  });
+  stateStore.setRunStatus(runId, "paused");
+
+  const logsPath = join(tmpdir(), `jarvis-paused-linked-resume-${process.pid}-${Date.now()}.jsonl`);
+  let resumedInput: WriteLoopInput | undefined;
+  try {
+    const localHandlers = logBackedHandlers(logsPath, {
+      writeLoopExecutor: async (input, _signal, _pauseSignal) => {
+        resumedInput = input;
+        const resumeLogSink = openLogSink(logsPath);
+        try {
+          resumeLogSink.append(runId, { kind: "iteration_started", attemptId: "attempt-1" });
+        } finally {
+          resumeLogSink.close();
+        }
+      },
+    });
+
+    const response = await resumeDirect(localHandlers, runId);
+    // @mutate v2/src/daemon/daemon-run-lifecycle-handlers.ts "matchesLinkedSiblingStepId(stepId, step.stepId)" -> "!matchesLinkedSiblingStepId(stepId, step.stepId)"
+    expect(response).toEqual({ kind: "response", result: { ok: true } });
+    expect(resumedInput?.stepId).toBe("implement~link-1");
+    expect(resumedInput?.expectedArtifactPath).toBe("two.md");
+    expect(resumedInput?.resumeReentry).toBe(true);
+    expect(resumedInput?.specReadRoot).toBeUndefined();
+
+    const records = openLogReader(logsPath).tail(runId);
+    expect(records.some((record) => record.event.kind === "iteration_started")).toBe(true);
+  } finally {
+    rmSync(logsPath, { force: true });
+    rmSync(worktreePath, { recursive: true, force: true });
+  }
+});
+
 test("resumes paused intent-split write loop with landing-contract reprompt context from log", async () => {
   const { jarvisRoot } = createJarvisHome();
   roots.push(join(jarvisRoot, ".."));

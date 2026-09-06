@@ -16,6 +16,7 @@ type SuccessfulWorkflowBuild = Extract<WorkflowPresetBuilderResult, { ok: true }
 export type WorkflowStartResetFlags = {
   skipDirtyWorktreeGate: boolean;
   skipLandedCriteriaGate: boolean;
+  disposableLane?: boolean;
 };
 
 /** Mirrors `DestroyedArtifacts` without importing cleanup's daemon dependency graph. */

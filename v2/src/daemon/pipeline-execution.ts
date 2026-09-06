@@ -1,9 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
-import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
-import { listDirtyWorktreePathsForStaleReset } from "../commands/cleanup.ts";
+import { classifyNeverLandedLane, listDirtyWorktreePathsForStaleReset } from "../commands/cleanup.ts";
 import { maybeResetStaleWorkspace } from "../commands/stale-reset-workspace.ts";
 import type { WorkflowStartResetFlags } from "../commands/workflow-start-preparation.ts";
 import { stampWorkflowStepsWithMachineConfig } from "../commands/workflow-step-config-stamp.ts";
@@ -1588,12 +1588,34 @@ async function runPlanStageStaleResetPreflight(
   client: IpcClient,
   outcome: { status?: StaleResetWorkspaceOutcome },
 ): Promise<number | undefined> {
+  const writeStep = steps.find((step) => step.behavior === "write");
+  const worktree = writeStep?.behavior === "write" ? writeStep.worktree : undefined;
+  const worktreePath = writeStepWorktreePath(steps);
+  let resetFlags = flags;
+  if (
+    worktreePath !== undefined &&
+    existsSync(worktreePath) &&
+    worktree?.projectRoot !== undefined &&
+    worktree.branchName !== undefined &&
+    worktree.baseRef !== undefined
+  ) {
+    const runner = deps.subprocessRunner ?? realAsyncSubprocessRunner;
+    const classification = await classifyNeverLandedLane(
+      worktree.projectRoot,
+      worktree.branchName,
+      worktree.baseRef,
+      runner,
+    );
+    if (classification.neverLanded) {
+      resetFlags = { ...flags, disposableLane: true };
+    }
+  }
   return maybeResetStaleWorkspace(
     "plan",
     { ok: true, steps: [...steps] },
     deps,
     io,
-    flags,
+    resetFlags,
     client,
     undefined,
     (status) => {
@@ -1638,10 +1660,10 @@ function appendStagedPlanIntentPath(message: string, intentPath: string): string
   return `${message}: ${intentPath}`;
 }
 
-function stagedPlanOperatorBlocker(steps: readonly AnyWorkflowStep[]): string | undefined {
-  const intentPath = stagedPlanIntentPath(steps);
-  if (intentPath === undefined || !existsSync(intentPath)) return undefined;
-  const lines = readFileSync(intentPath, "utf8").replace(/\r\n/g, "\n").split("\n");
+const PLAN_STAGE_INTENT_REL = ".jarvis-plan-stage/intent.md";
+
+function operatorBlockerMessageInIntentContent(content: string, intentPath: string): string | undefined {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
   const reservedMarker = "Artifact contract check failed:";
   for (let index = 0; index < lines.length; index += 1) {
     if (lines[index] !== "## Blocker") continue;
@@ -1669,7 +1691,38 @@ function stagedPlanOperatorBlocker(steps: readonly AnyWorkflowStep[]): string | 
   return undefined;
 }
 
-function refuseReopenedPlanOperatorBlocker(
+async function operatorBlockerCommittedOnBase(
+  projectRoot: string,
+  baseRef: string,
+  intentPath: string,
+  runner: AsyncSubprocessRunner,
+): Promise<string | undefined> {
+  try {
+    const content = await runner.runAsync("git", ["show", `${baseRef}:${PLAN_STAGE_INTENT_REL}`], projectRoot);
+    return operatorBlockerMessageInIntentContent(content, intentPath);
+  } catch {
+    return undefined;
+  }
+}
+
+function stagedPlanOperatorBlocker(steps: readonly AnyWorkflowStep[]): string | undefined {
+  const intentPath = stagedPlanIntentPath(steps);
+  if (intentPath === undefined || !existsSync(intentPath)) return undefined;
+  return operatorBlockerMessageInIntentContent(readFileSync(intentPath, "utf8"), intentPath);
+}
+
+function refusePlanOperatorBlockerMessage(
+  blocker: string,
+  args: AdvanceWorkflowStageArgs,
+  capture: { message: string },
+): { ok: false; message: string } {
+  const message = `Error: Cannot redraft failed plan stage: ${blocker}`;
+  capture.message += `${message}\n`;
+  args.staleResetPreflight?.io.stderr(`${message}\n`);
+  return { ok: false, message };
+}
+
+function refuseReopenedPlanOperatorBlockerLocal(
   args: AdvanceWorkflowStageArgs,
   steps: readonly AnyWorkflowStep[],
   capture: { message: string },
@@ -1678,10 +1731,71 @@ function refuseReopenedPlanOperatorBlocker(
   if (args.stage.workflow !== "plan" || reopenedStageResetFlags(args, branchKey) === undefined) return { ok: true };
   const blocker = stagedPlanOperatorBlocker(steps);
   if (blocker === undefined) return { ok: true };
-  const message = `Error: Cannot redraft failed plan stage: ${blocker}`;
-  capture.message += `${message}\n`;
-  args.staleResetPreflight?.io.stderr(`${message}\n`);
-  return { ok: false, message };
+  return refusePlanOperatorBlockerMessage(blocker, args, capture);
+}
+
+function planOperatorBlockerNeedsGitChecks(
+  args: AdvanceWorkflowStageArgs,
+  steps: readonly AnyWorkflowStep[],
+  branchKey = args.branchKey,
+): boolean {
+  if (args.stage.workflow !== "plan" || reopenedStageResetFlags(args, branchKey) === undefined) return false;
+  const writeStep = steps.find((step) => step.behavior === "write");
+  const worktree = writeStep?.behavior === "write" ? writeStep.worktree : undefined;
+  const worktreePath = writeStepWorktreePath(steps);
+  return (
+    worktreePath !== undefined &&
+    existsSync(worktreePath) &&
+    worktree?.projectRoot !== undefined &&
+    worktree.branchName !== undefined &&
+    worktree.baseRef !== undefined
+  );
+}
+
+async function refuseReopenedPlanOperatorBlockerWithGit(
+  args: AdvanceWorkflowStageArgs,
+  steps: readonly AnyWorkflowStep[],
+  capture: { message: string },
+  branchKey = args.branchKey,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const writeStep = steps.find((step) => step.behavior === "write");
+  const worktree = writeStep?.behavior === "write" ? writeStep.worktree : undefined;
+  const runner = args.staleResetPreflight?.cliDeps.subprocessRunner ?? realAsyncSubprocessRunner;
+  const intentPath = stagedPlanIntentPath(steps);
+  const worktreePath = writeStepWorktreePath(steps);
+
+  if (
+    worktreePath !== undefined &&
+    existsSync(worktreePath) &&
+    worktree?.projectRoot !== undefined &&
+    worktree.baseRef !== undefined &&
+    intentPath !== undefined
+  ) {
+    const baseBlocker = await operatorBlockerCommittedOnBase(
+      worktree.projectRoot,
+      worktree.baseRef,
+      intentPath,
+      runner,
+    );
+    if (baseBlocker !== undefined) {
+      return refusePlanOperatorBlockerMessage(baseBlocker, args, capture);
+    }
+  }
+
+  const blocker = stagedPlanOperatorBlocker(steps);
+  if (blocker === undefined) return { ok: true };
+
+  if (worktree?.projectRoot !== undefined && worktree.branchName !== undefined && worktree.baseRef !== undefined) {
+    const classification = await classifyNeverLandedLane(
+      worktree.projectRoot,
+      worktree.branchName,
+      worktree.baseRef,
+      runner,
+    );
+    if (classification.neverLanded) return { ok: true };
+  }
+
+  return refusePlanOperatorBlockerMessage(blocker, args, capture);
 }
 
 export function stampPipelineDispatchSteps(
@@ -2049,7 +2163,9 @@ async function runFanOutBranchAction(
   }
   if (steps === undefined) return "skip";
   const preflightCapture = opts.preflightCapture ?? { message: "" };
-  const blocker = refuseReopenedPlanOperatorBlocker(args, steps, preflightCapture, targetBranchKey);
+  const blocker = planOperatorBlockerNeedsGitChecks(args, steps, targetBranchKey)
+    ? await refuseReopenedPlanOperatorBlockerWithGit(args, steps, preflightCapture, targetBranchKey)
+    : refuseReopenedPlanOperatorBlockerLocal(args, steps, preflightCapture, targetBranchKey);
   if (!blocker.ok) {
     failWorkflowStageAt(store, pipelineId, stage.stageId, targetBranchKey, stageRecords, index + 1, blocker.message);
     return "acted";
@@ -2304,7 +2420,9 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
     }
 
     const resolvedSteps = singleStageResolutionSteps(resolution);
-    const blocker = refuseReopenedPlanOperatorBlocker(args, resolvedSteps, preflightCapture);
+    const blocker = planOperatorBlockerNeedsGitChecks(args, resolvedSteps, branchKey)
+      ? await refuseReopenedPlanOperatorBlockerWithGit(args, resolvedSteps, preflightCapture, branchKey)
+      : refuseReopenedPlanOperatorBlockerLocal(args, resolvedSteps, preflightCapture, branchKey);
     if (!blocker.ok) {
       return failWorkflowStageAt(store, pipelineId, stage.stageId, branchKey, stageRecords, index + 1, blocker.message);
     }

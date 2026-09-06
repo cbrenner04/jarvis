@@ -21,7 +21,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/daemon-host.md` documents external ready-intent downstream-input resolution for chained stages and stage-scoped failure incidents with `branchKey` on non-terminal fan-out pipelines, consistent with `00`–`01`.
+- [x] `v2/docs/daemon-host.md` documents external ready-intent downstream-input resolution for chained stages and stage-scoped failure incidents with `branchKey` on non-terminal fan-out pipelines, consistent with `00`–`01`.
 
 ## Documentation updates
 

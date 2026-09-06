@@ -1,6 +1,6 @@
 # Pipeline restart treats pre-landing stage state as disposable
 
-- [ ] [00 - Pipeline resume disposable-lane wiring](./00-pipeline-resume-disposable-lane-wiring.md)
+- [x] [00 - Pipeline resume disposable-lane wiring](./00-pipeline-resume-disposable-lane-wiring.md)
 - [ ] [01 - Operator runbook disposable restart](./01-operator-runbook-disposable-restart.md)
 - [ ] [02 - Pipeline execution disposable restart contract](./02-pipeline-execution-disposable-restart-contract.md)
 - [ ] [03 - v1-behaviors disposable restart](./03-v1-behaviors-disposable-restart.md)

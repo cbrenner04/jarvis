@@ -37,9 +37,25 @@ Neither named path is in that lane's diff. The lane published nothing and had to
 
 Note also that verifying the claim naively **confirms it**: running the two files together on `main` reproduces the failures, which is how an operator (and the probe) reaches the wrong conclusion. Only isolation distinguishes them.
 
+## Wider than one pair (measured 2026-09-06)
+
+The pairing above is the sharpest reproducer, but the v2 slice is flaky under its own concurrency generally, and **the failing set rotates between runs**:
+
+| `bun run test:v2` on | Failures | Which |
+| --- | --- | --- |
+| `main` | 2 | `workflow attached entry-terminal wait …`, `diff-derived-mutation-verifier > … reports a surviving mutation when no test covers the changed guard` |
+| a salvage branch whose diff touched neither file | 3 | `executeWorkflow external linked implement routing …`, `createCompletionCommitter > honors injected iterationTimeoutMs …`, `worktree render-observer map resolution …` |
+
+Every one of those five settles at **exactly 30000 ms**, and every one passes in isolation. So `main` itself does not pass the local aggregate on an idle machine, while CI stays green because it scopes by changed path and never runs the full union.
+
+That matters for two reasons. First, an operator following the runbook's "run the affected test script before ticking" will see red on `main` and cannot distinguish it from their own breakage — I nearly filed "main is red" before isolating. Second, per-file entries in the existing seam are whack-a-mole if the set rotates.
+
+**The seam already exists**: `LOAD_SENSITIVE_FILES` in `scripts/test-slice.ts:14`, with `isLoadSensitive` forcing no co-runners, and each entry carrying dated loaded-red / idle-green evidence. None of the five files above are listed. The file's own trailing comment anticipates exactly this ("Isolate a specific split file here … if one proves load-sensitive"), so adding entries is the sanctioned move — but a rotating set argues for bounding concurrency for wall-clock-bounded assertions as a class rather than enumerating files one incident at a time.
+
 ## Decisions
 
-- Files whose assertions are wall-clock-bounded and files that spawn test subprocesses are not co-scheduled by the test runner; the isolation set is declared rather than discovered per-incident (`LOAD_SENSITIVE_FILES` is the existing seam); rules out a pairing that fails deterministically in ordinary scoped runs.
+- Files whose assertions are wall-clock-bounded and files that spawn test subprocesses are not co-scheduled by the test runner; the isolation set is declared rather than discovered per-incident (`LOAD_SENSITIVE_FILES` in `scripts/test-slice.ts:14` is the existing seam); rules out a pairing that fails deterministically in ordinary scoped runs.
+- Because the failing set rotates between runs, the fix bounds concurrency for the wall-clock-bounded class rather than enumerating files as each one is observed; rules out per-incident whack-a-mole that leaves `main` red on the local aggregate between discoveries.
 - Better, where cheap: the two `workflow.test.ts` waits stop being wall-clock-bounded — they await the durable boundary rather than a 5 s deadline; rules out treating scheduling as the only lever for a test that could be deterministic.
 - The base-ref reproduction probe runs each failing path in the **same isolation** it will be judged in, and a path that passes in isolation on both base and branch is not classified out-of-scope; rules out a probe whose evidence is gathered under the condition that caused the failure.
 - An `out_of_scope` settlement whose outside-path set consists entirely of paths that pass in isolation is not terminal; rules out `nextAction: stop` on a lane with no defect (same honesty rule as [[terminal-state-honesty-invariant]]).

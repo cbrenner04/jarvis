@@ -2573,7 +2573,6 @@ index 1234567..abcdefg 100644
     const result = await verifyDiffDerivedMutations(
       { worktreePath: "/wt", runBase: "main" },
       importerVerify({
-        readFile: importerFixtureReadFile(),
         listImporterCandidates: () => [directImporter],
         runScopedTests: async () => false,
       }),

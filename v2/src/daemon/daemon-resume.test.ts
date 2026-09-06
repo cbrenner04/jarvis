@@ -24,11 +24,7 @@ import { simulatedBindings } from "../testing/bindings.ts";
 import { flushBackgroundRuns, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
-import {
-  createRunControlHandlers,
-  resetWriteLoopBindingSourceDepsForTests,
-  setWriteLoopBindingSourceDepsForTests,
-} from "./daemon.ts";
+import { createRunControlHandlers, type WriteLoopBindingSourceDeps } from "./daemon.ts";
 import {
   composeRunOperatorError,
   isResumeAdmitted,
@@ -53,6 +49,7 @@ let dbPath: string;
 let profileHome: string;
 let machinesDir: string;
 let previousJarvisHome: string | undefined;
+const writeLoopBindingSourceDeps: WriteLoopBindingSourceDeps = {};
 const MACHINE_PROFILE = "resume-binding-profile";
 
 function rung(adapterModel: string): { rungs: Array<{ adapterModel: string; priceKey: string }> } {
@@ -95,10 +92,8 @@ function installResumeProfile(implementRungs: string[]): void {
     JSON.stringify({ machineProfile: MACHINE_PROFILE, agents: ["codex"] }),
     "utf-8",
   );
-  setWriteLoopBindingSourceDepsForTests({
-    machineConfigPath: join(profileHome, "config.json"),
-    machinesDir,
-  });
+  writeLoopBindingSourceDeps.machineConfigPath = join(profileHome, "config.json");
+  writeLoopBindingSourceDeps.machinesDir = machinesDir;
 }
 
 beforeEach(() => {
@@ -119,7 +114,6 @@ beforeEach(() => {
 afterEach(async () => {
   fakeExecutor.abortAll();
   await flushBackgroundRuns();
-  resetWriteLoopBindingSourceDepsForTests();
   mock.module("../execution/write.ts", () => ({ executeWrite: realExecuteWrite }));
   if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
   else process.env.JARVIS_HOME = previousJarvisHome;
@@ -140,6 +134,19 @@ function createHandlers(logReader?: LogReader): Handlers {
     failureReporter: () => {},
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
+    writeLoopBindingSourceDeps,
+  });
+}
+
+function intentFinalizationHandlers(overrides: Partial<Parameters<typeof createRunControlHandlers>[0]>): Handlers {
+  return createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
+    writeLoopBindingSourceDeps,
+    ...overrides,
   });
 }
 
@@ -156,18 +163,8 @@ function logBackedHandlers(
     failureReporter: () => {},
     hasMemoryHeadroom: () => true,
     settleDelayMs: 0,
+    writeLoopBindingSourceDeps,
     ...rest,
-  });
-}
-
-function intentFinalizationHandlers(overrides: Partial<Parameters<typeof createRunControlHandlers>[0]>): Handlers {
-  return createRunControlHandlers({
-    stateStore,
-    writeLoopExecutor: fakeExecutor.executor,
-    failureReporter: () => {},
-    hasMemoryHeadroom: () => true,
-    settleDelayMs: 0,
-    ...overrides,
   });
 }
 
@@ -199,10 +196,8 @@ function initResumeWorktree(jarvisRoot: string, branchName: string): string {
 }
 
 function createGitBackedResumeHandlers(store: StateStore, logsPath: string, jarvisRoot: string): Handlers {
-  return createRunControlHandlers({
+  return logBackedHandlers(logsPath, {
     stateStore: store,
-    logReader: openLogReader(logsPath),
-    logsPath,
     writeLoopExecutor: async (input, signal, pauseSignal) => {
       const resumeLogSink = openLogSink(logsPath);
       try {
@@ -221,9 +216,6 @@ function createGitBackedResumeHandlers(store: StateStore, logsPath: string, jarv
         resumeLogSink.close();
       }
     },
-    failureReporter: () => {},
-    hasMemoryHeadroom: () => true,
-    settleDelayMs: 0,
   });
 }
 
@@ -663,7 +655,7 @@ test("resume resolves iterationCeilingMs when snapshot step has wall segment onl
     join(isolatedHome, "config.json"),
     JSON.stringify({ machineProfile: MACHINE_PROFILE, agents: ["codex"], iterationCeilingMs: 2_222_222 }),
   );
-  setWriteLoopBindingSourceDepsForTests({
+  Object.assign(writeLoopBindingSourceDeps, {
     machineConfigPath: join(isolatedHome, "config.json"),
     machinesDir: isolatedMachines,
   });
@@ -701,7 +693,7 @@ test("resume keeps persisted iterationCeilingMs on snapshot steps", async () => 
     join(isolatedHome, "config.json"),
     JSON.stringify({ machineProfile: MACHINE_PROFILE, agents: ["codex"], iterationCeilingMs: 9_999_999 }),
   );
-  setWriteLoopBindingSourceDepsForTests({
+  Object.assign(writeLoopBindingSourceDeps, {
     machineConfigPath: join(isolatedHome, "config.json"),
     machinesDir: isolatedMachines,
   });

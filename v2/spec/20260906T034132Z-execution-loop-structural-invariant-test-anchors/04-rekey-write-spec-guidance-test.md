@@ -11,15 +11,15 @@ Row `ex-wr-spec-guidance-prose` in `v2/docs/structural-invariant-test-audit.md` 
 
 ## Task checklist
 
-- [ ] Re-key audit row `ex-wr-spec-guidance-prose` per the decision ledger.
-- [ ] Replace hand-maintained guidance substring pins with comparison to `readSpecGuidance()` output and retained forbidden-token absence checks.
+- [x] Re-key audit row `ex-wr-spec-guidance-prose` per the decision ledger.
+- [x] Replace hand-maintained guidance substring pins with comparison to `readSpecGuidance()` output and retained forbidden-token absence checks.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write.test.ts` test `plan preset draft step isolates bundled human-only marker guidance` compares extracted guidance to `readSpecGuidance()` rather than a hand-maintained substring checklist; it fails against the pre-fix phrase inventory and passes after re-key.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/execution/write.test.ts` test `plan preset draft step isolates bundled human-only marker guidance` compares extracted guidance to `readSpecGuidance()` rather than a hand-maintained substring checklist; it fails against the pre-fix phrase inventory and passes after re-key.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

@@ -343,7 +343,7 @@ v2/src/tui/tui-timestamp-format.test.ts out-of-scope no-structural-signal
 | ex-wlsl-fixture-golden | v2/src/execution/write-loop-staged-markdown-lint.test.ts | plan/intent write step staged Markdown lint cases | staged markdown lint uses committed golden/violation fixture bodies | `readFileSync` of `fixtures/write-loop-staged-markdown-lint/*.md` golden bytes in reprompt/finalize paths | incidental | re-key | | |
 | ex-wlsl-integration | v2/src/execution/write-loop-staged-markdown-lint.test.ts | write-loop staged markdown lint integration (non-fixture assertions) | write-loop reprompts and finalizes lint-clean staged plan/intent trees | behavioral `executeWriteLoop` integration with harness markdownlint binary probe | behavioral | n/a | | |
 | ex-wl-write-loop | v2/src/execution/write-loop.test.ts | executeWriteLoop integration suite | write-loop iteration, ready gate, publication, mutation repair, and completion paths | behavioral integration; `readFileSync` only on worktree outputs and fixture paths | behavioral | n/a | | |
-| ex-wr-spec-guidance-prose | v2/src/execution/write.test.ts | plan preset draft step isolates bundled human-only marker guidance | plan draft prompt embeds v2 spec-guidance agent-core prose without step-rule leakage | substring presence/absence pins on `extractSpecGuidance(capturedPrompt)` including `@mutate` on `shared/spec-guidance-path.ts` | incidental | re-key | | |
+| ex-wr-spec-guidance-prose | v2/src/execution/write.test.ts | plan preset draft step isolates bundled human-only marker guidance | plan draft prompt embeds v2 spec-guidance agent-core prose without step-rule leakage | `extractSpecGuidance(capturedPrompt)` whole-body containment of `readSpecGuidance()` output plus forbidden-token absence checks; `@mutate` on `shared/spec-guidance-path.ts` | behavioral | n/a | | |
 | ex-wr-execute-write | v2/src/execution/write.test.ts | executeWrite integration (non-spec-guidance cases) | write step lands plan/intent artifacts, enforces contracts, and preserves harness diagnostics | behavioral integration with worktree/stage `readFileSync` and module-boundary fixture reads | behavioral | n/a | | |
 
 ## v2 CLI and persistence inventory
@@ -540,9 +540,3 @@ Every inventory row with disposition `re-key`, grouped by `test-path` + `case-sc
 **case-scope:** plan/intent write step staged Markdown lint cases
 
 **re-key (1):** ex-wlsl-fixture-golden
-
-### v2/src/execution/write.test.ts
-
-**case-scope:** plan preset draft step isolates bundled human-only marker guidance
-
-**re-key (1):** ex-wr-spec-guidance-prose

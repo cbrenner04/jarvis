@@ -2,12 +2,14 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { appendFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
+import { readSpecGuidance } from "../../../shared/spec-guidance-path.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { landPublication } from "./publication-landing.ts";
 import { checkStagedPlanDraft, executeWrite } from "./write.ts";
 import { DEFAULT_WRITE_STEP_RULES, IMPLEMENT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 const { roots } = trackedTempRoots();
+const committedSpecGuidance = readSpecGuidance();
 
 const MULTI_SURFACE_BULLET =
   "The state-store persists completed runs atomically, and the CLI validates run flags before dispatch.";
@@ -74,9 +76,6 @@ function extractSpecGuidance(prompt: string): string {
   expect(end).toBeGreaterThan(begin);
   return prompt.slice(begin + beginMarker.length, end);
 }
-
-const HUMAN_ONLY_MARKER_GUIDANCE =
-  "marker strings appears anywhere in its full bullet block: `(Manual)`, `visual inspection only`, or `no automated guard`. Matching is case-insensitive substring matching across the first checklist line and any continuation lines; markers need not be trailing or whole phrases";
 
 function extractFinalStepRules(prompt: string): string {
   const marker = "\n\nHuman-only acceptance criteria contain";
@@ -1746,17 +1745,11 @@ describe("write behavior", () => {
     expect(result.result.kind).toBe("complete");
     expect(capturedPrompt).toContain("STEP_COMPLETION_SENTINEL");
     const specGuidance = extractSpecGuidance(capturedPrompt);
+    expect(specGuidance).toContain(committedSpecGuidance);
     expect(specGuidance).not.toContain("STEP_COMPLETION_SENTINEL");
-    expect(specGuidance).toContain(HUMAN_ONLY_MARKER_GUIDANCE);
     expect(specGuidance).not.toContain("jarvis1");
     expect(specGuidance).not.toContain("## Plan same-seam siblings serially");
     expect(specGuidance).not.toContain("~/.jarvis/specs/");
-    expect(specGuidance).toContain("without network or GitHub access");
-    expect(specGuidance).toContain("## Acceptance criteria");
-    expect(specGuidance).toContain("## Blocker");
-    expect(specGuidance).toContain("Do not hard-wrap authored markdown");
-    expect(specGuidance).toContain("Behavior-preserving (refactor) ACs");
-    expect(specGuidance).toContain("Rule-out and invariant guards");
     // @mutate shared/spec-guidance-path.ts "\"v2\", \"docs\", \"spec-guidance-agent-core.md\"" -> "\"v1\", \"docs\", \"spec-guidance.md\""
   });
 

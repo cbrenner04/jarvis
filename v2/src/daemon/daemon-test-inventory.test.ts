@@ -1,13 +1,14 @@
 /**
  * Merge-base parity guard for daemon co-located unit tests under v2/src/daemon.
- * For each daemon test file present on merge-base, compares per-file test()/test.skip() title
- * counts and multisets between merge-base and the worktree. Net-new co-located test files are
- * out of scope.
+ * For each daemon test file present on merge-base, asserts missing-only preservation of
+ * test()/test.skip() titles between merge-base and the worktree. Surplus destination titles
+ * are allowed; net-new co-located test files are out of scope.
  */
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { locateDiscoveredFile } from "../../../shared/structural-test-locator.ts";
 
 const DAEMON_DIR = import.meta.dir;
 const REPO_ROOT = join(DAEMON_DIR, "..", "..", "..");
@@ -170,6 +171,34 @@ function multisetDiff(expected: readonly string[], actual: readonly string[]): s
   return missing;
 }
 
+/** Pre-fix per-file count parity from subspec 05-pin-daemon-test-inventory: reddens on additive tests. */
+export function countParityPreservationViolation(
+  expectedTitles: readonly string[],
+  actualTitles: readonly string[],
+): string[] {
+  const missing = multisetDiff(expectedTitles, actualTitles);
+  if (expectedTitles.length === actualTitles.length && missing.length === 0) {
+    return [];
+  }
+  return missing.length > 0 ? missing : ["<count-parity>"];
+}
+
+/** Missing-only title preservation: surplus destination titles are allowed. */
+export function missingOnlyPreservationViolation(
+  expectedTitles: readonly string[],
+  actualTitles: readonly string[],
+): string[] {
+  return multisetDiff(expectedTitles, actualTitles);
+}
+
+function loadWorktreeSources(repoPaths: readonly string[]): Record<string, string> {
+  const sources: Record<string, string> = {};
+  for (const repoPath of repoPaths) {
+    sources[repoPath] = readFileSync(join(REPO_ROOT, repoPath), "utf8");
+  }
+  return sources;
+}
+
 describe("daemon test title scanner", () => {
   test("collects test and test.skip titles while ignoring test.each", () => {
     const source = `
@@ -198,8 +227,15 @@ describe("daemon test inventory", () => {
   });
 
   test("preserves merge-base test()/test.skip() titles per daemon test file", () => {
+    const mergeBaseTitles = ["kept"];
+    const withSurplus = ["kept", "added"];
+    expect(countParityPreservationViolation(mergeBaseTitles, withSurplus)).toEqual(["<count-parity>"]);
+    expect(missingOnlyPreservationViolation(mergeBaseTitles, withSurplus)).toEqual([]);
+    expect(missingOnlyPreservationViolation(mergeBaseTitles, [])).toEqual(["kept"]);
+
     const mergeBase = resolveMergeBase();
     const repoPaths = listDaemonTestFilesAtRef(mergeBase);
+    const worktreeSources = loadWorktreeSources(repoPaths);
 
     for (const repoPath of repoPaths) {
       const mergeBaseSource = loadAtRef(mergeBase, repoPath);
@@ -207,22 +243,8 @@ describe("daemon test inventory", () => {
       // between listing and reading; nothing to preserve.
       if (mergeBaseSource === undefined) continue;
       const expectedTitles = collectTestTitles(mergeBaseSource);
-      const actualTitles = collectTestTitles(readFileSync(join(REPO_ROOT, repoPath), "utf8"));
-      const missing = multisetDiff(expectedTitles, actualTitles);
-
-      // Asserts nothing the merge base covered was dropped. Deliberately not an exact-count
-      // equality: added tests are the normal case and must not redden this gate.
-      expect({
-        file: repoPath,
-        preservedCount: expectedTitles.length - missing.length,
-        expectedCount: expectedTitles.length,
-        missing,
-      }).toEqual({
-        file: repoPath,
-        preservedCount: expectedTitles.length,
-        expectedCount: expectedTitles.length,
-        missing: [],
-      });
+      const actualTitles = collectTestTitles(locateDiscoveredFile(worktreeSources, repoPath));
+      expect(missingOnlyPreservationViolation(expectedTitles, actualTitles)).toEqual([]);
     }
   });
 });

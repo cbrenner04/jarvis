@@ -283,7 +283,7 @@ v2/src/tui/tui-timestamp-format.test.ts out-of-scope no-structural-signal
 | dm-rchg-forbidden-weakmap-symbols | v2/src/daemon/daemon-run-control-handler-guard.test.ts | daemon production sources omit activeRunsByHandler and activeRunForHandler | daemon production tree must not reintroduce handler WeakMap back-channel symbols | `FORBIDDEN_SYMBOLS` literal list scanned across all production `v2/src/daemon/**/*.ts` via `readFileSync` | incidental | re-key | | yes |
 | dm-rchg-scanner-positive | v2/src/daemon/daemon-run-control-handler-guard.test.ts | guard reports reintroduced activeRun WeakMap back-channel symbols | scanner detects injected forbidden symbols | behavioral positive fixture on synthetic `daemon.ts` patch | behavioral | n/a | | |
 | dm-startlist-terminal-settlement-guard | v2/src/daemon/daemon-start-list.test.ts | daemon production terminal writers are restricted to atomic settlement | daemon must not call legacy `commitGuardedKill`; only admitted `setRunStatus` transition is in-progress; reconciliation admission must not UPDATE status | regex/substring scans of concatenated production daemon sources plus `state-store.ts` slice | incidental | re-key | | yes |
-| dm-test-inv-merge-base-titles | v2/src/daemon/daemon-test-inventory.test.ts | daemon test inventory > preserves merge-base test()/test.skip() titles per daemon test file | merge-base daemon test files must not drop existing test titles | `git merge-base`, `git ls-tree`, `git show`, worktree `readFileSync` title multiset diff per file | incidental | re-key | | |
+| dm-test-inv-merge-base-titles | v2/src/daemon/daemon-test-inventory.test.ts | daemon test inventory > preserves merge-base test()/test.skip() titles per daemon test file | merge-base daemon test files must not drop existing test titles | `git merge-base` + `git ls-tree` discovers merge-base daemon `*.test.ts` files; `missingOnlyPreservationViolation` missing-only multiset diff allows surplus destination titles via `locateDiscoveredFile`; anti-vacuity vs pre-fix `countParityPreservationViolation` per-file count parity | behavioral | n/a | | |
 | dm-test-inv-title-scanner | v2/src/daemon/daemon-test-inventory.test.ts | daemon test title scanner > * | title collector ignores nested/comments and test.each | behavioral unit tests of `collectTestTitles` parser | behavioral | n/a | | |
 | dm-test-lifecycle-pid-capture | v2/src/daemon/daemon-test-lifecycle.sandbox-unrunnable.test.ts | runFixtureTest / fixture registers before failed readiness | nested test daemon pid is captured from pid file for teardown | `readFileSync(pidPath)` on temp pid file written by fixture | behavioral | n/a | | |
 | dm-workflow-start-admission-seam | v2/src/daemon/daemon-workflow-start.test.ts | workflow starts, pipeline dispatch, and recovery share daemon admission | workflow start, pipeline dispatch, and recovery route through `admitWorkflowStart` without bypassing ownership/memory | production module `readFileSync` with `section()` slicing on const-declaration substring anchors | incidental | re-key | | |
@@ -468,12 +468,6 @@ Every inventory row with disposition `re-key`, grouped by `test-path` + `case-sc
 **case-scope:** daemon production terminal writers are restricted to atomic settlement
 
 **re-key (1):** dm-startlist-terminal-settlement-guard
-
-### v2/src/daemon/daemon-test-inventory.test.ts
-
-**case-scope:** daemon test inventory > preserves merge-base test()/test.skip() titles per daemon test file
-
-**re-key (1):** dm-test-inv-merge-base-titles
 
 ### v2/src/daemon/daemon-workflow-start.test.ts
 

@@ -11,14 +11,14 @@ Row `dm-test-inv-merge-base-titles` in `v2/docs/structural-invariant-test-audit.
 
 ## Task checklist
 
-- [ ] Re-key audit row `dm-test-inv-merge-base-titles` per the decision ledger.
-- [ ] Route any merge-base or worktree source slicing through shared loud-failure locators when the inventory reads bounded regions.
+- [x] Re-key audit row `dm-test-inv-merge-base-titles` per the decision ledger.
+- [x] Route any merge-base or worktree source slicing through shared loud-failure locators when the inventory reads bounded regions.
 
 ## Acceptance criteria
 
-- [ ] `daemon-test-inventory.test.ts` test `preserves merge-base test()/test.skip() titles per daemon test file` asserts missing-only title preservation with no exact count equality against merge-base; it fails against the pre-fix per-file case-count parity requirement in `v2/spec/completed/20260902T035309Z-modularize-daemon-run-control-handlers/05-pin-daemon-test-inventory.md` and passes after re-key.
-- [ ] `daemon-test-inventory.test.ts` test `preserves merge-base test()/test.skip() titles per daemon test file` stays green.
-- [ ] `bun run typecheck` passes.
+- [x] `daemon-test-inventory.test.ts` test `preserves merge-base test()/test.skip() titles per daemon test file` asserts missing-only title preservation with no exact count equality against merge-base; it fails against the pre-fix per-file case-count parity requirement in `v2/spec/completed/20260902T035309Z-modularize-daemon-run-control-handlers/05-pin-daemon-test-inventory.md` and passes after re-key.
+- [x] `daemon-test-inventory.test.ts` test `preserves merge-base test()/test.skip() titles per daemon test file` stays green.
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

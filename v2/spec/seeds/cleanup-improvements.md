@@ -13,6 +13,8 @@ A 2026-08-28 `jarvis cleanup jarvis -y` sweep surfaced four defects that togethe
 3. **Non-spec directories inspected as spec artifacts.** `v2/spec/.claude` (a coding-agent scratch dir) was reported as "no durable implementation branch" and `.jarvis-intent-stage` as "could not inspect spec completeness" — the latter for a directory that no longer existed on disk. Dot-dirs and staging dirs are not specs and deleted paths are not artifacts.
 4. **The skip list prints duplicates.** Individual artifacts appeared up to three times in one run's output (e.g. the same stranded spec listed under both the stranded and non-stranded passes), roughly doubling the list the operator must triage.
 
+5. **Merged-worktree retirement fails closed on a chained plan worktree its own implement dirtied (2026-09-06).** `git worktree remove` refuses a dirty tree, and a chained pipeline implement writes criteria ticks into the *plan* stage's worktree (`specReadRoot`), so the plan worktree is dirty by design once its implement runs. Cleanup reported `Failed to retire …/plan/write-sibling-step-id-matcher: Command failed: git worktree remove …` for two of three plan worktrees whose PRs (#3495, #3503) were merged; only a hand `git worktree remove --force` cleared them. The dirt is redundant — those ticks are already on `main` — but cleanup cannot tell, and the message names the git command rather than the dirty paths.
+
 ## Decisions
 
 - A worktree whose spec has no live run (no run row in a non-terminal status claims it) is reclaimable: cleanup may tear it down and treat its spec as unowned, applying the normal completeness/archive rules. Rules out perpetual ownership by dead runs.
@@ -27,6 +29,7 @@ A 2026-08-28 `jarvis cleanup jarvis -y` sweep surfaced four defects that togethe
 - [ ] Cleanup leaves the primary checkout clean after archiving (moves committed/PR'd, or an explicit uncommitted-moves warning is emitted), pinned by a test.
 - [ ] `v2/spec/.claude`-style dot-dirs, staging dirs, and since-deleted paths produce no skip lines, pinned by tests.
 - [ ] One skip line per artifact per run, pinned by a test over a fixture that previously duplicated.
+- [ ] A merged plan worktree dirtied only by its chained implement's criteria ticks is retired (the ticks being present on the merge base is the proof they are redundant), or the refusal names the dirty paths rather than the failed git command; pinned by a test that fails against the current `Command failed: git worktree remove` shape.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Folded slices (2026-09-05 compaction)

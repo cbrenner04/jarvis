@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { resolveHarnessRoot } from "../../../shared/markdownlint-repair.ts";
@@ -9,9 +9,9 @@ import { openStateStore } from "../persistence/state-store.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import type { ExternalWorktree, withExternalWorktree } from "./external-worktree.ts";
 import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
+import { readReviewMdLintFixture, REVIEW_MD_LINT_FIXTURE_IDS } from "./workflow-runner.test-support.ts";
 
 const { roots } = trackedTempRoots();
-const FIXTURES_DIR = join(import.meta.dir, "fixtures", "write-loop-staged-markdown-lint");
 const HARNESS_ROOT = resolveHarnessRoot(join(import.meta.dir, "..", "..", ".."));
 const PLAN_DRAFT_INTENT_SEED = "---\nname: test\n---\n\n## Prerequisites\n\nnone\n";
 const PLAN_DRAFT_SPEC_PATH = "v2/spec/2099-01-01T00-00-00Z-plan-draft";
@@ -69,8 +69,8 @@ function writeValidPlanDraftStage(stagePath: string, subspecFile: string, subspe
   writeFileSync(join(stagePath, subspecFile), subspecBody, "utf8");
 }
 
-function stageFromFixture(stagePath: string, subspecFixtureName: string, subspecFile = "00-one.md"): void {
-  writeValidPlanDraftStage(stagePath, subspecFile, readFileSync(join(FIXTURES_DIR, subspecFixtureName), "utf8"));
+function stageFromFixture(stagePath: string, fixtureId: string, subspecFile = "00-one.md"): void {
+  writeValidPlanDraftStage(stagePath, subspecFile, readReviewMdLintFixture(fixtureId));
 }
 
 async function runPlanDraftLoop(args: {
@@ -124,7 +124,7 @@ describe("plan write step staged Markdown lint", () => {
     let invocations = 0;
     let repromptPrompt = "";
     const branchName = `plan-md-lint-reprompt-${Date.now()}`;
-    const cleanSubspec = readFileSync(join(FIXTURES_DIR, "plan-md012-clean-subspec.md"), "utf8");
+    const cleanSubspec = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd012CleanSubspec);
 
     const result = await runPlanDraftLoop({
       jarvisRoot,
@@ -140,7 +140,7 @@ describe("plan write step staged Markdown lint", () => {
             invocations += 1;
             const stage = join(cwd, ".jarvis-plan-stage");
             if (invocations === 1) {
-              stageFromFixture(stage, "plan-md012-violation-subspec.md");
+              stageFromFixture(stage, REVIEW_MD_LINT_FIXTURE_IDS.planMd012ViolationSubspec);
               return { kind: "ok", stdout: "done", stderr: "" };
             }
             repromptPrompt = prompt;
@@ -188,7 +188,7 @@ describe("plan write step staged Markdown lint", () => {
           metadata: { agent: "test-agent", model: "test" },
           invoke: async ({ cwd }) => {
             invocations += 1;
-            stageFromFixture(join(cwd, ".jarvis-plan-stage"), "plan-md012-clean-subspec.md");
+            stageFromFixture(join(cwd, ".jarvis-plan-stage"), REVIEW_MD_LINT_FIXTURE_IDS.planMd012CleanSubspec);
             return { kind: "ok", stdout: "done", stderr: "" };
           },
         },
@@ -209,10 +209,13 @@ describe("plan write step staged Markdown lint", () => {
       return;
     }
 
-    for (const fixtureName of ["plan-md012-clean-subspec.md", "plan-md038-clean-subspec.md"] as const) {
+    for (const fixtureId of [
+      REVIEW_MD_LINT_FIXTURE_IDS.planMd012CleanSubspec,
+      REVIEW_MD_LINT_FIXTURE_IDS.planMd038CleanSubspec,
+    ] as const) {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       let invocations = 0;
-      const branchName = `plan-md-lint-golden-${fixtureName}-${Date.now()}`;
+      const branchName = `plan-md-lint-golden-${fixtureId}-${Date.now()}`;
 
       const result = await runPlanDraftLoop({
         jarvisRoot,
@@ -224,7 +227,7 @@ describe("plan write step staged Markdown lint", () => {
             metadata: { agent: "test-agent", model: "test" },
             invoke: async ({ cwd }) => {
               invocations += 1;
-              stageFromFixture(join(cwd, ".jarvis-plan-stage"), fixtureName);
+              stageFromFixture(join(cwd, ".jarvis-plan-stage"), fixtureId);
               return { kind: "ok", stdout: "done", stderr: "" };
             },
           },
@@ -246,7 +249,7 @@ describe("plan write step staged Markdown lint", () => {
 
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     const branchName = `plan-md-lint-exhausted-${Date.now()}`;
-    const violationBytes = readFileSync(join(FIXTURES_DIR, "plan-md038-violation-subspec.md"), "utf8");
+    const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038ViolationSubspec);
 
     const result = await runPlanDraftLoop({
       jarvisRoot,
@@ -280,7 +283,7 @@ describe("plan write step staged Markdown lint", () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     let invocations = 0;
     const branchName = `plan-md-lint-siblings-${Date.now()}`;
-    const goodSubspec = readFileSync(join(FIXTURES_DIR, "plan-md012-clean-subspec.md"), "utf8");
+    const goodSubspec = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd012CleanSubspec);
     const goodSubspecFile = "01-good.md";
 
     const result = await runPlanDraftLoop({
@@ -304,7 +307,11 @@ describe("plan write step staged Markdown lint", () => {
             );
             writeFileSync(join(stage, goodSubspecFile), goodSubspec, "utf8");
             if (invocations === 1) {
-              copyFileSync(join(FIXTURES_DIR, "plan-md038-violation-subspec.md"), join(stage, "00-one.md"));
+              writeFileSync(
+                join(stage, "00-one.md"),
+                readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038ViolationSubspec),
+                "utf8",
+              );
             } else {
               writeFileSync(join(stage, "00-one.md"), goodSubspec, "utf8");
             }
@@ -321,9 +328,9 @@ describe("plan write step staged Markdown lint", () => {
   });
 });
 
-function stageIntentFromFixture(stagePath: string, fixtureName: string, intentFile = "lint-violation.md"): void {
+function stageIntentFromFixture(stagePath: string, fixtureId: string, intentFile = "lint-violation.md"): void {
   mkdirSync(stagePath, { recursive: true });
-  writeFileSync(join(stagePath, intentFile), readFileSync(join(FIXTURES_DIR, fixtureName), "utf8"), "utf8");
+  writeFileSync(join(stagePath, intentFile), readReviewMdLintFixture(fixtureId), "utf8");
 }
 
 async function runIntentSplitLoop(args: {
@@ -379,7 +386,7 @@ describe("intent write step staged Markdown lint", () => {
     let invocations = 0;
     let repromptPrompt = "";
     const branchName = `intent-md-lint-reprompt-${Date.now()}`;
-    const cleanBytes = readFileSync(join(FIXTURES_DIR, "intent-md038-clean.md"), "utf8");
+    const cleanBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.intentMd038Clean);
 
     const result = await runIntentSplitLoop({
       jarvisRoot,
@@ -395,7 +402,7 @@ describe("intent write step staged Markdown lint", () => {
             invocations += 1;
             const stage = join(cwd, ".jarvis-intent-stage");
             if (invocations === 1) {
-              stageIntentFromFixture(stage, "intent-md038-violation.md");
+              stageIntentFromFixture(stage, REVIEW_MD_LINT_FIXTURE_IDS.intentMd038Violation);
               return { kind: "ok", stdout: "done", stderr: "" };
             }
             repromptPrompt = prompt;
@@ -443,7 +450,11 @@ describe("intent write step staged Markdown lint", () => {
           metadata: { agent: "test-agent", model: "test" },
           invoke: async ({ cwd }) => {
             invocations += 1;
-            stageIntentFromFixture(join(cwd, ".jarvis-intent-stage"), "intent-md038-clean.md", "lint-clean.md");
+            stageIntentFromFixture(
+              join(cwd, ".jarvis-intent-stage"),
+              REVIEW_MD_LINT_FIXTURE_IDS.intentMd038Clean,
+              "lint-clean.md",
+            );
             return { kind: "ok", stdout: "done", stderr: "" };
           },
         },
@@ -476,7 +487,7 @@ describe("intent write step staged Markdown lint", () => {
             invocations += 1;
             const stage = join(cwd, ".jarvis-intent-stage");
             if (invocations === 1) {
-              stageIntentFromFixture(stage, "intent-landing-and-md038-violation.md", "bad-intent.md");
+              stageIntentFromFixture(stage, REVIEW_MD_LINT_FIXTURE_IDS.intentLandingAndMd038Violation, "bad-intent.md");
               return { kind: "ok", stdout: "done", stderr: "" };
             }
             repromptPrompt = prompt;

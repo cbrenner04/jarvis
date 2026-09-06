@@ -1,5 +1,9 @@
 import { parseArgs } from "node:util";
-import { RUN_KILL_PARSE_ARG_OPTIONS, RUN_LIST_PARSE_ARG_OPTIONS } from "../cli/command-help-flags.ts";
+import {
+  RUN_KILL_PARSE_ARG_OPTIONS,
+  RUN_LIST_PARSE_ARG_OPTIONS,
+  RUN_LOG_PARSE_ARG_OPTIONS,
+} from "../cli/command-help-flags.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { formatRpcError, parseStreamPayload, request, withRunClient } from "../cli/ipc.ts";
@@ -437,7 +441,7 @@ export async function runRunCommand(argv: readonly string[], io: Io, deps: CliDe
         args: argv.slice(1),
         allowPositionals: true,
         strict: true,
-        options: { follow: { type: "boolean" } },
+        options: RUN_LOG_PARSE_ARG_OPTIONS,
       });
       logValues = parsed.values;
       logPositionals = parsed.positionals;

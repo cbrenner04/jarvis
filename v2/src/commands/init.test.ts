@@ -123,6 +123,9 @@ function listFiles(root: string): string[] {
   return result.sort();
 }
 
+/** Profiles the CLI advertises in its unknown-profile error; discovery must cover them. */
+const ADVERTISED_MACHINE_PROFILES = ["home", "work"] as const;
+
 describe("init machine bootstrap", () => {
   test("fresh init bootstraps a compatible machine idempotently", async () => {
     // @mutate v2/src/commands/init.ts "next.agents = [...agents];" -> ""
@@ -236,11 +239,14 @@ describe("init machine bootstrap", () => {
 
   test("profile bindings govern bootstrap and runnable roster", async () => {
     const discovered = machineProfileFilenames();
-    expect(discovered).toEqual(
-      readdirSync(MACHINE_PROFILES_DIR, { withFileTypes: true })
-        .flatMap((entry) => (entry.isFile() && entry.name.endsWith(".json") ? [entry.name] : []))
-        .sort(),
-    );
+    // Comparing the directory to a second read of the same directory cannot fail, and passes on an
+    // empty directory. Assert the discovery is non-empty and that every committed profile the CLI
+    // advertises is present — the property the retired literal inventory actually guarded.
+    expect(discovered.length).toBeGreaterThan(0);
+    expect(discovered).toEqual([...discovered].sort());
+    for (const profile of ADVERTISED_MACHINE_PROFILES) {
+      expect(discovered).toContain(`${profile}.json`);
+    }
     expect(discovered).not.toEqual(HAND_MAINTAINED_PROFILE_FILENAMES.slice(0, -1));
 
     for (const agent of ["claude", "codex", "cursor"]) {

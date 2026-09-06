@@ -88,10 +88,23 @@ function commandTreeLeafPaths(node: CommandNode, prefix: readonly string[] = [])
   return children.flatMap((child) => commandTreeLeafPaths(child, [...prefix, child.name]));
 }
 
+/** True when the path has a parser-options mapping, regardless of whether it declares help flags. */
+function hasParserMapping(path: readonly string[]): boolean {
+  try {
+    parserAcceptedLongFlags(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function parityGuardedPaths(): readonly (readonly string[])[] {
   return commandTreeLeafPaths(commandTree).filter((path) => {
     const node = nodeAtPath(path);
-    if ((node.flags?.length ?? 0) === 0) return false;
+    // A leaf with a parser mapping but no help flags is the shape this guard exists to catch:
+    // emptying `flags` must not be a way to opt out of parity. Only leaves with no parser mapping
+    // at all are genuinely unguarded, and `parserAcceptedLongFlags` throws on an unmapped path.
+    if ((node.flags?.length ?? 0) === 0) return hasParserMapping(path);
     parserAcceptedLongFlags(path);
     return true;
   });

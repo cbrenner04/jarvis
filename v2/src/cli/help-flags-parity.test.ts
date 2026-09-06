@@ -42,6 +42,11 @@ describe("help flag parser parity", () => {
     // `.not.toEqual` and zero gaps pass vacuously on [], so require a non-empty tree-derived set.
     expect(guardedPaths.length).toBeGreaterThan(0);
     expect(guardedPaths).toContain("run workflow implement");
+    // The discovered set must never silently shrink below what the hand-maintained list pinned:
+    // emptying a `flags` array previously could not remove a path from the guard, and must not now.
+    for (const pinned of HAND_MAINTAINED_PARITY_PATHS) {
+      expect(guardedPaths).toContain(pinned.join(" "));
+    }
     for (const candidate of guardedPaths) {
       expect(guardedPaths.some((other) => other !== candidate && other.startsWith(`${candidate} `))).toBe(false);
     }

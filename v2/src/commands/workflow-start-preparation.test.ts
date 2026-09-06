@@ -43,14 +43,15 @@ function productionSourceMap(): ModuleSet {
 
 describe("workflow-start preparation authority", () => {
   test("realizes every supported workflow and review posture", () => {
-    for (const workflow of BASE_WORKFLOW_NAMES) {
-      expect(isBaseWorkflowName(workflow)).toBe(true);
-    }
-    for (const posture of WORKFLOW_REVIEW_POSTURES) {
-      expect(isWorkflowReviewPosture(posture)).toBe(true);
-    }
-    expect([...BASE_WORKFLOW_NAMES]).not.toEqual(HAND_MAINTAINED_BASE_WORKFLOW_NAMES.slice(0, -1));
-    expect([...WORKFLOW_REVIEW_POSTURES]).not.toEqual(HAND_MAINTAINED_REVIEW_POSTURES.slice(0, -1));
+    // `isBaseWorkflowName` is `BASE_WORKFLOW_NAMES.includes(value)`, so iterating that same array and
+    // asserting membership is a tautology that also passes on an empty array. Pin the contents, and
+    // pin the predicates against values that are NOT members — the direction that can actually fail.
+    expect([...BASE_WORKFLOW_NAMES] as string[]).toEqual([...HAND_MAINTAINED_BASE_WORKFLOW_NAMES]);
+    expect([...WORKFLOW_REVIEW_POSTURES] as string[]).toEqual([...HAND_MAINTAINED_REVIEW_POSTURES]);
+    const unknownWorkflow: string = "not-a-workflow";
+    const unknownPosture: string = "not-a-posture";
+    expect(isBaseWorkflowName(unknownWorkflow)).toBe(false);
+    expect(isWorkflowReviewPosture(unknownPosture)).toBe(false);
 
     const cells = BASE_WORKFLOW_NAMES.flatMap((workflow) =>
       WORKFLOW_REVIEW_POSTURES.map((posture) => ({ workflow, posture })),

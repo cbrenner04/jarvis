@@ -1642,7 +1642,7 @@ describe("review-role timeout resolution", () => {
 
 const WORKFLOW_COMMAND_SYMBOL_START = "export async function runWorkflowCommand";
 const WORKFLOW_COMMAND_SYMBOL_END = "return exitCode;";
-const PREPARE_CALL_PATTERN = /prepareWorkflowStart(?:<[^>]*>)?\s*\(/;
+const PREPARE_CALL_PATTERN = /prepareWorkflowStart(?:<[^>]*>)?\s*\(/g;
 const STAMP_CALL_PATTERN = /stampWorkflowStepsWithMachineConfig\s*\(/u;
 const STALE_RESET_CALL_PATTERN = /maybeResetStaleWorkspace\s*\(/u;
 
@@ -2449,7 +2449,9 @@ describe("implement preflight stale workspace reset", () => {
     expect(STALE_RESET_WORKFLOWS.has("intent")).toBe(true);
     expect(STALE_RESET_WORKFLOWS.has("implement")).toBe(true);
     expect(STALE_RESET_WORKFLOWS.has("plan")).toBe(true);
-    expect(STALE_RESET_WORKFLOWS).not.toEqual(new Set([...HAND_MAINTAINED_STALE_RESET_WORKFLOWS].slice(0, -1)));
+    // Membership alone does not reject extra members, and the `.not.toEqual` below is implied by the
+    // three `.has` calls. The set is closed, so pin its exact contents.
+    expect([...STALE_RESET_WORKFLOWS].sort()).toEqual([...HAND_MAINTAINED_STALE_RESET_WORKFLOWS].sort());
   });
 
   type PipelineAdmissionEffects = {

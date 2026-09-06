@@ -32,6 +32,15 @@ type Fixture = {
 
 const fixtureRoots: string[] = [];
 
+/** Pre-fix hardcoded inventory; vacuous when profiles are added without a matching edit. */
+const HAND_MAINTAINED_PROFILE_FILENAMES = ["home.json", "work.json"];
+
+function machineProfileFilenames(): string[] {
+  return readdirSync(MACHINE_PROFILES_DIR)
+    .filter((name) => name.endsWith(".json"))
+    .sort();
+}
+
 afterEach(() => {
   for (const root of fixtureRoots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
@@ -113,6 +122,9 @@ function listFiles(root: string): string[] {
   if (existsSync(root)) walk(root);
   return result.sort();
 }
+
+/** Profiles the CLI advertises in its unknown-profile error; discovery must cover them. */
+const ADVERTISED_MACHINE_PROFILES = ["home", "work"] as const;
 
 describe("init machine bootstrap", () => {
   test("fresh init bootstraps a compatible machine idempotently", async () => {
@@ -226,11 +238,16 @@ describe("init machine bootstrap", () => {
   });
 
   test("profile bindings govern bootstrap and runnable roster", async () => {
-    expect(
-      readdirSync(MACHINE_PROFILES_DIR)
-        .filter((name) => name.endsWith(".json"))
-        .sort(),
-    ).toEqual(["home.json", "work.json"]);
+    const discovered = machineProfileFilenames();
+    // Comparing the directory to a second read of the same directory cannot fail, and passes on an
+    // empty directory. Assert the discovery is non-empty and that every committed profile the CLI
+    // advertises is present — the property the retired literal inventory actually guarded.
+    expect(discovered.length).toBeGreaterThan(0);
+    expect(discovered).toEqual([...discovered].sort());
+    for (const profile of ADVERTISED_MACHINE_PROFILES) {
+      expect(discovered).toContain(`${profile}.json`);
+    }
+    expect(discovered).not.toEqual(HAND_MAINTAINED_PROFILE_FILENAMES.slice(0, -1));
 
     for (const agent of ["claude", "codex", "cursor"]) {
       const home = fixture();

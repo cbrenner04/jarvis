@@ -7,28 +7,18 @@ import {
   CLEANUP_PARSE_ARG_OPTIONS,
   DAEMON_LOG_PARSE_ARG_OPTIONS,
   INIT_PARSE_ARG_OPTIONS,
+  NOTIFICATIONS_PARSE_ARG_OPTIONS,
   PIPELINE_LIST_PARSE_ARG_OPTIONS,
+  PIPELINE_RECOVER_PARSE_ARG_OPTIONS,
+  PIPELINE_RESUME_PARSE_ARG_OPTIONS,
   PIPELINE_START_PARSE_ARG_OPTIONS,
   parityFlagsFromParseOptions,
   RUN_KILL_PARSE_ARG_OPTIONS,
   RUN_LIST_PARSE_ARG_OPTIONS,
+  RUN_LOG_PARSE_ARG_OPTIONS,
   WRITE_PARSE_ARG_OPTIONS,
 } from "./command-help-flags.ts";
 import { type CommandFlag, type CommandNode, commandTree, resolveHelpPath } from "./command-tree.ts";
-
-const PARITY_PATHS = [
-  ["init"],
-  ["run", "start"],
-  ["cleanup"],
-  ["run", "list"],
-  ["run", "kill"],
-  ["daemon", "log"],
-  ["pipeline", "start"],
-  ["pipeline", "list"],
-  ["run", "workflow", "intent"],
-  ["run", "workflow", "plan"],
-  ["run", "workflow", "implement"],
-] as const;
 
 function parseOptionKeysToLongFlags(keys: readonly string[]): readonly string[] {
   return keys.map((key) => `--${key}`);
@@ -45,6 +35,8 @@ export function parserAcceptedLongFlags(path: readonly string[]): readonly strin
       return parityFlagsFromParseOptions(CLEANUP_PARSE_ARG_OPTIONS);
     case "run list":
       return parseOptionKeysToLongFlags(Object.keys(RUN_LIST_PARSE_ARG_OPTIONS));
+    case "run log":
+      return parityFlagsFromParseOptions(RUN_LOG_PARSE_ARG_OPTIONS);
     case "run kill":
       return parseOptionKeysToLongFlags(Object.keys(RUN_KILL_PARSE_ARG_OPTIONS));
     case "daemon log":
@@ -53,6 +45,14 @@ export function parserAcceptedLongFlags(path: readonly string[]): readonly strin
       return parityFlagsFromParseOptions(PIPELINE_START_PARSE_ARG_OPTIONS);
     case "pipeline list":
       return parseOptionKeysToLongFlags(Object.keys(PIPELINE_LIST_PARSE_ARG_OPTIONS));
+    case "pipeline resume":
+      return parityFlagsFromParseOptions(PIPELINE_RESUME_PARSE_ARG_OPTIONS);
+    case "pipeline recover":
+      return parityFlagsFromParseOptions(PIPELINE_RECOVER_PARSE_ARG_OPTIONS);
+    case "notifications wait":
+      return parityFlagsFromParseOptions(NOTIFICATIONS_PARSE_ARG_OPTIONS);
+    case "notifications list":
+      return parityFlagsFromParseOptions(NOTIFICATIONS_PARSE_ARG_OPTIONS);
     case "run workflow intent":
       return parseOptionKeysToLongFlags(Object.keys(INTENT_WORKFLOW_PARSE_OPTIONS));
     case "run workflow plan":
@@ -80,9 +80,39 @@ function nodeAtPath(path: readonly string[]): CommandNode {
   return chain[chain.length - 1] ?? commandTree;
 }
 
+function commandTreeLeafPaths(node: CommandNode, prefix: readonly string[] = []): readonly (readonly string[])[] {
+  const children = node.subcommands ?? [];
+  if (children.length === 0) {
+    return prefix.length > 0 ? [prefix] : [];
+  }
+  return children.flatMap((child) => commandTreeLeafPaths(child, [...prefix, child.name]));
+}
+
+/** True when the path has a parser-options mapping, regardless of whether it declares help flags. */
+function hasParserMapping(path: readonly string[]): boolean {
+  try {
+    parserAcceptedLongFlags(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function parityGuardedPaths(): readonly (readonly string[])[] {
+  return commandTreeLeafPaths(commandTree).filter((path) => {
+    const node = nodeAtPath(path);
+    // A leaf with a parser mapping but no help flags is the shape this guard exists to catch:
+    // emptying `flags` must not be a way to opt out of parity. Only leaves with no parser mapping
+    // at all are genuinely unguarded, and `parserAcceptedLongFlags` throws on an unmapped path.
+    if ((node.flags?.length ?? 0) === 0) return hasParserMapping(path);
+    parserAcceptedLongFlags(path);
+    return true;
+  });
+}
+
 export function helpFlagsParityGaps(): Array<{ path: string; missing: string[] }> {
   const gaps: Array<{ path: string; missing: string[] }> = [];
-  for (const path of PARITY_PATHS) {
+  for (const path of parityGuardedPaths()) {
     const node = nodeAtPath(path);
     const missing = missingParserFlagsInHelp(parserAcceptedLongFlags(path), node.flags ?? []);
     if (missing.length > 0) {

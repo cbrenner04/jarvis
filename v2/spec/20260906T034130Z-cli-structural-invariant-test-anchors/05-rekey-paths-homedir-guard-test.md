@@ -11,16 +11,16 @@ Row `cli-paths-homedir-guard` in `v2/docs/structural-invariant-test-audit.md` sc
 
 ## Task checklist
 
-- [ ] Re-key audit row `cli-paths-homedir-guard` per the decision ledger.
-- [ ] Confirm rows `cli-hfp-guarded-paths`, `cli-init-profile-files`, `cli-wsp-posture-tables`, `cli-wsp-single-owner`, `cli-wsp-prepare-calls`, `cli-wf-stale-reset-workflows`, `cli-wf-prep-call-count`, and `cli-wf-prep-delegation` are covered by subspecs 01–04.
+- [x] Re-key audit row `cli-paths-homedir-guard` per the decision ledger.
+- [x] Confirm rows `cli-hfp-guarded-paths`, `cli-init-profile-files`, `cli-wsp-posture-tables`, `cli-wsp-single-owner`, `cli-wsp-prepare-calls`, `cli-wf-stale-reset-workflows`, `cli-wf-prep-call-count`, and `cli-wf-prep-delegation` are covered by subspecs 01–04.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/paths.test.ts` test `no v2 source resolves a jarvis-home path via homedir() directly` pairs homedir absence outside `paths.ts` with explicit allowance on the canonical paths module via loud-failure discovery; it fails against the pre-fix substring-only scan reachable in that test and passes after re-key.
-- [ ] Every CLI structural-invariant test tagged `re-key` in `v2/docs/structural-invariant-test-audit.md` anchors on its source of truth or remains `stay-incidental` per the audit with loud-failure locator routing only.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/paths.test.ts` test `no v2 source resolves a jarvis-home path via homedir() directly` pairs homedir absence outside `paths.ts` with explicit allowance on the canonical paths module via loud-failure discovery; it fails against the pre-fix substring-only scan reachable in that test and passes after re-key.
+- [x] Every CLI structural-invariant test tagged `re-key` in `v2/docs/structural-invariant-test-audit.md` anchors on its source of truth or remains `stay-incidental` per the audit with loud-failure locator routing only.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

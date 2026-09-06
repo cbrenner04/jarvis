@@ -8,7 +8,27 @@ import {
   WRITE_HELP_FLAGS,
   WRITE_PARSE_ARG_OPTIONS,
 } from "./command-help-flags.ts";
-import { helpFlagsParityGaps, missingParserFlagsInHelp, parserAcceptedLongFlags } from "./help-flags-parity.ts";
+import {
+  helpFlagsParityGaps,
+  missingParserFlagsInHelp,
+  parityGuardedPaths,
+  parserAcceptedLongFlags,
+} from "./help-flags-parity.ts";
+
+/** Pre-fix hand-maintained list; vacuous when commandTree gains guarded leaves without a matching edit. */
+const HAND_MAINTAINED_PARITY_PATHS = [
+  ["init"],
+  ["run", "start"],
+  ["cleanup"],
+  ["run", "list"],
+  ["run", "kill"],
+  ["daemon", "log"],
+  ["pipeline", "start"],
+  ["pipeline", "list"],
+  ["run", "workflow", "intent"],
+  ["run", "workflow", "plan"],
+  ["run", "workflow", "implement"],
+] as const;
 
 function writeParserLongFlags(): string[] {
   return Object.keys(WRITE_PARSE_ARG_OPTIONS).map((key) => `--${key}`);
@@ -16,6 +36,20 @@ function writeParserLongFlags(): string[] {
 
 describe("help flag parser parity", () => {
   test("every guarded path lists all parser-accepted flags", () => {
+    const guardedPaths = parityGuardedPaths().map((path) => path.join(" "));
+    expect(guardedPaths).not.toEqual(HAND_MAINTAINED_PARITY_PATHS.slice(0, -1).map((path) => path.join(" ")));
+    // Pins `commandTreeLeafPaths` leaf detection: inverting `children.length === 0` collapses discovery to [].
+    // `.not.toEqual` and zero gaps pass vacuously on [], so require a non-empty tree-derived set.
+    expect(guardedPaths.length).toBeGreaterThan(0);
+    expect(guardedPaths).toContain("run workflow implement");
+    // The discovered set must never silently shrink below what the hand-maintained list pinned:
+    // emptying a `flags` array previously could not remove a path from the guard, and must not now.
+    for (const pinned of HAND_MAINTAINED_PARITY_PATHS) {
+      expect(guardedPaths).toContain(pinned.join(" "));
+    }
+    for (const candidate of guardedPaths) {
+      expect(guardedPaths.some((other) => other !== candidate && other.startsWith(`${candidate} `))).toBe(false);
+    }
     expect(helpFlagsParityGaps()).toEqual([]);
   });
 

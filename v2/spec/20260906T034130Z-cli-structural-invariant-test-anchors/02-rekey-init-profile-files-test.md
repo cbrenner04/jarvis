@@ -11,15 +11,15 @@ Row `cli-init-profile-files` in `v2/docs/structural-invariant-test-audit.md` pin
 
 ## Task checklist
 
-- [ ] Re-key audit row `cli-init-profile-files` per the decision ledger.
-- [ ] Keep `profile bindings govern bootstrap and runnable roster` behavioral coverage intact while re-keying only the filename inventory assertion.
+- [x] Re-key audit row `cli-init-profile-files` per the decision ledger.
+- [x] Keep `profile bindings govern bootstrap and runnable roster` behavioral coverage intact while re-keying only the filename inventory assertion.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/init.test.ts` test `profile bindings govern bootstrap and runnable roster` derives expected machine profile filenames from sorted `readdirSync(MACHINE_PROFILES_DIR)` discovery rather than a hardcoded literal array; it fails against the pre-fix `["home.json", "work.json"]` pin reachable in that test and passes after re-key.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/commands/init.test.ts` test `profile bindings govern bootstrap and runnable roster` derives expected machine profile filenames from sorted `readdirSync(MACHINE_PROFILES_DIR)` discovery rather than a hardcoded literal array; it fails against the pre-fix `["home.json", "work.json"]` pin reachable in that test and passes after re-key.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

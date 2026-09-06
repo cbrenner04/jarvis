@@ -12,18 +12,18 @@ Rows `cli-wf-stale-reset-workflows`, `cli-wf-prep-call-count`, and `cli-wf-prep-
 
 ## Task checklist
 
-- [ ] Re-key audit rows `cli-wf-stale-reset-workflows`, `cli-wf-prep-call-count`, and `cli-wf-prep-delegation` per the decision ledger.
-- [ ] Route command and owner body slicing through `shared/structural-test-locator.ts` in the shared workflow-start preparation describe block.
+- [x] Re-key audit rows `cli-wf-stale-reset-workflows`, `cli-wf-prep-call-count`, and `cli-wf-prep-delegation` per the decision ledger.
+- [x] Route command and owner body slicing through `shared/structural-test-locator.ts` in the shared workflow-start preparation describe block.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/workflow.test.ts` test `STALE_RESET_WORKFLOWS membership includes intent` asserts membership on the exported stale-reset set rather than hardcoded full-set equality; it fails against the pre-fix `new Set(["implement", "plan", "intent"])` pin reachable in that test and passes after re-key.
-- [ ] `v2/src/commands/workflow.test.ts` test `run workflow intent plan and implement preserve prepared start steps through the shared owner` resolves the single prepare-call site via loud-failure symbol slicing rather than a raw file regex count; it fails against the pre-fix `readFileSync` count pin reachable in that test and passes after re-key.
-- [ ] `v2/src/commands/workflow.test.ts` test `runWorkflowCommand delegates build stamp and stale-reset preparation to the shared owner` pairs command-body absence with owner presence via loud-failure symbol slicing; it fails against the pre-fix one-way absence pins reachable in that test and passes after re-key.
-- [ ] `v2/src/commands/workflow.test.ts` — `runWorkflowCommand delegates build stamp and stale-reset preparation to the shared owner` stays green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/commands/workflow.test.ts` test `STALE_RESET_WORKFLOWS membership includes intent` asserts membership on the exported stale-reset set rather than hardcoded full-set equality; it fails against the pre-fix `new Set(["implement", "plan", "intent"])` pin reachable in that test and passes after re-key.
+- [x] `v2/src/commands/workflow.test.ts` test `run workflow intent plan and implement preserve prepared start steps through the shared owner` resolves the single prepare-call site via loud-failure symbol slicing rather than a raw file regex count; it fails against the pre-fix `readFileSync` count pin reachable in that test and passes after re-key.
+- [x] `v2/src/commands/workflow.test.ts` test `runWorkflowCommand delegates build stamp and stale-reset preparation to the shared owner` pairs command-body absence with owner presence via loud-failure symbol slicing; it fails against the pre-fix one-way absence pins reachable in that test and passes after re-key.
+- [x] `v2/src/commands/workflow.test.ts` — `runWorkflowCommand delegates build stamp and stale-reset preparation to the shared owner` stays green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

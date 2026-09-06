@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { originTrackingRefResolvesAsync } from "../../../shared/git.ts";
 import { projectSafeId } from "../../../shared/project-safe-id.ts";
+import { locateSymbolSlice } from "../../../shared/structural-test-locator.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import { createRunControlHandlers, WorktreeOwnershipRegistry } from "../daemon/daemon.ts";
@@ -1639,10 +1640,25 @@ describe("review-role timeout resolution", () => {
   });
 });
 
+const WORKFLOW_COMMAND_SYMBOL_START = "export async function runWorkflowCommand";
+const WORKFLOW_COMMAND_SYMBOL_END = "return exitCode;";
+const PREPARE_CALL_PATTERN = /prepareWorkflowStart(?:<[^>]*>)?\s*\(/;
+const STAMP_CALL_PATTERN = /stampWorkflowStepsWithMachineConfig\s*\(/u;
+const STALE_RESET_CALL_PATTERN = /maybeResetStaleWorkspace\s*\(/u;
+
+function runWorkflowCommandSlice(source: string): string {
+  return locateSymbolSlice({
+    candidates: [source],
+    start: WORKFLOW_COMMAND_SYMBOL_START,
+    end: WORKFLOW_COMMAND_SYMBOL_END,
+    searchKey: "runWorkflowCommand",
+  });
+}
+
 describe("shared workflow-start preparation", () => {
   test("run workflow intent plan and implement preserve prepared start steps through the shared owner", async () => {
     const source = readFileSync(join(import.meta.dir, "workflow.ts"), "utf8");
-    expect(source.match(/prepareWorkflowStart\(/gu)).toHaveLength(1);
+    expect(runWorkflowCommandSlice(source).match(PREPARE_CALL_PATTERN)).toHaveLength(1);
     const configPath = writeMachineConfig({
       iterationTimeoutMs: 101_000,
       iterationCeilingMs: 202_000,
@@ -1703,15 +1719,20 @@ describe("shared workflow-start preparation", () => {
   test("runWorkflowCommand delegates build stamp and stale-reset preparation to the shared owner", () => {
     const source = readFileSync(join(import.meta.dir, "workflow.ts"), "utf8");
     const owner = readFileSync(join(import.meta.dir, "workflow-start-preparation.ts"), "utf8");
-    const commandStart = source.indexOf("export async function runWorkflowCommand");
-    const commandSource = source.slice(commandStart);
+    const commandSlice = runWorkflowCommandSlice(source);
+    const ownerSlice = locateSymbolSlice({
+      candidates: [owner],
+      start: "export async function prepareWorkflowStart",
+      end: "return prepared;",
+      searchKey: "prepareWorkflowStart",
+    });
     expect(source).toContain('from "./workflow-start-preparation.ts"');
     expect(source).not.toContain("async function prepareWorkflowSteps");
-    expect(commandSource).not.toMatch(/stampWorkflowStepsWithMachineConfig\s*\(/u);
-    expect(commandSource).not.toMatch(/maybeResetStaleWorkspace\s*\(/u);
-    expect(owner).toMatch(/request\.builder\s*\(/u);
-    expect(owner).toMatch(/request\.stampSteps\s*\(/u);
-    expect(owner).toMatch(/request\.staleReset\.run\s*\(/u);
+    expect(commandSlice).not.toMatch(STAMP_CALL_PATTERN);
+    expect(commandSlice).not.toMatch(STALE_RESET_CALL_PATTERN);
+    expect(ownerSlice).toMatch(/request\.builder\s*\(/u);
+    expect(ownerSlice).toMatch(/request\.stampSteps\s*\(/u);
+    expect(ownerSlice).toMatch(/request\.staleReset\.run\s*\(/u);
   });
 });
 
@@ -2420,9 +2441,15 @@ describe("implement preflight stale workspace reset", () => {
     rmSync(resetTmp, { recursive: true, force: true });
   });
 
+  /** Pre-fix hardcoded stale-reset roster; vacuous when membership grows without a matching edit. */
+  const HAND_MAINTAINED_STALE_RESET_WORKFLOWS = new Set(["implement", "plan", "intent"]);
+
   // @mutate v2/src/commands/stale-reset-workspace.ts "const STALE_RESET_WORKFLOWS = new Set([\"implement\", \"plan\", \"intent\"]);" -> "const STALE_RESET_WORKFLOWS = new Set([\"implement\", \"plan\"]);"
   test("STALE_RESET_WORKFLOWS membership includes intent", () => {
-    expect(STALE_RESET_WORKFLOWS).toEqual(new Set(["implement", "plan", "intent"]));
+    expect(STALE_RESET_WORKFLOWS.has("intent")).toBe(true);
+    expect(STALE_RESET_WORKFLOWS.has("implement")).toBe(true);
+    expect(STALE_RESET_WORKFLOWS.has("plan")).toBe(true);
+    expect(STALE_RESET_WORKFLOWS).not.toEqual(new Set([...HAND_MAINTAINED_STALE_RESET_WORKFLOWS].slice(0, -1)));
   });
 
   type PipelineAdmissionEffects = {

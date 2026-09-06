@@ -314,7 +314,7 @@ v2/src/tui/tui-timestamp-format.test.ts out-of-scope no-structural-signal
 | ex-isr-fixture-seeds | v2/src/execution/intent-split-regression.test.ts | module scope / intent split production write regression | split regression seeds are byte-stable fixture inputs | committed `INTENT_SPLIT_FIXTURES` ids loaded via `readIntentSplitFixture` / `locateDiscoveredFile`; `classifyRenderedSeed` compares rendered seed bytes to registry content | behavioral | n/a | | |
 | ex-isr-primary-surfaces | v2/src/execution/intent-split-regression.test.ts | intent split production write regression > multi-surface seed fans out by surface through the production split write | staged intents name expected primary implementation surfaces | `seedPrimaryImplementationSurfaces` derives paths from `referencedArtifactPaths`, `classifyModuleBoundaryText`, and `orderModuleBoundariesForSplit` on fixture seed content | behavioral | n/a | | |
 | ex-isr-split-oracles | v2/src/execution/intent-split-regression.test.ts | intent split production write regression > * | production split write honors surface-contract prompt pins | behavioral end-to-end `executeSeed` staging oracles via `assertMultiSurfaceStage` / `assertSingleSurfaceStage` | behavioral | n/a | | |
-| ex-pws-spec-guidance-prose | v2/src/execution/plan-workflow-steps.test.ts | plan preset draft write step > `plan` invokes its binding through the production step-builder | plan draft prompt embeds committed spec-guidance prose | `readSpecGuidance()` plus `capturedPrompt` substring pin on `specGuidance.slice(0, 80)` | incidental | re-key | | |
+| ex-pws-spec-guidance-prose | v2/src/execution/plan-workflow-steps.test.ts | plan preset draft write step > `plan` invokes its binding through the production step-builder | plan draft prompt embeds committed spec-guidance prose | `capturedPrompt` whole-body containment of `readSpecGuidance()` output | behavioral | n/a | | |
 | ex-pws-plan-routing | v2/src/execution/plan-workflow-steps.test.ts | plan ready-intent output routing / buildPlanWorkflowSteps review composition | plan workflows route ready-intents, external storage, and review steps correctly | behavioral builder tests (regex `specPath` routing, review step shape) | behavioral | n/a | | |
 | ex-pl-tree-landing | v2/src/execution/publication-landing.test.ts | publication landing helpers > * | publication landing copies plan trees and intent artifacts into durable locations | `readFileSync` on worktree paths after landing helpers | behavioral | n/a | | |
 | ex-rf-ready-gate | v2/src/execution/ready-finalize.test.ts | ready-finalize integration / base-ref probe / gate classification | ready gate scopes commands, classifies failures, and probes base-ref reproduction | behavioral tests with mocked git/subprocess seams (`merge-base` mocked, not structural inventory) | behavioral | n/a | | |
@@ -504,12 +504,6 @@ Every inventory row with disposition `re-key`, grouped by `test-path` + `case-sc
 **case-scope:** only allowlisted modules call resolveWriteLoopBindings
 
 **re-key (1):** dm-wlbinding-callers-allowlist
-
-### v2/src/execution/plan-workflow-steps.test.ts
-
-**case-scope:** plan preset draft write step > `plan` invokes its binding through the production step-builder
-
-**re-key (1):** ex-pws-spec-guidance-prose
 
 ### v2/src/execution/workflow-runner-debate-landing-structure.test.ts
 

@@ -11,15 +11,15 @@ Row `ex-pws-spec-guidance-prose` in `v2/docs/structural-invariant-test-audit.md`
 
 ## Task checklist
 
-- [ ] Re-key audit row `ex-pws-spec-guidance-prose` per the decision ledger.
-- [ ] Replace the 80-character prefix assertion with a whole-body or shared-helper containment check against `readSpecGuidance()`.
+- [x] Re-key audit row `ex-pws-spec-guidance-prose` per the decision ledger.
+- [x] Replace the 80-character prefix assertion with a whole-body or shared-helper containment check against `readSpecGuidance()`.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/plan-workflow-steps.test.ts` plan preset draft write step cases assert the captured prompt embeds committed spec guidance via `readSpecGuidance()` without a fixed prefix slice; it fails against the pre-fix `specGuidance.slice(0, 80)` pin and passes after re-key.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/execution/plan-workflow-steps.test.ts` plan preset draft write step cases assert the captured prompt embeds committed spec guidance via `readSpecGuidance()` without a fixed prefix slice; it fails against the pre-fix `specGuidance.slice(0, 80)` pin and passes after re-key.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

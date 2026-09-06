@@ -2,7 +2,7 @@
 
 - [x] [00 - Re-key execution-terminal-settlement-guard.test.ts](./00-rekey-execution-terminal-settlement-guard-test.md)
 - [x] [01 - Re-key diff-derived-mutation-verifier.test.ts](./01-rekey-diff-derived-mutation-verifier-test.md)
-- [ ] [02 - Re-key intent-split-regression.test.ts](./02-rekey-intent-split-regression-test.md)
+- [x] [02 - Re-key intent-split-regression.test.ts](./02-rekey-intent-split-regression-test.md)
 - [ ] [03 - Re-key plan-workflow-steps.test.ts spec-guidance pin](./03-rekey-plan-workflow-steps-spec-guidance-test.md)
 - [ ] [04 - Re-key write.test.ts spec-guidance pin](./04-rekey-write-spec-guidance-test.md)
 - [ ] [05 - Re-key workflow-runner-debate-landing-structure.test.ts](./05-rekey-workflow-runner-debate-landing-structure-test.md)

@@ -42,6 +42,18 @@ import type { WriteLoopOutcomeKind } from "./write-loop.ts";
 
 const REVIEW_DEBATE_ROLES: readonly ReviewDebateRole[] = ["adversary", "advocate", "adjudicator", "actuator"];
 
+export const EXTRACTED_FROM_WORKFLOW_RUNNER = [
+  "runReviewDebateStep",
+  "tryActuatorOnlyReviewDebateRetry",
+  "landReviewedOutputOrFail",
+  "finishReviewedLanding",
+  "finishReviewDebateLanding",
+  "commitReviewDebateOutcome",
+  "buildReviewDebateLandingActuatorContext",
+  "buildStandardReviewLandingActuatorContext",
+  "repromptReviewedStagedMarkdownLintOrFail",
+] as const;
+
 type WorkflowTelemetryContext = {
   operatorSessionId: string;
   workflow: string;

@@ -322,7 +322,7 @@ v2/src/tui/tui-timestamp-format.test.ts out-of-scope no-structural-signal
 | ex-rd-review-debate | v2/src/execution/review-debate.test.ts | executeReviewDebate > * | debate cycle runs role order, quota handling, and verdict persistence | behavioral tests with temp verdict-path `readFileSync` | behavioral | n/a | | |
 | ex-rie-verdict-ownership | v2/src/execution/review-intent-enforcement.test.ts | review-intent-enforcement > * | verdict ownership markers and working-tree snapshots gate enforced review cycles | behavioral tests of ownership checks and git inventory seams | behavioral | n/a | | |
 | ex-wrc-workflow-core | v2/src/execution/workflow-runner-core.test.ts | workflow-runner core integration cases | core workflow runner lands artifacts and honors step contracts | behavioral integration with worktree `readFileSync` on landed outputs | behavioral | n/a | | |
-| ex-wrdls-debate-absence | v2/src/execution/workflow-runner-debate-landing-structure.test.ts | review-debate landing helpers are not defined in workflow-runner.ts | extracted debate-landing helpers must not remain in `workflow-runner.ts` | `EXTRACTED_FROM_WORKFLOW_RUNNER` symbol list scanned via regex on production `workflow-runner.ts` `readFileSync` (absence-only) | incidental | re-key | | yes |
+| ex-wrdls-debate-absence | v2/src/execution/workflow-runner-debate-landing-structure.test.ts | review-debate landing helpers are not defined in workflow-runner.ts | extracted debate-landing helpers must not remain in `workflow-runner.ts` | exported `EXTRACTED_FROM_WORKFLOW_RUNNER` from `workflow-runner-debate-landing.ts` with paired absence/presence function-definition regex scans on production sources via `readProductionExecutionSource` | behavioral | n/a | | |
 | ex-wrdl-debate-landing | v2/src/execution/workflow-runner-debate-landing.test.ts | workflow-runner debate landing integration | reviewed debate landing commits durable outputs | behavioral integration with worktree `readFileSync` | behavioral | n/a | | |
 | ex-wrd-debate-flow | v2/src/execution/workflow-runner-debate.test.ts | workflow-runner debate integration cases | implement/plan debate review lands verdicts and durable spec edits | behavioral integration with worktree `readFileSync` | behavioral | n/a | | |
 | ex-wri-intent-flow | v2/src/execution/workflow-runner-intent.test.ts | workflow-runner intent integration cases | intent workflow lands multi-file durable outputs and review edits | behavioral integration with worktree `readFileSync` | behavioral | n/a | | |
@@ -504,12 +504,6 @@ Every inventory row with disposition `re-key`, grouped by `test-path` + `case-sc
 **case-scope:** only allowlisted modules call resolveWriteLoopBindings
 
 **re-key (1):** dm-wlbinding-callers-allowlist
-
-### v2/src/execution/workflow-runner-debate-landing-structure.test.ts
-
-**case-scope:** review-debate landing helpers are not defined in workflow-runner.ts
-
-**re-key (1):** ex-wrdls-debate-absence
 
 ### v2/src/execution/workflow-runner-resume-inventory.test.ts
 

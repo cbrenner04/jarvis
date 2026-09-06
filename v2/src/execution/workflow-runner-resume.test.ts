@@ -42,7 +42,8 @@ import {
   doneBindingFactory,
   externalWorktreeBinding,
   initGitWorkspace,
-  REVIEW_MD_LINT_FIXTURES,
+  readReviewMdLintFixture,
+  REVIEW_MD_LINT_FIXTURE_IDS,
   seedFailedIntentReviewResumeRun,
   skipReviewWithoutHarnessMarkdownlint,
   stageReviewedIntent,
@@ -3035,7 +3036,7 @@ describe("recoverPlanStage", () => {
     writeFileSync(join(stage, "intent.md"), `---\nname: test\n---\n${harnessPlanBlocker(reason)}`, "utf8");
     const { sourceRoot, path: sourceReadyIntent } = seedSourceReadyIntent("recover-plan-stage-keystone-source-");
 
-    const correctedSubspecBody = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md012-clean-subspec.md"), "utf8");
+    const correctedSubspecBody = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd012CleanSubspec);
     const actuatorPrompts: string[] = [];
 
     await withStateStore(async (store) => {
@@ -3121,7 +3122,7 @@ describe("recoverPlanStage", () => {
     execFileSync("git", ["add", "."], { cwd: worktreePath });
     execFileSync("git", ["commit", "-qm", "seed ready-intent"], { cwd: worktreePath });
 
-    const correctedSubspecBody = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md012-clean-subspec.md"), "utf8");
+    const correctedSubspecBody = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd012CleanSubspec);
 
     await withStateStore(async (store) => {
       const runId = seedBlockedPlanDraftRun(store, {
@@ -3676,7 +3677,7 @@ describe("recoverPlanStage", () => {
         label: "staged-markdown",
         setup: (stage) => {
           writeLintCleanPlanStage(stage, "00-first.md");
-          const violationBytes = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md038-violation-subspec.md"), "utf8");
+          const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038ViolationSubspec);
           writeFileSync(join(stage, "00-first.md"), violationBytes, "utf8");
         },
         reasonContains: "MD038",
@@ -3959,7 +3960,7 @@ describe("recoverPlanStage review-failed admission", () => {
     const stepId = "plan";
     const specPath = "spec/2026-review-failed-recovered";
     const invocationId = "recover-review-failed-keystone-inv";
-    const subspecBody = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md012-clean-subspec.md"), "utf8");
+    const subspecBody = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd012CleanSubspec);
     writeLintCleanPlanStage(stage, "00-first.md");
     writeFileSync(join(stage, "00-first.md"), subspecBody, "utf8");
 
@@ -4086,7 +4087,7 @@ describe("recoverPlanStage review-failed admission", () => {
     const stepId = "plan";
     const specPath = "spec/2026-review-failed-terminal";
     const invocationId = "recover-review-failed-terminal-inv";
-    const subspecBody = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md012-clean-subspec.md"), "utf8");
+    const subspecBody = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd012CleanSubspec);
     writeLintCleanPlanStage(stage, "00-first.md");
     writeFileSync(join(stage, "00-first.md"), subspecBody, "utf8");
     const beforeIntent = readFileSync(join(stage, "intent.md"), "utf8");

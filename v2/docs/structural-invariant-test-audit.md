@@ -331,7 +331,7 @@ v2/src/tui/tui-timestamp-format.test.ts out-of-scope no-structural-signal
 | ex-wri-merge-base-titles | v2/src/execution/workflow-runner-resume-inventory.test.ts | workflow-runner resume test inventory > preserves merge-base resume-path leaf titles in workflow-runner-resume*.test.ts destinations | co-located resume test files preserve merge-base leaf-title multisets per source bucket | `SOURCE_BUCKETS` hand list plus `git merge-base`/`git show` title multiset parity against destination `readFileSync` | incidental | re-key | | |
 | ex-wri-title-scanner | v2/src/execution/workflow-runner-resume-inventory.test.ts | resume test title scanner > * | title collector expands `test.each` and scopes to root describe | behavioral unit tests of `collectLeafTitles` parser | behavioral | n/a | | |
 | ex-wrrs-resume-extraction | v2/src/execution/workflow-runner-resume-structure.test.ts | resume helpers are not defined in workflow-runner.ts / resume helpers are defined in workflow-runner-resume.ts | extracted resume helpers moved out of `workflow-runner.ts` into `workflow-runner-resume.ts` | exported `EXTRACTED_FROM_WORKFLOW_RUNNER` from `workflow-runner-resume.ts` with paired absence/presence function-definition regex scans on production sources via `readProductionExecutionSource` | behavioral | n/a | | |
-| ex-wrr-resume-fixture-golden | v2/src/execution/workflow-runner-resume.test.ts | recoverPlanStage / resume mutation-repair cases using lint fixtures | recovery lands committed golden subspec bodies from staged-markdown-lint fixtures | `readFileSync` of `execution/fixtures/write-loop-staged-markdown-lint/plan-md012-clean-subspec.md` (and related) as golden expected bodies | incidental | re-key | | |
+| ex-wrr-resume-fixture-golden | v2/src/execution/workflow-runner-resume.test.ts | recoverPlanStage / resume mutation-repair cases using lint fixtures | recovery lands committed golden subspec bodies from staged-markdown-lint fixtures | committed `REVIEW_MD_LINT_FIXTURE_IDS` registry with `readReviewMdLintFixture` / `locateDiscoveredFile` loud-failure reads for recoverPlanStage and mutation-repair golden bodies | behavioral | n/a | | |
 | ex-wrr-resume-integration | v2/src/execution/workflow-runner-resume.test.ts | workflow-runner resume integration (non-fixture cases) | resume paths settle publication, mutation repair, and staged markdown without silent regressions | behavioral integration with worktree `readFileSync` on landed stage/durable paths | behavioral | n/a | | |
 | ex-wrrs-standard-review | v2/src/execution/workflow-runner-review-standard.test.ts | workflow-runner standard review integration | standard review landing preserves operator checkout dirt and durable outputs | behavioral integration with worktree `readFileSync` | behavioral | n/a | | |
 | ex-wrr-review-fixture-golden | v2/src/execution/workflow-runner-review.test.ts | review staged-markdown-lint reprompt cases | review debate reprompt preserves golden violation/clean fixture bytes through recovery | `readFileSync` of `REVIEW_MD_LINT_FIXTURES` (`plan-md038-*`, `intent-md038-*`) golden bodies | incidental | re-key | | |
@@ -516,12 +516,6 @@ Every inventory row with disposition `re-key`, grouped by `test-path` + `case-sc
 **case-scope:** resume helpers are not defined in workflow-runner.ts / resume helpers are defined in workflow-runner-resume.ts
 
 **re-key (1):** ex-wrrs-resume-extraction
-
-### v2/src/execution/workflow-runner-resume.test.ts
-
-**case-scope:** recoverPlanStage / resume mutation-repair cases using lint fixtures
-
-**re-key (1):** ex-wrr-resume-fixture-golden
 
 ### v2/src/execution/workflow-runner-review.test.ts
 

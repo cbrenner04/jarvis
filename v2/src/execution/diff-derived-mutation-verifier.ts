@@ -961,7 +961,8 @@ async function deriveCandidates(
 
 /**
  * Killing tests for a changed production file: exact-stem `<file>.test.ts` when present, sibling
- * `<file>-*.test.ts` files, and direct-importing `*.test.ts` files under the surface-prefix scan root.
+ * `<file>-*.test.ts` files, and — only when co-located resolution is empty — direct-importing
+ * `*.test.ts` files under the surface-prefix scan root.
  */
 const EQUIVALENT_MUTATION_DIRECTIVE_PREFIX = " @mutate-equivalent mutation=";
 
@@ -1079,19 +1080,21 @@ async function resolveKillingTests(
   listImporterCandidates: ListImporterCandidates,
 ): Promise<KillingTestResolution> {
   const killingTests: string[] = [];
-  const coLocatedPaths = new Set<string>();
   try {
     await readFile(`${worktreePath}/${exactStemTest}`);
     killingTests.push(exactStemTest);
-    coLocatedPaths.add(exactStemTest);
   } catch {
     // exact-stem test file absent; fall back to sibling <stem>-*.test.ts files
   }
   for (const sibling of resolveSiblingKillingTests(candidateFile, worktreePath, listDir)) {
     if (!killingTests.includes(sibling)) {
       killingTests.push(sibling);
-      coLocatedPaths.add(sibling);
     }
+  }
+
+  if (killingTests.length > 0) {
+    killingTests.sort();
+    return { killingTests, capExceeded: false };
   }
 
   const scanRoot = resolveImporterScanRoot(candidateFile);
@@ -1102,7 +1105,6 @@ async function resolveKillingTests(
 
   let inspectedImporterCandidates = 0;
   for (const testPath of listImporterCandidates(scanRoot, worktreePath)) {
-    if (coLocatedPaths.has(testPath)) continue;
     if (inspectedImporterCandidates >= MAX_IMPORTER_DISCOVERY_CANDIDATES_PER_FILE) {
       return { killingTests, capExceeded: true };
     }

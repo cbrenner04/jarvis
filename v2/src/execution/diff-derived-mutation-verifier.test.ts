@@ -2542,7 +2542,7 @@ index 1234567..abcdefg 100644
       {
         gitDiff: async () => guardDiff,
         untrackedFiles: async () => [],
-        readFile: importerFixtureReadFile(),
+        readFile: importerFixtureReadFile(true),
         writeFile: async () => {},
         listDir: () => [],
         listImporterCandidates: () => [directImporter, unrelatedImporter],
@@ -2553,7 +2553,8 @@ index 1234567..abcdefg 100644
       },
     );
     expect(result.kind).toBe("pass");
-    expect(scopes.some((scope) => scope.includes(directImporter))).toBe(true);
+    expect(scopes).toHaveLength(1);
+    expect(scopes[0]).toEqual([directImporter]);
     expect(result.kind === "surviving-mutation" && result.mutation === "missing-killing-test").toBe(false);
   });
 
@@ -2564,7 +2565,7 @@ index 1234567..abcdefg 100644
       {
         gitDiff: async () => guardDiff,
         untrackedFiles: async () => [],
-        readFile: importerFixtureReadFile(),
+        readFile: importerFixtureReadFile(true),
         writeFile: async () => {},
         listDir: () => [],
         listImporterCandidates: () => [directImporter],
@@ -2599,31 +2600,8 @@ index 1234567..abcdefg 100644
   });
 
   it("discovers only v2/src scan-root candidates, ignores transitive and cross-surface importers, and fails closed on cap exhaustion", async () => {
-    const scopedRuns: string[][] = [];
     const candidates = lexImporterCandidates(202);
     const ordered = [...candidates, directImporter, crossSurfaceImporter, transitiveImporter].sort();
-
-    const capResult = await verifyDiffDerivedMutations(
-      { worktreePath: "/wt", runBase: "main" },
-      {
-        gitDiff: async () => guardDiff,
-        untrackedFiles: async () => [],
-        readFile: importerFixtureReadFile(),
-        writeFile: async () => {},
-        listDir: () => [],
-        listImporterCandidates: () => ordered,
-        runScopedTests: async (_cwd, scope) => {
-          scopedRuns.push(scope);
-          return true;
-        },
-      },
-    );
-    expect(capResult.kind).toBe("surviving-mutation");
-    if (capResult.kind === "surviving-mutation") {
-      expect(capResult.mutation).toBe("importer-discovery-cap-exceeded");
-      expect(capResult.sourceSite.file).toBe(targetFile);
-    }
-    expect(scopedRuns).toHaveLength(0);
     expect(candidates.every((path) => path.startsWith("v2/src/"))).toBe(true);
     expect(resolveImporterScanRoot(targetFile)).toBe("v2/src/");
     expect(resolveImporterScanRoot("scripts/foo.ts")).toBeNull();
@@ -2644,9 +2622,62 @@ index 1234567..abcdefg 100644
     if (noTransitiveResult.kind === "surviving-mutation") {
       expect(noTransitiveResult.mutation).toBe("missing-killing-test");
     }
+
+    const scopedRuns: string[][] = [];
+    const capResult = await verifyDiffDerivedMutations(
+      { worktreePath: "/wt", runBase: "main" },
+      {
+        gitDiff: async () => guardDiff,
+        untrackedFiles: async () => [],
+        readFile: importerFixtureReadFile(true),
+        writeFile: async () => {},
+        listDir: () => [],
+        listImporterCandidates: () => ordered,
+        runScopedTests: async (_cwd, scope) => {
+          scopedRuns.push(scope);
+          return true;
+        },
+      },
+    );
+    expect(capResult.kind).toBe("surviving-mutation");
+    if (capResult.kind === "surviving-mutation") {
+      expect(capResult.mutation).toBe("importer-discovery-cap-exceeded");
+      expect(capResult.sourceSite.file).toBe(targetFile);
+    }
+    expect(scopedRuns).toHaveLength(0);
   });
 
-  it("returns importer-discovery-cap-exceeded without scoped execution when co-located coverage exists and discovery hits the cap", async () => {
+  it("sibling-only co-located coverage skips importer discovery when the surface holds more than 200 test files", async () => {
+    const sibling = "v2/src/feature/target-part.test.ts";
+    let importerDiscoveryCalls = 0;
+    const candidates = lexImporterCandidates(201);
+    const scopes: string[][] = [];
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/wt", runBase: "main" },
+      {
+        gitDiff: async () => guardDiff,
+        untrackedFiles: async () => [],
+        readFile: importerFixtureReadFile(true),
+        writeFile: async () => {},
+        listDir: () => ["target-part.test.ts"],
+        listImporterCandidates: () => {
+          importerDiscoveryCalls += 1;
+          return candidates;
+        },
+        runScopedTests: async (_cwd, scope) => {
+          scopes.push([...scope]);
+          return false;
+        },
+      },
+    );
+    expect(result.kind).toBe("pass");
+    expect(importerDiscoveryCalls).toBe(0);
+    expect(scopes).toHaveLength(1);
+    expect(scopes[0]).toEqual([sibling]);
+    expect(result.kind === "surviving-mutation" && result.mutation === "importer-discovery-cap-exceeded").toBe(false);
+  });
+
+  it("runs scoped mutation execution on co-located killing tests only when co-located coverage exists and discovery would hit the cap", async () => {
     let scopedRuns = 0;
     const candidates = lexImporterCandidates(201);
     const result = await verifyDiffDerivedMutations(
@@ -2664,20 +2695,18 @@ index 1234567..abcdefg 100644
         writeFile: async () => {},
         listDir: () => [],
         listImporterCandidates: () => candidates,
-        runScopedTests: async () => {
+        runScopedTests: async (_cwd, scope) => {
           scopedRuns += 1;
-          return true;
+          expect(scope).toEqual(["v2/src/feature/target.test.ts"]);
+          return false;
         },
       },
     );
-    expect(result.kind).toBe("surviving-mutation");
-    if (result.kind === "surviving-mutation") {
-      expect(result.mutation).toBe("importer-discovery-cap-exceeded");
-    }
-    expect(scopedRuns).toBe(0);
+    expect(result.kind).toBe("pass");
+    expect(scopedRuns).toBe(1);
   });
 
-  it("runs scoped mutation execution on the deduplicated co-located ∪ direct-importer union and excludes unrelated tests", async () => {
+  it("runs scoped mutation execution on co-located killing tests only and excludes direct importers and unrelated tests", async () => {
     const sibling = "v2/src/feature/target-part.test.ts";
     const scopes: string[][] = [];
     const result = await verifyDiffDerivedMutations(
@@ -2698,7 +2727,8 @@ index 1234567..abcdefg 100644
     );
     expect(result.kind).toBe("pass");
     expect(scopes).toHaveLength(1);
-    expect(scopes[0]).toEqual([directImporter, sibling].sort());
+    expect(scopes[0]).toEqual([sibling]);
+    expect(scopes[0]).not.toContain(directImporter);
     expect(scopes[0]).not.toContain(unrelatedImporter);
     expect(scopes[0]).not.toContain(transitiveImporter);
     expect(scopes[0]).not.toContain(crossSurfaceImporter);

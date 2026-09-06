@@ -311,8 +311,8 @@ v2/src/tui/tui-timestamp-format.test.ts out-of-scope no-structural-signal
 | ex-isl-worktree-landing | v2/src/execution/implement-spec-landing.test.ts | landImplementSpecTreeFromReadRoot > * | implement spec tree copies land expected paths and sidecars from `specReadRoot` | `readFileSync` on temp worktree paths after `landImplementSpecTreeFromReadRoot` | behavioral | n/a | | |
 | ex-iws-build-implement | v2/src/execution/implement-workflow-steps.test.ts | buildImplementWorkflowSteps / resolveImplementSpecIdentity external plan admission | implement step builder resolves project, spec identity, review composition, and chained preflight | behavioral integration with mocked deps; worktree `readFileSync` only on fixture repos | behavioral | n/a | | |
 | ex-io-intent-landing | v2/src/execution/intent-output.test.ts | landIntentWorkflowOutput > * | intent landing enforces rogue-path rules, handoff `specPath`, and `downstreamInputs` semantics | behavioral landing tests with temp-repo `readFileSync` assertions | behavioral | n/a | | |
-| ex-isr-fixture-seeds | v2/src/execution/intent-split-regression.test.ts | module scope / intent split production write regression | split regression seeds are byte-stable fixture inputs | module-level `readFileSync` of `fixtures/intent-split-*-surface.md` compared in `classifyRenderedSeed` | incidental | re-key | | |
-| ex-isr-primary-surfaces | v2/src/execution/intent-split-regression.test.ts | intent split production write regression > multi-surface seed fans out by surface through the production split write | staged intents name expected primary implementation surfaces | hardcoded `PRIMARY_SURFACES` and `EXECUTION_LOOP_SURFACE` lists in staging oracles | incidental | re-key | | |
+| ex-isr-fixture-seeds | v2/src/execution/intent-split-regression.test.ts | module scope / intent split production write regression | split regression seeds are byte-stable fixture inputs | committed `INTENT_SPLIT_FIXTURES` ids loaded via `readIntentSplitFixture` / `locateDiscoveredFile`; `classifyRenderedSeed` compares rendered seed bytes to registry content | behavioral | n/a | | |
+| ex-isr-primary-surfaces | v2/src/execution/intent-split-regression.test.ts | intent split production write regression > multi-surface seed fans out by surface through the production split write | staged intents name expected primary implementation surfaces | `seedPrimaryImplementationSurfaces` derives paths from `referencedArtifactPaths`, `classifyModuleBoundaryText`, and `orderModuleBoundariesForSplit` on fixture seed content | behavioral | n/a | | |
 | ex-isr-split-oracles | v2/src/execution/intent-split-regression.test.ts | intent split production write regression > * | production split write honors surface-contract prompt pins | behavioral end-to-end `executeSeed` staging oracles via `assertMultiSurfaceStage` / `assertSingleSurfaceStage` | behavioral | n/a | | |
 | ex-pws-spec-guidance-prose | v2/src/execution/plan-workflow-steps.test.ts | plan preset draft write step > `plan` invokes its binding through the production step-builder | plan draft prompt embeds committed spec-guidance prose | `readSpecGuidance()` plus `capturedPrompt` substring pin on `specGuidance.slice(0, 80)` | incidental | re-key | | |
 | ex-pws-plan-routing | v2/src/execution/plan-workflow-steps.test.ts | plan ready-intent output routing / buildPlanWorkflowSteps review composition | plan workflows route ready-intents, external storage, and review steps correctly | behavioral builder tests (regex `specPath` routing, review step shape) | behavioral | n/a | | |
@@ -504,18 +504,6 @@ Every inventory row with disposition `re-key`, grouped by `test-path` + `case-sc
 **case-scope:** only allowlisted modules call resolveWriteLoopBindings
 
 **re-key (1):** dm-wlbinding-callers-allowlist
-
-### v2/src/execution/intent-split-regression.test.ts
-
-**case-scope:** intent split production write regression > multi-surface seed fans out by surface through the production split write
-
-**re-key (1):** ex-isr-primary-surfaces
-
-### v2/src/execution/intent-split-regression.test.ts
-
-**case-scope:** module scope / intent split production write regression
-
-**re-key (1):** ex-isr-fixture-seeds
 
 ### v2/src/execution/plan-workflow-steps.test.ts
 

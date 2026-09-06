@@ -110,8 +110,46 @@ Every open intake issue now maps to a seed, ready-intent, or active spec. #3423 
 - Background `sleep` waits returned early several times, causing more status polling than intended; condition-based `until` loops worked.
 - `jarvis` socket commands false-negative under the sandbox, including inside `Monitor` — a lane-settlement monitor reported "all settled" instantly while five lanes were live.
 
+## Second half: `main` does not pass its own local gate
+
+The three specs whose subspec 00 landed were re-dispatched to finish subspecs 01+. Both lanes **completed every remaining subspec** and neither published — for two more distinct reasons.
+
+### A co-scheduled test pair strands healthy work terminally ([#3542](https://github.com/cbrenner04/jarvis/pull/3542), amended [#3544](https://github.com/cbrenner04/jarvis/pull/3544))
+
+`20260905T210307Z-pipeline-external-chained-resolution` settled `ready_gate_out_of_scope` with 8 commits and all 5 subspecs complete, naming two test files not in its diff. Verifying the claim naively **confirms it** — running the pair together on `main` reproduces the failures, which is exactly how the base-ref probe reaches its verdict. Only isolation separates them:
+
+```text
+workflow.test.ts alone                          → 104/104 (twice)
+diff-derived-mutation-verifier.test.ts alone    → 101/101
+both together                                   → 2 fail, both at exactly 5000 ms
+```
+
+At load 1.7 — so not the ambient-load shape already documented. The verifier suite spawns up to four real `bun test` subprocesses (`MAX_CONCURRENT_VERIFIER_TEST_RUNS`), starving the other file's bounded waits. The probe then re-runs the same pair, sees the same failures, correctly concludes "reproduces on base", and settles `nextAction: stop`, non-resumable.
+
+Measuring the baseline widened it considerably: **`main` itself fails `bun run test:v2` on an idle machine** (2 failures), and a branch touching neither file fails 3 — a different cast. All five settle at exactly 30000 ms and all five pass in isolation. **The failing set rotates.** CI stays green because it scopes by changed path and never runs the full union.
+
+Two consequences: an operator following the runbook's "run the affected test script before ticking" sees red on `main` and cannot distinguish it from their own breakage, and per-file entries in the existing `LOAD_SENSITIVE_FILES` seam (`scripts/test-slice.ts:14`) are whack-a-mole against a rotating set.
+
+### Two false mutation pins, both inside ticked acceptance criteria
+
+`20260906T034130Z-cli-structural-invariant-test-anchors` settled `surviving_mutation_failed` at `help-flags-parity.ts:85`. The flip-and-test check found it **genuine**: the co-located suite passed 6/6 under the mutation. Inverting the leaf guard makes `parityGuardedPaths()` return `[]`, and every existing assertion over it is `.not.toEqual(...)` or emptiness-tolerant — so `[]` satisfies them all vacuously. Fixed with a positive assertion, verified to kill the mutant, then recovered with `jarvis run resume` rather than hand-publishing.
+
+The external-chain diff carried the mirror image: an `@mutate` annotation claiming to pin `addSuppressedInvocationForFailedStage`, where deleting the annotated line left the file green. The line looked dead — `pipelineAttributedRunIds` is built from every entry-run invocation id, so anything the suppression set covers is already excluded from `run-ad-hoc-terminal`. It is not dead: the suppression check runs **before** the `blocked` and `budget-soft-stopped` branches, which attribution does not guard. Reachable code with no test that reached it. A `blocked` sibling run under the failed lane's invocation now reaches it.
+
+Both were in ticked ACs and both passed every mechanical gate. A `@mutate` annotation that does not kill is worse than no annotation: it asserts coverage that does not exist.
+
+### What review confirmed was sound
+
+Not everything was defective. On the fan-out incidents work, review verified the crux directly: per-lane `incidentId` is `stage:${pipelineId}:${stageId}:${branchKey}`, checked against a 3-lane fixture producing distinct incidents for two failed siblings. Since incidents dedupe on `(incidentId, transition)`, a shared id would have silently dropped all but one lane — the exact bug being fixed. Zero pre-existing tests were touched (`--numstat` `176 0`).
+
+## Tally
+
+23 PRs merged. Nine seeds filed, five P0-class, every one root-caused in source with a reproducer rather than a hypothesis: fan-out single-lane, resume-never-reachable, daemon socket wedge, `gh`-probe destruction, co-scheduled flake, plus the external-spec fence derivation, the `rules out` classifier, agent confinement, and three re-seeds recovered from the runbook sweep.
+
+**Five distinct ways a healthy implement lane failed to publish, all in one session**: iteration timeout with an unreachable resume path, daemon death mid-run, terminal out-of-scope from a flaky pair, surviving-mutation on a genuinely uncovered guard, and — from the earlier half — a red `check` the agent never ran.
+
 ## Cost
 
-Agent side: **22 invocations, $3.62, 2.80h**, all cursor/Composer 2.5. The two gate-blocked plans cost $0.56; their real cost was the hand-landing. The two timed-out implements record no cost (45.1 min each, the iteration bound).
+Agent side: **48 invocations, $8.00, 4.91h**, all cursor/Composer 2.5 — 5 plan cycles (each a full adversary/advocate/adjudicator/actuator debate), 21 implement, 2 shrink. The two gate-blocked plans cost $0.56; their real cost was the hand-landing. The timed-out implements record no cost (45.1 min each, the iteration bound).
 
 Operator side: see `reports/operator-costs.csv`.

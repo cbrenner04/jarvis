@@ -16,7 +16,7 @@ A seed with multiple ready-intents spans one row per ready-intent; the `Seed` an
 | | | canonical-pipeline-execution-state-and-stage-claims | **rewritten 2026-09-05** against landed claim machinery; next slice | — |
 | | | daemon-terminal-run-stage-settlement | blocked on canonical | — |
 | implement-admits-externally-landed-specs (#3122) | **CLOSED 2026-09-02** — admit #3272 → route #3297 → chain #3350 → archive #3360/#3363 | — | — | — |
-| all-spec-documents-external-capable | subspec 00 **LANDED [#3534](https://github.com/cbrenner04/jarvis/pull/3534) 2026-09-07** (salvaged by hand after the daemon died mid-run; closes the resolution half of #3417/#3374). Subspecs 01-04 open. Previously in-flight — foundation [#3483](https://github.com/cbrenner04/jarvis/pull/3483); [[pipeline-external-chained-resolution]] spec active (plan [#3484](https://github.com/cbrenner04/jarvis/pull/3484), covers #3374) | — | — | — |
+| all-spec-documents-external-capable | **COMPLETE 2026-09-06** — subspec 00 [#3534](https://github.com/cbrenner04/jarvis/pull/3534), subspecs 01-04 (fan-out lane failure incidents #3374 + docs) [#3543](https://github.com/cbrenner04/jarvis/pull/3543); both salvaged by hand. Subspec 00 originally landed (salvaged by hand after the daemon died mid-run; closes the resolution half of #3417/#3374). Subspecs 01-04 open. Previously in-flight — foundation [#3483](https://github.com/cbrenner04/jarvis/pull/3483); [[pipeline-external-chained-resolution]] spec active (plan [#3484](https://github.com/cbrenner04/jarvis/pull/3484), covers #3374) | — | — | — |
 | split-workflow-runner-resume-machines | **COMPLETE 2026-09-03** (#3351, #3380, #3388, #3393) | — | — | — |
 | split-daemon-run-control-handlers | **COMPLETE 2026-09-03** (#3311, #3312, #3364, #3379, #3386, #3392, #3394) | — | — | — |
 | dead-export-and-test-seam-gates | intent-split → the hygiene RIs below | — | — | — |
@@ -82,6 +82,7 @@ A seed with multiple ready-intents spans one row per ready-intent; the `Seed` an
 | v1-and-v2-read-agent-order-from-different-config-keys | **RE-SEEDED 2026-09-07** ([#3530](https://github.com/cbrenner04/jarvis/pull/3530)) — original lost to the #1762 bulk purge without shipping; `agentOrder` still has zero occurrences under `v2/` and `shared/` | — | — | — |
 | daemon-stop-refusal-checks-run-liveness | **RE-SEEDED 2026-09-07** ([#3530](https://github.com/cbrenner04/jarvis/pull/3530)) — was `a-daemon-lost-run-row-deadlocks-the-daemon`, lost to the same purge; `daemon-lifecycle.ts:212-216` still refuses on non-terminal status with no liveness check, and the only recorded recovery is a destructive shared `kill -9` | — | — | — |
 | retire-claude-pool-contention-folklore | **RE-SEEDED 2026-09-07** ([#3530](https://github.com/cbrenner04/jarvis/pull/3530)) — `pool-contention.ts:100` still tells operators to pause a live session, the opposite of every measurement since | — | — | — |
+| coscheduled-test-pair-strands-runs-terminally | **NEW P0 2026-09-06** ([#3542](https://github.com/cbrenner04/jarvis/pull/3542), amended [#3544](https://github.com/cbrenner04/jarvis/pull/3544)) — `workflow.test.ts` and `diff-derived-mutation-verifier.test.ts` pass alone and fail together at load 1.7; the base-ref probe re-runs the same pair, correctly concludes "reproduces on base", and settles `ready_gate_out_of_scope` terminal. Baseline showed `main` itself fails `test:v2` (2) and a branch touching neither file fails 3 — a rotating set, all at exactly 30000ms, all green in isolation. CI is green only because it scopes by path | — | — | — |
 
 ## Orphan / standalone ready-intents
 
@@ -136,6 +137,22 @@ Executed the 2026-09-05 queue audit plus the operator's restart-pain report: mer
 **#3423 root-caused, and it is #3417.** `resolveSpecScopeRoot` succeeding on an external absolute `specPath` makes the graceful fallback unreachable, so spec-tree enumeration rejects every path as `../`-prefixed and the fence dies opaquely *after* the branch is pushed and the PR published. Seeded [#3525](https://github.com/cbrenner04/jarvis/pull/3525).
 
 **Machine.** Session opened at load 33.6 with two orphaned `bun test` processes (3h20m and 2h33m, 98% CPU each, parented to `launchd`) in worktrees whose specs had long landed — the [[bind-verifier-spawns-to-run-termination]] mode again. Heavy fan-out was held until they were cleared.
+
+## Session 2026-09-06 (late)
+
+**Fan-out pipelines are structurally single-lane.** Approving either P0 dependent lane's gate failed its plan stage in under 25s with no run row, each naming the *head* lane's consumed ready-intent. `resolveChainedReadyIntentPaths` verifies the whole `downstreamInputs` list all-or-nothing and `resolvePlanStage` never reads a `branchKey`; lane binding is an unguarded positional index. Seeded [#3542](https://github.com/cbrenner04/jarvis/pull/3542)'s sibling [#3522](https://github.com/cbrenner04/jarvis/pull/3522). Both lanes driven standalone instead; both landed ([#3535](https://github.com/cbrenner04/jarvis/pull/3535), [#3538](https://github.com/cbrenner04/jarvis/pull/3538)).
+
+**Implement resume has never been reachable** ([#3536](https://github.com/cbrenner04/jarvis/pull/3536)). `buildSubspecCompletionInventory` relativizes worktree-resolved subspecs against `projectRoot`, so every entry is dropped and both lists are always empty; `hasCompletedSubspec` gates `resumable`, making `iteration_timeout` non-resumable by construction for every implement lane. Isolated by varying only that argument against a real stranded worktree. All five lanes stranded this session had to be hand-salvaged as a direct result.
+
+**The daemon died mid-session and could not be restarted** ([#3533](https://github.com/cbrenner04/jarvis/pull/3533)) — `EADDRINUSE` on an unbound leftover socket, visible only in `~/.jarvis/daemon-<digest>.log`. `jarvis cleanup` classified the same socket correctly and fixed it on the first try; the judgement exists, it just is not on the startup path.
+
+**Five distinct ways a healthy implement lane failed to publish**: unreachable resume after timeout, daemon death, terminal out-of-scope from a flaky pair, a genuinely uncovered guard, and a red `check` the agent never ran.
+
+**Two false mutation pins, both inside ticked ACs.** `parityGuardedPaths()` collapses to `[]` under its mutant while every assertion over it is `.not.toEqual` or emptiness-tolerant; and an `@mutate` annotation on `addSuppressedInvocationForFailedStage` did not kill, because `pipelineAttributedRunIds` already covers the terminal path — the line is reachable only through the `blocked`/`budget-soft-stopped` branches. Both fixed and verified to kill.
+
+**Runbook rot was 13 citations, not the four recorded** ([#3530](https://github.com/cbrenner04/jarvis/pull/3530)); three fixes had never shipped and were re-seeded.
+
+**Queue hygiene.** Cleanup retired all three implement worktrees and pruned their refs; the three landed specs keep subspecs 01+ open, so none archived. Hand-published index boxes ticked in [#3540](https://github.com/cbrenner04/jarvis/pull/3540).
 
 ## Gaps / low-confidence
 

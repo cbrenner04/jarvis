@@ -33,7 +33,7 @@ Successful failed-plan resume is silent about whether shared stale reset retired
 - [x] `v2/docs/pipeline-execution.md` documents worktree disposition reporting on successful failed-plan resume.
 - [x] `v2/docs/v1-behaviors.md` records plan-lane resume preamble ownership and disposition reporting.
 - [x] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `bun run test:v2` passes.
 - [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates

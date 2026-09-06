@@ -17,7 +17,7 @@ type ScanOptions = {
   rootDescribe?: string;
 };
 
-export type ResumePathInventoryAnchor = {
+type ResumePathInventoryAnchor = {
   label: string;
   repoPath: string;
   options?: ScanOptions;
@@ -25,7 +25,7 @@ export type ResumePathInventoryAnchor = {
   expectEmpty?: boolean;
 };
 
-export const RESUME_PATH_INVENTORY_ANCHORS: ResumePathInventoryAnchor[] = [
+const RESUME_PATH_INVENTORY_ANCHORS: ResumePathInventoryAnchor[] = [
   { label: "workflow-runner-resume.test.ts", repoPath: "v2/src/execution/workflow-runner-resume.test.ts" },
   {
     label: "workflow-runner-plan.test.ts:recoverPlanStage",
@@ -62,7 +62,7 @@ function parseResumePathInventoryAnchorBlock(block: string): ResumePathInventory
   };
 }
 
-export function parseResumePathInventoryAnchors(inventorySource: string): ResumePathInventoryAnchor[] {
+function parseResumePathInventoryAnchors(inventorySource: string): ResumePathInventoryAnchor[] {
   const match = inventorySource.match(
     /(?:export\s+)?const\s+(?:RESUME_PATH_INVENTORY_ANCHORS|SOURCE_BUCKETS)\s*(?::[^=]+)?=\s*\[([\s\S]*?)\];/,
   );
@@ -88,7 +88,7 @@ export function parseResumePathInventoryAnchors(inventorySource: string): Resume
   return anchors;
 }
 
-export function discoverResumePathInventoryAnchors(mergeBase: string): ResumePathInventoryAnchor[] {
+function discoverResumePathInventoryAnchors(mergeBase: string): ResumePathInventoryAnchor[] {
   const source = loadAtRef(mergeBase, INVENTORY_REPO_PATH);
   if (source === undefined) {
     throw new Error(`inventory test absent at merge-base ${mergeBase}`);

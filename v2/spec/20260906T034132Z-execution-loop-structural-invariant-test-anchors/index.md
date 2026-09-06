@@ -10,4 +10,4 @@
 - [x] [07 - Re-key workflow-runner-resume-inventory.test.ts](./07-rekey-workflow-runner-resume-inventory-test.md)
 - [x] [08 - Re-key workflow-runner-resume.test.ts golden fixtures](./08-rekey-workflow-runner-resume-fixture-golden-test.md)
 - [x] [09 - Re-key workflow-runner-review.test.ts golden fixtures](./09-rekey-workflow-runner-review-fixture-golden-test.md)
-- [ ] [10 - Re-key write-loop-staged-markdown-lint.test.ts golden fixtures](./10-rekey-write-loop-staged-markdown-lint-fixture-golden-test.md)
+- [x] [10 - Re-key write-loop-staged-markdown-lint.test.ts golden fixtures](./10-rekey-write-loop-staged-markdown-lint-fixture-golden-test.md)

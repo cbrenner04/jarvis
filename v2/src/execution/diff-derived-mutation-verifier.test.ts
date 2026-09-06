@@ -28,25 +28,16 @@ function renderObserverMapSource(entries: Record<string, readonly string[]>): st
   return `const RENDER_OBSERVER_TESTS = {\n${lines.join("\n")}\n};\nexport function resolveRenderObserverTests(promptPath: string) { return RENDER_OBSERVER_TESTS[promptPath]; }\n`;
 }
 
-function emptyRenderObserverMapSource(): string {
-  return renderObserverMapSource({});
-}
-
-let committedRenderObserverMapSourceCache: string | undefined;
-
-function committedRenderObserverMapSource(): string {
-  if (committedRenderObserverMapSourceCache === undefined) {
-    const source = readFileSync(join(import.meta.dir, "../../../shared/prompts/render-observer-tests.ts"), "utf-8");
-    if (extractRenderObserverMapFromSource(source) === null) {
-      throw new Error("committed render-observer map must parse");
-    }
-    committedRenderObserverMapSourceCache = source;
+const COMMITTED_RENDER_OBSERVER_MAP_SOURCE = (() => {
+  const source = readFileSync(join(import.meta.dir, "../../../shared/prompts/render-observer-tests.ts"), "utf-8");
+  if (extractRenderObserverMapFromSource(source) === null) {
+    throw new Error("committed render-observer map must parse");
   }
-  return committedRenderObserverMapSourceCache;
-}
+  return source;
+})();
 
 function seamReadFile(promptContent: string | (() => string), mapSource?: string) {
-  const resolvedMapSource = mapSource ?? committedRenderObserverMapSource();
+  const resolvedMapSource = mapSource ?? COMMITTED_RENDER_OBSERVER_MAP_SOURCE;
   return async (path: string) => {
     if (path.endsWith("render-observer-tests.ts")) return resolvedMapSource;
     return typeof promptContent === "function" ? promptContent() : promptContent;
@@ -436,7 +427,7 @@ ${changedRenderCoverageBodyLine}
         gitDiff: async () => promptDiff,
         untrackedFiles: async () => [],
         registeredPromptPaths: registeredCritic,
-        readFile: seamReadFile(criticSource, emptyRenderObserverMapSource()),
+        readFile: seamReadFile(criticSource, renderObserverMapSource({})),
         runScopedTests: async () => true,
       },
     );
@@ -559,7 +550,7 @@ index be281d02..00000000
         gitDiff: async () => deletedDiff,
         untrackedFiles: async () => [],
         registeredPromptPaths: registeredCritic,
-        readFile: seamReadFile(criticSource, emptyRenderObserverMapSource()),
+        readFile: seamReadFile(criticSource, renderObserverMapSource({})),
         runScopedTests: async () => true,
       },
     );
@@ -569,7 +560,7 @@ index be281d02..00000000
         gitDiff: async () => "",
         untrackedFiles: async () => ["prompts/implement/review-critic.md"],
         registeredPromptPaths: registeredCritic,
-        readFile: seamReadFile(criticSource, emptyRenderObserverMapSource()),
+        readFile: seamReadFile(criticSource, renderObserverMapSource({})),
         runScopedTests: async () => true,
       },
     );
@@ -739,7 +730,7 @@ index f424d7da..be281d02 100644
         gitDiff: async () => patchPromptDiff,
         untrackedFiles: async () => [],
         registeredPromptPaths: async () => ["prompts/patch/review-critic.md"],
-        readFile: seamReadFile(criticSource, emptyRenderObserverMapSource()),
+        readFile: seamReadFile(criticSource, renderObserverMapSource({})),
         runScopedTests: async () => false,
       },
     );
@@ -2855,7 +2846,7 @@ The diff comes from git merge-base <base> HEAD.
 `,
     );
     writeFileSync(join(dir, "prompts", "registry.txt"), "implement/review-critic.md\n");
-    writeFileSync(join(dir, "shared/prompts/render-observer-tests.ts"), emptyRenderObserverMapSource());
+    writeFileSync(join(dir, "shared/prompts/render-observer-tests.ts"), renderObserverMapSource({}));
     execFileSync("git", ["add", "-A"], { cwd: dir });
     execFileSync("git", ["commit", "-q", "-m", "base"], { cwd: dir });
     const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();

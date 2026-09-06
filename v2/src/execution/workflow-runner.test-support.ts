@@ -8,7 +8,7 @@ import type {
   InvocationResult,
 } from "../../../shared/invocation/execute.ts";
 import { resolveHarnessRoot } from "../../../shared/markdownlint-repair.ts";
-import { locateDiscoveredFile, StructuralTestLocatorError } from "../../../shared/structural-test-locator.ts";
+import { StructuralTestLocatorError } from "../../../shared/structural-test-locator.ts";
 import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopBindingSourceDeps } from "../daemon/daemon.ts";
@@ -457,25 +457,12 @@ export const REVIEW_MD_LINT_FIXTURE_IDS = {
   intentLandingAndMd038Violation: "intent-landing-and-md038-violation.md",
 } as const;
 
-let reviewMdLintFixtureRegistryCache: Readonly<Record<string, string>> | undefined;
-
-function reviewMdLintFixtureRegistry(): Readonly<Record<string, string>> {
-  if (reviewMdLintFixtureRegistryCache === undefined) {
-    reviewMdLintFixtureRegistryCache = Object.fromEntries(
-      Object.values(REVIEW_MD_LINT_FIXTURE_IDS).map((fixtureId) => {
-        try {
-          return [fixtureId, readFileSync(join(REVIEW_MD_LINT_FIXTURES, fixtureId), "utf8")];
-        } catch {
-          throw new StructuralTestLocatorError("discovered-file", fixtureId);
-        }
-      }),
-    );
-  }
-  return reviewMdLintFixtureRegistryCache;
-}
-
 export function readReviewMdLintFixture(fixtureId: string): string {
-  return locateDiscoveredFile(reviewMdLintFixtureRegistry(), fixtureId);
+  try {
+    return readFileSync(join(REVIEW_MD_LINT_FIXTURES, fixtureId), "utf8");
+  } catch {
+    throw new StructuralTestLocatorError("discovered-file", fixtureId);
+  }
 }
 
 export const LINT_CLEAN_INTENT_EXAMPLE_MD = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.intentMd038Clean);

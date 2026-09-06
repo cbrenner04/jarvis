@@ -1,9 +1,7 @@
 import { expect, test } from "bun:test";
 import { locateDiscoveredFile } from "../../../shared/structural-test-locator.ts";
 import {
-  inventoryMismatchMessage,
   listProductionExecutionSources,
-  readProductionExecutionSource,
   scanExecutionTerminalSettlement,
   terminalSettlementInventoryMismatches,
 } from "./execution-terminal-settlement-guard.ts";
@@ -21,11 +19,11 @@ test("execution production terminal writers are restricted to atomic settlement"
   expect(result.violations).toEqual([]);
   expectPermittedInventoryMatches(result);
 
-  const preMigrationWriteLoop = readProductionExecutionSource(sources, "write-loop.ts").replace(
+  const preMigrationWriteLoop = locateDiscoveredFile(sources, "write-loop.ts").replace(
     "store.commitTerminalRunSettlement({",
     'store.setRunStatus(runId, "completed"); store.commitTerminalRunSettlement({',
   );
-  const preMigrationWorkflowRunner = readProductionExecutionSource(sources, "workflow-runner.ts").replace(
+  const preMigrationWorkflowRunner = locateDiscoveredFile(sources, "workflow-runner.ts").replace(
     "store.commitTerminalRunSettlement({",
     'store.setRunStatus(lastResult.runId, "failed"); store.commitTerminalRunSettlement({',
   );
@@ -40,7 +38,7 @@ test("execution production terminal writers are restricted to atomic settlement"
 
 test("guard rejects reintroduced terminal setRunStatus", () => {
   // @mutate v2/src/execution/write-loop.ts "function landingFailedTerminalFailureDetail" -> "function __guardScratch(store: StateStore, runId: string) { store.setRunStatus(runId, \"completed\"); }\nfunction landingFailedTerminalFailureDetail"
-  const source = readProductionExecutionSource(listProductionExecutionSources(), "write-loop.ts");
+  const source = locateDiscoveredFile(listProductionExecutionSources(), "write-loop.ts");
   const mutated = source.replace(
     "function landingFailedTerminalFailureDetail",
     'function __guardScratch(store: StateStore, runId: string) { store.setRunStatus(runId, "completed"); }\nfunction landingFailedTerminalFailureDetail',
@@ -88,21 +86,6 @@ test("inventory ignores line drift above tracked call sites", () => {
 
   expect(drifted.violations).toEqual([]);
   expectPermittedInventoryMatches(drifted);
-});
-
-test("inventoryMismatchMessage classifies expected-only keys as missing", () => {
-  const message = inventoryMismatchMessage("inventory", ["foo"], []);
-  expect(message).toBeDefined();
-  expect(message).toContain("missing: foo");
-  expect(message).toContain("extra: (none)");
-  expect(inventoryMismatchMessage("inventory", [], [])).toBeUndefined();
-});
-
-test("inventoryMismatchMessage classifies actual-only keys as extra", () => {
-  const message = inventoryMismatchMessage("inventory", [], ["bar"]);
-  expect(message).toBeDefined();
-  expect(message).toContain("missing: (none)");
-  expect(message).toContain("extra: bar");
 });
 
 test("terminalSettlementInventoryMismatches includes terminal only when terminal inventory mismatches", () => {

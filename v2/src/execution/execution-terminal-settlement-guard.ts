@@ -1,7 +1,6 @@
 // Settlement inventory keys: terminal writes file:writer:functionName; nonterminal setRunStatus file:setRunStatus:status:functionName. Line numbers intentionally omitted.
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { locateDiscoveredFile } from "../../../shared/structural-test-locator.ts";
 import { type RunStatus, TERMINAL_RUN_STATUSES } from "../persistence/state-store.ts";
 
 const EXECUTION_DIR = import.meta.dir;
@@ -183,11 +182,11 @@ function isTerminalBoundaryCall(call: string): boolean {
   return /runStatus:\s*[A-Za-z0-9_$?.]+/.test(call);
 }
 
-export function terminalWriteKey(site: PermittedTerminalWrite): string {
+function terminalWriteKey(site: PermittedTerminalWrite): string {
   return `${site.file}:${site.writer}:${site.functionName}`;
 }
 
-export function nonterminalSetRunStatusKey(site: PermittedNonterminalSetRunStatus): string {
+function nonterminalSetRunStatusKey(site: PermittedNonterminalSetRunStatus): string {
   return `${site.file}:setRunStatus:${site.status}:${site.functionName}`;
 }
 
@@ -299,7 +298,7 @@ function keyOccurrenceCounts(keys: readonly string[]): Map<string, number> {
   return counts;
 }
 
-export function inventoryMismatchMessage(
+function inventoryMismatchMessage(
   label: string,
   expected: readonly string[],
   actual: readonly string[],
@@ -344,8 +343,4 @@ export function terminalSettlementInventoryMismatches(result: ReturnType<typeof 
     ...(terminal === undefined ? {} : { terminal }),
     ...(nonterminal === undefined ? {} : { nonterminal }),
   };
-}
-
-export function readProductionExecutionSource(sources: Readonly<Record<string, string>>, relativePath: string): string {
-  return locateDiscoveredFile(sources, relativePath);
 }

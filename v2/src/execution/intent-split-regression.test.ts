@@ -19,7 +19,7 @@ import {
   INTENT_SPLIT_DECLARATION_PIN,
   INTENT_SPLIT_SURFACE_PIN,
 } from "../../../shared/prompts/intent-split.ts";
-import { locateDiscoveredFile, StructuralTestLocatorError } from "../../../shared/structural-test-locator.ts";
+import { StructuralTestLocatorError } from "../../../shared/structural-test-locator.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { buildIntentWorkflowSteps } from "./publication-workflow-steps.ts";
 import type { LoadedWorkflowStep, WorkflowSourceStep } from "./workflow-loader.ts";
@@ -38,25 +38,12 @@ const SINGLE_SURFACE_PIN =
 const PERSISTENCE_BEHAVIOR = "Durable run admission exists.";
 const DAEMON_BEHAVIOR = "Daemon requests reload admitted runs after restart.";
 
-let intentSplitFixtureRegistryCache: Readonly<Record<string, string>> | undefined;
-
-function intentSplitFixtureRegistry(): Readonly<Record<string, string>> {
-  if (intentSplitFixtureRegistryCache === undefined) {
-    intentSplitFixtureRegistryCache = Object.fromEntries(
-      Object.values(INTENT_SPLIT_FIXTURES).map((fixtureId) => {
-        try {
-          return [fixtureId, readFileSync(join(INTENT_SPLIT_FIXTURE_DIR, fixtureId), "utf8")];
-        } catch {
-          throw new StructuralTestLocatorError("discovered-file", fixtureId);
-        }
-      }),
-    );
-  }
-  return intentSplitFixtureRegistryCache;
-}
-
 function readIntentSplitFixture(fixtureId: string): string {
-  return locateDiscoveredFile(intentSplitFixtureRegistry(), fixtureId);
+  try {
+    return readFileSync(join(INTENT_SPLIT_FIXTURE_DIR, fixtureId), "utf8");
+  } catch {
+    throw new StructuralTestLocatorError("discovered-file", fixtureId);
+  }
 }
 
 function seedLinePaths(line: string): readonly string[] {

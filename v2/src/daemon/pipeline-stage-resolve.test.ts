@@ -1095,6 +1095,44 @@ describe("resolveStageWorkflowSteps", () => {
       });
     }));
 
+  test("rejects external ready-intent downstream input for a git-committing project", () =>
+    withIsolatedJarvisHome((jarvisRoot) => {
+      // The acceptance gate is `chainedStageEffectivePublishGit`: a project that still publishes
+      // its plan artifacts into the repo must never resolve a ready-intent out of the external
+      // specs home, even when a file happens to sit at its own owner-scoped path.
+      const readyIntentRel = "ready-intents/feature.md";
+      const admissionRoot = mkdtempSync(join(tmpdir(), "pipeline-external-ready-intent-git-"));
+      const configPath = writeHomeMachineConfig({
+        projects: { demo: { root: admissionRoot, plan: { commit: true } } },
+      });
+      const intentWorktree = join(jarvisRoot, "intent-work", projectSafeId("demo"), "feature");
+      mkdirSync(intentWorktree, { recursive: true });
+      const readyIntentsHome = join(jarvisRoot, "specs", projectSafeId("demo"), "ready-intents");
+      mkdirSync(readyIntentsHome, { recursive: true });
+      writeFileSync(
+        join(readyIntentsHome, "feature.md"),
+        "---\nname: feature\n---\n\n## Prerequisites\n\n- none\n",
+        "utf8",
+      );
+      expect(existsSync(join(admissionRoot, readyIntentRel))).toBe(false);
+      rmSync(intentWorktree, { recursive: true, force: true });
+
+      const context: PipelineContext = { cwd: admissionRoot, configPath, seed: "unused" };
+      const stageArtifacts = new Map([[stageArtifactKey("intent"), stageArtifact("run-intent", readyIntentRel)]]);
+      const deps = {
+        builders: WORKFLOW_PRESET_BUILDERS,
+        ...chainedDeps(intentWorktree, "intent/feature"),
+      };
+
+      // Dropping `|| chainedStageEffectivePublishGit(context, owner)` from
+      // `locateExternalReadyIntentDownstreamInput` turns this test RED.
+      return resolveStageWorkflowSteps(chainedIntentPlanDefinition, 1, context, stageArtifacts, deps).then((result) => {
+        expect(result.ok).toBe(false);
+        if (result.ok) return;
+        expect(result.error).toContain("never landed");
+      });
+    }));
+
   test("rejects cross-project external ready-intent downstream input", () =>
     withIsolatedJarvisHome((jarvisRoot) => {
       const readyIntentRel = "ready-intents/feature.md";

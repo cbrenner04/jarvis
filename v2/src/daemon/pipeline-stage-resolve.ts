@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve, sep, basename } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { getBaseBranch, isGitRepoAsync } from "../../../shared/git.ts";
+import { projectSafeId } from "../../../shared/project-safe-id.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { resolveWorkflowPresetName } from "../commands/workflow-start-preparation.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
@@ -14,12 +15,11 @@ import { type CliWorkflowPresetName, WORKFLOW_PRESET_BUILDERS } from "../executi
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { jarvisHome } from "../paths.ts";
-import { projectSafeId } from "../../../shared/project-safe-id.ts";
 import type { PipelineContext } from "../persistence/state-store.ts";
 import { DEFAULT_PIPELINE_STAGE_BRANCH_KEY } from "../persistence/state-store.ts";
 import {
-  createChainedStageProjectMatch,
   chainedStageEffectivePublishGit,
+  createChainedStageProjectMatch,
   resolveChainedStageOwnerProject,
 } from "./pipeline-chained-workflow-deps.ts";
 import { type PipelineStageArtifact, stageArtifactKey } from "./pipeline-stage-dispatch.ts";

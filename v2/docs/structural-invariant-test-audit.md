@@ -363,15 +363,15 @@ v2/src/tui/tui-timestamp-format.test.ts out-of-scope no-structural-signal
 | cli-init-project | v2/src/commands/init.test.ts | init project registration > * | additive project registration and unsafe identity refusal | behavioral integration with temp config `readFileSync` | behavioral | n/a | | |
 | cli-init-scaffold | v2/src/commands/init.test.ts | init planning directory > * | target-dir precedence, scaffold containment, and queue sentinels | behavioral integration with project-tree `readFileSync`/`listFiles` | behavioral | n/a | | |
 | cli-init-readiness | v2/src/commands/init.test.ts | init readiness / init read-only check > * | readiness report ordering, requiredness, probe normalization, and `--check` non-mutation | behavioral tests of `evaluateReadiness`/`renderReadinessReport` and check-mode integration | behavioral | n/a | | |
-| cli-wsp-posture-tables | v2/src/commands/workflow-start-preparation.test.ts | workflow-start preparation authority > realizes every supported workflow and review posture | base workflow names and review postures match exported registries | hardcoded equality against imported `BASE_WORKFLOW_NAMES` and `WORKFLOW_REVIEW_POSTURES` | incidental | re-key | | |
-| cli-wsp-single-owner | v2/src/commands/workflow-start-preparation.test.ts | workflow-start preparation authority > production realizability and posture-to-preset tables live only in the shared owner | realizability tables and forbidden declaration patterns stay in owner module | full `v2/src` production tree `readFileSync` scan with regex forbidden-declaration list | incidental | re-key | | yes |
-| cli-wsp-prepare-calls | v2/src/commands/workflow-start-preparation.test.ts | workflow-start preparation authority > production prepared-step assembly lives only in shared preparation and the pipeline adapter | `prepareWorkflowStart` and resolver assembly stay on allowlisted modules | `PREPARE_CALL_ALLOWED_PATHS` set vs production tree scan plus resolver forbidden-assembly regex list | incidental | re-key | | |
+| cli-wsp-posture-tables | v2/src/commands/workflow-start-preparation.test.ts | workflow-start preparation authority > realizes every supported workflow and review posture | base workflow names and review postures match exported registries | exported registry tables and resolver properties drive coverage; anti-vacuity pin vs pre-fix hardcoded literal arrays | behavioral | n/a | | |
+| cli-wsp-single-owner | v2/src/commands/workflow-start-preparation.test.ts | workflow-start preparation authority > production realizability and posture-to-preset tables live only in the shared owner | realizability tables and forbidden declaration patterns stay in owner module | production tree scan pairs forbidden-declaration absence outside owner with owner symbol slicing via `locateSymbolSlice`; `locateDiscoveredFile` routes source reads | behavioral | n/a | | |
+| cli-wsp-prepare-calls | v2/src/commands/workflow-start-preparation.test.ts | workflow-start preparation authority > production prepared-step assembly lives only in shared preparation and the pipeline adapter | `prepareWorkflowStart` and resolver assembly stay on allowlisted modules | `discoverPrepareCallPaths` from production tree plus `symbolResolvedMoveGuard` pairing; anti-vacuity pin vs pre-fix `PREPARE_CALL_ALLOWED_PATHS` | behavioral | n/a | | |
 | cli-wf-dispatch | v2/src/commands/workflow.test.ts | run workflow dispatch / ticked implement recovery / workflow detach / review-passes / implement validation / stale workspace reset (non-structural cases) | workflow CLI dispatch, recovery, detach, review stamping, and stale-reset integration | behavioral CLI integration; `readFileSync` only on temp spec/worktree paths | behavioral | n/a | | |
-| cli-wf-prep-call-count | v2/src/commands/workflow.test.ts | shared workflow-start preparation > run workflow intent plan and implement preserve prepared start steps | `workflow.ts` calls `prepareWorkflowStart` exactly once | production `workflow.ts` `readFileSync` with `prepareWorkflowStart(` count pin | incidental | re-key | | |
-| cli-wf-prep-delegation | v2/src/commands/workflow.test.ts | shared workflow-start preparation > runWorkflowCommand delegates build stamp and stale-reset preparation to the shared owner | workflow command delegates stamp/stale-reset to shared owner without local duplicates | production `workflow.ts`/`workflow-start-preparation.ts` `readFileSync` with absence regex pins on command body | incidental | re-key | | yes |
-| cli-wf-stale-reset-workflows | v2/src/commands/workflow.test.ts | implement preflight stale workspace reset > STALE_RESET_WORKFLOWS membership includes intent | intent workflow is in stale-reset set | hardcoded `Set` equality against imported `STALE_RESET_WORKFLOWS` | incidental | re-key | | |
+| cli-wf-prep-call-count | v2/src/commands/workflow.test.ts | shared workflow-start preparation > run workflow intent plan and implement preserve prepared start steps | `workflow.ts` calls `prepareWorkflowStart` exactly once | `locateSymbolSlice` on `runWorkflowCommand` body resolves single prepare-call site | behavioral | n/a | | |
+| cli-wf-prep-delegation | v2/src/commands/workflow.test.ts | shared workflow-start preparation > runWorkflowCommand delegates build stamp and stale-reset preparation to the shared owner | workflow command delegates stamp/stale-reset to shared owner without local duplicates | command-body absence paired with owner `prepareWorkflowStart` slice presence via `locateSymbolSlice` | behavioral | n/a | | |
+| cli-wf-stale-reset-workflows | v2/src/commands/workflow.test.ts | implement preflight stale workspace reset > STALE_RESET_WORKFLOWS membership includes intent | intent workflow is in stale-reset set | exported `STALE_RESET_WORKFLOWS.has("intent")` membership plus roster properties; anti-vacuity pin vs pre-fix hardcoded Set equality | behavioral | n/a | | |
 | cli-paths-constants | v2/src/paths.test.ts | paths / jarvis home isolation (suite isolation cases) | jarvis-home path constants and isolated-home preload | behavioral unit tests of path exports and `JARVIS_HOME` isolation | behavioral | n/a | | |
-| cli-paths-homedir-guard | v2/src/paths.test.ts | jarvis home isolation > no v2 source resolves a jarvis-home path via homedir() directly | production tree must not call `homedir()` outside `paths.ts` | `readdirSync` + `readFileSync` scan of all `v2/src` production `.ts` for `homedir()` substring | incidental | re-key | | yes |
+| cli-paths-homedir-guard | v2/src/paths.test.ts | jarvis home isolation > no v2 source resolves a jarvis-home path via homedir() directly | production tree must not call `homedir()` outside `paths.ts` | production tree discovery pairs homedir absence outside `paths.ts` with canonical presence via `locateDiscoveredFile` and `pairedHomedirGuard`; anti-vacuity vs pre-fix absence-only scan | behavioral | n/a | | |
 | cli-log-stream | v2/src/persistence/log-stream.test.ts | log-stream > * | sink/reader persistence, tail/follow ordering, and event round-trip | behavioral unit/integration tests; `readFileSync` only on temp storage paths | behavioral | n/a | | |
 | cli-timer-guard-predicate | v2/src/testing/timer-callback-guard-fixture.test.ts | shouldStopPolling: draining poller stops only once no work is pending | polling stops only when draining idle or stop requested | behavioral truth-table test of exported `shouldStopPolling` predicate | behavioral | n/a | | |
 
@@ -444,54 +444,6 @@ Every inventory row with disposition `re-key`, grouped by `test-path` + `case-sc
 **case-scope:** patch vs implement review prompt registry-body divergence > * branch-diff prose diverges
 
 **re-key (1):** shr-rpd-patch-implement-divergence
-
-### v2/src/cli/help-flags-parity.test.ts
-
-**case-scope:** help flag parser parity > every guarded path lists all parser-accepted flags
-
-**re-key (1):** cli-hfp-guarded-paths
-
-### v2/src/commands/init.test.ts
-
-**case-scope:** init machine bootstrap > profile bindings govern bootstrap
-
-**re-key (1):** cli-init-profile-files
-
-### v2/src/commands/workflow-start-preparation.test.ts
-
-**case-scope:** workflow-start preparation authority > production prepared-step assembly lives only in shared preparation and the pipeline adapter
-
-**re-key (1):** cli-wsp-prepare-calls
-
-### v2/src/commands/workflow-start-preparation.test.ts
-
-**case-scope:** workflow-start preparation authority > production realizability and posture-to-preset tables live only in the shared owner
-
-**re-key (1):** cli-wsp-single-owner
-
-### v2/src/commands/workflow-start-preparation.test.ts
-
-**case-scope:** workflow-start preparation authority > realizes every supported workflow and review posture
-
-**re-key (1):** cli-wsp-posture-tables
-
-### v2/src/commands/workflow.test.ts
-
-**case-scope:** implement preflight stale workspace reset > STALE_RESET_WORKFLOWS membership includes intent
-
-**re-key (1):** cli-wf-stale-reset-workflows
-
-### v2/src/commands/workflow.test.ts
-
-**case-scope:** shared workflow-start preparation > run workflow intent plan and implement preserve prepared start steps
-
-**re-key (1):** cli-wf-prep-call-count
-
-### v2/src/commands/workflow.test.ts
-
-**case-scope:** shared workflow-start preparation > runWorkflowCommand delegates build stamp and stale-reset preparation to the shared owner
-
-**re-key (1):** cli-wf-prep-delegation
 
 ### v2/src/daemon/daemon-pipeline-recover.test.ts
 
@@ -630,9 +582,3 @@ Every inventory row with disposition `re-key`, grouped by `test-path` + `case-sc
 **case-scope:** plan preset draft step isolates bundled human-only marker guidance
 
 **re-key (1):** ex-wr-spec-guidance-prose
-
-### v2/src/paths.test.ts
-
-**case-scope:** jarvis home isolation > no v2 source resolves a jarvis-home path via homedir() directly
-
-**re-key (1):** cli-paths-homedir-guard

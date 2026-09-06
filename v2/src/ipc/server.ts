@@ -263,6 +263,19 @@ export class DaemonSocketInUseError extends Error {
 }
 
 const LIVENESS_PROBE_TIMEOUT_MS = 250;
+const EXTENDED_LIVENESS_PROBE_TIMEOUT_MS = 2_000;
+
+export type SocketProbeDetail = {
+  liveness: SocketLiveness;
+  peerConnected: boolean;
+};
+
+/**
+ * The socket-probe seam. Production and tests share one implementation shape so an injected probe
+ * traverses exactly the code path `probeSocketDetailed` does — a liveness-only seam cannot express
+ * `peerConnected`, which is what distinguishes a probe timeout from a daemon that answered.
+ */
+export type DetailedSocketProbe = (path: string, timeoutMs: number) => Promise<SocketProbeDetail>;
 
 /**
  * Map a connect failure to a liveness verdict.
@@ -271,21 +284,14 @@ const LIVENESS_PROBE_TIMEOUT_MS = 250;
  * or "nothing is here" (ENOENT) permits removal. Every other failure is inconclusive and must
  * read as live: unlinking on an inconclusive probe is exactly what strands a running daemon.
  */
-function classifyConnectError(err: NodeJS.ErrnoException): SocketLiveness {
+export function classifySocketConnectError(err: NodeJS.ErrnoException): SocketLiveness {
   if (err.code === "ENOENT") {
     return "absent";
   }
   return err.code === "ECONNREFUSED" ? "stale" : "live";
 }
 
-/**
- * Classify a socket path by attempting a connection.
- *
- * `absent` when nothing is at the path, `stale` when the entry exists but nothing accepts
- * (ECONNREFUSED — a dead daemon's leftover), `live` when a peer accepts or is too busy to answer
- * within the probe timeout.
- */
-export function probeSocketLiveness(socketPath: string): Promise<SocketLiveness> {
+function probeSocketDetailed(socketPath: string, timeoutMs: number): Promise<SocketProbeDetail> {
   // Deliberately no `existsSync` short-circuit. A denied or failing `stat` returns false, which
   // would classify a live peer's socket as absent and unlink it — the exact outage this guard
   // exists to prevent. `connect()` reports a genuinely missing path as ENOENT, so the connect
@@ -296,6 +302,7 @@ export function probeSocketLiveness(socketPath: string): Promise<SocketLiveness>
     // escape as an uncaught exception — which would block every daemon start on a clean machine.
     const socket = new Socket();
     let settled = false;
+    let peerConnected = false;
     const settle = (liveness: SocketLiveness): void => {
       if (settled) {
         return;
@@ -303,13 +310,49 @@ export function probeSocketLiveness(socketPath: string): Promise<SocketLiveness>
       settled = true;
       clearTimeout(timer);
       socket.destroy();
-      resolve(liveness);
+      resolve({ liveness, peerConnected });
     };
-    const timer = setTimeout(() => settle("live"), LIVENESS_PROBE_TIMEOUT_MS);
-    socket.once("connect", () => settle("live"));
-    socket.once("error", (err: NodeJS.ErrnoException) => settle(classifyConnectError(err)));
+    const timer = setTimeout(() => settle("live"), timeoutMs);
+    socket.once("connect", () => {
+      peerConnected = true;
+      settle("live");
+    });
+    socket.once("error", (err: NodeJS.ErrnoException) => settle(classifySocketConnectError(err)));
     socket.connect(socketPath);
   });
+}
+
+/**
+ * Classify a socket path by attempting a connection.
+ *
+ * `absent` when nothing is at the path, `stale` when the entry exists but nothing accepts
+ * (ECONNREFUSED — a dead daemon's leftover), `live` when a peer accepts or is too busy to answer
+ * within the probe timeout.
+ */
+export function probeSocketLiveness(socketPath: string): Promise<SocketLiveness> {
+  return probeSocketDetailed(socketPath, LIVENESS_PROBE_TIMEOUT_MS).then((detail) => detail.liveness);
+}
+
+async function prepareSocketPathForBind(socketPath: string, probeDetailed: DetailedSocketProbe): Promise<void> {
+  const initial = await probeDetailed(socketPath, LIVENESS_PROBE_TIMEOUT_MS);
+  // A `live` verdict with no peer actually connected is the probe timing out, not a daemon
+  // answering. On a loaded machine that would otherwise convert a dead socket into a permanently
+  // unrecoverable one, so re-probe with a longer bound before believing it.
+  if (initial.liveness === "live" && !initial.peerConnected) {
+    const extended = await probeDetailed(socketPath, EXTENDED_LIVENESS_PROBE_TIMEOUT_MS);
+    if (extended.liveness === "live" && !extended.peerConnected) {
+      // Still no peer. Removing here would unlink on an inconclusive answer, so leave the path
+      // alone and let `listen` decide: occupancy reclaim runs only on a real EADDRINUSE.
+      return;
+    }
+  }
+  await removeStaleSocketPath(socketPath, (path) =>
+    probeDetailed(path, LIVENESS_PROBE_TIMEOUT_MS).then((detail) => detail.liveness),
+  );
+}
+
+function isAddrInUseError(error: unknown): error is NodeJS.ErrnoException {
+  return isRecord(error) && error.code === "EADDRINUSE";
 }
 
 /**
@@ -338,12 +381,77 @@ export async function removeStaleSocketPath(
   }
 }
 
+function createIpcServerClose(
+  socketPath: string,
+  server: Server,
+  activeSockets: Set<Socket>,
+  setAcceptingConnections: (accepting: boolean) => void,
+): IpcServer["close"] {
+  return async (options) => {
+    setAcceptingConnections(false);
+    const drainTimeoutMs = options?.drainTimeoutMs ?? DEFAULT_DRAIN_TIMEOUT_MS;
+    try {
+      const [closeResult, drainResult] = await Promise.allSettled([
+        promisify(server.close.bind(server))(),
+        waitForSocketDrain(activeSockets, drainTimeoutMs),
+      ]);
+      if (closeResult.status === "rejected") {
+        throw closeResult.reason;
+      }
+      if (drainResult.status === "rejected") {
+        throw drainResult.reason;
+      }
+    } finally {
+      // Note: `server.close()` already unlinks by path, and node keys that on the path
+      // rather than the inode it created — so a socket force-rebound by a successor is
+      // removed by node before this runs. Guarding here would be inert; the durable
+      // protection is the start-side liveness check, which stops the replacement from
+      // happening at all.
+      rmSync(socketPath, { force: true }); // @mutate-equivalent mutation="skip-destructive: rmSync(" reason="node unlinks the socket path inside server.close() before this finally runs, so this defensive cleanup has no observable effect on any reachable path"
+    }
+  };
+}
+
+function listenForIpcServer(
+  server: Server,
+  socketPath: string,
+  probeDetailed: DetailedSocketProbe,
+  onListening: () => IpcServer,
+): Promise<IpcServer> {
+  return new Promise((resolve, reject) => {
+    const attemptListen = (allowOccupancyReclaim: boolean): void => {
+      server.once("error", (error: unknown) => {
+        void (async () => {
+          if (allowOccupancyReclaim && isAddrInUseError(error)) {
+            // EADDRINUSE proves the path is occupied; the reprobe decides whether anything is
+            // accepting on it. Only a proven-`stale` reprobe authorizes the unlink — `absent` is
+            // the sandboxed-caller false negative and must never reclaim.
+            const reprobe = (await probeDetailed(socketPath, LIVENESS_PROBE_TIMEOUT_MS)).liveness;
+            if (reprobe === "stale") {
+              rmSync(socketPath, { force: true });
+              attemptListen(false);
+              return;
+            }
+          }
+          reject(error);
+        })();
+      });
+      server.listen(socketPath, () => {
+        server.removeAllListeners("error");
+        resolve(onListening());
+      });
+    };
+    attemptListen(true);
+  });
+}
+
 export async function startIpcServer(
   socketPath: string,
   handlers?: Record<string, RpcHandler>,
   streamHandler?: StreamHandler,
+  probeDetailed: DetailedSocketProbe = probeSocketDetailed,
 ): Promise<IpcServer> {
-  await removeStaleSocketPath(socketPath);
+  await prepareSocketPathForBind(socketPath, probeDetailed);
 
   const activeSockets = new Set<Socket>();
   let acceptingConnections = true;
@@ -360,36 +468,10 @@ export async function startIpcServer(
     attachSocketHandlers(socket, handlers, streamHandler);
   });
 
-  return new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(socketPath, () => {
-      server.off("error", reject);
-      resolve({
-        socketPath,
-        close: async (options) => {
-          acceptingConnections = false;
-          const drainTimeoutMs = options?.drainTimeoutMs ?? DEFAULT_DRAIN_TIMEOUT_MS;
-          try {
-            const [closeResult, drainResult] = await Promise.allSettled([
-              promisify(server.close.bind(server))(),
-              waitForSocketDrain(activeSockets, drainTimeoutMs),
-            ]);
-            if (closeResult.status === "rejected") {
-              throw closeResult.reason;
-            }
-            if (drainResult.status === "rejected") {
-              throw drainResult.reason;
-            }
-          } finally {
-            // Note: `server.close()` already unlinks by path, and node keys that on the path
-            // rather than the inode it created — so a socket force-rebound by a successor is
-            // removed by node before this runs. Guarding here would be inert; the durable
-            // protection is the start-side liveness check, which stops the replacement from
-            // happening at all.
-            rmSync(socketPath, { force: true });
-          }
-        },
-      });
-    });
-  });
+  return listenForIpcServer(server, socketPath, probeDetailed, () => ({
+    socketPath,
+    close: createIpcServerClose(socketPath, server, activeSockets, (accepting) => {
+      acceptingConnections = accepting;
+    }),
+  }));
 }

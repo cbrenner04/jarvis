@@ -1,11 +1,22 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DaemonSocketInUseError, probeSocketLiveness, removeStaleSocketPath, type SocketLiveness } from "./server.ts";
+import {
+  DaemonSocketInUseError,
+  probeSocketLiveness,
+  removeStaleSocketPath,
+  startIpcServer,
+  type SocketLiveness,
+} from "./server.ts";
 
 function probing(liveness: SocketLiveness) {
   return () => Promise.resolve(liveness);
+}
+
+function probingSequence(...livenesses: SocketLiveness[]) {
+  let call = 0;
+  return () => Promise.resolve(livenesses[Math.min(call++, livenesses.length - 1)] ?? "absent");
 }
 
 test("removeStaleSocketPath refuses to unlink a path a live daemon is serving", async () => {
@@ -69,6 +80,77 @@ test("probeSocketLiveness reports a missing path absent without consulting the f
   const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-probe-"));
   try {
     expect(await probeSocketLiveness(join(dir, "nobody-here.sock"))).toBe("absent");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("startIpcServer reclaims a socket file with no listener bound", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-reclaim-"));
+  const path = join(dir, "daemon.sock");
+  writeFileSync(path, "");
+  try {
+    const server = await startIpcServer(path, undefined, undefined, probingSequence("absent", "stale"));
+    await server.close();
+    expect(await Bun.file(path).exists()).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("startIpcServer reclaims on EADDRINUSE when post-bind reprobe returns stale", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-reclaim-"));
+  const path = join(dir, "daemon.sock");
+  writeFileSync(path, "");
+  try {
+    const server = await startIpcServer(path, undefined, undefined, probingSequence("absent", "stale"));
+    await server.close();
+    expect(await Bun.file(path).exists()).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("startIpcServer reclaims when probe times out with no accepting peer", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-reclaim-"));
+  const path = join(dir, "daemon.sock");
+  writeFileSync(path, "");
+  try {
+    const server = await startIpcServer(path, undefined, undefined, probingSequence("live", "live", "stale"));
+    await server.close();
+    expect(await Bun.file(path).exists()).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("startIpcServer refuses reclaim on EADDRINUSE when reprobe returns absent", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-reclaim-"));
+  const path = join(dir, "daemon.sock");
+  writeFileSync(path, "");
+  try {
+    await expect(startIpcServer(path, undefined, undefined, probingSequence("absent", "absent"))).rejects.toMatchObject(
+      { code: "EADDRINUSE" },
+    );
+    expect(existsSync(path)).toBe(true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("startIpcServer refuses to unlink a live peer socket", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-reclaim-"));
+  const path = join(dir, "daemon.sock");
+  try {
+    const incumbent = await startIpcServer(path, {
+      health: () => ({ kind: "response", result: { ok: true } }),
+    });
+    try {
+      await expect(startIpcServer(path)).rejects.toBeInstanceOf(DaemonSocketInUseError);
+      expect(existsSync(path)).toBe(true);
+    } finally {
+      await incumbent.close();
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

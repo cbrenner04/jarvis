@@ -253,8 +253,6 @@ jarvis pipeline start <project> --seed-text "Ship feature" --detach  # return af
 
 Plan completion records a bare spec **directory** on the stage artifact; chained implement resolution normalizes that to `<dir>/index.md` in `resolveImplementStage` before any workflow run row exists. A directory without `index.md` on the plan worktree fails at stage resolution (`failure_detail` with `pipeline-stage-resolve:` prefix, worktree-relative path, index-expected wording) — not later as `Non-index spec requires --artifact` from the implement builder.
 
-On opted-in projects, when intent publishes ready-intents only to the external home, the chained plan stage resolves those paths from `~/.jarvis/specs/<projectSafeId>/ready-intents/` without requiring them on the intent worktree or `prior.branch` — see [Chained intent→plan for external ready-intents](#external-plan-admission-and-preflight) under External plan admission.
-
 **Chained stage PR bases.** Chained plan and implement stages each open draft PRs against the repository default branch (`getBaseBranch` / `main` fallback), not stacked on the prior stage branch. Implement preflight still probes `prior.branch` for spec availability only. During chained implement, linked-index routing reads and writes the spec tree on the prior stage worktree (`specReadRoot`); completion publication lands that tree into the default-branch implement worktree before commit so index ticks and subspec edits appear on the implement draft PR. In-flight pipelines admitted under stacked `baseRef` may still hit publication-time base retarget when the requested base vanishes on `origin`; settlement records `requestedBase` / `resolvedBase` when retarget applies.
 
 ### Pipeline list and wait

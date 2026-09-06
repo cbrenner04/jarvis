@@ -124,29 +124,37 @@ function seedWorkflowStageEntryRun(invocationId: string, stepId: string): string
 
 const FAN_OUT_DOWNSTREAM = ["ready-intents/alpha.md", "ready-intents/beta.md"] as const;
 
-function seedFanOutFailedLaneFixture(): {
+function seedLiveFanOutFailedLaneFixture(entryRuns: boolean): {
   pipelineId: string;
   failedBranchKey: string;
-  failedEntryRunId: string;
-  failedInvocationId: string;
+  failedEntryRunId?: string;
 } {
   const failedBranchKey = "alpha";
   const runningBranchKey = "beta";
-  const failedInvocationId = "inv-plan-alpha";
 
-  const failedEntryRunId = store.createRun({
-    project: "demo",
-    specRef: "HEAD",
-    worktreePath: "/tmp/worktree-alpha",
-    branch: "plan/alpha",
-    specPath: "spec.md",
-    stepId: "plan",
-    workflowSnapshot: { invocationId: failedInvocationId, steps: [{ stepId: "plan", role: "plan" }] },
-  });
-  const failedAttempt = store.recordAttemptStart(failedEntryRunId);
-  store.commitCompletionBoundary({ attemptId: failedAttempt, runStatus: "failed", outcomeKind: "invocation_failure" });
-
-  const runningEntryRunId = seedWorkflowStageEntryRun("inv-plan-beta", "plan");
+  let failedEntryRunId: string | undefined;
+  let runningEntryRunId: string | null = null;
+  if (entryRuns) {
+    failedEntryRunId = store.createRun({
+      project: "demo",
+      specRef: "HEAD",
+      worktreePath: "/tmp/worktree-alpha",
+      branch: "plan/alpha",
+      specPath: "spec.md",
+      stepId: "plan",
+      workflowSnapshot: {
+        invocationId: "inv-plan-alpha",
+        steps: [{ stepId: "plan", role: "plan" }],
+      },
+    });
+    const failedAttempt = store.recordAttemptStart(failedEntryRunId);
+    store.commitCompletionBoundary({
+      attemptId: failedAttempt,
+      runStatus: "failed",
+      outcomeKind: "invocation_failure",
+    });
+    runningEntryRunId = seedWorkflowStageEntryRun("inv-plan-beta", "plan");
+  }
 
   const pipelineId = store.createPipeline({
     definition: {
@@ -187,7 +195,7 @@ function seedFanOutFailedLaneFixture(): {
     branchKey: failedBranchKey,
     patch: {
       status: "failed",
-      workflowInvocationId: failedEntryRunId,
+      workflowInvocationId: failedEntryRunId ?? null,
       failureDetail: { message: "plan failed" },
     },
   });
@@ -197,7 +205,6 @@ function seedFanOutFailedLaneFixture(): {
     branchKey: failedBranchKey,
     patch: { status: "skipped" },
   });
-
   store.updateStage({
     pipelineId,
     stageId: "plan",
@@ -208,7 +215,11 @@ function seedFanOutFailedLaneFixture(): {
     },
   });
 
-  return { pipelineId, failedBranchKey, failedEntryRunId, failedInvocationId };
+  if (entryRuns) {
+    if (failedEntryRunId === undefined) throw new Error("expected failed entry run");
+    return { pipelineId, failedBranchKey, failedEntryRunId };
+  }
+  return { pipelineId, failedBranchKey };
 }
 
 function instrumentIncidentCandidateQueries(targetStore: StateStore): {
@@ -383,7 +394,7 @@ test("a single failed stage produces one incident across stage, entry-run, and s
 });
 
 test("derives stage incident with branchKey for failed fan-out lane on live pipeline", () => {
-  const { pipelineId, failedBranchKey } = seedFanOutFailedLaneFixture();
+  const { pipelineId, failedBranchKey } = seedLiveFanOutFailedLaneFixture(true);
 
   const incidents = deriveOperatorIncidents(store);
 
@@ -401,7 +412,8 @@ test("derives stage incident with branchKey for failed fan-out lane on live pipe
 });
 
 test("suppresses entry-run terminal incident when failed fan-out lane emits stage incident on live pipeline", () => {
-  const { pipelineId, failedBranchKey, failedEntryRunId } = seedFanOutFailedLaneFixture();
+  const { pipelineId, failedBranchKey, failedEntryRunId } = seedLiveFanOutFailedLaneFixture(true);
+  if (failedEntryRunId === undefined) throw new Error("expected failed entry run");
 
   const incidents = deriveOperatorIncidents(store);
 
@@ -421,6 +433,40 @@ test("suppresses entry-run terminal incident when failed fan-out lane emits stag
       transition: "failed",
     }),
   ]);
+});
+
+test("delivery ledger suppresses delivered stage-failed preview keys on non-terminal pipelines", () => {
+  const { pipelineId, failedBranchKey } = seedLiveFanOutFailedLaneFixture(false);
+
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({
+      kind: "stage-failed",
+      pipelineId,
+      stageId: "plan",
+      branchKey: failedBranchKey,
+      transition: "failed",
+    }),
+  ]);
+
+  runNotificationSweep(
+    sweepDeps({
+      readSinkCommand: () => undefined,
+      spawnSink: () => ({ ok: true }),
+    }),
+  );
+  expect(
+    store.hasNotificationDelivery({
+      incidentId: `stage:${pipelineId}:plan:${failedBranchKey}`,
+      transition: "failed",
+    }),
+  ).toBe(true);
+
+  const lookupMetrics = instrumentStageAttributedLookups(store);
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+  expect(lookupMetrics.read()).toEqual({
+    loadRunsByIdsCount: 0,
+    findRunsByInvocationIdsCount: 0,
+  });
 });
 
 test.each([

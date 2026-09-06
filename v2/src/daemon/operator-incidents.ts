@@ -292,25 +292,6 @@ function pushPublicationFailureIncident(
   });
 }
 
-function pushStageFailedIncident(
-  incidents: OperatorIncident[],
-  pipeline: Pipeline & { stages: PipelineStageRecord[] },
-  stage: PipelineStageRecord,
-  project: string | null,
-): void {
-  incidents.push({
-    incidentId: stageIncidentId(pipeline.id, stage.stageId, stage.branchKey),
-    kind: "stage-failed",
-    transition: "failed",
-    project,
-    pipelineId: pipeline.id,
-    stageId: stage.stageId,
-    branchKey: stage.branchKey,
-    cause: "failed",
-    sinceMs: stageSinceMs(stage),
-  });
-}
-
 function collectPipelineIncidents(
   store: StateStore,
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
@@ -332,11 +313,6 @@ function collectPipelineIncidents(
     } else {
       pushPipelineTerminalIncident(incidents, pipeline, state, project);
     }
-    for (const stage of pipeline.stages) {
-      if (stage.status === "failed") {
-        addSuppressedInvocationForFailedStage(stage, entryRunsById, suppressedInvocationIds);
-      }
-    }
   }
 
   for (const stage of pipeline.stages) {
@@ -355,12 +331,22 @@ function collectPipelineIncidents(
     }
   }
 
-  if (!isPipelineTerminal(state)) {
-    for (const stage of pipeline.stages) {
-      if (stage.status === "failed") {
-        pushStageFailedIncident(incidents, pipeline, stage, project);
-        addSuppressedInvocationForFailedStage(stage, entryRunsById, suppressedInvocationIds);
+  for (const stage of pipeline.stages) {
+    if (stage.status === "failed") {
+      if (!isPipelineTerminal(state)) {
+        incidents.push({
+          incidentId: stageIncidentId(pipeline.id, stage.stageId, stage.branchKey),
+          kind: "stage-failed",
+          transition: "failed",
+          project,
+          pipelineId: pipeline.id,
+          stageId: stage.stageId,
+          branchKey: stage.branchKey,
+          cause: "failed",
+          sinceMs: stageSinceMs(stage),
+        });
       }
+      addSuppressedInvocationForFailedStage(stage, entryRunsById, suppressedInvocationIds);
     }
   }
 

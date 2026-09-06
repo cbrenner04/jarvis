@@ -11,8 +11,8 @@ import {
 import {
   helpFlagsParityGaps,
   missingParserFlagsInHelp,
-  parserAcceptedLongFlags,
   parityGuardedPaths,
+  parserAcceptedLongFlags,
 } from "./help-flags-parity.ts";
 
 /** Pre-fix hand-maintained list; vacuous when commandTree gains guarded leaves without a matching edit. */

@@ -265,10 +265,17 @@ export class DaemonSocketInUseError extends Error {
 const LIVENESS_PROBE_TIMEOUT_MS = 250;
 const EXTENDED_LIVENESS_PROBE_TIMEOUT_MS = 2_000;
 
-type SocketProbeDetail = {
+export type SocketProbeDetail = {
   liveness: SocketLiveness;
   peerConnected: boolean;
 };
+
+/**
+ * The socket-probe seam. Production and tests share one implementation shape so an injected probe
+ * traverses exactly the code path `probeSocketDetailed` does — a liveness-only seam cannot express
+ * `peerConnected`, which is what distinguishes a probe timeout from a daemon that answered.
+ */
+export type DetailedSocketProbe = (path: string, timeoutMs: number) => Promise<SocketProbeDetail>;
 
 /**
  * Map a connect failure to a liveness verdict.
@@ -326,33 +333,22 @@ export function probeSocketLiveness(socketPath: string): Promise<SocketLiveness>
   return probeSocketDetailed(socketPath, LIVENESS_PROBE_TIMEOUT_MS).then((detail) => detail.liveness);
 }
 
-async function prepareSocketPathForBind(
-  socketPath: string,
-  probe: (path: string) => Promise<SocketLiveness>,
-  useProductionProbe: boolean,
-): Promise<void> {
-  if (useProductionProbe) {
-    const initial = await probeSocketDetailed(socketPath, LIVENESS_PROBE_TIMEOUT_MS);
-    if (initial.liveness === "live" && !initial.peerConnected) {
-      const extended = await probeSocketDetailed(socketPath, EXTENDED_LIVENESS_PROBE_TIMEOUT_MS);
-      if (extended.liveness === "live" && !extended.peerConnected) {
-        await removeStaleSocketPath(socketPath, () => Promise.resolve("absent"));
-        return;
-      }
-    }
-    await removeStaleSocketPath(socketPath, probeSocketLiveness);
-    return;
-  }
-
-  const initial = await probe(socketPath);
-  if (initial === "live") {
-    const extended = await probe(socketPath);
-    if (extended === "live") {
-      await removeStaleSocketPath(socketPath, () => Promise.resolve("absent"));
+async function prepareSocketPathForBind(socketPath: string, probeDetailed: DetailedSocketProbe): Promise<void> {
+  const initial = await probeDetailed(socketPath, LIVENESS_PROBE_TIMEOUT_MS);
+  // A `live` verdict with no peer actually connected is the probe timing out, not a daemon
+  // answering. On a loaded machine that would otherwise convert a dead socket into a permanently
+  // unrecoverable one, so re-probe with a longer bound before believing it.
+  if (initial.liveness === "live" && !initial.peerConnected) {
+    const extended = await probeDetailed(socketPath, EXTENDED_LIVENESS_PROBE_TIMEOUT_MS);
+    if (extended.liveness === "live" && !extended.peerConnected) {
+      // Still no peer. Removing here would unlink on an inconclusive answer, so leave the path
+      // alone and let `listen` decide: occupancy reclaim runs only on a real EADDRINUSE.
       return;
     }
   }
-  await removeStaleSocketPath(socketPath, probe);
+  await removeStaleSocketPath(socketPath, (path) =>
+    probeDetailed(path, LIVENESS_PROBE_TIMEOUT_MS).then((detail) => detail.liveness),
+  );
 }
 
 function isAddrInUseError(error: unknown): error is NodeJS.ErrnoException {
@@ -419,7 +415,7 @@ function createIpcServerClose(
 function listenForIpcServer(
   server: Server,
   socketPath: string,
-  probe: (path: string) => Promise<SocketLiveness>,
+  probeDetailed: DetailedSocketProbe,
   onListening: () => IpcServer,
 ): Promise<IpcServer> {
   return new Promise((resolve, reject) => {
@@ -427,7 +423,10 @@ function listenForIpcServer(
       server.once("error", (error: unknown) => {
         void (async () => {
           if (allowOccupancyReclaim && isAddrInUseError(error)) {
-            const reprobe = await probe(socketPath);
+            // EADDRINUSE proves the path is occupied; the reprobe decides whether anything is
+            // accepting on it. Only a proven-`stale` reprobe authorizes the unlink — `absent` is
+            // the sandboxed-caller false negative and must never reclaim.
+            const reprobe = (await probeDetailed(socketPath, LIVENESS_PROBE_TIMEOUT_MS)).liveness;
             if (reprobe === "stale") {
               rmSync(socketPath, { force: true });
               attemptListen(false);
@@ -450,10 +449,9 @@ export async function startIpcServer(
   socketPath: string,
   handlers?: Record<string, RpcHandler>,
   streamHandler?: StreamHandler,
-  probe: (path: string) => Promise<SocketLiveness> = probeSocketLiveness,
+  probeDetailed: DetailedSocketProbe = probeSocketDetailed,
 ): Promise<IpcServer> {
-  const useProductionProbe = probe === probeSocketLiveness;
-  await prepareSocketPathForBind(socketPath, probe, useProductionProbe);
+  await prepareSocketPathForBind(socketPath, probeDetailed);
 
   const activeSockets = new Set<Socket>();
   let acceptingConnections = true;
@@ -470,7 +468,7 @@ export async function startIpcServer(
     attachSocketHandlers(socket, handlers, streamHandler);
   });
 
-  return listenForIpcServer(server, socketPath, probe, () => ({
+  return listenForIpcServer(server, socketPath, probeDetailed, () => ({
     socketPath,
     close: createIpcServerClose(socketPath, server, activeSockets, (accepting) => {
       acceptingConnections = accepting;

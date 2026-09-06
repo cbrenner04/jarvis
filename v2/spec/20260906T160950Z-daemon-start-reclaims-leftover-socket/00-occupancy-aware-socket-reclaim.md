@@ -14,6 +14,7 @@
 - Probe timeout does not silently become permanent refusal: an occupied path whose initial probe timed out is re-probed with a longer bound before `listen`; rules out machine load converting a dead socket into an unrecoverable one.
 - `stale` paths are unlinked by `removeStaleSocketPath` before `listen` on main; occupancy reclaim covers only probe outcomes that skip that removal; rules out a third `stale`-class AC for a bug already fixed on main.
 - `removeStaleSocketPath` direct-call semantics for injected `absent`/`live` probes stay unchanged; occupancy reclaim lives in `startIpcServer`'s bind path; rules out widening `removeStaleSocketPath` to unlink on `absent`, which would restore the sandbox `ENOENT` false-negative outage documented in `server.ts`.
+- The injectable probe seam is the same `DetailedSocketProbe` production uses (`(path, timeoutMs) => SocketProbeDetail`), so an injected probe traverses the production bind path; rules out selecting a test-only branch by reference identity (`probe === probeSocketLiveness`), which left the extended-reprobe logic with no coverage at all.
 - Export a shared socket-path classifier from `v2/src/ipc/server.ts` for later cleanup reuse; rules out duplicating classification logic in `v2/src/commands/daemon.ts` (wired in subspec 01).
 - Deferred to first consumer: exact longer probe timeout constant — pin in `daemon-host.md` when operator-facing prose needs a number.
 
@@ -30,15 +31,15 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/ipc/server.test.ts` test `startIpcServer reclaims a socket file with no listener bound` proves `startIpcServer` succeeds when a socket file occupies the path but nothing accepts; it fails against the current `EADDRINUSE`.
-- [ ] `v2/src/ipc/server.test.ts` test `startIpcServer reclaims on EADDRINUSE when post-bind reprobe returns stale` proves reclaim succeeds only after `listen` `EADDRINUSE` and a reprobe returning `stale`; it fails against the current code and against unconditional `absent` reclaim.
-- [ ] `v2/src/ipc/server.test.ts` test `startIpcServer reclaims when probe times out with no accepting peer` proves reclaim succeeds when the injected probe returns `live` (timeout) while no peer accepts; it fails against the current code.
-- [ ] `v2/src/ipc/server.test.ts` test `startIpcServer refuses reclaim on EADDRINUSE when reprobe returns absent` proves a live peer behind an `absent` probe is never unlinked; it fails against unconditional `absent` reclaim (`ipc.sandbox-unrunnable.test.ts` test `startIpcServer refuses to replace a socket a live server is listening on` is reachable on main).
-- [ ] `v2/src/ipc/server.test.ts` test `startIpcServer refuses to unlink a live peer socket` proves a genuinely live peer's socket is never unlinked and still refuses with `DaemonSocketInUseError`; it fails against an unconditional-unlink fix.
-- [ ] `v2/src/ipc/server.test.ts` test `removeStaleSocketPath refuses to unlink a path a live daemon is serving` stays green.
-- [ ] `v2/docs/daemon-host.md` documents the occupancy-aware reclaim contract: liveness versus occupancy, bind-path order, bounded `EADDRINUSE` retry gated by post-bind `stale` reprobe, and probe-timeout retry.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `v2/src/ipc/server.test.ts` test `startIpcServer reclaims a socket file with no listener bound` proves `startIpcServer` succeeds when a socket file occupies the path but nothing accepts, reclaiming only after `listen` returns `EADDRINUSE` and a post-bind reprobe returns `stale`; it fails against the pre-fix `EADDRINUSE`.
+- [x] `v2/src/ipc/server.test.ts` test `startIpcServer removes a stale path revealed by the extended reprobe` proves a first probe that times out but whose longer reprobe resolves `stale` is removed on the ordinary pre-bind path; it fails against the pre-fix code.
+- [x] `v2/src/ipc/server.test.ts` test `startIpcServer proceeds to listen when both probes time out with no accepting peer` proves a doubly-timed-out probe declines to refuse and lets `listen` adjudicate; deleting the extended-reprobe branch turns the first `live` into a `DaemonSocketInUseError` and fails this test (verified by mutation).
+- [x] `v2/src/ipc/server.test.ts` test `startIpcServer refuses reclaim on EADDRINUSE when reprobe returns absent` proves `absent` never authorizes an unlink even under `EADDRINUSE` — the sandboxed-caller false negative; it fails against unconditional `absent` reclaim (verified by mutation).
+- [x] `v2/src/ipc/server.test.ts` tests `startIpcServer refuses immediately when a peer answers the probe` and `startIpcServer refuses to unlink a live peer socket` prove a genuinely live peer's socket is never unlinked and still refuses with `DaemonSocketInUseError`; they fail against an unconditional-unlink fix.
+- [x] `v2/src/ipc/server.test.ts` test `removeStaleSocketPath refuses to unlink a path a live daemon is serving` stays green.
+- [x] `v2/docs/daemon-host.md` documents the occupancy-aware reclaim contract: liveness versus occupancy, bind-path order, bounded `EADDRINUSE` retry gated by post-bind `stale` reprobe, and probe-timeout retry.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

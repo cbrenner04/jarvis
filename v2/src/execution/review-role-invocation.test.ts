@@ -34,6 +34,49 @@ function stalledBinding(id: string, agent: string, model: string): InvocationBin
   };
 }
 
+const UNREF_CALLED = Symbol("unref-called");
+
+type TimeoutHandle = ReturnType<typeof setTimeout>;
+
+let setTimeoutCaptureLock: Promise<void> = Promise.resolve();
+
+async function withSetTimeoutCapture<T>(
+  expectedDelayMs: number,
+  run: () => Promise<T>,
+): Promise<{ result: T; captured: TimeoutHandle[] }> {
+  const captured: TimeoutHandle[] = [];
+  let releaseLock!: () => void;
+  const priorLock = setTimeoutCaptureLock;
+  setTimeoutCaptureLock = new Promise<void>((resolve) => {
+    releaseLock = resolve;
+  });
+  await priorLock;
+
+  const original = globalThis.setTimeout;
+  globalThis.setTimeout = ((callback: Parameters<typeof setTimeout>[0], delay?: number, ...args: unknown[]) => {
+    const handle = original(callback, delay, ...args);
+    if (delay === expectedDelayMs) {
+      const timer = handle as NodeJS.Timeout & { [UNREF_CALLED]?: boolean };
+      const realUnref = timer.unref?.bind(timer);
+      timer.unref = () => {
+        timer[UNREF_CALLED] = true;
+        realUnref?.();
+        return timer;
+      };
+      captured.push(handle);
+    }
+    return handle;
+  }) as typeof setTimeout;
+
+  try {
+    const result = await run();
+    return { result, captured };
+  } finally {
+    globalThis.setTimeout = original;
+    releaseLock();
+  }
+}
+
 describe("invokeReviewRole", () => {
   test("classifies a role-timer abort as timeout with attribution", async () => {
     const boundMs = 5;
@@ -297,5 +340,22 @@ describe("invokeReviewRole", () => {
     expect(reviewRoleFailureKind(execution)).toBeNull();
     expect(secondInvoked).toBe(0);
     expect(execution.attempts).toHaveLength(1);
+  });
+
+  test("armed review-role wall-clock timer is unref'd after early ok settle", async () => {
+    const boundMs = 5_000;
+    const okBinding: InvocationBinding = {
+      id: "critic.ok",
+      metadata: { agent: "claude", model: "opus" },
+      invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }),
+    };
+    const { result: execution, captured } = await withSetTimeoutCapture(boundMs, () =>
+      invokeReviewRole({ cwd: "/fake", roleTimeoutMs: boundMs }, "critic", "inspect", [okBinding]),
+    );
+    expect(reviewRoleFailureKind(execution)).toBeNull();
+    expect(captured.length).toBeGreaterThan(0);
+    for (const handle of captured) {
+      expect((handle as NodeJS.Timeout & { [UNREF_CALLED]?: boolean })[UNREF_CALLED] ?? false).toBe(true);
+    }
   });
 });

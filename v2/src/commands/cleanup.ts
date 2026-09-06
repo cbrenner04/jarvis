@@ -2000,10 +2000,11 @@ async function isWorktreeLiveHeld(
 async function gateOnOpenPrs(
   branch: string,
   runner: AsyncSubprocessRunner,
+  cwd = ".",
 ): Promise<{ status: "ok"; pr: OpenPr | undefined } | { status: "refused"; reason: string }> {
   let openPrs: OpenPr[];
   try {
-    openPrs = await listOpenPrsForBranch(branch, ".", runner);
+    openPrs = await listOpenPrsForBranch(branch, cwd, runner);
   } catch {
     openPrs = [];
   }
@@ -2011,6 +2012,46 @@ async function gateOnOpenPrs(
   const pr = openPrs.at(0);
   if (pr !== undefined && !pr.isDraft) return { status: "refused", reason: "matching PR is ready (non-draft)" };
   return { status: "ok", pr };
+}
+
+export type NeverLandedLaneClassification = { neverLanded: true } | { neverLanded: false };
+
+/** Structural never-landed: no open PR and no unpushed commits whose paths leave harness workflow staging. */
+export async function classifyNeverLandedLane(
+  projectRoot: string,
+  branch: string,
+  baseRef: string,
+  runner: AsyncSubprocessRunner,
+): Promise<NeverLandedLaneClassification> {
+  try {
+    const prGate = await gateOnOpenPrs(branch, runner, projectRoot);
+    if (prGate.status !== "ok" || prGate.pr !== undefined) {
+      return { neverLanded: false };
+    }
+    const commitCount = await unlandedCommitCount(projectRoot, branch, baseRef, runner);
+    if (commitCount > 0) {
+      const nonStagingPaths = await unlandedNonStagingPaths(projectRoot, branch, baseRef, runner);
+      if (nonStagingPaths.length > 0) {
+        return { neverLanded: false };
+      }
+    }
+    return { neverLanded: true };
+  } catch {
+    return { neverLanded: false };
+  }
+}
+
+export async function laneHasOpenDraftPr(
+  projectRoot: string,
+  branch: string,
+  runner: AsyncSubprocessRunner,
+): Promise<boolean> {
+  try {
+    const prGate = await gateOnOpenPrs(branch, runner, projectRoot);
+    return prGate.status === "ok" && prGate.pr !== undefined;
+  } catch {
+    return false;
+  }
 }
 
 async function resolveName(

@@ -49,6 +49,7 @@ export async function maybeResetStaleWorkspace(
     ...(writeStep?.behavior === "write" && writeStep.specPath !== undefined && writeStep.externalPlanSpec !== true
       ? { specPath: writeStep.specPath }
       : {}),
+    ...("disposableLane" in parsed && parsed.disposableLane === true ? { disposableLane: true } : {}),
   };
   // Runs inside the connected dispatch scope, so an escaping throw would otherwise be reported as a
   // daemon connection error. Classify reset failures here instead.

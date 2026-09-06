@@ -30,7 +30,7 @@ Wall-segment, ceiling, and review-role watchdog timers in `write-loop.ts` and `r
 - [x] `review-role-invocation.test.ts` test `armed review-role wall-clock timer is unref'd after early ok settle` wraps `globalThis.setTimeout`, calls `invokeReviewRole` with a fast ok binding, and asserts the role wall-clock `setTimeout` handle reports `hasRef() === false`; it fails when `.unref?.()` is omitted at `invokeReviewRole` (reachable on main).
 - [x] `v2/docs/write-behavior.md` states armed wall-segment, ceiling, and review-role watchdog timers are `.unref?.()`'d so pending timers do not hold the Bun process alive after early settle.
 - [x] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

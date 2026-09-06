@@ -32,6 +32,21 @@ type Fixture = {
 
 const fixtureRoots: string[] = [];
 
+/** Pre-fix hardcoded inventory; vacuous when profiles are added without a matching edit. */
+const HAND_MAINTAINED_PROFILE_FILENAMES = ["home.json", "work.json"];
+
+function machineProfileFilenames(): string[] {
+  return readdirSync(MACHINE_PROFILES_DIR)
+    .filter((name) => name.endsWith(".json"))
+    .sort();
+}
+
+function machineProfileFilenamesFromDirents(machinesDir: string): string[] {
+  return readdirSync(machinesDir, { withFileTypes: true })
+    .flatMap((entry) => (entry.isFile() && entry.name.endsWith(".json") && entry.name.length > 5 ? [entry.name] : []))
+    .sort();
+}
+
 afterEach(() => {
   for (const root of fixtureRoots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
@@ -226,11 +241,9 @@ describe("init machine bootstrap", () => {
   });
 
   test("profile bindings govern bootstrap and runnable roster", async () => {
-    expect(
-      readdirSync(MACHINE_PROFILES_DIR)
-        .filter((name) => name.endsWith(".json"))
-        .sort(),
-    ).toEqual(["home.json", "work.json"]);
+    const discovered = machineProfileFilenames();
+    expect(discovered).toEqual(machineProfileFilenamesFromDirents(MACHINE_PROFILES_DIR));
+    expect(discovered).not.toEqual(HAND_MAINTAINED_PROFILE_FILENAMES.slice(0, -1));
 
     for (const agent of ["claude", "codex", "cursor"]) {
       const home = fixture();

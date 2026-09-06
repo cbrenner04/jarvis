@@ -14,6 +14,7 @@ export type OperatorIncidentKind =
   | "pipeline-awaiting-approval"
   | "pipeline-terminal"
   | "stage-settlement-wedged"
+  | "stage-failed"
   | "publication-failure"
   | "run-blocked"
   | "run-budget-soft-stopped"
@@ -114,6 +115,17 @@ function previewPipelineIncidentKeys(
         incidentId: stageIncidentId(pipeline.id, stage.stageId, stage.branchKey),
         transition: "settlement_deferred:entry_run_dead",
       });
+    }
+  }
+
+  if (!isPipelineTerminal(state)) {
+    for (const stage of pipeline.stages) {
+      if (stage.status === "failed") {
+        keys.push({
+          incidentId: stageIncidentId(pipeline.id, stage.stageId, stage.branchKey),
+          transition: "failed",
+        });
+      }
     }
   }
 
@@ -301,11 +313,6 @@ function collectPipelineIncidents(
     } else {
       pushPipelineTerminalIncident(incidents, pipeline, state, project);
     }
-    for (const stage of pipeline.stages) {
-      if (stage.status === "failed") {
-        addSuppressedInvocationForFailedStage(stage, entryRunsById, suppressedInvocationIds);
-      }
-    }
   }
 
   for (const stage of pipeline.stages) {
@@ -321,6 +328,25 @@ function collectPipelineIncidents(
         cause: "settlement_deferred",
         sinceMs: stageSinceMs(stage),
       });
+    }
+  }
+
+  for (const stage of pipeline.stages) {
+    if (stage.status === "failed") {
+      if (!isPipelineTerminal(state)) {
+        incidents.push({
+          incidentId: stageIncidentId(pipeline.id, stage.stageId, stage.branchKey),
+          kind: "stage-failed",
+          transition: "failed",
+          project,
+          pipelineId: pipeline.id,
+          stageId: stage.stageId,
+          branchKey: stage.branchKey,
+          cause: "failed",
+          sinceMs: stageSinceMs(stage),
+        });
+      }
+      addSuppressedInvocationForFailedStage(stage, entryRunsById, suppressedInvocationIds);
     }
   }
 

@@ -18,11 +18,11 @@ Row `ex-wri-merge-base-titles` in `v2/docs/structural-invariant-test-audit.md` p
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/workflow-runner-resume-inventory.test.ts` test `preserves merge-base resume-path leaf titles in workflow-runner-resume*.test.ts destinations` derives source buckets from discovered resume-path anchors rather than a hand-maintained `SOURCE_BUCKETS` list; it fails against the pre-fix static bucket table and passes after re-key.
-- [ ] `workflow-runner-resume-inventory.test.ts` test `preserves merge-base resume-path leaf titles in workflow-runner-resume*.test.ts destinations` fails on missing merge-base titles but allows surplus destination titles; it fails against the pre-fix exact-count parity assertion and passes after re-key.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/execution/workflow-runner-resume-inventory.test.ts` test `preserves merge-base resume-path leaf titles in workflow-runner-resume*.test.ts destinations` derives source buckets from discovered resume-path anchors rather than a hand-maintained `SOURCE_BUCKETS` list; it fails against the pre-fix static bucket table and passes after re-key.
+- [x] `workflow-runner-resume-inventory.test.ts` test `preserves merge-base resume-path leaf titles in workflow-runner-resume*.test.ts destinations` fails on missing merge-base titles but allows surplus destination titles; it fails against the pre-fix exact-count parity assertion and passes after re-key.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

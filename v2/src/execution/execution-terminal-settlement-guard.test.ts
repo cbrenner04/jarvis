@@ -97,3 +97,10 @@ test("inventoryMismatchMessage classifies expected-only keys as missing", () => 
   expect(message).toContain("extra: (none)");
   expect(inventoryMismatchMessage("inventory", [], [])).toBeUndefined();
 });
+
+test("inventoryMismatchMessage classifies actual-only keys as extra", () => {
+  const message = inventoryMismatchMessage("inventory", [], ["bar"]);
+  expect(message).toBeDefined();
+  expect(message).toContain("missing: (none)");
+  expect(message).toContain("extra: bar");
+});

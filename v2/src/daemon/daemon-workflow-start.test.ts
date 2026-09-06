@@ -2,13 +2,13 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { StructuralTestLocatorError } from "../../../shared/structural-test-locator.ts";
 import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
 import {
   implementReviewProfile,
   intentReviewProfile,
   planReviewProfile,
 } from "../../../shared/prompts/review-profile.ts";
+import { StructuralTestLocatorError } from "../../../shared/structural-test-locator.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { getExternalWorktreePath, WorktreeMaterializationError } from "../execution/external-worktree.ts";
 import type {

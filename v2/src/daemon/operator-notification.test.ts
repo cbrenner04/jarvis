@@ -415,12 +415,37 @@ test("suppresses entry-run terminal incident when failed fan-out lane emits stag
   const { pipelineId, failedBranchKey, failedEntryRunId } = seedLiveFanOutFailedLaneFixture(true);
   if (failedEntryRunId === undefined) throw new Error("expected failed entry run");
 
+  // A sibling row under the failed lane's invocation, blocked rather than terminal. `blocked` and
+  // `budget-soft-stopped` incidents are pushed before the `pipelineAttributedRunIds` guard, so
+  // `suppressedInvocationIds` is the only thing that can hold them back — a terminal sibling would
+  // not distinguish the two, because every run under an entry-run invocation is already
+  // pipeline-attributed.
+  const blockedSiblingRunId = store.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath: "/tmp/worktree-alpha",
+    branch: "plan/alpha",
+    specPath: "spec.md",
+    stepId: "plan~review",
+    workflowSnapshot: {
+      invocationId: "inv-plan-alpha",
+      steps: [{ stepId: "plan", role: "plan" }],
+    },
+  });
+  const blockedAttempt = store.recordAttemptStart(blockedSiblingRunId);
+  store.commitCompletionBoundary({
+    attemptId: blockedAttempt,
+    runStatus: "blocked",
+    outcomeKind: "blocked",
+  });
+
   const incidents = deriveOperatorIncidents(store);
 
   const laneIncidents = incidents.filter(
     (incident) =>
-      incident.pipelineId === pipelineId &&
-      (incident.branchKey === failedBranchKey || incident.runId === failedEntryRunId),
+      incident.pipelineId === pipelineId ||
+      incident.runId === failedEntryRunId ||
+      incident.runId === blockedSiblingRunId,
   );
 
   // @mutate v2/src/daemon/operator-incidents.ts "addSuppressedInvocationForFailedStage(stage, entryRunsById, suppressedInvocationIds);" -> ""
@@ -433,6 +458,7 @@ test("suppresses entry-run terminal incident when failed fan-out lane emits stag
       transition: "failed",
     }),
   ]);
+  expect(laneIncidents.some((incident) => incident.runId === blockedSiblingRunId)).toBe(false);
 });
 
 test("delivery ledger suppresses delivered stage-failed preview keys on non-terminal pipelines", () => {

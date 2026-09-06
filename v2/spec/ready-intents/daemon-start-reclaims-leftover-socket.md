@@ -29,5 +29,5 @@ After an abrupt daemon death, the keyed socket file can survive with no listener
 ## Documentation updates
 
 - `v2/docs/daemon-host.md` — socket reclaim contract: liveness versus occupancy, bounded `EADDRINUSE` retry, and probe-timeout retry.
-- `v2/docs/operator-runbook.md` — recovery for a wedged `daemon start`; note diagnosis lives in `~/.jarvis/daemon-<digest>.log` until `daemon-process-log-read` ships.
+- `v2/docs/operator-runbook.md` — reconcile § Daemon lifecycle socket-probe/reclaim prose (stale-only removal, `ENOENT` skips removal, 250ms timeout ⇒ live) with the occupancy-aware reclaim contract in `daemon-host.md`, and add recovery for a wedged `daemon start`; note diagnosis lives in `~/.jarvis/daemon-<digest>.log` until `daemon-process-log-read` ships.
 - `v2/docs/v1-behaviors.md` — record reclaim of an unbindable leftover socket on daemon start.

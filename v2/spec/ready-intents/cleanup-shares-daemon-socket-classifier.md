@@ -28,4 +28,5 @@ name: cleanup-shares-daemon-socket-classifier
 ## Documentation updates
 
 - `v2/docs/daemon-host.md` — cross-link cleanup dead-socket reaping to the shared classifier contract in the socket-path section.
+- `v2/docs/write-behavior.md` — align or cross-link the Cleanup command dead-socket classification prose (`ECONNREFUSED`/`ENOENT` only) to the shared classifier contract.
 - `v2/docs/v1-behaviors.md` — update the cleanup daemon socket reaping entry to state it uses the same classifier as daemon-start reclaim.

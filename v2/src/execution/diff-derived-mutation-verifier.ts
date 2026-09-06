@@ -1099,7 +1099,6 @@ async function resolveKillingTests(
 
   const scanRoot = resolveImporterScanRoot(candidateFile);
   if (scanRoot === null) {
-    killingTests.sort();
     return { killingTests, capExceeded: false };
   }
 

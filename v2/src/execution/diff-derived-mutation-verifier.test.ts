@@ -2518,13 +2518,14 @@ index 1234567..abcdefg 100644
     "v2/src/feature/bridge.ts": `import { target } from "./target.ts";\nexport const bridge = target;\n`,
     "v2/src/feature/other.ts": `export const other = 1;\n`,
     "v2/src/feature/target-part.test.ts": "export {};\n",
+    "v2/src/feature/target.test.ts": "export {};\n",
   };
 
-  function importerFixtureReadFile(excludeExactStem = false): (path: string) => Promise<string> {
+  function importerFixtureReadFile(emptyCoLocated = true): (path: string) => Promise<string> {
     return async (path: string) => {
       const rel = path.replace("/wt/", "");
       if (rel === targetFile) return guardContent;
-      if (excludeExactStem && rel === "v2/src/feature/target.test.ts") throw new Error("ENOENT");
+      if (emptyCoLocated && rel === "v2/src/feature/target.test.ts") throw new Error("ENOENT");
       if (rel.endsWith(".test.ts")) return importerBodies[rel] ?? "export {};\n";
       if (importerBodies[rel] !== undefined) return importerBodies[rel];
       throw new Error(`ENOENT: ${path}`);
@@ -2535,43 +2536,48 @@ index 1234567..abcdefg 100644
     return Array.from({ length: count }, (_, index) => `${prefix}/candidate-${String(index).padStart(4, "0")}.test.ts`);
   }
 
-  it("a changed guard whose only killing test is a non-sibling direct importer passes when that importer kills the mutation", async () => {
-    const scopes: string[][] = [];
-    const result = await verifyDiffDerivedMutations(
+  async function verifyImporterFixture(
+    seams: {
+      readFile?: (path: string) => Promise<string>;
+      listDir?: () => string[];
+      listImporterCandidates?: () => string[];
+      runScopedTests?: (cwd: string, scope: string[]) => Promise<boolean>;
+    } = {},
+  ) {
+    return verifyDiffDerivedMutations(
       { worktreePath: "/wt", runBase: "main" },
       {
         gitDiff: async () => guardDiff,
         untrackedFiles: async () => [],
-        readFile: importerFixtureReadFile(true),
+        readFile: importerFixtureReadFile(),
         writeFile: async () => {},
         listDir: () => [],
-        listImporterCandidates: () => [directImporter, unrelatedImporter],
-        runScopedTests: async (_cwd, scope) => {
-          scopes.push(scope);
-          return false;
-        },
+        listImporterCandidates: () => [],
+        runScopedTests: async () => true,
+        ...seams,
       },
     );
+  }
+
+  it("a changed guard whose only killing test is a non-sibling direct importer passes when that importer kills the mutation", async () => {
+    const scopes: string[][] = [];
+    const result = await verifyImporterFixture({
+      listImporterCandidates: () => [directImporter, unrelatedImporter],
+      runScopedTests: async (_cwd, scope) => {
+        scopes.push(scope);
+        return false;
+      },
+    });
     expect(result.kind).toBe("pass");
-    expect(scopes).toHaveLength(1);
-    expect(scopes[0]).toEqual([directImporter]);
-    expect(result.kind === "surviving-mutation" && result.mutation === "missing-killing-test").toBe(false);
+    expect(scopes).toEqual([[directImporter]]);
   });
 
   it("inverting the empty-union guard fails: direct-importer-only coverage would report missing-killing-test", async () => {
     // Mutation checkpoint: inverting `if (resolution.killingTests.length === 0)` in verifyCandidates must turn this RED.
-    const result = await verifyDiffDerivedMutations(
-      { worktreePath: "/wt", runBase: "main" },
-      {
-        gitDiff: async () => guardDiff,
-        untrackedFiles: async () => [],
-        readFile: importerFixtureReadFile(true),
-        writeFile: async () => {},
-        listDir: () => [],
-        listImporterCandidates: () => [directImporter],
-        runScopedTests: async () => false,
-      },
-    );
+    const result = await verifyImporterFixture({
+      listImporterCandidates: () => [directImporter],
+      runScopedTests: async () => false,
+    });
     expect(result.kind).toBe("pass");
   });
 
@@ -2606,39 +2612,22 @@ index 1234567..abcdefg 100644
     expect(resolveImporterScanRoot(targetFile)).toBe("v2/src/");
     expect(resolveImporterScanRoot("scripts/foo.ts")).toBeNull();
 
-    const noTransitiveResult = await verifyDiffDerivedMutations(
-      { worktreePath: "/wt", runBase: "main" },
-      {
-        gitDiff: async () => guardDiff,
-        untrackedFiles: async () => [],
-        readFile: importerFixtureReadFile(true),
-        writeFile: async () => {},
-        listDir: () => [],
-        listImporterCandidates: () => [transitiveImporter, unrelatedImporter],
-        runScopedTests: async () => true,
-      },
-    );
+    const noTransitiveResult = await verifyImporterFixture({
+      listImporterCandidates: () => [transitiveImporter, unrelatedImporter],
+    });
     expect(noTransitiveResult.kind).toBe("surviving-mutation");
     if (noTransitiveResult.kind === "surviving-mutation") {
       expect(noTransitiveResult.mutation).toBe("missing-killing-test");
     }
 
     const scopedRuns: string[][] = [];
-    const capResult = await verifyDiffDerivedMutations(
-      { worktreePath: "/wt", runBase: "main" },
-      {
-        gitDiff: async () => guardDiff,
-        untrackedFiles: async () => [],
-        readFile: importerFixtureReadFile(true),
-        writeFile: async () => {},
-        listDir: () => [],
-        listImporterCandidates: () => ordered,
-        runScopedTests: async (_cwd, scope) => {
-          scopedRuns.push(scope);
-          return true;
-        },
+    const capResult = await verifyImporterFixture({
+      listImporterCandidates: () => ordered,
+      runScopedTests: async (_cwd, scope) => {
+        scopedRuns.push(scope);
+        return true;
       },
-    );
+    });
     expect(capResult.kind).toBe("surviving-mutation");
     if (capResult.kind === "surviving-mutation") {
       expect(capResult.mutation).toBe("importer-discovery-cap-exceeded");
@@ -2652,56 +2641,34 @@ index 1234567..abcdefg 100644
     let importerDiscoveryCalls = 0;
     const candidates = lexImporterCandidates(201);
     const scopes: string[][] = [];
-    const result = await verifyDiffDerivedMutations(
-      { worktreePath: "/wt", runBase: "main" },
-      {
-        gitDiff: async () => guardDiff,
-        untrackedFiles: async () => [],
-        readFile: importerFixtureReadFile(true),
-        writeFile: async () => {},
-        listDir: () => ["target-part.test.ts"],
-        listImporterCandidates: () => {
-          importerDiscoveryCalls += 1;
-          return candidates;
-        },
-        runScopedTests: async (_cwd, scope) => {
-          scopes.push([...scope]);
-          return false;
-        },
+    const result = await verifyImporterFixture({
+      listDir: () => ["target-part.test.ts"],
+      listImporterCandidates: () => {
+        importerDiscoveryCalls += 1;
+        return candidates;
       },
-    );
+      runScopedTests: async (_cwd, scope) => {
+        scopes.push(scope);
+        return false;
+      },
+    });
     expect(result.kind).toBe("pass");
     expect(importerDiscoveryCalls).toBe(0);
-    expect(scopes).toHaveLength(1);
-    expect(scopes[0]).toEqual([sibling]);
-    expect(result.kind === "surviving-mutation" && result.mutation === "importer-discovery-cap-exceeded").toBe(false);
+    expect(scopes).toEqual([[sibling]]);
   });
 
   it("runs scoped mutation execution on co-located killing tests only when co-located coverage exists and discovery would hit the cap", async () => {
     let scopedRuns = 0;
     const candidates = lexImporterCandidates(201);
-    const result = await verifyDiffDerivedMutations(
-      { worktreePath: "/wt", runBase: "main" },
-      {
-        gitDiff: async () => guardDiff,
-        untrackedFiles: async () => [],
-        readFile: async (path) => {
-          const rel = path.replace("/wt/", "");
-          if (rel === targetFile) return guardContent;
-          if (rel === "v2/src/feature/target.test.ts") return "export {};\n";
-          if (rel.endsWith(".test.ts")) return "export {};\n";
-          throw new Error(`ENOENT: ${path}`);
-        },
-        writeFile: async () => {},
-        listDir: () => [],
-        listImporterCandidates: () => candidates,
-        runScopedTests: async (_cwd, scope) => {
-          scopedRuns += 1;
-          expect(scope).toEqual(["v2/src/feature/target.test.ts"]);
-          return false;
-        },
+    const result = await verifyImporterFixture({
+      readFile: importerFixtureReadFile(false),
+      listImporterCandidates: () => candidates,
+      runScopedTests: async (_cwd, scope) => {
+        scopedRuns += 1;
+        expect(scope).toEqual(["v2/src/feature/target.test.ts"]);
+        return false;
       },
-    );
+    });
     expect(result.kind).toBe("pass");
     expect(scopedRuns).toBe(1);
   });
@@ -2709,29 +2676,17 @@ index 1234567..abcdefg 100644
   it("runs scoped mutation execution on co-located killing tests only and excludes direct importers and unrelated tests", async () => {
     const sibling = "v2/src/feature/target-part.test.ts";
     const scopes: string[][] = [];
-    const result = await verifyDiffDerivedMutations(
-      { worktreePath: "/wt", runBase: "main" },
-      {
-        gitDiff: async () => guardDiff,
-        untrackedFiles: async () => [],
-        readFile: importerFixtureReadFile(true),
-        writeFile: async () => {},
-        listDir: () => ["target-part.test.ts"],
-        listImporterCandidates: () =>
-          [sibling, directImporter, unrelatedImporter, transitiveImporter, crossSurfaceImporter].sort(),
-        runScopedTests: async (_cwd, scope) => {
-          scopes.push([...scope]);
-          return false;
-        },
+    const result = await verifyImporterFixture({
+      listDir: () => ["target-part.test.ts"],
+      listImporterCandidates: () =>
+        [sibling, directImporter, unrelatedImporter, transitiveImporter, crossSurfaceImporter].sort(),
+      runScopedTests: async (_cwd, scope) => {
+        scopes.push(scope);
+        return false;
       },
-    );
+    });
     expect(result.kind).toBe("pass");
-    expect(scopes).toHaveLength(1);
-    expect(scopes[0]).toEqual([sibling]);
-    expect(scopes[0]).not.toContain(directImporter);
-    expect(scopes[0]).not.toContain(unrelatedImporter);
-    expect(scopes[0]).not.toContain(transitiveImporter);
-    expect(scopes[0]).not.toContain(crossSurfaceImporter);
+    expect(scopes).toEqual([[sibling]]);
   });
 });
 

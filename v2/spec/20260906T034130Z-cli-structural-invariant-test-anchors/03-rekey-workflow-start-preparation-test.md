@@ -13,19 +13,19 @@ Rows `cli-wsp-posture-tables`, `cli-wsp-single-owner`, and `cli-wsp-prepare-call
 
 ## Task checklist
 
-- [ ] Re-key audit rows `cli-wsp-posture-tables`, `cli-wsp-single-owner`, and `cli-wsp-prepare-calls` per the decision ledger.
-- [ ] Adopt shared loud-failure locators for owner and adapter source slicing in this file.
-- [ ] Reuse the move-pairing helper pattern from subspec 00 where prepare-call ownership is asserted.
+- [x] Re-key audit rows `cli-wsp-posture-tables`, `cli-wsp-single-owner`, and `cli-wsp-prepare-calls` per the decision ledger.
+- [x] Adopt shared loud-failure locators for owner and adapter source slicing in this file.
+- [x] Reuse the move-pairing helper pattern from subspec 00 where prepare-call ownership is asserted.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/workflow-start-preparation.test.ts` test `realizes every supported workflow and review posture` asserts registry coverage via exported tables and resolver properties without duplicated literal expected arrays; it fails against the pre-fix hardcoded equality pins reachable in that test and passes after re-key.
-- [ ] `v2/src/commands/workflow-start-preparation.test.ts` test `production realizability and posture-to-preset tables live only in the shared owner` pairs forbidden-declaration absence outside the owner with owner presence via loud-failure symbol slicing; it fails against the pre-fix one-way absence scan reachable in that test and passes after re-key.
-- [ ] `v2/src/commands/workflow-start-preparation.test.ts` test `production prepared-step assembly lives only in shared preparation and the pipeline adapter` discovers prepare-call sites from production exports rather than a hand-maintained path allowlist; it fails against the pre-fix `PREPARE_CALL_ALLOWED_PATHS` set reachable in that test and passes after re-key.
-- [ ] `v2/src/commands/workflow-start-preparation.test.ts` — `production prepared-step assembly lives only in shared preparation and the pipeline adapter` stays green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/commands/workflow-start-preparation.test.ts` test `realizes every supported workflow and review posture` asserts registry coverage via exported tables and resolver properties without duplicated literal expected arrays; it fails against the pre-fix hardcoded equality pins reachable in that test and passes after re-key.
+- [x] `v2/src/commands/workflow-start-preparation.test.ts` test `production realizability and posture-to-preset tables live only in the shared owner` pairs forbidden-declaration absence outside the owner with owner presence via loud-failure symbol slicing; it fails against the pre-fix one-way absence scan reachable in that test and passes after re-key.
+- [x] `v2/src/commands/workflow-start-preparation.test.ts` test `production prepared-step assembly lives only in shared preparation and the pipeline adapter` discovers prepare-call sites from production exports rather than a hand-maintained path allowlist; it fails against the pre-fix `PREPARE_CALL_ALLOWED_PATHS` set reachable in that test and passes after re-key.
+- [x] `v2/src/commands/workflow-start-preparation.test.ts` — `production prepared-step assembly lives only in shared preparation and the pipeline adapter` stays green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

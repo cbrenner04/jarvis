@@ -22,7 +22,7 @@
 - [x] `v2/src/execution/workflow-runner-resume.test.ts` proves paused in-repo `implement~link-N` resume reconstruction threads worktree-relative `expectedArtifactPath` without `specReadRoot`; it fails against the pre-fix absence of the helper.
 - [x] `v2/docs/workflow-runner.md` documents write-sibling step-id grammar (`<stepId>`, `<stepId>~link-N`, `<stepId>~shrink`) and the single matcher contract in `shared/write-sibling-step-id.ts`.
 - [x] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `bun run test:v2` passes.
 - [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates

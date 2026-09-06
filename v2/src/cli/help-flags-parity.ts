@@ -7,11 +7,15 @@ import {
   CLEANUP_PARSE_ARG_OPTIONS,
   DAEMON_LOG_PARSE_ARG_OPTIONS,
   INIT_PARSE_ARG_OPTIONS,
+  NOTIFICATIONS_PARSE_ARG_OPTIONS,
   PIPELINE_LIST_PARSE_ARG_OPTIONS,
+  PIPELINE_RECOVER_PARSE_ARG_OPTIONS,
+  PIPELINE_RESUME_PARSE_ARG_OPTIONS,
   PIPELINE_START_PARSE_ARG_OPTIONS,
   parityFlagsFromParseOptions,
   RUN_KILL_PARSE_ARG_OPTIONS,
   RUN_LIST_PARSE_ARG_OPTIONS,
+  RUN_LOG_PARSE_ARG_OPTIONS,
   WRITE_PARSE_ARG_OPTIONS,
 } from "./command-help-flags.ts";
 import { type CommandFlag, type CommandNode, commandTree, resolveHelpPath } from "./command-tree.ts";
@@ -31,6 +35,8 @@ export function parserAcceptedLongFlags(path: readonly string[]): readonly strin
       return parityFlagsFromParseOptions(CLEANUP_PARSE_ARG_OPTIONS);
     case "run list":
       return parseOptionKeysToLongFlags(Object.keys(RUN_LIST_PARSE_ARG_OPTIONS));
+    case "run log":
+      return parityFlagsFromParseOptions(RUN_LOG_PARSE_ARG_OPTIONS);
     case "run kill":
       return parseOptionKeysToLongFlags(Object.keys(RUN_KILL_PARSE_ARG_OPTIONS));
     case "daemon log":
@@ -39,6 +45,14 @@ export function parserAcceptedLongFlags(path: readonly string[]): readonly strin
       return parityFlagsFromParseOptions(PIPELINE_START_PARSE_ARG_OPTIONS);
     case "pipeline list":
       return parseOptionKeysToLongFlags(Object.keys(PIPELINE_LIST_PARSE_ARG_OPTIONS));
+    case "pipeline resume":
+      return parityFlagsFromParseOptions(PIPELINE_RESUME_PARSE_ARG_OPTIONS);
+    case "pipeline recover":
+      return parityFlagsFromParseOptions(PIPELINE_RECOVER_PARSE_ARG_OPTIONS);
+    case "notifications wait":
+      return parityFlagsFromParseOptions(NOTIFICATIONS_PARSE_ARG_OPTIONS);
+    case "notifications list":
+      return parityFlagsFromParseOptions(NOTIFICATIONS_PARSE_ARG_OPTIONS);
     case "run workflow intent":
       return parseOptionKeysToLongFlags(Object.keys(INTENT_WORKFLOW_PARSE_OPTIONS));
     case "run workflow plan":
@@ -78,12 +92,8 @@ export function parityGuardedPaths(): readonly (readonly string[])[] {
   return commandTreeLeafPaths(commandTree).filter((path) => {
     const node = nodeAtPath(path);
     if ((node.flags?.length ?? 0) === 0) return false;
-    try {
-      parserAcceptedLongFlags(path);
-      return true;
-    } catch {
-      return false;
-    }
+    parserAcceptedLongFlags(path);
+    return true;
   });
 }
 

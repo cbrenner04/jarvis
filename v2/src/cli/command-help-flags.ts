@@ -118,6 +118,11 @@ export const RUN_LOG_HELP_FLAGS: readonly CommandFlag[] = [
   { name: "--follow", argumentShape: "", description: "Keep tailing new records after the replay." },
 ];
 
+/** `parseArgs` options for `jarvis run log`. */
+export const RUN_LOG_PARSE_ARG_OPTIONS = {
+  follow: { type: "boolean" },
+} as const satisfies Record<string, { type: "boolean" }>;
+
 /** `parseArgs` options for `runActionCommand` (`kill`) / `jarvis run kill`. */
 export const RUN_KILL_PARSE_ARG_OPTIONS = {
   force: { type: "boolean" },

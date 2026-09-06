@@ -17,6 +17,7 @@ const OWNER_PATH = "v2/src/commands/workflow-start-preparation.ts";
 const PIPELINE_ADAPTER_PATH = "v2/src/daemon/pipeline-workflow-preparation.ts";
 const CLI_ADAPTER_PATH = "v2/src/commands/workflow.ts";
 const PREPARE_CALL_PATTERN = /prepareWorkflowStart(?:<[^>]*>)?\s*\(/;
+const PREPARE_CALL_ALLOWED_PATHS = [CLI_ADAPTER_PATH, OWNER_PATH, PIPELINE_ADAPTER_PATH];
 
 /** Pre-fix hardcoded registry pins; vacuous when registries grow without a matching edit. */
 const HAND_MAINTAINED_BASE_WORKFLOW_NAMES = ["intent", "plan", "implement"];
@@ -125,15 +126,13 @@ describe("workflow-start preparation authority", () => {
       .filter(([, source]) => PREPARE_CALL_PATTERN.test(source))
       .map(([path]) => path)
       .sort();
-    expect(prepareCallPaths).toContain(OWNER_PATH);
-    expect(prepareCallPaths).toContain(PIPELINE_ADAPTER_PATH);
-    expect(prepareCallPaths).toContain(CLI_ADAPTER_PATH);
-    expect(prepareCallPaths).not.toEqual([OWNER_PATH, PIPELINE_ADAPTER_PATH]);
+    expect(prepareCallPaths).toEqual([...PREPARE_CALL_ALLOWED_PATHS].sort());
+    expect(prepareCallPaths).not.toEqual([OWNER_PATH, PIPELINE_ADAPTER_PATH].sort());
 
     expect(
       symbolResolvedMoveGuard(modules, {
         ownerPath: OWNER_PATH,
-        adapterPaths: prepareCallPaths.filter((path) => path !== OWNER_PATH),
+        adapterPaths: [CLI_ADAPTER_PATH, PIPELINE_ADAPTER_PATH],
         callPattern: PREPARE_CALL_PATTERN,
         ownerSymbolStart: "export async function prepareWorkflowStart",
         ownerSymbolEnd: "return prepared;",

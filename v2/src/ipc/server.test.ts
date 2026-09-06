@@ -121,6 +121,23 @@ test("startIpcServer reclaims a socket file with no listener bound", async () =>
   }
 });
 
+// An extended reprobe that is not `live` routes through `removeStaleSocketPath`, which probes once
+// more before unlinking. If a daemon came up in that window the removal is refused rather than
+// unlinking a socket now being served — the pre-bind path must not be skipped for a non-live verdict.
+test("startIpcServer refuses when a peer appears before the stale path is removed", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-reclaim-"));
+  const path = join(dir, "daemon.sock");
+  writeFileSync(path, "");
+  try {
+    await expect(
+      startIpcServer(path, undefined, undefined, probingSequence(unanswered("live"), unanswered("stale"), answered())),
+    ).rejects.toBeInstanceOf(DaemonSocketInUseError);
+    expect(existsSync(path)).toBe(true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // A first probe that times out while the longer reprobe finds a peer that actually answers is a
 // live daemon that was merely slow. It must refuse, never bind over the incumbent — this is the
 // outage case the extended reprobe exists to distinguish, so `!peerConnected` must stay negated.

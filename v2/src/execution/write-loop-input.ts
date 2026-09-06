@@ -13,7 +13,7 @@ export { DEFAULT_WRITE_STEP_RULES };
  * authoring those tests and the diff-derived mutation gate misses uncovered guards at implement `done`.
  */
 const KILLING_TEST_RULE =
-  "When you add or change a comparison operator, boolean guard, or branch condition in production code, add or extend a test that fails when that guard is inverted (for example flipping `===`/`!==`, `<`/`>=`, or dropping a negation). Put it in the file's co-located `<file>.test.ts`, an existing sibling `<file>-*.test.ts` in the same directory, or a direct-importing `*.test.ts` under the same test-surface root (`v1/src/`, `v2/src/`, or `shared/`) — the diff-derived mutation gate resolves killing tests from that co-located ∪ direct-importer union at implement `done`, not only at publication, and not from the wider suite or transitive importers. Do not use production invert hooks.";
+  "When you add or change a comparison operator, boolean guard, or branch condition in production code, add or extend a test that fails when that guard is inverted (for example flipping `===`/`!==`, `<`/`>=`, or dropping a negation). Put it in the file's co-located `<file>.test.ts` or an existing sibling `<file>-*.test.ts` in the same directory first; when no co-located coverage exists, use a direct-importing `*.test.ts` under the same test-surface root (`v1/src/`, `v2/src/`, or `shared/`) — the diff-derived mutation gate resolves killing tests co-located-first (importer discovery only when co-located coverage is absent) at implement `done`, not only at publication, and not from the wider suite or transitive importers. Do not use production invert hooks.";
 
 /**
  * Agents routinely trip biome `lint/complexity/noExcessiveCognitiveComplexity` (max 24) on a new

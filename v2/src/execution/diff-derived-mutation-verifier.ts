@@ -961,7 +961,8 @@ async function deriveCandidates(
 
 /**
  * Killing tests for a changed production file: exact-stem `<file>.test.ts` when present, sibling
- * `<file>-*.test.ts` files, and direct-importing `*.test.ts` files under the surface-prefix scan root.
+ * `<file>-*.test.ts` files, and — only when co-located resolution is empty — direct-importing
+ * `*.test.ts` files under the surface-prefix scan root.
  */
 const EQUIVALENT_MUTATION_DIRECTIVE_PREFIX = " @mutate-equivalent mutation=";
 
@@ -1092,6 +1093,11 @@ async function resolveKillingTests(
       killingTests.push(sibling);
       coLocatedPaths.add(sibling);
     }
+  }
+
+  if (killingTests.length > 0) {
+    killingTests.sort();
+    return { killingTests, capExceeded: false };
   }
 
   const scanRoot = resolveImporterScanRoot(candidateFile);

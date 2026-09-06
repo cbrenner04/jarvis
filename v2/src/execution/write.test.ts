@@ -441,6 +441,7 @@ describe("write behavior", () => {
     expect(capturedPrompt).toContain(repoGuidance);
     expect(capturedPrompt.trimEnd().endsWith(IMPLEMENT_WRITE_STEP_RULES)).toBe(true);
     expect(capturedPrompt).toContain("co-located `<file>.test.ts`");
+    expect(capturedPrompt).toContain("co-located-first");
     expect(capturedPrompt).toContain("direct-importing `*.test.ts`");
     expect(capturedPrompt).toContain("not from the wider suite or transitive importers");
     expect(extractFinalStepRules(capturedPrompt)).toContain(HUMAN_ONLY_STEP_RULES);
@@ -526,6 +527,7 @@ describe("write behavior", () => {
     expect(capturedPrompt.trimEnd().endsWith(expectedStepRules)).toBe(true);
     expect(extractFinalStepRules(capturedPrompt)).toContain(HUMAN_ONLY_STEP_RULES);
     if (promptId === "write.mutation-repair") {
+      expect(capturedPrompt).toContain("co-located-first");
       expect(capturedPrompt).toContain("direct-importing `*.test.ts`");
       expect(capturedPrompt).toContain("not from the wider suite or transitive importers");
     }

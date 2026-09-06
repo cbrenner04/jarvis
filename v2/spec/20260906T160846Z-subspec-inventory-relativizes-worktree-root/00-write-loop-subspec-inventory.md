@@ -50,7 +50,7 @@ execution-loop — `buildSubspecCompletionInventory` and `iteration_timeout` res
 - [x] `v2/docs/v1-behaviors.md` records inventory relativization against the worktree root and `inventoryError` surfacing on terminal `iteration_timeout` and daemon projection.
 - [x] `v2/docs/daemon-host.md` documents `inventoryError` on `list`/`wait` for `iteration_timeout` alongside existing resumability and completion-inventory projection.
 - [x] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `bun run test:v2` passes.
 - [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates

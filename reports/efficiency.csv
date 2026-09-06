@@ -90,3 +90,4 @@ report,specs_driven,completed_specs,partial_or_blocked,session_active_tokens,ope
 20260903T045555Z-daemon-blocker-root-caused-refactor-chains-complete,11,8,3,385700,385700,282100000,157.78,157.78,48213,19.72
 20260903T214000Z-operator-asks-landed-leaked-workers-faked-a-ceiling,9,6,3,215000,215000,150800000,95.45,95.45,35833,15.91
 20260905T220000Z-daemon-socket-outage-and-queue-prune,6,5,1,512400,512400,275700000,166.13,166.13,102480,33.23
+20260906T020000Z-parallelization-and-the-stale-base-tax,8,8,0,277300,277300,227600000,126.82,126.82,34662,15.85

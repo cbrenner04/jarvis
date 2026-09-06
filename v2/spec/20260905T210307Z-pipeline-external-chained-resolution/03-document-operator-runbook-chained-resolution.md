@@ -20,7 +20,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/operator-runbook.md` documents chained intent→plan handoff for external ready-intents on opted-in projects and fan-out lane failure incidents naming `branchKey`, consistent with `00`–`01`.
+- [x] `v2/docs/operator-runbook.md` documents chained intent→plan handoff for external ready-intents on opted-in projects and fan-out lane failure incidents naming `branchKey`, consistent with `00`–`01`.
 
 ## Documentation updates
 

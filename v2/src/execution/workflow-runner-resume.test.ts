@@ -8,6 +8,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -46,6 +47,7 @@ import {
   skipReviewWithoutHarnessMarkdownlint,
   stageReviewedIntent,
   TestLogSink,
+  VALID_TWO_AGENT_CONFIG,
   workflowRunnerResumeProfileDeps,
   writeLintCleanIntentStageFile,
   writeLintCleanPlanStage,
@@ -57,6 +59,7 @@ import {
   type WriteWorkflowStep,
 } from "./workflow-runner.ts";
 import {
+  reconstructPausedWriteResumeInput,
   recoverPlanStage,
   resolveIntentFinalizationResumeContext,
   resolveReviewMutationResumeContext,
@@ -1300,6 +1303,108 @@ describe("executeWorkflow review dispatch", () => {
         expect(prompts[0]).toContain("Mutation: operator-flip: === → !==");
         expect(prompts[0]).not.toContain("patch.prompt.body");
         expect(prompts[1]).toContain("The ready gate failed:");
+      });
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  test("surviving_mutation_failed resume without explicit mutationRepair auto-derives write.mutation-repair before re-verification", async () => {
+    // @mutate v2/src/execution/workflow-runner-resume.ts remove `runAutoDerivedSurvivingMutationRepair` call in `replayMutationFinalization` to turn this RED against finalization-only replay.
+    const workspace = initGitWorkspace("review-mutation-auto-repair-");
+    const logsPath = join(workspace, "resume.jsonl");
+    try {
+      writeFileSync(join(workspace, "spec.md"), "# Spec\n\n## Acceptance criteria\n\n- [x] complete\n", "utf8");
+      execFileSync("git", ["add", "spec.md"], { cwd: workspace });
+      execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
+      const baseRef = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
+      execFileSync("git", ["branch", "-M", "main"], { cwd: workspace });
+      await withStateStore(async (store) => {
+        const baseSnapshot = reviewMutationWorkflowSnapshot("review-mutation-auto-repair", "implement: auto-repair");
+        const implementStep = baseSnapshot.steps[0];
+        if (implementStep === undefined) throw new Error("expected implement step");
+        const snapshot = {
+          ...baseSnapshot,
+          steps: [
+            { ...implementStep, agentModelConfig: VALID_TWO_AGENT_CONFIG },
+            baseSnapshot.steps[1] as (typeof baseSnapshot.steps)[1],
+          ],
+        };
+        const project = "demo";
+        const branch = "review-mutation/auto-repair";
+        const writeRunId = store.createRun({
+          project,
+          specRef: baseRef,
+          worktreePath: workspace,
+          branch,
+          specPath: "spec.md",
+          stepId: "implement~link-1",
+          workflowSnapshot: snapshot,
+        });
+        store.setRunStatus(writeRunId, "completed");
+        const writeAttemptId = store.recordAttemptStart(writeRunId);
+        store.commitCompletionBoundary({
+          attemptId: writeAttemptId,
+          runStatus: "completed",
+          outcomeKind: "done",
+          completionAgent: "codex",
+        });
+
+        const reviewRunId = store.createRun({
+          project,
+          specRef: baseRef,
+          worktreePath: workspace,
+          branch,
+          specPath: "spec.md",
+          stepId: "implement-review",
+          workflowSnapshot: snapshot,
+        });
+        store.setRunStatus(reviewRunId, "failed");
+        const seedSink = openLogSink(logsPath);
+        seedSink.append(reviewRunId, {
+          kind: "loop_finished",
+          loopOutcomeKind: "surviving_mutation_failed",
+          iterationsConsumed: 0,
+          resumable: true,
+          survivingMutation: "operator-flip: === → !==",
+          survivingMutationSourceFile: "src/guard.ts",
+          survivingMutationSourceLine: 17,
+        });
+        seedSink.close();
+
+        const run = store.loadRun(reviewRunId);
+        if (!run) throw new Error("expected review run");
+        const terminalRecord = findTerminalLogRecord(openLogReader(logsPath).tail(reviewRunId));
+
+        const events: string[] = [];
+        let finalizerCalls = 0;
+        const outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, {
+          completionCommitter: createCompletionCommitter(),
+          completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" }),
+          readyFinalizer: async (input) => {
+            finalizerCalls += 1;
+            events.push("finalizer");
+            expect(input.worktreePath).toBe(workspace);
+            expect(input.baseRef).toBe(baseRef);
+            throw new ReadyGateError("bun run ready", 1, "still red");
+          },
+          runFixCommand: async () => {},
+          bypassPersistedReadyGateRepairFenceForTest: true,
+          mutationRepairBindingFactoryForTest: () => ({
+            id: "auto-derived-implement-binding",
+            metadata: { agent: "current-agent", model: "current-model" },
+            invoke: async ({ prompt, cwd }) => {
+              events.push("repair");
+              appendFileSync(join(cwd, "spec.md"), "\n", "utf8");
+              expect(prompt).toContain("Mutation: operator-flip: === → !==");
+              return { kind: "ok", stdout: "done", stderr: "" };
+            },
+          }),
+        });
+
+        expect(outcome.ok).toBe(false);
+        expect(events.indexOf("repair")).toBeLessThan(events.indexOf("finalizer"));
+        expect(finalizerCalls).toBeGreaterThan(0);
       });
     } finally {
       rmSync(workspace, { recursive: true, force: true });
@@ -4212,5 +4317,106 @@ describe("recoverPlanStage review-failed admission", () => {
       });
       expect(nonTerminalReviewOutcome).toMatchObject({ ok: false, code: "unrelated_plan_stage" });
     });
+  });
+});
+
+describe("reconstructPausedWriteResumeInput", () => {
+  test("threads specReadRoot and absolute expectedArtifactPath for a paused external implement~link-N row", async () => {
+    // @mutate v2/src/execution/workflow-runner-resume.ts "snapshotStep.specReadRoot ?? run.worktreePath" -> "run.worktreePath"
+    const specReadRoot = mkdtempSync(join(tmpdir(), "paused-linked-external-spec-"));
+    const indexPath = join(specReadRoot, "index.md");
+    const firstSubspecPath = join(specReadRoot, "00-work.md");
+    writeFileSync(indexPath, "- [ ] [Work](./00-work.md)\n- [ ] [More](./01-more.md)\n", "utf8");
+    writeFileSync(firstSubspecPath, "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n", "utf8");
+    writeFileSync(join(specReadRoot, "01-more.md"), "# More\n\n## Acceptance criteria\n\n- [ ] More\n", "utf8");
+    const resolvedSpecReadRoot = realpathSync(specReadRoot);
+    const resolvedIndexPath = realpathSync(indexPath);
+    const resolvedFirstSubspecPath = realpathSync(firstSubspecPath);
+    const worktreePath = mkdtempSync(join(tmpdir(), "paused-linked-external-worktree-"));
+
+    await withStateStore(async (store) => {
+      const snapshot = {
+        invocationId: "paused-linked-external",
+        steps: [
+          {
+            stepId: "implement",
+            role: "implement",
+            stepRules: "implement rules",
+            expectedArtifactPath: resolvedIndexPath,
+            externalPlanSpec: true as const,
+            specReadRoot: resolvedSpecReadRoot,
+            agents: ["codex"],
+            agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+          },
+        ],
+      };
+      const runId = store.createRun({
+        project: "demo",
+        specRef: "main",
+        worktreePath,
+        branch: "paused-linked/external",
+        specPath: resolvedIndexPath,
+        stepId: "implement~link-0",
+        workflowSnapshot: snapshot,
+      });
+      store.setRunStatus(runId, "paused");
+
+      const run = store.loadRun(runId);
+      if (!run) throw new Error("expected paused linked run");
+      const reconstructed = reconstructPausedWriteResumeInput(run);
+      expect(reconstructed.ok).toBe(true);
+      if (!reconstructed.ok) return;
+      expect(reconstructed.input.resumeReentry).toBe(true);
+      expect(reconstructed.input.specReadRoot).toBe(resolvedSpecReadRoot);
+      expect(reconstructed.input.expectedArtifactPath).toBe(resolvedFirstSubspecPath);
+    });
+
+    rmSync(specReadRoot, { recursive: true, force: true });
+    rmSync(worktreePath, { recursive: true, force: true });
+  });
+
+  test("threads worktree-relative expectedArtifactPath without specReadRoot for a paused in-repo implement~link-N row", async () => {
+    // @mutate v2/src/execution/workflow-runner-resume.ts "!matchesLinkedSiblingStepId(stepId, authoredStepId)" -> "matchesLinkedSiblingStepId(stepId, authoredStepId)"
+    const worktreePath = mkdtempSync(join(tmpdir(), "paused-linked-in-repo-"));
+    writeFileSync(join(worktreePath, "index.md"), "- [ ] [One](./one.md)\n- [ ] [Two](./two.md)\n", "utf8");
+    writeFileSync(join(worktreePath, "one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] One\n", "utf8");
+    writeFileSync(join(worktreePath, "two.md"), "# Two\n\n## Acceptance criteria\n\n- [ ] Two\n", "utf8");
+
+    await withStateStore(async (store) => {
+      const snapshot = {
+        invocationId: "paused-linked-in-repo",
+        steps: [
+          {
+            stepId: "implement",
+            role: "implement",
+            stepRules: "implement rules",
+            expectedArtifactPath: "index.md",
+            agents: ["codex"],
+            agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+          },
+        ],
+      };
+      const runId = store.createRun({
+        project: "demo",
+        specRef: "main",
+        worktreePath,
+        branch: "paused-linked/in-repo",
+        specPath: "index.md",
+        stepId: "implement~link-1",
+        workflowSnapshot: snapshot,
+      });
+      store.setRunStatus(runId, "paused");
+
+      const run = store.loadRun(runId);
+      if (!run) throw new Error("expected paused linked run");
+      const reconstructed = reconstructPausedWriteResumeInput(run);
+      expect(reconstructed.ok).toBe(true);
+      if (!reconstructed.ok) return;
+      expect(reconstructed.input.resumeReentry).toBe(true);
+      expect(reconstructed.input.specReadRoot).toBeUndefined();
+      expect(reconstructed.input.expectedArtifactPath).toBe("two.md");
+    });
+
+    rmSync(worktreePath, { recursive: true, force: true });
   });
 });

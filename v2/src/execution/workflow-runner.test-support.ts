@@ -8,8 +8,8 @@ import type {
   InvocationResult,
 } from "../../../shared/invocation/execute.ts";
 import { resolveHarnessRoot } from "../../../shared/markdownlint-repair.ts";
-import { StructuralTestLocatorError } from "../../../shared/structural-test-locator.ts";
 import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
+import { StructuralTestLocatorError } from "../../../shared/structural-test-locator.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopBindingSourceDeps } from "../daemon/daemon.ts";
 import type { LogEvent, LogSink, PersistedRecord } from "../persistence/log-stream.ts";

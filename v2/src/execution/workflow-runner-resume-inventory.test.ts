@@ -25,7 +25,7 @@ type ResumePathInventoryAnchor = {
   expectEmpty?: boolean;
 };
 
-const RESUME_PATH_INVENTORY_ANCHORS: ResumePathInventoryAnchor[] = [
+const _RESUME_PATH_INVENTORY_ANCHORS: ResumePathInventoryAnchor[] = [
   { label: "workflow-runner-resume.test.ts", repoPath: "v2/src/execution/workflow-runner-resume.test.ts" },
   {
     label: "workflow-runner-plan.test.ts:recoverPlanStage",
@@ -64,7 +64,10 @@ function parseResumePathInventoryAnchorBlock(block: string): ResumePathInventory
 
 function parseResumePathInventoryAnchors(inventorySource: string): ResumePathInventoryAnchor[] {
   const match = inventorySource.match(
-    /(?:export\s+)?const\s+(?:RESUME_PATH_INVENTORY_ANCHORS|SOURCE_BUCKETS)\s*(?::[^=]+)?=\s*\[([\s\S]*?)\];/,
+    // The leading `_` is optional: this constant is only ever read by parsing this file's own
+    // source, so lint sees it as unused and the underscore-prefixed spelling is the honest name.
+    // Merge-base revisions predating that rename still spell it without the prefix.
+    /(?:export\s+)?const\s+_?(?:RESUME_PATH_INVENTORY_ANCHORS|SOURCE_BUCKETS)\s*(?::[^=]+)?=\s*\[([\s\S]*?)\];/,
   );
   if (match?.[1] === undefined) {
     throw new Error("resume path inventory anchors not found in inventory test source");

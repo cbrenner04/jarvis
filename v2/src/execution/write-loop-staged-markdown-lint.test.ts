@@ -8,8 +8,8 @@ import type { LogEvent, LogSink } from "../persistence/log-stream.ts";
 import { openStateStore } from "../persistence/state-store.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import type { ExternalWorktree, withExternalWorktree } from "./external-worktree.ts";
+import { REVIEW_MD_LINT_FIXTURE_IDS, readReviewMdLintFixture } from "./workflow-runner.test-support.ts";
 import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
-import { readReviewMdLintFixture, REVIEW_MD_LINT_FIXTURE_IDS } from "./workflow-runner.test-support.ts";
 
 const { roots } = trackedTempRoots();
 const HARNESS_ROOT = resolveHarnessRoot(join(import.meta.dir, "..", "..", ".."));

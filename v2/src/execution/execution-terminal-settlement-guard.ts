@@ -212,6 +212,28 @@ export function listProductionExecutionSources(
   return sources;
 }
 
+/**
+ * Classify one `setRunStatus(...)` call site by its literal status argument.
+ *
+ * A non-literal status, a terminal status, and an unrecognized status are all violations — only a
+ * known non-terminal status is permitted at this seam.
+ */
+function classifySetRunStatusCall(
+  call: string,
+): { kind: "violation"; detail: string } | { kind: "nonterminal"; status: RunStatus } {
+  const status = literalSetRunStatus(call);
+  if (status === undefined) {
+    return { kind: "violation", detail: "non-literal status" };
+  }
+  if (TERMINAL_RUN_STATUSES.has(status)) {
+    return { kind: "violation", detail: status };
+  }
+  if (!NONTERMINAL_RUN_STATUSES.has(status)) {
+    return { kind: "violation", detail: `unexpected status ${status}` };
+  }
+  return { kind: "nonterminal", status };
+}
+
 export function scanExecutionTerminalSettlement(sources: Readonly<Record<string, string>>): {
   violations: TerminalSettlementViolation[];
   terminalWrites: Array<PermittedTerminalWrite & { line: number }>;
@@ -238,32 +260,12 @@ export function scanExecutionTerminalSettlement(sources: Readonly<Record<string,
       }
 
       if (kind === "setRunStatus") {
-        const status = literalSetRunStatus(call);
-        if (status === undefined) {
-          violations.push({
-            file,
-            line,
-            functionName,
-            kind: "terminalSetRunStatus",
-            detail: "non-literal status",
-          });
+        const classified = classifySetRunStatusCall(call);
+        if (classified.kind === "violation") {
+          violations.push({ file, line, functionName, kind: "terminalSetRunStatus", detail: classified.detail });
           continue;
         }
-        if (TERMINAL_RUN_STATUSES.has(status)) {
-          violations.push({ file, line, functionName, kind: "terminalSetRunStatus", detail: status });
-          continue;
-        }
-        if (!NONTERMINAL_RUN_STATUSES.has(status)) {
-          violations.push({
-            file,
-            line,
-            functionName,
-            kind: "terminalSetRunStatus",
-            detail: `unexpected status ${status}`,
-          });
-          continue;
-        }
-        nonterminalSetRunStatus.push({ file, line, functionName, status });
+        nonterminalSetRunStatus.push({ file, line, functionName, status: classified.status });
         continue;
       }
 

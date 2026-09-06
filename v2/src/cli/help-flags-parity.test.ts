@@ -8,14 +8,69 @@ import {
   WRITE_HELP_FLAGS,
   WRITE_PARSE_ARG_OPTIONS,
 } from "./command-help-flags.ts";
-import { helpFlagsParityGaps, missingParserFlagsInHelp, parserAcceptedLongFlags } from "./help-flags-parity.ts";
+import { type CommandNode, commandTree, resolveHelpPath } from "./command-tree.ts";
+import {
+  helpFlagsParityGaps,
+  missingParserFlagsInHelp,
+  parserAcceptedLongFlags,
+  parityGuardedPaths,
+} from "./help-flags-parity.ts";
+
+/** Pre-fix hand-maintained list; vacuous when commandTree gains guarded leaves without a matching edit. */
+const HAND_MAINTAINED_PARITY_PATHS = [
+  ["init"],
+  ["run", "start"],
+  ["cleanup"],
+  ["run", "list"],
+  ["run", "kill"],
+  ["daemon", "log"],
+  ["pipeline", "start"],
+  ["pipeline", "list"],
+  ["run", "workflow", "intent"],
+  ["run", "workflow", "plan"],
+  ["run", "workflow", "implement"],
+] as const;
 
 function writeParserLongFlags(): string[] {
   return Object.keys(WRITE_PARSE_ARG_OPTIONS).map((key) => `--${key}`);
 }
 
+function commandTreeLeafPaths(node: CommandNode, prefix: readonly string[] = []): readonly (readonly string[])[] {
+  const children = node.subcommands ?? [];
+  if (children.length === 0) {
+    return prefix.length > 0 ? [prefix] : [];
+  }
+  return children.flatMap((child) => commandTreeLeafPaths(child, [...prefix, child.name]));
+}
+
+function parityGuardedPathsFromCommandTree(root: CommandNode): readonly (readonly string[])[] {
+  return commandTreeLeafPaths(root).filter((path) => {
+    const chain = resolveHelpPath(root, path);
+    if (chain === undefined) {
+      throw new Error(`help-flags-parity test: unknown help path ${path.join(" ")}`);
+    }
+    const node = chain[chain.length - 1];
+    if ((node?.flags?.length ?? 0) === 0) {
+      return false;
+    }
+    try {
+      parserAcceptedLongFlags(path);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+function pathKeys(paths: readonly (readonly string[])[]): string[] {
+  return paths.map((path) => path.join(" "));
+}
+
 describe("help flag parser parity", () => {
   test("every guarded path lists all parser-accepted flags", () => {
+    const discovered = parityGuardedPaths();
+    expect(discovered).toEqual(parityGuardedPathsFromCommandTree(commandTree));
+    expect(pathKeys(discovered)).not.toEqual(pathKeys(HAND_MAINTAINED_PARITY_PATHS.slice(0, -1)));
     expect(helpFlagsParityGaps()).toEqual([]);
   });
 

@@ -16,20 +16,6 @@ import {
 } from "./command-help-flags.ts";
 import { type CommandFlag, type CommandNode, commandTree, resolveHelpPath } from "./command-tree.ts";
 
-const PARITY_PATHS = [
-  ["init"],
-  ["run", "start"],
-  ["cleanup"],
-  ["run", "list"],
-  ["run", "kill"],
-  ["daemon", "log"],
-  ["pipeline", "start"],
-  ["pipeline", "list"],
-  ["run", "workflow", "intent"],
-  ["run", "workflow", "plan"],
-  ["run", "workflow", "implement"],
-] as const;
-
 function parseOptionKeysToLongFlags(keys: readonly string[]): readonly string[] {
   return keys.map((key) => `--${key}`);
 }
@@ -80,9 +66,33 @@ function nodeAtPath(path: readonly string[]): CommandNode {
   return chain[chain.length - 1] ?? commandTree;
 }
 
+function commandTreeLeafPaths(node: CommandNode, prefix: readonly string[] = []): readonly (readonly string[])[] {
+  const children = node.subcommands ?? [];
+  if (children.length === 0) {
+    return prefix.length > 0 ? [prefix] : [];
+  }
+  return children.flatMap((child) => commandTreeLeafPaths(child, [...prefix, child.name]));
+}
+
+function hasParserSurface(path: readonly string[]): boolean {
+  try {
+    parserAcceptedLongFlags(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function parityGuardedPaths(): readonly (readonly string[])[] {
+  return commandTreeLeafPaths(commandTree).filter((path) => {
+    const node = nodeAtPath(path);
+    return (node.flags?.length ?? 0) > 0 && hasParserSurface(path);
+  });
+}
+
 export function helpFlagsParityGaps(): Array<{ path: string; missing: string[] }> {
   const gaps: Array<{ path: string; missing: string[] }> = [];
-  for (const path of PARITY_PATHS) {
+  for (const path of parityGuardedPaths()) {
     const node = nodeAtPath(path);
     const missing = missingParserFlagsInHelp(parserAcceptedLongFlags(path), node.flags ?? []);
     if (missing.length > 0) {

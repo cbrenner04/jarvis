@@ -11,15 +11,15 @@ Row `cli-hfp-guarded-paths` in `v2/docs/structural-invariant-test-audit.md` keys
 
 ## Task checklist
 
-- [ ] Re-key audit row `cli-hfp-guarded-paths` per the decision ledger.
-- [ ] Replace `PARITY_PATHS` with tree-derived discovery in `v2/src/cli/help-flags-parity.ts` and keep behavioral delta cases in `help-flags-parity.test.ts` on the exported gap helper.
+- [x] Re-key audit row `cli-hfp-guarded-paths` per the decision ledger.
+- [x] Replace `PARITY_PATHS` with tree-derived discovery in `v2/src/cli/help-flags-parity.ts` and keep behavioral delta cases in `help-flags-parity.test.ts` on the exported gap helper.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/cli/help-flags-parity.test.ts` test `every guarded path lists all parser-accepted flags` derives its guarded path set from `commandTree` discovery rather than a hand-maintained `PARITY_PATHS` list; it fails against the pre-fix `PARITY_PATHS` constant reachable in `help-flags-parity.ts` and passes after re-key.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/cli/help-flags-parity.test.ts` test `every guarded path lists all parser-accepted flags` derives its guarded path set from `commandTree` discovery rather than a hand-maintained `PARITY_PATHS` list; it fails against the pre-fix `PARITY_PATHS` constant reachable in `help-flags-parity.ts` and passes after re-key.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

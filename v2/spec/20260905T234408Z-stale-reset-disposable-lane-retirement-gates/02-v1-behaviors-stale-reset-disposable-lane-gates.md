@@ -15,7 +15,7 @@ The incomplete implement/plan/intent re-run stale-reset bullet in `v2/docs/v1-be
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/v1-behaviors.md` — the incomplete implement/plan/intent re-run stale-reset bullet records the path-scoped unlanded-commits refusal, `disposableLane` bypass scope, draft-PR unchanged behavior, and that default standalone re-run and bulk cleanup paths stay unchanged.
+- [x] `v2/docs/v1-behaviors.md` — the incomplete implement/plan/intent re-run stale-reset bullet records the path-scoped unlanded-commits refusal, `disposableLane` bypass scope, draft-PR unchanged behavior, and that default standalone re-run and bulk cleanup paths stay unchanged.
 
 ## Documentation updates
 

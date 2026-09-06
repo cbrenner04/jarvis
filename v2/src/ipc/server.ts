@@ -407,6 +407,7 @@ function createIpcServerClose(
       // removed by node before this runs. Guarding here would be inert; the durable
       // protection is the start-side liveness check, which stops the replacement from
       // happening at all.
+      // @mutate-equivalent mutation="skip-destructive: rmSync(" reason="node unlinks the socket path inside server.close() before this finally runs, so removing this defensive cleanup has no observable effect on any reachable path; a killing test would have to assert node's own unlink did not happen"
       rmSync(socketPath, { force: true });
     }
   };

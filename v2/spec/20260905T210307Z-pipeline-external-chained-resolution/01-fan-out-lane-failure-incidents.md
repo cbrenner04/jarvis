@@ -31,7 +31,7 @@ Daemon: `collectPipelineIncidents` and `previewPipelineIncidentKeys` in `v2/src/
 - [x] `operator-notification.test.ts` test `suppresses entry-run terminal incident when failed fan-out lane emits stage incident on live pipeline` asserts the failed lane's entry-run terminal incident is absent when the stage-scoped incident emits on a non-terminal pipeline; it fails against the current run-level-only derivation.
 - [x] `operator-notification.test.ts` — `a single failed stage produces one incident across stage, entry-run, and step-run rows` stays green.
 - [x] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `bun run test:v2` passes.
 - [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
@@ -1565,6 +1565,43 @@ function failedPlanRedraftRequiresStaleReset(
   return stage.workflow === "plan" && resetFlags !== undefined;
 }
 
+type FailedPlanWorktreeDisposition = "retired-and-rematerialized from base" | "reused existing worktree";
+
+type StaleResetWorkspaceOutcome = "reset" | "no-op";
+
+function failedPlanWorktreeDisposition(outcome: StaleResetWorkspaceOutcome): FailedPlanWorktreeDisposition {
+  return outcome === "reset" ? "retired-and-rematerialized from base" : "reused existing worktree";
+}
+
+function emitFailedPlanResumeWorktreeDisposition(
+  injection: PipelineExecutionDeps["staleResetPreflight"],
+  disposition: FailedPlanWorktreeDisposition,
+): void {
+  injection?.io.stderr(`failed plan resume worktree disposition: ${disposition}\n`);
+}
+
+async function runPlanStageStaleResetPreflight(
+  steps: readonly AnyWorkflowStep[],
+  deps: CliDeps,
+  io: Io,
+  flags: WorkflowStartResetFlags,
+  client: IpcClient,
+  outcome: { status?: StaleResetWorkspaceOutcome },
+): Promise<number | undefined> {
+  return maybeResetStaleWorkspace(
+    "plan",
+    { ok: true, steps: [...steps] },
+    deps,
+    io,
+    flags,
+    client,
+    undefined,
+    (status) => {
+      outcome.status = status;
+    },
+  );
+}
+
 export async function resolveFailedPlanDirtyGate(
   steps: readonly AnyWorkflowStep[],
   baseFlags: WorkflowStartResetFlags,
@@ -1591,11 +1628,19 @@ export async function resolveFailedPlanDirtyGate(
   return { ok: true, flags: { ...baseFlags, skipDirtyWorktreeGate: true } };
 }
 
+function stagedPlanIntentPath(steps: readonly AnyWorkflowStep[]): string | undefined {
+  const worktreePath = writeStepWorktreePath(steps);
+  if (worktreePath === undefined) return undefined;
+  return resolve(worktreePath, PLAN_HARNESS_DRAFT_DIR, "intent.md");
+}
+
+function appendStagedPlanIntentPath(message: string, intentPath: string): string {
+  return `${message}: ${intentPath}`;
+}
+
 function stagedPlanOperatorBlocker(steps: readonly AnyWorkflowStep[]): string | undefined {
-  const writeStep = steps.find((step) => step.behavior === "write");
-  if (writeStep?.behavior !== "write" || writeStep.worktree?.git === false) return undefined;
-  const intentPath = join(getExternalWorktreePath(writeStep.worktree), ".jarvis-plan-stage", "intent.md");
-  if (!existsSync(intentPath)) return undefined;
+  const intentPath = stagedPlanIntentPath(steps);
+  if (intentPath === undefined || !existsSync(intentPath)) return undefined;
   const lines = readFileSync(intentPath, "utf8").replace(/\r\n/g, "\n").split("\n");
   const reservedMarker = "Artifact contract check failed:";
   for (let index = 0; index < lines.length; index += 1) {
@@ -1614,7 +1659,10 @@ function stagedPlanOperatorBlocker(steps: readonly AnyWorkflowStep[]): string | 
         .trim()
         .startsWith(reservedMarker)
     ) {
-      return "operator blocker: staged plan carries an operator-authored ## Blocker";
+      return appendStagedPlanIntentPath(
+        "operator blocker: staged plan carries an operator-authored ## Blocker",
+        intentPath,
+      );
     }
     index = end - 1;
   }
@@ -2008,7 +2056,7 @@ async function runFanOutBranchAction(
   }
   const staleReset =
     args.staleResetPreflight === undefined
-      ? ({ ok: true } as const)
+      ? { ok: true as const, disposition: undefined }
       : await runFailedPlanAwareStaleResetPreflight(
           args,
           steps,
@@ -2019,6 +2067,9 @@ async function runFanOutBranchAction(
   if (!staleReset.ok) {
     failWorkflowStageAt(store, pipelineId, stage.stageId, targetBranchKey, stageRecords, index + 1, staleReset.message);
     return "acted";
+  }
+  if (staleReset.disposition !== undefined) {
+    emitFailedPlanResumeWorktreeDisposition(args.staleResetPreflight, staleReset.disposition);
   }
   await dispatchPipelineStage({
     ...stageTarget,
@@ -2122,17 +2173,18 @@ async function runFailedPlanAwareStaleResetPreflight(
   branchKey: string,
   basePreflight: StaleResetPreflight,
   preflightCapture: { message: string },
-): Promise<{ ok: true } | { ok: false; message: string }> {
+): Promise<{ ok: true; disposition?: FailedPlanWorktreeDisposition } | { ok: false; message: string }> {
   const injection = args.staleResetPreflight;
   if (injection === undefined) return { ok: true };
   const resetFlags = reopenedStageResetFlags(args, branchKey);
   if (args.stage.workflow !== "plan" || resetFlags === undefined) {
-    return runSharedStaleResetPreflight(
+    const result = await runSharedStaleResetPreflight(
       basePreflight,
       injection,
       preflightCapture,
       failedPlanRedraftRequiresStaleReset(args.stage, resetFlags),
     );
+    return result.ok ? { ok: true } : result;
   }
   const runner = injection.cliDeps.subprocessRunner ?? realAsyncSubprocessRunner;
   const dirtyGate = await resolveFailedPlanDirtyGate(steps, resetFlags, runner);
@@ -2140,25 +2192,26 @@ async function runFailedPlanAwareStaleResetPreflight(
     injection.io.stderr(`${dirtyGate.message}\n`);
     return dirtyGate;
   }
-  const staleResetRunner =
-    dirtyGate.flags.skipDirtyWorktreeGate === resetFlags.skipDirtyWorktreeGate &&
-    dirtyGate.flags.skipLandedCriteriaGate === resetFlags.skipLandedCriteriaGate
-      ? basePreflight
-      : async (client: IpcClient) =>
-          maybeResetStaleWorkspace(
-            "plan",
-            { ok: true, steps: [...steps] },
-            injection.cliDeps,
-            injection.io,
-            dirtyGate.flags,
-            client,
-          );
-  return runSharedStaleResetPreflight(
+  const outcomeCapture: { status?: StaleResetWorkspaceOutcome } = {};
+  const preflightIo: Io = {
+    stdout: injection.io.stdout,
+    stderr: (text: string) => {
+      preflightCapture.message += text;
+      injection.io.stderr(text);
+    },
+  };
+  const staleResetRunner = async (client: IpcClient) =>
+    runPlanStageStaleResetPreflight(steps, injection.cliDeps, preflightIo, dirtyGate.flags, client, outcomeCapture);
+  const result = await runSharedStaleResetPreflight(
     staleResetRunner,
     injection,
     preflightCapture,
     failedPlanRedraftRequiresStaleReset(args.stage, resetFlags),
   );
+  if (!result.ok) return result;
+  const disposition =
+    outcomeCapture.status === undefined ? undefined : failedPlanWorktreeDisposition(outcomeCapture.status);
+  return disposition === undefined ? { ok: true } : { ok: true, disposition };
 }
 
 /**
@@ -2257,7 +2310,7 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
     }
     const staleReset =
       args.staleResetPreflight === undefined
-        ? ({ ok: true } as const)
+        ? { ok: true as const, disposition: undefined }
         : await runFailedPlanAwareStaleResetPreflight(
             args,
             resolvedSteps,
@@ -2275,6 +2328,9 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
         index + 1,
         staleReset.message,
       );
+    }
+    if (staleReset.disposition !== undefined) {
+      emitFailedPlanResumeWorktreeDisposition(args.staleResetPreflight, staleReset.disposition);
     }
 
     await dispatchPipelineStage({

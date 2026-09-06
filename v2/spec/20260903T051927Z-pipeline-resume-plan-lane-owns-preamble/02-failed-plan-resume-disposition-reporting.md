@@ -28,13 +28,13 @@ Successful failed-plan resume is silent about whether shared stale reset retired
 
 ## Acceptance criteria
 
-- [ ] `pipeline-execution.test.ts` proves successful failed-plan resume reports retired-and-rematerialized versus reused worktree disposition on stdout or stderr; it fails against a success path that omits disposition (reachable on main: `whole-pipeline failed plan resume retires dirty draft and rematerializes from base before writer dispatch` succeeds with no disposition text today).
-- [ ] `v2/docs/operator-runbook.md` § Pipeline resume deletes the manual preamble (clean branch, merge main, remove staged blockers before resume) and states that resume owns preamble work and which cases retire the lane versus reuse it.
-- [ ] `v2/docs/pipeline-execution.md` documents worktree disposition reporting on successful failed-plan resume.
-- [ ] `v2/docs/v1-behaviors.md` records plan-lane resume preamble ownership and disposition reporting.
-- [ ] `bun run typecheck` passes.
+- [x] `pipeline-execution.test.ts` proves successful failed-plan resume reports retired-and-rematerialized versus reused worktree disposition on stdout or stderr; it fails against a success path that omits disposition (reachable on main: `whole-pipeline failed plan resume retires dirty draft and rematerializes from base before writer dispatch` succeeds with no disposition text today).
+- [x] `v2/docs/operator-runbook.md` § Pipeline resume deletes the manual preamble (clean branch, merge main, remove staged blockers before resume) and states that resume owns preamble work and which cases retire the lane versus reuse it.
+- [x] `v2/docs/pipeline-execution.md` documents worktree disposition reporting on successful failed-plan resume.
+- [x] `v2/docs/v1-behaviors.md` records plan-lane resume preamble ownership and disposition reporting.
+- [x] `bun run typecheck` passes.
 - [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

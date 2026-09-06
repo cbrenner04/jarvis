@@ -6157,6 +6157,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
 
     const rpc = daemonRpcClient();
     const dispatchOrder: string[] = [];
+    const stderrLines: string[] = [];
     const dispatch: PipelineWorkflowDispatch = async () => {
       expect(existsSync(planWorktree)).toBe(false);
       dispatchOrder.push("reset");
@@ -6179,14 +6180,70 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
         dispatch,
         wait: async () => "completed",
         resolveStage: resolveStageWithFixedPlanSteps,
-        staleResetPreflight: staleResetBundle(rpc),
+        staleResetPreflight: staleResetBundle(rpc, {
+          stdout: () => {},
+          stderr: (text) => {
+            stderrLines.push(text);
+          },
+        }),
       });
 
       expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
       expect(dispatchOrder).toEqual(["reset", "dispatch"]);
+      expect(stderrLines.join("")).toContain("retired-and-rematerialized from base");
       const record = stageRecord(stages(), "plan");
       expect(record?.status).toBe("succeeded");
       expect(existsSync(planWorktree)).toBe(true);
+    } finally {
+      rpc.close();
+    }
+  });
+
+  test("whole-pipeline failed plan resume reports reused existing worktree when stale reset is no-op", async () => {
+    const intentWorktree = await materializeWorktree(intentBranch);
+    await seedIntentReadyIntent(intentWorktree);
+    const planWorktree = join(jarvisRoot, "worktrees", "demo", planBranch);
+
+    const { store, stages } = fakeStore(
+      planChainDefinition(),
+      {
+        "run-intent": { specPath: readyIntentRel, worktreePath: intentWorktree, branch: intentBranch },
+        "run-plan": { specPath: "spec/plan" },
+      },
+      { context: { ...persistedContext, cwd: projectRoot }, ownerIdentity: PRIOR_OWNER },
+    );
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      patch: { status: "succeeded", artifact: intentArtifact() },
+    });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "plan", patch: { status: "failed" } });
+
+    const rpc = daemonRpcClient();
+    const stderrLines: string[] = [];
+    let dispatchCalled = false;
+    try {
+      const outcome = await resumePipeline(PIPELINE_ID, {
+        store,
+        dispatch: async () => {
+          dispatchCalled = true;
+          await materializeWorktree(planBranch, intentBranch);
+          return { ok: true, entryRunId: "run-plan", invocationId: "inv-plan" };
+        },
+        wait: async () => "completed",
+        resolveStage: resolveStageWithFixedPlanSteps,
+        staleResetPreflight: staleResetBundle(rpc, {
+          stdout: () => {},
+          stderr: (text) => {
+            stderrLines.push(text);
+          },
+        }),
+      });
+
+      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(dispatchCalled).toBe(true);
+      expect(stderrLines.join("")).toContain("reused existing worktree");
+      expect(stageRecord(stages(), "plan")?.status).toBe("succeeded");
     } finally {
       rpc.close();
     }
@@ -6409,6 +6466,116 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
       expect(dispatchLog).toEqual(["alpha"]);
       expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("succeeded");
       expect(stageRecord(stages(), "gate", "beta")?.status).toBe("awaiting");
+    } finally {
+      rpc.close();
+    }
+  });
+
+  // @mutate v2/src/daemon/pipeline-execution.ts "appendStagedPlanIntentPath" -> "omitStagedPlanIntentPath"
+  test("failed plan resume operator blocker refusal includes staged intent.md absolute path", async () => {
+    const intentWorktree = await materializeWorktree(intentBranch);
+    await seedIntentReadyIntent(intentWorktree);
+    const planWorktree = await materializeWorktree(planBranch, intentBranch);
+    const stagedIntentPath = join(planWorktree, ".jarvis-plan-stage", "intent.md");
+    mkdirSync(join(planWorktree, ".jarvis-plan-stage"), { recursive: true });
+    writeFileSync(stagedIntentPath, "# Intent\n\n## Blocker\n\noperator decision required\n", "utf8");
+
+    const { store, stages } = fakeStore(
+      planChainDefinition(),
+      {
+        "run-intent": { specPath: readyIntentRel, worktreePath: intentWorktree, branch: intentBranch },
+        "run-plan": { specPath: "spec/plan" },
+      },
+      { context: { ...persistedContext, cwd: projectRoot }, ownerIdentity: PRIOR_OWNER },
+    );
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      patch: { status: "succeeded", artifact: intentArtifact() },
+    });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "plan", patch: { status: "failed" } });
+
+    let stderr = "";
+    let dispatchCalled = false;
+    const rpc = daemonRpcClient();
+    try {
+      const outcome = await resumePipeline(PIPELINE_ID, {
+        store,
+        dispatch: async () => {
+          dispatchCalled = true;
+          return { ok: true, entryRunId: "run-plan", invocationId: "inv-plan" };
+        },
+        wait: async () => "completed",
+        resolveStage: resolveStageWithFixedPlanSteps,
+        staleResetPreflight: staleResetBundle(rpc, {
+          stdout: () => {},
+          stderr: (text) => {
+            stderr += text;
+          },
+        }),
+      });
+
+      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(dispatchCalled).toBe(false);
+      const detail = (stageRecord(stages(), "plan")?.failureDetail as { message?: string } | null)?.message ?? "";
+      expect(stderr).toContain("operator blocker");
+      expect(stderr).toContain(stagedIntentPath);
+      expect(detail).toContain("operator blocker");
+      expect(detail).toContain(stagedIntentPath);
+    } finally {
+      rpc.close();
+    }
+  });
+
+  // @mutate v2/src/daemon/pipeline-execution.ts "appendStagedPlanIntentPath" -> "omitStagedPlanIntentPath"
+  test("failed plan resume mixed blockers refusal includes staged intent.md absolute path", async () => {
+    const intentWorktree = await materializeWorktree(intentBranch);
+    await seedIntentReadyIntent(intentWorktree);
+    const planWorktree = await materializeWorktree(planBranch, intentBranch);
+    const stagedIntentPath = join(planWorktree, ".jarvis-plan-stage", "intent.md");
+    mkdirSync(join(planWorktree, ".jarvis-plan-stage"), { recursive: true });
+    writeFileSync(
+      stagedIntentPath,
+      "# Intent\n\n## Blocker\n\nArtifact contract check failed: plan.draft.shape\n\n## Blocker\n\noperator decision required\n",
+      "utf8",
+    );
+
+    const { store, stages } = fakeStore(
+      planChainDefinition(),
+      {
+        "run-intent": { specPath: readyIntentRel, worktreePath: intentWorktree, branch: intentBranch },
+        "run-plan": { specPath: "spec/plan" },
+      },
+      { context: { ...persistedContext, cwd: projectRoot }, ownerIdentity: PRIOR_OWNER },
+    );
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      patch: { status: "succeeded", artifact: intentArtifact() },
+    });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "plan", patch: { status: "failed" } });
+
+    let stderr = "";
+    const rpc = daemonRpcClient();
+    try {
+      const outcome = await resumePipeline(PIPELINE_ID, {
+        store,
+        dispatch: async () => ({ ok: true, entryRunId: "run-plan", invocationId: "inv-plan" }),
+        wait: async () => "completed",
+        resolveStage: resolveStageWithFixedPlanSteps,
+        staleResetPreflight: staleResetBundle(rpc, {
+          stdout: () => {},
+          stderr: (text) => {
+            stderr += text;
+          },
+        }),
+      });
+
+      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      const detail = (stageRecord(stages(), "plan")?.failureDetail as { message?: string } | null)?.message ?? "";
+      expect(stderr).toContain("operator blocker");
+      expect(stderr).toContain(stagedIntentPath);
+      expect(detail).toContain(stagedIntentPath);
     } finally {
       rpc.close();
     }

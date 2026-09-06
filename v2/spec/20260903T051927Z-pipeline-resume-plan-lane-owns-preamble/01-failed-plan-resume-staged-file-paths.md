@@ -27,12 +27,12 @@ Failed-plan resume refusals that mention staged plan content omit the resolved a
 
 ## Acceptance criteria
 
-- [ ] `pipeline-execution.test.ts` proves an operator-authored `## Blocker` still refuses and the refusal message contains the resolved absolute path of the staged `intent.md`; it fails against a message that omits the path (reachable on main: `refuseReopenedPlanOperatorBlocker` emits `operator blocker: staged plan carries an operator-authored ## Blocker` with no path).
-- [ ] `pipeline-execution.test.ts` proves every other failed-plan resume refusal that names the staged plan file constructible on main prints the resolved absolute path of that staged file; it fails against a message that omits the path (reachable on main: same `refuseReopenedPlanOperatorBlocker` site; add at least one additional constructible refusal in the same test file).
-- [ ] `v2/docs/pipeline-execution.md` documents absolute staged-file paths in failed-plan resume refusals and blockers.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `pipeline-execution.test.ts` proves an operator-authored `## Blocker` still refuses and the refusal message contains the resolved absolute path of the staged `intent.md`; it fails against a message that omits the path (reachable on main: `refuseReopenedPlanOperatorBlocker` emits `operator blocker: staged plan carries an operator-authored ## Blocker` with no path).
+- [x] `pipeline-execution.test.ts` proves every other failed-plan resume refusal that names the staged plan file constructible on main prints the resolved absolute path of that staged file; it fails against a message that omits the path (reachable on main: same `refuseReopenedPlanOperatorBlocker` site; add at least one additional constructible refusal in the same test file).
+- [x] `v2/docs/pipeline-execution.md` documents absolute staged-file paths in failed-plan resume refusals and blockers.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

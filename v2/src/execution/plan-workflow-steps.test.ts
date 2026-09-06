@@ -117,7 +117,7 @@ describe("plan preset draft write step", () => {
     const { bindingInvoked, capturedPrompt, resultKind } = await executeBuiltDraftStep((deps) => build(input, deps));
     expect(bindingInvoked).toBe(true);
     expect(resultKind).toBe("complete");
-    expect(capturedPrompt).toContain(specGuidance.slice(0, 80));
+    expect(capturedPrompt).toContain(specGuidance);
   });
 
   test("records the ready-intent as the byte-identical plan input", async () => {

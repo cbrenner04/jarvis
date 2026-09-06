@@ -18,10 +18,10 @@ Row `ex-wrdls-debate-absence` in `v2/docs/structural-invariant-test-audit.md` pi
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/workflow-runner-debate-landing-structure.test.ts` test `review-debate landing helpers are not defined in workflow-runner.ts` pairs absence in `workflow-runner.ts` with presence in `workflow-runner-debate-landing.ts` for each manifest-listed helper; it fails against the pre-fix one-way absence scan and passes after re-key.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/execution/workflow-runner-debate-landing-structure.test.ts` test `review-debate landing helpers are not defined in workflow-runner.ts` pairs absence in `workflow-runner.ts` with presence in `workflow-runner-debate-landing.ts` for each manifest-listed helper; it fails against the pre-fix one-way absence scan and passes after re-key.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

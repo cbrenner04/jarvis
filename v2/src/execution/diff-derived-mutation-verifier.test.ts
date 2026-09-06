@@ -20,20 +20,28 @@ import {
   verifyDiffDerivedMutations,
 } from "./diff-derived-mutation-verifier.ts";
 
-const PROCESS_RENDER_OBSERVER_MAP = readFileSync(
-  join(import.meta.dir, "../../../shared/prompts/render-observer-tests.ts"),
-  "utf-8",
-);
-
-function seamReadFile(promptContent: string | (() => string), mapSource = PROCESS_RENDER_OBSERVER_MAP) {
-  return async (path: string) => {
-    if (path.endsWith("render-observer-tests.ts")) return mapSource;
-    return typeof promptContent === "function" ? promptContent() : promptContent;
-  };
+function renderObserverMapSource(entries: Record<string, readonly string[]>): string {
+  const lines = Object.entries(entries).flatMap(([prompt, tests]) => {
+    const quotedTests = tests.map((testPath) => `"${testPath}"`).join(", ");
+    return `  "${prompt}": [${quotedTests}],`;
+  });
+  return `const RENDER_OBSERVER_TESTS = {\n${lines.join("\n")}\n};\nexport function resolveRenderObserverTests(promptPath: string) { return RENDER_OBSERVER_TESTS[promptPath]; }\n`;
 }
 
-function emptyRenderObserverMapSource(): string {
-  return `const RENDER_OBSERVER_TESTS = {};\nexport function resolveRenderObserverTests() { return undefined; }\n`;
+const COMMITTED_RENDER_OBSERVER_MAP_SOURCE = (() => {
+  const source = readFileSync(join(import.meta.dir, "../../../shared/prompts/render-observer-tests.ts"), "utf-8");
+  if (extractRenderObserverMapFromSource(source) === null) {
+    throw new Error("committed render-observer map must parse");
+  }
+  return source;
+})();
+
+function seamReadFile(promptContent: string | (() => string), mapSource?: string) {
+  const resolvedMapSource = mapSource ?? COMMITTED_RENDER_OBSERVER_MAP_SOURCE;
+  return async (path: string) => {
+    if (path.endsWith("render-observer-tests.ts")) return resolvedMapSource;
+    return typeof promptContent === "function" ? promptContent() : promptContent;
+  };
 }
 
 // Helper to test diff parsing
@@ -384,14 +392,15 @@ index 1234567..abcdefg 100644
     }
   });
 
+  const renderCoverageBodyLine = "Synthetic prompt body for render-coverage verifier tests.";
+  const changedRenderCoverageBodyLine = `${renderCoverageBodyLine} (changed)`;
   const promptDiff = `diff --git a/prompts/implement/review-critic.md b/prompts/implement/review-critic.md
 index f424d7da..be281d02 100644
 --- a/prompts/implement/review-critic.md
 +++ b/prompts/implement/review-critic.md
-@@ -19,2 +19,2 @@
--## Branch change summary
-+## Branch diff
-+The diff comes from git merge-base <base> HEAD.
+@@ -9,1 +9,1 @@
+-${renderCoverageBodyLine}
++${changedRenderCoverageBodyLine}
 `;
 
   const registeredCritic = async () => ["prompts/implement/review-critic.md"];
@@ -408,7 +417,7 @@ revision: 1
 placeholders: []
 ---
 ## Branch diff
-The diff comes from git merge-base <base> HEAD.
+${changedRenderCoverageBodyLine}
 `;
 
   it("does not mutate PR #1894 prompt prose and requires rendered-output coverage", async () => {
@@ -418,7 +427,7 @@ The diff comes from git merge-base <base> HEAD.
         gitDiff: async () => promptDiff,
         untrackedFiles: async () => [],
         registeredPromptPaths: registeredCritic,
-        readFile: seamReadFile(criticSource, emptyRenderObserverMapSource()),
+        readFile: seamReadFile(criticSource, renderObserverMapSource({})),
         runScopedTests: async () => true,
       },
     );
@@ -437,7 +446,7 @@ index f424d7da..be281d02 100644
 `;
     const bumpedSource = criticSource.replace("revision: 1", "revision: 2");
     const observerPath = "v2/src/execution/review-critic-render.test.ts";
-    const mapSource = `const RENDER_OBSERVER_TESTS = { "prompts/implement/review-critic.md": ["${observerPath}"] };\nexport function resolveRenderObserverTests() { return undefined; }\n`;
+    const mapSource = renderObserverMapSource({ "prompts/implement/review-critic.md": [observerPath] });
     let writeCount = 0;
     let scopedRuns = 0;
     const result = await verifyDiffDerivedMutations(
@@ -541,7 +550,7 @@ index be281d02..00000000
         gitDiff: async () => deletedDiff,
         untrackedFiles: async () => [],
         registeredPromptPaths: registeredCritic,
-        readFile: seamReadFile(criticSource, emptyRenderObserverMapSource()),
+        readFile: seamReadFile(criticSource, renderObserverMapSource({})),
         runScopedTests: async () => true,
       },
     );
@@ -551,7 +560,7 @@ index be281d02..00000000
         gitDiff: async () => "",
         untrackedFiles: async () => ["prompts/implement/review-critic.md"],
         registeredPromptPaths: registeredCritic,
-        readFile: seamReadFile(criticSource, emptyRenderObserverMapSource()),
+        readFile: seamReadFile(criticSource, renderObserverMapSource({})),
         runScopedTests: async () => true,
       },
     );
@@ -562,7 +571,7 @@ index be281d02..00000000
 
   it("fails untracked registered prompts even when mapped observers pass on unmutated content", async () => {
     const observerPath = "v2/src/execution/review-critic-render.test.ts";
-    const mapSource = `const RENDER_OBSERVER_TESTS = { "prompts/implement/review-critic.md": ["${observerPath}"] };\nexport function resolveRenderObserverTests() { return undefined; }\n`;
+    const mapSource = renderObserverMapSource({ "prompts/implement/review-critic.md": [observerPath] });
     let scopedRuns = 0;
     const result = await verifyDiffDerivedMutations(
       { worktreePath: "/test/path", runBase: "main" },
@@ -593,8 +602,6 @@ index be281d02..00000000
     ];
     const uncoveredPath = promptPaths[5];
     if (uncoveredPath === undefined) throw new Error("expected six prompt paths");
-    const bodyLine = "The diff comes from git merge-base <base> HEAD.";
-    const changedBodyLine = `${bodyLine} (changed)`;
     const diff = promptPaths
       .map(
         (path) => `diff --git a/${path} b/${path}
@@ -602,11 +609,12 @@ index 1234567..abcdefg 100644
 --- a/${path}
 +++ b/${path}
 @@ -9,1 +9,1 @@
--${bodyLine}
-+${changedBodyLine}
+-${renderCoverageBodyLine}
++${changedRenderCoverageBodyLine}
 `,
       )
       .join("");
+    const invoked: string[][] = [];
     let scopedRuns = 0;
     const result = await verifyDiffDerivedMutations(
       { worktreePath: "/test/path", runBase: "main" },
@@ -614,9 +622,10 @@ index 1234567..abcdefg 100644
         gitDiff: async () => diff,
         untrackedFiles: async () => [],
         registeredPromptPaths: async () => promptPaths,
-        readFile: seamReadFile(criticSource.replace(bodyLine, changedBodyLine)),
+        readFile: seamReadFile(criticSource),
         writeFile: async () => {},
-        runScopedTests: async () => {
+        runScopedTests: async (_cwd, scope) => {
+          invoked.push([...scope]);
           scopedRuns += 1;
           return false;
         },
@@ -629,6 +638,11 @@ index 1234567..abcdefg 100644
       sourceSite: { file: uncoveredPath, line: 1 },
     });
     expect(scopedRuns).toBe(5);
+    const checkedPrompts = promptPaths.slice(0, 5);
+    expect(invoked).toHaveLength(5);
+    for (const [index, promptPath] of checkedPrompts.entries()) {
+      expect(invoked[index]).toEqual([...(resolveRenderObserverTests(promptPath) ?? [])]);
+    }
   });
 
   it("keeps prompts production-visible while skipping mutations for non-code paths", async () => {
@@ -706,10 +720,9 @@ index 1234567..abcdefg 100644
 index f424d7da..be281d02 100644
 --- a/prompts/patch/review-critic.md
 +++ b/prompts/patch/review-critic.md
-@@ -19,2 +19,2 @@
--## Branch change summary
-+## Branch diff
-+The diff comes from git merge-base <base> HEAD.
+@@ -9,1 +9,1 @@
+-${renderCoverageBodyLine}
++${changedRenderCoverageBodyLine}
 `;
     const result = await verifyDiffDerivedMutations(
       { worktreePath: "/test/path", runBase: "main" },
@@ -717,7 +730,7 @@ index f424d7da..be281d02 100644
         gitDiff: async () => patchPromptDiff,
         untrackedFiles: async () => [],
         registeredPromptPaths: async () => ["prompts/patch/review-critic.md"],
-        readFile: seamReadFile(criticSource, emptyRenderObserverMapSource()),
+        readFile: seamReadFile(criticSource, renderObserverMapSource({})),
         runScopedTests: async () => false,
       },
     );
@@ -889,18 +902,16 @@ index 1234567..abcdefg 100644
   });
 
   it("invokes only that prompt's render-observer test file(s) per changed prompt", async () => {
-    const bodyLine = "The diff comes from git merge-base <base> HEAD.";
-    const changedBodyLine = `${bodyLine} (mutated)`;
     const diff = `diff --git a/prompts/implement/review-critic.md b/prompts/implement/review-critic.md
 index f424d7da..be281d02 100644
 --- a/prompts/implement/review-critic.md
 +++ b/prompts/implement/review-critic.md
 @@ -9,1 +9,1 @@
--${bodyLine}
-+${changedBodyLine}
+-${renderCoverageBodyLine}
++${changedRenderCoverageBodyLine}
 `;
     const invoked: string[][] = [];
-    let prompt = criticSource.replace(bodyLine, changedBodyLine);
+    let prompt = criticSource;
 
     await verifyDiffDerivedMutations(
       { worktreePath: "/test/path", runBase: "main" },
@@ -2719,14 +2730,6 @@ index 1234567..abcdefg 100644
 `;
   const branchChangedPromptSource = branchPromptSource.replace(branchBodyLine, `${branchBodyLine} (changed)`);
 
-  function renderObserverMapSource(entries: Record<string, readonly string[]>): string {
-    const lines = Object.entries(entries).flatMap(([prompt, tests]) => {
-      const quotedTests = tests.map((testPath) => `"${testPath}"`).join(", ");
-      return `  "${prompt}": [${quotedTests}],`;
-    });
-    return `const RENDER_OBSERVER_TESTS = {\n${lines.join("\n")}\n};\nexport function resolveRenderObserverTests(promptPath: string) { return RENDER_OBSERVER_TESTS[promptPath]; }\n`;
-  }
-
   function branchObserverTestSource(promptRelativePath: string, bodyNeedle: string): string {
     return `import { expect, test } from "bun:test";\nimport { readFileSync } from "node:fs";\ntest("observes rendered prompt output", () => {\n  const rendered = readFileSync("${promptRelativePath}", "utf-8");\n  expect(rendered).toContain("${bodyNeedle}");\n  expect(rendered).not.toContain("__JARVIS_PROMPT_RENDER_COVERAGE_MUTATION__");\n});\n`;
   }
@@ -2843,7 +2846,7 @@ The diff comes from git merge-base <base> HEAD.
 `,
     );
     writeFileSync(join(dir, "prompts", "registry.txt"), "implement/review-critic.md\n");
-    writeFileSync(join(dir, "shared/prompts/render-observer-tests.ts"), emptyRenderObserverMapSource());
+    writeFileSync(join(dir, "shared/prompts/render-observer-tests.ts"), renderObserverMapSource({}));
     execFileSync("git", ["add", "-A"], { cwd: dir });
     execFileSync("git", ["commit", "-q", "-m", "base"], { cwd: dir });
     const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();

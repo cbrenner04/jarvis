@@ -18,11 +18,11 @@ Row `ex-wrrs-resume-extraction` in `v2/docs/structural-invariant-test-audit.md` 
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/workflow-runner-resume-structure.test.ts` resume helper move checks iterate a shared extraction manifest rather than a test-local `EXTRACTED_FROM_WORKFLOW_RUNNER` list; it fails against the pre-fix duplicated symbol inventory and passes after re-key.
-- [ ] `workflow-runner-resume-structure.test.ts` tests `resume helpers are not defined in workflow-runner.ts` and `resume helpers are defined in workflow-runner-resume.ts` stay green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/execution/workflow-runner-resume-structure.test.ts` resume helper move checks iterate a shared extraction manifest rather than a test-local `EXTRACTED_FROM_WORKFLOW_RUNNER` list; it fails against the pre-fix duplicated symbol inventory and passes after re-key.
+- [x] `workflow-runner-resume-structure.test.ts` tests `resume helpers are not defined in workflow-runner.ts` and `resume helpers are defined in workflow-runner-resume.ts` stay green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

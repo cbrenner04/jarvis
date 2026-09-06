@@ -12,16 +12,16 @@ Row `ex-wrr-resume-fixture-golden` in `v2/docs/structural-invariant-test-audit.m
 
 ## Task checklist
 
-- [ ] Re-key audit row `ex-wrr-resume-fixture-golden` per the decision ledger.
-- [ ] Centralize golden fixture loads through shared fixture-id helpers on `REVIEW_MD_LINT_FIXTURES`.
-- [ ] Route missing-fixture paths through loud-failure locators.
+- [x] Re-key audit row `ex-wrr-resume-fixture-golden` per the decision ledger.
+- [x] Centralize golden fixture loads through shared fixture-id helpers on `REVIEW_MD_LINT_FIXTURES`.
+- [x] Route missing-fixture paths through loud-failure locators.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/workflow-runner-resume.test.ts` recoverPlanStage and mutation-repair golden cases load expected bodies through shared staged-markdown-lint fixture helpers rather than scattered `readFileSync` path literals; it fails against the pre-fix ad-hoc fixture path strings and passes after re-key.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/execution/workflow-runner-resume.test.ts` recoverPlanStage and mutation-repair golden cases load expected bodies through shared staged-markdown-lint fixture helpers rather than scattered `readFileSync` path literals; it fails against the pre-fix ad-hoc fixture path strings and passes after re-key.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

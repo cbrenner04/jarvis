@@ -78,6 +78,22 @@ import {
 } from "./write-loop.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
+export const EXTRACTED_FROM_WORKFLOW_RUNNER = [
+  "recoverPlanStage",
+  "resumePopulatedIntentPublication",
+  "resumeReviewMutationFinalization",
+  "landReviewedPublicationOutput",
+  "settleIntentResumeFailure",
+  "settleReviewMutationResumeFailure",
+  "resolveReviewMutationRowHead",
+  "admitPlanRecoveryBlockerAndClaim",
+  "restoreVerdictSidecars",
+  "settleIntentResumeStagedMarkdownLintFailure",
+  "inertResumeWriteLoopInput",
+  "mutationRepairLoopInput",
+  "settleSuccessfulReviewMutationPublication",
+] as const;
+
 export type WorkflowRunnerResumeInjectedDeps = {
   persistIntentHandoff: (
     store: StateStore,

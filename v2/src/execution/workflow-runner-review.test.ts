@@ -17,7 +17,8 @@ import {
   createStep,
   externalWorktreeBinding,
   LINT_CLEAN_INTENT_EXAMPLE_MD,
-  REVIEW_MD_LINT_FIXTURES,
+  REVIEW_MD_LINT_FIXTURE_IDS,
+  readReviewMdLintFixture,
   roots,
   skipReviewWithoutHarnessMarkdownlint,
   TestLogSink,
@@ -580,7 +581,7 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
     roots.push(root);
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed-md-lint-block");
-    const violationBytes = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md038-violation-subspec.md"), "utf8");
+    const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038ViolationSubspec);
     writeLintCleanPlanStage(stage);
 
     const step = createDebateStep({
@@ -627,8 +628,8 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
     roots.push(root);
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed-md-lint-reprompt");
-    const violationBytes = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md038-violation-subspec.md"), "utf8");
-    const cleanSubspec = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md038-clean-subspec.md"), "utf8");
+    const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038ViolationSubspec);
+    const cleanSubspec = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038CleanSubspec);
     writeLintCleanPlanStage(stage);
     let actuatorInvocations = 0;
     let repromptPrompt = "";
@@ -695,7 +696,7 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
     roots.push(root);
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed-md-lint-exhaust");
-    const violationBytes = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md038-violation-subspec.md"), "utf8");
+    const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038ViolationSubspec);
     writeLintCleanPlanStage(stage);
 
     const step = createDebateStep({
@@ -750,8 +751,8 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
     roots.push(root);
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed-md-lint-exhaust-recover");
-    const violationBytes = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md038-violation-subspec.md"), "utf8");
-    const cleanSubspec = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md038-clean-subspec.md"), "utf8");
+    const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038ViolationSubspec);
+    const cleanSubspec = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038CleanSubspec);
     writeLintCleanPlanStage(stage);
     let adjudicatorCalls = 0;
     let actuatorCalls = 0;
@@ -804,7 +805,7 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
     roots.push(root);
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed-md-lint-checkpoint");
-    const violationBytes = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md038-violation-subspec.md"), "utf8");
+    const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038ViolationSubspec);
     mkdirSync(durable, { recursive: true });
     writeLintCleanPlanStage(stage, "01-test.md");
     writeFileSync(join(stage, "verdict-plan.md"), "", "utf8");
@@ -857,8 +858,8 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
     roots.push(root);
     const stage = join(root, ".jarvis-plan-stage");
     const durable = join(root, "spec", "2026-reviewed-md-lint-checkpoint-reprompt");
-    const violationBytes = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md038-violation-subspec.md"), "utf8");
-    const cleanSubspec = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md038-clean-subspec.md"), "utf8");
+    const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038ViolationSubspec);
+    const cleanSubspec = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038CleanSubspec);
     mkdirSync(durable, { recursive: true });
     writeLintCleanPlanStage(stage, "01-test.md");
     writeFileSync(join(stage, "verdict-plan.md"), "", "utf8");
@@ -934,7 +935,7 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
 
     const workspace = mkdtempSync(join(tmpdir(), "intent-resume-md-lint-exhaust-admit-"));
     const withExternalWorktree = externalWorktreeBinding(workspace);
-    const violationBytes = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "intent-md038-violation.md"), "utf8");
+    const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.intentMd038Violation);
     mkdirSync(join(workspace, "ready-intents"), { recursive: true });
     let criticCalls = 0;
     let actuatorCalls = 0;
@@ -1026,7 +1027,7 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
     }
 
     const workspace = mkdtempSync(join(tmpdir(), "intent-resume-md-lint-"));
-    const violationBytes = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "intent-md038-violation.md"), "utf8");
+    const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.intentMd038Violation);
     writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"));
     mkdirSync(join(workspace, "ready-intents"), { recursive: true });
     let actuatorCalls = 0;

@@ -12,17 +12,17 @@ Rows `ex-ddmv-observer-map-source` and `ex-ddmv-render-coverage-needle` in `v2/d
 
 ## Task checklist
 
-- [ ] Re-key audit rows `ex-ddmv-observer-map-source` and `ex-ddmv-render-coverage-needle` per the decision ledger.
-- [ ] Delete module-scope registry source mirroring; drive coverage cases through `resolveRenderObserverTests`.
-- [ ] Rewrite render-coverage scheduling assertions to key on resolved test paths per changed prompt.
+- [x] Re-key audit rows `ex-ddmv-observer-map-source` and `ex-ddmv-render-coverage-needle` per the decision ledger.
+- [x] Delete module-scope registry source mirroring; drive coverage cases through `resolveRenderObserverTests`.
+- [x] Rewrite render-coverage scheduling assertions to key on resolved test paths per changed prompt.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/diff-derived-mutation-verifier.test.ts` module scope resolves render-observer coverage through `resolveRenderObserverTests` / `extractRenderObserverMapFromSource` rather than a `readFileSync` copy of `render-observer-tests.ts`; it fails against the pre-fix `PROCESS_RENDER_OBSERVER_MAP` mirror and passes after re-key.
-- [ ] `diff-derived-mutation-verifier.test.ts` test `invokes only that prompt's render-observer test file(s) per changed prompt` asserts scoped invocation from the resolved observer map, not merge-base prose substring pins; it fails against the pre-fix prose needles and passes after re-key.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/execution/diff-derived-mutation-verifier.test.ts` module scope resolves render-observer coverage through `resolveRenderObserverTests` / `extractRenderObserverMapFromSource` rather than a `readFileSync` copy of `render-observer-tests.ts`; it fails against the pre-fix `PROCESS_RENDER_OBSERVER_MAP` mirror and passes after re-key.
+- [x] `diff-derived-mutation-verifier.test.ts` test `invokes only that prompt's render-observer test file(s) per changed prompt` asserts scoped invocation from the resolved observer map, not merge-base prose substring pins; it fails against the pre-fix prose needles and passes after re-key.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

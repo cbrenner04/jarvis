@@ -9,6 +9,7 @@ import type {
 } from "../../../shared/invocation/execute.ts";
 import { resolveHarnessRoot } from "../../../shared/markdownlint-repair.ts";
 import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
+import { StructuralTestLocatorError } from "../../../shared/structural-test-locator.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopBindingSourceDeps } from "../daemon/daemon.ts";
 import type { LogEvent, LogSink, PersistedRecord } from "../persistence/log-stream.ts";
@@ -446,10 +447,25 @@ export function createDebateStep(
 
 export const REVIEW_MD_LINT_FIXTURES = join(import.meta.dir, "fixtures", "write-loop-staged-markdown-lint");
 
-export const LINT_CLEAN_INTENT_EXAMPLE_MD = readFileSync(
-  join(REVIEW_MD_LINT_FIXTURES, "intent-md038-clean.md"),
-  "utf8",
-);
+export const REVIEW_MD_LINT_FIXTURE_IDS = {
+  planMd012CleanSubspec: "plan-md012-clean-subspec.md",
+  planMd012ViolationSubspec: "plan-md012-violation-subspec.md",
+  planMd038CleanSubspec: "plan-md038-clean-subspec.md",
+  planMd038ViolationSubspec: "plan-md038-violation-subspec.md",
+  intentMd038Clean: "intent-md038-clean.md",
+  intentMd038Violation: "intent-md038-violation.md",
+  intentLandingAndMd038Violation: "intent-landing-and-md038-violation.md",
+} as const;
+
+export function readReviewMdLintFixture(fixtureId: string): string {
+  try {
+    return readFileSync(join(REVIEW_MD_LINT_FIXTURES, fixtureId), "utf8");
+  } catch {
+    throw new StructuralTestLocatorError("discovered-file", fixtureId);
+  }
+}
+
+export const LINT_CLEAN_INTENT_EXAMPLE_MD = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.intentMd038Clean);
 
 export const REVIEW_MD_LINT_HARNESS_ROOT = resolveHarnessRoot(join(import.meta.dir, "..", "..", ".."));
 
@@ -467,7 +483,7 @@ export function skipReviewWithoutHarnessMarkdownlint(reason: string): boolean {
 export function writeLintCleanPlanStage(
   stage: string,
   subspecFile = "00-one.md",
-  subspecBody = readFileSync(join(REVIEW_MD_LINT_FIXTURES, "plan-md012-clean-subspec.md"), "utf8"),
+  subspecBody = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd012CleanSubspec),
 ): void {
   mkdirSync(stage, { recursive: true });
   writeFileSync(join(stage, "intent.md"), "---\nname: test\n---\n", "utf8");

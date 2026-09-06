@@ -301,20 +301,20 @@ v2/src/tui/tui-timestamp-format.test.ts out-of-scope no-structural-signal
 | row-id | test-path | case-scope | guarded-invariant | anchor-mechanism | classification | disposition | stay-incidental-rationale | vacuous-pass-risk |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | ex-cc-real-git-commit | v2/src/execution/completion-commit.test.ts | createCompletionCommitter > formats changed files before staging so committed tree passes biome check | completion commit formats staged paths and lands biome-clean content on real git worktrees | `readFileSync`/`git show` on worktree paths after `copyFileSync` of committed `biome.json` from repo root | behavioral | n/a | | |
-| ex-ddmv-observer-map-source | v2/src/execution/diff-derived-mutation-verifier.test.ts | module scope | verifier render-coverage seam tracks committed observer registry | module-level `readFileSync` of `shared/prompts/render-observer-tests.ts` as `PROCESS_RENDER_OBSERVER_MAP` | incidental | re-key | | |
-| ex-ddmv-render-coverage-needle | v2/src/execution/diff-derived-mutation-verifier.test.ts | diff-derived-mutation-verifier > fails closed for registered prompts without render-observer map entries / invokes only that prompt's render-observer test file(s) | changed prompt bodies require registered render-observer killing tests | merge-base diff prose substring pins (`The diff comes from git merge-base <base> HEAD.`) coupled to `resolveRenderObserverTests` map lookup | incidental | re-key | | yes |
+| ex-ddmv-observer-map-source | v2/src/execution/diff-derived-mutation-verifier.test.ts | module scope | verifier render-coverage seam tracks committed observer registry | `seamReadFile` default map validated via `extractRenderObserverMapFromSource`; custom maps built with `renderObserverMapSource` | behavioral | n/a | | |
+| ex-ddmv-render-coverage-needle | v2/src/execution/diff-derived-mutation-verifier.test.ts | diff-derived-mutation-verifier > fails closed for registered prompts without render-observer map entries / invokes only that prompt's render-observer test file(s) | changed prompt bodies require registered render-observer killing tests | scoped `runScopedTests` invocation matched to `resolveRenderObserverTests(promptPath)` per changed prompt; synthetic body-line diffs without merge-base prose pins | behavioral | n/a | | |
 | ex-ddmv-killing-resolution | v2/src/execution/diff-derived-mutation-verifier.test.ts | co-located killing-test resolution (sibling fallback) / direct-importing killing-test resolution | mutation verifier resolves co-located, sibling, and direct-importer killing tests before scoped execution | behavioral unit and integration tests of `resolveSiblingKillingTests`, importer scan caps, and scoped `runScopedTests` scheduling | behavioral | n/a | | |
 | ex-ddmv-worktree-observer-map | v2/src/execution/diff-derived-mutation-verifier.test.ts | worktree render-observer map resolution > * | worktree-local observer map drives render-coverage without process-map fallback | `extractRenderObserverMapFromSource` on worktree `render-observer-tests.ts` plus git worktree fixture reads | behavioral | n/a | | |
 | ex-ddmv-verifier-core | v2/src/execution/diff-derived-mutation-verifier.test.ts | diff-derived-mutation-verifier / TypeScript operator candidate classification / verification bounds | diff parsing, candidate classification, directive parsing, and bounded verification behave correctly | behavioral unit tests with synthetic diffs and seams (no production registry mirrors) | behavioral | n/a | | |
-| ex-etsg-permitted-inventory | v2/src/execution/execution-terminal-settlement-guard.test.ts | execution production terminal writers are restricted to atomic settlement | terminal `commitTerminalRunSettlement`/`commitCompletionBoundary` and nonterminal `setRunStatus` sites match permitted inventory | `PERMITTED_TERMINAL_WRITES` and `PERMITTED_NONTERMINAL_SET_RUN_STATUS` hardcoded registries vs production `readFileSync` scan | incidental | re-key | | |
+| ex-etsg-permitted-inventory | v2/src/execution/execution-terminal-settlement-guard.test.ts | execution production terminal writers are restricted to atomic settlement | terminal `commitTerminalRunSettlement`/`commitCompletionBoundary` and nonterminal `setRunStatus` sites match permitted inventory | scanned sites compared against exported `PERMITTED_TERMINAL_WRITES` and `PERMITTED_NONTERMINAL_SET_RUN_STATUS` from `execution-terminal-settlement-guard.ts` via `terminalSettlementInventoryMismatches` | behavioral | n/a | | |
 | ex-etsg-scanner-positive | v2/src/execution/execution-terminal-settlement-guard.test.ts | guard rejects reintroduced terminal setRunStatus / inventory ignores line drift above tracked call sites | scanner flags injected terminal `setRunStatus` and ignores line drift for keyed inventory sites | behavioral positive/negative fixtures on synthetic production source patches | behavioral | n/a | | |
 | ex-isl-worktree-landing | v2/src/execution/implement-spec-landing.test.ts | landImplementSpecTreeFromReadRoot > * | implement spec tree copies land expected paths and sidecars from `specReadRoot` | `readFileSync` on temp worktree paths after `landImplementSpecTreeFromReadRoot` | behavioral | n/a | | |
 | ex-iws-build-implement | v2/src/execution/implement-workflow-steps.test.ts | buildImplementWorkflowSteps / resolveImplementSpecIdentity external plan admission | implement step builder resolves project, spec identity, review composition, and chained preflight | behavioral integration with mocked deps; worktree `readFileSync` only on fixture repos | behavioral | n/a | | |
 | ex-io-intent-landing | v2/src/execution/intent-output.test.ts | landIntentWorkflowOutput > * | intent landing enforces rogue-path rules, handoff `specPath`, and `downstreamInputs` semantics | behavioral landing tests with temp-repo `readFileSync` assertions | behavioral | n/a | | |
-| ex-isr-fixture-seeds | v2/src/execution/intent-split-regression.test.ts | module scope / intent split production write regression | split regression seeds are byte-stable fixture inputs | module-level `readFileSync` of `fixtures/intent-split-*-surface.md` compared in `classifyRenderedSeed` | incidental | re-key | | |
-| ex-isr-primary-surfaces | v2/src/execution/intent-split-regression.test.ts | intent split production write regression > multi-surface seed fans out by surface through the production split write | staged intents name expected primary implementation surfaces | hardcoded `PRIMARY_SURFACES` and `EXECUTION_LOOP_SURFACE` lists in staging oracles | incidental | re-key | | |
+| ex-isr-fixture-seeds | v2/src/execution/intent-split-regression.test.ts | module scope / intent split production write regression | split regression seeds are byte-stable fixture inputs | committed `INTENT_SPLIT_FIXTURES` ids loaded via `readIntentSplitFixture` (throws `StructuralTestLocatorError` on missing); `classifyRenderedSeed` compares rendered seed bytes to registry content | behavioral | n/a | | |
+| ex-isr-primary-surfaces | v2/src/execution/intent-split-regression.test.ts | intent split production write regression > multi-surface seed fans out by surface through the production split write | staged intents name expected primary implementation surfaces | `seedPrimaryImplementationSurfaces` derives paths from `referencedArtifactPaths`, `classifyModuleBoundaryText`, and `orderModuleBoundariesForSplit` on fixture seed content | behavioral | n/a | | |
 | ex-isr-split-oracles | v2/src/execution/intent-split-regression.test.ts | intent split production write regression > * | production split write honors surface-contract prompt pins | behavioral end-to-end `executeSeed` staging oracles via `assertMultiSurfaceStage` / `assertSingleSurfaceStage` | behavioral | n/a | | |
-| ex-pws-spec-guidance-prose | v2/src/execution/plan-workflow-steps.test.ts | plan preset draft write step > `plan` invokes its binding through the production step-builder | plan draft prompt embeds committed spec-guidance prose | `readSpecGuidance()` plus `capturedPrompt` substring pin on `specGuidance.slice(0, 80)` | incidental | re-key | | |
+| ex-pws-spec-guidance-prose | v2/src/execution/plan-workflow-steps.test.ts | plan preset draft write step > `plan` invokes its binding through the production step-builder | plan draft prompt embeds committed spec-guidance prose | `capturedPrompt` whole-body containment of `readSpecGuidance()` output | behavioral | n/a | | |
 | ex-pws-plan-routing | v2/src/execution/plan-workflow-steps.test.ts | plan ready-intent output routing / buildPlanWorkflowSteps review composition | plan workflows route ready-intents, external storage, and review steps correctly | behavioral builder tests (regex `specPath` routing, review step shape) | behavioral | n/a | | |
 | ex-pl-tree-landing | v2/src/execution/publication-landing.test.ts | publication landing helpers > * | publication landing copies plan trees and intent artifacts into durable locations | `readFileSync` on worktree paths after landing helpers | behavioral | n/a | | |
 | ex-rf-ready-gate | v2/src/execution/ready-finalize.test.ts | ready-finalize integration / base-ref probe / gate classification | ready gate scopes commands, classifies failures, and probes base-ref reproduction | behavioral tests with mocked git/subprocess seams (`merge-base` mocked, not structural inventory) | behavioral | n/a | | |
@@ -322,28 +322,28 @@ v2/src/tui/tui-timestamp-format.test.ts out-of-scope no-structural-signal
 | ex-rd-review-debate | v2/src/execution/review-debate.test.ts | executeReviewDebate > * | debate cycle runs role order, quota handling, and verdict persistence | behavioral tests with temp verdict-path `readFileSync` | behavioral | n/a | | |
 | ex-rie-verdict-ownership | v2/src/execution/review-intent-enforcement.test.ts | review-intent-enforcement > * | verdict ownership markers and working-tree snapshots gate enforced review cycles | behavioral tests of ownership checks and git inventory seams | behavioral | n/a | | |
 | ex-wrc-workflow-core | v2/src/execution/workflow-runner-core.test.ts | workflow-runner core integration cases | core workflow runner lands artifacts and honors step contracts | behavioral integration with worktree `readFileSync` on landed outputs | behavioral | n/a | | |
-| ex-wrdls-debate-absence | v2/src/execution/workflow-runner-debate-landing-structure.test.ts | review-debate landing helpers are not defined in workflow-runner.ts | extracted debate-landing helpers must not remain in `workflow-runner.ts` | `EXTRACTED_FROM_WORKFLOW_RUNNER` symbol list scanned via regex on production `workflow-runner.ts` `readFileSync` (absence-only) | incidental | re-key | | yes |
+| ex-wrdls-debate-absence | v2/src/execution/workflow-runner-debate-landing-structure.test.ts | review-debate landing helpers are not defined in workflow-runner.ts | extracted debate-landing helpers must not remain in `workflow-runner.ts` | exported `EXTRACTED_FROM_WORKFLOW_RUNNER` from `workflow-runner-debate-landing.ts` with paired absence/presence function-definition regex scans on production sources via `listProductionExecutionSources` + `locateDiscoveredFile` | behavioral | n/a | | |
 | ex-wrdl-debate-landing | v2/src/execution/workflow-runner-debate-landing.test.ts | workflow-runner debate landing integration | reviewed debate landing commits durable outputs | behavioral integration with worktree `readFileSync` | behavioral | n/a | | |
 | ex-wrd-debate-flow | v2/src/execution/workflow-runner-debate.test.ts | workflow-runner debate integration cases | implement/plan debate review lands verdicts and durable spec edits | behavioral integration with worktree `readFileSync` | behavioral | n/a | | |
 | ex-wri-intent-flow | v2/src/execution/workflow-runner-intent.test.ts | workflow-runner intent integration cases | intent workflow lands multi-file durable outputs and review edits | behavioral integration with worktree `readFileSync` | behavioral | n/a | | |
 | ex-wrp-plan-flow | v2/src/execution/workflow-runner-plan.test.ts | workflow-runner plan integration / recoverPlanStage cases | plan workflow review and recovery land expected durable markdown | behavioral integration with worktree `readFileSync` | behavioral | n/a | | |
 | ex-wrpub-publication-flow | v2/src/execution/workflow-runner-publication.test.ts | workflow-runner publication integration cases | publication workflow lands durable intents and checkbox state | behavioral integration with worktree `readFileSync` | behavioral | n/a | | |
-| ex-wri-merge-base-titles | v2/src/execution/workflow-runner-resume-inventory.test.ts | workflow-runner resume test inventory > preserves merge-base resume-path leaf titles in workflow-runner-resume*.test.ts destinations | co-located resume test files preserve merge-base leaf-title multisets per source bucket | `SOURCE_BUCKETS` hand list plus `git merge-base`/`git show` title multiset parity against destination `readFileSync` | incidental | re-key | | |
+| ex-wri-merge-base-titles | v2/src/execution/workflow-runner-resume-inventory.test.ts | workflow-runner resume test inventory > preserves merge-base resume-path leaf titles in workflow-runner-resume*.test.ts destinations | co-located resume test files preserve merge-base leaf titles (missing-only; surplus allowed) | `discoverResumePathInventoryAnchors` parses merge-base `RESUME_PATH_INVENTORY_ANCHORS` from inventory test source via `git merge-base`/`git show`; missing-only leaf-title preservation against union of `workflow-runner-resume*.test.ts` destination titles via `multisetParity` | behavioral | n/a | | |
 | ex-wri-title-scanner | v2/src/execution/workflow-runner-resume-inventory.test.ts | resume test title scanner > * | title collector expands `test.each` and scopes to root describe | behavioral unit tests of `collectLeafTitles` parser | behavioral | n/a | | |
-| ex-wrrs-resume-extraction | v2/src/execution/workflow-runner-resume-structure.test.ts | resume helpers are not defined in workflow-runner.ts / resume helpers are defined in workflow-runner-resume.ts | extracted resume helpers moved out of `workflow-runner.ts` into `workflow-runner-resume.ts` | `EXTRACTED_FROM_WORKFLOW_RUNNER` symbol list with paired absence/presence regex scans on production sources | incidental | re-key | | |
-| ex-wrr-resume-fixture-golden | v2/src/execution/workflow-runner-resume.test.ts | recoverPlanStage / resume mutation-repair cases using lint fixtures | recovery lands committed golden subspec bodies from staged-markdown-lint fixtures | `readFileSync` of `execution/fixtures/write-loop-staged-markdown-lint/plan-md012-clean-subspec.md` (and related) as golden expected bodies | incidental | re-key | | |
+| ex-wrrs-resume-extraction | v2/src/execution/workflow-runner-resume-structure.test.ts | resume helpers are not defined in workflow-runner.ts / resume helpers are defined in workflow-runner-resume.ts | extracted resume helpers moved out of `workflow-runner.ts` into `workflow-runner-resume.ts` | exported `EXTRACTED_FROM_WORKFLOW_RUNNER` from `workflow-runner-resume.ts` with paired absence/presence function-definition regex scans on production sources via `listProductionExecutionSources` + `locateDiscoveredFile` | behavioral | n/a | | |
+| ex-wrr-resume-fixture-golden | v2/src/execution/workflow-runner-resume.test.ts | recoverPlanStage / resume mutation-repair cases using lint fixtures | recovery lands committed golden subspec bodies from staged-markdown-lint fixtures | committed `REVIEW_MD_LINT_FIXTURE_IDS` registry with `readReviewMdLintFixture` (throws `StructuralTestLocatorError` on missing) for recoverPlanStage and mutation-repair golden bodies | behavioral | n/a | | |
 | ex-wrr-resume-integration | v2/src/execution/workflow-runner-resume.test.ts | workflow-runner resume integration (non-fixture cases) | resume paths settle publication, mutation repair, and staged markdown without silent regressions | behavioral integration with worktree `readFileSync` on landed stage/durable paths | behavioral | n/a | | |
 | ex-wrrs-standard-review | v2/src/execution/workflow-runner-review-standard.test.ts | workflow-runner standard review integration | standard review landing preserves operator checkout dirt and durable outputs | behavioral integration with worktree `readFileSync` | behavioral | n/a | | |
-| ex-wrr-review-fixture-golden | v2/src/execution/workflow-runner-review.test.ts | review staged-markdown-lint reprompt cases | review debate reprompt preserves golden violation/clean fixture bytes through recovery | `readFileSync` of `REVIEW_MD_LINT_FIXTURES` (`plan-md038-*`, `intent-md038-*`) golden bodies | incidental | re-key | | |
+| ex-wrr-review-fixture-golden | v2/src/execution/workflow-runner-review.test.ts | review staged-markdown-lint reprompt cases | review debate reprompt preserves golden violation/clean fixture bytes through recovery | committed `REVIEW_MD_LINT_FIXTURE_IDS` registry with `readReviewMdLintFixture` (throws `StructuralTestLocatorError` on missing) for review reprompt violation and clean golden bodies | behavioral | n/a | | |
 | ex-wrr-review-integration | v2/src/execution/workflow-runner-review.test.ts | workflow-runner review integration (non-fixture cases) | review steps enforce verdict ownership and land reviewed outputs | behavioral integration with worktree `readFileSync` | behavioral | n/a | | |
 | ex-wrv-validation | v2/src/execution/workflow-runner-validation.test.ts | workflow-runner validation integration | validation failures surface telemetry without leaking temp files | behavioral integration (`readFileSync` throws on cleaned telemetry path) | behavioral | n/a | | |
 | ex-wr-implement-routing | v2/src/execution/workflow-runner.test.ts | executeWorkflow implement routing integration | implement workflow checks linked subspecs and external plan routing | behavioral integration with worktree `readFileSync` on spec checkboxes | behavioral | n/a | | |
 | ex-wlil-intent-landing | v2/src/execution/write-loop-intent-landing.test.ts | write-loop intent landing integration | intent write-loop reprompts on staged markdown lint violations before finalize | behavioral integration with stage-path `readFileSync` | behavioral | n/a | | |
 | ex-wlslog-session-records | v2/src/execution/write-loop-session-log.test.ts | write-loop session log emission | session logs record invocation lifecycle to jarvis sessions dir | behavioral tests reading emitted session log files under temp worktrees | behavioral | n/a | | |
-| ex-wlsl-fixture-golden | v2/src/execution/write-loop-staged-markdown-lint.test.ts | plan/intent write step staged Markdown lint cases | staged markdown lint uses committed golden/violation fixture bodies | `readFileSync` of `fixtures/write-loop-staged-markdown-lint/*.md` golden bytes in reprompt/finalize paths | incidental | re-key | | |
+| ex-wlsl-fixture-golden | v2/src/execution/write-loop-staged-markdown-lint.test.ts | plan/intent write step staged Markdown lint cases | staged markdown lint uses committed golden/violation fixture bodies | committed `REVIEW_MD_LINT_FIXTURE_IDS` registry with `readReviewMdLintFixture` (throws `StructuralTestLocatorError` on missing) for plan/intent reprompt and finalize golden bodies | behavioral | n/a | | |
 | ex-wlsl-integration | v2/src/execution/write-loop-staged-markdown-lint.test.ts | write-loop staged markdown lint integration (non-fixture assertions) | write-loop reprompts and finalizes lint-clean staged plan/intent trees | behavioral `executeWriteLoop` integration with harness markdownlint binary probe | behavioral | n/a | | |
 | ex-wl-write-loop | v2/src/execution/write-loop.test.ts | executeWriteLoop integration suite | write-loop iteration, ready gate, publication, mutation repair, and completion paths | behavioral integration; `readFileSync` only on worktree outputs and fixture paths | behavioral | n/a | | |
-| ex-wr-spec-guidance-prose | v2/src/execution/write.test.ts | plan preset draft step isolates bundled human-only marker guidance | plan draft prompt embeds v2 spec-guidance agent-core prose without step-rule leakage | substring presence/absence pins on `extractSpecGuidance(capturedPrompt)` including `@mutate` on `shared/spec-guidance-path.ts` | incidental | re-key | | |
+| ex-wr-spec-guidance-prose | v2/src/execution/write.test.ts | plan preset draft step isolates bundled human-only marker guidance | plan draft prompt embeds v2 spec-guidance agent-core prose without step-rule leakage | `extractSpecGuidance(capturedPrompt)` whole-body containment of `readSpecGuidance()` output plus forbidden-token absence checks; `@mutate` on `shared/spec-guidance-path.ts` | behavioral | n/a | | |
 | ex-wr-execute-write | v2/src/execution/write.test.ts | executeWrite integration (non-spec-guidance cases) | write step lands plan/intent artifacts, enforces contracts, and preserves harness diagnostics | behavioral integration with worktree/stage `readFileSync` and module-boundary fixture reads | behavioral | n/a | | |
 
 ## v2 CLI and persistence inventory
@@ -504,81 +504,3 @@ Every inventory row with disposition `re-key`, grouped by `test-path` + `case-sc
 **case-scope:** only allowlisted modules call resolveWriteLoopBindings
 
 **re-key (1):** dm-wlbinding-callers-allowlist
-
-### v2/src/execution/diff-derived-mutation-verifier.test.ts
-
-**case-scope:** diff-derived-mutation-verifier > fails closed for registered prompts without render-observer map entries / invokes only that prompt's render-observer test file(s)
-
-**re-key (1):** ex-ddmv-render-coverage-needle
-
-### v2/src/execution/diff-derived-mutation-verifier.test.ts
-
-**case-scope:** module scope
-
-**re-key (1):** ex-ddmv-observer-map-source
-
-### v2/src/execution/execution-terminal-settlement-guard.test.ts
-
-**case-scope:** execution production terminal writers are restricted to atomic settlement
-
-**re-key (1):** ex-etsg-permitted-inventory
-
-### v2/src/execution/intent-split-regression.test.ts
-
-**case-scope:** intent split production write regression > multi-surface seed fans out by surface through the production split write
-
-**re-key (1):** ex-isr-primary-surfaces
-
-### v2/src/execution/intent-split-regression.test.ts
-
-**case-scope:** module scope / intent split production write regression
-
-**re-key (1):** ex-isr-fixture-seeds
-
-### v2/src/execution/plan-workflow-steps.test.ts
-
-**case-scope:** plan preset draft write step > `plan` invokes its binding through the production step-builder
-
-**re-key (1):** ex-pws-spec-guidance-prose
-
-### v2/src/execution/workflow-runner-debate-landing-structure.test.ts
-
-**case-scope:** review-debate landing helpers are not defined in workflow-runner.ts
-
-**re-key (1):** ex-wrdls-debate-absence
-
-### v2/src/execution/workflow-runner-resume-inventory.test.ts
-
-**case-scope:** workflow-runner resume test inventory > preserves merge-base resume-path leaf titles in workflow-runner-resume*.test.ts destinations
-
-**re-key (1):** ex-wri-merge-base-titles
-
-### v2/src/execution/workflow-runner-resume-structure.test.ts
-
-**case-scope:** resume helpers are not defined in workflow-runner.ts / resume helpers are defined in workflow-runner-resume.ts
-
-**re-key (1):** ex-wrrs-resume-extraction
-
-### v2/src/execution/workflow-runner-resume.test.ts
-
-**case-scope:** recoverPlanStage / resume mutation-repair cases using lint fixtures
-
-**re-key (1):** ex-wrr-resume-fixture-golden
-
-### v2/src/execution/workflow-runner-review.test.ts
-
-**case-scope:** review staged-markdown-lint reprompt cases
-
-**re-key (1):** ex-wrr-review-fixture-golden
-
-### v2/src/execution/write-loop-staged-markdown-lint.test.ts
-
-**case-scope:** plan/intent write step staged Markdown lint cases
-
-**re-key (1):** ex-wlsl-fixture-golden
-
-### v2/src/execution/write.test.ts
-
-**case-scope:** plan preset draft step isolates bundled human-only marker guidance
-
-**re-key (1):** ex-wr-spec-guidance-prose

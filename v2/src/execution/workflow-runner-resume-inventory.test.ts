@@ -1,10 +1,8 @@
 /**
  * Merge-base parity guard for resume-path tests moved into workflow-runner-resume*.test.ts.
- * Per-source buckets scan merge-base files without an import gate: workflow-runner-resume.test.ts
- * (full file), workflow-runner-plan.test.ts (describe("recoverPlanStage") only),
- * recover-review-failed-plan-draft.test.ts (describe("recoverPlanStage review-failed admission") in full),
- * and workflow-runner-publication.test.ts (fixed zero-case bucket — no resume-path anchor on merge-base).
- * Asserts equal per-bucket leaf-title multisets in co-located destinations (missing and surplus copies fail).
+ * Source buckets resolve from merge-base `RESUME_PATH_INVENTORY_ANCHORS` in this file via
+ * `discoverResumePathInventoryAnchors`, not a hand-maintained loop table on the branch.
+ * Asserts missing-only leaf-title preservation in co-located destinations (surplus allowed).
  */
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
@@ -19,7 +17,7 @@ type ScanOptions = {
   rootDescribe?: string;
 };
 
-type SourceBucket = {
+type ResumePathInventoryAnchor = {
   label: string;
   repoPath: string;
   options?: ScanOptions;
@@ -27,7 +25,7 @@ type SourceBucket = {
   expectEmpty?: boolean;
 };
 
-const SOURCE_BUCKETS: SourceBucket[] = [
+const _RESUME_PATH_INVENTORY_ANCHORS: ResumePathInventoryAnchor[] = [
   { label: "workflow-runner-resume.test.ts", repoPath: "v2/src/execution/workflow-runner-resume.test.ts" },
   {
     label: "workflow-runner-plan.test.ts:recoverPlanStage",
@@ -45,6 +43,61 @@ const SOURCE_BUCKETS: SourceBucket[] = [
     expectEmpty: true,
   },
 ];
+
+const INVENTORY_REPO_PATH = "v2/src/execution/workflow-runner-resume-inventory.test.ts";
+
+function parseResumePathInventoryAnchorBlock(block: string): ResumePathInventoryAnchor {
+  const label = block.match(/label:\s*"([^"]+)"/)?.[1];
+  const repoPath = block.match(/repoPath:\s*"([^"]+)"/)?.[1];
+  const rootDescribe = block.match(/rootDescribe:\s*"([^"]+)"/)?.[1];
+  const expectEmpty = /expectEmpty:\s*true/.test(block);
+  if (label === undefined || repoPath === undefined) {
+    throw new Error(`malformed resume path inventory anchor: ${block.trim()}`);
+  }
+  return {
+    label,
+    repoPath,
+    ...(rootDescribe !== undefined ? { options: { rootDescribe } } : {}),
+    ...(expectEmpty ? { expectEmpty: true } : {}),
+  };
+}
+
+function parseResumePathInventoryAnchors(inventorySource: string): ResumePathInventoryAnchor[] {
+  const match = inventorySource.match(
+    // The leading `_` is optional: this constant is only ever read by parsing this file's own
+    // source, so lint sees it as unused and the underscore-prefixed spelling is the honest name.
+    // Merge-base revisions predating that rename still spell it without the prefix.
+    /(?:export\s+)?const\s+_?(?:RESUME_PATH_INVENTORY_ANCHORS|SOURCE_BUCKETS)\s*(?::[^=]+)?=\s*\[([\s\S]*?)\];/,
+  );
+  if (match?.[1] === undefined) {
+    throw new Error("resume path inventory anchors not found in inventory test source");
+  }
+  const anchors: ResumePathInventoryAnchor[] = [];
+  const arrayBody = match[1];
+  let index = 0;
+  while (index < arrayBody.length) {
+    const open = arrayBody.indexOf("{", index);
+    if (open === -1) break;
+    const close = findMatchingDelimiter(arrayBody, open, "{", "}");
+    if (close === -1) {
+      throw new Error("unclosed resume path inventory anchor object");
+    }
+    anchors.push(parseResumePathInventoryAnchorBlock(arrayBody.slice(open, close + 1)));
+    index = close + 1;
+  }
+  if (anchors.length === 0) {
+    throw new Error("resume path inventory anchors array is empty");
+  }
+  return anchors;
+}
+
+function discoverResumePathInventoryAnchors(mergeBase: string): ResumePathInventoryAnchor[] {
+  const source = loadAtRef(mergeBase, INVENTORY_REPO_PATH);
+  if (source === undefined) {
+    throw new Error(`inventory test absent at merge-base ${mergeBase}`);
+  }
+  return parseResumePathInventoryAnchors(source);
+}
 
 /**
  * CI checks out a detached HEAD without a local `main`, so try each candidate base ref
@@ -399,15 +452,15 @@ function collectDestinationLeafTitles(): string[] {
   return titles;
 }
 
-function collectExpectedTitles(bucket: SourceBucket, mergeBase: string): string[] {
-  if (bucket.expectEmpty === true) {
+function collectExpectedTitles(anchor: ResumePathInventoryAnchor, mergeBase: string): string[] {
+  if (anchor.expectEmpty === true) {
     return [];
   }
-  const source = loadAtRef(mergeBase, bucket.repoPath);
+  const source = loadAtRef(mergeBase, anchor.repoPath);
   if (source === undefined) {
     return [];
   }
-  return collectLeafTitles(source, bucket.options);
+  return collectLeafTitles(source, anchor.options);
 }
 
 function multisetParity(expected: string[], destination: string[]): { missing: string[]; surplus: string[] } {
@@ -471,6 +524,33 @@ describe("resume test title scanner", () => {
     ]);
   });
 
+  test("parses resume-path inventory anchors from inventory test source", () => {
+    const source = `
+      const SOURCE_BUCKETS = [
+        { label: "full", repoPath: "v2/src/execution/workflow-runner-resume.test.ts" },
+        {
+          label: "scoped",
+          repoPath: "v2/src/execution/workflow-runner-plan.test.ts",
+          options: { rootDescribe: "recoverPlanStage" },
+        },
+        { label: "empty", repoPath: "v2/src/execution/workflow-runner-publication.test.ts", expectEmpty: true },
+      ];
+    `;
+    expect(parseResumePathInventoryAnchors(source)).toEqual([
+      { label: "full", repoPath: "v2/src/execution/workflow-runner-resume.test.ts" },
+      {
+        label: "scoped",
+        repoPath: "v2/src/execution/workflow-runner-plan.test.ts",
+        options: { rootDescribe: "recoverPlanStage" },
+      },
+      {
+        label: "empty",
+        repoPath: "v2/src/execution/workflow-runner-publication.test.ts",
+        expectEmpty: true,
+      },
+    ]);
+  });
+
   test("multiset parity flags missing and surplus copies", () => {
     expect(multisetParity(["a", "b"], ["a"])).toEqual({ missing: ["b"], surplus: [] });
     expect(multisetParity(["a"], ["a", "a"])).toEqual({ missing: [], surplus: ["a"] });
@@ -485,22 +565,23 @@ describe("workflow-runner resume test inventory", () => {
   test("preserves merge-base resume-path leaf titles in workflow-runner-resume*.test.ts destinations", () => {
     const mergeBase = resolveMergeBase();
     const destinationTitles = collectDestinationLeafTitles();
+    const anchors = discoverResumePathInventoryAnchors(mergeBase);
 
-    for (const bucket of SOURCE_BUCKETS) {
-      const expected = collectExpectedTitles(bucket, mergeBase);
-      const { missing, surplus } = multisetParity(expected, destinationTitles);
+    for (const anchor of anchors) {
+      const expected = collectExpectedTitles(anchor, mergeBase);
+      const { missing } = multisetParity(expected, destinationTitles);
+
+      // Missing-only: surplus destination titles are allowed when co-located files split or grow.
       expect({
-        bucket: bucket.label,
+        bucket: anchor.label,
+        preservedCount: expected.length - missing.length,
         expectedCount: expected.length,
-        destinationCount: expected.length - missing.length,
         missing,
-        surplus,
       }).toEqual({
-        bucket: bucket.label,
+        bucket: anchor.label,
+        preservedCount: expected.length,
         expectedCount: expected.length,
-        destinationCount: expected.length,
         missing: [],
-        surplus: [],
       });
     }
   });

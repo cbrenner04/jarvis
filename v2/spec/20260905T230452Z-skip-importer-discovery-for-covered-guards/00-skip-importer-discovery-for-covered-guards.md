@@ -32,22 +32,22 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves a changed guard with sibling-only co-located coverage does not trigger importer discovery and never returns `importer-discovery-cap-exceeded` when its surface holds more than 200 `*.test.ts` files; fails against the always-union-then-cap resolver reachable on main today.
-- [ ] The >200 sibling-only regression asserts `listImporterCandidates` is never called (spy or call-count seam); fails against main today's always-union-then-cap resolver reachable on main today.
-- [ ] `v2/src/execution/diff-derived-mutation-verifier.test.ts` `returns importer-discovery-cap-exceeded without scoped execution when co-located coverage exists and discovery hits the cap` expects scoped execution on co-located tests only; fails against main today.
-- [ ] `v2/src/execution/diff-derived-mutation-verifier.test.ts` `runs scoped mutation execution on the deduplicated co-located ∪ direct-importer union and excludes unrelated tests` scopes only co-located killing tests for covered guards (direct importers excluded from the union); fails against main today because it currently expects `[directImporter, sibling]`.
-- [ ] `v2/src/execution/diff-derived-mutation-verifier.test.ts` `a changed guard whose only killing test is a non-sibling direct importer passes when that importer kills the mutation` uses empty co-located fixture (`excludeExactStem(true)`, no sibling `listDir`) and scopes only `directImporter`; fails against the co-located skip resolver when the fixture still includes implicit exact-stem coverage via default `importerFixtureReadFile()` (reachable on main today).
-- [ ] After refactoring `discovers only v2/src scan-root candidates, ignores transitive and cross-surface importers, and fails closed on cap exhaustion`, its scan-root prefix and transitive/cross-surface importer assertions stay green; cap exhaustion is covered by a dedicated empty-co-located block (not the refactored scan-root/transitive half).
-- [ ] `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves an uncovered guard with empty co-located resolution returns `importer-discovery-cap-exceeded` with zero scoped runs when a 201st scan-root candidate would be inspected; fails against a resolver that skips importer discovery unconditionally (reachable by inverting the co-located-empty guard in `resolveKillingTests`).
-- [ ] `v2/src/execution/diff-derived-mutation-verifier.test.ts` `reports missing-killing-test when neither co-located nor direct-importing tests exist` stays green.
-- [ ] `v2/src/execution/write-loop-input.ts` `KILLING_TEST_RULE` states co-located-first resolution (importer discovery only when co-located coverage is absent); `v2/src/execution/write.test.ts` implement and mutation-repair prompt pinning stays aligned; fails against main today's unconditional co-located ∪ direct-importer union wording.
-- [ ] `v2/docs/workflow-runner.md` documents that importer discovery runs only when co-located coverage is absent, the cap no longer blocks covered guards, and scoped execution for covered guards uses co-located tests only.
-- [ ] `v2/docs/operator-runbook.md` documents that flip-and-test recovery for `importer-discovery-cap-exceeded` no longer applies when co-located coverage is present.
-- [ ] `v2/docs/write-behavior.md` documents that importer discovery is not run for covered guards and cap prose reflects the co-located skip.
-- [ ] `v2/docs/v1-behaviors.md` records the corrected importer-discovery and cap behavior in the parity baseline.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves a changed guard with sibling-only co-located coverage does not trigger importer discovery and never returns `importer-discovery-cap-exceeded` when its surface holds more than 200 `*.test.ts` files; fails against the always-union-then-cap resolver reachable on main today.
+- [x] The >200 sibling-only regression asserts `listImporterCandidates` is never called (spy or call-count seam); fails against main today's always-union-then-cap resolver reachable on main today.
+- [x] `v2/src/execution/diff-derived-mutation-verifier.test.ts` `returns importer-discovery-cap-exceeded without scoped execution when co-located coverage exists and discovery hits the cap` expects scoped execution on co-located tests only; fails against main today.
+- [x] `v2/src/execution/diff-derived-mutation-verifier.test.ts` `runs scoped mutation execution on the deduplicated co-located ∪ direct-importer union and excludes unrelated tests` scopes only co-located killing tests for covered guards (direct importers excluded from the union); fails against main today because it currently expects `[directImporter, sibling]`.
+- [x] `v2/src/execution/diff-derived-mutation-verifier.test.ts` `a changed guard whose only killing test is a non-sibling direct importer passes when that importer kills the mutation` uses empty co-located fixture (`excludeExactStem(true)`, no sibling `listDir`) and scopes only `directImporter`; fails against the co-located skip resolver when the fixture still includes implicit exact-stem coverage via default `importerFixtureReadFile()` (reachable on main today).
+- [x] After refactoring `discovers only v2/src scan-root candidates, ignores transitive and cross-surface importers, and fails closed on cap exhaustion`, its scan-root prefix and transitive/cross-surface importer assertions stay green; cap exhaustion is covered by a dedicated empty-co-located block (not the refactored scan-root/transitive half).
+- [x] `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves an uncovered guard with empty co-located resolution returns `importer-discovery-cap-exceeded` with zero scoped runs when a 201st scan-root candidate would be inspected; fails against a resolver that skips importer discovery unconditionally (reachable by inverting the co-located-empty guard in `resolveKillingTests`).
+- [x] `v2/src/execution/diff-derived-mutation-verifier.test.ts` `reports missing-killing-test when neither co-located nor direct-importing tests exist` stays green.
+- [x] `v2/src/execution/write-loop-input.ts` `KILLING_TEST_RULE` states co-located-first resolution (importer discovery only when co-located coverage is absent); `v2/src/execution/write.test.ts` implement and mutation-repair prompt pinning stays aligned; fails against main today's unconditional co-located ∪ direct-importer union wording.
+- [x] `v2/docs/workflow-runner.md` documents that importer discovery runs only when co-located coverage is absent, the cap no longer blocks covered guards, and scoped execution for covered guards uses co-located tests only.
+- [x] `v2/docs/operator-runbook.md` documents that flip-and-test recovery for `importer-discovery-cap-exceeded` no longer applies when co-located coverage is present.
+- [x] `v2/docs/write-behavior.md` documents that importer discovery is not run for covered guards and cap prose reflects the co-located skip.
+- [x] `v2/docs/v1-behaviors.md` records the corrected importer-discovery and cap behavior in the parity baseline.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

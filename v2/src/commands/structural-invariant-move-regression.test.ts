@@ -11,7 +11,7 @@ const OWNER_SYMBOL_START = "export function prepareGuardedCall";
 const OWNER_SYMBOL_END = "export function otherOwnerHelper";
 
 /** Pre-fix path allowlist: skips allowed modules and never asserts owner presence. */
-export function pathPinnedAbsenceOnlyGuard(
+function pathPinnedAbsenceOnlyGuard(
   modules: ModuleSet,
   callPattern: RegExp,
   allowedPaths: ReadonlySet<string>,
@@ -23,12 +23,20 @@ export function pathPinnedAbsenceOnlyGuard(
   return true;
 }
 
-export type SymbolResolvedMoveGuardOptions = {
+type SymbolResolvedMoveGuardOptions = {
   ownerPath: string;
   adapterPaths: readonly string[];
   callPattern: RegExp;
   ownerSymbolStart: string;
   ownerSymbolEnd: string;
+};
+
+const MOVE_GUARD_OPTIONS: SymbolResolvedMoveGuardOptions = {
+  ownerPath: OWNER_PATH,
+  adapterPaths: [CONSUMER_PATH],
+  callPattern: GUARDED_CALL_PATTERN,
+  ownerSymbolStart: OWNER_SYMBOL_START,
+  ownerSymbolEnd: OWNER_SYMBOL_END,
 };
 
 /** Post-fix move guard: absence outside owner/adapters plus presence inside owner export slice. */
@@ -46,16 +54,6 @@ export function symbolResolvedMoveGuard(modules: ModuleSet, options: SymbolResol
   });
   if (!options.callPattern.test(ownerSlice)) return false;
   return true;
-}
-
-function moveGuardOptions(): SymbolResolvedMoveGuardOptions {
-  return {
-    ownerPath: OWNER_PATH,
-    adapterPaths: [CONSUMER_PATH],
-    callPattern: GUARDED_CALL_PATTERN,
-    ownerSymbolStart: OWNER_SYMBOL_START,
-    ownerSymbolEnd: OWNER_SYMBOL_END,
-  };
 }
 
 function modulesWithSymbolInOwner(): ModuleSet {
@@ -84,11 +82,11 @@ describe("structural invariant move regression", () => {
     const inOwner = modulesWithSymbolInOwner();
     const ownerOnlyAllowlist = new Set([OWNER_PATH]);
     expect(pathPinnedAbsenceOnlyGuard(inOwner, GUARDED_CALL_PATTERN, ownerOnlyAllowlist)).toBe(true);
-    expect(symbolResolvedMoveGuard(inOwner, moveGuardOptions())).toBe(true);
+    expect(symbolResolvedMoveGuard(inOwner, MOVE_GUARD_OPTIONS)).toBe(true);
 
     const movedToSibling = modulesWithSymbolMovedToSibling();
     const brittleAllowlist = new Set([OWNER_PATH, SIBLING_PATH]);
     expect(pathPinnedAbsenceOnlyGuard(movedToSibling, GUARDED_CALL_PATTERN, brittleAllowlist)).toBe(true);
-    expect(symbolResolvedMoveGuard(movedToSibling, moveGuardOptions())).toBe(false);
+    expect(symbolResolvedMoveGuard(movedToSibling, MOVE_GUARD_OPTIONS)).toBe(false);
   });
 });

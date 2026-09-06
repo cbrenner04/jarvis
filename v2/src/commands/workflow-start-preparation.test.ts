@@ -22,9 +22,6 @@ const PREPARE_CALL_PATTERN = /prepareWorkflowStart(?:<[^>]*>)?\s*\(/;
 const HAND_MAINTAINED_BASE_WORKFLOW_NAMES = ["intent", "plan", "implement"];
 const HAND_MAINTAINED_REVIEW_POSTURES = ["none", "light", "debate"];
 
-/** Pre-fix path allowlist for prepareWorkflowStart; passes when the call moves to a sibling module. */
-const HAND_MAINTAINED_PREPARE_CALL_ALLOWED_PATHS = new Set([OWNER_PATH, PIPELINE_ADAPTER_PATH, CLI_ADAPTER_PATH]);
-
 type ModuleSet = Readonly<Record<string, string>>;
 
 function productionSourceMap(): ModuleSet {
@@ -41,13 +38,6 @@ function productionSourceMap(): ModuleSet {
   };
   walk(join(REPO_ROOT, "v2/src"), "v2/src");
   return sources;
-}
-
-function discoverPrepareCallPaths(modules: ModuleSet): string[] {
-  return Object.entries(modules)
-    .filter(([, source]) => PREPARE_CALL_PATTERN.test(source))
-    .map(([path]) => path)
-    .sort();
 }
 
 describe("workflow-start preparation authority", () => {
@@ -111,7 +101,6 @@ describe("workflow-start preparation authority", () => {
       start: "const WORKFLOW_POSTURE_PRESETS",
       end: "export function isBaseWorkflowName",
     });
-    expect(postureTableSlice).toMatch(/const\s+WORKFLOW_POSTURE_PRESETS\b/);
     expect(postureTableSlice).toMatch(/intent\s*:\s*\{\s*none\s*:\s*["']intent["']/);
 
     const realizabilitySlice = locateSymbolSlice({
@@ -119,7 +108,6 @@ describe("workflow-start preparation authority", () => {
       start: "export function isUnrealizableWorkflowReview",
       end: "export async function prepareWorkflowStart",
     });
-    expect(realizabilitySlice).toMatch(/function\s+isUnrealizableWorkflowReview\s*\(/);
     expect(realizabilitySlice).toMatch(/resolveWorkflowPresetName\(workflow, review\) === undefined/);
 
     const definitionSource = locateDiscoveredFile(modules, "v2/src/execution/pipeline-definition.ts");
@@ -133,23 +121,24 @@ describe("workflow-start preparation authority", () => {
 
   test("production prepared-step assembly lives only in shared preparation and the pipeline adapter", () => {
     const modules = productionSourceMap();
-    const prepareCallPaths = discoverPrepareCallPaths(modules);
+    const prepareCallPaths = Object.entries(modules)
+      .filter(([, source]) => PREPARE_CALL_PATTERN.test(source))
+      .map(([path]) => path)
+      .sort();
     expect(prepareCallPaths).toContain(OWNER_PATH);
     expect(prepareCallPaths).toContain(PIPELINE_ADAPTER_PATH);
     expect(prepareCallPaths).toContain(CLI_ADAPTER_PATH);
     expect(prepareCallPaths).not.toEqual([OWNER_PATH, PIPELINE_ADAPTER_PATH]);
 
-    const adapterPaths = prepareCallPaths.filter((path) => path !== OWNER_PATH);
     expect(
       symbolResolvedMoveGuard(modules, {
         ownerPath: OWNER_PATH,
-        adapterPaths,
+        adapterPaths: prepareCallPaths.filter((path) => path !== OWNER_PATH),
         callPattern: PREPARE_CALL_PATTERN,
         ownerSymbolStart: "export async function prepareWorkflowStart",
         ownerSymbolEnd: "return prepared;",
       }),
     ).toBe(true);
-    expect(HAND_MAINTAINED_PREPARE_CALL_ALLOWED_PATHS.has(CLI_ADAPTER_PATH)).toBe(true);
 
     const forbiddenResolverAssembly = [
       /stampWorkflowStepsWithMachineConfig\s*\(/,

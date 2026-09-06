@@ -74,19 +74,16 @@ function commandTreeLeafPaths(node: CommandNode, prefix: readonly string[] = [])
   return children.flatMap((child) => commandTreeLeafPaths(child, [...prefix, child.name]));
 }
 
-function hasParserSurface(path: readonly string[]): boolean {
-  try {
-    parserAcceptedLongFlags(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export function parityGuardedPaths(): readonly (readonly string[])[] {
   return commandTreeLeafPaths(commandTree).filter((path) => {
     const node = nodeAtPath(path);
-    return (node.flags?.length ?? 0) > 0 && hasParserSurface(path);
+    if ((node.flags?.length ?? 0) === 0) return false;
+    try {
+      parserAcceptedLongFlags(path);
+      return true;
+    } catch {
+      return false;
+    }
   });
 }
 

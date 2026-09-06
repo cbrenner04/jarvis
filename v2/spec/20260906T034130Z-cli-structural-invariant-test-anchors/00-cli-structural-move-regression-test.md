@@ -18,7 +18,7 @@ CLI re-key work can replace path pins with equally brittle path pins that pass w
 
 - [x] `v2/src/commands/structural-invariant-move-regression.test.ts` test `re-keyed move guard fails on fixed path allowlist and passes when symbol moves to sibling module` fails against a path-pinned allowlist helper reachable on main and passes after symbol-resolved pairing; it fails against the pre-fix path pin.
 - [x] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `bun run test:v2` passes.
 - [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates

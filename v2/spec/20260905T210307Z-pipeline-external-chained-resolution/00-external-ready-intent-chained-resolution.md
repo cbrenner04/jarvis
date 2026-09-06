@@ -33,7 +33,7 @@ Daemon: `locateAbsentWorktreeDownstreamInputReadRoot` and chained ready-intent v
 - [x] `pipeline-stage-resolve.test.ts` — `plan stage resolves through real preset builders when ready-intent exists only on git-disabled intent workspace` stays green.
 - [x] `pipeline-stage-resolve.test.ts` — `plan stage resolves through real preset builders when ready-intent exists only on intent worktree` stays green.
 - [x] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `bun run test:v2` passes.
 - [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates

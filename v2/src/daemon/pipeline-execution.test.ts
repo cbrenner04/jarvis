@@ -5724,13 +5724,35 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     };
   }
 
-  async function advanceBasePastWorktree(worktreePath: string): Promise<void> {
-    writeFileSync(join(projectRoot, "base-advance.md"), "advance\n");
-    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
-    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "advance main"], projectRoot);
+  /**
+   * Advance `baseRef` itself past `worktreePath`'s HEAD so the worktree stops being a descendant of
+   * its own base. Committing on `projectRoot`'s checked-out branch is not enough: the plan lane's
+   * base is `intentBranch`, so advancing the default branch leaves
+   * `merge-base --is-ancestor intentBranch <worktreeHead>` true and never arms the descendant gate.
+   */
+  async function advanceBasePastWorktree(
+    worktreePath: string,
+    baseWorktreePath: string,
+    baseRef: string,
+  ): Promise<void> {
+    writeFileSync(join(baseWorktreePath, "base-advance.md"), "advance\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], baseWorktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "advance base"], baseWorktreePath);
     const worktreeHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
-    const baseHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], projectRoot)).trim();
+    const baseHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", baseRef], projectRoot)).trim();
     expect(worktreeHead).not.toBe(baseHead);
+    // Assert non-descendance directly; differing heads is not the condition the gate reads.
+    let baseIsAncestor = true;
+    try {
+      await realAsyncSubprocessRunner.runAsync(
+        "git",
+        ["merge-base", "--is-ancestor", baseRef, worktreeHead],
+        projectRoot,
+      );
+    } catch {
+      baseIsAncestor = false;
+    }
+    expect(baseIsAncestor).toBe(false);
   }
 
   function managedWorktree(branchName: string, baseRef: string): NonNullable<WriteWorkflowStep["worktree"]> {
@@ -6495,7 +6517,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     const intentWorktree = await materializeWorktree(intentBranch);
     await seedIntentReadyIntent(intentWorktree);
     const planWorktree = await materializeWorktree(planBranch, intentBranch);
-    await advanceBasePastWorktree(planWorktree);
+    await advanceBasePastWorktree(planWorktree, intentWorktree, intentBranch);
     mkdirSync(join(planWorktree, ".jarvis-plan-stage"), { recursive: true });
     writeFileSync(
       join(planWorktree, ".jarvis-plan-stage", "intent.md"),
@@ -6783,7 +6805,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     }
   });
 
-  // @mutate v2/src/daemon/pipeline-execution.ts "laneHasOpenDraftPr" -> "async () => false"
+  // @mutate v2/src/commands/cleanup.ts "if (prGate.status !== \"ok\" || prGate.pr !== undefined) {" -> "if (prGate.status !== \"ok\") {"
   test("pipeline resume refuses operator blocker on live draft PR", async () => {
     const intentWorktree = await materializeWorktree(intentBranch);
     await seedIntentReadyIntent(intentWorktree);
@@ -7123,9 +7145,6 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     const intentWorktree = await materializeWorktree(intentBranch);
     await seedIntentReadyIntent(intentWorktree);
     const planWorktree = await materializeWorktree(planBranch, intentBranch);
-    writeFileSync(join(planWorktree, "impl.txt"), "implementation\n");
-    await realAsyncSubprocessRunner.runAsync("git", ["add", "impl.txt"], planWorktree);
-    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "unlanded implementation"], planWorktree);
     writeFileSync(
       join(planWorktree, "spec", "plan", "index.md"),
       "# Plan\n\n## Acceptance criteria\n\n- [x] Keep work\n",
@@ -7157,12 +7176,18 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
           },
           wait: async () => "completed",
           resolveStage: fixedPlanStepResolver("spec/plan/index.md"),
-          staleResetPreflight: staleResetBundle(rpc, {
-            stdout: () => {},
-            stderr: (text) => {
-              stderr += text;
+          staleResetPreflight: staleResetBundle(
+            rpc,
+            {
+              stdout: () => {},
+              stderr: (text) => {
+                stderr += text;
+              },
             },
-          }),
+            // An open draft PR keeps this lane out of never-landed classification, so disposal does
+            // not bypass the landed-criteria gate this test exists to pin.
+            ghPrListRunner([{ number: 99, isDraft: true }]),
+          ),
         },
         { resetDespiteDirty: true },
       );
@@ -7170,8 +7195,10 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
       expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
       expect(dispatched).toBe(false);
       expect(existsSync(planWorktree)).toBe(true);
-      expect(stderr).toContain("hand-finish");
-      expect((stageRecord(stages(), "plan")?.failureDetail as { message?: string })?.message).toContain("hand-finish");
+      expect(stderr).toContain("acceptance criteria ticked");
+      expect((stageRecord(stages(), "plan")?.failureDetail as { message?: string })?.message).toContain(
+        "acceptance criteria ticked",
+      );
     } finally {
       rpc.close();
     }
@@ -7189,9 +7216,6 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     const intentWorktree = await materializeWorktree(intentBranch);
     await seedIntentReadyIntent(intentWorktree);
     const planWorktree = await materializeWorktree(planBranch, intentBranch);
-    writeFileSync(join(planWorktree, "impl.txt"), "implementation\n");
-    await realAsyncSubprocessRunner.runAsync("git", ["add", "impl.txt"], planWorktree);
-    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "unlanded implementation"], planWorktree);
     mkdirSync(join(planWorktree, ".jarvis-plan-stage"), { recursive: true });
     writeFileSync(join(planWorktree, ".jarvis-plan-stage", "draft.md"), "draft\n", "utf8");
     writeFileSync(
@@ -7223,19 +7247,27 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
         },
         wait: async () => "completed",
         resolveStage: fixedPlanStepResolver("spec/plan/index.md"),
-        staleResetPreflight: staleResetBundle(rpc, {
-          stdout: () => {},
-          stderr: (text) => {
-            stderr += text;
+        staleResetPreflight: staleResetBundle(
+          rpc,
+          {
+            stdout: () => {},
+            stderr: (text) => {
+              stderr += text;
+            },
           },
-        }),
+          // An open draft PR keeps this lane out of never-landed classification, so disposal does
+          // not bypass the landed-criteria gate this test exists to pin.
+          ghPrListRunner([{ number: 99, isDraft: true }]),
+        ),
       });
 
       expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
       expect(dispatched).toBe(false);
       expect(existsSync(planWorktree)).toBe(true);
-      expect(stderr).toContain("hand-finish");
-      expect((stageRecord(stages(), "plan")?.failureDetail as { message?: string })?.message).toContain("hand-finish");
+      expect(stderr).toContain("acceptance criteria ticked");
+      expect((stageRecord(stages(), "plan")?.failureDetail as { message?: string })?.message).toContain(
+        "acceptance criteria ticked",
+      );
     } finally {
       rpc.close();
     }

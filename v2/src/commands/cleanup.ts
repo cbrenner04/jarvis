@@ -2014,7 +2014,7 @@ async function gateOnOpenPrs(
   return { status: "ok", pr };
 }
 
-export type NeverLandedLaneClassification = { neverLanded: true } | { neverLanded: false };
+export type NeverLandedLaneClassification = { neverLanded: boolean };
 
 /** Structural never-landed: no open PR and no unpushed commits whose paths leave harness workflow staging. */
 export async function classifyNeverLandedLane(
@@ -2038,19 +2038,6 @@ export async function classifyNeverLandedLane(
     return { neverLanded: true };
   } catch {
     return { neverLanded: false };
-  }
-}
-
-export async function laneHasOpenDraftPr(
-  projectRoot: string,
-  branch: string,
-  runner: AsyncSubprocessRunner,
-): Promise<boolean> {
-  try {
-    const prGate = await gateOnOpenPrs(branch, runner, projectRoot);
-    return prGate.status === "ok" && prGate.pr !== undefined;
-  } catch {
-    return false;
   }
 }
 

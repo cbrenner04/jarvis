@@ -18,6 +18,32 @@ type SuccessfulWorkflowBuild = Extract<WorkflowPresetBuilderResult, { ok: true }
 /** Incomplete re-run stale reset applies to implement, plan, and intent (intent-reviewed shares the preset). */
 export const STALE_RESET_WORKFLOWS = new Set(["implement", "plan", "intent"]);
 
+/**
+ * Assemble `resetStaleWorkspace` options. Extracted so `maybeResetStaleWorkspace` stays under
+ * biome's cognitive-complexity limit: the two conditional spreads are the branching that pushed it
+ * over when `disposableLane` was threaded through.
+ */
+function buildResetStaleWorkspaceOptions(args: {
+  skipDirtyWorktreeGate: boolean;
+  skipLandedCriteriaGate: boolean;
+  baseRef: string | undefined;
+  writeStep: SuccessfulWorkflowBuild["steps"][number] | undefined;
+  parsed: Record<string, unknown>;
+}): ResetStaleWorkspaceOptions {
+  const { skipDirtyWorktreeGate, skipLandedCriteriaGate, baseRef, writeStep, parsed } = args;
+  const carriesSpecPath =
+    writeStep?.behavior === "write" && writeStep.specPath !== undefined && writeStep.externalPlanSpec !== true;
+  const specPath = carriesSpecPath && writeStep?.behavior === "write" ? writeStep.specPath : undefined;
+  const disposableLane = parsed.disposableLane === true;
+  return {
+    skipDirtyWorktreeGate,
+    skipLandedCriteriaGate,
+    ...(baseRef !== undefined ? { baseRef } : {}),
+    ...(specPath !== undefined ? { specPath } : {}),
+    ...(disposableLane ? { disposableLane: true } : {}),
+  };
+}
+
 export async function maybeResetStaleWorkspace(
   canonicalName: string,
   built: SuccessfulWorkflowBuild,
@@ -42,15 +68,13 @@ export async function maybeResetStaleWorkspace(
   if (!(worktree?.git !== false && worktree?.projectRoot && worktree.projectName && worktree.branchName)) {
     return undefined;
   }
-  const resetOptions: ResetStaleWorkspaceOptions = {
+  const resetOptions = buildResetStaleWorkspaceOptions({
     skipDirtyWorktreeGate,
     skipLandedCriteriaGate,
     baseRef: worktree.baseRef,
-    ...(writeStep?.behavior === "write" && writeStep.specPath !== undefined && writeStep.externalPlanSpec !== true
-      ? { specPath: writeStep.specPath }
-      : {}),
-    ...("disposableLane" in parsed && parsed.disposableLane === true ? { disposableLane: true } : {}),
-  };
+    writeStep,
+    parsed,
+  });
   // Runs inside the connected dispatch scope, so an escaping throw would otherwise be reported as a
   // daemon connection error. Classify reset failures here instead.
   let resetResult: Awaited<ReturnType<typeof resetStaleWorkspace>>;

@@ -3,11 +3,7 @@ import { basename, join, resolve } from "node:path";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
-import {
-  listDirtyWorktreePathsForStaleReset,
-  classifyNeverLandedLane,
-  laneHasOpenDraftPr,
-} from "../commands/cleanup.ts";
+import { classifyNeverLandedLane, listDirtyWorktreePathsForStaleReset } from "../commands/cleanup.ts";
 import { maybeResetStaleWorkspace } from "../commands/stale-reset-workspace.ts";
 import type { WorkflowStartResetFlags } from "../commands/workflow-start-preparation.ts";
 import { stampWorkflowStepsWithMachineConfig } from "../commands/workflow-step-config-stamp.ts";
@@ -1788,13 +1784,6 @@ async function refuseReopenedPlanOperatorBlockerWithGit(
 
   const blocker = stagedPlanOperatorBlocker(steps);
   if (blocker === undefined) return { ok: true };
-
-  if (worktree?.projectRoot !== undefined && worktree.branchName !== undefined) {
-    const draftPr = await laneHasOpenDraftPr(worktree.projectRoot, worktree.branchName, runner);
-    if (draftPr) {
-      return refusePlanOperatorBlockerMessage(blocker, args, capture);
-    }
-  }
 
   if (worktree?.projectRoot !== undefined && worktree.branchName !== undefined && worktree.baseRef !== undefined) {
     const classification = await classifyNeverLandedLane(

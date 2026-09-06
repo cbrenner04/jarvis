@@ -63,6 +63,7 @@ export type LoopFinishedEvent = {
   readyGateRepairCount?: number;
   completedSubspecPaths?: string[];
   remainingSubspecPaths?: string[];
+  inventoryError?: string;
 };
 
 type LogLoopFinishedEvent =

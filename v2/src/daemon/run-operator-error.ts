@@ -65,6 +65,7 @@ export type RunOperatorError = {
   contractMissDetail?: string;
   completedSubspecPaths?: string[];
   remainingSubspecPaths?: string[];
+  inventoryError?: string;
   requestedBase?: string;
   resolvedBase?: string;
 };
@@ -288,6 +289,7 @@ function mapFromLoopFinished(
         ...base,
         ...(event.completedSubspecPaths !== undefined ? { completedSubspecPaths: event.completedSubspecPaths } : {}),
         ...(event.remainingSubspecPaths !== undefined ? { remainingSubspecPaths: event.remainingSubspecPaths } : {}),
+        ...(event.inventoryError !== undefined ? { inventoryError: event.inventoryError } : {}),
         ...(event.publicationFailure !== undefined ? { publicationFailure: event.publicationFailure } : {}),
       };
     }

@@ -36,22 +36,22 @@ execution-loop — `buildSubspecCompletionInventory` and `iteration_timeout` res
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts` `buildSubspecCompletionInventory classifies linked subspecs when projectRoot differs from worktreePath` fails against the pre-fix `repoRelativeSubspecPath(projectRoot, …)` returning `undefined` for every entry.
-- [ ] `write-loop.test.ts` `buildSubspecCompletionInventory reports repo-relative paths when projectRoot differs from worktreePath` fails against the pre-fix empty inventory.
-- [ ] `write-loop.test.ts` `buildSubspecCompletionInventory surfaces inventoryError for unrelativizable subspec paths` fails against the pre-fix per-entry `continue`; fixture uses an index link whose resolved absolute path escapes `worktreePath` relativization.
-- [ ] `write-loop.test.ts` `buildSubspecCompletionInventory surfaces inventoryError when index build throws` fails against the pre-fix outer `catch` returning empty lists.
-- [ ] `write-loop.test.ts` `iteration_timeout with one completed subspec is resumable` uses `projectRoot !== worktreePath` (production git-enabled layout) and fails against the pre-fix empty-inventory settlement; it settles `resumable: true` with that subspec in `completedSubspecPaths`.
-- [ ] `write-loop.test.ts` `committedResult echoes recomputed iteration_timeout inventory with divergent roots` fails against pre-fix re-entry that passes collapsed roots or drops `inventoryError`; when resolution fails it echoes `inventoryError` on `WriteLoopResult`, when `hasCompletedSubspec` is true it returns `null`.
-- [ ] `write-loop.test.ts` `buildSubspecCompletionInventory yields empty lists without inventoryError for zero linked subspecs` stays green.
-- [ ] `run-operator-error.test.ts` `composeRunOperatorError projects iteration_timeout inventoryError` fails against baseline `mapFromLoopFinished` that omits `inventoryError`; composed error carries `inventoryError` from the terminal `loop_finished` row.
-- [ ] `v2/docs/operator-runbook.md` documents that `iteration_timeout with completed subspecs` recovery is reachable on managed worktrees and that empty `completedSubspecPaths` with `inventoryError` is an inventory-resolution failure, not proof of no progress.
-- [ ] `v2/docs/write-behavior.md` documents inventory root resolution against the worktree, the `inventoryError` named-failure contract, and the distinction from genuinely zero linked subspecs.
-- [ ] `v2/docs/workflow-runner.md` documents conditional `iteration_timeout` resumability when completed subspecs exist; retires the line that timeout always ends non-resumable.
-- [ ] `v2/docs/v1-behaviors.md` records inventory relativization against the worktree root and `inventoryError` surfacing on terminal `iteration_timeout` and daemon projection.
-- [ ] `v2/docs/daemon-host.md` documents `inventoryError` on `list`/`wait` for `iteration_timeout` alongside existing resumability and completion-inventory projection.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `write-loop.test.ts` `buildSubspecCompletionInventory classifies linked subspecs when projectRoot differs from worktreePath` fails against the pre-fix `repoRelativeSubspecPath(projectRoot, …)` returning `undefined` for every entry.
+- [x] `write-loop.test.ts` `buildSubspecCompletionInventory reports repo-relative paths when projectRoot differs from worktreePath` fails against the pre-fix empty inventory.
+- [x] `write-loop.test.ts` `buildSubspecCompletionInventory surfaces inventoryError for unrelativizable subspec paths` fails against the pre-fix per-entry `continue`; fixture uses an index link whose resolved absolute path escapes `worktreePath` relativization.
+- [x] `write-loop.test.ts` `buildSubspecCompletionInventory surfaces inventoryError when index build throws` fails against the pre-fix outer `catch` returning empty lists.
+- [x] `write-loop.test.ts` `iteration_timeout with one completed subspec is resumable` uses `projectRoot !== worktreePath` (production git-enabled layout) and fails against the pre-fix empty-inventory settlement; it settles `resumable: true` with that subspec in `completedSubspecPaths`.
+- [x] `write-loop.test.ts` `committedResult echoes recomputed iteration_timeout inventory with divergent roots` fails against pre-fix re-entry that passes collapsed roots or drops `inventoryError`; when resolution fails it echoes `inventoryError` on `WriteLoopResult`, when `hasCompletedSubspec` is true it returns `null`.
+- [x] `write-loop.test.ts` `buildSubspecCompletionInventory yields empty lists without inventoryError for zero linked subspecs` stays green.
+- [x] `run-operator-error.test.ts` `composeRunOperatorError projects iteration_timeout inventoryError` fails against baseline `mapFromLoopFinished` that omits `inventoryError`; composed error carries `inventoryError` from the terminal `loop_finished` row.
+- [x] `v2/docs/operator-runbook.md` documents that `iteration_timeout with completed subspecs` recovery is reachable on managed worktrees and that empty `completedSubspecPaths` with `inventoryError` is an inventory-resolution failure, not proof of no progress.
+- [x] `v2/docs/write-behavior.md` documents inventory root resolution against the worktree, the `inventoryError` named-failure contract, and the distinction from genuinely zero linked subspecs.
+- [x] `v2/docs/workflow-runner.md` documents conditional `iteration_timeout` resumability when completed subspecs exist; retires the line that timeout always ends non-resumable.
+- [x] `v2/docs/v1-behaviors.md` records inventory relativization against the worktree root and `inventoryError` surfacing on terminal `iteration_timeout` and daemon projection.
+- [x] `v2/docs/daemon-host.md` documents `inventoryError` on `list`/`wait` for `iteration_timeout` alongside existing resumability and completion-inventory projection.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

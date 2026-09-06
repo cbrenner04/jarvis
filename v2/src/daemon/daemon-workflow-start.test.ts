@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { StructuralTestLocatorError } from "../../../shared/structural-test-locator.ts";
 import { implementReviewPromptProfile } from "../../../shared/prompts/review-implement.ts";
 import {
   implementReviewProfile,
@@ -37,6 +38,119 @@ import {
 } from "./daemon.ts";
 
 const { createWriteStep } = writeStepFixtures();
+
+type ModuleSet = Readonly<Record<string, string>>;
+
+function listDaemonProductionSourceTexts(): string[] {
+  const sources: string[] = [];
+  const walk = (absDir: string): void => {
+    for (const entry of readdirSync(absDir, { withFileTypes: true })) {
+      const abs = join(absDir, entry.name);
+      if (entry.isDirectory()) {
+        walk(abs);
+      } else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) {
+        sources.push(readFileSync(abs, "utf8"));
+      }
+    }
+  };
+  walk(import.meta.dir);
+  return sources;
+}
+
+function extractAdmitWorkflowStartCallSites(source: string): string[] {
+  const sites: string[] = [];
+  let from = 0;
+  while (true) {
+    const start = source.indexOf("admitWorkflowStart({", from);
+    if (start === -1) break;
+    let depth = 0;
+    const braceStart = source.indexOf("{", start);
+    let end = braceStart;
+    for (; end < source.length; end++) {
+      const ch = source[end];
+      if (ch === "{") depth++;
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) {
+          sites.push(source.slice(start, end + 1));
+          from = end + 1;
+          break;
+        }
+      }
+    }
+    if (depth !== 0) throw new Error("unclosed admitWorkflowStart call site");
+  }
+  return sites;
+}
+
+function collectAdmitWorkflowStartCallSites(sources: readonly string[]): string[] {
+  return sources.flatMap((source) => extractAdmitWorkflowStartCallSites(source));
+}
+
+/** Pre-fix handler symbol-name section pins; red-gates when handlers are renamed but routing holds. */
+export function symbolPinnedAdmissionGuard(modules: ModuleSet): boolean {
+  const sources = Object.values(modules);
+  const section = (start: string, end: string): string => {
+    const owner = sources.find((text) => text.includes(start));
+    if (owner === undefined) return "";
+    const from = owner.indexOf(start);
+    const toIndex = owner.indexOf(end, from);
+    return owner.slice(from, toIndex === -1 ? undefined : toIndex);
+  };
+  const workflowStart = section("const handleWorkflowStart", "const nextHandler");
+  const pipelineRecovery = section("const pipeline_recover", "const pipeline_dismiss");
+  if (!workflowStart.includes("return admitWorkflowStart({")) return false;
+  if (!pipelineRecovery.includes("return admitWorkflowStart({")) return false;
+  if (pipelineRecovery.includes("_registry.claim(")) return false;
+  if (pipelineRecovery.includes("checkMemoryHeadroom(")) return false;
+  if (pipelineRecovery.includes("activeRuns.set(")) return false;
+  const pipelineDispatch = section("const defaultPipelineDispatch", "const defaultPipelineWait");
+  return pipelineDispatch.includes("handleWorkflowStart(steps)");
+}
+
+function locateAdmitWorkflowStartDefinition(sources: readonly string[]): string {
+  const owner = sources.find((text) => text.includes("const admitWorkflowStart = async"));
+  if (owner === undefined) {
+    throw new StructuralTestLocatorError("symbol-slice", "admitWorkflowStart");
+  }
+  const start = owner.indexOf("const admitWorkflowStart = async");
+  let depth = 0;
+  const bodyStart = owner.indexOf("{", start);
+  for (let index = bodyStart; index < owner.length; index++) {
+    const ch = owner[index];
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return owner.slice(start, index + 1);
+    }
+  }
+  throw new StructuralTestLocatorError("symbol-slice", "admitWorkflowStart body");
+}
+
+export function assertDaemonWorkflowStartAdmissionRouting(sources: readonly string[]): void {
+  const admitDefinition = locateAdmitWorkflowStartDefinition(sources);
+  expect(admitDefinition).toContain("registry.claim(");
+  expect(admitDefinition).toContain("checkMemoryHeadroom()");
+  expect(admitDefinition).toContain("activeRuns.set(");
+
+  const callSites = collectAdmitWorkflowStartCallSites(sources);
+  expect(callSites).toHaveLength(2);
+  const workflowAdmission = callSites.find((site) => site.includes("workflow: true"));
+  const recoveryAdmission = callSites.find((site) => !site.includes("workflow: true"));
+  expect(workflowAdmission).toBeDefined();
+  expect(workflowAdmission).toContain('kind: "workflow"');
+  expect(workflowAdmission).toContain("admitWorkflowStart({");
+  expect(recoveryAdmission).toBeDefined();
+  expect(recoveryAdmission).toContain("admitWorkflowStart({");
+  expect(recoveryAdmission).not.toContain("_registry.claim(");
+  expect(recoveryAdmission).not.toContain("checkMemoryHeadroom(");
+  expect(recoveryAdmission).not.toContain("activeRuns.set(");
+
+  const pipelineDispatchSlice = sources
+    .map((source) => source.match(/async\s*\(\s*steps\s*\)\s*=>\s*\{[\s\S]*?\w+\(\s*steps\s*\)/)?.[0])
+    .find((slice) => slice !== undefined);
+  expect(pipelineDispatchSlice).toBeDefined();
+}
 
 /** Stays live until the workflow step signal aborts (daemon kill path). */
 const heldLiveBindingFactory =
@@ -146,33 +260,59 @@ beforeEach(() => {
 });
 
 test("workflow starts, pipeline dispatch, and recovery share daemon admission", () => {
-  // Run-control handlers are being extracted into sibling modules, so locate each section by its
-  // declaration in whichever module currently owns it rather than assuming one file.
-  const sources = [
-    "daemon.ts",
-    "daemon-run-lifecycle-handlers.ts",
-    "daemon-workflow-admission-handlers.ts",
-    "daemon-pipeline-handlers.ts",
-  ].map((name) => readFileSync(join(import.meta.dir, name), "utf8"));
-  const section = (start: string, end: string): string => {
-    const owner = sources.find((text) => text.includes(start));
-    if (owner === undefined) throw new Error(`no daemon module declares ${start}`);
-    const from = owner.indexOf(start);
-    const toIndex = owner.indexOf(end, from);
-    return owner.slice(from, toIndex === -1 ? undefined : toIndex);
-  };
-  const source = sources.join("\n");
-  const workflowStart = section("const handleWorkflowStart", "const handleWriteLoopStart");
-  const pipelineDispatch = section("const defaultPipelineDispatch", "const defaultPipelineWait");
-  const pipelineRecovery = section("const pipeline_recover", "const pipeline_dismiss");
+  assertDaemonWorkflowStartAdmissionRouting(listDaemonProductionSourceTexts());
+});
 
-  expect(source).toContain("const admitWorkflowStart");
-  expect(workflowStart).toContain("return admitWorkflowStart({");
-  expect(pipelineDispatch).toContain("handleWorkflowStart(steps)");
-  expect(pipelineRecovery).toContain("return admitWorkflowStart({");
-  expect(pipelineRecovery).not.toContain("_registry.claim(");
-  expect(pipelineRecovery).not.toContain("checkMemoryHeadroom(");
-  expect(pipelineRecovery).not.toContain("activeRuns.set(");
+test("admission routing survives handler symbol rename when admitWorkflowStart call sites are unchanged", () => {
+  const admissionOwner = [
+    "const admitWorkflowStart = async (lifecycle) => {",
+    "  registry.claim(lifecycle.key, lifecycle.ownership);",
+    "  if (!checkMemoryHeadroom()) return { kind: 'error' };",
+    "  activeRuns.set(lifecycle.activeKey, lifecycle.activeRun);",
+    "  return lifecycle.execute();",
+    "};",
+    "const handleWorkflowStart = (steps) => {",
+    "  return admitWorkflowStart({",
+    "    ownership: { workflow: true },",
+    '    activeRun: { kind: "workflow" },',
+    "    execute: () => startWorkflowRun(steps),",
+    "  });",
+    "};",
+    "const nextHandler = () => {};",
+    "const pipeline_recover = () => {",
+    "  return admitWorkflowStart({",
+    '    activeRun: { kind: "recovery" },',
+    "    execute: () => recover(),",
+    "  });",
+    "};",
+    "const pipeline_dismiss = () => {};",
+  ].join("\n");
+  const dispatchAdapter = [
+    "const defaultPipelineDispatch = async (steps) => {",
+    "  const started = await handleWorkflowStart(steps);",
+    "  return { ok: started.kind !== 'error' };",
+    "};",
+    "const defaultPipelineWait = async () => 'failed';",
+  ].join("\n");
+  const withOriginalNames: ModuleSet = {
+    "daemon-workflow-admission-handlers.ts": admissionOwner,
+    "daemon-run-lifecycle-handlers.ts": dispatchAdapter,
+  };
+  expect(symbolPinnedAdmissionGuard(withOriginalNames)).toBe(true);
+  assertDaemonWorkflowStartAdmissionRouting(Object.values(withOriginalNames));
+
+  const renamedAdmissionOwner = admissionOwner
+    .replace("const handleWorkflowStart", "const renamedHandleWorkflowStart")
+    .replace("const nextHandler", "const handleWriteLoopStart");
+  const renamedDispatchAdapter = dispatchAdapter
+    .replace("defaultPipelineDispatch", "pipelineStageDispatch")
+    .replace("handleWorkflowStart(steps)", "renamedHandleWorkflowStart(steps)");
+  const withRenamedHandlers: ModuleSet = {
+    "daemon-workflow-admission-handlers.ts": renamedAdmissionOwner,
+    "daemon-run-lifecycle-handlers.ts": renamedDispatchAdapter,
+  };
+  expect(symbolPinnedAdmissionGuard(withRenamedHandlers)).toBe(false);
+  assertDaemonWorkflowStartAdmissionRouting(Object.values(withRenamedHandlers));
 });
 
 afterEach(async () => {

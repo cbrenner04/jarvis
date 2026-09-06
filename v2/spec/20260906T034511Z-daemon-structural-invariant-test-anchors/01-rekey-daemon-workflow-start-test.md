@@ -12,16 +12,16 @@ Row `dm-workflow-start-admission-seam` in `v2/docs/structural-invariant-test-aud
 
 ## Task checklist
 
-- [ ] Re-key audit row `dm-workflow-start-admission-seam` per the decision ledger.
-- [ ] Replace local `section()` with shared loud-failure symbol slicing.
-- [ ] Add a regression case that survives handler symbol rename when admission routing is unchanged.
+- [x] Re-key audit row `dm-workflow-start-admission-seam` per the decision ledger.
+- [x] Replace local `section()` with shared loud-failure symbol slicing.
+- [x] Add a regression case that survives handler symbol rename when admission routing is unchanged.
 
 ## Acceptance criteria
 
-- [ ] `daemon-workflow-start.test.ts` test `workflow starts, pipeline dispatch, and recovery share daemon admission` derives admission routing from property assertions over `admitWorkflowStart` call sites, not incidental handler symbol-name section pins; it fails against the pre-fix `const handleWorkflowStart` / `const pipeline_recover` anchor pins on audit row `dm-workflow-start-admission-seam` and passes after re-key.
-- [ ] `daemon-workflow-start.test.ts` test `workflow starts, pipeline dispatch, and recovery share daemon admission` stays green.
-- [ ] `daemon-workflow-start.test.ts` includes a regression case that fails when admission routing still pins an incidental handler symbol name and passes after a symbol rename that preserves `admitWorkflowStart` routing; it fails against pre-fix symbol-name section pins.
-- [ ] `bun run typecheck` passes.
+- [x] `daemon-workflow-start.test.ts` test `workflow starts, pipeline dispatch, and recovery share daemon admission` derives admission routing from property assertions over `admitWorkflowStart` call sites, not incidental handler symbol-name section pins; it fails against the pre-fix `const handleWorkflowStart` / `const pipeline_recover` anchor pins on audit row `dm-workflow-start-admission-seam` and passes after re-key.
+- [x] `daemon-workflow-start.test.ts` test `workflow starts, pipeline dispatch, and recovery share daemon admission` stays green.
+- [x] `daemon-workflow-start.test.ts` includes a regression case that fails when admission routing still pins an incidental handler symbol name and passes after a symbol rename that preserves `admitWorkflowStart` routing; it fails against pre-fix symbol-name section pins.
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

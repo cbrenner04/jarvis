@@ -1,6 +1,6 @@
 # Re-key daemon structural-invariant tests to behavioral anchors
 
-- [ ] [00 - Re-key daemon-test-inventory.test.ts](./00-rekey-daemon-test-inventory-test.md)
+- [x] [00 - Re-key daemon-test-inventory.test.ts](./00-rekey-daemon-test-inventory-test.md)
 - [ ] [01 - Re-key daemon-workflow-start.test.ts](./01-rekey-daemon-workflow-start-test.md)
 - [ ] [02 - Re-key daemon-run-control-handler-guard.test.ts](./02-rekey-daemon-run-control-handler-guard-test.md)
 - [ ] [03 - Re-key daemon-start-list.test.ts](./03-rekey-daemon-start-list-test.md)

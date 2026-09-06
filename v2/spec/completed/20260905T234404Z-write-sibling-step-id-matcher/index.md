@@ -5,4 +5,4 @@ Execution-loop duplication: `workflow-runner-resume.ts` defines `isWriteSiblingS
 - [x] [00 - Shared write-sibling step-id matcher](./00-shared-write-sibling-step-id-matcher.md)
 - [x] [01 - Execution loop adopts shared matcher](./01-execution-loop-adopts-shared-matcher.md)
 - [x] [02 - Surviving-mutation resume publication-time repair](./02-surviving-mutation-resume-agent-redrive.md)
-- [ ] [03 - Linked-row paused resume reconstruction](./03-linked-row-paused-resume-reconstruction.md)
+- [x] [03 - Linked-row paused resume reconstruction](./03-linked-row-paused-resume-reconstruction.md)

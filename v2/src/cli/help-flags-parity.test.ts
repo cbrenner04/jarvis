@@ -35,25 +35,16 @@ function writeParserLongFlags(): string[] {
 }
 
 describe("help flag parser parity", () => {
-  test("guarded paths are command-tree leaves, not intermediate nodes", () => {
-    // Pins the leaf check in `commandTreeLeafPaths`. Inverting `children.length === 0` makes the
-    // traversal return early on nodes that *have* children and recurse into nodes that do not, so
-    // `parityGuardedPaths()` collapses to []. The sibling assertions here are all `.not.toEqual`
-    // or emptiness-tolerant, which an empty result satisfies vacuously — hence the positive form.
-    const paths = parityGuardedPaths();
-    expect(paths.length).toBeGreaterThan(0);
-    expect(paths.map((path) => path.join(" "))).toContain("run workflow implement");
-    // Every guarded path must be a genuine leaf: no returned path is a strict prefix of another.
-    const joined = paths.map((path) => path.join(" "));
-    for (const candidate of joined) {
-      expect(joined.some((other) => other !== candidate && other.startsWith(`${candidate} `))).toBe(false);
-    }
-  });
-
   test("every guarded path lists all parser-accepted flags", () => {
-    expect(parityGuardedPaths().map((path) => path.join(" "))).not.toEqual(
-      HAND_MAINTAINED_PARITY_PATHS.slice(0, -1).map((path) => path.join(" ")),
-    );
+    const guardedPaths = parityGuardedPaths().map((path) => path.join(" "));
+    expect(guardedPaths).not.toEqual(HAND_MAINTAINED_PARITY_PATHS.slice(0, -1).map((path) => path.join(" ")));
+    // Pins `commandTreeLeafPaths` leaf detection: inverting `children.length === 0` collapses discovery to [].
+    // `.not.toEqual` and zero gaps pass vacuously on [], so require a non-empty tree-derived set.
+    expect(guardedPaths.length).toBeGreaterThan(0);
+    expect(guardedPaths).toContain("run workflow implement");
+    for (const candidate of guardedPaths) {
+      expect(guardedPaths.some((other) => other !== candidate && other.startsWith(`${candidate} `))).toBe(false);
+    }
     expect(helpFlagsParityGaps()).toEqual([]);
   });
 

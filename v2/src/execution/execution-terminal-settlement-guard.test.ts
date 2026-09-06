@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { locateDiscoveredFile } from "../../../shared/structural-test-locator.ts";
 import {
+  inventoryMismatchMessage,
   listProductionExecutionSources,
   readProductionExecutionSource,
   scanExecutionTerminalSettlement,
@@ -87,4 +88,12 @@ test("inventory ignores line drift above tracked call sites", () => {
 
   expect(drifted.violations).toEqual([]);
   expectPermittedInventoryMatches(drifted);
+});
+
+test("inventoryMismatchMessage classifies expected-only keys as missing", () => {
+  const message = inventoryMismatchMessage("inventory", ["foo"], []);
+  expect(message).toBeDefined();
+  expect(message).toContain("missing: foo");
+  expect(message).toContain("extra: (none)");
+  expect(inventoryMismatchMessage("inventory", [], [])).toBeUndefined();
 });

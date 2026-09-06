@@ -306,7 +306,7 @@ v2/src/tui/tui-timestamp-format.test.ts out-of-scope no-structural-signal
 | ex-ddmv-killing-resolution | v2/src/execution/diff-derived-mutation-verifier.test.ts | co-located killing-test resolution (sibling fallback) / direct-importing killing-test resolution | mutation verifier resolves co-located, sibling, and direct-importer killing tests before scoped execution | behavioral unit and integration tests of `resolveSiblingKillingTests`, importer scan caps, and scoped `runScopedTests` scheduling | behavioral | n/a | | |
 | ex-ddmv-worktree-observer-map | v2/src/execution/diff-derived-mutation-verifier.test.ts | worktree render-observer map resolution > * | worktree-local observer map drives render-coverage without process-map fallback | `extractRenderObserverMapFromSource` on worktree `render-observer-tests.ts` plus git worktree fixture reads | behavioral | n/a | | |
 | ex-ddmv-verifier-core | v2/src/execution/diff-derived-mutation-verifier.test.ts | diff-derived-mutation-verifier / TypeScript operator candidate classification / verification bounds | diff parsing, candidate classification, directive parsing, and bounded verification behave correctly | behavioral unit tests with synthetic diffs and seams (no production registry mirrors) | behavioral | n/a | | |
-| ex-etsg-permitted-inventory | v2/src/execution/execution-terminal-settlement-guard.test.ts | execution production terminal writers are restricted to atomic settlement | terminal `commitTerminalRunSettlement`/`commitCompletionBoundary` and nonterminal `setRunStatus` sites match permitted inventory | `PERMITTED_TERMINAL_WRITES` and `PERMITTED_NONTERMINAL_SET_RUN_STATUS` hardcoded registries vs production `readFileSync` scan | incidental | re-key | | |
+| ex-etsg-permitted-inventory | v2/src/execution/execution-terminal-settlement-guard.test.ts | execution production terminal writers are restricted to atomic settlement | terminal `commitTerminalRunSettlement`/`commitCompletionBoundary` and nonterminal `setRunStatus` sites match permitted inventory | scanned sites compared against exported `PERMITTED_TERMINAL_WRITES` and `PERMITTED_NONTERMINAL_SET_RUN_STATUS` from `execution-terminal-settlement-guard.ts` via `terminalSettlementInventoryMismatches` | behavioral | n/a | | |
 | ex-etsg-scanner-positive | v2/src/execution/execution-terminal-settlement-guard.test.ts | guard rejects reintroduced terminal setRunStatus / inventory ignores line drift above tracked call sites | scanner flags injected terminal `setRunStatus` and ignores line drift for keyed inventory sites | behavioral positive/negative fixtures on synthetic production source patches | behavioral | n/a | | |
 | ex-isl-worktree-landing | v2/src/execution/implement-spec-landing.test.ts | landImplementSpecTreeFromReadRoot > * | implement spec tree copies land expected paths and sidecars from `specReadRoot` | `readFileSync` on temp worktree paths after `landImplementSpecTreeFromReadRoot` | behavioral | n/a | | |
 | ex-iws-build-implement | v2/src/execution/implement-workflow-steps.test.ts | buildImplementWorkflowSteps / resolveImplementSpecIdentity external plan admission | implement step builder resolves project, spec identity, review composition, and chained preflight | behavioral integration with mocked deps; worktree `readFileSync` only on fixture repos | behavioral | n/a | | |
@@ -516,12 +516,6 @@ Every inventory row with disposition `re-key`, grouped by `test-path` + `case-sc
 **case-scope:** module scope
 
 **re-key (1):** ex-ddmv-observer-map-source
-
-### v2/src/execution/execution-terminal-settlement-guard.test.ts
-
-**case-scope:** execution production terminal writers are restricted to atomic settlement
-
-**re-key (1):** ex-etsg-permitted-inventory
 
 ### v2/src/execution/intent-split-regression.test.ts
 

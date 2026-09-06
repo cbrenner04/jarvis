@@ -12,17 +12,17 @@ Row `ex-etsg-permitted-inventory` in `v2/docs/structural-invariant-test-audit.md
 
 ## Task checklist
 
-- [ ] Re-key audit row `ex-etsg-permitted-inventory` per the decision ledger.
-- [ ] Replace duplicated permitted-write tables with imports from the owning registry module.
-- [ ] Route any marker or symbol slicing through `shared/structural-test-locator.ts`.
+- [x] Re-key audit row `ex-etsg-permitted-inventory` per the decision ledger.
+- [x] Replace duplicated permitted-write tables with imports from the owning registry module.
+- [x] Route any marker or symbol slicing through `shared/structural-test-locator.ts`.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/execution-terminal-settlement-guard.test.ts` production settlement guard compares scanned sites against the exported permitted-write registry without test-local `PERMITTED_*` literal arrays; it fails against the pre-fix duplicated literals and passes after re-key.
-- [ ] `execution-terminal-settlement-guard.test.ts` test `inventory ignores line drift above tracked call sites` stays green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/execution/execution-terminal-settlement-guard.test.ts` production settlement guard compares scanned sites against the exported permitted-write registry without test-local `PERMITTED_*` literal arrays; it fails against the pre-fix duplicated literals and passes after re-key.
+- [x] `execution-terminal-settlement-guard.test.ts` test `inventory ignores line drift above tracked call sites` stays green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

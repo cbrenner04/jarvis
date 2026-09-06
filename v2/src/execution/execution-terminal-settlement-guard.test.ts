@@ -102,3 +102,19 @@ test("terminalSettlementInventoryMismatches includes terminal only when terminal
   expect(mismatched).toHaveProperty("terminal");
   expect(mismatched.terminal).toContain("terminal writes mismatch");
 });
+
+// A permitted write absent from the scan is *missing*, not a count delta. The distinction is the
+// whole diagnostic: `> 0 && === 0` routes an absent key to `missing`, and weakening that guard
+// silently reclassifies every absent key as a count mismatch while the message still reads
+// "mismatch".
+test("terminalSettlementInventoryMismatches reports an absent permitted write as missing, not a count delta", () => {
+  const { terminal } = terminalSettlementInventoryMismatches({
+    violations: [],
+    terminalWrites: [],
+    nonterminalSetRunStatus: [],
+  });
+
+  expect(terminal).toContain("successor-step-idle-watchdog.ts:commitCompletionBoundary:settleSuccessorShellStall");
+  expect(terminal).toMatch(/missing: [^\n]*settleSuccessorShellStall/);
+  expect(terminal).toContain("count deltas: (none)");
+});

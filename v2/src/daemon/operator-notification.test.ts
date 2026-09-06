@@ -122,6 +122,95 @@ function seedWorkflowStageEntryRun(invocationId: string, stepId: string): string
   return runId;
 }
 
+const FAN_OUT_DOWNSTREAM = ["ready-intents/alpha.md", "ready-intents/beta.md"] as const;
+
+function seedFanOutFailedLaneFixture(): {
+  pipelineId: string;
+  failedBranchKey: string;
+  failedEntryRunId: string;
+  failedInvocationId: string;
+} {
+  const failedBranchKey = "alpha";
+  const runningBranchKey = "beta";
+  const failedInvocationId = "inv-plan-alpha";
+
+  const failedEntryRunId = store.createRun({
+    project: "demo",
+    specRef: "HEAD",
+    worktreePath: "/tmp/worktree-alpha",
+    branch: "plan/alpha",
+    specPath: "spec.md",
+    stepId: "plan",
+    workflowSnapshot: { invocationId: failedInvocationId, steps: [{ stepId: "plan", role: "plan" }] },
+  });
+  const failedAttempt = store.recordAttemptStart(failedEntryRunId);
+  store.commitCompletionBoundary({ attemptId: failedAttempt, runStatus: "failed", outcomeKind: "invocation_failure" });
+
+  const runningEntryRunId = seedWorkflowStageEntryRun("inv-plan-beta", "plan");
+
+  const pipelineId = store.createPipeline({
+    definition: {
+      name: "fan-out-linear",
+      stages: [
+        { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+        { stageId: "plan", kind: "workflow", workflow: "plan", review: "none" },
+        { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+      ],
+    },
+  });
+
+  store.updateStage({
+    pipelineId,
+    stageId: "intent",
+    patch: {
+      status: "succeeded",
+      workflowInvocationId: "run-intent",
+      artifact: {
+        entryRunId: "run-intent",
+        specPath: "ready-intents",
+        downstreamInputs: [...FAN_OUT_DOWNSTREAM],
+      },
+    },
+  });
+
+  for (const branchKey of [failedBranchKey, runningBranchKey]) {
+    store.createPipelineStageBranch({ pipelineId, stageId: "plan", branchKey });
+    store.createPipelineStageBranch({ pipelineId, stageId: "implement", branchKey });
+  }
+  for (const stageId of ["plan", "implement"] as const) {
+    store.updateStage({ pipelineId, stageId, branchKey: "default", patch: { status: "skipped" } });
+  }
+
+  store.updateStage({
+    pipelineId,
+    stageId: "plan",
+    branchKey: failedBranchKey,
+    patch: {
+      status: "failed",
+      workflowInvocationId: failedEntryRunId,
+      failureDetail: { message: "plan failed" },
+    },
+  });
+  store.updateStage({
+    pipelineId,
+    stageId: "implement",
+    branchKey: failedBranchKey,
+    patch: { status: "skipped" },
+  });
+
+  store.updateStage({
+    pipelineId,
+    stageId: "plan",
+    branchKey: runningBranchKey,
+    patch: {
+      status: "running",
+      workflowInvocationId: runningEntryRunId,
+    },
+  });
+
+  return { pipelineId, failedBranchKey, failedEntryRunId, failedInvocationId };
+}
+
 function instrumentIncidentCandidateQueries(targetStore: StateStore): {
   read: () => CandidateQueryMetrics;
   reset: () => void;
@@ -289,6 +378,47 @@ test("a single failed stage produces one incident across stage, entry-run, and s
       pipelineId,
       transition: "terminal:failed",
       cause: "failed",
+    }),
+  ]);
+});
+
+test("derives stage incident with branchKey for failed fan-out lane on live pipeline", () => {
+  const { pipelineId, failedBranchKey } = seedFanOutFailedLaneFixture();
+
+  const incidents = deriveOperatorIncidents(store);
+
+  // @mutate v2/src/daemon/operator-incidents.ts "if (!isPipelineTerminal(state)) {" -> "if (isPipelineTerminal(state)) {"
+  // @mutate v2/src/daemon/operator-incidents.ts "if (stage.status === \"failed\") {" -> "if (stage.status !== \"failed\") {"
+  expect(incidents).toContainEqual(
+    expect.objectContaining({
+      kind: "stage-failed",
+      branchKey: failedBranchKey,
+      pipelineId,
+      stageId: "plan",
+      transition: "failed",
+    }),
+  );
+});
+
+test("suppresses entry-run terminal incident when failed fan-out lane emits stage incident on live pipeline", () => {
+  const { pipelineId, failedBranchKey, failedEntryRunId } = seedFanOutFailedLaneFixture();
+
+  const incidents = deriveOperatorIncidents(store);
+
+  const laneIncidents = incidents.filter(
+    (incident) =>
+      incident.pipelineId === pipelineId &&
+      (incident.branchKey === failedBranchKey || incident.runId === failedEntryRunId),
+  );
+
+  // @mutate v2/src/daemon/operator-incidents.ts "addSuppressedInvocationForFailedStage(stage, entryRunsById, suppressedInvocationIds);" -> ""
+  expect(laneIncidents).toEqual([
+    expect.objectContaining({
+      kind: "stage-failed",
+      branchKey: failedBranchKey,
+      pipelineId,
+      stageId: "plan",
+      transition: "failed",
     }),
   ]);
 });

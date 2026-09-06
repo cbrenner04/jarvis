@@ -23,6 +23,43 @@ function projectRegistryFromContext(context: PipelineContext): Record<string, Pr
     : {};
 }
 
+function machineModePlan(configPath: string | undefined): Record<string, unknown> {
+  const document = readMachineConfigDocument(configPath) ?? {};
+  const modes = document.modes && typeof document.modes === "object" ? (document.modes as Record<string, unknown>) : {};
+  return modes.plan && typeof modes.plan === "object" ? (modes.plan as Record<string, unknown>) : {};
+}
+
+function projectConfigRecord(
+  context: PipelineContext,
+  project: ProjectMatch,
+): { git?: boolean; plan?: { commit?: boolean } } {
+  const raw = projectRegistryFromContext(context)[project.key];
+  const value = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const plan =
+    value.plan && typeof value.plan === "object" && !Array.isArray(value.plan)
+      ? (value.plan as Record<string, unknown>)
+      : {};
+  return {
+    ...(typeof value.git === "boolean" ? { git: value.git } : {}),
+    plan: {
+      ...(typeof plan.commit === "boolean" ? { commit: plan.commit } : {}),
+    },
+  };
+}
+
+/** Matches intent/plan publication: project `plan.commit`, then machine `modes.plan.commit`, then `true`. */
+export function chainedStageEffectivePublishGit(context: PipelineContext, project: ProjectMatch): boolean {
+  const config = projectConfigRecord(context, project);
+  const modePlan = machineModePlan(context.configPath);
+  return (
+    config.git !== false && (config.plan?.commit ?? (typeof modePlan.commit === "boolean" ? modePlan.commit : true))
+  );
+}
+
+export function resolveChainedStageOwnerProject(context: PipelineContext): ProjectMatch | undefined {
+  return findProjectMatch(context.cwd, projectRegistryFromContext(context));
+}
+
 /** Pipeline chained stages match cwd under the admission root or jarvis managed workspaces. */
 export function createChainedStageProjectMatch(context: PipelineContext): (path: string) => ProjectMatch | undefined {
   const registry = projectRegistryFromContext(context);

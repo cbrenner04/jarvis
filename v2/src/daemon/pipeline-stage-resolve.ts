@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, resolve, sep, basename } from "node:path";
 import { getBaseBranch, isGitRepoAsync } from "../../../shared/git.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { resolveWorkflowPresetName } from "../commands/workflow-start-preparation.ts";
@@ -14,9 +14,14 @@ import { type CliWorkflowPresetName, WORKFLOW_PRESET_BUILDERS } from "../executi
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { jarvisHome } from "../paths.ts";
+import { projectSafeId } from "../../../shared/project-safe-id.ts";
 import type { PipelineContext } from "../persistence/state-store.ts";
 import { DEFAULT_PIPELINE_STAGE_BRANCH_KEY } from "../persistence/state-store.ts";
-import { createChainedStageProjectMatch } from "./pipeline-chained-workflow-deps.ts";
+import {
+  createChainedStageProjectMatch,
+  chainedStageEffectivePublishGit,
+  resolveChainedStageOwnerProject,
+} from "./pipeline-chained-workflow-deps.ts";
 import { type PipelineStageArtifact, stageArtifactKey } from "./pipeline-stage-dispatch.ts";
 import {
   capturingStaleReset,
@@ -238,11 +243,42 @@ async function rematerializeWorktreeFromBranch(
   }
 }
 
+function isReadyIntentRelativePath(relativePath: string): boolean {
+  return relativePath.includes("ready-intents/");
+}
+
+type LocatedDownstreamInputReadRoot =
+  | { ok: true; readRoot: string; readyIntentPath?: string }
+  | { ok: false; error: string };
+
+function locateExternalReadyIntentDownstreamInput(
+  context: PipelineContext,
+  relativePath: string,
+): Extract<LocatedDownstreamInputReadRoot, { ok: true }> | undefined {
+  if (!isReadyIntentRelativePath(relativePath) || !isChainedPlanReadyIntentPath(relativePath)) return undefined;
+  const owner = resolveChainedStageOwnerProject(context);
+  if (owner === undefined || chainedStageEffectivePublishGit(context, owner)) return undefined;
+
+  const externalPlansHome = join(jarvisHome(), "specs");
+  const ownerReadyIntentsHome = join(externalPlansHome, projectSafeId(owner.key), "ready-intents");
+  const externalFile = join(ownerReadyIntentsHome, basename(relativePath));
+  if (!existsSync(externalFile)) return undefined;
+
+  const resolvedExternalHome = resolve(externalPlansHome);
+  const resolvedFile = resolve(externalFile);
+  if (!resolvedFile.startsWith(`${resolvedExternalHome}${sep}`)) return undefined;
+  const ownerSpecsPrefix = join(resolvedExternalHome, projectSafeId(owner.key));
+  if (!resolvedFile.startsWith(`${ownerSpecsPrefix}${sep}`)) return undefined;
+  if (!resolvedFile.startsWith(`${resolve(ownerReadyIntentsHome)}${sep}`)) return undefined;
+
+  return { ok: true, readRoot: ownerReadyIntentsHome, readyIntentPath: basename(relativePath) };
+}
+
 async function locateAbsentWorktreeDownstreamInputReadRoot(
   prior: PriorArtifactContext,
   context: PipelineContext,
   relativePath: string,
-): Promise<{ ok: true; readRoot: string } | { ok: false; error: string }> {
+): Promise<LocatedDownstreamInputReadRoot> {
   const admissionRoot = context.cwd;
   const onAdmission = existsSync(join(admissionRoot, relativePath));
   if (onAdmission) {
@@ -256,6 +292,9 @@ async function locateAbsentWorktreeDownstreamInputReadRoot(
     if (!rematerialized.ok) return rematerialized;
     return { ok: true, readRoot: prior.worktreePath };
   }
+
+  const external = locateExternalReadyIntentDownstreamInput(context, relativePath);
+  if (external !== undefined) return external;
 
   return { ok: false, error: neverLandedDownstreamInputError(relativePath) };
 }
@@ -292,7 +331,7 @@ async function verifyChainedReadyIntentPath(
   prior: PriorArtifactContext,
   context: PipelineContext,
   path: string,
-): Promise<{ ok: true; readRoot: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; readRoot: string; readyIntentPath?: string } | { ok: false; error: string }> {
   if (!isChainedPlanReadyIntentPath(path)) {
     return {
       ok: false,
@@ -328,7 +367,12 @@ async function resolveChainedReadyIntentPaths(
     if (!(await isUsablePriorWorktreePath(prior.worktreePath, context.cwd))) {
       const verified = await verifyChainedReadyIntentPath(prior, context, prior.specPath);
       if (!verified.ok) return verified;
-      return { ok: true, kind: "single", path: prior.specPath, readRoot: verified.readRoot };
+      return {
+        ok: true,
+        kind: "single",
+        path: verified.readyIntentPath ?? prior.specPath,
+        readRoot: verified.readRoot,
+      };
     }
     return { ok: true, kind: "single", path: prior.specPath, readRoot: prior.worktreePath };
   }
@@ -338,7 +382,12 @@ async function resolveChainedReadyIntentPaths(
     if (singlePath !== undefined) {
       const verified = await verifyChainedReadyIntentPath(prior, context, singlePath);
       if (!verified.ok) return verified;
-      return { ok: true, kind: "single", path: singlePath, readRoot: verified.readRoot };
+      return {
+        ok: true,
+        kind: "single",
+        path: verified.readyIntentPath ?? singlePath,
+        readRoot: verified.readRoot,
+      };
     }
   }
 
@@ -379,7 +428,10 @@ async function resolveForDownstreamPaths(
       staleReset === undefined || preflightCapture === undefined
         ? undefined
         : capturingStaleReset(staleReset, preflightCapture);
-    const result = await resolveOne({ ...prior, specPath: downstreamPath, cwd: verified.readRoot }, branchStaleReset);
+    const result = await resolveOne(
+      { ...prior, specPath: verified.readyIntentPath ?? downstreamPath, cwd: verified.readRoot },
+      branchStaleReset,
+    );
     if (!result.ok) return result;
     if (isFanOutStageResolution(result)) {
       return {

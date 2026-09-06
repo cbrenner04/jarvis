@@ -201,6 +201,60 @@ function createManualWallSchedule(): {
   };
 }
 
+const UNREF_CALLED = Symbol("unref-called");
+
+type TimeoutHandle = ReturnType<typeof setTimeout>;
+
+let setTimeoutCaptureLock: Promise<void> = Promise.resolve();
+
+async function withSetTimeoutCapture<T>(
+  expectedDelayMs: number,
+  run: () => Promise<T>,
+): Promise<{ result: T; captured: TimeoutHandle[] }> {
+  const captured: TimeoutHandle[] = [];
+  let releaseLock!: () => void;
+  const priorLock = setTimeoutCaptureLock;
+  setTimeoutCaptureLock = new Promise<void>((resolve) => {
+    releaseLock = resolve;
+  });
+  await priorLock;
+
+  const original = globalThis.setTimeout;
+  globalThis.setTimeout = ((callback: Parameters<typeof setTimeout>[0], delay?: number, ...args: unknown[]) => {
+    const handle = original(callback, delay, ...args);
+    if (delay === expectedDelayMs) {
+      const timer = handle as NodeJS.Timeout & { [UNREF_CALLED]?: boolean };
+      const realUnref = timer.unref?.bind(timer);
+      timer.unref = () => {
+        timer[UNREF_CALLED] = true;
+        realUnref?.();
+        return timer;
+      };
+      captured.push(handle);
+    }
+    return handle;
+  }) as typeof setTimeout;
+
+  try {
+    const result = await run();
+    return { result, captured };
+  } finally {
+    globalThis.setTimeout = original;
+    releaseLock();
+  }
+}
+
+/**
+ * `clearTimeout` alone drives Bun's `hasRef()` to false, so asserting it after the fenced work
+ * settles passes whether or not production ever called `.unref?.()`. Record the call instead.
+ */
+function expectCapturedTimersUnrefd(handles: readonly TimeoutHandle[]): void {
+  expect(handles.length).toBeGreaterThan(0);
+  for (const handle of handles) {
+    expect((handle as NodeJS.Timeout & { [UNREF_CALLED]?: boolean })[UNREF_CALLED] ?? false).toBe(true);
+  }
+}
+
 function createHeldInvocation() {
   let signal: AbortSignal | undefined;
   let resolveStarted: (() => void) | undefined;
@@ -6763,6 +6817,102 @@ index 1234567..abcdefg 100644
       store.close();
       mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
     }
+  });
+
+  describe.serial("armed watchdog timer unref hygiene", () => {
+    test("armed wall-segment watchdog timer is unref'd after early iteration settle", async () => {
+      const wallMs = 60_000;
+      const branchName = "unref-wall";
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const store = openStateStore(stateDbPath);
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => ({
+          worktreePath: join(jarvisRoot, "worktrees", "demo", branchName),
+          worktreeReused: false,
+          lock: { kind: "acquired" as const },
+          result: {
+            kind: "complete" as const,
+            token: "done" as const,
+            invocation: { attempts: [], final: null, telemetryFailures: [] },
+          },
+        }),
+      }));
+
+      try {
+        const { result, captured } = await withSetTimeoutCapture(wallMs, () =>
+          executeWriteLoop({
+            worktree: { projectRoot: "/fake", projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
+            specPath: "spec.md",
+            stepRules: "Return exactly one terminal token.",
+            expectedArtifactPath: "proof.txt",
+            bindings: simulatedBindings(["done"]),
+            stateStore: store,
+            withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+            sessionsDir: join(jarvisRoot, "sessions"),
+            iterationTimeoutMs: wallMs,
+            maxIterations: 1,
+          }),
+        );
+        expect(result.kind).not.toBe("iteration_timeout");
+        expectCapturedTimersUnrefd(captured);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("armed iteration ceiling watchdog timer is unref'd after early iteration settle", async () => {
+      const wallMs = 60_000;
+      const ceilingMs = 120_000;
+      const branchName = "unref-ceiling";
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const store = openStateStore(stateDbPath);
+
+      mock.module("./write.ts", () => ({
+        executeWrite: async () => ({
+          worktreePath: join(jarvisRoot, "worktrees", "demo", branchName),
+          worktreeReused: false,
+          lock: { kind: "acquired" as const },
+          result: {
+            kind: "complete" as const,
+            token: "done" as const,
+            invocation: { attempts: [], final: null, telemetryFailures: [] },
+          },
+        }),
+      }));
+
+      try {
+        const { result, captured } = await withSetTimeoutCapture(ceilingMs, () =>
+          executeWriteLoop({
+            worktree: {
+              projectRoot: "/fake",
+              projectName: "demo",
+              branchName,
+              baseRef: "HEAD",
+              jarvisRoot,
+            },
+            specPath: "spec.md",
+            stepRules: "Return exactly one terminal token.",
+            expectedArtifactPath: "proof.txt",
+            bindings: simulatedBindings(["done"]),
+            stateStore: store,
+            withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+            sessionsDir: join(jarvisRoot, "sessions"),
+            iterationTimeoutMs: wallMs,
+            iterationCeilingMs: ceilingMs,
+            maxIterations: 1,
+          }),
+        );
+        expect(result.kind).not.toBe("iteration_timeout");
+        expectCapturedTimersUnrefd(captured);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
   });
 
   test("continuous output cannot extend an iteration past the hard ceiling", async () => {

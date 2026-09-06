@@ -25,11 +25,11 @@ Wall-segment, ceiling, and review-role watchdog timers in `write-loop.ts` and `r
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts` test `armed wall-segment watchdog timer is unref'd after early iteration settle` wraps `globalThis.setTimeout`, arms the default wall-segment schedule via `executeWriteLoop` without a `schedule` override, settles the iteration before the bound elapses, and asserts the captured `setTimeout` handle reports `hasRef() === false`; it fails when `.unref?.()` is omitted at `defaultWallSegmentSchedule` (reachable on main).
-- [ ] `write-loop.test.ts` test `armed iteration ceiling watchdog timer is unref'd after early iteration settle` wraps `globalThis.setTimeout`, arms `iterationCeilingMs` through `executeWriteLoop`, settles before the ceiling elapses, and asserts the ceiling `setTimeout` handle reports `hasRef() === false`; it fails when `.unref?.()` is omitted at the `awaitIteration` ceiling arm (reachable on main).
-- [ ] `review-role-invocation.test.ts` test `armed review-role wall-clock timer is unref'd after early ok settle` wraps `globalThis.setTimeout`, calls `invokeReviewRole` with a fast ok binding, and asserts the role wall-clock `setTimeout` handle reports `hasRef() === false`; it fails when `.unref?.()` is omitted at `invokeReviewRole` (reachable on main).
-- [ ] `v2/docs/write-behavior.md` states armed wall-segment, ceiling, and review-role watchdog timers are `.unref?.()`'d so pending timers do not hold the Bun process alive after early settle.
-- [ ] `bun run typecheck` passes.
+- [x] `write-loop.test.ts` test `armed wall-segment watchdog timer is unref'd after early iteration settle` wraps `globalThis.setTimeout`, arms the default wall-segment schedule via `executeWriteLoop` without a `schedule` override, settles the iteration before the bound elapses, and asserts the captured `setTimeout` handle reports `hasRef() === false`; it fails when `.unref?.()` is omitted at `defaultWallSegmentSchedule` (reachable on main).
+- [x] `write-loop.test.ts` test `armed iteration ceiling watchdog timer is unref'd after early iteration settle` wraps `globalThis.setTimeout`, arms `iterationCeilingMs` through `executeWriteLoop`, settles before the ceiling elapses, and asserts the ceiling `setTimeout` handle reports `hasRef() === false`; it fails when `.unref?.()` is omitted at the `awaitIteration` ceiling arm (reachable on main).
+- [x] `review-role-invocation.test.ts` test `armed review-role wall-clock timer is unref'd after early ok settle` wraps `globalThis.setTimeout`, calls `invokeReviewRole` with a fast ok binding, and asserts the role wall-clock `setTimeout` handle reports `hasRef() === false`; it fails when `.unref?.()` is omitted at `invokeReviewRole` (reachable on main).
+- [x] `v2/docs/write-behavior.md` states armed wall-segment, ceiling, and review-role watchdog timers are `.unref?.()`'d so pending timers do not hold the Bun process alive after early settle.
+- [x] `bun run typecheck` passes.
 - [ ] `bun run test:v2` passes.
 
 ## Documentation updates

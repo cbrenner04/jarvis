@@ -277,17 +277,6 @@ function resumeContextForRun(
   return reconstructWriteResume(run, logRecords);
 }
 
-function resumeContextForTerminalRecord(
-  run: (Run & { attempts?: Attempt[] }) | undefined,
-  store: StateStore,
-  terminalRecord: TerminalLogRecord | undefined,
-  intentFinalizationResumable?: boolean,
-  logRecords?: PersistedRecord[],
-): ResolvedWriteLoopInput | undefined {
-  if (!run) return undefined;
-  return resumeContextForRun(run, store, terminalRecord, intentFinalizationResumable, logRecords);
-}
-
 function runListRowError(
   run: Parameters<typeof composeRunOperatorError>[0] | undefined,
   resumeContext: ResolvedWriteLoopInput | undefined,
@@ -414,12 +403,9 @@ export function createRunLifecycleHandlers(
       ...(ownerError === undefined ? {} : { error: ownerError }),
     };
     const entryIntentFinalizationResumable = isIntentFinalizationResumable(entryRun, store);
-    const entryResumeContext = resumeContextForTerminalRecord(
-      entryRun,
-      store,
-      entryRecord,
-      entryIntentFinalizationResumable,
-    );
+    const entryResumeContext = entryRun
+      ? resumeContextForRun(entryRun, store, entryRecord, entryIntentFinalizationResumable)
+      : undefined;
     const entryCanResume = entryResumeContext?.ok === true || entryIntentFinalizationResumable;
     return projectWorkflowEntryResult(entryResult, entryCanResume);
   };
@@ -650,7 +636,12 @@ export function createRunLifecycleHandlers(
       entryResult ?? (fullRun !== undefined ? resultFrom(run.id, reportedStatus, terminalRecord) : undefined);
     const error =
       rowOutcome?.error ??
-      runListRowError(fullRun, resumeContextForTerminalRecord(fullRun, store, terminalRecord), terminalRecord, logTail);
+      runListRowError(
+        fullRun,
+        fullRun ? resumeContextForRun(fullRun, store, terminalRecord) : undefined,
+        terminalRecord,
+        logTail,
+      );
     const {
       runStatus: _entryRunStatus,
       error: _entryError,
@@ -940,7 +931,7 @@ export function createRunLifecycleHandlers(
     }
 
     const logRecords = logReader?.tail(runId);
-    const reconstructed = resumeContextForTerminalRecord(run, store, terminalRecord, undefined, logRecords);
+    const reconstructed = resumeContextForRun(run, store, terminalRecord, undefined, logRecords);
     if (!reconstructed?.ok) {
       return {
         kind: "error",

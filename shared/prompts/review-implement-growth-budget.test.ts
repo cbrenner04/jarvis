@@ -25,7 +25,7 @@ export const IMPLEMENT_REVIEW_ROLE_PLACEHOLDERS: Readonly<Record<string, string>
     "[SPEC_PATH:string!, SPEC_TREE:string!, BRANCH_DIFF:string!, ADVOCATE_RESPONSE:string!, REVIEW_PASS_NUMBER:string!, REVIEW_PASS_CONTEXT:string!]",
 };
 
-function readPlaceholdersField(sourcePath: string): string {
+export function readPlaceholdersField(sourcePath: string): string {
   const raw = readFileSync(sourcePath, "utf8");
   const endIndex = raw.indexOf("\n---\n", 4);
   if (endIndex === -1) throw new Error(`unterminated frontmatter in ${sourcePath}`);

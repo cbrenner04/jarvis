@@ -509,7 +509,7 @@ Documented gaps and operator workarounds. Remove entries when seeds merge.
 
 ### `iteration_timeout` with completed subspecs
 
-When a write step times out after at least one linked subspec's non-human-only acceptance criteria are fully ticked, the run settles `iteration_timeout` with `resumable: true` and terminal `loop_finished` lists `completedSubspecPaths` / `remainingSubspecPaths`. Recovery is `jarvis run resume` on the retained workspace — not `resetStaleWorkspace`, not a full workflow re-dispatch. A timeout with no completed subspec stays non-resumable; re-dispatch the workflow after inspecting the stall in `jarvis run log`.
+When a write step times out after at least one linked subspec's non-human-only acceptance criteria are fully ticked, the run settles `iteration_timeout` with `resumable: true` and terminal `loop_finished` lists `completedSubspecPaths` / `remainingSubspecPaths`. Recovery is `jarvis run resume` on the retained workspace — not `resetStaleWorkspace`, not a full workflow re-dispatch. This recovery is reachable on git-enabled managed worktrees where `projectRoot` differs from the materialized worktree path; inventory relativizes against the worktree root. A timeout with no completed subspec stays non-resumable; re-dispatch the workflow after inspecting the stall in `jarvis run log`. Empty `completedSubspecPaths` with `inventoryError` on terminal `loop_finished` or `jarvis run list`/`wait` is an inventory-resolution failure — not proof that no subspec progress occurred.
 
 ### Paused linked implement rows (`implement~link-N`)
 

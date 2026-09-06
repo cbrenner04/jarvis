@@ -334,7 +334,7 @@ v2/src/tui/tui-timestamp-format.test.ts out-of-scope no-structural-signal
 | ex-wrr-resume-fixture-golden | v2/src/execution/workflow-runner-resume.test.ts | recoverPlanStage / resume mutation-repair cases using lint fixtures | recovery lands committed golden subspec bodies from staged-markdown-lint fixtures | committed `REVIEW_MD_LINT_FIXTURE_IDS` registry with `readReviewMdLintFixture` / `locateDiscoveredFile` loud-failure reads for recoverPlanStage and mutation-repair golden bodies | behavioral | n/a | | |
 | ex-wrr-resume-integration | v2/src/execution/workflow-runner-resume.test.ts | workflow-runner resume integration (non-fixture cases) | resume paths settle publication, mutation repair, and staged markdown without silent regressions | behavioral integration with worktree `readFileSync` on landed stage/durable paths | behavioral | n/a | | |
 | ex-wrrs-standard-review | v2/src/execution/workflow-runner-review-standard.test.ts | workflow-runner standard review integration | standard review landing preserves operator checkout dirt and durable outputs | behavioral integration with worktree `readFileSync` | behavioral | n/a | | |
-| ex-wrr-review-fixture-golden | v2/src/execution/workflow-runner-review.test.ts | review staged-markdown-lint reprompt cases | review debate reprompt preserves golden violation/clean fixture bytes through recovery | `readFileSync` of `REVIEW_MD_LINT_FIXTURES` (`plan-md038-*`, `intent-md038-*`) golden bodies | incidental | re-key | | |
+| ex-wrr-review-fixture-golden | v2/src/execution/workflow-runner-review.test.ts | review staged-markdown-lint reprompt cases | review debate reprompt preserves golden violation/clean fixture bytes through recovery | committed `REVIEW_MD_LINT_FIXTURE_IDS` registry with `readReviewMdLintFixture` / `locateDiscoveredFile` loud-failure reads for review reprompt violation and clean golden bodies | behavioral | n/a | | |
 | ex-wrr-review-integration | v2/src/execution/workflow-runner-review.test.ts | workflow-runner review integration (non-fixture cases) | review steps enforce verdict ownership and land reviewed outputs | behavioral integration with worktree `readFileSync` | behavioral | n/a | | |
 | ex-wrv-validation | v2/src/execution/workflow-runner-validation.test.ts | workflow-runner validation integration | validation failures surface telemetry without leaking temp files | behavioral integration (`readFileSync` throws on cleaned telemetry path) | behavioral | n/a | | |
 | ex-wr-implement-routing | v2/src/execution/workflow-runner.test.ts | executeWorkflow implement routing integration | implement workflow checks linked subspecs and external plan routing | behavioral integration with worktree `readFileSync` on spec checkboxes | behavioral | n/a | | |
@@ -516,12 +516,6 @@ Every inventory row with disposition `re-key`, grouped by `test-path` + `case-sc
 **case-scope:** resume helpers are not defined in workflow-runner.ts / resume helpers are defined in workflow-runner-resume.ts
 
 **re-key (1):** ex-wrrs-resume-extraction
-
-### v2/src/execution/workflow-runner-review.test.ts
-
-**case-scope:** review staged-markdown-lint reprompt cases
-
-**re-key (1):** ex-wrr-review-fixture-golden
 
 ### v2/src/execution/write-loop-staged-markdown-lint.test.ts
 

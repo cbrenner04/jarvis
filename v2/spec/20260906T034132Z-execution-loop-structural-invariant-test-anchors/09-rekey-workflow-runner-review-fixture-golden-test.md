@@ -12,16 +12,16 @@ Row `ex-wrr-review-fixture-golden` in `v2/docs/structural-invariant-test-audit.m
 
 ## Task checklist
 
-- [ ] Re-key audit row `ex-wrr-review-fixture-golden` per the decision ledger.
-- [ ] Replace scattered golden `readFileSync` calls with shared fixture-id helpers.
-- [ ] Route fixture discovery through loud-failure locators.
+- [x] Re-key audit row `ex-wrr-review-fixture-golden` per the decision ledger.
+- [x] Replace scattered golden `readFileSync` calls with shared fixture-id helpers.
+- [x] Route fixture discovery through loud-failure locators.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/workflow-runner-review.test.ts` review staged-markdown-lint reprompt cases load violation and clean golden bodies through shared fixture helpers rather than repeated `readFileSync` path literals; it fails against the pre-fix scattered fixture joins and passes after re-key.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/execution/workflow-runner-review.test.ts` review staged-markdown-lint reprompt cases load violation and clean golden bodies through shared fixture helpers rather than repeated `readFileSync` path literals; it fails against the pre-fix scattered fixture joins and passes after re-key.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

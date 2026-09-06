@@ -1,0 +1,6 @@
+Reviewing key branch changes to weigh the advocate response and issue a verdict.
+## Verdict
+
+**Revert out-of-spec shrink-commit changes.** The intent limits work to the diff-derived mutation verifier surface with no daemon or CLI boundary changes. `daemon-run-lifecycle-handlers.ts`, `daemon-resume.test.ts`, and the `shared/prompts/review-*` test refactors are unrelated to co-located-first killing-test resolution; they expand review surface and risk unrelated regression without advancing any acceptance criterion.
+
+**Fix the `inverting the empty-union guard fails…` mutation checkpoint.** It overrides `readFile` with `importerFixtureReadFile()` (exact-stem present), so the case never reaches importer discovery and the checkpoint does not guard direct-importer-only resolution or empty-co-located preservation—the behavior the title and comment claim to protect. Use the same empty-co-located fixture as the direct-importer-only regression (`excludeExactStem(true)`, no sibling `listDir`; `importerVerify()` defaults suffice).

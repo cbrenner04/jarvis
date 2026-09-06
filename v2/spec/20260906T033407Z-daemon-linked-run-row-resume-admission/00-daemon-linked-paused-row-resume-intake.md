@@ -30,7 +30,7 @@
 - [x] `v2/docs/operator-runbook.md` documents `jarvis run resume` on paused linked implement rows (`implement~link-N`) and narrows [Clearing a stale non-active run with `run kill --force`](#clearing-a-stale-non-active-run-with-run-kill---force) so force-kill is not the recovery path when linked paused resume succeeds.
 - [x] `v2/docs/v1-behaviors.md` records daemon admission of paused `<stepId>~link-N` resume through `reconstructPausedWriteResumeInput`.
 - [x] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `bun run test:v2` passes.
 - [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates

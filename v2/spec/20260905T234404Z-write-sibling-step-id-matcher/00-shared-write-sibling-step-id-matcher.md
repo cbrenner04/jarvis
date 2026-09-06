@@ -18,7 +18,7 @@ Write-sibling step-id grammar (`<stepId>`, `<stepId>~link-N`, `<stepId>~shrink`)
 
 ## Acceptance criteria
 
-- [ ] `shared/write-sibling-step-id.test.ts` asserts sibling and shrink matching and snapshot base-step resolution; it fails against the pre-fix absence of `shared/write-sibling-step-id.ts`.
+- [x] `shared/write-sibling-step-id.test.ts` asserts sibling and shrink matching and snapshot base-step resolution; it fails against the pre-fix absence of `shared/write-sibling-step-id.ts`.
 
 ## Documentation updates
 

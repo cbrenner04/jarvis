@@ -16,15 +16,15 @@
 
 ## Tasks
 
-- [ ] In `resumeReviewMutationFinalization` / `replayMutationFinalization`, when the terminal record carries `survivingMutation` evidence and no `deps.mutationRepair` was supplied, build repair loop input from the write-sibling authored snapshot step and run publication-time `write.mutation-repair` through `publishWithReadyRepair` before mutation re-verification.
-- [ ] Add a `workflow-runner-resume.test.ts` regression that calls `resumeReviewMutationFinalization` without explicit `mutationRepair`, stubs the ready finalizer to throw `SurvivingMutationError` on the first pass, and asserts a `write.mutation-repair` invocation runs before the gate is re-entered (or the row settles non-resumable with `composeRunOperatorError` `reason: "mutation_repair_exhausted"` / `nextAction: "inspect_spec"`, or `reason: "no_binding"` / `nextAction: "fix_config"` when bindings are unresolvable).
+- [x] In `resumeReviewMutationFinalization` / `replayMutationFinalization`, when the terminal record carries `survivingMutation` evidence and no `deps.mutationRepair` was supplied, build repair loop input from the write-sibling authored snapshot step and run publication-time `write.mutation-repair` through `publishWithReadyRepair` before mutation re-verification.
+- [x] Add a `workflow-runner-resume.test.ts` regression that calls `resumeReviewMutationFinalization` without explicit `mutationRepair`, stubs the ready finalizer to throw `SurvivingMutationError` on the first pass, and asserts a `write.mutation-repair` invocation runs before the gate is re-entered (or the row settles non-resumable with `composeRunOperatorError` `reason: "mutation_repair_exhausted"` / `nextAction: "inspect_spec"`, or `reason: "no_binding"` / `nextAction: "fix_config"` when bindings are unresolvable).
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/workflow-runner-resume.test.ts` proves `surviving_mutation_failed` resume without explicit `mutationRepair` runs publication-time `write.mutation-repair` before re-entering mutation re-verification, or settles non-resumable with `composeRunOperatorError` `reason: "mutation_repair_exhausted"` / `nextAction: "inspect_spec"` or `reason: "no_binding"` / `nextAction: "fix_config"`; it fails against the current finalization-only replay reachable on main when `mutationRepair` is omitted and the ready finalizer throws `SurvivingMutationError`.
-- [ ] `v2/docs/write-behavior.md` records that `surviving_mutation_failed` resume on a review-behavior row auto-derives publication-time `write.mutation-repair` when `mutationRepair` deps are omitted, or settles non-resumable with the operator actions above.
-- [ ] `v2/docs/v1-behaviors.md` records the same publication-time repair admission (parity catalog).
-- [ ] `bun run test:v2` passes.
+- [x] `v2/src/execution/workflow-runner-resume.test.ts` proves `surviving_mutation_failed` resume without explicit `mutationRepair` runs publication-time `write.mutation-repair` before re-entering mutation re-verification, or settles non-resumable with `composeRunOperatorError` `reason: "mutation_repair_exhausted"` / `nextAction: "inspect_spec"` or `reason: "no_binding"` / `nextAction: "fix_config"`; it fails against the current finalization-only replay reachable on main when `mutationRepair` is omitted and the ready finalizer throws `SurvivingMutationError`.
+- [x] `v2/docs/write-behavior.md` records that `surviving_mutation_failed` resume on a review-behavior row auto-derives publication-time `write.mutation-repair` when `mutationRepair` deps are omitted, or settles non-resumable with the operator actions above.
+- [x] `v2/docs/v1-behaviors.md` records the same publication-time repair admission (parity catalog).
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

@@ -93,6 +93,11 @@ const PERMITTED_TERMINAL_WRITES: PermittedTerminalWrite[] = [
     functionName: "settleMutationRepairExhausted",
     writer: "commitCompletionBoundary",
   },
+  {
+    file: "workflow-runner-resume.ts",
+    functionName: "settleAutoDerivedMutationRepairNoBinding",
+    writer: "commitCompletionBoundary",
+  },
   { file: "workflow-runner-resume.ts", functionName: "runMutationRepairAttempt", writer: "commitCompletionBoundary" },
   {
     file: "workflow-runner-resume.ts",

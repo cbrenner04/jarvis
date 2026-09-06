@@ -12,6 +12,7 @@ import {
 } from "../../../shared/linked-subspec-routing.ts";
 import { extractBlockerBody } from "../../../shared/spec-parser.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { LINK_STEP_ID_INFIX, SHRINK_STEP_ID_SUFFIX } from "../../../shared/write-sibling-step-id.ts";
 import {
   type AgentModelConfig,
   resolveExecutableRole,
@@ -277,7 +278,6 @@ export class LinkedIndexReadError extends Error {
 const REVIEW_DEBATE_ROLES: readonly ReviewDebateRole[] = ["adversary", "advocate", "adjudicator", "actuator"];
 const SHRINK_ROLE = "shrink";
 const SHRINK_PROMPT_ID = "patch.prompt.shrink";
-const SHRINK_STEP_ID_SUFFIX = "~shrink";
 
 /** Per-step write-loop input plus workflow identity; bindings are derived at execution. */
 export type WriteWorkflowStep = Omit<WriteLoopInput, "bindings"> & {
@@ -749,7 +749,7 @@ async function runLinkedImplementStep(
 
     const linkStep: WriteWorkflowStep = {
       ...step,
-      stepId: `${step.stepId}~link-${routing.active.index}`,
+      stepId: `${step.stepId}${LINK_STEP_ID_INFIX}${routing.active.index}`,
       expectedArtifactPath: routing.active.path,
     };
 

@@ -1,7 +1,17 @@
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import type { RunFixCommandOpts } from "../../../shared/fix-command.ts";
+import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
+import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
+import { resolvePinnedLinkedSubspec } from "../../../shared/linked-subspec-routing.ts";
 import { extractBlockerBody } from "../../../shared/spec-parser.ts";
+import {
+  findSnapshotStepForRunStepId,
+  isWriteSiblingStepId,
+  LINK_STEP_ID_INFIX,
+  matchesLinkedSiblingStepId,
+} from "../../../shared/write-sibling-step-id.ts";
+import { resolveExecutableRole, resolveInvocationBindings } from "../config/agent-model-config.ts";
 import {
   type IntentFinalizationEvent,
   type LogSink,
@@ -66,6 +76,7 @@ import {
   type WriteLoopOutcomeKind,
   type WriteLoopResult,
 } from "./write-loop.ts";
+import { DEFAULT_WRITE_STEP_RULES } from "./write-loop-input.ts";
 
 export type WorkflowRunnerResumeInjectedDeps = {
   persistIntentHandoff: (
@@ -292,11 +303,6 @@ function latestAttemptCompletedAt(run: { attempts: readonly Attempt[] }): number
     if (latest === undefined || attempt.completedAt > latest) latest = attempt.completedAt;
   }
   return latest;
-}
-
-/** A row's stepId is the authored write step itself, or one of its linked-implement executions. */
-function isWriteSiblingStepId(candidateStepId: string | null | undefined, writeStepId: string): boolean {
-  return candidateStepId === writeStepId || (candidateStepId?.startsWith(`${writeStepId}~link-`) ?? false);
 }
 
 /**
@@ -1330,6 +1336,122 @@ function persistedExternalSpecGitScope(
     : {};
 }
 
+export type PausedWriteResumeReconstruction = { ok: true; input: WriteLoopInput } | { ok: false; message: string };
+
+function parseLinkedRowIndex(runStepId: string, authoredStepId: string): number | undefined {
+  const prefix = `${authoredStepId}${LINK_STEP_ID_INFIX}`;
+  if (!runStepId.startsWith(prefix)) return undefined;
+  const suffix = runStepId.slice(prefix.length);
+  const index = Number(suffix);
+  if (!Number.isInteger(index) || String(index) !== suffix) return undefined;
+  return index;
+}
+
+function linkedResumeIndexPath(
+  snapshotStep: WorkflowSnapshotStep,
+  run: Pick<Run, "specPath" | "worktreePath">,
+): string {
+  if (snapshotStep.externalPlanSpec === true) {
+    return run.specPath;
+  }
+  return isAbsolute(run.specPath) ? run.specPath : join(run.worktreePath, run.specPath);
+}
+
+function linkedResumeRoutingRoot(snapshotStep: WorkflowSnapshotStep, run: Pick<Run, "worktreePath">): string {
+  return snapshotStep.specReadRoot ?? run.worktreePath;
+}
+
+function linkedResumeExpectedArtifactPath(
+  absoluteSubspecPath: string,
+  snapshotStep: WorkflowSnapshotStep,
+  worktreePath: string,
+): string {
+  if (snapshotStep.externalPlanSpec === true && snapshotStep.specReadRoot !== undefined) {
+    return absoluteSubspecPath;
+  }
+  const relativePath = relative(worktreePath, absoluteSubspecPath).replace(/\\/g, "/");
+  return relativePath.startsWith("..") ? absoluteSubspecPath : relativePath;
+}
+
+/**
+ * Reconstruct write-loop input for a paused linked-implement row (`<stepId>~link-N`): resolve the
+ * authored snapshot write step, re-read pinned linked-index routing for `N`, and thread
+ * `resumeReentry`, `specReadRoot` (external plans only), and the active subspec
+ * `expectedArtifactPath` into the result. Daemon `reconstructWriteResume` is the intended consumer.
+ */
+export function reconstructPausedWriteResumeInput(
+  run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>,
+): PausedWriteResumeReconstruction {
+  if (run.status !== "paused") {
+    return { ok: false, message: "paused write resume requires a paused run" };
+  }
+  const snapshot = run.workflowSnapshot;
+  const stepId = run.stepId;
+  if (!snapshot || !stepId) {
+    return { ok: false, message: "run has no matching workflow snapshot step" };
+  }
+  const snapshotStep = findSnapshotStepForRunStepId(snapshot.steps, stepId);
+  if (!snapshotStep || snapshotStep.behavior === "review" || snapshotStep.behavior === "review-debate") {
+    return { ok: false, message: "run has no matching workflow snapshot step" };
+  }
+  const authoredStepId = snapshotStep.stepId;
+  if (!matchesLinkedSiblingStepId(stepId, authoredStepId)) {
+    return { ok: false, message: "run is not a paused linked write row" };
+  }
+  const linkIndex = parseLinkedRowIndex(stepId, authoredStepId);
+  if (linkIndex === undefined) {
+    return { ok: false, message: "run has an invalid linked step id" };
+  }
+  if (!snapshotStep.stepRules?.trim() || !snapshotStep.agents?.length || !snapshotStep.agentModelConfig) {
+    return { ok: false, message: "snapshot step is missing write resume context" };
+  }
+
+  const routing = resolvePinnedLinkedSubspec(
+    linkedResumeIndexPath(snapshotStep, run),
+    linkedResumeRoutingRoot(snapshotStep, run),
+    linkIndex,
+  );
+  if (!routing.ok) {
+    return { ok: false, message: routing.error };
+  }
+
+  const expectedArtifactPath = linkedResumeExpectedArtifactPath(routing.active.path, snapshotStep, run.worktreePath);
+  const externalScope = persistedExternalSpecGitScope(run, snapshotStep);
+
+  return {
+    ok: true,
+    input: {
+      worktree: {
+        projectRoot: run.worktreePath,
+        projectName: run.project,
+        branchName: run.branch,
+        baseRef: run.specRef,
+      },
+      specPath: run.specPath,
+      stepRules: snapshotStep.stepRules,
+      expectedArtifactPath,
+      bindings: [],
+      bindingResolution: {
+        role: snapshotStep.role,
+        agents: snapshotStep.agents,
+        agentModelConfig: snapshotStep.agentModelConfig,
+      },
+      stepId,
+      workflowSnapshot: snapshot,
+      resumeReentry: true,
+      ...(snapshotStep.promptId !== undefined ? { promptId: snapshotStep.promptId } : {}),
+      ...(snapshotStep.promptPlaceholders !== undefined ? { promptPlaceholders: snapshotStep.promptPlaceholders } : {}),
+      ...(snapshotStep.iterationTimeoutMs !== undefined ? { iterationTimeoutMs: snapshotStep.iterationTimeoutMs } : {}),
+      ...(snapshotStep.iterationCeilingMs !== undefined ? { iterationCeilingMs: snapshotStep.iterationCeilingMs } : {}),
+      ...(snapshotStep.idleOutputMs !== undefined ? { idleOutputMs: snapshotStep.idleOutputMs } : {}),
+      ...(snapshotStep.fixCommand !== undefined ? { fixCommand: snapshotStep.fixCommand } : {}),
+      ...(snapshotStep.readyCommand !== undefined ? { readyCommand: snapshotStep.readyCommand } : {}),
+      ...externalScope,
+      ...(snapshotStep.externalPlanSpec === true ? { externalSpecReadOnly: true as const } : {}),
+    },
+  };
+}
+
 /** Reconstruct a durable review-mutation row's write-sibling context without admitting its outcome. */
 export function resolveReviewMutationLineageContext(run: Run, store: StateStore): ReviewMutationResumeResolution {
   const head = resolveReviewMutationRowHead(run, store);
@@ -1481,6 +1603,8 @@ export type ReviewMutationResumeDeps = IntentFinalizationResumeDeps & {
     "bindings" | "stepRules" | "iterationTimeoutMs" | "iterationCeilingMs" | "idleOutputMs"
   >;
   bypassPersistedReadyGateRepairFenceForTest?: boolean;
+  /** Tests only: override binding factory for auto-derived publication-time mutation repair. */
+  mutationRepairBindingFactoryForTest?: (binding: ResolvedAgentBinding) => InvocationBinding;
 };
 
 /** Settle the review-mutation resume attempt as a visible failure — never a silent no-op or a strand at `in-progress`. */
@@ -2051,11 +2175,136 @@ async function runReviewMutationCommitAndPublish(
   return settleSuccessfulReviewMutationPublication(context, store, attemptId, publication, deps);
 }
 
+function survivingMutationErrorFromTerminalRecord(
+  terminalRecord: (PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent }) | undefined,
+): SurvivingMutationError | undefined {
+  if (terminalRecord?.event.kind !== "loop_finished") return undefined;
+  const fields = survivingMutationLogFields(terminalRecord.event);
+  if (
+    terminalRecord.event.loopOutcomeKind !== "surviving_mutation_failed" ||
+    fields.survivingMutation === undefined ||
+    fields.survivingMutationSourceFile === undefined ||
+    fields.survivingMutationSourceLine === undefined
+  ) {
+    return undefined;
+  }
+  return new SurvivingMutationError(
+    fields.survivingMutation,
+    fields.survivingMutationSourceFile,
+    fields.survivingMutationSourceLine,
+  );
+}
+
+function buildAutoDerivedMutationRepairDeps(
+  context: ReviewMutationResumeContext,
+  store: StateStore,
+  writeSibling: WriteSiblingCommandSource | undefined,
+  deps: ReviewMutationResumeDeps,
+): ReviewMutationResumeDeps["mutationRepair"] | undefined {
+  const reviewRun = store.loadRun(context.runId);
+  const writeRun = store.loadRun(context.writeSiblingRunId);
+  const snapshot = reviewRun?.workflowSnapshot;
+  if (reviewRun === null || writeRun === null || writeRun.stepId == null || snapshot == null) return undefined;
+
+  const snapshotWriteStep = findSnapshotStepForRunStepId(snapshot.steps, writeRun.stepId);
+  if (snapshotWriteStep === undefined) return undefined;
+  const agents = snapshotWriteStep.agents;
+  const agentModelConfig = snapshotWriteStep.agentModelConfig;
+  if (!Array.isArray(agents) || agents.length === 0 || agentModelConfig === undefined) return undefined;
+
+  const stepRules = writeSibling?.queuedInput?.stepRules ?? writeRun.queuedInput?.stepRules ?? DEFAULT_WRITE_STEP_RULES;
+  const createBinding = deps.mutationRepairBindingFactoryForTest ?? createResolvedAgentBinding;
+  try {
+    const bindings = resolveInvocationBindings(
+      resolveExecutableRole("implement"),
+      agents,
+      agentModelConfig,
+      createBinding,
+    );
+    if (bindings.length === 0) return undefined;
+    return {
+      bindings,
+      stepRules,
+      ...(snapshotWriteStep.iterationTimeoutMs !== undefined
+        ? { iterationTimeoutMs: snapshotWriteStep.iterationTimeoutMs }
+        : {}),
+      ...(snapshotWriteStep.iterationCeilingMs !== undefined
+        ? { iterationCeilingMs: snapshotWriteStep.iterationCeilingMs }
+        : {}),
+      ...(snapshotWriteStep.idleOutputMs !== undefined ? { idleOutputMs: snapshotWriteStep.idleOutputMs } : {}),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function settleAutoDerivedMutationRepairNoBinding(
+  store: StateStore,
+  context: ReviewMutationResumeContext,
+  attemptId: string,
+  message: string,
+  deps: ReviewMutationResumeDeps,
+): ReviewMutationResumeOutcome {
+  const noBindingDetail: InvocationFailureDetail = {
+    failureKind: "no_binding",
+    bindingAttempts: [],
+    message,
+  };
+  store.commitCompletionBoundary({
+    attemptId,
+    runStatus: "failed",
+    outcomeKind: "invocation_failure",
+    invocationFailureDetail: noBindingDetail,
+    ...completionBoundarySettlementFields("invocation_failure", noBindingDetail),
+  });
+  deps.logSink?.append(context.runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "invocation_failure",
+    iterationsConsumed: 0,
+    resumable: false,
+  });
+  return { ok: false, message };
+}
+
+async function runAutoDerivedSurvivingMutationRepair(
+  context: ReviewMutationResumeContext,
+  store: StateStore,
+  attemptId: string,
+  mutationError: SurvivingMutationError,
+  deps: ReviewMutationResumeDeps,
+  writeSibling: WriteSiblingCommandSource | undefined,
+): Promise<ReviewMutationResumeOutcome> {
+  const derived = buildAutoDerivedMutationRepairDeps(context, store, writeSibling, deps);
+  if (derived === undefined) {
+    return settleAutoDerivedMutationRepairNoBinding(
+      store,
+      context,
+      attemptId,
+      "no implement binding available for publication-time mutation repair",
+      deps,
+    );
+  }
+  const effectiveDeps: ReviewMutationResumeDeps = { ...deps, mutationRepair: derived };
+  const creationTitle = resolvePublicationTitle(context.worktreePath, context.specPath, context.creationTitleHint);
+  store.setCreationTitle(context.runId, creationTitle);
+  const commitFailure = await commitReviewMutationResumeChanges(
+    context,
+    store,
+    attemptId,
+    creationTitle,
+    effectiveDeps,
+  );
+  if (commitFailure !== undefined) return commitFailure;
+  const body = await deriveReviewMutationResumeBodySummary(context);
+  return runMutationRepairContinuation(context, store, attemptId, mutationError, effectiveDeps, body);
+}
+
 async function replayMutationFinalization(
   resolved: ReviewMutationResumeResolution,
   store: StateStore,
   deps: ReviewMutationResumeDeps,
   writeSibling?: WriteSiblingCommandSource,
+  terminalRecord?: (PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent }) | undefined,
 ): Promise<ReviewMutationResumeOutcome> {
   if (!resolved.ok) return { ok: false, message: resolved.message };
   const { context } = resolved;
@@ -2074,6 +2323,11 @@ async function replayMutationFinalization(
         "no completion agent available to attribute the publication commit",
         deps,
       );
+    }
+
+    const mutationError = survivingMutationErrorFromTerminalRecord(terminalRecord);
+    if (deps.mutationRepair === undefined && mutationError !== undefined) {
+      return await runAutoDerivedSurvivingMutationRepair(context, store, attemptId, mutationError, deps, writeSibling);
     }
 
     return await runReviewMutationCommitAndPublish(context, store, attemptId, deps, writeSibling);
@@ -2099,5 +2353,5 @@ export async function resumeReviewMutationFinalization(
     : resolveWriteOutOfScopeResumeContext(run, store, terminalRecord);
   // Resolve before replay flips the row to in-progress: the sibling lookup reads the failed row.
   const writeSibling = resolveWriteSiblingCommandSource(run, store);
-  return replayMutationFinalization(resolved, store, deps, writeSibling);
+  return replayMutationFinalization(resolved, store, deps, writeSibling, terminalRecord);
 }

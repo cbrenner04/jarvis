@@ -12,14 +12,14 @@
 
 ## Tasks
 
-- [ ] Replace `isWriteSiblingStepId` and inline `~link-` / `~shrink` step-id checks under `v2/src/execution/` with imports from `shared/write-sibling-step-id.ts`.
-- [ ] Extend `workflow-runner-resume-structure.test.ts` to assert `isWriteSiblingStepId` is absent from `v2/src/execution/` and that `workflow-runner-resume.ts` and `workflow-runner.ts` import the shared matcher.
+- [x] Replace `isWriteSiblingStepId` and inline `~link-` / `~shrink` step-id checks under `v2/src/execution/` with imports from `shared/write-sibling-step-id.ts`.
+- [x] Extend `workflow-runner-resume-structure.test.ts` to assert `isWriteSiblingStepId` is absent from `v2/src/execution/` and that `workflow-runner-resume.ts` and `workflow-runner.ts` import the shared matcher.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/workflow-runner-resume-structure.test.ts` proves `isWriteSiblingStepId` is absent from `v2/src/execution/` and the shared matcher is imported at every prior call site; it fails while the local copy in `workflow-runner-resume.ts` remains.
-- [ ] `v2/docs/v1-behaviors.md` records that write-sibling step-id matching (`~link-N`, `~shrink`, exact) is owned by `shared/write-sibling-step-id.ts`.
-- [ ] `bun run test:v2` passes.
+- [x] `v2/src/execution/workflow-runner-resume-structure.test.ts` proves `isWriteSiblingStepId` is absent from `v2/src/execution/` and the shared matcher is imported at every prior call site; it fails while the local copy in `workflow-runner-resume.ts` remains.
+- [x] `v2/docs/v1-behaviors.md` records that write-sibling step-id matching (`~link-N`, `~shrink`, exact) is owned by `shared/write-sibling-step-id.ts`.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

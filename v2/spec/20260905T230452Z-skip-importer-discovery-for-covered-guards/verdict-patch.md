@@ -1,6 +1,0 @@
-Reviewing the implementation and docs against the spec and advocate response to issue a verdict.
-## Verdict
-
-**Required:** In `v2/docs/operator-runbook.md`, qualify the **Residual risks** `importer-discovery-cap-exceeded` clause so it applies only when co-located resolution is empty (uncovered guard), consistent with the flip-and-test paragraph and `workflow-runner.md` updated in this branch. The paragraph already states co-located-first killing-test resolution; the residual-risk bullet still reads as if scan-root sprawl can cap-block any guard.
-
-**No other actuator changes.** Implementation matches the subspec: early return when co-located union is non-empty, importer discovery and cap only on empty co-located resolution, tests and durable docs cover the ticked acceptance criteria. Remaining review items (exact-stem spy, mutation checkpoint, combined co-located scope test, cap `it()` isolation, `emptyCoLocated` naming, prompt “covers” wording, vacuous co-located stub edge, sibling `listDir` trust, uncovered early-importer cap semantics, archived spec staleness, `intent.md`/AC title hygiene) are optional hardening, pre-existing behavior, spec-chosen tradeoffs, or deferred scope—not merge blockers under this subspec.

@@ -1,16 +1,14 @@
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+  DAEMON_RUN_CONTROL_HANDLER_FORBIDDEN_SYMBOL_SCAN_EXCLUDED_FILES,
+  DAEMON_RUN_CONTROL_HANDLER_FORBIDDEN_SYMBOLS,
+  scanDaemonRunControlHandlerForbiddenSymbols,
+} from "./daemon-run-control-handler-guard.ts";
 
 const DAEMON_DIR = import.meta.dir;
-
-const FORBIDDEN_SYMBOLS = ["activeRunsByHandler", "activeRunForHandler"] as const;
-
-export type DaemonRunControlHandlerGuardViolation = {
-  file: string;
-  symbol: (typeof FORBIDDEN_SYMBOLS)[number];
-  line: number;
-};
+const SCAN_EXCLUDED = new Set<string>(DAEMON_RUN_CONTROL_HANDLER_FORBIDDEN_SYMBOL_SCAN_EXCLUDED_FILES);
 
 function listProductionDaemonSources(): Readonly<Record<string, string>> {
   const sources: Record<string, string> = {};
@@ -20,35 +18,13 @@ function listProductionDaemonSources(): Readonly<Record<string, string>> {
       const abs = join(absDir, entry.name);
       if (entry.isDirectory()) {
         walk(abs, rel);
-      } else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) {
+      } else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts") && !SCAN_EXCLUDED.has(entry.name)) {
         sources[rel] = readFileSync(abs, "utf-8");
       }
     }
   };
   walk(DAEMON_DIR, "");
   return sources;
-}
-
-export function scanDaemonRunControlHandlerForbiddenSymbols(
-  sources: Readonly<Record<string, string>>,
-): DaemonRunControlHandlerGuardViolation[] {
-  const violations: DaemonRunControlHandlerGuardViolation[] = [];
-  for (const [file, source] of Object.entries(sources).sort(([a], [b]) => a.localeCompare(b))) {
-    for (const symbol of FORBIDDEN_SYMBOLS) {
-      let from = 0;
-      while (true) {
-        const index = source.indexOf(symbol, from);
-        if (index === -1) break;
-        violations.push({
-          file,
-          symbol,
-          line: source.slice(0, index).split("\n").length,
-        });
-        from = index + symbol.length;
-      }
-    }
-  }
-  return violations;
 }
 
 test("daemon production sources omit activeRunsByHandler and activeRunForHandler", () => {
@@ -65,6 +41,7 @@ export function activeRunForHandler(handlers: object, id: string): ActiveRun | u
 }
 `;
   const violations = scanDaemonRunControlHandlerForbiddenSymbols({ ...sources, "daemon.ts": preFix });
-  expect(violations.some((violation) => violation.symbol === "activeRunsByHandler")).toBe(true);
-  expect(violations.some((violation) => violation.symbol === "activeRunForHandler")).toBe(true);
+  for (const symbol of DAEMON_RUN_CONTROL_HANDLER_FORBIDDEN_SYMBOLS) {
+    expect(violations.some((violation) => violation.symbol === symbol)).toBe(true);
+  }
 });

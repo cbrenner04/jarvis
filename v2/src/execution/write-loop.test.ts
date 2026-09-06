@@ -57,6 +57,7 @@ import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "./writ
 import {
   appendRuntimeSmokeOutcome,
   applyOperatorSessionId,
+  buildSubspecCompletionInventory,
   compareRepoPathsByUtf8Bytes,
   deriveMarkdownOutputRoots,
   enumerateRepairCompletionCandidates,
@@ -712,6 +713,125 @@ function progressThenDone(n: number): InvocationBinding[] {
     },
   ];
 }
+
+describe("buildSubspecCompletionInventory", () => {
+  const roots: string[] = [];
+
+  afterEach(() => {
+    for (const root of roots.splice(0)) {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  function writeLinkedSpec(
+    worktreePath: string,
+    specDir: string,
+    subspecs: ReadonlyArray<{ file: string; title: string; criteria: string }>,
+    extraIndexLines: string[] = [],
+  ): { specPath: string; subspecPaths: string[] } {
+    const specRoot = join(worktreePath, specDir);
+    mkdirSync(specRoot, { recursive: true });
+    const links = subspecs.map((s, i) => `- [ ] [${String(i).padStart(2, "0")} - ${s.title}](./${s.file})`);
+    writeFileSync(join(specRoot, "index.md"), `# Implement\n\n${[...links, ...extraIndexLines].join("\n")}\n`, "utf8");
+    for (const s of subspecs) {
+      writeFileSync(join(specRoot, s.file), `# ${s.title}\n\n## Acceptance criteria\n\n${s.criteria}\n`, "utf8");
+    }
+    return {
+      specPath: `${specDir}/index.md`,
+      subspecPaths: subspecs.map((s) => `${specDir}/${s.file}`),
+    };
+  }
+
+  test("buildSubspecCompletionInventory classifies linked subspecs when projectRoot differs from worktreePath", () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "jarvis-project-root-"));
+    roots.push(projectRoot);
+    const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-worktree-"));
+    roots.push(worktreePath);
+    const { specPath } = writeLinkedSpec(worktreePath, "spec/implement", [
+      { file: "00-first.md", title: "First", criteria: "- [x] done" },
+      { file: "01-second.md", title: "Second", criteria: "- [ ] pending" },
+    ]);
+
+    expect(buildSubspecCompletionInventory(worktreePath, projectRoot, specPath)).toEqual({
+      completedSubspecPaths: ["spec/implement/00-first.md"],
+      remainingSubspecPaths: ["spec/implement/01-second.md"],
+    });
+  });
+
+  test("buildSubspecCompletionInventory reports repo-relative paths when projectRoot differs from worktreePath", () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "jarvis-project-root-"));
+    roots.push(projectRoot);
+    const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-worktree-"));
+    roots.push(worktreePath);
+    const { specPath } = writeLinkedSpec(worktreePath, "spec/implement", [
+      { file: "00-first.md", title: "First", criteria: "- [x] done" },
+      { file: "01-second.md", title: "Second", criteria: "- [ ] pending" },
+    ]);
+
+    const inventory = buildSubspecCompletionInventory(worktreePath, projectRoot, specPath);
+    expect(inventory.completedSubspecPaths).toEqual(["spec/implement/00-first.md"]);
+    expect(inventory.remainingSubspecPaths).toEqual(["spec/implement/01-second.md"]);
+    expect(inventory.completedSubspecPaths.every((path) => !path.startsWith(".."))).toBe(true);
+  });
+
+  test("buildSubspecCompletionInventory surfaces inventoryError for unrelativizable subspec paths", () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "jarvis-project-root-"));
+    roots.push(projectRoot);
+    const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-worktree-"));
+    roots.push(worktreePath);
+    const outsidePath = join(tmpdir(), `jarvis-outside-${Date.now()}.md`);
+    writeFileSync(outsidePath, "# Outside\n\n## Acceptance criteria\n\n- [ ] pending\n", "utf8");
+    roots.push(outsidePath);
+    const specRoot = join(worktreePath, "spec/implement");
+    mkdirSync(specRoot, { recursive: true });
+    writeFileSync(
+      join(specRoot, "index.md"),
+      `# Implement\n\n- [ ] [00 - First](./00-first.md)\n- [ ] [01 - Outside](${outsidePath})\n`,
+      "utf8",
+    );
+    writeFileSync(join(specRoot, "00-first.md"), "# First\n\n## Acceptance criteria\n\n- [x] done\n", "utf8");
+
+    expect(buildSubspecCompletionInventory(worktreePath, projectRoot, "spec/implement/index.md")).toEqual({
+      completedSubspecPaths: [],
+      remainingSubspecPaths: [],
+      inventoryError: `cannot relativize subspec path: ${outsidePath}`,
+    });
+  });
+
+  test("buildSubspecCompletionInventory surfaces inventoryError when index build throws", () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "jarvis-project-root-"));
+    roots.push(projectRoot);
+    const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-worktree-"));
+    roots.push(worktreePath);
+    const specRoot = join(worktreePath, "spec/implement");
+    mkdirSync(specRoot, { recursive: true });
+    const indexPath = join(specRoot, "index.md");
+    writeFileSync(indexPath, "# Implement\n", "utf8");
+    chmodSync(indexPath, 0);
+
+    const inventory = buildSubspecCompletionInventory(worktreePath, projectRoot, "spec/implement/index.md");
+    chmodSync(indexPath, 0o644);
+
+    expect(inventory.completedSubspecPaths).toEqual([]);
+    expect(inventory.remainingSubspecPaths).toEqual([]);
+    expect(inventory.inventoryError).toBeDefined();
+  });
+
+  test("buildSubspecCompletionInventory yields empty lists without inventoryError for zero linked subspecs", () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "jarvis-project-root-"));
+    roots.push(projectRoot);
+    const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-worktree-"));
+    roots.push(worktreePath);
+    const specRoot = join(worktreePath, "spec/implement");
+    mkdirSync(specRoot, { recursive: true });
+    writeFileSync(join(specRoot, "index.md"), "# Implement\n\nNo linked subspecs.\n", "utf8");
+
+    expect(buildSubspecCompletionInventory(worktreePath, projectRoot, "spec/implement/index.md")).toEqual({
+      completedSubspecPaths: [],
+      remainingSubspecPaths: [],
+    });
+  });
+});
 
 describe("write loop", () => {
   // Intent-split landing-contract pre-completion gate: write-loop-intent-landing.test.ts
@@ -9466,7 +9586,7 @@ index 1234567..abcdefg 100644
       try {
         const result = await executeWriteLoop(
           iterLoopInput(jarvisRoot, branchName, store, {
-            worktree: { projectRoot: worktreePath, projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
+            worktree: { projectRoot: jarvisRoot, projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
             specPath,
             logSink: sink,
             iterationTimeoutMs: 15,
@@ -9484,6 +9604,155 @@ index 1234567..abcdefg 100644
         });
       } finally {
         store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("committedResult echoes recomputed iteration_timeout inventory with divergent roots", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "timeout-committed-replay";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const outsidePath = join(tmpdir(), `jarvis-outside-${Date.now()}.md`);
+      writeFileSync(outsidePath, "# Outside\n\n## Acceptance criteria\n\n- [ ] pending\n", "utf8");
+      roots.push(outsidePath);
+      const specRoot = join(worktreePath, "spec/implement");
+      mkdirSync(specRoot, { recursive: true });
+      writeFileSync(
+        join(specRoot, "index.md"),
+        `# Implement\n\n- [ ] [00 - First](./00-first.md)\n- [ ] [01 - Outside](${outsidePath})\n`,
+        "utf8",
+      );
+      writeFileSync(join(specRoot, "00-first.md"), "# First\n\n## Acceptance criteria\n\n- [x] done\n", "utf8");
+      const specPath = "spec/implement/index.md";
+      execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "commit", "-m", "spec"], { stdio: "pipe" });
+      const store = openStateStore(stateDbPath);
+      let resumableStore: StateStore | undefined;
+      const sink = new TestLogSink();
+      const divergentWorktree = {
+        projectRoot: jarvisRoot,
+        projectName: "demo",
+        branchName,
+        baseRef: "HEAD",
+        jarvisRoot,
+      };
+      let executeCalls = 0;
+
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => {
+          executeCalls += 1;
+          return resolveOnAbort(input, progressWrite(worktreePath));
+        },
+      }));
+
+      try {
+        const first = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            worktree: divergentWorktree,
+            specPath,
+            logSink: sink,
+            iterationTimeoutMs: 15,
+          }),
+        );
+        expect(first).toMatchObject({
+          kind: "iteration_timeout",
+          resumable: false,
+          completedSubspecPaths: [],
+          remainingSubspecPaths: [],
+          inventoryError: `cannot relativize subspec path: ${outsidePath}`,
+        });
+
+        executeCalls = 0;
+        const replaySink = new TestLogSink();
+        const replay = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            worktree: divergentWorktree,
+            specPath,
+            logSink: replaySink,
+            iterationTimeoutMs: 15,
+          }),
+        );
+        expect(replay).toMatchObject({
+          kind: "iteration_timeout",
+          resumable: false,
+          completedSubspecPaths: [],
+          remainingSubspecPaths: [],
+          inventoryError: `cannot relativize subspec path: ${outsidePath}`,
+        });
+        expect(executeCalls).toBe(0);
+        expect(replaySink.getEventsForRun(first.runId)).toHaveLength(0);
+        store.close();
+
+        const resumableBranch = "timeout-committed-replay-resumable";
+        const resumableWorktreePath = initGitWorktree(jarvisRoot, resumableBranch);
+        const { specPath: resumableSpecPath, subspecPaths } = writeImplementLinkedSpec(
+          resumableWorktreePath,
+          "spec/implement",
+          [
+            { file: "00-first.md", title: "First", criteria: "- [x] done" },
+            { file: "01-second.md", title: "Second", criteria: "- [ ] pending" },
+          ],
+        );
+        execFileSync("git", ["-C", resumableWorktreePath, "add", "-A"], { stdio: "pipe" });
+        execFileSync("git", ["-C", resumableWorktreePath, "commit", "-m", "spec"], { stdio: "pipe" });
+        resumableStore = openStateStore(stateDbPath);
+        const resumableSink = new TestLogSink();
+        let resumableExecuteCalls = 0;
+        mock.module("./write.ts", () => ({
+          executeWrite: (input: WriteExecuteInput) => {
+            resumableExecuteCalls += 1;
+            return resolveOnAbort(input, progressWrite(resumableWorktreePath));
+          },
+        }));
+
+        const resumableFirst = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, resumableBranch, resumableStore, {
+            worktree: {
+              projectRoot: jarvisRoot,
+              projectName: "demo",
+              branchName: resumableBranch,
+              baseRef: "HEAD",
+              jarvisRoot,
+            },
+            specPath: resumableSpecPath,
+            logSink: resumableSink,
+            iterationTimeoutMs: 15,
+          }),
+        );
+        expect(resumableFirst).toMatchObject({
+          kind: "iteration_timeout",
+          resumable: true,
+          completedSubspecPaths: [subspecPaths[0]],
+          remainingSubspecPaths: [subspecPaths[1]],
+        });
+
+        resumableExecuteCalls = 0;
+        const resumableReplaySink = new TestLogSink();
+        await executeWriteLoop(
+          iterLoopInput(jarvisRoot, resumableBranch, resumableStore, {
+            worktree: {
+              projectRoot: jarvisRoot,
+              projectName: "demo",
+              branchName: resumableBranch,
+              baseRef: "HEAD",
+              jarvisRoot,
+            },
+            specPath: resumableSpecPath,
+            logSink: resumableReplaySink,
+            iterationTimeoutMs: 15,
+          }),
+        );
+        expect(resumableExecuteCalls).toBeGreaterThan(0);
+        resumableStore.close();
+        resumableStore = undefined;
+      } finally {
+        if (resumableStore !== undefined) resumableStore.close();
+        try {
+          store.close();
+        } catch {
+          /* closed after inventory-error replay */
+        }
         mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
       }
     });

@@ -160,11 +160,13 @@ export type WriteLoopResult = {
   runtimeSmokeObservation?: string;
   completedSubspecPaths?: readonly string[];
   remainingSubspecPaths?: readonly string[];
+  inventoryError?: string;
 } & Partial<InvocationFailureDetail>;
 
 export type SubspecCompletionInventory = {
   completedSubspecPaths: readonly string[];
   remainingSubspecPaths: readonly string[];
+  inventoryError?: string;
 };
 
 export function hasCompletedSubspec(inventory: SubspecCompletionInventory): boolean {
@@ -227,12 +229,13 @@ function resolveLinkedIndexPath(worktreePath: string, specPath: string): string 
   return join(resolved, "index.md");
 }
 
-/** Classify linked subspec bodies by non-human-only acceptance criteria; fail-soft to empty lists. */
+/** Classify linked subspec bodies by non-human-only acceptance criteria; unrelativizable paths and outer failures surface `inventoryError` with empty path lists. */
 export function buildSubspecCompletionInventory(
   worktreePath: string,
   projectRoot: string,
   specPath: string,
 ): SubspecCompletionInventory {
+  void projectRoot;
   try {
     const indexPath = resolveLinkedIndexPath(worktreePath, specPath);
     if (!existsSync(indexPath)) return { completedSubspecPaths: [], remainingSubspecPaths: [] };
@@ -244,8 +247,14 @@ export function buildSubspecCompletionInventory(
     for (const link of linkedSubspecs) {
       if (!link.path.trim()) continue;
       const resolvedPath = isAbsolute(link.path) ? link.path : resolve(dirname(indexPath), link.path);
-      const rel = repoRelativeSubspecPath(projectRoot, resolvedPath);
-      if (rel === undefined) continue;
+      const rel = repoRelativeSubspecPath(worktreePath, resolvedPath);
+      if (rel === undefined) {
+        return {
+          completedSubspecPaths: [],
+          remainingSubspecPaths: [],
+          inventoryError: `cannot relativize subspec path: ${link.path}`,
+        };
+      }
       let body: string;
       try {
         body = readFileSync(resolvedPath, "utf8");
@@ -260,8 +269,9 @@ export function buildSubspecCompletionInventory(
       }
     }
     return { completedSubspecPaths: completed, remainingSubspecPaths: remaining };
-  } catch {
-    return { completedSubspecPaths: [], remainingSubspecPaths: [] };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { completedSubspecPaths: [], remainingSubspecPaths: [], inventoryError: message };
   }
 }
 
@@ -2153,6 +2163,7 @@ async function finishIterationTimeout(
   const inventoryFields = {
     completedSubspecPaths: [...inventory.completedSubspecPaths],
     remainingSubspecPaths: [...inventory.remainingSubspecPaths],
+    ...(inventory.inventoryError !== undefined ? { inventoryError: inventory.inventoryError } : {}),
   };
   args.logSink?.append(runId, {
     kind: "loop_finished",
@@ -2548,6 +2559,7 @@ function committedResult(
         ? {
             completedSubspecPaths: [...inventory.completedSubspecPaths],
             remainingSubspecPaths: [...inventory.remainingSubspecPaths],
+            ...(inventory.inventoryError !== undefined ? { inventoryError: inventory.inventoryError } : {}),
           }
         : {}),
     };

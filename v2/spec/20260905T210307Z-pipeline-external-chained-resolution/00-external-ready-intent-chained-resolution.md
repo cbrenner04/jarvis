@@ -27,14 +27,14 @@ Daemon: `locateAbsentWorktreeDownstreamInputReadRoot` and chained ready-intent v
 
 ## Acceptance criteria
 
-- [ ] `pipeline-stage-resolve.test.ts` test `resolves external ready-intent downstream input for chained plan stage` asserts an intent stage's external `ready-intents/<name>.md` path resolves for the chained plan stage on a `plan.commit: false` project; it fails against the current `gitPathExistsOnBranch` path in `locateAbsentWorktreeDownstreamInputReadRoot`.
-- [ ] `pipeline-stage-resolve.test.ts` test `resolves external ready-intent downstream input when machine modes.plan.commit is false` asserts chained plan resolution when only machine `modes.plan.commit: false` routes publication externally; it fails against project-only `planSourcePublishesExternally` gating.
-- [ ] `pipeline-stage-resolve.test.ts` test `rejects cross-project external ready-intent downstream input` asserts resolution fails when the ready-intent exists only under another registered project's external home; it fails against pre-fix external-home lookup that omits owner containment.
-- [ ] `pipeline-stage-resolve.test.ts` — `plan stage resolves through real preset builders when ready-intent exists only on git-disabled intent workspace` stays green.
-- [ ] `pipeline-stage-resolve.test.ts` — `plan stage resolves through real preset builders when ready-intent exists only on intent worktree` stays green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `pipeline-stage-resolve.test.ts` test `resolves external ready-intent downstream input for chained plan stage` asserts an intent stage's external `ready-intents/<name>.md` path resolves for the chained plan stage on a `plan.commit: false` project; it fails against the current `gitPathExistsOnBranch` path in `locateAbsentWorktreeDownstreamInputReadRoot`.
+- [x] `pipeline-stage-resolve.test.ts` test `resolves external ready-intent downstream input when machine modes.plan.commit is false` asserts chained plan resolution when only machine `modes.plan.commit: false` routes publication externally; it fails against project-only `planSourcePublishesExternally` gating.
+- [x] `pipeline-stage-resolve.test.ts` test `rejects cross-project external ready-intent downstream input` asserts resolution fails when the ready-intent exists only under another registered project's external home; it fails against pre-fix external-home lookup that omits owner containment.
+- [x] `pipeline-stage-resolve.test.ts` — `plan stage resolves through real preset builders when ready-intent exists only on git-disabled intent workspace` stays green.
+- [x] `pipeline-stage-resolve.test.ts` — `plan stage resolves through real preset builders when ready-intent exists only on intent worktree` stays green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

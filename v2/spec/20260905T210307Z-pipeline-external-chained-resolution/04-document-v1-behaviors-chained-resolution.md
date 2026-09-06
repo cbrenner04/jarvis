@@ -18,7 +18,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/v1-behaviors.md` records v2 external chained ready-intent resolution and fan-out lane failure incident behavior without altering v1.
+- [x] `v2/docs/v1-behaviors.md` records v2 external chained ready-intent resolution and fan-out lane failure incident behavior without altering v1.
 
 ## Documentation updates
 

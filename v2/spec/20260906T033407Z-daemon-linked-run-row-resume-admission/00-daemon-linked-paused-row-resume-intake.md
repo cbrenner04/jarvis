@@ -25,13 +25,13 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-resume.test.ts` proves `run resume` on a paused `implement~link-N` row re-enters the linked loop and dispatches the next subspec; it fails against the current `resume_unsupported` refusal (#3463).
-- [ ] `v2/src/daemon/daemon-run-lifecycle-handlers.test.ts` `resume maps hidden ~shrink stepId to shrink role via snapshot base step` stays green.
-- [ ] `v2/docs/operator-runbook.md` documents `jarvis run resume` on paused linked implement rows (`implement~link-N`) and narrows [Clearing a stale non-active run with `run kill --force`](#clearing-a-stale-non-active-run-with-run-kill---force) so force-kill is not the recovery path when linked paused resume succeeds.
-- [ ] `v2/docs/v1-behaviors.md` records daemon admission of paused `<stepId>~link-N` resume through `reconstructPausedWriteResumeInput`.
-- [ ] `bun run typecheck` passes.
+- [x] `v2/src/daemon/daemon-resume.test.ts` proves `run resume` on a paused `implement~link-N` row re-enters the linked loop and dispatches the next subspec; it fails against the current `resume_unsupported` refusal (#3463).
+- [x] `v2/src/daemon/daemon-run-lifecycle-handlers.test.ts` `resume maps hidden ~shrink stepId to shrink role via snapshot base step` stays green.
+- [x] `v2/docs/operator-runbook.md` documents `jarvis run resume` on paused linked implement rows (`implement~link-N`) and narrows [Clearing a stale non-active run with `run kill --force`](#clearing-a-stale-non-active-run-with-run-kill---force) so force-kill is not the recovery path when linked paused resume succeeds.
+- [x] `v2/docs/v1-behaviors.md` records daemon admission of paused `<stepId>~link-N` resume through `reconstructPausedWriteResumeInput`.
+- [x] `bun run typecheck` passes.
 - [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

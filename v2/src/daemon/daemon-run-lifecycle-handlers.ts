@@ -1,5 +1,10 @@
 import { join } from "node:path";
 import {
+  findSnapshotStepForRunStepId,
+  isHiddenShrinkStepId,
+  matchesLinkedSiblingStepId,
+} from "../../../shared/write-sibling-step-id.ts";
+import {
   FILTERED_LIST_DEFAULT_LIMIT,
   type ListRpcParams,
   listRpcRequestIsFiltered,
@@ -10,6 +15,7 @@ import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import {
   type IntentFinalizationResumeDeps,
+  reconstructPausedWriteResumeInput,
   resolveExhaustedRedResumeContext,
   resolveIntentFinalizationResumeContext,
   resolveReviewMutationResumeContext,
@@ -279,10 +285,7 @@ export function createRunLifecycleHandlers(
     const snapshot = run.workflowSnapshot;
     if (!snapshot) return reconstructDirectWriteResume(run);
     const stepId = run.stepId;
-    const hiddenShrink = stepId?.endsWith("~shrink") === true;
-    const step = snapshot?.steps.find(
-      (candidate) => candidate.stepId === stepId || (hiddenShrink && candidate.stepId === stepId.slice(0, -7)),
-    );
+    const step = stepId ? findSnapshotStepForRunStepId(snapshot.steps, stepId) : undefined;
 
     if (!stepId || !step) return { ok: false, message: "run has no matching workflow snapshot step" };
     if (step.behavior === "review" || step.behavior === "review-debate") {
@@ -295,6 +298,16 @@ export function createRunLifecycleHandlers(
       return { ok: false, message: "snapshot step is missing write resume context" };
     }
 
+    if (run.status === "paused" && matchesLinkedSiblingStepId(stepId, step.stepId)) {
+      const linked = reconstructPausedWriteResumeInput({
+        ...run,
+        attempts: (run as Run & { attempts?: Attempt[] }).attempts ?? [],
+      });
+      if (!linked.ok) return linked;
+      return resolveWriteLoopBindings(linked.input, writeLoopBindingSourceDeps);
+    }
+
+    const hiddenShrink = isHiddenShrinkStepId(stepId);
     const landingContractReprompt = findLandingContractRepromptFromLog(logRecords);
     const stagedMarkdownLintReprompt = findStagedMarkdownLintRepromptFromLog(logRecords);
     const survivingMutationReprompt =

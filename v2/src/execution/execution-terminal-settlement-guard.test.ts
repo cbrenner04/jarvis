@@ -118,3 +118,20 @@ test("terminalSettlementInventoryMismatches reports an absent permitted write as
   expect(terminal).toMatch(/missing: [^\n]*settleSuccessorShellStall/);
   expect(terminal).toContain("count deltas: (none)");
 });
+
+// The mirror of the missing case: an unpermitted write present in the scan is *extra*, not a count
+// delta. Driven off the real inventory plus one rogue so `extra` is the only populated bucket.
+test("terminalSettlementInventoryMismatches reports an unpermitted write as extra, not a count delta", () => {
+  const scanned = scanExecutionTerminalSettlement(listProductionExecutionSources());
+  const { terminal } = terminalSettlementInventoryMismatches({
+    ...scanned,
+    terminalWrites: [
+      ...scanned.terminalWrites,
+      { file: "rogue.ts", functionName: "rogueWriter", writer: "commitCompletionBoundary", line: 1 },
+    ],
+  });
+
+  expect(terminal).toMatch(/extra: [^\n]*rogue\.ts:commitCompletionBoundary:rogueWriter/);
+  expect(terminal).toContain("missing: (none)");
+  expect(terminal).toContain("count deltas: (none)");
+});

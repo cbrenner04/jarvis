@@ -301,8 +301,8 @@ v2/src/tui/tui-timestamp-format.test.ts out-of-scope no-structural-signal
 | row-id | test-path | case-scope | guarded-invariant | anchor-mechanism | classification | disposition | stay-incidental-rationale | vacuous-pass-risk |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | ex-cc-real-git-commit | v2/src/execution/completion-commit.test.ts | createCompletionCommitter > formats changed files before staging so committed tree passes biome check | completion commit formats staged paths and lands biome-clean content on real git worktrees | `readFileSync`/`git show` on worktree paths after `copyFileSync` of committed `biome.json` from repo root | behavioral | n/a | | |
-| ex-ddmv-observer-map-source | v2/src/execution/diff-derived-mutation-verifier.test.ts | module scope | verifier render-coverage seam tracks committed observer registry | module-level `readFileSync` of `shared/prompts/render-observer-tests.ts` as `PROCESS_RENDER_OBSERVER_MAP` | incidental | re-key | | |
-| ex-ddmv-render-coverage-needle | v2/src/execution/diff-derived-mutation-verifier.test.ts | diff-derived-mutation-verifier > fails closed for registered prompts without render-observer map entries / invokes only that prompt's render-observer test file(s) | changed prompt bodies require registered render-observer killing tests | merge-base diff prose substring pins (`The diff comes from git merge-base <base> HEAD.`) coupled to `resolveRenderObserverTests` map lookup | incidental | re-key | | yes |
+| ex-ddmv-observer-map-source | v2/src/execution/diff-derived-mutation-verifier.test.ts | module scope | verifier render-coverage seam tracks committed observer registry | `seamReadFile` default map validated via `extractRenderObserverMapFromSource`; custom maps built with `renderObserverMapSource` | behavioral | n/a | | |
+| ex-ddmv-render-coverage-needle | v2/src/execution/diff-derived-mutation-verifier.test.ts | diff-derived-mutation-verifier > fails closed for registered prompts without render-observer map entries / invokes only that prompt's render-observer test file(s) | changed prompt bodies require registered render-observer killing tests | scoped `runScopedTests` invocation matched to `resolveRenderObserverTests(promptPath)` per changed prompt; synthetic body-line diffs without merge-base prose pins | behavioral | n/a | | |
 | ex-ddmv-killing-resolution | v2/src/execution/diff-derived-mutation-verifier.test.ts | co-located killing-test resolution (sibling fallback) / direct-importing killing-test resolution | mutation verifier resolves co-located, sibling, and direct-importer killing tests before scoped execution | behavioral unit and integration tests of `resolveSiblingKillingTests`, importer scan caps, and scoped `runScopedTests` scheduling | behavioral | n/a | | |
 | ex-ddmv-worktree-observer-map | v2/src/execution/diff-derived-mutation-verifier.test.ts | worktree render-observer map resolution > * | worktree-local observer map drives render-coverage without process-map fallback | `extractRenderObserverMapFromSource` on worktree `render-observer-tests.ts` plus git worktree fixture reads | behavioral | n/a | | |
 | ex-ddmv-verifier-core | v2/src/execution/diff-derived-mutation-verifier.test.ts | diff-derived-mutation-verifier / TypeScript operator candidate classification / verification bounds | diff parsing, candidate classification, directive parsing, and bounded verification behave correctly | behavioral unit tests with synthetic diffs and seams (no production registry mirrors) | behavioral | n/a | | |
@@ -504,18 +504,6 @@ Every inventory row with disposition `re-key`, grouped by `test-path` + `case-sc
 **case-scope:** only allowlisted modules call resolveWriteLoopBindings
 
 **re-key (1):** dm-wlbinding-callers-allowlist
-
-### v2/src/execution/diff-derived-mutation-verifier.test.ts
-
-**case-scope:** diff-derived-mutation-verifier > fails closed for registered prompts without render-observer map entries / invokes only that prompt's render-observer test file(s)
-
-**re-key (1):** ex-ddmv-render-coverage-needle
-
-### v2/src/execution/diff-derived-mutation-verifier.test.ts
-
-**case-scope:** module scope
-
-**re-key (1):** ex-ddmv-observer-map-source
 
 ### v2/src/execution/intent-split-regression.test.ts
 

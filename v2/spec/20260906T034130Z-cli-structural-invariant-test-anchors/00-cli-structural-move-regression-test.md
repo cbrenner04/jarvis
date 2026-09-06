@@ -11,15 +11,15 @@ CLI re-key work can replace path pins with equally brittle path pins that pass w
 
 ## Task checklist
 
-- [ ] Add `v2/src/commands/structural-invariant-move-regression.test.ts` with a minimal module-set fixture and a helper that mirrors the re-key pattern used for prepare-call and delegation guards.
-- [ ] Wire the fixture to fail when the helper still keys on a hardcoded path set and pass when it resolves the owner export and pairs absence outside with presence inside.
+- [x] Add `v2/src/commands/structural-invariant-move-regression.test.ts` with a minimal module-set fixture and a helper that mirrors the re-key pattern used for prepare-call and delegation guards.
+- [x] Wire the fixture to fail when the helper still keys on a hardcoded path set and pass when it resolves the owner export and pairs absence outside with presence inside.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/structural-invariant-move-regression.test.ts` test `re-keyed move guard fails on fixed path allowlist and passes when symbol moves to sibling module` fails against a path-pinned allowlist helper reachable on main and passes after symbol-resolved pairing; it fails against the pre-fix path pin.
-- [ ] `bun run typecheck` passes.
+- [x] `v2/src/commands/structural-invariant-move-regression.test.ts` test `re-keyed move guard fails on fixed path allowlist and passes when symbol moves to sibling module` fails against a path-pinned allowlist helper reachable on main and passes after symbol-resolved pairing; it fails against the pre-fix path pin.
+- [x] `bun run typecheck` passes.
 - [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

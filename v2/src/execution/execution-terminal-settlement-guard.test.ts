@@ -10,8 +10,8 @@ import {
 
 function expectPermittedInventoryMatches(result: ReturnType<typeof scanExecutionTerminalSettlement>): void {
   const mismatches = terminalSettlementInventoryMismatches(result);
-  expect(mismatches.terminal).toBeUndefined();
-  expect(mismatches.nonterminal).toBeUndefined();
+  expect(mismatches).not.toHaveProperty("terminal");
+  expect(mismatches).not.toHaveProperty("nonterminal");
 }
 
 test("execution production terminal writers are restricted to atomic settlement", () => {
@@ -103,4 +103,19 @@ test("inventoryMismatchMessage classifies actual-only keys as extra", () => {
   expect(message).toBeDefined();
   expect(message).toContain("missing: (none)");
   expect(message).toContain("extra: bar");
+});
+
+test("terminalSettlementInventoryMismatches includes terminal only when terminal inventory mismatches", () => {
+  const matched = terminalSettlementInventoryMismatches(
+    scanExecutionTerminalSettlement(listProductionExecutionSources()),
+  );
+  expect(matched).not.toHaveProperty("terminal");
+
+  const mismatched = terminalSettlementInventoryMismatches({
+    violations: [],
+    terminalWrites: [{ file: "rogue.ts", functionName: "rogueWriter", writer: "commitCompletionBoundary", line: 1 }],
+    nonterminalSetRunStatus: [],
+  });
+  expect(mismatched).toHaveProperty("terminal");
+  expect(mismatched.terminal).toContain("terminal writes mismatch");
 });

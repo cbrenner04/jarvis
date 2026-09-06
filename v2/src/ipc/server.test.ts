@@ -121,6 +121,23 @@ test("startIpcServer reclaims a socket file with no listener bound", async () =>
   }
 });
 
+// A first probe that times out while the longer reprobe finds a peer that actually answers is a
+// live daemon that was merely slow. It must refuse, never bind over the incumbent — this is the
+// outage case the extended reprobe exists to distinguish, so `!peerConnected` must stay negated.
+test("startIpcServer refuses when the extended reprobe finds an answering peer", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-reclaim-"));
+  const path = join(dir, "daemon.sock");
+  writeFileSync(path, "");
+  try {
+    await expect(
+      startIpcServer(path, undefined, undefined, probingSequence(unanswered("live"), answered())),
+    ).rejects.toBeInstanceOf(DaemonSocketInUseError);
+    expect(existsSync(path)).toBe(true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // Both probes time out (`live` with no peer ever connecting). The extended reprobe must decline to
 // refuse and let `listen` adjudicate; deleting the extended-reprobe branch turns the first `live`
 // into a `DaemonSocketInUseError` and fails this test.

@@ -226,6 +226,16 @@ An explicit `jarvis run workflow implement --review-passes <n>` overrides the re
 
 `reviewRoleTimeoutMs` bounds each critic/actuator/debate-role invocation on `review` and `review-debate` workflow steps. Optional, defaults to `1800000` (30 min); must be a positive number, else workflow launch fails with a message naming the key. Resolved alongside the write-path bounds and stamped on the built review/review-debate steps for CLI `run workflow` and daemon pipeline-stage dispatch.
 
+### Cleanup
+
+`jarvis cleanup` reads optional machine keys from `~/.jarvis/config.json`. Session-log retention is global (not project-scoped). Operator semantics: [operator-runbook.md § Cleanup](./operator-runbook.md#cleanup-eligibility-gate).
+
+| Key | Role | Default | Validation |
+| --- | --- | --- | --- |
+| `cleanup.sessionLogRetentionDays` | Retention window for expired terminal-run session logs under `~/.jarvis/sessions/` | `14` when absent | Positive integer (`Number.isInteger` and `> 0`); non-integer, zero, negative, or non-number values skip session-log reaping for that invocation — stderr names `cleanup.sessionLogRetentionDays` — without affecting other cleanup slices |
+
+Absent `cleanup` or absent `cleanup.sessionLogRetentionDays` resolves to 14 days. There is no `jarvis config` subcommand for this field; hand-edit `~/.jarvis/config.json`.
+
 ## Daemon
 
 Socket and PID paths (production defaults): `~/.jarvis/daemon.sock`, `~/.jarvis/daemon.pid`. Transport detail: [`daemon-host.md`](./daemon-host.md).

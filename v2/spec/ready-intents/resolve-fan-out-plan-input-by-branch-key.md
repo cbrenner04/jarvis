@@ -12,6 +12,8 @@ Branch-scoped plan resolution verifies every sibling ready-intent, so one lane a
 
 - Daemon stage resolution in `v2/src/daemon/pipeline-stage-resolve.ts`.
 
+Unsplit rationale: Branch-scoped selection and whole-list satisfaction are one resolution surface.
+
 ## Prerequisites
 
 ## Decisions

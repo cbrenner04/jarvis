@@ -12,6 +12,8 @@ Fan-out execution and recovery consume plan resolutions by array position, so re
 
 - Pipeline execution loop in `v2/src/daemon/pipeline-execution.ts` and its plan-recovery consumer.
 
+Unsplit rationale: Dispatch and recovery consume the same fan-out plan resolution at one execution surface.
+
 ## Prerequisites
 
 - Fan-out plan resolution selects only the downstream input whose derived branch key equals the active lane, treats consumed siblings as satisfied for legitimate whole-list verification, and returns lane-and-input-named match refusals without intent-stage re-drive guidance.

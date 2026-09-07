@@ -24,9 +24,9 @@ Cleanup has no machine-config knob for session-log retention; an operator cannot
 
 ## Acceptance criteria
 
-- [ ] `v2/src/config/machine-config-loader.test.ts` proves absent `cleanup.sessionLogRetentionDays` resolves to 14 days, a positive integer override is returned unchanged, and each invalid value yields `{ ok: false }` naming `cleanup.sessionLogRetentionDays`; it fails against the pre-fix missing reader.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `v2/src/config/machine-config-loader.test.ts` proves absent `cleanup.sessionLogRetentionDays` resolves to 14 days, a positive integer override is returned unchanged, and each invalid value yields `{ ok: false }` naming `cleanup.sessionLogRetentionDays`; it fails against the pre-fix missing reader.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

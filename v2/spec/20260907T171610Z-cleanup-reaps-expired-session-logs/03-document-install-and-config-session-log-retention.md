@@ -20,7 +20,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/install-and-config.md` documents `cleanup.sessionLogRetentionDays` with positive-integer validation, 14-day default when absent, and invalid-value refusal for the session-log slice consistent with subspecs 00–01.
+- [x] `v2/docs/install-and-config.md` documents `cleanup.sessionLogRetentionDays` with positive-integer validation, 14-day default when absent, and invalid-value refusal for the session-log slice consistent with subspecs 00–01.
 
 ## Documentation updates
 

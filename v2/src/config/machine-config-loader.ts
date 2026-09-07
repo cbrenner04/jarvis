@@ -97,6 +97,33 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+export function readCleanupSessionLogRetentionDays(
+  configPath: string = MACHINE_CONFIG_PATH,
+): { ok: true; days: number } | { ok: false; error: string } {
+  const parsed = readMachineConfigFile(configPath);
+  if (parsed === undefined) return { ok: true, days: 14 };
+  if (!isRecord(parsed)) {
+    throw new Error(
+      `Machine config at ${configPath} must be a JSON object, got ${
+        Array.isArray(parsed) ? "array" : parsed === null ? "null" : typeof parsed
+      }`,
+    );
+  }
+
+  const cleanup = parsed.cleanup;
+  if (cleanup === undefined) return { ok: true, days: 14 };
+  if (!isRecord(cleanup)) {
+    return { ok: false, error: "cleanup.sessionLogRetentionDays must be a positive integer" };
+  }
+
+  const value = cleanup.sessionLogRetentionDays;
+  if (value === undefined) return { ok: true, days: 14 };
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    return { ok: false, error: "cleanup.sessionLogRetentionDays must be a positive integer" };
+  }
+  return { ok: true, days: value };
+}
+
 export function readMachineConfigDocument(
   configPath: string = MACHINE_CONFIG_PATH,
 ): Record<string, unknown> | undefined {

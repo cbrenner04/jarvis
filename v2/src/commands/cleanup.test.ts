@@ -25,7 +25,7 @@ import {
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { startIpcServer } from "../ipc/server.ts";
 import type { IpcFrame } from "../ipc/types.ts";
-import type { StateStore } from "../persistence/state-store.ts";
+import type { Run, StateStore } from "../persistence/state-store.ts";
 import { makeIpcClient } from "../testing/cli-test-helpers.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import {
@@ -4897,6 +4897,205 @@ describe("cleanup: prune verified merged branch refs", () => {
     expect(stderr).toContain("Failed to retire");
     expect(stdout).not.toContain(`Retired: ${worktreePath}`);
     expect(await exactRefExists(projectRoot, `refs/heads/${branch}`)).toBe(true);
+  });
+});
+
+describe("cleanup: session log retention", () => {
+  const now = new Date("2026-09-07T12:00:00.000Z");
+  const dayMs = 24 * 60 * 60 * 1000;
+  const sessionLogStamp = "2026-08-01T00-00-00.000Z";
+  let tempRoot: string;
+  let jarvisRoot: string;
+  let configPath: string;
+
+  function runId(sequence: number): string {
+    return `00000000-0000-4000-8000-${String(sequence).padStart(12, "0")}`;
+  }
+
+  function runRow(id: string, status: Run["status"], finishedAt: number | null): Run {
+    return {
+      id,
+      project: "project",
+      specRef: "spec",
+      createdAt: now.getTime() - 60 * dayMs,
+      status,
+      attemptCount: 1,
+      worktreePath: "/worktree",
+      branch: "branch",
+      specPath: "/spec/index.md",
+      finishedAt,
+    };
+  }
+
+  function writeSessionLog(sessionsDir: string, id: string, content = "log"): string {
+    mkdirSync(sessionsDir, { recursive: true });
+    const path = join(sessionsDir, `${id}-${sessionLogStamp}.log`);
+    writeFileSync(path, content);
+    return path;
+  }
+
+  async function runSessionCleanup(
+    sessionsDir: string,
+    runs: Run[],
+    options: { dryRun?: boolean } = {},
+  ): Promise<{ code: number; stdout: string; stderr: string }> {
+    let stdout = "";
+    let stderr = "";
+    const code = await runCleanupCommand(
+      {
+        ...options,
+        promptConfirm: async () => true,
+        sessionsDir,
+        configPath,
+        clock: () => now,
+      },
+      {},
+      jarvisRoot,
+      realAsyncSubprocessRunner,
+      async () => [],
+      { listRuns: () => runs } as unknown as StateStore,
+      { stdout: (text) => (stdout += text), stderr: (text) => (stderr += text) },
+    );
+    return { code, stdout, stderr };
+  }
+
+  beforeEach(() => {
+    tempRoot = mkdtempSync(join(tmpdir(), "jarvis-session-reap-"));
+    jarvisRoot = join(tempRoot, "jarvis-home");
+    configPath = join(jarvisRoot, "config.json");
+    mkdirSync(jarvisRoot, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test("session retention reaps only old terminal run logs", async () => {
+    const defaultDir = join(jarvisRoot, "default-sessions");
+    const old = runRow(runId(1), "completed", now.getTime() - 15 * dayMs);
+    const recent = runRow(runId(2), "completed", now.getTime() - 13 * dayMs);
+    const live = runRow(runId(3), "in-progress", now.getTime() - 30 * dayMs);
+    const paused = runRow(runId(4), "paused", now.getTime() - 30 * dayMs);
+    const unsettled = runRow(runId(5), "failed", null);
+    const nonfinite = runRow(runId(6), "failed", Number.NaN);
+    const atCutoff = runRow(runId(7), "killed", now.getTime() - 14 * dayMs);
+    const unknownId = runId(8);
+    const paths = new Map(
+      [old, recent, live, paused, unsettled, nonfinite, atCutoff].map((run) => [
+        run.id,
+        writeSessionLog(defaultDir, run.id),
+      ]),
+    );
+    const unknownPath = writeSessionLog(defaultDir, unknownId);
+
+    const defaultResult = await runSessionCleanup(defaultDir, [
+      old,
+      recent,
+      live,
+      paused,
+      unsettled,
+      nonfinite,
+      atCutoff,
+    ]);
+
+    expect(defaultResult.code).toBe(0);
+    expect(defaultResult.stdout).toContain("Reaped 1 expired session log(s)");
+    expect(existsSync(paths.get(old.id) ?? "")).toBe(false);
+    for (const run of [recent, live, paused, unsettled, nonfinite, atCutoff]) {
+      expect(existsSync(paths.get(run.id) ?? "")).toBe(true);
+    }
+    expect(existsSync(unknownPath)).toBe(true);
+
+    writeFileSync(configPath, JSON.stringify({ cleanup: { sessionLogRetentionDays: 30 } }));
+    const configuredDir = join(jarvisRoot, "configured-sessions");
+    const configuredOld = runRow(runId(9), "blocked", now.getTime() - 31 * dayMs);
+    const configuredRecent = runRow(runId(10), "interrupted", now.getTime() - 20 * dayMs);
+    const configuredOldPath = writeSessionLog(configuredDir, configuredOld.id, "old");
+    const configuredRecentPath = writeSessionLog(configuredDir, configuredRecent.id, "recent");
+
+    const configuredResult = await runSessionCleanup(configuredDir, [configuredOld, configuredRecent]);
+
+    expect(configuredResult.code).toBe(0);
+    expect(configuredResult.stdout).toContain("oldest kept date: 2026-08-08");
+    expect(existsSync(configuredOldPath)).toBe(false);
+    expect(existsSync(configuredRecentPath)).toBe(true);
+  });
+
+  test("session retention config default and invalid values refuse reaping", async () => {
+    const defaultRun = runRow(runId(11), "completed", now.getTime() - 15 * dayMs);
+    const defaultPath = writeSessionLog(join(jarvisRoot, "default-config-sessions"), defaultRun.id);
+
+    await runSessionCleanup(dirname(defaultPath), [defaultRun]);
+    expect(existsSync(defaultPath)).toBe(false);
+
+    const invalidConfigs: unknown[] = [
+      { cleanup: "invalid" },
+      { cleanup: { sessionLogRetentionDays: 1.5 } },
+      { cleanup: { sessionLogRetentionDays: 0 } },
+      { cleanup: { sessionLogRetentionDays: -1 } },
+      { cleanup: { sessionLogRetentionDays: "30" } },
+    ];
+    for (const [index, config] of invalidConfigs.entries()) {
+      writeFileSync(configPath, JSON.stringify(config));
+      const otherSlicePath = join(jarvisRoot, "daemon-0000000000000099.sock");
+      if (index === 0) writeFileSync(otherSlicePath, "");
+      const run = runRow(runId(20 + index), "completed", now.getTime() - 60 * dayMs);
+      const path = writeSessionLog(join(jarvisRoot, `invalid-${index}`), run.id);
+
+      const result = await runSessionCleanup(dirname(path), [run]);
+
+      expect(result.code).toBe(0);
+      expect(result.stderr).toContain("cleanup.sessionLogRetentionDays");
+      expect(existsSync(path)).toBe(true);
+      if (index === 0) expect(existsSync(otherSlicePath)).toBe(false);
+    }
+  });
+
+  test("session retention guard preserves excluded paths", async () => {
+    const sessionsDir = join(jarvisRoot, "sessions");
+    const run = runRow(runId(30), "completed", now.getTime() - 20 * dayMs);
+    const expiredPath = writeSessionLog(sessionsDir, run.id);
+    const telemetryPath = join(sessionsDir, "telemetry.jsonl");
+    const statePath = join(sessionsDir, "state", "v2.sqlite");
+    const nestedLogPath = join(sessionsDir, "nested", `${run.id}-${sessionLogStamp}.log`);
+    const malformedLogPath = join(sessionsDir, "not-a-session.log");
+    const outsidePath = join(jarvisRoot, `${run.id}-${sessionLogStamp}.log`);
+    mkdirSync(dirname(statePath), { recursive: true });
+    mkdirSync(dirname(nestedLogPath), { recursive: true });
+    writeFileSync(telemetryPath, "telemetry");
+    writeFileSync(statePath, "state");
+    writeFileSync(nestedLogPath, "nested");
+    writeFileSync(malformedLogPath, "malformed");
+    writeFileSync(outsidePath, "outside");
+    mkdirSync(join(sessionsDir, "decoy.log"));
+
+    await runSessionCleanup(sessionsDir, [run]);
+
+    expect(existsSync(expiredPath)).toBe(false);
+    for (const path of [telemetryPath, statePath, nestedLogPath, malformedLogPath, outsidePath]) {
+      expect(existsSync(path)).toBe(true);
+    }
+    expect(existsSync(join(sessionsDir, "decoy.log"))).toBe(true);
+  });
+
+  test("session retention dry-run reports aggregate summary without filenames", async () => {
+    const sessionsDir = join(jarvisRoot, "sessions");
+    const first = runRow(runId(40), "completed", now.getTime() - 20 * dayMs);
+    const second = runRow(runId(41), "failed", now.getTime() - 30 * dayMs);
+    const firstPath = writeSessionLog(sessionsDir, first.id, "abc");
+    const secondPath = writeSessionLog(sessionsDir, second.id, "12345");
+
+    const result = await runSessionCleanup(sessionsDir, [first, second], { dryRun: true });
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      "Found 2 expired session log(s): 8 reclaimable bytes; oldest kept date: 2026-08-24.",
+    );
+    expect(result.stdout).not.toContain(basename(firstPath));
+    expect(result.stdout).not.toContain(basename(secondPath));
+    expect(result.stdout).toContain("dry-run: no changes made");
+    expect(existsSync(firstPath)).toBe(true);
+    expect(existsSync(secondPath)).toBe(true);
   });
 });
 

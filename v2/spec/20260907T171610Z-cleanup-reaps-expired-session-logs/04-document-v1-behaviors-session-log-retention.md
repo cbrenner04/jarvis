@@ -19,7 +19,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/v1-behaviors.md` records v2 session-log retention and states v1 cleanup does not reap session logs, consistent with subspec 01.
+- [x] `v2/docs/v1-behaviors.md` records v2 session-log retention and states v1 cleanup does not reap session logs, consistent with subspec 01.
 
 ## Documentation updates
 

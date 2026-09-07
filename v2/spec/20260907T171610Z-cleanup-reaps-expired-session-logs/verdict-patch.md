@@ -1,0 +1,8 @@
+Verifying the strongest findings against the implementation and docs before issuing the verdict.
+## Verdict
+
+**1. Fix config location in durable docs (required).** `v2/docs/operator-runbook.md` § Session-log retention and `v2/docs/v1-behaviors.md` say override via “active machine profile.” Subspec 00/03 and `install-and-config.md` pin `cleanup.sessionLogRetentionDays` under `~/.jarvis/config.json`. That mismatch will send operators to `config/machines/<profile>.json`, where the key has no effect. Align both homes with `install-and-config.md` (name `~/.jarvis/config.json` or cross-link it).
+
+**2. Stop misattributing unrelated config load failures (required).** `readCleanupSessionLogRetentionDays` goes through `readMachineConfigDocument`, which can throw on malformed JSON or invalid `agents`. The catch path stderr-blames `cleanup.sessionLogRetentionDays` even when retention is fine. Subspec 00/01 only define refusal for bad retention values; this path is safe (no deletes) but violates operator-facing semantics for the slice. Read `cleanup` without triggering unrelated validation, or stderr the actual load/validation failure without implying bad retention.
+
+**No other actuator changes required for this spec.** Core retention behavior, tests, and acceptance criteria are satisfied. Remaining observations are follow-ups, not blockers: `JARVIS_HOME` vs session-log write path asymmetry (pre-existing, out of scope); invalid-retention or `readdir` failure leading to generic “nothing to clean” stdout (stderr correct, stdout unpinned); apply partial-delete exit documented but untested; stale `intent.md` (Jarvis-owned); `--abandon` skipping session-log reaping (spec-scoped to bulk cleanup).

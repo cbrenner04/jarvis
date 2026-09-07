@@ -20,7 +20,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/operator-runbook.md` § Cleanup documents session-log retention window, terminal-run finish-time eligibility, invalid `cleanup.sessionLogRetentionDays` refusal, excluded non-`.log` paths under `~/.jarvis/sessions/`, and aggregate dry-run/apply summaries consistent with subspec 01.
+- [x] `v2/docs/operator-runbook.md` § Cleanup documents session-log retention window, terminal-run finish-time eligibility, invalid `cleanup.sessionLogRetentionDays` refusal, excluded non-`.log` paths under `~/.jarvis/sessions/`, and aggregate dry-run/apply summaries consistent with subspec 01.
 
 ## Documentation updates
 

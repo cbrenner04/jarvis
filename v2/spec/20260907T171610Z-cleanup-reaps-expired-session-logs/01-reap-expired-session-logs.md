@@ -29,13 +29,13 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/cleanup.test.ts` test `session retention reaps only old terminal run logs` proves the default and configured windows remove old terminal-owned logs while preserving recent, live, non-terminal, and unknown-owner logs; it fails against the pre-fix no-reap behavior.
-- [ ] `v2/src/commands/cleanup.test.ts` test `session retention config default and invalid values refuse reaping` proves an absent `cleanup.sessionLogRetentionDays` uses 14 days and each invalid value reports the key and preserves candidate logs; it fails against the pre-fix missing-validation behavior.
-- [ ] `v2/src/commands/cleanup.test.ts` test `session retention guard preserves excluded paths` proves cleanup touches only direct `.log` children of `~/.jarvis/sessions/` and preserves `telemetry.jsonl`, `state/v2.sqlite`, and files outside that directory; it fails against the pre-fix no-reap behavior reachable on main because cleanup never enumerates session logs today.
-- [ ] `v2/src/commands/cleanup.test.ts` test `session retention dry-run reports aggregate summary without filenames` proves `--dry-run` reports expired session-log count, bytes, and oldest-kept date without filenames and performs no mutation; it fails against the pre-fix no-reap behavior.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/commands/cleanup.test.ts` test `session retention reaps only old terminal run logs` proves the default and configured windows remove old terminal-owned logs while preserving recent, live, non-terminal, and unknown-owner logs; it fails against the pre-fix no-reap behavior.
+- [x] `v2/src/commands/cleanup.test.ts` test `session retention config default and invalid values refuse reaping` proves an absent `cleanup.sessionLogRetentionDays` uses 14 days and each invalid value reports the key and preserves candidate logs; it fails against the pre-fix missing-validation behavior.
+- [x] `v2/src/commands/cleanup.test.ts` test `session retention guard preserves excluded paths` proves cleanup touches only direct `.log` children of `~/.jarvis/sessions/` and preserves `telemetry.jsonl`, `state/v2.sqlite`, and files outside that directory; it fails against the pre-fix no-reap behavior reachable on main because cleanup never enumerates session logs today.
+- [x] `v2/src/commands/cleanup.test.ts` test `session retention dry-run reports aggregate summary without filenames` proves `--dry-run` reports expired session-log count, bytes, and oldest-kept date without filenames and performs no mutation; it fails against the pre-fix no-reap behavior.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

@@ -6,6 +6,6 @@ Seed alignment: operator-runbook update omitted — no durable hand-drive workar
 
 Ordered: `00` branch-scoped fan-out plan resolution in `pipeline-stage-resolve.ts`; `01`–`02` document landed behavior.
 
-- [ ] [00 - Branch-scoped fan-out plan resolution](./00-branch-scoped-fan-out-plan-resolution.md)
-- [ ] [01 - Document pipeline-execution fan-out plan resolution](./01-document-pipeline-execution-fan-out-plan-resolution.md)
-- [ ] [02 - Document v1-behaviors fan-out plan resolution](./02-document-v1-behaviors-fan-out-plan-resolution.md)
+- [x] [00 - Branch-scoped fan-out plan resolution](./00-branch-scoped-fan-out-plan-resolution.md)
+- [x] [01 - Document pipeline-execution fan-out plan resolution](./01-document-pipeline-execution-fan-out-plan-resolution.md)
+- [x] [02 - Document v1-behaviors fan-out plan resolution](./02-document-v1-behaviors-fan-out-plan-resolution.md)

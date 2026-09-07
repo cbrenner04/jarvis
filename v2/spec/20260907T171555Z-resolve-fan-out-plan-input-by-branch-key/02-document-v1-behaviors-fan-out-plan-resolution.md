@@ -18,7 +18,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/v1-behaviors.md` records the changed v2 fan-out plan-resolution behavior under `[v2 behavior change]`.
+- [x] `v2/docs/v1-behaviors.md` records the changed v2 fan-out plan-resolution behavior under `[v2 behavior change]`.
 
 ## Documentation updates
 

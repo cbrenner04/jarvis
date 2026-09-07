@@ -37,16 +37,16 @@ Reachable on main: `resolveChainedReadyIntentPaths` loops all `downstreamInputs`
 
 ## Acceptance criteria
 
-- [ ] `pipeline-stage-resolve.test.ts` test `branch-scoped plan resolution verifies only the requested fan-out lane when a sibling input is unresolvable` asserts `{ steps }` resolution (not `{ results }`), only the requested lane's downstream input is verified and built while a sibling input is unresolvable, and fails against the pre-fix whole-list resolver.
-- [ ] `pipeline-stage-resolve.test.ts` test `branch-scoped plan resolution binds downstream input by branchKey equality` asserts lane selection uses derived branch-key equality and fails against the pre-fix whole-list resolver.
-- [ ] `pipeline-stage-resolve.test.ts` test `branch-scoped plan resolution refuses unmatched branchKey naming lane and available downstream inputs` asserts an unmatched lane-to-input request refuses with the lane and available downstream inputs named and fails against the pre-fix resolver.
-- [ ] `pipeline-stage-resolve.test.ts` test `unscoped fan-out plan resolution treats consumed sibling ready-intent as satisfied` asserts a sibling ready-intent consumed into its landed spec tree is satisfied rather than missing during initial default-row whole-list verification and fails against the pre-fix whole-list verifier.
-- [ ] `pipeline-stage-resolve.test.ts` test `plan resolution refusal names the failing lane and omits intent re-drive when prior intent succeeded` exercises unmatched `branchKey` with succeeded prior intent artifact, asserts the failed lane is named and successful prior intent work is not answered with standalone intent re-drive guidance, and fails against the pre-fix refusal text.
-- [ ] `pipeline-stage-resolve.test.ts` — `splitting intent artifact with N=2 downstreamInputs resolves plan into two distinct ready-intent bindings` stays green.
-- [ ] `pipeline-stage-resolve.test.ts` — `missing downstreamInputs path fails without falling back to directory specPath` stays green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `pipeline-stage-resolve.test.ts` test `branch-scoped plan resolution verifies only the requested fan-out lane when a sibling input is unresolvable` asserts `{ steps }` resolution (not `{ results }`), only the requested lane's downstream input is verified and built while a sibling input is unresolvable, and fails against the pre-fix whole-list resolver.
+- [x] `pipeline-stage-resolve.test.ts` test `branch-scoped plan resolution binds downstream input by branchKey equality` asserts lane selection uses derived branch-key equality and fails against the pre-fix whole-list resolver.
+- [x] `pipeline-stage-resolve.test.ts` test `branch-scoped plan resolution refuses unmatched branchKey naming lane and available downstream inputs` asserts an unmatched lane-to-input request refuses with the lane and available downstream inputs named and fails against the pre-fix resolver.
+- [x] `pipeline-stage-resolve.test.ts` test `unscoped fan-out plan resolution treats consumed sibling ready-intent as satisfied` asserts a sibling ready-intent consumed into its landed spec tree is satisfied rather than missing during initial default-row whole-list verification and fails against the pre-fix whole-list verifier.
+- [x] `pipeline-stage-resolve.test.ts` test `plan resolution refusal names the failing lane and omits intent re-drive when prior intent succeeded` exercises unmatched `branchKey` with succeeded prior intent artifact, asserts the failed lane is named and successful prior intent work is not answered with standalone intent re-drive guidance, and fails against the pre-fix refusal text.
+- [x] `pipeline-stage-resolve.test.ts` — `splitting intent artifact with N=2 downstreamInputs resolves plan into two distinct ready-intent bindings` stays green.
+- [x] `pipeline-stage-resolve.test.ts` — `missing downstreamInputs path fails without falling back to directory specPath` stays green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

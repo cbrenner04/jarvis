@@ -18,7 +18,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/pipeline-execution.md` documents branch-scoped downstream-input selection, consumed-input satisfaction, and refusal semantics for fan-out plan resolution.
+- [x] `v2/docs/pipeline-execution.md` documents branch-scoped downstream-input selection, consumed-input satisfaction, and refusal semantics for fan-out plan resolution.
 
 ## Documentation updates
 

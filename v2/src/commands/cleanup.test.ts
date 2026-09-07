@@ -2887,6 +2887,76 @@ describe("cleanup: dead daemon socket reaping", () => {
     rmSync(tempRoot, { recursive: true, force: true });
   });
 
+  socketTest("dead daemon digest reaps socket pid and log", async () => {
+    const artifactsFor = (key: string): [string, string, string] => {
+      const base = join(jarvisRoot, `daemon-${key}`);
+      return [`${base}.sock`, `${base}.pid`, `${base}.log`];
+    };
+    const deadArtifacts = artifactsFor("0000000000000020");
+    const liveArtifacts = artifactsFor("0000000000000021");
+    const ambiguousArtifacts = artifactsFor("0000000000000022");
+    for (const path of [...deadArtifacts, ...liveArtifacts.slice(1), ...ambiguousArtifacts.slice(1)]) {
+      writeFileSync(path, "");
+    }
+    const liveServer = await startIpcServer(liveArtifacts[0], {
+      health: () => ({ kind: "response", result: { ok: true } }),
+    });
+    const ambiguousServer = createServer(() => {});
+    await new Promise<void>((resolve, reject) => {
+      ambiguousServer.once("error", reject);
+      ambiguousServer.listen(ambiguousArtifacts[0], () => resolve());
+    });
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+    const preservedArtifacts = [...liveArtifacts, ...ambiguousArtifacts];
+
+    try {
+      let dryRunStdout = "";
+      const dryRunCode = await runCleanupCommand(
+        { dryRun: true },
+        registry,
+        jarvisRoot,
+        realAsyncSubprocessRunner,
+        daemonClient,
+        store,
+        { stdout: (s) => (dryRunStdout += s), stderr: () => {} },
+      );
+
+      expect(dryRunCode).toBe(0);
+      expect(dryRunStdout).toContain("Found 3 dead daemon artifact(s) for cleanup:");
+      for (const path of deadArtifacts) {
+        expect(dryRunStdout).toContain(`remove: ${path}`);
+        expect(existsSync(path)).toBe(true);
+      }
+      for (const path of preservedArtifacts) {
+        expect(dryRunStdout).not.toContain(`remove: ${path}`);
+        expect(existsSync(path)).toBe(true);
+      }
+
+      let applyStdout = "";
+      const applyCode = await runCleanupCommand(
+        { promptConfirm: async () => true },
+        registry,
+        jarvisRoot,
+        realAsyncSubprocessRunner,
+        daemonClient,
+        store,
+        { stdout: (s) => (applyStdout += s), stderr: () => {} },
+      );
+
+      expect(applyCode).toBe(0);
+      for (const path of deadArtifacts) {
+        expect(applyStdout).toContain(`Removed daemon artifact: ${path}`);
+        expect(existsSync(path)).toBe(false);
+      }
+      for (const path of preservedArtifacts) expect(existsSync(path)).toBe(true);
+    } finally {
+      await liveServer.close();
+      await new Promise<void>((resolve) => ambiguousServer.close(() => resolve()));
+    }
+  });
+
   test("runCleanupCommand removes a dead daemon socket whose connect proves no listener is bound", async () => {
     const deadSocket = join(jarvisRoot, "daemon-0000000000000001.sock");
     writeFileSync(deadSocket, "");
@@ -2910,7 +2980,7 @@ describe("cleanup: dead daemon socket reaping", () => {
     );
 
     expect(code).toBe(0);
-    expect(stdout).toContain("dead daemon socket(s)");
+    expect(stdout).toContain("dead daemon artifact(s)");
     expect(existsSync(deadSocket)).toBe(false);
   });
 
@@ -2945,6 +3015,41 @@ describe("cleanup: dead daemon socket reaping", () => {
       expect(stdout).not.toContain(`remove: ${liveSocket}`);
     } finally {
       await server.close();
+    }
+  });
+
+  socketTest("revalidates a dead digest before removing its triplet", async () => {
+    const socket = join(jarvisRoot, "daemon-0000000000000030.sock");
+    const pid = join(jarvisRoot, "daemon-0000000000000030.pid");
+    const log = join(jarvisRoot, "daemon-0000000000000030.log");
+    for (const path of [socket, pid, log]) writeFileSync(path, "");
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+    let server: Awaited<ReturnType<typeof startIpcServer>> | undefined;
+
+    try {
+      const code = await runCleanupCommand(
+        {
+          promptConfirm: async () => {
+            rmSync(socket);
+            server = await startIpcServer(socket, { health: () => ({ kind: "response", result: { ok: true } }) });
+            return true;
+          },
+        },
+        registry,
+        jarvisRoot,
+        realAsyncSubprocessRunner,
+        daemonClient,
+        store,
+        { stdout: () => {}, stderr: () => {} },
+      );
+
+      expect(code).toBe(0);
+      for (const path of [socket, pid, log]) expect(existsSync(path)).toBe(true);
+    } finally {
+      await server?.close();
     }
   });
 
@@ -3000,7 +3105,7 @@ describe("cleanup: dead daemon socket reaping", () => {
 
     expect(code).toBe(0);
     expect(stdout).not.toContain("No eligible worktrees");
-    expect(stdout).toContain("dead daemon socket(s)");
+    expect(stdout).toContain("dead daemon artifact(s)");
     expect(existsSync(deadSocket)).toBe(false);
   });
 

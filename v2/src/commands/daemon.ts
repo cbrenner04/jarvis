@@ -14,8 +14,12 @@ type SocketClassification = {
   reason?: string;
 };
 
+export const DAEMON_SOCKET_FILE = /^daemon-([0-9a-f]{16})\.sock$/;
+export const DAEMON_DIGEST_ARTIFACT_FILE = /^daemon-([0-9a-f]{16})\.(sock|pid|log)$/;
+
 export async function reapDeadDaemonSockets(
   jarvisRoot: string,
+  socketFileNames?: readonly string[],
 ): Promise<{ dead: string[]; preserved: Array<{ path: string; reason: string }> }> {
   const dead: string[] = [];
   const preserved: Array<{ path: string; reason: string }> = [];
@@ -31,13 +35,15 @@ export async function reapDeadDaemonSockets(
     return { dead, preserved };
   }
 
-  const socketFiles = entries.filter((name) => name.startsWith("daemon-") && name.endsWith(".sock"));
+  const socketFiles = socketFileNames ?? entries.filter((name) => DAEMON_SOCKET_FILE.test(name));
 
   for (const socketFile of socketFiles) {
+    const match = DAEMON_SOCKET_FILE.exec(socketFile);
+    if (match === null) continue;
     const socketPath = join(jarvisRoot, socketFile);
     const classification = await classifySocket(socketPath);
     if (classification.status === "dead") {
-      const key = socketFile.slice("daemon-".length, -".sock".length);
+      const key = match[1];
       const artifacts = ["sock", "pid", "log"].map((extension) => join(jarvisRoot, `daemon-${key}.${extension}`));
       dead.push(...artifacts.filter((path) => existsSync(path)));
     } else if (classification.status === "preserved" && classification.reason) {
@@ -60,8 +66,15 @@ async function classifySocket(socketPath: string): Promise<SocketClassification>
     }
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
-    if (err.code === "ECONNREFUSED" || err.code === "ENOENT") {
+    if (err.code === "ECONNREFUSED") {
       return { status: "dead" };
+    }
+    // ENOENT on an absent path is the sandbox/bound-but-unlinked false negative; a present file
+    // with no listener is stale (Bun reports ENOENT where Node reports ECONNREFUSED).
+    if (err.code === "ENOENT") {
+      return existsSync(socketPath)
+        ? { status: "dead" }
+        : { status: "preserved", reason: "socket path unavailable (ENOENT)" };
     }
     const reason = err.message || String(error);
     return { status: "preserved", reason };

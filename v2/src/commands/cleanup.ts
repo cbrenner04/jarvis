@@ -36,7 +36,7 @@ import {
   checkArtifactEligibility,
   isExternalPlanArtifact,
 } from "./cleanup-artifacts.ts";
-import { reapDeadDaemonSockets } from "./daemon.ts";
+import { DAEMON_DIGEST_ARTIFACT_FILE, reapDeadDaemonSockets } from "./daemon.ts";
 
 export type DiscoveredWorktree = {
   path: string;
@@ -1223,20 +1223,41 @@ function previewReaperResult(reaperResult: ReaperResult, io: { stdout: (s: strin
   }
 }
 
-function removeDeadDaemonArtifacts(
-  paths: readonly string[],
-  io: { stdout: (s: string) => void; stderr: (s: string) => void },
-): number {
+function socketFilesForDeadDaemonArtifacts(paths: readonly string[]): string[] {
+  const keys = new Set<string>();
   for (const path of paths) {
-    try {
-      rmSync(path, { force: true });
-      io.stdout(`Removed daemon artifact: ${path}\n`);
-    } catch (err) {
-      io.stderr(`Failed to remove daemon artifact ${path}: ${err instanceof Error ? err.message : String(err)}\n`);
-      return 1;
+    const match = DAEMON_DIGEST_ARTIFACT_FILE.exec(basename(path));
+    const key = match?.[1];
+    if (key !== undefined) keys.add(key);
+  }
+  return [...keys].map((key) => `daemon-${key}.sock`);
+}
+
+async function removeDeadDaemonArtifacts(
+  paths: readonly string[],
+  jarvisRoot: string,
+  io: { stdout: (s: string) => void; stderr: (s: string) => void },
+): Promise<number> {
+  let exitCode = 0;
+  const socketFiles = socketFilesForDeadDaemonArtifacts(paths);
+
+  for (const socketFile of socketFiles) {
+    const key = socketFile.slice("daemon-".length, -".sock".length);
+    const artifactPaths = ["sock", "pid", "log"].map((extension) => join(jarvisRoot, `daemon-${key}.${extension}`));
+    const revalidated = await reapDeadDaemonSockets(jarvisRoot, [socketFile]);
+    const revalidatedDead = new Set(revalidated.dead);
+    for (const path of artifactPaths) {
+      if (!paths.includes(path) || !revalidatedDead.has(path)) continue;
+      try {
+        rmSync(path, { force: true });
+        io.stdout(`Removed daemon artifact: ${path}\n`);
+      } catch (err) {
+        io.stderr(`Failed to remove daemon artifact ${path}: ${err instanceof Error ? err.message : String(err)}\n`);
+        exitCode = 1;
+      }
     }
   }
-  return 0;
+  return exitCode;
 }
 
 async function retireStrandedArtifacts(
@@ -1430,8 +1451,7 @@ async function executeConfirmedCleanup(
     ctx.branchRefDiscovery.ownerProjectsByRepositoryRoot,
     io,
   );
-  const artifactRemoval = removeDeadDaemonArtifacts(ctx.reaperResult.dead, io);
-  if (artifactRemoval !== 0) return artifactRemoval;
+  const artifactRemoval = await removeDeadDaemonArtifacts(ctx.reaperResult.dead, jarvisRoot, io);
 
   const strandedAfterRetirement = await inspectStrandedArtifacts(
     ctx.strandedArtifacts,
@@ -1446,7 +1466,7 @@ async function executeConfirmedCleanup(
   if (stillEligible.length === 0 && ctx.candidates.length > 0) {
     io.stdout("No worktrees remain eligible after re-check.\n");
   }
-  if (result !== 0 || branchRefExit !== 0) return 1;
+  if (result !== 0 || branchRefExit !== 0 || artifactRemoval !== 0) return 1;
   if (recheck.daemonUnreachable || ctx.discoveryExit !== 0) return 1;
   return daemonBlockedExit;
 }

@@ -2929,6 +2929,41 @@ describe("cleanup: dead daemon socket reaping", () => {
     }
   });
 
+  socketTest("revalidates a dead digest before removing its triplet", async () => {
+    const socket = join(jarvisRoot, "daemon-0000000000000030.sock");
+    const pid = join(jarvisRoot, "daemon-0000000000000030.pid");
+    const log = join(jarvisRoot, "daemon-0000000000000030.log");
+    for (const path of [socket, pid, log]) writeFileSync(path, "");
+
+    const registry: Record<string, ProjectRegistryEntry> = {};
+    const daemonClient: DaemonClient = async () => [];
+    const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
+    let server: Awaited<ReturnType<typeof startIpcServer>> | undefined;
+
+    try {
+      const code = await runCleanupCommand(
+        {
+          promptConfirm: async () => {
+            rmSync(socket);
+            server = await startIpcServer(socket, { health: () => ({ kind: "response", result: { ok: true } }) });
+            return true;
+          },
+        },
+        registry,
+        jarvisRoot,
+        realAsyncSubprocessRunner,
+        daemonClient,
+        store,
+        { stdout: () => {}, stderr: () => {} },
+      );
+
+      expect(code).toBe(0);
+      for (const path of [socket, pid, log]) expect(existsSync(path)).toBe(true);
+    } finally {
+      await server?.close();
+    }
+  });
+
   test("runCleanupCommand with --dry-run lists dead sockets and removes none", async () => {
     const deadSocket = join(jarvisRoot, "daemon-0000000000000002.sock");
     writeFileSync(deadSocket, "");

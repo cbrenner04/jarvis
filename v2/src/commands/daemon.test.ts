@@ -274,11 +274,15 @@ describe("reapDeadDaemonSockets", () => {
     const pid = join(dir, "daemon-0000000000000004.pid");
     const log = join(dir, "daemon-0000000000000004.log");
     const other = join(dir, "other-file.sock");
+    const uppercase = join(dir, "daemon-000000000000000A.sock");
+    const short = join(dir, "daemon-000000000000000.sock");
 
     writeFileSync(socket, "");
     writeFileSync(pid, "12345");
     writeFileSync(log, "daemon output");
     writeFileSync(other, "");
+    writeFileSync(uppercase, "");
+    writeFileSync(short, "");
 
     const result = await reapDeadDaemonSockets(dir);
     const allClassified = result.dead.concat(result.preserved.map((p) => p.path));
@@ -286,6 +290,27 @@ describe("reapDeadDaemonSockets", () => {
     expect(result.dead).toContain(pid);
     expect(result.dead).toContain(log);
     expect(allClassified).not.toContain(other);
+    expect(allClassified).not.toContain(uppercase);
+    expect(allClassified).not.toContain(short);
+  });
+
+  test("preserves an absent socket path and its companions on ENOENT", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-enoent-"));
+    const socket = join(dir, "daemon-0000000000000008.sock");
+    const pid = join(dir, "daemon-0000000000000008.pid");
+    const log = join(dir, "daemon-0000000000000008.log");
+    writeFileSync(pid, "12345");
+    writeFileSync(log, "daemon output");
+
+    try {
+      const result = await reapDeadDaemonSockets(dir, ["daemon-0000000000000008.sock"]);
+      expect(result.dead).toEqual([]);
+      expect(result.preserved).toEqual([{ path: socket, reason: "socket path unavailable (ENOENT)" }]);
+      expect(existsSync(pid)).toBe(true);
+      expect(existsSync(log)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   socketTest("preserves sockets that probe with errors other than ECONNREFUSED/ENOENT", async () => {

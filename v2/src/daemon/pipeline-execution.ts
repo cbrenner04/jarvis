@@ -34,6 +34,7 @@ import {
 } from "../persistence/state-store.ts";
 import {
   adoptAndSettlePipelineStage,
+  adoptPipelineStageUnderAdmission,
   dispatchPipelineStage,
   type PipelineStageArtifact,
   type PipelineWorkflowDispatch,
@@ -2142,15 +2143,20 @@ async function runFanOutBranchAction(
 
   const linkedEntryRun = settlementLinkedEntryRunId(store, targetRecord);
   if (linkedEntryRun !== undefined) {
-    await withDispatchClaim(dispatchClaims, stageArtifactKey(stage.stageId, targetBranchKey), () =>
-      adoptAndSettlePipelineStage({
-        store,
-        stageTarget,
-        entryRunId: linkedEntryRun,
-        wait,
-        ...(loadLogRecords !== undefined ? { loadLogRecords } : {}),
-      }),
-    );
+    await adoptPipelineStageUnderAdmission({
+      store,
+      stageTarget,
+      adopt: () =>
+        withDispatchClaim(dispatchClaims, stageArtifactKey(stage.stageId, targetBranchKey), () =>
+          adoptAndSettlePipelineStage({
+            store,
+            stageTarget,
+            entryRunId: linkedEntryRun,
+            wait,
+            ...(loadLogRecords !== undefined ? { loadLogRecords } : {}),
+          }),
+        ),
+    });
     return "acted";
   }
   if (targetRecord?.status === "running") return "acted";
@@ -2234,15 +2240,21 @@ async function adoptRunningWorkflowStage(
     loadLogRecords,
     dispatchClaims,
   } = args;
-  await withDispatchClaim(dispatchClaims, stageArtifactKey(stage.stageId, branchKey), () =>
-    adoptAndSettlePipelineStage({
-      store,
-      stageTarget: { pipelineId, stageId: stage.stageId, branchKey },
-      entryRunId,
-      wait,
-      ...(loadLogRecords !== undefined ? { loadLogRecords } : {}),
-    }),
-  );
+  const stageTarget = { pipelineId, stageId: stage.stageId, branchKey };
+  await adoptPipelineStageUnderAdmission({
+    store,
+    stageTarget,
+    adopt: () =>
+      withDispatchClaim(dispatchClaims, stageArtifactKey(stage.stageId, branchKey), () =>
+        adoptAndSettlePipelineStage({
+          store,
+          stageTarget,
+          entryRunId,
+          wait,
+          ...(loadLogRecords !== undefined ? { loadLogRecords } : {}),
+        }),
+      ),
+  });
   return finishDispatchedWorkflowStage({
     store,
     pipelineId,

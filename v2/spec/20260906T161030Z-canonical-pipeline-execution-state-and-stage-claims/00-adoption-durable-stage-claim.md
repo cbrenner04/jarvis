@@ -36,12 +36,12 @@ Primary: `v2/src/daemon/pipeline-execution.ts`, `v2/src/daemon/pipeline-stage-di
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/pipeline-execution.test.ts` test `adoption of an already-dispatched stage loses the durable claim without a second dispatch or settlement` exercises `dispatchPipelineStage` refused-claim branch and at least one non-dispatch adopt seam (`adoptRunningWorkflowStage` or fan-out live-link adopt in `runFanOutBranchAction`); drives two overlapping continuations on one live-linked `running` row; proves exactly one settlement and that the loser dispatches and settles nothing while the winner's entry run is live; fails when adopt paths skip the durable claim; linked `// @mutate` on `v2/src/daemon/pipeline-stage-dispatch.ts` `if (claim.kind === "refused")` loser no-settle guard and the shared adopt-helper claim gate makes the regression fail.
-- [ ] `v2/docs/daemon-host.md` documents durable `pipeline_stage_admission` guarding dispatch and adoption for the same `(pipelineId, stageId, branchKey)` partition, corrects ~633 fan-out prose so cross-continuation adopt ownership is not attributed to in-memory `dispatchClaims`, and names `dispatchClaims` as within-invocation fan-out coordination only.
-- [ ] `v2/docs/v1-behaviors.md` records cross-process adopt ownership through durable `pipeline_stage_admission` (lost-claim adopt re-reads without settle).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/daemon/pipeline-execution.test.ts` test `adoption of an already-dispatched stage loses the durable claim without a second dispatch or settlement` exercises `dispatchPipelineStage` refused-claim branch and at least one non-dispatch adopt seam (`adoptRunningWorkflowStage` or fan-out live-link adopt in `runFanOutBranchAction`); drives two overlapping continuations on one live-linked `running` row; proves exactly one settlement and that the loser dispatches and settles nothing while the winner's entry run is live; fails when adopt paths skip the durable claim; linked `// @mutate` on `v2/src/daemon/pipeline-stage-dispatch.ts` `if (claim.kind === "refused")` loser no-settle guard and the shared adopt-helper claim gate makes the regression fail.
+- [x] `v2/docs/daemon-host.md` documents durable `pipeline_stage_admission` guarding dispatch and adoption for the same `(pipelineId, stageId, branchKey)` partition, corrects ~633 fan-out prose so cross-continuation adopt ownership is not attributed to in-memory `dispatchClaims`, and names `dispatchClaims` as within-invocation fan-out coordination only.
+- [x] `v2/docs/v1-behaviors.md` records cross-process adopt ownership through durable `pipeline_stage_admission` (lost-claim adopt re-reads without settle).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

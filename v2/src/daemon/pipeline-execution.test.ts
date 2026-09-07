@@ -1114,6 +1114,107 @@ describe("continuePipeline", () => {
     expect(s1?.artifact).toMatchObject({ entryRunId: "run-0", invocationId: "inv-0", specPath: "spec/s1.md" });
   });
 
+  test("adoption of an already-dispatched stage loses the durable claim without a second dispatch or settlement", async () => {
+    const singleStageDefinition: PipelineDefinition = {
+      name: "p",
+      stages: [{ stageId: "s1", kind: "workflow", workflow: "intent", review: "none" }],
+    };
+    const { store, stages } = fakeStore(
+      singleStageDefinition,
+      {
+        "run-adopted": { specPath: "spec/s1.md", status: "in-progress" },
+        "run-unexpected": { specPath: "spec/unexpected.md", status: "completed" },
+      },
+      { context: persistedContext, ownerIdentity: CURRENT_OWNER },
+    );
+    let admissionClaimCount = 0;
+    let admissionReleaseCount = 0;
+    let terminalPatchCount = 0;
+    const claimPipelineStageAdmission = store.claimPipelineStageAdmission.bind(store);
+    const releasePipelineStageAdmission = store.releasePipelineStageAdmission.bind(store);
+    const updateStage = store.updateStage.bind(store);
+    store.claimPipelineStageAdmission = (args) => {
+      admissionClaimCount += 1;
+      return claimPipelineStageAdmission(args);
+    };
+    store.releasePipelineStageAdmission = (args) => {
+      admissionReleaseCount += 1;
+      return releasePipelineStageAdmission(args);
+    };
+    store.updateStage = (args) => {
+      if (["succeeded", "failed", "interrupted", "skipped"].includes(args.patch.status ?? "")) {
+        terminalPatchCount += 1;
+      }
+      updateStage(args);
+    };
+
+    let dispatchCount = 0;
+    const dispatch: PipelineWorkflowDispatch = async () => {
+      dispatchCount += 1;
+      return { ok: true, entryRunId: "run-unexpected", invocationId: "inv-unexpected" };
+    };
+    let waitCount = 0;
+    const adoptWaitEntered = deferred<void>();
+    const adoptWait = deferred<RunStatus>();
+    const wait: PipelineWorkflowWait = async (entryRunId) => {
+      waitCount += 1;
+      if (entryRunId === "run-adopted") {
+        adoptWaitEntered.resolve();
+        return adoptWait.promise;
+      }
+      return "completed";
+    };
+    const resolveEntered = deferred<void>();
+    const resolveRelease = deferred<void>();
+    const staleContinuation = continuePipeline(PIPELINE_ID, {
+      store,
+      dispatch,
+      wait,
+      resolveStage: async (_definition, stageIndex) => {
+        resolveEntered.resolve();
+        await resolveRelease.promise;
+        return { ok: true, steps: [createMinimalDispatchWriteStep({ stageIndex })] };
+      },
+    });
+    await resolveEntered.promise;
+
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "s1",
+      patch: { status: "running", workflowInvocationId: "run-adopted", startedAt: Date.now() },
+    });
+    const adoptionDeps = { store, dispatch, wait, resolveStage: resolveStageStub() };
+    const winningAdopter = continuePipeline(PIPELINE_ID, adoptionDeps);
+    await adoptWaitEntered.promise;
+    const losingAdopter = continuePipeline(PIPELINE_ID, adoptionDeps);
+    await spinUntilMicrotask(() => admissionClaimCount >= 2, "losing adopter durable claim");
+
+    resolveRelease.resolve();
+    await spinUntilMicrotask(() => admissionClaimCount >= 3, "stale dispatcher durable claim");
+
+    expect(dispatchCount).toBe(0);
+    expect(waitCount).toBe(1);
+    expect(terminalPatchCount).toBe(0);
+    expect(admissionReleaseCount).toBe(0);
+    expect(stages().find((stage) => stage.stageId === "s1")).toMatchObject({
+      status: "running",
+      workflowInvocationId: "run-adopted",
+      endedAt: null,
+    });
+    // Unlike the pending-row race above, both losing paths observe a live-linked running row and must not settle it.
+    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (claim.kind === \"refused\") {" -> "if (false) {"
+    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (admission.kind === \"refused\") {" -> "if (false) {"
+
+    adoptWait.resolve("completed");
+    await Promise.all([staleContinuation, winningAdopter, losingAdopter]);
+
+    expect(dispatchCount).toBe(0);
+    expect(waitCount).toBe(1);
+    expect(terminalPatchCount).toBe(1);
+    expect(admissionReleaseCount).toBe(1);
+    expect(stages().find((stage) => stage.stageId === "s1")?.status).toBe("succeeded");
+  });
+
   test("re-settles a deferred running stage when continuePipeline runs after the linked entry run terminals", async () => {
     const entryRunId = "run-deferred-resettle";
     const terminalRecord: PersistedRecord = {

@@ -749,7 +749,7 @@ Sync subprocess on the daemon event loop was addressed by the responsive-daemon 
 
 ## Cleanup: eligibility gate
 
-`jarvis cleanup [<project>]` runs four independent slices in one invocation: merged-worktree retirement, worktree-independent merged-branch ref pruning, stranded open-home spec archival, and dead daemon-socket reaping. A named project scopes the first three project-owned slices through one filtered registry; dead daemon-socket discovery and reaping remain global because sockets are not project-owned. Bare cleanup intentionally scopes the project-owned slices to every registered project. An unknown project is refused before daemon discovery or cleanup survey. The positional project and `--abandon <name>` are mutually exclusive. Each slice previews in `--dry-run`, shares the apply confirmation prompt (`[y/N]`; `--yes` for scripted apply), and continues after partial failure in another slice unless noted below. `jarvis1 cleanup` remains blind to the v2 home; use `jarvis cleanup`.
+`jarvis cleanup [<project>]` runs five independent slices in one invocation: merged-worktree retirement, worktree-independent merged-branch ref pruning, stranded open-home spec archival, dead daemon-socket reaping, and expired session-log reaping. A named project scopes the first three project-owned slices through one filtered registry; dead daemon-socket discovery and session-log retention remain global because sockets and session logs are not project-owned. Bare cleanup intentionally scopes the project-owned slices to every registered project. An unknown project is refused before daemon discovery or cleanup survey. The positional project and `--abandon <name>` are mutually exclusive. Each slice previews in `--dry-run`, shares the apply confirmation prompt (`[y/N]`; `--yes` for scripted apply), and continues after partial failure in another slice unless noted below. `jarvis1 cleanup` remains blind to the v2 home; use `jarvis cleanup`.
 
 **Local-only ref scope.** Bulk cleanup never deletes a branch on the remote repository. It may delete exact local refs only: `refs/heads/<branch>` and, when present, exact `refs/remotes/origin/<branch>`. `--abandon` is the path that deletes the remote branch.
 
@@ -810,6 +810,20 @@ The CLI queries every live daemon socket discovered under `JARVIS_HOME` plus the
 **Cleanup's own socket probe routinely reports `RPC request timed out after 500ms` on a healthy daemon (2026-09-04).** Operator-confirmed as longstanding: cleanup prints `Preserved 1 daemon socket(s): … — RPC request timed out after 500ms` while `jarvis daemon status` answers normally and runs dispatch fine. Preserving the socket on timeout is the documented fail-safe below, so the line is benign. It is *not* evidence of the saturated-daemon shape in [Daemon lifecycle](#daemon-lifecycle) — confirm that with `daemon status` and a hot-CPU check before acting on it.
 
 Cleanup also enumerates and reaps dead daemon sockets under `~/.jarvis/daemon-*.sock`. A socket is dead when its connect probe receives `ECONNREFUSED` or `ENOENT` (no listener bound); dead sockets are removed. All other probe results (connection succeeds, timeout, permission error, unexpected error) preserve the socket and are reported by reason — safe to run while overlapping keyed daemons are live. If the jarvis home cannot be enumerated, no sockets are removed in that cleanup run.
+
+### Session-log retention
+
+Every cleanup also reaps expired terminal-run session logs under `~/.jarvis/sessions/`. This slice is global (not project-scoped) and runs on every invocation even when the other slices report nothing eligible.
+
+**Retention window.** Default 14 days; override with `cleanup.sessionLogRetentionDays` in the active machine profile. Expiry compares the owning run's durable `finishedAt` against `now - retentionDays`; file mtime and filename timestamps are not used.
+
+**Reap-eligible.** Only regular files directly under `~/.jarvis/sessions/` whose names match `<run-id>-<session-log-timestamp>.log` (UUID run id before the session-log timestamp segment) when the basename resolves to a run row in the state store, that run's status is terminal, and `finishedAt` is a finite timestamp older than the cutoff.
+
+**Preserved.** Live and non-terminal runs, terminal runs finished within the window, rows with null or non-finite `finishedAt`, unparseable basenames, unknown run ids, nested `.log` files, malformed names, and all non-`.log` paths under the sessions directory (including research decoys such as `telemetry.jsonl` and `state/v2.sqlite`).
+
+**Invalid config.** Non-positive or non-integer `cleanup.sessionLogRetentionDays` skips this slice only: stderr names the key, no session `.log` is deleted, and other cleanup slices proceed.
+
+**Reporting.** `--dry-run` prints an aggregate summary (`Found N expired session log(s): X reclaimable bytes; oldest kept date: YYYY-MM-DD.`) without listing filenames; apply prints the same shape with `Reaped` and `reclaimed`. Partial delete failures exit nonzero for this slice without blocking other slices.
 
 ## Choosing an actuator
 

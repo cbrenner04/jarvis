@@ -19,8 +19,8 @@ import {
   resolveExhaustedRedResumeContext,
   resolveIntentFinalizationResumeContext,
   resolveReviewMutationResumeContext,
-  resolveWriteOutOfScopeResumeContext,
   resolveWriteNonTerminatingResumeContext,
+  resolveWriteOutOfScopeResumeContext,
   resumePopulatedIntentPublication,
   resumeReviewMutationFinalization,
 } from "../execution/workflow-runner-resume.ts";

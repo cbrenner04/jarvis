@@ -47,14 +47,14 @@ import { publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
 import {
   isResumableOutOfScopeTerminalEvidence,
+  NonTerminatingMutationError,
+  nonTerminatingMutationLogFields,
   outOfScopeSettlementResumable,
   ReadyGateError,
   readyGateFailureLogFields,
   readyGateOutOfScopeLogFields,
   SurvivingMutationError,
-  NonTerminatingMutationError,
   survivingMutationLogFields,
-  nonTerminatingMutationLogFields,
 } from "./ready-finalize.ts";
 import { excludeVerdictFromStaging, VERDICT_FILE } from "./review-intent-enforcement.ts";
 import { lintReviewedStagedMarkdownOrFail } from "./reviewed-staged-markdown-lint.ts";

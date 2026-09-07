@@ -44,12 +44,12 @@ import {
 import {
   createReadyFinalizer,
   deriveGateAllowedPaths,
+  NonTerminatingMutationError,
   type ReadyFinalizer,
   ReadyFlipError,
   ReadyGateError,
   RuntimeSmokeFailedError,
   SurvivingMutationError,
-  NonTerminatingMutationError,
 } from "./ready-finalize.ts";
 import type { SmokePass } from "./runtime-smoke-verifier.ts";
 import type { StepRunResult } from "./step-runner.ts";

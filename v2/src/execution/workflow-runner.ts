@@ -52,11 +52,11 @@ import { landPublication, type PublicationLanding } from "./publication-landing.
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
 import {
+  nonTerminatingMutationLogFields,
   outOfScopeSettlementResumable,
   readyGateFailureLogFields,
   readyGateOutOfScopeLogFields,
   survivingMutationLogFields,
-  nonTerminatingMutationLogFields,
 } from "./ready-finalize.ts";
 import {
   executeReviewCycle,

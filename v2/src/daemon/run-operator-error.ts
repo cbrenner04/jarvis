@@ -1,9 +1,9 @@
 import { type InvocationFailureDetail, isExhaustedRoleTimeout } from "../execution/invocation-failure.ts";
 import type { PublicationFailure } from "../execution/publication-retry.ts";
 import {
+  nonTerminatingMutationLogFields,
   readyGateOutOfScopeLogFields,
   survivingMutationLogFields,
-  nonTerminatingMutationLogFields,
 } from "../execution/ready-finalize.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type {

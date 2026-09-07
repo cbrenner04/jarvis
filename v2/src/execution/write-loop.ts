@@ -76,6 +76,8 @@ import {
   classifyReadyGateError,
   createReadyFinalizer,
   deriveGateAllowedPaths,
+  NonTerminatingMutationError,
+  nonTerminatingMutationLogFields,
   outOfScopeSettlementResumable,
   parseGitNameStatusZ,
   type ReadyFinalizer,
@@ -89,9 +91,7 @@ import {
   resolveAttributableRepairAllowset,
   resolveGateRepairAllowset,
   SurvivingMutationError,
-  NonTerminatingMutationError,
   survivingMutationLogFields,
-  nonTerminatingMutationLogFields,
   validateRepoRelativePath,
 } from "./ready-finalize.ts";
 import { type SmokePass, verifyRuntimeSmoke } from "./runtime-smoke-verifier.ts";
@@ -3608,6 +3608,7 @@ async function runReadyFinalizer(
   return (await readyFinalizer(finalInput))?.runtimeSmokeOutcome;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: one classifier maps every finalization error shape (ready-gate red, autofix, command-missing, out-of-scope, surviving and non-terminating mutation, flip failure) onto its publish-failure response; the branches are a flat exhaustive dispatch over error kinds, so extracting them would scatter one decision table across helpers.
 function buildFinalizationErrorResponse(
   err: Error,
   prNumber: number | undefined,

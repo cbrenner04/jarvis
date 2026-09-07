@@ -179,6 +179,11 @@ function isChainedPlanReadyIntentPath(specPath: string): boolean {
   return specPath.endsWith(".md");
 }
 
+function branchKeyFromDownstreamInput(path: string): string {
+  const base = basename(path);
+  return base.endsWith(".md") ? base.slice(0, -3) : base;
+}
+
 function neverLandedDownstreamInputError(relativePath: string): string {
   return `pipeline-stage-resolve: downstream input ${relativePath} never landed on the prior stage branch or pipeline admission base; re-drive the prior stage standalone with jarvis run workflow`;
 }
@@ -278,6 +283,7 @@ async function locateAbsentWorktreeDownstreamInputReadRoot(
   prior: PriorArtifactContext,
   context: PipelineContext,
   relativePath: string,
+  missingError: string = neverLandedDownstreamInputError(relativePath),
 ): Promise<LocatedDownstreamInputReadRoot> {
   const admissionRoot = context.cwd;
   const onAdmission = existsSync(join(admissionRoot, relativePath));
@@ -296,7 +302,7 @@ async function locateAbsentWorktreeDownstreamInputReadRoot(
   const external = locateExternalReadyIntentDownstreamInput(context, relativePath);
   if (external !== undefined) return external;
 
-  return { ok: false, error: neverLandedDownstreamInputError(relativePath) };
+  return { ok: false, error: missingError };
 }
 
 async function resolveChainedImplementSpecPath(
@@ -327,27 +333,175 @@ type ChainedReadyIntentPaths =
   | { ok: true; kind: "fan-out"; paths: readonly string[] }
   | { ok: false; error: string };
 
+type ChainedPlanInputContext = {
+  branchKey: string;
+  downstreamInputs: readonly string[];
+  planStageId: string;
+  stageArtifacts: ReadonlyMap<string, PipelineStageArtifact>;
+};
+
+type VerifiedChainedReadyIntentPath =
+  | { ok: true; kind: "located"; readRoot: string; readyIntentPath?: string }
+  | { ok: true; kind: "consumed" }
+  | { ok: false; error: string };
+
+function availableDownstreamInputs(paths: readonly string[]): string {
+  return paths.length === 0 ? "(none)" : paths.join(", ");
+}
+
+function planDownstreamInputError(path: string, input: ChainedPlanInputContext, reason: string): string {
+  const lane = branchKeyFromDownstreamInput(path);
+  return `pipeline-stage-resolve: plan lane "${lane}" downstream input ${path} ${reason}; available downstream inputs: ${availableDownstreamInputs(input.downstreamInputs)}`;
+}
+
+function branchScopedPlanInputError(branchKey: string, downstreamInputs: readonly string[], reason: string): string {
+  return `pipeline-stage-resolve: plan lane "${branchKey}" ${reason}; available downstream inputs: ${availableDownstreamInputs(downstreamInputs)}`;
+}
+
+async function isConsumedChainedReadyIntentPath(
+  prior: PriorArtifactContext,
+  context: PipelineContext,
+  path: string,
+  input: ChainedPlanInputContext,
+): Promise<boolean> {
+  const artifact = input.stageArtifacts.get(stageArtifactKey(input.planStageId, branchKeyFromDownstreamInput(path)));
+  if (artifact === undefined || isChainedPlanReadyIntentPath(artifact.specPath)) return false;
+  if (existsSync(join(context.cwd, path))) return false;
+  if ((await isGitRepoAsync(context.cwd)) && (await gitPathExistsOnBranch(context.cwd, prior.branch, path))) {
+    return false;
+  }
+  return true;
+}
+
 async function verifyChainedReadyIntentPath(
   prior: PriorArtifactContext,
   context: PipelineContext,
   path: string,
-): Promise<{ ok: true; readRoot: string; readyIntentPath?: string } | { ok: false; error: string }> {
+  input: ChainedPlanInputContext,
+): Promise<VerifiedChainedReadyIntentPath> {
   if (!isChainedPlanReadyIntentPath(path)) {
     return {
       ok: false,
-      error: "pipeline-stage-resolve: downstream input must be a ready-intent file, not a directory",
+      error: planDownstreamInputError(path, input, "must be a ready-intent file, not a directory"),
     };
   }
   if (await isUsablePriorWorktreePath(prior.worktreePath, context.cwd)) {
     if (!existsSync(join(prior.worktreePath, path))) {
+      if (await isConsumedChainedReadyIntentPath(prior, context, path, input)) {
+        return { ok: true, kind: "consumed" };
+      }
       return {
         ok: false,
-        error: `pipeline-stage-resolve: downstream input ${path} not found in prior worktree`,
+        error: planDownstreamInputError(path, input, "was not found in the prior worktree"),
       };
     }
-    return { ok: true, readRoot: prior.worktreePath };
+    return { ok: true, kind: "located", readRoot: prior.worktreePath };
   }
-  return locateAbsentWorktreeDownstreamInputReadRoot(prior, context, path);
+  const located = await locateAbsentWorktreeDownstreamInputReadRoot(
+    prior,
+    context,
+    path,
+    planDownstreamInputError(path, input, "never landed on the prior stage branch or pipeline admission base"),
+  );
+  if (located.ok) return { ...located, kind: "located" };
+  if (await isConsumedChainedReadyIntentPath(prior, context, path, input)) {
+    return { ok: true, kind: "consumed" };
+  }
+  return located;
+}
+
+async function resolveBranchScopedReadyIntentPath(
+  prior: PriorArtifactContext,
+  context: PipelineContext,
+  input: ChainedPlanInputContext,
+): Promise<ChainedReadyIntentPaths> {
+  const matches = input.downstreamInputs.filter((path) => branchKeyFromDownstreamInput(path) === input.branchKey);
+  if (matches.length === 0) {
+    return {
+      ok: false,
+      error: branchScopedPlanInputError(input.branchKey, input.downstreamInputs, "has no matching downstream input"),
+    };
+  }
+  if (matches.length !== 1) {
+    return {
+      ok: false,
+      error: branchScopedPlanInputError(
+        input.branchKey,
+        input.downstreamInputs,
+        `matches duplicate downstream inputs: ${matches.join(", ")}`,
+      ),
+    };
+  }
+  const path = matches[0];
+  if (path === undefined) {
+    return { ok: false, error: branchScopedPlanInputError(input.branchKey, input.downstreamInputs, "has no input") };
+  }
+  const verified = await verifyChainedReadyIntentPath(prior, context, path, input);
+  if (!verified.ok) return verified;
+  if (verified.kind === "consumed") {
+    return {
+      ok: false,
+      error: branchScopedPlanInputError(input.branchKey, input.downstreamInputs, "was already consumed"),
+    };
+  }
+  return {
+    ok: true,
+    kind: "single",
+    path: verified.readyIntentPath ?? path,
+    readRoot: verified.readRoot,
+  };
+}
+
+async function resolveVerifiedSingleReadyIntentPath(
+  prior: PriorArtifactContext,
+  context: PipelineContext,
+  path: string,
+  input: ChainedPlanInputContext,
+): Promise<ChainedReadyIntentPaths> {
+  const verified = await verifyChainedReadyIntentPath(prior, context, path, input);
+  if (!verified.ok) return verified;
+  if (verified.kind === "consumed") {
+    return { ok: false, error: planDownstreamInputError(path, input, "was already consumed") };
+  }
+  return {
+    ok: true,
+    kind: "single",
+    path: verified.readyIntentPath ?? path,
+    readRoot: verified.readRoot,
+  };
+}
+
+async function resolveUnscopedChainedReadyIntentPaths(
+  prior: PriorArtifactContext,
+  context: PipelineContext,
+  input: ChainedPlanInputContext,
+): Promise<ChainedReadyIntentPaths> {
+  const downstreamInputs = prior.artifact.downstreamInputs;
+
+  // Mutation checkpoint: treating absent/empty downstreamInputs as a fan-out, treating length 1 as a
+  // multi fan-out, or collapsing a multi-input list to its first entry each must turn the fan-out
+  // regressions RED.
+  if (downstreamInputs === undefined || downstreamInputs.length === 0) {
+    if (!(await isUsablePriorWorktreePath(prior.worktreePath, context.cwd))) {
+      return resolveVerifiedSingleReadyIntentPath(prior, context, prior.specPath, input);
+    }
+    return { ok: true, kind: "single", path: prior.specPath, readRoot: prior.worktreePath };
+  }
+
+  if (downstreamInputs.length === 1) {
+    const singlePath = downstreamInputs[0];
+    if (singlePath !== undefined) {
+      return resolveVerifiedSingleReadyIntentPath(prior, context, singlePath, input);
+    }
+  }
+
+  for (const path of downstreamInputs) {
+    const verified = await verifyChainedReadyIntentPath(prior, context, path, input);
+    // Mutation checkpoint: falling back to the directory specPath here instead of surfacing the
+    // error must turn the missing-downstream-input regression RED.
+    if (!verified.ok) return verified;
+  }
+  return { ok: true, kind: "fan-out", paths: downstreamInputs };
 }
 
 /**
@@ -357,47 +511,12 @@ async function verifyChainedReadyIntentPath(
 async function resolveChainedReadyIntentPaths(
   prior: PriorArtifactContext,
   context: PipelineContext,
+  input: ChainedPlanInputContext,
 ): Promise<ChainedReadyIntentPaths> {
-  const downstreamInputs = prior.artifact.downstreamInputs;
-
-  // Mutation checkpoint: treating absent/empty downstreamInputs as a fan-out, treating length 1 as a
-  // multi fan-out, or collapsing a multi-input list to its first entry each must turn the fan-out
-  // regressions RED.
-  if (downstreamInputs === undefined || downstreamInputs.length === 0) {
-    if (!(await isUsablePriorWorktreePath(prior.worktreePath, context.cwd))) {
-      const verified = await verifyChainedReadyIntentPath(prior, context, prior.specPath);
-      if (!verified.ok) return verified;
-      return {
-        ok: true,
-        kind: "single",
-        path: verified.readyIntentPath ?? prior.specPath,
-        readRoot: verified.readRoot,
-      };
-    }
-    return { ok: true, kind: "single", path: prior.specPath, readRoot: prior.worktreePath };
+  if (input.branchKey !== DEFAULT_PIPELINE_STAGE_BRANCH_KEY) {
+    return resolveBranchScopedReadyIntentPath(prior, context, input);
   }
-
-  if (downstreamInputs.length === 1) {
-    const singlePath = downstreamInputs[0];
-    if (singlePath !== undefined) {
-      const verified = await verifyChainedReadyIntentPath(prior, context, singlePath);
-      if (!verified.ok) return verified;
-      return {
-        ok: true,
-        kind: "single",
-        path: verified.readyIntentPath ?? singlePath,
-        readRoot: verified.readRoot,
-      };
-    }
-  }
-
-  for (const path of downstreamInputs) {
-    const verified = await verifyChainedReadyIntentPath(prior, context, path);
-    // Mutation checkpoint: falling back to the directory specPath here instead of surfacing the
-    // error must turn the missing-downstream-input regression RED.
-    if (!verified.ok) return verified;
-  }
-  return { ok: true, kind: "fan-out", paths: downstreamInputs };
+  return resolveUnscopedChainedReadyIntentPaths(prior, context, input);
 }
 
 function stageReviewPasses(stage: PipelineStage & { kind: "workflow" }): number {
@@ -408,6 +527,7 @@ async function resolveForDownstreamPaths(
   prior: PriorArtifactContext,
   context: PipelineContext,
   paths: readonly string[],
+  input: ChainedPlanInputContext,
   resolveOne: (
     prior: PriorArtifactContext,
     staleReset?: PipelineStaleResetPreparation,
@@ -421,8 +541,12 @@ async function resolveForDownstreamPaths(
     preflightCapture?: { message: string };
   }> = [];
   for (const downstreamPath of paths) {
-    const verified = await verifyChainedReadyIntentPath(prior, context, downstreamPath);
+    const verified = await verifyChainedReadyIntentPath(prior, context, downstreamPath, input);
     if (!verified.ok) return verified;
+    if (verified.kind === "consumed") {
+      results.push({ steps: [] });
+      continue;
+    }
     const preflightCapture = staleReset === undefined ? undefined : { message: "" };
     const branchStaleReset =
       staleReset === undefined || preflightCapture === undefined
@@ -630,6 +754,7 @@ async function resolvePlanWorkflowStage(
   stage: PipelineStage & { kind: "workflow" },
   context: PipelineContext,
   priorArtifact: PipelineStageArtifact | undefined,
+  stageArtifacts: ReadonlyMap<string, PipelineStageArtifact>,
   presetName: CliWorkflowPresetName,
   deps: PipelineStageResolveDeps,
   builders: typeof WORKFLOW_PRESET_BUILDERS,
@@ -641,7 +766,13 @@ async function resolvePlanWorkflowStage(
   const priorResult = resolvePriorArtifactContext(stage, priorArtifact, context, loadRun);
   if (!priorResult.ok) return priorResult;
 
-  const inputPaths = await resolveChainedReadyIntentPaths(priorResult.prior, context);
+  const input = {
+    branchKey: deps.branchKey ?? DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
+    downstreamInputs: priorResult.prior.artifact.downstreamInputs ?? [],
+    planStageId: stage.stageId,
+    stageArtifacts,
+  };
+  const inputPaths = await resolveChainedReadyIntentPaths(priorResult.prior, context, input);
   if (!inputPaths.ok) return inputPaths;
 
   if (inputPaths.kind === "fan-out") {
@@ -649,6 +780,7 @@ async function resolvePlanWorkflowStage(
       priorResult.prior,
       context,
       inputPaths.paths,
+      input,
       (prior, branchStaleReset) => resolvePlanStage(stage, prior, context, presetName, builders, branchStaleReset),
       deps.staleReset,
     );
@@ -699,7 +831,7 @@ export async function resolveStageWorkflowSteps(
     return resolveIntentStage(stage, context, priorArtifact, presetName, builders, deps.staleReset);
   }
   if (stage.workflow === "plan") {
-    return resolvePlanWorkflowStage(stage, context, priorArtifact, presetName, deps, builders);
+    return resolvePlanWorkflowStage(stage, context, priorArtifact, stageArtifacts, presetName, deps, builders);
   }
   return unmappedResult(stage);
 }

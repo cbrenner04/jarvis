@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   DEFAULT_REVIEW_ROLE_TIMEOUT_MS,
   loadMachineConfig,
+  readCleanupSessionLogRetentionDays,
   readCodexSandboxMode,
   readMachineConfigDocument,
   readNotificationSinkCommand,
@@ -109,6 +110,41 @@ describe("resolveMachineProfile", () => {
 
   test.each([["home"], ["work"]])("configured profile %s is returned (open string)", (profile) => {
     expect(resolveMachineProfile(writeConfig({ machineProfile: profile }))).toBe(profile);
+  });
+});
+
+describe("readCleanupSessionLogRetentionDays", () => {
+  test.each([
+    ["cleanup", { agents: ["claude"] }],
+    ["cleanup.sessionLogRetentionDays", { cleanup: {} }],
+  ] as Array<[string, unknown]>)("defaults to 14 when %s is absent", (_label, config) => {
+    expect(readCleanupSessionLogRetentionDays(writeConfig(config))).toEqual({ ok: true, days: 14 });
+  });
+
+  test("returns a configured positive integer", () => {
+    expect(readCleanupSessionLogRetentionDays(writeConfig({ cleanup: { sessionLogRetentionDays: 30 } }))).toEqual({
+      ok: true,
+      days: 30,
+    });
+  });
+
+  test("rejects a non-object cleanup value naming the key", () => {
+    expect(readCleanupSessionLogRetentionDays(writeConfig({ cleanup: "invalid" }))).toEqual({
+      ok: false,
+      error: "cleanup.sessionLogRetentionDays must be a positive integer",
+    });
+  });
+
+  test.each([
+    ["non-integer", 1.5],
+    ["zero", 0],
+    ["negative", -1],
+    ["non-number", "30"],
+  ] as Array<[string, unknown]>)("rejects a %s value naming the key", (_label, value) => {
+    expect(readCleanupSessionLogRetentionDays(writeConfig({ cleanup: { sessionLogRetentionDays: value } }))).toEqual({
+      ok: false,
+      error: "cleanup.sessionLogRetentionDays must be a positive integer",
+    });
   });
 });
 

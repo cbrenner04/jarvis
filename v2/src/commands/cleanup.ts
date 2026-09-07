@@ -36,7 +36,7 @@ import {
   checkArtifactEligibility,
   isExternalPlanArtifact,
 } from "./cleanup-artifacts.ts";
-import { reapDeadDaemonSockets } from "./daemon.ts";
+import { DAEMON_DIGEST_ARTIFACT_FILE, reapDeadDaemonSockets } from "./daemon.ts";
 
 export type DiscoveredWorktree = {
   path: string;
@@ -1210,7 +1210,7 @@ function hasNothingToClean(
 
 function previewReaperResult(reaperResult: ReaperResult, io: { stdout: (s: string) => void }): void {
   if (reaperResult.dead.length > 0) {
-    io.stdout(`Found ${reaperResult.dead.length} dead daemon socket(s) for cleanup:\n`);
+    io.stdout(`Found ${reaperResult.dead.length} dead daemon artifact(s) for cleanup:\n`);
     for (const path of reaperResult.dead) {
       io.stdout(`  remove: ${path}\n`);
     }
@@ -1223,20 +1223,41 @@ function previewReaperResult(reaperResult: ReaperResult, io: { stdout: (s: strin
   }
 }
 
-function removeDeadDaemonSockets(
-  paths: readonly string[],
-  io: { stdout: (s: string) => void; stderr: (s: string) => void },
-): number {
+function socketFilesForDeadDaemonArtifacts(paths: readonly string[]): string[] {
+  const keys = new Set<string>();
   for (const path of paths) {
-    try {
-      rmSync(path, { force: true });
-      io.stdout(`Removed daemon socket: ${path}\n`);
-    } catch (err) {
-      io.stderr(`Failed to remove daemon socket ${path}: ${err instanceof Error ? err.message : String(err)}\n`);
-      return 1;
+    const match = DAEMON_DIGEST_ARTIFACT_FILE.exec(basename(path));
+    const key = match?.[1];
+    if (key !== undefined) keys.add(key);
+  }
+  return [...keys].map((key) => `daemon-${key}.sock`);
+}
+
+async function removeDeadDaemonArtifacts(
+  paths: readonly string[],
+  jarvisRoot: string,
+  io: { stdout: (s: string) => void; stderr: (s: string) => void },
+): Promise<number> {
+  let exitCode = 0;
+  const socketFiles = socketFilesForDeadDaemonArtifacts(paths);
+
+  for (const socketFile of socketFiles) {
+    const key = socketFile.slice("daemon-".length, -".sock".length);
+    const artifactPaths = ["sock", "pid", "log"].map((extension) => join(jarvisRoot, `daemon-${key}.${extension}`));
+    const revalidated = await reapDeadDaemonSockets(jarvisRoot, [socketFile]);
+    const revalidatedDead = new Set(revalidated.dead);
+    for (const path of artifactPaths) {
+      if (!paths.includes(path) || !revalidatedDead.has(path)) continue;
+      try {
+        rmSync(path, { force: true });
+        io.stdout(`Removed daemon artifact: ${path}\n`);
+      } catch (err) {
+        io.stderr(`Failed to remove daemon artifact ${path}: ${err instanceof Error ? err.message : String(err)}\n`);
+        exitCode = 1;
+      }
     }
   }
-  return 0;
+  return exitCode;
 }
 
 async function retireStrandedArtifacts(
@@ -1430,8 +1451,7 @@ async function executeConfirmedCleanup(
     ctx.branchRefDiscovery.ownerProjectsByRepositoryRoot,
     io,
   );
-  const socketRemoval = removeDeadDaemonSockets(ctx.reaperResult.dead, io);
-  if (socketRemoval !== 0) return socketRemoval;
+  const artifactRemoval = await removeDeadDaemonArtifacts(ctx.reaperResult.dead, jarvisRoot, io);
 
   const strandedAfterRetirement = await inspectStrandedArtifacts(
     ctx.strandedArtifacts,
@@ -1446,7 +1466,7 @@ async function executeConfirmedCleanup(
   if (stillEligible.length === 0 && ctx.candidates.length > 0) {
     io.stdout("No worktrees remain eligible after re-check.\n");
   }
-  if (result !== 0 || branchRefExit !== 0) return 1;
+  if (result !== 0 || branchRefExit !== 0 || artifactRemoval !== 0) return 1;
   if (recheck.daemonUnreachable || ctx.discoveryExit !== 0) return 1;
   return daemonBlockedExit;
 }
@@ -1619,6 +1639,8 @@ export type DirtyWorktreeListResult =
 
 export const STALE_RESET_OVERRIDE_CLI_FLAG = "--reset-despite-dirty";
 export const STALE_RESET_LANDED_CRITERIA_OVERRIDE_CLI_FLAG = "--reset-despite-landed-criteria";
+export const OPEN_PR_PROBE_UNREACHABLE_REASON =
+  "could not determine open PR state: gh is unreachable from this environment; retry outside the agent sandbox";
 
 const staleResetDirtyRecovery = `commit, discard local changes, pass ${STALE_RESET_OVERRIDE_CLI_FLAG} on re-run, or run \`jarvis cleanup --abandon <branch>\``;
 const staleResetLandedCriteriaRecovery = `pass ${STALE_RESET_LANDED_CRITERIA_OVERRIDE_CLI_FLAG} on re-run, or run \`jarvis cleanup --abandon <branch>\``;
@@ -1877,8 +1899,8 @@ export async function resetStaleWorkspace(
   const liveCheck = await isWorktreeLiveHeld(project, branch, jarvisRoot, daemonClient);
   if (liveCheck.live) return { status: "refused", reason: liveCheck.reason };
 
-  const prGate = await gateOnOpenPrs(branch, runner);
-  if (prGate.status === "refused") return { status: "refused", reason: prGate.reason };
+  const prGate = await gateOnOpenPrs(branch, runner, projectRoot);
+  if (prGate.status !== "ok") return { status: "refused", reason: prGate.reason };
 
   const claimProbe = daemonClient.checkWorkflowStartClaim;
   if (claimProbe === undefined) {
@@ -1992,21 +2014,27 @@ async function isWorktreeLiveHeld(
   return { live: false };
 }
 
+type OpenPrGateResult =
+  | { status: "ok"; pr: OpenPr | undefined }
+  | { status: "refused"; reason: string }
+  | { status: "unknown"; reason: string };
+
 /**
  * Refuse retirement when open-PR state is ambiguous or protects the branch:
- * multiple open PRs, or a single ready (non-draft) PR. gh failures are treated
- * as "no open PRs".
+ * multiple open PRs, or a single ready (non-draft) PR. gh probe failures are
+ * inconclusive and return `unknown` rather than an empty list.
  */
-async function gateOnOpenPrs(
+export async function gateOnOpenPrs(
   branch: string,
   runner: AsyncSubprocessRunner,
   cwd = ".",
-): Promise<{ status: "ok"; pr: OpenPr | undefined } | { status: "refused"; reason: string }> {
+): Promise<OpenPrGateResult> {
   let openPrs: OpenPr[];
   try {
     openPrs = await listOpenPrsForBranch(branch, cwd, runner);
-  } catch {
-    openPrs = [];
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    return { status: "unknown", reason: `${OPEN_PR_PROBE_UNREACHABLE_REASON} (${detail})` };
   }
   if (openPrs.length > 1) return { status: "refused", reason: "multiple open PRs match branch" };
   const pr = openPrs.at(0);
@@ -2255,9 +2283,9 @@ export async function runAbandonCommand(
     return 1;
   }
 
-  // PR-ownership gates: refuse ready PRs and ambiguous PR ownership
-  const prGate = await gateOnOpenPrs(branch, runner);
-  if (prGate.status === "refused") {
+  // PR-ownership gates: refuse ready PRs, ambiguous PR ownership, and inconclusive probes
+  const prGate = await gateOnOpenPrs(branch, runner, projectRoot ?? ".");
+  if (prGate.status !== "ok") {
     io.stderr(`Error: Cannot abandon: ${prGate.reason}\n`);
     return 1;
   }

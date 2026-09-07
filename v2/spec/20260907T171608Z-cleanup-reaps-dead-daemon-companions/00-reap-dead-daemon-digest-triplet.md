@@ -29,15 +29,15 @@ Digest-keyed daemon turnover writes a socket, PID file, and process log per exec
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/cleanup.test.ts` test `dead daemon digest reaps socket pid and log` proves apply removes the `.sock`, `.pid`, and `.log` triplet, `--dry-run` reports all three under artifact-level preview copy without mutation, and live and ambiguously probed triplets are preserved; it fails against the pre-fix socket-only reaper.
-- [ ] `v2/src/commands/daemon.test.ts` `reapDeadDaemonSockets` `returns empty lists when jarvis home does not exist`, `enumeration failure leaves sockets untouched`, `preserves sockets that probe with errors other than ECONNREFUSED/ENOENT`, and `does not classify a live daemon socket as dead` stay green.
-- [ ] `v2/src/commands/daemon.test.ts` `reapDeadDaemonSockets` `ignores files that do not match daemon-*.sock pattern` expects a dead socket's present `.pid`/`.log` companions in `dead`.
-- [ ] `v2/docs/operator-runbook.md` documents dead daemon digest artifact preview, triplet reaping on apply, and fail-safe preservation when the socket probe is live or ambiguous.
-- [ ] `v2/docs/v1-behaviors.md` records v2 cleanup's keyed daemon triplet lifecycle (dead digest removes `.sock`/`.pid`/`.log`; live or ambiguous probe preserves the triplet); supersedes the socket-only reaping note from `20260722T133409Z-cleanup-dead-daemon-sockets`.
-- [ ] `v2/docs/write-behavior.md` and `v2/docs/daemon-host.md` cross-link or align with the operator-runbook triplet lifecycle so no durable home still describes socket-only reaping.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/commands/cleanup.test.ts` test `dead daemon digest reaps socket pid and log` proves apply removes the `.sock`, `.pid`, and `.log` triplet, `--dry-run` reports all three under artifact-level preview copy without mutation, and live and ambiguously probed triplets are preserved; it fails against the pre-fix socket-only reaper.
+- [x] `v2/src/commands/daemon.test.ts` `reapDeadDaemonSockets` `returns empty lists when jarvis home does not exist`, `enumeration failure leaves sockets untouched`, `preserves sockets that probe with errors other than ECONNREFUSED/ENOENT`, and `does not classify a live daemon socket as dead` stay green.
+- [x] `v2/src/commands/daemon.test.ts` `reapDeadDaemonSockets` `ignores files that do not match daemon-*.sock pattern` expects a dead socket's present `.pid`/`.log` companions in `dead`.
+- [x] `v2/docs/operator-runbook.md` documents dead daemon digest artifact preview, triplet reaping on apply, and fail-safe preservation when the socket probe is live or ambiguous.
+- [x] `v2/docs/v1-behaviors.md` records v2 cleanup's keyed daemon triplet lifecycle (dead digest removes `.sock`/`.pid`/`.log`; live or ambiguous probe preserves the triplet); supersedes the socket-only reaping note from `20260722T133409Z-cleanup-dead-daemon-sockets`.
+- [x] `v2/docs/write-behavior.md` and `v2/docs/daemon-host.md` cross-link or align with the operator-runbook triplet lifecycle so no durable home still describes socket-only reaping.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

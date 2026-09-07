@@ -1,4 +1,5 @@
-import { readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, normalize, relative, resolve } from "node:path";
 import ts from "typescript";
 import { guarded } from "../../../scripts/guard-deterministic-daemon-tests.ts";
@@ -91,6 +92,11 @@ type RegisteredPromptPaths = (cwd: string, baseRef: string) => Promise<string[]>
 type ListDir = (dir: string) => string[];
 type ListImporterCandidates = (scanRoot: string, worktreePath: string) => string[];
 
+type MutationRecordStore = {
+  record: (worktreePath: string, candidate: Candidate) => void;
+  remove: (worktreePath: string, candidate: Candidate) => void;
+};
+
 type VerifierSeams = {
   gitDiff?: GitDiff;
   untrackedFiles?: UntrackedFiles;
@@ -100,6 +106,7 @@ type VerifierSeams = {
   registeredPromptPaths?: RegisteredPromptPaths;
   listDir?: ListDir;
   listImporterCandidates?: ListImporterCandidates;
+  mutationRecordStore?: MutationRecordStore;
   now?: () => number;
 };
 
@@ -114,6 +121,46 @@ export const MAX_IMPORTER_DISCOVERY_CANDIDATES_PER_FILE = 200;
 const IMPORTER_SCAN_SURFACE_PREFIXES = ["v1/src/", "v2/src/", "shared/"] as const;
 const RENDER_OBSERVER_MAP_RELATIVE_PATH = "shared/prompts/render-observer-tests.ts";
 const RENDER_OBSERVER_MAP_BINDING = "RENDER_OBSERVER_TESTS";
+const MUTATION_RECORD_DIR = ".jarvis-diff-derived-mutations";
+
+function mutationRecordPath(worktreePath: string, candidate: Candidate): string {
+  const identity = JSON.stringify([
+    candidate.file,
+    candidate.line,
+    candidate.columnStart,
+    candidate.columnEnd,
+    candidate.mutation,
+  ]);
+  const digest = createHash("sha256").update(identity).digest("hex");
+  return join(worktreePath, MUTATION_RECORD_DIR, `${digest}.json`);
+}
+
+const defaultMutationRecordStore: MutationRecordStore = {
+  record(worktreePath, candidate) {
+    const dir = join(worktreePath, MUTATION_RECORD_DIR);
+    const destination = mutationRecordPath(worktreePath, candidate);
+    const temporary = join(dir, `.${randomUUID()}.tmp`);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      temporary,
+      `${JSON.stringify({ file: candidate.file, line: candidate.line, mutation: candidate.mutation })}\n`,
+      { flag: "wx" },
+    );
+    try {
+      renameSync(temporary, destination);
+    } finally {
+      rmSync(temporary, { force: true });
+    }
+  },
+  remove(worktreePath, candidate) {
+    rmSync(mutationRecordPath(worktreePath, candidate), { force: true });
+  },
+};
+
+const noMutationRecordStore: MutationRecordStore = {
+  record() {},
+  remove() {},
+};
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: TS-AST walk over the observer-map object literal; extracting the node handlers would fragment the parse
 export function extractRenderObserverMapFromSource(source: string): Record<string, readonly string[]> | null {
@@ -815,12 +862,14 @@ async function testCandidate(
   writeFile: WriteFile,
   runScopedTests: RunScopedTests,
   killingTestPaths: string[],
+  mutationRecordStore: MutationRecordStore,
 ): Promise<MutationFailureResult | SkippedCandidate | null> {
   const filePath = `${input.worktreePath}/${candidate.file}`;
   let mutationWritten = false;
 
   try {
     const mutatedContent = applyMutation(originalContent, candidate);
+    mutationRecordStore.record(input.worktreePath, candidate);
     await writeFile(filePath, mutatedContent);
     mutationWritten = true;
 
@@ -858,7 +907,10 @@ async function testCandidate(
     }
     throw new Error(`Failed to test candidate for ${candidate.file}:${candidate.line}`);
   } finally {
-    if (mutationWritten) await writeFile(filePath, originalContent);
+    if (mutationWritten) {
+      await writeFile(filePath, originalContent);
+      mutationRecordStore.remove(input.worktreePath, candidate);
+    }
   }
 
   return null;
@@ -1148,6 +1200,7 @@ async function verifyCandidates(
   runScopedTests: RunScopedTests,
   listDir: ListDir,
   listImporterCandidates: ListImporterCandidates,
+  mutationRecordStore: MutationRecordStore,
   now: () => number,
   deadline: number,
 ): Promise<{
@@ -1228,6 +1281,7 @@ async function verifyCandidates(
           writeFile,
           runScopedTests,
           resolution.killingTests,
+          mutationRecordStore,
         );
         if (result !== null) {
           if ("kind" in result) {
@@ -1256,6 +1310,8 @@ export async function verifyDiffDerivedMutations(
   const registeredPromptPaths = seams?.registeredPromptPaths ?? defaultRegisteredPromptPaths;
   const listDir = seams?.listDir ?? defaultListDir;
   const listImporterCandidates = seams?.listImporterCandidates ?? defaultListImporterCandidates;
+  const mutationRecordStore =
+    seams?.mutationRecordStore ?? (seams?.writeFile === undefined ? defaultMutationRecordStore : noMutationRecordStore);
 
   const diffOutput = await gitDiff(input.worktreePath, input.runBase);
   const changedLines = parseDiff(diffOutput);
@@ -1317,6 +1373,7 @@ export async function verifyDiffDerivedMutations(
     runScopedTests,
     listDir,
     listImporterCandidates,
+    mutationRecordStore,
     now,
     deadline,
   );

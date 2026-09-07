@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveRenderObserverTests } from "../../../shared/prompts/render-observer-tests.ts";
@@ -1425,6 +1426,100 @@ index 1234567..abcdefg 100644
     const otherWrites = writeEvents.filter((event) => event.file === "src/other.ts").map((event) => event.content);
     expect(multiWrites).toEqual([multi.mutant1, multi.content, multi.mutant2, multi.content]);
     expect(otherWrites).toEqual([other.mutant1, other.content, other.mutant2, other.content]);
+  });
+
+  it("records concurrent applied mutants separately and clears only the restored owner's record", async () => {
+    const scratchRoot = join(import.meta.dir, "../../../.scratch");
+    mkdirSync(scratchRoot, { recursive: true });
+    const worktreePath = mkdtempSync(join(scratchRoot, "diff-derived-mutation-records-"));
+    const recordsDir = join(worktreePath, ".jarvis-diff-derived-mutations");
+    const fixture = (file: string, name: string, guard: string) => {
+      const content = `export function ${name}() {\n  if (!${guard}) return "${guard}";\n  return true;\n}\n`;
+      const mutation = `guard-flip: !${guard} → ${guard}`;
+      return {
+        file,
+        content,
+        mutation,
+        diff: `diff --git a/${file} b/${file}\nindex 1234567..abcdefg 100644\n--- a/${file}\n+++ b/${file}\n@@ -1,2 +1,3 @@\n export function ${name}() {\n+  if (!${guard}) return "${guard}";\n   return true;\n`,
+        recordName: `${createHash("sha256")
+          .update(JSON.stringify([file, 2, 6, 7 + guard.length, mutation]))
+          .digest("hex")}.json`,
+      };
+    };
+    const first = fixture("src/first.ts", "first", "left");
+    const second = fixture("src/second.ts", "second", "right");
+    const deferred = () => {
+      let release = () => {};
+      const promise = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { promise, release };
+    };
+    const firstTest = deferred();
+    const secondTest = deferred();
+    const inFlight = new Set<string>();
+    const readRecords = () =>
+      readdirSync(recordsDir)
+        .sort()
+        .map((name) => ({
+          name,
+          value: JSON.parse(readFileSync(join(recordsDir, name), "utf-8")) as {
+            file: string;
+            line: number;
+            mutation: string;
+          },
+        }));
+
+    mkdirSync(join(worktreePath, "src"), { recursive: true });
+    for (const item of [first, second]) {
+      writeFileSync(join(worktreePath, item.file), item.content);
+      writeFileSync(join(worktreePath, item.file.replace(".ts", ".test.ts")), "export {};\n");
+    }
+
+    const verification = verifyDiffDerivedMutations(
+      { worktreePath, runBase: "main" },
+      {
+        gitDiff: async () => first.diff + second.diff,
+        untrackedFiles: async () => [],
+        registeredPromptPaths: async () => [],
+        runScopedTests: async (_cwd, scope) => {
+          const testPath = scope[0];
+          if (testPath === undefined) throw new Error("missing scoped test path");
+          inFlight.add(testPath);
+          await (testPath === "src/first.test.ts" ? firstTest.promise : secondTest.promise);
+          inFlight.delete(testPath);
+          return false;
+        },
+      },
+    );
+
+    try {
+      await waitForCondition(() => inFlight.size === 2, "concurrent mutants");
+      expect(readRecords()).toEqual(
+        [
+          { name: first.recordName, value: { file: first.file, line: 2, mutation: first.mutation } },
+          { name: second.recordName, value: { file: second.file, line: 2, mutation: second.mutation } },
+        ].sort((left, right) => left.name.localeCompare(right.name)),
+      );
+
+      firstTest.release();
+      await waitForCondition(() => readRecords().length === 1, "first mutant record removal");
+      expect(readFileSync(join(worktreePath, first.file), "utf-8")).toBe(first.content);
+      expect(readRecords()).toEqual([
+        { name: second.recordName, value: { file: second.file, line: 2, mutation: second.mutation } },
+      ]);
+
+      secondTest.release();
+      const result = await verification;
+      expect(result.kind).toBe("pass");
+      expect(readFileSync(join(worktreePath, second.file), "utf-8")).toBe(second.content);
+      expect(readdirSync(recordsDir)).toEqual([]);
+    } finally {
+      firstTest.release();
+      secondTest.release();
+      await verification;
+      rmSync(worktreePath, { recursive: true, force: true });
+    }
   });
 
   it("short-circuits on first surviving-mutation under per-file scheduling", async () => {

@@ -20,8 +20,8 @@ The production `scanDaemonRunControlHandlerForbiddenSymbols` scanner uses `let f
 
 ## Acceptance criteria
 
-- [ ] `diff-derived-mutation-verifier.test.ts` drives the `scanDaemonRunControlHandlerForbiddenSymbols` `while (true)` exit-guard flip, observes bounded `non-terminating-mutation` settlement, and leaves `v2/src/daemon/daemon-run-control-handler-guard.ts` byte-identical to its pre-verification content; it fails against the pre-fix hang reachable when `runDiffDerivedScopedTests` awaits a non-terminating killing test indefinitely.
-- [ ] `bun run test:v2` passes.
+- [x] `diff-derived-mutation-verifier.test.ts` drives the `scanDaemonRunControlHandlerForbiddenSymbols` `while (true)` exit-guard flip, observes bounded `non-terminating-mutation` settlement, and leaves `v2/src/daemon/daemon-run-control-handler-guard.ts` byte-identical to its pre-verification content; it fails against the pre-fix hang reachable when `runDiffDerivedScopedTests` awaits a non-terminating killing test indefinitely.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

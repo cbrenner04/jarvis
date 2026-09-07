@@ -76,6 +76,8 @@ import {
   classifyReadyGateError,
   createReadyFinalizer,
   deriveGateAllowedPaths,
+  NonTerminatingMutationError,
+  nonTerminatingMutationLogFields,
   outOfScopeSettlementResumable,
   parseGitNameStatusZ,
   type ReadyFinalizer,
@@ -118,6 +120,7 @@ const WRITE_LOOP_OUTCOME_KINDS = [
   "ready_gate_out_of_scope",
   "ready_flip_failed",
   "surviving_mutation_failed",
+  "non_terminating_mutation_failed",
   "mutation_repair_exhausted",
   "runtime_smoke_failed",
   "landing_failed",
@@ -156,6 +159,9 @@ export type WriteLoopResult = {
   survivingMutation?: string;
   survivingMutationSourceFile?: string;
   survivingMutationSourceLine?: number;
+  nonTerminatingMutation?: string;
+  nonTerminatingMutationSourceFile?: string;
+  nonTerminatingMutationSourceLine?: number;
   runtimeSmokeCommand?: string;
   runtimeSmokeObservation?: string;
   completedSubspecPaths?: readonly string[];
@@ -1669,6 +1675,58 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           }
           continue;
         }
+        if (verificationResult.kind === "non-terminating-mutation") {
+          try {
+            await checkpointSettledIteration(args, prepared, store, runId, worktreePath, attemptId, result);
+          } catch (error) {
+            return iterationCommitFailed(
+              args,
+              store,
+              runId,
+              attemptId,
+              iterationsConsumed,
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          }
+          const mutationError = new NonTerminatingMutationError(
+            verificationResult.mutation,
+            verificationResult.sourceSite.file,
+            verificationResult.sourceSite.line,
+          );
+          const mutationFields = nonTerminatingMutationLogFields(mutationError);
+          store.commitCompletionBoundary({
+            attemptId,
+            runStatus: "failed",
+            outcomeKind: "non_terminating_mutation_failed",
+            ...completionBoundarySettlementFields(
+              "non_terminating_mutation_failed",
+              terminalFailureDetailFromError(mutationError),
+            ),
+          });
+          args.logSink?.append(runId, {
+            kind: "boundary_committed",
+            attemptId,
+            outcomeKind: "non_terminating_mutation_failed",
+            runStatus: "failed",
+          });
+          args.logSink?.append(runId, {
+            kind: "loop_finished",
+            loopOutcomeKind: "non_terminating_mutation_failed",
+            iterationsConsumed,
+            resumable: true,
+            ...mutationFields,
+          });
+          return {
+            kind: "non_terminating_mutation_failed",
+            runId,
+            iterationsConsumed,
+            resumable: true,
+            attemptId,
+            outcomeKind: "non_terminating_mutation_failed",
+            runStatus: "failed",
+            ...mutationFields,
+          };
+        }
         pendingSurvivingMutationReprompt = undefined;
       }
 
@@ -2524,7 +2582,11 @@ function committedResult(
   }
   if (run.status === "failed") {
     const outcomeKind = run.attempts[run.attempts.length - 1]?.outcomeKind;
-    if (outcomeKind === "landing_failed" || outcomeKind === "surviving_mutation_failed") {
+    if (
+      outcomeKind === "landing_failed" ||
+      outcomeKind === "surviving_mutation_failed" ||
+      outcomeKind === "non_terminating_mutation_failed"
+    ) {
       return null;
     }
     if (
@@ -2626,6 +2688,7 @@ export type CompletionPublishFailure = {
     | "ready_gate_out_of_scope"
     | "ready_flip_failed"
     | "surviving_mutation_failed"
+    | "non_terminating_mutation_failed"
     | "runtime_smoke_failed";
   error?: Error;
   prNumber?: number;
@@ -3516,6 +3579,13 @@ async function runReadyFinalizer(
             verificationResult.dualConstraint,
           );
         }
+        if (verificationResult.kind === "non-terminating-mutation") {
+          throw new NonTerminatingMutationError(
+            verificationResult.mutation,
+            verificationResult.sourceSite.file,
+            verificationResult.sourceSite.line,
+          );
+        }
       },
       runRuntimeSmokeVerification: async (worktreePath: string, baseRef: string) => {
         const verificationResult = await verifyRuntimeSmoke({
@@ -3538,6 +3608,7 @@ async function runReadyFinalizer(
   return (await readyFinalizer(finalInput))?.runtimeSmokeOutcome;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: one classifier maps every finalization error shape (ready-gate red, autofix, command-missing, out-of-scope, surviving and non-terminating mutation, flip failure) onto its publish-failure response; the branches are a flat exhaustive dispatch over error kinds, so extracting them would scatter one decision table across helpers.
 function buildFinalizationErrorResponse(
   err: Error,
   prNumber: number | undefined,
@@ -3546,6 +3617,14 @@ function buildFinalizationErrorResponse(
   if (err instanceof SurvivingMutationError) {
     return {
       kind: "surviving_mutation_failed",
+      error: err,
+      ...(prNumber !== undefined ? { prNumber } : {}),
+      ...(prUrl !== undefined ? { prUrl } : {}),
+    };
+  }
+  if (err instanceof NonTerminatingMutationError) {
+    return {
+      kind: "non_terminating_mutation_failed",
       error: err,
       ...(prNumber !== undefined ? { prNumber } : {}),
       ...(prUrl !== undefined ? { prUrl } : {}),
@@ -3729,6 +3808,7 @@ type ReadyFailureKind =
   | "ready_gate_out_of_scope"
   | "ready_flip_failed"
   | "surviving_mutation_failed"
+  | "non_terminating_mutation_failed"
   | "runtime_smoke_failed";
 
 function readyFailureResumable(
@@ -3738,7 +3818,9 @@ function readyFailureResumable(
 ): boolean {
   if (kind === "ready_gate_out_of_scope") return outOfScopeSettlementResumable(outsidePaths, priorRecords);
   if (kind === "ready_gate_command_missing") return false;
-  return kind === "ready_gate_failed" || kind === "surviving_mutation_failed";
+  return (
+    kind === "ready_gate_failed" || kind === "surviving_mutation_failed" || kind === "non_terminating_mutation_failed"
+  );
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: ready-gate failure classification fans over many terminal kinds
@@ -3754,16 +3836,20 @@ function readyFailed(
   const outOfScopeFields = readyGateOutOfScopeLogFields(error);
   const priorRecords = priorLogRecordsFromSink(args.logSink, result.runId);
   const resumable = readyFailureResumable(kind, outOfScopeFields.readyGateOutsidePaths, priorRecords);
-  const mutationFields = survivingMutationLogFields(error);
+  const mutationFields = {
+    ...survivingMutationLogFields(error),
+    ...nonTerminatingMutationLogFields(error),
+  };
   const terminalStatus =
     kind === "surviving_mutation_failed" ||
+    kind === "non_terminating_mutation_failed" ||
     kind === "ready_gate_failed" ||
     kind === "ready_gate_command_missing" ||
     kind === "ready_gate_out_of_scope"
       ? "failed"
       : "completed";
   const terminalFailureDetail =
-    kind === "surviving_mutation_failed"
+    kind === "surviving_mutation_failed" || kind === "non_terminating_mutation_failed"
       ? terminalFailureDetailFromError(error)
       : kind === "ready_gate_failed" || kind === "ready_gate_command_missing" || kind === "ready_gate_out_of_scope"
         ? readyGateTerminalFailureDetail(error)

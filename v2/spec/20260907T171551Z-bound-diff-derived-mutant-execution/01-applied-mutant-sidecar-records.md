@@ -23,8 +23,8 @@ When a verifier child wedges or an operator inspects a live worktree mid-verific
 
 ## Acceptance criteria
 
-- [ ] `diff-derived-mutation-verifier.test.ts` proves each concurrent production-file candidate has a separately discoverable `<worktree>/.jarvis-diff-derived-mutations/<candidate-sha256>.json` entry identifying `file`, `line`, and `mutation` while applied, and that its owner clears the entry on restore; it fails against the pre-fix absent record reachable when `testCandidate` applies mutants without sidecar I/O.
-- [ ] `bun run test:v2` passes.
+- [x] `diff-derived-mutation-verifier.test.ts` proves each concurrent production-file candidate has a separately discoverable `<worktree>/.jarvis-diff-derived-mutations/<candidate-sha256>.json` entry identifying `file`, `line`, and `mutation` while applied, and that its owner clears the entry on restore; it fails against the pre-fix absent record reachable when `testCandidate` applies mutants without sidecar I/O.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

@@ -1,6 +1,10 @@
 import { type InvocationFailureDetail, isExhaustedRoleTimeout } from "../execution/invocation-failure.ts";
 import type { PublicationFailure } from "../execution/publication-retry.ts";
-import { readyGateOutOfScopeLogFields, survivingMutationLogFields } from "../execution/ready-finalize.ts";
+import {
+  nonTerminatingMutationLogFields,
+  readyGateOutOfScopeLogFields,
+  survivingMutationLogFields,
+} from "../execution/ready-finalize.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type {
   ContractMissDetailEvent,
@@ -36,6 +40,7 @@ const RUN_OPERATOR_ERROR_REASONS = [
   "ready_gate_out_of_scope",
   "ready_flip_failed",
   "surviving_mutation_failed",
+  "non_terminating_mutation_failed",
   "mutation_repair_exhausted",
   "iteration_timeout",
   "idle_output_timeout",
@@ -60,6 +65,9 @@ export type RunOperatorError = {
   survivingMutation?: string;
   survivingMutationSourceFile?: string;
   survivingMutationSourceLine?: number;
+  nonTerminatingMutation?: string;
+  nonTerminatingMutationSourceFile?: string;
+  nonTerminatingMutationSourceLine?: number;
   readyGateOutsidePaths?: string[];
   readyGateOutOfScopeDetail?: string;
   contractMissDetail?: string;
@@ -172,6 +180,7 @@ function resumableFinalizationLoopFinishedOutranksAttemptDetail(event: LoopFinis
     case "ready_gate_failed":
     case "ready_gate_out_of_scope":
     case "surviving_mutation_failed":
+    case "non_terminating_mutation_failed":
     case "completion_commit_failed":
     case "iteration_commit_failed":
     case "iteration_timeout":
@@ -273,6 +282,11 @@ function mapFromLoopFinished(
         ...op("surviving_mutation_failed", "resume", true),
         ...survivingMutationLogFields(event),
       };
+    case "non_terminating_mutation_failed":
+      return {
+        ...op("non_terminating_mutation_failed", "resume", true),
+        ...nonTerminatingMutationLogFields(event),
+      };
     case "mutation_repair_exhausted":
       return op("mutation_repair_exhausted", "inspect_spec");
     case "blocked":
@@ -329,6 +343,8 @@ export const RUN_OPERATOR_ERROR_RECOVERY = {
   ready_flip_failed:
     "manually fix the PR draft-to-ready transition, then verify with gh pr view <prNumber> --json isDraft",
   surviving_mutation_failed: "fix surviving-mutation test coverage, then jarvis run resume (before repair exhaustion)",
+  non_terminating_mutation_failed:
+    "inspect the mutation site and killing-test timeout, then jarvis run resume to re-run finalization",
   mutation_repair_exhausted: "manually fix and publish the worktree, or untick criteria before re-running implement",
   iteration_timeout:
     "run jarvis run resume when nextAction is resume, otherwise inspect the stall in jarvis run log and re-dispatch the workflow",

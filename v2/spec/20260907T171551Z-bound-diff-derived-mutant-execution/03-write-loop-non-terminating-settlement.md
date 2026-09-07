@@ -22,11 +22,11 @@ In-loop and publication callers today classify every verifier failure as either 
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts` proves in-loop verification settling `non-terminating-mutation` records retryable `non_terminating_mutation_failed` without `surviving_mutation_reprompt`, write-agent re-entry, or ready publication; it fails against the pre-fix binary classification that reprompts or scores `surviving_mutation_failed` on verifier failures.
-- [ ] `write-loop.test.ts` proves publication-time verification settling `non-terminating-mutation` records retryable `non_terminating_mutation_failed`, leaves the PR draft, and does not reprompt implement or flip ready; it fails against the pre-fix publication path that settles `surviving_mutation_failed` or proceeds to ready.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `write-loop.test.ts` proves in-loop verification settling `non-terminating-mutation` records retryable `non_terminating_mutation_failed` without `surviving_mutation_reprompt`, write-agent re-entry, or ready publication; it fails against the pre-fix binary classification that reprompts or scores `surviving_mutation_failed` on verifier failures.
+- [x] `write-loop.test.ts` proves publication-time verification settling `non-terminating-mutation` records retryable `non_terminating_mutation_failed`, leaves the PR draft, and does not reprompt implement or flip ready; it fails against the pre-fix publication path that settles `surviving_mutation_failed` or proceeds to ready.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

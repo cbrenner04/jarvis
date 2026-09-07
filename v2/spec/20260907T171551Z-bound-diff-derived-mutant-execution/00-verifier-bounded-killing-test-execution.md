@@ -26,11 +26,11 @@
 
 ## Acceptance criteria
 
-- [ ] `diff-derived-mutation-verifier.test.ts` proves a killing-test subprocess that never exits is terminated at `MAX_KILLING_TEST_MS` and `verifyDiffDerivedMutations` settles instead of hanging; it fails against the pre-fix unbounded `runAsync` await reachable on `runDiffDerivedScopedTests`.
-- [ ] `diff-derived-mutation-verifier.test.ts` proves scoped-test timeout returns `kind: "non-terminating-mutation"` rather than `pass`, caught (tests-failed), or `surviving-mutation`; it fails against the pre-fix binary classification where timeout rejects as a caught mutation.
-- [ ] `diff-derived-mutation-verifier.test.ts` proves pre-mutation bytes are restored after timeout; it fails against the pre-fix restore-only-after-return path in `testCandidate`.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `diff-derived-mutation-verifier.test.ts` proves a killing-test subprocess that never exits is terminated at `MAX_KILLING_TEST_MS` and `verifyDiffDerivedMutations` settles instead of hanging; it fails against the pre-fix unbounded `runAsync` await reachable on `runDiffDerivedScopedTests`.
+- [x] `diff-derived-mutation-verifier.test.ts` proves scoped-test timeout returns `kind: "non-terminating-mutation"` rather than `pass`, caught (tests-failed), or `surviving-mutation`; it fails against the pre-fix binary classification where timeout rejects as a caught mutation.
+- [x] `diff-derived-mutation-verifier.test.ts` proves pre-mutation bytes are restored after timeout; it fails against the pre-fix restore-only-after-return path in `testCandidate`.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

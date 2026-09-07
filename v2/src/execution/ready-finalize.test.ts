@@ -15,6 +15,8 @@ import {
   deriveGateAllowedPaths,
   findMissingReadyGateCommandEvidence,
   formatReadyGateOutOfScopeDetail,
+  NonTerminatingMutationError,
+  nonTerminatingMutationLogFields,
   outOfScopeSettlementResumable,
   parseGitNameStatusZ,
   ReadyGateError,
@@ -1508,6 +1510,23 @@ index 1234567..abcdefg 100644
 
     const single = new SurvivingMutationError("guard-flip: !x → x", "v2/src/execution/test.ts", 3);
     expect(single.message).toBe("Surviving mutation in v2/src/execution/test.ts:3: guard-flip: !x → x");
+  });
+});
+
+describe("nonTerminatingMutationLogFields", () => {
+  it("projects NonTerminatingMutationError fields", () => {
+    const error = new NonTerminatingMutationError(
+      "operator-flip: === → !==",
+      "v2/src/execution/ready-finalize.ts",
+      934,
+    );
+    expect(nonTerminatingMutationLogFields(error)).toEqual({
+      nonTerminatingMutation: "operator-flip: === → !==",
+      nonTerminatingMutationSourceFile: "v2/src/execution/ready-finalize.ts",
+      nonTerminatingMutationSourceLine: 934,
+    });
+    expect(nonTerminatingMutationLogFields(undefined)).toEqual({});
+    expect(nonTerminatingMutationLogFields(new Error("other"))).toEqual({});
   });
 });
 

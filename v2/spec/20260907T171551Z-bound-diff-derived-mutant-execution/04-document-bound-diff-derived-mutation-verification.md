@@ -21,9 +21,9 @@ Bounded killing-test execution, non-terminating mutant settlement, guaranteed re
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/write-behavior.md` documents the fixed 30-second per-candidate killing-test wall clock, distinct retryable `non_terminating_mutation_failed` completion outcome and resume semantics, restore-on-every-path guarantee, and per-candidate sidecar lifecycle under § Diff-derived mutation verification.
-- [ ] `v2/docs/operator-runbook.md` documents that a hung verifier child presents as a live run with no agent and that operators should inspect `<worktree>/.jarvis-diff-derived-mutations/` before treating a dirty guard as agent work.
-- [ ] `v2/docs/v1-behaviors.md` records bounded killing-test execution and guaranteed mutant restore for the v2 parity baseline.
+- [x] `v2/docs/write-behavior.md` documents the fixed 30-second per-candidate killing-test wall clock, distinct retryable `non_terminating_mutation_failed` completion outcome and resume semantics, restore-on-every-path guarantee, and per-candidate sidecar lifecycle under § Diff-derived mutation verification.
+- [x] `v2/docs/operator-runbook.md` documents that a hung verifier child presents as a live run with no agent and that operators should inspect `<worktree>/.jarvis-diff-derived-mutations/` before treating a dirty guard as agent work.
+- [x] `v2/docs/v1-behaviors.md` records bounded killing-test execution and guaranteed mutant restore for the v2 parity baseline.
 
 ## Documentation updates
 

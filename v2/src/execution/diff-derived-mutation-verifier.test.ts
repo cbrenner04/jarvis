@@ -1,16 +1,19 @@
 import { describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveRenderObserverTests } from "../../../shared/prompts/render-observer-tests.ts";
+import { AsyncSubprocessError, type AsyncSubprocessOptions } from "../../../shared/subprocess.ts";
 import {
   type DiffDerivedMutationVerifierInput,
   extractRenderObserverMapFromSource,
   MAX_CONCURRENT_VERIFIER_TEST_RUNS,
   MAX_INSPECTED_MUTATIONS,
+  MAX_KILLING_TEST_MS,
   MAX_VERIFICATION_MS,
   maskNonCodeSpans,
+  mutationRecordFileName,
   parseEquivalentMutationDirective,
   peakVerifierTestRuns,
   resetVerifierTestRunTrackingForTest,
@@ -27,6 +30,10 @@ function renderObserverMapSource(entries: Record<string, readonly string[]>): st
   });
   return `const RENDER_OBSERVER_TESTS = {\n${lines.join("\n")}\n};\nexport function resolveRenderObserverTests(promptPath: string) { return RENDER_OBSERVER_TESTS[promptPath]; }\n`;
 }
+
+const REPO_ROOT = join(import.meta.dir, "../../..");
+const DAEMON_RUN_CONTROL_HANDLER_GUARD_REL = "v2/src/daemon/daemon-run-control-handler-guard.ts";
+const DAEMON_RUN_CONTROL_HANDLER_GUARD_EXIT = "if (index === -1) break;";
 
 const COMMITTED_RENDER_OBSERVER_MAP_SOURCE = (() => {
   const source = readFileSync(join(import.meta.dir, "../../../shared/prompts/render-observer-tests.ts"), "utf-8");
@@ -493,6 +500,30 @@ index f424d7da..be281d02 100644
     expect(scopedRuns).toBe(1);
     expect(result.kind).toBe("pass");
     if (result.kind === "pass") expect(result.candidateCount).toBe(0);
+  });
+
+  it("settles render-observer timeout as non-terminating-mutation", async () => {
+    const observerPath = "v2/src/execution/review-critic-render.test.ts";
+    const mapSource = renderObserverMapSource({ "prompts/implement/review-critic.md": [observerPath] });
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => promptDiff,
+        untrackedFiles: async () => [],
+        registeredPromptPaths: registeredCritic,
+        readFile: seamReadFile(criticSource, mapSource),
+        writeFile: async () => {},
+        runScopedTests: async () => {
+          throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      kind: "non-terminating-mutation",
+      mutation: "render-observer-timeout",
+      sourceSite: { file: "prompts/implement/review-critic.md", line: 1 },
+    });
   });
 
   it("does not treat raw template inspection as rendered prompt coverage", async () => {
@@ -980,6 +1011,130 @@ index f424d7da..be281d02 100644
     expect(peakVerifierTestRuns()).toBeGreaterThan(1);
   });
 
+  describe("bounded killing-test execution", () => {
+    const source = `export function hangs(x: unknown): string {
+  if (!x) return "stopped";
+  return "running";
+}`;
+    const diff = `diff --git a/src/hangs.ts b/src/hangs.ts
+index 1234567..abcdefg 100644
+--- a/src/hangs.ts
++++ b/src/hangs.ts
+@@ -1,3 +1,3 @@
+ export function hangs(x: unknown): string {
+-  if (!x) return "old";
++  if (!x) return "stopped";
+   return "running";
+`;
+
+    function verifyTimeout(
+      runScopedTests: (cwd: string, scope: string[]) => Promise<boolean>,
+      writeFile: (path: string, content: string) => Promise<void> = async () => {},
+    ) {
+      return verifyDiffDerivedMutations(
+        { worktreePath: "/test/path", runBase: "main" },
+        {
+          gitDiff: async () => diff,
+          untrackedFiles: async () => [],
+          readFile: async (path) => (path.endsWith(".test.ts") ? "export {};\n" : source),
+          writeFile,
+          listDir: () => [],
+          runScopedTests,
+        },
+      );
+    }
+
+    it("bounds a never-settling detached subprocess and settles verification", async () => {
+      let receivedOptions: AsyncSubprocessOptions | undefined;
+      const neverSettlingRunner = {
+        runAsync: async (_command: string, _args: string[], _cwd: string, options?: AsyncSubprocessOptions) => {
+          receivedOptions = options;
+          if (options?.timeoutMs === MAX_KILLING_TEST_MS && options.processGroup !== undefined) {
+            throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+          }
+          await new Promise<void>(() => {});
+          return "";
+        },
+      };
+
+      const result = await verifyTimeout((cwd, scope) => runDiffDerivedScopedTests(cwd, scope, neverSettlingRunner));
+
+      expect(receivedOptions?.timeoutMs).toBe(MAX_KILLING_TEST_MS);
+      expect(receivedOptions?.processGroup).toBeDefined();
+      expect(result.kind).toBe("non-terminating-mutation");
+    }, 1_000);
+
+    it("classifies scoped-test timeout separately from caught and surviving mutations", async () => {
+      const result = await verifyTimeout(async () => {
+        throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+      });
+
+      expect(result).toMatchObject({
+        kind: "non-terminating-mutation",
+        mutation: expect.stringContaining("guard-flip"),
+        sourceSite: { file: "src/hangs.ts", line: 2 },
+      });
+    });
+
+    it("returns caught when a sibling scoped test fails before a parallel timeout", async () => {
+      const result = await runDiffDerivedScopedTests("/test/path", ["src/fails.test.ts", "src/hangs.test.ts"], {
+        runAsync: async (_command, args) => {
+          if (args[1] === "src/hangs.test.ts") {
+            throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+          }
+          throw new AsyncSubprocessError("tests failed", 1, "", "", undefined);
+        },
+      });
+
+      expect(result).toBe(false);
+    });
+
+    it("treats a caught failure as dominant when co-located and sibling scoped tests run in parallel", async () => {
+      const result = await verifyDiffDerivedMutations(
+        { worktreePath: "/test/path", runBase: "main" },
+        {
+          gitDiff: async () => diff,
+          untrackedFiles: async () => [],
+          readFile: async (path) => (path.endsWith(".test.ts") ? "export {};\n" : source),
+          writeFile: async () => {},
+          listDir: () => ["hangs-extra.test.ts"],
+          runScopedTests: (cwd, scope) =>
+            runDiffDerivedScopedTests(cwd, scope, {
+              runAsync: async (_command, args) => {
+                if (args[1] === "src/hangs-extra.test.ts") {
+                  throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+                }
+                throw new AsyncSubprocessError("tests failed", 1, "", "", undefined);
+              },
+            }),
+        },
+      );
+
+      expect(result.kind).toBe("pass");
+      if (result.kind === "pass") expect(result.candidateCount).toBeGreaterThan(0);
+    });
+
+    it("restores pre-mutation bytes after scoped-test timeout", async () => {
+      let currentContent = source;
+      const writes: string[] = [];
+      const result = await verifyTimeout(
+        async () => {
+          throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+        },
+        async (_path, content) => {
+          writes.push(content);
+          currentContent = content;
+        },
+      );
+
+      expect(result.kind).toBe("non-terminating-mutation");
+      expect(currentContent).toBe(source);
+      expect(writes).toHaveLength(2);
+      expect(writes[0]).not.toBe(source);
+      expect(writes[1]).toBe(source);
+    });
+  });
+
   describe("defaultRunScopedTests (real subprocess, no seam)", () => {
     // Injected-seam tests above never exercise the default `runScopedTests`
     // implementation, so a bug in how it invokes the resolved scope (e.g.
@@ -1063,6 +1218,70 @@ index f424d7da..be281d02 100644
         rmSync(dir, { recursive: true, force: true });
       }
     });
+
+    it(
+      "bounds scanDaemonRunControlHandlerForbiddenSymbols while (true) exit-guard flip via real killing test",
+      async () => {
+        const dir = mkdtempSync(join(tmpdir(), "mutation-verifier-while-true-guard-"));
+        const guardPath = join(dir, DAEMON_RUN_CONTROL_HANDLER_GUARD_REL);
+        const committedGuard = readFileSync(join(REPO_ROOT, DAEMON_RUN_CONTROL_HANDLER_GUARD_REL), "utf-8");
+        if (!committedGuard.includes(DAEMON_RUN_CONTROL_HANDLER_GUARD_EXIT)) {
+          throw new Error("committed daemon-run-control-handler-guard exit guard shape changed");
+        }
+
+        try {
+          execFileSync("git", ["init", "-q", "-b", "verifier-fixture"], { cwd: dir });
+          execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+          execFileSync("git", ["config", "user.name", "test"], { cwd: dir });
+          cpSync(join(REPO_ROOT, "v2/src/daemon"), join(dir, "v2/src/daemon"), { recursive: true });
+          try {
+            symlinkSync(join(REPO_ROOT, "node_modules"), join(dir, "node_modules"), "dir");
+          } catch {
+            /* reuse existing symlink */
+          }
+
+          writeFileSync(guardPath, committedGuard);
+          execFileSync("git", ["add", "-A"], { cwd: dir });
+          execFileSync("git", ["commit", "-q", "-m", "base"], { cwd: dir });
+          const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();
+
+          const touchedGuard = committedGuard.replace(
+            DAEMON_RUN_CONTROL_HANDLER_GUARD_EXIT,
+            `${DAEMON_RUN_CONTROL_HANDLER_GUARD_EXIT} // exit when symbol absent`,
+          );
+          writeFileSync(guardPath, touchedGuard);
+          execFileSync("git", ["commit", "-aq", "-m", "touch while (true) exit guard"], { cwd: dir });
+
+          const preVerificationBytes = readFileSync(guardPath);
+          const exitGuardLine = preVerificationBytes
+            .toString("utf-8")
+            .split("\n")
+            .findIndex((line) => line.includes(DAEMON_RUN_CONTROL_HANDLER_GUARD_EXIT));
+          if (exitGuardLine < 0) {
+            throw new Error("while (true) exit guard line missing from touched guard source");
+          }
+
+          const started = Date.now();
+          const result = await verifyDiffDerivedMutations({ worktreePath: dir, runBase: baseSha });
+          const elapsed = Date.now() - started;
+
+          expect(elapsed).toBeLessThan(MAX_KILLING_TEST_MS + 60_000);
+          expect(result).toMatchObject({
+            kind: "non-terminating-mutation",
+            mutation: expect.stringContaining("=== → !=="),
+            sourceSite: {
+              file: DAEMON_RUN_CONTROL_HANDLER_GUARD_REL,
+              line: exitGuardLine + 1,
+            },
+          });
+          expect(readFileSync(guardPath)).toEqual(preVerificationBytes);
+          expect(execFileSync("git", ["status", "--porcelain"], { cwd: dir }).toString().trim()).toBe("");
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      },
+      MAX_KILLING_TEST_MS + 90_000,
+    );
   });
 });
 
@@ -1324,6 +1543,101 @@ index 1234567..abcdefg 100644
     const otherWrites = writeEvents.filter((event) => event.file === "src/other.ts").map((event) => event.content);
     expect(multiWrites).toEqual([multi.mutant1, multi.content, multi.mutant2, multi.content]);
     expect(otherWrites).toEqual([other.mutant1, other.content, other.mutant2, other.content]);
+  });
+
+  it("records concurrent applied mutants separately and clears only the restored owner's record", async () => {
+    const scratchRoot = join(import.meta.dir, "../../../.scratch");
+    mkdirSync(scratchRoot, { recursive: true });
+    const worktreePath = mkdtempSync(join(scratchRoot, "diff-derived-mutation-records-"));
+    const recordsDir = join(worktreePath, ".jarvis-diff-derived-mutations");
+    const fixture = (file: string, name: string, guard: string) => {
+      const content = `export function ${name}() {\n  if (!${guard}) return "${guard}";\n  return true;\n}\n`;
+      const mutation = `guard-flip: !${guard} → ${guard}`;
+      const line = 2;
+      const columnStart = 6;
+      const columnEnd = 7 + guard.length;
+      return {
+        file,
+        content,
+        mutation,
+        diff: `diff --git a/${file} b/${file}\nindex 1234567..abcdefg 100644\n--- a/${file}\n+++ b/${file}\n@@ -1,2 +1,3 @@\n export function ${name}() {\n+  if (!${guard}) return "${guard}";\n   return true;\n`,
+        recordName: mutationRecordFileName({ file, line, columnStart, columnEnd, mutation }),
+      };
+    };
+    const first = fixture("src/first.ts", "first", "left");
+    const second = fixture("src/second.ts", "second", "right");
+    const deferred = () => {
+      let release = () => {};
+      const promise = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { promise, release };
+    };
+    const firstTest = deferred();
+    const secondTest = deferred();
+    const inFlight = new Set<string>();
+    const readRecords = () =>
+      readdirSync(recordsDir)
+        .sort()
+        .map((name) => ({
+          name,
+          value: JSON.parse(readFileSync(join(recordsDir, name), "utf-8")) as {
+            file: string;
+            line: number;
+            mutation: string;
+          },
+        }));
+
+    mkdirSync(join(worktreePath, "src"), { recursive: true });
+    for (const item of [first, second]) {
+      writeFileSync(join(worktreePath, item.file), item.content);
+      writeFileSync(join(worktreePath, item.file.replace(".ts", ".test.ts")), "export {};\n");
+    }
+
+    const verification = verifyDiffDerivedMutations(
+      { worktreePath, runBase: "main" },
+      {
+        gitDiff: async () => first.diff + second.diff,
+        untrackedFiles: async () => [],
+        registeredPromptPaths: async () => [],
+        runScopedTests: async (_cwd, scope) => {
+          const testPath = scope[0];
+          if (testPath === undefined) throw new Error("missing scoped test path");
+          inFlight.add(testPath);
+          await (testPath === "src/first.test.ts" ? firstTest.promise : secondTest.promise);
+          inFlight.delete(testPath);
+          return false;
+        },
+      },
+    );
+
+    try {
+      await waitForCondition(() => inFlight.size === 2, "concurrent mutants");
+      expect(readRecords()).toEqual(
+        [
+          { name: first.recordName, value: { file: first.file, line: 2, mutation: first.mutation } },
+          { name: second.recordName, value: { file: second.file, line: 2, mutation: second.mutation } },
+        ].sort((left, right) => left.name.localeCompare(right.name)),
+      );
+
+      firstTest.release();
+      await waitForCondition(() => readRecords().length === 1, "first mutant record removal");
+      expect(readFileSync(join(worktreePath, first.file), "utf-8")).toBe(first.content);
+      expect(readRecords()).toEqual([
+        { name: second.recordName, value: { file: second.file, line: 2, mutation: second.mutation } },
+      ]);
+
+      secondTest.release();
+      const result = await verification;
+      expect(result.kind).toBe("pass");
+      expect(readFileSync(join(worktreePath, second.file), "utf-8")).toBe(second.content);
+      expect(readdirSync(recordsDir)).toEqual([]);
+    } finally {
+      firstTest.release();
+      secondTest.release();
+      await verification;
+      rmSync(worktreePath, { recursive: true, force: true });
+    }
   });
 
   it("short-circuits on first surviving-mutation under per-file scheduling", async () => {

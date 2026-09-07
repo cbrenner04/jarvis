@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { DAEMON_LOG_PARSE_ARG_OPTIONS } from "../cli/command-help-flags.ts";
@@ -9,8 +9,7 @@ import { DAEMON_LOG_USAGE, DAEMON_USAGE } from "../cli/usage.ts";
 import { connectIpcClient } from "../ipc/client.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
 
-type ClassifiedSocket = {
-  path: string;
+type SocketClassification = {
   status: "dead" | "live" | "preserved";
   reason?: string;
 };
@@ -49,32 +48,24 @@ export async function reapDeadDaemonSockets(
   return { dead, preserved };
 }
 
-async function classifySocket(socketPath: string): Promise<ClassifiedSocket> {
+async function classifySocket(socketPath: string): Promise<SocketClassification> {
   try {
     const client = await connectIpcClient(socketPath);
     const transport = createRpcTransport(client);
     try {
       await transport.request("health", undefined, { timeoutMs: 500 });
-      return { path: socketPath, status: "live" };
+      return { status: "live" };
     } finally {
       transport.close();
     }
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
     if (err.code === "ECONNREFUSED" || err.code === "ENOENT") {
-      return { path: socketPath, status: "dead" };
+      return { status: "dead" };
     }
     const reason = err.message || String(error);
-    return { path: socketPath, status: "preserved", reason };
+    return { status: "preserved", reason };
   }
-}
-
-function readPid(pidPath: string): number | null {
-  if (!existsSync(pidPath)) return null;
-  const raw = readFileSync(pidPath, "utf8").trim();
-  if (raw.length === 0) return null;
-  const pid = Number.parseInt(raw, 10);
-  return Number.isNaN(pid) ? null : pid;
 }
 
 async function handleStopCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number | null> {

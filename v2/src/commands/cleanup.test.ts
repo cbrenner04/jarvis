@@ -2799,31 +2799,28 @@ describe("cleanup: dead daemon socket reaping", () => {
   });
 
   socketTest("dead daemon digest reaps socket pid and log", async () => {
-    const deadSocket = join(jarvisRoot, "daemon-0000000000000020.sock");
-    const deadPid = join(jarvisRoot, "daemon-0000000000000020.pid");
-    const deadLog = join(jarvisRoot, "daemon-0000000000000020.log");
-    const liveSocket = join(jarvisRoot, "daemon-0000000000000021.sock");
-    const livePid = join(jarvisRoot, "daemon-0000000000000021.pid");
-    const liveLog = join(jarvisRoot, "daemon-0000000000000021.log");
-    const ambiguousSocket = join(jarvisRoot, "daemon-0000000000000022.sock");
-    const ambiguousPid = join(jarvisRoot, "daemon-0000000000000022.pid");
-    const ambiguousLog = join(jarvisRoot, "daemon-0000000000000022.log");
-    for (const path of [deadSocket, deadPid, deadLog, livePid, liveLog, ambiguousPid, ambiguousLog]) {
+    const artifactsFor = (key: string): [string, string, string] => {
+      const base = join(jarvisRoot, `daemon-${key}`);
+      return [`${base}.sock`, `${base}.pid`, `${base}.log`];
+    };
+    const deadArtifacts = artifactsFor("0000000000000020");
+    const liveArtifacts = artifactsFor("0000000000000021");
+    const ambiguousArtifacts = artifactsFor("0000000000000022");
+    for (const path of [...deadArtifacts, ...liveArtifacts.slice(1), ...ambiguousArtifacts.slice(1)]) {
       writeFileSync(path, "");
     }
-    const liveServer = await startIpcServer(liveSocket, {
+    const liveServer = await startIpcServer(liveArtifacts[0], {
       health: () => ({ kind: "response", result: { ok: true } }),
     });
     const ambiguousServer = createServer(() => {});
     await new Promise<void>((resolve, reject) => {
       ambiguousServer.once("error", reject);
-      ambiguousServer.listen(ambiguousSocket, () => resolve());
+      ambiguousServer.listen(ambiguousArtifacts[0], () => resolve());
     });
     const registry: Record<string, ProjectRegistryEntry> = {};
     const daemonClient: DaemonClient = async () => [];
     const store: StateStore = { listRuns: () => [] } as unknown as StateStore;
-    const deadArtifacts = [deadSocket, deadPid, deadLog];
-    const preservedArtifacts = [liveSocket, livePid, liveLog, ambiguousSocket, ambiguousPid, ambiguousLog];
+    const preservedArtifacts = [...liveArtifacts, ...ambiguousArtifacts];
 
     try {
       let dryRunStdout = "";

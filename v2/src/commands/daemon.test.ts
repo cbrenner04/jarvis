@@ -272,16 +272,19 @@ describe("reapDeadDaemonSockets", () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-filter-"));
     const socket = join(dir, "daemon-0000000000000004.sock");
     const pid = join(dir, "daemon-0000000000000004.pid");
+    const log = join(dir, "daemon-0000000000000004.log");
     const other = join(dir, "other-file.sock");
 
     writeFileSync(socket, "");
     writeFileSync(pid, "12345");
+    writeFileSync(log, "daemon output");
     writeFileSync(other, "");
 
     const result = await reapDeadDaemonSockets(dir);
     const allClassified = result.dead.concat(result.preserved.map((p) => p.path));
     expect(allClassified).toContain(socket);
-    expect(allClassified).not.toContain(pid);
+    expect(result.dead).toContain(pid);
+    expect(result.dead).toContain(log);
     expect(allClassified).not.toContain(other);
   });
 

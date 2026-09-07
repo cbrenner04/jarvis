@@ -1210,7 +1210,7 @@ function hasNothingToClean(
 
 function previewReaperResult(reaperResult: ReaperResult, io: { stdout: (s: string) => void }): void {
   if (reaperResult.dead.length > 0) {
-    io.stdout(`Found ${reaperResult.dead.length} dead daemon socket(s) for cleanup:\n`);
+    io.stdout(`Found ${reaperResult.dead.length} dead daemon artifact(s) for cleanup:\n`);
     for (const path of reaperResult.dead) {
       io.stdout(`  remove: ${path}\n`);
     }
@@ -1223,16 +1223,16 @@ function previewReaperResult(reaperResult: ReaperResult, io: { stdout: (s: strin
   }
 }
 
-function removeDeadDaemonSockets(
+function removeDeadDaemonArtifacts(
   paths: readonly string[],
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
 ): number {
   for (const path of paths) {
     try {
       rmSync(path, { force: true });
-      io.stdout(`Removed daemon socket: ${path}\n`);
+      io.stdout(`Removed daemon artifact: ${path}\n`);
     } catch (err) {
-      io.stderr(`Failed to remove daemon socket ${path}: ${err instanceof Error ? err.message : String(err)}\n`);
+      io.stderr(`Failed to remove daemon artifact ${path}: ${err instanceof Error ? err.message : String(err)}\n`);
       return 1;
     }
   }
@@ -1430,8 +1430,8 @@ async function executeConfirmedCleanup(
     ctx.branchRefDiscovery.ownerProjectsByRepositoryRoot,
     io,
   );
-  const socketRemoval = removeDeadDaemonSockets(ctx.reaperResult.dead, io);
-  if (socketRemoval !== 0) return socketRemoval;
+  const artifactRemoval = removeDeadDaemonArtifacts(ctx.reaperResult.dead, io);
+  if (artifactRemoval !== 0) return artifactRemoval;
 
   const strandedAfterRetirement = await inspectStrandedArtifacts(
     ctx.strandedArtifacts,

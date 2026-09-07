@@ -38,7 +38,9 @@ export async function reapDeadDaemonSockets(
     const socketPath = join(jarvisRoot, socketFile);
     const classification = await classifySocket(socketPath);
     if (classification.status === "dead") {
-      dead.push(socketPath);
+      const key = socketFile.slice("daemon-".length, -".sock".length);
+      const artifacts = ["sock", "pid", "log"].map((extension) => join(jarvisRoot, `daemon-${key}.${extension}`));
+      dead.push(...artifacts.filter((path) => existsSync(path)));
     } else if (classification.status === "preserved" && classification.reason) {
       preserved.push({ path: socketPath, reason: classification.reason });
     }

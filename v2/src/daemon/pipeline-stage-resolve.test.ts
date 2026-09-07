@@ -235,6 +235,21 @@ const chainedIntentPlanDefinition: PipelineDefinition = {
   ],
 };
 
+const FAN_OUT_READY_A = "spec/ready-intents/alpha.md";
+const FAN_OUT_READY_B = "spec/ready-intents/beta.md";
+
+function intentFanOutArtifacts(...downstreamInputs: string[]): Map<string, PipelineStageArtifact> {
+  return new Map([[stageArtifactKey("intent"), stageArtifact("run-intent", "spec/ready-intents", downstreamInputs)]]);
+}
+
+function branchScopedPlanDeps(
+  intentWorktree: string,
+  branchKey: string,
+  builders: typeof WORKFLOW_PRESET_BUILDERS = fakeBuilders(),
+): PipelineStageResolveDeps & { builders: typeof WORKFLOW_PRESET_BUILDERS } {
+  return { builders, ...chainedDeps(intentWorktree), branchKey, splitPosition: 0 };
+}
+
 function absentPriorWorktreePlanFixture(repo: ReturnType<typeof createChainedHandoffRepo>): {
   context: PipelineContext;
   stageArtifacts: Map<string, PipelineStageArtifact>;
@@ -1310,8 +1325,8 @@ describe("resolveStageWorkflowSteps", () => {
 
   test("splitting intent artifact with N=2 downstreamInputs resolves plan into two distinct ready-intent bindings", async () => {
     const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-fan-out-"));
-    const readyA = "spec/ready-intents/alpha.md";
-    const readyB = "spec/ready-intents/beta.md";
+    const readyA = FAN_OUT_READY_A;
+    const readyB = FAN_OUT_READY_B;
     const directorySpecPath = "spec/ready-intents";
     mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
     writeFileSync(join(intentWorktree, readyA), "---\nname: alpha\n---\n", "utf8");
@@ -1345,10 +1360,8 @@ describe("resolveStageWorkflowSteps", () => {
 
   test("branch-scoped plan resolution verifies only the requested fan-out lane when a sibling input is unresolvable", async () => {
     const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-scoped-lane-"));
-    const readyA = "spec/ready-intents/alpha.md";
-    const readyB = "spec/ready-intents/beta.md";
     mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
-    writeFileSync(join(intentWorktree, readyB), "---\nname: beta\n---\n", "utf8");
+    writeFileSync(join(intentWorktree, FAN_OUT_READY_B), "---\nname: beta\n---\n", "utf8");
 
     const seenReadyIntents: string[] = [];
     const builders = fakeBuilders({
@@ -1357,31 +1370,27 @@ describe("resolveStageWorkflowSteps", () => {
         return { ok: true, steps: [okStep], identity: {} as never };
       },
     });
-    const stageArtifacts = new Map([
-      [stageArtifactKey("intent"), stageArtifact("run-intent", "spec/ready-intents", [readyA, readyB])],
-    ]);
-    const deps = {
-      builders,
-      ...chainedDeps(intentWorktree),
-      branchKey: "beta",
-      splitPosition: 0,
-    };
+    const deps = branchScopedPlanDeps(intentWorktree, "beta", builders);
 
-    const result = await resolveStageWorkflowSteps(chainedIntentPlanDefinition, 1, baseContext, stageArtifacts, deps);
+    const result = await resolveStageWorkflowSteps(
+      chainedIntentPlanDefinition,
+      1,
+      baseContext,
+      intentFanOutArtifacts(FAN_OUT_READY_A, FAN_OUT_READY_B),
+      deps,
+    );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect("results" in result).toBe(false);
     expect(singleStageResolutionSteps(result)).toEqual([okStep]);
-    expect(seenReadyIntents).toEqual([readyB]);
+    expect(seenReadyIntents).toEqual([FAN_OUT_READY_B]);
   });
 
   test("branch-scoped plan resolution binds downstream input by branchKey equality", async () => {
     const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-branch-key-"));
-    const readyB = "spec/ready-intents/beta.md";
-    const readyA = "spec/ready-intents/alpha.md";
     mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });
-    writeFileSync(join(intentWorktree, readyB), "---\nname: beta\n---\n", "utf8");
-    writeFileSync(join(intentWorktree, readyA), "---\nname: alpha\n---\n", "utf8");
+    writeFileSync(join(intentWorktree, FAN_OUT_READY_B), "---\nname: beta\n---\n", "utf8");
+    writeFileSync(join(intentWorktree, FAN_OUT_READY_A), "---\nname: alpha\n---\n", "utf8");
 
     let seenReadyIntent: string | undefined;
     const builders = fakeBuilders({
@@ -1390,70 +1399,61 @@ describe("resolveStageWorkflowSteps", () => {
         return { ok: true, steps: [okStep], identity: {} as never };
       },
     });
-    const stageArtifacts = new Map([
-      [stageArtifactKey("intent"), stageArtifact("run-intent", "spec/ready-intents", [readyB, readyA])],
-    ]);
 
-    const result = await resolveStageWorkflowSteps(chainedIntentPlanDefinition, 1, baseContext, stageArtifacts, {
-      builders,
-      ...chainedDeps(intentWorktree),
-      branchKey: "alpha",
-      splitPosition: 0,
-    });
+    const result = await resolveStageWorkflowSteps(
+      chainedIntentPlanDefinition,
+      1,
+      baseContext,
+      intentFanOutArtifacts(FAN_OUT_READY_B, FAN_OUT_READY_A),
+      branchScopedPlanDeps(intentWorktree, "alpha", builders),
+    );
     expect(result.ok).toBe(true);
     if (!result.ok || "results" in result) throw new Error("expected single resolution");
-    expect(seenReadyIntent).toBe(readyA);
-    expect(seenReadyIntent).not.toBe(readyB);
+    expect(seenReadyIntent).toBe(FAN_OUT_READY_A);
+    expect(seenReadyIntent).not.toBe(FAN_OUT_READY_B);
   });
 
   test("branch-scoped plan resolution refuses unmatched branchKey naming lane and available downstream inputs", async () => {
     const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-unmatched-lane-"));
-    const readyA = "spec/ready-intents/alpha.md";
-    const readyB = "spec/ready-intents/beta.md";
-    const stageArtifacts = new Map([
-      [stageArtifactKey("intent"), stageArtifact("run-intent", "spec/ready-intents", [readyA, readyB])],
-    ]);
 
-    const result = await resolveStageWorkflowSteps(chainedIntentPlanDefinition, 1, baseContext, stageArtifacts, {
-      builders: fakeBuilders(),
-      ...chainedDeps(intentWorktree),
-      branchKey: "gamma",
-      splitPosition: 0,
-    });
+    const result = await resolveStageWorkflowSteps(
+      chainedIntentPlanDefinition,
+      1,
+      baseContext,
+      intentFanOutArtifacts(FAN_OUT_READY_A, FAN_OUT_READY_B),
+      branchScopedPlanDeps(intentWorktree, "gamma"),
+    );
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toContain('plan lane "gamma"');
-    expect(result.error).toContain(readyA);
-    expect(result.error).toContain(readyB);
+    expect(result.error).toContain(FAN_OUT_READY_A);
+    expect(result.error).toContain(FAN_OUT_READY_B);
   });
 
   test("branch-scoped plan resolution refuses duplicate derived branch keys", async () => {
     const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-duplicate-lane-"));
-    const readyA = "spec/ready-intents/alpha.md";
     const duplicateA = "other/ready-intents/alpha.md";
-    const stageArtifacts = new Map([
-      [stageArtifactKey("intent"), stageArtifact("run-intent", "spec/ready-intents", [readyA, duplicateA])],
-    ]);
 
-    const result = await resolveStageWorkflowSteps(chainedIntentPlanDefinition, 1, baseContext, stageArtifacts, {
-      builders: fakeBuilders(),
-      ...chainedDeps(intentWorktree),
-      branchKey: "alpha",
-      splitPosition: 0,
-    });
+    const result = await resolveStageWorkflowSteps(
+      chainedIntentPlanDefinition,
+      1,
+      baseContext,
+      intentFanOutArtifacts(FAN_OUT_READY_A, duplicateA),
+      branchScopedPlanDeps(intentWorktree, "alpha"),
+    );
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toContain('plan lane "alpha"');
     expect(result.error).toContain("duplicate");
-    expect(result.error).toContain(readyA);
+    expect(result.error).toContain(FAN_OUT_READY_A);
     expect(result.error).toContain(duplicateA);
   });
 
   test("unscoped fan-out plan resolution treats consumed sibling ready-intent as satisfied", async () => {
     const repoRoot = mkdtempSync(join(tmpdir(), "pipeline-resolve-consumed-lane-"));
     initGitRepo(repoRoot);
-    const consumedReadyIntent = "spec/ready-intents/alpha.md";
-    const pendingReadyIntent = "spec/ready-intents/beta.md";
+    const consumedReadyIntent = FAN_OUT_READY_A;
+    const pendingReadyIntent = FAN_OUT_READY_B;
     mkdirSync(join(repoRoot, "spec", "ready-intents"), { recursive: true });
     writeFileSync(join(repoRoot, pendingReadyIntent), "---\nname: beta\n---\n", "utf8");
     execFileSync("git", ["add", pendingReadyIntent], { cwd: repoRoot });
@@ -1492,21 +1492,18 @@ describe("resolveStageWorkflowSteps", () => {
 
   test("plan resolution refusal names the failing lane and omits intent re-drive when prior intent succeeded", async () => {
     const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-refusal-lane-"));
-    const readyA = "spec/ready-intents/alpha.md";
-    const stageArtifacts = new Map([
-      [stageArtifactKey("intent"), stageArtifact("run-intent", "spec/ready-intents", [readyA])],
-    ]);
 
-    const result = await resolveStageWorkflowSteps(chainedIntentPlanDefinition, 1, baseContext, stageArtifacts, {
-      builders: fakeBuilders(),
-      ...chainedDeps(intentWorktree),
-      branchKey: "missing-lane",
-      splitPosition: 0,
-    });
+    const result = await resolveStageWorkflowSteps(
+      chainedIntentPlanDefinition,
+      1,
+      baseContext,
+      intentFanOutArtifacts(FAN_OUT_READY_A),
+      branchScopedPlanDeps(intentWorktree, "missing-lane"),
+    );
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toContain('plan lane "missing-lane"');
-    expect(result.error).toContain(readyA);
+    expect(result.error).toContain(FAN_OUT_READY_A);
     expect(result.error).not.toContain("standalone");
     expect(result.error).not.toContain("re-drive");
   });
@@ -1652,7 +1649,7 @@ describe("resolveStageWorkflowSteps", () => {
 
   test("missing downstreamInputs path fails without falling back to directory specPath", async () => {
     const intentWorktree = mkdtempSync(join(tmpdir(), "pipeline-resolve-missing-downstream-"));
-    const readyA = "spec/ready-intents/alpha.md";
+    const readyA = FAN_OUT_READY_A;
     const readyB = "spec/ready-intents/missing.md";
     const directorySpecPath = "spec/ready-intents";
     mkdirSync(join(intentWorktree, "spec", "ready-intents"), { recursive: true });

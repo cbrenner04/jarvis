@@ -5706,7 +5706,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
   function staleResetBundle(
     rpc: { client: ReturnType<typeof makeIpcClient> },
     io: Io = { stdout: () => {}, stderr: () => {} },
-    subprocessRunner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+    subprocessRunner: AsyncSubprocessRunner = ghPrListRunner([]),
   ) {
     return {
       cliDeps: { jarvisRoot, subprocessRunner } as unknown as CliDeps,

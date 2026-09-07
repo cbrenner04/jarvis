@@ -502,6 +502,30 @@ index f424d7da..be281d02 100644
     if (result.kind === "pass") expect(result.candidateCount).toBe(0);
   });
 
+  it("settles render-observer timeout as non-terminating-mutation", async () => {
+    const observerPath = "v2/src/execution/review-critic-render.test.ts";
+    const mapSource = renderObserverMapSource({ "prompts/implement/review-critic.md": [observerPath] });
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => promptDiff,
+        untrackedFiles: async () => [],
+        registeredPromptPaths: registeredCritic,
+        readFile: seamReadFile(criticSource, mapSource),
+        writeFile: async () => {},
+        runScopedTests: async () => {
+          throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      kind: "non-terminating-mutation",
+      mutation: "render-observer-timeout",
+      sourceSite: { file: "prompts/implement/review-critic.md", line: 1 },
+    });
+  });
+
   it("does not treat raw template inspection as rendered prompt coverage", async () => {
     let prompt = criticSource;
     const result = await verifyDiffDerivedMutations(
@@ -1052,8 +1076,8 @@ index 1234567..abcdefg 100644
       });
     });
 
-    it("preserves timeout classification when another scoped test fails first", async () => {
-      const result = runDiffDerivedScopedTests("/test/path", ["src/fails.test.ts", "src/hangs.test.ts"], {
+    it("returns caught when a sibling scoped test fails before a parallel timeout", async () => {
+      const result = await runDiffDerivedScopedTests("/test/path", ["src/fails.test.ts", "src/hangs.test.ts"], {
         runAsync: async (_command, args) => {
           if (args[1] === "src/hangs.test.ts") {
             throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
@@ -1062,7 +1086,32 @@ index 1234567..abcdefg 100644
         },
       });
 
-      await expect(result).rejects.toMatchObject({ code: "ETIMEDOUT" });
+      expect(result).toBe(false);
+    });
+
+    it("treats a caught failure as dominant when co-located and sibling scoped tests run in parallel", async () => {
+      const result = await verifyDiffDerivedMutations(
+        { worktreePath: "/test/path", runBase: "main" },
+        {
+          gitDiff: async () => diff,
+          untrackedFiles: async () => [],
+          readFile: async (path) => (path.endsWith(".test.ts") ? "export {};\n" : source),
+          writeFile: async () => {},
+          listDir: () => ["hangs-extra.test.ts"],
+          runScopedTests: (cwd, scope) =>
+            runDiffDerivedScopedTests(cwd, scope, {
+              runAsync: async (_command, args) => {
+                if (args[1] === "src/hangs-extra.test.ts") {
+                  throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+                }
+                throw new AsyncSubprocessError("tests failed", 1, "", "", undefined);
+              },
+            }),
+        },
+      );
+
+      expect(result.kind).toBe("pass");
+      if (result.kind === "pass") expect(result.candidateCount).toBeGreaterThan(0);
     });
 
     it("restores pre-mutation bytes after scoped-test timeout", async () => {

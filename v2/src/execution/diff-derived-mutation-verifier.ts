@@ -308,6 +308,18 @@ export async function runDiffDerivedScopedTests(
     ),
   );
   for (const result of results) {
+    if (result.status === "rejected" && !(result.reason instanceof AsyncSubprocessError)) {
+      throw result.reason;
+    }
+  }
+  const caughtFailure = results.some(
+    (result) =>
+      result.status === "rejected" &&
+      result.reason instanceof AsyncSubprocessError &&
+      result.reason.code !== "ETIMEDOUT",
+  );
+  if (caughtFailure) return false;
+  for (const result of results) {
     if (
       result.status === "rejected" &&
       result.reason instanceof AsyncSubprocessError &&
@@ -316,7 +328,7 @@ export async function runDiffDerivedScopedTests(
       throw result.reason;
     }
   }
-  return results.every((result) => result.status === "fulfilled");
+  return true;
 }
 
 async function defaultReadFile(path: string): Promise<string> {
@@ -919,6 +931,14 @@ function missingRenderCoverage(promptPath: string): SurvivingMutationResult {
   };
 }
 
+function nonTerminatingRenderObserverMutation(promptPath: string): MutationFailureResult {
+  return {
+    kind: "non-terminating-mutation",
+    mutation: "render-observer-timeout",
+    sourceSite: { file: promptPath, line: 1 },
+  };
+}
+
 function missingKillingTest(candidate: Candidate): SurvivingMutationResult {
   return {
     kind: "surviving-mutation",
@@ -946,7 +966,7 @@ async function verifyChangedPrompts(
   runScopedTests: RunScopedTests,
   now: () => number,
   deadline: number,
-): Promise<SurvivingMutationResult | null> {
+): Promise<MutationFailureResult | null> {
   const currentRegistry = currentRegisteredPromptPaths(input.worktreePath);
   const registeredPrompts = new Set(await registeredPromptPaths(input.worktreePath, input.runBase));
   const changedPrompts = changedPaths.filter((path) => {
@@ -968,17 +988,24 @@ async function verifyChangedPrompts(
     for (const observerPath of observerTests) {
       if (!observerPathConfinedToWorktree(input.worktreePath, observerPath)) return missingRenderCoverage(promptPath);
     }
-    const renderedOutputObserved = await verifyPromptRenderCoverage(
-      promptPath,
-      changedLinesByFile.get(promptPath) ?? [],
-      diffPaths.has(promptPath),
-      input,
-      readFile,
-      writeFile,
-      runScopedTests,
-      observerTests,
-    );
-    if (!renderedOutputObserved) return missingRenderCoverage(promptPath);
+    try {
+      const renderedOutputObserved = await verifyPromptRenderCoverage(
+        promptPath,
+        changedLinesByFile.get(promptPath) ?? [],
+        diffPaths.has(promptPath),
+        input,
+        readFile,
+        writeFile,
+        runScopedTests,
+        observerTests,
+      );
+      if (!renderedOutputObserved) return missingRenderCoverage(promptPath);
+    } catch (error) {
+      if (error instanceof AsyncSubprocessError && error.code === "ETIMEDOUT") {
+        return nonTerminatingRenderObserverMutation(promptPath);
+      }
+      throw error;
+    }
   }
   return null;
 }

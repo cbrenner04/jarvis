@@ -20,6 +20,7 @@ import {
   resolveIntentFinalizationResumeContext,
   resolveReviewMutationResumeContext,
   resolveWriteOutOfScopeResumeContext,
+  resolveWriteNonTerminatingResumeContext,
   resumePopulatedIntentPublication,
   resumeReviewMutationFinalization,
 } from "../execution/workflow-runner-resume.ts";
@@ -229,6 +230,7 @@ function workflowReviewMutationOwner(
     if (
       terminalRecord?.event.kind !== "loop_finished" ||
       (terminalRecord.event.loopOutcomeKind !== "surviving_mutation_failed" &&
+        terminalRecord.event.loopOutcomeKind !== "non_terminating_mutation_failed" &&
         terminalRecord.event.loopOutcomeKind !== "mutation_repair_exhausted")
     ) {
       continue;
@@ -356,7 +358,8 @@ export function createRunLifecycleHandlers(
     if (
       isReviewMutationResumable(run, store, terminalRecord) ||
       resolveExhaustedRedResumeContext({ ...run, attempts: run.attempts ?? [] }, store, terminalRecord).ok ||
-      resolveWriteOutOfScopeResumeContext({ ...run, attempts: run.attempts ?? [] }, store, terminalRecord).ok
+      resolveWriteOutOfScopeResumeContext({ ...run, attempts: run.attempts ?? [] }, store, terminalRecord).ok ||
+      resolveWriteNonTerminatingResumeContext({ ...run, attempts: run.attempts ?? [] }, store, terminalRecord).ok
     ) {
       return undefined;
     }
@@ -949,7 +952,8 @@ export function createRunLifecycleHandlers(
     if (
       isReviewMutationResumable(run, store, terminalRecord) ||
       resolveExhaustedRedResumeContext(run, store, terminalRecord).ok ||
-      resolveWriteOutOfScopeResumeContext(run, store, terminalRecord).ok
+      resolveWriteOutOfScopeResumeContext(run, store, terminalRecord).ok ||
+      resolveWriteNonTerminatingResumeContext(run, store, terminalRecord).ok
     ) {
       return resumeReviewMutationPublication(run, terminalRecord, { project: run.project, branch: run.branch });
     }

@@ -820,6 +820,17 @@ export class SurvivingMutationError extends Error {
   }
 }
 
+export class NonTerminatingMutationError extends Error {
+  constructor(
+    readonly mutation: string,
+    readonly sourceSiteFile: string,
+    readonly sourceSiteLine: number,
+  ) {
+    super(`Non-terminating mutation in ${sourceSiteFile}:${sourceSiteLine}: ${mutation}`);
+    this.name = "NonTerminatingMutationError";
+  }
+}
+
 export type ReadyGateOutOfScopeLogFields = {
   readyGateOutsidePaths?: string[];
   readyGateOutOfScopeDetail?: string;
@@ -907,6 +918,35 @@ export function survivingMutationLogFields(
   }
   if (source.survivingMutationSourceLine !== undefined) {
     fields.survivingMutationSourceLine = source.survivingMutationSourceLine;
+  }
+  return fields;
+}
+
+export type NonTerminatingMutationLogFields = {
+  nonTerminatingMutation?: string;
+  nonTerminatingMutationSourceFile?: string;
+  nonTerminatingMutationSourceLine?: number;
+};
+
+export function nonTerminatingMutationLogFields(
+  source: Error | NonTerminatingMutationLogFields | undefined,
+): NonTerminatingMutationLogFields {
+  if (source === undefined) return {};
+  if (source instanceof NonTerminatingMutationError) {
+    return {
+      nonTerminatingMutation: source.mutation,
+      nonTerminatingMutationSourceFile: source.sourceSiteFile,
+      nonTerminatingMutationSourceLine: source.sourceSiteLine,
+    };
+  }
+  if (source instanceof Error) return {};
+  const fields: NonTerminatingMutationLogFields = {};
+  if (source.nonTerminatingMutation !== undefined) fields.nonTerminatingMutation = source.nonTerminatingMutation;
+  if (source.nonTerminatingMutationSourceFile !== undefined) {
+    fields.nonTerminatingMutationSourceFile = source.nonTerminatingMutationSourceFile;
+  }
+  if (source.nonTerminatingMutationSourceLine !== undefined) {
+    fields.nonTerminatingMutationSourceLine = source.nonTerminatingMutationSourceLine;
   }
   return fields;
 }

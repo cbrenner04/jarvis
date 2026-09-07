@@ -57,6 +57,7 @@ import {
   readyGateFailureLogFields,
   readyGateOutOfScopeLogFields,
   survivingMutationLogFields,
+  nonTerminatingMutationLogFields,
 } from "./ready-finalize.ts";
 import {
   executeReviewCycle,
@@ -186,13 +187,16 @@ type WorkflowPublicationFailureKind =
   | "ready_gate_out_of_scope"
   | "ready_flip_failed"
   | "surviving_mutation_failed"
+  | "non_terminating_mutation_failed"
   | "runtime_smoke_failed";
 
 function workflowPublicationFailureTerminalDetail(
   kind: WorkflowPublicationFailureKind,
   error?: Error,
 ): InvocationFailureDetail | undefined {
-  if (kind === "surviving_mutation_failed") return terminalFailureDetailFromError(error);
+  if (kind === "surviving_mutation_failed" || kind === "non_terminating_mutation_failed") {
+    return terminalFailureDetailFromError(error);
+  }
   if (kind === "ready_gate_failed" || kind === "ready_gate_command_missing" || kind === "ready_gate_out_of_scope") {
     return readyGateTerminalFailureDetail(error);
   }
@@ -1336,7 +1340,9 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                       }
                     : publication.failure.kind === "surviving_mutation_failed"
                       ? survivingMutationLogFields(publication.failure.error)
-                      : { completionCommitError: publication.failure.error?.message ?? "completion commit failed" }),
+                      : publication.failure.kind === "non_terminating_mutation_failed"
+                        ? nonTerminatingMutationLogFields(publication.failure.error)
+                        : { completionCommitError: publication.failure.error?.message ?? "completion commit failed" }),
                 ...(publicationFailure !== undefined ? { publicationFailure } : {}),
               };
             }

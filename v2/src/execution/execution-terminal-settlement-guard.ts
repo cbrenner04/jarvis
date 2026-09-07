@@ -124,6 +124,11 @@ export const PERMITTED_TERMINAL_WRITES: PermittedTerminalWrite[] = [
   { file: "write-loop.ts", functionName: "completionCommitFailed", writer: "commitTerminalRunSettlement" },
   { file: "write-loop.ts", functionName: "readyFailed", writer: "commitTerminalRunSettlement" },
   { file: "write-loop.ts", functionName: "iterationCommitFailed", writer: "commitTerminalRunSettlement" },
+  {
+    file: "write-loop.ts",
+    functionName: "settleInLoopNonTerminatingMutation",
+    writer: "commitCompletionBoundary",
+  },
 ];
 
 export const PERMITTED_NONTERMINAL_SET_RUN_STATUS: PermittedNonterminalSetRunStatus[] = [

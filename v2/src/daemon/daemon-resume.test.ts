@@ -1130,6 +1130,7 @@ const WRITE_LOOP_OUTCOME_KINDS = [
   "ready_gate_out_of_scope",
   "ready_flip_failed",
   "surviving_mutation_failed",
+  "non_terminating_mutation_failed",
   "runtime_smoke_failed",
 ] as const satisfies readonly WriteLoopOutcomeKind[];
 
@@ -1212,6 +1213,15 @@ const RESUMABLE_AGREEMENT_CASES: ResumableAgreementCase[] = WRITE_LOOP_OUTCOME_K
             survivingMutation: "op",
             survivingMutationSourceFile: "src/guard.ts",
             survivingMutationSourceLine: 1,
+          },
+        }
+      : {}),
+    ...(loopOutcomeKind === "non_terminating_mutation_failed"
+      ? {
+          loopExtra: {
+            nonTerminatingMutation: "op",
+            nonTerminatingMutationSourceFile: "src/guard.ts",
+            nonTerminatingMutationSourceLine: 1,
           },
         }
       : {}),

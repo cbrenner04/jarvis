@@ -52,6 +52,9 @@ export type LoopFinishedEvent = {
   survivingMutation?: string;
   survivingMutationSourceFile?: string;
   survivingMutationSourceLine?: number;
+  nonTerminatingMutation?: string;
+  nonTerminatingMutationSourceFile?: string;
+  nonTerminatingMutationSourceLine?: number;
   readyGateOutsidePaths?: string[];
   readyGateOutOfScopeDetail?: string;
   readyGateCommand?: string;

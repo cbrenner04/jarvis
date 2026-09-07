@@ -1639,6 +1639,8 @@ export type DirtyWorktreeListResult =
 
 export const STALE_RESET_OVERRIDE_CLI_FLAG = "--reset-despite-dirty";
 export const STALE_RESET_LANDED_CRITERIA_OVERRIDE_CLI_FLAG = "--reset-despite-landed-criteria";
+export const OPEN_PR_PROBE_UNREACHABLE_REASON =
+  "could not determine open PR state: gh is unreachable from this environment; retry outside the agent sandbox";
 
 const staleResetDirtyRecovery = `commit, discard local changes, pass ${STALE_RESET_OVERRIDE_CLI_FLAG} on re-run, or run \`jarvis cleanup --abandon <branch>\``;
 const staleResetLandedCriteriaRecovery = `pass ${STALE_RESET_LANDED_CRITERIA_OVERRIDE_CLI_FLAG} on re-run, or run \`jarvis cleanup --abandon <branch>\``;
@@ -1897,8 +1899,8 @@ export async function resetStaleWorkspace(
   const liveCheck = await isWorktreeLiveHeld(project, branch, jarvisRoot, daemonClient);
   if (liveCheck.live) return { status: "refused", reason: liveCheck.reason };
 
-  const prGate = await gateOnOpenPrs(branch, runner);
-  if (prGate.status === "refused") return { status: "refused", reason: prGate.reason };
+  const prGate = await gateOnOpenPrs(branch, runner, projectRoot);
+  if (prGate.status !== "ok") return { status: "refused", reason: prGate.reason };
 
   const claimProbe = daemonClient.checkWorkflowStartClaim;
   if (claimProbe === undefined) {
@@ -2012,21 +2014,27 @@ async function isWorktreeLiveHeld(
   return { live: false };
 }
 
+type OpenPrGateResult =
+  | { status: "ok"; pr: OpenPr | undefined }
+  | { status: "refused"; reason: string }
+  | { status: "unknown"; reason: string };
+
 /**
  * Refuse retirement when open-PR state is ambiguous or protects the branch:
- * multiple open PRs, or a single ready (non-draft) PR. gh failures are treated
- * as "no open PRs".
+ * multiple open PRs, or a single ready (non-draft) PR. gh probe failures are
+ * inconclusive and return `unknown` rather than an empty list.
  */
-async function gateOnOpenPrs(
+export async function gateOnOpenPrs(
   branch: string,
   runner: AsyncSubprocessRunner,
   cwd = ".",
-): Promise<{ status: "ok"; pr: OpenPr | undefined } | { status: "refused"; reason: string }> {
+): Promise<OpenPrGateResult> {
   let openPrs: OpenPr[];
   try {
     openPrs = await listOpenPrsForBranch(branch, cwd, runner);
-  } catch {
-    openPrs = [];
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    return { status: "unknown", reason: `${OPEN_PR_PROBE_UNREACHABLE_REASON} (${detail})` };
   }
   if (openPrs.length > 1) return { status: "refused", reason: "multiple open PRs match branch" };
   const pr = openPrs.at(0);
@@ -2275,9 +2283,9 @@ export async function runAbandonCommand(
     return 1;
   }
 
-  // PR-ownership gates: refuse ready PRs and ambiguous PR ownership
-  const prGate = await gateOnOpenPrs(branch, runner);
-  if (prGate.status === "refused") {
+  // PR-ownership gates: refuse ready PRs, ambiguous PR ownership, and inconclusive probes
+  const prGate = await gateOnOpenPrs(branch, runner, projectRoot ?? ".");
+  if (prGate.status !== "ok") {
     io.stderr(`Error: Cannot abandon: ${prGate.reason}\n`);
     return 1;
   }

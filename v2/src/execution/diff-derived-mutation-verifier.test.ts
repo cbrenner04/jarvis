@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveRenderObserverTests } from "../../../shared/prompts/render-observer-tests.ts";
@@ -30,6 +30,10 @@ function renderObserverMapSource(entries: Record<string, readonly string[]>): st
   });
   return `const RENDER_OBSERVER_TESTS = {\n${lines.join("\n")}\n};\nexport function resolveRenderObserverTests(promptPath: string) { return RENDER_OBSERVER_TESTS[promptPath]; }\n`;
 }
+
+const REPO_ROOT = join(import.meta.dir, "../../..");
+const DAEMON_RUN_CONTROL_HANDLER_GUARD_REL = "v2/src/daemon/daemon-run-control-handler-guard.ts";
+const DAEMON_RUN_CONTROL_HANDLER_GUARD_EXIT = "if (index === -1) break;";
 
 const COMMITTED_RENDER_OBSERVER_MAP_SOURCE = (() => {
   const source = readFileSync(join(import.meta.dir, "../../../shared/prompts/render-observer-tests.ts"), "utf-8");
@@ -1165,6 +1169,70 @@ index 1234567..abcdefg 100644
         rmSync(dir, { recursive: true, force: true });
       }
     });
+
+    it(
+      "bounds scanDaemonRunControlHandlerForbiddenSymbols while (true) exit-guard flip via real killing test",
+      async () => {
+        const dir = mkdtempSync(join(tmpdir(), "mutation-verifier-while-true-guard-"));
+        const guardPath = join(dir, DAEMON_RUN_CONTROL_HANDLER_GUARD_REL);
+        const committedGuard = readFileSync(join(REPO_ROOT, DAEMON_RUN_CONTROL_HANDLER_GUARD_REL), "utf-8");
+        if (!committedGuard.includes(DAEMON_RUN_CONTROL_HANDLER_GUARD_EXIT)) {
+          throw new Error("committed daemon-run-control-handler-guard exit guard shape changed");
+        }
+
+        try {
+          execFileSync("git", ["init", "-q", "-b", "verifier-fixture"], { cwd: dir });
+          execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+          execFileSync("git", ["config", "user.name", "test"], { cwd: dir });
+          cpSync(join(REPO_ROOT, "v2/src/daemon"), join(dir, "v2/src/daemon"), { recursive: true });
+          try {
+            symlinkSync(join(REPO_ROOT, "node_modules"), join(dir, "node_modules"), "dir");
+          } catch {
+            /* reuse existing symlink */
+          }
+
+          writeFileSync(guardPath, committedGuard);
+          execFileSync("git", ["add", "-A"], { cwd: dir });
+          execFileSync("git", ["commit", "-q", "-m", "base"], { cwd: dir });
+          const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();
+
+          const touchedGuard = committedGuard.replace(
+            DAEMON_RUN_CONTROL_HANDLER_GUARD_EXIT,
+            `${DAEMON_RUN_CONTROL_HANDLER_GUARD_EXIT} // exit when symbol absent`,
+          );
+          writeFileSync(guardPath, touchedGuard);
+          execFileSync("git", ["commit", "-aq", "-m", "touch while (true) exit guard"], { cwd: dir });
+
+          const preVerificationBytes = readFileSync(guardPath);
+          const exitGuardLine = preVerificationBytes
+            .toString("utf-8")
+            .split("\n")
+            .findIndex((line) => line.includes(DAEMON_RUN_CONTROL_HANDLER_GUARD_EXIT));
+          if (exitGuardLine < 0) {
+            throw new Error("while (true) exit guard line missing from touched guard source");
+          }
+
+          const started = Date.now();
+          const result = await verifyDiffDerivedMutations({ worktreePath: dir, runBase: baseSha });
+          const elapsed = Date.now() - started;
+
+          expect(elapsed).toBeLessThan(MAX_KILLING_TEST_MS + 60_000);
+          expect(result).toMatchObject({
+            kind: "non-terminating-mutation",
+            mutation: expect.stringContaining("=== → !=="),
+            sourceSite: {
+              file: DAEMON_RUN_CONTROL_HANDLER_GUARD_REL,
+              line: exitGuardLine + 1,
+            },
+          });
+          expect(readFileSync(guardPath)).toEqual(preVerificationBytes);
+          expect(execFileSync("git", ["status", "--porcelain"], { cwd: dir }).toString().trim()).toBe("");
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      },
+      MAX_KILLING_TEST_MS + 90_000,
+    );
   });
 });
 

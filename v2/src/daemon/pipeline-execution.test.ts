@@ -5081,7 +5081,6 @@ test("isPipelineContinuable agrees with derivePipelineState on fan-out continuab
     context: persistedContext,
   };
 
-  // @mutate v2/src/daemon/pipeline-execution.ts "if (derivedState !== \"pending\") return false;" -> "if (false) return false;"
   expect(derivePipelineState(pipeline)).toBe("failed");
   expect(isPipelineContinuable(pipeline)).toBe(false);
 });

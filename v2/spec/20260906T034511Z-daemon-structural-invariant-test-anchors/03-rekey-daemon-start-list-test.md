@@ -12,13 +12,13 @@ Row `dm-startlist-terminal-settlement-guard` in `v2/docs/structural-invariant-te
 
 ## Task checklist
 
-- [ ] Re-key audit row `dm-startlist-terminal-settlement-guard` per the decision ledger.
-- [ ] Replace flat-directory production reads and regex inventory with semantic writer identities plus loud-failure symbol slicing.
+- [x] Re-key audit row `dm-startlist-terminal-settlement-guard` per the decision ledger.
+- [x] Replace flat-directory production reads and regex inventory with semantic writer identities plus loud-failure symbol slicing.
 
 ## Acceptance criteria
 
-- [ ] `daemon-start-list.test.ts` test `daemon production terminal writers are restricted to atomic settlement` keys terminal and nonterminal write inventory on semantic call-site identities discovered from the daemon production tree, not hand-maintained regex captures over concatenated sources; it fails against the pre-fix `.setRunStatus` regex equality pin on audit row `dm-startlist-terminal-settlement-guard` (`vacuous-pass-risk: yes`) and passes after re-key.
-- [ ] `bun run typecheck` passes.
+- [x] `daemon-start-list.test.ts` test `daemon production terminal writers are restricted to atomic settlement` keys terminal and nonterminal write inventory on semantic call-site identities discovered from the daemon production tree, not hand-maintained regex captures over concatenated sources; it fails against the pre-fix `.setRunStatus` regex equality pin on audit row `dm-startlist-terminal-settlement-guard` (`vacuous-pass-risk: yes`) and passes after re-key.
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

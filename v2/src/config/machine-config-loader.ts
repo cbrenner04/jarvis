@@ -100,7 +100,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function readCleanupSessionLogRetentionDays(
   configPath: string = MACHINE_CONFIG_PATH,
 ): { ok: true; days: number } | { ok: false; error: string } {
-  const cleanup = readMachineConfigDocument(configPath)?.cleanup;
+  const parsed = readMachineConfigFile(configPath);
+  if (parsed === undefined) return { ok: true, days: 14 };
+  if (!isRecord(parsed)) {
+    throw new Error(
+      `Machine config at ${configPath} must be a JSON object, got ${
+        Array.isArray(parsed) ? "array" : parsed === null ? "null" : typeof parsed
+      }`,
+    );
+  }
+
+  const cleanup = parsed.cleanup;
   if (cleanup === undefined) return { ok: true, days: 14 };
   if (!isRecord(cleanup)) {
     return { ok: false, error: "cleanup.sessionLogRetentionDays must be a positive integer" };

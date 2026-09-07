@@ -1210,7 +1210,7 @@ function discoverExpiredSessionLogs(
     retention = readCleanupSessionLogRetentionDays(configPath);
   } catch (error) {
     io.stderr(
-      `Failed to read cleanup.sessionLogRetentionDays; skipped session-log reaping: ${error instanceof Error ? error.message : String(error)}\n`,
+      `Failed to load machine config; skipped session-log reaping: ${error instanceof Error ? error.message : String(error)}\n`,
     );
     return null;
   }

@@ -140,6 +140,18 @@ describe("readCleanupSessionLogRetentionDays", () => {
       error: "cleanup.sessionLogRetentionDays must be a positive integer",
     });
   });
+
+  test("reads cleanup without validating unrelated agents", () => {
+    expect(
+      readCleanupSessionLogRetentionDays(writeConfig({ agents: "invalid", cleanup: { sessionLogRetentionDays: 30 } })),
+    ).toEqual({ ok: true, days: 30 });
+  });
+
+  test("unparseable JSON throws without naming retention", () => {
+    expect(() => readCleanupSessionLogRetentionDays(writeRawConfig("{ invalid json"))).toThrow(
+      /Failed to parse machine config/,
+    );
+  });
 });
 
 describe("write-path iteration bounds", () => {

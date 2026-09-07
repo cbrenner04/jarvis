@@ -815,7 +815,7 @@ Cleanup also enumerates and reaps dead daemon sockets under `~/.jarvis/daemon-*.
 
 Every cleanup also reaps expired terminal-run session logs under `~/.jarvis/sessions/`. This slice is global (not project-scoped) and runs on every invocation even when the other slices report nothing eligible.
 
-**Retention window.** Default 14 days; override with `cleanup.sessionLogRetentionDays` in the active machine profile. Expiry compares the owning run's durable `finishedAt` against `now - retentionDays`; file mtime and filename timestamps are not used.
+**Retention window.** Default 14 days; override with `cleanup.sessionLogRetentionDays` in `~/.jarvis/config.json` ([install-and-config.md](./install-and-config.md#cleanup)). Expiry compares the owning run's durable `finishedAt` against `now - retentionDays`; file mtime and filename timestamps are not used.
 
 **Reap-eligible.** Only regular files directly under `~/.jarvis/sessions/` whose names match `<run-id>-<session-log-timestamp>.log` (UUID run id before the session-log timestamp segment) when the basename resolves to a run row in the state store, that run's status is terminal, and `finishedAt` is a finite timestamp older than the cutoff.
 

@@ -4,4 +4,4 @@ Ownership enforcement is subspec 00 durable adopt routing plus subspec 01 bypass
 
 - [x] [00 - Adoption durable stage claim](./00-adoption-durable-stage-claim.md)
 - [x] [01 - Pipeline execution bypass rationale guard](./01-pipeline-execution-bypass-rationale-guard.md)
-- [ ] [02 - Canonical pipeline state derivation](./02-canonical-pipeline-state-derivation.md)
+- [x] [02 - Canonical pipeline state derivation](./02-canonical-pipeline-state-derivation.md)

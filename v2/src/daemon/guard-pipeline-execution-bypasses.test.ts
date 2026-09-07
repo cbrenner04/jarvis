@@ -7,10 +7,10 @@ test("pipeline-execution bypass tokens require @pinned-bypass in the same commen
 });
 
 test("guard rejects unpinned bypass prose", () => {
-  const source = loadPipelineExecutionSource();
-  const unpinned = source.replace(/\s*\* @pinned-bypass:[^\n]*/, "");
-  expect(scanPipelineExecutionBypasses(unpinned).length).toBeGreaterThan(0);
-  expect(scanPipelineExecutionBypasses(unpinned)[0]?.line).toBeGreaterThan(0);
+  const unpinned = loadPipelineExecutionSource().replace(/\s*\* @pinned-bypass:[^\n]*/, "");
+  const violations = scanPipelineExecutionBypasses(unpinned);
+  expect(violations.length).toBeGreaterThan(0);
+  expect(violations[0]?.line).toBeGreaterThan(0);
 });
 
 test("guard ignores bypass tokens outside comments", () => {

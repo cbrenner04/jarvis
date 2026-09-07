@@ -1121,10 +1121,7 @@ describe("continuePipeline", () => {
     };
     const { store, stages } = fakeStore(
       singleStageDefinition,
-      {
-        "run-adopted": { specPath: "spec/s1.md", status: "in-progress" },
-        "run-unexpected": { specPath: "spec/unexpected.md", status: "completed" },
-      },
+      { "run-adopted": { specPath: "spec/s1.md", status: "in-progress" } },
       { context: persistedContext, ownerIdentity: CURRENT_OWNER },
     );
     let admissionClaimCount = 0;
@@ -1151,7 +1148,7 @@ describe("continuePipeline", () => {
     let dispatchCount = 0;
     const dispatch: PipelineWorkflowDispatch = async () => {
       dispatchCount += 1;
-      return { ok: true, entryRunId: "run-unexpected", invocationId: "inv-unexpected" };
+      return { ok: true, entryRunId: "run-never", invocationId: "inv-never" };
     };
     let waitCount = 0;
     const adoptWaitEntered = deferred<void>();

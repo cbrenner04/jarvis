@@ -18,7 +18,6 @@ name: cleanup-pr-ownership-probe-fails-closed
 
 - Cleanup PR ownership probing distinguishes `gh` failure from a confirmed zero-open-PR result.
 - `--abandon` and stale-workspace reset refuse before mutation when PR ownership is unknown and name `gh` reachability plus sandbox-safe recovery.
-- Callers that may safely degrade after a PR inspection failure must opt into that policy explicitly; destructive callers never inherit a permissive fallback.
 - Confirmed zero-open-PR branches retain current cleanup and abandonment behavior.
 
 ## Decision ledger
@@ -31,7 +30,7 @@ name: cleanup-pr-ownership-probe-fails-closed
 ## Acceptance criteria
 
 - [ ] `v2/src/commands/cleanup.test.ts` proves a thrown `gh pr list` probe produces an unknown ownership outcome distinct from a confirmed empty list; it fails against the pre-fix `catch { openPrs = [] }` path.
-- [ ] `v2/src/commands/cleanup.test.ts` proves `--abandon` exits nonzero without prompting or changing the worktree, local branch, remote branch, or PR when the probe cannot observe a ready non-draft PR; stderr names `gh` reachability and sandbox recovery, and the test fails against the pre-fix silent pass.
+- [ ] `v2/src/commands/cleanup.test.ts` proves `--abandon` exits nonzero without prompting or changing the worktree, local branch, remote branch, or PR when `gh pr list` fails; stderr names `gh` reachability and sandbox recovery, and the test fails against the pre-fix silent pass.
 - [ ] `v2/src/commands/cleanup.test.ts` proves stale-workspace reset refuses without teardown when the PR probe fails; it fails against the pre-fix permissive fallback.
 - [ ] `v2/src/commands/cleanup.test.ts` proves a confirmed zero-open-PR branch still follows its existing reset and abandonment paths.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.

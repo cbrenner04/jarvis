@@ -128,20 +128,14 @@ describe("readCleanupSessionLogRetentionDays", () => {
     });
   });
 
-  test("rejects a non-object cleanup value naming the key", () => {
-    expect(readCleanupSessionLogRetentionDays(writeConfig({ cleanup: "invalid" }))).toEqual({
-      ok: false,
-      error: "cleanup.sessionLogRetentionDays must be a positive integer",
-    });
-  });
-
   test.each([
-    ["non-integer", 1.5],
-    ["zero", 0],
-    ["negative", -1],
-    ["non-number", "30"],
-  ] as Array<[string, unknown]>)("rejects a %s value naming the key", (_label, value) => {
-    expect(readCleanupSessionLogRetentionDays(writeConfig({ cleanup: { sessionLogRetentionDays: value } }))).toEqual({
+    ["non-object cleanup", { cleanup: "invalid" }],
+    ["non-integer", { cleanup: { sessionLogRetentionDays: 1.5 } }],
+    ["zero", { cleanup: { sessionLogRetentionDays: 0 } }],
+    ["negative", { cleanup: { sessionLogRetentionDays: -1 } }],
+    ["non-number", { cleanup: { sessionLogRetentionDays: "30" } }],
+  ] as Array<[string, unknown]>)("rejects %s naming the key", (_label, config) => {
+    expect(readCleanupSessionLogRetentionDays(writeConfig(config))).toEqual({
       ok: false,
       error: "cleanup.sessionLogRetentionDays must be a positive integer",
     });

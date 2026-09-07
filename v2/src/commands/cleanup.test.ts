@@ -4694,6 +4694,7 @@ describe("cleanup: prune verified merged branch refs", () => {
 describe("cleanup: session log retention", () => {
   const now = new Date("2026-09-07T12:00:00.000Z");
   const dayMs = 24 * 60 * 60 * 1000;
+  const sessionLogStamp = "2026-08-01T00-00-00.000Z";
   let tempRoot: string;
   let jarvisRoot: string;
   let configPath: string;
@@ -4719,7 +4720,7 @@ describe("cleanup: session log retention", () => {
 
   function writeSessionLog(sessionsDir: string, id: string, content = "log"): string {
     mkdirSync(sessionsDir, { recursive: true });
-    const path = join(sessionsDir, `${id}-2026-08-01T00-00-00.000Z.log`);
+    const path = join(sessionsDir, `${id}-${sessionLogStamp}.log`);
     writeFileSync(path, content);
     return path;
   }
@@ -4847,9 +4848,9 @@ describe("cleanup: session log retention", () => {
     const expiredPath = writeSessionLog(sessionsDir, run.id);
     const telemetryPath = join(sessionsDir, "telemetry.jsonl");
     const statePath = join(sessionsDir, "state", "v2.sqlite");
-    const nestedLogPath = join(sessionsDir, "nested", `${run.id}-2026-08-01T00-00-00.000Z.log`);
+    const nestedLogPath = join(sessionsDir, "nested", `${run.id}-${sessionLogStamp}.log`);
     const malformedLogPath = join(sessionsDir, "not-a-session.log");
-    const outsidePath = join(jarvisRoot, `${run.id}-2026-08-01T00-00-00.000Z.log`);
+    const outsidePath = join(jarvisRoot, `${run.id}-${sessionLogStamp}.log`);
     mkdirSync(dirname(statePath), { recursive: true });
     mkdirSync(dirname(nestedLogPath), { recursive: true });
     writeFileSync(telemetryPath, "telemetry");

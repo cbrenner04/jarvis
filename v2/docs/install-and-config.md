@@ -234,7 +234,7 @@ An explicit `jarvis run workflow implement --review-passes <n>` overrides the re
 | --- | --- | --- | --- |
 | `cleanup.sessionLogRetentionDays` | Retention window for expired terminal-run session logs under `~/.jarvis/sessions/` | `14` when absent | Positive integer (`Number.isInteger` and `> 0`); non-integer, zero, negative, or non-number values skip session-log reaping for that invocation — stderr names `cleanup.sessionLogRetentionDays` — without affecting other cleanup slices |
 
-Absent `cleanup` or absent `cleanup.sessionLogRetentionDays` resolves to 14 days. There is no `jarvis config` subcommand for this field; hand-edit `~/.jarvis/config.json`.
+There is no `jarvis config` subcommand for this field; hand-edit `~/.jarvis/config.json`.
 
 ## Daemon
 

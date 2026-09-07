@@ -1193,27 +1193,10 @@ async function retireEligibleWorktrees(
 
 type ReaperResult = Awaited<ReturnType<typeof reapDeadDaemonSockets>>;
 
-type ExpiredSessionLog = {
-  path: string;
-  bytes: number;
-};
-
-type SessionLogReapPlan =
-  | { status: "invalid" }
-  | { status: "ready"; expired: ExpiredSessionLog[]; oldestKeptDate: string };
+type SessionLogReapPlan = { expired: { path: string; bytes: number }[]; oldestKeptDate: string } | null;
 
 const SESSION_LOG_NAME_PATTERN =
   /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z\.log$/i;
-
-function isExpiredSessionLogOwner(run: Run | undefined, cutoffMs: number): run is Run {
-  return (
-    run !== undefined &&
-    isTerminalRunStatus(run.status) &&
-    typeof run.finishedAt === "number" &&
-    Number.isFinite(run.finishedAt) &&
-    run.finishedAt < cutoffMs
-  );
-}
 
 function discoverExpiredSessionLogs(
   sessionsDir: string,
@@ -1229,16 +1212,15 @@ function discoverExpiredSessionLogs(
     io.stderr(
       `Failed to read cleanup.sessionLogRetentionDays; skipped session-log reaping: ${error instanceof Error ? error.message : String(error)}\n`,
     );
-    return { status: "invalid" };
+    return null;
   }
   if (!retention.ok) {
     io.stderr(`${retention.error}; skipped session-log reaping.\n`);
-    return { status: "invalid" };
+    return null;
   }
 
   const cutoffMs = clock().getTime() - retention.days * 24 * 60 * 60 * 1000;
-  const plan: SessionLogReapPlan = {
-    status: "ready",
+  const plan: NonNullable<SessionLogReapPlan> = {
     expired: [],
     oldestKeptDate: new Date(cutoffMs).toISOString().slice(0, 10),
   };
@@ -1255,12 +1237,19 @@ function discoverExpiredSessionLogs(
     if (!entry.isFile() || !entry.name.endsWith(".log")) continue;
     const match = SESSION_LOG_NAME_PATTERN.exec(entry.name);
     if (match === null) continue;
-    const runId = match[1];
-    if (runId === undefined || !isExpiredSessionLogOwner(runsById.get(runId), cutoffMs)) continue;
+    const run = runsById.get(match[1] ?? "");
+    if (
+      run === undefined ||
+      !isTerminalRunStatus(run.status) ||
+      typeof run.finishedAt !== "number" ||
+      !Number.isFinite(run.finishedAt) ||
+      run.finishedAt >= cutoffMs
+    ) {
+      continue;
+    }
     const path = join(sessionsDir, entry.name);
     try {
-      const stat = statSync(path);
-      if (stat.isFile()) plan.expired.push({ path, bytes: stat.size });
+      plan.expired.push({ path, bytes: statSync(path).size });
     } catch {
       // A file that disappears during discovery is no longer reclaimable.
     }
@@ -1268,9 +1257,9 @@ function discoverExpiredSessionLogs(
   return plan;
 }
 
-function reportSessionLogSummary(
+function printSessionLogSummary(
   verb: "Found" | "Reaped",
-  logs: readonly ExpiredSessionLog[],
+  logs: readonly { path: string; bytes: number }[],
   oldestKeptDate: string,
   io: { stdout: (s: string) => void },
 ): void {
@@ -1280,26 +1269,6 @@ function reportSessionLogSummary(
   io.stdout(
     `${verb} ${logs.length} expired session log(s): ${bytes} ${byteLabel} bytes; oldest kept date: ${oldestKeptDate}.\n`,
   );
-}
-
-function reapExpiredSessionLogs(
-  plan: SessionLogReapPlan,
-  io: { stdout: (s: string) => void; stderr: (s: string) => void },
-): number {
-  if (plan.status === "invalid") return 0;
-  const reaped: ExpiredSessionLog[] = [];
-  let failures = 0;
-  for (const log of plan.expired) {
-    try {
-      rmSync(log.path);
-      reaped.push(log);
-    } catch {
-      failures += 1;
-    }
-  }
-  reportSessionLogSummary("Reaped", reaped, plan.oldestKeptDate, io);
-  if (failures > 0) io.stderr(`Failed to reap ${failures} expired session log(s).\n`);
-  return failures > 0 ? 1 : 0;
 }
 
 function hasNothingToClean(
@@ -1315,7 +1284,7 @@ function hasNothingToClean(
     reaperResult.dead.length === 0 &&
     reaperResult.preserved.length === 0 &&
     branchRefCandidates.length === 0 &&
-    (sessionLogPlan.status === "invalid" || sessionLogPlan.expired.length === 0)
+    (sessionLogPlan === null || sessionLogPlan.expired.length === 0)
   );
 }
 
@@ -1418,7 +1387,9 @@ async function gatherCleanupDiscoveryContext(
   daemonClient: DaemonClient,
   store: StateStore,
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
-  sessionLogDeps: { sessionsDir: string; configPath: string; clock: () => Date },
+  sessionsDir: string,
+  configPath: string,
+  clock: () => Date,
 ): Promise<CleanupDiscoveryContext> {
   const branchRefDiscovery = await discoverMergedBranchRefCandidates(registry, { runner, ownershipRegistry });
   const discoveryExit = reportUnusableProjects(branchRefDiscovery.unusableProjects, io);
@@ -1445,13 +1416,7 @@ async function gatherCleanupDiscoveryContext(
     io,
   );
   const reaperResult = await reapDeadDaemonSockets(jarvisRoot);
-  const sessionLogPlan = discoverExpiredSessionLogs(
-    sessionLogDeps.sessionsDir,
-    sessionLogDeps.configPath,
-    sessionLogDeps.clock,
-    store,
-    io,
-  );
+  const sessionLogPlan = discoverExpiredSessionLogs(sessionsDir, configPath, clock, store, io);
 
   return {
     branchRefDiscovery,
@@ -1514,8 +1479,8 @@ async function previewAllCleanupTargets(
     for (const spec of ctx.stranded) previewArtifact(spec, io);
   }
   previewReaperResult(ctx.reaperResult, io);
-  if (ctx.sessionLogPlan.status === "ready") {
-    reportSessionLogSummary("Found", ctx.sessionLogPlan.expired, ctx.sessionLogPlan.oldestKeptDate, io);
+  if (ctx.sessionLogPlan !== null) {
+    printSessionLogSummary("Found", ctx.sessionLogPlan.expired, ctx.sessionLogPlan.oldestKeptDate, io);
   }
 }
 
@@ -1554,7 +1519,24 @@ async function executeConfirmedCleanup(
     ctx.branchRefDiscovery.ownerProjectsByRepositoryRoot,
     io,
   );
-  const sessionLogExit = reapExpiredSessionLogs(ctx.sessionLogPlan, io);
+  let sessionLogExit = 0;
+  if (ctx.sessionLogPlan !== null) {
+    const reaped: { path: string; bytes: number }[] = [];
+    let failures = 0;
+    for (const log of ctx.sessionLogPlan.expired) {
+      try {
+        rmSync(log.path);
+        reaped.push(log);
+      } catch {
+        failures += 1;
+      }
+    }
+    printSessionLogSummary("Reaped", reaped, ctx.sessionLogPlan.oldestKeptDate, io);
+    if (failures > 0) {
+      io.stderr(`Failed to reap ${failures} expired session log(s).\n`);
+      sessionLogExit = 1;
+    }
+  }
   const socketRemoval = removeDeadDaemonSockets(ctx.reaperResult.dead, io);
   if (socketRemoval !== 0) return socketRemoval;
 
@@ -1607,11 +1589,9 @@ export async function runCleanupCommand(
     daemonClient,
     store,
     io,
-    {
-      sessionsDir: options.sessionsDir ?? join(jarvisRoot, "sessions"),
-      configPath: options.configPath ?? join(jarvisRoot, "config.json"),
-      clock: options.clock ?? (() => new Date()),
-    },
+    options.sessionsDir ?? join(jarvisRoot, "sessions"),
+    options.configPath ?? join(jarvisRoot, "config.json"),
+    options.clock ?? (() => new Date()),
   );
 
   for (const worktree of ctx.daemonUnreachable) {

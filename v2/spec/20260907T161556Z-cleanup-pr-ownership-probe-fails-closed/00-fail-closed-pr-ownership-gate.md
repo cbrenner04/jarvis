@@ -22,13 +22,13 @@
 
 ## Acceptance criteria
 
-- [ ] `cleanup.test.ts` proves a thrown `gh pr list` probe yields `gateOnOpenPrs` status `unknown` distinct from a confirmed empty list returning `ok` with `pr: undefined`; it fails against the pre-fix `catch { openPrs = [] }` path reachable in `v2/src/commands/cleanup.ts`.
-- [ ] `cleanup.test.ts` proves `--abandon` exits nonzero without prompting or changing the worktree, local branch, remote branch, or PR when `gh pr list` fails; stderr names `gh` reachability and sandbox recovery, and the test fails against the pre-fix silent pass reachable when probe failure is treated as zero open PRs.
-- [ ] `cleanup.test.ts` proves `resetStaleWorkspace` refuses without teardown when the PR probe fails; it fails against the pre-fix permissive fallback reachable in `v2/src/commands/cleanup.ts`.
-- [ ] `cleanup.test.ts` tests `abandon succeeds when the repo has no origin remote` and `reset removes stale worktree and draft PR before re-run` stay green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `cleanup.test.ts` proves a thrown `gh pr list` probe yields `gateOnOpenPrs` status `unknown` distinct from a confirmed empty list returning `ok` with `pr: undefined`; it fails against the pre-fix `catch { openPrs = [] }` path reachable in `v2/src/commands/cleanup.ts`.
+- [x] `cleanup.test.ts` proves `--abandon` exits nonzero without prompting or changing the worktree, local branch, remote branch, or PR when `gh pr list` fails; stderr names `gh` reachability and sandbox recovery, and the test fails against the pre-fix silent pass reachable when probe failure is treated as zero open PRs.
+- [x] `cleanup.test.ts` proves `resetStaleWorkspace` refuses without teardown when the PR probe fails; it fails against the pre-fix permissive fallback reachable in `v2/src/commands/cleanup.ts`.
+- [x] `cleanup.test.ts` tests `abandon succeeds when the repo has no origin remote` and `reset removes stale worktree and draft PR before re-run` stay green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

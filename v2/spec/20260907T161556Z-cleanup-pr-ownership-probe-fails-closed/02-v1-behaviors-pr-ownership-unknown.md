@@ -16,7 +16,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/v1-behaviors.md` records unknown PR ownership as a pre-mutation cleanup refusal on `--abandon` and stale-workspace reset when `gh pr list` fails.
+- [x] `v2/docs/v1-behaviors.md` records unknown PR ownership as a pre-mutation cleanup refusal on `--abandon` and stale-workspace reset when `gh pr list` fails.
 
 ## Documentation updates
 

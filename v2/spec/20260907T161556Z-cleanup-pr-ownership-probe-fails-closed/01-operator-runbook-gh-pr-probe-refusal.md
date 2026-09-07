@@ -18,7 +18,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/operator-runbook.md` documents fail-closed `--abandon` and stale-reset refusal when `gh pr list` is unreachable, including sandboxed-caller recovery via running outside the agent sandbox.
+- [x] `v2/docs/operator-runbook.md` documents fail-closed `--abandon` and stale-reset refusal when `gh pr list` is unreachable, including sandboxed-caller recovery via running outside the agent sandbox.
 
 ## Documentation updates
 

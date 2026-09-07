@@ -17,7 +17,7 @@ import {
 } from "../../../shared/subprocess.ts";
 import { isProcessAlive, type WorktreeLock } from "../../../shared/worktree-lock.ts";
 import { request } from "../cli/ipc.ts";
-import { readProjectConfigRecord } from "../config/machine-config-loader.ts";
+import { readCleanupSessionLogRetentionDays, readProjectConfigRecord } from "../config/machine-config-loader.ts";
 import { parseListRuns } from "../daemon/daemon-wire.ts";
 import { mergeRunLists } from "../daemon/merge-run-lists.ts";
 import { type QueryDaemonListsDeps, queryDaemonListsFromSockets } from "../daemon/query-daemon-lists-from-sockets.ts";
@@ -1193,18 +1193,129 @@ async function retireEligibleWorktrees(
 
 type ReaperResult = Awaited<ReturnType<typeof reapDeadDaemonSockets>>;
 
+type ExpiredSessionLog = {
+  path: string;
+  bytes: number;
+};
+
+type SessionLogReapPlan =
+  | { status: "invalid" }
+  | { status: "ready"; expired: ExpiredSessionLog[]; oldestKeptDate: string };
+
+const SESSION_LOG_NAME_PATTERN =
+  /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z\.log$/i;
+
+function isExpiredSessionLogOwner(run: Run | undefined, cutoffMs: number): run is Run {
+  return (
+    run !== undefined &&
+    isTerminalRunStatus(run.status) &&
+    typeof run.finishedAt === "number" &&
+    Number.isFinite(run.finishedAt) &&
+    run.finishedAt < cutoffMs
+  );
+}
+
+function discoverExpiredSessionLogs(
+  sessionsDir: string,
+  configPath: string,
+  clock: () => Date,
+  store: StateStore,
+  io: { stderr: (s: string) => void },
+): SessionLogReapPlan {
+  let retention: ReturnType<typeof readCleanupSessionLogRetentionDays>;
+  try {
+    retention = readCleanupSessionLogRetentionDays(configPath);
+  } catch (error) {
+    io.stderr(
+      `Failed to read cleanup.sessionLogRetentionDays; skipped session-log reaping: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    return { status: "invalid" };
+  }
+  if (!retention.ok) {
+    io.stderr(`${retention.error}; skipped session-log reaping.\n`);
+    return { status: "invalid" };
+  }
+
+  const cutoffMs = clock().getTime() - retention.days * 24 * 60 * 60 * 1000;
+  const plan: SessionLogReapPlan = {
+    status: "ready",
+    expired: [],
+    oldestKeptDate: new Date(cutoffMs).toISOString().slice(0, 10),
+  };
+  if (!existsSync(sessionsDir)) return plan;
+
+  const runsById = new Map(store.listRuns().map((run) => [run.id, run]));
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(sessionsDir, { withFileTypes: true });
+  } catch {
+    return plan;
+  }
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".log")) continue;
+    const match = SESSION_LOG_NAME_PATTERN.exec(entry.name);
+    if (match === null) continue;
+    const runId = match[1];
+    if (runId === undefined || !isExpiredSessionLogOwner(runsById.get(runId), cutoffMs)) continue;
+    const path = join(sessionsDir, entry.name);
+    try {
+      const stat = statSync(path);
+      if (stat.isFile()) plan.expired.push({ path, bytes: stat.size });
+    } catch {
+      // A file that disappears during discovery is no longer reclaimable.
+    }
+  }
+  return plan;
+}
+
+function reportSessionLogSummary(
+  verb: "Found" | "Reaped",
+  logs: readonly ExpiredSessionLog[],
+  oldestKeptDate: string,
+  io: { stdout: (s: string) => void },
+): void {
+  if (logs.length === 0) return;
+  const bytes = logs.reduce((total, log) => total + log.bytes, 0);
+  const byteLabel = verb === "Found" ? "reclaimable" : "reclaimed";
+  io.stdout(
+    `${verb} ${logs.length} expired session log(s): ${bytes} ${byteLabel} bytes; oldest kept date: ${oldestKeptDate}.\n`,
+  );
+}
+
+function reapExpiredSessionLogs(
+  plan: SessionLogReapPlan,
+  io: { stdout: (s: string) => void; stderr: (s: string) => void },
+): number {
+  if (plan.status === "invalid") return 0;
+  const reaped: ExpiredSessionLog[] = [];
+  let failures = 0;
+  for (const log of plan.expired) {
+    try {
+      rmSync(log.path);
+      reaped.push(log);
+    } catch {
+      failures += 1;
+    }
+  }
+  reportSessionLogSummary("Reaped", reaped, plan.oldestKeptDate, io);
+  if (failures > 0) io.stderr(`Failed to reap ${failures} expired session log(s).\n`);
+  return failures > 0 ? 1 : 0;
+}
+
 function hasNothingToClean(
   candidates: readonly CleanupCandidate[],
   stranded: readonly StrandedArtifact[],
   reaperResult: ReaperResult,
   branchRefCandidates: readonly MergedBranchRefCandidate[],
+  sessionLogPlan: SessionLogReapPlan,
 ): boolean {
   return (
     candidates.length === 0 &&
     stranded.length === 0 &&
     reaperResult.dead.length === 0 &&
     reaperResult.preserved.length === 0 &&
-    branchRefCandidates.length === 0
+    branchRefCandidates.length === 0 &&
+    (sessionLogPlan.status === "invalid" || sessionLogPlan.expired.length === 0)
   );
 }
 
@@ -1295,6 +1406,7 @@ type CleanupDiscoveryContext = {
   strandedArtifacts: DiscoveredStrandedArtifact[];
   stranded: StrandedArtifact[];
   reaperResult: ReaperResult;
+  sessionLogPlan: SessionLogReapPlan;
   daemonUnreachable: DiscoveredWorktree[];
 };
 
@@ -1306,6 +1418,7 @@ async function gatherCleanupDiscoveryContext(
   daemonClient: DaemonClient,
   store: StateStore,
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
+  sessionLogDeps: { sessionsDir: string; configPath: string; clock: () => Date },
 ): Promise<CleanupDiscoveryContext> {
   const branchRefDiscovery = await discoverMergedBranchRefCandidates(registry, { runner, ownershipRegistry });
   const discoveryExit = reportUnusableProjects(branchRefDiscovery.unusableProjects, io);
@@ -1332,6 +1445,13 @@ async function gatherCleanupDiscoveryContext(
     io,
   );
   const reaperResult = await reapDeadDaemonSockets(jarvisRoot);
+  const sessionLogPlan = discoverExpiredSessionLogs(
+    sessionLogDeps.sessionsDir,
+    sessionLogDeps.configPath,
+    sessionLogDeps.clock,
+    store,
+    io,
+  );
 
   return {
     branchRefDiscovery,
@@ -1343,6 +1463,7 @@ async function gatherCleanupDiscoveryContext(
     strandedArtifacts,
     stranded,
     reaperResult,
+    sessionLogPlan,
     daemonUnreachable,
   };
 }
@@ -1393,6 +1514,9 @@ async function previewAllCleanupTargets(
     for (const spec of ctx.stranded) previewArtifact(spec, io);
   }
   previewReaperResult(ctx.reaperResult, io);
+  if (ctx.sessionLogPlan.status === "ready") {
+    reportSessionLogSummary("Found", ctx.sessionLogPlan.expired, ctx.sessionLogPlan.oldestKeptDate, io);
+  }
 }
 
 async function executeConfirmedCleanup(
@@ -1430,6 +1554,7 @@ async function executeConfirmedCleanup(
     ctx.branchRefDiscovery.ownerProjectsByRepositoryRoot,
     io,
   );
+  const sessionLogExit = reapExpiredSessionLogs(ctx.sessionLogPlan, io);
   const socketRemoval = removeDeadDaemonSockets(ctx.reaperResult.dead, io);
   if (socketRemoval !== 0) return socketRemoval;
 
@@ -1446,7 +1571,7 @@ async function executeConfirmedCleanup(
   if (stillEligible.length === 0 && ctx.candidates.length > 0) {
     io.stdout("No worktrees remain eligible after re-check.\n");
   }
-  if (result !== 0 || branchRefExit !== 0) return 1;
+  if (result !== 0 || branchRefExit !== 0 || sessionLogExit !== 0) return 1;
   if (recheck.daemonUnreachable || ctx.discoveryExit !== 0) return 1;
   return daemonBlockedExit;
 }
@@ -1462,6 +1587,9 @@ export async function runCleanupCommand(
   options: {
     dryRun?: boolean;
     promptConfirm?: (message: string) => Promise<boolean>;
+    sessionsDir?: string;
+    configPath?: string;
+    clock?: () => Date;
   },
   registry: Record<string, ProjectRegistryEntry>,
   jarvisRoot: string,
@@ -1479,13 +1607,26 @@ export async function runCleanupCommand(
     daemonClient,
     store,
     io,
+    {
+      sessionsDir: options.sessionsDir ?? join(jarvisRoot, "sessions"),
+      configPath: options.configPath ?? join(jarvisRoot, "config.json"),
+      clock: options.clock ?? (() => new Date()),
+    },
   );
 
   for (const worktree of ctx.daemonUnreachable) {
     io.stdout(`Skipped merged worktree: ${worktree.path} — ${DAEMON_UNREACHABLE_REASON}\n`);
   }
 
-  if (hasNothingToClean(ctx.candidates, ctx.stranded, ctx.reaperResult, ctx.branchRefDiscovery.candidates)) {
+  if (
+    hasNothingToClean(
+      ctx.candidates,
+      ctx.stranded,
+      ctx.reaperResult,
+      ctx.branchRefDiscovery.candidates,
+      ctx.sessionLogPlan,
+    )
+  ) {
     io.stdout("No eligible worktrees or stranded artifacts to clean up.\n");
     return resolveDiscoveryOrDaemonExit(ctx.discoveryExit, ctx.daemonUnreachableExit);
   }

@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs"
 import { isAbsolute, join, normalize, relative, resolve } from "node:path";
 import ts from "typescript";
 import { guarded } from "../../../scripts/guard-deterministic-daemon-tests.ts";
+import { AsyncSubprocessError, type AsyncSubprocessOptions } from "../../../shared/subprocess.ts";
 import { type ChangedLine, changedPathsFromDiff, defaultGitDiff, isProductionFile, parseDiff } from "./diff-scan.ts";
 import { importedModulePaths, resolveImportedModule } from "./runtime-smoke-verifier.ts";
 
@@ -42,7 +43,18 @@ export type SurvivingMutationResult = {
   dualConstraint?: true;
 };
 
-export type VerificationResult = PassResult | SurvivingMutationResult;
+export type NonTerminatingMutationResult = {
+  kind: "non-terminating-mutation";
+  mutation: string;
+  sourceSite: {
+    file: string;
+    line: number;
+  };
+};
+
+type MutationFailureResult = SurvivingMutationResult | NonTerminatingMutationResult;
+
+export type VerificationResult = PassResult | MutationFailureResult;
 
 export type Candidate = {
   file: string;
@@ -95,6 +107,7 @@ type VerifierSeams = {
 export const MAX_INSPECTED_MUTATIONS = 25;
 export const MAX_PROMPT_RENDER_VERIFICATIONS = 5;
 export const MAX_VERIFICATION_MS = 5 * 60_000;
+export const MAX_KILLING_TEST_MS = 30_000;
 export const MAX_CONCURRENT_VERIFIER_TEST_RUNS = 4;
 export const MAX_IMPORTER_DISCOVERY_CANDIDATES_PER_FILE = 200;
 
@@ -231,7 +244,7 @@ async function defaultRunScopedTests(cwd: string, scope: string[]): Promise<bool
 }
 
 type ScopedTestRunner = {
-  runAsync: (command: string, args: string[], cwd: string) => Promise<string>;
+  runAsync: (command: string, args: string[], cwd: string, options?: AsyncSubprocessOptions) => Promise<string>;
 };
 
 export async function runDiffDerivedScopedTests(
@@ -242,18 +255,26 @@ export async function runDiffDerivedScopedTests(
   if (scope.length === 0) return true;
   const subprocess = runner ?? (await import("../../../shared/subprocess.ts")).realAsyncSubprocessRunner;
   const semaphore = getVerifierTestRunSemaphore();
-  try {
-    await Promise.all(
-      scope.map((testPath) =>
-        semaphore.run(async () => {
-          await subprocess.runAsync("bun", ["test", testPath], cwd);
-        }),
-      ),
-    );
-    return true;
-  } catch {
-    return false;
+  const results = await Promise.allSettled(
+    scope.map((testPath) =>
+      semaphore.run(async () => {
+        await subprocess.runAsync("bun", ["test", testPath], cwd, {
+          timeoutMs: MAX_KILLING_TEST_MS,
+          processGroup: {},
+        });
+      }),
+    ),
+  );
+  for (const result of results) {
+    if (
+      result.status === "rejected" &&
+      result.reason instanceof AsyncSubprocessError &&
+      result.reason.code === "ETIMEDOUT"
+    ) {
+      throw result.reason;
+    }
   }
+  return results.every((result) => result.status === "fulfilled");
 }
 
 async function defaultReadFile(path: string): Promise<string> {
@@ -794,48 +815,50 @@ async function testCandidate(
   writeFile: WriteFile,
   runScopedTests: RunScopedTests,
   killingTestPaths: string[],
-): Promise<SurvivingMutationResult | SkippedCandidate | null> {
+): Promise<MutationFailureResult | SkippedCandidate | null> {
   const filePath = `${input.worktreePath}/${candidate.file}`;
+  let mutationWritten = false;
 
   try {
     const mutatedContent = applyMutation(originalContent, candidate);
     await writeFile(filePath, mutatedContent);
+    mutationWritten = true;
 
-    try {
-      // Killed if any resolved killing test fails under the mutation; runScopedTests returns false on the first failure.
-      const testsPassed = await runScopedTests(input.worktreePath, killingTestPaths);
-      if (testsPassed) {
-        const result: SurvivingMutationResult = {
-          kind: "surviving-mutation",
-          mutation: candidate.mutation,
-          sourceSite: {
-            file: candidate.file,
-            line: candidate.line,
-          },
-        };
+    // Killed if any resolved killing test fails under the mutation; runScopedTests returns false on the first failure.
+    const testsPassed = await runScopedTests(input.worktreePath, killingTestPaths);
+    if (testsPassed) {
+      const result: SurvivingMutationResult = {
+        kind: "surviving-mutation",
+        mutation: candidate.mutation,
+        sourceSite: {
+          file: candidate.file,
+          line: candidate.line,
+        },
+      };
 
-        if (
-          isInsideTimerCallback(originalContent, candidate.line) &&
-          guarded(candidate.file.replace(/\.ts$/, ".test.ts"))
-        ) {
-          result.dualConstraint = true;
-        }
-
-        return result;
+      if (
+        isInsideTimerCallback(originalContent, candidate.line) &&
+        guarded(candidate.file.replace(/\.ts$/, ".test.ts"))
+      ) {
+        result.dualConstraint = true;
       }
-    } finally {
-      await writeFile(filePath, originalContent);
+
+      return result;
     }
   } catch (error) {
-    try {
-      await writeFile(filePath, originalContent);
-    } catch {
-      // Ignore restoration errors
+    if (error instanceof AsyncSubprocessError && error.code === "ETIMEDOUT") {
+      return {
+        kind: "non-terminating-mutation",
+        mutation: candidate.mutation,
+        sourceSite: { file: candidate.file, line: candidate.line },
+      };
     }
     if (error instanceof UnappliableMutationError) {
       return { file: candidate.file, line: candidate.line, reason: error.message };
     }
     throw new Error(`Failed to test candidate for ${candidate.file}:${candidate.line}`);
+  } finally {
+    if (mutationWritten) await writeFile(filePath, originalContent);
   }
 
   return null;
@@ -1128,13 +1151,13 @@ async function verifyCandidates(
   now: () => number,
   deadline: number,
 ): Promise<{
-  result: SurvivingMutationResult | null;
+  result: MutationFailureResult | null;
   inspected: number;
   acceptedSites: AcceptedSite[];
   skippedCandidates: SkippedCandidate[];
 }> {
   let inspected = 0;
-  let survivingResult: SurvivingMutationResult | null = null;
+  let mutationFailure: MutationFailureResult | null = null;
   const acceptedSites: AcceptedSite[] = [];
   const skippedCandidates: SkippedCandidate[] = [];
   const fileCache = new Map<string, string>();
@@ -1154,7 +1177,7 @@ async function verifyCandidates(
 
   for (const candidate of candidates) {
     if (inspected >= MAX_INSPECTED_MUTATIONS || now() >= deadline) break;
-    if (survivingResult !== null) break;
+    if (mutationFailure !== null) break;
     inspected += 1;
 
     const originalContent = await getFileContent(candidate.file);
@@ -1179,7 +1202,7 @@ async function verifyCandidates(
       candidate.file,
       // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: per-file candidate unit fans out over admission bounds, equivalent-directive acceptance, importer resolution (cap/empty), and survivor short-circuit
       previous.then(async () => {
-        if (survivingResult !== null || now() >= deadline) return;
+        if (mutationFailure !== null || now() >= deadline) return;
         const content = await getFileContent(candidate.file);
         if (content === null) return;
         const resolution = await resolveKillingTests(
@@ -1191,11 +1214,11 @@ async function verifyCandidates(
           listImporterCandidates,
         );
         if (resolution.capExceeded) {
-          if (survivingResult === null) survivingResult = importerDiscoveryCapExceeded(candidate);
+          if (mutationFailure === null) mutationFailure = importerDiscoveryCapExceeded(candidate);
           return;
         }
         if (resolution.killingTests.length === 0) {
-          if (survivingResult === null) survivingResult = missingKillingTest(candidate);
+          if (mutationFailure === null) mutationFailure = missingKillingTest(candidate);
           return;
         }
         const result = await testCandidate(
@@ -1208,7 +1231,7 @@ async function verifyCandidates(
         );
         if (result !== null) {
           if ("kind" in result) {
-            if (survivingResult === null) survivingResult = result;
+            if (mutationFailure === null) mutationFailure = result;
           } else {
             skippedCandidates.push(result);
           }
@@ -1218,7 +1241,7 @@ async function verifyCandidates(
   }
 
   await Promise.all(fileChains.values());
-  return { result: survivingResult, inspected, acceptedSites, skippedCandidates };
+  return { result: mutationFailure, inspected, acceptedSites, skippedCandidates };
 }
 
 export async function verifyDiffDerivedMutations(

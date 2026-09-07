@@ -4,11 +4,13 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveRenderObserverTests } from "../../../shared/prompts/render-observer-tests.ts";
+import { AsyncSubprocessError, type AsyncSubprocessOptions } from "../../../shared/subprocess.ts";
 import {
   type DiffDerivedMutationVerifierInput,
   extractRenderObserverMapFromSource,
   MAX_CONCURRENT_VERIFIER_TEST_RUNS,
   MAX_INSPECTED_MUTATIONS,
+  MAX_KILLING_TEST_MS,
   MAX_VERIFICATION_MS,
   maskNonCodeSpans,
   parseEquivalentMutationDirective,
@@ -978,6 +980,105 @@ index f424d7da..be281d02 100644
 
     expect(peakVerifierTestRuns()).toBeLessThanOrEqual(MAX_CONCURRENT_VERIFIER_TEST_RUNS);
     expect(peakVerifierTestRuns()).toBeGreaterThan(1);
+  });
+
+  describe("bounded killing-test execution", () => {
+    const source = `export function hangs(x: unknown): string {
+  if (!x) return "stopped";
+  return "running";
+}`;
+    const diff = `diff --git a/src/hangs.ts b/src/hangs.ts
+index 1234567..abcdefg 100644
+--- a/src/hangs.ts
++++ b/src/hangs.ts
+@@ -1,3 +1,3 @@
+ export function hangs(x: unknown): string {
+-  if (!x) return "old";
++  if (!x) return "stopped";
+   return "running";
+`;
+
+    function verifyTimeout(
+      runScopedTests: (cwd: string, scope: string[]) => Promise<boolean>,
+      writeFile: (path: string, content: string) => Promise<void> = async () => {},
+    ) {
+      return verifyDiffDerivedMutations(
+        { worktreePath: "/test/path", runBase: "main" },
+        {
+          gitDiff: async () => diff,
+          untrackedFiles: async () => [],
+          readFile: async (path) => (path.endsWith(".test.ts") ? "export {};\n" : source),
+          writeFile,
+          listDir: () => [],
+          runScopedTests,
+        },
+      );
+    }
+
+    it("bounds a never-settling detached subprocess and settles verification", async () => {
+      let receivedOptions: AsyncSubprocessOptions | undefined;
+      const neverSettlingRunner = {
+        runAsync: async (_command: string, _args: string[], _cwd: string, options?: AsyncSubprocessOptions) => {
+          receivedOptions = options;
+          if (options?.timeoutMs === MAX_KILLING_TEST_MS && options.processGroup !== undefined) {
+            throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+          }
+          await new Promise<void>(() => {});
+          return "";
+        },
+      };
+
+      const result = await verifyTimeout((cwd, scope) => runDiffDerivedScopedTests(cwd, scope, neverSettlingRunner));
+
+      expect(receivedOptions?.timeoutMs).toBe(MAX_KILLING_TEST_MS);
+      expect(receivedOptions?.processGroup).toBeDefined();
+      expect(result.kind).toBe("non-terminating-mutation");
+    }, 1_000);
+
+    it("classifies scoped-test timeout separately from caught and surviving mutations", async () => {
+      const result = await verifyTimeout(async () => {
+        throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+      });
+
+      expect(result).toMatchObject({
+        kind: "non-terminating-mutation",
+        mutation: expect.stringContaining("guard-flip"),
+        sourceSite: { file: "src/hangs.ts", line: 2 },
+      });
+    });
+
+    it("preserves timeout classification when another scoped test fails first", async () => {
+      const result = runDiffDerivedScopedTests("/test/path", ["src/fails.test.ts", "src/hangs.test.ts"], {
+        runAsync: async (_command, args) => {
+          if (args[1] === "src/hangs.test.ts") {
+            throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+          }
+          throw new AsyncSubprocessError("tests failed", 1, "", "", undefined);
+        },
+      });
+
+      await expect(result).rejects.toMatchObject({ code: "ETIMEDOUT" });
+    });
+
+    it("restores pre-mutation bytes after scoped-test timeout", async () => {
+      let currentContent = source;
+      const writes: string[] = [];
+      const result = await verifyTimeout(
+        async () => {
+          throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+        },
+        async (_path, content) => {
+          writes.push(content);
+          currentContent = content;
+        },
+      );
+
+      expect(result.kind).toBe("non-terminating-mutation");
+      expect(currentContent).toBe(source);
+      expect(writes).toHaveLength(2);
+      expect(writes[0]).not.toBe(source);
+      expect(writes[1]).toBe(source);
+    });
   });
 
   describe("defaultRunScopedTests (real subprocess, no seam)", () => {

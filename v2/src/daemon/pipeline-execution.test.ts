@@ -6356,7 +6356,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
   test("whole-pipeline failed plan resume reports reused existing worktree when stale reset is no-op", async () => {
     const intentWorktree = await materializeWorktree(intentBranch);
     await seedIntentReadyIntent(intentWorktree);
-    const planWorktree = join(jarvisRoot, "worktrees", "demo", planBranch);
+    const _planWorktree = join(jarvisRoot, "worktrees", "demo", planBranch);
 
     const { store, stages } = fakeStore(
       planChainDefinition(),

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
@@ -1712,7 +1712,7 @@ async function refuseReopenedPlanOperatorBlockerWithGit(
   args: AdvanceWorkflowStageArgs,
   steps: readonly AnyWorkflowStep[],
   capture: { message: string },
-  branchKey = args.branchKey,
+  _branchKey = args.branchKey,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   const writeStep = steps.find((step) => step.behavior === "write");
   const worktree = writeStep?.behavior === "write" ? writeStep.worktree : undefined;

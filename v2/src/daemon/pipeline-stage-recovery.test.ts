@@ -3,8 +3,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { locateSymbolSlice } from "../../../shared/structural-test-locator.ts";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
+import { locateSymbolSlice } from "../../../shared/structural-test-locator.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type {

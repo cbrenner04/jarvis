@@ -1880,8 +1880,7 @@ export async function resetStaleWorkspace(
   if (liveCheck.live) return { status: "refused", reason: liveCheck.reason };
 
   const prGate = await gateOnOpenPrs(branch, runner, projectRoot);
-  if (prGate.status === "unknown") return { status: "refused", reason: prGate.reason };
-  if (prGate.status === "refused") return { status: "refused", reason: prGate.reason };
+  if (prGate.status !== "ok") return { status: "refused", reason: prGate.reason };
 
   const claimProbe = daemonClient.checkWorkflowStartClaim;
   if (claimProbe === undefined) {
@@ -1995,7 +1994,7 @@ async function isWorktreeLiveHeld(
   return { live: false };
 }
 
-export type OpenPrGateResult =
+type OpenPrGateResult =
   | { status: "ok"; pr: OpenPr | undefined }
   | { status: "refused"; reason: string }
   | { status: "unknown"; reason: string };
@@ -2266,7 +2265,7 @@ export async function runAbandonCommand(
 
   // PR-ownership gates: refuse ready PRs, ambiguous PR ownership, and inconclusive probes
   const prGate = await gateOnOpenPrs(branch, runner, projectRoot ?? ".");
-  if (prGate.status === "unknown" || prGate.status === "refused") {
+  if (prGate.status !== "ok") {
     io.stderr(`Error: Cannot abandon: ${prGate.reason}\n`);
     return 1;
   }

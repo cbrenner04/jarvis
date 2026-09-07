@@ -444,54 +444,6 @@ function survivingMutationRepromptEvent(
   return { kind: "surviving_mutation_reprompt", attemptId, ...survivingMutationRepromptContext(result) };
 }
 
-function settleInLoopNonTerminatingMutation(
-  args: WriteLoopInput,
-  store: StateStore,
-  runId: string,
-  attemptId: string,
-  iterationsConsumed: number,
-  verificationResult: Extract<VerificationResult, { kind: "non-terminating-mutation" }>,
-): WriteLoopResult {
-  const mutationError = new NonTerminatingMutationError(
-    verificationResult.mutation,
-    verificationResult.sourceSite.file,
-    verificationResult.sourceSite.line,
-  );
-  const mutationFields = nonTerminatingMutationLogFields(mutationError);
-  store.commitCompletionBoundary({
-    attemptId,
-    runStatus: "failed",
-    outcomeKind: "non_terminating_mutation_failed",
-    ...completionBoundarySettlementFields(
-      "non_terminating_mutation_failed",
-      terminalFailureDetailFromError(mutationError),
-    ),
-  });
-  args.logSink?.append(runId, {
-    kind: "boundary_committed",
-    attemptId,
-    outcomeKind: "non_terminating_mutation_failed",
-    runStatus: "failed",
-  });
-  args.logSink?.append(runId, {
-    kind: "loop_finished",
-    loopOutcomeKind: "non_terminating_mutation_failed",
-    iterationsConsumed,
-    resumable: true,
-    ...mutationFields,
-  });
-  return {
-    kind: "non_terminating_mutation_failed",
-    runId,
-    iterationsConsumed,
-    resumable: true,
-    attemptId,
-    outcomeKind: "non_terminating_mutation_failed",
-    runStatus: "failed",
-    ...mutationFields,
-  };
-}
-
 const DEFAULT_MAX_ITERATIONS = 10;
 const MAX_READY_GATE_REPAIRS = 3;
 
@@ -1736,14 +1688,44 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
               error instanceof Error ? error : new Error(String(error)),
             );
           }
-          return settleInLoopNonTerminatingMutation(
-            args,
-            store,
-            runId,
-            attemptId,
-            iterationsConsumed,
-            verificationResult,
+          const mutationError = new NonTerminatingMutationError(
+            verificationResult.mutation,
+            verificationResult.sourceSite.file,
+            verificationResult.sourceSite.line,
           );
+          const mutationFields = nonTerminatingMutationLogFields(mutationError);
+          store.commitCompletionBoundary({
+            attemptId,
+            runStatus: "failed",
+            outcomeKind: "non_terminating_mutation_failed",
+            ...completionBoundarySettlementFields(
+              "non_terminating_mutation_failed",
+              terminalFailureDetailFromError(mutationError),
+            ),
+          });
+          args.logSink?.append(runId, {
+            kind: "boundary_committed",
+            attemptId,
+            outcomeKind: "non_terminating_mutation_failed",
+            runStatus: "failed",
+          });
+          args.logSink?.append(runId, {
+            kind: "loop_finished",
+            loopOutcomeKind: "non_terminating_mutation_failed",
+            iterationsConsumed,
+            resumable: true,
+            ...mutationFields,
+          });
+          return {
+            kind: "non_terminating_mutation_failed",
+            runId,
+            iterationsConsumed,
+            resumable: true,
+            attemptId,
+            outcomeKind: "non_terminating_mutation_failed",
+            runStatus: "failed",
+            ...mutationFields,
+          };
         }
         pendingSurvivingMutationReprompt = undefined;
       }

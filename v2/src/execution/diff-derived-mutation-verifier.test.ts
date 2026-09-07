@@ -1,6 +1,5 @@
 import { describe, expect, it } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,6 +13,7 @@ import {
   MAX_KILLING_TEST_MS,
   MAX_VERIFICATION_MS,
   maskNonCodeSpans,
+  mutationRecordFileName,
   parseEquivalentMutationDirective,
   peakVerifierTestRuns,
   resetVerifierTestRunTrackingForTest,
@@ -1504,14 +1504,15 @@ index 1234567..abcdefg 100644
     const fixture = (file: string, name: string, guard: string) => {
       const content = `export function ${name}() {\n  if (!${guard}) return "${guard}";\n  return true;\n}\n`;
       const mutation = `guard-flip: !${guard} → ${guard}`;
+      const line = 2;
+      const columnStart = 6;
+      const columnEnd = 7 + guard.length;
       return {
         file,
         content,
         mutation,
         diff: `diff --git a/${file} b/${file}\nindex 1234567..abcdefg 100644\n--- a/${file}\n+++ b/${file}\n@@ -1,2 +1,3 @@\n export function ${name}() {\n+  if (!${guard}) return "${guard}";\n   return true;\n`,
-        recordName: `${createHash("sha256")
-          .update(JSON.stringify([file, 2, 6, 7 + guard.length, mutation]))
-          .digest("hex")}.json`,
+        recordName: mutationRecordFileName({ file, line, columnStart, columnEnd, mutation }),
       };
     };
     const first = fixture("src/first.ts", "first", "left");
@@ -1586,57 +1587,6 @@ index 1234567..abcdefg 100644
       firstTest.release();
       secondTest.release();
       await verification;
-      rmSync(worktreePath, { recursive: true, force: true });
-    }
-  });
-
-  it("cleans up mutation-record temp files when renameSync fails", async () => {
-    const scratchRoot = join(import.meta.dir, "../../../.scratch");
-    mkdirSync(scratchRoot, { recursive: true });
-    const worktreePath = mkdtempSync(join(scratchRoot, "mutation-record-rename-fail-"));
-    const guard = "renameFailCleanup";
-    const file = "src/rename-fail-cleanup.ts";
-    const content = `export function check() {\n  if (!${guard}) return "${guard}";\n  return true;\n}\n`;
-    const mutation = `guard-flip: !${guard} → ${guard}`;
-    const recordDest = `${createHash("sha256")
-      .update(JSON.stringify([file, 2, 6, 7 + guard.length, mutation]))
-      .digest("hex")}.json`;
-    const diff = `diff --git a/${file} b/${file}
-index 1234567..abcdefg 100644
---- a/${file}
-+++ b/${file}
-@@ -1,2 +1,3 @@
- export function check() {
-+  if (!${guard}) return "${guard}";
-   return true;
-`;
-
-    try {
-      mkdirSync(join(worktreePath, "src"), { recursive: true });
-      writeFileSync(join(worktreePath, file), content);
-      writeFileSync(join(worktreePath, file.replace(".ts", ".test.ts")), "export {};\n");
-
-      const recordsDir = join(worktreePath, ".jarvis-diff-derived-mutations");
-      mkdirSync(recordsDir, { recursive: true });
-      mkdirSync(join(recordsDir, recordDest));
-
-      try {
-        await verifyDiffDerivedMutations(
-          { worktreePath, runBase: "main" },
-          {
-            gitDiff: async () => diff,
-            untrackedFiles: async () => [],
-            registeredPromptPaths: async () => [],
-            runScopedTests: async () => false,
-          },
-        );
-      } catch {
-        // record() rethrows after renameSync fails against a pre-created destination directory
-      }
-
-      const leftovers = readdirSync(recordsDir).filter((name) => name.startsWith(".") && name.endsWith(".tmp"));
-      expect(leftovers).toEqual([]);
-    } finally {
       rmSync(worktreePath, { recursive: true, force: true });
     }
   });

@@ -1592,9 +1592,7 @@ export function resolveWriteOutOfScopeResumeContext(
 }
 
 /**
- * Admission and reconstruction for resuming an ordinary write row's `non_terminating_mutation_failed`
- * failure: only mutation re-verification, the ready gate, and publication run again — never a
- * write-loop re-entry or repair agent.
+ * Resume admission for `non_terminating_mutation_failed`: mutation re-verification, ready gate, and publication only.
  */
 export function resolveWriteNonTerminatingResumeContext(
   run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>,

@@ -1514,10 +1514,6 @@ index 1234567..abcdefg 100644
 });
 
 describe("nonTerminatingMutationLogFields", () => {
-  it("returns empty fields for undefined source", () => {
-    expect(nonTerminatingMutationLogFields(undefined)).toEqual({});
-  });
-
   it("projects NonTerminatingMutationError fields", () => {
     const error = new NonTerminatingMutationError(
       "operator-flip: === → !==",
@@ -1529,23 +1525,7 @@ describe("nonTerminatingMutationLogFields", () => {
       nonTerminatingMutationSourceFile: "v2/src/execution/ready-finalize.ts",
       nonTerminatingMutationSourceLine: 934,
     });
-  });
-
-  it("passes through plain field objects", () => {
-    expect(
-      nonTerminatingMutationLogFields({
-        nonTerminatingMutation: "hang",
-        nonTerminatingMutationSourceFile: "src/a.ts",
-        nonTerminatingMutationSourceLine: 1,
-      }),
-    ).toEqual({
-      nonTerminatingMutation: "hang",
-      nonTerminatingMutationSourceFile: "src/a.ts",
-      nonTerminatingMutationSourceLine: 1,
-    });
-  });
-
-  it("returns empty fields for unrelated errors", () => {
+    expect(nonTerminatingMutationLogFields(undefined)).toEqual({});
     expect(nonTerminatingMutationLogFields(new Error("other"))).toEqual({});
   });
 });

@@ -44,16 +44,13 @@ export type SurvivingMutationResult = {
   dualConstraint?: true;
 };
 
-export type NonTerminatingMutationResult = {
-  kind: "non-terminating-mutation";
-  mutation: string;
-  sourceSite: {
-    file: string;
-    line: number;
-  };
-};
-
-type MutationFailureResult = SurvivingMutationResult | NonTerminatingMutationResult;
+type MutationFailureResult =
+  | SurvivingMutationResult
+  | {
+      kind: "non-terminating-mutation";
+      mutation: string;
+      sourceSite: { file: string; line: number };
+    };
 
 export type VerificationResult = PassResult | MutationFailureResult;
 
@@ -67,16 +64,22 @@ export type Candidate = {
   mutation: string;
 };
 
+function candidateIdentity(
+  candidate: Pick<Candidate, "file" | "line" | "columnStart" | "columnEnd" | "mutation">,
+): string {
+  return JSON.stringify([
+    candidate.file,
+    candidate.line,
+    candidate.columnStart,
+    candidate.columnEnd,
+    candidate.mutation,
+  ]);
+}
+
 function deduplicateCandidates(candidates: Candidate[]): Candidate[] {
   const seen = new Set<string>();
   return candidates.filter((candidate) => {
-    const identity = JSON.stringify([
-      candidate.file,
-      candidate.line,
-      candidate.columnStart,
-      candidate.columnEnd,
-      candidate.mutation,
-    ]);
+    const identity = candidateIdentity(candidate);
     if (seen.has(identity)) return false;
     seen.add(identity);
     return true;
@@ -106,7 +109,6 @@ type VerifierSeams = {
   registeredPromptPaths?: RegisteredPromptPaths;
   listDir?: ListDir;
   listImporterCandidates?: ListImporterCandidates;
-  mutationRecordStore?: MutationRecordStore;
   now?: () => number;
 };
 
@@ -123,16 +125,14 @@ const RENDER_OBSERVER_MAP_RELATIVE_PATH = "shared/prompts/render-observer-tests.
 const RENDER_OBSERVER_MAP_BINDING = "RENDER_OBSERVER_TESTS";
 const MUTATION_RECORD_DIR = ".jarvis-diff-derived-mutations";
 
+export function mutationRecordFileName(
+  candidate: Pick<Candidate, "file" | "line" | "columnStart" | "columnEnd" | "mutation">,
+): string {
+  return `${createHash("sha256").update(candidateIdentity(candidate)).digest("hex")}.json`;
+}
+
 function mutationRecordPath(worktreePath: string, candidate: Candidate): string {
-  const identity = JSON.stringify([
-    candidate.file,
-    candidate.line,
-    candidate.columnStart,
-    candidate.columnEnd,
-    candidate.mutation,
-  ]);
-  const digest = createHash("sha256").update(identity).digest("hex");
-  return join(worktreePath, MUTATION_RECORD_DIR, `${digest}.json`);
+  return join(worktreePath, MUTATION_RECORD_DIR, mutationRecordFileName(candidate));
 }
 
 const defaultMutationRecordStore: MutationRecordStore = {
@@ -155,11 +155,6 @@ const defaultMutationRecordStore: MutationRecordStore = {
   remove(worktreePath, candidate) {
     rmSync(mutationRecordPath(worktreePath, candidate), { force: true });
   },
-};
-
-const noMutationRecordStore: MutationRecordStore = {
-  record() {},
-  remove() {},
 };
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: TS-AST walk over the observer-map object literal; extracting the node handlers would fragment the parse
@@ -1310,8 +1305,8 @@ export async function verifyDiffDerivedMutations(
   const registeredPromptPaths = seams?.registeredPromptPaths ?? defaultRegisteredPromptPaths;
   const listDir = seams?.listDir ?? defaultListDir;
   const listImporterCandidates = seams?.listImporterCandidates ?? defaultListImporterCandidates;
-  const mutationRecordStore =
-    seams?.mutationRecordStore ?? (seams?.writeFile === undefined ? defaultMutationRecordStore : noMutationRecordStore);
+  const mutationRecordStore: MutationRecordStore =
+    seams?.writeFile === undefined ? defaultMutationRecordStore : { record() {}, remove() {} };
 
   const diffOutput = await gitDiff(input.worktreePath, input.runBase);
   const changedLines = parseDiff(diffOutput);

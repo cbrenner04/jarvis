@@ -115,7 +115,7 @@ export const PERMITTED_TERMINAL_WRITES: PermittedTerminalWrite[] = [
   },
   { file: "workflow-runner.ts", functionName: "finalizeStandardReviewStep", writer: "commitCompletionBoundary" },
   { file: "write-loop.ts", functionName: "settleCompletedPublication", writer: "commitTerminalRunSettlement" },
-  { file: "write-loop.ts", functionName: "executeWriteLoop", writer: "commitCompletionBoundary", count: 7 },
+  { file: "write-loop.ts", functionName: "executeWriteLoop", writer: "commitCompletionBoundary", count: 8 },
   { file: "write-loop.ts", functionName: "executeWriteLoop", writer: "commitTerminalRunSettlement" },
   { file: "write-loop.ts", functionName: "finishIterationTimeout", writer: "commitCompletionBoundary" },
   { file: "write-loop.ts", functionName: "finishExecuteWriteThrow", writer: "commitCompletionBoundary" },
@@ -124,11 +124,6 @@ export const PERMITTED_TERMINAL_WRITES: PermittedTerminalWrite[] = [
   { file: "write-loop.ts", functionName: "completionCommitFailed", writer: "commitTerminalRunSettlement" },
   { file: "write-loop.ts", functionName: "readyFailed", writer: "commitTerminalRunSettlement" },
   { file: "write-loop.ts", functionName: "iterationCommitFailed", writer: "commitTerminalRunSettlement" },
-  {
-    file: "write-loop.ts",
-    functionName: "settleInLoopNonTerminatingMutation",
-    writer: "commitCompletionBoundary",
-  },
 ];
 
 export const PERMITTED_NONTERMINAL_SET_RUN_STATUS: PermittedNonterminalSetRunStatus[] = [

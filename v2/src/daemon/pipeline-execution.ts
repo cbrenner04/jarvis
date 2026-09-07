@@ -772,62 +772,16 @@ export function reopenedFailurePermitsActivation(pipeline: Pipeline & { stages: 
   return !pipeline.stages.some((record) => record.status === "failed");
 }
 
-function fanOutBranchHasContinuableWork(
-  pipeline: Pipeline & { stages: PipelineStageRecord[] },
-  split: FanOutSplit,
-  branchKey: string,
-): boolean {
-  for (let index = 0; index <= split.splitPosition; index += 1) {
-    const stage = pipeline.definition.stages[index];
-    if (stage === undefined) continue;
-    const record = findStageRecord(pipeline.stages, stage.stageId, DEFAULT_PIPELINE_STAGE_BRANCH_KEY);
-    if (!isAuthoredStageSatisfied(stage, record)) return false;
-  }
-
-  for (const { stage, record } of suffixStagesForBranch(pipeline, split.splitPosition, branchKey)) {
-    if (stage.kind === "approval" && record.status === "rejected") return false;
-    if (record.status === "failed") return false;
-    if (stage.kind === "approval" && approvalOutcomeBlocksActivation(record.status)) return false;
-    if (!isAuthoredStageSatisfied(stage, record)) return true;
-  }
-  return false;
-}
-
-function fanOutApprovalPermitsActivation(
-  pipeline: Pipeline & { stages: PipelineStageRecord[] },
-  split: FanOutSplit,
-): boolean {
-  for (const branchKey of split.branchKeys) {
-    if (!fanOutBranchHasContinuableWork(pipeline, split, branchKey)) continue;
-    for (const { stage, record } of suffixStagesForBranch(pipeline, split.splitPosition, branchKey)) {
-      if (stage.kind === "approval" && approvalOutcomeBlocksActivation(record.status)) return false;
-    }
-    return true;
-  }
-  return true;
-}
-
 /** True when a reconciled or active pipeline with persisted context has a dispatchable workflow stage or pending settlement. */
 export function isPipelineContinuable(pipeline: Pipeline & { stages: PipelineStageRecord[] }): boolean {
   if (pipeline.status !== "active" && pipeline.status !== "interrupted") return false;
   if (!persistedContextLoadPermitsContinuation(pipeline.context)) return false;
   if (isPipelineSettlementPending(pipeline)) return true;
 
-  const split = findFanOutSplit(pipeline);
-  if (split !== null) {
-    const hasContinuableBranch = split.branchKeys.some((branchKey) =>
-      fanOutBranchHasContinuableWork(pipeline, split, branchKey),
-    );
-    if (hasContinuableBranch) {
-      return fanOutApprovalPermitsActivation(pipeline, split);
-    }
-  }
+  const derivedState = derivePipelineState(pipeline);
+  if (derivedState !== "pending") return false;
 
-  return (
-    derivePipelineState(pipeline) === "pending" &&
-    approvalOutcomePermitsActivation(pipeline) &&
-    reopenedFailurePermitsActivation(pipeline)
-  );
+  return approvalOutcomePermitsActivation(pipeline) && reopenedFailurePermitsActivation(pipeline);
 }
 
 /** True when the pipeline row carries a durable terminal-publication failure. */

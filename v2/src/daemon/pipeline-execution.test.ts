@@ -5073,6 +5073,22 @@ describe("derivePipelineState fan-out suffix settlement-first", () => {
   });
 });
 
+test("isPipelineContinuable agrees with derivePipelineState on fan-out continuable fixtures", () => {
+  const pipeline = {
+    ...fanOutSuffixRowSeedPipeline(FAN_OUT_LINEAR_DEFINITION, {
+      "plan/alpha": {},
+      "implement/alpha": { status: "failed", endedAt: 1 },
+      "plan/beta": { status: "succeeded", endedAt: 2 },
+      "implement/beta": { status: "succeeded", endedAt: 3 },
+    }),
+    context: persistedContext,
+  };
+
+  // @mutate v2/src/daemon/pipeline-execution.ts "if (derivedState !== \"pending\") return false;" -> "if (false) return false;"
+  expect(derivePipelineState(pipeline)).toBe("failed");
+  expect(isPipelineContinuable(pipeline)).toBe(false);
+});
+
 describe("pipeline branch fan-out execution", () => {
   test("after fan-out admission, default rows do not dispatch plan or implement while per-branch rows exist", async () => {
     const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, {

@@ -64,6 +64,8 @@ When a splitting intent stage artifact carries `downstreamInputs` with length �
 - One `pipeline_stages` row per `(stageId, branchKey)`; `branchKey` = ready-intent basename without `.md` (`branchKeyFromDownstreamInput`).
 - Pre-admitted `default` suffix rows reconcile to `skipped`.
 - First chained workflow stage resolves fan-out (`isFanOutStageResolution`); later stages resolve per-branch from branch-local artifacts.
+- Branch-scoped plan resolution selects the sole downstream input whose derived branch key equals the active lane, verifies only that input, and returns single-path `{ steps }`. Initial `default`-row whole-list verification treats a sibling input consumed into its succeeded plan-stage spec tree as satisfied.
+- If no downstream input matches the active lane, resolution refuses with the lane and available inputs named. When the intent stage succeeded, the refusal omits standalone intent re-drive guidance.
 - Sibling branches dispatch concurrently; per-invocation `dispatchClaims` ensures one peer admits the shared fan-out stage (`pipeline-execution.test.ts` — concurrent dispatch).
 - Branch failure → `skipRemainingStages` for that `branchKey` only.
 - `derivePipelineState` aggregates settlement-first across branches (`deriveFanOutPipelineState`).

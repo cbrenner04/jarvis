@@ -17,7 +17,7 @@ import {
 } from "../../../shared/subprocess.ts";
 import { isProcessAlive, type WorktreeLock } from "../../../shared/worktree-lock.ts";
 import { request } from "../cli/ipc.ts";
-import { readProjectConfigRecord } from "../config/machine-config-loader.ts";
+import { readCleanupSessionLogRetentionDays, readProjectConfigRecord } from "../config/machine-config-loader.ts";
 import { parseListRuns } from "../daemon/daemon-wire.ts";
 import { mergeRunLists } from "../daemon/merge-run-lists.ts";
 import { type QueryDaemonListsDeps, queryDaemonListsFromSockets } from "../daemon/query-daemon-lists-from-sockets.ts";
@@ -36,7 +36,7 @@ import {
   checkArtifactEligibility,
   isExternalPlanArtifact,
 } from "./cleanup-artifacts.ts";
-import { reapDeadDaemonSockets } from "./daemon.ts";
+import { DAEMON_DIGEST_ARTIFACT_FILE, reapDeadDaemonSockets } from "./daemon.ts";
 
 export type DiscoveredWorktree = {
   path: string;
@@ -1193,24 +1193,104 @@ async function retireEligibleWorktrees(
 
 type ReaperResult = Awaited<ReturnType<typeof reapDeadDaemonSockets>>;
 
+type SessionLogReapPlan = { expired: { path: string; bytes: number }[]; oldestKeptDate: string } | null;
+
+const SESSION_LOG_NAME_PATTERN =
+  /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.\d{3}Z\.log$/i;
+
+function discoverExpiredSessionLogs(
+  sessionsDir: string,
+  configPath: string,
+  clock: () => Date,
+  store: StateStore,
+  io: { stderr: (s: string) => void },
+): SessionLogReapPlan {
+  let retention: ReturnType<typeof readCleanupSessionLogRetentionDays>;
+  try {
+    retention = readCleanupSessionLogRetentionDays(configPath);
+  } catch (error) {
+    io.stderr(
+      `Failed to load machine config; skipped session-log reaping: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    return null;
+  }
+  if (!retention.ok) {
+    io.stderr(`${retention.error}; skipped session-log reaping.\n`);
+    return null;
+  }
+
+  const cutoffMs = clock().getTime() - retention.days * 24 * 60 * 60 * 1000;
+  const plan: NonNullable<SessionLogReapPlan> = {
+    expired: [],
+    oldestKeptDate: new Date(cutoffMs).toISOString().slice(0, 10),
+  };
+  if (!existsSync(sessionsDir)) return plan;
+
+  const runsById = new Map(store.listRuns().map((run) => [run.id, run]));
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(sessionsDir, { withFileTypes: true });
+  } catch {
+    return plan;
+  }
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".log")) continue;
+    const match = SESSION_LOG_NAME_PATTERN.exec(entry.name);
+    if (match === null) continue;
+    const run = runsById.get(match[1] ?? "");
+    if (
+      run === undefined ||
+      !isTerminalRunStatus(run.status) ||
+      typeof run.finishedAt !== "number" ||
+      !Number.isFinite(run.finishedAt) ||
+      run.finishedAt >= cutoffMs
+    ) {
+      continue;
+    }
+    const path = join(sessionsDir, entry.name);
+    try {
+      plan.expired.push({ path, bytes: statSync(path).size });
+    } catch {
+      // A file that disappears during discovery is no longer reclaimable.
+    }
+  }
+  return plan;
+}
+
+function printSessionLogSummary(
+  verb: "Found" | "Reaped",
+  logs: readonly { path: string; bytes: number }[],
+  oldestKeptDate: string,
+  io: { stdout: (s: string) => void },
+): void {
+  if (logs.length === 0) return;
+  const bytes = logs.reduce((total, log) => total + log.bytes, 0);
+  const byteLabel = verb === "Found" ? "reclaimable" : "reclaimed";
+  io.stdout(
+    `${verb} ${logs.length} expired session log(s): ${bytes} ${byteLabel} bytes; oldest kept date: ${oldestKeptDate}.\n`,
+  );
+}
+
 function hasNothingToClean(
   candidates: readonly CleanupCandidate[],
   stranded: readonly StrandedArtifact[],
   reaperResult: ReaperResult,
   branchRefCandidates: readonly MergedBranchRefCandidate[],
+  sessionLogPlan: SessionLogReapPlan,
 ): boolean {
   return (
     candidates.length === 0 &&
     stranded.length === 0 &&
     reaperResult.dead.length === 0 &&
     reaperResult.preserved.length === 0 &&
-    branchRefCandidates.length === 0
+    branchRefCandidates.length === 0 &&
+    (sessionLogPlan === null || sessionLogPlan.expired.length === 0)
   );
 }
 
 function previewReaperResult(reaperResult: ReaperResult, io: { stdout: (s: string) => void }): void {
   if (reaperResult.dead.length > 0) {
-    io.stdout(`Found ${reaperResult.dead.length} dead daemon socket(s) for cleanup:\n`);
+    io.stdout(`Found ${reaperResult.dead.length} dead daemon artifact(s) for cleanup:\n`);
     for (const path of reaperResult.dead) {
       io.stdout(`  remove: ${path}\n`);
     }
@@ -1223,20 +1303,41 @@ function previewReaperResult(reaperResult: ReaperResult, io: { stdout: (s: strin
   }
 }
 
-function removeDeadDaemonSockets(
-  paths: readonly string[],
-  io: { stdout: (s: string) => void; stderr: (s: string) => void },
-): number {
+function socketFilesForDeadDaemonArtifacts(paths: readonly string[]): string[] {
+  const keys = new Set<string>();
   for (const path of paths) {
-    try {
-      rmSync(path, { force: true });
-      io.stdout(`Removed daemon socket: ${path}\n`);
-    } catch (err) {
-      io.stderr(`Failed to remove daemon socket ${path}: ${err instanceof Error ? err.message : String(err)}\n`);
-      return 1;
+    const match = DAEMON_DIGEST_ARTIFACT_FILE.exec(basename(path));
+    const key = match?.[1];
+    if (key !== undefined) keys.add(key);
+  }
+  return [...keys].map((key) => `daemon-${key}.sock`);
+}
+
+async function removeDeadDaemonArtifacts(
+  paths: readonly string[],
+  jarvisRoot: string,
+  io: { stdout: (s: string) => void; stderr: (s: string) => void },
+): Promise<number> {
+  let exitCode = 0;
+  const socketFiles = socketFilesForDeadDaemonArtifacts(paths);
+
+  for (const socketFile of socketFiles) {
+    const key = socketFile.slice("daemon-".length, -".sock".length);
+    const artifactPaths = ["sock", "pid", "log"].map((extension) => join(jarvisRoot, `daemon-${key}.${extension}`));
+    const revalidated = await reapDeadDaemonSockets(jarvisRoot, [socketFile]);
+    const revalidatedDead = new Set(revalidated.dead);
+    for (const path of artifactPaths) {
+      if (!paths.includes(path) || !revalidatedDead.has(path)) continue;
+      try {
+        rmSync(path, { force: true });
+        io.stdout(`Removed daemon artifact: ${path}\n`);
+      } catch (err) {
+        io.stderr(`Failed to remove daemon artifact ${path}: ${err instanceof Error ? err.message : String(err)}\n`);
+        exitCode = 1;
+      }
     }
   }
-  return 0;
+  return exitCode;
 }
 
 async function retireStrandedArtifacts(
@@ -1295,6 +1396,7 @@ type CleanupDiscoveryContext = {
   strandedArtifacts: DiscoveredStrandedArtifact[];
   stranded: StrandedArtifact[];
   reaperResult: ReaperResult;
+  sessionLogPlan: SessionLogReapPlan;
   daemonUnreachable: DiscoveredWorktree[];
 };
 
@@ -1306,6 +1408,9 @@ async function gatherCleanupDiscoveryContext(
   daemonClient: DaemonClient,
   store: StateStore,
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
+  sessionsDir: string,
+  configPath: string,
+  clock: () => Date,
 ): Promise<CleanupDiscoveryContext> {
   const branchRefDiscovery = await discoverMergedBranchRefCandidates(registry, { runner, ownershipRegistry });
   const discoveryExit = reportUnusableProjects(branchRefDiscovery.unusableProjects, io);
@@ -1332,6 +1437,7 @@ async function gatherCleanupDiscoveryContext(
     io,
   );
   const reaperResult = await reapDeadDaemonSockets(jarvisRoot);
+  const sessionLogPlan = discoverExpiredSessionLogs(sessionsDir, configPath, clock, store, io);
 
   return {
     branchRefDiscovery,
@@ -1343,6 +1449,7 @@ async function gatherCleanupDiscoveryContext(
     strandedArtifacts,
     stranded,
     reaperResult,
+    sessionLogPlan,
     daemonUnreachable,
   };
 }
@@ -1393,6 +1500,9 @@ async function previewAllCleanupTargets(
     for (const spec of ctx.stranded) previewArtifact(spec, io);
   }
   previewReaperResult(ctx.reaperResult, io);
+  if (ctx.sessionLogPlan !== null) {
+    printSessionLogSummary("Found", ctx.sessionLogPlan.expired, ctx.sessionLogPlan.oldestKeptDate, io);
+  }
 }
 
 async function executeConfirmedCleanup(
@@ -1430,8 +1540,25 @@ async function executeConfirmedCleanup(
     ctx.branchRefDiscovery.ownerProjectsByRepositoryRoot,
     io,
   );
-  const socketRemoval = removeDeadDaemonSockets(ctx.reaperResult.dead, io);
-  if (socketRemoval !== 0) return socketRemoval;
+  let sessionLogExit = 0;
+  if (ctx.sessionLogPlan !== null) {
+    const reaped: { path: string; bytes: number }[] = [];
+    let failures = 0;
+    for (const log of ctx.sessionLogPlan.expired) {
+      try {
+        rmSync(log.path);
+        reaped.push(log);
+      } catch {
+        failures += 1;
+      }
+    }
+    printSessionLogSummary("Reaped", reaped, ctx.sessionLogPlan.oldestKeptDate, io);
+    if (failures > 0) {
+      io.stderr(`Failed to reap ${failures} expired session log(s).\n`);
+      sessionLogExit = 1;
+    }
+  }
+  const artifactRemoval = await removeDeadDaemonArtifacts(ctx.reaperResult.dead, jarvisRoot, io);
 
   const strandedAfterRetirement = await inspectStrandedArtifacts(
     ctx.strandedArtifacts,
@@ -1446,7 +1573,7 @@ async function executeConfirmedCleanup(
   if (stillEligible.length === 0 && ctx.candidates.length > 0) {
     io.stdout("No worktrees remain eligible after re-check.\n");
   }
-  if (result !== 0 || branchRefExit !== 0) return 1;
+  if (result !== 0 || branchRefExit !== 0 || sessionLogExit !== 0 || artifactRemoval !== 0) return 1;
   if (recheck.daemonUnreachable || ctx.discoveryExit !== 0) return 1;
   return daemonBlockedExit;
 }
@@ -1462,6 +1589,9 @@ export async function runCleanupCommand(
   options: {
     dryRun?: boolean;
     promptConfirm?: (message: string) => Promise<boolean>;
+    sessionsDir?: string;
+    configPath?: string;
+    clock?: () => Date;
   },
   registry: Record<string, ProjectRegistryEntry>,
   jarvisRoot: string,
@@ -1479,13 +1609,24 @@ export async function runCleanupCommand(
     daemonClient,
     store,
     io,
+    options.sessionsDir ?? join(jarvisRoot, "sessions"),
+    options.configPath ?? join(jarvisRoot, "config.json"),
+    options.clock ?? (() => new Date()),
   );
 
   for (const worktree of ctx.daemonUnreachable) {
     io.stdout(`Skipped merged worktree: ${worktree.path} — ${DAEMON_UNREACHABLE_REASON}\n`);
   }
 
-  if (hasNothingToClean(ctx.candidates, ctx.stranded, ctx.reaperResult, ctx.branchRefDiscovery.candidates)) {
+  if (
+    hasNothingToClean(
+      ctx.candidates,
+      ctx.stranded,
+      ctx.reaperResult,
+      ctx.branchRefDiscovery.candidates,
+      ctx.sessionLogPlan,
+    )
+  ) {
     io.stdout("No eligible worktrees or stranded artifacts to clean up.\n");
     return resolveDiscoveryOrDaemonExit(ctx.discoveryExit, ctx.daemonUnreachableExit);
   }
@@ -1619,6 +1760,8 @@ export type DirtyWorktreeListResult =
 
 export const STALE_RESET_OVERRIDE_CLI_FLAG = "--reset-despite-dirty";
 export const STALE_RESET_LANDED_CRITERIA_OVERRIDE_CLI_FLAG = "--reset-despite-landed-criteria";
+export const OPEN_PR_PROBE_UNREACHABLE_REASON =
+  "could not determine open PR state: gh is unreachable from this environment; retry outside the agent sandbox";
 
 const staleResetDirtyRecovery = `commit, discard local changes, pass ${STALE_RESET_OVERRIDE_CLI_FLAG} on re-run, or run \`jarvis cleanup --abandon <branch>\``;
 const staleResetLandedCriteriaRecovery = `pass ${STALE_RESET_LANDED_CRITERIA_OVERRIDE_CLI_FLAG} on re-run, or run \`jarvis cleanup --abandon <branch>\``;
@@ -1877,8 +2020,8 @@ export async function resetStaleWorkspace(
   const liveCheck = await isWorktreeLiveHeld(project, branch, jarvisRoot, daemonClient);
   if (liveCheck.live) return { status: "refused", reason: liveCheck.reason };
 
-  const prGate = await gateOnOpenPrs(branch, runner);
-  if (prGate.status === "refused") return { status: "refused", reason: prGate.reason };
+  const prGate = await gateOnOpenPrs(branch, runner, projectRoot);
+  if (prGate.status !== "ok") return { status: "refused", reason: prGate.reason };
 
   const claimProbe = daemonClient.checkWorkflowStartClaim;
   if (claimProbe === undefined) {
@@ -1992,21 +2135,27 @@ async function isWorktreeLiveHeld(
   return { live: false };
 }
 
+type OpenPrGateResult =
+  | { status: "ok"; pr: OpenPr | undefined }
+  | { status: "refused"; reason: string }
+  | { status: "unknown"; reason: string };
+
 /**
  * Refuse retirement when open-PR state is ambiguous or protects the branch:
- * multiple open PRs, or a single ready (non-draft) PR. gh failures are treated
- * as "no open PRs".
+ * multiple open PRs, or a single ready (non-draft) PR. gh probe failures are
+ * inconclusive and return `unknown` rather than an empty list.
  */
-async function gateOnOpenPrs(
+export async function gateOnOpenPrs(
   branch: string,
   runner: AsyncSubprocessRunner,
   cwd = ".",
-): Promise<{ status: "ok"; pr: OpenPr | undefined } | { status: "refused"; reason: string }> {
+): Promise<OpenPrGateResult> {
   let openPrs: OpenPr[];
   try {
     openPrs = await listOpenPrsForBranch(branch, cwd, runner);
-  } catch {
-    openPrs = [];
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    return { status: "unknown", reason: `${OPEN_PR_PROBE_UNREACHABLE_REASON} (${detail})` };
   }
   if (openPrs.length > 1) return { status: "refused", reason: "multiple open PRs match branch" };
   const pr = openPrs.at(0);
@@ -2255,9 +2404,9 @@ export async function runAbandonCommand(
     return 1;
   }
 
-  // PR-ownership gates: refuse ready PRs and ambiguous PR ownership
-  const prGate = await gateOnOpenPrs(branch, runner);
-  if (prGate.status === "refused") {
+  // PR-ownership gates: refuse ready PRs, ambiguous PR ownership, and inconclusive probes
+  const prGate = await gateOnOpenPrs(branch, runner, projectRoot ?? ".");
+  if (prGate.status !== "ok") {
     io.stderr(`Error: Cannot abandon: ${prGate.reason}\n`);
     return 1;
   }

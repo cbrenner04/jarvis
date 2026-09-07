@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { DAEMON_LOG_PARSE_ARG_OPTIONS } from "../cli/command-help-flags.ts";
@@ -9,14 +9,17 @@ import { DAEMON_LOG_USAGE, DAEMON_USAGE } from "../cli/usage.ts";
 import { connectIpcClient } from "../ipc/client.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
 
-type ClassifiedSocket = {
-  path: string;
+type SocketClassification = {
   status: "dead" | "live" | "preserved";
   reason?: string;
 };
 
+export const DAEMON_SOCKET_FILE = /^daemon-([0-9a-f]{16})\.sock$/;
+export const DAEMON_DIGEST_ARTIFACT_FILE = /^daemon-([0-9a-f]{16})\.(sock|pid|log)$/;
+
 export async function reapDeadDaemonSockets(
   jarvisRoot: string,
+  socketFileNames?: readonly string[],
 ): Promise<{ dead: string[]; preserved: Array<{ path: string; reason: string }> }> {
   const dead: string[] = [];
   const preserved: Array<{ path: string; reason: string }> = [];
@@ -32,13 +35,17 @@ export async function reapDeadDaemonSockets(
     return { dead, preserved };
   }
 
-  const socketFiles = entries.filter((name) => name.startsWith("daemon-") && name.endsWith(".sock"));
+  const socketFiles = socketFileNames ?? entries.filter((name) => DAEMON_SOCKET_FILE.test(name));
 
   for (const socketFile of socketFiles) {
+    const match = DAEMON_SOCKET_FILE.exec(socketFile);
+    if (match === null) continue;
     const socketPath = join(jarvisRoot, socketFile);
     const classification = await classifySocket(socketPath);
     if (classification.status === "dead") {
-      dead.push(socketPath);
+      const key = match[1];
+      const artifacts = ["sock", "pid", "log"].map((extension) => join(jarvisRoot, `daemon-${key}.${extension}`));
+      dead.push(...artifacts.filter((path) => existsSync(path)));
     } else if (classification.status === "preserved" && classification.reason) {
       preserved.push({ path: socketPath, reason: classification.reason });
     }
@@ -47,32 +54,31 @@ export async function reapDeadDaemonSockets(
   return { dead, preserved };
 }
 
-async function classifySocket(socketPath: string): Promise<ClassifiedSocket> {
+async function classifySocket(socketPath: string): Promise<SocketClassification> {
   try {
     const client = await connectIpcClient(socketPath);
     const transport = createRpcTransport(client);
     try {
       await transport.request("health", undefined, { timeoutMs: 500 });
-      return { path: socketPath, status: "live" };
+      return { status: "live" };
     } finally {
       transport.close();
     }
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
-    if (err.code === "ECONNREFUSED" || err.code === "ENOENT") {
-      return { path: socketPath, status: "dead" };
+    if (err.code === "ECONNREFUSED") {
+      return { status: "dead" };
+    }
+    // ENOENT on an absent path is the sandbox/bound-but-unlinked false negative; a present file
+    // with no listener is stale (Bun reports ENOENT where Node reports ECONNREFUSED).
+    if (err.code === "ENOENT") {
+      return existsSync(socketPath)
+        ? { status: "dead" }
+        : { status: "preserved", reason: "socket path unavailable (ENOENT)" };
     }
     const reason = err.message || String(error);
-    return { path: socketPath, status: "preserved", reason };
+    return { status: "preserved", reason };
   }
-}
-
-function readPid(pidPath: string): number | null {
-  if (!existsSync(pidPath)) return null;
-  const raw = readFileSync(pidPath, "utf8").trim();
-  if (raw.length === 0) return null;
-  const pid = Number.parseInt(raw, 10);
-  return Number.isNaN(pid) ? null : pid;
 }
 
 async function handleStopCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number | null> {

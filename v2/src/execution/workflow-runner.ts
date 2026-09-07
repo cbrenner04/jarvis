@@ -52,8 +52,8 @@ import { landPublication, type PublicationLanding } from "./publication-landing.
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
 import {
+  nonTerminatingMutationLogFields,
   outOfScopeSettlementResumable,
-  ReadyGateError,
   readyGateFailureLogFields,
   readyGateOutOfScopeLogFields,
   survivingMutationLogFields,
@@ -89,7 +89,11 @@ import {
   runReviewDebateStep,
   settleReviewedStagedMarkdownLintFailure,
 } from "./workflow-runner-debate-landing.ts";
-import { landReviewedPublicationOutput, wireWorkflowRunnerResumeDeps } from "./workflow-runner-resume.ts";
+import {
+  landReviewedPublicationOutput,
+  wireWorkflowRunnerResumeDeps,
+  workflowPublicationFailureTerminalDetail,
+} from "./workflow-runner-resume.ts";
 
 export { isPostCommitReviewRetryableFailureKind };
 
@@ -141,16 +145,6 @@ function terminalFailureDetailFromError(error?: Error, fallbackMessage?: string)
   return { failureKind: "error", bindingAttempts: [], message };
 }
 
-function readyGateTerminalFailureDetail(error?: Error): InvocationFailureDetail {
-  if (error instanceof ReadyGateError) {
-    const output = error.output.trim().slice(-4096);
-    const message =
-      output.length > 0 ? `ready gate failed (exit ${String(error.exitCode ?? "unknown")}): ${output}` : error.command;
-    return { failureKind: "error", bindingAttempts: [], message };
-  }
-  return terminalFailureDetailFromError(error, "ready gate failed");
-}
-
 function landingFailedTerminalFailureDetail(message?: string): InvocationFailureDetail | undefined {
   if (message === undefined || message.length === 0) return undefined;
   return { failureKind: "error", bindingAttempts: [], message };
@@ -186,23 +180,8 @@ type WorkflowPublicationFailureKind =
   | "ready_gate_out_of_scope"
   | "ready_flip_failed"
   | "surviving_mutation_failed"
+  | "non_terminating_mutation_failed"
   | "runtime_smoke_failed";
-
-function workflowPublicationFailureTerminalDetail(
-  kind: WorkflowPublicationFailureKind,
-  error?: Error,
-): InvocationFailureDetail | undefined {
-  if (kind === "surviving_mutation_failed") return terminalFailureDetailFromError(error);
-  if (kind === "ready_gate_failed" || kind === "ready_gate_command_missing" || kind === "ready_gate_out_of_scope") {
-    return readyGateTerminalFailureDetail(error);
-  }
-  if (kind === "runtime_smoke_failed") return terminalFailureDetailFromError(error, "runtime smoke failed");
-  if (kind === "ready_flip_failed") return terminalFailureDetailFromError(error, "ready flip failed");
-  if (kind === "completion_commit_failed") {
-    return terminalFailureDetailFromError(error, error?.message ?? "completion commit failed");
-  }
-  return undefined;
-}
 
 function settleWorkflowPublicationFailure(
   store: StateStore,
@@ -1336,7 +1315,9 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                       }
                     : publication.failure.kind === "surviving_mutation_failed"
                       ? survivingMutationLogFields(publication.failure.error)
-                      : { completionCommitError: publication.failure.error?.message ?? "completion commit failed" }),
+                      : publication.failure.kind === "non_terminating_mutation_failed"
+                        ? nonTerminatingMutationLogFields(publication.failure.error)
+                        : { completionCommitError: publication.failure.error?.message ?? "completion commit failed" }),
                 ...(publicationFailure !== undefined ? { publicationFailure } : {}),
               };
             }

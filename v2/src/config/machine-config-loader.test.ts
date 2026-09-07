@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   DEFAULT_REVIEW_ROLE_TIMEOUT_MS,
   loadMachineConfig,
+  readCleanupSessionLogRetentionDays,
   readCodexSandboxMode,
   readMachineConfigDocument,
   readNotificationSinkCommand,
@@ -109,6 +110,47 @@ describe("resolveMachineProfile", () => {
 
   test.each([["home"], ["work"]])("configured profile %s is returned (open string)", (profile) => {
     expect(resolveMachineProfile(writeConfig({ machineProfile: profile }))).toBe(profile);
+  });
+});
+
+describe("readCleanupSessionLogRetentionDays", () => {
+  test.each([
+    ["cleanup", { agents: ["claude"] }],
+    ["cleanup.sessionLogRetentionDays", { cleanup: {} }],
+  ] as Array<[string, unknown]>)("defaults to 14 when %s is absent", (_label, config) => {
+    expect(readCleanupSessionLogRetentionDays(writeConfig(config))).toEqual({ ok: true, days: 14 });
+  });
+
+  test("returns a configured positive integer", () => {
+    expect(readCleanupSessionLogRetentionDays(writeConfig({ cleanup: { sessionLogRetentionDays: 30 } }))).toEqual({
+      ok: true,
+      days: 30,
+    });
+  });
+
+  test.each([
+    ["non-object cleanup", { cleanup: "invalid" }],
+    ["non-integer", { cleanup: { sessionLogRetentionDays: 1.5 } }],
+    ["zero", { cleanup: { sessionLogRetentionDays: 0 } }],
+    ["negative", { cleanup: { sessionLogRetentionDays: -1 } }],
+    ["non-number", { cleanup: { sessionLogRetentionDays: "30" } }],
+  ] as Array<[string, unknown]>)("rejects %s naming the key", (_label, config) => {
+    expect(readCleanupSessionLogRetentionDays(writeConfig(config))).toEqual({
+      ok: false,
+      error: "cleanup.sessionLogRetentionDays must be a positive integer",
+    });
+  });
+
+  test("reads cleanup without validating unrelated agents", () => {
+    expect(
+      readCleanupSessionLogRetentionDays(writeConfig({ agents: "invalid", cleanup: { sessionLogRetentionDays: 30 } })),
+    ).toEqual({ ok: true, days: 30 });
+  });
+
+  test("unparseable JSON throws without naming retention", () => {
+    expect(() => readCleanupSessionLogRetentionDays(writeRawConfig("{ invalid json"))).toThrow(
+      /Failed to parse machine config/,
+    );
   });
 });
 

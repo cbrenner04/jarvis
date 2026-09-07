@@ -47,6 +47,8 @@ import { publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
 import {
   isResumableOutOfScopeTerminalEvidence,
+  NonTerminatingMutationError,
+  nonTerminatingMutationLogFields,
   outOfScopeSettlementResumable,
   ReadyGateError,
   readyGateFailureLogFields,
@@ -143,6 +145,7 @@ type WorkflowPublicationFailureKind =
   | "ready_gate_out_of_scope"
   | "ready_flip_failed"
   | "surviving_mutation_failed"
+  | "non_terminating_mutation_failed"
   | "runtime_smoke_failed";
 
 function terminalFailureDetailFromError(error?: Error, fallbackMessage?: string): InvocationFailureDetail {
@@ -173,11 +176,13 @@ function completionBoundarySettlementFields(
   };
 }
 
-function workflowPublicationFailureTerminalDetail(
+export function workflowPublicationFailureTerminalDetail(
   kind: WorkflowPublicationFailureKind,
   error?: Error,
 ): InvocationFailureDetail | undefined {
-  if (kind === "surviving_mutation_failed") return terminalFailureDetailFromError(error);
+  if (kind === "surviving_mutation_failed" || kind === "non_terminating_mutation_failed") {
+    return terminalFailureDetailFromError(error);
+  }
   if (kind === "ready_gate_failed" || kind === "ready_gate_command_missing" || kind === "ready_gate_out_of_scope") {
     return readyGateTerminalFailureDetail(error);
   }
@@ -1199,6 +1204,7 @@ async function runIntentResumeCommitAndPublish(
       iterationsConsumed: publication.iterationsConsumed,
       resumable: !isFlip,
       ...survivingMutationLogFields(failure.error),
+      ...nonTerminatingMutationLogFields(failure.error),
       ...readyGateOutOfScopeLogFields(failure.error),
       ...readyGateFailureLogFields(failure.kind, failure.error),
       ...(publicationFailure !== undefined ? { publicationFailure } : {}),
@@ -1316,6 +1322,7 @@ export async function resumePopulatedIntentPublication(
  */
 export const REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS = new Set([
   "surviving_mutation_failed",
+  "non_terminating_mutation_failed",
   "ready_gate_failed",
   "ready_gate_out_of_scope",
   "completion_commit_failed",
@@ -1581,6 +1588,20 @@ export function resolveWriteOutOfScopeResumeContext(
   return resolveOrdinaryWriteResumeContext(run, terminalRecord, {
     admit: isResumableOutOfScopeTerminalEvidence,
     rejectMessage: "run did not fail with ready_gate_out_of_scope",
+  });
+}
+
+/**
+ * Resume admission for `non_terminating_mutation_failed`: mutation re-verification, ready gate, and publication only.
+ */
+export function resolveWriteNonTerminatingResumeContext(
+  run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>,
+  _store: StateStore,
+  terminalRecord: (PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent }) | undefined,
+): ReviewMutationResumeResolution {
+  return resolveOrdinaryWriteResumeContext(run, terminalRecord, {
+    admit: (event) => event.loopOutcomeKind === "non_terminating_mutation_failed" && event.resumable === true,
+    rejectMessage: "run did not fail with non_terminating_mutation_failed",
   });
 }
 
@@ -2076,6 +2097,7 @@ async function settleFailedReviewMutationPublication(
             )
           : failure.kind !== "ready_gate_command_missing",
     ...survivingMutationLogFields(failure.error),
+    ...nonTerminatingMutationLogFields(failure.error),
     ...readyGateOutOfScopeLogFields(failure.error),
     ...readyGateFailureLogFields(failure.kind, failure.error),
     ...exhaustedFields,
@@ -2367,7 +2389,10 @@ export async function resumeReviewMutationFinalization(
   const resolved = exhaustedResolved.ok
     ? exhaustedResolved
     : resolveWriteOutOfScopeResumeContext(run, store, terminalRecord);
+  const nonTerminatingResolved = resolved.ok
+    ? resolved
+    : resolveWriteNonTerminatingResumeContext(run, store, terminalRecord);
   // Resolve before replay flips the row to in-progress: the sibling lookup reads the failed row.
   const writeSibling = resolveWriteSiblingCommandSource(run, store);
-  return replayMutationFinalization(resolved, store, deps, writeSibling, terminalRecord);
+  return replayMutationFinalization(nonTerminatingResolved, store, deps, writeSibling, terminalRecord);
 }

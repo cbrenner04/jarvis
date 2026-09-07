@@ -44,6 +44,7 @@ import {
 import {
   createReadyFinalizer,
   deriveGateAllowedPaths,
+  NonTerminatingMutationError,
   type ReadyFinalizer,
   ReadyFlipError,
   ReadyGateError,
@@ -440,6 +441,9 @@ async function runLoop(args: {
 const IN_LOOP_SURVIVING_MUTATION = "operator-flip: === → !==";
 const IN_LOOP_SURVIVING_SOURCE_FILE = "v2/src/execution/guard.ts";
 const IN_LOOP_SURVIVING_SOURCE_LINE = 17;
+const IN_LOOP_NON_TERMINATING_MUTATION = "guard-flip: while (true) → while (false)";
+const IN_LOOP_NON_TERMINATING_SOURCE_FILE = "v2/src/daemon/daemon-run-control-handler-guard.ts";
+const IN_LOOP_NON_TERMINATING_SOURCE_LINE = 42;
 
 function writeSpecIndex(jarvisRoot: string, branchName: string, content: string): void {
   const specDir = join(jarvisRoot, "worktrees", "demo", branchName, "spec");
@@ -5786,6 +5790,123 @@ index 1234567..abcdefg 100644
         reason: "surviving_mutation_failed",
         nextAction: "resume",
         retryable: true,
+      });
+    });
+
+    test("implement complete non-terminating mutation settles non_terminating_mutation_failed without reprompt or re-entry", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      let verifyCalls = 0;
+      let invocations = 0;
+
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        promptId: "patch.prompt.body",
+        maxIterations: 3,
+        logSink,
+        bindings: [
+          {
+            id: "implement",
+            metadata: { agent: "test-agent", model: "test" },
+            invoke: async ({ cwd }) => {
+              invocations += 1;
+              writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+              return { kind: "ok", stdout: "done", stderr: "" };
+            },
+          },
+        ],
+        verifyDiffDerivedMutations: async () => {
+          verifyCalls += 1;
+          return {
+            kind: "non-terminating-mutation",
+            mutation: IN_LOOP_NON_TERMINATING_MUTATION,
+            sourceSite: { file: IN_LOOP_NON_TERMINATING_SOURCE_FILE, line: IN_LOOP_NON_TERMINATING_SOURCE_LINE },
+          };
+        },
+        completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
+        completionPublisher: async () => {
+          throw new Error("publication should not run");
+        },
+        readyFinalizer: async () => {
+          throw new Error("ready finalization should not run");
+        },
+      });
+
+      expect(invocations).toBe(1);
+      expect(verifyCalls).toBe(1);
+      expect(result.kind).toBe("non_terminating_mutation_failed");
+      expect(result.resumable).toBe(true);
+      expect(result.nonTerminatingMutation).toBe(IN_LOOP_NON_TERMINATING_MUTATION);
+      expect(result.nonTerminatingMutationSourceFile).toBe(IN_LOOP_NON_TERMINATING_SOURCE_FILE);
+      expect(result.nonTerminatingMutationSourceLine).toBe(IN_LOOP_NON_TERMINATING_SOURCE_LINE);
+      expect(loadRunOnce(stateDbPath, result.runId)?.status).toBe("failed");
+      const events = logSink.getEventsForRun(result.runId).map((event) => event.kind);
+      expect(events).not.toContain("surviving_mutation_reprompt");
+      expect(events).not.toContain("surviving_mutation_failed");
+      const loopEvent = logSink.getEventsForRun(result.runId).at(-1);
+      expect(loopEvent).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "non_terminating_mutation_failed",
+        resumable: true,
+        nonTerminatingMutation: IN_LOOP_NON_TERMINATING_MUTATION,
+        nonTerminatingMutationSourceFile: IN_LOOP_NON_TERMINATING_SOURCE_FILE,
+        nonTerminatingMutationSourceLine: IN_LOOP_NON_TERMINATING_SOURCE_LINE,
+      });
+      const run = openStateStore(stateDbPath).loadRun(result.runId);
+      expect(run).toBeDefined();
+      if (!run) return;
+      expect(
+        composeRunOperatorError(run, {
+          runId: result.runId,
+          seq: 1,
+          ts: "",
+          event: loopEvent as LoopFinishedEvent,
+        }),
+      ).toMatchObject({
+        reason: "non_terminating_mutation_failed",
+        nextAction: "resume",
+        retryable: true,
+      });
+    });
+
+    test("returns non_terminating_mutation_failed when publication mutation verification times out", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      let readyFinalizerCalls = 0;
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
+        completionPublisher: async () => ({ prNumber: 42, prUrl: "https://example.com/pr/42" }),
+        readyFinalizer: async () => {
+          readyFinalizerCalls += 1;
+          throw new NonTerminatingMutationError(
+            IN_LOOP_NON_TERMINATING_MUTATION,
+            IN_LOOP_NON_TERMINATING_SOURCE_FILE,
+            IN_LOOP_NON_TERMINATING_SOURCE_LINE,
+          );
+        },
+      });
+
+      expect(readyFinalizerCalls).toBe(1);
+      expect(result.kind).toBe("non_terminating_mutation_failed");
+      expect(result.resumable).toBe(true);
+      expect(result.prNumber).toBe(42);
+      expect(result.nonTerminatingMutation).toBe(IN_LOOP_NON_TERMINATING_MUTATION);
+      expect(result.nonTerminatingMutationSourceFile).toBe(IN_LOOP_NON_TERMINATING_SOURCE_FILE);
+      expect(result.nonTerminatingMutationSourceLine).toBe(IN_LOOP_NON_TERMINATING_SOURCE_LINE);
+      expect(loadRunOnce(stateDbPath, result.runId)?.status).toBe("failed");
+      expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "non_terminating_mutation_failed",
+        resumable: true,
+        prNumber: 42,
+        nonTerminatingMutation: IN_LOOP_NON_TERMINATING_MUTATION,
+        nonTerminatingMutationSourceFile: IN_LOOP_NON_TERMINATING_SOURCE_FILE,
+        nonTerminatingMutationSourceLine: IN_LOOP_NON_TERMINATING_SOURCE_LINE,
       });
     });
 

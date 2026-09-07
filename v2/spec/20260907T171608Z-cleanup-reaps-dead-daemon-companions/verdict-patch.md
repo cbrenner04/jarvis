@@ -1,0 +1,4 @@
+- **P1:** Revalidate each dead digest immediately before removal. A daemon may start after preview; live or ambiguous probes must preserve the entire triplet.
+- **P1:** Treat `ENOENT` as non-authorizing and align the spec/docs accordingly. The durable socket contract forbids deletion on this false-negative state because it can strand a live daemon.
+- **P2:** Limit discovery and companion derivation to exact lowercase `daemon-<16hex>.sock` names. Broader names exceed the keyed lifecycle contract.
+- **P2:** Continue after individual artifact-removal failures and run later cleanup slices, while returning nonzero and reporting failures. Early return violates best-effort triplet removal and independent-slice continuation.

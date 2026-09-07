@@ -68,7 +68,7 @@ When a new daemon starts (after rebuilding the executable, for example), it send
 
 The keyed pid file is written only after the daemon is serving, and `daemon status` decides from a socket health probe rather than from the recorded pid: a stale or absent pid never reports a reachable daemon as stopped.
 
-`jarvis cleanup` removes dead sockets (those whose listeners have exited) via a connect-attempt probe: if the probe receives `ECONNREFUSED` or `ENOENT`, the socket is dead and removed; all other error states (timeout, permission error, unexpected error) preserve the socket and are reported. Live sockets — those a daemon is currently answering on, whether the invoking digest or a superseded keyed daemon — are never removed.
+`jarvis cleanup` probes only exact lowercase keyed socket names and reaps the `.sock`, `.pid`, and `.log` lifecycle unit only after an immediate `ECONNREFUSED` revalidation, or `ENOENT` on a present on-disk socket file with no listener; `ENOENT` when the path is absent to the caller and ambiguous probes preserve the triplet. See [`operator-runbook.md` § Fail-closed daemon reads and digest artifact reaping](./operator-runbook.md#fail-closed-daemon-reads-and-digest-artifact-reaping).
 
 ### Socket discovery
 

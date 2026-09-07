@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
+import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns, loadRunOrThrow, mockWriteLoopInput, workflowSnapshot } from "../testing/run-control.ts";
 import { DEFAULT_AGENT_MODEL_CONFIG } from "../testing/workflow-step-fixtures.ts";
@@ -445,6 +446,84 @@ test("resume maps hidden ~shrink stepId to shrink role via snapshot base step", 
     if (previousJarvisHome === undefined) delete process.env.JARVIS_HOME;
     else process.env.JARVIS_HOME = previousJarvisHome;
     rmSync(profileHome, { recursive: true, force: true });
+  }
+});
+
+test("workflow entry wait reports non_terminating_mutation_failed owned by a durable review step", async () => {
+  const logsPath = join(tmpdir(), `jarvis-lifecycle-non-terminating-${process.pid}-${Date.now()}.jsonl`);
+  const logSink = openLogSink(logsPath);
+  try {
+    const invocationId = "inv-entry-review-non-terminating-mutation";
+    const workflowSnapshot = {
+      invocationId,
+      steps: [
+        {
+          stepId: "implement",
+          role: "implement",
+          stepRules: "implement rules",
+          expectedArtifactPath: "/tmp/artifact",
+          agents: ["codex"],
+        },
+        { stepId: "implement-review", role: "", durable: true, behavior: "review" as const },
+      ],
+    };
+    const base = {
+      project: "test-project",
+      specRef: "main",
+      worktreePath: "/tmp/test-project",
+      branch: "entry-review-non-terminating-mutation",
+      specPath: "/tmp/test-project/spec.md",
+      workflowSnapshot,
+    };
+    const entryRunId = stateStore.createRun({ ...base, stepId: "implement" });
+    stateStore.setRunStatus(entryRunId, "completed");
+    const reviewRunId = stateStore.createRun({ ...base, stepId: "implement-review" });
+    stateStore.setRunStatus(reviewRunId, "failed");
+    logSink.append(reviewRunId, {
+      kind: "loop_finished",
+      loopOutcomeKind: "non_terminating_mutation_failed",
+      iterationsConsumed: 2,
+      resumable: true,
+      nonTerminatingMutation: "operator-flip: !== → ===",
+      nonTerminatingMutationSourceFile: "src/guard.ts",
+      nonTerminatingMutationSourceLine: 42,
+    });
+    logSink.close();
+
+    const ctx = createRunControlHandlerContext({
+      stateStore,
+      logReader: openLogReader(logsPath),
+      writeLoopExecutor: fakeExecutor.executor,
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => memoryHeadroom,
+      settleDelayMs: 0,
+    });
+    const handlers = createRunLifecycleHandlers(ctx, {
+      handleWorkflowStart: () => ({ kind: "error", code: "invalid_params", message: "steps unsupported in test" }),
+    });
+    const signal = new AbortController().signal;
+
+    const waited = await handlers.wait(
+      { kind: "request", id: "w1", method: "wait", params: { runId: entryRunId } },
+      signal,
+    );
+    expect(waited.kind).toBe("response");
+    if (waited.kind !== "response") return;
+
+    // @mutate v2/src/daemon/daemon-run-lifecycle-handlers.ts "terminalRecord.event.loopOutcomeKind !== \"non_terminating_mutation_failed\"" -> "terminalRecord.event.loopOutcomeKind === \"non_terminating_mutation_failed\""
+    expect(waited.result).toMatchObject({
+      runStatus: "failed",
+      loopOutcomeKind: "non_terminating_mutation_failed",
+      iterationsConsumed: 2,
+      error: {
+        reason: "non_terminating_mutation_failed",
+        nonTerminatingMutation: "operator-flip: !== → ===",
+        nonTerminatingMutationSourceFile: "src/guard.ts",
+        nonTerminatingMutationSourceLine: 42,
+      },
+    });
+  } finally {
+    rmSync(logsPath, { force: true });
   }
 });
 

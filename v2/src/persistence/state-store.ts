@@ -116,7 +116,8 @@ export type OutcomeKind =
   | "invalid_token"
   | "missing_blocker"
   | "landing_failed"
-  | "surviving_mutation_failed";
+  | "surviving_mutation_failed"
+  | "non_terminating_mutation_failed";
 
 /** Durable ready-gate repair fence provenance persisted across process restart and resume. */
 export type ReadyGateRepairFenceProvenance = {

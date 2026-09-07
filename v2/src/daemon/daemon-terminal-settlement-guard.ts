@@ -138,6 +138,7 @@ export function listProductionDaemonSources(
   return sources;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: one linear pass over the daemon source corpus classifies each line into terminal writes, permitted nonterminal setRunStatus calls, and violations; the branches share running per-file parse state, so splitting them would duplicate the scan or thread that state through helpers for no readability gain.
 export function scanDaemonTerminalSettlement(sources: Readonly<Record<string, string>>): {
   violations: DaemonTerminalSettlementViolation[];
   terminalWrites: Array<PermittedDaemonTerminalWrite & { line: number }>;

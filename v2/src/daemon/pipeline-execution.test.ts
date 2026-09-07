@@ -8029,12 +8029,12 @@ describe("pipeline chained plan and implement publication baseRef", () => {
       const writeStep = singleStageResolutionSteps(resolved).find(
         (step): step is WriteWorkflowStep => step.behavior === "write",
       );
-      expect(writeStep).toBeDefined();
+      if (writeStep === undefined) throw new Error("writeStep not resolved");
       expect(writeStep?.specReadRoot).toBe(planWorktree);
       expect(writeStep?.worktree.baseRef).toBe(defaultBranch);
 
       const subspecPath = join(planWorktree, `${planSpecDir}/00-work.md`);
-      writeStep!.createBinding = createBindingFactory(async () => {
+      writeStep.createBinding = createBindingFactory(async () => {
         writeFileSync(subspecPath, "# Work\n\n## Acceptance criteria\n\n- [x] Work\n", "utf8");
         return { kind: "ok", stdout: "done", stderr: "" } as const;
       });
@@ -8048,7 +8048,7 @@ describe("pipeline chained plan and implement publication baseRef", () => {
       });
       expect(result.kind).toBe("complete");
 
-      const implementWorktreePath = getExternalWorktreePath(writeStep!.worktree);
+      const implementWorktreePath = getExternalWorktreePath(writeStep.worktree);
       expect(readFileSync(join(implementWorktreePath, planSpecRel), "utf8")).toContain("- [x]");
       expect(readFileSync(join(implementWorktreePath, `${planSpecDir}/00-work.md`), "utf8")).toContain("- [x] Work");
     } finally {

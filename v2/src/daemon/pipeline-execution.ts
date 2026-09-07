@@ -555,6 +555,7 @@ function buildReopenedStageReset(
  * terminal pipelines. Optional `options.branchKey` scopes admission to one named fan-out
  * branch, bypassing aggregate `derivePipelineState` admission entirely; omission and
  * `branchKey: "default"` retain the unscoped whole-pipeline path above.
+ * @pinned-bypass: branch-scoped resume must not reopen or mis-scope sibling branches via aggregate derivation.
  */
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: resume admission coordinates whole-pipeline vs branch-scoped continuation, failed-plan-lane stale-reset policy with the two reset-override flags, and terminal-vs-dispatch branching in one entry point; splitting would fragment the admission decision.
 export async function resumePipeline(

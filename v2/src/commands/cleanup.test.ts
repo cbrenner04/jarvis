@@ -38,11 +38,13 @@ import {
   discoverMergedBranchRefCandidates,
   discoverStrandedArtifacts,
   exactOriginTrackingRefOid,
+  gateOnOpenPrs,
   hasBranchKeyedArtifactOwner,
   inspectStrandedArtifacts,
   isStaleResetLandedCriteriaSpecPath,
   listDirtyWorktreePathsForStaleReset,
   mergedPrHeadAuthorityMatches,
+  OPEN_PR_PROBE_UNREACHABLE_REASON,
   parseCheckedOutBranchesFromWorktreePorcelain,
   performWorktreeRemovals,
   pruneVerifiedMergedBranchRef,
@@ -56,6 +58,33 @@ import {
   staleResetDirtyWorktreeGateReason,
 } from "./cleanup.ts";
 import { type ArtifactSpec, archiveCompletedSpec } from "./cleanup-artifacts.ts";
+
+const GH_PR_LIST_PROBE_ERROR = new AsyncSubprocessError("gh unreachable", 1, "", "network error", undefined);
+type OpenPr = { number: number; isDraft: boolean };
+
+function ghPrListRunner(projectRoot: string, prs: OpenPr[]): AsyncSubprocessRunner {
+  return {
+    runAsync: async (cmd, args, cwd) => {
+      if (cmd === "gh" && args[0] === "pr" && args[1] === "list") return JSON.stringify(prs);
+      if (cmd === "git" && args[0] === "push" && args[1] === "origin") return "";
+      if (cmd === "gh" && args[0] === "pr" && args[1] === "close") return "";
+      return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+    },
+  };
+}
+
+function ghPrListProbeFailureRunner(projectRoot: string, teardownCalls: string[]): AsyncSubprocessRunner {
+  return {
+    runAsync: async (cmd, args, cwd) => {
+      if (cmd === "gh" && args[0] === "pr" && args[1] === "list") throw GH_PR_LIST_PROBE_ERROR;
+      if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("close-pr");
+      if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("remove-worktree");
+      if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("delete-local-branch");
+      if (cmd === "git" && args[0] === "push" && args[1] === "origin") teardownCalls.push("delete-remote-branch");
+      return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+    },
+  };
+}
 
 function daemonClientWithFreeClaimProbe(
   listRuns: (project: string, branch: string) => Promise<{ isLive: boolean }[]> = async () => [],
@@ -1836,6 +1865,24 @@ describe("cleanup: discover materialized worktrees", () => {
   });
 });
 
+describe("gateOnOpenPrs", () => {
+  test("probe failure yields unknown distinct from confirmed empty", async () => {
+    const unknown = await gateOnOpenPrs("feat/probe-fail", {
+      runAsync: async (cmd, args) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") throw GH_PR_LIST_PROBE_ERROR;
+        throw new Error(`unexpected: ${cmd} ${args.join(" ")}`);
+      },
+    });
+    expect(unknown).toMatchObject({
+      status: "unknown",
+      reason: expect.stringContaining(OPEN_PR_PROBE_UNREACHABLE_REASON),
+    });
+
+    const ok = await gateOnOpenPrs("feat/no-pr", ghPrListRunner(".", []));
+    expect(ok).toEqual({ status: "ok", pr: undefined });
+  });
+});
+
 describe("cleanup: runAbandonCommand", () => {
   let tempRoot: string;
   let projectRoot: string;
@@ -1873,7 +1920,7 @@ describe("cleanup: runAbandonCommand", () => {
       { promptConfirm: async () => true },
       registry,
       jarvisRoot,
-      realAsyncSubprocessRunner,
+      ghPrListRunner(projectRoot, []),
       daemonClient,
       { stdout: () => {}, stderr: (s) => (stderr += s) },
     );
@@ -1909,6 +1956,46 @@ describe("cleanup: runAbandonCommand", () => {
 
   afterEach(() => {
     rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test("abandon refuses when gh pr list probe fails without mutating workspace", async () => {
+    const branch = "feat/gh-probe-fail";
+    const worktreePath = await createUnmergedWorktree(branch);
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    const daemonClient: DaemonClient = async () => [];
+
+    let stderr = "";
+    let prompted = false;
+    const teardownCalls: string[] = [];
+    const mockRunner = ghPrListProbeFailureRunner(projectRoot, teardownCalls);
+
+    const code = await (await import("./cleanup.ts")).runAbandonCommand(
+      branch,
+      {
+        promptConfirm: async () => {
+          prompted = true;
+          return true;
+        },
+      },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      daemonClient,
+      { stdout: () => {}, stderr: (s) => (stderr += s) },
+    );
+
+    expect(code).toBe(1);
+    expect(prompted).toBe(false);
+    expect(stderr).toContain("Cannot abandon");
+    expect(stderr).toContain(OPEN_PR_PROBE_UNREACHABLE_REASON);
+    expect(stderr).toContain("sandbox");
+    expect(teardownCalls).toEqual([]);
+
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+    const branchListOutput = await realAsyncSubprocessRunner.runAsync("git", ["branch"], projectRoot);
+    expect(branchListOutput).toContain(branch);
   });
 
   test("abandon retires an unmerged workspace via git worktree remove --force, branch -D, and push origin --delete", async () => {
@@ -2156,6 +2243,7 @@ describe("cleanup: runAbandonCommand", () => {
 
     let stdout = "";
     let gitRemoveInvoked = false;
+    const base = ghPrListRunner(projectRoot, []);
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
@@ -2164,7 +2252,7 @@ describe("cleanup: runAbandonCommand", () => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
           return JSON.stringify({ number: 999, state: "DRAFT" });
         }
-        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        return base.runAsync(cmd, args, cwd);
       },
     };
 
@@ -2197,6 +2285,7 @@ describe("cleanup: runAbandonCommand", () => {
 
     let stdout = "";
     let gitRemoveInvoked = false;
+    const base = ghPrListRunner(projectRoot, []);
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") {
@@ -2205,7 +2294,7 @@ describe("cleanup: runAbandonCommand", () => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
           return JSON.stringify({ number: 111, state: "DRAFT" });
         }
-        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        return base.runAsync(cmd, args, cwd);
       },
     };
 
@@ -2672,11 +2761,11 @@ describe("cleanup: runAbandonCommand", () => {
 
     let stdout = "";
     const gitCommands: string[][] = [];
+    const base = ghPrListRunner(projectRoot, []);
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
-        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") return "[]";
         if (cmd === "git") gitCommands.push([...args]);
-        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        return base.runAsync(cmd, args, cwd);
       },
     };
 
@@ -3037,8 +3126,6 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
   const silentIo = { stdout: () => {}, stderr: () => {} };
   const noLiveDaemon = daemonClientWithFreeClaimProbe();
 
-  type OpenPr = { number: number; isDraft: boolean };
-
   async function setupWorktreeAndBranch(branch: string): Promise<string> {
     const sanitizedBranchName = branch.replace(/\//g, "-");
     writeFileSync(join(projectRoot, `file-${sanitizedBranchName}.txt`), `Content for ${branch}\n`);
@@ -3072,17 +3159,6 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     return result.reason;
   }
 
-  function ghPrListRunner(prs: OpenPr[]): AsyncSubprocessRunner {
-    return {
-      runAsync: async (cmd, args, cwd) => {
-        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") return JSON.stringify(prs);
-        if (cmd === "git" && args[0] === "push" && args[1] === "origin") return "";
-        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") return "";
-        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
-      },
-    };
-  }
-
   beforeEach(async () => {
     tempRoot = join(process.env.TMPDIR || "/tmp", `jarvis-reset-e2e-${Date.now()}-${Math.random()}`);
     mkdirSync(tempRoot, { recursive: true });
@@ -3106,6 +3182,24 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
 
   afterEach(() => {
     rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test("reset refuses without teardown when gh pr list probe fails", async () => {
+    const branch = "impl/gh-probe-fail";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+
+    const teardownCalls: string[] = [];
+    const mockRunner = ghPrListProbeFailureRunner(projectRoot, teardownCalls);
+
+    const result = await callReset(branch, mockRunner);
+
+    expect(result.status).toBe("refused");
+    if (result.status === "refused" && !("code" in result)) {
+      expect(result.reason).toContain(OPEN_PR_PROBE_UNREACHABLE_REASON);
+    }
+    expect(teardownCalls).toEqual([]);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
   });
 
   test("reset removes stale worktree and draft PR before re-run", async () => {
@@ -3164,7 +3258,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     const branch = "impl/ready-pr";
     const worktreePath = await setupWorktreeAndBranch(branch);
 
-    const result = await callReset(branch, ghPrListRunner([{ number: 456, isDraft: false }]));
+    const result = await callReset(branch, ghPrListRunner(projectRoot, [{ number: 456, isDraft: false }]));
 
     expect(result).toEqual({ status: "refused", reason: "matching PR is ready (non-draft)" });
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
@@ -3177,7 +3271,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
 
     const result = await callReset(
       branch,
-      ghPrListRunner([
+      ghPrListRunner(projectRoot, [
         { number: 111, isDraft: true },
         { number: 112, isDraft: true },
       ]),
@@ -3191,20 +3285,9 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
   test("reset is no-op when no stale worktree exists", async () => {
     const branch = "impl/no-worktree";
 
-    const teardownCalls: string[] = [];
-    const mockRunner: AsyncSubprocessRunner = {
-      runAsync: async (cmd, args, cwd) => {
-        if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
-        if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
-        if (cmd === "git" && args[0] === "push" && args[1] === "origin") teardownCalls.push("push-delete");
-        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
-      },
-    };
-
-    const result = await callReset(branch, mockRunner);
+    const result = await callReset(branch);
 
     expect(result.status).toBe("no-op");
-    expect(teardownCalls).toEqual([]);
   });
 
   test("reset leaves the source spec tree intact", async () => {
@@ -3220,7 +3303,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
 
     await setupWorktreeAndBranch(branch);
 
-    const result = await callReset(branch, ghPrListRunner([{ number: 321, isDraft: true }]));
+    const result = await callReset(branch, ghPrListRunner(projectRoot, [{ number: 321, isDraft: true }]));
 
     expect(result.status).toBe("reset");
     expect(readFileSync(indexPath, "utf8")).toBe(indexContent);
@@ -3333,12 +3416,13 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     writeFileSync(join(worktreePath, trackedRel), "edited\n");
 
     const teardownCalls: string[] = [];
+    const base = ghPrListRunner(projectRoot, []);
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
         if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
         if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
-        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        return base.runAsync(cmd, args, cwd);
       },
     };
 
@@ -3360,7 +3444,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     const worktreePath = await setupWorktreeAndBranch(branch);
     writeFileSync(join(worktreePath, "leftover.txt"), "agent output\n");
 
-    const result = await callReset(branch, ghPrListRunner([{ number: 802, isDraft: true }]));
+    const result = await callReset(branch, ghPrListRunner(projectRoot, [{ number: 802, isDraft: true }]));
 
     expect(result.status).toBe("refused");
     if (result.status !== "refused" || "code" in result) throw new Error("expected generic refused");
@@ -3376,12 +3460,13 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     const worktreePath = await setupWorktreeAndBranch(branch);
 
     const teardownCalls: string[] = [];
+    const base = ghPrListRunner(projectRoot, []);
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "git" && args[0] === "status") return "??\n";
         if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
         if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
-        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        return base.runAsync(cmd, args, cwd);
       },
     };
 
@@ -3401,7 +3486,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     const branch = "impl/dirty-list-fail";
     const worktreePath = await setupWorktreeAndBranch(branch);
     const teardownCalls: string[] = [];
-
+    const base = ghPrListRunner(projectRoot, []);
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "git" && args[0] === "status") throw new Error("git status unavailable");
@@ -3415,7 +3500,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
           teardownCalls.push("remote-tracking-ref-prune");
         }
         if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
-        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        return base.runAsync(cmd, args, cwd);
       },
     };
 
@@ -3443,12 +3528,13 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     await realAsyncSubprocessRunner.runAsync("git", ["worktree", "remove", "--force", worktreePath], projectRoot);
     mkdirSync(worktreePath, { recursive: true });
 
+    const base = ghPrListRunner(projectRoot, []);
     const result = await callReset(branch, {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "git" && args[0] === "status") {
           throw new AsyncSubprocessError("git exited 128", 128, "", "fatal: not a git repository", undefined);
         }
-        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        return base.runAsync(cmd, args, cwd);
       },
     });
 
@@ -3461,9 +3547,15 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     const worktreePath = await setupWorktreeAndBranch(branch);
     writeFileSync(join(worktreePath, "keep-me.txt"), "dirty\n");
 
-    const result = await callReset(branch, ghPrListRunner([{ number: 803, isDraft: true }]), noLiveDaemon, silentIo, {
-      skipDirtyWorktreeGate: true,
-    });
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [{ number: 803, isDraft: true }]),
+      noLiveDaemon,
+      silentIo,
+      {
+        skipDirtyWorktreeGate: true,
+      },
+    );
 
     expect(result.status).toBe("reset");
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
@@ -3523,11 +3615,17 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], worktreePath);
     await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "land criterion on branch"], worktreePath);
 
-    const result = await callReset(branch, ghPrListRunner([{ number: 902, isDraft: true }]), noLiveDaemon, silentIo, {
-      baseRef: "HEAD",
-      specPath: "v2/spec/override-spec/index.md",
-      skipLandedCriteriaGate: true,
-    });
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [{ number: 902, isDraft: true }]),
+      noLiveDaemon,
+      silentIo,
+      {
+        baseRef: "HEAD",
+        specPath: "v2/spec/override-spec/index.md",
+        skipLandedCriteriaGate: true,
+      },
+    );
 
     expect(result.status).toBe("reset");
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
@@ -3593,14 +3691,14 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     );
 
     const teardownCalls: string[] = [];
+    const base = ghPrListRunner(projectRoot, []);
     const result = await callReset(
       branch,
       {
         runAsync: async (cmd, args, cwd) => {
-          if (cmd === "gh" && args[0] === "pr" && args[1] === "list") return "[]";
           if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
           if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
-          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+          return base.runAsync(cmd, args, cwd);
         },
       },
       noLiveDaemon,
@@ -3637,13 +3735,13 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     );
 
     const teardownCalls: string[] = [];
+    const base = ghPrListRunner(projectRoot, []);
     const result = await callReset(
       branch,
       {
         runAsync: async (cmd, args, cwd) => {
-          if (cmd === "gh" && args[0] === "pr" && args[1] === "list") return "[]";
           if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
-          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+          return base.runAsync(cmd, args, cwd);
         },
       },
       noLiveDaemon,
@@ -3678,7 +3776,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     );
     expect(unlandedCount).toBe(0);
 
-    const result = await callReset(branch, ghPrListRunner([]), noLiveDaemon, silentIo, {
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
       baseRef: "HEAD",
       disposableLane: true,
     });
@@ -3713,7 +3811,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     );
     expect(unlandedCount).toBe(0);
 
-    const result = await callReset(branch, ghPrListRunner([]), noLiveDaemon, silentIo, {
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
       baseRef: "HEAD",
       specPath: "v2/spec/disposable-spec/index.md",
       disposableLane: true,
@@ -3730,7 +3828,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     await leaveStaleOriginTrackingRef(branch);
     expect(await originTrackingRefResolvesAsync(projectRoot, branch, realAsyncSubprocessRunner)).toBe(true);
 
-    const result = await callReset(branch, ghPrListRunner([{ number: 804, isDraft: true }]));
+    const result = await callReset(branch, ghPrListRunner(projectRoot, [{ number: 804, isDraft: true }]));
 
     expect(result.status).toBe("reset");
     expect(await originTrackingRefResolvesAsync(projectRoot, branch, realAsyncSubprocessRunner)).toBe(false);
@@ -3746,10 +3844,15 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     await leaveStaleOriginTrackingRef(branch);
 
     let stdout = "";
-    const result = await callReset(branch, ghPrListRunner([{ number: 805, isDraft: true }]), noLiveDaemon, {
-      stdout: (s) => (stdout += s),
-      stderr: () => {},
-    });
+    const result = await callReset(
+      branch,
+      ghPrListRunner(projectRoot, [{ number: 805, isDraft: true }]),
+      noLiveDaemon,
+      {
+        stdout: (s) => (stdout += s),
+        stderr: () => {},
+      },
+    );
 
     expect(result).toMatchObject({ status: "reset", destroyed: { remoteTrackingRef: `origin/${branch}` } });
     expect(stdout).toContain(`Pruned stale remote-tracking ref: origin/${branch}`);
@@ -3863,12 +3966,13 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     const worktreePath = await setupWorktreeAndBranch(branch);
 
     const teardownCalls: string[] = [];
+    const base = ghPrListRunner(projectRoot, []);
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
         if (cmd === "gh" && args[0] === "pr" && args[1] === "close") teardownCalls.push("pr-close");
         if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
         if (cmd === "git" && args[0] === "branch" && args[1] === "-D") teardownCalls.push("branch-delete");
-        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+        return base.runAsync(cmd, args, cwd);
       },
     };
 
@@ -3900,7 +4004,7 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     const branch = "impl/claim-gate-inversion";
     const worktreePath = await setupWorktreeAndBranch(branch);
 
-    const result = await callReset(branch, ghPrListRunner([{ number: 804, isDraft: true }]), noLiveDaemon);
+    const result = await callReset(branch, ghPrListRunner(projectRoot, [{ number: 804, isDraft: true }]), noLiveDaemon);
 
     expect(result.status).toBe("reset");
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);

@@ -24,10 +24,10 @@ Dispatch holds a durable stage claim, but adoption, recovery, and the documented
 
 ## Acceptance criteria
 
-- [ ] A `pipeline-execution.test.ts` test proves adoption of an already-dispatched stage loses the durable claim without a second dispatch or settlement — written fresh against the current tree (the previously named test does not exist); fails when the adoption path skips the claim.
-- [ ] Recovery paths and each current bypass in `pipeline-execution.ts` either go through the durable claim or carry a pinned rationale; a structural check fails on an unpinned bypass.
-- [ ] Existing derivation tests (`reports running when any workflow stage row reads running`, the fan-out derive cases) stay green with no assertion dropped, and in-flight callers consume the single derivation.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A `pipeline-execution.test.ts` test proves adoption of an already-dispatched stage loses the durable claim without a second dispatch or settlement — written fresh against the current tree (the previously named test does not exist); fails when the adoption path skips the claim.
+- [x] Recovery paths and each current bypass in `pipeline-execution.ts` either go through the durable claim or carry a pinned rationale; a structural check fails on an unpinned bypass.
+- [x] Existing derivation tests (`reports running when any workflow stage row reads running`, the fan-out derive cases) stay green with no assertion dropped, and in-flight callers consume the single derivation.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

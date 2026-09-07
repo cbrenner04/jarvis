@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
+import { locateSymbolSlice } from "../../../shared/structural-test-locator.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type {
@@ -1316,5 +1317,51 @@ describe("recoverPipelineBranchStage", () => {
 
       store.releasePipelineStageAdmission({ pipelineId, stageId: "plan", branchKey: "branch-a" });
     });
+  });
+});
+
+describe("pipeline stage recovery admission structure", () => {
+  const recoverySource = readFileSync(join(import.meta.dir, "pipeline-stage-recovery.ts"), "utf8");
+
+  test("recovery admission claims before attempt and releases in finally", () => {
+    const resolveAndClaim = locateSymbolSlice({
+      candidates: [recoverySource],
+      start: "async function resolveAndClaimRecoveryTarget",
+      end: "\nasync function runClaimedRecoveryAttempt",
+      searchKey: "resolveAndClaimRecoveryTarget",
+    });
+    expect(resolveAndClaim).toContain("claimResolvedPipelineBranchStageRecovery");
+    const claimIndex = resolveAndClaim.indexOf("claimResolvedPipelineBranchStageRecovery");
+    const admittedReturnIndex = resolveAndClaim.indexOf('return admission.kind === "admitted"');
+    expect(claimIndex).toBeGreaterThan(-1);
+    expect(admittedReturnIndex).toBeGreaterThan(claimIndex);
+
+    const recoverPipeline = locateSymbolSlice({
+      candidates: [recoverySource],
+      start: "export async function recoverPipelineBranchStage",
+      end: "\n/**\n * Resolves a branch's blocked plan stage",
+      searchKey: "recoverPipelineBranchStage",
+    });
+    const resolveCallIndex = recoverPipeline.indexOf("resolveAndClaimRecoveryTarget");
+    const attemptCallIndex = recoverPipeline.indexOf("runClaimedRecoveryAttempt");
+    expect(resolveCallIndex).toBeGreaterThan(-1);
+    expect(attemptCallIndex).toBeGreaterThan(resolveCallIndex);
+
+    const runClaimed = locateSymbolSlice({
+      candidates: [recoverySource],
+      start: "async function runClaimedRecoveryAttempt",
+      end: "\n/** {@link admitAndRecoverPipelineBranchStage}",
+      searchKey: "runClaimedRecoveryAttempt",
+    });
+    const tryIndex = runClaimed.indexOf("try {");
+    const finallyIndex = runClaimed.indexOf("} finally {");
+    const releaseIndex = runClaimed.indexOf("releasePipelineStageAdmission");
+    expect(tryIndex).toBeGreaterThan(-1);
+    expect(finallyIndex).toBeGreaterThan(tryIndex);
+    expect(releaseIndex).toBeGreaterThan(finallyIndex);
+
+    // Mutation checkpoints: claim after attempt start or release outside finally must go RED.
+    // @mutate v2/src/daemon/pipeline-stage-recovery.ts "const admission = claimResolvedPipelineBranchStageRecovery(args, target, deps.store);" -> "const outcome = await attempt({ runId: target.runId, project: target.project, branch: target.branch, worktreePath: target.worktreePath, writeStepId: target.writeStepId, steps: [...target.steps], stateStore: deps.store }); const admission = claimResolvedPipelineBranchStageRecovery(args, target, deps.store);"
+    // @mutate v2/src/daemon/pipeline-stage-recovery.ts "} finally {\n    store.releasePipelineStageAdmission({ pipelineId, stageId, branchKey });\n  }" -> "  }\n  store.releasePipelineStageAdmission({ pipelineId, stageId, branchKey });"
   });
 });

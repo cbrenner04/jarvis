@@ -31,13 +31,13 @@ Primary: `v2/src/daemon/pipeline-execution.ts`. In-scope: a repo-local structura
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/guard-pipeline-execution-bypasses.test.ts` fails against the pre-fix tree where `resumePipeline`'s branch-scope bypass comment lacks `@pinned-bypass:` and passes once every `bypass` token in `v2/src/daemon/pipeline-execution.ts` is pinned or removed.
-- [ ] `v2/src/daemon/pipeline-stage-recovery.test.ts` test `recovery admission claims before attempt and releases in finally` (or equivalent structural audit) confirms `claimResolvedPipelineBranchStageRecovery` precedes `runClaimedRecoveryAttempt` and `releasePipelineStageAdmission` runs in `finally` with no admission gap; fails if claim moves after attempt start or release is omitted.
-- [ ] `v2/src/daemon/pipeline-stage-recovery.test.ts` test `recovery refuses a stage whose admission claim is held` stays green.
-- [ ] `v2/docs/pipeline-execution.md` retires or pins every documented bypass of durable admission or aggregate derivation and names branch-scoped resume as an intentional pinned exception.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/daemon/guard-pipeline-execution-bypasses.test.ts` fails against the pre-fix tree where `resumePipeline`'s branch-scope bypass comment lacks `@pinned-bypass:` and passes once every `bypass` token in `v2/src/daemon/pipeline-execution.ts` is pinned or removed.
+- [x] `v2/src/daemon/pipeline-stage-recovery.test.ts` test `recovery admission claims before attempt and releases in finally` (or equivalent structural audit) confirms `claimResolvedPipelineBranchStageRecovery` precedes `runClaimedRecoveryAttempt` and `releasePipelineStageAdmission` runs in `finally` with no admission gap; fails if claim moves after attempt start or release is omitted.
+- [x] `v2/src/daemon/pipeline-stage-recovery.test.ts` test `recovery refuses a stage whose admission claim is held` stays green.
+- [x] `v2/docs/pipeline-execution.md` retires or pins every documented bypass of durable admission or aggregate derivation and names branch-scoped resume as an intentional pinned exception.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

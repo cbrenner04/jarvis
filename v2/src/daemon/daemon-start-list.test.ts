@@ -1,8 +1,9 @@
 import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { StructuralTestLocatorError } from "../../../shared/structural-test-locator.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import { executeWriteLoop } from "../execution/write-loop.ts";
@@ -18,6 +19,14 @@ import {
 } from "../testing/run-control.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers, runListTerminalFinishAtMs, settleKilledWorkflowOwnership } from "./daemon.ts";
+import {
+  expectDaemonPermittedInventoryMatches,
+  indexOfReconciliationAdmissionSlice,
+  listProductionDaemonSources,
+  locateReconciliationAdmissionSlice,
+  regexPinnedDaemonSettlementGuard,
+  scanDaemonTerminalSettlement,
+} from "./daemon-terminal-settlement-guard.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 
@@ -1088,21 +1097,32 @@ test("active deferred and forced kill use terminal settlement after admission", 
 });
 
 test("daemon production terminal writers are restricted to atomic settlement", () => {
-  const productionSources = readdirSync(import.meta.dir)
-    .filter((name) => name.endsWith(".ts") && !name.includes(".test."))
-    .map((name) => readFileSync(join(import.meta.dir, name), "utf8"))
-    .join("\n");
-  expect(productionSources).not.toMatch(/\.commitGuardedKill\s*\(/);
-  expect([...productionSources.matchAll(/\.setRunStatus\s*\(([^)]*)\)/g)].map((match) => match[1]?.trim())).toEqual([
-    'run.id, "in-progress"',
-  ]);
+  const sources = listProductionDaemonSources();
+  const result = scanDaemonTerminalSettlement(sources);
+  expect(result.violations).toEqual([]);
+  expectDaemonPermittedInventoryMatches(result);
 
   const stateStoreSource = readFileSync(join(import.meta.dir, "../persistence/state-store.ts"), "utf8");
-  const reconciliationAdmission = stateStoreSource.slice(
-    stateStoreSource.indexOf("async beginRunReconciliation"),
-    stateStoreSource.indexOf("finishRunReconciliation", stateStoreSource.indexOf("async beginRunReconciliation")),
+  expect(locateReconciliationAdmissionSlice(stateStoreSource)).not.toContain("UPDATE runs SET status");
+
+  const concatenated = Object.values(sources).join("\n");
+  const regexPinnedSlice = indexOfReconciliationAdmissionSlice(stateStoreSource);
+  expect(regexPinnedDaemonSettlementGuard(concatenated, regexPinnedSlice)).toBe(true);
+
+  const reformattedPromote = (sources["daemon.ts"] ?? "").replace(
+    'store.setRunStatus(run.id, "in-progress")',
+    'store.setRunStatus(\n        run.id,\n        "in-progress",\n      )',
   );
-  expect(reconciliationAdmission).not.toContain("UPDATE runs SET status");
+  const reformattedSources = { ...sources, "daemon.ts": reformattedPromote };
+  const reformattedConcatenated = Object.values(reformattedSources).join("\n");
+  expect(regexPinnedDaemonSettlementGuard(reformattedConcatenated, regexPinnedSlice)).toBe(false);
+  const reformattedResult = scanDaemonTerminalSettlement(reformattedSources);
+  expect(reformattedResult.violations).toEqual([]);
+  expectDaemonPermittedInventoryMatches(reformattedResult);
+
+  const noBeginSource = stateStoreSource.replace("async beginRunReconciliation", "async orphanRunReconciliation");
+  expect(indexOfReconciliationAdmissionSlice(noBeginSource)).toBe("");
+  expect(() => locateReconciliationAdmissionSlice(noBeginSource)).toThrow(StructuralTestLocatorError);
 });
 
 test("kill rejects unknown run ID", async () => {

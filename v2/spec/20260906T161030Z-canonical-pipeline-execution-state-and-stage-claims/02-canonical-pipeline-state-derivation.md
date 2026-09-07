@@ -30,15 +30,15 @@ Primary: `v2/src/daemon/pipeline-execution.ts`. In-scope: `pipeline-execution.te
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/pipeline-execution.test.ts` test `isPipelineContinuable agrees with derivePipelineState on fan-out continuable fixtures` uses a fan-out fixture constructible on pre-fix code where `fanOutBranchHasContinuableWork` admits continuation while `derivePipelineState` reads `failed` (via the `branchSuffixPredecessorsSatisfied` gap in `fanOutBranchHasContinuableWork` vs `scanFirstActionableFanOutSuffixStage`); fails against the pre-fix separate walk and passes after consolidation.
-- [ ] `v2/src/daemon/pipeline-execution.test.ts` test `reports running when any workflow stage row reads running` stays green.
-- [ ] `v2/src/daemon/pipeline-execution.test.ts` describe `derivePipelineState fan-out suffix settlement-first` stays green with no assertion dropped.
-- [ ] `v2/src/daemon/pipeline-execution.test.ts` describe `pipeline activation after restart` stays green (recoverContinuablePipelines and related resume eligibility unchanged at the margin).
-- [ ] `v2/docs/v1-behaviors.md` records canonical aggregate derivation and durable cross-process stage exclusion for dispatch, adoption, and recovery.
-- [ ] `v2/docs/daemon-host.md` records canonical aggregate derivation as the single source for in-flight aggregate decisions (`isPipelineContinuable`, unscoped `resumePipeline`, `recoverContinuablePipelines`), with branch-scoped resume as the pinned exception.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/daemon/pipeline-execution.test.ts` test `isPipelineContinuable agrees with derivePipelineState on fan-out continuable fixtures` uses a fan-out fixture constructible on pre-fix code where `fanOutBranchHasContinuableWork` admits continuation while `derivePipelineState` reads `failed` (via the `branchSuffixPredecessorsSatisfied` gap in `fanOutBranchHasContinuableWork` vs `scanFirstActionableFanOutSuffixStage`); fails against the pre-fix separate walk and passes after consolidation.
+- [x] `v2/src/daemon/pipeline-execution.test.ts` test `reports running when any workflow stage row reads running` stays green.
+- [x] `v2/src/daemon/pipeline-execution.test.ts` describe `derivePipelineState fan-out suffix settlement-first` stays green with no assertion dropped.
+- [x] `v2/src/daemon/pipeline-execution.test.ts` describe `pipeline activation after restart` stays green (recoverContinuablePipelines and related resume eligibility unchanged at the margin).
+- [x] `v2/docs/v1-behaviors.md` records canonical aggregate derivation and durable cross-process stage exclusion for dispatch, adoption, and recovery.
+- [x] `v2/docs/daemon-host.md` records canonical aggregate derivation as the single source for in-flight aggregate decisions (`isPipelineContinuable`, unscoped `resumePipeline`, `recoverContinuablePipelines`), with branch-scoped resume as the pinned exception.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

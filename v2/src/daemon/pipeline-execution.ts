@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
@@ -34,6 +34,7 @@ import {
 } from "../persistence/state-store.ts";
 import {
   adoptAndSettlePipelineStage,
+  adoptPipelineStageUnderAdmission,
   dispatchPipelineStage,
   type PipelineStageArtifact,
   type PipelineWorkflowDispatch,
@@ -554,6 +555,7 @@ function buildReopenedStageReset(
  * terminal pipelines. Optional `options.branchKey` scopes admission to one named fan-out
  * branch, bypassing aggregate `derivePipelineState` admission entirely; omission and
  * `branchKey: "default"` retain the unscoped whole-pipeline path above.
+ * @pinned-bypass: branch-scoped resume must not reopen or mis-scope sibling branches via aggregate derivation.
  */
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: resume admission coordinates whole-pipeline vs branch-scoped continuation, failed-plan-lane stale-reset policy with the two reset-override flags, and terminal-vs-dispatch branching in one entry point; splitting would fragment the admission decision.
 export async function resumePipeline(
@@ -770,62 +772,16 @@ export function reopenedFailurePermitsActivation(pipeline: Pipeline & { stages: 
   return !pipeline.stages.some((record) => record.status === "failed");
 }
 
-function fanOutBranchHasContinuableWork(
-  pipeline: Pipeline & { stages: PipelineStageRecord[] },
-  split: FanOutSplit,
-  branchKey: string,
-): boolean {
-  for (let index = 0; index <= split.splitPosition; index += 1) {
-    const stage = pipeline.definition.stages[index];
-    if (stage === undefined) continue;
-    const record = findStageRecord(pipeline.stages, stage.stageId, DEFAULT_PIPELINE_STAGE_BRANCH_KEY);
-    if (!isAuthoredStageSatisfied(stage, record)) return false;
-  }
-
-  for (const { stage, record } of suffixStagesForBranch(pipeline, split.splitPosition, branchKey)) {
-    if (stage.kind === "approval" && record.status === "rejected") return false;
-    if (record.status === "failed") return false;
-    if (stage.kind === "approval" && approvalOutcomeBlocksActivation(record.status)) return false;
-    if (!isAuthoredStageSatisfied(stage, record)) return true;
-  }
-  return false;
-}
-
-function fanOutApprovalPermitsActivation(
-  pipeline: Pipeline & { stages: PipelineStageRecord[] },
-  split: FanOutSplit,
-): boolean {
-  for (const branchKey of split.branchKeys) {
-    if (!fanOutBranchHasContinuableWork(pipeline, split, branchKey)) continue;
-    for (const { stage, record } of suffixStagesForBranch(pipeline, split.splitPosition, branchKey)) {
-      if (stage.kind === "approval" && approvalOutcomeBlocksActivation(record.status)) return false;
-    }
-    return true;
-  }
-  return true;
-}
-
 /** True when a reconciled or active pipeline with persisted context has a dispatchable workflow stage or pending settlement. */
 export function isPipelineContinuable(pipeline: Pipeline & { stages: PipelineStageRecord[] }): boolean {
   if (pipeline.status !== "active" && pipeline.status !== "interrupted") return false;
   if (!persistedContextLoadPermitsContinuation(pipeline.context)) return false;
   if (isPipelineSettlementPending(pipeline)) return true;
 
-  const split = findFanOutSplit(pipeline);
-  if (split !== null) {
-    const hasContinuableBranch = split.branchKeys.some((branchKey) =>
-      fanOutBranchHasContinuableWork(pipeline, split, branchKey),
-    );
-    if (hasContinuableBranch) {
-      return fanOutApprovalPermitsActivation(pipeline, split);
-    }
-  }
+  const derivedState = derivePipelineState(pipeline);
+  if (derivedState !== "pending") return false;
 
-  return (
-    derivePipelineState(pipeline) === "pending" &&
-    approvalOutcomePermitsActivation(pipeline) &&
-    reopenedFailurePermitsActivation(pipeline)
-  );
+  return approvalOutcomePermitsActivation(pipeline) && reopenedFailurePermitsActivation(pipeline);
 }
 
 /** True when the pipeline row carries a durable terminal-publication failure. */
@@ -1756,7 +1712,7 @@ async function refuseReopenedPlanOperatorBlockerWithGit(
   args: AdvanceWorkflowStageArgs,
   steps: readonly AnyWorkflowStep[],
   capture: { message: string },
-  branchKey = args.branchKey,
+  _branchKey = args.branchKey,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   const writeStep = steps.find((step) => step.behavior === "write");
   const worktree = writeStep?.behavior === "write" ? writeStep.worktree : undefined;
@@ -2142,15 +2098,20 @@ async function runFanOutBranchAction(
 
   const linkedEntryRun = settlementLinkedEntryRunId(store, targetRecord);
   if (linkedEntryRun !== undefined) {
-    await withDispatchClaim(dispatchClaims, stageArtifactKey(stage.stageId, targetBranchKey), () =>
-      adoptAndSettlePipelineStage({
-        store,
-        stageTarget,
-        entryRunId: linkedEntryRun,
-        wait,
-        ...(loadLogRecords !== undefined ? { loadLogRecords } : {}),
-      }),
-    );
+    await adoptPipelineStageUnderAdmission({
+      store,
+      stageTarget,
+      adopt: () =>
+        withDispatchClaim(dispatchClaims, stageArtifactKey(stage.stageId, targetBranchKey), () =>
+          adoptAndSettlePipelineStage({
+            store,
+            stageTarget,
+            entryRunId: linkedEntryRun,
+            wait,
+            ...(loadLogRecords !== undefined ? { loadLogRecords } : {}),
+          }),
+        ),
+    });
     return "acted";
   }
   if (targetRecord?.status === "running") return "acted";
@@ -2234,15 +2195,21 @@ async function adoptRunningWorkflowStage(
     loadLogRecords,
     dispatchClaims,
   } = args;
-  await withDispatchClaim(dispatchClaims, stageArtifactKey(stage.stageId, branchKey), () =>
-    adoptAndSettlePipelineStage({
-      store,
-      stageTarget: { pipelineId, stageId: stage.stageId, branchKey },
-      entryRunId,
-      wait,
-      ...(loadLogRecords !== undefined ? { loadLogRecords } : {}),
-    }),
-  );
+  const stageTarget = { pipelineId, stageId: stage.stageId, branchKey };
+  await adoptPipelineStageUnderAdmission({
+    store,
+    stageTarget,
+    adopt: () =>
+      withDispatchClaim(dispatchClaims, stageArtifactKey(stage.stageId, branchKey), () =>
+        adoptAndSettlePipelineStage({
+          store,
+          stageTarget,
+          entryRunId,
+          wait,
+          ...(loadLogRecords !== undefined ? { loadLogRecords } : {}),
+        }),
+      ),
+  });
   return finishDispatchedWorkflowStage({
     store,
     pipelineId,

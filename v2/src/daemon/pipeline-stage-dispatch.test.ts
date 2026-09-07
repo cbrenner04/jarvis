@@ -18,6 +18,7 @@ import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import { createMinimalDispatchWriteStep } from "../testing/workflow-step-fixtures.ts";
 import {
   adoptAndSettlePipelineStage,
+  adoptPipelineStageUnderAdmission,
   dispatchPipelineStage,
   type PipelineWorkflowDispatch,
   type PipelineWorkflowWait,
@@ -443,6 +444,53 @@ describe("unsettledTerminalStageEntryRunId", () => {
   });
 });
 
+type RefusedRunningClaimOutcome = {
+  dispatchCalled: boolean;
+  waitCalled: boolean;
+  reloadedEntryRunIds: string[];
+  patches: Array<{ pipelineId: string; stageId: string; patch: Record<string, unknown> }>;
+};
+
+async function runRefusedClaimOnRunningRow(args: {
+  entryRunId: string;
+  run: Partial<Run>;
+  stage: Partial<PipelineStageRecord>;
+}): Promise<RefusedRunningClaimOutcome> {
+  let dispatchCalled = false;
+  const dispatch: PipelineWorkflowDispatch = async () => {
+    dispatchCalled = true;
+    return { ok: true, entryRunId: args.entryRunId };
+  };
+  let waitCalled = false;
+  const wait: PipelineWorkflowWait = async () => {
+    waitCalled = true;
+    return "failed";
+  };
+  const { store, patches } = fakeStore({ [args.entryRunId]: args.run });
+  const loadRun = store.loadRun.bind(store);
+  const reloadedEntryRunIds: string[] = [];
+  store.claimPipelineStageAdmission = () => ({ kind: "refused", reason: "claim_lost" });
+  store.loadPipeline = () =>
+    ({
+      stages: [stageRecord({ status: "running", workflowInvocationId: args.entryRunId, ...args.stage })],
+    }) as ReturnType<StateStore["loadPipeline"]>;
+  store.loadRun = (runId) => {
+    reloadedEntryRunIds.push(runId);
+    return loadRun(runId);
+  };
+
+  await dispatchPipelineStage({
+    pipelineId: "p1",
+    stageId: "s1",
+    steps: [createMinimalDispatchWriteStep()],
+    dispatch,
+    wait,
+    store,
+  });
+
+  return { dispatchCalled, waitCalled, reloadedEntryRunIds, patches };
+}
+
 describe("dispatchPipelineStage refused claim", () => {
   test("returns early without dispatch or release when the stage row is still pending", async () => {
     let dispatchCalled = false;
@@ -478,115 +526,56 @@ describe("dispatchPipelineStage refused claim", () => {
   });
 
   test("adopts and settles when the stage row is running with a terminal linked entry run pending re-settlement", async () => {
-    let dispatchCalled = false;
-    const dispatch: PipelineWorkflowDispatch = async () => {
-      dispatchCalled = true;
-      return { ok: true, entryRunId: "entry-adopt" };
-    };
-    const wait: PipelineWorkflowWait = async () => "failed";
     const entryRunId = "entry-adopt";
-    const { store, patches } = fakeStore({
-      [entryRunId]: { specPath: "spec/adopt.md", status: "failed" },
-    });
-    store.claimPipelineStageAdmission = () => ({ kind: "refused", reason: "claim_lost" });
-    store.loadPipeline = () =>
-      ({
-        stages: [
-          stageRecord({
-            status: "running",
-            workflowInvocationId: entryRunId,
-            failureDetail: {
-              code: "settlement_deferred",
-              reason: "entry_run_still_live",
-              entryRunId,
-              rollupStatus: "failed",
-            },
-          }),
-        ],
-      }) as ReturnType<StateStore["loadPipeline"]>;
-
-    await dispatchPipelineStage({
-      pipelineId: "p1",
-      stageId: "s1",
-      steps: [createMinimalDispatchWriteStep()],
-      dispatch,
-      wait,
-      store,
+    const outcome = await runRefusedClaimOnRunningRow({
+      entryRunId,
+      run: { specPath: "spec/adopt.md", status: "failed" },
+      stage: {
+        failureDetail: {
+          code: "settlement_deferred",
+          reason: "entry_run_still_live",
+          entryRunId,
+          rollupStatus: "failed",
+        },
+      },
     });
 
-    expect(dispatchCalled).toBe(false);
-    expect(patches.some((p) => p.patch.status === "failed")).toBe(true);
+    expect(outcome.dispatchCalled).toBe(false);
+    expect(outcome.waitCalled).toBe(false);
+    expect(outcome.reloadedEntryRunIds).toEqual([entryRunId]);
+    expect(outcome.patches).toHaveLength(0);
   });
 
   test("adopts and settles a deferred running stage into succeeded, clearing the deferred failureDetail", async () => {
-    let dispatchCalled = false;
-    const dispatch: PipelineWorkflowDispatch = async () => {
-      dispatchCalled = true;
-      return { ok: true, entryRunId: "entry-clear" };
-    };
-    const wait: PipelineWorkflowWait = async () => "completed";
     const entryRunId = "entry-clear";
-    const { store, patches } = fakeStore({
-      [entryRunId]: { specPath: "spec/clear.md", status: "completed" },
-    });
-    store.claimPipelineStageAdmission = () => ({ kind: "refused", reason: "claim_lost" });
-    store.loadPipeline = () =>
-      ({
-        stages: [
-          stageRecord({
-            status: "running",
-            workflowInvocationId: entryRunId,
-            failureDetail: {
-              code: "settlement_deferred",
-              reason: "entry_run_still_live",
-              entryRunId,
-              rollupStatus: "in-progress",
-            },
-          }),
-        ],
-      }) as ReturnType<StateStore["loadPipeline"]>;
-
-    await dispatchPipelineStage({
-      pipelineId: "p1",
-      stageId: "s1",
-      steps: [createMinimalDispatchWriteStep()],
-      dispatch,
-      wait,
-      store,
+    const outcome = await runRefusedClaimOnRunningRow({
+      entryRunId,
+      run: { specPath: "spec/clear.md", status: "completed" },
+      stage: {
+        failureDetail: {
+          code: "settlement_deferred",
+          reason: "entry_run_still_live",
+          entryRunId,
+          rollupStatus: "in-progress",
+        },
+      },
     });
 
-    expect(dispatchCalled).toBe(false);
-    const successPatch = patches.find((p) => p.patch.status === "succeeded");
-    expect(successPatch?.patch.failureDetail).toBeNull();
+    expect(outcome.dispatchCalled).toBe(false);
+    expect(outcome.waitCalled).toBe(false);
+    expect(outcome.patches).toHaveLength(0);
   });
 
   test("adopts and settles when the stage row is running with a live entry run", async () => {
-    let dispatchCalled = false;
-    const dispatch: PipelineWorkflowDispatch = async () => {
-      dispatchCalled = true;
-      return { ok: true, entryRunId: "entry-adopt" };
-    };
-    const wait: PipelineWorkflowWait = async () => "completed";
-    const { store, patches } = fakeStore({
-      "entry-adopt": { specPath: "spec/adopt.md", status: "in-progress" },
-    });
-    store.claimPipelineStageAdmission = () => ({ kind: "refused", reason: "claim_lost" });
-    store.loadPipeline = () =>
-      ({
-        stages: [stageRecord({ status: "running", workflowInvocationId: "entry-adopt" })],
-      }) as ReturnType<StateStore["loadPipeline"]>;
-
-    await dispatchPipelineStage({
-      pipelineId: "p1",
-      stageId: "s1",
-      steps: [createMinimalDispatchWriteStep()],
-      dispatch,
-      wait,
-      store,
+    const outcome = await runRefusedClaimOnRunningRow({
+      entryRunId: "entry-adopt",
+      run: { specPath: "spec/adopt.md", status: "in-progress" },
+      stage: {},
     });
 
-    expect(dispatchCalled).toBe(false);
-    expect(patches.some((p) => p.patch.status === "succeeded")).toBe(true);
+    expect(outcome.dispatchCalled).toBe(false);
+    expect(outcome.waitCalled).toBe(false);
+    expect(outcome.patches).toHaveLength(0);
   });
 
   test("releases admission after the winner partition completes", async () => {
@@ -613,6 +602,46 @@ describe("dispatchPipelineStage refused claim", () => {
     });
 
     expect(releaseCount).toBe(1);
+  });
+});
+
+describe("adoptPipelineStageUnderAdmission", () => {
+  test("a refused durable claim re-reads without adoption, settlement, or release", async () => {
+    const entryRunId = "entry-adopt";
+    const { store, patches } = fakeStore({
+      [entryRunId]: { specPath: "spec/adopt.md", status: "in-progress" },
+    });
+    let adoptCount = 0;
+    let releaseCount = 0;
+    const loadRun = store.loadRun.bind(store);
+    const reloadedEntryRunIds: string[] = [];
+    store.claimPipelineStageAdmission = () => ({ kind: "refused", reason: "claim_lost" });
+    store.releasePipelineStageAdmission = () => {
+      releaseCount += 1;
+      return { kind: "applied" };
+    };
+    store.loadPipeline = () =>
+      ({
+        stages: [stageRecord({ status: "running", workflowInvocationId: entryRunId })],
+      }) as ReturnType<StateStore["loadPipeline"]>;
+    store.loadRun = (runId) => {
+      reloadedEntryRunIds.push(runId);
+      return loadRun(runId);
+    };
+
+    await adoptPipelineStageUnderAdmission({
+      store,
+      stageTarget: { pipelineId: "p1", stageId: "s1" },
+      adopt: async () => {
+        adoptCount += 1;
+      },
+    });
+
+    expect(adoptCount).toBe(0);
+    expect(releaseCount).toBe(0);
+    expect(reloadedEntryRunIds).toEqual([entryRunId]);
+    expect(patches).toHaveLength(0);
+    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (admission.kind === \"refused\") {" -> "if (false) {"
   });
 });
 

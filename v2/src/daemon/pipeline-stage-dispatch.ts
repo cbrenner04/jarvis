@@ -324,6 +324,45 @@ export async function adoptAndSettlePipelineStage(args: {
   });
 }
 
+function rereadPipelineStageAndEntryRun(store: StateStore, stageTarget: PipelineStageTarget): void {
+  const branchKey = stageTarget.branchKey ?? DEFAULT_PIPELINE_STAGE_BRANCH_KEY;
+  const pipeline = store.loadPipeline(stageTarget.pipelineId);
+  const record = pipeline?.stages.find(
+    (stage) => stage.stageId === stageTarget.stageId && stage.branchKey === branchKey,
+  );
+  const entryRunId = settlementLinkedEntryRunId(store, record);
+  if (entryRunId === undefined) return;
+  store.loadRun(entryRunId);
+}
+
+/** Hold durable admission while an existing linked entry run is adopted and settled. */
+export async function adoptPipelineStageUnderAdmission(args: {
+  store: StateStore;
+  stageTarget: PipelineStageTarget;
+  adopt: () => Promise<void>;
+}): Promise<void> {
+  const { store, stageTarget, adopt } = args;
+  const branchKey = stageTarget.branchKey ?? DEFAULT_PIPELINE_STAGE_BRANCH_KEY;
+  const admission = store.claimPipelineStageAdmission({
+    pipelineId: stageTarget.pipelineId,
+    stageId: stageTarget.stageId,
+    branchKey,
+  });
+  if (admission.kind === "refused") {
+    rereadPipelineStageAndEntryRun(store, stageTarget);
+    return;
+  }
+  try {
+    await adopt();
+  } finally {
+    store.releasePipelineStageAdmission({
+      pipelineId: stageTarget.pipelineId,
+      stageId: stageTarget.stageId,
+      branchKey,
+    });
+  }
+}
+
 /** Dispatch one resolved stage's steps, link it before settlement, then record its terminal outcome. */
 export async function dispatchPipelineStage(args: {
   pipelineId: string;
@@ -346,18 +385,7 @@ export async function dispatchPipelineStage(args: {
     branchKey: resolvedBranchKey,
   });
   if (claim.kind === "refused") {
-    const pipeline = store.loadPipeline(pipelineId);
-    const record = pipeline?.stages.find((stage) => stage.stageId === stageId && stage.branchKey === resolvedBranchKey);
-    const linkedEntryRunId = settlementLinkedEntryRunId(store, record);
-    if (linkedEntryRunId !== undefined) {
-      await adoptAndSettlePipelineStage({
-        store,
-        stageTarget,
-        entryRunId: linkedEntryRunId,
-        wait,
-        ...(loadLogRecords !== undefined ? { loadLogRecords } : {}),
-      });
-    }
+    rereadPipelineStageAndEntryRun(store, stageTarget);
     // @mutate pipeline-execution.test.ts "two concurrent continuations dispatch a given stage row exactly once"
     return;
   }

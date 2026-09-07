@@ -8,7 +8,11 @@ name: fan-out-plan-resolution-is-all-or-nothing-across-lanes
 
 Approving a fan-out lane's `approve-intent` gate re-resolves **every** sibling lane's ready-intent, not just the approved lane's. A sibling that already planned successfully has had its ready-intent `git mv`'d into that spec's `intent.md`, so the path no longer resolves — and resolution is all-or-nothing, so the approved lane's plan stage fails on a file that belongs to a different, already-finished lane.
 
-Consequence: **a fan-out pipeline can never advance a second lane after the first lane's plan lands.** Every multi-lane pipeline this project has run needed its dependent lanes hand-driven; this is why.
+Consequence: **a fan-out pipeline cannot advance a lane once a sibling's plan has consumed its ready-intent.** Every multi-lane pipeline this project has run needed its dependent lanes hand-driven; this is why.
+
+**Corrected scope (2026-09-07): this is a consumption race, not an inability to fan out.** The earlier framing — "a fan-out pipeline can never advance a second lane" — is too strong. Verification only fails on a path that has already been `git mv`'d away, so if *every* lane's gate is approved before any sibling plan lands, all inputs still resolve and all lanes dispatch in parallel. Demonstrated on two independent pipelines: approving both `approve-intent` gates back to back put both plan stages in `running` simultaneously (`623746e6`: `cleanup-pr-ownership-probe-fails-closed` + `pipeline-never-landed-probe-fails-closed`; `0c6f19d6`: `make-run-kill-rpc-report-settlement` + `render-run-kill-settlement-outcomes`), four concurrent plan stages across the two.
+
+This matters three ways. It is a working operator **workaround** today — approve all fan-out gates before any sibling plan lands, which is the *opposite* of the serial "head lane first, land, then resume" practice the runbook and brief currently prescribe, and that serial practice is what manufactures the failure. It means fan-out plan stages **already parallelize**, so the fix restores an existing capability rather than building one. And it narrows the fix: per-lane input selection is still the right change, but the bug is reachable only through consumed siblings, so a regression test must consume one sibling before approving another — approving two fresh gates will pass against the current code and prove nothing.
 
 `resolveChainedReadyIntentPaths` (`v2/src/daemon/pipeline-stage-resolve.ts:344`) loops the whole `downstreamInputs` list and returns the first verification failure for the entire fan-out:
 

@@ -176,7 +176,7 @@ function completionBoundarySettlementFields(
   };
 }
 
-function workflowPublicationFailureTerminalDetail(
+export function workflowPublicationFailureTerminalDetail(
   kind: WorkflowPublicationFailureKind,
   error?: Error,
 ): InvocationFailureDetail | undefined {

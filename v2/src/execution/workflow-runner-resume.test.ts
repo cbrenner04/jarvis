@@ -30,7 +30,12 @@ import { configuredIntentDurableDir, intentHandoffSpecPath } from "./intent-outp
 import type { PipelineDefinition } from "./pipeline-definition.ts";
 import type { PublicationLanding } from "./publication-landing.ts";
 import { validateReadyIntent } from "./publication-workflow-steps.ts";
-import { createReadyFinalizer, ReadyGateError, SurvivingMutationError } from "./ready-finalize.ts";
+import {
+  createReadyFinalizer,
+  NonTerminatingMutationError,
+  ReadyGateError,
+  SurvivingMutationError,
+} from "./ready-finalize.ts";
 import {
   config,
   createBindingFactory,
@@ -66,6 +71,7 @@ import {
   resolveReviewMutationResumeContext,
   resumePopulatedIntentPublication,
   resumeReviewMutationFinalization,
+  workflowPublicationFailureTerminalDetail,
 } from "./workflow-runner-resume.ts";
 import { findFirstMarkdownOnlyFenceViolation } from "./write-loop.ts";
 
@@ -4419,5 +4425,33 @@ describe("reconstructPausedWriteResumeInput", () => {
     });
 
     rmSync(worktreePath, { recursive: true, force: true });
+  });
+});
+
+describe("workflowPublicationFailureTerminalDetail", () => {
+  test("routes surviving_mutation_failed through the mutation terminal-detail branch", () => {
+    // @mutate v2/src/execution/workflow-runner-resume.ts "kind === \"surviving_mutation_failed\"" -> "kind !== \"surviving_mutation_failed\""
+    const error = new SurvivingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
+    expect(workflowPublicationFailureTerminalDetail("surviving_mutation_failed", error)).toEqual({
+      failureKind: "error",
+      bindingAttempts: [],
+      message: error.message,
+    });
+  });
+
+  test("routes non_terminating_mutation_failed through the mutation terminal-detail branch", () => {
+    // @mutate v2/src/execution/workflow-runner-resume.ts "kind === \"non_terminating_mutation_failed\"" -> "kind !== \"non_terminating_mutation_failed\""
+    const error = new NonTerminatingMutationError("operator-flip: === → !==", "src/guard.ts", 17);
+    expect(workflowPublicationFailureTerminalDetail("non_terminating_mutation_failed", error)).toEqual({
+      failureKind: "error",
+      bindingAttempts: [],
+      message: error.message,
+    });
+  });
+
+  test("keeps ready_gate_failed on the ready-gate terminal-detail branch", () => {
+    // @mutate v2/src/execution/workflow-runner-resume.ts "kind === \"surviving_mutation_failed\"" -> "kind !== \"surviving_mutation_failed\""
+    const error = new ReadyGateError("bun test", 1, "FAIL ./foo.test.ts");
+    expect(workflowPublicationFailureTerminalDetail("ready_gate_failed", error)?.message).toMatch(/^ready gate failed/);
   });
 });

@@ -1209,7 +1209,13 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 ...externalSpecGitScope(completionStep),
               });
             }
-            const repairInput = buildCompletionStepWriteLoopInput(completionStep, workflowSnapshot, args, store);
+            const repairInput = buildCompletionStepWriteLoopInput(
+              completionStep,
+              workflowSnapshot,
+              args,
+              store,
+              resolvePublicationGateCommands(args.steps, completionStep, isReviewLastStep),
+            );
             store.setRunStatus(lastResult.runId, "in-progress");
             const publication = await publishWithReadyRepair(
               repairInput,
@@ -1651,13 +1657,37 @@ function snapshotMatchesAuthoredSteps(
   });
 }
 
+/** Gate-owning step's stamped overrides for the publication tail's ready-gate finalization. */
+export function resolvePublicationGateCommands(
+  steps: readonly AnyWorkflowStep[],
+  completionStep: WriteWorkflowStep | undefined,
+  isReviewLastStep: boolean,
+): WorkflowGateCommandStamp {
+  const gateOwningStep = isReviewLastStep ? steps[steps.length - 1] : completionStep;
+  if (gateOwningStep === undefined) return {};
+  return {
+    ...(gateOwningStep.fixCommand !== undefined ? { fixCommand: gateOwningStep.fixCommand } : {}),
+    ...(gateOwningStep.readyCommand !== undefined ? { readyCommand: gateOwningStep.readyCommand } : {}),
+  };
+}
+
 function buildCompletionStepWriteLoopInput(
   step: WriteWorkflowStep,
   workflowSnapshot: WorkflowSnapshot,
   args: WorkflowRunnerInput,
   store: StateStore,
+  gateCommands: WorkflowGateCommandStamp,
 ): WriteLoopInput {
-  const { role, agents, agentModelConfig, createBinding, behavior: _behavior, ...loopInput } = step;
+  const {
+    role,
+    agents,
+    agentModelConfig,
+    createBinding,
+    behavior: _behavior,
+    fixCommand: _fixCommand,
+    readyCommand: _readyCommand,
+    ...loopInput
+  } = step;
   const executableRole = resolveExecutableRole(role);
   const bindings = resolveInvocationBindings(
     executableRole,
@@ -1683,6 +1713,8 @@ function buildCompletionStepWriteLoopInput(
     ...(args.readyFinalizer !== undefined ? { readyFinalizer: args.readyFinalizer } : {}),
     ...(args.runFixCommand !== undefined ? { runFixCommand: args.runFixCommand } : {}),
     ...(args.logSink !== undefined ? { logSink: args.logSink } : {}),
+    ...(gateCommands.fixCommand !== undefined ? { fixCommand: gateCommands.fixCommand } : {}),
+    ...(gateCommands.readyCommand !== undefined ? { readyCommand: gateCommands.readyCommand } : {}),
     ...(telemetryContext !== undefined
       ? {
           telemetry: {

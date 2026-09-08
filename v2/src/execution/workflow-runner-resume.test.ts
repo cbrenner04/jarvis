@@ -22,7 +22,7 @@ import { stageArtifactKey } from "../daemon/pipeline-stage-dispatch.ts";
 import { resolveStageWorkflowSteps } from "../daemon/pipeline-stage-resolve.ts";
 import { composeRunOperatorError, findTerminalLogRecord } from "../daemon/run-operator-error.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
-import type { openStateStore } from "../persistence/state-store.ts";
+import { openStateStore } from "../persistence/state-store.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter } from "./completion-commit.ts";
 import { createCompletionPublisher } from "./completion-publisher.ts";
@@ -849,11 +849,13 @@ describe("executeWorkflow review dispatch", () => {
   test("review row gate-command reconstruction prefers persisted snapshot step over write sibling", async () => {
     // @mutate v2/src/execution/workflow-runner-resume.ts "snapshotStepHasGateCommands(ownStep)" -> "false"
     const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-resume-review-gate-commands-"));
+    const dbPath = join(tmpdir(), `intent-finalize-resume-review-gate-commands-${randomUUID()}.db`);
     mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
     writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"), "example.md");
     mkdirSync(join(workspace, "ready-intents"), { recursive: true });
 
-    await withStateStore(async (store) => {
+    try {
+      let store = openStateStore(dbPath);
       const branch = "intent/review-gate-commands";
       const invocationId = "intent-review-gate-commands";
       const base = {
@@ -895,7 +897,13 @@ describe("executeWorkflow review dispatch", () => {
         outcomeKind: "invocation_failure",
         invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: "landing failed" },
       });
+      store.setRetainedFinalizationCheckpoint(reviewRunId, {
+        completionAttemptId: attemptId,
+        completionAgent: "claude",
+      });
+      store.close();
 
+      store = openStateStore(dbPath);
       const run = store.loadRun(reviewRunId);
       if (!run) throw new Error("expected review run");
       const source = resolveWriteSiblingCommandSource(run, store);
@@ -912,7 +920,109 @@ describe("executeWorkflow review dispatch", () => {
       });
       expect(outcome).toMatchObject({ ok: true });
       expect(finalizerReadyCommand).toBe("persisted-ready");
-    });
+      store.close();
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+      rmSync(dbPath, { force: true });
+    }
+  });
+
+  test("review-mutation gate-only resume invokes persisted review snapshot readyCommand after store reload", async () => {
+    // @mutate v2/src/execution/workflow-runner-resume.ts "inertResumeWriteLoopInput(context, context.specPath, deps, undefined, writeSibling)" -> "inertResumeWriteLoopInput(context, context.specPath, deps, undefined, undefined)"
+    const workspace = initGitWorkspace("review-mutation-gate-command-reload-");
+    const dbPath = join(tmpdir(), `review-mutation-gate-command-reload-${randomUUID()}.db`);
+    const logsPath = join(workspace, "resume.jsonl");
+    try {
+      writeFileSync(join(workspace, "spec.md"), "# Spec\n\n## Acceptance criteria\n\n- [x] complete\n", "utf8");
+      execFileSync("git", ["add", "spec.md"], { cwd: workspace });
+      execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
+      const baseRef = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace, encoding: "utf8" }).trim();
+
+      let store = openStateStore(dbPath);
+      const invocationId = "review-mutation-gate-command-reload";
+      const branch = "review-mutation/gate-command-reload";
+      const snapshot = {
+        invocationId,
+        creationTitle: "implement: gate-command-reload",
+        steps: [
+          {
+            stepId: "implement",
+            role: "implement",
+            stepRules: "implement rules",
+            expectedArtifactPath: "artifact",
+            agents: ["codex"],
+            agentModelConfig: DEFAULT_AGENT_MODEL_CONFIG,
+            fixCommand: "new-config-fix",
+            readyCommand: "new-config-ready",
+          },
+          {
+            stepId: "implement-review",
+            role: "",
+            durable: true,
+            behavior: "review" as const,
+            fixCommand: "persisted-fix",
+            readyCommand: "persisted-ready",
+          },
+        ],
+      };
+      const base = {
+        project: "demo",
+        specRef: baseRef,
+        worktreePath: workspace,
+        branch,
+        workflowSnapshot: snapshot,
+      };
+      const writeRunId = store.createRun({ ...base, specPath: "spec.md", stepId: "implement" });
+      store.setRunStatus(writeRunId, "completed");
+      const writeAttemptId = store.recordAttemptStart(writeRunId);
+      store.commitCompletionBoundary({
+        attemptId: writeAttemptId,
+        runStatus: "completed",
+        outcomeKind: "done",
+        completionAgent: "codex",
+      });
+      const reviewRunId = store.createRun({ ...base, specPath: "spec.md", stepId: "implement-review" });
+      const reviewAttemptId = store.recordAttemptStart(reviewRunId);
+      store.commitCompletionBoundary({
+        attemptId: reviewAttemptId,
+        runStatus: "failed",
+        outcomeKind: "invocation_failure",
+        invocationFailureDetail: { failureKind: "error", bindingAttempts: [], message: "prior mutation" },
+      });
+      store.setRetainedFinalizationCheckpoint(reviewRunId, {
+        completionAttemptId: reviewAttemptId,
+        completionAgent: "codex",
+      });
+      const seedSink = openLogSink(logsPath);
+      seedSink.append(reviewRunId, {
+        kind: "loop_finished",
+        loopOutcomeKind: "ready_gate_failed",
+        iterationsConsumed: 0,
+        resumable: true,
+      });
+      seedSink.close();
+      store.close();
+
+      store = openStateStore(dbPath);
+      const run = store.loadRun(reviewRunId);
+      if (!run) throw new Error("expected review run");
+      const terminalRecord = findTerminalLogRecord(openLogReader(logsPath).tail(reviewRunId));
+
+      let finalizerReadyCommand: string | undefined;
+      const outcome = await resumeReviewMutationFinalization(run, store, terminalRecord, {
+        completionCommitter: async () => ({ commitSha: "deadbeef", filesChanged: 1 }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async (input) => {
+          finalizerReadyCommand = input.readyCommand;
+        },
+      });
+      expect(outcome).toMatchObject({ ok: true });
+      expect(finalizerReadyCommand).toBe("persisted-ready");
+      store.close();
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+      rmSync(dbPath, { force: true });
+    }
   });
 
   test("review-last light intent completion records file handoff on the step-0 entry run", async () => {

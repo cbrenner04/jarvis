@@ -17,10 +17,10 @@ Snapshot-backed reconstruction can resolve a review row's persisted gate command
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/workflow-runner-resume.test.ts` proves a persisted review-row `readyCommand` is invoked after store reload even when live config differs; the test fails against the pre-fix path that resolves gate commands from live config or the built-in default instead of the review snapshot step reachable on main.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/execution/workflow-runner-resume.test.ts` proves a persisted review-row `readyCommand` is invoked after store reload even when live config differs; the test fails against the pre-fix path that resolves gate commands from live config or the built-in default instead of the review snapshot step reachable on main.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

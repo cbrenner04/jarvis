@@ -18,10 +18,10 @@ The workflow completion publication tail builds `publishWithReadyRepair` input f
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/workflow-runner-publication.test.ts` proves review-owned finalization for a project configured with a non-bun `readyCommand` invokes that command instead of `bun run ready`; the test fails against the pre-fix write-step-only `buildCompletionStepWriteLoopInput` path reachable on main.
-- [ ] `v2/src/execution/ready-finalize.test.ts` test `falls back to bun run ready without a configured readyCommand` stays green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `v2/src/execution/workflow-runner-publication.test.ts` proves review-owned finalization for a project configured with a non-bun `readyCommand` invokes that command instead of `bun run ready`; the test fails against the pre-fix write-step-only `buildCompletionStepWriteLoopInput` path reachable on main.
+- [x] `v2/src/execution/ready-finalize.test.ts` test `falls back to bun run ready without a configured readyCommand` stays green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

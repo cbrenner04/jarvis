@@ -16,9 +16,9 @@ On main, merged-worktree eligibility and apply-time recheck already exclude term
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/cleanup.test.ts` test `retires before archiving a complete durable spec and prunes only its consumed intent` stays green (terminal `completed` durable row still supplies spec identity for post-retirement archival).
-- [ ] `v2/docs/operator-runbook.md` documents that terminal durable rows do not retain merged-worktree eligibility while still supplying spec identity for archival.
-- [ ] `v2/docs/v1-behaviors.md` records the terminal-claim reclamation contract for merged-worktree cleanup.
+- [x] `v2/src/commands/cleanup.test.ts` test `retires before archiving a complete durable spec and prunes only its consumed intent` stays green (terminal `completed` durable row still supplies spec identity for post-retirement archival).
+- [x] `v2/docs/operator-runbook.md` documents that terminal durable rows do not retain merged-worktree eligibility while still supplying spec identity for archival.
+- [x] `v2/docs/v1-behaviors.md` records the terminal-claim reclamation contract for merged-worktree cleanup.
 
 ## Documentation updates
 

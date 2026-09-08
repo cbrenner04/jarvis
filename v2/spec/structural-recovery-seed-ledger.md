@@ -31,7 +31,8 @@ A seed with multiple ready-intents spans one row per ready-intent; the `Seed` an
 | implement-owns-its-prompt-ids | intent-split → implement-owned-prompt-artifacts / v1-migration / v2-wiring RIs | — | — | — |
 | per-project-agent-fallback-order | folded into [[per-project-config-overrides-seam]] 2026-09-05 (#3026) | — | — | — |
 | blocker-contract-credits-existing-section | not-started (chess-dogfood; #3029) | — | — | — |
-| pipeline-list-display-retention / tui-dock-command-grammar / tui-typed-run-steering / full-light-review-pipeline | parked (display/TUI) | — | — | — |
+| pipeline-list-display-retention / tui-dock-command-grammar / tui-typed-run-steering | parked (display/TUI) | — | — | — |
+| full-light-review-pipeline | **hand-landed 2026-09-07** (registry entry + tests + docs; seed reaped) | — | — | — |
 | cleanup-improvements | not-started — **absorbed session-log retention, dead-daemon files, spec-scoped archival 2026-09-05** | — | — | — |
 | ready-gate-repair-out-of-diff-edits | **fence policy decided 2026-09-05** (absolute fence + honest settlement, closes the #3040 dead-end); chain head before [[remove-ready-gate-repair-fence-bypass-from-production]] | — | — | — |
 | implement-retirement-destroys-artifacts-before-materialization | not-started; fresh evidence #3433 | — | — | — |

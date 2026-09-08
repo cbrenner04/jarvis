@@ -5379,6 +5379,28 @@ describe("pipeline branch fan-out execution", () => {
     ]);
   });
 
+  test("fan-out sibling dispatch failure does not stop the caller branch suffix walk", async () => {
+    // @mutate v2/src/daemon/pipeline-execution.ts "targetBranchKey === branchKey" -> "targetBranchKey !== branchKey"
+    const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, {
+      "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
+    });
+    setupFanOutLinearPostIntent(store);
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const deps = fanOutPipelineDeps(withSyntheticPlanRunRecords(store), dispatchLog, {
+      failBranchIndex: 1,
+      failAtStageIndex: 1,
+    });
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext }, "alpha");
+    await flushBackgroundRuns();
+
+    expect(stageRecord(stages(), "plan", "beta")?.status).toBe("failed");
+    expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("succeeded");
+    expect(dispatchLog.filter((entry) => entry.stageId === "implement" && entry.branchKey === "alpha")).toEqual([
+      { stageId: "implement", branchKey: "alpha" },
+    ]);
+  });
+
   test("fanOutPlanResultForBranch lists available downstream inputs on binding refusal", () => {
     const downstreamInputs = ["ready-intents/alpha.md", "ready-intents/beta.md"];
     const results = downstreamInputs.map(() => ({ steps: [] }));

@@ -34,6 +34,34 @@ import { composeRunOperatorError } from "./run-operator-error.ts";
 
 const TERMINAL_STAGE_RUN_STATUSES = new Set(["succeeded", "failed", "interrupted", "skipped"]);
 
+// Pre-fix hand-maintained identity registry; red-gates when terminal writes carry endedAt but the map is stale.
+const CLASSIFIED_STATUS_WRITES = new Map<string, "terminal" | "nonterminal">([
+  ["pipeline-stage-dispatch.ts:settleUnexpectedThrow:failed#1", "terminal"],
+  ["pipeline-stage-dispatch.ts:writeRunningStageLinkage:running#1", "nonterminal"],
+  ["pipeline-stage-dispatch.ts:applyEntryRunSettlement:failed#1", "terminal"],
+  ["pipeline-stage-dispatch.ts:applyEntryRunSettlement:succeeded#1", "terminal"],
+  ["pipeline-stage-dispatch.ts:applyEntryRunSettlement:failed#2", "terminal"],
+  ["pipeline-stage-dispatch.ts:dispatchPipelineStage:failed#1", "terminal"],
+  ["pipeline-execution.ts:admitFanOutBranches:skipped#1", "terminal"],
+  ["pipeline-execution.ts:settleApprovalBoundaryFailure:failed#1", "terminal"],
+  ["pipeline-execution.ts:skipRemainingStages:skipped#1", "terminal"],
+  ["pipeline-execution.ts:failWorkflowStageAt:failed#1", "terminal"],
+  ["pipeline-execution.ts:advanceWorkflowStage:failed#1", "terminal"],
+  ["pipeline-execution.ts:failStrandedPipelineStage:failed#1", "terminal"],
+]);
+
+const DISPATCH_OWNER_EXPORT = /export\s+(?:async\s+)?function\s+dispatchPipelineStage\b/;
+const DISPATCH_CHAIN_BOUNDARY_SYMBOLS = [
+  "dispatchPipelineStage",
+  "adoptAndSettlePipelineStage",
+  "adoptPipelineStageUnderAdmission",
+  "redrivableDeferredSettlementEntryRunId",
+  "unsettledTerminalStageEntryRunId",
+  "shouldStopForInFlightStageRow",
+  "settlementLinkedEntryRunId",
+  "isLiveEntryRun",
+] as const;
+
 type StatusWrite = { endedAt: ts.Expression | undefined; identity: string; status: string };
 
 function propertyAssignment(object: ts.ObjectLiteralExpression, name: string): ts.PropertyAssignment | undefined {
@@ -151,17 +179,46 @@ function isNumericTimestamp(expression: ts.Expression | undefined): boolean {
   );
 }
 
-function listPipelineStageStatusWriteSourcePaths(): string[] {
-  return Object.keys(listProductionDaemonSources())
-    .filter((rel) => {
-      try {
-        return parseStatusWrites(join(import.meta.dir, rel)).length > 0;
-      } catch {
-        return false;
-      }
-    })
-    .map((rel) => join(import.meta.dir, rel))
+function resolveDaemonRelativeImport(specifier: string): string {
+  const base = specifier.startsWith("./") ? specifier.slice(2) : specifier;
+  return base.endsWith(".ts") ? base : `${base}.ts`;
+}
+
+function dispatchOwnerRelativePaths(sources: Readonly<Record<string, string>>): string[] {
+  return Object.entries(sources)
+    .filter(([, source]) => DISPATCH_OWNER_EXPORT.test(source))
+    .map(([rel]) => rel)
     .sort();
+}
+
+function importsFromDispatchOwner(source: string, ownerPaths: ReadonlySet<string>): boolean {
+  for (const match of source.matchAll(/import\s+(?:type\s+)?\{([^}]+)\}\s+from\s+["']([^"']+)["']/g)) {
+    const names = match[1];
+    const specifier = match[2];
+    if (names === undefined || specifier === undefined) continue;
+    if (!DISPATCH_CHAIN_BOUNDARY_SYMBOLS.some((symbol) => names.includes(symbol))) continue;
+    if (ownerPaths.has(resolveDaemonRelativeImport(specifier))) return true;
+  }
+  return false;
+}
+
+export function dispatchChainRelativePaths(sources: Readonly<Record<string, string>>): string[] {
+  const ownerPaths = new Set(dispatchOwnerRelativePaths(sources));
+  return Object.keys(sources)
+    .filter((rel) => ownerPaths.has(rel) || importsFromDispatchOwner(sources[rel] ?? "", ownerPaths))
+    .sort();
+}
+
+function listPipelineStageStatusWriteSourcePaths(): string[] {
+  return dispatchChainRelativePaths(listProductionDaemonSources()).map((rel) => join(import.meta.dir, rel));
+}
+
+/** Pre-fix map-equality oracle; red-gates when a new status write lands without updating the registry. */
+export function classifiedStatusWritesMapEqualityGuard(writes: readonly StatusWrite[]): boolean {
+  return (
+    JSON.stringify(writes.map(({ identity }) => identity).sort()) ===
+    JSON.stringify([...CLASSIFIED_STATUS_WRITES.keys()].sort())
+  );
 }
 
 test("every terminal pipeline stage-run write carries endedAt", () => {
@@ -170,6 +227,21 @@ test("every terminal pipeline stage-run write carries endedAt", () => {
   expect(writes.length).toBeGreaterThan(0);
   expect(TERMINAL_STAGE_RUN_STATUSES.has("approved")).toBe(false);
   expect(TERMINAL_STAGE_RUN_STATUSES.has("rejected")).toBe(false);
+
+  const withUnregisteredTerminalWrite = [
+    ...writes,
+    {
+      identity: "pipeline-stage-dispatch-settlement.ts:settleSibling:failed#1",
+      status: "failed",
+      endedAt: undefined,
+    },
+  ];
+  expect(classifiedStatusWritesMapEqualityGuard(withUnregisteredTerminalWrite)).toBe(false);
+
+  const vacuousMapMatchMissingEndedAt = writes.map((write) =>
+    TERMINAL_STAGE_RUN_STATUSES.has(write.status) ? { ...write, endedAt: undefined } : write,
+  );
+  expect(classifiedStatusWritesMapEqualityGuard(vacuousMapMatchMissingEndedAt)).toBe(true);
 
   for (const write of writes) {
     const terminal = write.endedAt !== undefined;

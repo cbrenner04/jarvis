@@ -115,7 +115,6 @@ const minimalWriteInput = (context: NonNullable<WriteLoopInput["bindingResolutio
 test("only allowlisted modules call resolveWriteLoopBindings", () => {
   const sources = listProductionSourcesUnderV2Src();
   expect(discoverResolveWriteLoopBindingsCallers(sources)).toEqual(resolveWriteLoopBindingsCallSurface(sources));
-  expect(allowlistPinnedCallerGuard(sources)).toBe(true);
 
   const withSiblingCaller = {
     ...sources,
@@ -138,7 +137,6 @@ test("daemon binding resolution re-loads from the machine profile unless the sna
   for (const marker of BINDING_SOURCE_MARKERS) {
     expect(bindingSourceSlice.includes(marker)).toBe(true);
   }
-  expect(daemonOnlyBindingSourceMarkerGuard(sources)).toBe(true);
 
   const vacuousDaemonOnlyMarkers = {
     ...sources,

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import ts from "typescript";
@@ -28,6 +28,7 @@ import {
 } from "./pipeline-stage-dispatch.ts";
 import { createChainedStageProjectMatch, type PipelineContext } from "./pipeline-stage-resolve.ts";
 import { preparePipelineStageWorkflow } from "./pipeline-workflow-preparation.ts";
+import { listProductionDaemonSources } from "./daemon-terminal-settlement-guard.ts";
 import type { TerminalLogRecord } from "./run-operator-error.ts";
 import { composeRunOperatorError } from "./run-operator-error.ts";
 
@@ -151,23 +152,16 @@ function isNumericTimestamp(expression: ts.Expression | undefined): boolean {
 }
 
 function listPipelineStageStatusWriteSourcePaths(): string[] {
-  const paths: string[] = [];
-  const walk = (absDir: string): void => {
-    for (const entry of readdirSync(absDir, { withFileTypes: true })) {
-      const abs = join(absDir, entry.name);
-      if (entry.isDirectory()) {
-        walk(abs);
-      } else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) {
-        try {
-          if (parseStatusWrites(abs).length > 0) paths.push(abs);
-        } catch {
-          // Not a dispatch-owner write surface for this guard.
-        }
+  return Object.keys(listProductionDaemonSources())
+    .filter((rel) => {
+      try {
+        return parseStatusWrites(join(import.meta.dir, rel)).length > 0;
+      } catch {
+        return false;
       }
-    }
-  };
-  walk(import.meta.dir);
-  return paths.sort();
+    })
+    .map((rel) => join(import.meta.dir, rel))
+    .sort();
 }
 
 test("every terminal pipeline stage-run write carries endedAt", () => {

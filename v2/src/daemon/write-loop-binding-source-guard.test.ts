@@ -13,9 +13,6 @@ const RESOLVE_WRITE_LOOP_BINDINGS_EXPORT = /export\s+function\s+resolveWriteLoop
 const RESOLVE_WRITE_LOOP_BINDINGS_CALL = /resolveWriteLoopBindings\s*\(/;
 const RESOLVE_WRITE_LOOP_BINDINGS_IMPORT =
   /import\s+(?:type\s+)?\{[^}]*\bresolveWriteLoopBindings\b[^}]*\}\s+from\s+["']([^"']+)["']/g;
-const RESOLVE_WRITE_LOOP_BINDINGS_RE_EXPORT =
-  /export\s+\{[^}]*\bresolveWriteLoopBindings\b[^}]*\}\s+from\s+["']([^"']+)["']/g;
-
 type ProductionSources = Readonly<Record<string, string>>;
 
 const BINDING_SOURCE_MARKERS = [
@@ -61,28 +58,6 @@ function resolverOwnerPaths(sources: ProductionSources): string[] {
     .sort();
 }
 
-function resolveResolverExportSurface(sources: ProductionSources): Set<string> {
-  const owners = resolverOwnerPaths(sources);
-  const surface = new Set<string>(owners);
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const [path, source] of Object.entries(sources)) {
-      if (surface.has(path)) continue;
-      for (const match of source.matchAll(RESOLVE_WRITE_LOOP_BINDINGS_RE_EXPORT)) {
-        const importSpecifier = match[1];
-        if (importSpecifier === undefined) continue;
-        const target = resolveTsImport(path, importSpecifier);
-        if (surface.has(target)) {
-          surface.add(path);
-          changed = true;
-        }
-      }
-    }
-  }
-  return surface;
-}
-
 function importsFromResolverExportSurface(path: string, source: string, exportSurface: ReadonlySet<string>): boolean {
   for (const match of source.matchAll(RESOLVE_WRITE_LOOP_BINDINGS_IMPORT)) {
     const importSpecifier = match[1];
@@ -100,7 +75,7 @@ export function discoverResolveWriteLoopBindingsCallers(sources: ProductionSourc
 }
 
 export function resolveWriteLoopBindingsCallSurface(sources: ProductionSources): string[] {
-  const exportSurface = resolveResolverExportSurface(sources);
+  const exportSurface = new Set(resolverOwnerPaths(sources));
   return discoverResolveWriteLoopBindingsCallers(sources).filter(
     (path) => exportSurface.has(path) || importsFromResolverExportSurface(path, sources[path] ?? "", exportSurface),
   );

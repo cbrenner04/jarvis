@@ -8,4 +8,4 @@
 - [x] [05 - Re-key daemon-resume.test.ts](./05-rekey-daemon-resume-test.md)
 - [x] [06 - Re-key pipeline-stage-dispatch.test.ts](./06-rekey-pipeline-stage-dispatch-test.md)
 - [x] [07 - Re-key pipeline-stage-recovery.test.ts](./07-rekey-pipeline-stage-recovery-test.md)
-- [ ] [08 - Re-key write-loop-binding-source-guard.test.ts](./08-rekey-write-loop-binding-source-guard-test.md)
+- [x] [08 - Re-key write-loop-binding-source-guard.test.ts](./08-rekey-write-loop-binding-source-guard-test.md)

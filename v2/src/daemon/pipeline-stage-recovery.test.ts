@@ -19,7 +19,6 @@ import {
   readReviewMdLintFixture,
   REVIEW_MD_LINT_FIXTURE_IDS,
   skipReviewWithoutHarnessMarkdownlint,
-  writeLintCleanPlanStage,
 } from "../execution/workflow-runner.test-support.ts";
 import { ensureWorkflowRunnerResumeDepsWired } from "../testing/workflow-runner-resume-wiring.ts";
 
@@ -918,7 +917,8 @@ describe("recoverPipelineBranchStage", () => {
     const branch = `plan/${args.prefix}`;
     const reason = "`## Decisions` bullet is outside the allowed union";
 
-    writeLintCleanPlanStage(stage, "00-first.md");
+    mkdirSync(stage, { recursive: true });
+    writeFileSync(join(stage, "index.md"), "# Index\n\n- [ ] [One](./00-first.md)\n", "utf8");
     writeFileSync(join(stage, "00-first.md"), "# Draft with an out-of-union Decisions bullet\n", "utf8");
     writeFileSync(join(stage, "intent.md"), `---\nname: test\n---\n${harnessPlanBlocker(reason)}`, "utf8");
 

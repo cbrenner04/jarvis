@@ -1,6 +1,6 @@
 # Generalize production test-seam guard
 
-`scripts/guard-production-test-flags.ts` regexes only the historical `invert*ForTest` family and misses generalized `ForTest`/`ForTests` setters, module variables, parameters, and type members that remain reachable in production `v2/src`, `v1/src`, and `shared` outside test files.
+`scripts/guard-production-test-flags.ts` regexes only the historical `invert*ForTest` family and misses generalized `ForTest`/`ForTests` setters, module variables, parameters, and type members that remain reachable in production `v2/src` and `shared` outside test files.
 
 ## Decisions
 
@@ -20,7 +20,7 @@
 ## Tasks
 
 - Extend `scripts/guard-production-test-flags.ts` with generalized shape detectors and `SHAPES` labels; keep existing invert-only detectors and dedupe logic.
-- Extend `scripts/guard-production-test-flags.test.ts` with rejected and allowed synthetic fixtures per generalized shape across `v2/src`, `v1/src`, and `shared`; include at least one rejected `setFooForTest` export, `fooForTest` module variable, `fooForTest` parameter, and `fooForTest` type member; retain all existing invert-shape cases.
+- Extend `scripts/guard-production-test-flags.test.ts` with rejected and allowed synthetic fixtures per generalized shape across `v2/src` and `shared`; include at least one rejected `setFooForTest` export, `fooForTest` module variable, `fooForTest` parameter, and `fooForTest` type member; retain all existing invert-shape cases.
 - Update `shared/prompts/step-rules.ts` prohibition line to list the generalized guard shapes (retain `invert*` parameter prohibition).
 - Update `v2/src/execution/write.test.ts` prompt assertions that pin the step-rules prohibition text.
 

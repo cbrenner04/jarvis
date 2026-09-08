@@ -52,6 +52,6 @@ Distinct from #3383, which is the same classifier over-matching on a bare common
 
 ## Documentation updates
 
-- `v1/docs/spec-guidance.md` — that the `rules out` clause is exempt from surface classification.
+- `v2/docs/spec-guidance.md` — that the `rules out` clause is exempt from surface classification.
 - `v2/docs/operator-runbook.md` — reading a plan `contract_miss` message; retire the manual `classifyModuleBoundaryText` diagnosis step.
 - `v2/docs/v1-behaviors.md` — record decision-clause-only classification.

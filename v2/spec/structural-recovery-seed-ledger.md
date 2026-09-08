@@ -195,7 +195,7 @@ Executed the 2026-09-05 queue audit plus the operator's restart-pain report: mer
 
 **Friction, unseeded (recurred six times).** Stale plan worktrees pinned at an older `main` refuse redispatch and need `cleanup --yes --abandon` each time; implement auto-resets this, plan does not. Seed if it recurs next session.
 
-**No light-review pipeline exists** — registry holds only `full-review` and `fast`. [[full-light-review-pipeline]] stays parked; operator decision 2026-09-07 is that jarvis stays on `full-review`.
+**`full-light-review` landed 2026-09-07** ([#3593](https://github.com/cbrenner04/jarvis/pull/3593), operator hand-landed) — the gated middle tier: intent(light) → approve → plan(light) → approve → implement(light), `ready`. Before it the registry held only `full-review` (debate on plan and implement) and `fast` (no gates), with nothing between. Operator decision the same day is that **jarvis itself stays on `full-review`**; the new tier is for projects wanting gates without debate cost. Relevant to this session's measurement: `full-review`'s debate stages, not its write steps, dominated the four-lane wave's 68-minute wall clock.
 
 ## Gaps / low-confidence
 

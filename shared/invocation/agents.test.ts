@@ -224,7 +224,7 @@ describe("parseShellToolFrameLine", () => {
       }),
       "claude",
     );
-    expect(start).toEqual({ phase: "start", command: "bun run test:shared" });
+    expect(start).toEqual({ phase: "start", command: "bun run test:shared", toolUseId: "toolu_shell" });
     // @mutate shared/invocation/agents.ts "name === \"Shell\"" -> "name !== \"Shell\""
   });
 
@@ -238,7 +238,7 @@ describe("parseShellToolFrameLine", () => {
       }),
       "claude",
     );
-    expect(start).toEqual({ phase: "start", command: "bun run test:shared" });
+    expect(start).toEqual({ phase: "start", command: "bun run test:shared", toolUseId: "toolu_top" });
     expect(
       parseShellToolFrameLine(
         JSON.stringify({
@@ -279,10 +279,11 @@ describe("parseShellToolFrameLine", () => {
       }),
       "claude",
     );
-    expect(start).toEqual({ phase: "start", command: "bun run test:v2" });
+    expect(start).toEqual({ phase: "start", command: "bun run test:v2", toolUseId: "toolu_1" });
     // @mutate shared/invocation/agents.ts "name === \"Bash\"" -> "name === \"Read\""
     expect(parseShellToolFrameLine(JSON.stringify({ type: "tool_result", tool_use_id: "toolu_1" }), "claude")).toEqual({
       phase: "complete",
+      toolUseId: "toolu_1",
     });
     expect(
       parseShellToolFrameLine(
@@ -399,6 +400,7 @@ describe("parseShellToolFrameLine", () => {
         type: "stream_event",
         event: { type: "content_block_stop", index: 0 },
       }),
+      JSON.stringify({ type: "tool_result", tool_use_id: "toolu_stream", content: "ok" }),
       JSON.stringify({ type: "result", result: "progress" }),
     ].join("\n");
     const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: `${frames}\n`, stderr: "" }]);
@@ -423,6 +425,42 @@ describe("parseShellToolFrameLine", () => {
     expect(commands).toContain("bun run test:shared");
     expect(completions).toBe(1);
     // @mutate shared/invocation/agents.ts "partial.trim() === \"\"" -> "partial.trim() !== \"\""
+  });
+
+  test("claude binding ignores content_block_stop and uncorrelated tool_result for shell completion", async () => {
+    const frames = [
+      JSON.stringify({
+        type: "stream_event",
+        event: {
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "tool_use", id: "toolu_gate", name: "Bash", input: { command: "bun run test:v2" } },
+        },
+      }),
+      JSON.stringify({
+        type: "stream_event",
+        event: { type: "content_block_stop", index: 0 },
+      }),
+      JSON.stringify({ type: "tool_result", tool_use_id: "toolu_read", content: "file contents" }),
+      JSON.stringify({ type: "tool_result", tool_use_id: "toolu_gate", content: "ok" }),
+      JSON.stringify({ type: "result", result: "progress" }),
+    ].join("\n");
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: `${frames}\n`, stderr: "" }]);
+    let completions = 0;
+    const binding = createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      { spawn: fake.spawn },
+    );
+
+    await binding.invoke({
+      prompt: "p",
+      cwd: "/repo",
+      onAgentShellCommandComplete: () => {
+        completions += 1;
+      },
+    });
+
+    expect(completions).toBe(1);
   });
 });
 

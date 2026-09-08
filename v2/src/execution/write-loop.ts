@@ -2163,6 +2163,14 @@ async function settleFinalizationRepair(
   return isInterruptedRace(raced) ? { kind: raced.kind, quiesced } : quiesced;
 }
 
+function releaseIterationGateSlot(gateTracker?: ReturnType<typeof createIterationActiveGateTracker>): void {
+  if (gateTracker?.getActiveGate() !== undefined) {
+    gateTracker.onAgentShellCommandComplete();
+    return;
+  }
+  releaseAgentGateInvocationSlot();
+}
+
 async function settleBoundedIteration(
   raced: RaceOutcome,
   execution: Promise<QuiescedExecutionOutcome>,
@@ -2170,10 +2178,13 @@ async function settleBoundedIteration(
   quiescenceTimeoutMs: number,
   gateTracker?: ReturnType<typeof createIterationActiveGateTracker>,
 ): Promise<IterationSettlement> {
-  if (!isInterruptedRace(raced)) return raced;
+  if (!isInterruptedRace(raced)) {
+    releaseIterationGateSlot(gateTracker);
+    return raced;
+  }
   const quiesced = await boundQuiescenceWait(execution, schedule, quiescenceTimeoutMs);
   const activeGateAtTimeout = gateTracker?.getActiveGate();
-  if (activeGateAtTimeout !== undefined) gateTracker?.onAgentShellCommandComplete();
+  releaseIterationGateSlot(gateTracker);
   return { kind: raced.kind, quiesced, ...(activeGateAtTimeout !== undefined ? { activeGateAtTimeout } : {}) };
 }
 

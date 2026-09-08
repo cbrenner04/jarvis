@@ -177,6 +177,54 @@ function cursorGateShellBinding(frames: string[], holdUntil?: Promise<void>) {
   );
 }
 
+function claudeGateShellFrames(gateCommand: string, toolUseId = "toolu_gate") {
+  const assistantStart = JSON.stringify({
+    type: "assistant",
+    message: {
+      role: "assistant",
+      content: [{ type: "tool_use", id: toolUseId, name: "Bash", input: { command: gateCommand } }],
+    },
+  });
+  const toolResult = JSON.stringify({ type: "tool_result", tool_use_id: toolUseId, content: "ok" });
+  const resultFrame = JSON.stringify({ type: "result", result: "progress" });
+  return { assistantStart, toolResult, resultFrame };
+}
+
+function claudeStreamGateShellFrames(gateCommand: string, toolUseId = "toolu_stream_gate") {
+  const streamStart = JSON.stringify({
+    type: "stream_event",
+    event: {
+      type: "content_block_start",
+      index: 0,
+      content_block: { type: "tool_use", id: toolUseId, name: "Bash", input: {} },
+    },
+  });
+  const streamDelta = JSON.stringify({
+    type: "stream_event",
+    event: {
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "input_json_delta", partial_json: JSON.stringify({ command: gateCommand }) },
+    },
+  });
+  const streamStop = JSON.stringify({
+    type: "stream_event",
+    event: { type: "content_block_stop", index: 0 },
+  });
+  const toolResult = JSON.stringify({ type: "tool_result", tool_use_id: toolUseId, content: "ok" });
+  const resultFrame = JSON.stringify({ type: "result", result: "progress" });
+  return { streamStart, streamDelta, streamStop, toolResult, resultFrame };
+}
+
+function claudeGateShellBinding(frames: string[]) {
+  const spawn = (_binary: string, _argv: readonly string[], _opts: SpawnOptions): ChildProcess => {
+    const child = new GateShellFrameChild();
+    child.start(frames);
+    return child as unknown as ChildProcess;
+  };
+  return createResolvedAgentBinding({ agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" }, { spawn });
+}
+
 const PLAN_DRAFT_INTENT_SEED = "---\nname: test\n---\n\n## Prerequisites\n\nnone\n";
 const PLAN_DRAFT_SPEC_PATH = "v2/spec/2099-01-01T00-00-00Z-plan-draft";
 const MULTI_SURFACE_BULLET =
@@ -1118,6 +1166,154 @@ describe.serial("gate invocation budget and settlement", () => {
           jarvisRoot,
         },
         bindings: [cursorGateShellBinding([startedFrame, completedFrame, resultFrame])],
+      });
+      releaseFirstGate();
+      const firstResult = await first;
+
+      expect(firstResult.kind).not.toBe("gate_invocation_refused");
+      expect(second).toMatchObject({
+        kind: "gate_invocation_refused",
+        iterationsConsumed: 1,
+        resumable: true,
+        gateCommand,
+      });
+    } finally {
+      store.close();
+    }
+  });
+
+  test("claude NDJSON releases gate slot on iteration settle when shell completion frame is missing", async () => {
+    const gateCommand = "bun run test:v2";
+    const { assistantStart, resultFrame } = claudeGateShellFrames(gateCommand);
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const store = openStateStore(stateDbPath);
+    const sink = new TestLogSink();
+    const baseInput = {
+      specPath: "spec.md",
+      stepRules: "Return progress.",
+      expectedArtifactPath: "proof.txt",
+      stateStore: store,
+      withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+      sessionsDir: join(jarvisRoot, "sessions"),
+      logSink: sink,
+      maxIterations: 1,
+      iterationCeilingMs: TEST_STEP_BUDGET_MS + 60_000,
+      clock: () => new Date("2026-09-08T06:00:00.000Z"),
+    };
+    try {
+      const first = await executeWriteLoop({
+        ...baseInput,
+        worktree: {
+          projectRoot: "/fake",
+          projectName: "demo",
+          branchName: "claude-gate-slot-release",
+          baseRef: "HEAD",
+          jarvisRoot,
+        },
+        bindings: [claudeGateShellBinding([assistantStart, resultFrame])],
+      });
+      expect(first.kind).not.toBe("gate_invocation_refused");
+
+      const second = await executeWriteLoop({
+        ...baseInput,
+        worktree: {
+          projectRoot: "/fake",
+          projectName: "demo",
+          branchName: "claude-gate-slot-release-second",
+          baseRef: "HEAD",
+          jarvisRoot,
+        },
+        bindings: [claudeGateShellBinding([assistantStart, resultFrame])],
+      });
+      expect(second.kind).not.toBe("gate_invocation_refused");
+    } finally {
+      store.close();
+    }
+  });
+
+  test("claude stream NDJSON does not release gate slot before correlated tool_result", async () => {
+    const gateCommand = "bun run test:v2";
+    const { streamStart, streamDelta, streamStop, toolResult, resultFrame } = claudeStreamGateShellFrames(gateCommand);
+    let releaseFirstGate!: () => void;
+    const firstGateHeld = new Promise<void>((resolve) => {
+      releaseFirstGate = resolve;
+    });
+    let firstGateStarted!: () => void;
+    const firstGateStartedPromise = new Promise<void>((resolve) => {
+      firstGateStarted = resolve;
+    });
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const store = openStateStore(stateDbPath);
+    const sink = new TestLogSink();
+    const baseInput = {
+      specPath: "spec.md",
+      stepRules: "Return progress.",
+      expectedArtifactPath: "proof.txt",
+      stateStore: store,
+      withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+      sessionsDir: join(jarvisRoot, "sessions"),
+      logSink: sink,
+      maxIterations: 1,
+      iterationCeilingMs: TEST_STEP_BUDGET_MS + 60_000,
+      clock: () => new Date("2026-09-08T06:00:00.000Z"),
+    };
+    class ClaudeHoldingGateShellFrameChild extends GateShellFrameChild {
+      override start(frames: string[]) {
+        queueMicrotask(async () => {
+          for (const frame of frames) {
+            this.stdout.write(`${frame}\n`);
+            const parsed = JSON.parse(frame) as { type?: string; event?: { type?: string } };
+            if (parsed.type === "stream_event" && parsed.event?.type === "content_block_stop") {
+              firstGateStarted();
+              await firstGateHeld;
+            }
+          }
+          this.stdout.end();
+          this.stderr.end();
+          setImmediate(() => {
+            this.emit("exit", 0);
+            this.emit("close", 0);
+          });
+        });
+      }
+    }
+    const holdingSpawn = (_binary: string, _argv: readonly string[], _opts: SpawnOptions): ChildProcess => {
+      const child = new ClaudeHoldingGateShellFrameChild();
+      child.start([streamStart, streamDelta, streamStop, toolResult, resultFrame]);
+      return child as unknown as ChildProcess;
+    };
+    try {
+      const first = executeWriteLoop({
+        ...baseInput,
+        worktree: {
+          projectRoot: "/fake",
+          projectName: "demo",
+          branchName: "claude-gate-serialize-first",
+          baseRef: "HEAD",
+          jarvisRoot,
+        },
+        bindings: [
+          createResolvedAgentBinding(
+            { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+            { spawn: holdingSpawn },
+          ),
+        ],
+      });
+      await firstGateStartedPromise;
+      const second = await executeWriteLoop({
+        ...baseInput,
+        worktree: {
+          projectRoot: "/fake",
+          projectName: "demo",
+          branchName: "claude-gate-serialize-second",
+          baseRef: "HEAD",
+          jarvisRoot,
+        },
+        bindings: [
+          claudeGateShellBinding([claudeGateShellFrames(gateCommand).assistantStart, toolResult, resultFrame]),
+        ],
       });
       releaseFirstGate();
       const firstResult = await first;

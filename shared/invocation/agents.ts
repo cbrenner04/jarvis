@@ -169,10 +169,13 @@ type AgentRunOptions = {
   additionalReadDirs?: readonly string[];
 };
 
-export type ShellToolFrameEvent = { phase: "start"; command: string } | { phase: "complete" };
+export type ShellToolFrameEvent =
+  | { phase: "start"; command: string; toolUseId?: string }
+  | { phase: "complete"; toolUseId?: string };
 
 type ShellToolParseState = {
   pendingInputJson: Map<string, { name: string; partial: string }>;
+  awaitingShellCompletion: Set<string>;
 };
 
 function asJsonObject(value: unknown): Record<string, unknown> | null {
@@ -192,35 +195,41 @@ function commandFromClaudeToolInput(input: unknown): string | null {
   return typeof rec.command === "string" ? rec.command : null;
 }
 
-function extractClaudeToolUseShellCommand(frame: Record<string, unknown>): string | null {
+function extractClaudeToolUseShellStart(frame: Record<string, unknown>): { command: string; toolUseId: string } | null {
   if (!isClaudeShellToolName(frame.name)) return null;
-  return commandFromClaudeToolInput(frame.input);
+  const command = commandFromClaudeToolInput(frame.input);
+  const toolUseId = typeof frame.id === "string" ? frame.id : null;
+  if (command === null || toolUseId === null) return null;
+  return { command, toolUseId };
 }
 
-function extractClaudeAssistantShellCommand(frame: Record<string, unknown>): string | null {
+function extractClaudeAssistantShellStart(
+  frame: Record<string, unknown>,
+): { command: string; toolUseId: string } | null {
   const message = asJsonObject(frame.message);
   const content = message?.content;
   if (!Array.isArray(content)) return null;
   for (const block of content) {
     const rec = asJsonObject(block);
     if (rec?.type !== "tool_use") continue;
-    const command = extractClaudeToolUseShellCommand(rec);
-    if (command !== null) return command;
+    const start = extractClaudeToolUseShellStart(rec);
+    if (start !== null) return start;
   }
   return null;
 }
 
 function parseClaudeShellToolFrame(frame: Record<string, unknown>): ShellToolFrameEvent | null {
   if (frame.type === "assistant") {
-    const command = extractClaudeAssistantShellCommand(frame);
-    return command === null ? null : { phase: "start", command };
+    const start = extractClaudeAssistantShellStart(frame);
+    return start === null ? null : { phase: "start", command: start.command, toolUseId: start.toolUseId };
   }
   if (frame.type === "tool_use") {
-    const command = extractClaudeToolUseShellCommand(frame);
-    return command === null ? null : { phase: "start", command };
+    const start = extractClaudeToolUseShellStart(frame);
+    return start === null ? null : { phase: "start", command: start.command, toolUseId: start.toolUseId };
   }
   if (frame.type === "tool_result") {
-    return { phase: "complete" };
+    const toolUseId = typeof frame.tool_use_id === "string" ? frame.tool_use_id : null;
+    return toolUseId === null ? null : { phase: "complete", toolUseId };
   }
   return null;
 }
@@ -272,8 +281,7 @@ function commandFromPartialClaudeToolInput(partial: string): string | null {
 function handleClaudeStreamEventShellTool(
   frame: Record<string, unknown>,
   state: ShellToolParseState,
-  onStart: (command: string) => void,
-  onComplete: () => void,
+  onStart: (command: string, toolUseId: string) => void,
 ): void {
   const event = asJsonObject(frame.event);
   if (event === null) return;
@@ -284,27 +292,21 @@ function handleClaudeStreamEventShellTool(
     if (id === null || !isClaudeShellToolName(name)) return;
     state.pendingInputJson.set(id, { name: String(name), partial: "" });
     const command = commandFromClaudeToolInput(contentBlock?.input);
-    if (command !== null) onStart(command);
+    if (command !== null) onStart(command, id);
     return;
   }
   if (event.type === "content_block_delta") {
     const delta = asJsonObject(event.delta);
     if (delta?.type !== "input_json_delta" || typeof delta.partial_json !== "string") return;
     const index = typeof event.index === "number" ? event.index : null;
-    const pending = index === null ? undefined : [...state.pendingInputJson.values()][index];
-    if (pending === undefined) {
-      const lastKey = [...state.pendingInputJson.keys()].at(-1);
-      if (lastKey === undefined) return;
-      const entry = state.pendingInputJson.get(lastKey);
-      if (entry === undefined) return;
-      entry.partial += delta.partial_json;
-      const command = commandFromPartialClaudeToolInput(entry.partial);
-      if (command !== null) onStart(command);
-      return;
-    }
+    const pendingKey =
+      index === null ? [...state.pendingInputJson.keys()].at(-1) : [...state.pendingInputJson.keys()][index];
+    if (pendingKey === undefined) return;
+    const pending = state.pendingInputJson.get(pendingKey);
+    if (pending === undefined) return;
     pending.partial += delta.partial_json;
     const command = commandFromPartialClaudeToolInput(pending.partial);
-    if (command !== null) onStart(command);
+    if (command !== null && !state.awaitingShellCompletion.has(pendingKey)) onStart(command, pendingKey);
     return;
   }
   if (event.type === "content_block_stop") {
@@ -315,9 +317,8 @@ function handleClaudeStreamEventShellTool(
       const pending = state.pendingInputJson.get(pendingKey);
       if (pending !== undefined) {
         const command = commandFromPartialClaudeToolInput(pending.partial);
-        if (command !== null) onStart(command);
+        if (command !== null && !state.awaitingShellCompletion.has(pendingKey)) onStart(command, pendingKey);
         state.pendingInputJson.delete(pendingKey);
-        onComplete();
       }
     }
   }
@@ -342,14 +343,21 @@ function processShellToolStdoutLine(
   }
   if (frame === null) return;
 
-  const notifyStart = (command: string) => {
+  const notifyStart = (command: string, toolUseId?: string) => {
+    if (classifier === "claude" && toolUseId !== undefined) {
+      state.awaitingShellCompletion.add(toolUseId);
+    }
     try {
       void opts.onAgentShellCommand?.(command);
     } catch {
       // Shell observability hooks must not fail the invocation.
     }
   };
-  const notifyComplete = () => {
+  const notifyComplete = (toolUseId?: string) => {
+    if (classifier === "claude") {
+      if (toolUseId === undefined || !state.awaitingShellCompletion.has(toolUseId)) return;
+      state.awaitingShellCompletion.delete(toolUseId);
+    }
     try {
       void opts.onAgentShellCommandComplete?.();
     } catch {
@@ -358,14 +366,22 @@ function processShellToolStdoutLine(
   };
 
   if (classifier === "claude" && frame.type === "stream_event") {
-    handleClaudeStreamEventShellTool(frame, state, notifyStart, notifyComplete);
+    handleClaudeStreamEventShellTool(frame, state, notifyStart);
     return;
   }
 
   const event = parseShellToolFrame(frame, classifier as "claude" | "cursor");
   if (event === null) return;
-  if (event.phase === "start") notifyStart(event.command);
-  else notifyComplete();
+  if (event.phase === "start") {
+    notifyStart(event.command, event.toolUseId);
+    return;
+  }
+  if (classifier === "cursor") {
+    notifyComplete();
+    return;
+  }
+  if (event.toolUseId === undefined) return;
+  notifyComplete(event.toolUseId);
 }
 
 function appendAdditionalReadDirFlags(argv: string[], additionalReadDirs: readonly string[] | undefined): void {
@@ -495,7 +511,10 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
     let outBuf = "";
     let outLineBuf = "";
     let errBuf = "";
-    const shellToolParseState: ShellToolParseState = { pendingInputJson: new Map() };
+    const shellToolParseState: ShellToolParseState = {
+      pendingInputJson: new Map(),
+      awaitingShellCompletion: new Set(),
+    };
     let settled = false;
     let stdoutEnded = false;
     let stderrEnded = false;

@@ -4818,6 +4818,31 @@ function stageRecord(
   return stages.find((stage) => stage.stageId === stageId && stage.branchKey === branchKey);
 }
 
+function setupFanOutLinearPostIntent(store: StateStore): void {
+  const intentArtifact: PipelineStageArtifact = {
+    entryRunId: "run-intent",
+    specPath: "ready-intents",
+    downstreamInputs: [...FAN_OUT_DOWNSTREAM],
+  };
+  store.updateStage({
+    pipelineId: PIPELINE_ID,
+    stageId: "intent",
+    patch: { status: "succeeded", artifact: intentArtifact, workflowInvocationId: "run-intent" },
+  });
+  for (const branchKey of FAN_OUT_BRANCH_KEYS) {
+    store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "plan", branchKey });
+    store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "implement", branchKey });
+  }
+  for (const stageId of ["plan", "implement"] as const) {
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId,
+      branchKey: "default",
+      patch: { status: "skipped" },
+    });
+  }
+}
+
 function setupFanOutAlphaLiveLinked(
   store: StateStore,
   alphaPatch: Record<string, unknown> = { status: "running", workflowInvocationId: "run-alpha-running" },
@@ -5305,6 +5330,53 @@ describe("pipeline branch fan-out execution", () => {
     expect(betaFailure?.message).toContain("has no paired fan-out result");
     expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("pending");
     expect(stageRecord(stages(), "plan", "beta")?.status).toBe("failed");
+  });
+
+  test("fan-out plan binding failure stops the caller branch suffix walk", async () => {
+    // @mutate v2/src/daemon/pipeline-execution.ts "failure.targetBranchKey === branchKey" -> "failure.targetBranchKey !== branchKey"
+    const shortResults = [
+      {
+        steps: [
+          createMinimalDispatchWriteStep({
+            stageIndex: 1,
+            branchKey: "alpha",
+            stepId: "plan-alpha",
+          }),
+        ],
+      },
+    ];
+    const shortResultsResolveStage = async (
+      definition: PipelineDefinition,
+      stageIndex: number,
+      context: PipelineContext,
+      stageArtifacts: ReadonlyMap<string, PipelineStageArtifact>,
+      resolveDeps?: PipelineStageResolveDeps,
+    ): Promise<PipelineStageResolutionResult> => {
+      const stage = definition.stages[stageIndex];
+      if (stage?.kind === "workflow" && stage.workflow === "plan") {
+        return { ok: true as const, results: shortResults };
+      }
+      return fanOutResolveStageStub()(definition, stageIndex, context, stageArtifacts, resolveDeps);
+    };
+
+    const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, {
+      "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
+    });
+    setupFanOutLinearPostIntent(store);
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const deps = {
+      ...fanOutPipelineDeps(store, dispatchLog),
+      resolveStage: shortResultsResolveStage,
+    };
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext }, "alpha");
+    await flushBackgroundRuns();
+
+    expect(stageRecord(stages(), "plan", "beta")?.status).toBe("failed");
+    expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("pending");
+    expect(dispatchLog.filter((entry) => entry.stageId === "implement" && entry.branchKey === "alpha")).toEqual([
+      { stageId: "implement", branchKey: "alpha" },
+    ]);
   });
 
   test("fanOutPlanResultForBranch lists available downstream inputs on binding refusal", () => {

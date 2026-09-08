@@ -16,8 +16,8 @@ Row `dm-pipe-recovery-plan-fixture` in `v2/docs/structural-invariant-test-audit.
 
 ## Acceptance criteria
 
-- [ ] `pipeline-stage-recovery.test.ts` test `recovers a corrected non-first fan-out branch and leaves siblings unchanged` asserts the landed plan subspec satisfies the staged-markdown lint contract, not byte equality with `execution/fixtures/write-loop-staged-markdown-lint/plan-md012-clean-subspec.md`; it fails against the pre-fix `setup.correctedBody` golden bytes on audit row `dm-pipe-recovery-plan-fixture` and passes after re-key.
-- [ ] `bun run typecheck` passes.
+- [x] `pipeline-stage-recovery.test.ts` test `recovers a corrected non-first fan-out branch and leaves siblings unchanged` asserts the landed plan subspec satisfies the staged-markdown lint contract, not byte equality with `execution/fixtures/write-loop-staged-markdown-lint/plan-md012-clean-subspec.md`; it fails against the pre-fix `setup.correctedBody` golden bytes on audit row `dm-pipe-recovery-plan-fixture` and passes after re-key.
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

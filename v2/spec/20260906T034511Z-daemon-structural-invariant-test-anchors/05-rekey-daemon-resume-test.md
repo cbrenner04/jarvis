@@ -11,14 +11,14 @@ Row `dm-resume-intent-lint-fixture` in `v2/docs/structural-invariant-test-audit.
 
 ## Task checklist
 
-- [ ] Re-key audit row `dm-resume-intent-lint-fixture` per the decision ledger.
-- [ ] Replace module-level `LINT_CLEAN_INTENT_STAGE_MD` golden bytes with lint-contract or registry-backed seed content.
+- [x] Re-key audit row `dm-resume-intent-lint-fixture` per the decision ledger.
+- [x] Replace module-level `LINT_CLEAN_INTENT_STAGE_MD` golden bytes with lint-contract or registry-backed seed content.
 
 ## Acceptance criteria
 
-- [ ] `daemon-resume.test.ts` test `admits a populated-stage intent finalization landing_failed row instead of unsupported_resume_context` seeds intent stage markdown via lint-contract assertion rather than module-level `readFileSync` golden bytes; it fails against the pre-fix `LINT_CLEAN_INTENT_STAGE_MD` `readFileSync` pin on audit row `dm-resume-intent-lint-fixture` and passes after re-key.
-- [ ] `daemon-resume.test.ts` test `resumes a populated-stage intent finalization end to end: landing_failed projects resumable, completed after republication` stays green.
-- [ ] `bun run typecheck` passes.
+- [x] `daemon-resume.test.ts` test `admits a populated-stage intent finalization landing_failed row instead of unsupported_resume_context` seeds intent stage markdown via lint-contract assertion rather than module-level `readFileSync` golden bytes; it fails against the pre-fix `LINT_CLEAN_INTENT_STAGE_MD` `readFileSync` pin on audit row `dm-resume-intent-lint-fixture` and passes after re-key.
+- [x] `daemon-resume.test.ts` test `resumes a populated-stage intent finalization end to end: landing_failed projects resumable, completed after republication` stays green.
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

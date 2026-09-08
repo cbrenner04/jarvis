@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { formatReadyGateOutOfScopeDetail, ReadyGateError } from "../execution/ready-finalize.ts";
+import { lintStagedMarkdown } from "../execution/staged-markdown-lint.ts";
+import { writeLintCleanIntentStageFile } from "../execution/workflow-runner.test-support.ts";
 import {
   resolveExhaustedRedResumeContext,
   resolveIntentFinalizationResumeContext,
@@ -31,11 +33,6 @@ import {
   type TerminalLogRecord,
   terminalResumeRefusalMessage,
 } from "./run-operator-error.ts";
-
-const LINT_CLEAN_INTENT_STAGE_MD = readFileSync(
-  join(import.meta.dir, "..", "execution", "fixtures", "write-loop-staged-markdown-lint", "intent-md038-clean.md"),
-  "utf8",
-);
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 
@@ -1509,8 +1506,8 @@ async function listRow(h: Handlers, runId: string): Promise<{ error?: { reason?:
 test("admits a populated-stage intent finalization landing_failed row instead of unsupported_resume_context", async () => {
   const worktreePath = mkdtempSync(join(tmpdir(), "daemon-intent-finalize-"));
   try {
-    mkdirSync(join(worktreePath, ".jarvis-intent-stage"), { recursive: true });
-    writeFileSync(join(worktreePath, ".jarvis-intent-stage", "example.md"), LINT_CLEAN_INTENT_STAGE_MD, "utf8");
+    writeLintCleanIntentStageFile(join(worktreePath, ".jarvis-intent-stage"), "example.md");
+    expect(await lintStagedMarkdown(".jarvis-intent-stage", { worktreePath })).toEqual({ kind: "clean" });
     mkdirSync(join(worktreePath, "ready-intents"), { recursive: true });
 
     const { reviewRunId } = createIntentFinalizationRuns({
@@ -1544,8 +1541,7 @@ test("admits a populated-stage intent finalization landing_failed row instead of
 test("admits a lint-exhausted populated-stage landing_failed row instead of unsupported_resume_context", async () => {
   const worktreePath = mkdtempSync(join(tmpdir(), "daemon-intent-lint-exhaust-"));
   try {
-    mkdirSync(join(worktreePath, ".jarvis-intent-stage"), { recursive: true });
-    writeFileSync(join(worktreePath, ".jarvis-intent-stage", "example.md"), LINT_CLEAN_INTENT_STAGE_MD, "utf8");
+    writeLintCleanIntentStageFile(join(worktreePath, ".jarvis-intent-stage"), "example.md");
     mkdirSync(join(worktreePath, "ready-intents"), { recursive: true });
 
     const { reviewRunId } = createIntentFinalizationRuns({
@@ -1608,8 +1604,7 @@ test("rejects unsupported_resume_context for the same row when the stage is empt
 test("resumes a populated-stage intent finalization end to end: landing_failed projects resumable, completed after republication", async () => {
   const worktreePath = mkdtempSync(join(tmpdir(), "daemon-intent-finalize-e2e-"));
   try {
-    mkdirSync(join(worktreePath, ".jarvis-intent-stage"), { recursive: true });
-    writeFileSync(join(worktreePath, ".jarvis-intent-stage", "example.md"), LINT_CLEAN_INTENT_STAGE_MD, "utf8");
+    writeLintCleanIntentStageFile(join(worktreePath, ".jarvis-intent-stage"), "example.md");
     mkdirSync(join(worktreePath, "ready-intents"), { recursive: true });
 
     const { reviewRunId } = createIntentFinalizationRuns({

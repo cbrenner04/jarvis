@@ -16,8 +16,8 @@ Row `dm-pipe-dispatch-ended-at-ast` in `v2/docs/structural-invariant-test-audit.
 
 ## Acceptance criteria
 
-- [ ] `pipeline-stage-dispatch.test.ts` test `every terminal pipeline stage-run write carries endedAt` derives classified status writes from AST discovery and asserts `endedAt` on terminal writes by property, not equality against hand-maintained `CLASSIFIED_STATUS_WRITES`; it fails against the pre-fix map equality pin on audit row `dm-pipe-dispatch-ended-at-ast` and passes after re-key.
-- [ ] `bun run typecheck` passes.
+- [x] `pipeline-stage-dispatch.test.ts` test `every terminal pipeline stage-run write carries endedAt` derives classified status writes from AST discovery and asserts `endedAt` on terminal writes by property, not equality against hand-maintained `CLASSIFIED_STATUS_WRITES`; it fails against the pre-fix map equality pin on audit row `dm-pipe-dispatch-ended-at-ast` and passes after re-key.
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

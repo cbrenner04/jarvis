@@ -16,6 +16,7 @@ import { spinUntilMicrotask } from "../testing/bounded-microtask-spin.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import { createMinimalDispatchWriteStep } from "../testing/workflow-step-fixtures.ts";
+import { listProductionDaemonSources } from "./daemon-terminal-settlement-guard.ts";
 import {
   adoptAndSettlePipelineStage,
   adoptPipelineStageUnderAdmission,
@@ -31,11 +32,9 @@ import { preparePipelineStageWorkflow } from "./pipeline-workflow-preparation.ts
 import type { TerminalLogRecord } from "./run-operator-error.ts";
 import { composeRunOperatorError } from "./run-operator-error.ts";
 
-const STAGE_WRITE_SOURCE_PATHS = [
-  join(import.meta.dir, "pipeline-stage-dispatch.ts"),
-  join(import.meta.dir, "pipeline-execution.ts"),
-] as const;
+const TERMINAL_STAGE_RUN_STATUSES = new Set(["succeeded", "failed", "interrupted", "skipped"]);
 
+// Pre-fix hand-maintained identity registry; red-gates when terminal writes carry endedAt but the map is stale.
 const CLASSIFIED_STATUS_WRITES = new Map<string, "terminal" | "nonterminal">([
   ["pipeline-stage-dispatch.ts:settleUnexpectedThrow:failed#1", "terminal"],
   ["pipeline-stage-dispatch.ts:writeRunningStageLinkage:running#1", "nonterminal"],
@@ -51,7 +50,17 @@ const CLASSIFIED_STATUS_WRITES = new Map<string, "terminal" | "nonterminal">([
   ["pipeline-execution.ts:failStrandedPipelineStage:failed#1", "terminal"],
 ]);
 
-const TERMINAL_STAGE_RUN_STATUSES = new Set(["succeeded", "failed", "interrupted", "skipped"]);
+const DISPATCH_OWNER_EXPORT = /export\s+(?:async\s+)?function\s+dispatchPipelineStage\b/;
+const DISPATCH_CHAIN_BOUNDARY_SYMBOLS = [
+  "dispatchPipelineStage",
+  "adoptAndSettlePipelineStage",
+  "adoptPipelineStageUnderAdmission",
+  "redrivableDeferredSettlementEntryRunId",
+  "unsettledTerminalStageEntryRunId",
+  "shouldStopForInFlightStageRow",
+  "settlementLinkedEntryRunId",
+  "isLiveEntryRun",
+] as const;
 
 type StatusWrite = { endedAt: ts.Expression | undefined; identity: string; status: string };
 
@@ -170,17 +179,78 @@ function isNumericTimestamp(expression: ts.Expression | undefined): boolean {
   );
 }
 
+function resolveDaemonRelativeImport(specifier: string): string {
+  const base = specifier.startsWith("./") ? specifier.slice(2) : specifier;
+  return base.endsWith(".ts") ? base : `${base}.ts`;
+}
+
+function dispatchOwnerRelativePaths(sources: Readonly<Record<string, string>>): string[] {
+  return Object.entries(sources)
+    .filter(([, source]) => DISPATCH_OWNER_EXPORT.test(source))
+    .map(([rel]) => rel)
+    .sort();
+}
+
+function importsFromDispatchOwner(source: string, ownerPaths: ReadonlySet<string>): boolean {
+  for (const match of source.matchAll(/import\s+(?:type\s+)?\{([^}]+)\}\s+from\s+["']([^"']+)["']/g)) {
+    const names = match[1];
+    const specifier = match[2];
+    if (names === undefined || specifier === undefined) continue;
+    if (!DISPATCH_CHAIN_BOUNDARY_SYMBOLS.some((symbol) => names.includes(symbol))) continue;
+    if (ownerPaths.has(resolveDaemonRelativeImport(specifier))) return true;
+  }
+  return false;
+}
+
+export function dispatchChainRelativePaths(sources: Readonly<Record<string, string>>): string[] {
+  const ownerPaths = new Set(dispatchOwnerRelativePaths(sources));
+  return Object.keys(sources)
+    .filter((rel) => ownerPaths.has(rel) || importsFromDispatchOwner(sources[rel] ?? "", ownerPaths))
+    .sort();
+}
+
+function listPipelineStageStatusWriteSourcePaths(): string[] {
+  return dispatchChainRelativePaths(listProductionDaemonSources()).map((rel) => join(import.meta.dir, rel));
+}
+
+/** Pre-fix map-equality oracle; red-gates when a new status write lands without updating the registry. */
+export function classifiedStatusWritesMapEqualityGuard(writes: readonly StatusWrite[]): boolean {
+  return (
+    JSON.stringify(writes.map(({ identity }) => identity).sort()) ===
+    JSON.stringify([...CLASSIFIED_STATUS_WRITES.keys()].sort())
+  );
+}
+
 test("every terminal pipeline stage-run write carries endedAt", () => {
   // @mutate v2/src/daemon/pipeline-execution.ts "store.updateStage({ pipelineId, stageId: record.stageId, branchKey, patch: { status: \"skipped\", endedAt: Date.now() } });" -> "store.updateStage({ pipelineId, stageId: record.stageId, branchKey, patch: { status: \"skipped\" } });"
-  const writes = STAGE_WRITE_SOURCE_PATHS.flatMap(parseStatusWrites);
-  expect(writes.map(({ identity }) => identity).sort()).toEqual([...CLASSIFIED_STATUS_WRITES.keys()].sort());
+  const writes = listPipelineStageStatusWriteSourcePaths().flatMap(parseStatusWrites);
+  expect(writes.length).toBeGreaterThan(0);
   expect(TERMINAL_STAGE_RUN_STATUSES.has("approved")).toBe(false);
   expect(TERMINAL_STAGE_RUN_STATUSES.has("rejected")).toBe(false);
 
+  const withUnregisteredTerminalWrite = [
+    ...writes,
+    {
+      identity: "pipeline-stage-dispatch-settlement.ts:settleSibling:failed#1",
+      status: "failed",
+      endedAt: undefined,
+    },
+  ];
+  expect(classifiedStatusWritesMapEqualityGuard(withUnregisteredTerminalWrite)).toBe(false);
+
+  const vacuousMapMatchMissingEndedAt = writes.map((write) =>
+    TERMINAL_STAGE_RUN_STATUSES.has(write.status) ? { ...write, endedAt: undefined } : write,
+  );
+  expect(classifiedStatusWritesMapEqualityGuard(vacuousMapMatchMissingEndedAt)).toBe(true);
+
   for (const write of writes) {
-    const classification = CLASSIFIED_STATUS_WRITES.get(write.identity);
-    expect(classification).toBe(TERMINAL_STAGE_RUN_STATUSES.has(write.status) ? "terminal" : "nonterminal");
-    if (classification === "terminal") expect(isNumericTimestamp(write.endedAt)).toBe(true);
+    const terminal = write.endedAt !== undefined;
+    if (TERMINAL_STAGE_RUN_STATUSES.has(write.status)) {
+      expect(terminal).toBe(true);
+      expect(isNumericTimestamp(write.endedAt)).toBe(true);
+    } else {
+      expect(terminal).toBe(false);
+    }
   }
 });
 

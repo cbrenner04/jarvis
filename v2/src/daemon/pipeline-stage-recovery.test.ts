@@ -138,7 +138,7 @@ function reviewDebateStep(args: { cwd: string; durablePath: string; branch?: str
 
 describe("resolveBlockedPlanStageRecoveryTarget", () => {
   test("selects the named non-first fan-out result for plan recovery", async () => {
-    // @mutate v2/src/daemon/pipeline-stage-recovery.ts "resolution.results[branchIndex]?.steps" -> "resolution.results[0]?.steps"
+    // @mutate v2/src/daemon/pipeline-stage-recovery.ts "fanOutPlanResultForBranch(downstreamInputs, resolution.results, branchKey)" -> "({ ok: true as const, result: { steps: resolution.results[0]?.steps ?? [] } })"
     const branchKeys = ["branch-a", "branch-b", "branch-c"];
     const stages: PipelineStageRecord[] = [
       stageRow({
@@ -208,7 +208,7 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
   });
 
   test("refuses fan-out recovery when the named branch has no paired result", async () => {
-    // @mutate v2/src/daemon/pipeline-stage-recovery.ts "if (resolvedSteps === undefined) {" -> "if (false) {"
+    // @mutate v2/src/daemon/pipeline-execution.ts "if (result === undefined) {" -> "if (false) {"
     const stages: PipelineStageRecord[] = [
       stageRow({
         stageId: "intent",
@@ -219,7 +219,7 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
         artifact: {
           entryRunId: "run-intent",
           specPath: "ready-intents/index.md",
-          downstreamInputs: ["ready-intents/branch-a.md", "ready-intents/branch-b.md", "ready-intents/branch-c.md"],
+          downstreamInputs: ["ready-intents/branch-a.md", "ready-intents/branch-b.md", "ready-intents/branch-d.md"],
         },
       }),
       stageRow({ stageId: "approve-intent", branchKey: "branch-c", position: 1, status: "approved" }),
@@ -244,13 +244,17 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
       {
         store: makeStore({ [PIPELINE_ID]: makePipeline(FAN_OUT_DEFINITION, stages) }, { "run-plan-c": entryRun }),
         resolveStage: stubResolveFanOut([
-          [createMinimalDispatchWriteStep({ stepId: "plan" })],
-          [createMinimalDispatchWriteStep({ stepId: "plan" })],
+          [createMinimalDispatchWriteStep({ stepId: "plan-a" })],
+          [createMinimalDispatchWriteStep({ stepId: "plan-b" })],
+          [createMinimalDispatchWriteStep({ stepId: "plan-d" })],
         ]),
       },
     );
 
     expect(result).toEqual(expect.objectContaining({ ok: false, reason: "stage_resolution_failed" }));
+    if (result.ok) throw new Error("expected refusal");
+    expect(result.message).toContain('plan lane "branch-c"');
+    expect(result.message).toContain("has no matching downstream input");
     expect("target" in result).toBe(false);
   });
 

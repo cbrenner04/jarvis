@@ -19,7 +19,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/pipeline-execution.md` documents branch-key fan-out plan result binding across dispatch and recovery, mismatch refusal semantics, and the continuation-versus-fan-out-dispatch split.
+- [x] `v2/docs/pipeline-execution.md` documents branch-key fan-out plan result binding across dispatch and recovery, mismatch refusal semantics, and the continuation-versus-fan-out-dispatch split.
 
 ## Documentation updates
 

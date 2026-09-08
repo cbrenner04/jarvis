@@ -33,17 +33,17 @@ Reachable on main: `advanceFanOutBranches` indexes `opts.results[branchIndex]` a
 
 ## Acceptance criteria
 
-- [ ] `pipeline-execution.test.ts` test `fan-out plan dispatch binds results by derived branch key when branchKeys order diverges from downstreamInputs` approves every fan-out gate back to back on the default-row path, keeps `results[i]` paired with `downstreamInputs[i]`, permutes admitted `branchKeys` relative to that order, and proves each lane dispatches the branch-key-matched step rather than `results[branchIndex]`; fails against pre-fix `opts.results[branchIndex]` binding at `pipeline-execution.ts:2058`.
-- [ ] `pipeline-execution.test.ts` test `fan-out plan dispatch refuses when results are shorter than downstreamInputs` supplies a short `{ results }` set and proves dispatch refuses with the affected lane and downstream input named while no sibling plan row dispatches; fails against pre-fix silent skip at `pipeline-execution.ts:2125`.
-- [ ] `pipeline-execution.test.ts` test `fan-out plan dispatch refuses a branch-key mismatch without sibling dispatch` supplies a full-length mismatched `{ results }` set and proves dispatch refuses with the affected lane and downstream input named while no sibling plan row dispatches; fails against pre-fix sibling mis-bind at `pipeline-execution.ts:2058`.
-- [ ] `pipeline-stage-recovery.test.ts` test `selects the named non-first fan-out result for plan recovery` proves a non-first lane selects its branch-key-matched result, carries an in-body `// @mutate` directive against the branch-key binder selection expression, and fails against pre-fix `resolution.results[branchIndex]?.steps` binding.
-- [ ] `pipeline-stage-recovery.test.ts` test `refuses fan-out recovery when the named branch has no paired result` refuses a missing branch-key match without positional fallback and carries an in-body `// @mutate` directive against the binder refusal guard.
-- [ ] `pipeline-execution.test.ts` — `approving both fan-out branches dispatches each successor on its own branchKey` stays green.
-- [ ] `pipeline-execution.test.ts` — `approve-intent continuation dispatches only the approved branchKey` stays green.
-- [ ] `pipeline-execution.test.ts` — `after fan-out admission, default rows do not dispatch plan or implement while per-branch rows exist` stays green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `pipeline-execution.test.ts` test `fan-out plan dispatch binds results by derived branch key when branchKeys order diverges from downstreamInputs` approves every fan-out gate back to back on the default-row path, keeps `results[i]` paired with `downstreamInputs[i]`, permutes admitted `branchKeys` relative to that order, and proves each lane dispatches the branch-key-matched step rather than `results[branchIndex]`; fails against pre-fix `opts.results[branchIndex]` binding at `pipeline-execution.ts:2058`.
+- [x] `pipeline-execution.test.ts` test `fan-out plan dispatch refuses when results are shorter than downstreamInputs` supplies a short `{ results }` set and proves dispatch refuses with the affected lane and downstream input named while no sibling plan row dispatches; fails against pre-fix silent skip at `pipeline-execution.ts:2125`.
+- [x] `pipeline-execution.test.ts` test `fan-out plan dispatch refuses a branch-key mismatch without sibling dispatch` supplies a full-length mismatched `{ results }` set and proves dispatch refuses with the affected lane and downstream input named while no sibling plan row dispatches; fails against pre-fix sibling mis-bind at `pipeline-execution.ts:2058`.
+- [x] `pipeline-stage-recovery.test.ts` test `selects the named non-first fan-out result for plan recovery` proves a non-first lane selects its branch-key-matched result, carries an in-body `// @mutate` directive against the branch-key binder selection expression, and fails against pre-fix `resolution.results[branchIndex]?.steps` binding.
+- [x] `pipeline-stage-recovery.test.ts` test `refuses fan-out recovery when the named branch has no paired result` refuses a missing branch-key match without positional fallback and carries an in-body `// @mutate` directive against the binder refusal guard.
+- [x] `pipeline-execution.test.ts` — `approving both fan-out branches dispatches each successor on its own branchKey` stays green.
+- [x] `pipeline-execution.test.ts` — `approve-intent continuation dispatches only the approved branchKey` stays green.
+- [x] `pipeline-execution.test.ts` — `after fan-out admission, default rows do not dispatch plan or implement while per-branch rows exist` stays green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

@@ -271,6 +271,7 @@ describe("ready gate untouched-path classification", () => {
       readyGateCommand: "bun run ready",
       readyGateOutput: evidence,
       readyGateCommandMissingEvidence: evidence,
+      readyGateCommandSource: "default",
     });
 
     const longLine = `error: Script not found "${"x".repeat(600)}"`;

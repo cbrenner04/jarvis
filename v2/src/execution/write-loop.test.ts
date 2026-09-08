@@ -3158,6 +3158,7 @@ describe("write loop", () => {
           loopOutcomeKind: "ready_gate_command_missing",
           resumable: false,
           readyGateCommand: "bun run ready",
+          readyGateCommandSource: "default",
           readyGateOutput: 'Script not found "ready"',
         });
         const run = openStateStore(stateDbPath).loadRun(result.runId);

@@ -99,6 +99,8 @@ export class ReadyFlipError extends Error {
 
 export type ReadyGateFailureKind = "ready_gate_failed" | "ready_gate_out_of_scope" | "ready_gate_command_missing";
 
+export type ReadyGateCommandSource = "configured" | "default";
+
 const READY_GATE_COMMAND_MISSING_EVIDENCE_MAX = 512;
 
 const ANCHORED_MISSING_COMMAND_LINE = /^(?:error:\s*)?script not found|^command not found:/i;
@@ -137,6 +139,7 @@ export type ReadyGateClassification = {
   gateRepairAllowsetPaths?: readonly string[];
   baseRefProbeError?: string;
   commandMissingEvidence?: string;
+  readyCommandSource?: ReadyGateCommandSource;
 };
 
 export type ReadyGateScopeInput = {
@@ -169,6 +172,7 @@ export class ReadyGateError extends Error {
   readonly baseRefProbeError?: string;
   readonly scopeBaseRef?: string;
   readonly commandMissingEvidence?: string;
+  readonly readyCommandSource?: ReadyGateCommandSource;
 
   constructor(
     readonly command: string,
@@ -194,6 +198,9 @@ export class ReadyGateError extends Error {
     if (classification?.commandMissingEvidence !== undefined) {
       this.commandMissingEvidence = classification.commandMissingEvidence;
     }
+    if (classification?.readyCommandSource !== undefined) {
+      this.readyCommandSource = classification.readyCommandSource;
+    }
     if (scopeBaseRef !== undefined) {
       this.scopeBaseRef = scopeBaseRef;
     }
@@ -217,6 +224,9 @@ export function readyGateFailureLogFields(
     ...(output.length > 0 ? { readyGateOutput: output } : {}),
     ...(loopOutcomeKind === "ready_gate_command_missing" && source.commandMissingEvidence !== undefined
       ? { readyGateCommandMissingEvidence: source.commandMissingEvidence }
+      : {}),
+    ...(loopOutcomeKind === "ready_gate_command_missing" && source.readyCommandSource !== undefined
+      ? { readyGateCommandSource: source.readyCommandSource }
       : {}),
   };
 }
@@ -531,7 +541,11 @@ export async function classifyReadyGateFailure(
   }
   const commandMissingEvidence = findMissingReadyGateCommandEvidence(error.output, error.spawnCode);
   if (commandMissingEvidence !== undefined) {
-    return { kind: "ready_gate_command_missing", commandMissingEvidence };
+    return {
+      kind: "ready_gate_command_missing",
+      commandMissingEvidence,
+      readyCommandSource: scope?.readyCommand !== undefined ? "configured" : "default",
+    };
   }
   if (error.command !== resolveReadyGateCommand(scope?.readyCommand).display) {
     return { kind: "ready_gate_failed" };
@@ -756,7 +770,8 @@ export async function classifyReadyGateError(
     classification.outsidePaths === error.outsidePaths &&
     classification.gateRepairAllowsetPaths === error.gateRepairAllowsetPaths &&
     classification.baseRefProbeError === error.baseRefProbeError &&
-    classification.commandMissingEvidence === error.commandMissingEvidence
+    classification.commandMissingEvidence === error.commandMissingEvidence &&
+    classification.readyCommandSource === error.readyCommandSource
   ) {
     return error;
   }

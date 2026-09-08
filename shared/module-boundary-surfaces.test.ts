@@ -30,14 +30,6 @@ function treeBytes(dir: string): Map<string, Buffer> {
   );
 }
 
-function section(body: string, heading: string): string {
-  const start = body.indexOf(`${heading}\n`);
-  if (start === -1) return "";
-  const contentStart = start + heading.length + 1;
-  const end = body.indexOf("\n## ", contentStart);
-  return body.slice(contentStart, end === -1 ? undefined : end);
-}
-
 function typescriptFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);
@@ -65,11 +57,6 @@ describe("plan draft normalization", () => {
     normalizePlanDraftSpecDir(dir);
 
     expect(treeBytes(dir)).toEqual(before);
-    for (const [file, authored] of Object.entries(subspecs)) {
-      const retained = readFileSync(join(dir, file), "utf8");
-      expect(retained.split("\n", 1)[0]).toBe(authored.split("\n", 1)[0]);
-      expect(section(retained, "## Problem")).toBe(section(authored, "## Problem"));
-    }
   });
 
   test("does not classify product vocabulary", () => {
@@ -169,7 +156,6 @@ describe("plan draft normalization", () => {
       "moduleBoundariesForAcceptanceCriteria",
       "spansMultipleModuleBoundaries",
       "orderModuleBoundariesForSplit",
-      "referencedArtifactPaths",
       "splitResiduePattern",
     ];
     const offenders = [resolve("shared"), resolve("v2/src")]

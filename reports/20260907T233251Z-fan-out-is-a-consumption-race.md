@@ -75,3 +75,36 @@ Cleanup slices [#3576](https://github.com/cbrenner04/jarvis/pull/3576), [#3577](
 ## Agents
 
 207 invocations. Codex exhausted mid-session — **29 ok / 89 quota** — so after roughly the first hour every role paid a 2-5s codex failure before falling through to cursor, which did 89 successful invocations. Claude was never reached. Estimated agent API cost (list price; all rungs are subscriptions) **$26.62**.
+
+## Late session (after the report was first written)
+
+**The daemon was killed as a suspected leaked test worker, and the recovery is instructive.** A 90-minute `bun` process was killed to free CPU; it was the daemon. Its abrupt death left the bound socket behind, so every later `daemon start` failed `EADDRINUSE` — and because `run list` and `pipeline list` both route through that socket, monitoring read `live=0` while five lanes were mid-flight. `jarvis cleanup` did **not** reap this socket (it reported the daemon unreachable and moved on), so the documented recovery from the prior session did not apply; removing the socket file directly did. Startup reconciliation then settled all five lanes `killed` / `resumable_kill` / `retryable: true`, and all four resumed lanes completed and published. One orphaned `cursor-agent` (16 minutes, still writing into a worktree with no daemon to commit it) had to be terminated first, or it would have raced the resumed run on the same files.
+
+Operational note worth keeping: in `ps`, the daemon is indistinguishable from a leaked `bun test` worker. The leaked ones are `launchd`-parented; check parentage before killing a long-lived `bun`.
+
+**#2996 reproduced live, from an ordinary daemon death.** The re-driven diagnosability pipeline was left `interrupted`, and `pipeline resume` refused it `pipeline_not_resumable` — the exact path verified by reading `resumeDeferredRefusalApplies` (`pipeline-execution.ts:225`) an hour earlier. This widens the issue's trigger beyond "operator-killed": any daemon death during a stage produces an unrecoverable pipeline. Recovery was dismiss + abandon the worktree + restart the pipeline.
+
+**Two issues verified still open despite the ledger implying coverage.** The ledger records #2996 and #3030 as "absorbed into the settlement seed", and that seed landed tonight as [#3569](https://github.com/cbrenner04/jarvis/pull/3569) without touching either behavior: `reconciliationTerminalStatus` (`daemon.ts:125`) still returns `killed` for any non-terminal status, so a `paused` resumable run is still flipped (#3030); and resume still refuses `interrupted` (#2996). Same shape as the completed-archive trap — a tracking doc implying coverage the code does not have. **None of the 22 open issues could be closed.**
+
+**Queue hygiene.** 154 terminal `jarvis` run rows dismissed (list went from ~200 to 4), scoped by `--project jarvis` and verified to exclude both live rows — a `sudoku` project lane was running on the same daemon. All pipelines dismissed except the live one.
+
+**A third plan-contract false positive, and the class recorded.** `INDEX_LINK_PATTERN` (`publication-landing.ts:45`) anchors `$` at a subspec link's closing paren, so a `(after 00 and 03)` annotation made a linked subspec read as absent and blocked publication three times. Seeded [[index-link-check-rejects-annotated-subspec-lines]]; plan hand-landed [#3584](https://github.com/cbrenner04/jarvis/pull/3584). Recorded in the brief as one class rather than a fourth regex fix ([#3586](https://github.com/cbrenner04/jarvis/pull/3586)), and generalized into [[harness-failures-must-be-falsifiable-without-source]] ([#3587](https://github.com/cbrenner04/jarvis/pull/3587)) after the operator's point that external-project operators cannot read `v2/src` — every one of tonight's expensive diagnoses required exactly that. Scope was widened from the plan-contract family to one shared failure record across every workflow and pipeline stage, since intent/plan/implement all settle through the same run-row and `failureDetail` seams.
+
+**Also landed late:** [#3583](https://github.com/cbrenner04/jarvis/pull/3583) daemon structural-invariant anchors (27/27 AC, hand-published after the lane completed without publishing), [#3589](https://github.com/cbrenner04/jarvis/pull/3589) verifier process-group persistence (the `run-kill` P0 chain head — a child table backfilled on open, no numbered migration, so no parallel-branch collision), [#3590](https://github.com/cbrenner04/jarvis/pull/3590) cleanup reclaims terminal worktrees, and plan/seed PRs [#3579](https://github.com/cbrenner04/jarvis/pull/3579), [#3580](https://github.com/cbrenner04/jarvis/pull/3580), [#3585](https://github.com/cbrenner04/jarvis/pull/3585).
+
+**Stale plan worktrees were the session's most repeated friction** — six `cleanup --yes --abandon` calls, every one a plan worktree pinned at an older `main` refusing redispatch. Implement auto-resets this; plan does not. Worth seeding if it recurs.
+
+**No light-review pipeline exists.** The registry holds only `full-review` (debate on plan and implement) and `fast` (no gates). The `full-light-review-pipeline` seed specifies the gated-but-light middle tier and remains parked at P3; the operator's decision this session is that jarvis stays on `full-review`.
+
+## Open at close — pick up here
+
+**Pipeline `127bdc64` (`full-review`) is parked at `approve-intent` with four lanes awaiting approval.** Its intent stage succeeded and landed; nothing is running. The seed is [[harness-failures-must-be-falsifiable-without-source]], and the split is the cross-cutting decomposition the widened scope asked for:
+
+- `persist-operator-failure-records` — durable storage for the structured record
+- `serve-canonical-failures-from-daemon` — daemon-side canonical source
+- `render-operator-failures-consistently` — one formatter for `run list` / `run wait` / `pipeline list` / TUI
+- `settle-workflows-with-falsifiable-failures` — adoption at intent/plan/implement settlement
+
+**Approve all four gates before any sibling plan lands** — that is this session's own finding, and approving them serially is what manufactures [[fan-out-plan-resolution-is-all-or-nothing-across-lanes]] (fixed in [#3575](https://github.com/cbrenner04/jarvis/pull/3575), but the practice still matters for coupled lanes). Read the ready-intents first: `persist-…` looks like the chain head, and the other three likely declare it as a prerequisite, in which case the head lands first and the rest follow — the same shape as the verifier chain this session, where picking the wrong head cost one dispatch.
+
+**Also open:** [#3588](https://github.com/cbrenner04/jarvis/pull/3588) (`generalize-production-test-seam-guard`) is CI-only red — green locally on `check`, typecheck, the guard itself, and both its test files, with `main` merged in. If its current CI run also fails, the runbook's guidance for CI-only bugs is abandon and re-dispatch fresh rather than another feedback loop.

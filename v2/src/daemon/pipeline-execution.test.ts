@@ -5429,6 +5429,56 @@ describe("pipeline branch fan-out execution", () => {
     expect(bindingFailures).toEqual(["gamma"]);
   });
 
+  test("fan-out plan dispatch forwards per-branch runStaleResetPreflight from results", async () => {
+    // @mutate v2/src/daemon/pipeline-execution.ts "branchResult.runStaleResetPreflight !== undefined" -> "branchResult.runStaleResetPreflight === undefined"
+    let alphaStaleResetInvoked = false;
+    const alphaRejectingPreflight = async () => {
+      alphaStaleResetInvoked = true;
+      return 1;
+    };
+    const fanOutPlanResults = FAN_OUT_BRANCH_KEYS.map((branchKey) => ({
+      steps: [createMinimalDispatchWriteStep({ stageIndex: 1, branchKey })],
+      ...(branchKey === "alpha"
+        ? {
+            runStaleResetPreflight: alphaRejectingPreflight,
+            preflightCapture: { message: "alpha lane stale-reset refused" },
+          }
+        : {}),
+    }));
+    const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, {
+      "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
+    });
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const deps = {
+      ...fanOutPipelineDeps(withSyntheticPlanRunRecords(store), dispatchLog),
+      staleResetPreflight: noopStaleResetPreflightBundle(),
+      resolveStage: async (
+        definition: PipelineDefinition,
+        stageIndex: number,
+        context: PipelineContext,
+        stageArtifacts: ReadonlyMap<string, PipelineStageArtifact>,
+        resolveDeps?: PipelineStageResolveDeps,
+      ): Promise<PipelineStageResolutionResult> => {
+        const stage = definition.stages[stageIndex];
+        if (stage?.kind === "workflow" && stage.workflow === "plan") {
+          return { ok: true as const, results: fanOutPlanResults };
+        }
+        return fanOutResolveStageStub()(definition, stageIndex, context, stageArtifacts, resolveDeps);
+      },
+    };
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+    await flushBackgroundRuns();
+
+    expect(alphaStaleResetInvoked).toBe(true);
+    expect(dispatchLog.filter((entry) => entry.stageId === "plan" && entry.branchKey === "alpha")).toEqual([]);
+    expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("failed");
+    expect(dispatchLog.filter((entry) => entry.stageId === "plan" && entry.branchKey === "beta")).toEqual([
+      { stageId: "plan", branchKey: "beta" },
+    ]);
+    expect(stageRecord(stages(), "plan", "beta")?.status).toBe("succeeded");
+  });
+
   test("pipeline approve and reject stay isolated per branchKey", async () => {
     const { store, stages } = fakeStore(FAN_OUT_PIPELINE_DEFINITION, {
       "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },

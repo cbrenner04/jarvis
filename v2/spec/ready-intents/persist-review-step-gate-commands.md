@@ -35,3 +35,4 @@ Persist and reload resolved gate commands on review and review-debate snapshot r
 ## Documentation updates
 
 - `v2/docs/write-behavior.md` — add review-row gate commands to the dispatch-time snapshot fields preserved across continuation.
+- `v2/docs/v1-behaviors.md` — update the v2 parity entry for persisted review-step gate commands.

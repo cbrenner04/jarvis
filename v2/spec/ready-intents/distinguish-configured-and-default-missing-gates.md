@@ -37,3 +37,4 @@ Expose the executed command and its configured-versus-default source in operator
 ## Documentation updates
 
 - `v2/docs/operator-runbook.md` — document the command-source evidence and the configured `fix_config` versus built-in `stop` remediation split.
+- `v2/docs/v1-behaviors.md` — update the v2 parity entry for source-aware missing-gate remediation.

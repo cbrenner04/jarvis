@@ -32,3 +32,4 @@ Resolve each step's project gate-command overrides at the shared workflow-admiss
 ## Documentation updates
 
 - `v2/docs/install-and-config.md` — state that per-project `readyCommand` and `fixCommand` are resolved for every workflow step that can own ready-gate finalization.
+- `v2/docs/v1-behaviors.md` — update the v2 parity entry for gate-command admission stamping.

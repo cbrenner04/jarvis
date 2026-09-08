@@ -213,6 +213,36 @@ function codexBindingOpts(
 }
 
 describe("parseShellToolFrameLine", () => {
+  test("parses claude assistant Shell tool_use starts", () => {
+    const start = parseShellToolFrameLine(
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use", id: "toolu_shell", name: "Shell", input: { command: "bun run test:shared" } }],
+        },
+      }),
+      "claude",
+    );
+    expect(start).toEqual({ phase: "start", command: "bun run test:shared" });
+    // @mutate shared/invocation/agents.ts "name === \"Shell\"" -> "name !== \"Shell\""
+  });
+
+  test("ignores non-shell claude tool_use blocks even with a command-shaped input", () => {
+    const result = parseShellToolFrameLine(
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use", id: "toolu_grep", name: "Grep", input: { command: "bun run test:v2" } }],
+        },
+      }),
+      "claude",
+    );
+    expect(result).toBeNull();
+    // @mutate shared/invocation/agents.ts "name === \"Bash\"" -> "name !== \"Bash\""
+  });
+
   test("parses claude assistant Bash tool_use starts and tool_result completions", () => {
     const start = parseShellToolFrameLine(
       JSON.stringify({

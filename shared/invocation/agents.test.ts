@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { computeCost } from "../prices/cost.ts";
 import { loadPrices } from "../prices/load.ts";
-import { createResolvedAgentBinding, isIgnoredWorktreeActivityPath } from "./agents.ts";
+import { createResolvedAgentBinding, isIgnoredWorktreeActivityPath, parseShellToolFrameLine } from "./agents.ts";
 import { parseCursorJsonOutput } from "./cursor-json.ts";
 import { executeWithQuotaFallback, type InvocationCompletedRecord } from "./execute.ts";
 
@@ -211,6 +211,109 @@ function codexBindingOpts(
     randomUUID: () => CODEX_FIXTURE_MARKER_ID,
   };
 }
+
+describe("parseShellToolFrameLine", () => {
+  test("parses claude assistant Bash tool_use starts and tool_result completions", () => {
+    const start = parseShellToolFrameLine(
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use", id: "toolu_1", name: "Bash", input: { command: "bun run test:v2" } }],
+        },
+      }),
+      "claude",
+    );
+    expect(start).toEqual({ phase: "start", command: "bun run test:v2" });
+    // @mutate shared/invocation/agents.ts "name === \"Bash\"" -> "name === \"Read\""
+    expect(parseShellToolFrameLine(JSON.stringify({ type: "tool_result", tool_use_id: "toolu_1" }), "claude")).toEqual({
+      phase: "complete",
+    });
+    expect(
+      parseShellToolFrameLine(
+        JSON.stringify({
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [{ type: "tool_use", id: "toolu_2", name: "Read", input: { file_path: "x.ts" } }],
+          },
+        }),
+        "claude",
+      ),
+    ).toBeNull();
+  });
+
+  test("parses cursor shellToolCall started and completed frames", () => {
+    const start = parseShellToolFrameLine(
+      JSON.stringify({
+        type: "tool_call",
+        subtype: "started",
+        call_id: "call-1",
+        tool_call: { shellToolCall: { args: { command: "bun run test:shared" } } },
+      }),
+      "cursor",
+    );
+    expect(start).toEqual({ phase: "start", command: "bun run test:shared" });
+    expect(
+      parseShellToolFrameLine(
+        JSON.stringify({
+          type: "tool_call",
+          subtype: "completed",
+          call_id: "call-1",
+          tool_call: { shellToolCall: { result: { success: { exitCode: 0 } } } },
+        }),
+        "cursor",
+      ),
+    ).toEqual({ phase: "complete" });
+    expect(
+      parseShellToolFrameLine(
+        JSON.stringify({
+          type: "tool_call",
+          subtype: "started",
+          call_id: "call-2",
+          tool_call: { readToolCall: { args: { path: "x.ts" } } },
+        }),
+        "cursor",
+      ),
+    ).toBeNull();
+  });
+
+  test("claude binding invokes onAgentShellCommand for streamed shell frames", async () => {
+    const frames = [
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use", id: "toolu_1", name: "Bash", input: { command: "bun run test:v2" } }],
+        },
+      }),
+      JSON.stringify({ type: "tool_result", tool_use_id: "toolu_1", content: "ok" }),
+      JSON.stringify({ type: "result", result: "progress" }),
+    ].join("\n");
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: `${frames}\n`, stderr: "" }]);
+    const commands: string[] = [];
+    let completions = 0;
+    const binding = createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      { spawn: fake.spawn },
+    );
+
+    await binding.invoke({
+      prompt: "p",
+      cwd: "/repo",
+      onAgentShellCommand: (command) => {
+        commands.push(command);
+      },
+      onAgentShellCommandComplete: () => {
+        completions += 1;
+      },
+    });
+
+    expect(commands).toEqual(["bun run test:v2"]);
+    expect(completions).toBe(1);
+    // @mutate shared/invocation/agents.ts "processShellToolStdoutLine(line, config.classifier, shellToolParseState, opts);" -> ""
+  });
+});
 
 describe("isIgnoredWorktreeActivityPath", () => {
   test("ignores harness metadata sidecars and verdict basenames", () => {

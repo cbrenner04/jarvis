@@ -101,7 +101,7 @@ export function createResolvedAgentBinding(
     return {
       id,
       metadata,
-      invoke: async ({ prompt, cwd, signal, idleOutputMs, joinProcessOnIdleStall, onOutputProgress }) =>
+      invoke: async ({ prompt, cwd, signal, idleOutputMs, joinProcessOnIdleStall, onOutputProgress, ...invokeArgs }) =>
         finalizeCursorInvocationResult(
           await runCursorBinding({
             prompt,
@@ -110,6 +110,7 @@ export function createResolvedAgentBinding(
             ...(idleOutputMs !== undefined ? { idleOutputMs } : {}),
             ...(joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
             ...(onOutputProgress !== undefined ? { onOutputProgress } : {}),
+            ...pickAgentRunOptions(invokeArgs),
             ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
             ...(opts.setTimeout !== undefined ? { setTimeout: opts.setTimeout } : {}),
             ...(opts.clearTimeout !== undefined ? { clearTimeout: opts.clearTimeout } : {}),
@@ -160,11 +161,208 @@ type AgentRunOptions = {
   idleOutputMs?: number;
   joinProcessOnIdleStall?: boolean;
   onOutputProgress?: () => void;
+  onAgentShellCommand?: (command: string) => void | Promise<void>;
+  onAgentShellCommandComplete?: () => void | Promise<void>;
   setTimeout?: typeof setTimeout;
   clearTimeout?: typeof clearTimeout;
   watchWorktreeActivity?: WatchWorktreeActivity;
   additionalReadDirs?: readonly string[];
 };
+
+export type ShellToolFrameEvent = { phase: "start"; command: string } | { phase: "complete" };
+
+type ShellToolParseState = {
+  pendingInputJson: Map<string, { name: string; partial: string }>;
+};
+
+function asJsonObject(value: unknown): Record<string, unknown> | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function isClaudeShellToolName(name: unknown): boolean {
+  return name === "Bash" || name === "Shell";
+}
+
+function commandFromClaudeToolInput(input: unknown): string | null {
+  const rec = asJsonObject(input);
+  if (rec === null) return null;
+  return typeof rec.command === "string" ? rec.command : null;
+}
+
+function extractClaudeToolUseShellCommand(frame: Record<string, unknown>): string | null {
+  if (!isClaudeShellToolName(frame.name)) return null;
+  return commandFromClaudeToolInput(frame.input);
+}
+
+function extractClaudeAssistantShellCommand(frame: Record<string, unknown>): string | null {
+  const message = asJsonObject(frame.message);
+  const content = message?.content;
+  if (!Array.isArray(content)) return null;
+  for (const block of content) {
+    const rec = asJsonObject(block);
+    if (rec?.type !== "tool_use") continue;
+    const command = extractClaudeToolUseShellCommand(rec);
+    if (command !== null) return command;
+  }
+  return null;
+}
+
+function parseClaudeShellToolFrame(frame: Record<string, unknown>): ShellToolFrameEvent | null {
+  if (frame.type === "assistant") {
+    const command = extractClaudeAssistantShellCommand(frame);
+    return command === null ? null : { phase: "start", command };
+  }
+  if (frame.type === "tool_use") {
+    const command = extractClaudeToolUseShellCommand(frame);
+    return command === null ? null : { phase: "start", command };
+  }
+  if (frame.type === "tool_result") {
+    return { phase: "complete" };
+  }
+  return null;
+}
+
+function parseCursorShellToolFrame(frame: Record<string, unknown>): ShellToolFrameEvent | null {
+  if (frame.type !== "tool_call") return null;
+  const toolCall = asJsonObject(frame.tool_call);
+  const shellToolCall = asJsonObject(toolCall?.shellToolCall);
+  if (shellToolCall === null) return null;
+  if (frame.subtype === "started") {
+    const args = asJsonObject(shellToolCall.args);
+    const command = typeof args?.command === "string" ? args.command : null;
+    return command === null ? null : { phase: "start", command };
+  }
+  if (frame.subtype === "completed") {
+    return { phase: "complete" };
+  }
+  return null;
+}
+
+/** Parse one NDJSON stdout line for a claude/cursor shell-tool start or completion frame. */
+export function parseShellToolFrameLine(line: string, agent: "claude" | "cursor"): ShellToolFrameEvent | null {
+  const trimmed = line.trim();
+  if (trimmed === "") return null;
+  try {
+    const frame = asJsonObject(JSON.parse(trimmed));
+    if (frame === null) return null;
+    return agent === "cursor" ? parseCursorShellToolFrame(frame) : parseClaudeShellToolFrame(frame);
+  } catch {
+    return null;
+  }
+}
+
+function commandFromPartialClaudeToolInput(partial: string): string | null {
+  if (partial.trim() === "") return null;
+  try {
+    const parsed = asJsonObject(JSON.parse(partial));
+    return parsed === null ? null : commandFromClaudeToolInput(parsed);
+  } catch {
+    const match = /"command"\s*:\s*"([^"]*)"/.exec(partial);
+    return match?.[1] ?? null;
+  }
+}
+
+function handleClaudeStreamEventShellTool(
+  frame: Record<string, unknown>,
+  state: ShellToolParseState,
+  onStart: (command: string) => void,
+  onComplete: () => void,
+): void {
+  const event = asJsonObject(frame.event);
+  if (event === null) return;
+  if (event.type === "content_block_start") {
+    const contentBlock = asJsonObject(event.content_block);
+    const id = typeof contentBlock?.id === "string" ? contentBlock.id : null;
+    const name = contentBlock?.name;
+    if (id === null || !isClaudeShellToolName(name)) return;
+    state.pendingInputJson.set(id, { name: String(name), partial: "" });
+    const command = commandFromClaudeToolInput(contentBlock?.input);
+    if (command !== null) onStart(command);
+    return;
+  }
+  if (event.type === "content_block_delta") {
+    const delta = asJsonObject(event.delta);
+    if (delta?.type !== "input_json_delta" || typeof delta.partial_json !== "string") return;
+    const index = typeof event.index === "number" ? event.index : null;
+    const pending = index === null ? undefined : [...state.pendingInputJson.values()][index];
+    if (pending === undefined) {
+      const lastKey = [...state.pendingInputJson.keys()].at(-1);
+      if (lastKey === undefined) return;
+      const entry = state.pendingInputJson.get(lastKey);
+      if (entry === undefined) return;
+      entry.partial += delta.partial_json;
+      const command = commandFromPartialClaudeToolInput(entry.partial);
+      if (command !== null) onStart(command);
+      return;
+    }
+    pending.partial += delta.partial_json;
+    const command = commandFromPartialClaudeToolInput(pending.partial);
+    if (command !== null) onStart(command);
+    return;
+  }
+  if (event.type === "content_block_stop") {
+    const index = typeof event.index === "number" ? event.index : null;
+    const pendingKey =
+      index === null ? [...state.pendingInputJson.keys()].at(-1) : [...state.pendingInputJson.keys()][index];
+    if (pendingKey !== undefined) {
+      const pending = state.pendingInputJson.get(pendingKey);
+      if (pending !== undefined) {
+        const command = commandFromPartialClaudeToolInput(pending.partial);
+        if (command !== null) onStart(command);
+        state.pendingInputJson.delete(pendingKey);
+        onComplete();
+      }
+    }
+  }
+}
+
+function processShellToolStdoutLine(
+  line: string,
+  classifier: AgentName,
+  state: ShellToolParseState,
+  opts: AgentRunOptions,
+): void {
+  if (classifier !== "claude" && classifier !== "cursor") return;
+  if (opts.onAgentShellCommand === undefined && opts.onAgentShellCommandComplete === undefined) return;
+
+  const trimmed = line.trim();
+  if (trimmed === "") return;
+  let frame: Record<string, unknown> | null;
+  try {
+    frame = asJsonObject(JSON.parse(trimmed));
+  } catch {
+    return;
+  }
+  if (frame === null) return;
+
+  const notifyStart = (command: string) => {
+    try {
+      void opts.onAgentShellCommand?.(command);
+    } catch {
+      // Shell observability hooks must not fail the invocation.
+    }
+  };
+  const notifyComplete = () => {
+    try {
+      void opts.onAgentShellCommandComplete?.();
+    } catch {
+      // Shell observability hooks must not fail the invocation.
+    }
+  };
+
+  if (classifier === "claude" && frame.type === "stream_event") {
+    handleClaudeStreamEventShellTool(frame, state, notifyStart, notifyComplete);
+    return;
+  }
+
+  const event = classifier === "cursor" ? parseCursorShellToolFrame(frame) : parseClaudeShellToolFrame(frame);
+  if (event === null) return;
+  if (event.phase === "start") notifyStart(event.command);
+  else notifyComplete();
+}
 
 function appendAdditionalReadDirFlags(argv: string[], additionalReadDirs: readonly string[] | undefined): void {
   for (const dir of additionalReadDirs ?? []) {
@@ -179,6 +377,8 @@ function pickAgentRunOptions(
     | "idleOutputMs"
     | "joinProcessOnIdleStall"
     | "onOutputProgress"
+    | "onAgentShellCommand"
+    | "onAgentShellCommandComplete"
     | "setTimeout"
     | "clearTimeout"
     | "watchWorktreeActivity"
@@ -190,6 +390,10 @@ function pickAgentRunOptions(
     ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
     ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
     ...(args.onOutputProgress !== undefined ? { onOutputProgress: args.onOutputProgress } : {}),
+    ...(args.onAgentShellCommand !== undefined ? { onAgentShellCommand: args.onAgentShellCommand } : {}),
+    ...(args.onAgentShellCommandComplete !== undefined
+      ? { onAgentShellCommandComplete: args.onAgentShellCommandComplete }
+      : {}),
     ...(args.setTimeout !== undefined ? { setTimeout: args.setTimeout } : {}),
     ...(args.clearTimeout !== undefined ? { clearTimeout: args.clearTimeout } : {}),
     ...(args.watchWorktreeActivity !== undefined ? { watchWorktreeActivity: args.watchWorktreeActivity } : {}),
@@ -285,7 +489,9 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
     }
 
     let outBuf = "";
+    let outLineBuf = "";
     let errBuf = "";
+    const shellToolParseState: ShellToolParseState = { pendingInputJson: new Map() };
     let settled = false;
     let stdoutEnded = false;
     let stderrEnded = false;
@@ -437,12 +643,29 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
       }
     };
 
+    const drainStdoutLines = (chunk: string) => {
+      outLineBuf += chunk;
+      let newlineIndex = outLineBuf.indexOf("\n");
+      while (newlineIndex !== -1) {
+        const line = outLineBuf.slice(0, newlineIndex);
+        outLineBuf = outLineBuf.slice(newlineIndex + 1);
+        processShellToolStdoutLine(line, config.classifier, shellToolParseState, opts);
+        newlineIndex = outLineBuf.indexOf("\n");
+      }
+    };
+
     stdout.on("data", (chunk: Buffer) => {
-      outBuf += chunk.toString("utf8");
+      const text = chunk.toString("utf8");
+      outBuf += text;
+      drainStdoutLines(text);
       armIdleTimer();
       notifyOutputProgress();
     });
     stdout.on("end", () => {
+      if (outLineBuf.length > 0) {
+        processShellToolStdoutLine(outLineBuf, config.classifier, shellToolParseState, opts);
+        outLineBuf = "";
+      }
       stdoutEnded = true;
       checkSettlement();
     });

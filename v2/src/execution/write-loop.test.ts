@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import type { ChildProcess, SpawnOptions } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { execFileSync } from "node:child_process";
 import {
   appendFileSync,
@@ -18,7 +20,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
+import { PassThrough } from "node:stream";
 import * as sharedGit from "../../../shared/git.ts";
+import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { composeRunOperatorError } from "../daemon/run-operator-error.ts";
@@ -50,6 +54,7 @@ import {
   ReadyGateError,
   RuntimeSmokeFailedError,
   SurvivingMutationError,
+  isReadyTestCommand,
 } from "./ready-finalize.ts";
 import type { SmokePass } from "./runtime-smoke-verifier.ts";
 import type { StepRunResult } from "./step-runner.ts";
@@ -840,6 +845,102 @@ describe("buildSubspecCompletionInventory", () => {
       completedSubspecPaths: [],
       remainingSubspecPaths: [],
     });
+  });
+});
+
+describe.serial("agent gate shell observability", () => {
+  class ShellFrameChild extends EventEmitter {
+    readonly stdin = new PassThrough();
+    readonly stdout = new PassThrough();
+    readonly stderr = new PassThrough();
+    readonly pid = 424_242;
+
+    start(frames: string[]) {
+      queueMicrotask(() => {
+        for (const frame of frames) {
+          this.stdout.write(`${frame}\n`);
+        }
+        this.stdout.end();
+        this.stderr.end();
+        setImmediate(() => {
+          this.emit("exit", 0);
+          this.emit("close", 0);
+        });
+      });
+    }
+
+    kill() {
+      return true;
+    }
+  }
+
+  function cursorShellBinding(frames: string[]) {
+    const spawn = (_binary: string, _argv: readonly string[], _opts: SpawnOptions): ChildProcess => {
+      const child = new ShellFrameChild();
+      child.start(frames);
+      return child as unknown as ChildProcess;
+    };
+    return createResolvedAgentBinding(
+      { agentId: "cursor", adapterModel: "Composer 2.5", priceKey: "composer" },
+      { spawn },
+    );
+  }
+
+  test("implement iteration records classified active-gate state from streamed shell frames", async () => {
+    // @mutate v2/src/execution/write-loop.ts "if (!isReadyTestCommand(command) || activeGate !== undefined) return;" -> "if (activeGate !== undefined) return;"
+    const gateCommand = "bun run test:v2";
+    expect(isReadyTestCommand(gateCommand)).toBe(true);
+    expect(isReadyTestCommand("bun test")).toBe(false);
+
+    const startedFrame = JSON.stringify({
+      type: "tool_call",
+      subtype: "started",
+      call_id: "call-gate",
+      tool_call: { shellToolCall: { args: { command: gateCommand } } },
+    });
+    const completedFrame = JSON.stringify({
+      type: "tool_call",
+      subtype: "completed",
+      call_id: "call-gate",
+      tool_call: { shellToolCall: { result: { success: { exitCode: 0 } } } },
+    });
+    const resultFrame = JSON.stringify({ type: "result", result: "progress" });
+
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const sessionsDir = join(jarvisRoot, "sessions");
+    const store = openStateStore(stateDbPath);
+    try {
+      const result = await executeWriteLoop({
+        worktree: {
+          projectRoot: "/fake",
+          projectName: "demo",
+          branchName: "gate-shell-observability",
+          baseRef: "HEAD",
+          jarvisRoot,
+        },
+        specPath: "spec.md",
+        stepRules: "Return progress.",
+        expectedArtifactPath: "proof.txt",
+        bindings: [cursorShellBinding([startedFrame, completedFrame, resultFrame])],
+        stateStore: store,
+        withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir,
+        maxIterations: 1,
+        clock: () => new Date("2026-09-08T06:00:00.000Z"),
+      });
+
+      expect(result.kind).toBe("budget-exhausted");
+      const sessionFile = readdirSync(sessionsDir)[0];
+      expect(sessionFile).toBeDefined();
+      const sessionContent = readFileSync(join(sessionsDir, sessionFile ?? ""), "utf8");
+      expect(sessionContent).toContain(
+        `active_gate command=${gateCommand} startedAtMs=${Date.parse("2026-09-08T06:00:00.000Z")}`,
+      );
+      expect(sessionContent).not.toMatch(/active_gate command=bun test/);
+    } finally {
+      store.close();
+    }
   });
 });
 

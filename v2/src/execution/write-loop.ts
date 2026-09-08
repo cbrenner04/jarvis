@@ -88,6 +88,7 @@ import {
   RuntimeSmokeFailedError,
   readyGateFailureLogFields,
   readyGateOutOfScopeLogFields,
+  isReadyTestCommand,
   resolveAttributableRepairAllowset,
   resolveGateRepairAllowset,
   SurvivingMutationError,
@@ -456,6 +457,26 @@ const COVERAGE_ADVISORY_PROMPT_ID = "write.coverage-advisory";
 export const DEFAULT_ITERATION_TIMEOUT_MS = 600_000;
 /** Bound on ordinary iteration quiescence; finalization repairs always join without a bound. */
 export const DEFAULT_QUIESCENCE_TIMEOUT_MS = 30_000;
+
+export type IterationActiveGate = { command: string; startedAtMs: number };
+
+function createIterationActiveGateTracker(clock: () => number = Date.now): {
+  getActiveGate: () => IterationActiveGate | undefined;
+  onAgentShellCommand: (command: string) => void;
+  onAgentShellCommandComplete: () => void;
+} {
+  let activeGate: IterationActiveGate | undefined;
+  return {
+    getActiveGate: () => activeGate,
+    onAgentShellCommand: (command: string) => {
+      if (!isReadyTestCommand(command) || activeGate !== undefined) return;
+      activeGate = { command, startedAtMs: clock() };
+    },
+    onAgentShellCommandComplete: () => {
+      activeGate = undefined;
+    },
+  };
+}
 
 /** Run coverage advisory re-prompt when uncovered sites exist. Returns the invocation result or null if no advisory. */
 async function runCoverageAdvisory(
@@ -2115,6 +2136,7 @@ async function awaitIteration(
   };
 
   const onInvocationOutputProgress = args.resetIterationWallOnOutput === false ? undefined : bumpWallSegment;
+  const gateTracker = createIterationActiveGateTracker(() => (args.clock ?? (() => new Date()))().getTime());
 
   const watchdog = new Promise<RaceOutcome>((resolve) => {
     resolveWatchdog = resolve;
@@ -2135,6 +2157,7 @@ async function awaitIteration(
       landingContractReprompt,
       stagedMarkdownLintReprompt,
       survivingMutationReprompt,
+      gateTracker,
     ),
     remainingIterationWallMs: () => Math.max(0, wallSegmentDeadline - Date.now()),
     ...(onInvocationOutputProgress !== undefined ? { onInvocationOutputProgress } : {}),
@@ -2450,6 +2473,7 @@ function buildWriteExecuteInput(
   landingContractReprompt?: { violation: string; offendingFile: string },
   stagedMarkdownLintReprompt?: { ruleId: string; offendingFile: string; message: string },
   survivingMutationReprompt?: SurvivingMutationRepromptContext,
+  gateTracker?: ReturnType<typeof createIterationActiveGateTracker>,
 ): WriteExecuteInput {
   const telemetry = args.telemetry;
   // An operator-session-only telemetry attachment (no sinkPath/workflow/role) is a
@@ -2504,6 +2528,23 @@ function buildWriteExecuteInput(
     ...(args.externalPlanSpec === true ? { externalPlanSpec: true as const } : {}),
     ...(args.specReadRoot !== undefined ? { specReadRoot: args.specReadRoot } : {}),
     ...(args.externalSpecReadOnly === true ? { externalSpecReadOnly: true as const } : {}),
+    ...(gateTracker !== undefined
+      ? {
+          onAgentShellCommand: (command: string) => {
+            gateTracker.onAgentShellCommand(command);
+            const activeGate = gateTracker.getActiveGate();
+            if (activeGate !== undefined) {
+              sessionLog.append(
+                "harness",
+                `active_gate command=${activeGate.command} startedAtMs=${activeGate.startedAtMs}`,
+              );
+            }
+          },
+          onAgentShellCommandComplete: () => {
+            gateTracker.onAgentShellCommandComplete();
+          },
+        }
+      : {}),
   };
 }
 

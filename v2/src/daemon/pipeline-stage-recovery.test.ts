@@ -919,11 +919,15 @@ describe("recoverPipelineBranchStage", () => {
     const specPath = `spec/2026-${args.prefix}`;
     const durable = join(worktreePath, specPath);
     const branch = `plan/${args.prefix}`;
-    const reason = "`## Decisions` bullet is outside the allowed union";
+    const reason = "Plan index links unknown subspec 01-wrong.md";
 
     mkdirSync(stage, { recursive: true });
-    writeFileSync(join(stage, "index.md"), "# Index\n\n- [ ] [One](./00-first.md)\n", "utf8");
-    writeFileSync(join(stage, "00-first.md"), "# Draft with an out-of-union Decisions bullet\n", "utf8");
+    writeFileSync(
+      join(stage, "index.md"),
+      args.correct ? "# Index\n\n- [ ] [One](./00-first.md)\n" : "# Index\n\n- [ ] [Wrong](./01-wrong.md)\n",
+      "utf8",
+    );
+    writeFileSync(join(stage, "00-first.md"), "# Draft with a broken index link\n", "utf8");
     writeFileSync(join(stage, "intent.md"), `---\nname: test\n---\n${harnessPlanBlocker(reason)}`, "utf8");
 
     const entryRunId = seedBlockedPlanDraftRun(store, {

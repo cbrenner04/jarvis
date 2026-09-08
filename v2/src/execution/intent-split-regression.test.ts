@@ -8,13 +8,6 @@ import {
 } from "../../../shared/intent-stage.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import {
-  classifyModuleBoundaryText,
-  MODULE_BOUNDARY_SURFACES,
-  type ModuleBoundarySurface,
-  orderModuleBoundariesForSplit,
-  referencedArtifactPaths,
-} from "../../../shared/module-boundary-surfaces.ts";
-import {
   buildIntentSplitPrompt,
   INTENT_SPLIT_DECLARATION_PIN,
   INTENT_SPLIT_SURFACE_PIN,
@@ -47,7 +40,9 @@ function readIntentSplitFixture(fixtureId: string): string {
 }
 
 function seedLinePaths(line: string): readonly string[] {
-  const artifactPaths = referencedArtifactPaths(line);
+  const artifactPaths = [...line.matchAll(/`([^`\s]*\/[^`\s]*\.[A-Za-z0-9]+)`/gu)].flatMap((match) =>
+    match[1] === undefined ? [] : [match[1]],
+  );
   if (artifactPaths.length > 0) return artifactPaths;
   const directoryPaths: string[] = [];
   for (const match of line.matchAll(/`([^`\s]*\/[^`\s]*\/)`/gu)) {
@@ -58,34 +53,11 @@ function seedLinePaths(line: string): readonly string[] {
 }
 
 function seedPrimaryImplementationSurfaces(seedContent: string): readonly string[] {
-  const pathBySurface = new Map<ModuleBoundarySurface, string>();
-  for (const line of seedContent.split("\n")) {
-    const paths = seedLinePaths(line);
-    if (paths.length !== 1) continue;
-    const path = paths[0];
-    if (path === undefined) continue;
-    for (const surface of classifyModuleBoundaryText(line)) {
-      if (!pathBySurface.has(surface)) pathBySurface.set(surface, path);
-    }
-  }
-  if (pathBySurface.size >= 2) {
-    const ordered = orderModuleBoundariesForSplit(
-      seedContent,
-      MODULE_BOUNDARY_SURFACES.filter((surface) => pathBySurface.has(surface)),
-    );
-    return ordered.map((surface) => {
-      const path = pathBySurface.get(surface);
-      if (path === undefined) throw new Error(`seed missing primary implementation surface path for ${surface}`);
-      return path;
-    });
-  }
   const paths = seedContent
     .split("\n")
     .flatMap((line) => seedLinePaths(line))
     .filter((path, index, all) => all.indexOf(path) === index);
-  if (paths.length !== 1) {
-    throw new Error(`expected exactly one primary implementation surface path in seed, got ${paths.length}`);
-  }
+  if (paths.length === 0) throw new Error("expected at least one primary implementation surface path in seed");
   return paths;
 }
 

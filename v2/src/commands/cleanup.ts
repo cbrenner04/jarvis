@@ -958,6 +958,7 @@ function discoverExternalPlanStrandedArtifacts(
     try {
       for (const child of readdirSync(plansHome, { withFileTypes: true })) {
         if (!child.isDirectory() || child.name === "completed") continue;
+        if (child.name.startsWith(".") || isHarnessWorkflowStagingPath(child.name)) continue;
         const artifact = externalPlanArtifactForDirectory(plansHome, child.name, project, registry, configPath);
         if (artifact !== undefined) artifacts.push(artifact);
       }
@@ -979,6 +980,7 @@ export function discoverStrandedArtifacts(
     try {
       for (const child of readdirSync(home, { withFileTypes: true })) {
         if (!child.isDirectory() || ["completed", "seeds", "ready-intents"].includes(child.name)) continue;
+        if (child.name.startsWith(".") || isHarnessWorkflowStagingPath(child.name)) continue;
         artifacts.push({ home, source: join(home, child.name), name: child.name, project });
       }
     } catch {
@@ -1031,6 +1033,7 @@ export async function inspectStrandedArtifacts(
 ): Promise<StrandedArtifact[]> {
   const eligible: StrandedArtifact[] = [];
   for (const artifact of artifacts) {
+    if (!existsSync(artifact.source)) continue;
     const projectRoot = registry[artifact.project]?.root;
     if (projectRoot === undefined) continue;
     const branch = recordedStrandedBranch(artifact, projectRoot, store, registry);

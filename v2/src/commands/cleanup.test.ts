@@ -999,6 +999,58 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       expect(existsSync(join(plansHome, "completed", planName))).toBe(false);
     }));
 
+  test("stranded discovery ignores non-spec and vanished paths", async () =>
+    withJarvisHome(async () => {
+      writeMachineConfig({ git: false });
+      const home = join(projectRoot, "v2", "spec");
+      const plansHome = join(jarvisRoot, "specs", projectSafeId("project"), "plans");
+
+      for (const [parent, name] of [
+        [home, ".scratch"],
+        [home, ".jarvis-plan-stage"],
+        [plansHome, ".scratch"],
+        [plansHome, ".jarvis-intent-stage"],
+      ] as const) {
+        const dir = join(parent, name);
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, "index.md"), "# ignored\n");
+      }
+
+      const vanishedName = "20260908T000001Z-vanished-stranded";
+      const vanishedSource = join(home, vanishedName);
+      mkdirSync(vanishedSource, { recursive: true });
+      writeFileSync(join(vanishedSource, "index.md"), `# Vanished\n\n## Acceptance criteria\n\n- [x] Done\n`);
+
+      const discovered = discoverStrandedArtifacts({ project: { root: projectRoot } });
+      expect(discovered.some((artifact) => artifact.name === ".scratch")).toBe(false);
+      expect(discovered.some((artifact) => artifact.name === ".jarvis-plan-stage")).toBe(false);
+      expect(discovered.some((artifact) => artifact.source.includes(join("plans", ".scratch")))).toBe(false);
+      expect(discovered.some((artifact) => artifact.source.includes(join("plans", ".jarvis-intent-stage")))).toBe(
+        false,
+      );
+      expect(discovered.some((artifact) => artifact.name === vanishedName)).toBe(true);
+
+      rmSync(vanishedSource, { recursive: true });
+
+      let stdout = "";
+      const io = { stdout: (s: string) => (stdout += s) };
+      await inspectStrandedArtifacts(
+        discovered,
+        { project: { root: projectRoot } },
+        [],
+        jarvisRoot,
+        storeForStrandedSpec(vanishedName, "implement/vanished"),
+        ghRunnerForPr("MERGED"),
+        io,
+      );
+
+      expect(stdout).not.toContain("Skipped stranded artifact:");
+      expect(stdout).not.toContain(".scratch");
+      expect(stdout).not.toContain(".jarvis-plan-stage");
+      expect(stdout).not.toContain(".jarvis-intent-stage");
+      expect(stdout).not.toContain(vanishedSource);
+    }));
+
   test("skips external plans scan for registered projects where planSourcePublishesExternally is false", async () =>
     withJarvisHome(async () => {
       writeMachineConfig({});

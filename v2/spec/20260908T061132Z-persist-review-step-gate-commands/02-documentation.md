@@ -16,8 +16,8 @@ Durable docs still describe gate-command overrides as admitted onto workflow ste
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/write-behavior.md` lists `fixCommand` and `readyCommand` among snapshot-backed fields retained on review and review-debate rows across continuation.
-- [ ] `v2/docs/v1-behaviors.md` records that review and review-debate workflow snapshots persist dispatch-time gate commands and that continuation reconstruction reads those snapshot values instead of live config.
+- [x] `v2/docs/write-behavior.md` lists `fixCommand` and `readyCommand` among snapshot-backed fields retained on review and review-debate rows across continuation.
+- [x] `v2/docs/v1-behaviors.md` records that review and review-debate workflow snapshots persist dispatch-time gate commands and that continuation reconstruction reads those snapshot values instead of live config.
 
 ## Documentation updates
 

@@ -18,10 +18,10 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/workflow-runner-resume.test.ts` proves gate-command reconstruction for a review or review-debate row returns the persisted snapshot-step `fixCommand` and `readyCommand` after a simulated live config change; the test fails against the pre-fix write-sibling-only `resolveWriteSiblingCommandSource` path reachable on main.
-- [ ] `v2/src/execution/workflow-runner-resume.test.ts` test `intent-finalization resume uses write-sibling stamped fix and ready commands` stays green, proving the write-sibling fallback is preserved for legacy snapshots.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/execution/workflow-runner-resume.test.ts` proves gate-command reconstruction for a review or review-debate row returns the persisted snapshot-step `fixCommand` and `readyCommand` after a simulated live config change; the test fails against the pre-fix write-sibling-only `resolveWriteSiblingCommandSource` path reachable on main.
+- [x] `v2/src/execution/workflow-runner-resume.test.ts` test `intent-finalization resume uses write-sibling stamped fix and ready commands` stays green, proving the write-sibling fallback is preserved for legacy snapshots.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates

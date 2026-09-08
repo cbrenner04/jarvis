@@ -1530,7 +1530,11 @@ function buildWorkflowSnapshot(
     role: step.behavior === "write" ? step.role : "",
     durable: isDurableWorkflowStep(step),
     ...(step.behavior === "review-debate" || step.behavior === "review"
-      ? { behavior: step.behavior as "review-debate" | "review" }
+      ? {
+          behavior: step.behavior as "review-debate" | "review",
+          ...(step.fixCommand !== undefined ? { fixCommand: step.fixCommand } : {}),
+          ...(step.readyCommand !== undefined ? { readyCommand: step.readyCommand } : {}),
+        }
       : {}),
     ...(step.behavior === "write"
       ? {

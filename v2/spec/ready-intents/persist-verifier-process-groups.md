@@ -19,7 +19,7 @@ name: persist-verifier-process-groups
 - Durable storage carries multiple process-group ids per run without overwriting earlier recordings; rules out retaining the single `ready_gate_pgid` column as the only store.
 - Generalize the existing record/list/clear API used by `setReadyGatePgid` and `listReadyGateSweepCandidates` rather than introducing a parallel reaping mechanism; rules out a second orphan-sweep path.
 - Sweep-candidate listing returns every recorded group whose owning run is not live, using the same owner-liveness probe as today; rules out age-based reaping.
-- `null` clear semantics remain per recorded group at settlement or after sweep; rules out a separate clear-only API.
+- Generalized record/clear contract: `recordVerifierProcessGroup(runId, pgid)` adds one id without overwriting prior recordings; `clearVerifierProcessGroup(runId, pgid)` removes that id after settlement or sweep; `clearVerifierProcessGroups(runId)` clears every recorded id for a run when a whole-run reset is needed; rules out overloading today's `setReadyGatePgid(runId, null)` whole-column clear as the per-group settlement path.
 
 ## Acceptance criteria
 

@@ -422,13 +422,28 @@ type WriteSiblingCommandSource = {
   snapshotStep?: WorkflowSnapshotStep;
 };
 
-function resolveWriteSiblingCommandSource(
+function snapshotStepHasGateCommands(step: WorkflowSnapshotStep | undefined): boolean {
+  return step?.fixCommand !== undefined || step?.readyCommand !== undefined;
+}
+
+/** Reconstruct stamped gate commands for resume tails; review rows prefer their own snapshot step. */
+export function resolveWriteSiblingCommandSource(
   run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>,
   store: StateStore,
 ): WriteSiblingCommandSource | undefined {
   const snapshot = run.workflowSnapshot;
   const ownStep = snapshot?.steps.find((candidate) => candidate.stepId === run.stepId);
   if (ownStep && ownStep.behavior !== "review" && ownStep.behavior !== "review-debate") {
+    return {
+      ...(run.queuedInput != null ? { queuedInput: run.queuedInput } : {}),
+      snapshotStep: ownStep,
+    };
+  }
+  if (
+    ownStep &&
+    (ownStep.behavior === "review" || ownStep.behavior === "review-debate") &&
+    snapshotStepHasGateCommands(ownStep)
+  ) {
     return {
       ...(run.queuedInput != null ? { queuedInput: run.queuedInput } : {}),
       snapshotStep: ownStep,

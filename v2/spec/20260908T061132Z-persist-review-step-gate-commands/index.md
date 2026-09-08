@@ -1,6 +1,6 @@
 # Persist review-step gate commands
 
-- [ ] [00 - Snapshot persistence](./00-snapshot-persistence.md)
+- [x] [00 - Snapshot persistence](./00-snapshot-persistence.md)
 - [ ] [01 - Continuation resolution](./01-continuation-resolution.md)
 - [ ] [02 - Documentation](./02-documentation.md)
 

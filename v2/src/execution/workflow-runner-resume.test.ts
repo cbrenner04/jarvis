@@ -65,6 +65,7 @@ import {
   resolveIntentFinalizationResumeContext,
   resolveReviewMutationResumeContext,
   resolveWriteNonTerminatingResumeContext,
+  resolveWriteSiblingCommandSource,
   resumePopulatedIntentPublication,
   resumeReviewMutationFinalization,
 } from "./workflow-runner-resume.ts";
@@ -842,6 +843,75 @@ describe("executeWorkflow review dispatch", () => {
 
       expect(outcome).toMatchObject({ ok: true });
       expect(finalizerReadyCommand).toBe("make test");
+    });
+  });
+
+  test("review row gate-command reconstruction prefers persisted snapshot step over write sibling", async () => {
+    // @mutate v2/src/execution/workflow-runner-resume.ts "snapshotStepHasGateCommands(ownStep)" -> "false"
+    const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-resume-review-gate-commands-"));
+    mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
+    writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"), "example.md");
+    mkdirSync(join(workspace, "ready-intents"), { recursive: true });
+
+    await withStateStore(async (store) => {
+      const branch = "intent/review-gate-commands";
+      const invocationId = "intent-review-gate-commands";
+      const base = {
+        project: "demo",
+        specRef: "main",
+        worktreePath: workspace,
+        branch,
+        workflowSnapshot: {
+          invocationId,
+          creationTitle: `intent: ${branch}`,
+          steps: [
+            {
+              stepId: "intent",
+              role: "plan",
+              durable: true,
+              expectedArtifactPath: ".jarvis-intent-stage",
+              agents: ["claude"],
+              fixCommand: "new-config-fix",
+              readyCommand: "new-config-ready",
+            },
+            {
+              stepId: "review",
+              role: "",
+              durable: true,
+              behavior: "review" as const,
+              fixCommand: "persisted-fix",
+              readyCommand: "persisted-ready",
+            },
+          ],
+        },
+      };
+      store.createRun({ ...base, specPath: "ready-intents", stepId: "intent" });
+      const reviewRunId = store.createRun({ ...base, specPath: ".jarvis-intent-stage", stepId: "review" });
+      store.setRunStatus(reviewRunId, "failed");
+      const attemptId = store.recordAttemptStart(reviewRunId);
+      store.commitCompletionBoundary({
+        attemptId,
+        runStatus: "failed",
+        outcomeKind: "invocation_failure",
+        invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: "landing failed" },
+      });
+
+      const run = store.loadRun(reviewRunId);
+      if (!run) throw new Error("expected review run");
+      const source = resolveWriteSiblingCommandSource(run, store);
+      expect(source?.snapshotStep?.fixCommand).toBe("persisted-fix");
+      expect(source?.snapshotStep?.readyCommand).toBe("persisted-ready");
+
+      let finalizerReadyCommand: string | undefined;
+      const outcome = await resumePopulatedIntentPublication(run, store, {
+        completionCommitter: async () => ({ commitSha: "commit-1", filesChanged: 1 }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async (input) => {
+          finalizerReadyCommand = input.readyCommand;
+        },
+      });
+      expect(outcome).toMatchObject({ ok: true });
+      expect(finalizerReadyCommand).toBe("persisted-ready");
     });
   });
 

@@ -185,8 +185,7 @@ export function hasCompletedSubspec(inventory: SubspecCompletionInventory): bool
   return inventory.completedSubspecPaths.length > 0;
 }
 
-/** Backtick-delimited command tokens from acceptance-criterion prose. */
-export function extractBacktickCommandTokens(criterionText: string): string[] {
+function extractBacktickCommandTokens(criterionText: string): string[] {
   const tokens: string[] = [];
   const pattern = /`([^`]+)`/g;
   let match = pattern.exec(criterionText);
@@ -198,7 +197,7 @@ export function extractBacktickCommandTokens(criterionText: string): string[] {
   return tokens;
 }
 
-export function isGateAcceptanceCriterion(criterionText: string): boolean {
+function isGateAcceptanceCriterion(criterionText: string): boolean {
   return extractBacktickCommandTokens(criterionText).some((token) => isReadyTestCommand(token));
 }
 
@@ -216,12 +215,6 @@ function isGateOnlyOutstandingForSubspecBody(body: string): boolean {
   return hasUncheckedGate;
 }
 
-export function isGateOnlyOutstandingForActiveSubspec(worktreePath: string, expectedArtifactPath: string): boolean {
-  const resolved = isAbsolute(expectedArtifactPath) ? expectedArtifactPath : join(worktreePath, expectedArtifactPath);
-  if (!existsSync(resolved)) return false;
-  return isGateOnlyOutstandingForSubspecBody(readFileSync(resolved, "utf8"));
-}
-
 export function isIterationTimeoutResumable(
   inventory: SubspecCompletionInventory,
   worktreePath: string,
@@ -229,7 +222,9 @@ export function isIterationTimeoutResumable(
 ): boolean {
   if (hasCompletedSubspec(inventory)) return true;
   if (expectedArtifactPath === undefined || expectedArtifactPath.length === 0) return false;
-  return isGateOnlyOutstandingForActiveSubspec(worktreePath, expectedArtifactPath);
+  const resolved = isAbsolute(expectedArtifactPath) ? expectedArtifactPath : join(worktreePath, expectedArtifactPath);
+  if (!existsSync(resolved)) return false;
+  return isGateOnlyOutstandingForSubspecBody(readFileSync(resolved, "utf8"));
 }
 
 function terminalFailureDetailFromError(error?: Error, fallbackMessage?: string): InvocationFailureDetail {
@@ -510,35 +505,27 @@ export const DEFAULT_ITERATION_TIMEOUT_MS = 600_000;
 /** Bound on ordinary iteration quiescence; finalization repairs always join without a bound. */
 export const DEFAULT_QUIESCENCE_TIMEOUT_MS = 30_000;
 
-export type IterationActiveGate = { command: string; startedAtMs: number };
+type IterationActiveGate = { command: string; startedAtMs: number };
 
 export const MAX_CONCURRENT_AGENT_GATE_INVOCATIONS = 1;
 
-let agentGateInvocationSlotsInUse = 0;
+let agentGateSlotHeld = false;
 
 function tryAcquireAgentGateInvocationSlot(): boolean {
-  if (agentGateInvocationSlotsInUse >= MAX_CONCURRENT_AGENT_GATE_INVOCATIONS) return false;
-  agentGateInvocationSlotsInUse += 1;
+  if (agentGateSlotHeld) return false;
+  agentGateSlotHeld = true;
   return true;
 }
 
 export function releaseAgentGateInvocationSlot(): void {
-  if (agentGateInvocationSlotsInUse > 0) agentGateInvocationSlotsInUse -= 1;
-}
-
-type GateInvocationRefusal = { command: string };
-
-function releaseActiveGateSlot(gateTracker: ReturnType<typeof createIterationActiveGateTracker>): void {
-  if (gateTracker.getActiveGate() === undefined) return;
-  releaseAgentGateInvocationSlot();
-  gateTracker.onAgentShellCommandComplete();
+  agentGateSlotHeld = false;
 }
 
 function createIterationActiveGateTracker(options: {
   clock: () => number;
   iterationStartedAtMs: number;
   iterationCeilingMs?: number;
-  onRefused: (refusal: GateInvocationRefusal) => void;
+  onRefused: (command: string) => void;
 }): {
   getActiveGate: () => IterationActiveGate | undefined;
   onAgentShellCommand: (command: string) => void;
@@ -549,19 +536,12 @@ function createIterationActiveGateTracker(options: {
     if (options.iterationCeilingMs === undefined) return Number.POSITIVE_INFINITY;
     return options.iterationCeilingMs - (options.clock() - options.iterationStartedAtMs);
   };
-  const refuseGateInvocation = (command: string) => {
-    options.onRefused({ command });
-  };
   return {
     getActiveGate: () => activeGate,
     onAgentShellCommand: (command: string) => {
       if (!isReadyTestCommand(command) || activeGate !== undefined) return;
-      if (iterationCeilingHeadroomMs() < TEST_STEP_BUDGET_MS) {
-        refuseGateInvocation(command);
-        return;
-      }
-      if (!tryAcquireAgentGateInvocationSlot()) {
-        refuseGateInvocation(command);
+      if (iterationCeilingHeadroomMs() < TEST_STEP_BUDGET_MS || !tryAcquireAgentGateInvocationSlot()) {
+        options.onRefused(command);
         return;
       }
       activeGate = { command, startedAtMs: options.clock() };
@@ -2193,9 +2173,7 @@ async function settleBoundedIteration(
   if (!isInterruptedRace(raced)) return raced;
   const quiesced = await boundQuiescenceWait(execution, schedule, quiescenceTimeoutMs);
   const activeGateAtTimeout = gateTracker?.getActiveGate();
-  if (activeGateAtTimeout !== undefined && gateTracker !== undefined) {
-    releaseActiveGateSlot(gateTracker);
-  }
+  if (activeGateAtTimeout !== undefined) gateTracker?.onAgentShellCommandComplete();
   return { kind: raced.kind, quiesced, ...(activeGateAtTimeout !== undefined ? { activeGateAtTimeout } : {}) };
 }
 
@@ -2244,13 +2222,13 @@ async function awaitIteration(
 
   const onInvocationOutputProgress = args.resetIterationWallOnOutput === false ? undefined : bumpWallSegment;
   const iterationStartedAtMs = (args.clock ?? (() => new Date()))().getTime();
-  let gateRefusal: GateInvocationRefusal | undefined;
+  let gateRefusalCommand: string | undefined;
   const gateTracker = createIterationActiveGateTracker({
     clock: () => (args.clock ?? (() => new Date()))().getTime(),
     iterationStartedAtMs,
     ...(args.iterationCeilingMs !== undefined ? { iterationCeilingMs: args.iterationCeilingMs } : {}),
-    onRefused: (refusal) => {
-      gateRefusal = refusal;
+    onRefused: (command) => {
+      gateRefusalCommand = command;
       abortExecution();
     },
   });
@@ -2298,11 +2276,11 @@ async function awaitIteration(
   args.signal?.removeEventListener("abort", abortExecution);
   removeAbort?.();
 
-  if (gateRefusal !== undefined) {
+  if (gateRefusalCommand !== undefined) {
     const quiesced = isInterruptedRace(raced)
       ? await boundQuiescenceWait(execution, schedule, args.quiescenceTimeoutMs ?? DEFAULT_QUIESCENCE_TIMEOUT_MS)
       : raced;
-    return { kind: "gate_invocation_refused", gateCommand: gateRefusal.command, quiesced };
+    return { kind: "gate_invocation_refused", gateCommand: gateRefusalCommand, quiesced };
   }
 
   if (settlementPolicy === "finalization-repair") {

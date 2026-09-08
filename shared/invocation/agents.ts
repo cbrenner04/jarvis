@@ -241,6 +241,10 @@ function parseCursorShellToolFrame(frame: Record<string, unknown>): ShellToolFra
   return null;
 }
 
+function parseShellToolFrame(frame: Record<string, unknown>, agent: "claude" | "cursor"): ShellToolFrameEvent | null {
+  return agent === "cursor" ? parseCursorShellToolFrame(frame) : parseClaudeShellToolFrame(frame);
+}
+
 /** Parse one NDJSON stdout line for a claude/cursor shell-tool start or completion frame. */
 export function parseShellToolFrameLine(line: string, agent: "claude" | "cursor"): ShellToolFrameEvent | null {
   const trimmed = line.trim();
@@ -248,7 +252,7 @@ export function parseShellToolFrameLine(line: string, agent: "claude" | "cursor"
   try {
     const frame = asJsonObject(JSON.parse(trimmed));
     if (frame === null) return null;
-    return agent === "cursor" ? parseCursorShellToolFrame(frame) : parseClaudeShellToolFrame(frame);
+    return parseShellToolFrame(frame, agent);
   } catch {
     return null;
   }
@@ -358,7 +362,7 @@ function processShellToolStdoutLine(
     return;
   }
 
-  const event = classifier === "cursor" ? parseCursorShellToolFrame(frame) : parseClaudeShellToolFrame(frame);
+  const event = parseShellToolFrame(frame, classifier as "claude" | "cursor");
   if (event === null) return;
   if (event.phase === "start") notifyStart(event.command);
   else notifyComplete();

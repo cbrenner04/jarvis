@@ -97,6 +97,86 @@ function fastCeilingSchedule(delayMs = 50): WallSegmentSchedule {
   };
 }
 
+class GateShellFrameChild extends EventEmitter {
+  readonly stdin = new PassThrough();
+  readonly stdout = new PassThrough();
+  readonly stderr = new PassThrough();
+  readonly pid = 424_242;
+
+  start(frames: string[]) {
+    queueMicrotask(() => {
+      for (const frame of frames) {
+        this.stdout.write(`${frame}\n`);
+      }
+      this.stdout.end();
+      this.stderr.end();
+      setImmediate(() => {
+        this.emit("exit", 0);
+        this.emit("close", 0);
+      });
+    });
+  }
+
+  kill() {
+    return true;
+  }
+}
+
+class HoldingGateShellFrameChild extends GateShellFrameChild {
+  constructor(private readonly holdUntil?: Promise<void>) {
+    super();
+  }
+
+  override start(frames: string[]) {
+    queueMicrotask(async () => {
+      for (const frame of frames) {
+        if (this.holdUntil !== undefined) {
+          const parsed = JSON.parse(frame) as { type?: string; subtype?: string };
+          if (parsed.type === "tool_call" && parsed.subtype === "started") {
+            await this.holdUntil;
+          }
+        }
+        this.stdout.write(`${frame}\n`);
+      }
+      this.stdout.end();
+      this.stderr.end();
+      setImmediate(() => {
+        this.emit("exit", 0);
+        this.emit("close", 0);
+      });
+    });
+  }
+}
+
+function gateShellFrames(gateCommand: string) {
+  const startedFrame = JSON.stringify({
+    type: "tool_call",
+    subtype: "started",
+    call_id: "call-gate",
+    tool_call: { shellToolCall: { args: { command: gateCommand } } },
+  });
+  const completedFrame = JSON.stringify({
+    type: "tool_call",
+    subtype: "completed",
+    call_id: "call-gate",
+    tool_call: { shellToolCall: { result: { success: { exitCode: 0 } } } },
+  });
+  const resultFrame = JSON.stringify({ type: "result", result: "progress" });
+  return { startedFrame, completedFrame, resultFrame };
+}
+
+function cursorGateShellBinding(frames: string[], holdUntil?: Promise<void>) {
+  const spawn = (_binary: string, _argv: readonly string[], _opts: SpawnOptions): ChildProcess => {
+    const child = holdUntil !== undefined ? new HoldingGateShellFrameChild(holdUntil) : new GateShellFrameChild();
+    child.start(frames);
+    return child as unknown as ChildProcess;
+  };
+  return createResolvedAgentBinding(
+    { agentId: "cursor", adapterModel: "Composer 2.5", priceKey: "composer" },
+    { spawn },
+  );
+}
+
 const PLAN_DRAFT_INTENT_SEED = "---\nname: test\n---\n\n## Prerequisites\n\nnone\n";
 const PLAN_DRAFT_SPEC_PATH = "v2/spec/2099-01-01T00-00-00Z-plan-draft";
 const MULTI_SURFACE_BULLET =
@@ -859,62 +939,13 @@ describe("buildSubspecCompletionInventory", () => {
 });
 
 describe.serial("agent gate shell observability", () => {
-  class ShellFrameChild extends EventEmitter {
-    readonly stdin = new PassThrough();
-    readonly stdout = new PassThrough();
-    readonly stderr = new PassThrough();
-    readonly pid = 424_242;
-
-    start(frames: string[]) {
-      queueMicrotask(() => {
-        for (const frame of frames) {
-          this.stdout.write(`${frame}\n`);
-        }
-        this.stdout.end();
-        this.stderr.end();
-        setImmediate(() => {
-          this.emit("exit", 0);
-          this.emit("close", 0);
-        });
-      });
-    }
-
-    kill() {
-      return true;
-    }
-  }
-
-  function cursorShellBinding(frames: string[]) {
-    const spawn = (_binary: string, _argv: readonly string[], _opts: SpawnOptions): ChildProcess => {
-      const child = new ShellFrameChild();
-      child.start(frames);
-      return child as unknown as ChildProcess;
-    };
-    return createResolvedAgentBinding(
-      { agentId: "cursor", adapterModel: "Composer 2.5", priceKey: "composer" },
-      { spawn },
-    );
-  }
-
   test("implement iteration records classified active-gate state from streamed shell frames", async () => {
     // @mutate v2/src/execution/write-loop.ts "if (!isReadyTestCommand(command) || activeGate !== undefined) return;" -> "if (activeGate !== undefined) return;"
     const gateCommand = "bun run test:v2";
     expect(isReadyTestCommand(gateCommand)).toBe(true);
     expect(isReadyTestCommand("bun test")).toBe(false);
 
-    const startedFrame = JSON.stringify({
-      type: "tool_call",
-      subtype: "started",
-      call_id: "call-gate",
-      tool_call: { shellToolCall: { args: { command: gateCommand } } },
-    });
-    const completedFrame = JSON.stringify({
-      type: "tool_call",
-      subtype: "completed",
-      call_id: "call-gate",
-      tool_call: { shellToolCall: { result: { success: { exitCode: 0 } } } },
-    });
-    const resultFrame = JSON.stringify({ type: "result", result: "progress" });
+    const { startedFrame, completedFrame, resultFrame } = gateShellFrames(gateCommand);
 
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     roots.push(join(jarvisRoot, ".."));
@@ -932,7 +963,7 @@ describe.serial("agent gate shell observability", () => {
         specPath: "spec.md",
         stepRules: "Return progress.",
         expectedArtifactPath: "proof.txt",
-        bindings: [cursorShellBinding([startedFrame, completedFrame, resultFrame])],
+        bindings: [cursorGateShellBinding([startedFrame, completedFrame, resultFrame])],
         stateStore: store,
         withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
         sessionsDir,
@@ -955,89 +986,6 @@ describe.serial("agent gate shell observability", () => {
 });
 
 describe.serial("gate invocation budget and settlement", () => {
-  class ShellFrameChild extends EventEmitter {
-    readonly stdin = new PassThrough();
-    readonly stdout = new PassThrough();
-    readonly stderr = new PassThrough();
-    readonly pid = 424_243;
-
-    start(frames: string[]) {
-      queueMicrotask(() => {
-        for (const frame of frames) {
-          this.stdout.write(`${frame}\n`);
-        }
-        this.stdout.end();
-        this.stderr.end();
-        setImmediate(() => {
-          this.emit("exit", 0);
-          this.emit("close", 0);
-        });
-      });
-    }
-
-    kill() {
-      return true;
-    }
-  }
-
-  class HoldingShellFrameChild extends ShellFrameChild {
-    private readonly holdUntil: Promise<void> | undefined;
-
-    constructor(holdUntil?: Promise<void>) {
-      super();
-      this.holdUntil = holdUntil;
-    }
-
-    override start(frames: string[]) {
-      queueMicrotask(async () => {
-        for (const frame of frames) {
-          if (this.holdUntil !== undefined) {
-            const parsed = JSON.parse(frame) as { type?: string; subtype?: string };
-            if (parsed.type === "tool_call" && parsed.subtype === "started") {
-              await this.holdUntil;
-            }
-          }
-          this.stdout.write(`${frame}\n`);
-        }
-        this.stdout.end();
-        this.stderr.end();
-        setImmediate(() => {
-          this.emit("exit", 0);
-          this.emit("close", 0);
-        });
-      });
-    }
-  }
-
-  function cursorShellBinding(frames: string[], holdUntil?: Promise<void>) {
-    const spawn = (_binary: string, _argv: readonly string[], _opts: SpawnOptions): ChildProcess => {
-      const child = holdUntil !== undefined ? new HoldingShellFrameChild(holdUntil) : new ShellFrameChild();
-      child.start(frames);
-      return child as unknown as ChildProcess;
-    };
-    return createResolvedAgentBinding(
-      { agentId: "cursor", adapterModel: "Composer 2.5", priceKey: "composer" },
-      { spawn },
-    );
-  }
-
-  function gateShellFrames(gateCommand: string) {
-    const startedFrame = JSON.stringify({
-      type: "tool_call",
-      subtype: "started",
-      call_id: "call-gate",
-      tool_call: { shellToolCall: { args: { command: gateCommand } } },
-    });
-    const completedFrame = JSON.stringify({
-      type: "tool_call",
-      subtype: "completed",
-      call_id: "call-gate",
-      tool_call: { shellToolCall: { result: { success: { exitCode: 0 } } } },
-    });
-    const resultFrame = JSON.stringify({ type: "result", result: "progress" });
-    return { startedFrame, completedFrame, resultFrame };
-  }
-
   afterEach(() => {
     releaseAgentGateInvocationSlot();
   });
@@ -1063,7 +1011,7 @@ describe.serial("gate invocation budget and settlement", () => {
         specPath: "spec.md",
         stepRules: "Return progress.",
         expectedArtifactPath: "proof.txt",
-        bindings: [cursorShellBinding([startedFrame, completedFrame, resultFrame])],
+        bindings: [cursorGateShellBinding([startedFrame, completedFrame, resultFrame])],
         stateStore: store,
         withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
         sessionsDir,
@@ -1116,7 +1064,7 @@ describe.serial("gate invocation budget and settlement", () => {
       iterationCeilingMs: TEST_STEP_BUDGET_MS + 60_000,
       clock: () => new Date("2026-09-08T06:00:00.000Z"),
     };
-    class SyncHoldingShellFrameChild extends HoldingShellFrameChild {
+    class SyncHoldingGateShellFrameChild extends GateShellFrameChild {
       override start(frames: string[]) {
         queueMicrotask(async () => {
           for (const frame of frames) {
@@ -1138,7 +1086,7 @@ describe.serial("gate invocation budget and settlement", () => {
       }
     }
     const holdingSpawn = (_binary: string, _argv: readonly string[], _opts: SpawnOptions): ChildProcess => {
-      const child = new SyncHoldingShellFrameChild(firstGateHeld);
+      const child = new SyncHoldingGateShellFrameChild();
       child.start([startedFrame, completedFrame, resultFrame]);
       return child as unknown as ChildProcess;
     };
@@ -1169,7 +1117,7 @@ describe.serial("gate invocation budget and settlement", () => {
           baseRef: "HEAD",
           jarvisRoot,
         },
-        bindings: [cursorShellBinding([startedFrame, completedFrame, resultFrame])],
+        bindings: [cursorGateShellBinding([startedFrame, completedFrame, resultFrame])],
       });
       releaseFirstGate();
       const firstResult = await first;

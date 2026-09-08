@@ -7,5 +7,5 @@
 - [x] [04 - Re-key daemon-pipeline-recover.test.ts](./04-rekey-daemon-pipeline-recover-test.md)
 - [x] [05 - Re-key daemon-resume.test.ts](./05-rekey-daemon-resume-test.md)
 - [x] [06 - Re-key pipeline-stage-dispatch.test.ts](./06-rekey-pipeline-stage-dispatch-test.md)
-- [ ] [07 - Re-key pipeline-stage-recovery.test.ts](./07-rekey-pipeline-stage-recovery-test.md)
+- [x] [07 - Re-key pipeline-stage-recovery.test.ts](./07-rekey-pipeline-stage-recovery-test.md)
 - [ ] [08 - Re-key write-loop-binding-source-guard.test.ts](./08-rekey-write-loop-binding-source-guard-test.md)

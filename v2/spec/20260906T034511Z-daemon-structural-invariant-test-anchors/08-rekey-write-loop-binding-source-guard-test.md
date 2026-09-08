@@ -17,12 +17,12 @@ Rows `dm-wlbinding-callers-allowlist` and `dm-wlbinding-source-markers` in `v2/d
 
 ## Acceptance criteria
 
-- [ ] `write-loop-binding-source-guard.test.ts` test `only allowlisted modules call resolveWriteLoopBindings` discovers callers from the `v2/src` production tree and compares against the resolver ownership surface, not equality with `ALLOWED_RESOLVE_WRITE_LOOP_BINDINGS_CALLERS`; it fails against the pre-fix hardcoded allowlist on audit row `dm-wlbinding-callers-allowlist` and passes after re-key.
-- [ ] `write-loop-binding-source-guard.test.ts` test `daemon binding resolution re-loads from the machine profile unless the snapshot replay test hook is set` locates `BINDING_SOURCE_MARKERS` via loud-failure symbol slicing on the module that owns binding resolution, not substring pins on `daemon.ts`; it fails against the pre-fix `daemon.ts`-only marker pins on audit row `dm-wlbinding-source-markers` (`vacuous-pass-risk: yes`) and passes after re-key.
-- [ ] Every daemon structural-invariant test tagged `re-key` in `v2/docs/structural-invariant-test-audit.md` anchors on its source of truth or remains `stay-incidental` per the audit with loud-failure locator routing only.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `write-loop-binding-source-guard.test.ts` test `only allowlisted modules call resolveWriteLoopBindings` discovers callers from the `v2/src` production tree and compares against the resolver ownership surface, not equality with `ALLOWED_RESOLVE_WRITE_LOOP_BINDINGS_CALLERS`; it fails against the pre-fix hardcoded allowlist on audit row `dm-wlbinding-callers-allowlist` and passes after re-key.
+- [x] `write-loop-binding-source-guard.test.ts` test `daemon binding resolution re-loads from the machine profile unless the snapshot replay test hook is set` locates `BINDING_SOURCE_MARKERS` via loud-failure symbol slicing on the module that owns binding resolution, not substring pins on `daemon.ts`; it fails against the pre-fix `daemon.ts`-only marker pins on audit row `dm-wlbinding-source-markers` (`vacuous-pass-risk: yes`) and passes after re-key.
+- [x] Every daemon structural-invariant test tagged `re-key` in `v2/docs/structural-invariant-test-audit.md` anchors on its source of truth or remains `stay-incidental` per the audit with loud-failure locator routing only.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

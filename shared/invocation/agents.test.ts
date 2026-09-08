@@ -368,6 +368,62 @@ describe("parseShellToolFrameLine", () => {
     expect(completions).toBe(1);
     // @mutate shared/invocation/agents.ts "processShellToolStdoutLine(line, config.classifier, shellToolParseState, opts);" -> ""
   });
+
+  test("claude binding invokes onAgentShellCommand for streamed partial shell input_json_delta", async () => {
+    const frames = [
+      JSON.stringify({
+        type: "stream_event",
+        event: {
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "tool_use", id: "toolu_stream", name: "Bash", input: {} },
+        },
+      }),
+      JSON.stringify({
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "input_json_delta", partial_json: '{"command":"bun run test' },
+        },
+      }),
+      JSON.stringify({
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "input_json_delta", partial_json: ':shared"}' },
+        },
+      }),
+      JSON.stringify({
+        type: "stream_event",
+        event: { type: "content_block_stop", index: 0 },
+      }),
+      JSON.stringify({ type: "result", result: "progress" }),
+    ].join("\n");
+    const fake = fakeSpawn([{ kind: "settle", code: 0, stdout: `${frames}\n`, stderr: "" }]);
+    const commands: string[] = [];
+    let completions = 0;
+    const binding = createResolvedAgentBinding(
+      { agentId: "claude", adapterModel: "sonnet", priceKey: "sonnet" },
+      { spawn: fake.spawn },
+    );
+
+    await binding.invoke({
+      prompt: "p",
+      cwd: "/repo",
+      onAgentShellCommand: (command) => {
+        commands.push(command);
+      },
+      onAgentShellCommandComplete: () => {
+        completions += 1;
+      },
+    });
+
+    expect(commands).toContain("bun run test:shared");
+    expect(completions).toBe(1);
+    // @mutate shared/invocation/agents.ts "partial.trim() === \"\"" -> "partial.trim() !== \"\""
+  });
 });
 
 describe("isIgnoredWorktreeActivityPath", () => {

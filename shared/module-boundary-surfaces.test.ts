@@ -103,10 +103,39 @@ describe("plan draft normalization", () => {
     expect(() => normalizePlanDraftSpecDir(dir)).toThrow("src/cart.ts, test/cart.test.ts");
   });
 
+  test("rejects two root-level artifact paths", () => {
+    const dir = scratchDir("two-root-artifacts");
+    stageDraft(dir, {
+      "00-packaging.md":
+        "# Packaging\n\n## Acceptance criteria\n\n- [ ] `package.json` and `README.md` describe the release.\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow("package.json, README.md");
+  });
+
   test.each(["## Decisions", "## Documentation updates"])("rejects two artifact paths under %s", (heading) => {
     const dir = scratchDir("two-artifact-supporting-bullet");
     stageDraft(dir, {
       "00-cart.md": `# Cart\n\n${heading}\n\n- \`src/cart.ts\` and \`test/cart.test.ts\` change together.\n\n## Acceptance criteria\n\n- [ ] Cart totals are correct.\n`,
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow(
+      `Plan subspec 00-cart.md has a ${heading} bullet naming multiple artifact paths (src/cart.ts, test/cart.test.ts)`,
+    );
+  });
+
+  test.each([
+    "## Acceptance criteria",
+    "## Decisions",
+    "## Documentation updates",
+  ])("validates every %s occurrence", (heading) => {
+    const dir = scratchDir("duplicate-governed-section");
+    const bullet =
+      heading === "## Acceptance criteria"
+        ? "- [ ] `src/cart.ts` and `test/cart.test.ts` change together."
+        : "- `src/cart.ts` and `test/cart.test.ts` change together.";
+    stageDraft(dir, {
+      "00-cart.md": `# Cart\n\n${heading}\n\n- A single artifact is enough.\n\n${heading}\n\n${bullet}\n`,
     });
 
     expect(() => normalizePlanDraftSpecDir(dir)).toThrow(

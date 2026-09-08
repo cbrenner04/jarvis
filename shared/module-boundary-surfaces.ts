@@ -3,24 +3,25 @@ import { join } from "node:path";
 
 const CHECKBOX_BULLET_PATTERN = /^\s*-\s\[[ xX]\]\s+(.+)$/u;
 const PLAIN_BULLET_PATTERN = /^\s*-\s+(?!\[[ xX]\])\s*(.*)$/u;
-const BACKTICKED_PATH_PATTERN = /`([^`\s]*\/[^`\s]*\.[A-Za-z0-9]+)`/gu;
+const BACKTICKED_PATH_PATTERN = /`([^`\s]*\.[A-Za-z0-9]+)`/gu;
 
 function sectionBulletTexts(body: string, heading: string, bulletPattern: RegExp): string[] {
   const lines = body.replace(/\r\n/g, "\n").split("\n");
-  const headingIndex = lines.indexOf(heading);
-  if (headingIndex === -1) return [];
-  const nextHeading = lines.findIndex((line, index) => index > headingIndex && /^##\s/u.test(line ?? ""));
-  const contentEnd = nextHeading === -1 ? lines.length : nextHeading;
   const bullets: string[] = [];
-  for (let index = headingIndex + 1; index < contentEnd; index += 1) {
-    const match = (lines[index] ?? "").match(bulletPattern);
-    if (!match?.[1]) continue;
-    const parts = [match[1]];
-    while (index + 1 < contentEnd && !bulletPattern.test(lines[index + 1] ?? "")) {
-      parts.push(lines[index + 1] ?? "");
-      index += 1;
+  for (let headingIndex = 0; headingIndex < lines.length; headingIndex += 1) {
+    if (lines[headingIndex] !== heading) continue;
+    const nextHeading = lines.findIndex((line, index) => index > headingIndex && /^##\s/u.test(line ?? ""));
+    const contentEnd = nextHeading === -1 ? lines.length : nextHeading;
+    for (let index = headingIndex + 1; index < contentEnd; index += 1) {
+      const match = (lines[index] ?? "").match(bulletPattern);
+      if (!match?.[1]) continue;
+      const parts = [match[1]];
+      while (index + 1 < contentEnd && !bulletPattern.test(lines[index + 1] ?? "")) {
+        parts.push(lines[index + 1] ?? "");
+        index += 1;
+      }
+      bullets.push(parts.map((part) => part.trim()).join("\n"));
     }
-    bullets.push(parts.map((part) => part.trim()).join("\n"));
   }
   return bullets;
 }

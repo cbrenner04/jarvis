@@ -18,9 +18,9 @@ Terminal `ready_gate_command_missing` evidence records the normalized gate comma
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop.test.ts` test `settles ready_gate_command_missing without autofix or repair when the gate command is absent` proves terminal `loop_finished` evidence identifies the normalized command and whether its source is configured or default; the test fails against the pre-fix evidence shape reachable on main.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `v2/src/execution/write-loop.test.ts` test `settles ready_gate_command_missing without autofix or repair when the gate command is absent` proves terminal `loop_finished` evidence identifies the normalized command and whether its source is configured or default; the test fails against the pre-fix evidence shape reachable on main.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

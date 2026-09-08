@@ -16,9 +16,9 @@ Durable docs still state or imply write-step-only gate-command propagation at fi
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/write-behavior.md` documents project-keyed command resolution for gate-owning steps, continuation semantics, and configured-versus-default terminal evidence for `ready_gate_command_missing`.
-- [ ] `v2/docs/v1-behaviors.md` records gate-owning-step propagation and snapshot-backed continuation invocation for per-project gate-command overrides.
-- [ ] `bun run typecheck` passes.
+- [x] `v2/docs/write-behavior.md` documents project-keyed command resolution for gate-owning steps, continuation semantics, and configured-versus-default terminal evidence for `ready_gate_command_missing`.
+- [x] `v2/docs/v1-behaviors.md` records gate-owning-step propagation and snapshot-backed continuation invocation for per-project gate-command overrides.
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

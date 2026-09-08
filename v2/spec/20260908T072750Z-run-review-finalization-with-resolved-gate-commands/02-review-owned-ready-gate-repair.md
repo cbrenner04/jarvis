@@ -16,9 +16,9 @@ Ready-gate repair autofix reads `fixCommand` from the `WriteLoopInput` passed in
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/workflow-runner-publication.test.ts` proves a review-row `fixCommand` reaches the configured ready-gate repair autofix path; the test fails against the pre-fix write-sibling-only gate-command propagation reachable on main.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `v2/src/execution/workflow-runner-publication.test.ts` proves a review-row `fixCommand` reaches the configured ready-gate repair autofix path; the test fails against the pre-fix write-sibling-only gate-command propagation reachable on main.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

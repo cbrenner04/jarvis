@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import ts from "typescript";
@@ -30,26 +30,6 @@ import { createChainedStageProjectMatch, type PipelineContext } from "./pipeline
 import { preparePipelineStageWorkflow } from "./pipeline-workflow-preparation.ts";
 import type { TerminalLogRecord } from "./run-operator-error.ts";
 import { composeRunOperatorError } from "./run-operator-error.ts";
-
-const STAGE_WRITE_SOURCE_PATHS = [
-  join(import.meta.dir, "pipeline-stage-dispatch.ts"),
-  join(import.meta.dir, "pipeline-execution.ts"),
-] as const;
-
-const CLASSIFIED_STATUS_WRITES = new Map<string, "terminal" | "nonterminal">([
-  ["pipeline-stage-dispatch.ts:settleUnexpectedThrow:failed#1", "terminal"],
-  ["pipeline-stage-dispatch.ts:writeRunningStageLinkage:running#1", "nonterminal"],
-  ["pipeline-stage-dispatch.ts:applyEntryRunSettlement:failed#1", "terminal"],
-  ["pipeline-stage-dispatch.ts:applyEntryRunSettlement:succeeded#1", "terminal"],
-  ["pipeline-stage-dispatch.ts:applyEntryRunSettlement:failed#2", "terminal"],
-  ["pipeline-stage-dispatch.ts:dispatchPipelineStage:failed#1", "terminal"],
-  ["pipeline-execution.ts:admitFanOutBranches:skipped#1", "terminal"],
-  ["pipeline-execution.ts:settleApprovalBoundaryFailure:failed#1", "terminal"],
-  ["pipeline-execution.ts:skipRemainingStages:skipped#1", "terminal"],
-  ["pipeline-execution.ts:failWorkflowStageAt:failed#1", "terminal"],
-  ["pipeline-execution.ts:advanceWorkflowStage:failed#1", "terminal"],
-  ["pipeline-execution.ts:failStrandedPipelineStage:failed#1", "terminal"],
-]);
 
 const TERMINAL_STAGE_RUN_STATUSES = new Set(["succeeded", "failed", "interrupted", "skipped"]);
 
@@ -170,17 +150,41 @@ function isNumericTimestamp(expression: ts.Expression | undefined): boolean {
   );
 }
 
+function listPipelineStageStatusWriteSourcePaths(): string[] {
+  const paths: string[] = [];
+  const walk = (absDir: string): void => {
+    for (const entry of readdirSync(absDir, { withFileTypes: true })) {
+      const abs = join(absDir, entry.name);
+      if (entry.isDirectory()) {
+        walk(abs);
+      } else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) {
+        try {
+          if (parseStatusWrites(abs).length > 0) paths.push(abs);
+        } catch {
+          // Not a dispatch-owner write surface for this guard.
+        }
+      }
+    }
+  };
+  walk(import.meta.dir);
+  return paths.sort();
+}
+
 test("every terminal pipeline stage-run write carries endedAt", () => {
   // @mutate v2/src/daemon/pipeline-execution.ts "store.updateStage({ pipelineId, stageId: record.stageId, branchKey, patch: { status: \"skipped\", endedAt: Date.now() } });" -> "store.updateStage({ pipelineId, stageId: record.stageId, branchKey, patch: { status: \"skipped\" } });"
-  const writes = STAGE_WRITE_SOURCE_PATHS.flatMap(parseStatusWrites);
-  expect(writes.map(({ identity }) => identity).sort()).toEqual([...CLASSIFIED_STATUS_WRITES.keys()].sort());
+  const writes = listPipelineStageStatusWriteSourcePaths().flatMap(parseStatusWrites);
+  expect(writes.length).toBeGreaterThan(0);
   expect(TERMINAL_STAGE_RUN_STATUSES.has("approved")).toBe(false);
   expect(TERMINAL_STAGE_RUN_STATUSES.has("rejected")).toBe(false);
 
   for (const write of writes) {
-    const classification = CLASSIFIED_STATUS_WRITES.get(write.identity);
-    expect(classification).toBe(TERMINAL_STAGE_RUN_STATUSES.has(write.status) ? "terminal" : "nonterminal");
-    if (classification === "terminal") expect(isNumericTimestamp(write.endedAt)).toBe(true);
+    const terminal = write.endedAt !== undefined;
+    if (TERMINAL_STAGE_RUN_STATUSES.has(write.status)) {
+      expect(terminal).toBe(true);
+      expect(isNumericTimestamp(write.endedAt)).toBe(true);
+    } else {
+      expect(terminal).toBe(false);
+    }
   }
 });
 

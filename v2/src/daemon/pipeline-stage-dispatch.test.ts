@@ -16,6 +16,7 @@ import { spinUntilMicrotask } from "../testing/bounded-microtask-spin.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
 import { createMinimalDispatchWriteStep } from "../testing/workflow-step-fixtures.ts";
+import { listProductionDaemonSources } from "./daemon-terminal-settlement-guard.ts";
 import {
   adoptAndSettlePipelineStage,
   adoptPipelineStageUnderAdmission,
@@ -28,7 +29,6 @@ import {
 } from "./pipeline-stage-dispatch.ts";
 import { createChainedStageProjectMatch, type PipelineContext } from "./pipeline-stage-resolve.ts";
 import { preparePipelineStageWorkflow } from "./pipeline-workflow-preparation.ts";
-import { listProductionDaemonSources } from "./daemon-terminal-settlement-guard.ts";
 import type { TerminalLogRecord } from "./run-operator-error.ts";
 import { composeRunOperatorError } from "./run-operator-error.ts";
 

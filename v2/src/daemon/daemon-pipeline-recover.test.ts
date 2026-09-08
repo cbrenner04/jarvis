@@ -6,13 +6,13 @@ import { join } from "node:path";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
-import type { AnyWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
 import { lintStagedMarkdown } from "../execution/staged-markdown-lint.ts";
-import { recoverPlanStage } from "../execution/workflow-runner-resume.ts";
 import {
   skipReviewWithoutHarnessMarkdownlint,
   writeLintCleanPlanStage,
 } from "../execution/workflow-runner.test-support.ts";
+import type { AnyWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
+import { recoverPlanStage } from "../execution/workflow-runner-resume.ts";
 import { ensureWorkflowRunnerResumeDepsWired } from "../testing/workflow-runner-resume-wiring.ts";
 
 ensureWorkflowRunnerResumeDepsWired();

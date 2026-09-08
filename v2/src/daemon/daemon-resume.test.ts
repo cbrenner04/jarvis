@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { formatReadyGateOutOfScopeDetail, ReadyGateError } from "../execution/ready-finalize.ts";
+import { lintStagedMarkdown } from "../execution/staged-markdown-lint.ts";
+import { writeLintCleanIntentStageFile } from "../execution/workflow-runner.test-support.ts";
 import {
   resolveExhaustedRedResumeContext,
   resolveIntentFinalizationResumeContext,
@@ -16,8 +18,6 @@ import {
   type WriteLoopInput,
   type WriteLoopOutcomeKind,
 } from "../execution/write-loop.ts";
-import { lintStagedMarkdown } from "../execution/staged-markdown-lint.ts";
-import { writeLintCleanIntentStageFile } from "../execution/workflow-runner.test-support.ts";
 import type { IpcFrame } from "../ipc/types.ts";
 import type { LogEvent, LogReader, LoopFinishedEvent } from "../persistence/log-stream.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";

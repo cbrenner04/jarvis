@@ -8,6 +8,11 @@ import { locateSymbolSlice } from "../../../shared/structural-test-locator.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { lintStagedMarkdown } from "../execution/staged-markdown-lint.ts";
+import {
+  REVIEW_MD_LINT_FIXTURE_IDS,
+  readReviewMdLintFixture,
+  skipReviewWithoutHarnessMarkdownlint,
+} from "../execution/workflow-runner.test-support.ts";
 import type {
   AnyWorkflowStep,
   ReviewDebateWorkflowStep,
@@ -15,11 +20,6 @@ import type {
   WriteWorkflowStep,
 } from "../execution/workflow-runner.ts";
 import { recoverPlanStage } from "../execution/workflow-runner-resume.ts";
-import {
-  readReviewMdLintFixture,
-  REVIEW_MD_LINT_FIXTURE_IDS,
-  skipReviewWithoutHarnessMarkdownlint,
-} from "../execution/workflow-runner.test-support.ts";
 import { ensureWorkflowRunnerResumeDepsWired } from "../testing/workflow-runner-resume-wiring.ts";
 
 ensureWorkflowRunnerResumeDepsWired();

@@ -330,6 +330,31 @@ describe("executeWorkflow fresh dispatch", () => {
 });
 
 describe("executeWorkflow completion publication", () => {
+  function gateCommandReviewStep(branch: string, overrides: Partial<ReviewWorkflowStep> = {}): ReviewWorkflowStep {
+    const cwd = overrides.cwd ?? "/fake";
+    return {
+      behavior: "review",
+      stepId: "review",
+      project: "demo",
+      branch,
+      cwd,
+      prompt: "review",
+      verdictPath: join(mkdtempSync(join(tmpdir(), `workflow-${branch}-`)), "verdict.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: {
+        claude: { critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] } },
+        codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
+      },
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: async () => ({ kind: "ok" as const, stdout: agentId === "claude" ? "apply" : "done", stderr: "" }),
+      }),
+      ...overrides,
+    };
+  }
+
   test("classifies completion publication, ready-gate, and ready-flip failures in results and loop_finished", async () => {
     const cases: Array<{
       kind: "completion_commit_failed" | "ready_gate_failed" | "ready_flip_failed";
@@ -1052,26 +1077,7 @@ describe("executeWorkflow completion publication", () => {
       branchName: "reviewed-intent-title",
       creationTitle: "intent: reviewed-seed",
     });
-    const reviewStep: ReviewWorkflowStep = {
-      behavior: "review",
-      stepId: "review",
-      project: "demo",
-      branch: "reviewed-intent-title",
-      cwd: "/fake",
-      prompt: "review",
-      verdictPath: join(mkdtempSync(join(tmpdir(), "workflow-review-title-")), "verdict.md"),
-      maxCycles: 1,
-      agents: { critic: ["claude"], actuator: ["codex"] },
-      agentModelConfig: {
-        claude: { critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] } },
-        codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
-      },
-      createBinding: ({ agentId, adapterModel }) => ({
-        id: `${agentId}/${adapterModel}`,
-        metadata: { agent: agentId, model: adapterModel },
-        invoke: async () => ({ kind: "ok" as const, stdout: agentId === "claude" ? "apply" : "done", stderr: "" }),
-      }),
-    };
+    const reviewStep = gateCommandReviewStep("reviewed-intent-title");
     const titles: unknown[] = [];
 
     await withStateStore(async (store) => {
@@ -1663,28 +1669,7 @@ describe("executeWorkflow completion publication", () => {
       role: "implement",
       branchName: "review-fix-command",
     });
-    const reviewStep: ReviewWorkflowStep = {
-      behavior: "review",
-      stepId: "review",
-      project: "demo",
-      branch: "review-fix-command",
-      cwd: "/fake",
-      prompt: "review",
-      verdictPath: join(mkdtempSync(join(tmpdir(), "workflow-review-fix-command-")), "verdict.md"),
-      maxCycles: 1,
-      agents: { critic: ["claude"], actuator: ["codex"] },
-      agentModelConfig: {
-        claude: { critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] } },
-        codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
-      },
-      fixCommand: "npm run lint-fix",
-      createBinding: ({ agentId, adapterModel }) => ({
-        id: `${agentId}/${adapterModel}`,
-        metadata: { agent: agentId, model: adapterModel },
-        invoke: async () => ({ kind: "ok" as const, stdout: agentId === "claude" ? "apply" : "done", stderr: "" }),
-      }),
-    };
-
+    const reviewStep = gateCommandReviewStep("review-fix-command", { fixCommand: "npm run lint-fix" });
     const logSink = new TestLogSink();
     let observedFixCommand: string | undefined;
     let gateCalls = 0;

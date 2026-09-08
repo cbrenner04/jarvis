@@ -99,8 +99,6 @@ export class ReadyFlipError extends Error {
 
 export type ReadyGateFailureKind = "ready_gate_failed" | "ready_gate_out_of_scope" | "ready_gate_command_missing";
 
-export type ReadyGateCommandSource = "configured" | "default";
-
 const READY_GATE_COMMAND_MISSING_EVIDENCE_MAX = 512;
 
 const ANCHORED_MISSING_COMMAND_LINE = /^(?:error:\s*)?script not found|^command not found:/i;
@@ -139,7 +137,7 @@ export type ReadyGateClassification = {
   gateRepairAllowsetPaths?: readonly string[];
   baseRefProbeError?: string;
   commandMissingEvidence?: string;
-  readyCommandSource?: ReadyGateCommandSource;
+  readyCommandSource?: "configured" | "default";
 };
 
 export type ReadyGateScopeInput = {
@@ -172,7 +170,7 @@ export class ReadyGateError extends Error {
   readonly baseRefProbeError?: string;
   readonly scopeBaseRef?: string;
   readonly commandMissingEvidence?: string;
-  readonly readyCommandSource?: ReadyGateCommandSource;
+  readonly readyCommandSource?: "configured" | "default";
 
   constructor(
     readonly command: string,

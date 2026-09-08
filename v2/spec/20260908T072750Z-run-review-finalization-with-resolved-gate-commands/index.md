@@ -4,6 +4,6 @@
 - [ ] [01 - Gate-only continuation](./01-gate-only-continuation.md)
 - [x] [02 - Review-owned ready-gate repair](./02-review-owned-ready-gate-repair.md)
 - [x] [03 - Missing-command source evidence](./03-missing-command-source-evidence.md)
-- [ ] [04 - Documentation](./04-documentation.md)
+- [x] [04 - Documentation](./04-documentation.md)
 
 Land **00 → 01 → 02 → 03 → 04**: fresh dispatch threads gate commands from the gate-owning step, continuation and repair build on the same resolved inputs, evidence records the command source, and the documentation records the finished behaviour.

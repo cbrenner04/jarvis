@@ -84,6 +84,11 @@ function listVerifierPgids(dbPath: string, runId: string): number[] {
   return rows.map((row) => row.pgid);
 }
 
+function recordTwoVerifierPgids(store: StateStore, runId: string): void {
+  store.recordVerifierProcessGroup(runId, 4242);
+  store.recordVerifierProcessGroup(runId, 5353);
+}
+
 function loadPipelineOrThrow(
   store: StateStore,
   pipelineId: string,
@@ -147,8 +152,7 @@ describe("StateStore", () => {
 
   test("recordVerifierProcessGroup retains multiple ids per run", () => {
     const runId = seedRun(store);
-    store.recordVerifierProcessGroup(runId, 4242);
-    store.recordVerifierProcessGroup(runId, 5353);
+    recordTwoVerifierPgids(store, runId);
     expect(listVerifierPgids(TEST_DB_PATH, runId)).toEqual([4242, 5353]);
 
     store.close();
@@ -166,16 +170,14 @@ describe("StateStore", () => {
 
   test("clearVerifierProcessGroup removes one recorded id without disturbing siblings", () => {
     const runId = seedRun(store);
-    store.recordVerifierProcessGroup(runId, 4242);
-    store.recordVerifierProcessGroup(runId, 5353);
+    recordTwoVerifierPgids(store, runId);
     store.clearVerifierProcessGroup(runId, 4242);
     expect(listVerifierPgids(TEST_DB_PATH, runId)).toEqual([5353]);
   });
 
   test("clearVerifierProcessGroups removes every recorded id for a run", async () => {
     const runId = seedRun(store, { status: "killed" });
-    store.recordVerifierProcessGroup(runId, 4242);
-    store.recordVerifierProcessGroup(runId, 5353);
+    recordTwoVerifierPgids(store, runId);
     store.clearVerifierProcessGroups(runId);
     expect(listVerifierPgids(TEST_DB_PATH, runId)).toEqual([]);
 
@@ -3378,14 +3380,13 @@ describe("ready gate sweep candidates", () => {
 
   test("listReadyGateSweepCandidates returns every recorded verifier group for non-live owners", async () => {
     const deadOwnerRunId = seedRun(seedStore, { branch: "multi-dead-owner", status: "killed" });
-    seedStore.recordVerifierProcessGroup(deadOwnerRunId, 101);
-    seedStore.recordVerifierProcessGroup(deadOwnerRunId, 102);
+    recordTwoVerifierPgids(seedStore, deadOwnerRunId);
 
     const sweepStore = openSweepStore(async () => false);
     const candidates = await sweepStore.listReadyGateSweepCandidates();
     expect(candidates.filter((candidate) => candidate.runId === deadOwnerRunId)).toEqual([
-      { runId: deadOwnerRunId, readyGatePgid: 101 },
-      { runId: deadOwnerRunId, readyGatePgid: 102 },
+      { runId: deadOwnerRunId, readyGatePgid: 4242 },
+      { runId: deadOwnerRunId, readyGatePgid: 5353 },
     ]);
     sweepStore.close();
   });

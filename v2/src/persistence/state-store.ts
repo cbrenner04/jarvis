@@ -1233,23 +1233,12 @@ function hasLegacyEraMigrations(db: Database): boolean {
   return row !== undefined && row !== null;
 }
 
-function ensureVerifierProcessGroupsTable(db: Database): void {
-  if (!tableExists(db, "run_verifier_process_groups")) {
-    db.exec(`
-      CREATE TABLE run_verifier_process_groups (
-        run_id TEXT NOT NULL,
-        pgid INTEGER NOT NULL,
-        PRIMARY KEY (run_id, pgid),
-        FOREIGN KEY (run_id) REFERENCES runs(id)
-      );
-    `);
-  }
-  if (tableHasColumn(db, "runs", "ready_gate_pgid")) {
-    db.exec(`
-      INSERT OR IGNORE INTO run_verifier_process_groups (run_id, pgid)
-      SELECT id, ready_gate_pgid FROM runs WHERE ready_gate_pgid IS NOT NULL;
-    `);
-  }
+function backfillVerifierProcessGroupsFromReadyGatePgid(db: Database): void {
+  if (!tableHasColumn(db, "runs", "ready_gate_pgid")) return;
+  db.exec(`
+    INSERT OR IGNORE INTO run_verifier_process_groups (run_id, pgid)
+    SELECT id, ready_gate_pgid FROM runs WHERE ready_gate_pgid IS NOT NULL;
+  `);
 }
 
 function applySchemaMigrations(db: Database): void {
@@ -1626,7 +1615,7 @@ class StateStoreImpl implements StateStore {
     this.db.exec("PRAGMA journal_mode=WAL");
     this.db.exec("PRAGMA foreign_keys=ON");
     applySchemaMigrations(this.db);
-    ensureVerifierProcessGroupsTable(this.db);
+    backfillVerifierProcessGroupsFromReadyGatePgid(this.db);
     addColumnIfMissing(this.db, "operator_notification_deliveries", "incident_json", "TEXT");
     this.currentIdentity = overrides?.currentIdentity ?? CURRENT_OWNER_IDENTITY;
     this.isOwnerAliveProbe = overrides?.isOwnerAlive ?? isOwnerAlive;
@@ -1693,20 +1682,18 @@ class StateStoreImpl implements StateStore {
   }
 
   setReadyGatePgid(runId: string, pgid: number | null): void {
-    const currentRow = this.db.prepare("SELECT ready_gate_pgid AS readyGatePgid FROM runs WHERE id = ?").get(runId) as {
-      readyGatePgid: number | null;
-    } | null;
-    const currentPgid = currentRow?.readyGatePgid ?? null;
+    const currentPgid =
+      (
+        this.db.prepare("SELECT ready_gate_pgid AS readyGatePgid FROM runs WHERE id = ?").get(runId) as {
+          readyGatePgid: number | null;
+        } | null
+      )?.readyGatePgid ?? null;
 
-    if (pgid === null) {
-      if (currentPgid !== null) {
-        this.clearVerifierProcessGroup(runId, currentPgid);
-      }
-      return;
-    }
-
-    if (currentPgid !== null && currentPgid !== pgid) {
+    if (currentPgid !== null && (pgid === null || currentPgid !== pgid)) {
       this.clearVerifierProcessGroup(runId, currentPgid);
+    }
+    if (pgid === null) {
+      return;
     }
     this.recordVerifierProcessGroup(runId, pgid);
     this.db.prepare("UPDATE runs SET ready_gate_pgid = ? WHERE id = ?").run(pgid, runId);
@@ -1728,11 +1715,9 @@ class StateStoreImpl implements StateStore {
 
   async listReadyGateSweepCandidates(): Promise<ReadonlyArray<{ runId: string; readyGatePgid: number }>> {
     const candidates = this.db
-      .prepare(`
-        SELECT r.id AS id, r.owner_identity AS ownerIdentity, v.pgid AS readyGatePgid
-        FROM run_verifier_process_groups v
-        INNER JOIN runs r ON r.id = v.run_id
-      `)
+      .prepare(
+        "SELECT r.id AS id, r.owner_identity AS ownerIdentity, v.pgid AS readyGatePgid FROM run_verifier_process_groups v INNER JOIN runs r ON r.id = v.run_id",
+      )
       .all() as Array<{ id: string; ownerIdentity: string | null; readyGatePgid: number }>;
 
     const aliveByIdentity = new Map<string, boolean>();

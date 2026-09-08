@@ -43,6 +43,36 @@ afterEach(() => {
 });
 
 describe("plan draft normalization", () => {
+  test("accepts a bullet naming one path alongside dotted identifiers and numeric literals", () => {
+    // @mutate shared/module-boundary-surfaces.ts "([^`\\s]*\\/[^`\\s]*\\.[A-Za-z0-9]+)" -> "([^`\\s]*\\.[A-Za-z0-9]+)"
+    const dir = scratchDir("dotted-identifiers");
+    stageDraft(dir, {
+      "00-fields.md":
+        "# Fields\n\n## Problem\n\nFraming.\n\n## Acceptance criteria\n\n- [ ] `v2/src/state/store.ts` exposes `run.finishedAtMs` at `0.0038492` per token via `test.skipIf`.\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
+  });
+
+  test("still rejects a bullet naming two root-level artifact files", () => {
+    const dir = scratchDir("root-level-pair");
+    stageDraft(dir, {
+      "00-roots.md":
+        "# Roots\n\n## Problem\n\nFraming.\n\n## Acceptance criteria\n\n- [ ] `package.json` and `README.md` both change.\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow(/package\.json, README\.md/u);
+  });
+
+  test("rejects a subspec with no acceptance-criteria heading", () => {
+    const dir = scratchDir("missing-criteria");
+    stageDraft(dir, {
+      "00-no-criteria.md": "# No criteria\n\n## Problem\n\nFraming.\n\n## Tasks\n\n- Do the thing.\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow(/missing ## Acceptance criteria/u);
+  });
+
   test("keeps authored files, titles, and problems when criteria name jarvis surfaces", () => {
     const dir = scratchDir("jarvis-vocabulary");
     const subspecs = {
@@ -135,7 +165,10 @@ describe("plan draft normalization", () => {
         ? "- [ ] `src/cart.ts` and `test/cart.test.ts` change together."
         : "- `src/cart.ts` and `test/cart.test.ts` change together.";
     stageDraft(dir, {
-      "00-cart.md": `# Cart\n\n${heading}\n\n- A single artifact is enough.\n\n${heading}\n\n${bullet}\n`,
+      "00-cart.md":
+        heading === "## Acceptance criteria"
+          ? `# Cart\n\n${heading}\n\n- [ ] A single artifact is enough.\n\n${heading}\n\n${bullet}\n`
+          : `# Cart\n\n## Acceptance criteria\n\n- [ ] Something is proven.\n\n${heading}\n\n- A single artifact is enough.\n\n${heading}\n\n${bullet}\n`,
     });
 
     expect(() => normalizePlanDraftSpecDir(dir)).toThrow(

@@ -3,7 +3,11 @@ import { join } from "node:path";
 
 const CHECKBOX_BULLET_PATTERN = /^\s*-\s\[[ xX]\]\s+(.+)$/u;
 const PLAIN_BULLET_PATTERN = /^\s*-\s+(?!\[[ xX]\])\s*(.*)$/u;
-const BACKTICKED_PATH_PATTERN = /`([^`\s]*\.[A-Za-z0-9]+)`/gu;
+/** A repo-relative path (contains a slash) or a root-level file with a known source extension.
+ * Requiring one or the other keeps ordinary dotted identifiers (`run.finishedAtMs`) and numeric
+ * literals (`0.0038492`) from being counted as artifacts. */
+const BACKTICKED_PATH_PATTERN =
+  /`(?:([^`\s]*\/[^`\s]*\.[A-Za-z0-9]+)|([^`\s/]+\.(?:md|tsx?|jsx?|json|sh|ya?ml|toml|txt|swift)))`/gu;
 
 function sectionBulletTexts(body: string, heading: string, bulletPattern: RegExp): string[] {
   const lines = body.replace(/\r\n/g, "\n").split("\n");
@@ -29,7 +33,7 @@ function sectionBulletTexts(body: string, heading: string, bulletPattern: RegExp
 export function referencedArtifactPaths(text: string): string[] {
   const paths = new Set<string>();
   for (const match of text.matchAll(BACKTICKED_PATH_PATTERN)) {
-    const path = match[1];
+    const path = match[1] ?? match[2];
     if (path !== undefined) paths.add(path);
   }
   return [...paths];
@@ -71,6 +75,9 @@ export function normalizePlanDraftSpecDir(specDir: string): void {
   assertIndexLinks(indexBody, sourceFiles);
   for (const file of sourceFiles) {
     const body = readFileSync(join(specDir, file), "utf8");
+    if (!body.replace(/\r\n/g, "\n").split("\n").includes("## Acceptance criteria")) {
+      throw new Error(`Plan subspec ${file} is missing ## Acceptance criteria`);
+    }
     for (const [heading, bulletPattern] of [
       ["## Acceptance criteria", CHECKBOX_BULLET_PATTERN],
       ["## Decisions", PLAIN_BULLET_PATTERN],

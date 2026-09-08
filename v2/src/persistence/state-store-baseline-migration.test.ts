@@ -166,6 +166,12 @@ function createPreSquashFixtureDb(dbPath: string): FixtureSeed {
       incident_json TEXT,
       PRIMARY KEY (incident_id, transition)
     );
+    CREATE TABLE run_verifier_process_groups (
+      run_id TEXT NOT NULL,
+      pgid INTEGER NOT NULL,
+      PRIMARY KEY (run_id, pgid),
+      FOREIGN KEY (run_id) REFERENCES runs(id)
+    );
   `);
   stampPreSquashMigrations(raw);
   raw

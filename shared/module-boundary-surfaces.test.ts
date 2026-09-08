@@ -84,6 +84,49 @@ describe("plan draft normalization", () => {
     expect(treeBytes(dir)).toEqual(before);
   });
 
+  test("rejects an acceptance criterion naming two artifact paths with actionable context", () => {
+    const dir = scratchDir("two-artifact-criterion");
+    stageDraft(dir, {
+      "00-runtime.md":
+        "# Runtime\n\n## Acceptance criteria\n\n- [ ] `shared/state.ts` persists daemon state covered by `shared/state.test.ts`.\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow(
+      "Plan subspec 00-runtime.md has a ## Acceptance criteria bullet naming multiple artifact paths (shared/state.ts, shared/state.test.ts): `shared/state.ts` persists daemon state covered by `shared/state.test.ts`.",
+    );
+  });
+
+  test("accepts one artifact regardless of product vocabulary and accepts prose without an artifact", () => {
+    const dir = scratchDir("artifact-count");
+    stageDraft(dir, {
+      "00-preferences.md":
+        "# Preferences\n\n## Decisions\n\n- Keep rollout reversible.\n\n## Acceptance criteria\n\n- [ ] `src/preferences.ts` proves the persisted flag behavior.\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
+  });
+
+  test("rejects two artifact paths without module-boundary vocabulary", () => {
+    const dir = scratchDir("two-artifact-unsplit");
+    stageDraft(dir, {
+      "00-cart.md":
+        "# Cart\n\n## Acceptance criteria\n\n- [ ] `src/cart.ts` returns the total covered by `test/cart.test.ts`.\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow("src/cart.ts, test/cart.test.ts");
+  });
+
+  test.each(["## Decisions", "## Documentation updates"])("rejects two artifact paths under %s", (heading) => {
+    const dir = scratchDir("two-artifact-supporting-bullet");
+    stageDraft(dir, {
+      "00-cart.md": `# Cart\n\n${heading}\n\n- \`src/cart.ts\` and \`test/cart.test.ts\` change together.\n\n## Acceptance criteria\n\n- [ ] Cart totals are correct.\n`,
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow(
+      `Plan subspec 00-cart.md has a ${heading} bullet naming multiple artifact paths (src/cart.ts, test/cart.test.ts)`,
+    );
+  });
+
   test("leaves a subspec with zero acceptance criteria authored and unnumbered", () => {
     const dir = scratchDir("empty-criteria");
     stageDraft(dir, {

@@ -1,6 +1,6 @@
 # Retire the module-boundary surface split
 
-- [ ] [00 - Keep the authored draft intact](./00-keep-the-authored-draft-intact.md)
+- [x] [00 - Keep the authored draft intact](./00-keep-the-authored-draft-intact.md)
 - [ ] [01 - Enforce one artifact per bullet without a taxonomy](./01-one-artifact-per-bullet.md)
 - [ ] [02 - Documentation](./02-documentation.md)
 

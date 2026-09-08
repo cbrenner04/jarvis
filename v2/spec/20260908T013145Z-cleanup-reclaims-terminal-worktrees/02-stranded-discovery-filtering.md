@@ -18,9 +18,9 @@ Stranded discovery treats dot-directories, harness staging directories, and path
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/cleanup.test.ts` test `stranded discovery ignores non-spec and vanished paths` produces no skip lines for dot-directories and harness staging directories under `v2/spec/` or external `plans/`, or for a candidate deleted after discovery and before inspection; it fails against the pre-fix inspection output.
-- [ ] `v2/docs/operator-runbook.md` documents stranded discovery filtering for dot-directories, harness staging directories, and vanished paths.
-- [ ] `v2/docs/v1-behaviors.md` records the stranded discovery filtering delta.
+- [x] `v2/src/commands/cleanup.test.ts` test `stranded discovery ignores non-spec and vanished paths` produces no skip lines for dot-directories and harness staging directories under `v2/spec/` or external `plans/`, or for a candidate deleted after discovery and before inspection; it fails against the pre-fix inspection output.
+- [x] `v2/docs/operator-runbook.md` documents stranded discovery filtering for dot-directories, harness staging directories, and vanished paths.
+- [x] `v2/docs/v1-behaviors.md` records the stranded discovery filtering delta.
 
 ## Documentation updates
 

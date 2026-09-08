@@ -1187,6 +1187,7 @@ async function retireEligibleWorktrees(
         );
       },
       retiredBranches,
+      retirementPreflight: { store, registry },
     },
   );
 }
@@ -1663,7 +1664,87 @@ type WorktreeRefPruneOptions = {
   refPruneSnapshotForCandidate?: (candidate: CleanupCandidate) => MergedBranchRefSnapshot | undefined;
   revalidateRefPrune?: (candidate: CleanupCandidate, snapshot: MergedBranchRefSnapshot) => Promise<EligibilityResult>;
   retiredBranches?: Set<string>;
+  retirementPreflight?: {
+    store: StateStore;
+    registry: Record<string, ProjectRegistryEntry>;
+  };
 };
+
+class MergedWorktreeRetirementRefusal extends Error {
+  readonly dirtyPaths: readonly string[];
+
+  constructor(dirtyPaths: readonly string[]) {
+    super("worktree has uncommitted changes");
+    this.name = "MergedWorktreeRetirementRefusal";
+    this.dirtyPaths = dirtyPaths;
+  }
+}
+
+function mergedWorktreeRetirementRefusalLine(worktreePath: string, dirtyPaths: readonly string[]): string {
+  const pathDetail = dirtyPaths.length > 0 ? dirtyPaths.join(", ") : "unparseable git status output";
+  return `Skipped merged worktree retirement: ${worktreePath} — worktree has uncommitted changes (${pathDetail})\n`;
+}
+
+function resolveMergedWorktreeSpecIndexPath(
+  candidate: CleanupCandidate,
+  projectRoot: string,
+  store: StateStore,
+  registry: Record<string, ProjectRegistryEntry>,
+): string | undefined {
+  for (const run of store.listRuns()) {
+    if (run.project !== candidate.project || run.branch !== candidate.worktree.branch) continue;
+    const source = sourceForRun(run, candidate.worktree.path, projectRoot, registry);
+    if (source === undefined) continue;
+    const indexAbs = basename(source) === "index.md" ? source : join(source, "index.md");
+    const relPath = relative(projectRoot, indexAbs);
+    if (relPath === "" || relPath.startsWith("..") || isAbsolute(relPath)) continue;
+    if (isStaleResetLandedCriteriaSpecPath(projectRoot, relPath)) return relPath;
+  }
+  return undefined;
+}
+
+type MergedWorktreeRemovalPlan = { action: "remove" } | { action: "force-remove" };
+
+async function planMergedWorktreeRemoval(
+  candidate: CleanupCandidate,
+  projectRoot: string,
+  runner: AsyncSubprocessRunner,
+  store: StateStore,
+  registry: Record<string, ProjectRegistryEntry>,
+): Promise<MergedWorktreeRemovalPlan> {
+  const dirtyList = await listDirtyWorktreePathsForStaleReset(candidate.worktree.path, runner);
+  if (dirtyList.status === "clean" || dirtyList.status === "not-git-repository") {
+    return { action: "remove" };
+  }
+  if (dirtyList.status === "error") {
+    throw new MergedWorktreeRetirementRefusal([]);
+  }
+
+  const dirtyPaths = dirtyList.paths;
+  const nonStagingDirty = dirtyPaths.filter((path) => !isHarnessWorkflowStagingPath(path));
+  if (nonStagingDirty.length === 0) return { action: "force-remove" };
+
+  const specPath = resolveMergedWorktreeSpecIndexPath(candidate, projectRoot, store, registry);
+  if (specPath === undefined) throw new MergedWorktreeRetirementRefusal(dirtyPaths);
+
+  const baseBranch = await getBaseBranch(projectRoot, runner);
+  const baseRef = await resolveStaleResetRef(projectRoot, baseBranch, runner);
+  const specTree = { projectRoot, worktreePath: candidate.worktree.path, baseRef, specPath, runner };
+  const specRelPaths = new Set(
+    specTreeRelPaths(projectRoot, specPath, (absPath) => {
+      const worktreeAbsPath = join(candidate.worktree.path, relative(projectRoot, absPath));
+      if (!existsSync(worktreeAbsPath)) throw new Error(`worktree spec unreadable: ${relative(projectRoot, absPath)}`);
+      return readFileSync(worktreeAbsPath, "utf8");
+    }),
+  );
+  const driftedSubspecPaths = new Set(await landedCriteriaAbsentFromBase(specTree));
+  for (const path of nonStagingDirty) {
+    if (!specRelPaths.has(path) || driftedSubspecPaths.has(path)) {
+      throw new MergedWorktreeRetirementRefusal(dirtyPaths);
+    }
+  }
+  return { action: "force-remove" };
+}
 
 /**
  * Shared retirement sequence: `git worktree remove` (throws on failure) →
@@ -1677,7 +1758,16 @@ async function removeWorktreeAndPruneRefs(
   refPruneOptions?: WorktreeRefPruneOptions,
 ): Promise<void> {
   const { worktree, project } = candidate;
-  await runner.runAsync("git", ["worktree", "remove", worktree.path], projectRoot);
+  const preflight = refPruneOptions?.retirementPreflight;
+  let forceRemove = false;
+  if (preflight !== undefined) {
+    const plan = await planMergedWorktreeRemoval(candidate, projectRoot, runner, preflight.store, preflight.registry);
+    forceRemove = plan.action === "force-remove";
+  }
+  const removeArgs = forceRemove
+    ? ["worktree", "remove", "--force", worktree.path]
+    : ["worktree", "remove", worktree.path];
+  await runner.runAsync("git", removeArgs, projectRoot);
   io.stdout(`Removed worktree: ${worktree.path}\n`);
 
   try {
@@ -1737,7 +1827,11 @@ export async function performWorktreeRemovals(
       await afterRetirement?.(candidate);
     } catch (err) {
       failed = true;
-      io.stderr(`Failed to retire ${worktree.path}: ${err instanceof Error ? err.message : String(err)}\n`);
+      if (err instanceof MergedWorktreeRetirementRefusal) {
+        io.stdout(mergedWorktreeRetirementRefusalLine(worktree.path, err.dirtyPaths));
+      } else {
+        io.stderr(`Failed to retire ${worktree.path}: ${err instanceof Error ? err.message : String(err)}\n`);
+      }
     }
   }
 

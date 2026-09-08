@@ -151,7 +151,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
   function ghRunnerForPr(state: "MERGED" | "OPEN"): AsyncSubprocessRunner {
     return {
       runAsync: async (cmd, args, cwd) => {
-        if (cmd === "gh" && args[1] === "view")
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "view")
           return JSON.stringify(
             state === "MERGED"
               ? { state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" }
@@ -1712,6 +1712,71 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     // Verify worktree still exists because removal failed
     const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
     expect(listOutput).toContain(worktreePath);
+  });
+
+  test("merged plan worktree with landed criteria-only dirt retires safely", async () => {
+    const specName = "20260908-criteria-retire-spec";
+    const specDir = join(projectRoot, "v2", "spec", specName);
+    const subspecRel = `v2/spec/${specName}/00-task.md`;
+    const indexRel = `v2/spec/${specName}/index.md`;
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00](./00-task.md)\n");
+    writeFileSync(join(specDir, "00-task.md"), "# Task\n\n## Acceptance criteria\n\n- [ ] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "add spec"], projectRoot);
+
+    const criteriaBranch = "plan/criteria-only-dirt";
+    const criteriaWorktree = await createWorktree(criteriaBranch);
+    writeFileSync(join(criteriaWorktree, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] done\n");
+
+    const unrelatedBranch = "plan/unrelated-dirt";
+    const unrelatedWorktree = await createWorktree(unrelatedBranch);
+    const unrelatedRel = "unrelated-retire-me.txt";
+    writeFileSync(join(unrelatedWorktree, unrelatedRel), "keep\n");
+
+    writeFileSync(join(projectRoot, subspecRel), "# Task\n\n## Acceptance criteria\n\n- [x] done\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", subspecRel], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "land criteria on main"], projectRoot);
+
+    const store: StateStore = {
+      listRuns: () => [
+        {
+          project: "project",
+          branch: criteriaBranch,
+          worktreePath: criteriaWorktree,
+          specPath: join(criteriaWorktree, indexRel),
+          status: "completed",
+        },
+        {
+          project: "project",
+          branch: unrelatedBranch,
+          worktreePath: unrelatedWorktree,
+          specPath: join(unrelatedWorktree, indexRel),
+          status: "completed",
+        },
+      ],
+    } as unknown as StateStore;
+
+    const registry: Record<string, ProjectRegistryEntry> = { project: { root: projectRoot } };
+    let stdout = "";
+    const code = await runCleanupCommand(
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      ghRunnerForPr("MERGED"),
+      async () => [],
+      store,
+      { stdout: (s) => (stdout += s), stderr: () => {} },
+    );
+
+    expect(code).toBe(1);
+    expect(stdout).toContain("Retired:");
+    expect(stdout).toContain(criteriaWorktree);
+    expect(stdout).toContain(`Skipped merged worktree retirement: ${unrelatedWorktree}`);
+    expect(stdout).toContain(unrelatedRel);
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(criteriaWorktree);
+    expect(listOutput).toContain(unrelatedWorktree);
   });
 });
 

@@ -20,9 +20,9 @@ Merged plan worktrees with redundant chained-implement acceptance-criteria ticks
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/cleanup.test.ts` test `merged plan worktree with landed criteria-only dirt retires safely` proves redundant chained-implement ticks under in-repo `v2/spec/` permit retirement, while a sibling fixture with unrelated dirt is preserved and reports its paths on stdout; it fails against the pre-fix raw `git worktree remove` error.
-- [ ] `v2/docs/operator-runbook.md` documents criteria-only drift force-retirement and unrelated-dirt refusal paths for merged-worktree cleanup.
-- [ ] `v2/docs/v1-behaviors.md` records the merged-worktree criteria-dirt retirement delta.
+- [x] `v2/src/commands/cleanup.test.ts` test `merged plan worktree with landed criteria-only dirt retires safely` proves redundant chained-implement ticks under in-repo `v2/spec/` permit retirement, while a sibling fixture with unrelated dirt is preserved and reports its paths on stdout; it fails against the pre-fix raw `git worktree remove` error.
+- [x] `v2/docs/operator-runbook.md` documents criteria-only drift force-retirement and unrelated-dirt refusal paths for merged-worktree cleanup.
+- [x] `v2/docs/v1-behaviors.md` records the merged-worktree criteria-dirt retirement delta.
 
 ## Documentation updates
 

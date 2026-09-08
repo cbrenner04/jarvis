@@ -782,6 +782,8 @@ A worktree is eligible iff:
 
 Default bulk retirement does **not** read `~/.jarvis/worktree-locks/.../.jarvis.lock`. A live lock does not block merged-worktree cleanup; `jarvis cleanup --abandon` still refuses when the lock is held.
 
+Before `git worktree remove`, apply-time retirement classifies porcelain through the same stale-reset helpers as incomplete re-run reset: `listDirtyWorktreePathsForStaleReset` for dirty paths, `landedCriteriaAbsentFromBase` on an in-root `v2/spec/` tree admitted by `isStaleResetLandedCriteriaSpecPath`, with `baseRef` resolved from the repository merge target via `resolveStaleResetRef`. Clean worktrees remove without `--force`. When every dirty path is harness workflow staging or redundant in-root criteria-tick drift whose ticks are already present on `baseRef`, retirement uses `git worktree remove --force`. Any other dirty path preserves the worktree and stdout names every dirty path as `Skipped merged worktree retirement: <worktree-path> — worktree has uncommitted changes (<paths>)`; unrelated operator edits are never discarded under the criteria-only exception.
+
 Successful merged-worktree retirement removes the worktree, then prunes the same local head and local `origin` tracking ref through the shared ref-prune path below.
 
 ### Merged-branch ref pruning (worktree-independent)

@@ -25,6 +25,14 @@ The mutant **is** killed — one of the failures is `review row gate-command rec
 
 This is not a slow-machine artifact: nothing else was running, and the unmutated baseline is over budget on its own.
 
+## Second reproduction: a slow *sibling* is enough (2026-09-08, run `25af3e6e`)
+
+The lane implementing `run-review-finalization-with-resolved-gate-commands` settled the same way on `workflow-runner.ts:1669` — a conditional object spread, not a loop.
+
+`workflow-runner.ts` has **ten** sibling `workflow-runner-*.test.ts` files. Its own nearest co-located test, `workflow-runner-core.test.ts`, runs in **7.28s** — comfortably inside budget — but the resolved killing set includes `workflow-runner-resume.test.ts` at **32.06s**, so the set as a whole cannot finish inside 30s.
+
+So the exposure is wider than "a file whose own test is slow": **any production file that resolves a slow sibling into its killing set is unverifiable**, however fast its own test is. On this corpus that is every file under `v2/src/execution/` sharing the `workflow-runner-` stem.
+
 ## Why it will spread
 
 The budget is a fixed constant while the corpus grows. `workflow-runner-resume.test.ts` is at 32s today; every co-located suite approaching 30s becomes silently unverifiable, and the failure presents as a confident, wrong diagnosis ("non-terminating mutant") rather than "I could not evaluate this".
@@ -41,7 +49,7 @@ The budget is a fixed constant while the corpus grows. `workflow-runner-resume.t
 
 - [ ] A test proves a killing test whose *unmutated* run already exceeds the per-candidate budget settles an inconclusive outcome naming the measured baseline, not `non_terminating_mutation_failed`; it fails against the current unconditional timeout classification.
 - [ ] A test proves a genuinely non-terminating mutant (unmutated baseline well within budget, mutated run exceeding it) still settles `non_terminating_mutation_failed`.
-- [ ] A test proves the per-candidate bound scales with the resolved killing test's observed runtime, and is clamped by a floor and a ceiling.
+- [ ] A test proves the per-candidate bound scales with the observed runtime of the **whole resolved killing set**, not one file, and is clamped by a floor and a ceiling; it fails for a candidate whose own test is fast but whose sibling set is slow.
 - [ ] A test proves an inconclusive candidate is recorded on the run and does not by itself settle the run non-publishable.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 

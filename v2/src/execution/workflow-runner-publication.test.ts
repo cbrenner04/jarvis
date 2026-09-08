@@ -1656,6 +1656,65 @@ describe("executeWorkflow completion publication", () => {
     });
   });
 
+  test("review-owned ready-gate repair autofix invokes stamped fixCommand from review step on first dispatch", async () => {
+    // @mutate v2/src/execution/workflow-runner.ts "gateCommands.fixCommand !== undefined ? { fixCommand: gateCommands.fixCommand } : {}"
+    const writeStep = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName: "review-fix-command",
+    });
+    const reviewStep: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "review",
+      project: "demo",
+      branch: "review-fix-command",
+      cwd: "/fake",
+      prompt: "review",
+      verdictPath: join(mkdtempSync(join(tmpdir(), "workflow-review-fix-command-")), "verdict.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: {
+        claude: { critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] } },
+        codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
+      },
+      fixCommand: "npm run lint-fix",
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: async () => ({ kind: "ok" as const, stdout: agentId === "claude" ? "apply" : "done", stderr: "" }),
+      }),
+    };
+
+    const logSink = new TestLogSink();
+    let observedFixCommand: string | undefined;
+    let gateCalls = 0;
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [writeStep, reviewStep],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        runFixCommand: async (opts) => {
+          observedFixCommand = opts.fixCommand;
+        },
+        readyFinalizer: async () => {
+          gateCalls += 1;
+          if (gateCalls <= 2) throw new ReadyGateError("bun run ready", 1, "tests failed");
+        },
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(observedFixCommand).toBe("npm run lint-fix");
+      expect(gateCalls).toBe(3);
+      expect(logSink.getEventsForRun(result.runId)).toContainEqual({
+        kind: "ready_gate_repair",
+        attempt: 1,
+        gateExitCode: 1,
+      });
+    });
+  });
+
   test("plan workflow publishes draft PR with index.md H1 as title", async () => {
     const step = createStep({
       stepId: "plan",

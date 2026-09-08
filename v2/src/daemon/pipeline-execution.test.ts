@@ -5301,7 +5301,7 @@ describe("pipeline branch fan-out execution", () => {
     expect(dispatchLog.filter((entry) => entry.stageId === "plan")).toEqual([]);
     const betaFailure = stageRecord(stages(), "plan", "beta")?.failureDetail as { message: string } | null;
     expect(betaFailure?.message).toContain('plan lane "beta"');
-    expect(betaFailure?.message).toContain("ready-intents/beta.md");
+    expect(betaFailure?.message).toContain("for downstream input ready-intents/beta.md");
     expect(betaFailure?.message).toContain("has no paired fan-out result");
     expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("pending");
     expect(stageRecord(stages(), "plan", "beta")?.status).toBe("failed");
@@ -5314,12 +5314,21 @@ describe("pipeline branch fan-out execution", () => {
     const unmatched = fanOutPlanResultForBranch(downstreamInputs, results, "gamma");
     expect(unmatched.ok).toBe(false);
     if (unmatched.ok) throw new Error("expected binding refusal");
+    expect(unmatched.error).toContain("for downstream input (none)");
     expect(unmatched.error).toContain("available downstream inputs: ready-intents/alpha.md, ready-intents/beta.md");
 
     const empty = fanOutPlanResultForBranch([], [], "alpha");
     expect(empty.ok).toBe(false);
     if (empty.ok) throw new Error("expected binding refusal");
+    expect(empty.error).toContain("for downstream input (none)");
     expect(empty.error).toContain("available downstream inputs: (none)");
+
+    const shortResults = downstreamInputs.slice(0, 1).map(() => ({ steps: [] }));
+    const missingResult = fanOutPlanResultForBranch(downstreamInputs, shortResults, "beta");
+    expect(missingResult.ok).toBe(false);
+    if (missingResult.ok) throw new Error("expected binding refusal");
+    expect(missingResult.error).toContain("for downstream input ready-intents/beta.md");
+    expect(missingResult.error).toContain("has no paired fan-out result");
   });
 
   test("fan-out plan dispatch refuses a branch-key mismatch without sibling dispatch", async () => {
@@ -5338,6 +5347,7 @@ describe("pipeline branch fan-out execution", () => {
     expect(gammaBinding.ok).toBe(false);
     if (gammaBinding.ok) throw new Error("expected branch-key mismatch refusal");
     expect(gammaBinding.error).toContain('plan lane "gamma"');
+    expect(gammaBinding.error).toContain("for downstream input (none)");
     expect(gammaBinding.error).toContain("has no matching downstream input");
 
     const branchKeys = [...FAN_OUT_BRANCH_KEYS, "gamma"];

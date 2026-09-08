@@ -1076,6 +1076,60 @@ export function branchKeyFromDownstreamInput(path: string): string {
   return base.endsWith(".md") ? base.slice(0, -3) : base;
 }
 
+export type FanOutPlanResultEntry = {
+  steps: AnyWorkflowStep[];
+  runStaleResetPreflight?: StaleResetPreflight;
+  preflightCapture?: { message: string };
+};
+
+export type FanOutPlanResultBinding = { ok: true; result: FanOutPlanResultEntry } | { ok: false; error: string };
+
+function availableFanOutDownstreamInputs(paths: readonly string[]): string {
+  return paths.length === 0 ? "(none)" : paths.join(", ");
+}
+
+function fanOutPlanBindingError(
+  lane: string,
+  downstreamInput: string | undefined,
+  detail: string,
+  downstreamInputs: readonly string[],
+): string {
+  const inputLabel = downstreamInput === undefined ? "downstream input (none)" : `downstream input ${downstreamInput}`;
+  return `pipeline-stage-resolve: plan lane "${lane}" ${detail} for ${inputLabel}; available downstream inputs: ${availableFanOutDownstreamInputs(downstreamInputs)}`;
+}
+
+/** Pair fan-out `{ results }` entries with intent downstream inputs by derived branch key. */
+export function fanOutPlanResultForBranch(
+  downstreamInputs: readonly string[],
+  results: readonly FanOutPlanResultEntry[],
+  branchKey: string,
+): FanOutPlanResultBinding {
+  const matchingPath = downstreamInputs.find((path) => branchKeyFromDownstreamInput(path) === branchKey);
+  if (matchingPath === undefined) {
+    return {
+      ok: false,
+      error: fanOutPlanBindingError(branchKey, undefined, "has no matching downstream input", downstreamInputs),
+    };
+  }
+
+  const resultByBranchKey = new Map<string, FanOutPlanResultEntry>();
+  for (let index = 0; index < downstreamInputs.length; index += 1) {
+    const path = downstreamInputs[index];
+    if (path === undefined || index >= results.length) continue;
+    resultByBranchKey.set(branchKeyFromDownstreamInput(path), results[index]!);
+  }
+
+  const result = resultByBranchKey.get(branchKey);
+  if (result === undefined) {
+    return {
+      ok: false,
+      error: fanOutPlanBindingError(branchKey, matchingPath, "has no paired fan-out result", downstreamInputs),
+    };
+  }
+
+  return { ok: true, result };
+}
+
 type FanOutSplit = {
   splitPosition: number;
   branchKeys: string[];
@@ -1941,6 +1995,7 @@ async function performFanOutStageResolution(
   const pipeline = store.loadPipeline(pipelineId);
   const currentBranchFailed = await advanceFanOutBranches(args, {
     branchKeys: admission.branchKeys,
+    downstreamInputs,
     pipeline,
     loadedStages: pipeline?.stages ?? [],
     splitPosition,
@@ -2041,35 +2096,66 @@ async function advanceFanOutBranches(
   args: AdvanceWorkflowStageArgs,
   opts: {
     branchKeys: readonly string[];
+    downstreamInputs: readonly string[];
     pipeline: (Pipeline & { stages: PipelineStageRecord[] }) | null;
     loadedStages: readonly PipelineStageRecord[];
     splitPosition: number;
-    results: Array<{
-      steps: AnyWorkflowStep[];
-      runStaleResetPreflight?: StaleResetPreflight;
-      preflightCapture?: { message: string };
-    }>;
+    results: readonly FanOutPlanResultEntry[];
   },
 ): Promise<boolean> {
-  const { stage, branchKey } = args;
-  const branchDispatchTasks = opts.branchKeys.map((targetBranchKey, branchIndex) => async (): Promise<boolean> => {
+  const { stage, branchKey, store, pipelineId, index } = args;
+  type BoundLane = {
+    targetBranchKey: string;
+    targetRecord: PipelineStageRecord | undefined;
+    branchResult: FanOutPlanResultEntry;
+  };
+  const bindingFailures: Array<{ targetBranchKey: string; error: string }> = [];
+  const boundLanes: BoundLane[] = [];
+
+  for (const targetBranchKey of opts.branchKeys) {
     const targetRecord = findStageRecord(opts.loadedStages, stage.stageId, targetBranchKey);
-    if (targetRecord?.status === "succeeded") return false;
-    const branchResult = opts.results[branchIndex];
-    const acted = await runFanOutBranchAction(args, {
-      targetBranchKey,
-      targetRecord,
-      pipeline: opts.pipeline,
-      splitPosition: opts.splitPosition,
-      steps: branchResult?.steps,
-      ...(branchResult?.runStaleResetPreflight !== undefined
-        ? { runStaleResetPreflight: branchResult.runStaleResetPreflight }
-        : {}),
-      ...(branchResult?.preflightCapture !== undefined ? { preflightCapture: branchResult.preflightCapture } : {}),
-    });
-    if (acted === "skip") return false;
-    return settleFanOutBranch(args, targetBranchKey) && targetBranchKey === branchKey;
-  });
+    if (targetRecord?.status === "succeeded") continue;
+    const binding = fanOutPlanResultForBranch(opts.downstreamInputs, opts.results, targetBranchKey);
+    if (!binding.ok) {
+      bindingFailures.push({ targetBranchKey, error: binding.error });
+      continue;
+    }
+    boundLanes.push({ targetBranchKey, targetRecord, branchResult: binding.result });
+  }
+
+  if (bindingFailures.length > 0) {
+    for (const failure of bindingFailures) {
+      failWorkflowStageAt(
+        store,
+        pipelineId,
+        stage.stageId,
+        failure.targetBranchKey,
+        opts.loadedStages,
+        index + 1,
+        failure.error,
+      );
+    }
+    return bindingFailures.some((failure) => failure.targetBranchKey === branchKey);
+  }
+
+  const branchDispatchTasks = boundLanes.map(
+    ({ targetBranchKey, targetRecord, branchResult }) =>
+      async (): Promise<boolean> => {
+        const acted = await runFanOutBranchAction(args, {
+          targetBranchKey,
+          targetRecord,
+          pipeline: opts.pipeline,
+          splitPosition: opts.splitPosition,
+          steps: branchResult.steps,
+          ...(branchResult.runStaleResetPreflight !== undefined
+            ? { runStaleResetPreflight: branchResult.runStaleResetPreflight }
+            : {}),
+          ...(branchResult.preflightCapture !== undefined ? { preflightCapture: branchResult.preflightCapture } : {}),
+        });
+        if (acted === "skip") return false;
+        return settleFanOutBranch(args, targetBranchKey) && targetBranchKey === branchKey;
+      },
+  );
   const branchOutcomes = await runConcurrently(branchDispatchTasks);
   return branchOutcomes.some(Boolean);
 }

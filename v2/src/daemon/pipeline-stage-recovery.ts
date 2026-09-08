@@ -15,10 +15,16 @@ import type {
   PipelineStageRecord,
   StateStore,
 } from "../persistence/state-store.ts";
-import { loadPipelineContext } from "../persistence/state-store.ts";
+import { DEFAULT_PIPELINE_STAGE_BRANCH_KEY, loadPipelineContext } from "../persistence/state-store.ts";
 import type { PipelineExecutionDeps } from "./pipeline-execution.ts";
-import { buildBranchStageArtifacts, continuePipeline, findFanOutSplit, findStageRecord } from "./pipeline-execution.ts";
-import { stageArtifactFromEntryRun } from "./pipeline-stage-dispatch.ts";
+import {
+  buildBranchStageArtifacts,
+  continuePipeline,
+  fanOutPlanResultForBranch,
+  findFanOutSplit,
+  findStageRecord,
+} from "./pipeline-execution.ts";
+import { stageArtifactFromEntryRun, type PipelineStageArtifact } from "./pipeline-stage-dispatch.ts";
 import {
   isFanOutStageResolution,
   resolveStageWorkflowSteps,
@@ -62,6 +68,20 @@ type PlanTreeReviewStep = (ReviewWorkflowStep | ReviewDebateWorkflowStep) & {
 
 function isPlanTreeReviewStep(step: AnyWorkflowStep): step is PlanTreeReviewStep {
   return (step.behavior === "review" || step.behavior === "review-debate") && step.landing?.kind === "plan-tree";
+}
+
+function intentDownstreamInputsForRecovery(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  splitPosition: number,
+): readonly string[] | undefined {
+  const intentStage = pipeline.definition.stages[splitPosition];
+  if (intentStage === undefined) return undefined;
+  const intentRecord = findStageRecord(pipeline.stages, intentStage.stageId, DEFAULT_PIPELINE_STAGE_BRANCH_KEY);
+  const artifact = intentRecord?.artifact;
+  if (artifact !== null && typeof artifact === "object" && "downstreamInputs" in artifact) {
+    return (artifact as PipelineStageArtifact).downstreamInputs;
+  }
+  return undefined;
 }
 
 /** True when the pipeline carries any durable row (any status) under `branchKey`. */
@@ -167,15 +187,27 @@ export async function resolveBlockedPlanStageRecoveryTarget(
     };
   }
 
-  const branchIndex = split?.branchKeys.indexOf(branchKey) ?? -1;
-  const resolvedSteps =
-    branchKey === "default"
-      ? isFanOutStageResolution(resolution)
-        ? undefined
-        : singleStageResolutionSteps(resolution)
-      : isFanOutStageResolution(resolution)
-        ? resolution.results[branchIndex]?.steps
-        : undefined;
+  const downstreamInputs =
+    split !== null ? intentDownstreamInputsForRecovery(pipeline, split.splitPosition) : undefined;
+  let resolvedSteps: AnyWorkflowStep[] | undefined;
+  if (branchKey === "default") {
+    resolvedSteps = isFanOutStageResolution(resolution) ? undefined : singleStageResolutionSteps(resolution);
+  } else if (isFanOutStageResolution(resolution)) {
+    const binding =
+      downstreamInputs === undefined
+        ? { ok: false as const, error: `pipeline-stage-recovery: branch "${branchKey}" has no paired stage resolution` }
+        : fanOutPlanResultForBranch(downstreamInputs, resolution.results, branchKey);
+    resolvedSteps = binding.ok ? binding.result.steps : undefined;
+    if (!binding.ok && resolvedSteps === undefined) {
+      return {
+        ok: false,
+        reason: "stage_resolution_failed",
+        message: binding.error,
+      };
+    }
+  } else {
+    resolvedSteps = singleStageResolutionSteps(resolution);
+  }
   if (resolvedSteps === undefined) {
     return {
       ok: false,

@@ -60,6 +60,7 @@ import {
   continuePipeline,
   derivePipelineFailureDetail,
   derivePipelineState,
+  fanOutPlanResultForBranch,
   findFailedStageForReopen,
   hasPipelineTerminalPublicationFailure,
   isPipelineContinuable,
@@ -5176,6 +5177,159 @@ describe("pipeline branch fan-out execution", () => {
     expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("succeeded");
     expect(stageRecord(stages(), "implement", "alpha")?.status).toBe("succeeded");
     expect(stageRecord(stages(), "implement", "beta")?.status).toBe("succeeded");
+  });
+
+  test("fan-out plan dispatch binds results by derived branch key when branchKeys order diverges from downstreamInputs", async () => {
+    // @mutate v2/src/daemon/pipeline-execution.ts "branchResult: binding.result" -> "branchResult: opts.results[opts.branchKeys.indexOf(targetBranchKey)]!"
+    const downstreamInputs = [...FAN_OUT_DOWNSTREAM];
+    const results = downstreamInputs.map((path) => ({
+      steps: [
+        createMinimalDispatchWriteStep({
+          stageIndex: 2,
+          branchKey: branchKeyFromDownstreamInput(path),
+          stepId: `plan-${branchKeyFromDownstreamInput(path)}`,
+        }),
+      ],
+    }));
+    for (const branchKey of ["beta", "alpha"] as const) {
+      const binding = fanOutPlanResultForBranch(downstreamInputs, results, branchKey);
+      expect(binding.ok).toBe(true);
+      if (!binding.ok) throw new Error("expected branch-key binding");
+      expect(binding.result.steps[0]?.stepId).toBe(`plan-${branchKey}`);
+    }
+
+    const dispatchedSteps: Array<{ stageId: string; branchKey: string; stepId: string }> = [];
+    const { store, stages } = fakeStore(FAN_OUT_PIPELINE_DEFINITION, {
+      "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
+      "run-beta-2-1": { specPath: "spec/beta/plan.md" },
+      "run-beta-3-2": { specPath: "spec/beta/implement.md" },
+      "run-alpha-2-3": { specPath: "spec/alpha/plan.md" },
+      "run-alpha-3-4": { specPath: "spec/alpha/implement.md" },
+    });
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const instrumentedStore = instrumentDispatchLog(store, dispatchLog);
+    let branchRunCounter = 0;
+    const dispatch: PipelineWorkflowDispatch = async (steps) => {
+      const step = steps[0] as MinimalDispatchWriteStep;
+      const branchKey = step.branchKey ?? "default";
+      const stageId = FAN_OUT_PIPELINE_DEFINITION.stages[step.stageIndex ?? 0]?.stageId ?? "unknown";
+      dispatchedSteps.push({ stageId, branchKey, stepId: step.stepId ?? "unknown" });
+      if (step.stageIndex === 0) {
+        return { ok: true, entryRunId: "run-intent", invocationId: "inv-intent" };
+      }
+      branchRunCounter += 1;
+      return {
+        ok: true,
+        entryRunId: `run-${branchKey}-${step.stageIndex}-${branchRunCounter}`,
+        invocationId: `inv-${branchRunCounter}`,
+      };
+    };
+    const resolveStage = async (
+      definition: PipelineDefinition,
+      stageIndex: number,
+      context: PipelineContext,
+      stageArtifacts: ReadonlyMap<string, PipelineStageArtifact>,
+      resolveDeps?: PipelineStageResolveDeps,
+    ): Promise<PipelineStageResolutionResult> => {
+      const stage = definition.stages[stageIndex];
+      if (stage?.kind === "workflow" && stage.workflow === "plan") {
+        return { ok: true as const, results };
+      }
+      return fanOutResolveStageStub()(definition, stageIndex, context, stageArtifacts, resolveDeps);
+    };
+    const deps = {
+      store: instrumentedStore,
+      dispatch,
+      wait: async () => "completed" as const,
+      resolveStage,
+    };
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+    for (const branchKey of ["beta", "alpha"] as const) {
+      const approve = applyPipelineApprovalDecision(PIPELINE_ID, "gate", "approved", deps, branchKey);
+      expect(approve.kind).toBe("applied");
+      await flushBackgroundRuns();
+    }
+
+    expect(
+      dispatchedSteps
+        .filter((entry) => entry.stageId === "plan")
+        .sort((left, right) => left.branchKey.localeCompare(right.branchKey)),
+    ).toEqual([
+      { stageId: "plan", branchKey: "alpha", stepId: "plan-alpha" },
+      { stageId: "plan", branchKey: "beta", stepId: "plan-beta" },
+    ]);
+    expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("succeeded");
+    expect(stageRecord(stages(), "plan", "beta")?.status).toBe("succeeded");
+  });
+
+  test("fan-out plan dispatch refuses when results are shorter than downstreamInputs", async () => {
+    const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, {
+      "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
+    });
+    const dispatchLog: Array<{ stageId: string; branchKey: string }> = [];
+    const shortResults = [
+      {
+        steps: [
+          createMinimalDispatchWriteStep({
+            stageIndex: 1,
+            branchKey: "alpha",
+            stepId: "plan-alpha",
+          }),
+        ],
+      },
+    ];
+    const deps = {
+      ...fanOutPipelineDeps(store, dispatchLog),
+      resolveStage: async (
+        definition: PipelineDefinition,
+        stageIndex: number,
+        context: PipelineContext,
+        stageArtifacts: ReadonlyMap<string, PipelineStageArtifact>,
+        resolveDeps?: PipelineStageResolveDeps,
+      ): Promise<PipelineStageResolutionResult> => {
+        const stage = definition.stages[stageIndex];
+        if (stage?.kind === "workflow" && stage.workflow === "plan") {
+          return { ok: true as const, results: shortResults };
+        }
+        return fanOutResolveStageStub()(definition, stageIndex, context, stageArtifacts, resolveDeps);
+      },
+    };
+
+    await runPipeline(PIPELINE_ID, { ...deps, context: baseContext });
+
+    expect(dispatchLog.filter((entry) => entry.stageId === "plan")).toEqual([]);
+    const betaFailure = stageRecord(stages(), "plan", "beta")?.failureDetail as { message: string } | null;
+    expect(betaFailure?.message).toContain('plan lane "beta"');
+    expect(betaFailure?.message).toContain("ready-intents/beta.md");
+    expect(betaFailure?.message).toContain("has no paired fan-out result");
+    expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("pending");
+    expect(stageRecord(stages(), "plan", "beta")?.status).toBe("failed");
+  });
+
+  test("fan-out plan dispatch refuses a branch-key mismatch without sibling dispatch", async () => {
+    // @mutate v2/src/daemon/pipeline-execution.ts "branchKeys: admission.branchKeys" -> "branchKeys: [...admission.branchKeys, 'gamma']"
+    const downstreamInputs = [...FAN_OUT_DOWNSTREAM];
+    const results = downstreamInputs.map((path) => ({
+      steps: [
+        createMinimalDispatchWriteStep({
+          stageIndex: 1,
+          branchKey: branchKeyFromDownstreamInput(path),
+          stepId: `plan-${branchKeyFromDownstreamInput(path)}`,
+        }),
+      ],
+    }));
+    const gammaBinding = fanOutPlanResultForBranch(downstreamInputs, results, "gamma");
+    expect(gammaBinding.ok).toBe(false);
+    if (gammaBinding.ok) throw new Error("expected branch-key mismatch refusal");
+    expect(gammaBinding.error).toContain('plan lane "gamma"');
+    expect(gammaBinding.error).toContain("has no matching downstream input");
+
+    const branchKeys = [...FAN_OUT_BRANCH_KEYS, "gamma"];
+    const bindingFailures = branchKeys.filter(
+      (branchKey) => !fanOutPlanResultForBranch(downstreamInputs, results, branchKey).ok,
+    );
+    expect(bindingFailures).toEqual(["gamma"]);
   });
 
   test("pipeline approve and reject stay isolated per branchKey", async () => {

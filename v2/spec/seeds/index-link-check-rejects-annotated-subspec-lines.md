@@ -49,4 +49,4 @@ Structural sibling of [[plan-contract-classifies-the-rules-out-clause]]: a plan-
 
 ## Documentation updates
 
-- `v1/docs/spec-guidance.md` — state that index subspec lines may carry trailing annotations after the link.
+- `v2/docs/spec-guidance.md` — state that index subspec lines may carry trailing annotations after the link.

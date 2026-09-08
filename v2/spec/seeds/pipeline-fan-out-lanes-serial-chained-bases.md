@@ -6,7 +6,7 @@ name: pipeline-fan-out-lanes-serial-chained-bases
 
 ## Problem
 
-Fan-out lanes dispatch concurrently and independently: every lane's plan bases off `main` and its implement off its own plan branch; no lane sees a sibling's work. Seed splits are usually dependent (a later intent builds on interfaces an earlier one introduces — the same chain that blocks `jarvis1 plan` across sibling intents), so the later lane either re-invents the seam or conflicts with the earlier lane's PR at merge. Ready-intents already carry `## Prerequisites` prose naming sibling dependencies, but nothing machine-readable, and the pipeline ignores it.
+Fan-out lanes dispatch concurrently and independently: every lane's plan bases off `main` and its implement off its own plan branch; no lane sees a sibling's work. Seed splits are usually dependent (a later intent builds on interfaces an earlier one introduces), so the later lane either re-invents the seam or conflicts with the earlier lane's PR at merge. Ready-intents already carry `## Prerequisites` prose naming sibling dependencies, but nothing machine-readable, and the pipeline ignores it.
 
 ## Decisions
 
@@ -26,5 +26,5 @@ Fan-out lanes dispatch concurrently and independently: every lane's plan bases o
 ## Documentation updates
 
 - `v2/docs/daemon-host.md` — branch fan-out execution: serial default, chaining, `independent` marker.
-- `v1/docs/spec-guidance.md` — ready-intent frontmatter `independent`.
+- `v2/docs/spec-guidance.md` — ready-intent frontmatter `independent`.
 - `v2/docs/first-workflow-walkthrough.md`, `v2/docs/operator-runbook.md` — fan-out expectations; `v2/docs/v1-behaviors.md` — record.

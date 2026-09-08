@@ -183,6 +183,20 @@ Executed the 2026-09-05 queue audit plus the operator's restart-pain report: mer
 
 **Notification honesty, third session running.** `run-ad-hoc-terminal` fired `terminal:completed` for entry rows whose workflows were still live, and for `28347c81` while its durable row still read `in-progress`/`not-live`. Covered by [[notification-incidents-roll-up-to-the-invocation]]; not re-seeded, but this is now its third session of evidence and it undermines the wake path the runbook designates as primary.
 
+### Late 2026-09-07 additions
+
+**Verified still open, against a ledger row implying otherwise.** This ledger records #2996 and #3030 as "absorbed into the settlement seed"; that seed landed as [#3569](https://github.com/cbrenner04/jarvis/pull/3569) and neither behavior changed. `reconciliationTerminalStatus` (`daemon.ts:125`) returns `killed` for **any** non-terminal status, so a `paused` resumable run is still flipped (#3030); `resumeDeferredRefusalApplies` (`pipeline-execution.ts:225`) still returns true for `interrupted`, so resume still refuses it (#2996). #2996 then reproduced live from an ordinary daemon death, widening its trigger beyond "operator-killed". None of the 22 open issues were closable.
+
+**New seeds.** [[index-link-check-rejects-annotated-subspec-lines]] — `INDEX_LINK_PATTERN` anchors `$` at a subspec link's closing paren, so a trailing `(after 00 and 03)` makes a linked subspec read as absent; blocked one plan three times, hand-landed [#3584](https://github.com/cbrenner04/jarvis/pull/3584). [[harness-failures-must-be-falsifiable-without-source]] ([#3587](https://github.com/cbrenner04/jarvis/pull/3587)) — the generalization: three unrelated failures this session each cost 20+ minutes and **every one was diagnosed by reading `v2/src`**, which external-project operators cannot do. Scoped to one shared failure record (expectation, observed, near-miss, retryability) across every workflow and pipeline stage, not per-check fixes. The brief's P1 row was retitled and recorded as one class ([#3586](https://github.com/cbrenner04/jarvis/pull/3586)).
+
+**Daemon death and recovery.** The daemon was killed as a suspected leaked test worker (in `ps` it is indistinguishable from a leaked `bun test`; the leaked ones are `launchd`-parented). Its abrupt death left a bound socket, so `daemon start` failed `EADDRINUSE` and both `run list` and `pipeline list` went blind — monitoring read `live=0` with five lanes mid-flight. `jarvis cleanup` did not reap this socket, unlike the prior session; removing the file directly did. Reconciliation then settled all five `resumable_kill` and all four resumed lanes published. This is #3533's shape recurring with subspec 00 of its fix already on `main`.
+
+**Queue hygiene.** 154 terminal `jarvis` run rows dismissed (~200 → 4), scoped `--project jarvis` and verified to exclude a concurrently-live `sudoku` lane. All pipelines dismissed but the live one.
+
+**Friction, unseeded (recurred six times).** Stale plan worktrees pinned at an older `main` refuse redispatch and need `cleanup --yes --abandon` each time; implement auto-resets this, plan does not. Seed if it recurs next session.
+
+**`full-light-review` landed 2026-09-07** ([#3593](https://github.com/cbrenner04/jarvis/pull/3593), operator hand-landed) — the gated middle tier: intent(light) → approve → plan(light) → approve → implement(light), `ready`. Before it the registry held only `full-review` (debate on plan and implement) and `fast` (no gates), with nothing between. Operator decision the same day is that **jarvis itself stays on `full-review`**; the new tier is for projects wanting gates without debate cost. Relevant to this session's measurement: `full-review`'s debate stages, not its write steps, dominated the four-lane wave's 68-minute wall clock.
+
 ## Gaps / low-confidence
 
 - Four runbook bullets cite seeds that do not exist (`reap-ready-gate-test-children-on-run-termination`, `mutation-checkpoint-verifier-trust`, `a-daemon-lost-run-row-deadlocks-the-daemon`, `gate-repair-fence`) — fix on next runbook pass.

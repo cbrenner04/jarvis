@@ -72,6 +72,31 @@ P0 fixes: [#3574](https://github.com/cbrenner04/jarvis/pull/3574) pr-probe destr
 
 Cleanup slices [#3576](https://github.com/cbrenner04/jarvis/pull/3576), [#3577](https://github.com/cbrenner04/jarvis/pull/3577) — the latter reaped 55 expired session logs and 23MB on its first run after merging. Plans [#3570](https://github.com/cbrenner04/jarvis/pull/3570)-[#3573](https://github.com/cbrenner04/jarvis/pull/3573); intents [#3562](https://github.com/cbrenner04/jarvis/pull/3562)-[#3564](https://github.com/cbrenner04/jarvis/pull/3564), [#3566](https://github.com/cbrenner04/jarvis/pull/3566)-[#3568](https://github.com/cbrenner04/jarvis/pull/3568); seeds and correction [#3565](https://github.com/cbrenner04/jarvis/pull/3565).
 
-## Agents
+## Agents and cost
 
-207 invocations. Codex exhausted mid-session — **29 ok / 89 quota** — so after roughly the first hour every role paid a 2-5s codex failure before falling through to cursor, which did 89 successful invocations. Claude was never reached. Estimated agent API cost (list price; all rungs are subscriptions) **$26.62**.
+267 agent invocations: cursor 140 ok; codex 36 ok / **90 quota** — it exhausted about an hour in, was dropped from the order on the operator's call, and was restored when quota returned late in the session; claude was never reached. Estimated agent API-equivalent cost (list price; every rung is a subscription) **$40.13**.
+
+Operator cost **$105.98** over 11h29m wall (56m38s API), 29 PRs merged — roughly $3.66 per merged PR.
+
+**The idle windows have a direct cost line.** Prompt-cache telemetry recorded 3 misses caused by idling past the 1h TTL, re-caching 958.7k tokens. So the ~4h25m of operator idle did not merely lose throughput; it forced cache re-warming that shows up in the $105.98. That strengthens the case for the wake-path fix ([[notification-delivery-cursor-is-exclusive]]) rather than better operator discipline alone — the supported push path is a fixed point, and `pipeline wait` is single-shot, so nothing in the harness keeps a session warm across a long unattended stage.
+
+## The light-review gap was found and closed the same session
+
+The registry held only `full-review` (debate on plan and implement) and `fast` (no gates) — nothing kept the gated structure at light cost. The operator hand-landed `full-light-review` ([#3593](https://github.com/cbrenner04/jarvis/pull/3593)): intent(light) → approve-intent → plan(light) → approve-plan → implement(light), terminal `ready`.
+
+**Jarvis itself stays on `full-review`** by operator decision; the new tier is for projects wanting gates without debate cost. This bears on the parallelization measurement above — the four-lane wave's 68 minutes went mostly to `full-review`'s debate roles, not to write steps, so the middle tier is where routine dogfooding gets cheap.
+
+## Open at close — pick up here
+
+**Pipeline `127bdc64` (`full-review`) is parked at `approve-intent` with four lanes.** Its intent stage succeeded and merged ([#3591](https://github.com/cbrenner04/jarvis/pull/3591)), so the ready-intents are on `main` regardless of the pipeline row. Seed: [[harness-failures-must-be-falsifiable-without-source]]. Lanes:
+
+- `persist-operator-failure-records` — durable storage for the structured record
+- `serve-canonical-failures-from-daemon` — daemon-side canonical source
+- `render-operator-failures-consistently` — one formatter for `run list` / `run wait` / `pipeline list` / TUI
+- `settle-workflows-with-falsifiable-failures` — adoption at intent/plan/implement settlement
+
+**Approve all four gates together, before any sibling plan lands** — this session's own finding; serial approval is what manufactures the consumed-sibling failure. Read the ready-intents first to identify the true chain head (`persist-…` looks like it); picking the wrong head cost one dispatch on the verifier chain tonight.
+
+**Open PRs at close:** [#3588](https://github.com/cbrenner04/jarvis/pull/3588) (`generalize-production-test-seam-guard`) — CI-only red, and the cause is now known: it touches `shared/prompts/step-rules.ts`, so the diff classifies to all six slices and CI runs v1, where `v1/test/intent-command.test.ts` **times out**. Not a defect in the PR; it is the `shared/**`-gate-cannot-share-the-machine shape reproduced in CI. A re-run was issued; if it recurs, raise the per-file timeout floor (a fixed 180s constant in `scripts/run-v2-tests.ts`) as its own PR. [#3594](https://github.com/cbrenner04/jarvis/pull/3594) (`bind-fan-out` subspecs 00-01, hand-published) and this closeout PR were also in CI at close.
+
+**Three lanes finished real work and failed to publish**, all with the same `completion_commit_failed` signature — `bind-fan-out`, and two earlier. Every one was a non-autofixable lint finding that ready-gate autofix can never clear, fixed by a `biome-ignore` plus a hand-push. That makes [[ready-gate-autofix-strands-on-unfixable-lint]] the highest-value open item: it silently converts complete lanes into apparent no-ops.

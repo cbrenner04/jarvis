@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
-import { EventEmitter } from "node:events";
 import { execFileSync } from "node:child_process";
+import { EventEmitter } from "node:events";
 import {
   appendFileSync,
   chmodSync,
@@ -21,6 +21,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { PassThrough } from "node:stream";
+import { TEST_STEP_BUDGET_MS } from "../../../scripts/ready.ts";
 import * as sharedGit from "../../../shared/git.ts";
 import { createResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
@@ -48,13 +49,13 @@ import {
 import {
   createReadyFinalizer,
   deriveGateAllowedPaths,
+  isReadyTestCommand,
   NonTerminatingMutationError,
   type ReadyFinalizer,
   ReadyFlipError,
   ReadyGateError,
   RuntimeSmokeFailedError,
   SurvivingMutationError,
-  isReadyTestCommand,
 } from "./ready-finalize.ts";
 import type { SmokePass } from "./runtime-smoke-verifier.ts";
 import type { StepRunResult } from "./step-runner.ts";
@@ -85,7 +86,6 @@ import {
   type WriteLoopOutcomeKind,
   type WriteLoopResult,
 } from "./write-loop.ts";
-import { TEST_STEP_BUDGET_MS } from "../../../scripts/ready.ts";
 
 const { roots } = trackedTempRoots();
 

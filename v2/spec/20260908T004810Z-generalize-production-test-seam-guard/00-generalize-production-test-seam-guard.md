@@ -26,12 +26,12 @@
 
 ## Acceptance criteria
 
-- [ ] `scripts/guard-production-test-flags.test.ts` — a rejected synthetic `export function setFooForTest` fixture under each scan root fails against the pre-fix guard and passes after; allowed `.test.ts` / `.test.tsx` fixtures for the same export pass; the suite passes on the clean tree after index implement-order prerequisites land.
-- [ ] `scripts/guard-production-test-flags.test.ts` — rejected synthetic fixtures for a `fooForTest` module variable, a non-`invert*` `fooForTest` function parameter, and a non-`invert*` `fooForTest` type member each fail against the pre-fix guard and pass after; `scripts/guard-production-test-flags.test.ts` invert-shape cases stay green.
-- [ ] `v2/src/execution/write.test.ts` — implement write-step prompt test pins the updated generalized prohibition line from `shared/prompts/step-rules.ts`.
-- [ ] `package.json` — `check` still invokes `scripts/guard-production-test-flags.ts` and passes on the clean tree.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test` passes.
+- [x] `scripts/guard-production-test-flags.test.ts` — a rejected synthetic `export function setFooForTest` fixture under each scan root fails against the pre-fix guard and passes after; allowed `.test.ts` / `.test.tsx` fixtures for the same export pass; the suite passes on the clean tree after index implement-order prerequisites land.
+- [x] `scripts/guard-production-test-flags.test.ts` — rejected synthetic fixtures for a `fooForTest` module variable, a non-`invert*` `fooForTest` function parameter, and a non-`invert*` `fooForTest` type member each fail against the pre-fix guard and pass after; `scripts/guard-production-test-flags.test.ts` invert-shape cases stay green.
+- [x] `v2/src/execution/write.test.ts` — implement write-step prompt test pins the updated generalized prohibition line from `shared/prompts/step-rules.ts`.
+- [x] `package.json` — `check` still invokes `scripts/guard-production-test-flags.ts` and passes on the clean tree.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test` passes.
 
 ## Documentation updates
 

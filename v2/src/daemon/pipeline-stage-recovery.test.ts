@@ -2,11 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
 import { locateSymbolSlice } from "../../../shared/structural-test-locator.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
+import { lintStagedMarkdown } from "../execution/staged-markdown-lint.ts";
 import type {
   AnyWorkflowStep,
   ReviewDebateWorkflowStep,
@@ -14,6 +15,12 @@ import type {
   WriteWorkflowStep,
 } from "../execution/workflow-runner.ts";
 import { recoverPlanStage } from "../execution/workflow-runner-resume.ts";
+import {
+  readReviewMdLintFixture,
+  REVIEW_MD_LINT_FIXTURE_IDS,
+  skipReviewWithoutHarnessMarkdownlint,
+  writeLintCleanPlanStage,
+} from "../execution/workflow-runner.test-support.ts";
 import { ensureWorkflowRunnerResumeDepsWired } from "../testing/workflow-runner-resume-wiring.ts";
 
 ensureWorkflowRunnerResumeDepsWired();
@@ -731,13 +738,6 @@ describe("recoverPipelineBranchStage", () => {
   const PLAN_WRITE_AGENT_MODEL_CONFIG: AgentModelConfig = {
     claude: { plan: { rungs: [{ adapterModel: "plan", priceKey: "plan" }] } },
   };
-  const RECOVERY_MD_LINT_FIXTURES = join(
-    import.meta.dir,
-    "..",
-    "execution",
-    "fixtures",
-    "write-loop-staged-markdown-lint",
-  );
   const BRANCH_KEYS = ["branch-a", "branch-b", "branch-c"] as const;
 
   const harnessPlanBlocker = (reason: string) => `\n## Blocker\n\nArtifact contract check failed: ${reason}\n`;
@@ -764,17 +764,6 @@ describe("recoverPipelineBranchStage", () => {
     execFileSync("git", ["config", "user.name", "Test"], { cwd: worktree });
     execFileSync("git", ["commit", "--allow-empty", "-qm", "base"], { cwd: worktree });
     return worktree;
-  }
-
-  function writeLintCleanPlanStage(stage: string, subspecFile: string): void {
-    mkdirSync(stage, { recursive: true });
-    writeFileSync(join(stage, "intent.md"), "---\nname: test\n---\n", "utf8");
-    writeFileSync(join(stage, "index.md"), `# Index\n\n- [ ] [One](./${subspecFile})\n`, "utf8");
-    writeFileSync(
-      join(stage, subspecFile),
-      readFileSync(join(RECOVERY_MD_LINT_FIXTURES, "plan-md012-clean-subspec.md"), "utf8"),
-      "utf8",
-    );
   }
 
   function seedBlockedPlanDraftRun(
@@ -918,7 +907,6 @@ describe("recoverPipelineBranchStage", () => {
     stage: string;
     durable: string;
     specPath: string;
-    correctedBody: string;
     dispatchCalls: AnyWorkflowStep[][];
     draftAgentInvocations: string[];
     deps: PipelineStageRecoveryExecutionDeps;
@@ -951,9 +939,12 @@ describe("recoverPipelineBranchStage", () => {
       failureReason: reason,
     });
 
-    const correctedBody = readFileSync(join(RECOVERY_MD_LINT_FIXTURES, "plan-md012-clean-subspec.md"), "utf8");
     if (args.correct) {
-      writeFileSync(join(stage, "00-first.md"), correctedBody, "utf8");
+      writeFileSync(
+        join(stage, "00-first.md"),
+        readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd012CleanSubspec),
+        "utf8",
+      );
     }
 
     const pipelineId = seedFanOutPipeline(store, { targetBranchKey: args.targetBranchKey, entryRunId });
@@ -999,7 +990,6 @@ describe("recoverPipelineBranchStage", () => {
       stage,
       durable,
       specPath,
-      correctedBody,
       dispatchCalls,
       draftAgentInvocations,
       deps,
@@ -1007,6 +997,14 @@ describe("recoverPipelineBranchStage", () => {
   }
 
   test("recovers a corrected non-first fan-out branch and leaves siblings unchanged", async () => {
+    if (
+      skipReviewWithoutHarnessMarkdownlint(
+        "recovers a corrected non-first fan-out branch and leaves siblings unchanged",
+      )
+    ) {
+      return;
+    }
+
     await withStateStore(async (store) => {
       const setup = setUpRealRecoveryFixture(store, {
         prefix: "recover-branch-keystone",
@@ -1029,7 +1027,9 @@ describe("recoverPipelineBranchStage", () => {
       expect(outcome.kind).toBe("recovered");
       expect(setup.draftAgentInvocations).toEqual([]);
       expect(setup.dispatchCalls).toEqual([]);
-      expect(readFileSync(join(setup.durable, "00-first.md"), "utf8")).toBe(setup.correctedBody);
+      expect(await lintStagedMarkdown(setup.specPath, { worktreePath: dirname(setup.stage) })).toEqual({
+        kind: "clean",
+      });
       expect(readFileSync(join(setup.durable, "intent.md"), "utf8")).not.toContain("## Blocker");
 
       const pipeline = store.loadPipeline(setup.pipelineId);

@@ -67,6 +67,9 @@ export type LoopFinishedEvent = {
   completedSubspecPaths?: string[];
   remainingSubspecPaths?: string[];
   inventoryError?: string;
+  gateCommand?: string;
+  gateInvocationCommand?: string;
+  gateInvocationElapsedMs?: number;
 };
 
 type LogLoopFinishedEvent =

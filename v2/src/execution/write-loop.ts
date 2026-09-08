@@ -24,7 +24,8 @@ import { INTENT_SPLIT_PROMPT_ID } from "../../../shared/prompts/intent-split.ts"
 import { PLAN_DRAFT_PROMPT_ID } from "../../../shared/prompts/plan-draft.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { renderArtifactTemplate } from "../../../shared/prompts/render.ts";
-import { parseSpec } from "../../../shared/spec-parser.ts";
+import { isHumanOnlyCriterion, parseSpec } from "../../../shared/spec-parser.ts";
+import { TEST_STEP_BUDGET_MS } from "../../../scripts/ready.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
@@ -111,6 +112,7 @@ const WRITE_LOOP_OUTCOME_KINDS = [
   "contract_miss",
   "invocation_failure",
   "iteration_timeout",
+  "gate_invocation_refused",
   "idle_output_timeout",
   "budget-exhausted",
   "paused",
@@ -168,6 +170,9 @@ export type WriteLoopResult = {
   completedSubspecPaths?: readonly string[];
   remainingSubspecPaths?: readonly string[];
   inventoryError?: string;
+  gateCommand?: string;
+  gateInvocationCommand?: string;
+  gateInvocationElapsedMs?: number;
 } & Partial<InvocationFailureDetail>;
 
 export type SubspecCompletionInventory = {
@@ -178,6 +183,53 @@ export type SubspecCompletionInventory = {
 
 export function hasCompletedSubspec(inventory: SubspecCompletionInventory): boolean {
   return inventory.completedSubspecPaths.length > 0;
+}
+
+/** Backtick-delimited command tokens from acceptance-criterion prose. */
+export function extractBacktickCommandTokens(criterionText: string): string[] {
+  const tokens: string[] = [];
+  const pattern = /`([^`]+)`/g;
+  let match = pattern.exec(criterionText);
+  while (match !== null) {
+    const token = match[1];
+    if (token !== undefined) tokens.push(token);
+    match = pattern.exec(criterionText);
+  }
+  return tokens;
+}
+
+export function isGateAcceptanceCriterion(criterionText: string): boolean {
+  return extractBacktickCommandTokens(criterionText).some((token) => isReadyTestCommand(token));
+}
+
+function isGateOnlyOutstandingForSubspecBody(body: string): boolean {
+  let hasUncheckedGate = false;
+  for (const criterion of parseSpec(body).acceptanceCriteria) {
+    if (criterion.humanOnly || isHumanOnlyCriterion(criterion.text)) continue;
+    if (criterion.checked) continue;
+    if (isGateAcceptanceCriterion(criterion.text)) {
+      hasUncheckedGate = true;
+      continue;
+    }
+    return false;
+  }
+  return hasUncheckedGate;
+}
+
+export function isGateOnlyOutstandingForActiveSubspec(worktreePath: string, expectedArtifactPath: string): boolean {
+  const resolved = isAbsolute(expectedArtifactPath) ? expectedArtifactPath : join(worktreePath, expectedArtifactPath);
+  if (!existsSync(resolved)) return false;
+  return isGateOnlyOutstandingForSubspecBody(readFileSync(resolved, "utf8"));
+}
+
+export function isIterationTimeoutResumable(
+  inventory: SubspecCompletionInventory,
+  worktreePath: string,
+  expectedArtifactPath?: string,
+): boolean {
+  if (hasCompletedSubspec(inventory)) return true;
+  if (expectedArtifactPath === undefined || expectedArtifactPath.length === 0) return false;
+  return isGateOnlyOutstandingForActiveSubspec(worktreePath, expectedArtifactPath);
 }
 
 function terminalFailureDetailFromError(error?: Error, fallbackMessage?: string): InvocationFailureDetail {
@@ -460,19 +512,63 @@ export const DEFAULT_QUIESCENCE_TIMEOUT_MS = 30_000;
 
 export type IterationActiveGate = { command: string; startedAtMs: number };
 
-function createIterationActiveGateTracker(clock: () => number = Date.now): {
+export const MAX_CONCURRENT_AGENT_GATE_INVOCATIONS = 1;
+
+let agentGateInvocationSlotsInUse = 0;
+
+function tryAcquireAgentGateInvocationSlot(): boolean {
+  if (agentGateInvocationSlotsInUse >= MAX_CONCURRENT_AGENT_GATE_INVOCATIONS) return false;
+  agentGateInvocationSlotsInUse += 1;
+  return true;
+}
+
+export function releaseAgentGateInvocationSlot(): void {
+  if (agentGateInvocationSlotsInUse > 0) agentGateInvocationSlotsInUse -= 1;
+}
+
+type GateInvocationRefusal = { command: string };
+
+function releaseActiveGateSlot(gateTracker: ReturnType<typeof createIterationActiveGateTracker>): void {
+  if (gateTracker.getActiveGate() === undefined) return;
+  releaseAgentGateInvocationSlot();
+  gateTracker.onAgentShellCommandComplete();
+}
+
+function createIterationActiveGateTracker(options: {
+  clock: () => number;
+  iterationStartedAtMs: number;
+  iterationCeilingMs?: number;
+  onRefused: (refusal: GateInvocationRefusal) => void;
+}): {
   getActiveGate: () => IterationActiveGate | undefined;
   onAgentShellCommand: (command: string) => void;
   onAgentShellCommandComplete: () => void;
 } {
   let activeGate: IterationActiveGate | undefined;
+  const iterationCeilingHeadroomMs = (): number => {
+    if (options.iterationCeilingMs === undefined) return Number.POSITIVE_INFINITY;
+    return options.iterationCeilingMs - (options.clock() - options.iterationStartedAtMs);
+  };
+  const refuseGateInvocation = (command: string) => {
+    options.onRefused({ command });
+  };
   return {
     getActiveGate: () => activeGate,
     onAgentShellCommand: (command: string) => {
       if (!isReadyTestCommand(command) || activeGate !== undefined) return;
-      activeGate = { command, startedAtMs: clock() };
+      if (iterationCeilingHeadroomMs() < TEST_STEP_BUDGET_MS) {
+        refuseGateInvocation(command);
+        return;
+      }
+      if (!tryAcquireAgentGateInvocationSlot()) {
+        refuseGateInvocation(command);
+        return;
+      }
+      activeGate = { command, startedAtMs: options.clock() };
     },
     onAgentShellCommandComplete: () => {
+      if (activeGate === undefined) return;
+      releaseAgentGateInvocationSlot();
       activeGate = undefined;
     },
   };
@@ -1168,6 +1264,10 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           "aborted",
         );
       }
+      if (settled.kind === "gate_invocation_refused") {
+        closeSessionLog(sessionLog, "error");
+        return finishGateInvocationRefused(args, store, runId, attemptId, iterationsConsumed + 1, settled.gateCommand);
+      }
       if (settled.kind === "timed_out") {
         closeSessionLog(sessionLog, "timeout");
         return finishControlledLoss(
@@ -1180,6 +1280,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           iterationsConsumed + 1,
           settled.quiesced,
           "timed_out",
+          settled.activeGateAtTimeout,
         );
       }
       if (settled.kind === "threw") {
@@ -2056,8 +2157,9 @@ export type QuiescedExecutionOutcome = Extract<RaceOutcome, { kind: "settled" } 
 
 type IterationSettlement =
   | Extract<RaceOutcome, { kind: "settled" } | { kind: "threw" }>
-  | { kind: "timed_out"; quiesced: QuiescedExecutionOutcome }
-  | { kind: "aborted"; quiesced: QuiescedExecutionOutcome };
+  | { kind: "timed_out"; quiesced: QuiescedExecutionOutcome; activeGateAtTimeout?: IterationActiveGate }
+  | { kind: "aborted"; quiesced: QuiescedExecutionOutcome }
+  | { kind: "gate_invocation_refused"; gateCommand: string; quiesced: QuiescedExecutionOutcome };
 
 export type AbortWatchdogRole = "abort" | "watchdog";
 type IterationSettlementPolicy = "bounded" | "finalization-repair";
@@ -2086,10 +2188,15 @@ async function settleBoundedIteration(
   execution: Promise<QuiescedExecutionOutcome>,
   schedule: WallSegmentSchedule,
   quiescenceTimeoutMs: number,
+  gateTracker?: ReturnType<typeof createIterationActiveGateTracker>,
 ): Promise<IterationSettlement> {
   if (!isInterruptedRace(raced)) return raced;
   const quiesced = await boundQuiescenceWait(execution, schedule, quiescenceTimeoutMs);
-  return { kind: raced.kind, quiesced };
+  const activeGateAtTimeout = gateTracker?.getActiveGate();
+  if (activeGateAtTimeout !== undefined && gateTracker !== undefined) {
+    releaseActiveGateSlot(gateTracker);
+  }
+  return { kind: raced.kind, quiesced, ...(activeGateAtTimeout !== undefined ? { activeGateAtTimeout } : {}) };
 }
 
 /**
@@ -2117,7 +2224,7 @@ async function awaitIteration(
   const wallSegmentMs = args.iterationTimeoutMs ?? DEFAULT_ITERATION_TIMEOUT_MS;
   let wallSegmentDeadline = Date.now() + wallSegmentMs;
   let wallSchedule: WallSegmentScheduleHandle | undefined;
-  let ceilingTimeout: ReturnType<typeof setTimeout> | undefined;
+  let ceilingScheduleHandle: WallSegmentScheduleHandle | undefined;
   let watchdogSettled = false;
   let resolveWatchdog!: (value: RaceOutcome) => void;
 
@@ -2136,14 +2243,23 @@ async function awaitIteration(
   };
 
   const onInvocationOutputProgress = args.resetIterationWallOnOutput === false ? undefined : bumpWallSegment;
-  const gateTracker = createIterationActiveGateTracker(() => (args.clock ?? (() => new Date()))().getTime());
+  const iterationStartedAtMs = (args.clock ?? (() => new Date()))().getTime();
+  let gateRefusal: GateInvocationRefusal | undefined;
+  const gateTracker = createIterationActiveGateTracker({
+    clock: () => (args.clock ?? (() => new Date()))().getTime(),
+    iterationStartedAtMs,
+    ...(args.iterationCeilingMs !== undefined ? { iterationCeilingMs: args.iterationCeilingMs } : {}),
+    onRefused: (refusal) => {
+      gateRefusal = refusal;
+      abortExecution();
+    },
+  });
 
   const watchdog = new Promise<RaceOutcome>((resolve) => {
     resolveWatchdog = resolve;
     bumpWallSegment();
     if (args.iterationCeilingMs !== undefined) {
-      ceilingTimeout = setTimeout(fireWatchdogTimeout, args.iterationCeilingMs);
-      ceilingTimeout.unref?.();
+      ceilingScheduleHandle = schedule(fireWatchdogTimeout, args.iterationCeilingMs);
     }
   });
 
@@ -2178,14 +2294,27 @@ async function awaitIteration(
   const raced = await Promise.race([execution, watchdog, abort]);
   watchdogSettled = true;
   wallSchedule?.cancel();
-  if (ceilingTimeout !== undefined) clearTimeout(ceilingTimeout);
+  ceilingScheduleHandle?.cancel();
   args.signal?.removeEventListener("abort", abortExecution);
   removeAbort?.();
+
+  if (gateRefusal !== undefined) {
+    const quiesced = isInterruptedRace(raced)
+      ? await boundQuiescenceWait(execution, schedule, args.quiescenceTimeoutMs ?? DEFAULT_QUIESCENCE_TIMEOUT_MS)
+      : raced;
+    return { kind: "gate_invocation_refused", gateCommand: gateRefusal.command, quiesced };
+  }
 
   if (settlementPolicy === "finalization-repair") {
     return settleFinalizationRepair(raced, execution, abortExecution);
   }
-  return settleBoundedIteration(raced, execution, schedule, args.quiescenceTimeoutMs ?? DEFAULT_QUIESCENCE_TIMEOUT_MS);
+  return settleBoundedIteration(
+    raced,
+    execution,
+    schedule,
+    args.quiescenceTimeoutMs ?? DEFAULT_QUIESCENCE_TIMEOUT_MS,
+    gateTracker,
+  );
 }
 
 /**
@@ -2222,9 +2351,18 @@ async function finishIterationTimeout(
   attemptId: string,
   iterationsConsumed: number,
   worktreePath: string,
+  activeGateAtTimeout?: IterationActiveGate,
 ): Promise<WriteLoopResult> {
   const inventory = buildSubspecCompletionInventory(worktreePath, args.worktree.projectRoot, args.specPath);
-  const resumable = hasCompletedSubspec(inventory);
+  const resumable = isIterationTimeoutResumable(inventory, worktreePath, args.expectedArtifactPath);
+  const endedAtMs = (args.clock ?? (() => new Date()))().getTime();
+  const gateTimeoutFields =
+    activeGateAtTimeout !== undefined
+      ? {
+          gateInvocationCommand: activeGateAtTimeout.command,
+          gateInvocationElapsedMs: endedAtMs - activeGateAtTimeout.startedAtMs,
+        }
+      : {};
   store.commitCompletionBoundary({
     attemptId,
     runStatus: "failed",
@@ -2252,6 +2390,7 @@ async function finishIterationTimeout(
     iterationsConsumed,
     resumable,
     ...inventoryFields,
+    ...gateTimeoutFields,
   });
   return {
     ...loopResult,
@@ -2259,6 +2398,47 @@ async function finishIterationTimeout(
     outcomeKind: "iteration_timeout",
     runStatus: "failed",
     ...inventoryFields,
+    ...gateTimeoutFields,
+  };
+}
+
+async function finishGateInvocationRefused(
+  args: WriteLoopInput,
+  store: StateStore,
+  runId: string,
+  attemptId: string,
+  iterationsConsumed: number,
+  gateCommand: string,
+): Promise<WriteLoopResult> {
+  store.commitCompletionBoundary({
+    attemptId,
+    runStatus: "failed",
+    outcomeKind: "gate_invocation_refused",
+    ...completionBoundarySettlementFields(
+      "gate_invocation_refused",
+      terminalFailureDetailFromError(undefined, "gate invocation refused"),
+    ),
+  });
+  args.logSink?.append(runId, {
+    kind: "boundary_committed",
+    attemptId,
+    outcomeKind: "gate_invocation_refused",
+    runStatus: "failed",
+  });
+  const loopResult = finishLoop(args, runId, "gate_invocation_refused", iterationsConsumed, true, undefined, false);
+  args.logSink?.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "gate_invocation_refused",
+    iterationsConsumed,
+    resumable: true,
+    gateCommand,
+  });
+  return {
+    ...loopResult,
+    attemptId,
+    outcomeKind: "gate_invocation_refused",
+    runStatus: "failed",
+    gateCommand,
   };
 }
 
@@ -2313,11 +2493,20 @@ async function finishControlledLoss(
   iterationsConsumed: number,
   quiesced: QuiescedExecutionOutcome,
   race: "aborted" | "timed_out",
+  activeGateAtTimeout?: IterationActiveGate,
 ): Promise<WriteLoopResult> {
   if (quiesced.kind !== "settled") {
     return race === "aborted"
       ? finishLoop(args, runId, "progress", iterationsConsumed, true)
-      : await finishIterationTimeout(args, store, runId, attemptId, iterationsConsumed, worktreePath);
+      : await finishIterationTimeout(
+          args,
+          store,
+          runId,
+          attemptId,
+          iterationsConsumed,
+          worktreePath,
+          activeGateAtTimeout,
+        );
   }
 
   const failure = await checkpointBeforeControlledLoss(
@@ -2334,7 +2523,15 @@ async function finishControlledLoss(
 
   return race === "aborted"
     ? finishLoop(args, runId, "progress", iterationsConsumed, true)
-    : await finishIterationTimeout(args, store, runId, attemptId, iterationsConsumed, worktreePath);
+    : await finishIterationTimeout(
+        args,
+        store,
+        runId,
+        attemptId,
+        iterationsConsumed,
+        worktreePath,
+        activeGateAtTimeout,
+      );
 }
 
 function finishExecuteWriteThrow(
@@ -2437,6 +2634,7 @@ function prepareRun(args: WriteLoopInput, store: StateStore): PreparedRun {
     worktreePath,
     projectRoot: args.worktree.projectRoot,
     specPath: args.specPath,
+    expectedArtifactPath: args.expectedArtifactPath,
     priorLogRecords: priorLogRecordsFromSink(args.logSink, existingRun.id),
   });
   const reenter =
@@ -2604,6 +2802,7 @@ function committedResult(
     worktreePath: string;
     projectRoot: string;
     specPath: string;
+    expectedArtifactPath?: string;
     priorLogRecords?: readonly PersistedRecord[];
   },
 ): WriteLoopResult | null {
@@ -2626,24 +2825,23 @@ function committedResult(
     if (
       outcomeKind === "landing_failed" ||
       outcomeKind === "surviving_mutation_failed" ||
-      outcomeKind === "non_terminating_mutation_failed"
+      outcomeKind === "non_terminating_mutation_failed" ||
+      outcomeKind === "gate_invocation_refused"
     ) {
       return null;
     }
-    if (
-      outcomeKind === "iteration_timeout" &&
-      resumeContext !== undefined &&
-      hasCompletedSubspec(
-        buildSubspecCompletionInventory(resumeContext.worktreePath, resumeContext.projectRoot, resumeContext.specPath),
-      )
-    ) {
-      return null;
-    }
-    const detail = run.attempts[run.attempts.length - 1]?.invocationFailureDetail ?? undefined;
     const inventory =
       outcomeKind === "iteration_timeout" && resumeContext !== undefined
         ? buildSubspecCompletionInventory(resumeContext.worktreePath, resumeContext.projectRoot, resumeContext.specPath)
         : { completedSubspecPaths: [], remainingSubspecPaths: [] };
+    if (
+      outcomeKind === "iteration_timeout" &&
+      resumeContext !== undefined &&
+      isIterationTimeoutResumable(inventory, resumeContext.worktreePath, resumeContext.expectedArtifactPath)
+    ) {
+      return null;
+    }
+    const detail = run.attempts[run.attempts.length - 1]?.invocationFailureDetail ?? undefined;
     return {
       kind:
         outcomeKind === "iteration_timeout" || outcomeKind === "idle_output_timeout"
@@ -2653,7 +2851,11 @@ function committedResult(
       iterationsConsumed: 0,
       resumable:
         outcomeKind === "iteration_timeout"
-          ? hasCompletedSubspec(inventory)
+          ? isIterationTimeoutResumable(
+              inventory,
+              resumeContext?.worktreePath ?? "",
+              resumeContext?.expectedArtifactPath,
+            )
           : outcomeKind === "idle_output_timeout"
             ? idleOutputTimeoutResumableFromDurableEvidence(resumeContext?.priorLogRecords ?? [])
             : false,

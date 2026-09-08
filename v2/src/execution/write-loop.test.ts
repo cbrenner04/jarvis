@@ -75,6 +75,7 @@ import {
   persistRetainedFinalizationCheckpoint,
   publishCompletionArtifacts,
   publishWithReadyRepair,
+  releaseAgentGateInvocationSlot,
   runBuiltInReadyGateAutofixBiome,
   runMutationRepairIteration,
   shouldFailTerminalCompletionForDirtyWorktree,
@@ -84,8 +85,17 @@ import {
   type WriteLoopOutcomeKind,
   type WriteLoopResult,
 } from "./write-loop.ts";
+import { TEST_STEP_BUDGET_MS } from "../../../scripts/ready.ts";
 
 const { roots } = trackedTempRoots();
+
+function fastCeilingSchedule(delayMs = 50): WallSegmentSchedule {
+  return (fire, _delayMs) => {
+    const timer = setTimeout(fire, delayMs);
+    timer.unref?.();
+    return { cancel: () => clearTimeout(timer) };
+  };
+}
 
 const PLAN_DRAFT_INTENT_SEED = "---\nname: test\n---\n\n## Prerequisites\n\nnone\n";
 const PLAN_DRAFT_SPEC_PATH = "v2/spec/2099-01-01T00-00-00Z-plan-draft";
@@ -938,6 +948,239 @@ describe.serial("agent gate shell observability", () => {
         `active_gate command=${gateCommand} startedAtMs=${Date.parse("2026-09-08T06:00:00.000Z")}`,
       );
       expect(sessionContent).not.toMatch(/active_gate command=bun test/);
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe.serial("gate invocation budget and settlement", () => {
+  class ShellFrameChild extends EventEmitter {
+    readonly stdin = new PassThrough();
+    readonly stdout = new PassThrough();
+    readonly stderr = new PassThrough();
+    readonly pid = 424_243;
+
+    start(frames: string[]) {
+      queueMicrotask(() => {
+        for (const frame of frames) {
+          this.stdout.write(`${frame}\n`);
+        }
+        this.stdout.end();
+        this.stderr.end();
+        setImmediate(() => {
+          this.emit("exit", 0);
+          this.emit("close", 0);
+        });
+      });
+    }
+
+    kill() {
+      return true;
+    }
+  }
+
+  class HoldingShellFrameChild extends ShellFrameChild {
+    private readonly holdUntil: Promise<void> | undefined;
+
+    constructor(holdUntil?: Promise<void>) {
+      super();
+      this.holdUntil = holdUntil;
+    }
+
+    override start(frames: string[]) {
+      queueMicrotask(async () => {
+        for (const frame of frames) {
+          if (this.holdUntil !== undefined) {
+            const parsed = JSON.parse(frame) as { type?: string; subtype?: string };
+            if (parsed.type === "tool_call" && parsed.subtype === "started") {
+              await this.holdUntil;
+            }
+          }
+          this.stdout.write(`${frame}\n`);
+        }
+        this.stdout.end();
+        this.stderr.end();
+        setImmediate(() => {
+          this.emit("exit", 0);
+          this.emit("close", 0);
+        });
+      });
+    }
+  }
+
+  function cursorShellBinding(frames: string[], holdUntil?: Promise<void>) {
+    const spawn = (_binary: string, _argv: readonly string[], _opts: SpawnOptions): ChildProcess => {
+      const child = holdUntil !== undefined ? new HoldingShellFrameChild(holdUntil) : new ShellFrameChild();
+      child.start(frames);
+      return child as unknown as ChildProcess;
+    };
+    return createResolvedAgentBinding(
+      { agentId: "cursor", adapterModel: "Composer 2.5", priceKey: "composer" },
+      { spawn },
+    );
+  }
+
+  function gateShellFrames(gateCommand: string) {
+    const startedFrame = JSON.stringify({
+      type: "tool_call",
+      subtype: "started",
+      call_id: "call-gate",
+      tool_call: { shellToolCall: { args: { command: gateCommand } } },
+    });
+    const completedFrame = JSON.stringify({
+      type: "tool_call",
+      subtype: "completed",
+      call_id: "call-gate",
+      tool_call: { shellToolCall: { result: { success: { exitCode: 0 } } } },
+    });
+    const resultFrame = JSON.stringify({ type: "result", result: "progress" });
+    return { startedFrame, completedFrame, resultFrame };
+  }
+
+  afterEach(() => {
+    releaseAgentGateInvocationSlot();
+  });
+
+  test("refuses gate invocation when iteration ceiling headroom cannot accommodate TEST_STEP_BUDGET_MS", async () => {
+    // @mutate v2/src/execution/write-loop.ts "iterationCeilingHeadroomMs() < TEST_STEP_BUDGET_MS" -> "iterationCeilingHeadroomMs() >= TEST_STEP_BUDGET_MS"
+    const gateCommand = "bun run test:v2";
+    const { startedFrame, completedFrame, resultFrame } = gateShellFrames(gateCommand);
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const sessionsDir = join(jarvisRoot, "sessions");
+    const store = openStateStore(stateDbPath);
+    const sink = new TestLogSink();
+    try {
+      const result = await executeWriteLoop({
+        worktree: {
+          projectRoot: "/fake",
+          projectName: "demo",
+          branchName: "gate-preflight-refusal",
+          baseRef: "HEAD",
+          jarvisRoot,
+        },
+        specPath: "spec.md",
+        stepRules: "Return progress.",
+        expectedArtifactPath: "proof.txt",
+        bindings: [cursorShellBinding([startedFrame, completedFrame, resultFrame])],
+        stateStore: store,
+        withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir,
+        logSink: sink,
+        maxIterations: 1,
+        iterationCeilingMs: TEST_STEP_BUDGET_MS - 1,
+        clock: () => new Date("2026-09-08T06:00:00.000Z"),
+      });
+
+      expect(result).toMatchObject({
+        kind: "gate_invocation_refused",
+        iterationsConsumed: 1,
+        resumable: true,
+        gateCommand,
+      });
+      const finished = sink
+        .getEventsForRun(result.runId)
+        .find((event) => event.kind === "loop_finished" && event.loopOutcomeKind === "gate_invocation_refused");
+      expect(finished).toMatchObject({ resumable: true, gateCommand });
+    } finally {
+      store.close();
+    }
+  });
+
+  test("serializes concurrent gate invocations so only one lane proceeds", async () => {
+    // @mutate v2/src/execution/write-loop.ts "tryAcquireAgentGateInvocationSlot()" -> "false"
+    const gateCommand = "bun run test:v2";
+    const { startedFrame, completedFrame, resultFrame } = gateShellFrames(gateCommand);
+    let releaseFirstGate!: () => void;
+    const firstGateHeld = new Promise<void>((resolve) => {
+      releaseFirstGate = resolve;
+    });
+    let firstGateStarted!: () => void;
+    const firstGateStartedPromise = new Promise<void>((resolve) => {
+      firstGateStarted = resolve;
+    });
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const store = openStateStore(stateDbPath);
+    const sink = new TestLogSink();
+    const baseInput = {
+      specPath: "spec.md",
+      stepRules: "Return progress.",
+      expectedArtifactPath: "proof.txt",
+      stateStore: store,
+      withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+      sessionsDir: join(jarvisRoot, "sessions"),
+      logSink: sink,
+      maxIterations: 1,
+      iterationCeilingMs: TEST_STEP_BUDGET_MS + 60_000,
+      clock: () => new Date("2026-09-08T06:00:00.000Z"),
+    };
+    class SyncHoldingShellFrameChild extends HoldingShellFrameChild {
+      override start(frames: string[]) {
+        queueMicrotask(async () => {
+          for (const frame of frames) {
+            const parsed = JSON.parse(frame) as { type?: string; subtype?: string };
+            this.stdout.write(`${frame}\n`);
+            if (parsed.type === "tool_call" && parsed.subtype === "started") {
+              await new Promise<void>((resolve) => queueMicrotask(() => resolve()));
+              firstGateStarted();
+              await firstGateHeld;
+            }
+          }
+          this.stdout.end();
+          this.stderr.end();
+          setImmediate(() => {
+            this.emit("exit", 0);
+            this.emit("close", 0);
+          });
+        });
+      }
+    }
+    const holdingSpawn = (_binary: string, _argv: readonly string[], _opts: SpawnOptions): ChildProcess => {
+      const child = new SyncHoldingShellFrameChild(firstGateHeld);
+      child.start([startedFrame, completedFrame, resultFrame]);
+      return child as unknown as ChildProcess;
+    };
+    try {
+      const first = executeWriteLoop({
+        ...baseInput,
+        worktree: {
+          projectRoot: "/fake",
+          projectName: "demo",
+          branchName: "gate-serialize-first",
+          baseRef: "HEAD",
+          jarvisRoot,
+        },
+        bindings: [
+          createResolvedAgentBinding(
+            { agentId: "cursor", adapterModel: "Composer 2.5", priceKey: "composer" },
+            { spawn: holdingSpawn },
+          ),
+        ],
+      });
+      await firstGateStartedPromise;
+      const second = await executeWriteLoop({
+        ...baseInput,
+        worktree: {
+          projectRoot: "/fake",
+          projectName: "demo",
+          branchName: "gate-serialize-second",
+          baseRef: "HEAD",
+          jarvisRoot,
+        },
+        bindings: [cursorShellBinding([startedFrame, completedFrame, resultFrame])],
+      });
+      releaseFirstGate();
+      const firstResult = await first;
+
+      expect(firstResult.kind).not.toBe("gate_invocation_refused");
+      expect(second).toMatchObject({
+        kind: "gate_invocation_refused",
+        iterationsConsumed: 1,
+        resumable: true,
+        gateCommand,
+      });
     } finally {
       store.close();
     }
@@ -9792,8 +10035,212 @@ index 1234567..abcdefg 100644
       };
     }
 
+    test("iteration_timeout with gate-only outstanding active subspec is resumable", async () => {
+      // @mutate v2/src/execution/write-loop.ts "isIterationTimeoutResumable(inventory, worktreePath, args.expectedArtifactPath)" -> "hasCompletedSubspec(inventory)"
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "timeout-gate-only-outstanding";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const subspecFile = "spec/implement/00-active.md";
+      mkdirSync(join(worktreePath, "spec/implement"), { recursive: true });
+      writeFileSync(
+        join(worktreePath, subspecFile),
+        "# Active\n\n## Acceptance criteria\n\n- [x] `bun run typecheck` passes\n- [ ] `bun run test:v2` passes\n",
+        "utf8",
+      );
+      writeFileSync(
+        join(worktreePath, "spec/implement/index.md"),
+        "# Implement\n\n- [ ] [00 - Active](./00-active.md)\n",
+        "utf8",
+      );
+      execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "commit", "-m", "spec"], { stdio: "pipe" });
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      const gateCommand = "bun run test:v2";
+
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => {
+          input.onAgentShellCommand?.(gateCommand);
+          return resolveOnAbort(input, progressWrite(worktreePath));
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            worktree: { projectRoot: worktreePath, projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
+            specPath: "spec/implement/index.md",
+            expectedArtifactPath: subspecFile,
+            logSink: sink,
+            iterationCeilingMs: TEST_STEP_BUDGET_MS + 1_000,
+            schedule: fastCeilingSchedule(),
+            clock: () => new Date("2026-09-08T06:00:00.000Z"),
+          }),
+        );
+
+        expect(result).toMatchObject({ kind: "iteration_timeout", iterationsConsumed: 1, resumable: true });
+        const finished = sink
+          .getEventsForRun(result.runId)
+          .find((event) => event.kind === "loop_finished" && event.loopOutcomeKind === "iteration_timeout");
+        expect(finished).toMatchObject({
+          resumable: true,
+          gateInvocationCommand: gateCommand,
+          gateInvocationElapsedMs: expect.any(Number),
+        });
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("iteration_timeout during gate invocation carries gateInvocation fields and agent-stall timeout omits them", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "timeout-gate-vs-stall";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const gateCommand = "bun run test:v2";
+      const ceilingSchedule = fastCeilingSchedule();
+      let nowMs = Date.parse("2026-09-08T06:00:00.000Z");
+      const clock = () => new Date((nowMs += 25));
+
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => {
+          input.onAgentShellCommand?.(gateCommand);
+          return resolveOnAbort(input, progressWrite(worktreePath));
+        },
+      }));
+
+      try {
+        const gateResult = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, `${branchName}-gate`, store, {
+            worktree: {
+              projectRoot: worktreePath,
+              projectName: "demo",
+              branchName: `${branchName}-gate`,
+              baseRef: "HEAD",
+              jarvisRoot,
+            },
+            iterationCeilingMs: TEST_STEP_BUDGET_MS + 1_000,
+            schedule: ceilingSchedule,
+            clock,
+          }),
+        );
+        expect(gateResult).toMatchObject({ kind: "iteration_timeout" });
+        expect(gateResult.gateInvocationCommand).toBe(gateCommand);
+        expect(gateResult.gateInvocationElapsedMs).toBeGreaterThan(0);
+
+        mock.module("./write.ts", () => ({
+          executeWrite: (input: WriteExecuteInput) => resolveOnAbort(input, progressWrite(worktreePath)),
+        }));
+        const stallResult = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, `${branchName}-stall`, store, {
+            worktree: {
+              projectRoot: worktreePath,
+              projectName: "demo",
+              branchName: `${branchName}-stall`,
+              baseRef: "HEAD",
+              jarvisRoot,
+            },
+            iterationCeilingMs: TEST_STEP_BUDGET_MS + 1_000,
+            schedule: ceilingSchedule,
+            clock,
+          }),
+        );
+        expect(stallResult).toMatchObject({ kind: "iteration_timeout" });
+        expect(stallResult.gateInvocationCommand).toBeUndefined();
+        expect(stallResult.gateInvocationElapsedMs).toBeUndefined();
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("committedResult replay preserves gate-only-outstanding iteration_timeout resumability", async () => {
+      // @mutate v2/src/execution/write-loop.ts "isIterationTimeoutResumable(inventory, resumeContext.worktreePath, resumeContext.expectedArtifactPath)" -> "hasCompletedSubspec(inventory)"
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "timeout-gate-only-committed-replay";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const subspecFile = "spec/implement/00-active.md";
+      mkdirSync(join(worktreePath, "spec/implement"), { recursive: true });
+      writeFileSync(
+        join(worktreePath, subspecFile),
+        "# Active\n\n## Acceptance criteria\n\n- [x] `bun run typecheck` passes\n- [ ] `bun run test:v2` passes\n",
+        "utf8",
+      );
+      writeFileSync(
+        join(worktreePath, "spec/implement/index.md"),
+        "# Implement\n\n- [ ] [00 - Active](./00-active.md)\n",
+        "utf8",
+      );
+      execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
+      execFileSync("git", ["-C", worktreePath, "commit", "-m", "spec"], { stdio: "pipe" });
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      const gateCommand = "bun run test:v2";
+      let executeCalls = 0;
+
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => {
+          executeCalls += 1;
+          input.onAgentShellCommand?.(gateCommand);
+          return resolveOnAbort(input, progressWrite(worktreePath));
+        },
+      }));
+
+      try {
+        const first = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            worktree: { projectRoot: worktreePath, projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
+            specPath: "spec/implement/index.md",
+            expectedArtifactPath: subspecFile,
+            logSink: sink,
+            iterationCeilingMs: TEST_STEP_BUDGET_MS + 1_000,
+            schedule: fastCeilingSchedule(),
+            clock: () => new Date("2026-09-08T06:00:00.000Z"),
+          }),
+        );
+        expect(first).toMatchObject({ kind: "iteration_timeout", resumable: true });
+
+        executeCalls = 0;
+        await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            worktree: { projectRoot: worktreePath, projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
+            specPath: "spec/implement/index.md",
+            expectedArtifactPath: subspecFile,
+            logSink: sink,
+            iterationCeilingMs: TEST_STEP_BUDGET_MS + 1_000,
+            schedule: fastCeilingSchedule(),
+            clock: () => new Date("2026-09-08T06:00:00.000Z"),
+          }),
+        );
+        expect(executeCalls).toBeGreaterThan(0);
+
+        executeCalls = 0;
+        const replaySink = new TestLogSink();
+        const replay = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            worktree: { projectRoot: worktreePath, projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
+            specPath: "spec/implement/index.md",
+            logSink: replaySink,
+            iterationCeilingMs: TEST_STEP_BUDGET_MS + 1_000,
+            schedule: fastCeilingSchedule(),
+            clock: () => new Date("2026-09-08T06:00:00.000Z"),
+          }),
+        );
+        expect(replay).toMatchObject({ kind: "iteration_timeout", resumable: false });
+        expect(executeCalls).toBe(0);
+        expect(replaySink.getEventsForRun(first.runId)).toHaveLength(0);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
     test("iteration_timeout with one completed subspec is resumable", async () => {
-      // @mutate v2/src/execution/write-loop.ts "const resumable = hasCompletedSubspec(inventory)" -> "const resumable = false"
+      // @mutate v2/src/execution/write-loop.ts "isIterationTimeoutResumable(inventory, worktreePath, args.expectedArtifactPath)" -> "false"
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       roots.push(join(jarvisRoot, ".."));
       const branchName = "timeout-one-complete";

@@ -20,7 +20,7 @@ Run, pipeline, and TUI surfaces expose different subsets and shapes of failure d
 
 ## Behavior
 
-- One formatter renders a failure record identically in `run list`, `run wait`, `pipeline list`, and TUI detail while preserving structured data for machine-readable output.
+- One formatter renders an identical failure block for a record in `run list`, `run wait`, `pipeline list`, and TUI detail while preserving structured data for machine-readable output.
 
 ## Decision ledger
 
@@ -28,11 +28,12 @@ Run, pipeline, and TUI surfaces expose different subsets and shapes of failure d
 - Render labeled expectation, observation, optional near miss, and whether reissue can help; rules out a bare conclusion or unexplained retry flag.
 - Label every referenced path as harness-internal or operator-repository from recorded origin; rules out path-prefix heuristics and ambiguous ownership.
 - Preserve each command's surrounding identity, lifecycle, and exit-code contract; rules out using failure consistency to redesign unrelated output.
+- Define cross-surface identity as the formatted failure block only; rules out treating each surface's necessary surrounding output as formatter drift.
 - Keep the structured record in machine-readable output alongside its formatted presentation; rules out forcing scripts to parse prose.
 
 ## Acceptance criteria
 
-- [ ] One cross-surface regression passes the same record through `run list`, `run wait`, `pipeline list`, and TUI detail and asserts identical formatter output; it fails if any pre-fix surface constructs or omits its own failure text.
+- [ ] One cross-surface regression passes the same record through `run list`, `run wait`, `pipeline list`, and TUI detail and asserts their formatted failure blocks are identical while allowing their surrounding output to differ; it fails if any pre-fix surface constructs or omits its own failure text.
 - [ ] Formatter tests prove no-candidate and unmatched-near-miss records render distinct observations and only the latter includes the candidate.
 - [ ] Formatter tests prove harness-internal and operator-repository paths receive distinct labels.
 - [ ] Existing `v2/src/commands/run.test.ts` wait exit-code and list identity-column tests stay green, and existing pipeline/TUI lifecycle presentation tests stay green.

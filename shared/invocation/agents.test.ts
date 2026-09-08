@@ -228,6 +228,31 @@ describe("parseShellToolFrameLine", () => {
     // @mutate shared/invocation/agents.ts "name === \"Shell\"" -> "name !== \"Shell\""
   });
 
+  test("parses top-level claude tool_use Bash starts and ignores non-shell tool_use", () => {
+    const start = parseShellToolFrameLine(
+      JSON.stringify({
+        type: "tool_use",
+        id: "toolu_top",
+        name: "Bash",
+        input: { command: "bun run test:shared" },
+      }),
+      "claude",
+    );
+    expect(start).toEqual({ phase: "start", command: "bun run test:shared" });
+    expect(
+      parseShellToolFrameLine(
+        JSON.stringify({
+          type: "tool_use",
+          id: "toolu_read",
+          name: "Read",
+          input: { file_path: "x.ts" },
+        }),
+        "claude",
+      ),
+    ).toBeNull();
+    // @mutate shared/invocation/agents.ts "command === null" -> "command !== null"
+  });
+
   test("ignores non-shell claude tool_use blocks even with a command-shaped input", () => {
     const result = parseShellToolFrameLine(
       JSON.stringify({

@@ -5307,6 +5307,21 @@ describe("pipeline branch fan-out execution", () => {
     expect(stageRecord(stages(), "plan", "beta")?.status).toBe("failed");
   });
 
+  test("fanOutPlanResultForBranch lists available downstream inputs on binding refusal", () => {
+    const downstreamInputs = ["ready-intents/alpha.md", "ready-intents/beta.md"];
+    const results = downstreamInputs.map(() => ({ steps: [] }));
+
+    const unmatched = fanOutPlanResultForBranch(downstreamInputs, results, "gamma");
+    expect(unmatched.ok).toBe(false);
+    if (unmatched.ok) throw new Error("expected binding refusal");
+    expect(unmatched.error).toContain("available downstream inputs: ready-intents/alpha.md, ready-intents/beta.md");
+
+    const empty = fanOutPlanResultForBranch([], [], "alpha");
+    expect(empty.ok).toBe(false);
+    if (empty.ok) throw new Error("expected binding refusal");
+    expect(empty.error).toContain("available downstream inputs: (none)");
+  });
+
   test("fan-out plan dispatch refuses a branch-key mismatch without sibling dispatch", async () => {
     // @mutate v2/src/daemon/pipeline-execution.ts "branchKeys: admission.branchKeys" -> "branchKeys: [...admission.branchKeys, 'gamma']"
     const downstreamInputs = [...FAN_OUT_DOWNSTREAM];

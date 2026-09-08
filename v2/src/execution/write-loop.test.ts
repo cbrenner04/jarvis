@@ -10247,7 +10247,10 @@ index 1234567..abcdefg 100644
       const gateCommand = "bun run test:v2";
       const ceilingSchedule = fastCeilingSchedule();
       let nowMs = Date.parse("2026-09-08T06:00:00.000Z");
-      const clock = () => new Date((nowMs += 25));
+      const clock = () => {
+        nowMs += 25;
+        return new Date(nowMs);
+      };
 
       mock.module("./write.ts", () => ({
         executeWrite: (input: WriteExecuteInput) => {

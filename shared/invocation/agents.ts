@@ -278,6 +278,57 @@ function commandFromPartialClaudeToolInput(partial: string): string | null {
   }
 }
 
+/** Resolve which pending tool-use entry a delta/stop frame refers to: by index when the frame
+ * carries one, else the most recent entry. */
+function pendingShellToolKey(event: Record<string, unknown>, state: ShellToolParseState): string | undefined {
+  const index = typeof event.index === "number" ? event.index : null;
+  return index === null ? [...state.pendingInputJson.keys()].at(-1) : [...state.pendingInputJson.keys()][index];
+}
+
+function handleClaudeShellToolBlockStart(
+  event: Record<string, unknown>,
+  state: ShellToolParseState,
+  onStart: (command: string, toolUseId: string) => void,
+): void {
+  const contentBlock = asJsonObject(event.content_block);
+  const id = typeof contentBlock?.id === "string" ? contentBlock.id : null;
+  const name = contentBlock?.name;
+  if (id === null || !isClaudeShellToolName(name)) return;
+  state.pendingInputJson.set(id, { name: String(name), partial: "" });
+  const command = commandFromClaudeToolInput(contentBlock?.input);
+  if (command !== null) onStart(command, id);
+}
+
+function handleClaudeShellToolBlockDelta(
+  event: Record<string, unknown>,
+  state: ShellToolParseState,
+  onStart: (command: string, toolUseId: string) => void,
+): void {
+  const delta = asJsonObject(event.delta);
+  if (delta?.type !== "input_json_delta" || typeof delta.partial_json !== "string") return;
+  const pendingKey = pendingShellToolKey(event, state);
+  if (pendingKey === undefined) return;
+  const pending = state.pendingInputJson.get(pendingKey);
+  if (pending === undefined) return;
+  pending.partial += delta.partial_json;
+  const command = commandFromPartialClaudeToolInput(pending.partial);
+  if (command !== null && !state.awaitingShellCompletion.has(pendingKey)) onStart(command, pendingKey);
+}
+
+function handleClaudeShellToolBlockStop(
+  event: Record<string, unknown>,
+  state: ShellToolParseState,
+  onStart: (command: string, toolUseId: string) => void,
+): void {
+  const pendingKey = pendingShellToolKey(event, state);
+  if (pendingKey === undefined) return;
+  const pending = state.pendingInputJson.get(pendingKey);
+  if (pending === undefined) return;
+  const command = commandFromPartialClaudeToolInput(pending.partial);
+  if (command !== null && !state.awaitingShellCompletion.has(pendingKey)) onStart(command, pendingKey);
+  state.pendingInputJson.delete(pendingKey);
+}
+
 function handleClaudeStreamEventShellTool(
   frame: Record<string, unknown>,
   state: ShellToolParseState,
@@ -286,41 +337,11 @@ function handleClaudeStreamEventShellTool(
   const event = asJsonObject(frame.event);
   if (event === null) return;
   if (event.type === "content_block_start") {
-    const contentBlock = asJsonObject(event.content_block);
-    const id = typeof contentBlock?.id === "string" ? contentBlock.id : null;
-    const name = contentBlock?.name;
-    if (id === null || !isClaudeShellToolName(name)) return;
-    state.pendingInputJson.set(id, { name: String(name), partial: "" });
-    const command = commandFromClaudeToolInput(contentBlock?.input);
-    if (command !== null) onStart(command, id);
-    return;
-  }
-  if (event.type === "content_block_delta") {
-    const delta = asJsonObject(event.delta);
-    if (delta?.type !== "input_json_delta" || typeof delta.partial_json !== "string") return;
-    const index = typeof event.index === "number" ? event.index : null;
-    const pendingKey =
-      index === null ? [...state.pendingInputJson.keys()].at(-1) : [...state.pendingInputJson.keys()][index];
-    if (pendingKey === undefined) return;
-    const pending = state.pendingInputJson.get(pendingKey);
-    if (pending === undefined) return;
-    pending.partial += delta.partial_json;
-    const command = commandFromPartialClaudeToolInput(pending.partial);
-    if (command !== null && !state.awaitingShellCompletion.has(pendingKey)) onStart(command, pendingKey);
-    return;
-  }
-  if (event.type === "content_block_stop") {
-    const index = typeof event.index === "number" ? event.index : null;
-    const pendingKey =
-      index === null ? [...state.pendingInputJson.keys()].at(-1) : [...state.pendingInputJson.keys()][index];
-    if (pendingKey !== undefined) {
-      const pending = state.pendingInputJson.get(pendingKey);
-      if (pending !== undefined) {
-        const command = commandFromPartialClaudeToolInput(pending.partial);
-        if (command !== null && !state.awaitingShellCompletion.has(pendingKey)) onStart(command, pendingKey);
-        state.pendingInputJson.delete(pendingKey);
-      }
-    }
+    handleClaudeShellToolBlockStart(event, state, onStart);
+  } else if (event.type === "content_block_delta") {
+    handleClaudeShellToolBlockDelta(event, state, onStart);
+  } else if (event.type === "content_block_stop") {
+    handleClaudeShellToolBlockStop(event, state, onStart);
   }
 }
 

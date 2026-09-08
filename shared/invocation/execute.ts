@@ -194,6 +194,23 @@ async function appendInvocationTelemetry<T extends InvocationResult>(
   }
 }
 
+/** Agent shell-tool callbacks, present only when supplied; kept out of the caller so the
+ * optional-field spreads do not count against its cognitive-complexity budget. */
+function pickShellCommandCallbacks(args: {
+  onAgentShellCommand?: (command: string) => void | Promise<void>;
+  onAgentShellCommandComplete?: () => void | Promise<void>;
+}): {
+  onAgentShellCommand?: (command: string) => void | Promise<void>;
+  onAgentShellCommandComplete?: () => void | Promise<void>;
+} {
+  return {
+    ...(args.onAgentShellCommand !== undefined ? { onAgentShellCommand: args.onAgentShellCommand } : {}),
+    ...(args.onAgentShellCommandComplete !== undefined
+      ? { onAgentShellCommandComplete: args.onAgentShellCommandComplete }
+      : {}),
+  };
+}
+
 /**
  * Run bindings in order, advancing when the binding's `shouldAdvance` predicate
  * returns true (default: `result.kind === "quota"`).
@@ -228,10 +245,7 @@ export async function executeWithQuotaFallback<T extends InvocationResult = Invo
       ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
       ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
       ...(args.onOutputProgress !== undefined ? { onOutputProgress: args.onOutputProgress } : {}),
-      ...(args.onAgentShellCommand !== undefined ? { onAgentShellCommand: args.onAgentShellCommand } : {}),
-      ...(args.onAgentShellCommandComplete !== undefined
-        ? { onAgentShellCommandComplete: args.onAgentShellCommandComplete }
-        : {}),
+      ...pickShellCommandCallbacks(args),
       ...(args.additionalReadDirs !== undefined ? { additionalReadDirs: args.additionalReadDirs } : {}),
     });
     logBindingInbound(args.sessionLog, result);

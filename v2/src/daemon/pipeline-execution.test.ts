@@ -5431,6 +5431,7 @@ describe("pipeline branch fan-out execution", () => {
 
   test("fan-out plan dispatch forwards per-branch runStaleResetPreflight from results", async () => {
     // @mutate v2/src/daemon/pipeline-execution.ts "branchResult.runStaleResetPreflight !== undefined" -> "branchResult.runStaleResetPreflight === undefined"
+    // @mutate v2/src/daemon/pipeline-execution.ts "branchResult.preflightCapture !== undefined" -> "branchResult.preflightCapture === undefined"
     let alphaStaleResetInvoked = false;
     const alphaRejectingPreflight = async () => {
       alphaStaleResetInvoked = true;
@@ -5473,6 +5474,9 @@ describe("pipeline branch fan-out execution", () => {
     expect(alphaStaleResetInvoked).toBe(true);
     expect(dispatchLog.filter((entry) => entry.stageId === "plan" && entry.branchKey === "alpha")).toEqual([]);
     expect(stageRecord(stages(), "plan", "alpha")?.status).toBe("failed");
+    expect((stageRecord(stages(), "plan", "alpha")?.failureDetail as { message?: string } | null)?.message).toContain(
+      "alpha lane stale-reset refused",
+    );
     expect(dispatchLog.filter((entry) => entry.stageId === "plan" && entry.branchKey === "beta")).toEqual([
       { stageId: "plan", branchKey: "beta" },
     ]);

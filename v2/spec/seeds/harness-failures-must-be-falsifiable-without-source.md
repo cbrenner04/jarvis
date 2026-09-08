@@ -26,18 +26,23 @@ The cost is asymmetric for external operators in a third way: all three messages
 
 ## Decisions
 
-- An operator-facing contract failure names the **expectation** and the **observed input** that failed it, quoting the offending line or value; rules out a bare verdict whose only falsification is reading harness source.
-- Checks over authored documents distinguish *no candidate found* from *candidate found but not matching*, and report the near-miss candidate; rules out one message for two opposite fixes.
-- A settlement whose recovery cannot change the outcome is reported as such, and does not advertise `resumable: true` / `nextAction: resume`; rules out an operator re-issuing a fixed point. A settlement that a quieter machine can clear is not reported `nextAction: stop`.
-- Failure text distinguishes paths in the operator's repository from harness-internal paths; rules out a message that reads as a defect in the operator's own code.
-- Apply to the plan-contract family first (the three above and [[plan-contract-classifies-the-rules-out-clause]]), as the class with the highest observed diagnosis cost; rules out a repo-wide message audit as the unit of work.
+**One shared failure record, used by every workflow and every pipeline stage.** Intent, plan, and implement all settle through the same run-row and `failureDetail` seams, so a per-check or per-family fix reproduces this bug in the next check written. The unit of work is the shared type and its renderers, adopted at the existing call sites.
+
+- Introduce one structured operator-facing failure record — expectation, observed value, optional near-miss candidate, and whether re-issuing can change the outcome — carried on both the durable run-row error and pipeline `failureDetail`; rules out free-form `{ message }` strings as the contract between harness and operator.
+- Every workflow (`intent`, `plan`, `implement`) and every pipeline stage renders that record through one formatter, so the same failure reads identically from `run list`, `run wait`, `pipeline list`, and the TUI; rules out per-surface message construction that drifts.
+- Checks over authored documents populate the near-miss field, distinguishing *no candidate found* from *candidate found but not matching*; rules out one message serving two opposite fixes.
+- Retryability is a field on the record, derived at settlement by the code that knows whether re-issue re-runs the identical step; `resumable` / `nextAction` project from it; rules out a row advertising `resume` for a fixed point, or `stop` for a load-cleared condition.
+- The record marks harness-internal paths distinctly from operator-repository paths; rules out a message that reads as a defect in the operator's own code.
+- Adopt at the existing settlement call sites rather than rewriting the checks; rules out a repo-wide message audit as the unit of work, while still closing the class.
 
 ## Acceptance criteria
 
-- [ ] A test proves an unlinked-subspec failure whose index contains a near-miss line quotes that line and reports it as unmatched, distinctly from the no-line-at-all case; it fails against the current single message.
-- [ ] A test proves a settlement whose re-issue re-runs the identical failing step does not project `resumable: true` / `nextAction: resume` — covering ready-gate autofix over non-autofixable findings ([[ready-gate-autofix-strands-on-unfixable-lint]]).
-- [ ] A test proves an operator-facing contract failure message names both the expectation and the observed value.
-- [ ] A doc check or test asserts these messages mark harness-internal paths distinctly from operator-repo paths.
+- [ ] A test proves the structured failure record round-trips on a durable run row and on a pipeline `failureDetail`, preserving expectation, observed, near-miss, and retryability.
+- [ ] A test proves one formatter renders the same record identically for `run list`, `run wait`, and `pipeline list`; it fails if any surface constructs its own text.
+- [ ] A test proves an `intent`, a `plan`, and an `implement` failure each carry the record — the shared path is adopted by all three workflows, not one family.
+- [ ] A test proves an unlinked-subspec failure whose index holds a near-miss line reports that line as unmatched, distinctly from the no-line case; it fails against the current single message.
+- [ ] A test proves a settlement whose re-issue re-runs the identical failing step reports non-retryable and does not project `nextAction: resume` — covering ready-gate autofix over non-autofixable findings ([[ready-gate-autofix-strands-on-unfixable-lint]]).
+- [ ] A test proves harness-internal paths are marked distinctly from operator-repository paths in the rendered record.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

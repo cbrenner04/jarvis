@@ -1,0 +1,60 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "api_error_status": null,
+  "duration_ms": 3500,
+  "duration_api_ms": 3000,
+  "ttft_ms": 2000,
+  "num_turns": 2,
+  "result": "The current population of Australia is approximately 26 million people as of 2024.",
+  "stop_reason": "end_turn",
+  "session_id": "aa11bb22-cc33-dd44-ee55-ff66aa77bb88",
+  "total_cost_usd": 0.05,
+  "usage": {
+    "input_tokens": 120,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 250,
+    "server_tool_use": { "web_search_requests": 1, "web_fetch_requests": 0 },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "",
+    "iterations": [
+      {
+        "input_tokens": 45,
+        "output_tokens": 50,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "type": "tool_call"
+      },
+      {
+        "input_tokens": 75,
+        "output_tokens": 200,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "type": "message"
+      }
+    ],
+    "speed": "standard"
+  },
+  "modelUsage": {
+    "claude-haiku-4-5-20251001": {
+      "inputTokens": 120,
+      "outputTokens": 250,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 0,
+      "webSearchRequests": 1,
+      "costUSD": 0.05,
+      "contextWindow": 200000,
+      "maxOutputTokens": 32000
+    }
+  },
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "uuid": "cc44dd55-ee66-ff77-aa88-bb99cc00dd11"
+}

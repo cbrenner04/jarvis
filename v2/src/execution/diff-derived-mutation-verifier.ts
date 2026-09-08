@@ -120,7 +120,7 @@ export const MAX_KILLING_TEST_MS = 30_000;
 export const MAX_CONCURRENT_VERIFIER_TEST_RUNS = 4;
 export const MAX_IMPORTER_DISCOVERY_CANDIDATES_PER_FILE = 200;
 
-const IMPORTER_SCAN_SURFACE_PREFIXES = ["v1/src/", "v2/src/", "shared/"] as const;
+const IMPORTER_SCAN_SURFACE_PREFIXES = ["v2/src/", "shared/"] as const;
 const RENDER_OBSERVER_MAP_RELATIVE_PATH = "shared/prompts/render-observer-tests.ts";
 const RENDER_OBSERVER_MAP_BINDING = "RENDER_OBSERVER_TESTS";
 const MUTATION_RECORD_DIR = ".jarvis-diff-derived-mutations";

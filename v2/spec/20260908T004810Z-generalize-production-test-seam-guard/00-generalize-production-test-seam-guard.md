@@ -5,7 +5,7 @@
 ## Decisions
 
 - Broaden detection to six enforced shape families (each matching both `ForTest` and `ForTests` suffixes where applicable): `set*ForTest`/`set*ForTests` exports, `*ForTest`/`*ForTests` module variables, `invert*` function parameters (unchanged), `*ForTest`/`*ForTests` function parameters, `invert*ForTest` type members (unchanged naming for the invert-only member shape), and `*ForTest`/`*ForTests` type members — rules out a guard that only covers the last incident `invert*` family.
-- Keep scanning `v2/src`, `v1/src`, and `shared` with the existing `.test.` basename exclusion and `shared/prompts/step-rules.ts` path skip — rules out limiting the guard to daemon-only paths or adding a hook-name allowlist.
+- Keep scanning `v2/src` and `shared` (the frozen `v1/src` is excluded) with the existing `.test.` basename exclusion and `shared/prompts/step-rules.ts` path skip — rules out limiting the guard to daemon-only paths or adding a hook-name allowlist.
 - `set*ForTest`/`set*ForTests`: exported function or `export`/`export const` binding whose identifier matches `set\w+ForTests?` (covers `setInvert*ForTest`).
 - `*ForTest`/`*ForTests` module variable: top-level `let`/`const`/`var` whose identifier ends with `ForTest` or `ForTests` (covers `invert*ForTest` module lets).
 - `invert*` function parameter: unchanged — parameter identifier starting with `invert` in function, method, arrow, or constructor signatures.

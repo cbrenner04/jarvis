@@ -14,8 +14,9 @@
       "!**/build",
       "!**/coverage",
       "!**/.git",
-      "!**/v1/test/fixtures",
-      "!**/v2/test/fixtures"
+      "!**/v1",
+      "!**/v2/test/fixtures",
+      "!**/shared/fixtures"
     ]
   },
   "formatter": {
@@ -50,26 +51,6 @@
     }
   },
   "overrides": [
-    {
-      "includes": ["v1/src/**/*.ts", "v1/test/**/*.ts"],
-      "linter": {
-        "rules": {
-          "style": {
-            "noRestrictedImports": {
-              "level": "error",
-              "options": {
-                "patterns": [
-                  {
-                    "group": ["**/v2/**"],
-                    "message": "v1 code must not import from v2."
-                  }
-                ]
-              }
-            }
-          }
-        }
-      }
-    },
     {
       "includes": ["v2/src/**/*.ts", "!v2/src/**/*.test.ts"],
       "linter": {

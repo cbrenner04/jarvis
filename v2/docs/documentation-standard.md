@@ -53,4 +53,4 @@ Document each behavior in exactly one durable home. Cross-link; do not duplicate
 | Component/service contracts spanning files | `v2/docs/` |
 | Operator/workflow behavior | `v2/docs/` |
 | Design decisions and rationale | `v2/docs/` |
-| Work intent and acceptance contract for a specific change | Spec (`v1/spec/` or `v2/spec/`) |
+| Work intent and acceptance contract for a specific change | Spec (`v2/spec/`) |

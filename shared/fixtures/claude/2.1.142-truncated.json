@@ -1,0 +1,1 @@
+{"type":"result","subtype":"success","is_error":false,"api_error_status":null,"duration_ms":5000,"duration_api_ms":4000,"ttft_ms":2500,"num_turns":1,"result":"This response was cut off mid-sentence because the model hit max tokens and the stream ended unexpectedly mid-

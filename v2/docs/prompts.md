@@ -39,7 +39,7 @@ Migration of call sites from post-render string surgery to these ids is scoped i
 - `unknown_variant` — `options.variant` names an id absent from `artifact.metadata.variants`.
 - `missing_template_anchor` — a variant `anchor` or optional-section `header`/`begin`/`end` is absent from the template body before substitution or excision. No silent no-op on prompt prose drift.
 
-Other `PromptRenderingError` reasons (`unknown_placeholder`, `missing_value`, `type_mismatch`, `invalid_placeholder_pattern`, `delimiter_violation`) are covered in [`v1/docs/prompt-governance.md`](../../v1/docs/prompt-governance.md#validation-boundary).
+Other `PromptRenderingError` reasons (`unknown_placeholder`, `missing_value`, `type_mismatch`, `invalid_placeholder_pattern`, `delimiter_violation`) are covered in [`prompt-governance.md`](./prompt-governance.md#validation-boundary).
 
 ## Write-step prompts
 
@@ -81,7 +81,7 @@ Advisory re-prompt issued after a completing implement write when uncovered chan
 
 ## Plan and intent prompts
 
-Plan draft and plan review inject `SPEC_GUIDANCE` from [`spec-guidance-agent-core.md`](./spec-guidance-agent-core.md) at the install root (agent core only; operator CLI guidance stays in [`v1/docs/spec-guidance.md`](../../v1/docs/spec-guidance.md)). Intent review injects the same agent core as `SPEC_GUIDANCE`; intent split has no `SPEC_GUIDANCE` placeholder and instead directs the agent to read [`spec-guidance-agent-core.md`](./spec-guidance-agent-core.md) for sizing and reviewability. See [`write-behavior.md`](./write-behavior.md#plan-write-step-seeding-and-completion-contract), [`workflow-runner.md`](./workflow-runner.md#execution-contract).
+Plan draft and plan review inject `SPEC_GUIDANCE` from [`spec-guidance-agent-core.md`](./spec-guidance-agent-core.md) at the install root (agent core only; operator guidance stays in [`spec-guidance.md`](./spec-guidance.md)). Intent review injects the same agent core as `SPEC_GUIDANCE`; intent split has no `SPEC_GUIDANCE` placeholder and instead directs the agent to read [`spec-guidance-agent-core.md`](./spec-guidance-agent-core.md) for sizing and reviewability. See [`write-behavior.md`](./write-behavior.md#plan-write-step-seeding-and-completion-contract), [`workflow-runner.md`](./workflow-runner.md#execution-contract).
 
 - `plan.prompt.draft` — `WORKDIR`, `NAME`, `INTENT` (ready-intent seed); Rules carry step mechanics only (write boundaries, blocker contract, frontmatter preservation, subspec/index linkage), with authoring norms owned by injected `SPEC_GUIDANCE`
 - `plan.prompt.review.*` — debate and light review roles with materialized draft context

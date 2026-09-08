@@ -1,4 +1,3 @@
-import { v1Tests } from "./run-v1-tests.ts";
 import { aggregateExitCode, runV2TestFiles, v2Tests } from "./run-v2-tests.ts";
 import { partitionTestFiles, walkTestFiles } from "./test-slice.ts";
 
@@ -6,8 +5,8 @@ import { partitionTestFiles, walkTestFiles } from "./test-slice.ts";
 export function aggregateTestFiles(): { agent: string[]; integration: string[] } {
   const sharedAndHarness = partitionTestFiles([...walkTestFiles("shared"), ...walkTestFiles("test")]);
   return {
-    agent: [...v1Tests("agent"), ...v2Tests("agent"), ...sharedAndHarness.agent],
-    integration: [...v1Tests("integration"), ...v2Tests("integration"), ...sharedAndHarness.integration],
+    agent: [...v2Tests("agent"), ...sharedAndHarness.agent],
+    integration: [...v2Tests("integration"), ...sharedAndHarness.integration],
   };
 }
 

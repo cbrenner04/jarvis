@@ -2,7 +2,7 @@ import { spawn as nodeSpawn, type SpawnSyncReturns } from "node:child_process";
 import { availableParallelism } from "node:os";
 import { isLoadSensitive, sliceTestFiles, type TestSliceMode, walkTestFiles } from "./test-slice.ts";
 
-/** Supported budget for the slowest healthy test file; `v1/test/run.test.ts` runs ~120s under the aggregate suite. */
+/** Supported budget for the slowest healthy test file under the aggregate suite. */
 export const SUPPORTED_HEALTHY_FILE_BUDGET_MS = 180_000;
 export const FAILING_TEST_FILE_MARKER = "JARVIS_READY_FAILING_TEST_FILE ";
 export const READY_ATTEMPT_ENV = "JARVIS_READY_ATTEMPT_ID";

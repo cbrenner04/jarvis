@@ -62,6 +62,20 @@ describe("getPipelineDefinition", () => {
     ]);
   });
 
+  test("full-light-review stages in order: full-review's gated shape with light review on plan and implement", () => {
+    const result = getPipelineDefinition("full-light-review");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected hit");
+    expect(result.definition.stages).toEqual([
+      { stageId: "intent", kind: "workflow", workflow: "intent", review: "light" },
+      { stageId: "approve-intent", kind: "approval" },
+      { stageId: "plan", kind: "workflow", workflow: "plan", review: "light" },
+      { stageId: "approve-plan", kind: "approval" },
+      { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+    ]);
+  });
+
   test("fast stages in order: kind, workflow, posture", () => {
     const result = getPipelineDefinition("fast");
 

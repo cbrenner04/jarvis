@@ -11,6 +11,16 @@ export const PIPELINE_REGISTRY: Record<string, PipelineDefinition> = {
       { stageId: "implement", kind: "workflow", workflow: "implement", review: "debate" },
     ],
   },
+  "full-light-review": {
+    name: "full-light-review",
+    stages: [
+      { stageId: "intent", kind: "workflow", workflow: "intent", review: "light" },
+      { stageId: "approve-intent", kind: "approval" },
+      { stageId: "plan", kind: "workflow", workflow: "plan", review: "light" },
+      { stageId: "approve-plan", kind: "approval" },
+      { stageId: "implement", kind: "workflow", workflow: "implement", review: "light" },
+    ],
+  },
   fast: {
     name: "fast",
     stages: [

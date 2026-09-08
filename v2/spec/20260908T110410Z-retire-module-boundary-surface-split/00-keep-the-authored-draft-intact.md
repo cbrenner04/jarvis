@@ -21,12 +21,12 @@ Classification is regex keyword matching over criterion prose including file pat
 
 ## Acceptance criteria
 
-- [ ] `shared/module-boundary-surfaces.test.ts` proves a draft whose acceptance criteria mention two jarvis surfaces (for example one naming `v2/src/daemon/…` and one naming `state-store`) retains exactly its authored files, with each file's title and `## Problem` byte-identical to the input; it fails against the pre-fix split reachable on main.
-- [ ] `shared/module-boundary-surfaces.test.ts` proves a draft written in product vocabulary — one criterion containing "persists across relaunch" and one containing "a feature flag" — is neither split nor rejected; it fails against the pre-fix classifier.
-- [ ] `shared/module-boundary-surfaces.test.ts` proves a draft with a subspec carrying no acceptance criteria is left as authored rather than being emitted or renumbered.
-- [ ] A guard test proves no production module outside `shared/module-boundary-surfaces.ts` imports a surface-classification export.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:shared` passes.
+- [x] `shared/module-boundary-surfaces.test.ts` proves a draft whose acceptance criteria mention two jarvis surfaces (for example one naming `v2/src/daemon/…` and one naming `state-store`) retains exactly its authored files, with each file's title and `## Problem` byte-identical to the input; it fails against the pre-fix split reachable on main.
+- [x] `shared/module-boundary-surfaces.test.ts` proves a draft written in product vocabulary — one criterion containing "persists across relaunch" and one containing "a feature flag" — is neither split nor rejected; it fails against the pre-fix classifier.
+- [x] `shared/module-boundary-surfaces.test.ts` proves a draft with a subspec carrying no acceptance criteria is left as authored rather than being emitted or renumbered.
+- [x] A guard test proves no production module outside `shared/module-boundary-surfaces.ts` imports a surface-classification export.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:shared` passes.
 
 ## Documentation updates
 

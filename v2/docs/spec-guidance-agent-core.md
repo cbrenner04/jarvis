@@ -10,8 +10,6 @@ Fresh plan runs require a seed. File and inline seeds both enter the same flow: 
 
 When a seed is too broad for one spec/PR, split it into authored intents first. Intents are split by touched module-boundary surface (persistence, daemon request handling, CLI admission, execution loop, comparable seams), not by symptom, one intent per surface in dependency order. Use these size boundaries:
 
-When a seed touches exactly one module-boundary surface, the emitted intent's `Unsplit rationale:` line and `## Primary implementation surface` section (naming exactly one entry) are not review prose — the plan-draft normalizer reads that declared pair from `intent.md` to suppress boundary splitting on the resulting spec.
-
 - A **subspec** is commit-sized: one atomic, independently testable change.
 - An **intent** is behavior-sized: one independently observable behavior that
   can later draft into one spec.
@@ -39,7 +37,7 @@ Each subspec should be independently implementable and testable. A good subspec 
 - acceptance criteria
 - required documentation updates
 
-Each subspec should own one module boundary. Use [`shared/module-boundary-surfaces.ts`](../../shared/module-boundary-surfaces.ts) for the canonical surface list and classification contract.
+Each subspec should own one independently testable change.
 
 Any spec that changes **existing functionality** (not purely net-new work) must include updating `v2/docs/v1-behaviors.md` in its documentation updates — that catalog is the v1 parity baseline v2 review reads, so a behavior change that skips it silently rots the baseline. Record what the behavior now is, so the v2 plans can later be reconciled against it.
 

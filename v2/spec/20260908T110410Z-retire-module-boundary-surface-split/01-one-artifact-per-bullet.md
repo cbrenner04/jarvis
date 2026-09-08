@@ -23,13 +23,13 @@ The rule worth keeping is the one the prompt actually states — one artifact pe
 
 ## Acceptance criteria
 
-- [ ] `shared/module-boundary-surfaces.test.ts` proves an acceptance-criteria bullet naming two artifact paths is rejected with an error naming both paths and the owning file; it fails against the pre-fix multi-surface message.
-- [ ] `shared/module-boundary-surfaces.test.ts` proves a bullet naming exactly one artifact path is accepted regardless of wording, including one containing both "persisted" and "flag"; it fails against the pre-fix keyword rejection.
-- [ ] `shared/module-boundary-surfaces.test.ts` proves a prose bullet naming no artifact path is accepted.
-- [ ] `shared/module-boundary-surfaces.test.ts` proves the check rejects a two-path bullet in a draft that the pre-fix code would never have split, so enforcement no longer depends on the retired classifier.
-- [ ] `shared/module-boundary-surfaces.test.ts` proves an `index.md` linking an unknown subspec, and one linking a subspec twice, each still throw.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:shared` passes.
+- [x] `shared/module-boundary-surfaces.test.ts` proves an acceptance-criteria bullet naming two artifact paths is rejected with an error naming both paths and the owning file; it fails against the pre-fix multi-surface message.
+- [x] `shared/module-boundary-surfaces.test.ts` proves a bullet naming exactly one artifact path is accepted regardless of wording, including one containing both "persisted" and "flag"; it fails against the pre-fix keyword rejection.
+- [x] `shared/module-boundary-surfaces.test.ts` proves a prose bullet naming no artifact path is accepted.
+- [x] `shared/module-boundary-surfaces.test.ts` proves the check rejects a two-path bullet in a draft that the pre-fix code would never have split, so enforcement no longer depends on the retired classifier.
+- [x] `shared/module-boundary-surfaces.test.ts` proves an `index.md` linking an unknown subspec, and one linking a subspec twice, each still throw.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:shared` passes.
 
 ## Documentation updates
 

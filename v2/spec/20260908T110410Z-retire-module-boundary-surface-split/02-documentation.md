@@ -18,11 +18,11 @@ Durable docs and the plan prompt describe a post-hoc surface split that subspecs
 
 ## Acceptance criteria
 
-- [ ] `prompts/plan/draft.md` states the bullet rule as one artifact per bullet, and contains no "module-boundary surface" framing or claim that a multi-surface bullet blocks the draft.
-- [ ] `v2/docs/spec-guidance.md` states that the plan agent authors subspecs and that no post-hoc surface split runs.
-- [ ] `v2/docs/write-behavior.md` describes the plan write path as validating the authored draft without re-splitting it.
-- [ ] `v2/docs/v1-behaviors.md` records the retirement, including that the taxonomy was jarvis-specific and previously applied to every registered project.
-- [ ] `bun run lint:md` passes.
+- [x] `prompts/plan/draft.md` states the bullet rule as one artifact per bullet, and contains no "module-boundary surface" framing or claim that a multi-surface bullet blocks the draft.
+- [x] `v2/docs/spec-guidance.md` states that the plan agent authors subspecs and that no post-hoc surface split runs.
+- [x] `v2/docs/write-behavior.md` describes the plan write path as validating the authored draft without re-splitting it.
+- [x] `v2/docs/v1-behaviors.md` records the retirement, including that the taxonomy was jarvis-specific and previously applied to every registered project.
+- [x] `bun run lint:md` passes.
 
 ## Documentation updates
 

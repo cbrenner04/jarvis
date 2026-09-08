@@ -295,47 +295,50 @@ type ReviewDebateStepAgents = Record<ReviewDebateRole, readonly string[]>;
 
 type ReviewStepAgents = Record<ReviewCycleRole, readonly string[]>;
 
-/** Per-step review-debate input plus workflow identity; role bindings are derived at execution. */
-export type ReviewDebateWorkflowStep = Omit<ReviewDebateInput, "bindings" | "onRoleStart"> & {
-  stepId: string;
-  behavior: "review-debate";
-  project: string;
-  branch: string;
-  agents: ReviewDebateStepAgents;
-  agentModelConfig: AgentModelConfig;
-  createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
-  landing?: PublicationLanding;
+type WorkflowGateCommandStamp = {
   fixCommand?: string;
   readyCommand?: string;
-  stagedMarkdownLintMaxReprompts?: number;
-  /** Set only by plan-stage recovery: revalidate staged plan bytes immediately before landing. */
-  revalidateStagedPlanBeforeLanding?: boolean;
-  /** Identifies an admitted external plan whose markdown remains read-only during review. */
-  externalPlanSpec?: true;
-  /** External review prompt label root and recovery boundary. */
-  specReadRoot?: string;
 };
 
+/** Per-step review-debate input plus workflow identity; role bindings are derived at execution. */
+export type ReviewDebateWorkflowStep = Omit<ReviewDebateInput, "bindings" | "onRoleStart"> &
+  WorkflowGateCommandStamp & {
+    stepId: string;
+    behavior: "review-debate";
+    project: string;
+    branch: string;
+    agents: ReviewDebateStepAgents;
+    agentModelConfig: AgentModelConfig;
+    createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
+    landing?: PublicationLanding;
+    stagedMarkdownLintMaxReprompts?: number;
+    /** Set only by plan-stage recovery: revalidate staged plan bytes immediately before landing. */
+    revalidateStagedPlanBeforeLanding?: boolean;
+    /** Identifies an admitted external plan whose markdown remains read-only during review. */
+    externalPlanSpec?: true;
+    /** External review prompt label root and recovery boundary. */
+    specReadRoot?: string;
+  };
+
 /** Per-step critic/actuator review input; bindings are derived at execution. */
-export type ReviewWorkflowStep = Omit<ReviewCycleInput, "bindings" | "onRoleStart"> & {
-  stepId: string;
-  behavior: "review";
-  project: string;
-  branch: string;
-  agents: ReviewStepAgents;
-  agentModelConfig: AgentModelConfig;
-  createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
-  landing?: PublicationLanding;
-  fixCommand?: string;
-  readyCommand?: string;
-  stagedMarkdownLintMaxReprompts?: number;
-  /** Set only by plan-stage recovery: revalidate staged plan bytes immediately before landing. */
-  revalidateStagedPlanBeforeLanding?: boolean;
-  /** Identifies an admitted external plan whose markdown remains read-only during review. */
-  externalPlanSpec?: true;
-  /** External review prompt label root and recovery boundary. */
-  specReadRoot?: string;
-};
+export type ReviewWorkflowStep = Omit<ReviewCycleInput, "bindings" | "onRoleStart"> &
+  WorkflowGateCommandStamp & {
+    stepId: string;
+    behavior: "review";
+    project: string;
+    branch: string;
+    agents: ReviewStepAgents;
+    agentModelConfig: AgentModelConfig;
+    createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
+    landing?: PublicationLanding;
+    stagedMarkdownLintMaxReprompts?: number;
+    /** Set only by plan-stage recovery: revalidate staged plan bytes immediately before landing. */
+    revalidateStagedPlanBeforeLanding?: boolean;
+    /** Identifies an admitted external plan whose markdown remains read-only during review. */
+    externalPlanSpec?: true;
+    /** External review prompt label root and recovery boundary. */
+    specReadRoot?: string;
+  };
 
 /** Live/terminal progress for a review step's daemon-visible row, tracked in-memory only. */
 export type ReviewProgress =

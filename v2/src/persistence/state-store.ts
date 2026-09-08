@@ -621,7 +621,16 @@ export interface StateStore {
   /** Record or clear (`null`) the process group id of the run's in-flight ready-gate test tree. */
   setReadyGatePgid(runId: string, pgid: number | null): void;
 
-  /** Non-live run rows carrying `ready_gate_pgid` (daemon startup orphan sweep). */
+  /** Record one verifier process group id without removing siblings already stored for the run. */
+  recordVerifierProcessGroup(runId: string, pgid: number): void;
+
+  /** Remove one recorded verifier process group id; clears the gate-slot column when it matches. */
+  clearVerifierProcessGroup(runId: string, pgid: number): void;
+
+  /** Remove every recorded verifier process group id for the run and clear the gate-slot column. */
+  clearVerifierProcessGroups(runId: string): void;
+
+  /** Non-live run rows carrying recorded verifier process group ids (daemon startup orphan sweep). */
   listReadyGateSweepCandidates(): Promise<ReadonlyArray<{ runId: string; readyGatePgid: number }>>;
 
   /** Persist ready-gate repair fence provenance for restart-safe recovery. */
@@ -1053,6 +1062,12 @@ const SCHEMA = `
     incident_json TEXT,
     PRIMARY KEY (incident_id, transition)
   );
+  CREATE TABLE IF NOT EXISTS run_verifier_process_groups (
+    run_id TEXT NOT NULL,
+    pgid INTEGER NOT NULL,
+    PRIMARY KEY (run_id, pgid),
+    FOREIGN KEY (run_id) REFERENCES runs(id)
+  );
 `;
 
 const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, status,
@@ -1216,6 +1231,25 @@ function upgradeFromLegacyEra(db: Database): void {
 function hasLegacyEraMigrations(db: Database): boolean {
   const row = db.prepare("SELECT 1 FROM _migrations WHERE id != ? LIMIT 1").get(BASELINE_SQUASH_MIGRATION_ID);
   return row !== undefined && row !== null;
+}
+
+function ensureVerifierProcessGroupsTable(db: Database): void {
+  if (!tableExists(db, "run_verifier_process_groups")) {
+    db.exec(`
+      CREATE TABLE run_verifier_process_groups (
+        run_id TEXT NOT NULL,
+        pgid INTEGER NOT NULL,
+        PRIMARY KEY (run_id, pgid),
+        FOREIGN KEY (run_id) REFERENCES runs(id)
+      );
+    `);
+  }
+  if (tableHasColumn(db, "runs", "ready_gate_pgid")) {
+    db.exec(`
+      INSERT OR IGNORE INTO run_verifier_process_groups (run_id, pgid)
+      SELECT id, ready_gate_pgid FROM runs WHERE ready_gate_pgid IS NOT NULL;
+    `);
+  }
 }
 
 function applySchemaMigrations(db: Database): void {
@@ -1592,6 +1626,7 @@ class StateStoreImpl implements StateStore {
     this.db.exec("PRAGMA journal_mode=WAL");
     this.db.exec("PRAGMA foreign_keys=ON");
     applySchemaMigrations(this.db);
+    ensureVerifierProcessGroupsTable(this.db);
     addColumnIfMissing(this.db, "operator_notification_deliveries", "incident_json", "TEXT");
     this.currentIdentity = overrides?.currentIdentity ?? CURRENT_OWNER_IDENTITY;
     this.isOwnerAliveProbe = overrides?.isOwnerAlive ?? isOwnerAlive;
@@ -1658,19 +1693,46 @@ class StateStoreImpl implements StateStore {
   }
 
   setReadyGatePgid(runId: string, pgid: number | null): void {
+    const currentRow = this.db.prepare("SELECT ready_gate_pgid AS readyGatePgid FROM runs WHERE id = ?").get(runId) as {
+      readyGatePgid: number | null;
+    } | null;
+    const currentPgid = currentRow?.readyGatePgid ?? null;
+
     if (pgid === null) {
-      this.db.prepare("UPDATE runs SET ready_gate_pgid = NULL WHERE id = ?").run(runId);
+      if (currentPgid !== null) {
+        this.clearVerifierProcessGroup(runId, currentPgid);
+      }
+      return;
     }
-    if (pgid !== null) {
-      this.db.prepare("UPDATE runs SET ready_gate_pgid = ? WHERE id = ?").run(pgid, runId);
+
+    if (currentPgid !== null && currentPgid !== pgid) {
+      this.clearVerifierProcessGroup(runId, currentPgid);
     }
+    this.recordVerifierProcessGroup(runId, pgid);
+    this.db.prepare("UPDATE runs SET ready_gate_pgid = ? WHERE id = ?").run(pgid, runId);
+  }
+
+  recordVerifierProcessGroup(runId: string, pgid: number): void {
+    this.db.prepare("INSERT OR IGNORE INTO run_verifier_process_groups (run_id, pgid) VALUES (?, ?)").run(runId, pgid);
+  }
+
+  clearVerifierProcessGroup(runId: string, pgid: number): void {
+    this.db.prepare("DELETE FROM run_verifier_process_groups WHERE run_id = ? AND pgid = ?").run(runId, pgid);
+    this.db.prepare("UPDATE runs SET ready_gate_pgid = NULL WHERE id = ? AND ready_gate_pgid = ?").run(runId, pgid);
+  }
+
+  clearVerifierProcessGroups(runId: string): void {
+    this.db.prepare("DELETE FROM run_verifier_process_groups WHERE run_id = ?").run(runId);
+    this.db.prepare("UPDATE runs SET ready_gate_pgid = NULL WHERE id = ?").run(runId);
   }
 
   async listReadyGateSweepCandidates(): Promise<ReadonlyArray<{ runId: string; readyGatePgid: number }>> {
     const candidates = this.db
-      .prepare(
-        "SELECT id, owner_identity AS ownerIdentity, ready_gate_pgid AS readyGatePgid FROM runs WHERE ready_gate_pgid IS NOT NULL",
-      )
+      .prepare(`
+        SELECT r.id AS id, r.owner_identity AS ownerIdentity, v.pgid AS readyGatePgid
+        FROM run_verifier_process_groups v
+        INNER JOIN runs r ON r.id = v.run_id
+      `)
       .all() as Array<{ id: string; ownerIdentity: string | null; readyGatePgid: number }>;
 
     const aliveByIdentity = new Map<string, boolean>();

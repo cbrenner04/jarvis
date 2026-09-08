@@ -75,6 +75,15 @@ function loadRunOrThrow(store: StateStore, runId: string): NonNullable<ReturnTyp
   return run;
 }
 
+function listVerifierPgids(dbPath: string, runId: string): number[] {
+  const raw = new Database(dbPath);
+  const rows = raw
+    .prepare("SELECT pgid FROM run_verifier_process_groups WHERE run_id = ? ORDER BY pgid ASC")
+    .all(runId) as Array<{ pgid: number }>;
+  raw.close();
+  return rows.map((row) => row.pgid);
+}
+
 function loadPipelineOrThrow(
   store: StateStore,
   pipelineId: string,
@@ -134,6 +143,98 @@ describe("StateStore", () => {
 
     store.setReadyGatePgid(runId, null);
     expect(loadRunOrThrow(store, runId).readyGatePgid ?? null).toBeNull();
+  });
+
+  test("recordVerifierProcessGroup retains multiple ids per run", () => {
+    const runId = seedRun(store);
+    store.recordVerifierProcessGroup(runId, 4242);
+    store.recordVerifierProcessGroup(runId, 5353);
+    expect(listVerifierPgids(TEST_DB_PATH, runId)).toEqual([4242, 5353]);
+
+    store.close();
+    const reopened = openStateStore(TEST_DB_PATH);
+    expect(listVerifierPgids(TEST_DB_PATH, runId)).toEqual([4242, 5353]);
+    reopened.close();
+  });
+
+  test("recordVerifierProcessGroup duplicate insert is idempotent", () => {
+    const runId = seedRun(store);
+    store.recordVerifierProcessGroup(runId, 4242);
+    store.recordVerifierProcessGroup(runId, 4242);
+    expect(listVerifierPgids(TEST_DB_PATH, runId)).toEqual([4242]);
+  });
+
+  test("clearVerifierProcessGroup removes one recorded id without disturbing siblings", () => {
+    const runId = seedRun(store);
+    store.recordVerifierProcessGroup(runId, 4242);
+    store.recordVerifierProcessGroup(runId, 5353);
+    store.clearVerifierProcessGroup(runId, 4242);
+    expect(listVerifierPgids(TEST_DB_PATH, runId)).toEqual([5353]);
+  });
+
+  test("clearVerifierProcessGroups removes every recorded id for a run", async () => {
+    const runId = seedRun(store, { status: "killed" });
+    store.recordVerifierProcessGroup(runId, 4242);
+    store.recordVerifierProcessGroup(runId, 5353);
+    store.clearVerifierProcessGroups(runId);
+    expect(listVerifierPgids(TEST_DB_PATH, runId)).toEqual([]);
+
+    store.close();
+    const reopened = openStateStore(TEST_DB_PATH);
+    expect(listVerifierPgids(TEST_DB_PATH, runId)).toEqual([]);
+    const candidates = await reopened.listReadyGateSweepCandidates();
+    expect(candidates.filter((candidate) => candidate.runId === runId)).toEqual([]);
+    reopened.close();
+  });
+
+  test("setReadyGatePgid replace evicts prior gate pgid from child table", () => {
+    const runId = seedRun(store);
+    store.setReadyGatePgid(runId, 4242);
+    store.setReadyGatePgid(runId, 5353);
+    expect(listVerifierPgids(TEST_DB_PATH, runId)).toEqual([5353]);
+    expect(loadRunOrThrow(store, runId).readyGatePgid).toBe(5353);
+  });
+
+  test("post-squash open backfills run_verifier_process_groups from ready_gate_pgid", () => {
+    const legacyDbPath = join(tmpdir(), "jarvis-test-squashed-ready-gate-pgid.sqlite");
+    removeOrchestrationStore(legacyDbPath);
+    try {
+      const raw = new Database(legacyDbPath);
+      raw.exec(`
+        CREATE TABLE runs (
+          id TEXT PRIMARY KEY,
+          project TEXT NOT NULL,
+          spec_ref TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          worktree_path TEXT NOT NULL,
+          branch TEXT NOT NULL,
+          spec_path TEXT NOT NULL,
+          ready_gate_pgid INTEGER
+        );
+        CREATE TABLE _migrations (
+          id TEXT PRIMARY KEY,
+          applied_at INTEGER NOT NULL
+        );
+      `);
+      const runId = "squashed-ready-gate-run";
+      raw
+        .prepare(
+          `INSERT INTO runs (
+            id, project, spec_ref, created_at, status, attempt_count, worktree_path, branch, spec_path, ready_gate_pgid
+          ) VALUES (?, 'fixture-project', 'main', ?, 'killed', 0, '/tmp/fixture', 'fixture-branch', 'spec.md', ?)`,
+        )
+        .run(runId, Date.now(), 7777);
+      raw.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run("031-baseline-squash", Date.now());
+      raw.close();
+
+      const migrated = openStateStore(legacyDbPath);
+      expect(listVerifierPgids(legacyDbPath, runId)).toEqual([7777]);
+      migrated.close();
+    } finally {
+      removeOrchestrationStore(legacyDbPath);
+    }
   });
 
   test("clearRunDownstreamInputs removes a persisted multi-file handoff from the run row", () => {
@@ -3272,6 +3373,20 @@ describe("ready gate sweep candidates", () => {
       { runId: nullOwnerRunId, readyGatePgid: 404 },
     ]);
     expect(probeCalls).toBe(2);
+    sweepStore.close();
+  });
+
+  test("listReadyGateSweepCandidates returns every recorded verifier group for non-live owners", async () => {
+    const deadOwnerRunId = seedRun(seedStore, { branch: "multi-dead-owner", status: "killed" });
+    seedStore.recordVerifierProcessGroup(deadOwnerRunId, 101);
+    seedStore.recordVerifierProcessGroup(deadOwnerRunId, 102);
+
+    const sweepStore = openSweepStore(async () => false);
+    const candidates = await sweepStore.listReadyGateSweepCandidates();
+    expect(candidates.filter((candidate) => candidate.runId === deadOwnerRunId)).toEqual([
+      { runId: deadOwnerRunId, readyGatePgid: 101 },
+      { runId: deadOwnerRunId, readyGatePgid: 102 },
+    ]);
     sweepStore.close();
   });
 });

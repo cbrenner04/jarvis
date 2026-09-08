@@ -250,6 +250,8 @@ v2/src/tui/tui-timestamp-format.test.ts out-of-scope no-structural-signal
 
 ## Shared inventory
 
+**Retired 2026-09-08 (#3628):** the `shr-mbs-*` rows below cover `shared/module-boundary-surfaces.test.ts` tests for the module-boundary surface split and its taxonomy, both of which were retired. Those tests no longer exist; the rows are kept for provenance and need no re-key.
+
 | row-id | test-path | case-scope | guarded-invariant | anchor-mechanism | classification | disposition | stay-incidental-rationale | vacuous-pass-risk |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | shr-mbs-surfaces-registry | shared/module-boundary-surfaces.test.ts | module boundary surfaces > classifies committed phrases | `MODULE_BOUNDARY_SURFACES` lists persistence, daemon, cli, execution-loop | hardcoded array equality against imported export | incidental | re-key | | |

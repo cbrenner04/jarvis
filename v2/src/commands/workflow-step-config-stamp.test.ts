@@ -74,4 +74,29 @@ describe("stampWorkflowStepsWithMachineConfig gate commands", () => {
       expect(step).not.toHaveProperty("readyCommand");
     }
   });
+
+  test("stamps write iteration bounds and review role timeouts on their respective behaviors", () => {
+    // @mutate v2/src/commands/workflow-step-config-stamp.ts "if (step.behavior === \"write\")" -> "if (step.behavior !== \"write\")"
+    const configPath = writeMachineConfig({
+      iterationTimeoutMs: 101_000,
+      iterationCeilingMs: 202_000,
+      idleOutputTimeoutMs: 30_000,
+      reviewRoleTimeoutMs: 900_000,
+    });
+    const stamped = stampWorkflowStepsWithMachineConfig([createMinimalDispatchWriteStep(), reviewStep()], configPath);
+    expect(stamped[0]).toMatchObject({
+      behavior: "write",
+      iterationTimeoutMs: 101_000,
+      iterationCeilingMs: 202_000,
+      idleOutputMs: 30_000,
+    });
+    expect(stamped[0]).not.toHaveProperty("roleTimeoutMs");
+    expect(stamped[1]).toMatchObject({
+      behavior: "review",
+      roleTimeoutMs: 900_000,
+      idleOutputMs: 30_000,
+    });
+    expect(stamped[1]).not.toHaveProperty("iterationTimeoutMs");
+    expect(stamped[1]).not.toHaveProperty("iterationCeilingMs");
+  });
 });

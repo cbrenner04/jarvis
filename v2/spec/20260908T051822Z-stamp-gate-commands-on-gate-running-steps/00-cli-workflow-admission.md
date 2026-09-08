@@ -16,23 +16,23 @@ Reported as [#3598](https://github.com/cbrenner04/jarvis/issues/3598); confirmed
 
 ## Task checklist
 
-- [ ] Extend the `review` and `review-debate` workflow-step contracts to carry optional `fixCommand` and `readyCommand`.
-- [ ] Resolve each step's project once in `stampWorkflowStepsWithMachineConfig` and stamp present gate-command overrides on write, review, and review-debate steps, retaining existing behavior-specific timeout stamping.
-- [ ] Add regression coverage for configured and absent review-step overrides; retain existing write-step coverage.
-- [ ] Preserve CLI/pipeline shared-preparation parity and pipeline-dispatch write-step coverage.
+- [x] Extend the `review` and `review-debate` workflow-step contracts to carry optional `fixCommand` and `readyCommand`.
+- [x] Resolve each step's project once in `stampWorkflowStepsWithMachineConfig` and stamp present gate-command overrides on write, review, and review-debate steps, retaining existing behavior-specific timeout stamping.
+- [x] Add regression coverage for configured and absent review-step overrides; retain existing write-step coverage.
+- [x] Preserve CLI/pipeline shared-preparation parity and pipeline-dispatch write-step coverage.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/workflow.test.ts` proves a `review` step and a `review-debate` step for a project configured with `fixCommand` and `readyCommand` each carry those values; the test fails against the pre-fix write-only branch.
-- [ ] `v2/src/commands/workflow.test.ts` proves a `review` step for a project with no overrides carries neither field (absent, not defaulted to `bun run ready`); the test fails if absent overrides are materialized.
-- [ ] Existing write-step gate-command stamping tests in `v2/src/commands/workflow.test.ts` stay green.
-- [ ] Existing write-step gate-command stamping coverage in `v2/src/daemon/pipeline-stage-dispatch.test.ts` stays green.
-- [ ] Existing shared CLI/pipeline preparation parity coverage in `v2/src/daemon/pipeline-workflow-preparation-parity.test.ts` stays green.
-- [ ] `v2/docs/install-and-config.md` states that per-project `readyCommand` and `fixCommand` are resolved at admission for every workflow step that can own ready-gate finalization, and that absent overrides are left unstamped.
-- [ ] `v2/docs/v1-behaviors.md` records per-project gate-command admission stamping across write, review, and review-debate steps.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/commands/workflow.test.ts` proves a `review` step and a `review-debate` step for a project configured with `fixCommand` and `readyCommand` each carry those values; the test fails against the pre-fix write-only branch.
+- [x] `v2/src/commands/workflow.test.ts` proves a `review` step for a project with no overrides carries neither field (absent, not defaulted to `bun run ready`); the test fails if absent overrides are materialized.
+- [x] Existing write-step gate-command stamping tests in `v2/src/commands/workflow.test.ts` stay green.
+- [x] Existing write-step gate-command stamping coverage in `v2/src/daemon/pipeline-stage-dispatch.test.ts` stays green.
+- [x] Existing shared CLI/pipeline preparation parity coverage in `v2/src/daemon/pipeline-workflow-preparation-parity.test.ts` stays green.
+- [x] `v2/docs/install-and-config.md` states that per-project `readyCommand` and `fixCommand` are resolved at admission for every workflow step that can own ready-gate finalization, and that absent overrides are left unstamped.
+- [x] `v2/docs/v1-behaviors.md` records per-project gate-command admission stamping across write, review, and review-debate steps.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

@@ -305,6 +305,8 @@ export type ReviewDebateWorkflowStep = Omit<ReviewDebateInput, "bindings" | "onR
   agentModelConfig: AgentModelConfig;
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
   landing?: PublicationLanding;
+  fixCommand?: string;
+  readyCommand?: string;
   stagedMarkdownLintMaxReprompts?: number;
   /** Set only by plan-stage recovery: revalidate staged plan bytes immediately before landing. */
   revalidateStagedPlanBeforeLanding?: boolean;
@@ -324,6 +326,8 @@ export type ReviewWorkflowStep = Omit<ReviewCycleInput, "bindings" | "onRoleStar
   agentModelConfig: AgentModelConfig;
   createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
   landing?: PublicationLanding;
+  fixCommand?: string;
+  readyCommand?: string;
   stagedMarkdownLintMaxReprompts?: number;
   /** Set only by plan-stage recovery: revalidate staged plan bytes immediately before landing. */
   revalidateStagedPlanBeforeLanding?: boolean;

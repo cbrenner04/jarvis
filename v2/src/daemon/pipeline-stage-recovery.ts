@@ -24,7 +24,7 @@ import {
   findFanOutSplit,
   findStageRecord,
 } from "./pipeline-execution.ts";
-import { stageArtifactFromEntryRun, type PipelineStageArtifact } from "./pipeline-stage-dispatch.ts";
+import { type PipelineStageArtifact, stageArtifactFromEntryRun } from "./pipeline-stage-dispatch.ts";
 import {
   isFanOutStageResolution,
   resolveStageWorkflowSteps,
@@ -112,6 +112,7 @@ function findBranchFailedWorkflowStage(
  * to the entry run's own recorded `specPath`. `branchKey: "default"` addresses unscoped rows;
  * no fan-out split is required. Effect-free: no store writes, no claims, no dispatch.
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: one effect-free resolver walks pipeline, stage, fan-out split, branch-key binding, and entry-run lookup, returning a distinct named refusal at each step; the branches are a flat sequence of guards over shared resolution state, so extracting them would thread that state through helpers without reducing the decision count.
 export async function resolveBlockedPlanStageRecoveryTarget(
   args: { pipelineId: string; branchKey: string },
   deps: PipelineStageRecoveryDeps,

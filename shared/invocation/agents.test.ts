@@ -1459,6 +1459,35 @@ describe("createResolvedAgentBinding", () => {
     expect(fake.calls[0]?.argv).toContain("custom-cursor-model");
   });
 
+  test("cursor binding classifies the live out-of-usage banner as quota", async () => {
+    // Verbatim stderr from sudoku run 880b2201 (2026-09-08), which classified `error` and
+    // stopped the fallback chain one rung short of an available claude.
+    const banner =
+      "ActionRequiredError: Increase limits for faster responses You're out of usage. Switch to Auto, or ask your admin to increase your limit to continue.";
+    const outOfUsage = fakeSpawn([{ kind: "settle", code: 1, stderr: banner }]);
+    const precededByNoise = fakeSpawn([
+      {
+        kind: "settle",
+        code: 1,
+        stderr: `ERROR codex_core::shell_snapshot: Snapshot command exited with status 2\n${banner}`,
+      },
+    ]);
+
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "cursor", adapterModel: "GPT-5.4", priceKey: "GPT-5.4" },
+        { spawn: outOfUsage.spawn },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toMatchObject({ kind: "quota" });
+
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "cursor", adapterModel: "GPT-5.4", priceKey: "GPT-5.4" },
+        { spawn: precededByNoise.spawn },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toMatchObject({ kind: "quota" });
+  });
+
   test("cursor binding classifies quota (ASCII and U+2019), model config, and generic errors", async () => {
     const quota = fakeSpawn([{ kind: "settle", code: 1, stderr: "monthly cursor usage limit reached" }]);
     const usageLimit = fakeSpawn([{ kind: "settle", code: 1, stderr: "you’ve hit your usage limit" }]);

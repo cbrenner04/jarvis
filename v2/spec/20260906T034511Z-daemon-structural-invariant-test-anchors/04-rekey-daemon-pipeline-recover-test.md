@@ -11,13 +11,13 @@ Row `dm-pipeline-recover-plan-fixture` in `v2/docs/structural-invariant-test-aud
 
 ## Task checklist
 
-- [ ] Re-key audit row `dm-pipeline-recover-plan-fixture` per the decision ledger.
-- [ ] Replace golden `readFileSync` byte oracle with lint-contract or registry-backed assertion for the landed subspec body.
+- [x] Re-key audit row `dm-pipeline-recover-plan-fixture` per the decision ledger.
+- [x] Replace golden `readFileSync` byte oracle with lint-contract or registry-backed assertion for the landed subspec body.
 
 ## Acceptance criteria
 
-- [ ] `daemon-pipeline-recover.test.ts` test `pipeline_recover admits and lands a corrected non-first fan-out branch without redrafting` asserts the landed plan subspec satisfies the staged-markdown lint contract, not byte equality with `execution/fixtures/write-loop-staged-markdown-lint/plan-md012-clean-subspec.md`; it fails against the pre-fix `readFileSync` golden bytes on audit row `dm-pipeline-recover-plan-fixture` and passes after re-key.
-- [ ] `bun run typecheck` passes.
+- [x] `daemon-pipeline-recover.test.ts` test `pipeline_recover admits and lands a corrected non-first fan-out branch without redrafting` asserts the landed plan subspec satisfies the staged-markdown lint contract, not byte equality with `execution/fixtures/write-loop-staged-markdown-lint/plan-md012-clean-subspec.md`; it fails against the pre-fix `readFileSync` golden bytes on audit row `dm-pipeline-recover-plan-fixture` and passes after re-key.
+- [x] `bun run typecheck` passes.
 
 ## Documentation updates
 

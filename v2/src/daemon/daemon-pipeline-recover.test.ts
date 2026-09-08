@@ -1,13 +1,18 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type { AnyWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
+import { lintStagedMarkdown } from "../execution/staged-markdown-lint.ts";
 import { recoverPlanStage } from "../execution/workflow-runner-resume.ts";
+import {
+  skipReviewWithoutHarnessMarkdownlint,
+  writeLintCleanPlanStage,
+} from "../execution/workflow-runner.test-support.ts";
 import { ensureWorkflowRunnerResumeDepsWired } from "../testing/workflow-runner-resume-wiring.ts";
 
 ensureWorkflowRunnerResumeDepsWired();
@@ -56,14 +61,6 @@ const PLAN_REVIEW_CONFIG: AgentModelConfig = {
   claude: { critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] } },
   codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
 };
-const RECOVERY_MD_LINT_FIXTURES = join(
-  import.meta.dir,
-  "..",
-  "execution",
-  "fixtures",
-  "write-loop-staged-markdown-lint",
-);
-
 /** Durable run row for a branch's blocked plan-draft — the shape a recovery target's linked entry run resolves to. */
 function seedBlockedPlanDraftRun(
   store: StateStore,
@@ -176,16 +173,6 @@ function createPlanWorktree(prefix: string): string {
   return worktreePath;
 }
 
-function writeCorrectedPlanStage(stage: string): string {
-  const subspecFile = "00-first.md";
-  const correctedBody = readFileSync(join(RECOVERY_MD_LINT_FIXTURES, "plan-md012-clean-subspec.md"), "utf8");
-  mkdirSync(stage, { recursive: true });
-  writeFileSync(join(stage, "intent.md"), "---\nname: test\n---\n", "utf8");
-  writeFileSync(join(stage, "index.md"), `# Index\n\n- [ ] [One](./${subspecFile})\n`, "utf8");
-  writeFileSync(join(stage, subspecFile), correctedBody, "utf8");
-  return correctedBody;
-}
-
 function completeOutcome(entryRunId: string) {
   return {
     ok: true as const,
@@ -246,9 +233,17 @@ afterEach(async () => {
 });
 
 test("pipeline_recover admits and lands a corrected non-first fan-out branch without redrafting", async () => {
+  if (
+    skipReviewWithoutHarnessMarkdownlint(
+      "pipeline_recover admits and lands a corrected non-first fan-out branch without redrafting",
+    )
+  ) {
+    return;
+  }
+
   const worktreePath = createPlanWorktree("jarvis-pipeline-recover-branch-b-");
   const stage = join(worktreePath, ".jarvis-plan-stage");
-  const correctedBody = writeCorrectedPlanStage(stage);
+  writeLintCleanPlanStage(stage, "00-first.md");
   const specPath = "spec/2026-recover-branch-b";
   const durable = join(worktreePath, specPath);
   const branch = "plan/recover-branch-b";
@@ -340,7 +335,7 @@ test("pipeline_recover admits and lands a corrected non-first fan-out branch wit
   expect(draftAgentInvocations).toEqual([]);
   expect(dispatchCalls).toEqual([]);
   expect(staleResetConnections).toBe(0);
-  expect(readFileSync(join(durable, "00-first.md"), "utf8")).toBe(correctedBody);
+  expect(await lintStagedMarkdown(specPath, { worktreePath })).toEqual({ kind: "clean" });
 
   const pipeline = stateStore.loadPipeline(pipelineId);
   const planRow = pipeline?.stages.find((stageRow) => stageRow.stageId === "plan" && stageRow.branchKey === "branch-b");

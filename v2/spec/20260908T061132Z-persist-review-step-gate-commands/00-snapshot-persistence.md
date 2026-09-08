@@ -18,9 +18,9 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/workflow-runner-core.test.ts` proves a stamped `review` step and a stamped `review-debate` step each retain configured `fixCommand` and `readyCommand` on the persisted `workflowSnapshot` through store reload; the test fails against the pre-fix write-only `buildWorkflowSnapshot` branch reachable on main.
-- [ ] `v2/src/persistence/state-store.test.ts` proves a workflow snapshot whose review-shaped steps omit `fixCommand` and `readyCommand` loads without error; the test fails if optional-field absence is rejected.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `v2/src/execution/workflow-runner-core.test.ts` proves a stamped `review` step and a stamped `review-debate` step each retain configured `fixCommand` and `readyCommand` on the persisted `workflowSnapshot` through store reload; the test fails against the pre-fix write-only `buildWorkflowSnapshot` branch reachable on main.
+- [x] `v2/src/persistence/state-store.test.ts` proves a workflow snapshot whose review-shaped steps omit `fixCommand` and `readyCommand` loads without error; the test fails if optional-field absence is rejected.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates

@@ -188,12 +188,13 @@ A role is **bound** for admission when at least one agent entry in the supplied 
 
 Pipeline stage `review` selects the executable preset (`resolveWorkflowPresetName` in `workflow-start-preparation.ts`) at resolution time. For `implement` stages, `resolveImplementReviewConfig` in `implement-workflow-steps.ts` remains the canonical owner for review pass count and `reviewBehavior` on the built steps: pipeline resolution omits hardcoded review overrides on builder input and reads project `implement.reviewPasses` / `implement.reviewBehavior` from the admission `configPath` (stage posture still selects the `implement` preset; configured project policy supplies the review step shape).
 
-The registry (`pipeline-registry.ts`) ships two definitions:
+The registry (`pipeline-registry.ts`) ships three definitions:
 
 - `full-review`: `intent(light) → approve → plan(debate) → approve → implement(debate)`
+- `full-light-review`: `intent(light) → approve → plan(light) → approve → implement(light)` — the fully gated middle tier; `debate` swapped for `light` on plan and implement
 - `fast`: `intent(none) → plan(none) → implement(light)`
 
-Both omit a terminal draft-PR/ready/merge stage, deferred to a later slice.
+All omit a terminal draft-PR/ready/merge stage, deferred to a later slice.
 
 ## Resume contract
 

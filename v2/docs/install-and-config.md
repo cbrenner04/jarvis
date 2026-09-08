@@ -171,7 +171,7 @@ Each registered project may configure a source-owned pipeline for `jarvis pipeli
 | Key | Type | Validation |
 | --- | --- | --- |
 | `projects.<key>.pipeline` | object | Required for `jarvis pipeline start`; ignored by implement admission |
-| `projects.<key>.pipeline.name` | non-empty string | Required when `pipeline` is present; must name a source-registry pipeline |
+| `projects.<key>.pipeline.name` | non-empty string | Required when `pipeline` is present; must name a source-registry pipeline: `full-review` (gated, debate review), `full-light-review` (gated, light review), or `fast` (ungated, light implement review) |
 | `projects.<key>.pipeline.terminalAction` | `"leave-draft"`, `"ready"`, or `"merge"` | Required when `pipeline` is present; names how the pipeline leaves the final PR |
 | `projects.<key>.pipeline.reviewOverrides` | object of stage ID → string | Optional; each key must name a workflow stage, not an approval stage |
 

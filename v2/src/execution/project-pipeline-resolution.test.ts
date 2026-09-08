@@ -272,6 +272,9 @@ describe("resolveProjectPipeline", () => {
     ["leave-draft", "full-review"],
     ["ready", "full-review"],
     ["merge", "full-review"],
+    ["leave-draft", "full-light-review"],
+    ["ready", "full-light-review"],
+    ["merge", "full-light-review"],
   ] as const)("resolves every terminal action into an isolated admitted definition: %s on %s", (terminalAction, pipelineName) => {
     const first = resolveProjectPipeline(
       config("first", pipelineConfig(pipelineName, terminalAction)),

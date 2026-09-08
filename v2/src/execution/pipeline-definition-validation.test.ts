@@ -181,6 +181,14 @@ describe("validatePipelineDefinition", () => {
     ).toBe(true);
   });
 
+  test("full-light-review validates clean with an implement stage that admits every terminal action", () => {
+    const definition = PIPELINE_REGISTRY["full-light-review"];
+    if (definition === undefined) throw new Error("expected full-light-review pipeline");
+
+    expect(validatePipelineDefinition(definition, { agentModelConfig: ALL_REVIEW_ROLES_CONFIG })).toEqual({ ok: true });
+    expect(definition.stages.some((stage) => stage.kind === "workflow" && stage.workflow === "implement")).toBe(true);
+  });
+
   test("every registered definition validates clean when all review roles are bound", () => {
     for (const definition of Object.values(PIPELINE_REGISTRY)) {
       expect(validatePipelineDefinition(definition, { agentModelConfig: ALL_REVIEW_ROLES_CONFIG }).ok).toBe(true);

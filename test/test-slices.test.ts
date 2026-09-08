@@ -4,7 +4,6 @@ import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { basename, join } from "node:path";
 import { sharedTests } from "../scripts/run-shared-tests.ts";
 import { aggregateTestFiles } from "../scripts/run-tests.ts";
-import { v1Tests } from "../scripts/run-v1-tests.ts";
 import { v2Tests, walkV2TestFiles } from "../scripts/run-v2-tests.ts";
 import { isLoadSensitive, isSandboxUnrunnable, partitionTestFiles } from "../scripts/test-slice.ts";
 
@@ -33,10 +32,6 @@ describe("Test slice boundaries", () => {
     };
 
     const filesByOwner = {
-      v1: getTestFiles("v1/test").map((file) => ({
-        ...file,
-        logical: `v1/test/${file.logical}`,
-      })),
       v2: getTestFiles("v2").map((file) => ({
         ...file,
         logical: `v2/${file.logical}`,
@@ -47,7 +42,6 @@ describe("Test slice boundaries", () => {
       })),
     };
 
-    expect(filesByOwner.v1.length).toBeGreaterThan(0);
     expect(filesByOwner.v2.length).toBeGreaterThan(0);
     expect(filesByOwner.shared.length).toBeGreaterThan(0);
 
@@ -65,20 +59,15 @@ describe("Test slice boundaries", () => {
     const pkgJsonText = await Bun.file("package.json").text();
     const pkgJson = JSON.parse(pkgJsonText);
     expect(pkgJson.scripts.test).toBe("bun run scripts/run-tests.ts");
-    expect(pkgJson.scripts["test:v1"]).toBe("bun run scripts/run-v1-tests.ts agent");
-    expect(pkgJson.scripts["test:integration:v1"]).toBe("bun run scripts/run-v1-tests.ts integration");
     expect(pkgJson.scripts["test:shared"]).toBe("bun run scripts/run-shared-tests.ts agent");
     expect(pkgJson.scripts["test:integration:shared"]).toBe("bun run scripts/run-shared-tests.ts integration");
-    expect(pkgJson.scripts.coverage).toBe("bun test --coverage");
+    expect(pkgJson.scripts.coverage).toBe("bun test --coverage ./v2/ ./shared/ ./test/");
   });
 
-  it("v1 agent and integration slices partition the v1 test tree", () => {
-    const agent = v1Tests("agent");
-    const integration = v1Tests("integration");
-    expect(agent.every((file) => !isSandboxUnrunnable(file))).toBeTrue();
-    expect(integration.every((file) => isSandboxUnrunnable(file))).toBeTrue();
-    expect(integration.length).toBeGreaterThan(0);
-    expect([...agent, ...integration].sort()).toEqual([...v1Tests("agent"), ...v1Tests("integration")].sort());
+  it("frozen v1 tree is outside every test slice", () => {
+    const { agent, integration } = aggregateTestFiles();
+    expect([...agent, ...integration].some((file) => file.startsWith("v1/"))).toBeFalse();
+    expect(existsSync("scripts/run-v1-tests.ts")).toBeFalse();
   });
 
   it("test:v2 and test:integration:v2 enumerate disjoint v2 test file sets", async () => {
@@ -146,7 +135,6 @@ describe("Test slice boundaries", () => {
     const bunfigText = await Bun.file("bunfig.toml").text();
     expect(bunfigText).toContain("./test/setup-fake-agents.ts");
     expect(existsSync("test/setup-fake-agents.ts")).toBeTrue();
-    expect(existsSync("v1/test/setup-fake-agents.ts")).toBeFalse();
   });
 
   it("scoped slice runs load the agent-spawn preload", () => {
@@ -166,19 +154,14 @@ describe("Test slice boundaries", () => {
     const readyScript = await Bun.file("scripts/ready.ts").text();
     expect(readyScript).toContain('"run"');
     expect(readyScript).toContain('"test"');
-    expect(readyScript).not.toContain("test:v1");
     expect(readyScript).not.toContain("test:v2");
     expect(readyScript).not.toContain("test:shared");
   });
 
-  it("aggregate roster is exactly the union of six scoped rosters", () => {
+  it("aggregate roster is exactly the union of four scoped rosters", () => {
     const aggregate = aggregateTestFiles();
-    const expectedAgent = [...v1Tests("agent"), ...v2Tests("agent"), ...sharedTests("agent")].sort();
-    const expectedIntegration = [
-      ...v1Tests("integration"),
-      ...v2Tests("integration"),
-      ...sharedTests("integration"),
-    ].sort();
+    const expectedAgent = [...v2Tests("agent"), ...sharedTests("agent")].sort();
+    const expectedIntegration = [...v2Tests("integration"), ...sharedTests("integration")].sort();
 
     expect(aggregate.agent.sort()).toEqual(expectedAgent);
     expect(aggregate.integration.sort()).toEqual(expectedIntegration);

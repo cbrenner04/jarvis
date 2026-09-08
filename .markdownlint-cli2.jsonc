@@ -1,15 +1,7 @@
 {
   // no-hard-wrap: flags soft line breaks inside paragraph/list-item prose; block-level html_block tokens are exempt (inline tags within prose are not)
   "customRules": ["scripts/markdownlint-no-hard-wrap-rule.ts"],
-  "globs": [
-    "v1/spec/**/*.md",
-    "v1/docs/**/*.md",
-    "reports/**/*.md",
-    "v2/docs/**/*.md",
-    "v2/spec/**/*.md",
-    "README.md",
-    "AGENTS.md"
-  ],
+  "globs": ["reports/**/*.md", "v2/docs/**/*.md", "v2/spec/**/*.md", "README.md", "AGENTS.md"],
   "ignores": ["**/completed/**", "**/node_modules/**", "**/verdict-*.md"],
   "config": {
     "default": true,

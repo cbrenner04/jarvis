@@ -11,7 +11,7 @@ Long-lived reference: the *why* behind v2 and the constraints and guiding princi
 - **No tech-stack churn.** bun + biome + typescript stay.
 - **Be terse.** Verbosity costs money and review effort. Minimize it across planning, implementation, and review — in Jarvis source and target repos alike. If verbosity can drop with near-identical outcomes, drop it.
 - **Strong architectural decisions.** Even in YOLO, outcomes rest on considered architecture, never "just get it working" — that only causes more iterations, which is neither cost-effective nor terse.
-- **Prompts are first-class code.** Versioned, reusable, reviewed — shared top-level `prompts/` read by both engines, so prompt improvements reach v1 too. As-shipped contract: [`../../v1/docs/prompt-governance.md`](../../v1/docs/prompt-governance.md).
+- **Prompts are first-class code.** Versioned, reusable, reviewed — shared top-level `prompts/` with an auditable registry. Contract: [`prompt-governance.md`](./prompt-governance.md).
 
 ## Architectural constraints
 

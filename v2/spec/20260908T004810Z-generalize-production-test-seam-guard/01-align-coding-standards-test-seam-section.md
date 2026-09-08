@@ -5,7 +5,7 @@
 ## Decisions
 
 - Replace the invert-only four-shape list with the six shape families enforced by the broadened guard — rules out docs that still claim only `invert*` hooks are forbidden.
-- Keep the three scan roots (`v2/src`, `v1/src`, `shared`) and `bun run check` wiring citation — rules out narrowing docs to v2-only enforcement.
+- Keep the scan roots (`v2/src`, `shared`; the frozen `v1/src` is excluded) and `bun run check` wiring citation — rules out narrowing docs to v2-only enforcement.
 - Non-`set*` `ForTest`-suffixed exports remain explicitly out of scope in prose — rules out implying the guard bans every `*ForTest` export.
 
 ## Tasks

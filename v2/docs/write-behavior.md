@@ -180,7 +180,7 @@ The `plan` preset's single write step executes with runtime seeding and prompt r
 - `WORKDIR`: the worktree root
 - `NAME`: the timestamped spec-directory basename (e.g., `2026-07-11T09-47-44Z-plan-workflow-draft`)
 - `INTENT`: the seeded ready-intent content (same as written to `intent.md`)
-- `SPEC_GUIDANCE`: the jarvis-bundled agent-core spec-guidance document from [`spec-guidance-agent-core.md`](./spec-guidance-agent-core.md) (not operator CLI guidance from `v1/docs/spec-guidance.md`)
+- `SPEC_GUIDANCE`: the jarvis-bundled agent-core spec-guidance document from [`spec-guidance-agent-core.md`](./spec-guidance-agent-core.md) (not operator guidance from [`spec-guidance.md`](./spec-guidance.md))
 
 All four placeholders are mandatory; a missing placeholder fails the render.
 
@@ -665,3 +665,9 @@ Note: A line executed by tests may still lack sufficient assertions. The mutatio
 The command probes only exact lowercase `daemon-<16hex>.sock` names under `~/.jarvis/`. Only `ECONNREFUSED`, or `ENOENT` on a present on-disk socket file with no listener, proves a digest dead; apply revalidates immediately before removing every present `.sock`, `.pid`, and `.log` artifact. `ENOENT` when the path is absent to the caller, live, or ambiguous probes preserve the triplet. See [`operator-runbook.md` § Fail-closed daemon reads and digest artifact reaping](./operator-runbook.md#fail-closed-daemon-reads-and-digest-artifact-reaping).
 
 `jarvis cleanup` with `--dry-run` previews worktrees, artifacts, and dead daemon digest artifacts without removal. Open-home stranded archival preview adjusts materialized-worktree ownership by excluding retire-preview worktrees; apply re-inspects stranded ownership after successful retirements only (failed retirements leave owners materialized, so stranded dry-run can overshoot apply). The confirmation prompt counts all removal candidates; a cleanup run whose only work is dead daemon artifacts still prompts and proceeds rather than reporting nothing to clean up.
+
+## Commit trailers and PR attribution
+
+Every commit jarvis creates carries a `Jarvis-Agent: <label>` git trailer (the attribution label of the agent that produced the iteration) in standard trailer position, so `git log --format='%(trailers)'` and `git interpret-trailers` both see it; an agent with no label omits the line. Completion commits also carry `Jarvis-Step` (`write`, `shrink`, `review <n>`, `review-debate <n>`, `mutation-repair`, `ready-gate`) with a matching subject prefix for every kind except `write`. A clean-tree no-op skips the commit, so that work has no trailer and drops out of the footer.
+
+The PR body attribution footer (`v2/src/execution/pr-attribution.ts`) is rendered on every body refresh from commits in `baseRef..HEAD` whose first body line starts with `Spec:`: one bullet per qualifying commit (`- <shortSha> <subject> — <label>`; `unknown` when no trailer), a blank line, then `Written by <labels> through Jarvis.` with first-seen dedup. Below that, one `<Label> — Steps: write <n>, review <n>, review-debate <n>, mutation-repair <n>, ready-gate <n>` line per agent whose classified commits span more than one normalized kind (zero counts omitted; review pass numbers collapse). A commit is classified only when exactly one distinct recognized `Jarvis-Step` value survives filtering; missing, unrecognized, or conflicting values leave it uncounted. Per-turn commits stay on the published branch; only the operator's squash-merge collapses history.

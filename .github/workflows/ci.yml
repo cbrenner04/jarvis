@@ -61,14 +61,6 @@ jobs:
         if: steps.scope.outputs.scripts == 'full'
         run: bun run test
 
-      - name: Test (v1)
-        if: contains(steps.scope.outputs.scripts, 'test:v1')
-        run: bun run test:v1
-
-      - name: Test (v1 integration)
-        if: contains(steps.scope.outputs.scripts, 'test:integration:v1')
-        run: bun run test:integration:v1
-
       - name: Test (v2)
         if: contains(steps.scope.outputs.scripts, 'test:v2')
         run: bun run test:v2

@@ -33,8 +33,6 @@ write/ready-repair.md
 write/mutation-repair.md
 write/surviving-mutation-reprompt.md
 write/coverage-advisory.md
-prompt/instructions.md
-prompt/rules.md
 intent/split.md
 intent/review.md
 intent/review-actuator.md

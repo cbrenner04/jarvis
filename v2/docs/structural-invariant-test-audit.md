@@ -10,7 +10,7 @@ Co-located `*.test.ts` files under `v2/src/**` and `shared/**` whose anchors pin
 
 ### Excluded trees
 
-- `v1/**` — maintenance-only fallback; out of v2 audit scope.
+- `v1/**` — frozen; out of audit scope.
 - `scripts/**` — harness tooling, not co-located production tests.
 - `test/**` — root harness tests, not co-located under `v2/src` or `shared`.
 - Fixture-only reads inside otherwise in-scope files — dispositioned per anchor at inventory time; the script may still mark the file `in-scope` when another rule matches.

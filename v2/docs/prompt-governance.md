@@ -30,8 +30,8 @@ The first rollout includes shared global guidance fragments plus prompt artifact
 - `patch.prompt.pr-description` (`prompts/patch/pr-description.md`)
 - `patch.rules` (`prompts/patch/rules.md`)
 - `patch.prompt.shrink` (`prompts/patch/shrink.md`) — post-completion simplification gate; layered with `global.terse -> global.no-hard-wrap` only (not `patch.rules`)
-- `patch.prompt.review.adversary` / `.advocate` / `.adjudicator` (`prompts/patch/review-*.md`) — read-only debate review roles; same patch-review placeholder contract as the critic plus role-chaining placeholders for advocate/adjudicator; frozen for v1 (maintenance-only engine) with summary-only `BRANCH_DIFF` prose (`git diff --stat` plus changed paths, not a unified diff)
-- `implement.prompt.review.critic` / `.adversary` / `.advocate` / `.adjudicator` (`prompts/implement/review-*.md`) — v2-owned implement review critic and debate roles, split from the `patch.prompt.review.*` family so each engine renders its own artifacts; same placeholder contract as their patch counterparts, but `BRANCH_DIFF` is always the merge-base unified diff (stat, changed paths, then the diff itself), never summary-only
+- `patch.prompt.review.adversary` / `.advocate` / `.adjudicator` (`prompts/patch/review-*.md`) — read-only debate review roles; same patch-review placeholder contract as the critic plus role-chaining placeholders for advocate/adjudicator; retained for the frozen v1 tree with summary-only `BRANCH_DIFF` prose (`git diff --stat` plus changed paths, not a unified diff); no live engine renders them
+- `implement.prompt.review.critic` / `.adversary` / `.advocate` / `.adjudicator` (`prompts/implement/review-*.md`) — implement review critic and debate roles, split from the `patch.prompt.review.*` family; same placeholder contract as their patch counterparts, but `BRANCH_DIFF` is always the merge-base unified diff (stat, changed paths, then the diff itself), never summary-only
 - `plan.prompt.draft` (`prompts/plan/draft.md`)
 - `plan.prompt.pr-description` (`prompts/plan/pr-description.md`)
 - `plan.prompt.review.critic` (`prompts/plan/review-critic.md`) — editorial critic for light plan-review workflow; read-only advisory role reviewing spec clarity and completeness
@@ -42,8 +42,7 @@ The first rollout includes shared global guidance fragments plus prompt artifact
 
 Deferred in this rollout:
 
-- Human-facing chooser/confirmation text (for example
-  `v1/src/disambiguation-prompt.ts`)
+- Human-facing chooser/confirmation text (CLI prompts and usage strings)
 
 ## Required Metadata
 
@@ -75,9 +74,9 @@ Runtime prompt lookup is by stable `id` only. File paths are implementation deta
 Validation and rendering failures are intentionally split:
 
 - Registry-load failures (metadata/relationship validation) are asserted in
-  `v1/test/prompts/registry.test.ts`.
+  `shared/prompts/registry.test.ts`.
 - Render-time failures (unknown runtime ID lookup, placeholder/type checks, and
-  delimiter policy) are asserted in `v1/test/prompts/renderer.test.ts`.
+  delimiter policy) are asserted in `shared/prompts/render.test.ts`.
 
 ## Renderer Contract
 
@@ -123,21 +122,8 @@ TypeScript runtime code controls:
 - Adapter transport wrappers after render (for example Codex invocation marker
   append); wrappers are not distinct shared prompt IDs.
 
-## Snapshot Keying
+## Change Visibility
 
-Rendered prompt snapshots for this rollout use revision-aware keys:
+The `revision` field is the change-visible marker: every prompt edit bumps it, and the mutation verifier maps a changed registered prompt to its render-observer tests (`shared/prompts/render-observer-tests.ts`), which assert the assembled output of the live renderers. Post-render string surgery on rendered prompts is forbidden by `shared/prompts/no-prompt-surgery-guard.ts`.
 
-- Shared prompt body snapshots: `<id>@r<revision>...shared.txt`
-- Wrapper snapshots: `<id>@r<revision>.wrapper.<variant>.txt`
-
-Wrapper snapshots are adapter-local post-render artifacts; they must be stored and reviewed separately from shared prompt body snapshots.
-
-Current snapshot coverage lives under `v1/test/fixtures/prompts/rendered/` and is asserted by `v1/test/prompts/rendered-snapshots.test.ts`, including:
-
-- patch prompt body (`patch.prompt.body`, currently `@r9`)
-- plan draft/review prompts (draft `@r10`, review `@r6`; review
-  includes multiple pass contexts)
-- plan review actuator prompt (`plan.prompt.review-actuator`, currently `@r4`)
-- codex transport wrapper variant (`codex.exec.stdin+marker`)
-
-Coverage remains assembled-output focused: tests assert final rendered prompt text and wrapper outputs rather than fragment-only snapshots.
+Revision-keyed rendered snapshots (`<id>@r<revision>...shared.txt`, `<id>@r<revision>.wrapper.<variant>.txt`) were asserted by the frozen v1 test tree and are no longer a gate; the fixtures remain under `v1/test/fixtures/prompts/rendered/` as a historical record.

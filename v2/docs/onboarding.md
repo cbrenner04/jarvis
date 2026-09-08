@@ -6,16 +6,9 @@ Orientation for newcomers: what jarvis is, which binary to use, v2 vocabulary, a
 
 Jarvis is a TypeScript/Bun harness that drives a coding-agent CLI (`claude`, `codex`, `cursor`, …) against Markdown specs. It prepares the repo, invokes one configured CLI at a time, records what happened, and handles git/GitHub bookkeeping around each step. **It does not implement an agent itself.**
 
-## Which binary to use
+## One binary
 
-Two binaries coexist in this repo:
-
-| Binary | Engine | Status |
-| --- | --- | --- |
-| `jarvis` | v2 | **Daily driver** — daemon, intent/plan/implement workflows, TUI, cleanup. |
-| `jarvis1` | v1 | Maintenance-only fallback — kept green, no new investment. |
-
-**Default to `jarvis`.** Reach for `jarvis1` only for the few surfaces v2 does not own yet (see the [v2 operator runbook](./operator-runbook.md) routing table).
+`jarvis` is the only engine: daemon, intent/plan/implement workflows, pipelines, TUI, cleanup. The `v1/` tree is frozen — not compiled, tested, linted, or linked — and is a noop for contributors (see [`v1/README.md`](../../v1/README.md)).
 
 ## v2 vocabulary
 
@@ -48,5 +41,5 @@ Definitions and the layered model live in [`v2/docs/`](./):
    [`first-workflow-walkthrough.md`](./first-workflow-walkthrough.md) happy
    path.
 4. **Go deeper** — operator reference in
-   [`operator-runbook.md`](./operator-runbook.md); v1 fallback reference in
-   [`v1/docs/`](../../v1/docs/).
+   [`operator-runbook.md`](./operator-runbook.md) and
+   [`operator-practices.md`](./operator-practices.md).

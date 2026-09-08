@@ -4,19 +4,18 @@ Fresh-checkout walkthrough: clone, symlink the v2 CLI, configure the machine, st
 
 ## Prerequisites
 
-- **Bun** — runtime for both `jarvis` (v2) and `jarvis1` (v1).
+- **Bun** — runtime for `jarvis`.
 - **`gh` authenticated** — `gh auth status` succeeds (publication and PR flows).
 - **At least one agent CLI on `PATH`** — e.g. `claude`, `codex`, or `cursor`.
 
 ## Install
 
-Clone the repo and symlink both binaries onto `PATH`. `package.json` `bin` maps `jarvis` → `bin/jarvis` → `v2/src/cli.ts` and `jarvis1` → `bin/jarvis1` → `v1/src/cli.ts`.
+Clone the repo and symlink the binary onto `PATH`. `package.json` `bin` maps `jarvis` → `bin/jarvis` → `v2/src/cli.ts`.
 
 ```bash
 git clone <repo-url> jarvis
 cd jarvis
 ln -s "$(pwd)/bin/jarvis"  <dir-on-PATH>/jarvis
-ln -s "$(pwd)/bin/jarvis1" <dir-on-PATH>/jarvis1
 ```
 
 Verify: `jarvis config path` prints an absolute path (see [Config](#config)).

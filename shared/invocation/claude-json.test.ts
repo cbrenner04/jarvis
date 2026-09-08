@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isClaudeZeroExitQuotaEnvelope, parseClaudeJsonOutput } from "./claude-json.ts";
 
-const fixturesDir = join(import.meta.dir, "../../v1/test/fixtures/claude");
+const fixturesDir = join(import.meta.dir, "../fixtures/claude");
 
 describe("parseClaudeJsonOutput", () => {
   test("parses simple prose response without warnings", () => {

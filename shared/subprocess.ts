@@ -54,7 +54,7 @@ export const realSubprocessRunner: SubprocessRunner = {
 };
 
 /**
- * Synchronous run with a timeout and explicit env, for v1 CLI callers that need more than the
+ * Synchronous run with a timeout and explicit env, for CLI callers that need more than the
  * `SubprocessRunner` seam offers. Lives here because this file is the allowlisted sync seam;
  * daemon-reachable code must use `realAsyncSubprocessRunner` instead.
  */

@@ -11,7 +11,7 @@ A Biome linter gate enforces structural honesty in v2 and shared code via two ru
 - **`noExcessiveCognitiveComplexity`** (error, threshold 24): Functions exceeding cognitive complexity 24 are errors. The threshold is set to pass all existing non-test code in v2 and shared, enforcing structural honesty (preventing over-nested or over-conditional new logic) without rejecting working code. Test files (`*.test.ts`) are excluded from this rule. Smallness is the planner's and reviewer's job; the gate enforces structure, not size targets.
 - **Shared import boundary** (error): Code under `shared/**` must not import from `v1/**` or `v2/**` using relative paths (e.g., `../../v1/...`). The boundary uses relative-aware glob patterns (`**/v1/**`, `**/v2/**`) to catch real import forms. Shared is the lower-layer library consumed by both versions; enforcing its isolation prevents version-specific leakage.
 
-All rules are error-level; no warnings are introduced. The gate scope covers `v2/src/**` and `shared/**` (excluding test files) via Biome `overrides`, leaving `v1/**` untouched.
+All rules are error-level; no warnings are introduced. The gate scope covers `v2/src/**` and `shared/**` (excluding test files) via Biome `overrides`; the frozen `v1/**` tree is excluded from Biome entirely.
 
 Manual gate check: paste into a checked path, run `bun run check`, delete the file.
 
@@ -53,7 +53,7 @@ Tests must be deterministic and sandbox-runnable by default. See [`test-writing.
 
 ## Synchronous subprocesses
 
-`v2/**` and `shared/**` may not introduce synchronous child processes. The only allowlisted module is `shared/subprocess.ts`, the v1 CLI-only synchronous runner seam; new allowlist entries need a CLI-only reason. `bun run check` enforces this, including v2 imports of synchronous runner seams and Git helpers. Small synchronous filesystem reads remain permitted.
+`v2/**` and `shared/**` may not introduce synchronous child processes. The only allowlisted module is `shared/subprocess.ts`, the CLI-only synchronous runner seam; new allowlist entries need a CLI-only reason. `bun run check` enforces this, including v2 imports of synchronous runner seams and Git helpers. Small synchronous filesystem reads remain permitted.
 
 ## Git status paths
 
@@ -63,7 +63,7 @@ New or migrated path-aware Git status consumers must use `getGitStatusInventory`
 
 ## Production invert-for-test hooks
 
-Production code under `v2/src`, `v1/src`, and `shared` must not carry the four invert-for-test hook shapes: `setInvert*ForTest` exports, `invert*ForTest` module variables, `invert*` function parameters, and `invert*ForTest` type members. `bun run check` enforces this via `scripts/guard-production-test-flags.ts`. Other `*ForTest` hooks remain out of scope.
+Production code under `v2/src` and `shared` must not carry the four invert-for-test hook shapes: `setInvert*ForTest` exports, `invert*ForTest` module variables, `invert*` function parameters, and `invert*ForTest` type members. `bun run check` enforces this via `scripts/guard-production-test-flags.ts`. Other `*ForTest` hooks remain out of scope.
 
 ## Workflow composition gate
 

@@ -1,6 +1,6 @@
 # Spec Guidance for Agents
 
-This file is stable guidance for agents that need to create or work from Jarvis specs. Operator guidance: [spec-guidance.md](../../v1/docs/spec-guidance.md).
+This file is stable guidance for agents that need to create or work from Jarvis specs. Operator guidance: [spec-guidance.md](./spec-guidance.md).
 
 ## Authoring contracts
 

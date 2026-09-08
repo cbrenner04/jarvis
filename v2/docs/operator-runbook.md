@@ -2,23 +2,17 @@
 
 Reference for the **operator** driving the primary v2 harness (`jarvis`) on the Jarvis repo. **Operator** is the single name for this role.
 
-Scope: **Jarvis-on-Jarvis v2 workflows** — daemon-backed `jarvis run …`, workflow presets, configured pipelines, TUI observation, and cleanup. Cross-link the v1 runbook for the few surfaces v2 does not own yet. The full TUI rendering/interaction contract lives in [`tui.md`](./tui.md).
+Scope: **Jarvis-on-Jarvis v2 workflows** — daemon-backed `jarvis run …`, workflow presets, configured pipelines, TUI observation, and cleanup. Session discipline, merging, cost reporting, and sandbox blindness live in [`operator-practices.md`](./operator-practices.md). The full TUI rendering/interaction contract lives in [`tui.md`](./tui.md).
 
-## Which binary
+## One binary
 
-`jarvis` (v2) is the daily driver: intent/plan/implement workflows, daemon, run control, TUI, and cleanup of v2 worktrees/specs. `jarvis1` (v1, maintenance-only) remains for:
-
-| Concern | Binary | Notes |
-| --- | --- | --- |
-| Machine and project setup (`jarvis init`) | `jarvis` | Run from the Git worktree top level; registration merges into `~/.jarvis/config.json` without replacing an existing origin or unrelated config |
-| Triage, review-feedback, prompt, runbook add | `jarvis1` | `triage --merge` gates spec-backed and spec-less PRs; see [v1 operator runbook](../../v1/docs/operator-runbook.md) |
-| v1 init, patch runs (`jarvis1 run <spec>`) + their log server | `jarvis1` | Maintenance fallback only; `jarvis1 cleanup` owns v1 worktrees/specs |
+`jarvis` owns everything: machine and project setup (`jarvis init`, run from the Git worktree top level; registration merges into `~/.jarvis/config.json` without replacing an existing origin), intent/plan/implement workflows, pipelines, daemon, run control, TUI, and cleanup. There is no merge command — merging is a by-hand gated path ([`operator-practices.md` § Merging](./operator-practices.md#merging)). The `v1/` tree is frozen and `jarvis1` no longer exists.
 
 Orientation: [`onboarding.md`](./onboarding.md). Install path: [`install-and-config.md`](./install-and-config.md).
 
 ## Where planning artifacts live
 
-Check live `~/.jarvis/config.json` for `plan.targetDir`. For the jarvis project that is `v2/spec` (the default); v1 maintenance fixes use `--target-dir v1/spec`.
+Check live `~/.jarvis/config.json` for `plan.targetDir`. For the jarvis project that is `v2/spec` (the default).
 
 Git-enabled projects (the default) keep planning queues and durable specs in the registered repository:
 
@@ -53,26 +47,26 @@ Successful publication consumes the queue input only after its durable output la
 
 ## North star
 
-Same as [v1 operator runbook § North star](../../v1/docs/operator-runbook.md#north-star): minimize manual steps; fold fixes into existing commands rather than new subcommands. Gaps become seeds under `v2/spec/seeds/` (or `v1/spec/seeds/` for genuine v1 maintenance fixes).
+[`operator-practices.md` § North star](./operator-practices.md#north-star): minimize manual steps; fold fixes into existing commands rather than new subcommands. Gaps become seeds under `v2/spec/seeds/`.
 
 ## Operator feedback cadence
 
-Same two-point rule as v1: report when you launch a `jarvis` command and when it lands. After a landed intent (implemented and on `main`), one short session paragraph. Interrupt only for a decision you cannot make.
+Two-point rule ([`operator-practices.md`](./operator-practices.md#operator-feedback-cadence)): report when you launch a `jarvis` command and when it lands. After a landed intent (implemented and on `main`), one short session paragraph. Interrupt only for a decision you cannot make.
 
 ## Operator responsibilities
 
-Adapted from v1; v2 session close-out is the same obligation:
+Session close-out obligations ([`operator-practices.md` § Definition of done](./operator-practices.md#definition-of-done-session)):
 
 1. **Drive + review + merge** v2 work through the normal PR path.
 2. **Seed harness gaps** surfaced while dogfooding — link stopgaps in this runbook to the seed and a cleanup trigger.
-3. **Triage harness suggestions** ([v1 runbook § Harness suggestions](../../v1/docs/operator-runbook.md#harness-suggestions-from-other-repos)).
+3. **Triage harness suggestions** ([`operator-practices.md` § Harness suggestions](./operator-practices.md#harness-suggestions-from-other-repos)).
 4. **Session report** under `reports/` with UTC timestamp; link every implementation PR.
 5. **Maintain this runbook** (branch → PR → merge). Operators add gotchas and remove entries when the structural fix ships.
 6. **End-of-session cleanup** — run `jarvis cleanup <project>` (see [Cleanup](#cleanup-eligibility-gate) for the full contract; reserve bare `jarvis cleanup` for intentional all-registered-project maintenance).
 
 ## Runbook maintenance
 
-v2 has no `jarvis runbook add` command. Edit this file directly:
+There is no `runbook add` command. Edit this file directly:
 
 1. Work on a git worktree (not the primary checkout).
 2. Add dated bullets under **Known gotchas** or **Recovery** — terse, actionable.
@@ -101,7 +95,7 @@ Template for a new gotcha:
 gh issue view <n> --repo cbrenner04/jarvis --comments
 ```
 
-Observed 2026-07-12 on intake #1453: the body proposed a full sandbox-policy architecture; the owner's comment said *"written with no familiarity with the harness — confirm assumptions prior to creating a seed."* Three core assumptions then failed against the code, and the resulting seed was a fraction of what the body asked for. See [v1 runbook § Triage](../../v1/docs/operator-runbook.md#triage-jarvis-on-jarvis-operator).
+Observed 2026-07-12 on intake #1453: the body proposed a full sandbox-policy architecture; the owner's comment said *"written with no familiarity with the harness — confirm assumptions prior to creating a seed."* Three core assumptions then failed against the code, and the resulting seed was a fraction of what the body asked for. Triage procedure: [`operator-practices.md` § Harness suggestions](./operator-practices.md#harness-suggestions-from-other-repos).
 
 ## Core operator paths
 
@@ -235,7 +229,7 @@ When gates (2) and (3) both apply, stderr names landed-criteria drift before dir
 Two kinds of `1` exit come out of this path, and they are not the same state:
 
 - **Pre-mutation refusal** — nothing was touched. Raised when the workspace is live-held, the matching PR is ready (non-draft), multiple open PRs match the branch, open-PR ownership is unknown because `gh pr list` failed (`could not determine open PR state: gh is unreachable from this environment; retry outside the agent sandbox` on stderr; no retirement — see [Coding agents in sandbox](#coding-agents-in-sandbox)), the daemon already holds the `(project, branch)` claim that would refuse workflow `start` (`worktree_claimed:` on stderr; worktree, local and remote branches, and open PR stay intact), the daemon claim-check RPC fails (generic `Cannot re-run incomplete spec:` wrapper — not `worktree_claimed:`; no retirement), the managed worktree `HEAD` is not a descendant of the resolved base, the worktree spec tree has criteria ticked absent from base, or the materialized worktree has uncommitted tracked or untracked paths; stderr names the blocking state. Recovery: end the live run or wait for its lock to clear; mark the PR draft again or merge it; close duplicate PRs until exactly one open draft remains; re-run outside the agent sandbox when stderr names `gh` reachability; or clean the worktree as named in the refusal (commit, discard local changes, or pass the matching override flag), then re-run. Manual fallback: `jarvis cleanup --abandon <branch>` when guards pass.
-- **Partial teardown** — stderr reads `retirement failed at <step>; <what remains>`. Local artifacts may already be gone. Finish the teardown by hand (see [`--abandon`](#v2-debris-blocks-the-jarvis1-fallback) for the per-step remnants and commands), then re-run. When any retirement step destroyed artifacts before the invocation exits non-zero, stderr also prints a `Retirement destroyed artifacts:` block listing each destruction event from this invocation (closed PR number, worktree path, local branch, remote branch, pruned remote-tracking ref) — not a live re-probe of git or GitHub. A started run may have recreated the worktree and branch after retirement; treat the summary as a teardown log, not current state. Because the guard runs after connect, a refused re-run leaves behind the daemon it auto-started when none was listening — stop it with `jarvis daemon stop` if you did not want one up.
+- **Partial teardown** — stderr reads `retirement failed at <step>; <what remains>`. Local artifacts may already be gone. Finish the teardown by hand (see [`--abandon`](#wedged-workspace-from-a-failed-run) for the per-step remnants and commands), then re-run. When any retirement step destroyed artifacts before the invocation exits non-zero, stderr also prints a `Retirement destroyed artifacts:` block listing each destruction event from this invocation (closed PR number, worktree path, local branch, remote branch, pruned remote-tracking ref) — not a live re-probe of git or GitHub. A started run may have recreated the worktree and branch after retirement; treat the summary as a teardown log, not current state. Because the guard runs after connect, a refused re-run leaves behind the daemon it auto-started when none was listening — stop it with `jarvis daemon stop` if you did not want one up.
 
 Pipeline intent-stage re-dispatch (reopen/resume after a failed-stage continuation, including daemon-restart continuation) auto-clears a poisoned intent worktree and review-verdict sidecar the same way, when the same gates pass — no manual step. When a gate refuses (dirty tree, criteria drift), the stage fails with the CLI's refusal text instead of dispatching; run `jarvis cleanup --abandon` to retire the worktree by hand, same as any other refused-guard or non-pipeline case.
 
@@ -413,12 +407,7 @@ If a failed materialization leaves an ordinary directory at its managed path, re
 
 ## Implementation on jarvis specs
 
-Two valid paths:
-
-1. **`jarvis run workflow implement`** — the primary path; live `jarvis run kill` stops an in-flight write step; verify preflight and gates independently.
-2. **`jarvis1 run <spec>`** — v1 maintenance fallback (patch loop, triage, cleanup integration).
-
-Do not assume parity between them — see [Gate trust](#gate-trust) for what the v2 gate covers.
+**`jarvis run workflow implement`** is the only path; live `jarvis run kill` stops an in-flight write step. Verify preflight and gates independently — see [Gate trust](#gate-trust) for what the gate covers.
 
 ### Review-role timeouts and stalls
 
@@ -462,7 +451,7 @@ The spec.criteria-ticked contract prevents `done` / `no-work` completions when u
 
 Implement PR bodies carry an agent-authored review-altitude narrative in the PR marker block (see [PR body narrative markers](./workflow-runner.md#pr-body-narrative-markers)). The shrink pass authors this narrative after implementation; on re-publication, human edits inside the marker block are preserved and clobber-protected by precedence rules.
 
-`jarvis1 run` must not report success when the ready gate is red (seed `run-cannot-report-complete-over-red-gate`). Treat `criteria-complete` exit 0 as insufficient without a green gate on the branch head.
+A run must never report success over a red ready gate; treat any completion claim as insufficient without a green gate on the branch head.
 
 ### Mutation verification
 
@@ -614,15 +603,15 @@ Distinguish five cases:
 2. **Pre-mutation claim-check failure** — daemon claim probe missing or RPC error; refused with `Cannot re-run incomplete spec:` (not `worktree_claimed:`). No retirement. Restore daemon IPC and retry.
 3. **Post-retirement `start` failure** — retirement already ran, then `start` returned `worktree_claimed`. This is the bug class pre-mutation claim gating prevents; if you still see it on an older build, inspect partial teardown before re-invoking.
 4. **Claim acquired after retirement but before `start`** — another dispatcher claimed the key in the gap; artifacts may already be gone. Finish any partial teardown by hand before re-running.
-5. **Partial teardown already happened** — use the `Retirement destroyed artifacts:` summary and [`--abandon`](#v2-debris-blocks-the-jarvis1-fallback) remnants table; re-invoke is not always safe.
+5. **Partial teardown already happened** — use the `Retirement destroyed artifacts:` summary and [`--abandon`](#wedged-workspace-from-a-failed-run) remnants table; re-invoke is not always safe.
 
 The pre-mutation client probe uses the same admission predicate as workflow `start` (queued rows and registry claims, not `list` `isLive` alone). Stale in-memory workflow claims that `start` would reclaim at admission match the probe too — retirement may proceed when post-reclaim admission would succeed. The probe still refuses before retirement when `start` would refuse without reclaim (queued rows or a live registry-held claim), which prevents destruction.
 
 If a workflow start returns `worktree_claimed` after its prior owner is no longer live and retirement did not run, invoke the workflow again. The daemon drops that in-memory workflow claim at admission and preserves all worktree and branch state; do not restart the daemon or remove a worktree for this case. A genuinely live owner remains protected and continues to reject the same `(project, branch)`.
 
-### v2 debris blocks the `jarvis1` fallback
+### Wedged workspace from a failed run
 
-A failed v2 run leaks its worktree under `~/.jarvis/worktrees/<project>/<branch>/` and holds the branch name. `jarvis1 plan`/`run` for the same name then dies with `fatal: '<branch>' is already used by worktree at …`, so **the v2 failure breaks the v1 recovery path**. Clear it before falling back:
+A failed run leaks its worktree under `~/.jarvis/worktrees/<project>/<branch>/` and holds the branch name; any later use of that branch name dies with `fatal: '<branch>' is already used by worktree at …`, so **the failure breaks the1 recovery path**. Clear it before falling back:
 
 ```sh
 git worktree remove --force ~/.jarvis/worktrees/<project>/<branch>
@@ -717,7 +706,7 @@ Check `~/.jarvis/daemon.log` and `jarvis run log <run-id>`. Plan draft stalls hi
 fatal: '<branch>' is already used by worktree at ...
 ```
 
-Remove the stale worktree under `~/.jarvis/worktrees/…` and delete the local branch if safe. (`jarvis cleanup` handles this automatically once the branch's PR is merged; hand-remove only for unmerged branches — see [`--abandon`](#v2-debris-blocks-the-jarvis1-fallback).)
+Remove the stale worktree under `~/.jarvis/worktrees/…` and delete the local branch if safe. (`jarvis cleanup` handles this automatically once the branch's PR is merged; hand-remove only for unmerged branches — see [`--abandon`](#wedged-workspace-from-a-failed-run).)
 
 ### Publication / completion failures
 
@@ -834,9 +823,9 @@ Every cleanup also reaps expired terminal-run session logs under `~/.jarvis/sess
 
 ## Choosing an actuator
 
-**Claude is a usable patch/implement primary.** Both v1 (`v1/src/agents/claude.ts:68`, 2026-07-13) and the shared v2 adapter (`shared/invocation/`, 2026-07-13) spawn claude with `--output-format stream-json --verbose`, so the idle-output watchdog observes it mid-iteration and can escalate. Before that, 33/33 claude patch records carried `last_output_age_ms: null` — the watchdog was structurally blind to claude, producing two false diagnoses ("claude-haiku stalls to zero-output iteration-timeout", "claude-sonnet-5 is too slow for patch primary"). Zero output was a missing measurement, not a starved or slow model. The v1 runbook's "shared Claude pool contention" guidance rests on the same folklore and is contradicted by observation (concurrent claude plan runs completed cleanly during the "stalled" patch run); seed `v2/spec/seeds/retire-claude-pool-contention-folklore.md` (re-seeded 2026-09-07 — the original ready-intent was lost to a bulk backlog purge; `v1/src/modes/patch/pool-contention.ts` still emits the warning) — delete the v1 runbook's [Shared model pool contention warning](../../v1/docs/operator-runbook.md#shared-model-pool-contention-warning) when it ships.
+**Claude is a usable implement primary.** The shared adapter (`shared/invocation/`, 2026-07-13) spawns claude with `--output-format stream-json --verbose`, so the idle-output watchdog observes it mid-iteration and can escalate. Before that, 33/33 claude patch records carried `last_output_age_ms: null` — the watchdog was structurally blind to claude, producing two false diagnoses ("claude-haiku stalls to zero-output iteration-timeout", "claude-sonnet-5 is too slow for patch primary"). Zero output was a missing measurement, not a starved or slow model. The v1 runbook's "shared Claude pool contention" guidance rests on the same folklore and is contradicted by observation (concurrent claude plan runs completed cleanly during the "stalled" patch run); seed `v2/spec/seeds/retire-claude-pool-contention-folklore.md` (re-seeded 2026-09-07 — the original ready-intent was lost to a bulk backlog purge; `v1/src/modes/patch/pool-contention.ts` still emits the warning) — delete the v1 runbook's [Shared model pool contention warning](../../v1/docs/operator-runbook.md#shared-model-pool-contention-warning) when it ships.
 
-**Claude review/critic roles stream partial frames (2026-08-05).** `shared/invocation/agents.ts` appends `--include-partial-messages` to the claude argv, streaming `thinking_delta`/`text_delta` frames ahead of the terminal result event — a long no-tool turn (e.g. a critic role with the diff baked into the prompt) previously emitted a `system init` line then nothing until the final flush, so the once-armed idle watchdog could settle `stall` on a slow-but-live run. Any stdout chunk re-arms the idle timer. v1's local claude adapter does not pass this flag and keeps the pre-2026-08-05 behavior.
+**Claude review/critic roles stream partial frames (2026-08-05).** `shared/invocation/agents.ts` appends `--include-partial-messages` to the claude argv, streaming `thinking_delta`/`text_delta` frames ahead of the terminal result event — a long no-tool turn (e.g. a critic role with the diff baked into the prompt) previously emitted a `system init` line then nothing until the final flush, so the once-armed idle watchdog could settle `stall` on a slow-but-live run. Any stdout chunk re-arms the idle timer.
 
 **Cursor is spawned with stream-json (2026-07-24, confirmed by observation 2026-07-26).** Under `--output-format text` cursor emitted nothing until its final response, so a silently-editing review role settled `stall` at exactly the idle budget with edits already on disk. `shared/invocation/agents.ts` now spawns cursor with `--output-format stream-json --stream-partial-output` (`shared/invocation/cursor-json.ts` renders the terminal `result` event back into result text), and cursor does emit frames during silent edit phases — a cursor implement role ran 948s re-arming the idle timer before a genuine fatal pause. v1's `v1/src/agents/cursor.ts` is unchanged (`text` mode).
 
@@ -844,26 +833,17 @@ Every cleanup also reaps expired terminal-run session logs under `~/.jarvis/sess
 
 **Codex red-gates v2 implements on mechanical lint (2026-07-17).** On `gpt-5.6-terra`/`-sol`, 4 of 4 implement PRs red-gated on `noNonNullAssertion` (`foo!` in tests) and biome formatting — the logic was correct (3 landed mutation-verified), but the models ignore this repo's strict biome contract, so every run needs gate-repair churn or a hand-finalize, and the retries burn codex quota fast (33 invocations for ~5 specs). The gate can auto-fix formatting but not `noNonNullAssertion` (`fix: "none"`; the `!`→`?.` rewrite fails typecheck). Don't lead with codex as the v2 actuator for this repo; keep it behind claude/cursor.
 
-**Cursor can report a false `quota` at ~24s (2026-07-26, not seeded — cost only).** Three cursor invocations across three days settled `exit_kind: "quota"` at 24.2–24.6s; in one case cursor ran the *next* role successfully 46s later. Real quota exhaustion fails fast and stays failed; this tight a duration cluster is a timeout or stream-disconnect matching the quota stderr heuristic (`v1/docs/quota-signals.md`). Consequence is spend, not correctness: the spurious signal escalates to the next rung (one instance cost $1.48 of `claude-opus-5` for work cursor would have done on subscription) and quietly undermines a cursor-first order. Check telemetry before believing a quota escalation.
+**Cursor can report a false `quota` at ~24s (2026-07-26, not seeded — cost only).** Three cursor invocations across three days settled `exit_kind: "quota"` at 24.2–24.6s; in one case cursor ran the *next* role successfully 46s later. Real quota exhaustion fails fast and stays failed; this tight a duration cluster is a timeout or stream-disconnect matching the quota stderr heuristic ([`quota-signals.md`](./quota-signals.md)). Consequence is spend, not correctness: the spurious signal escalates to the next rung (one instance cost $1.48 of `claude-opus-5` for work cursor would have done on subscription) and quietly undermines a cursor-first order. Check telemetry before believing a quota escalation.
 
-### v2 takes its agent order from a different config key than v1
+### Agent order lives in the top-level `agents` array
 
-**v1** reads `modes.<mode>.agentOrder` (ordered `{agent, model}` objects, per mode). **v2** reads the flat top-level **`agents`** array of bare names (`v2/src/cli.ts:236` → `loadMachineConfig`). It never reads `modes.*.agentOrder`.
-
-So reordering `modes.*.agentOrder` — the lever `agents.md` and the v1 runbook document — changes v1 and **nothing about v2**, silently. Observed 2026-07-14: codex was moved to the front of every `modes.*.agentOrder` and every subsequent v2 run still invoked claude. To change v2's order you must also edit the top-level `agents` array. Seed: `v2/spec/seeds/v1-and-v2-read-agent-order-from-different-config-keys.md` (re-seeded 2026-09-07 — the original was lost to a bulk backlog purge without the fix shipping; `agentOrder` still has zero occurrences under `v2/` and `shared/`). Cleanup: delete when it ships.
-
-Per-run overrides, rather than churning config — **v1 only**; v2 has no `--agent` flag:
-
-```sh
-jarvis1 run --agent cursor:"Composer 2.5" <spec>   # verify `cursor-agent status` first
-jarvis1 run --agent codex <spec>                   # paid, fast
-```
+v2 reads the flat top-level **`agents`** array of bare names (`jarvis config set-agents`, `v2/src/cli.ts` → `loadMachineConfig`) and the role→model rungs in `config/machines/<profile>.json`. It never reads `modes.*.agentOrder` — those keys in an older `~/.jarvis/config.json` are frozen-v1 leftovers and are ignored. Observed 2026-07-14: codex was moved to the front of every `modes.*.agentOrder` and every subsequent run still invoked claude. There is no per-run `--agent` override; change the order or the machine profile instead.
 
 ## Concurrency
 
 **Four concurrent implements run cleanly; the ceiling is the gate, not the lane count (2026-09-06).** Seven concurrent lanes — four implements plus three pipeline stages — ran at load 6-21 with **zero** watchdog false-kills and zero idle-output stalls, on top of the completed watchdog trio (`idle-output-timeout-preserves-committed-progress-resumable` #3189/#3194, `idle-watchdog-counts-worktree-filesystem-activity` #3218, `stall-settlement-preserves-agent-stdout` #3227). Fan out implements freely, subject to two gate rules below. `plan`/`intent` have short gates and isolated spec dirs — fan those out without limit.
 
-**Give a `shared/**` implement's ready gate the machine to itself (2026-09-06).** A `shared/**` diff classifies to all six test slices, so its gate is the one that cannot share. Observed: the structural-invariant locator lane's gate went red on `v1/test/run.test.ts` and `snapshot-update-retest-runner.test.ts` timing out at 30 s, while CI passed the identical commit in 11m43s. Schedule that lane alone, or expect a false red and a wasted repair budget.
+**Give a `shared/**` implement's ready gate the machine to itself (2026-09-06).** A `shared/**` diff classifies to every live test slice, so its gate is the one that cannot share. Observed: the structural-invariant locator lane's gate went red on `v1/test/run.test.ts` and `snapshot-update-retest-runner.test.ts` timing out at 30 s, while CI passed the identical commit in 11m43s. Schedule that lane alone, or expect a false red and a wasted repair budget.
 
 **Distrust any gate verdict formed under load — including `ready_gate_out_of_scope` (2026-09-06).** That settlement means "the failing paths also reproduce on `baseRef`", and it is `nextAction: stop`, so it strands the run with no resume path. The base-ref reproduction probe runs on the same loaded machine and can flake the *same test it is checking*, classifying a healthy run's load flake as a pre-existing failure. Observed: a run settled `ready_gate_out_of_scope` naming `v2/src/commands/workflow.test.ts`, which is 104/104 on `main` and 104/104 on the branch once the machine is quiet. Before believing an out-of-scope settlement, re-run the named paths on `main` **and** on the branch with nothing else running.
 
@@ -877,7 +857,7 @@ If a lane (plan / implement / review) needs hand-intervention **twice in a row o
 
 **Read an `idle_output_timeout` cluster as a saturation signal, not an agent verdict (2026-07-30).** At 5–8 concurrent implement lanes (load average 15–25) three runs settled `idle_output_timeout`; rows with a committed checkpoint (`resumable: true`, `nextAction: "resume"`) recover with `jarvis run resume` on the retained workspace, while rows with no checkpoint commit (`resumable: false`, `nextAction: "stop"`) need re-dispatch at lower load. `idleOutputTimeoutMs` in `config/machines/home.json` is the lever if you want to keep a fan-out.
 
-**Do not merge to `main` blindly during long in-flight runs** — see v1 runbook [Integration-merge-then-retest](../../v1/docs/operator-runbook.md#integration-merge-then-retest-pattern), and note every merge rotates the daemon digest (see [Daemon lifecycle](#daemon-lifecycle)). Prefer batching merges for when no lane is live.
+**Do not merge to `main` blindly during long in-flight runs** — see [Integration-merge-then-retest](./operator-practices.md#integration-merge-then-retest-pattern), and note every merge rotates the daemon digest (see [Daemon lifecycle](#daemon-lifecycle)). Prefer batching merges for when no lane is live.
 
 **A dependent plan run costs one dispatch to learn its prerequisite is unmerged (2026-07-30).** Plan runs settle `blocked` / `agent_blocked` with accurate `## Blocker` text naming an unmerged sibling spec. The refusals are correct and cheap, but fanning out a whole dependency chain at once wastes a run per unmet edge. Read the blocker from the staged intent, not the run row: `sed -n '/## Blocker/,$p' ~/.jarvis/worktrees/<project>/plan/<name>/.jarvis-plan-stage/intent.md`.
 
@@ -889,9 +869,8 @@ If a lane (plan / implement / review) needs hand-intervention **twice in a row o
 
 ## Coding agents in sandbox
 
-- **Do not** start/stop/restart `jarvis1 log-server` — v1 concern; see v1 runbook.
-- Sandbox may block `127.0.0.1` — daemon/socket probes can false-negative; see v1 runbook § Sandbox blindness.
-- **`gh pr list` false-negative blocks destructive cleanup and stale reset.** Sandboxed callers can fail the open-PR probe even when a PR exists; [`--abandon`](#v2-debris-blocks-the-jarvis1-fallback) and incomplete re-run stale reset refuse pre-mutation rather than treating probe failure as "no PR". Re-run the command outside the agent sandbox — see [`--abandon` PR-ownership gates](#v2-debris-blocks-the-jarvis1-fallback) and [Incomplete re-run preflight gates § Pre-mutation refusal](#incomplete-re-run-preflight-gates).
+- Sandbox may block `127.0.0.1` — daemon/socket probes can false-negative; see [`operator-practices.md` § Sandbox blindness](./operator-practices.md#sandbox-blindness-and-false-negatives).
+- **`gh pr list` false-negative blocks destructive cleanup and stale reset.** Sandboxed callers can fail the open-PR probe even when a PR exists; [`--abandon`](#wedged-workspace-from-a-failed-run) and incomplete re-run stale reset refuse pre-mutation rather than treating probe failure as "no PR". Re-run the command outside the agent sandbox — see [`--abandon` PR-ownership gates](#wedged-workspace-from-a-failed-run) and [Incomplete re-run preflight gates § Pre-mutation refusal](#incomplete-re-run-preflight-gates).
 - **Do not** start a second `jarvis daemon` to "fix" a stuck run.
 
 ## Known gotchas
@@ -932,4 +911,4 @@ Operators add bullets here; delete when fixed. Durable lessons that are behavior
 | [`daemon-host.md`](./daemon-host.md) | IPC, errors, retention |
 | [`tui.md`](./tui.md) | Full TUI rendering/interaction contract |
 | [`coding-standards.md`](./coding-standards.md) | Restraint principles |
-| [`v1/docs/operator-runbook.md`](../../v1/docs/operator-runbook.md) | Plan/run/cleanup/triage/cost |
+| [`operator-practices.md`](./operator-practices.md) | Session discipline, merging, cost reporting |

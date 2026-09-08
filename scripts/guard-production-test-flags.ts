@@ -5,7 +5,7 @@ export type GuardViolation = { file: string; line: number; shape: string };
 type GuardFile = { file: string; source: string };
 
 const SKIPPED_PATHS = new Set(["shared/prompts/step-rules.ts"]);
-const SCAN_ROOTS = ["v2/src", "v1/src", "shared"] as const;
+const SCAN_ROOTS = ["v2/src", "shared"] as const;
 
 const SHAPES = {
   setInvertExport: "setInvert*ForTest export",

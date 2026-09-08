@@ -1,5 +1,7 @@
 # v1+v2 behavior parity catalog
 
+> **v1 is frozen** (not compiled, tested, or linked; see [`v1/README.md`](../../v1/README.md)). Entries tagged as v1 behavior describe that frozen baseline; the `[v2 …]` entries remain the live v2 behavior record and specs still update them.
+
 This document inventories user-observable v1 behavior and records each v2 parity decision — preserve, change, or drop — plus v2-only divergences. Entries reflect the state when each parity call was made; v2 source and `v2/docs/` are authoritative for current v2 behavior.
 
 ## Overview and scope

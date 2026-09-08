@@ -76,7 +76,7 @@ Decided:
   **explicitly override** the default — add or remove specific fragments when
   it's the exception.
 
-Designed and shipped (#121/#122): the `prompts/` layout, fragment taxonomy, the override syntax, and the rendered-prompt snapshot test standard (a prompt edit can shift `jarvis1` output, so changes are kept visible via revision-keyed snapshots). The canonical as-shipped contract is [`../../v1/docs/prompt-governance.md`](../../v1/docs/prompt-governance.md).
+Designed and shipped (#121/#122): the `prompts/` layout, fragment taxonomy, the override syntax, and the rendered-prompt snapshot test standard (a prompt edit shifts rendered output, so changes are kept visible via the `revision` field and render-observer tests). The canonical contract is [`prompt-governance.md`](./prompt-governance.md).
 
 **v2's own renderer (`v2/src/execution/write-prompt.ts`, `renderStepPrompt`) only implements the global half of this layering.** It prepends every `behavior: global` fragment (order-ranked, minus the step's own `remove` list) ahead of the step's task text, but does not layer behavior-specific fragments — those a step still injects itself via its own placeholders (e.g. `write.execute`'s `PRINCIPLES`). This means `plan.prompt.draft` renders two different ways depending on caller: through `shared/prompts/plan-draft.ts` (`assemblePromptForStep`, used by `jarvis1`) it also gets `plan.decisions-ledger` / `plan.defer-to-consumer` and honors `metadata.add`; through v2's `renderStepPrompt` it gets only the global fragments. Converging v2 onto `assemblePromptForStep` is the correct end state; tracked as follow-up, not yet done.
 
@@ -505,7 +505,7 @@ Most of v1's git/GitHub machinery is sound and carries forward unchanged: harnes
 - **Locking suits a single daemon.** The daemon is the sole orchestrator, so for
   its own runs it tracks worktree ownership in-memory — no two runs share a
   worktree, no PID-lock dance among daemon runs. The on-disk `.jarvis.lock` stays
-  for **cross-process coexistence** (`jarvis1`, your editor, manual git). The lock
+  for **cross-process coexistence** (your editor, manual git). The lock
   is held for the **whole run lifetime, including while paused** — the worktree
   is "checked out" to that run until done or killed.
 - **Git/PR lifecycle is runner-owned, not composable.** Commits/PRs are baked into
@@ -560,7 +560,7 @@ The daemon exposes a hermetic programmatic API over a Unix-domain-socket IPC tra
   branch}` (the state-store resume key), recording `{runId, worktreePath}`.
   `claim` rejects double-claim; `release` is idempotent. No disk writes or
   PID-lock coordination — the on-disk `.jarvis.lock` and git worktrees locking
-  remain for cross-process coexistence (daemon runs vs. `jarvis1`, editors, manual
+  remain for cross-process coexistence (daemon runs vs. editors, manual
   git). The lock is held for the whole run lifetime; ownership ensures no two
   daemon runs touch the same worktree.
 - **Shared workflow-start admission:** after caller-specific preparation and recovery target validation, standalone workflow starts, daemon pipeline dispatch, and pipeline stage recovery enter `admitWorkflowStart`. That boundary reclaims stale workflow claims, applies queued/live ownership and memory checks, acquires registry and `activeRuns` ownership, and rolls those resources back if lifecycle-specific durable admission refuses or throws. Workflow execution and detached recovery retain distinct identities, durable admission, execution, and settlement; recovery remains `kind: "recovery"` until its continuation settles.

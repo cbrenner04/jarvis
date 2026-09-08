@@ -20,7 +20,7 @@ name: generalize-production-test-seam-guard
 ## Decision ledger
 
 - Broaden detection beyond `invert*` hooks; rules out a guard that only covers the last incident family.
-- Keep scanning `v2/src`, `v1/src`, and `shared` production trees; rules out limiting the guard to daemon-only paths.
+- Keep scanning `v2/src` and `shared` production trees (the frozen `v1/src` is excluded); rules out limiting the guard to daemon-only paths.
 
 ## Prerequisites
 

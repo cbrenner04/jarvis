@@ -1,7 +1,6 @@
 /**
- * The contract every write-loop step prompt carries. Lives in `shared`
- * because both the v1 patch prompt and the v2 write loop render it — v1 must not import
- * from v2.
+ * The contract every write-loop step prompt carries. Lives in `shared` so prompt
+ * assembly and the write loop share one source.
  */
 export const DEFAULT_WRITE_STEP_RULES =
   "Human-only acceptance criteria contain `(Manual)`, `visual inspection only`, or `no automated guard` anywhere in the full bullet block (the first checklist line and any continuation lines). Recognition uses case-insensitive substring matching; markers need not be trailing or whole phrases.\n" +

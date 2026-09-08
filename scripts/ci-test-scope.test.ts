@@ -2,18 +2,16 @@ import { describe, expect, test } from "bun:test";
 import { resolveCiTestScope } from "./ci-test-scope";
 
 describe("resolveCiTestScope", () => {
-  test("v1-only change runs agent + integration v1 slices", () => {
-    expect(resolveCiTestScope(["v1/src/index.ts"], true)).toEqual(["test:v1", "test:integration:v1"]);
+  test("frozen v1 change (src, test, docs, spec) skips tests", () => {
+    expect(resolveCiTestScope(["v1/src/index.ts", "v1/test/cli.test.ts", "v1/docs/run-loop.md"], true)).toEqual([]);
   });
 
   test("v2-only change runs test:v2 + test:integration:v2", () => {
     expect(resolveCiTestScope(["v2/src/foo.ts"], true)).toEqual(["test:v2", "test:integration:v2"]);
   });
 
-  test("shared-only change runs all scoped slices", () => {
+  test("shared-only change runs v2 + shared slices", () => {
     expect(resolveCiTestScope(["shared/git.ts"], true)).toEqual([
-      "test:v1",
-      "test:integration:v1",
       "test:v2",
       "test:integration:v2",
       "test:shared",
@@ -21,13 +19,8 @@ describe("resolveCiTestScope", () => {
     ]);
   });
 
-  test("v1 + v2 change runs all scoped slices except shared harness", () => {
-    expect(resolveCiTestScope(["v1/src/index.ts", "v2/src/foo.ts"], true)).toEqual([
-      "test:v1",
-      "test:integration:v1",
-      "test:v2",
-      "test:integration:v2",
-    ]);
+  test("v1 + v2 change scopes on v2 only", () => {
+    expect(resolveCiTestScope(["v1/src/index.ts", "v2/src/foo.ts"], true)).toEqual(["test:v2", "test:integration:v2"]);
   });
 
   test.each([
@@ -44,7 +37,7 @@ describe("resolveCiTestScope", () => {
   });
 
   test("unresolvable base with code-bearing diff runs full suite", () => {
-    expect(resolveCiTestScope(["v1/src/index.ts"], false)).toBe("full");
+    expect(resolveCiTestScope(["v2/src/index.ts"], false)).toBe("full");
   });
 
   test("spec-only diff with unresolvable base skips tests", () => {

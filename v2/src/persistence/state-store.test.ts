@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
 import { type OperatorIncident, serializeOperatorIncident } from "../daemon/operator-incidents.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import {
@@ -5088,5 +5089,235 @@ describe("incident candidate list queries", () => {
     const match = candidates.find((pipeline) => pipeline.id === pipelineId);
     expect(match).toBeDefined();
     expect(match?.stages.find((stage) => stage.stageId === "gate")?.status).toBe("awaiting");
+  });
+});
+
+describe("operator failure records", () => {
+  const RECORD: OperatorFailureRecord = {
+    expectation: "ready gate exits 0",
+    observation: "bun run test:v2 exited 1 on daemon.test.ts",
+    nearMiss: "159 of 160 files passed",
+    retryable: true,
+    referencedPaths: [
+      { path: "/tmp/jarvis/sessions/run-1.log", origin: "harness-internal" },
+      { path: "v2/src/daemon/daemon.test.ts", origin: "operator-repository" },
+    ],
+  };
+  const REPLACEMENT: OperatorFailureRecord = {
+    expectation: "PR opens",
+    observation: "gh pr create refused",
+    retryable: false,
+    referencedPaths: [],
+  };
+  let store: StateStore;
+
+  beforeEach(() => {
+    removeOrchestrationStore(TEST_DB_PATH);
+    store = openStateStore(TEST_DB_PATH);
+  });
+
+  afterEach(() => {
+    store.close();
+    removeOrchestrationStore(TEST_DB_PATH);
+  });
+
+  function rawColumn(runId: string): string | null {
+    const raw = new Database(TEST_DB_PATH);
+    const row = raw.prepare("SELECT operator_failure_record AS json FROM runs WHERE id = ?").get(runId) as {
+      json: string | null;
+    };
+    raw.close();
+    return row.json;
+  }
+
+  test("operator failure record round-trips on a run row", () => {
+    const runId = seedRun(store);
+    store.commitTerminalRunSettlement({
+      runId,
+      status: "failed",
+      terminalCause: "invocation_failure",
+      operatorFailureRecord: RECORD,
+    });
+    store.close();
+    store = openStateStore(TEST_DB_PATH);
+
+    const loaded = loadRunOrThrow(store, runId);
+    expect(loaded.operatorFailureRecord).toEqual(RECORD);
+    expect(loaded.operatorFailureRecordCorrupt).not.toBe(true);
+    expect(store.listRuns().find((run) => run.id === runId)?.operatorFailureRecord).toEqual(RECORD);
+  });
+
+  test("terminal settlement preserves an omitted operator failure record and clears an explicit null", () => {
+    const runId = seedRun(store);
+    store.commitTerminalRunSettlement({ runId, status: "failed", operatorFailureRecord: RECORD });
+
+    store.commitTerminalRunSettlement({ runId, status: "failed", terminalCause: "invocation_failure" });
+    expect(loadRunOrThrow(store, runId).operatorFailureRecord).toEqual(RECORD);
+
+    store.commitTerminalRunSettlement({ runId, status: "failed", operatorFailureRecord: REPLACEMENT });
+    expect(loadRunOrThrow(store, runId).operatorFailureRecord).toEqual(REPLACEMENT);
+
+    // @mutate v2/src/persistence/state-store.ts "args.operatorFailureRecord === null\n            ? null" -> "args.operatorFailureRecord === null\n            ? undefined"
+    store.commitTerminalRunSettlement({ runId, status: "failed", operatorFailureRecord: null });
+    expect(loadRunOrThrow(store, runId).operatorFailureRecord).toBeNull();
+    expect(rawColumn(runId)).toBeNull();
+  });
+
+  test("commitCompletionBoundary persists an operator failure record with its attempt outcome", () => {
+    const runId = seedRun(store);
+    const attemptId = store.recordAttemptStart(runId);
+    store.commitCompletionBoundary({
+      attemptId,
+      runStatus: "failed",
+      outcomeKind: "invocation_failure",
+      terminalCause: "invocation_failure",
+      operatorFailureRecord: RECORD,
+    });
+
+    const loaded = loadRunOrThrow(store, runId);
+    expect(loaded.status).toBe("failed");
+    expect(loaded.attempts[0]?.outcomeKind).toBe("invocation_failure");
+    expect(loaded.operatorFailureRecord).toEqual(RECORD);
+    expect(loaded.finishedAt).not.toBeNull();
+  });
+
+  test("commitTerminalRunSettlement rolls back the operator failure record together with status and other evidence", () => {
+    const runId = seedRun(store);
+    store.commitTerminalRunSettlement({
+      runId,
+      status: "failed",
+      terminalCause: "invocation_failure",
+      operatorFailureRecord: RECORD,
+    });
+    const before = loadRunOrThrow(store, runId);
+
+    expect(() =>
+      store.commitTerminalRunSettlement({
+        runId,
+        status: "killed",
+        terminalCause: "blocked",
+        prNumber: 99,
+        operatorFailureRecord: REPLACEMENT,
+        beforeSecondWrite: () => {
+          throw new Error("forced mid-settlement failure");
+        },
+      }),
+    ).toThrow("forced mid-settlement failure");
+
+    const after = loadRunOrThrow(store, runId);
+    expect(after.status).toBe(before.status);
+    expect(after.finishedAt).toBe(before.finishedAt);
+    expect(after.prNumber).toBe(before.prNumber);
+    expect(after.terminalCause).toBe(before.terminalCause);
+    expect(after.operatorFailureRecord).toEqual(RECORD);
+  });
+
+  test("loadRun and listRuns surface operatorFailureRecordCorrupt for malformed and invalid operator_failure_record values", () => {
+    const { nearMiss: _nearMiss, ...base } = RECORD;
+    const invalidValues = [
+      "{not-json",
+      "[]",
+      JSON.stringify({ ...base, expectation: 7 }),
+      JSON.stringify({ ...base, retryable: "yes" }),
+      JSON.stringify({ ...base, referencedPaths: "v2" }),
+      JSON.stringify({ ...base, referencedPaths: [{ path: 1, origin: "harness-internal" }] }),
+      JSON.stringify({ ...base, referencedPaths: [{ path: "x", origin: "elsewhere" }] }),
+    ];
+    const runIds = invalidValues.map(() => seedRun(store));
+    const raw = new Database(TEST_DB_PATH);
+    runIds.forEach((runId, index) => {
+      raw.prepare("UPDATE runs SET operator_failure_record = ? WHERE id = ?").run(invalidValues[index] ?? null, runId);
+    });
+    raw.close();
+
+    const listed = store.listRuns();
+    for (const runId of runIds) {
+      const loaded = loadRunOrThrow(store, runId);
+      expect(loaded.operatorFailureRecord).toBeNull();
+      expect(loaded.operatorFailureRecordCorrupt).toBe(true);
+      const row = listed.find((run) => run.id === runId);
+      expect(row?.operatorFailureRecord).toBeNull();
+      expect(row?.operatorFailureRecordCorrupt).toBe(true);
+    }
+  });
+
+  test("operator failure record round-trips through the typed terminal pipeline-stage contract", () => {
+    const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline("typed-record") });
+    store.commitTerminalStageOperatorFailureRecord({
+      pipelineId,
+      stageId: "plan",
+      status: "failed",
+      failureDetail: RECORD,
+    });
+    store.close();
+    store = openStateStore(TEST_DB_PATH);
+
+    const typed = store.loadTerminalStageOperatorFailureRecord({ pipelineId, stageId: "plan" });
+    expect(typed).toEqual({
+      stageRecordId: loadPipelineOrThrow(store, pipelineId).stages[0]?.id ?? "",
+      pipelineId,
+      stageId: "plan",
+      branchKey: "default",
+      status: "failed",
+      failureDetail: RECORD,
+    });
+    const rawStage = loadPipelineOrThrow(store, pipelineId).stages[0];
+    expect(rawStage?.status).toBe("failed");
+    expect(rawStage?.failureDetail).toEqual(RECORD);
+    expect(rawStage?.endedAt).not.toBeNull();
+  });
+
+  test("typed terminal-stage contract refuses a nonterminal update and a non-record payload without changing the stored stage", () => {
+    const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline("typed-refusal") });
+    store.updateStage({ pipelineId, stageId: "plan", patch: { status: "running", startedAt: 100 } });
+    const before = loadPipelineOrThrow(store, pipelineId).stages[0];
+
+    expect(() =>
+      store.commitTerminalStageOperatorFailureRecord({
+        pipelineId,
+        stageId: "plan",
+        status: "running" as never,
+        failureDetail: RECORD,
+      }),
+    ).toThrow('requires status "failed"');
+    // @mutate v2/src/persistence/state-store.ts "if (record === undefined) {\n      throw" -> "if (false) {\n      throw"
+    expect(() =>
+      store.commitTerminalStageOperatorFailureRecord({
+        pipelineId,
+        stageId: "plan",
+        status: "failed",
+        failureDetail: { message: "opaque envelope" } as never,
+      }),
+    ).toThrow("requires an OperatorFailureRecord");
+
+    expect(loadPipelineOrThrow(store, pipelineId).stages[0]).toEqual(before);
+    expect(store.loadTerminalStageOperatorFailureRecord({ pipelineId, stageId: "plan" })).toBeNull();
+  });
+
+  test("typed terminal-stage reader returns null without throwing for absent malformed and legacy non-record detail", () => {
+    const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline("typed-reader") });
+    expect(store.loadTerminalStageOperatorFailureRecord({ pipelineId, stageId: "plan" })).toBeNull();
+    expect(store.loadTerminalStageOperatorFailureRecord({ pipelineId, stageId: "missing" })).toBeNull();
+
+    store.updateStage({ pipelineId, stageId: "plan", patch: { status: "failed" } });
+    expect(store.loadTerminalStageOperatorFailureRecord({ pipelineId, stageId: "plan" })).toBeNull();
+
+    const legacy = { code: "worktree_claimed", message: "claim held" };
+    store.updateStage({ pipelineId, stageId: "plan", patch: { failureDetail: legacy } });
+    expect(store.loadTerminalStageOperatorFailureRecord({ pipelineId, stageId: "plan" })).toBeNull();
+    expect(loadPipelineOrThrow(store, pipelineId).stages[0]?.failureDetail).toEqual(legacy);
+
+    const raw = new Database(TEST_DB_PATH);
+    raw
+      .prepare("UPDATE pipeline_stages SET failure_detail = ? WHERE pipeline_id = ? AND stage_id = ?")
+      .run("{not-json", pipelineId, "plan");
+    raw.close();
+    expect(store.loadTerminalStageOperatorFailureRecord({ pipelineId, stageId: "plan" })).toBeNull();
+    const rawAfter = new Database(TEST_DB_PATH);
+    const row = rawAfter
+      .prepare("SELECT failure_detail AS json FROM pipeline_stages WHERE pipeline_id = ? AND stage_id = ?")
+      .get(pipelineId, "plan") as { json: string };
+    rawAfter.close();
+    expect(row.json).toBe("{not-json");
   });
 });

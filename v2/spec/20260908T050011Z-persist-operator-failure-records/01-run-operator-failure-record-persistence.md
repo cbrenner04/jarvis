@@ -28,20 +28,20 @@ Run rows retain binding-chain `terminal_failure_detail` but no typed operator ev
 
 ## Acceptance criteria
 
-- [ ] `v2/src/persistence/state-store.test.ts` test `operator failure record round-trips on a run row` writes a record with expectation, observation, near miss, retryability, and both path origins through terminal settlement, reopens the store, and asserts `loadRun` field equality; it fails against the pre-fix run schema reachable on main without `operator_failure_record`.
-- [ ] `v2/src/persistence/state-store.test.ts` terminal-settlement evidence tests prove omitting `operatorFailureRecord` preserves a prior record and explicit `null` clears it; they fail against the pre-fix settlement contract reachable on main.
-- [ ] `v2/src/persistence/state-store.test.ts` completion-boundary terminal-evidence test proves `commitCompletionBoundary` persists an operator failure record with its attempt outcome; it fails against the pre-fix boundary contract reachable on main.
-- [ ] `v2/src/persistence/state-store.test.ts` transactional-settlement test injects the existing mid-settlement failure after the status write and proves the operator failure record, status, and other settlement evidence roll back together; it fails against the pre-fix new-column transaction path reachable on main.
-- [ ] `v2/src/persistence/state-store.test.ts` run-loader corruption test seeds malformed JSON syntax and each invalid record/path shape, then proves `loadRun` and `listRuns` do not throw and expose `operatorFailureRecord: null, operatorFailureRecordCorrupt: true`; it fails against the pre-fix loader contract reachable on main.
-- [ ] `v2/src/persistence/state-store-baseline-migration.test.ts` test `legacy rows load without operator failure evidence and current rows retain it across reopen` opens a pre-column fixture, asserts absent evidence, seeds a fresh baseline row with a record, reopens, and asserts the record survives; it fails against the pre-fix schema reachable on main.
-- [ ] `v2/src/persistence/state-store-baseline-migration.test.ts` test `stamped baseline databases repair a missing operator failure record column` opens a database stamped `031-baseline-squash` without the column, persists a record, reopens, and asserts it survives; it fails against the pre-fix early-return migration path reachable on main.
-- [ ] `v2/docs/state-store.md` documents `runs.operator_failure_record`, `Run.operatorFailureRecord`, legacy `null` absence, corrupt-value handling, and repair of missing columns on stamped baselines.
-- [ ] `v2/docs/v1-behaviors.md` records the v2 additive durable operator failure evidence on run rows.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:shared` passes.
-- [ ] `bun run test:integration:shared` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/persistence/state-store.test.ts` test `operator failure record round-trips on a run row` writes a record with expectation, observation, near miss, retryability, and both path origins through terminal settlement, reopens the store, and asserts `loadRun` field equality; it fails against the pre-fix run schema reachable on main without `operator_failure_record`.
+- [x] `v2/src/persistence/state-store.test.ts` terminal-settlement evidence tests prove omitting `operatorFailureRecord` preserves a prior record and explicit `null` clears it; they fail against the pre-fix settlement contract reachable on main.
+- [x] `v2/src/persistence/state-store.test.ts` completion-boundary terminal-evidence test proves `commitCompletionBoundary` persists an operator failure record with its attempt outcome; it fails against the pre-fix boundary contract reachable on main.
+- [x] `v2/src/persistence/state-store.test.ts` transactional-settlement test injects the existing mid-settlement failure after the status write and proves the operator failure record, status, and other settlement evidence roll back together; it fails against the pre-fix new-column transaction path reachable on main.
+- [x] `v2/src/persistence/state-store.test.ts` run-loader corruption test seeds malformed JSON syntax and each invalid record/path shape, then proves `loadRun` and `listRuns` do not throw and expose `operatorFailureRecord: null, operatorFailureRecordCorrupt: true`; it fails against the pre-fix loader contract reachable on main.
+- [x] `v2/src/persistence/state-store-baseline-migration.test.ts` test `legacy rows load without operator failure evidence and current rows retain it across reopen` opens a pre-column fixture, asserts absent evidence, seeds a fresh baseline row with a record, reopens, and asserts the record survives; it fails against the pre-fix schema reachable on main.
+- [x] `v2/src/persistence/state-store-baseline-migration.test.ts` test `stamped baseline databases repair a missing operator failure record column` opens a database stamped `031-baseline-squash` without the column, persists a record, reopens, and asserts it survives; it fails against the pre-fix early-return migration path reachable on main.
+- [x] `v2/docs/state-store.md` documents `runs.operator_failure_record`, `Run.operatorFailureRecord`, legacy `null` absence, corrupt-value handling, and repair of missing columns on stamped baselines.
+- [x] `v2/docs/v1-behaviors.md` records the v2 additive durable operator failure evidence on run rows.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:shared` passes.
+- [x] `bun run test:integration:shared` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

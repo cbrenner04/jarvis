@@ -2,6 +2,11 @@ import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { isRecord } from "../../../shared/is-record.ts";
+import {
+  type OperatorFailureRecord,
+  operatorFailureRecordFromUnknown,
+  parseOperatorFailureRecord,
+} from "../../../shared/operator-failure-record.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { InvocationFailureDetail } from "../execution/invocation-failure.ts";
@@ -174,6 +179,10 @@ export type Run = {
   terminalFailureDetail?: InvocationFailureDetail | null;
   /** True when a non-null `terminal_failure_detail` column could not be parsed. */
   terminalFailureDetailCorrupt?: boolean;
+  /** Durable operator failure evidence; `null` when unset, cleared, corrupt, or on legacy rows. */
+  operatorFailureRecord?: OperatorFailureRecord | null;
+  /** True when a non-null `operator_failure_record` column could not be parsed into a valid record. */
+  operatorFailureRecordCorrupt?: boolean;
 };
 
 export type PipelineStatus = "active" | "interrupted";
@@ -293,6 +302,7 @@ type TerminalRunSettlementEvidence = {
   prNumber?: number | null;
   prUrl?: string | null;
   terminalFailureDetail?: InvocationFailureDetail | null;
+  operatorFailureRecord?: OperatorFailureRecord | null;
 };
 
 type CommitTerminalRunSettlementInput = TerminalRunSettlementEvidence & {
@@ -571,6 +581,26 @@ export type StageLifecyclePatch = {
   failureDetail?: unknown;
 };
 
+/** Typed terminal-stage write: a `failed` status carrying an `OperatorFailureRecord` as its whole `failure_detail`. */
+export type TerminalStageOperatorFailureRecordPatch = {
+  pipelineId: string;
+  stageId: string;
+  branchKey?: string;
+  status: "failed";
+  failureDetail: OperatorFailureRecord;
+  endedAt?: number;
+};
+
+/** Typed terminal-stage read of a `failed` row whose `failure_detail` is an `OperatorFailureRecord`. */
+export type TerminalStageOperatorFailureRecord = {
+  stageRecordId: string;
+  pipelineId: string;
+  stageId: string;
+  branchKey: string;
+  status: "failed";
+  failureDetail: OperatorFailureRecord;
+};
+
 /** A durable attempt record linked to a run. */
 export type Attempt = {
   id: string;
@@ -690,6 +720,24 @@ export interface StateStore {
 
   /** Apply a targeted lifecycle patch keyed by `(pipelineId, stageId, branchKey)`; omitted `branchKey` defaults to `"default"`. */
   updateStage(args: { pipelineId: string; stageId: string; branchKey?: string; patch: StageLifecyclePatch }): void;
+
+  /**
+   * Typed terminal-stage write: `failed` plus an `OperatorFailureRecord` stored directly as
+   * `failure_detail` (no wrapper). Refuses a non-`failed` status or a non-record payload by
+   * throwing before any write; omitted `branchKey` defaults to `"default"`.
+   */
+  commitTerminalStageOperatorFailureRecord(args: TerminalStageOperatorFailureRecordPatch): void;
+
+  /**
+   * Typed terminal-stage read: the row's `failure_detail` as an `OperatorFailureRecord`, or
+   * `null` when the row is absent or not `failed`, or its detail is absent, malformed JSON, or a
+   * non-record envelope. Never rewrites the stored envelope; omitted `branchKey` defaults to `"default"`.
+   */
+  loadTerminalStageOperatorFailureRecord(args: {
+    pipelineId: string;
+    stageId: string;
+    branchKey?: string;
+  }): TerminalStageOperatorFailureRecord | null;
 
   settleLinkedStagesFromEntryRun(entryRunId: string): void;
 
@@ -1006,7 +1054,8 @@ const SCHEMA = `
     ready_gate_pgid INTEGER,
     dismissed_at INTEGER,
     terminal_cause TEXT,
-    terminal_failure_detail TEXT
+    terminal_failure_detail TEXT,
+    operator_failure_record TEXT
   );
   CREATE TABLE IF NOT EXISTS attempts (
     id TEXT PRIMARY KEY,
@@ -1080,7 +1129,8 @@ const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, 
   retained_finalization_checkpoint AS retainedFinalizationCheckpointJson,
   dismissed_at AS dismissedAt,
   terminal_cause AS terminalCause,
-  terminal_failure_detail AS terminalFailureDetailJson`;
+  terminal_failure_detail AS terminalFailureDetailJson,
+  operator_failure_record AS operatorFailureRecordJson`;
 
 const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, started_at AS startedAt, status,
   outcome_kind AS outcomeKind, completed_at AS completedAt, invocation_failure_detail AS invocationFailureDetailJson,
@@ -1171,6 +1221,7 @@ function upgradeFromLegacyEra(db: Database): void {
   addColumnIfMissing(db, "runs", "dismissed_at", "INTEGER");
   addColumnIfMissing(db, "runs", "terminal_cause", "TEXT");
   addColumnIfMissing(db, "runs", "terminal_failure_detail", "TEXT");
+  addColumnIfMissing(db, "runs", "operator_failure_record", "TEXT");
   if (!tableExists(db, "pipelines")) {
     db.exec(`
       CREATE TABLE pipelines (
@@ -1460,6 +1511,8 @@ type RunRow = Omit<
   | "downstreamInputs"
   | "terminalFailureDetail"
   | "terminalFailureDetailCorrupt"
+  | "operatorFailureRecord"
+  | "operatorFailureRecordCorrupt"
 > & {
   workflowSnapshotJson: string | null;
   queuedInputJson: string | null;
@@ -1467,6 +1520,7 @@ type RunRow = Omit<
   retainedFinalizationCheckpointJson: string | null;
   downstreamInputsJson: string | null;
   terminalFailureDetailJson: string | null;
+  operatorFailureRecordJson: string | null;
 };
 
 function parseReadyGateRepairFenceProvenance(json: string | null): ReadyGateRepairFenceProvenance | null | "invalid" {
@@ -1528,11 +1582,13 @@ function mapRunRow(row: RunRow): Run {
     retainedFinalizationCheckpointJson,
     downstreamInputsJson,
     terminalFailureDetailJson,
+    operatorFailureRecordJson,
     ...run
   } = row;
   const parsedFence = parseReadyGateRepairFenceProvenance(readyGateRepairFenceJson);
   const parsedCheckpoint = parseRetainedFinalizationCheckpoint(retainedFinalizationCheckpointJson);
   const parsedTerminalFailureDetail = parseTerminalFailureDetail(terminalFailureDetailJson);
+  const parsedOperatorFailureRecord = parseOperatorFailureRecord(operatorFailureRecordJson);
   let downstreamInputs: readonly string[] | null | undefined;
   if (downstreamInputsJson !== null) {
     try {
@@ -1557,6 +1613,8 @@ function mapRunRow(row: RunRow): Run {
         ? null
         : parsedTerminalFailureDetail,
     ...(parsedTerminalFailureDetail === "invalid" ? { terminalFailureDetailCorrupt: true } : {}),
+    operatorFailureRecord: parsedOperatorFailureRecord.kind === "valid" ? parsedOperatorFailureRecord.record : null,
+    ...(parsedOperatorFailureRecord.kind === "invalid" ? { operatorFailureRecordCorrupt: true } : {}),
   };
 }
 
@@ -1617,6 +1675,9 @@ class StateStoreImpl implements StateStore {
     applySchemaMigrations(this.db);
     backfillVerifierProcessGroupsFromReadyGatePgid(this.db);
     addColumnIfMissing(this.db, "operator_notification_deliveries", "incident_json", "TEXT");
+    // Stores stamped `031-baseline-squash` before this column existed skip `upgradeFromLegacyEra`;
+    // the stamp is not proof every baseline column is present.
+    addColumnIfMissing(this.db, "runs", "operator_failure_record", "TEXT");
     this.currentIdentity = overrides?.currentIdentity ?? CURRENT_OWNER_IDENTITY;
     this.isOwnerAliveProbe = overrides?.isOwnerAlive ?? isOwnerAlive;
   }
@@ -2247,6 +2308,54 @@ class StateStoreImpl implements StateStore {
     }
   }
 
+  commitTerminalStageOperatorFailureRecord(args: TerminalStageOperatorFailureRecordPatch): void {
+    if (args.status !== "failed") {
+      throw new Error(`Terminal stage operator failure record requires status "failed": ${String(args.status)}`);
+    }
+    const record = operatorFailureRecordFromUnknown(args.failureDetail);
+    if (record === undefined) {
+      throw new Error("Terminal stage operator failure record requires an OperatorFailureRecord failure detail");
+    }
+    this.updateStage({
+      pipelineId: args.pipelineId,
+      stageId: args.stageId,
+      ...(args.branchKey !== undefined ? { branchKey: args.branchKey } : {}),
+      patch: {
+        status: "failed",
+        failureDetail: record,
+        ...(args.endedAt !== undefined ? { endedAt: args.endedAt } : {}),
+      },
+    });
+  }
+
+  loadTerminalStageOperatorFailureRecord(args: {
+    pipelineId: string;
+    stageId: string;
+    branchKey?: string;
+  }): TerminalStageOperatorFailureRecord | null {
+    const branchKey = args.branchKey ?? DEFAULT_PIPELINE_STAGE_BRANCH_KEY;
+    const row = this.db
+      .prepare(
+        "SELECT id, status, failure_detail AS failureDetailJson FROM pipeline_stages WHERE pipeline_id = ? AND stage_id = ? AND branch_key = ?",
+      )
+      .get(args.pipelineId, args.stageId, branchKey) as {
+      id: string;
+      status: string;
+      failureDetailJson: string | null;
+    } | null;
+    if (row === null || row.status !== "failed") return null;
+    const parsed = parseOperatorFailureRecord(row.failureDetailJson);
+    if (parsed.kind !== "valid") return null;
+    return {
+      stageRecordId: row.id,
+      pipelineId: args.pipelineId,
+      stageId: args.stageId,
+      branchKey,
+      status: "failed",
+      failureDetail: parsed.record,
+    };
+  }
+
   settleLinkedStagesFromEntryRun(entryRunId: string): void {
     this.db.transaction(() => {
       const entryRun = this.loadRun(entryRunId);
@@ -2442,7 +2551,8 @@ class StateStoreImpl implements StateStore {
       args.terminalCause === undefined &&
       args.prNumber === undefined &&
       args.prUrl === undefined &&
-      args.terminalFailureDetail === undefined
+      args.terminalFailureDetail === undefined &&
+      args.operatorFailureRecord === undefined
     ) {
       return undefined;
     }
@@ -2451,6 +2561,7 @@ class StateStoreImpl implements StateStore {
       ...(args.prNumber !== undefined ? { prNumber: args.prNumber } : {}),
       ...(args.prUrl !== undefined ? { prUrl: args.prUrl } : {}),
       ...(args.terminalFailureDetail !== undefined ? { terminalFailureDetail: args.terminalFailureDetail } : {}),
+      ...(args.operatorFailureRecord !== undefined ? { operatorFailureRecord: args.operatorFailureRecord } : {}),
     };
   }
 
@@ -2479,6 +2590,14 @@ class StateStoreImpl implements StateStore {
           : args.terminalFailureDetail === null
             ? null
             : JSON.stringify(args.terminalFailureDetail),
+      ],
+      [
+        "operator_failure_record",
+        args.operatorFailureRecord === undefined
+          ? undefined
+          : args.operatorFailureRecord === null
+            ? null
+            : JSON.stringify(args.operatorFailureRecord),
       ],
     ] as const) {
       if (value !== undefined) {

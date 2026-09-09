@@ -26,16 +26,16 @@ Pipeline stages currently expose and accept `failureDetail: unknown`, so a calle
 
 ## Acceptance criteria
 
-- [ ] `v2/src/persistence/state-store.test.ts` test `operator failure record round-trips through the typed terminal pipeline-stage contract` writes the representative record through a `TerminalStageOperatorFailureRecordPatch`, reopens the store, and asserts `TerminalStageOperatorFailureRecord.failureDetail` field-equals the record and the raw stage `failureDetail` deep-equals it; it fails against the pre-fix opaque-only contract reachable on main.
-- [ ] `v2/src/persistence/state-store.test.ts` typed terminal-stage contract test refuses a nonterminal stage update and a non-record payload without changing the stored stage; it fails against the pre-fix opaque contract reachable on main.
-- [ ] `v2/src/persistence/state-store.test.ts` typed terminal-stage reader test returns `null` without throwing for absent detail, malformed JSON syntax, and a valid legacy non-record envelope, while retaining the raw envelope unchanged; it fails against the pre-fix missing typed reader reachable on main.
-- [ ] `v2/docs/state-store.md` documents the typed terminal-stage `OperatorFailureRecord` seam, direct `failureDetail` representation, and `null` result for absent, malformed, or legacy non-record detail.
-- [ ] `v2/docs/v1-behaviors.md` records the v2 additive typed operator failure evidence on terminal pipeline-stage `failureDetail`.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:shared` passes.
-- [ ] `bun run test:integration:shared` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/persistence/state-store.test.ts` test `operator failure record round-trips through the typed terminal pipeline-stage contract` writes the representative record through a `TerminalStageOperatorFailureRecordPatch`, reopens the store, and asserts `TerminalStageOperatorFailureRecord.failureDetail` field-equals the record and the raw stage `failureDetail` deep-equals it; it fails against the pre-fix opaque-only contract reachable on main.
+- [x] `v2/src/persistence/state-store.test.ts` typed terminal-stage contract test refuses a nonterminal stage update and a non-record payload without changing the stored stage; it fails against the pre-fix opaque contract reachable on main.
+- [x] `v2/src/persistence/state-store.test.ts` typed terminal-stage reader test returns `null` without throwing for absent detail, malformed JSON syntax, and a valid legacy non-record envelope, while retaining the raw envelope unchanged; it fails against the pre-fix missing typed reader reachable on main.
+- [x] `v2/docs/state-store.md` documents the typed terminal-stage `OperatorFailureRecord` seam, direct `failureDetail` representation, and `null` result for absent, malformed, or legacy non-record detail.
+- [x] `v2/docs/v1-behaviors.md` records the v2 additive typed operator failure evidence on terminal pipeline-stage `failureDetail`.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:shared` passes.
+- [x] `bun run test:integration:shared` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

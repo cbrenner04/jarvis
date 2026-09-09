@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import { openStateStore, type Pipeline, type Run, type StateStore } from "./state-store.ts";
 import { removeOrchestrationStore } from "./state-store-on-disk.ts";
@@ -327,6 +328,13 @@ function visiblePipelineShape(
   };
 }
 
+const OPERATOR_FAILURE_RECORD: OperatorFailureRecord = {
+  expectation: "ready gate exits 0",
+  observation: "bun run test:v2 exited 1",
+  retryable: true,
+  referencedPaths: [{ path: "v2/src/daemon/daemon.test.ts", origin: "operator-repository" }],
+};
+
 describe("state store baseline migration", () => {
   const legacyDbPath = join(tmpdir(), "jarvis-test-state-baseline-legacy.sqlite");
   const freshDbPath = join(tmpdir(), "jarvis-test-state-baseline-fresh.sqlite");
@@ -362,6 +370,59 @@ describe("state store baseline migration", () => {
     } finally {
       legacyStore.close();
       freshStore.close();
+    }
+  });
+
+  test("legacy rows load without operator failure evidence and current rows retain it across reopen", () => {
+    const ids = createPreSquashFixtureDb(legacyDbPath);
+    const legacyStore = openStateStore(legacyDbPath);
+    try {
+      const legacyRun = legacyStore.loadRun(ids.runId);
+      if (!legacyRun) throw new Error("fixture run should load");
+      expect(legacyRun.operatorFailureRecord).toBeNull();
+      expect(legacyRun.operatorFailureRecordCorrupt).not.toBe(true);
+    } finally {
+      legacyStore.close();
+    }
+
+    seedEquivalentBaselineDb(freshDbPath, ids);
+    let freshStore = openStateStore(freshDbPath);
+    freshStore.commitTerminalRunSettlement({
+      runId: ids.runId,
+      status: "failed",
+      operatorFailureRecord: OPERATOR_FAILURE_RECORD,
+    });
+    freshStore.close();
+    freshStore = openStateStore(freshDbPath);
+    try {
+      expect(freshStore.loadRun(ids.runId)?.operatorFailureRecord).toEqual(OPERATOR_FAILURE_RECORD);
+    } finally {
+      freshStore.close();
+    }
+  });
+
+  test("stamped baseline databases repair a missing operator failure record column", () => {
+    const ids = createPreSquashFixtureDb(legacyDbPath);
+    const raw = new Database(legacyDbPath);
+    raw.exec("DELETE FROM _migrations");
+    raw.prepare("INSERT INTO _migrations (id, applied_at) VALUES ('031-baseline-squash', ?)").run(Date.now());
+    const columnsBefore = raw.prepare("PRAGMA table_info(runs)").all() as Array<{ name: string }>;
+    raw.close();
+    expect(columnsBefore.some((column) => column.name === "operator_failure_record")).toBe(false);
+
+    // @mutate v2/src/persistence/state-store.ts "addColumnIfMissing(this.db, \"runs\", \"operator_failure_record\", \"TEXT\");" -> ""
+    let store = openStateStore(legacyDbPath);
+    store.commitTerminalRunSettlement({
+      runId: ids.runId,
+      status: "failed",
+      operatorFailureRecord: OPERATOR_FAILURE_RECORD,
+    });
+    store.close();
+    store = openStateStore(legacyDbPath);
+    try {
+      expect(store.loadRun(ids.runId)?.operatorFailureRecord).toEqual(OPERATOR_FAILURE_RECORD);
+    } finally {
+      store.close();
     }
   });
 });

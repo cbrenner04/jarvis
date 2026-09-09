@@ -66,6 +66,5 @@ export function landImplementSpecTreeFromReadRoot(input: LandImplementSpecTreeIn
     copyFileSync(src, dest);
   }
 
-  // verdict-patch.md is already copied by the markdown loop above (it lives in specDir); no dedicated pass needed.
   return { ok: true, specPath: relSpecPath };
 }

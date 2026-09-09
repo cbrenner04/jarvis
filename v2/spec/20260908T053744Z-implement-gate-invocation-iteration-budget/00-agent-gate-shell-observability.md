@@ -27,10 +27,10 @@ execution-loop — shell-command observability seam, gate-invocation classificat
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts` proves an implement iteration observes a gate shell command through `onAgentShellCommand`, classifies it via `isReadyTestCommand`, and records active-gate state; it fails against the current opaque agent invocation reachable on main.
-- [ ] `v2/docs/shared-invocation.md` documents `onAgentShellCommand`, that it fires for claude/cursor only (codex has no live structured stream and is unaffected), and that it fires as the agent CLI announces the tool call, at or just before execution.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `write-loop.test.ts` proves an implement iteration observes a gate shell command through `onAgentShellCommand`, classifies it via `isReadyTestCommand`, and records active-gate state; it fails against the current opaque agent invocation reachable on main.
+- [x] `v2/docs/shared-invocation.md` documents `onAgentShellCommand`, that it fires for claude/cursor only (codex has no live structured stream and is unaffected), and that it fires as the agent CLI announces the tool call, at or just before execution.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

@@ -112,6 +112,7 @@ export type OutcomeKind =
   | "contract_miss"
   | "invocation_failure"
   | "iteration_timeout"
+  | "gate_invocation_refused"
   | "idle_output_timeout"
   | "invalid_token"
   | "missing_blocker"

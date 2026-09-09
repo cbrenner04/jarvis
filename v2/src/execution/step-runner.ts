@@ -44,6 +44,8 @@ type StepRunInput = {
   telemetry?: InvocationTelemetryContext;
   sessionLog?: SessionLog;
   onInvocationOutputProgress?: () => void;
+  onAgentShellCommand?: (command: string) => void | Promise<void>;
+  onAgentShellCommandComplete?: () => void | Promise<void>;
   idleOutputMs?: number;
   joinProcessOnIdleStall?: boolean;
   additionalReadDirs?: readonly string[];
@@ -116,6 +118,10 @@ function sharedInvocationExtras(args: StepRunInput) {
     ...(args.signal !== undefined ? { signal: args.signal } : {}),
     ...(args.sessionLog !== undefined ? { sessionLog: args.sessionLog } : {}),
     ...(args.onInvocationOutputProgress !== undefined ? { onOutputProgress: args.onInvocationOutputProgress } : {}),
+    ...(args.onAgentShellCommand !== undefined ? { onAgentShellCommand: args.onAgentShellCommand } : {}),
+    ...(args.onAgentShellCommandComplete !== undefined
+      ? { onAgentShellCommandComplete: args.onAgentShellCommandComplete }
+      : {}),
     ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
     ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
     ...(args.additionalReadDirs !== undefined ? { additionalReadDirs: args.additionalReadDirs } : {}),

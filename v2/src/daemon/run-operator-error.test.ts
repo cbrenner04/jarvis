@@ -229,6 +229,37 @@ test("composeRunOperatorError projects iteration_timeout inventoryError", () => 
   });
 });
 
+test("composeRunOperatorError maps gate_invocation_refused to resume", () => {
+  expect(
+    composeRunOperatorError(
+      runWith("failed", [attempt("gate_invocation_refused")]),
+      loopFinished("gate_invocation_refused", { resumable: true, gateCommand: "bun run test:v2" }),
+    ),
+  ).toEqual({
+    reason: "gate_invocation_refused",
+    retryable: true,
+    nextAction: "resume",
+    message: "Gate invocation refused: bun run test:v2",
+  });
+});
+
+test("composeRunOperatorError maps enriched resumable iteration_timeout to resume", () => {
+  expect(
+    composeRunOperatorError(
+      runWith("failed", [attempt("iteration_timeout")]),
+      loopFinished("iteration_timeout", {
+        resumable: true,
+        gateInvocationCommand: "bun run test:v2",
+        gateInvocationElapsedMs: 42_000,
+      }),
+    ),
+  ).toEqual({
+    reason: "iteration_timeout",
+    retryable: true,
+    nextAction: "resume",
+  });
+});
+
 test("composeRunOperatorError maps iteration_timeout as a failed terminal", () => {
   expect(
     composeRunOperatorError(runWith("failed", [attempt("iteration_timeout")]), loopFinished("iteration_timeout")),

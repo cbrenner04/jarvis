@@ -554,6 +554,28 @@ describe("shared invocation fallback", () => {
     expect(rows).toEqual([]);
   });
 
+  test("forwards a live signal to the binding's invoke", async () => {
+    const controller = new AbortController();
+    let seenSignal: AbortSignal | undefined;
+
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      signal: controller.signal,
+      bindings: [
+        {
+          id: "first",
+          invoke: async (invokeArgs) => {
+            seenSignal = invokeArgs.signal;
+            return { kind: "ok", stdout: "done", stderr: "" } as const;
+          },
+        },
+      ],
+    });
+
+    expect(seenSignal).toBe(controller.signal);
+  });
+
   test("normalized sentinel exit_reason is distinguishable from a real process exit code", async () => {
     const rows: InvocationCompletedRecord[] = [];
     await executeWithQuotaFallback({

@@ -16,11 +16,7 @@ import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import {
   type IntentFinalizationResumeDeps,
   reconstructPausedWriteResumeInput,
-  resolveExhaustedRedResumeContext,
-  resolveIntentFinalizationResumeContext,
   resolveReviewMutationResumeContext,
-  resolveWriteNonTerminatingResumeContext,
-  resolveWriteOutOfScopeResumeContext,
   resumePopulatedIntentPublication,
   resumeReviewMutationFinalization,
 } from "../execution/workflow-runner-resume.ts";
@@ -68,11 +64,16 @@ import {
   ownershipKeyString,
   type RunControlHandlerContext,
 } from "./daemon-run-control-context.ts";
+import {
+  isFinalizationTailResumable,
+  isIntentFinalizationResumable,
+  type RunResumeAdmission,
+  resolveRunResumeAdmission,
+} from "./daemon-run-resume-admission.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
 import {
   composeRunOperatorError,
   findTerminalLogRecord,
-  isResumeAdmitted,
   type TerminalLogRecord,
   terminalResumeRefusalMessage,
 } from "./run-operator-error.ts";
@@ -172,39 +173,14 @@ const UNSUPPORTED_RESUME_ERROR = {
   nextAction: "stop",
 } as const;
 
-/**
- * A review/review-debate row's `landing_failed` is only resumable through
- * {@link resumePopulatedIntentPublication}, not the write-loop reconstruction below — it needs a
- * populated `.jarvis-intent-stage/` and the sibling durable write step's row. Out of scope (empty
- * or missing stage, non-review rows) falls through to the existing write-step reconstruction,
- * which still refuses a review-behavior row.
- */
-function isIntentFinalizationResumable(run: Run & { attempts?: Attempt[] }, store: StateStore): boolean {
-  return resolveIntentFinalizationResumeContext({ ...run, attempts: run.attempts ?? [] }, store).ok;
-}
-
-/**
- * A review/review-debate row's `surviving_mutation_failed` is only resumable through
- * {@link resumeReviewMutationFinalization}, not the write-loop reconstruction below — the durable
- * write step already committed, so only mutation re-verification, the ready gate, and publication
- * need to run again.
- */
-function isReviewMutationResumable(
-  run: Run & { attempts?: Attempt[] },
-  store: StateStore,
-  terminalRecord: TerminalLogRecord | undefined,
-): boolean {
-  return resolveReviewMutationResumeContext({ ...run, attempts: run.attempts ?? [] }, store, terminalRecord).ok;
-}
-
 function runListRowError(
   run: Parameters<typeof composeRunOperatorError>[0] | undefined,
-  resumeContext: ResolvedWriteLoopInput | undefined,
+  admission: ReturnType<typeof resolveRunResumeAdmission>,
   terminalRecord: TerminalLogRecord | undefined,
   logRecords?: PersistedRecord[],
 ) {
   if (!run) return undefined;
-  if (resumeContext?.ok === false) {
+  if (!admission.admitted && admission.refusal === "unsupported") {
     return UNSUPPORTED_RESUME_ERROR;
   }
   return composeRunOperatorError(run, terminalRecord, logRecords);
@@ -347,59 +323,40 @@ export function createRunLifecycleHandlers(
     );
   };
 
-  const resumeContextForRun = (
-    run: Run & { attempts?: Attempt[] },
-    terminalRecord?: TerminalLogRecord,
-    intentFinalizationResumable?: boolean,
-    logRecords?: PersistedRecord[],
-  ): ResolvedWriteLoopInput | undefined => {
-    if (!isResumeAdmitted(run, terminalRecord)) return undefined;
-    if (intentFinalizationResumable ?? isIntentFinalizationResumable(run, store)) return undefined;
-    if (
-      isReviewMutationResumable(run, store, terminalRecord) ||
-      resolveExhaustedRedResumeContext({ ...run, attempts: run.attempts ?? [] }, store, terminalRecord).ok ||
-      resolveWriteOutOfScopeResumeContext({ ...run, attempts: run.attempts ?? [] }, store, terminalRecord).ok ||
-      resolveWriteNonTerminatingResumeContext({ ...run, attempts: run.attempts ?? [] }, store, terminalRecord).ok
-    ) {
-      return undefined;
-    }
-    return reconstructWriteResume(run, logRecords);
-  };
-
-  const resumeContextForTerminalRecord = (
-    run: (Run & { attempts?: Attempt[] }) | undefined,
+  const resumeAdmissionDeps = { store, reconstructWriteResume };
+  const admissionForRow = (
+    run: LoadedRun | undefined,
     terminalRecord: TerminalLogRecord | undefined,
-    intentFinalizationResumable?: boolean,
-    logRecords?: PersistedRecord[],
-  ): ResolvedWriteLoopInput | undefined => {
-    if (!run) return undefined;
-    return resumeContextForRun(run, terminalRecord, intentFinalizationResumable, logRecords);
-  };
+    logTail: PersistedRecord[],
+  ): RunResumeAdmission =>
+    run === undefined
+      ? { admitted: false, refusal: "terminal" }
+      : resolveRunResumeAdmission(run, terminalRecord, logTail, resumeAdmissionDeps);
 
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: wait-completion result assembly branches on status, record, and resume context
   const resultFrom = (runId: string, runStatus: RunStatus, record?: TerminalLogRecord): WaitRunCompletionResult => {
     const logTail = logReader?.tail(runId) ?? [];
     const run = store.loadRun(runId);
-    const resumeContext = run ? resumeContextForRun(run, record) : undefined;
+    const admission = admissionForRow(run ?? undefined, record, logTail);
     const error =
-      run && resumeContext?.ok === false
+      run && !admission.admitted && admission.refusal === "unsupported"
         ? UNSUPPORTED_RESUME_ERROR
         : run
           ? composeRunOperatorError(run, record, logTail)
           : undefined;
-    const unsupportedResume = resumeContext?.ok === false;
     const loopFinishedEvent = record?.event.kind === "loop_finished" ? record.event : undefined;
     const loopOutcomeKind = run?.terminalCause ?? loopFinishedEvent?.loopOutcomeKind;
+    const resumableProjection = runStatus !== "in-progress" ? { resumable: admission.admitted } : {};
     const base: WaitRunCompletionResult =
       loopOutcomeKind === undefined
-        ? { runStatus }
+        ? { runStatus, ...resumableProjection }
         : {
             runStatus,
             loopOutcomeKind,
             ...(loopFinishedEvent?.loopOutcomeKind === loopOutcomeKind
               ? { iterationsConsumed: loopFinishedEvent.iterationsConsumed }
               : {}),
-            resumable: unsupportedResume ? false : run != null && isResumeAdmitted(run, record),
+            ...resumableProjection,
           };
     const withError = error === undefined ? base : { ...base, error };
     return runStatus === "blocked" && run ? { ...withError, worktreePath: run.worktreePath } : withError;
@@ -425,17 +382,28 @@ export function createRunLifecycleHandlers(
     // review-step owner is always no and would blank out the mutation reason/detail below.
     // Entry resumability is projected separately via `entryCanResume`, so that masking
     // does not apply here.
-    const ownerError = composeRunOperatorError(owner.run, owner.terminalRecord, logReader?.tail(owner.run.id) ?? []);
+    const ownerLogTail = logReader?.tail(owner.run.id) ?? [];
+    const ownerAdmission = resolveRunResumeAdmission(
+      owner.run,
+      owner.terminalRecord,
+      ownerLogTail,
+      resumeAdmissionDeps,
+    );
+    const ownerError = composeRunOperatorError(owner.run, owner.terminalRecord, ownerLogTail);
     const entryResult: WaitRunCompletionResult = {
       runStatus: rollupStatus,
       loopOutcomeKind: owner.terminalRecord.event.loopOutcomeKind,
       iterationsConsumed: owner.terminalRecord.event.iterationsConsumed,
-      resumable: isResumeAdmitted(owner.run, owner.terminalRecord),
+      resumable: ownerAdmission.admitted,
       ...(ownerError === undefined ? {} : { error: ownerError }),
     };
-    const entryIntentFinalizationResumable = isIntentFinalizationResumable(entryRun, store);
-    const entryResumeContext = resumeContextForTerminalRecord(entryRun, entryRecord, entryIntentFinalizationResumable);
-    const entryCanResume = entryResumeContext?.ok === true || entryIntentFinalizationResumable;
+    const entryAdmission = resolveRunResumeAdmission(
+      entryRun,
+      entryRecord,
+      logReader?.tail(entryRun.id) ?? [],
+      resumeAdmissionDeps,
+    );
+    const entryCanResume = entryAdmission.admitted;
     return projectWorkflowEntryResult(entryResult, entryCanResume);
   };
 
@@ -664,6 +632,7 @@ export function createRunLifecycleHandlers(
     const snapshot = fullRun?.workflowSnapshot ?? undefined;
     const logTail = logReader?.tail(run.id) ?? [];
     const terminalRecord = findTerminalLogRecord(logTail);
+    const admission = admissionForRow(fullRun, terminalRecord, logTail);
     const entrySnapshot = workflowEntrySnapshot(fullRun);
     const entryResult =
       entrySnapshot === undefined || fullRun === undefined
@@ -671,14 +640,7 @@ export function createRunLifecycleHandlers(
         : workflowEntryResult(fullRun, entrySnapshot, reportedStatus);
     const rowOutcome =
       entryResult ?? (fullRun !== undefined ? resultFrom(run.id, reportedStatus, terminalRecord) : undefined);
-    const error =
-      rowOutcome?.error ??
-      runListRowError(
-        fullRun,
-        resumeContextForTerminalRecord(fullRun, terminalRecord, undefined),
-        terminalRecord,
-        logTail,
-      );
+    const error = rowOutcome?.error ?? runListRowError(fullRun, admission, terminalRecord, logTail);
     const {
       runStatus: _entryRunStatus,
       error: _entryError,
@@ -910,17 +872,21 @@ export function createRunLifecycleHandlers(
       resumeReviewMutationFinalization(run, store, terminalRecord, resumeDeps),
     );
 
-  function terminalResumeBlocked(
+  const resumeRefusal = (
     run: LoadedRun,
-    runId: string,
-  ): { kind: "error"; code: string; message: string } | undefined {
-    const terminalRecord = logReader ? findTerminalLogRecord(logReader.tail(runId)) : undefined;
-    const refusal = terminalResumeRefusalMessage(run, terminalRecord);
+    terminalRecord: TerminalLogRecord | undefined,
+    admission: Exclude<RunResumeAdmission, { admitted: true }>,
+  ): { kind: "error"; code: string; message: string } => {
+    const refusal = admission.refusal === "terminal" ? terminalResumeRefusalMessage(run, terminalRecord) : undefined;
     if (refusal) {
       return { kind: "error", code: "terminal_run", message: refusal };
     }
-    return undefined;
-  }
+    return {
+      kind: "error",
+      code: "resume_unsupported",
+      message: admission.message ?? `Cannot resume a ${run.status} run`,
+    };
+  };
 
   const resumeHandler: RpcHandler = async (frame) => {
     if (ctx.retiring) {
@@ -937,30 +903,19 @@ export function createRunLifecycleHandlers(
       return { kind: "error", code: "unknown_run", message: `Run ${runId} not found` };
     }
 
-    // Checked ahead of the generic terminal-resume gate below: these two admission predicates carry
-    // their own `status === "failed"` + row-shape checks, and the outcomes they admit
-    // (`surviving_mutation_failed`, `ready_gate_failed`, `ready_gate_out_of_scope`,
-    // `completion_commit_failed`, populated-intent
-    // `landing_failed`) are not resumable under the generic operator-error mapping — deferring to
-    // that gate first would wrongly strand a row this code can actually resume.
+    const terminalRecord = logReader ? findTerminalLogRecord(logReader.tail(runId)) : undefined;
+    const logRecords = logReader?.tail(runId);
+    const admission = resolveRunResumeAdmission(run, terminalRecord, logRecords, resumeAdmissionDeps);
+    if (!admission.admitted) {
+      return resumeRefusal(run, terminalRecord, admission);
+    }
+
     if (isIntentFinalizationResumable(run, store)) {
       return resumeIntentFinalizationPublication(run, { project: run.project, branch: run.branch });
     }
 
-    const terminalRecord = logReader ? findTerminalLogRecord(logReader.tail(runId)) : undefined;
-
-    if (
-      isReviewMutationResumable(run, store, terminalRecord) ||
-      resolveExhaustedRedResumeContext(run, store, terminalRecord).ok ||
-      resolveWriteOutOfScopeResumeContext(run, store, terminalRecord).ok ||
-      resolveWriteNonTerminatingResumeContext(run, store, terminalRecord).ok
-    ) {
+    if (isFinalizationTailResumable(run, store, terminalRecord)) {
       return resumeReviewMutationPublication(run, terminalRecord, { project: run.project, branch: run.branch });
-    }
-
-    const terminalError = terminalResumeBlocked(run, runId);
-    if (terminalError) {
-      return terminalError;
     }
 
     if (run.status === "paused") {
@@ -968,13 +923,12 @@ export function createRunLifecycleHandlers(
       return resumePausedRun(run, key, runId);
     }
 
-    const logRecords = logReader?.tail(runId);
-    const reconstructed = resumeContextForTerminalRecord(run, terminalRecord, undefined, logRecords);
-    if (!reconstructed?.ok) {
+    const reconstructed = reconstructWriteResume(run, logRecords);
+    if (!reconstructed.ok) {
       return {
         kind: "error",
         code: "resume_unsupported",
-        message: reconstructed?.message ?? `Cannot resume a ${run.status} run`,
+        message: reconstructed.message,
       };
     }
     const key: OwnershipKey = { project: run.project, branch: run.branch };

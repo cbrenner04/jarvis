@@ -8,6 +8,7 @@ import { formatReadyGateOutOfScopeDetail, ReadyGateError } from "../execution/re
 import { lintStagedMarkdown } from "../execution/staged-markdown-lint.ts";
 import { writeLintCleanIntentStageFile } from "../execution/workflow-runner.test-support.ts";
 import {
+  resolveCompletionCommitFailedResumeContext,
   resolveExhaustedRedResumeContext,
   resolveIntentFinalizationResumeContext,
 } from "../execution/workflow-runner-resume.ts";
@@ -27,12 +28,7 @@ import { flushBackgroundRuns, mockWriteLoopInput, startRunDirect } from "../test
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers, type WriteLoopBindingSourceDeps } from "./daemon.ts";
-import {
-  composeRunOperatorError,
-  isResumeAdmitted,
-  type TerminalLogRecord,
-  terminalResumeRefusalMessage,
-} from "./run-operator-error.ts";
+import { composeRunOperatorError, type TerminalLogRecord, terminalResumeRefusalMessage } from "./run-operator-error.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 
@@ -890,7 +886,6 @@ test("resume rejects unchanged-path ready_gate_out_of_scope finalization retry",
     expect(run).toBeDefined();
     if (!run) return;
     const terminalRecord = openLogReader(logsPath).tail(runId).at(-1) as TerminalLogRecord;
-    expect(isResumeAdmitted(run, terminalRecord)).toBe(false);
     expect(composeRunOperatorError(run, terminalRecord)?.nextAction).toBe("stop");
 
     const response = await resumeDirect(localHandlers, runId);
@@ -934,7 +929,6 @@ test("changed-path ready_gate_out_of_scope admits resume", async () => {
     expect(run).toBeDefined();
     if (!run) return;
     const terminalRecord = openLogReader(logsPath).tail(runId).at(-1) as TerminalLogRecord;
-    expect(isResumeAdmitted(run, terminalRecord)).toBe(true);
     expect(composeRunOperatorError(run, terminalRecord)).toMatchObject({
       reason: "ready_gate_out_of_scope",
       nextAction: "resume",
@@ -1287,7 +1281,7 @@ test.each(
   expect(run).toBeDefined();
   if (!run) return;
   const terminalRecord = logReader.tail(runId)[0] as TerminalLogRecord;
-  const admitted = isResumeAdmitted(run, terminalRecord);
+  const admitted = await listResumable(localHandlers, runId);
 
   const waitRow = await waitResumable(localHandlers, runId);
   const listRow = await listResumable(localHandlers, runId);
@@ -1302,17 +1296,18 @@ test.each(
   }
 });
 
-test("terminal resume refusal message guard inversion", () => {
+test("terminal resume refusal message guard inversion", async () => {
   const pausedRunId = createWorkflowRun({ invocationId: "refusal-guard-paused" });
   stateStore.setRunStatus(pausedRunId, "paused");
   const run = stateStore.loadRun(pausedRunId);
   expect(run).toBeDefined();
   if (!run) return;
-  expect(isResumeAdmitted(run)).toBe(true);
+  const localHandlers = createHandlers();
+  expect(await listResumable(localHandlers, pausedRunId)).toBe(true);
   expect(terminalResumeRefusalMessage(run)).toBeUndefined();
 });
 
-test("resumable admission projection guard inversion", () => {
+test("resumable admission projection guard inversion", async () => {
   for (const loopOutcomeKind of ["paused", "budget-exhausted"] as const) {
     const runId = createWorkflowRun({ invocationId: `stale-${loopOutcomeKind}` });
     stateStore.setRunStatus(runId, "failed");
@@ -1321,11 +1316,13 @@ test("resumable admission projection guard inversion", () => {
       iterationsConsumed: 1,
       resumable: true,
     });
+    const localHandlers = createHandlers(logReader);
     const run = stateStore.loadRun(runId);
     expect(run).toBeDefined();
     if (!run) continue;
     const terminalRecord = logReader.tail(runId)[0] as TerminalLogRecord;
-    expect(isResumeAdmitted(run, terminalRecord)).toBe(false);
+    expect(composeRunOperatorError(run, terminalRecord)?.nextAction).not.toBe("resume");
+    expect(await listResumable(localHandlers, runId)).toBe(false);
     expect(terminalRecord.event.kind === "loop_finished" && terminalRecord.event.resumable).toBe(true);
   }
 });
@@ -1428,7 +1425,7 @@ test("wait and list resumable agrees for non-entry workflow step row", async () 
   expect(run).toBeDefined();
   if (!run) return;
   const terminalRecord = logReader.tail(step2RunId)[0] as TerminalLogRecord;
-  const admitted = isResumeAdmitted(run, terminalRecord);
+  const admitted = await listResumable(localHandlers, step2RunId);
   expect(await waitResumable(localHandlers, step2RunId)).toBe(admitted);
   expect(await listResumable(localHandlers, step2RunId)).toBe(admitted);
 });
@@ -2122,6 +2119,59 @@ test("a stale pre-fix resumable:true record projects unsupported_resume_context 
   }
 });
 
+test("paused implement~link-N without linked index materialization projects unsupported_resume_context and list/wait/resume agree", async () => {
+  const worktreePath = mkdtempSync(join(tmpdir(), "daemon-paused-linked-refusal-"));
+  const runId = stateStore.createRun({
+    project: "demo",
+    specRef: "main",
+    worktreePath,
+    branch: "paused-linked/refusal",
+    specPath: "index.md",
+    stepId: "implement~link-1",
+    workflowSnapshot: {
+      invocationId: "paused-linked-refusal",
+      steps: [
+        {
+          stepId: "implement",
+          role: "implement",
+          stepRules: "implement rules",
+          expectedArtifactPath: "index.md",
+          agents: ["codex"],
+          agentModelConfig: AGENT_MODEL_CONFIG,
+        },
+      ],
+    },
+  });
+  stateStore.setRunStatus(runId, "paused");
+  const logsPath = join(tmpdir(), `jarvis-paused-linked-refusal-${process.pid}-${Date.now()}.jsonl`);
+  const seedSink = openLogSink(logsPath);
+  seedSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "paused",
+    iterationsConsumed: 1,
+    resumable: true,
+  });
+  seedSink.close();
+  try {
+    const localHandlers = logBackedHandlers(logsPath, {});
+
+    const row = await listRow(localHandlers, runId);
+    expect(row.error?.reason).toBe("unsupported_resume_context");
+    expect(row.error?.nextAction).toBe("stop");
+    expect(await listResumable(localHandlers, runId)).toBe(false);
+    expect(await waitResumable(localHandlers, runId)).toBe(false);
+
+    const response = await resumeDirect(localHandlers, runId);
+    expect(response.kind).toBe("error");
+    if (response.kind === "error") {
+      expect(response.code).toBe("resume_unsupported");
+    }
+  } finally {
+    rmSync(logsPath, { force: true });
+    rmSync(worktreePath, { recursive: true, force: true });
+  }
+});
+
 test("closing and reopening the state store and log reader before list/wait/resume preserves admission results", async () => {
   const { writeRunId, reviewRunId } = createReviewMutationRuns({
     invocationId: "review-mutation-reopen",
@@ -2239,6 +2289,98 @@ const completionHooks = {
   completionCommitter: async () => ({ commitSha: "commit-1", filesChanged: 1 }),
   completionPublisher: async () => ({ pushSha: "push-1", prNumber: 42, prUrl: "https://example.test/pr/42" }),
 };
+
+function createFailedShrinkCompletionCommitRun(): { shrinkRunId: string; logsPath: string } {
+  const workflowSnapshot = {
+    invocationId: "shrink-completion-commit-failed",
+    steps: [
+      {
+        stepId: "implement",
+        role: "implement",
+        stepRules: "retry rules",
+        expectedArtifactPath: "/tmp/test-project/artifact",
+        agents: ["codex"],
+        agentModelConfig: AGENT_MODEL_CONFIG,
+      },
+    ],
+  };
+  const shrinkRunId = stateStore.createRun({
+    project: "test-project",
+    specRef: "main",
+    worktreePath: "/tmp/test-project-worktree",
+    branch: "shrink-completion-commit-failed",
+    specPath: "/tmp/test-project/spec.md",
+    stepId: "implement~shrink",
+    workflowSnapshot,
+  });
+  stateStore.setRunStatus(shrinkRunId, "failed");
+  const logsPath = join(tmpdir(), `jarvis-shrink-completion-commit-${process.pid}-${Date.now()}.jsonl`);
+  const logSink = openLogSink(logsPath);
+  logSink.append(shrinkRunId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "completion_commit_failed",
+    iterationsConsumed: 2,
+    resumable: true,
+    completionCommitError: "failed to push some refs",
+  });
+  logSink.close();
+  return { shrinkRunId, logsPath };
+}
+
+test("failed implement~shrink completion_commit_failed resumes through finalization-only replay", async () => {
+  const { shrinkRunId, logsPath } = createFailedShrinkCompletionCommitRun();
+  try {
+    const terminalRecord = openLogReader(logsPath).tail(shrinkRunId).at(-1) as TerminalLogRecord;
+    const run = stateStore.loadRun(shrinkRunId);
+    expect(run).toBeDefined();
+    if (!run) return;
+    expect(resolveCompletionCommitFailedResumeContext(run, stateStore, terminalRecord).ok).toBe(true);
+
+    const attemptsBefore = run.attempts.length;
+    const localHandlers = logBackedHandlers(logsPath, {
+      intentFinalizationResumeDeps: {
+        ...completionHooks,
+        readyFinalizer: async () => undefined,
+      },
+    });
+
+    expect(await listResumable(localHandlers, shrinkRunId)).toBe(true);
+    const response = await resumeDirect(localHandlers, shrinkRunId);
+    expect(response.kind).toBe("response");
+    expect(fakeExecutor.pendingCount()).toBe(0);
+    expect(starts).toHaveLength(0);
+    expect(stateStore.loadRun(shrinkRunId)?.status).toBe("completed");
+    expect(stateStore.loadRun(shrinkRunId)?.attempts.length).toBeGreaterThan(attemptsBefore);
+
+    const events = openLogReader(logsPath)
+      .tail(shrinkRunId)
+      .map((record) => record.event);
+    expect(events.some((event) => event.kind === "iteration_started")).toBe(true);
+    expect(events.at(-1)).toMatchObject({ kind: "loop_finished", loopOutcomeKind: "complete", resumable: false });
+  } finally {
+    rmSync(logsPath, { force: true });
+  }
+});
+
+test("resolveCompletionCommitFailedResumeContext rejects non-resumable completion_commit_failed", () => {
+  const runId = createWorkflowRun({ invocationId: "completion-commit-not-resumable" });
+  stateStore.setRunStatus(runId, "failed");
+  const terminalRecord = {
+    runId,
+    seq: 1,
+    ts: "2026-01-01T00:00:00.000Z",
+    event: {
+      kind: "loop_finished" as const,
+      loopOutcomeKind: "completion_commit_failed" as const,
+      iterationsConsumed: 1,
+      resumable: false,
+    },
+  };
+  const run = stateStore.loadRun(runId);
+  expect(run).toBeDefined();
+  if (!run) return;
+  expect(resolveCompletionCommitFailedResumeContext(run, stateStore, terminalRecord).ok).toBe(false);
+});
 
 async function driveExhaustedRedImplementCompletion(): Promise<{
   runId: string;

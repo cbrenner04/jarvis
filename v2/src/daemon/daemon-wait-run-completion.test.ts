@@ -276,6 +276,7 @@ test("wait resolves failed run_execution_failed without loop fields", async () =
 
   expect(result).toEqual({
     runStatus: "failed",
+    resumable: false,
     error: { reason: "harness_failure", retryable: false, nextAction: "stop" },
   });
 });

@@ -361,11 +361,6 @@ export const RUN_OPERATOR_ERROR_RECOVERY = {
   unsupported_resume_context: "fix the persisted workflow snapshot or re-run the spec",
 } satisfies Record<RunOperatorErrorReason, string>;
 
-/** Check if a run's operator error (if any) advertises resumability. */
-export function isResumeAdmitted(run: RunWithAttempts, terminalRecord?: TerminalLogRecord): boolean {
-  return composeRunOperatorError(run, terminalRecord)?.nextAction === "resume";
-}
-
 /** Refusal message when resume is blocked; omitted when the row is admitted. */
 export function terminalResumeRefusalMessage(
   run: RunWithAttempts,

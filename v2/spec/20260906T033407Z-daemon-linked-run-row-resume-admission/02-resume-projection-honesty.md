@@ -18,17 +18,17 @@
 
 ## Task checklist
 
-- [ ] Implement `resolveRunResumeAdmission` (name may vary) in `daemon-run-lifecycle-handlers.ts` or an adjacent daemon resume module, folding the existing handler ordering into one predicate that returns `{ admitted, refusal? }` or equivalent.
-- [ ] Wire `isResumeAdmitted`, `resumeContextForRun`/`resultFrom`, and `resumeHandler` through the shared resolver.
-- [ ] Extend `daemon-resume.test.ts` with a row shape the handler refuses but a stale `loop_finished.resumable: true` record still projects retryability on the pre-fix base; assert `list`, `wait`, and `resume` agree on non-admission.
+- [x] Implement `resolveRunResumeAdmission` (name may vary) in `daemon-run-lifecycle-handlers.ts` or an adjacent daemon resume module, folding the existing handler ordering into one predicate that returns `{ admitted, refusal? }` or equivalent.
+- [x] Wire `isResumeAdmitted`, `resumeContextForRun`/`resultFrom`, and `resumeHandler` through the shared resolver.
+- [x] Extend `daemon-resume.test.ts` with a row shape the handler refuses but a stale `loop_finished.resumable: true` record still projects retryability on the pre-fix base; assert `list`, `wait`, and `resume` agree on non-admission.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-resume.test.ts` proves rows resume admission refuses do not advertise `nextAction: "resume"`; it fails while stale `resumable: true` records still project resume.
-- [ ] `v2/docs/v1-behaviors.md` records that daemon `list`/`wait` `resumable` and `nextAction: "resume"` derive from the same admission resolver as `run resume`.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/daemon/daemon-resume.test.ts` proves rows resume admission refuses do not advertise `nextAction: "resume"`; it fails while stale `resumable: true` records still project resume.
+- [x] `v2/docs/v1-behaviors.md` records that daemon `list`/`wait` `resumable` and `nextAction: "resume"` derive from the same admission resolver as `run resume`.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

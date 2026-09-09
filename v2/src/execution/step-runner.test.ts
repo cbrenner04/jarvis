@@ -303,6 +303,47 @@ describe("step runner classification", () => {
     expect(invocations).toEqual(["claude/M1", "claude/M2"]);
   });
 
+  test("invocation_failure classifies stderr containing the dispatched prompt as echoed input", async () => {
+    const prompt = "Return exactly one terminal token.\nDo the work.";
+    const bindings: InvocationBinding[] = [
+      { id: "agent", invoke: async () => ({ kind: "error", exitCode: 1, stderr: prompt }) },
+    ];
+
+    const result = await runStep({ prompt, cwd: "/tmp", bindings, contracts: [] });
+
+    expect(result.kind).toBe("invocation_failure");
+    if (result.kind === "invocation_failure") {
+      expect(result.echoedInput).toBe(true);
+    }
+  });
+
+  test("invocation_failure does not classify stderr absent from the dispatched prompt as echoed input", async () => {
+    const prompt = "Return exactly one terminal token.";
+    const bindings: InvocationBinding[] = [
+      { id: "agent", invoke: async () => ({ kind: "error", exitCode: 1, stderr: "boom: unexpected failure" }) },
+    ];
+
+    const result = await runStep({ prompt, cwd: "/tmp", bindings, contracts: [] });
+
+    expect(result.kind).toBe("invocation_failure");
+    if (result.kind === "invocation_failure") {
+      expect(result.echoedInput).toBe(false);
+    }
+  });
+
+  test("invocation_failure does not classify empty stderr as echoed input even when the prompt is empty", async () => {
+    const bindings: InvocationBinding[] = [
+      { id: "agent", invoke: async () => ({ kind: "error", exitCode: 1, stderr: "" }) },
+    ];
+
+    const result = await runStep({ prompt: "", cwd: "/tmp", bindings, contracts: [] });
+
+    expect(result.kind).toBe("invocation_failure");
+    if (result.kind === "invocation_failure") {
+      expect(result.echoedInput).toBe(false);
+    }
+  });
+
   test("zero-exit codex quota advances to next binding", async () => {
     const invocations: string[] = [];
     const bindings = createImplementBindings(({ agentId, adapterModel }) => async () => {

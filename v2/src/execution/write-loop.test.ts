@@ -2606,6 +2606,68 @@ describe("write loop", () => {
     }
   });
 
+  test("terminal invocation failure echoing the dispatched prompt suppresses the message, marks the detail, and emits the raw diagnostic event", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const sink = new TestLogSink();
+    const echoedStderr = "Return exactly one terminal token.";
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      logSink: sink,
+      bindings: [
+        {
+          id: "sim.1",
+          invoke: async () => ({ kind: "error", exitCode: 1, stderr: echoedStderr }),
+        },
+      ],
+    });
+
+    expect(result.kind).toBe("invocation_failure");
+    const detail = loadRunOnce(stateDbPath, result.runId)?.attempts[0]?.invocationFailureDetail;
+    expect(detail?.echoedInput).toBe(true);
+    expect(detail).not.toHaveProperty("message");
+
+    const diagnostic = sink
+      .getEventsForRun(result.runId)
+      .find((event) => event.kind === "invocation_failure_diagnostic");
+    expect(diagnostic).toBeDefined();
+    if (diagnostic?.kind === "invocation_failure_diagnostic") {
+      expect(diagnostic.stderrTail).toBe(echoedStderr);
+      expect(diagnostic.echoedInput).toBe(true);
+    }
+  });
+
+  test("terminal invocation failure with an ordinary real stderr tail persists it unmarked and emits the same diagnostic event shape", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const sink = new TestLogSink();
+    const realStderr = "TypeError: cannot read property 'foo' of undefined";
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      logSink: sink,
+      bindings: [
+        {
+          id: "sim.1",
+          invoke: async () => ({ kind: "error", exitCode: 1, stderr: realStderr }),
+        },
+      ],
+    });
+
+    expect(result.kind).toBe("invocation_failure");
+    const detail = loadRunOnce(stateDbPath, result.runId)?.attempts[0]?.invocationFailureDetail;
+    expect(detail?.message).toBe(realStderr);
+    expect(detail).not.toHaveProperty("echoedInput");
+
+    const diagnostic = sink
+      .getEventsForRun(result.runId)
+      .find((event) => event.kind === "invocation_failure_diagnostic");
+    expect(diagnostic).toBeDefined();
+    if (diagnostic?.kind === "invocation_failure_diagnostic") {
+      expect(diagnostic.stderrTail).toBe(realStderr);
+      expect(diagnostic.echoedInput).toBe(false);
+    }
+  });
+
   const invalidTokenBindings: InvocationBinding[] = [
     {
       id: "agent",
@@ -9647,7 +9709,12 @@ index 1234567..abcdefg 100644
         },
         {
           label: "invocation_failure",
-          result: { kind: "invocation_failure", failureKind: "error", invocation: checkpointCaseInvocation },
+          result: {
+            kind: "invocation_failure",
+            failureKind: "error",
+            echoedInput: false,
+            invocation: checkpointCaseInvocation,
+          },
           expectedOutcomeKind: "invocation_failure",
         },
         {

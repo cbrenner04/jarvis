@@ -4,7 +4,17 @@ export type ScopedTests = "full" | string[];
 
 const ROOT_TOOLING_PATTERNS = [/^package\.json$/, /^tsconfig.*\.json$/, /^\.github\//, /^scripts\//];
 
-const NO_TEST_IMPACT_PATTERNS = [/^ready-intents\//, /^reports\//, /^v1\//, /^v2\/docs\//, /^v2\/spec\//];
+// Root-level docs (top-level *.md, LICENSE) carry no test impact; any other unrecognized root path still
+// falls through to `full`, so a new root config or Makefile is never silently skipped.
+const NO_TEST_IMPACT_PATTERNS = [
+  /^ready-intents\//,
+  /^reports\//,
+  /^v1\//,
+  /^v2\/docs\//,
+  /^v2\/spec\//,
+  /^[^/]+\.md$/,
+  /^LICENSE$/,
+];
 
 /** Classify already-resolved changed paths into the scripts CI needs to run. */
 export function classifyChangedPaths(paths: string[]): ScopedTests {

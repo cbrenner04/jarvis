@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolveCiTestScope } from "./ci-test-scope";
+import { classifyChangedPaths, resolveCiTestScope } from "./ci-test-scope";
 
 describe("resolveCiTestScope", () => {
   test("frozen v1 change (src, test, docs, spec) skips tests", () => {
@@ -33,7 +33,8 @@ describe("resolveCiTestScope", () => {
   });
 
   test("unmatched path runs full suite", () => {
-    expect(resolveCiTestScope(["README.md"], true)).toBe("full");
+    // README.md is a root doc and carries no test impact; an unrecognized root path still runs everything.
+    expect(resolveCiTestScope(["Makefile"], true)).toBe("full");
   });
 
   test("unresolvable base with code-bearing diff runs full suite", () => {
@@ -74,5 +75,21 @@ describe("resolveCiTestScope", () => {
 
   test("empty changed-path input runs full suite", () => {
     expect(resolveCiTestScope([], true)).toBe("full");
+  });
+
+  test("root docs and LICENSE alone skip tests", () => {
+    for (const path of ["README.md", "AGENTS.md", "CLAUDE.md", "LICENSE"]) {
+      expect(classifyChangedPaths([path])).toEqual([]);
+    }
+  });
+
+  test("a root doc beside v2 source scopes on v2", () => {
+    expect(classifyChangedPaths(["AGENTS.md", "v2/src/x.ts"])).toEqual(["test:v2", "test:integration:v2"]);
+  });
+
+  test("root tooling and unknown root paths still run the full suite", () => {
+    expect(classifyChangedPaths(["package.json"])).toBe("full");
+    expect(classifyChangedPaths(["Makefile"])).toBe("full");
+    expect(classifyChangedPaths(["docs-notes.txt"])).toBe("full");
   });
 });

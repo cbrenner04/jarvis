@@ -17,10 +17,10 @@
 
 ## Acceptance criteria
 
-- [ ] `scripts/ci-test-scope.test.ts` test `root docs and LICENSE alone skip tests` proves `classifyChangedPaths(["README.md"])`, `(["AGENTS.md"])`, `(["CLAUDE.md"])`, and `(["LICENSE"])` each return `[]`; it fails against the current `full` fallback.
-- [ ] `scripts/ci-test-scope.test.ts` test `a root doc beside v2 source scopes on v2` proves `classifyChangedPaths(["AGENTS.md", "v2/src/x.ts"])` returns `["test:v2", "test:integration:v2"]`.
-- [ ] `scripts/ci-test-scope.test.ts` test `root tooling and unknown root paths still run the full suite` proves `["package.json"]` and `["Makefile"]` return `"full"`.
-- [ ] `bun run typecheck`, `bun run test:shared`, and `bun run test:integration:shared` pass.
+- [x] `scripts/ci-test-scope.test.ts` test `root docs and LICENSE alone skip tests` proves `classifyChangedPaths(["README.md"])`, `(["AGENTS.md"])`, `(["CLAUDE.md"])`, and `(["LICENSE"])` each return `[]`; it fails against the current `full` fallback.
+- [x] `scripts/ci-test-scope.test.ts` test `a root doc beside v2 source scopes on v2` proves `classifyChangedPaths(["AGENTS.md", "v2/src/x.ts"])` returns `["test:v2", "test:integration:v2"]`.
+- [x] `scripts/ci-test-scope.test.ts` test `root tooling and unknown root paths still run the full suite` proves `["package.json"]` and `["Makefile"]` return `"full"`.
+- [x] `bun run typecheck`, `bun run test:shared`, and `bun run test:integration:shared` pass.
 
 ## Documentation updates
 

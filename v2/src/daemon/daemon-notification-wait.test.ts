@@ -162,6 +162,78 @@ test("notification_wait blocks until sweep records the next delivery", async () 
   );
 });
 
+test("notification_wait with an incident's own cursor blocks for the next delivery", async () => {
+  // @mutate v2/src/persistence/state-store.ts ") > (?, ?, ?)" -> ") >= (?, ?, ?)"
+  const runId = seedBlockedRun();
+  const first = deriveOperatorIncidents(store, DERIVATION_NOW_MS).find((row) => row.runId === runId);
+  if (first === undefined) throw new Error("expected blocked incident");
+  const firstDeliveredAt = DERIVATION_NOW_MS - 10;
+  recordDelivery(first, firstDeliveredAt);
+  const ownCursor = encodeNotificationDeliveryCursor({
+    deliveredAt: firstDeliveredAt,
+    incidentId: first.incidentId,
+    transition: first.transition,
+  });
+
+  const controller = new AbortController();
+  const pending = invokeNotificationWait({ sinceCursor: ownCursor }, controller.signal);
+  let settled = false;
+  void pending.then(() => {
+    settled = true;
+  });
+  await new Promise<void>((resolve) => setTimeout(resolve, 20));
+  // The cursor's own incident is never re-delivered; the wait is still armed.
+  expect(settled).toBe(false);
+
+  const secondRunId = seedBlockedRun();
+  const second = deriveOperatorIncidents(store, DERIVATION_NOW_MS).find((row) => row.runId === secondRunId);
+  if (second === undefined) throw new Error("expected second blocked incident");
+  recordDelivery(second, DERIVATION_NOW_MS);
+  registry.wakeFromStore(store);
+  const result = await pending;
+  expect(result.incident).toEqual(sinkIncident(second));
+});
+
+test("chained waits over three owed incidents return the second and third without repeating", async () => {
+  const runIds = [seedBlockedRun(), seedBlockedRun(), seedBlockedRun()];
+  const incidents = runIds.map((runId) => {
+    const incident = deriveOperatorIncidents(store, DERIVATION_NOW_MS).find((row) => row.runId === runId);
+    if (incident === undefined) throw new Error("expected blocked incident");
+    return incident;
+  });
+  for (const [index, incident] of incidents.entries()) {
+    recordDelivery(incident, DERIVATION_NOW_MS - 30 + index * 10);
+  }
+  const firstCursor = encodeNotificationDeliveryCursor({
+    deliveredAt: DERIVATION_NOW_MS - 30,
+    incidentId: incidents[0]!.incidentId,
+    transition: incidents[0]!.transition,
+  });
+
+  const second = await invokeNotificationWait({ sinceCursor: firstCursor });
+  expect(second.incident).toEqual(sinkIncident(incidents[1]!));
+  const third = await invokeNotificationWait({ sinceCursor: second.deliveryCursor });
+  expect(third.incident).toEqual(sinkIncident(incidents[2]!));
+  expect([second.incident.incidentId, third.incident.incidentId]).not.toContain(incidents[0]!.incidentId);
+});
+
+test("notification_list with a delivery cursor excludes the incident at that cursor while sinceMs stays inclusive", async () => {
+  const runId = seedBlockedRun();
+  const incident = deriveOperatorIncidents(store, DERIVATION_NOW_MS).find((row) => row.runId === runId);
+  if (incident === undefined) throw new Error("expected blocked incident");
+  const deliveredAt = DERIVATION_NOW_MS - 5;
+  recordDelivery(incident, deliveredAt);
+  const ownCursor = encodeNotificationDeliveryCursor({
+    deliveredAt,
+    incidentId: incident.incidentId,
+    transition: incident.transition,
+  });
+
+  expect(await invokeNotificationList({ sinceCursor: ownCursor })).toEqual([]);
+  const byTime = await invokeNotificationList({ sinceMs: deliveredAt });
+  expect(byTime.map((entry) => entry.incident)).toEqual([sinkIncident(incident)]);
+});
+
 test("notification_wait returns delivery recorded while no waiter was armed", async () => {
   const runId = seedBlockedRun();
   const incident = deriveOperatorIncidents(store, DERIVATION_NOW_MS).find((row) => row.runId === runId);

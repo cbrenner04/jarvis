@@ -360,10 +360,11 @@ describe("StateStore", () => {
       incidentId: incidents[1]!.incidentId,
       transition: incidents[1]!.transition,
     });
-    // @mutate v2/src/persistence/state-store.ts ") >= (?, ?, ?)" -> ") > (?, ?, ?)"
+    // @mutate v2/src/persistence/state-store.ts ") > (?, ?, ?)" -> ") >= (?, ?, ?)"
     // @mutate v2/src/persistence/state-store.ts "incident_json IS NOT NULL" -> "incident_json IS NULL"
+    // The cursor names an already-delivered incident: chaining from it never re-delivers it.
     const results = store.listDeliveredNotificationIncidents({ sinceCursor: middleCursor });
-    expect(results).toEqual([sinkIncident(incidents[1]!), sinkIncident(incidents[2]!), sinkIncident(incidents[3]!)]);
+    expect(results).toEqual([sinkIncident(incidents[2]!), sinkIncident(incidents[3]!)]);
   });
 
   test("delivered incident is readable after recording with no active consumer", () => {
@@ -390,7 +391,6 @@ describe("StateStore", () => {
       }),
     ).toBe(true);
 
-    // @mutate v2/src/persistence/state-store.ts ") >= (?, ?, ?)" -> ") > (?, ?, ?)"
     const results = store.listDeliveredNotificationIncidents({ sinceCursor: priorCursor });
     expect(results).toEqual([sinkIncident(incident)]);
   });

@@ -20,12 +20,12 @@ The `sinceCursor` branch of `listDeliveredNotificationIncidents` (`state-store.t
 
 ## Acceptance criteria
 
-- [ ] `daemon-notification-wait.test.ts` test `notification_wait with an incident's own cursor blocks for the next delivery` proves `since` set to an incident's own delivery cursor does not return that incident and instead resolves with the next one once the sweep records it; it fails against the current inclusive bound.
-- [ ] `daemon-notification-wait.test.ts` test `chained waits over three owed incidents return the second and third without repeating` proves two waits chained on each returned `deliveryCursor` yield the second and third incidents.
-- [ ] `daemon-notification-wait.test.ts` test `notification_list with a delivery cursor excludes the incident at that cursor while sinceMs stays inclusive` proves the cursor form excludes and the `sinceMs` form still includes an incident delivered exactly at the bound.
-- [ ] `state-store.test.ts` delivered-ledger cursor test expects the cursor's own incident excluded and its `@mutate` directive is `") > (?, ?, ?)" -> ") >= (?, ?, ?)"`.
-- [ ] `commands/notifications.test.ts` `--project` catch-up cases stay green through the `scanForProject` simplification.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `daemon-notification-wait.test.ts` test `notification_wait with an incident's own cursor blocks for the next delivery` proves `since` set to an incident's own delivery cursor does not return that incident and instead resolves with the next one once the sweep records it; it fails against the current inclusive bound.
+- [x] `daemon-notification-wait.test.ts` test `chained waits over three owed incidents return the second and third without repeating` proves two waits chained on each returned `deliveryCursor` yield the second and third incidents.
+- [x] `daemon-notification-wait.test.ts` test `notification_list with a delivery cursor excludes the incident at that cursor while sinceMs stays inclusive` proves the cursor form excludes and the `sinceMs` form still includes an incident delivered exactly at the bound.
+- [x] `state-store.test.ts` delivered-ledger cursor test expects the cursor's own incident excluded and its `@mutate` directive is `") > (?, ?, ?)" -> ") >= (?, ?, ?)"`.
+- [x] `commands/notifications.test.ts` `--project` catch-up cases stay green through the `scanForProject` simplification.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

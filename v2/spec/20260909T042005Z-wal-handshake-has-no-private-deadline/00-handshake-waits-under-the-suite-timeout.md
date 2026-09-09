@@ -17,10 +17,10 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/testing/subprocess-marker.test.ts` test `waits past the former ten-second budget for a late marker` proves a child that prints the marker after more than 10s (simulated with a fake stdout stream and fake timers, not a real sleep) still resolves; it fails against the former `timeoutMs = 10_000` rejection.
-- [ ] `v2/src/testing/subprocess-marker.test.ts` test `rejects when the child exits without the marker` proves a child that closes stdout without printing rejects with a message naming the missing marker and the exit.
-- [ ] `v2/src/persistence/state-store-wal-concurrency.test.ts` assertions are unchanged and green; `bun run test:v2` passes three consecutive times.
-- [ ] `bun run typecheck` and `bun run test:v2` pass.
+- [x] `v2/src/testing/subprocess-marker.test.ts` test `waits past the former ten-second budget for a late marker` proves a child that prints the marker after more than 10s (simulated with a fake stdout stream and fake timers, not a real sleep) still resolves; it fails against the former `timeoutMs = 10_000` rejection.
+- [x] `v2/src/testing/subprocess-marker.test.ts` test `rejects when the child exits without the marker` proves a child that closes stdout without printing rejects with a message naming the missing marker and the exit.
+- [x] `v2/src/persistence/state-store-wal-concurrency.test.ts` assertions are unchanged and green; `bun run test:v2` passes three consecutive times.
+- [x] `bun run typecheck` and `bun run test:v2` pass.
 
 ## Documentation updates
 

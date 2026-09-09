@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
+import { waitForStdoutMarker } from "../testing/subprocess-marker.ts";
 import { openStateStore, STATE_STORE_BUSY_TIMEOUT_MS } from "./state-store";
 import { removeOrchestrationStore } from "./state-store-on-disk";
 
@@ -79,7 +80,7 @@ describe("StateStore WAL concurrency", () => {
       const subprocess = spawn("bun", ["--eval", subprocess_lock_holder_script(testPath, 500)]);
 
       // Wait for the holder to report the lock is held, rather than guessing at a startup budget.
-      await waitForLockHeld(subprocess);
+      await waitForStdoutMarker(subprocess, LOCK_HELD_MARKER);
 
       const startTime = Date.now();
 
@@ -192,28 +193,3 @@ db.close();
 }
 
 const LOCK_HELD_MARKER = "jarvis-lock-held";
-
-/** Resolves once the lock holder reports it holds the write lock, or rejects on a bounded wait. */
-async function waitForLockHeld(subprocess: ReturnType<typeof spawn>, timeoutMs = 10_000): Promise<void> {
-  const stdout = subprocess.stdout;
-  if (stdout === null) throw new Error("lock holder subprocess has no stdout");
-  return await new Promise<void>((resolvePromise, reject) => {
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error(`lock holder did not report ${LOCK_HELD_MARKER} within ${timeoutMs}ms`));
-    }, timeoutMs);
-    let buffered = "";
-    const onData = (chunk: Buffer): void => {
-      buffered += chunk.toString();
-      if (buffered.includes(LOCK_HELD_MARKER)) {
-        cleanup();
-        resolvePromise();
-      }
-    };
-    const cleanup = (): void => {
-      clearTimeout(timer);
-      stdout.off("data", onData);
-    };
-    stdout.on("data", onData);
-  });
-}

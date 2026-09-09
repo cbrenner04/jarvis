@@ -1,7 +1,3 @@
----
-name: intent-resume-consumes-its-seed
----
-
 # Resuming a `landing_failed` intent lands the ready-intents but never consumes the seed
 
 ## Problem

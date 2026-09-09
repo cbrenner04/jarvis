@@ -24,14 +24,14 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/pipeline.test.ts`'s `approves through a non-invoking owner` regression proves `pipeline approve` sends `pipeline_approve` to the socket whose `pipeline_owner` answer is `owner` and applies the decision; it fails against the pre-fix invoking-socket path, which reaches an absent socket.
-- [ ] `v2/src/commands/pipeline.test.ts`'s `routes every single-pipeline verb through a non-invoking owner` regression proves `reject`, `resume`, `recover`, `dismiss`, `undismiss`, and `wait` each send their verb RPC only to the witnessed socket; it fails against the pre-fix code.
-- [ ] `v2/src/commands/pipeline.test.ts`'s `uses a durable-state endpoint or refuses duplicate owners` regression proves a terminal pipeline and a reconciled-interrupted pipeline both route to the resolver's deterministic endpoint, and that two `owner` claimants refuse with the exact `pipeline_owner_conflict` message above, naming both socket paths, with no verb RPC sent; it fails against the pre-fix code.
-- [ ] `v2/src/commands/pipeline.test.ts`'s `reports pipeline owner resolution failures` regression proves the no-owner path exits non-zero with `Pipeline <id> has no live owner; run jarvis daemon start, then retry.`, the not-found path with `Pipeline <id> was not found; run jarvis pipeline list --all to verify the id.`, and the unavailable path with `No live pipeline daemon responded; run jarvis daemon start, then retry.` instead of `connect ENOENT`; it fails against the pre-fix code.
-- [ ] Existing `v2/src/commands/pipeline.test.ts` refusal, outcome-parsing, and exit-code tests stay green (routing is behavior-preserving when the invoking digest owns the pipeline).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/commands/pipeline.test.ts`'s `approves through a non-invoking owner` regression proves `pipeline approve` sends `pipeline_approve` to the socket whose `pipeline_owner` answer is `owner` and applies the decision; it fails against the pre-fix invoking-socket path, which reaches an absent socket.
+- [x] `v2/src/commands/pipeline.test.ts`'s `routes every single-pipeline verb through a non-invoking owner` regression proves `reject`, `resume`, `recover`, `dismiss`, `undismiss`, and `wait` each send their verb RPC only to the witnessed socket; it fails against the pre-fix code.
+- [x] `v2/src/commands/pipeline.test.ts`'s `uses a durable-state endpoint or refuses duplicate owners` regression proves a terminal pipeline and a reconciled-interrupted pipeline both route to the resolver's deterministic endpoint, and that two `owner` claimants refuse with the exact `pipeline_owner_conflict` message above, naming both socket paths, with no verb RPC sent; it fails against the pre-fix code.
+- [x] `v2/src/commands/pipeline.test.ts`'s `reports pipeline owner resolution failures` regression proves the no-owner path exits non-zero with `Pipeline <id> has no live owner; run jarvis daemon start, then retry.`, the not-found path with `Pipeline <id> was not found; run jarvis pipeline list --all to verify the id.`, and the unavailable path with `No live pipeline daemon responded; run jarvis daemon start, then retry.` instead of `connect ENOENT`; it fails against the pre-fix code.
+- [x] Existing `v2/src/commands/pipeline.test.ts` refusal, outcome-parsing, and exit-code tests stay green (routing is behavior-preserving when the invoking digest owns the pipeline).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

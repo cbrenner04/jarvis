@@ -1,7 +1,9 @@
 import type { IpcClient } from "../ipc/client.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import type { startDaemon } from "./daemon-lifecycle.ts";
+import { mergePipelineSnapshots } from "./merge-pipeline-snapshots.ts";
 import type { PipelineDerivedState } from "./pipeline-execution.ts";
+import { ambiguousPipelineIdMessage, PIPELINE_ID_PREFIX_MIN_LENGTH } from "./pipeline-id-resolution.ts";
 import type { PipelineSnapshot } from "./pipeline-observation.ts";
 import { type QueryDaemonListsDeps, resolveDaemonListSocketPaths } from "./query-daemon-lists-from-sockets.ts";
 
@@ -302,4 +304,39 @@ export async function resolvePipelineDaemon(
 ): Promise<PipelineDaemonResolution> {
   const socketPaths = await resolveDaemonListSocketPaths(deps);
   return resolvePipelineDaemonFromSocketPaths(deps.connectIpcClient, socketPaths, pipelineId, timeoutMs);
+}
+
+export type PipelineIdCrossDaemonResolution =
+  | { kind: "resolved"; pipelineId: string }
+  | { kind: "ambiguous"; candidates: string[]; message: string }
+  /** Nothing matched; the caller keeps its own not-found handling for the argument as given. */
+  | { kind: "unmatched"; pipelineId: string };
+
+/**
+ * Resolves a CLI pipeline id argument (exact id or unique ≥8-char prefix, dismissed pipelines
+ * included) against the merged listing across every live discovered-plus-invoking socket, the
+ * same set `pipeline list` queries. Never starts a daemon.
+ */
+export async function resolvePipelineIdAcrossDaemons(
+  argument: string,
+  deps: QueryDaemonListsDeps,
+  timeoutMs = PIPELINE_OWNER_RPC_TIMEOUT_MS,
+): Promise<PipelineIdCrossDaemonResolution> {
+  const socketPaths = await resolveDaemonListSocketPaths(deps);
+  const queryResult = await queryPipelineListsFromSocketPaths(
+    deps.connectIpcClient,
+    socketPaths,
+    { includeDismissed: true },
+    timeoutMs,
+  );
+  const ids = mergePipelineSnapshots(queryResult.snapshotsBySocketPath).map((snapshot) => snapshot.pipelineId);
+  if (ids.includes(argument)) return { kind: "resolved", pipelineId: argument };
+  if (argument.length < PIPELINE_ID_PREFIX_MIN_LENGTH) return { kind: "unmatched", pipelineId: argument };
+  const candidates = ids.filter((id) => id.startsWith(argument)).sort();
+  const [only] = candidates;
+  if (candidates.length === 1 && only !== undefined) return { kind: "resolved", pipelineId: only };
+  if (candidates.length > 1) {
+    return { kind: "ambiguous", candidates, message: ambiguousPipelineIdMessage(argument, candidates) };
+  }
+  return { kind: "unmatched", pipelineId: argument };
 }

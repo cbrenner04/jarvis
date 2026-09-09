@@ -433,6 +433,193 @@ describe("shared invocation fallback", () => {
     expect(row?.cost_source).toBe("agent");
   });
 
+  test("a rejecting binding.invoke normalizes to an attributed error attempt and telemetry row", async () => {
+    const rows: InvocationCompletedRecord[] = [];
+    const result = await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [
+        {
+          id: "spawner",
+          metadata: { agent: "claude", model: "sonnet" },
+          invoke: async () => {
+            throw new Error("spawn ENOENT");
+          },
+        },
+      ],
+      telemetry: telemetryArgs({
+        append(record) {
+          rows.push(record);
+        },
+      }),
+    });
+
+    expect(result.attempts).toHaveLength(1);
+    expect(result.final?.binding.id).toBe("spawner");
+    expect(result.final?.result.kind).toBe("error");
+    if (result.final?.result.kind === "error") {
+      expect(result.final.result.exitCode).toBe(-1);
+      expect(result.final.result.stderr).toBe("spawn ENOENT");
+    }
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.agent).toBe("claude");
+    expect(rows[0]?.model).toBe("sonnet");
+    expect(rows[0]?.binding_id).toBe("spawner");
+    expect(rows[0]?.exit_kind).toBe("error");
+  });
+
+  test("a normalized pre-result failure obeys the default shouldAdvance policy and stops the chain", async () => {
+    const calls: string[] = [];
+    const result = await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [
+        {
+          id: "first",
+          invoke: async () => {
+            calls.push("first");
+            throw new Error("boom");
+          },
+        },
+        {
+          id: "second",
+          invoke: async () => {
+            calls.push("second");
+            return { kind: "ok", stdout: "should-not-run", stderr: "" } as const;
+          },
+        },
+      ],
+    });
+
+    expect(calls).toEqual(["first"]);
+    expect(result.attempts).toHaveLength(1);
+    expect(result.final?.binding.id).toBe("first");
+  });
+
+  test("a normalized pre-result failure obeys a binding-supplied shouldAdvance predicate", async () => {
+    const calls: string[] = [];
+    const result = await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [
+        {
+          id: "first",
+          shouldAdvance: (r) => r.kind === "error",
+          invoke: async () => {
+            calls.push("first");
+            throw new Error("boom");
+          },
+        },
+        {
+          id: "second",
+          invoke: async () => {
+            calls.push("second");
+            return { kind: "ok", stdout: "done", stderr: "" } as const;
+          },
+        },
+      ],
+    });
+
+    expect(calls).toEqual(["first", "second"]);
+    expect(result.attempts.map((a) => a.binding.id)).toEqual(["first", "second"]);
+    expect(result.final?.binding.id).toBe("second");
+  });
+
+  test("a rejection while the signal is already aborted propagates unnormalized with no attempt or telemetry", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const rows: InvocationCompletedRecord[] = [];
+    const secondCalls: string[] = [];
+
+    const call = executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      signal: controller.signal,
+      bindings: [
+        {
+          id: "first",
+          metadata: { agent: "claude", model: "sonnet" },
+          invoke: async () => {
+            throw new Error("aborted mid-spawn");
+          },
+        },
+        {
+          id: "second",
+          invoke: async () => {
+            secondCalls.push("second");
+            return { kind: "ok", stdout: "should-not-run", stderr: "" } as const;
+          },
+        },
+      ],
+      telemetry: telemetryArgs({
+        append(record) {
+          rows.push(record);
+        },
+      }),
+    });
+
+    await expect(call).rejects.toThrow("aborted mid-spawn");
+    expect(rows).toEqual([]);
+    expect(secondCalls).toEqual([]);
+  });
+
+  test("normalized sentinel exit_reason is distinguishable from a real process exit code", async () => {
+    const rows: InvocationCompletedRecord[] = [];
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [
+        {
+          id: "normalized",
+          metadata: { agent: "claude", model: "sonnet" },
+          shouldAdvance: (r) => r.kind === "error",
+          invoke: async () => {
+            throw new Error("spawn failed");
+          },
+        },
+        binding("real-exit", { kind: "error", exitCode: 7, stderr: "boom" }),
+      ],
+      telemetry: telemetryArgs({
+        append(record) {
+          rows.push(record);
+        },
+      }),
+    });
+
+    expect(rows.map((row) => row.exit_reason)).toEqual(["exit_code:-1", "exit_code:7"]);
+  });
+
+  test("the raw thrown diagnostic reaches the session transcript but not telemetry exit_reason", async () => {
+    const { log, lines } = fakeSessionLog();
+    const rows: InvocationCompletedRecord[] = [];
+
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      sessionLog: log,
+      bindings: [
+        {
+          id: "spawner",
+          metadata: { agent: "claude", model: "sonnet" },
+          invoke: async () => {
+            throw new Error("spawn ENOENT: no such file or directory");
+          },
+        },
+      ],
+      telemetry: telemetryArgs({
+        append(record) {
+          rows.push(record);
+        },
+      }),
+    });
+
+    expect(lines.filter((l) => l.tag === "inbound_stderr").map((l) => l.text)).toEqual([
+      "spawn ENOENT: no such file or directory",
+    ]);
+    expect(rows[0]?.exit_reason).toBe("exit_code:-1");
+    expect(rows[0]?.exit_reason).not.toContain("ENOENT");
+  });
+
   test("model_config and error results write stderr under inbound_stderr", async () => {
     const modelLog = fakeSessionLog();
     await executeWithQuotaFallback({

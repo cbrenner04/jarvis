@@ -45,6 +45,8 @@ const PIPELINE_STATE_KEYS = {
 
 const PIPELINE_STATES: ReadonlySet<string> = new Set(Object.keys(PIPELINE_STATE_KEYS));
 
+const PIPELINE_TERMINAL_ACTIONS: ReadonlySet<string> = new Set(["leave-draft", "ready", "merge"]);
+
 function parsePipelineOwnerWitness(value: unknown, pipelineId: string): PipelineOwnerWitness | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const response = value as { kind?: unknown; pipelineId?: unknown; state?: unknown };
@@ -113,10 +115,86 @@ async function queryPipelineOwner(
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isNullableNumber(value: unknown): value is number | null {
+  return value === null || (typeof value === "number" && Number.isFinite(value));
+}
+
+function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || typeof value === "string";
+}
+
+function isPublicationFailure(value: unknown): boolean {
+  if (!isRecord(value) || typeof value.operation !== "string" || typeof value.message !== "string") return false;
+  return (
+    (value.exitCode === undefined || (typeof value.exitCode === "number" && Number.isFinite(value.exitCode))) &&
+    isOptionalString(value.stdoutTail) &&
+    isOptionalString(value.stderrTail)
+  );
+}
+
+function isTerminalPublicationFailure(value: unknown): boolean {
+  if (value === null) return true;
+  if (
+    !isRecord(value) ||
+    typeof value.terminalAction !== "string" ||
+    !PIPELINE_TERMINAL_ACTIONS.has(value.terminalAction)
+  ) {
+    return false;
+  }
+  return (
+    isPublicationFailure(value.failure) &&
+    (value.prNumber === undefined || typeof value.prNumber === "number") &&
+    isOptionalString(value.prUrl)
+  );
+}
+
+function isPipelineStageSnapshot(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.id === "string" &&
+    typeof value.stageId === "string" &&
+    typeof value.branchKey === "string" &&
+    typeof value.position === "number" &&
+    Number.isFinite(value.position) &&
+    typeof value.status === "string" &&
+    (value.workflowInvocationId === null || typeof value.workflowInvocationId === "string") &&
+    isNullableNumber(value.startedAt) &&
+    isNullableNumber(value.endedAt) &&
+    isNullableNumber(value.decidedAt) &&
+    Object.hasOwn(value, "artifact") &&
+    Object.hasOwn(value, "failureDetail")
+  );
+}
+
+function isPipelineSnapshot(value: unknown): value is PipelineSnapshot {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.pipelineId === "string" &&
+    typeof value.name === "string" &&
+    typeof value.state === "string" &&
+    PIPELINE_STATES.has(value.state) &&
+    (value.terminalAction === undefined ||
+      (typeof value.terminalAction === "string" && PIPELINE_TERMINAL_ACTIONS.has(value.terminalAction))) &&
+    isOptionalString(value.seedPath) &&
+    isNullableNumber(value.terminalPublicationSucceededAt) &&
+    isTerminalPublicationFailure(value.terminalPublicationFailure) &&
+    typeof value.createdAt === "number" &&
+    Number.isFinite(value.createdAt) &&
+    isNullableNumber(value.finishedAtMs) &&
+    isNullableNumber(value.dismissedAt) &&
+    Array.isArray(value.stages) &&
+    value.stages.every(isPipelineStageSnapshot)
+  );
+}
+
 function parsePipelineList(value: unknown): readonly PipelineSnapshot[] | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const pipelines = (value as { pipelines?: unknown }).pipelines;
-  return Array.isArray(pipelines) ? (pipelines as PipelineSnapshot[]) : undefined;
+  if (!isRecord(value) || !Array.isArray(value.pipelines) || !value.pipelines.every(isPipelineSnapshot))
+    return undefined;
+  return value.pipelines;
 }
 
 async function queryPipelineList(

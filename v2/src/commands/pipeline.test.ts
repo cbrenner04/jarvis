@@ -135,8 +135,40 @@ function pipelineStartClients(frames: unknown[], sent: unknown[]): () => Promise
   };
 }
 
+function completePipelineListSnapshots(pipelines: unknown[]): unknown[] {
+  return pipelines.map((pipeline) => {
+    if (typeof pipeline !== "object" || pipeline === null || Array.isArray(pipeline)) return pipeline;
+    const record = pipeline as Record<string, unknown>;
+    const stages = Array.isArray(record.stages)
+      ? record.stages.map((stage, index) => {
+          if (typeof stage !== "object" || stage === null || Array.isArray(stage)) return stage;
+          return {
+            ...stage,
+            ...(stage.id === undefined ? { id: `stage-${index}` } : {}),
+            ...(stage.branchKey === undefined ? { branchKey: "default" } : {}),
+            ...(stage.position === undefined ? { position: index } : {}),
+            ...(stage.workflowInvocationId === undefined ? { workflowInvocationId: null } : {}),
+            ...(stage.startedAt === undefined ? { startedAt: null } : {}),
+            ...(stage.endedAt === undefined ? { endedAt: null } : {}),
+            ...(stage.decidedAt === undefined ? { decidedAt: null } : {}),
+            ...(stage.artifact === undefined ? { artifact: null } : {}),
+            ...(stage.failureDetail === undefined ? { failureDetail: null } : {}),
+          };
+        })
+      : record.stages;
+    return {
+      ...record,
+      ...(record.terminalPublicationSucceededAt === undefined ? { terminalPublicationSucceededAt: null } : {}),
+      ...(record.terminalPublicationFailure === undefined ? { terminalPublicationFailure: null } : {}),
+      ...(record.finishedAtMs === undefined ? { finishedAtMs: null } : {}),
+      ...(record.dismissedAt === undefined ? { dismissedAt: null } : {}),
+      stages,
+    };
+  });
+}
+
 function pipelineListFrame(id: string, pipelines: unknown[]): unknown {
-  return { kind: "response", id, result: { pipelines } };
+  return { kind: "response", id, result: { pipelines: completePipelineListSnapshots(pipelines) } };
 }
 
 function pipelineListClient(result: unknown, sent: unknown[] = []): IpcClient {
@@ -173,6 +205,7 @@ const SAMPLE_PIPELINE_SNAPSHOT = {
   terminalPublicationFailure: null,
   createdAt: 1_700_000_000_000,
   finishedAtMs: null,
+  dismissedAt: null,
   stages: [
     {
       id: "stage-plan",
@@ -183,6 +216,7 @@ const SAMPLE_PIPELINE_SNAPSHOT = {
       workflowInvocationId: "inv-plan",
       startedAt: 1_700_000_001_000,
       endedAt: 1_700_000_002_000,
+      decidedAt: null,
       artifact: false,
       failureDetail: 0,
     },
@@ -195,6 +229,7 @@ const SAMPLE_PIPELINE_SNAPSHOT = {
       workflowInvocationId: null,
       startedAt: null,
       endedAt: null,
+      decidedAt: null,
       artifact: "",
       failureDetail: null,
     },
@@ -209,16 +244,18 @@ const SAMPLE_PIPELINE_WITH_OMITTED_OPTIONALS = {
   terminalPublicationFailure: null,
   createdAt: 1_700_000_003_000,
   finishedAtMs: 1_700_000_004_000,
+  dismissedAt: null,
   stages: [],
 };
 
 const LIVE_RUNNING_SNAPSHOT = {
+  ...SAMPLE_PIPELINE_SNAPSHOT,
   pipelineId: "pipe-live",
   name: "fast",
   state: "running",
   stages: [
-    { stageId: "s1", branchKey: "default", status: "running", workflowInvocationId: "inv-1" },
-    { stageId: "s2", branchKey: "default", status: "pending", workflowInvocationId: null },
+    { ...SAMPLE_PIPELINE_SNAPSHOT.stages[0], stageId: "s1", status: "running", workflowInvocationId: "inv-1" },
+    { ...SAMPLE_PIPELINE_SNAPSHOT.stages[1], stageId: "s2", status: "pending", workflowInvocationId: null },
   ],
 };
 
@@ -241,20 +278,23 @@ function twoBranchFanSnapshot(
   planBeta?: { status: string; workflowInvocationId?: string | null },
 ) {
   return {
+    ...SAMPLE_PIPELINE_SNAPSHOT,
     pipelineId: "pipe-fan",
     name: "fan-out",
-    state,
+    state: state as typeof SAMPLE_PIPELINE_SNAPSHOT.state,
     stages: TWO_BRANCH_FAN_STAGES.map((row) => {
-      if (row.stageId === "gate" && row.branchKey === "alpha") return { ...row, status: gate.alpha };
-      if (row.stageId === "gate" && row.branchKey === "beta") return { ...row, status: gate.beta };
+      const base = SAMPLE_PIPELINE_SNAPSHOT.stages[row.stageId === "intent" ? 0 : 1]!;
+      if (row.stageId === "gate" && row.branchKey === "alpha") return { ...base, ...row, status: gate.alpha };
+      if (row.stageId === "gate" && row.branchKey === "beta") return { ...base, ...row, status: gate.beta };
       if (planBeta !== undefined && row.stageId === "plan" && row.branchKey === "beta") {
         return {
+          ...base,
           ...row,
           status: planBeta.status,
           workflowInvocationId: planBeta.workflowInvocationId ?? null,
         };
       }
-      return { ...row };
+      return { ...base, ...row };
     }),
   };
 }
@@ -618,6 +658,7 @@ describe("pipeline list", () => {
       state: finishedAtMs === null ? "running" : "succeeded",
       finishedAtMs,
       stages: [0, 1].map((position) => ({
+        ...SAMPLE_PIPELINE_SNAPSHOT.stages[position]!,
         stageId: `stage-${position}`,
         branchKey: "default",
         position,
@@ -655,26 +696,27 @@ describe("pipeline list", () => {
     });
   });
 
-  test("filters merged pipeline snapshots", async () => {
+  test("filters merged pipeline snapshots after deduplication", async () => {
     const nowMs = 3_000_000_000_000;
     const cap = captureIo();
     const invokingSocket = "/jarvis/daemon-ffff.sock";
     const otherSocket = "/jarvis/daemon-0000.sock";
-    const old = {
+    const olderFinished = {
       ...SAMPLE_PIPELINE_SNAPSHOT,
-      pipelineId: "old",
-      name: "old",
-      state: "running",
+      pipelineId: "duplicate",
+      name: "older-finished",
+      state: "failed",
       createdAt: nowMs - 2 * HOUR,
+      finishedAtMs: nowMs - HOUR,
     };
-    const recent = {
+    const newerUnfinished = {
       ...SAMPLE_PIPELINE_SNAPSHOT,
-      pipelineId: "recent",
-      name: "recent",
+      pipelineId: "duplicate",
+      name: "newer-unfinished",
       state: "running",
       createdAt: nowMs - MIN,
     };
-    const failed = { ...recent, pipelineId: "failed", name: "failed", state: "failed" };
+    const retained = { ...newerUnfinished, pipelineId: "retained", name: "retained" };
 
     const code = await main(["pipeline", "list", "--since", "1h", "--state", "running"], cap.io, {
       ...pipelineDeps(undefined),
@@ -682,13 +724,13 @@ describe("pipeline list", () => {
       socketPath: invokingSocket,
       socketDiscovery: async () => [otherSocket],
       connectIpcClient: async (socketPath) =>
-        pipelineListClient({ pipelines: socketPath === otherSocket ? [recent, failed] : [old] }),
+        pipelineListClient({ pipelines: socketPath === otherSocket ? [newerUnfinished, retained] : [olderFinished] }),
     });
 
     expect(code).toBe(0);
-    expect(cap.read()).toEqual({ stdout: expect.stringContaining("recent\trecent\trunning\t"), stderr: "" });
-    expect(cap.read().stdout).not.toContain("old\told");
-    expect(cap.read().stdout).not.toContain("failed\tfailed");
+    expect(cap.read()).toEqual({ stdout: expect.stringContaining("retained\tretained\trunning\t"), stderr: "" });
+    expect(cap.read().stdout).not.toContain("newer-unfinished");
+    expect(cap.read().stdout).not.toContain("older-finished");
   });
 
   test("lists despite one failed socket", async () => {
@@ -800,10 +842,15 @@ describe("pipeline list", () => {
     const stages = snapshot.pipelines[0]?.stages ?? [];
     expect(stages.filter((row) => row.stageId === "gate")).toHaveLength(3);
     expect(stages.filter((row) => row.stageId === "gate" && row.branchKey === "alpha")).toEqual([
-      { stageId: "gate", branchKey: "alpha", status: "awaiting", workflowInvocationId: null },
+      expect.objectContaining({ stageId: "gate", branchKey: "alpha", status: "awaiting", workflowInvocationId: null }),
     ]);
     expect(stages.filter((row) => row.stageId === "plan" && row.branchKey === "beta")).toEqual([
-      { stageId: "plan", branchKey: "beta", status: "running", workflowInvocationId: "inv-beta-plan" },
+      expect.objectContaining({
+        stageId: "plan",
+        branchKey: "beta",
+        status: "running",
+        workflowInvocationId: "inv-beta-plan",
+      }),
     ]);
     expect(new Set(stages.map((row) => row.branchKey)).size).toBeGreaterThan(1);
     expect(ipcFramesWithMethod(sent, "pipeline_list")).toHaveLength(1);
@@ -1251,7 +1298,10 @@ describe("pipeline list", () => {
       pipelineId: "pipe-dismissed",
       name: "dismissed-json",
       state: "succeeded",
+      terminalPublicationSucceededAt: null,
+      terminalPublicationFailure: null,
       createdAt: 1_700_000_005_000,
+      finishedAtMs: null,
       dismissedAt: 1_700_000_006_000,
       stages: [],
     };

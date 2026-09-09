@@ -232,7 +232,21 @@ test("pipeline list queries retain valid snapshots and distinguish malformed rep
     createdAt: 1,
     finishedAtMs: null,
     dismissedAt: null,
-    stages: [],
+    stages: [
+      {
+        id: "stage-1",
+        stageId: "stage",
+        branchKey: "default",
+        position: 0,
+        status: "running",
+        workflowInvocationId: null,
+        startedAt: null,
+        endedAt: null,
+        decidedAt: null,
+        artifact: null,
+        failureDetail: null,
+      },
+    ],
   };
 
   const result = await queryPipelineListsFromSocketPaths(
@@ -242,7 +256,12 @@ test("pipeline list queries retain valid snapshots and distinguish malformed rep
         return replyingClient({ error: { code: "broken", message: "rpc failed" } }, sent);
       }
       return replyingClient(
-        { result: socketPath === validSocket ? { pipelines: [snapshot] } : { pipelines: null } },
+        {
+          result:
+            socketPath === validSocket
+              ? { pipelines: [snapshot] }
+              : { pipelines: [snapshot, { ...snapshot, stages: [{ ...snapshot.stages[0], endedAt: "broken" }] }] },
+        },
         sent,
       );
     },

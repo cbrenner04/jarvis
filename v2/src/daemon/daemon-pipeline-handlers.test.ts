@@ -149,6 +149,21 @@ test("pipeline_list omits dismissed pipelines unless includeDismissed is true", 
   );
 });
 
+test("pipeline_owner accepts a nonempty string pipelineId", async () => {
+  const handlers = pipelineHandlers();
+  const pipelineId = stateStore.createPipeline({
+    definition: SINGLE_STAGE_DEFINITION,
+    context: ADMISSION_CONTEXT,
+  });
+
+  const response = await handlers.pipeline_owner(
+    requestFrame("o1", "pipeline_owner", { pipelineId }),
+    new AbortController().signal,
+  );
+
+  expect(response).toEqual({ kind: "response", result: { kind: "owner", pipelineId } });
+});
+
 test("pipelineExecutionDeps omits loadLogRecords without logReader", () => {
   const handlers = pipelineHandlers();
   expect(handlers.pipelineExecutionDeps()).not.toHaveProperty("loadLogRecords");

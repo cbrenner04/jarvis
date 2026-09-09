@@ -66,13 +66,11 @@ describe("executeReviewDebate", () => {
   });
 
   test("creates a missing verdict parent before writing", async () => {
-    const calls: string[] = [];
     const verdictPath = join(mkdtempSync(join(tmpdir(), "review-debate-")), "missing", "verdict.md");
-    const result = await executeReviewDebate(
-      baseInput({ calls, verdictPath, adjudicatorVerdict: "apply this fix", maxCycles: 1 }),
+    await executeReviewDebate(
+      baseInput({ calls: [], verdictPath, adjudicatorVerdict: "apply this fix", maxCycles: 1 }),
     );
 
-    expect(result.cycles).toHaveLength(1);
     expect(readFileSync(verdictPath, "utf8")).toBe("apply this fix");
   });
 

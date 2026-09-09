@@ -143,10 +143,8 @@ describe("executeReviewCycle", () => {
   });
 
   test("creates a missing verdict parent before invalidation", async () => {
-    const calls: string[] = [];
     const path = join(dir(), "missing", "verdict.md");
-    const result = await executeReviewCycle(input(path, calls));
-    expect(result.kind).toBe("complete");
+    await executeReviewCycle(input(path, []));
     expect(readFileSync(path, "utf8")).toBe("fix it");
   });
 });

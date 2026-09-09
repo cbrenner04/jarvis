@@ -11,18 +11,18 @@ name: pipeline-list-merges-across-daemons
 ## Decisions
 
 - `pipeline list` queries every socket from the shared resolution set and merges the snapshots, the way `run list` merges run rows; rules out a partial listing reading as "the pipeline is gone".
-- Merged rows are deduped by pipeline id; rules out one pipeline appearing twice when two daemons report it.
+- Merged rows are deduped by pipeline id. Socket paths are sorted before querying, and conflicting duplicate snapshots keep the lexicographically first socket's row; rules out both duplicate output and nondeterministic display during a race.
 - Filters (`--all`, `--since`, `--state`) and both render modes apply to the merged set, after dedupe; rules out per-daemon filtering producing inconsistent totals.
 - A socket that fails to connect or errors is skipped and does not fail the command when another socket answers; rules out one stale socket blanking a live listing.
-- Every socket failing is reported as a named operator error, not a bare `connect ENOENT <path>`; rules out an error that reads like corruption when the cause is a digest rotation.
+- Every socket failing is reported as `No live pipeline daemon responded; run jarvis daemon start, then retry.`, not a bare `connect ENOENT <path>`; `pipeline list` never auto-starts one.
 
 ## Acceptance criteria
 
-- [ ] A test proves `pipeline list` returns rows from a daemon keyed by a digest other than the invoking one; it fails against the current single-socket RPC.
-- [ ] A test proves a pipeline reported by two answering daemons renders once.
-- [ ] A test proves `--all`, `--since`, and `--state` filter the merged set.
-- [ ] A test proves a failing socket alongside an answering one still yields the answering daemon's rows and exit 0.
-- [ ] A test proves that when no discovered socket answers, `pipeline list` exits non-zero with a named reason rather than a bare `connect ENOENT <socket path>`.
+- [ ] `v2/src/commands/pipeline.test.ts`'s `lists a non-invoking daemon snapshot` regression proves a row from a non-invoking keyed socket is rendered; it fails against the current single-socket RPC.
+- [ ] `v2/src/commands/pipeline.test.ts`'s `keeps the first sorted duplicate snapshot` regression proves a pipeline reported by two answering daemons renders once using the lexicographically first socket's snapshot.
+- [ ] `v2/src/commands/pipeline.test.ts`'s `filters merged pipeline snapshots` regression proves `--all`, `--since`, and `--state` filter after dedupe.
+- [ ] `v2/src/commands/pipeline.test.ts`'s `lists despite one failed socket` regression proves an answering daemon's rows still exit 0.
+- [ ] `v2/src/commands/pipeline.test.ts`'s `reports unavailable pipeline daemons` regression proves no answering socket exits non-zero with `No live pipeline daemon responded; run jarvis daemon start, then retry.`, not `connect ENOENT <socket path>`, and does not auto-start.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

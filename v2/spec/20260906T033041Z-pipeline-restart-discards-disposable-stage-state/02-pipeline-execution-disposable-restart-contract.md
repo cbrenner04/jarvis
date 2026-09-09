@@ -16,7 +16,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/pipeline-execution.md` documents disposable-state boundary at restart, structural never-landed classification, `disposableLane` wiring on failed-plan resume, and landed versus draft-tree operator `## Blocker` handling.
+- [x] `v2/docs/pipeline-execution.md` documents disposable-state boundary at restart, structural never-landed classification, `disposableLane` wiring on failed-plan resume, and landed versus draft-tree operator `## Blocker` handling.
 
 ## Documentation updates
 

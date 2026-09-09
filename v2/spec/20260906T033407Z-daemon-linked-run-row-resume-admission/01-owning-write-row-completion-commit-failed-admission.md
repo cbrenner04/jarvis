@@ -21,11 +21,11 @@ A failed owning write row (including hidden `implement~shrink`) whose terminal `
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-resume.test.ts` proves `run resume` on a `completion_commit_failed` `implement~shrink` row records an attempt and replays publication through `resumeFinalizationOnly`, or refuses with a named reason; it fails against the current silent no-op (#3462).
-- [ ] `v2/docs/v1-behaviors.md` records that owning write-row `completion_commit_failed` (including hidden `~shrink`) resumes through the ordinary-write finalization resolver and `resumeFinalizationOnly`, not write-loop respawn.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/daemon/daemon-resume.test.ts` proves `run resume` on a `completion_commit_failed` `implement~shrink` row records an attempt and replays publication through `resumeFinalizationOnly`, or refuses with a named reason; it fails against the current silent no-op (#3462).
+- [x] `v2/docs/v1-behaviors.md` records that owning write-row `completion_commit_failed` (including hidden `~shrink`) resumes through the ordinary-write finalization resolver and `resumeFinalizationOnly`, not write-loop respawn.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

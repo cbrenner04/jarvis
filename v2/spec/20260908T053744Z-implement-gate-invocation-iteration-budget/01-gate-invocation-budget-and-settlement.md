@@ -35,18 +35,18 @@ With the shell observability seam in place, implement lanes still invoke full-su
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts` proves a write step whose remaining `iterationCeilingMs` headroom cannot accommodate `TEST_STEP_BUDGET_MS` refuses to start a gate invocation and settles `loopOutcomeKind: "gate_invocation_refused"` with `gateCommand` on `loop_finished`; it fails against the current unaccounted invocation reachable on main.
-- [ ] `write-loop.test.ts` proves that when two lanes detect a gate invocation concurrently in one process, only one acquires the sole `MAX_CONCURRENT_AGENT_GATE_INVOCATIONS` slot and proceeds while the other settles `gate_invocation_refused`; it fails against the current uncoordinated invocation reachable on main.
-- [ ] `write-loop.test.ts` proves a lane killed during a gate invocation with every non-gate criterion for the active subspec ticked settles `resumable: true`; it fails against the current `hasCompletedSubspec`-only rule reachable on main via `iteration_timeout with no completed subspec stays non-resumable`.
-- [ ] `write-loop.test.ts` proves gate-invocation ceiling `loop_finished` output carries `gateInvocationCommand` and `gateInvocationElapsedMs` while agent-stall `iteration_timeout` omits them; it fails against the current undifferentiated `iteration_timeout` reachable on main.
-- [ ] `write-loop.test.ts` proves `committedResult` replay preserves gate-only-outstanding `iteration_timeout` resumability across idempotent re-entry; it fails against the current `hasCompletedSubspec`-only `committedResult` branch reachable on main via `committedResult echoes recomputed iteration_timeout inventory with divergent roots`.
-- [ ] `run-operator-error.test.ts` proves `gate_invocation_refused` maps to `nextAction: "resume"` and enriched resumable `iteration_timeout` retains `nextAction: "resume"`; it fails against the current missing `gate_invocation_refused` entry reachable on main.
-- [ ] `v2/docs/operator-runbook.md` § Concurrency documents post-fix operator semantics — one concurrent full-suite gate invocation per daemon process, preflight refusal when ceiling headroom is insufficient, and gate-only-outstanding resume — and reconciles (not appends past) the retired interim two-lane hold, including its "Don't run two implement runs at once" cross-reference under `idle_output_timeout`; it fails against the current contradictory concurrency guidance reachable on main.
-- [ ] `v2/docs/write-behavior.md` documents gate-invocation detection, `TEST_STEP_BUDGET_MS` ceiling preflight, in-process serialization (`MAX_CONCURRENT_AGENT_GATE_INVOCATIONS`), gate-only resumability, and `gate_invocation_refused` / enriched `iteration_timeout` settlement fields.
-- [ ] `v2/docs/v1-behaviors.md` records gate-invocation budget accounting and in-process serialization across implement lanes.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `write-loop.test.ts` proves a write step whose remaining `iterationCeilingMs` headroom cannot accommodate `TEST_STEP_BUDGET_MS` refuses to start a gate invocation and settles `loopOutcomeKind: "gate_invocation_refused"` with `gateCommand` on `loop_finished`; it fails against the current unaccounted invocation reachable on main.
+- [x] `write-loop.test.ts` proves that when two lanes detect a gate invocation concurrently in one process, only one acquires the sole `MAX_CONCURRENT_AGENT_GATE_INVOCATIONS` slot and proceeds while the other settles `gate_invocation_refused`; it fails against the current uncoordinated invocation reachable on main.
+- [x] `write-loop.test.ts` proves a lane killed during a gate invocation with every non-gate criterion for the active subspec ticked settles `resumable: true`; it fails against the current `hasCompletedSubspec`-only rule reachable on main via `iteration_timeout with no completed subspec stays non-resumable`.
+- [x] `write-loop.test.ts` proves gate-invocation ceiling `loop_finished` output carries `gateInvocationCommand` and `gateInvocationElapsedMs` while agent-stall `iteration_timeout` omits them; it fails against the current undifferentiated `iteration_timeout` reachable on main.
+- [x] `write-loop.test.ts` proves `committedResult` replay preserves gate-only-outstanding `iteration_timeout` resumability across idempotent re-entry; it fails against the current `hasCompletedSubspec`-only `committedResult` branch reachable on main via `committedResult echoes recomputed iteration_timeout inventory with divergent roots`.
+- [x] `run-operator-error.test.ts` proves `gate_invocation_refused` maps to `nextAction: "resume"` and enriched resumable `iteration_timeout` retains `nextAction: "resume"`; it fails against the current missing `gate_invocation_refused` entry reachable on main.
+- [x] `v2/docs/operator-runbook.md` § Concurrency documents post-fix operator semantics — one concurrent full-suite gate invocation per daemon process, preflight refusal when ceiling headroom is insufficient, and gate-only-outstanding resume — and reconciles (not appends past) the retired interim two-lane hold, including its "Don't run two implement runs at once" cross-reference under `idle_output_timeout`; it fails against the current contradictory concurrency guidance reachable on main.
+- [x] `v2/docs/write-behavior.md` documents gate-invocation detection, `TEST_STEP_BUDGET_MS` ceiling preflight, in-process serialization (`MAX_CONCURRENT_AGENT_GATE_INVOCATIONS`), gate-only resumability, and `gate_invocation_refused` / enriched `iteration_timeout` settlement fields.
+- [x] `v2/docs/v1-behaviors.md` records gate-invocation budget accounting and in-process serialization across implement lanes.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

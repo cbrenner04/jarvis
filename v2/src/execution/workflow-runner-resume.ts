@@ -47,7 +47,6 @@ import { publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
 import {
   isResumableOutOfScopeTerminalEvidence,
-  NonTerminatingMutationError,
   nonTerminatingMutationLogFields,
   outOfScopeSettlementResumable,
   ReadyGateError,
@@ -1559,7 +1558,7 @@ function resolveOrdinaryWriteResumeContext(
 ): ReviewMutationResumeResolution {
   const snapshot = run.workflowSnapshot;
   const stepId = run.stepId;
-  const step = stepId ? snapshot?.steps.find((candidate) => candidate.stepId === stepId) : undefined;
+  const step = stepId && snapshot ? findSnapshotStepForRunStepId(snapshot.steps, stepId) : undefined;
   if (step?.behavior === "review" || step?.behavior === "review-debate") {
     return { ok: false, message: "run is a review-behavior step" };
   }
@@ -1641,6 +1640,22 @@ export function resolveExhaustedRedResumeContext(
     admit: isExhaustedRedTerminalEvidence,
     rejectMessage: "run did not fail with exhausted-red ready gate evidence",
     completionAgent: checkpoint.completionAgent,
+  });
+}
+
+/**
+ * Admission and reconstruction for resuming an ordinary write row's `completion_commit_failed`
+ * failure: the write/shrink pass already settled, so only operator commit, mutation
+ * re-verification, the ready gate, and publication need to run again — never write-loop re-entry.
+ */
+export function resolveCompletionCommitFailedResumeContext(
+  run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>,
+  _store: StateStore,
+  terminalRecord: (PersistedRecord & { event: LoopFinishedEvent | RunExecutionFailedEvent }) | undefined,
+): ReviewMutationResumeResolution {
+  return resolveOrdinaryWriteResumeContext(run, terminalRecord, {
+    admit: (event) => event.loopOutcomeKind === "completion_commit_failed" && event.resumable === true,
+    rejectMessage: "run did not fail with completion_commit_failed",
   });
 }
 
@@ -2390,7 +2405,7 @@ async function replayMutationFinalization(
   }
 }
 
-/** Finalization-only replay for review-mutation, exhausted-red, and write out-of-scope gate failures. */
+/** Finalization-only replay for review-mutation, exhausted-red, write out-of-scope, and owning write-row publication failures. */
 export async function resumeReviewMutationFinalization(
   run: NonNullable<ReturnType<StateStore["findRunByProjectBranch"]>>,
   store: StateStore,
@@ -2407,7 +2422,10 @@ export async function resumeReviewMutationFinalization(
   const nonTerminatingResolved = resolved.ok
     ? resolved
     : resolveWriteNonTerminatingResumeContext(run, store, terminalRecord);
+  const completionCommitFailedResolved = nonTerminatingResolved.ok
+    ? nonTerminatingResolved
+    : resolveCompletionCommitFailedResumeContext(run, store, terminalRecord);
   // Resolve before replay flips the row to in-progress: the sibling lookup reads the failed row.
   const writeSibling = resolveWriteSiblingCommandSource(run, store);
-  return replayMutationFinalization(nonTerminatingResolved, store, deps, writeSibling, terminalRecord);
+  return replayMutationFinalization(completionCommitFailedResolved, store, deps, writeSibling, terminalRecord);
 }

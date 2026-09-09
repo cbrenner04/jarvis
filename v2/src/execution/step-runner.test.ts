@@ -834,9 +834,40 @@ describe("step runner blocker-text contract", () => {
     }
   });
 
-  test("pre-existing blocker without a new one is a miss", async () => {
+  test("a blocked token with a pre-existing non-empty ## Blocker settles blocked without a reprompt", async () => {
     const { dir, specPath } = tempSpecPath();
-    const specBefore = "- [ ] work\n\n## Blocker\n\nharness wrote this\n";
+    // Authored by the agent in an earlier iteration; unchanged during this invocation.
+    const specBefore = "- [ ] work\n\n## Blocker\n\nToolchain missing: no swift on PATH\n";
+    writeFileSync(specPath, specBefore, "utf8");
+    let invocations = 0;
+    try {
+      const result = await runStep({
+        prompt: "p",
+        cwd: dir,
+        bindings: [
+          {
+            id: "agent",
+            invoke: async () => {
+              invocations += 1;
+              return { kind: "ok", stdout: "blocked", stderr: "" };
+            },
+          },
+        ],
+        contracts: [],
+        blockerTextContract: { id: "write.blocker-text", specPath, specBefore },
+      });
+
+      expect(invocations).toBe(1);
+      expect(result).toMatchObject({ kind: "blocked", blockerText: "Toolchain missing: no swift on PATH" });
+      expect(result.blockerReprompt).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a pre-existing harness-marker ## Blocker does not credit a blocked token", async () => {
+    const { dir, specPath } = tempSpecPath();
+    const specBefore = "- [ ] work\n\n## Blocker\n\nArtifact contract check failed: plan.draft.shape\n";
     writeFileSync(specPath, specBefore, "utf8");
     let invocations = 0;
     try {

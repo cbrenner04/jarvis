@@ -13,10 +13,10 @@
 
 ## Acceptance criteria
 
-- [ ] `step-runner.test.ts` test `a blocked token with a pre-existing non-empty ## Blocker settles blocked without a reprompt` seeds `specBefore` already containing the section, leaves the file unchanged during the invocation, and asserts `{ kind: "blocked", blockerText }` with no `blocker_reprompt` invocation; it fails against the append-only check.
-- [ ] A test proves a fresh within-invocation append still settles `blocked` (existing coverage may be cited).
-- [ ] A test proves a `blocked` token with no `## Blocker` present still reprompts once and then settles `missing_blocker`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `step-runner.test.ts` test `a blocked token with a pre-existing non-empty ## Blocker settles blocked without a reprompt` seeds `specBefore` already containing the section, leaves the file unchanged during the invocation, and asserts `{ kind: "blocked", blockerText }` with no `blocker_reprompt` invocation; it fails against the append-only check.
+- [x] A test proves a fresh within-invocation append still settles `blocked` (existing coverage may be cited).
+- [x] A test proves a `blocked` token with no `## Blocker` present still reprompts once and then settles `missing_blocker`.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

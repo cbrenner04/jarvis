@@ -2405,11 +2405,41 @@ describe("write loop", () => {
     expect(blockerText?.length).toBeLessThanOrEqual(501);
   });
 
+  test("blocked with a pre-existing agent-authored blocker and no new text settles blocked", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const worktreePath = join(jarvisRoot, "worktrees", "demo", "existing-blocker-run");
+    mkdirSync(worktreePath, { recursive: true });
+    writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n\n## Blocker\n\nauthored last iteration\n", "utf8");
+    let invocations = 0;
+
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      branchName: "existing-blocker-run",
+      bindings: [
+        {
+          id: "sim.1",
+          invoke: async () => {
+            invocations += 1;
+            return { kind: "ok", stdout: "blocked", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    expect(invocations).toBe(1);
+    expect(result.kind).toBe("blocked");
+  });
+
   test("blocked with pre-existing harness blocker and no new text is rejected", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     const worktreePath = join(jarvisRoot, "worktrees", "demo", "stale-blocker-run");
     mkdirSync(worktreePath, { recursive: true });
-    writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n\n## Blocker\n\nfrom contract_miss\n", "utf8");
+    writeFileSync(
+      join(worktreePath, "spec.md"),
+      "- [ ] work\n\n## Blocker\n\nArtifact contract check failed: plan.draft.shape\n",
+      "utf8",
+    );
     let invocations = 0;
 
     const result = await runLoop({

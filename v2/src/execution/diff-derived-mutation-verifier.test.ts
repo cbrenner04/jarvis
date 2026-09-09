@@ -4,7 +4,11 @@ import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, syml
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveRenderObserverTests } from "../../../shared/prompts/render-observer-tests.ts";
-import { AsyncSubprocessError, type AsyncSubprocessOptions } from "../../../shared/subprocess.ts";
+import {
+  AsyncSubprocessError,
+  type AsyncSubprocessOptions,
+  realAsyncSubprocessRunner,
+} from "../../../shared/subprocess.ts";
 import {
   type DiffDerivedMutationVerifierInput,
   extractRenderObserverMapFromSource,
@@ -1372,8 +1376,38 @@ index 1234567..abcdefg 100644
             throw new Error("while (true) exit guard line missing from touched guard source");
           }
 
+          // Records every killing-test process group pgid spawned during the hang, via the real
+          // group-mode subprocess runner, so the assertions below can prove none of them survives
+          // verification instead of only inferring cleanup from timing and classification. Only
+          // instruments `processGroup` when the call actually requested it, instead of injecting
+          // it unconditionally, so the zero-capture guard below fails if the verifier's spawn ever
+          // stops requesting process-group mode itself.
+          const capturedPgids: number[] = [];
+          const capturingRunner = {
+            runAsync: (command: string, args: string[], cwd: string, options?: AsyncSubprocessOptions) =>
+              realAsyncSubprocessRunner.runAsync(command, args, cwd, {
+                ...options,
+                ...(options?.processGroup
+                  ? {
+                      processGroup: {
+                        ...options.processGroup,
+                        onGroupId: (pgid: number) => {
+                          capturedPgids.push(pgid);
+                          options.processGroup?.onGroupId?.(pgid);
+                        },
+                      },
+                    }
+                  : {}),
+              }),
+          };
+
           const started = Date.now();
-          const result = await verifyDiffDerivedMutations({ worktreePath: dir, runBase: baseSha });
+          const result = await verifyDiffDerivedMutations(
+            { worktreePath: dir, runBase: baseSha },
+            {
+              runScopedTests: (cwd, scope, options) => runDiffDerivedScopedTests(cwd, scope, capturingRunner, options),
+            },
+          );
           const elapsed = Date.now() - started;
 
           expect(elapsed).toBeLessThan(MAX_KILLING_TEST_MS + 60_000);
@@ -1387,6 +1421,17 @@ index 1234567..abcdefg 100644
           });
           expect(readFileSync(guardPath)).toEqual(preVerificationBytes);
           expect(execFileSync("git", ["status", "--porcelain"], { cwd: dir }).toString().trim()).toBe("");
+
+          expect(capturedPgids.length).toBeGreaterThan(0);
+          for (const pgid of capturedPgids) {
+            let killError: unknown;
+            try {
+              process.kill(-pgid, 0);
+            } catch (error) {
+              killError = error;
+            }
+            expect((killError as NodeJS.ErrnoException | undefined)?.code).toBe("ESRCH");
+          }
         } finally {
           rmSync(dir, { recursive: true, force: true });
         }

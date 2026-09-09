@@ -16,17 +16,17 @@ Terminal `invocation_failure` and `stall` settlement in the write loop persists,
 
 ## Task checklist
 
-- [ ] Extend the `bindingAttempts` mapper in `v2/src/execution/write-loop.ts` to spread `agent`/`model` from `attempt.binding.metadata`.
-- [ ] Add the failing-first regression test in `v2/src/execution/write-loop.test.ts`.
-- [ ] Update the docs listed below.
+- [x] Extend the `bindingAttempts` mapper in `v2/src/execution/write-loop.ts` to spread `agent`/`model` from `attempt.binding.metadata`.
+- [x] Add the failing-first regression test in `v2/src/execution/write-loop.test.ts`.
+- [x] Update the docs listed below.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop.test.ts` proves a terminal `invocation_failure` persists ordered `bindingId`, `agent`, `model`, and `resultKind` for every attempted rung; it fails against the pre-fix binding-id-only detail.
-- [ ] `v2/src/execution/write-loop.test.ts` proves an attempt whose binding declares no metadata persists `bindingId` and `resultKind` with no `agent`/`model` keys.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/execution/write-loop.test.ts` proves a terminal `invocation_failure` persists ordered `bindingId`, `agent`, `model`, and `resultKind` for every attempted rung; it fails against the pre-fix binding-id-only detail.
+- [x] `v2/src/execution/write-loop.test.ts` proves an attempt whose binding declares no metadata persists `bindingId` and `resultKind` with no `agent`/`model` keys.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

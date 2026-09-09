@@ -2491,8 +2491,8 @@ describe("write loop", () => {
         bindings: simulatedBindings(["quota", "quota"]),
         failureKind: "quota",
         bindingAttempts: [
-          { bindingId: "sim.1", resultKind: "quota" },
-          { bindingId: "sim.2", resultKind: "quota" },
+          { bindingId: "sim.1", resultKind: "quota", agent: "sim-agent-1", model: "sim-model-1" },
+          { bindingId: "sim.2", resultKind: "quota", agent: "sim-agent-2", model: "sim-model-2" },
         ],
       },
       {
@@ -2500,15 +2500,15 @@ describe("write loop", () => {
         bindings: simulatedBindings(["quota", "model_config"]),
         failureKind: "model_config",
         bindingAttempts: [
-          { bindingId: "sim.1", resultKind: "quota" },
-          { bindingId: "sim.2", resultKind: "model_config" },
+          { bindingId: "sim.1", resultKind: "quota", agent: "sim-agent-1", model: "sim-model-1" },
+          { bindingId: "sim.2", resultKind: "model_config", agent: "sim-agent-2", model: "sim-model-2" },
         ],
       },
       {
         branchName: "error-run",
         bindings: simulatedBindings(["error"]),
         failureKind: "error",
-        bindingAttempts: [{ bindingId: "sim.1", resultKind: "error" }],
+        bindingAttempts: [{ bindingId: "sim.1", resultKind: "error", agent: "sim-agent-1", model: "sim-model-1" }],
       },
       {
         branchName: "no-binding-run",
@@ -2532,6 +2532,24 @@ describe("write loop", () => {
       expect(result.failureKind).toBe(testCase.failureKind);
       expect(result.bindingAttempts).toEqual(testCase.bindingAttempts);
     }
+  });
+
+  test("binding-chain invocation failure omits agent/model for a binding with no metadata", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      bindings: [
+        {
+          id: "sim.1",
+          invoke: async () => ({ kind: "error", exitCode: 1, stderr: "error" }),
+        },
+      ],
+    });
+
+    expect(result.kind).toBe("invocation_failure");
+    expect(result.bindingAttempts).toEqual([{ bindingId: "sim.1", resultKind: "error" }]);
   });
 
   test("binding-chain invocation failure persists only the bounded final stderr tail", async () => {

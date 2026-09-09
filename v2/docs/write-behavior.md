@@ -523,11 +523,12 @@ When the step result is binding-chain `invocation_failure`, stdout JSON includes
 
 - `failureKind` — `quota` | `model_config` | `error` | `no_binding` (see
   [`shared-invocation.md`](./shared-invocation.md))
-- `bindingAttempts` — ordered `{ bindingId, resultKind }[]` summarizing each
-  binding tried (`resultKind` is that attempt's `InvocationResult.kind`, except
-  `"timeout"`, which marks a rung a review-role wall-clock overrun aborted rather
-  than a raw `InvocationResult` variant); production rung bindings use
-  `agentId/adapterModel/priceKey`
+- `bindingAttempts` — ordered `{ bindingId, resultKind, agent?, model? }[]`
+  summarizing each binding tried (`resultKind` is that attempt's
+  `InvocationResult.kind`, except `"timeout"`, which marks a rung a review-role
+  wall-clock overrun aborted rather than a raw `InvocationResult` variant);
+  `agent`/`model` are present when the attempted binding declares metadata and
+  omitted otherwise; production rung bindings use `agentId/adapterModel/priceKey`
 
 Separately, the optional durable `InvocationFailureDetail.message` stores the verbatim last 2048 JavaScript UTF-16 code units of the final binding attempt's stderr; it is omitted only when that final stderr is empty or no binding was attempted.
 

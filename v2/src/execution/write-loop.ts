@@ -1874,7 +1874,12 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         (existsSync(join(worktreePath, ".git")) || completionAgent !== undefined);
       const boundaryRunStatus = keepsCompletionInProgress ? ("in-progress" as const) : terminal.runStatus;
       const bindingAttempts = (invocation: InvocationExecution) =>
-        invocation.attempts.map((attempt) => ({ bindingId: attempt.binding.id, resultKind: attempt.result.kind }));
+        invocation.attempts.map((attempt) => ({
+          bindingId: attempt.binding.id,
+          resultKind: attempt.result.kind,
+          ...(attempt.binding.metadata?.agent !== undefined ? { agent: attempt.binding.metadata.agent } : {}),
+          ...(attempt.binding.metadata?.model !== undefined ? { model: attempt.binding.metadata.model } : {}),
+        }));
       const finalStderr = result.kind === "invocation_failure" ? result.invocation.final?.result.stderr : undefined;
       const detail =
         result.kind === "invocation_failure"

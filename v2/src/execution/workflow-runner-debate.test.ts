@@ -616,7 +616,7 @@ describe("executeWorkflow linked implement routing", () => {
 });
 
 describe("executeWorkflow implement patch review", () => {
-  test("runs shrink before appended patch review and overwrites verdict-patch.md each cycle", async () => {
+  test("runs shrink before appended patch review and keeps its verdict out of the published spec location", async () => {
     const calls: string[] = [];
     const implementStep = createStep({
       stepId: "implement",
@@ -638,7 +638,7 @@ describe("executeWorkflow implement patch review", () => {
       implementStep.worktree.projectName,
       implementStep.worktree.branchName,
     );
-    const verdictPath = join(worktreePath, "verdict-patch.md");
+    const verdictPath = join(worktreePath, ".jarvis-implement-review", "verdict-patch.md");
 
     const reviewStep = createPatchReviewDebateStep({
       branchName: implementStep.worktree.branchName,
@@ -664,6 +664,7 @@ describe("executeWorkflow implement patch review", () => {
       expect(calls.indexOf("implement")).toBeLessThan(calls.indexOf("shrink"));
       expect(calls.indexOf("shrink")).toBeLessThan(calls.indexOf("review:ADV"));
       expect(readFileSync(verdictPath, "utf8")).toBe("fix it");
+      expect(existsSync(join(worktreePath, "verdict-patch.md"))).toBe(false);
       const run = store.findRunByProjectBranch({
         project: "demo",
         branch: implementStep.worktree.branchName,
@@ -1029,9 +1030,10 @@ describe("executeWorkflow implement patch review", () => {
       const boundMs = 5;
       const debateCalls: string[] = [];
       const actuatorPrompts: string[] = [];
+      const verdictPath = join(worktreePath, ".jarvis-implement-review", "verdict-patch.md");
       const reviewStep = createPatchReviewDebateStep({
         branchName,
-        verdictPath: join(worktreePath, "verdict-patch.md"),
+        verdictPath,
         cwd: worktreePath,
         roleTimeoutMs: boundMs,
         createBinding: createTrackedReviewDebateBindingFactory(debateCalls, failureKind, actuatorPrompts),
@@ -1056,7 +1058,7 @@ describe("executeWorkflow implement patch review", () => {
           stepId: "implement-review",
         });
         expect(firstReviewRun?.attempts.length).toBe(1);
-        const verdictBefore = readFileSync(join(worktreePath, "verdict-patch.md"), "utf8");
+        const verdictBefore = readFileSync(verdictPath, "utf8");
 
         writeCalls.length = 0;
         debateCalls.length = 0;
@@ -1072,7 +1074,7 @@ describe("executeWorkflow implement patch review", () => {
         expect(secondResult).toMatchObject({ kind: "invocation_failure", stepIndex: 1, resumable: true });
         expect(writeCalls).toEqual([]);
         expect(debateCalls).toEqual(["ACT"]);
-        expect(readFileSync(join(worktreePath, "verdict-patch.md"), "utf8")).toBe(verdictBefore);
+        expect(readFileSync(verdictPath, "utf8")).toBe(verdictBefore);
 
         const secondReviewRun = store.findRunByProjectBranch({
           project: "demo",

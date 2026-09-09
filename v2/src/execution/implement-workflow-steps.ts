@@ -749,10 +749,7 @@ export async function buildImplementWorkflowSteps(
   }
 
   const cwd = getExternalWorktreePath(sourceStep.worktree);
-  const verdictPath = join(
-    dirname(isAbsolute(launchSpecPath) ? launchSpecPath : join(cwd, launchSpecPath)),
-    "verdict-patch.md",
-  );
+  const verdictPath = join(cwd, ".jarvis-implement-review", "verdict-patch.md");
   // Serializable: steps cross the daemon IPC boundary as JSON, which drops functions.
   // The review executors stamp passNumber/priorCycleVerdict per cycle.
   const profileContext = {

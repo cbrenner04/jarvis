@@ -65,6 +65,15 @@ describe("executeReviewDebate", () => {
     rmSync(verdictPath, { force: true });
   });
 
+  test("creates a missing verdict parent before writing", async () => {
+    const verdictPath = join(mkdtempSync(join(tmpdir(), "review-debate-")), "missing", "verdict.md");
+    await executeReviewDebate(
+      baseInput({ calls: [], verdictPath, adjudicatorVerdict: "apply this fix", maxCycles: 1 }),
+    );
+
+    expect(readFileSync(verdictPath, "utf8")).toBe("apply this fix");
+  });
+
   test("invokes onMutatingCycleComplete for each mutating cycle", async () => {
     const calls: string[] = [];
     const completed: Array<{ pass: number; agent: string | undefined }> = [];

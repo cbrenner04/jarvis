@@ -23,14 +23,14 @@
 
 ## Acceptance criteria
 
-- [ ] A test asserts the built implement workflow's review step `verdictPath` equals `<worktree>/.jarvis-implement-review/verdict-patch.md` and is outside the spec directory; it fails against the pre-fix builder.
-- [ ] A test asserts the light `review` and the `review-debate` step shapes resolve the same `verdictPath`.
-- [ ] A test asserts a verdict written during one review cycle is readable at the resolved path on the next cycle, so `priorCycleVerdict` retry still works; it fails against the pre-fix code if the path were per-cycle.
-- [ ] A test asserts a completed reviewed implement's published tree contains no `verdict-*.md` entry.
-- [ ] A test asserts the verdict write succeeds when `.jarvis-implement-review/` does not yet exist; it fails against the pre-fix executors.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] A test asserts the built implement workflow's review step `verdictPath` equals `<worktree>/.jarvis-implement-review/verdict-patch.md` and is outside the spec directory; it fails against the pre-fix builder.
+- [x] A test asserts the light `review` and the `review-debate` step shapes resolve the same `verdictPath`.
+- [x] A test asserts a verdict written during one review cycle is readable at the resolved path on the next cycle, so `priorCycleVerdict` retry still works; it fails against the pre-fix code if the path were per-cycle.
+- [x] A test asserts a completed reviewed implement's published tree contains no `verdict-*.md` entry.
+- [x] A test asserts the verdict write succeeds when `.jarvis-implement-review/` does not yet exist; it fails against the pre-fix executors.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

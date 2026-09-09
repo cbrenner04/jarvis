@@ -14,7 +14,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/v1-behaviors.md` records the revised pipeline restart disposable-lane contract (never-landed rematerialization, draft-tree operator-blocker discard, landed-blocker and unlanded-commits refusals, preserved live-claim and operator-dirt gates).
+- [x] `v2/docs/v1-behaviors.md` records the revised pipeline restart disposable-lane contract (never-landed rematerialization, draft-tree operator-blocker discard, landed-blocker and unlanded-commits refusals, preserved live-claim and operator-dirt gates).
 
 ## Documentation updates
 

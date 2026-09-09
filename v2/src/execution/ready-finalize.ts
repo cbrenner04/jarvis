@@ -292,7 +292,7 @@ function isFailingTestFileRecord(value: unknown): value is { attemptId: string; 
   return typeof record.attemptId === "string" && typeof record.path === "string";
 }
 
-function isReadyTestCommand(command: string): boolean {
+export function isReadyTestCommand(command: string): boolean {
   return /^bun run test(?::|$)/.test(command);
 }
 

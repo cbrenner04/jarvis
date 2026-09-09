@@ -59,6 +59,6 @@ Execute active spec only.
 - New dependency? Edit `package.json`/lockfile, record the decision in spec, and continue. Dependency installs are harness-managed and run outside the sandbox after the iteration. In-sandbox install failures are expected and not grounds for a `## Blocker`.
 
 Human-only acceptance criteria contain `(Manual)`, `visual inspection only`, or `no automated guard` anywhere in the full bullet block (the first checklist line and any continuation lines). Recognition uses case-insensitive substring matching; markers need not be trailing or whole phrases.
-Do not add `setInvert*ForTest` exports, `invert*ForTest` module variables, `invert*` function parameters, or `invert*ForTest` type members in production code.
+Do not add `set*ForTest`/`set*ForTests` exports, `invert*ForTest` and `*ForTest`/`*ForTests` module variables, `invert*` function parameters, `*ForTest`/`*ForTests` function parameters, `invert*ForTest` type members, or `*ForTest`/`*ForTests` type members in production code.
 The final line of your response must be exactly one of: done, no-work, blocked, progress, with nothing after it.
 done and no-work end the step. Use progress when work remains and you are not stuck. Use blocked when stuck; record the blocker where your mode's rules require.

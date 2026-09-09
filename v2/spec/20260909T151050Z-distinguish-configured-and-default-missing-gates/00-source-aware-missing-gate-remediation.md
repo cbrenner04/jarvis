@@ -25,14 +25,14 @@ Missing-gate operator errors carry the executed command and its source. `readyGa
 
 ## Acceptance criteria
 
-- [ ] A regression in `v2/src/daemon/run-operator-error.test.ts` proves a configured-source `ready_gate_command_missing` settlement composes an error naming the executed command and the configured source with `nextAction: fix_config`.
-- [ ] A sibling regression proves a default-source settlement names `bun run ready` and the built-in source and reports `nextAction: stop`; it fails against the pre-fix unconditional `fix_config` mapping.
-- [ ] A missing-gate settlement with no recorded source still composes `nextAction: fix_config` (legacy rows unchanged).
-- [ ] `v2/src/daemon/pipeline-execution.test.ts` missing-gate projections stay green (pipeline `failureDetail` shape unchanged by the mapping change).
-- [ ] `v2/src/commands/run.test.ts` missing-gate projections stay green (list/wait shape unchanged by the mapping change).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] A regression in `v2/src/daemon/run-operator-error.test.ts` proves a configured-source `ready_gate_command_missing` settlement composes an error naming the executed command and the configured source with `nextAction: fix_config`.
+- [x] A sibling regression proves a default-source settlement names `bun run ready` and the built-in source and reports `nextAction: stop`; it fails against the pre-fix unconditional `fix_config` mapping.
+- [x] A missing-gate settlement with no recorded source still composes `nextAction: fix_config` (legacy rows unchanged).
+- [x] `v2/src/daemon/pipeline-execution.test.ts` missing-gate projections stay green (pipeline `failureDetail` shape unchanged by the mapping change).
+- [x] `v2/src/commands/run.test.ts` missing-gate projections stay green (list/wait shape unchanged by the mapping change).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

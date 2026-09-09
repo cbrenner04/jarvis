@@ -3897,9 +3897,9 @@ describe("write loop", () => {
           }),
         ).toMatchObject({
           reason: "ready_gate_command_missing",
-          nextAction: "fix_config",
+          nextAction: "stop",
           retryable: false,
-          message: 'Ready gate command missing: bun run ready\nScript not found "ready"',
+          message: 'Ready gate command missing (default): bun run ready\nScript not found "ready"',
         });
       });
 

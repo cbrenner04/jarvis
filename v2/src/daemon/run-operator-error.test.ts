@@ -510,6 +510,42 @@ test("composeRunOperatorError maps ready_gate_command_missing to fix_config with
   expect(RUN_OPERATOR_ERROR_RECOVERY.ready_gate_command_missing).not.toContain("jarvis run resume");
 });
 
+test("composeRunOperatorError maps configured-source ready_gate_command_missing to fix_config naming the source", () => {
+  expect(
+    composeRunOperatorError(
+      runWith("failed"),
+      loopFinished("ready_gate_command_missing", {
+        resumable: false,
+        readyGateCommand: "bun run custom-gate",
+        readyGateCommandSource: "configured",
+      }),
+    ),
+  ).toEqual({
+    reason: "ready_gate_command_missing",
+    retryable: false,
+    nextAction: "fix_config",
+    message: "Ready gate command missing (configured): bun run custom-gate",
+  });
+});
+
+test("composeRunOperatorError maps default-source ready_gate_command_missing to stop naming the source", () => {
+  expect(
+    composeRunOperatorError(
+      runWith("failed"),
+      loopFinished("ready_gate_command_missing", {
+        resumable: false,
+        readyGateCommand: "bun run ready",
+        readyGateCommandSource: "default",
+      }),
+    ),
+  ).toEqual({
+    reason: "ready_gate_command_missing",
+    retryable: false,
+    nextAction: "stop",
+    message: "Ready gate command missing (default): bun run ready",
+  });
+});
+
 test("composeRunOperatorError maps exhausted-red terminal evidence as ready_gate_failed without origin on the operator error", () => {
   const event = loopFinished("ready_gate_failed", {
     resumable: true,

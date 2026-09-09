@@ -253,7 +253,7 @@ test("pipeline list queries retain valid snapshots and distinguish malformed rep
 
   expect(result).toEqual({
     snapshotsBySocketPath: { [validSocket]: [snapshot] },
-    malformedSocketPaths: [malformedSocket],
+    hasMalformedResponse: true,
   });
   expect(sent).toHaveLength(3);
   expect(sent.every((frame) => (frame as { method?: string }).method === "pipeline_list")).toBeTrue();

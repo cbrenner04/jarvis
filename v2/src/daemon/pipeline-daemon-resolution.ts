@@ -17,7 +17,7 @@ type PipelineOwnerWitness =
 
 export type PipelineListQueryResult = {
   snapshotsBySocketPath: Readonly<Record<string, readonly PipelineSnapshot[]>>;
-  malformedSocketPaths: readonly string[];
+  hasMalformedResponse: boolean;
 };
 
 export type PipelineDaemonResolution =
@@ -158,7 +158,7 @@ export async function queryPipelineListsFromSocketPaths(
     snapshotsBySocketPath: Object.fromEntries(
       answers.flatMap(({ socketPath, snapshots }) => (snapshots === undefined ? [] : [[socketPath, snapshots]])),
     ),
-    malformedSocketPaths: answers.filter(({ malformed }) => malformed).map(({ socketPath }) => socketPath),
+    hasMalformedResponse: answers.some(({ malformed }) => malformed),
   };
 }
 

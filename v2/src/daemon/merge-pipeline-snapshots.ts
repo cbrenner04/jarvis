@@ -25,21 +25,18 @@ export function mergePipelineSnapshots(
   pipelineSnapshotsBySocketPath: Readonly<Record<string, readonly PipelineSnapshot[]>> | undefined,
 ): PipelineSnapshot[] {
   if (pipelineSnapshotsBySocketPath === undefined) return [];
-  const merged: PipelineSnapshot[] = [];
-  const winnerByPipelineId = new Map<string, { index: number; snapshot: PipelineSnapshot; socketPath: string }>();
+  const winnerByPipelineId = new Map<string, { snapshot: PipelineSnapshot; socketPath: string }>();
   for (const socketPath of Object.keys(pipelineSnapshotsBySocketPath).sort()) {
     for (const snapshot of pipelineSnapshotsBySocketPath[socketPath] ?? []) {
       const current = winnerByPipelineId.get(snapshot.pipelineId);
       if (current === undefined) {
-        winnerByPipelineId.set(snapshot.pipelineId, { index: merged.length, snapshot, socketPath });
-        merged.push(snapshot);
+        winnerByPipelineId.set(snapshot.pipelineId, { snapshot, socketPath });
         continue;
       }
       if (pipelineSnapshotOutranks(snapshot, socketPath, current.snapshot, current.socketPath)) {
-        merged[current.index] = snapshot;
-        winnerByPipelineId.set(snapshot.pipelineId, { index: current.index, snapshot, socketPath });
+        winnerByPipelineId.set(snapshot.pipelineId, { snapshot, socketPath });
       }
     }
   }
-  return merged;
+  return [...winnerByPipelineId.values()].map(({ snapshot }) => snapshot);
 }

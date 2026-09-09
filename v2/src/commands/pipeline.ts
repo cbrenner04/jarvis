@@ -524,7 +524,7 @@ async function runPipelineListCommand(argv: readonly string[], io: Io, deps: Pip
 
   if (Object.keys(queryResult.snapshotsBySocketPath).length === 0) {
     io.stderr(
-      queryResult.malformedSocketPaths.length > 0
+      queryResult.hasMalformedResponse
         ? "invalid daemon response\n"
         : `No live pipeline daemon responded; run ${PIPELINE_NO_LIVE_OWNER_RECOVERY}.\n`,
     );

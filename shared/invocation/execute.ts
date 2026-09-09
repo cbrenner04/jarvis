@@ -221,12 +221,11 @@ function pickShellCommandCallbacks(args: {
 async function invokeBinding<T extends InvocationResult>(
   binding: InvocationBinding<T>,
   invokeArgs: Parameters<InvocationBinding<T>["invoke"]>[0],
-  signal: AbortSignal | undefined,
 ): Promise<T | InvocationError> {
   try {
     return await binding.invoke(invokeArgs);
   } catch (error) {
-    if (signal?.aborted === true) throw error;
+    if (invokeArgs.signal?.aborted === true) throw error;
     return {
       kind: "error",
       exitCode: -1,
@@ -259,20 +258,16 @@ export async function executeWithQuotaFallback<T extends InvocationResult = Invo
   for (const [bindingIndex, binding] of args.bindings.entries()) {
     const startedAt = Date.now();
     logBindingStart(args.sessionLog, binding, args.prompt);
-    const result = await invokeBinding(
-      binding,
-      {
-        prompt: args.prompt,
-        cwd: args.cwd,
-        ...(args.signal !== undefined ? { signal: args.signal } : {}),
-        ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
-        ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
-        ...(args.onOutputProgress !== undefined ? { onOutputProgress: args.onOutputProgress } : {}),
-        ...pickShellCommandCallbacks(args),
-        ...(args.additionalReadDirs !== undefined ? { additionalReadDirs: args.additionalReadDirs } : {}),
-      },
-      args.signal,
-    );
+    const result = await invokeBinding(binding, {
+      prompt: args.prompt,
+      cwd: args.cwd,
+      ...(args.signal !== undefined ? { signal: args.signal } : {}),
+      ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
+      ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
+      ...(args.onOutputProgress !== undefined ? { onOutputProgress: args.onOutputProgress } : {}),
+      ...pickShellCommandCallbacks(args),
+      ...(args.additionalReadDirs !== undefined ? { additionalReadDirs: args.additionalReadDirs } : {}),
+    });
     logBindingInbound(args.sessionLog, result);
     const invocationId = args.telemetry?.invocationIds[bindingIndex];
     const attempt = { binding, result, ...(invocationId !== undefined ? { invocationId } : {}) };

@@ -19,12 +19,12 @@
 
 ## Acceptance criteria
 
-- [ ] `daemon-lifecycle.sandbox-unrunnable.test.ts` test `stopDaemon settles an orphaned non-terminal row instead of refusing` proves a store holding an `in-progress` row the daemon does not report live lets the stop proceed and leaves the row `killed` with a `run_reconciled` log record; it fails against the current `!isTerminalRunStatus`-only filter.
-- [ ] `daemon-lifecycle.sandbox-unrunnable.test.ts` test `stopDaemon still refuses a live non-terminal row and names it live` proves a row the daemon reports live refuses with `liveRunIds` containing it; it fails against a fix that simply stops refusing.
-- [ ] `daemon-lifecycle.sandbox-unrunnable.test.ts` test `stopDaemon refusal names live and orphaned rows separately` proves a store with one live and one orphaned row refuses with both groups populated and the message naming each.
-- [ ] `daemon-lifecycle.sandbox-unrunnable.test.ts` test `stopDaemon treats an unreachable daemon as all-live` proves that when `listLiveRunIds` rejects, every non-terminal row is refused as live.
-- [ ] Existing `stopDaemon` cases (terminal statuses allowed, store failure refused, force paths) stay green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `daemon-lifecycle.sandbox-unrunnable.test.ts` test `stopDaemon settles an orphaned non-terminal row instead of refusing` proves a store holding an `in-progress` row the daemon does not report live lets the stop proceed and leaves the row `killed` with a `run_reconciled` log record; it fails against the current `!isTerminalRunStatus`-only filter.
+- [x] `daemon-lifecycle.sandbox-unrunnable.test.ts` test `stopDaemon still refuses a live non-terminal row and names it live` proves a row the daemon reports live refuses with `liveRunIds` containing it; it fails against a fix that simply stops refusing.
+- [x] `daemon-lifecycle.sandbox-unrunnable.test.ts` test `stopDaemon refusal names live and orphaned rows separately` proves a store with one live and one orphaned row refuses with both groups populated and the message naming each.
+- [x] `daemon-lifecycle.sandbox-unrunnable.test.ts` test `stopDaemon treats an unreachable daemon as all-live` proves that when `listLiveRunIds` rejects, every non-terminal row is refused as live.
+- [x] Existing `stopDaemon` cases (terminal statuses allowed, store failure refused, force paths) stay green.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

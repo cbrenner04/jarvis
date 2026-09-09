@@ -90,8 +90,13 @@ async function handleStopCommand(argv: readonly string[], io: Io, deps: CliDeps)
     return null;
   }
   try {
-    await deps.stopDaemon(deps.socketPath, { pidPath: deps.pidPath, force: argv[1] === "--force" });
+    const stopped = await deps.stopDaemon(deps.socketPath, { pidPath: deps.pidPath, force: argv[1] === "--force" });
     io.stdout("stopped\n");
+    if (stopped !== undefined && stopped.reconciledRunIds.length > 0) {
+      io.stdout(
+        `reconciled ${stopped.reconciledRunIds.length} orphaned run(s): ${stopped.reconciledRunIds.join(", ")}\n`,
+      );
+    }
     return 0;
   } catch (error) {
     io.stderr(formatLifecycleError(error));

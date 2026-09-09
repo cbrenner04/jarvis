@@ -281,15 +281,15 @@ test("pipeline list queries retain valid snapshots and distinguish malformed rep
   ).toBeTrue();
 });
 
-test("pipeline list accepts null timestamps and rejects non-numeric timestamps", async () => {
+test("pipeline list distinguishes null from non-numeric nullable timestamps", async () => {
   const snapshot: PipelineSnapshot = {
     pipelineId: PIPELINE_ID,
     name: "test",
     state: "running",
-    terminalPublicationSucceededAt: null,
+    terminalPublicationSucceededAt: 1,
     terminalPublicationFailure: null,
     createdAt: 1,
-    finishedAtMs: null,
+    finishedAtMs: 2,
     dismissedAt: null,
     stages: [],
   };
@@ -307,8 +307,6 @@ test("pipeline list accepts null timestamps and rejects non-numeric timestamps",
 
   const invalidTimestamp = {
     ...snapshot,
-    terminalPublicationSucceededAt: 1,
-    finishedAtMs: 2,
     dismissedAt: "invalid",
   };
   const invalid = await queryPipelineListsFromSocketPaths(

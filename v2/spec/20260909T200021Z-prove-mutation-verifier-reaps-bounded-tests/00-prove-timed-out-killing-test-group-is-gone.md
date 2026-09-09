@@ -19,12 +19,12 @@ The fixture supplies `seams.runScopedTests` as a wrapper around `runDiffDerivedS
 
 ## Acceptance criteria
 
-- [ ] The real while-true guard regression in `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves every killing-test process group pgid it captures via `onGroupId` during the hang is absent (`process.kill(-pgid, 0)` throws `ESRCH`) once `verifyDiffDerivedMutations` returns, and fails when it captured zero pgids.
-- [ ] That regression retains its elapsed-time, `non-terminating-mutation`, source-site, restored-bytes, and clean-worktree assertions.
-- [ ] No `*ForTest`/`*ForTests` member, parameter, module variable, exported function, or exported variable, and no `invert*` parameter, is added to production code for process observation.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] The real while-true guard regression in `v2/src/execution/diff-derived-mutation-verifier.test.ts` proves every killing-test process group pgid it captures via `onGroupId` during the hang is absent (`process.kill(-pgid, 0)` throws `ESRCH`) once `verifyDiffDerivedMutations` returns, and fails when it captured zero pgids.
+- [x] That regression retains its elapsed-time, `non-terminating-mutation`, source-site, restored-bytes, and clean-worktree assertions.
+- [x] No `*ForTest`/`*ForTests` member, parameter, module variable, exported function, or exported variable, and no `invert*` parameter, is added to production code for process observation.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

@@ -3,9 +3,11 @@ import type { IpcClient } from "../ipc/client.ts";
 import type { PipelineDaemonResolutionDeps } from "./pipeline-daemon-resolution.ts";
 import {
   PIPELINE_NO_LIVE_OWNER_RECOVERY,
+  queryPipelineListsFromSocketPaths,
   resolvePipelineDaemon,
   resolvePipelineDaemonFromSocketPaths,
 } from "./pipeline-daemon-resolution.ts";
+import type { PipelineSnapshot } from "./pipeline-observation.ts";
 
 const PIPELINE_ID = "pipeline-full-id";
 const INVOKING_SOCKET = "/jarvis/daemon-bbbb.sock";
@@ -213,4 +215,49 @@ test("never auto-starts", async () => {
   }
 
   expect(startCalls).toBe(0);
+});
+
+test("pipeline list queries retain valid snapshots and distinguish malformed replies", async () => {
+  const validSocket = "/1-valid.sock";
+  const malformedSocket = "/2-malformed.sock";
+  const rpcFailureSocket = "/3-rpc-failure.sock";
+  const connectFailureSocket = "/4-connect-failure.sock";
+  const sent: unknown[] = [];
+  const snapshot: PipelineSnapshot = {
+    pipelineId: PIPELINE_ID,
+    name: "test",
+    state: "running",
+    terminalPublicationSucceededAt: null,
+    terminalPublicationFailure: null,
+    createdAt: 1,
+    finishedAtMs: null,
+    dismissedAt: null,
+    stages: [],
+  };
+
+  const result = await queryPipelineListsFromSocketPaths(
+    async (socketPath) => {
+      if (socketPath === connectFailureSocket) throw new Error("connect failed");
+      if (socketPath === rpcFailureSocket) {
+        return replyingClient({ error: { code: "broken", message: "rpc failed" } }, sent);
+      }
+      return replyingClient(
+        { result: socketPath === validSocket ? { pipelines: [snapshot] } : { pipelines: null } },
+        sent,
+      );
+    },
+    [validSocket, malformedSocket, rpcFailureSocket, connectFailureSocket],
+    { includeDismissed: true },
+    20,
+  );
+
+  expect(result).toEqual({
+    snapshotsBySocketPath: { [validSocket]: [snapshot] },
+    malformedSocketPaths: [malformedSocket],
+  });
+  expect(sent).toHaveLength(3);
+  expect(sent.every((frame) => (frame as { method?: string }).method === "pipeline_list")).toBeTrue();
+  expect(
+    sent.every((frame) => (frame as { params?: { includeDismissed?: unknown } }).params?.includeDismissed === true),
+  ).toBeTrue();
 });

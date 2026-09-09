@@ -5,7 +5,7 @@ import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
 import { DEFAULT_PIPELINE_STAGE_BRANCH_KEY } from "../persistence/state-store.ts";
 import type { PipelineListResult } from "./tui-daemon-client.ts";
-import { mergePipelineSnapshots } from "./tui-monitor-lines.ts";
+import { mergeMonitorPipelineSnapshots } from "./tui-monitor-lines.ts";
 import {
   buildMonitorPipelineTreeJoin,
   isHiddenDismissedPipeline,
@@ -322,7 +322,7 @@ export function buildAttentionRows(
   options: MonitorPipelineDisplayOptions,
   nowMs: number,
 ): AttentionProjection {
-  const snapshots = mergePipelineSnapshots(pipelineSnapshotsBySocketPath);
+  const snapshots = mergeMonitorPipelineSnapshots(pipelineSnapshotsBySocketPath);
   const showDismissed = options.showDismissed === true;
   const displayedSnapshots = snapshots.filter((snapshot) => !isHiddenDismissedPipeline(snapshot, showDismissed));
 

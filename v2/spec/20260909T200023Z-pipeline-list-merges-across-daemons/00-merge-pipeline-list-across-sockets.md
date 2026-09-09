@@ -28,15 +28,15 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/pipeline.test.ts`'s `lists a non-invoking daemon snapshot` regression proves a row from a non-invoking keyed socket is rendered; it fails against the current single-socket RPC.
-- [ ] `v2/src/commands/pipeline.test.ts`'s `prefers a finished snapshot over an unfinished one for the same pipeline id` regression proves the merge uses the lifted finished/more-ended-stages/earlier-socket-path tie-break, not raw socket order; it fails against the pre-fix code and against a plain first-sorted-socket merge.
-- [ ] `v2/src/commands/pipeline.test.ts`'s `filters merged pipeline snapshots` regression proves `--since` and `--state` filter the merged, deduped set; it fails against the pre-fix code.
-- [ ] `v2/src/commands/pipeline.test.ts`'s `lists despite one failed socket` regression proves an answering daemon's rows still render and exit 0 when another socket fails to connect; it fails against the pre-fix code.
-- [ ] `v2/src/commands/pipeline.test.ts`'s `reports unavailable pipeline daemons` regression proves that when no socket connects, the command exits 1 with `No live pipeline daemon responded; run jarvis daemon start, then retry.`, not `connect ENOENT <socket path>`, and starts no daemon; it fails against the pre-fix code.
-- [ ] `v2/src/commands/pipeline.test.ts`'s `reports a malformed snapshot without suggesting daemon start` regression proves that when the only answering socket returns a malformed `pipeline_list` payload, the command prints `invalid daemon response`, not the no-live-owner recovery text; it fails against the pre-fix code.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/commands/pipeline.test.ts`'s `lists a non-invoking daemon snapshot` regression proves a row from a non-invoking keyed socket is rendered; it fails against the current single-socket RPC.
+- [x] `v2/src/commands/pipeline.test.ts`'s `prefers a finished snapshot over an unfinished one for the same pipeline id` regression proves the merge uses the lifted finished/more-ended-stages/earlier-socket-path tie-break, not raw socket order; it fails against the pre-fix code and against a plain first-sorted-socket merge.
+- [x] `v2/src/commands/pipeline.test.ts`'s `filters merged pipeline snapshots` regression proves `--since` and `--state` filter the merged, deduped set; it fails against the pre-fix code.
+- [x] `v2/src/commands/pipeline.test.ts`'s `lists despite one failed socket` regression proves an answering daemon's rows still render and exit 0 when another socket fails to connect; it fails against the pre-fix code.
+- [x] `v2/src/commands/pipeline.test.ts`'s `reports unavailable pipeline daemons` regression proves that when no socket connects, the command exits 1 with `No live pipeline daemon responded; run jarvis daemon start, then retry.`, not `connect ENOENT <socket path>`, and starts no daemon; it fails against the pre-fix code.
+- [x] `v2/src/commands/pipeline.test.ts`'s `reports a malformed snapshot without suggesting daemon start` regression proves that when the only answering socket returns a malformed `pipeline_list` payload, the command prints `invalid daemon response`, not the no-live-owner recovery text; it fails against the pre-fix code.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

@@ -2,6 +2,7 @@ import type { IpcClient } from "../ipc/client.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import type { startDaemon } from "./daemon-lifecycle.ts";
 import type { PipelineDerivedState } from "./pipeline-execution.ts";
+import type { PipelineSnapshot } from "./pipeline-observation.ts";
 import { type QueryDaemonListsDeps, resolveDaemonListSocketPaths } from "./query-daemon-lists-from-sockets.ts";
 
 const PIPELINE_OWNER_RPC_TIMEOUT_MS = 2_000;
@@ -13,6 +14,11 @@ type PipelineOwnerWitness =
   | { kind: "not_owner" }
   | { kind: "durable_state"; state: PipelineDerivedState }
   | { kind: "not_found" };
+
+export type PipelineListQueryResult = {
+  snapshotsBySocketPath: Readonly<Record<string, readonly PipelineSnapshot[]>>;
+  malformedSocketPaths: readonly string[];
+};
 
 export type PipelineDaemonResolution =
   | { kind: "owner"; pipelineId: string; socketPath: string }
@@ -105,6 +111,55 @@ async function queryPipelineOwner(
   } catch {
     return undefined;
   }
+}
+
+function parsePipelineList(value: unknown): readonly PipelineSnapshot[] | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const pipelines = (value as { pipelines?: unknown }).pipelines;
+  return Array.isArray(pipelines) ? (pipelines as PipelineSnapshot[]) : undefined;
+}
+
+async function queryPipelineList(
+  connectIpcClient: (socketPath: string) => Promise<IpcClient>,
+  socketPath: string,
+  params: { includeDismissed: true } | undefined,
+  timeoutMs: number,
+): Promise<{ snapshots?: readonly PipelineSnapshot[]; malformed: boolean }> {
+  try {
+    const client = await connectWithinTimeout(connectIpcClient, socketPath, timeoutMs);
+    const transport = createRpcTransport(client);
+    try {
+      const snapshots = parsePipelineList(await transport.request("pipeline_list", params, { timeoutMs }));
+      return snapshots === undefined ? { malformed: true } : { snapshots, malformed: false };
+    } catch {
+      return { malformed: false };
+    } finally {
+      transport.close();
+    }
+  } catch {
+    return { malformed: false };
+  }
+}
+
+/** Queries every supplied socket without starting a daemon; individual connection, RPC, and timeout failures are skipped. */
+export async function queryPipelineListsFromSocketPaths(
+  connectIpcClient: (socketPath: string) => Promise<IpcClient>,
+  socketPaths: readonly string[],
+  params: { includeDismissed: true } | undefined,
+  timeoutMs = PIPELINE_OWNER_RPC_TIMEOUT_MS,
+): Promise<PipelineListQueryResult> {
+  const answers = await Promise.all(
+    socketPaths.map(async (socketPath) => ({
+      socketPath,
+      ...(await queryPipelineList(connectIpcClient, socketPath, params, timeoutMs)),
+    })),
+  );
+  return {
+    snapshotsBySocketPath: Object.fromEntries(
+      answers.flatMap(({ socketPath, snapshots }) => (snapshots === undefined ? [] : [[socketPath, snapshots]])),
+    ),
+    malformedSocketPaths: answers.filter(({ malformed }) => malformed).map(({ socketPath }) => socketPath),
+  };
 }
 
 /** Queries every supplied socket; individual connection, RPC, timeout, and payload failures are ignored. */

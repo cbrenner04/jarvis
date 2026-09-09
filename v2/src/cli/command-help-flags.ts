@@ -240,7 +240,7 @@ export const PIPELINE_LIST_HELP_FLAGS: readonly CommandFlag[] = [
   {
     name: "--json",
     argumentShape: "",
-    description: "Print the unmodified pipeline_list snapshot; cannot combine with --since or --state.",
+    description: "Print the merged pipeline snapshot; cannot combine with --since or --state.",
   },
   {
     name: "--all",

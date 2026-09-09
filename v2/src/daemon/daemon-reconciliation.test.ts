@@ -99,6 +99,27 @@ test("reconciles every orphaned status after a forced daemon stop, retaining dur
   sweepStore.close();
 });
 
+test("a durably paused, resumable row survives daemon-restart reconciliation with no run_reconciled event", async () => {
+  const runId = createRun(seedStore, "in-progress");
+  const attemptId = seedStore.recordAttemptStart(runId);
+  seedStore.commitCompletionBoundary({ attemptId, runStatus: "paused", outcomeKind: "progress" });
+  const events: Array<{ runId: string; event: LogEvent }> = [];
+
+  const sweepStore = openSweepStore(async (identity) => identity !== PRIOR_IDENTITY);
+  const reconciled = await reconcileOrphanedRuns(sweepStore, {
+    append: (runId, event) => events.push({ runId, event }),
+    close: () => undefined,
+  });
+
+  expect(reconciled).toEqual([]);
+  expect(events).toEqual([]);
+  const run = sweepStore.loadRun(runId);
+  expect(run?.status).toBe("paused");
+  expect(run?.reconciledAt).toBeNull();
+  expect(run?.finishedAt ?? null).toBeNull();
+  sweepStore.close();
+});
+
 test("leaves terminal statuses unchanged without reconciliation events", async () => {
   const runIds = terminalStatuses.map((status) => createRun(seedStore, status));
   const events: Array<{ runId: string; event: LogEvent }> = [];

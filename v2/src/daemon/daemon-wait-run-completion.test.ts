@@ -311,6 +311,44 @@ test("list and wait project persisted binding-chain invocation stderr onto the o
   });
 });
 
+test("list and wait project the identical composed invocation_error for a settled prompt-echo run", async () => {
+  const runId = createRun();
+  const attemptId = stateStore.recordAttemptStart(runId);
+  stateStore.commitCompletionBoundary({
+    attemptId,
+    runStatus: "failed",
+    outcomeKind: "invocation_failure",
+    invocationFailureDetail: {
+      failureKind: "error",
+      echoedInput: true,
+      bindingAttempts: [{ bindingId: "claude-1", resultKind: "error", agent: "claude", model: "sonnet" }],
+    },
+  });
+  logSink.append(runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: "invocation_failure",
+    iterationsConsumed: 1,
+    resumable: false,
+  });
+
+  const expectedError = {
+    reason: "invocation_error",
+    retryable: false,
+    nextAction: "stop",
+    message: "invocation_error: claude-1 (claude/sonnet): error",
+  };
+  const list = await expectResponse(await listDirect());
+  const row = (list.runs as Array<{ runId: string; error?: unknown }>).find((candidate) => candidate.runId === runId);
+  expect(row?.error).toEqual(expectedError);
+  expect(await expectResponse(await waitDirect("echoed-invocation", runId))).toEqual({
+    runStatus: "failed",
+    loopOutcomeKind: "invocation_failure",
+    iterationsConsumed: 1,
+    resumable: false,
+    error: expectedError,
+  });
+});
+
 test("wait resolve payload includes the same error object as list for the same run", async () => {
   const runId = createRun();
   stateStore.setRunStatus(runId, "killed");

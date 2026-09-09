@@ -407,6 +407,35 @@ test("composeRunOperatorError projects binding-chain invocation stderr when pres
   expect(composeRunOperatorError(withoutMessage)).toEqual(err("invocation_error", "stop"));
 });
 
+test("composeRunOperatorError attributes an echoed-input error failure to its binding chain", () => {
+  const run = runWith("failed", [
+    attempt("invocation_failure", {
+      failureKind: "error",
+      echoedInput: true,
+      bindingAttempts: [
+        { bindingId: "claude-1", resultKind: "error", agent: "claude", model: "sonnet" },
+        { bindingId: "codex-1", resultKind: "quota" },
+      ],
+    }),
+  ]);
+
+  const composed = composeRunOperatorError(run);
+  expect(composed?.reason).toBe("invocation_error");
+  expect(composed?.message).toBe(
+    "invocation_error: claude-1 (claude/sonnet): error; codex-1 (unknown-agent/unknown-model): quota",
+  );
+});
+
+test("composeRunOperatorError attributes an echoed-input error failure with no binding attempts to the failure class only", () => {
+  const run = runWith("failed", [
+    attempt("invocation_failure", { failureKind: "error", echoedInput: true, bindingAttempts: [] }),
+  ]);
+
+  const composed = composeRunOperatorError(run);
+  expect(composed?.reason).toBe("invocation_error");
+  expect(composed?.message).toBe("invocation_error");
+});
+
 test.each([
   ["quota", "quota_exhausted", "retry_later", false],
   ["model_config", "model_config", "fix_config", false],

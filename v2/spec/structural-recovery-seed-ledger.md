@@ -29,7 +29,7 @@ A seed with multiple ready-intents spans one row per ready-intent; the `Seed` an
 | declarative-prompt-fragment-policy | intent-split → `declarative-fragment-policy-single-assembler` RI | — | — | — |
 | mechanical-cruft-pass | not-started (P3) | — | — | — |
 | implement-owns-its-prompt-ids | intent-split → implement-owned-prompt-artifacts / v1-migration / v2-wiring RIs | — | — | — |
-| per-project-agent-fallback-order | folded into [[per-project-config-overrides-seam]] 2026-09-05 (#3026) | — | — | — |
+| per-project-agent-fallback-order | folded into [[per-project-config-overrides-seam]] 2026-09-05 (#3026); **seed file deleted 2026-09-09** (the umbrella carries the `projects.<key>.agents` override and #3026) | — | — | — |
 | blocker-contract-credits-existing-section | **hand-landed 2026-09-09** — spec [#3668](https://github.com/cbrenner04/jarvis/pull/3668), impl [#3670](https://github.com/cbrenner04/jarvis/pull/3670); #3029 mechanism 1 fixed, 2 and 4 remain | — | — | [#3670](https://github.com/cbrenner04/jarvis/pull/3670) |
 | pipeline-list-display-retention / tui-dock-command-grammar / tui-typed-run-steering | parked (display/TUI) | — | — | — |
 | full-light-review-pipeline | **hand-landed 2026-09-07** (registry entry + tests + docs; seed reaped) | — | — | — |
@@ -55,7 +55,7 @@ A seed with multiple ready-intents spans one row per ready-intent; the `Seed` an
 | plan-bases-off-a-declared-prerequisite-branch | not-started (#3437); with [[pipeline-fan-out-lanes-serial-chained-bases]] it is the structural answer to stage parallelism | — | — | — |
 | abandon-refuses-unlanded-work-with-no-pr | not-started (#3437) | — | — | — |
 | pipeline-fan-out-lanes-serial-chained-bases / pipeline-fan-out-per-lane-terminal-settlement | not-started | — | — | — |
-| concurrent-load-suite-margin-check | held (verify-or-reap; the two isolation siblings were reaped — `LOAD_SENSITIVE_FILES` supersedes) | — | — | — |
+| concurrent-load-suite-margin-check | **reaped 2026-09-09** — its prerequisite lane never landed, `LOAD_SENSITIVE_FILES` supersedes the isolation half, and the load-flake class it would have measured is owned by [[coscheduled-test-pair-strands-runs-terminally]] | — | — | — |
 | superseded-pipeline-pr-hygiene | **merged carrier 2026-09-05** (former supersede trio); re-scope post-settlement | — | — | — |
 | rename-pipeline-lane-* (×4) | **PRUNED 2026-09-05** — 474 `branchKey` sites / 0 `laneKey`, blocked behind settlement; terminology churn | — | — | — |
 | linked-run-rows-resume-and-settle-uniformly | **P0 — head lane landed 2026-09-06** ([#3514](https://github.com/cbrenner04/jarvis/pull/3514)): shared matcher, execution-loop adoption, #3395 resume repair, linked-row paused reconstruction. Daemon `reconstructWriteResume` intake for `~link-N` is deferred by the spec's own scope → `daemon-linked-run-row-resume-admission` RI still open (#3463 may persist) | write-sibling-step-id-matcher [#3497](https://github.com/cbrenner04/jarvis/pull/3497) | [#3503](https://github.com/cbrenner04/jarvis/pull/3503) | [#3514](https://github.com/cbrenner04/jarvis/pull/3514) |

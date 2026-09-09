@@ -1378,18 +1378,26 @@ index 1234567..abcdefg 100644
 
           // Records every killing-test process group pgid spawned during the hang, via the real
           // group-mode subprocess runner, so the assertions below can prove none of them survives
-          // verification instead of only inferring cleanup from timing and classification.
+          // verification instead of only inferring cleanup from timing and classification. Only
+          // instruments `processGroup` when the call actually requested it, instead of injecting
+          // it unconditionally, so the zero-capture guard below fails if the verifier's spawn ever
+          // stops requesting process-group mode itself.
           const capturedPgids: number[] = [];
           const capturingRunner = {
             runAsync: (command: string, args: string[], cwd: string, options?: AsyncSubprocessOptions) =>
               realAsyncSubprocessRunner.runAsync(command, args, cwd, {
                 ...options,
-                processGroup: {
-                  onGroupId: (pgid: number) => {
-                    capturedPgids.push(pgid);
-                    options?.processGroup?.onGroupId?.(pgid);
-                  },
-                },
+                ...(options?.processGroup
+                  ? {
+                      processGroup: {
+                        ...options.processGroup,
+                        onGroupId: (pgid: number) => {
+                          capturedPgids.push(pgid);
+                          options.processGroup?.onGroupId?.(pgid);
+                        },
+                      },
+                    }
+                  : {}),
               }),
           };
 

@@ -2796,7 +2796,8 @@ class StateStoreImpl implements StateStore {
     let bindings: SQLQueryBindings[];
     if ("sinceCursor" in args) {
       const cursor = decodeNotificationDeliveryCursor(args.sinceCursor);
-      boundSql = `AND (delivered_at, incident_id, transition) >= (?, ?, ?)${kindFilter.sql}`;
+      // Exclusive: a delivery cursor names an already-delivered incident, so chaining never re-delivers it.
+      boundSql = `AND (delivered_at, incident_id, transition) > (?, ?, ?)${kindFilter.sql}`;
       bindings = [cursor.deliveredAt, cursor.incidentId, cursor.transition, ...kindFilter.bindings];
     } else if ("sinceMs" in args) {
       boundSql = `AND delivered_at >= ?${kindFilter.sql}`;

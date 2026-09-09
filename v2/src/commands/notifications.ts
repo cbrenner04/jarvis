@@ -155,7 +155,7 @@ async function waitForIncident(
     params = withKinds(initial, result.deliveryCursor);
     const listed = await requestOrReport(client, "notification_list", params, io);
     if (!listed.ok) return 1;
-    const scan = scanForProject(parseNotificationListResult(listed.response), result.deliveryCursor, project);
+    const scan = scanForProject(parseNotificationListResult(listed.response), project);
     if (scan.matched !== undefined) {
       io.stdout(`${JSON.stringify(scan.matched)}\n`);
       return 0;
@@ -193,17 +193,16 @@ async function notificationRpc(
   });
 }
 
-/** Entries after `afterCursor`, up to the first whose incident matches `project`. Returns that
- *  entry when found, plus the last cursor scanned so a caller can advance past what it consumed. */
+/** Entries (already strictly after the cursor they were listed from) up to the first whose incident
+ *  matches `project`. Returns that entry when found, plus the last cursor scanned so a caller can
+ *  advance past what it consumed. */
 function scanForProject(
   entries: readonly NotificationWaitResult[] | undefined,
-  afterCursor: string,
   project: string,
 ): { matched?: NotificationWaitResult; lastCursor?: string } {
   if (entries === undefined) return {};
-  const startIndex = entries.findIndex((entry) => entry.deliveryCursor === afterCursor);
   let lastCursor: string | undefined;
-  for (const entry of entries.slice(startIndex >= 0 ? startIndex + 1 : 0)) {
+  for (const entry of entries) {
     if (entry.incident.project === project) return { matched: entry };
     lastCursor = entry.deliveryCursor;
   }

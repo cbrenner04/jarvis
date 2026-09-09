@@ -4,7 +4,7 @@ The shared invocation layer (`shared/invocation/agents.ts`) classifies each agen
 
 ## Classification order
 
-Non-zero exit, first match wins: **transient → credential/auth → quota → model configuration → error**. Zero exit: Claude's verified stdout quota envelope, then Codex credential/auth phrasing on stderr (`authFailure: true`), then the agent's quota patterns over stderr+stdout, else `ok`.
+Non-zero exit, first match wins: **credential/auth → quota → transient → model configuration → error**. Auth and quota outrank a transient marker because an exhausted or de-authenticated agent never recovers on retry; a stray transport phrase elsewhere in the tail (the codex `shell_snapshot` noise line in the sample below) must not mask the banner and burn the retry cap with no fallback (#3372). Zero exit: Claude's verified stdout quota envelope, then Codex credential/auth phrasing on stderr (`authFailure: true`), then the agent's quota patterns over stderr+stdout, else `ok`.
 
 ## Transient transport errors
 
@@ -92,7 +92,7 @@ Codex quota detection covers non-zero and zero exits: on zero exit the runner ch
 
 ### Observed quota stderr (real samples)
 
-- No real samples recorded yet.
+- 2026-09-02 (`homestead-service` run `27357953`, shrink step, exit 1): a `codex_core::shell_snapshot` error line precedes the banner — `ERROR: You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 6th, 2026 9:54 PM.` Classified `error` under the old transient-first order; `quota` now.
 
 ## Cursor
 

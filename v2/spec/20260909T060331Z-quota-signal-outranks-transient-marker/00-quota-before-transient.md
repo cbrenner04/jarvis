@@ -12,10 +12,10 @@
 
 ## Acceptance criteria
 
-- [ ] `shared/invocation/agents.test.ts` test `a codex exit whose diagnostics carry a transient marker before the usage-limit banner classifies quota` drives `createResolvedAgentBinding(...).invoke` with stderr `"... connection reset ...\nERROR: You've hit your usage limit ..."` on exit 1 and asserts `{ kind: "quota" }` after exactly one spawn; it fails against the current transient-first order.
-- [ ] A test proves a codex credential/auth line alongside a transient marker still classifies `quota` with `authFailure: true`.
-- [ ] A test proves a transient-only stderr still retries and settles `error` after the cap (existing coverage may be cited).
-- [ ] `bun run typecheck`, `bun run test:shared`, `bun run test:integration:shared`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `shared/invocation/agents.test.ts` test `a codex exit whose diagnostics carry a transient marker before the usage-limit banner classifies quota` drives `createResolvedAgentBinding(...).invoke` with stderr `"... connection reset ...\nERROR: You've hit your usage limit ..."` on exit 1 and asserts `{ kind: "quota" }` after exactly one spawn; it fails against the current transient-first order.
+- [x] A test proves a codex credential/auth line alongside a transient marker still classifies `quota` with `authFailure: true`.
+- [x] A test proves a transient-only stderr still retries and settles `error` after the cap (existing coverage may be cited).
+- [x] `bun run typecheck`, `bun run test:shared`, `bun run test:integration:shared`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

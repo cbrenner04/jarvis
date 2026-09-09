@@ -2287,6 +2287,47 @@ describe("createResolvedAgentBinding", () => {
     ).resolves.toEqual({ kind: "model_config", stderr: "no provider configured for gpt-5" });
   });
 
+  test("a codex exit whose diagnostics carry a transient marker before the usage-limit banner classifies quota", async () => {
+    // #3372 tail shape: a shell-snapshot noise line with a transport-looking phrase, then the banner.
+    const stderr =
+      "ERROR codex_core::shell_snapshot: Snapshot command exited: connection reset by peer\n" +
+      "ERROR: You've hit your usage limit. Upgrade to Pro or try again at Sep 6th, 2026 9:54 PM.\n";
+    const fake = fakeSpawn([{ kind: "settle", code: 1, stderr }]);
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
+        { spawn: fake.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({ kind: "quota", stderr });
+    // Quota is not retried: exactly one spawn, no transient backoff.
+    expect(fake.calls.length).toBe(1);
+  });
+
+  test("a codex credential/auth line alongside a transient marker still classifies quota with authFailure", async () => {
+    const stderr = "stream closed unexpectedly\nplease log out and sign in\n";
+    const fake = fakeSpawn([{ kind: "settle", code: 1, stderr }]);
+    await expect(
+      createResolvedAgentBinding(
+        { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
+        { spawn: fake.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+      ).invoke({ prompt: "p", cwd: "/repo" }),
+    ).resolves.toEqual({ kind: "quota", stderr, authFailure: true });
+    expect(fake.calls.length).toBe(1);
+  });
+
+  test("a transient-only codex exit is still retried on the same binding", async () => {
+    const fake = fakeSpawn([
+      { kind: "settle", code: 1, stderr: "connection reset" },
+      { kind: "settle", code: 0, stdout: "done", stderr: "" },
+    ]);
+    const result = await createResolvedAgentBinding(
+      { agentId: "codex", adapterModel: "gpt-5.4", priceKey: "gpt-5.4" },
+      { spawn: fake.spawn, codexSessionsDir: mkdtempSync(join(tmpdir(), "jarvis-codex-sessions-")) },
+    ).invoke({ prompt: "p", cwd: "/repo" });
+    expect(fake.calls.length).toBe(2);
+    expect(result.kind).toBe("ok");
+  });
+
   test("opencode guarded HTTP 500 (UnknownError) is transient and retried", async () => {
     const fake = fakeSpawn([
       { kind: "settle", code: 1, stderr: "UnknownError: http status 500" },

@@ -613,6 +613,43 @@ describe("shared invocation fallback", () => {
     expect(sawKeyWhenUnset).toBe(false);
   });
 
+  test("forwards additionalReadDirs to the binding's invoke only when set", async () => {
+    let seenWithValue: readonly string[] | undefined;
+    let sawKeyWhenUnset = true;
+
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      additionalReadDirs: ["/extra"],
+      bindings: [
+        {
+          id: "first",
+          invoke: async (invokeArgs) => {
+            seenWithValue = invokeArgs.additionalReadDirs;
+            return { kind: "ok", stdout: "done", stderr: "" } as const;
+          },
+        },
+      ],
+    });
+
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [
+        {
+          id: "second",
+          invoke: async (invokeArgs) => {
+            sawKeyWhenUnset = "additionalReadDirs" in invokeArgs;
+            return { kind: "ok", stdout: "done", stderr: "" } as const;
+          },
+        },
+      ],
+    });
+
+    expect(seenWithValue).toEqual(["/extra"]);
+    expect(sawKeyWhenUnset).toBe(false);
+  });
+
   test("normalized sentinel exit_reason is distinguishable from a real process exit code", async () => {
     const rows: InvocationCompletedRecord[] = [];
     await executeWithQuotaFallback({

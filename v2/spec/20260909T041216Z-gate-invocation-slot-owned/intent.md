@@ -1,7 +1,3 @@
----
-name: gate-invocation-slot-has-no-owner
----
-
 # The gate-invocation slot is a global any lane can clear, so serialization does not hold
 
 ## Problem

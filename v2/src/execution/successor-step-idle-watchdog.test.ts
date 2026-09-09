@@ -271,7 +271,6 @@ describe("successor-step-idle-watchdog workflow integration", () => {
     }
   });
 
-  // @mutate v2/src/execution/workflow-runner.ts "const shellIdleWatchdog = armSuccessorShellIdleWatchdog" -> "const shellIdleWatchdog = undefined; void armSuccessorShellIdleWatchdog"
   test("pinning: shell idle arming settles a silent durable review within the idle budget", async () => {
     mock.module("./review-cycle.ts", () => ({ executeReviewCycle: () => new Promise(() => {}) }));
     const workspace = mkdtempSync(join(tmpdir(), "successor-shell-pin-"));

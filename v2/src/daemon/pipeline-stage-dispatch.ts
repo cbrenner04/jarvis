@@ -386,7 +386,6 @@ export async function dispatchPipelineStage(args: {
   });
   if (claim.kind === "refused") {
     rereadPipelineStageAndEntryRun(store, stageTarget);
-    // @mutate pipeline-execution.test.ts "two concurrent continuations dispatch a given stage row exactly once"
     return;
   }
 

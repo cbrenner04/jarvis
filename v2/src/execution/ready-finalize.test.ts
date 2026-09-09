@@ -258,7 +258,6 @@ describe("ready gate untouched-path classification", () => {
     );
     expect(scriptNotFound.gateFailureKind).toBe("ready_gate_command_missing");
     expect(scriptNotFound.commandMissingEvidence).toBe(anchored);
-    // @mutate v2/src/execution/ready-finalize.ts "classification.commandMissingEvidence === error.commandMissingEvidence" -> "classification.commandMissingEvidence !== error.commandMissingEvidence"
     const prebuilt = new ReadyGateError("bun run ready", 1, anchored, false, {
       kind: "ready_gate_command_missing",
       commandMissingEvidence: anchored,
@@ -485,7 +484,6 @@ describe("ready gate untouched-path classification", () => {
   });
 
   it("classifies a configured-command failure as out of scope", async () => {
-    // @mutate v2/src/execution/ready-finalize.ts "error.command !== resolveReadyGateCommand(scope?.readyCommand).display" -> "error.command !== \"bun run ready\""
     const configuredScope = { ...scope, readyCommand: "bun run ready:ci" };
     const output = gateOutput({
       completions: [
@@ -501,7 +499,6 @@ describe("ready gate untouched-path classification", () => {
   });
 
   it("keeps a required-integration failure unclassified", async () => {
-    // @mutate v2/src/execution/ready-finalize.ts "if (error.timedOut || error.command !== resolveReadyGateCommand(scope?.readyCommand).display) {" -> "if (error.timedOut) {"
     const configuredScope = { ...scope, readyCommand: "bun run ready:ci" };
     const error = new ReadyGateError(
       "bun run test:integration:v2",
@@ -522,7 +519,6 @@ describe("ready gate untouched-path classification", () => {
   });
 
   it("base-ref probe invokes the terminal ready-step scoped command", async () => {
-    // @mutate v2/src/execution/ready-finalize.ts "if (v2Mode !== undefined) {" -> "if (false) {"
     const realRunV2Tests = await import("../../../scripts/run-v2-tests.ts");
     const runV2Calls: Array<{ mode: string; files: string[] }> = [];
     const subprocessCalls: Array<{ cmd: string; args: string[]; env?: NodeJS.ProcessEnv }> = [];
@@ -700,7 +696,6 @@ describe("createReadyFinalizer", () => {
   const noopDelay = async () => {};
 
   it("skips the ready gate but completes remaining finalization when admitted", async () => {
-    // @mutate v2/src/execution/ready-finalize.ts "if (!input.skipReadyGate) {" -> "if (true) {"
     const calls: string[] = [];
     const finalizer = createReadyFinalizer({
       runReadyGate: async () => {
@@ -1195,7 +1190,6 @@ index 1234567..abcdefg 100644
   });
 
   it("runs the configured ready command as the ready gate", async () => {
-    // @mutate v2/src/execution/ready-finalize.ts "resolveReadyGateCommand(gateOptions?.readyCommand)" -> "resolveReadyGateCommand(undefined)"
     const calls: Array<{ cmd: string; args: readonly string[] }> = [];
     const mockRunner: AsyncSubprocessRunner = {
       async runAsync(cmd, args) {
@@ -1291,7 +1285,6 @@ index 1234567..abcdefg 100644
   });
 
   it("spawns the ready gate in group mode bound to the run signal", async () => {
-    // @mutate v2/src/execution/ready-finalize.ts "command.head, command.args, worktreePath, { env, signal: gateOptions?.signal, processGroup });" -> "command.head, command.args, worktreePath, { env, signal: undefined, processGroup });"
     const signal = new AbortController().signal;
     const calls: Array<{ args: readonly string[]; signal?: AbortSignal | undefined; processGroup?: unknown }> = [];
     const mockRunner: AsyncSubprocessRunner = {
@@ -1314,7 +1307,6 @@ index 1234567..abcdefg 100644
   });
 
   it("spawns required integration in group mode bound to the run signal", async () => {
-    // @mutate v2/src/execution/ready-finalize.ts "[\"run\", scope], worktreePath, { signal: integrationOptions?.signal, processGroup });" -> "[\"run\", scope], worktreePath, { signal: undefined, processGroup });"
     const signal = new AbortController().signal;
     const calls: Array<{ args: readonly string[]; signal?: AbortSignal | undefined; processGroup?: unknown }> = [];
     const mockRunner: AsyncSubprocessRunner = {
@@ -1372,7 +1364,6 @@ index 1234567..abcdefg 100644
   });
 
   it("clears the recorded ready-gate group id when the gate fails", async () => {
-    // @mutate v2/src/execution/ready-finalize.ts "recordGroupId(null);" -> ""
     // Mutation checkpoint: dropping the gate's finally clear leaves its pgid recorded after
     // failure; the assertion below only passes when the clear actually runs.
     const recorded: Array<number | null> = [];
@@ -1418,7 +1409,6 @@ index 1234567..abcdefg 100644
   });
 
   it("clears the recorded group id when required integration fails", async () => {
-    // @mutate v2/src/execution/ready-finalize.ts "recordIntegrationGroupId(null);" -> ""
     // Mutation checkpoint: dropping required integration's finally clear leaves its pgid
     // recorded after failure, independent of the gate's own checkpoint above.
     const recorded: Array<number | null> = [];

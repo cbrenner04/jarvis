@@ -917,7 +917,6 @@ test("list sets finishedAtMs from reconciledAt when terminal row has no attempt 
 });
 
 test("a failed run with no completion boundary still reports finishedAtMs", async () => {
-  // @mutate v2/src/daemon/daemon.ts "if (finishedAt != null) {" -> "if (false) {"
   const runId = seedRun();
   stateStore.setRunStatus(runId, "failed");
 
@@ -1174,7 +1173,6 @@ test("kill still sets killed on a paused run", async () => {
 });
 
 test("kill with force settles a non-active paused run", async () => {
-  // @mutate v2/src/daemon/daemon.ts "if (await forceSettleAdmitsRun(store, runId, run.status, params?.force)) {" -> "if (false) {"
   const runId = seedRun({ status: "paused" });
 
   const killResponse = await killDirect(handlers, runId, true);
@@ -1189,7 +1187,6 @@ test("kill with force settles a non-active paused run", async () => {
 });
 
 test("kill without force still rejects a non-active paused run", async () => {
-  // @mutate v2/src/daemon/daemon.ts "if (force !== true) return false;" -> "if (false) return false;"
   const runId = seedRun({ status: "paused" });
 
   const killResponse = await killDirect(handlers, runId);
@@ -1204,7 +1201,6 @@ test("kill without force still rejects a non-active paused run", async () => {
 });
 
 test("kill with force on an active run still takes the abort path", async () => {
-  // @mutate v2/src/daemon/daemon.ts "if (activeRunAcceptsKill(activeRun, runId)) {" -> "if (activeRunAcceptsKill(activeRun, runId) && params?.force !== true) {"
   const runId = await startRunDirect(handlers);
   if (!runId) return;
 
@@ -1215,7 +1211,6 @@ test("kill with force on an active run still takes the abort path", async () => 
 });
 
 test("kill with force leaves terminal rows unchanged", async () => {
-  // @mutate v2/src/daemon/daemon.ts "if (!forceSettleStatusAdmitsRun(status)) return false;" -> "if (false) return false;"
   for (const status of ["completed", "blocked", "failed"] as const) {
     const runId = seedRun({ status: "in-progress" });
     stateStore.setRunStatus(runId, status);
@@ -1279,7 +1274,6 @@ test("kill with force settles a row owned by a dead foreign process", async () =
 });
 
 test("kill with force refuses a row owned by a live foreign process", async () => {
-  // @mutate v2/src/daemon/daemon.ts "return store.forceKillOwnerAdmits(runId);" -> "return true;"
   const foreignIdentity = "88888:1000000";
   const seedStore = openStateStore(stateStorePath, { currentIdentity: foreignIdentity });
   const runId = seedStore.createRun({

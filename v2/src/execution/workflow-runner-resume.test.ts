@@ -489,7 +489,6 @@ describe("executeWorkflow review dispatch", () => {
         loopOutcomeKind: "invocation_failure",
         resumable: true,
       });
-      // @mutate v2/src/execution/workflow-runner.ts "intentFinalizationSettlementResumable(store, context.runId)" -> "true"
     });
   });
 
@@ -522,7 +521,6 @@ describe("executeWorkflow review dispatch", () => {
         resumable: false,
         completionCommitError: "commit exploded",
       });
-      // @mutate v2/src/execution/workflow-runner.ts "completionCommitError: intentResumeCommitErrorMessage" -> ""
     });
   });
 
@@ -594,7 +592,6 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("retains workflow step across publication and finalization resume", async () => {
-    // @mutate v2/src/execution/workflow-runner.ts "const reviewPass = reviewCompletionPass(run);" -> "const reviewPass = undefined;"
     const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-resume-step-"));
     mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
     writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"), "example.md");
@@ -707,7 +704,6 @@ describe("executeWorkflow review dispatch", () => {
           loopOutcomeKind: "completion_commit_failed",
           completionCommitError: outcome.ok === false ? outcome.message : undefined,
         });
-        // @mutate v2/src/execution/workflow-runner.ts "completionCommitError: intentResumePublicationCommitError" -> ""
       });
     } finally {
       rmSync(workspace, { recursive: true, force: true });
@@ -769,7 +765,6 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("intent-finalization resume skips the ready gate but completes the remaining finalization tail", async () => {
-    // @mutate v2/src/execution/workflow-runner.ts "inertResumeWriteLoopInput(context, context.durableDir, deps, context.landing, writeSibling)" -> "inertResumeWriteLoopInput(context, context.durableDir, deps, undefined, writeSibling)"
     const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-resume-ready-gate-"));
     mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
     writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"), "example.md");
@@ -818,7 +813,6 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("intent-finalization resume uses write-sibling stamped fix and ready commands", async () => {
-    // @mutate v2/src/execution/workflow-runner.ts "const readyCommand = writeSibling?.queuedInput?.readyCommand ?? writeSibling?.snapshotStep?.readyCommand;" -> "const readyCommand = undefined;"
     const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-resume-stamped-commands-"));
     mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
     writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"), "example.md");
@@ -847,7 +841,6 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("review row gate-command reconstruction prefers persisted snapshot step over write sibling", async () => {
-    // @mutate v2/src/execution/workflow-runner-resume.ts "snapshotStepHasGateCommands(ownStep)" -> "false"
     const workspace = mkdtempSync(join(tmpdir(), "intent-finalize-resume-review-gate-commands-"));
     const dbPath = join(tmpdir(), `intent-finalize-resume-review-gate-commands-${randomUUID()}.db`);
     mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
@@ -928,7 +921,6 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("review-mutation gate-only resume invokes persisted review snapshot readyCommand after store reload", async () => {
-    // @mutate v2/src/execution/workflow-runner-resume.ts "inertResumeWriteLoopInput(context, context.specPath, deps, undefined, writeSibling)" -> "inertResumeWriteLoopInput(context, context.specPath, deps, undefined, undefined)"
     const workspace = initGitWorkspace("review-mutation-gate-command-reload-");
     const dbPath = join(tmpdir(), `review-mutation-gate-command-reload-${randomUUID()}.db`);
     const logsPath = join(workspace, "resume.jsonl");
@@ -1492,7 +1484,6 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("surviving_mutation_failed resume without explicit mutationRepair auto-derives write.mutation-repair before re-verification", async () => {
-    // @mutate v2/src/execution/workflow-runner-resume.ts remove `runAutoDerivedSurvivingMutationRepair` call in `replayMutationFinalization` to turn this RED against finalization-only replay.
     const workspace = initGitWorkspace("review-mutation-auto-repair-");
     const logsPath = join(workspace, "resume.jsonl");
     try {
@@ -1594,7 +1585,6 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("review-mutation resume republication settles completed with PR evidence atomically", async () => {
-    // @mutate v2/src/execution/workflow-runner.ts restoring standalone `setPrEvidence` before terminal `setRunStatus` on the resume publication success tail turns the test RED.
     const workspace = initGitWorkspace("review-mutation-repub-atomic-");
     const logsPath = join(workspace, "resume.jsonl");
     try {
@@ -1761,7 +1751,6 @@ describe("executeWorkflow review dispatch", () => {
   });
 
   test("labels mutation-repair commits", async () => {
-    // @mutate v2/src/execution/workflow-runner.ts "step: mutationRepairStep," -> ""
     const workspace = initGitWorkspace("review-mutation-repair-label-");
     const logsPath = join(workspace, "resume.jsonl");
     try {
@@ -2060,7 +2049,6 @@ describe("executeWorkflow review dispatch", () => {
             resumable: true,
             completionCommitError: outcome.ok === false ? outcome.message : undefined,
           });
-          // @mutate v2/src/execution/workflow-runner.ts "completionCommitError: reviewMutationResumeCommitErrorMessage" -> ""
         });
       } finally {
         rmSync(workspace, { recursive: true, force: true });
@@ -2138,7 +2126,6 @@ describe("executeWorkflow review dispatch", () => {
             loopOutcomeKind: "completion_commit_failed",
             completionCommitError: outcome.ok === false ? outcome.message : undefined,
           });
-          // @mutate v2/src/execution/workflow-runner.ts "completionCommitError: reviewMutationPublicationCommitError" -> ""
         });
       } finally {
         rmSync(workspace, { recursive: true, force: true });
@@ -3265,9 +3252,6 @@ describe("recoverPlanStage", () => {
         logSink,
       });
 
-      // @mutate v2/src/execution/workflow-runner.ts "return { ok: true, ...result, ...(commit.commitSha !== undefined ? { commitSha: commit.commitSha } : {}) };" -> "return { ok: false, code: \"missing_plan_context\", message: \"reverted\" };"
-      // @mutate v2/src/execution/workflow-runner.ts "if (!existsSync(join(run.worktreePath, \".git\"))) {" -> "if (true) {"
-      // @mutate v2/src/execution/workflow-runner.ts "return content.endsWith(expected) ? { kind: \"harness\", text: expected } : { kind: \"operator\" };" -> "return { kind: \"operator\" };"
       expect(outcome.ok).toBe(true);
       if (!outcome.ok) throw new Error("unreachable");
       expect(outcome.kind).toBe("complete");
@@ -3338,7 +3322,6 @@ describe("recoverPlanStage", () => {
 
       const preRunHead = execFileSync("git", ["rev-parse", "HEAD"], { cwd: worktreePath, encoding: "utf8" }).trim();
 
-      // @mutate v2/src/execution/workflow-runner.ts "if (landingStep === undefined || landingStep.landing?.kind !== \"plan-tree\") {" -> "if (true) {"
       const outcome = await recoverPlanStage({
         runId,
         project: "demo",
@@ -3424,8 +3407,6 @@ describe("recoverPlanStage", () => {
           invoke: async (agentId) => ({ kind: "ok", stdout: agentId === "claude" ? "ok" : "done", stderr: "" }),
         });
 
-        // @mutate v2/src/execution/workflow-runner.ts "(outcomeKind !== \"contract_miss\" && outcomeKind !== \"blocked\")" -> "true"
-        // @mutate v2/src/execution/workflow-runner.ts "run.status !== \"blocked\" ||" -> "true ||"
         const outcome = await recoverPlanStage({
           runId,
           project: "demo",
@@ -3465,7 +3446,6 @@ describe("recoverPlanStage", () => {
 
     await withStateStore(async (store) => {
       // Missing captured context: no persisted run for the named runId at all.
-      // @mutate v2/src/execution/workflow-runner.ts "if (!run || !run.workflowSnapshot || !run.stepId) {" -> "if (false) {"
       const missing = await recoverPlanStage({
         runId: "does-not-exist",
         project: "demo",
@@ -3488,7 +3468,6 @@ describe("recoverPlanStage", () => {
       });
 
       // Run/step identity mismatch: the captured branch disagrees with the persisted run.
-      // @mutate v2/src/execution/workflow-runner.ts "run.branch !== request.branch ||" -> "false ||"
       const mismatched = await recoverPlanStage({
         runId,
         project: "demo",
@@ -3503,7 +3482,6 @@ describe("recoverPlanStage", () => {
       // Unrelated populated stage: a different, also-blocked workflow step's row shares the same
       // worktree/branch and coincidentally sees the populated plan stage, but its own captured
       // step never identified a plan-draft artifact.
-      // @mutate v2/src/execution/workflow-runner.ts "writeStep?.expectedArtifactPath !== PLAN_STAGE_DIR" -> "false"
       const unrelatedRunId = store.createRun({
         project: "demo",
         specRef: "HEAD",
@@ -3577,7 +3555,6 @@ describe("recoverPlanStage", () => {
           invoke: async (agentId) => ({ kind: "ok", stdout: agentId === "claude" ? "ok" : "done", stderr: "" }),
         });
 
-        // @mutate v2/src/execution/workflow-runner.ts "if (extractBlockerBody(content) === undefined) return { kind: \"none\" };" -> "return { kind: \"none\" };"
         const outcome = await recoverPlanStage({
           runId,
           project: "demo",
@@ -3636,7 +3613,6 @@ describe("recoverPlanStage", () => {
           },
         });
 
-        // @mutate v2/src/execution/workflow-runner.ts "return content.endsWith(expected) ? { kind: \"harness\", text: expected } : { kind: \"operator\" };" -> "return { kind: \"harness\", text: expected };"
         const outcome = await recoverPlanStage({
           runId,
           project: "demo",
@@ -3736,7 +3712,6 @@ describe("recoverPlanStage", () => {
         inputs: { sourceRoot, paths: [sourceReadyIntent], consumeFrom: "source" },
       });
 
-      // @mutate v2/src/execution/workflow-runner.ts "if (!existsSync(join(run.worktreePath, \".git\"))) {" -> "if (false) {"
       const outcome = await recoverPlanStage({
         runId,
         project: "demo",
@@ -3799,8 +3774,6 @@ describe("recoverPlanStage", () => {
         inputs: { sourceRoot, paths: [sourceReadyIntent], consumeFrom: "source" },
       });
 
-      // @mutate v2/src/execution/workflow-runner.ts "const contract = revalidateStagedPlanContract(stagingDir);" -> "const contract = { ok: true } as const;"
-      // @mutate v2/src/execution/workflow-runner.ts "return { ok: false, code: \"plan_stage_invalid\", message: contract.reason };" -> "return { ok: false, code: \"plan_stage_invalid\", message: \"reverted\" };"
       const outcome = await recoverPlanStage({
         runId,
         project: "demo",
@@ -3916,8 +3889,6 @@ describe("recoverPlanStage", () => {
           inputs: { sourceRoot, paths: [sourceReadyIntent], consumeFrom: "source" },
         });
 
-        // @mutate v2/src/execution/workflow-runner.ts "const contract = revalidateStagedPlanContract(stagingDir);" -> "const contract = { ok: true } as const;"
-        // @mutate v2/src/execution/workflow-runner.ts "if (lint.kind === \"violation\") {" -> "if (false) {"
         const outcome = await recoverPlanStage({
           runId,
           project: "demo",
@@ -3980,8 +3951,6 @@ describe("recoverPlanStage", () => {
         inputs: { sourceRoot, paths: [sourceReadyIntent], consumeFrom: "source" },
       });
 
-      // @mutate v2/src/execution/workflow-runner.ts "if (step.revalidateStagedPlanBeforeLanding === true && landing.kind === \"plan-tree\") {" -> "if (false) {"
-      // @mutate v2/src/execution/workflow-runner.ts "? { ...step, revalidateStagedPlanBeforeLanding: true }" -> "? { ...step }"
       const outcome = await recoverPlanStage({
         runId,
         project: "demo",
@@ -4187,7 +4156,6 @@ describe("recoverPlanStage review-failed admission", () => {
         stateStore: store,
       });
 
-      // @mutate v2/src/execution/workflow-runner.ts "const reviewFailedPath = isReviewFailedPlanWriteRecoveryCandidate(" -> "const reviewFailedPath = false && isReviewFailedPlanWriteRecoveryCandidate("
       expect(outcome.ok).toBe(true);
       if (!outcome.ok) throw new Error("unreachable");
       expect(outcome.kind).toBe("complete");
@@ -4504,7 +4472,6 @@ describe("recoverPlanStage review-failed admission", () => {
 
 describe("reconstructPausedWriteResumeInput", () => {
   test("threads specReadRoot and absolute expectedArtifactPath for a paused external implement~link-N row", async () => {
-    // @mutate v2/src/execution/workflow-runner-resume.ts "snapshotStep.specReadRoot ?? run.worktreePath" -> "run.worktreePath"
     const specReadRoot = mkdtempSync(join(tmpdir(), "paused-linked-external-spec-"));
     const indexPath = join(specReadRoot, "index.md");
     const firstSubspecPath = join(specReadRoot, "00-work.md");
@@ -4558,7 +4525,6 @@ describe("reconstructPausedWriteResumeInput", () => {
   });
 
   test("threads worktree-relative expectedArtifactPath without specReadRoot for a paused in-repo implement~link-N row", async () => {
-    // @mutate v2/src/execution/workflow-runner-resume.ts "!matchesLinkedSiblingStepId(stepId, authoredStepId)" -> "matchesLinkedSiblingStepId(stepId, authoredStepId)"
     const worktreePath = mkdtempSync(join(tmpdir(), "paused-linked-in-repo-"));
     writeFileSync(join(worktreePath, "index.md"), "- [ ] [One](./one.md)\n- [ ] [Two](./two.md)\n", "utf8");
     writeFileSync(join(worktreePath, "one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] One\n", "utf8");
@@ -4625,8 +4591,6 @@ describe("resolveWriteNonTerminatingResumeContext", () => {
   }
 
   test("admits a failed ordinary write row whose terminal loop_finished is resumable non_terminating_mutation_failed", async () => {
-    // @mutate v2/src/execution/workflow-runner-resume.ts "event.loopOutcomeKind === \"non_terminating_mutation_failed\"" -> "event.loopOutcomeKind !== \"non_terminating_mutation_failed\""
-    // @mutate v2/src/execution/workflow-runner-resume.ts "event.resumable === true" -> "event.resumable !== true"
     await withStateStore(async (store) => {
       const snapshot = {
         invocationId: "write-non-terminating-resume",
@@ -4663,7 +4627,6 @@ describe("resolveWriteNonTerminatingResumeContext", () => {
   });
 
   test("rejects non_terminating_mutation_failed terminal evidence when resumable is false", async () => {
-    // @mutate v2/src/execution/workflow-runner-resume.ts "event.resumable === true" -> "event.resumable !== true"
     await withStateStore(async (store) => {
       const snapshot = {
         invocationId: "write-non-terminating-resume-refuse",

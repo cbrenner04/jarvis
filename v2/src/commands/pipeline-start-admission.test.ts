@@ -144,7 +144,6 @@ describe("pipeline start admission", () => {
   });
 
   test("rejects absent, duplicate, and malformed seed fields before configuration access", async () => {
-    // @mutate v2/src/commands/pipeline-start-admission.ts "if (hasSeedPath === hasSeedText) return invalid;" -> "if (false) return invalid;"
     for (const input of [
       { projectKey: "demo" },
       { projectKey: "demo", seedPath: "seed.md", seedText: "text" },
@@ -169,7 +168,6 @@ describe("pipeline start admission", () => {
   });
 
   test("rejects an unregistered project before daemon contact", async () => {
-    // @mutate v2/src/commands/pipeline-start-admission.ts "if (projectEntry === undefined) {" -> "if (false) {"
     const harness = makeHarness({ readProjectRegistry: () => ({}) });
     const result = await admitPipelineStart({ projectKey: "missing", seedText: "text" }, harness.deps);
     expect(result).toEqual({
@@ -205,7 +203,6 @@ describe("pipeline start admission", () => {
   });
 
   test("rejects a missing project pipeline before daemon contact", async () => {
-    // @mutate v2/src/commands/pipeline-start-admission.ts "if (projectRecord === undefined || !(\"pipeline\" in projectRecord)) {" -> "if (false) {"
     const harness = makeHarness({ readProjectConfigRecord: () => ({ root: fixtureRoot }) });
     const result = await admitPipelineStart({ projectKey: "demo", seedText: "text" }, harness.deps);
     expect(result).toEqual({
@@ -217,7 +214,6 @@ describe("pipeline start admission", () => {
   });
 
   test("rejects missing machine-model configuration before daemon contact", async () => {
-    // @mutate v2/src/commands/pipeline-start-admission.ts "if (agents === undefined) {" -> "if (false) {"
     const harness = makeHarness({ loadMachineConfig: () => undefined });
     const result = await admitPipelineStart({ projectKey: "demo", seedText: "text" }, harness.deps);
     expect(result).toEqual({
@@ -229,7 +225,6 @@ describe("pipeline start admission", () => {
   });
 
   test("rejects invalid machine-model configuration before daemon contact", async () => {
-    // @mutate v2/src/commands/pipeline-start-admission.ts "if (isLoadError(agentModelConfig)) {" -> "if (false) {"
     const harness = makeHarness({
       loadAgentModelConfig: () => ({ errors: ["agent claude: invalid critic", "agent claude: invalid actuator"] }),
     });
@@ -243,7 +238,6 @@ describe("pipeline start admission", () => {
   });
 
   test("rejects unknown and invalid project pipeline resolution before daemon contact", async () => {
-    // @mutate v2/src/commands/pipeline-start-admission.ts "if (!pipelineResolution.ok) {" -> "if (false) {"
     for (const [pipeline, detail] of [
       [{ name: "absent", terminalAction: "ready" }, "unknown-pipeline: absent"],
       [{ name: "", terminalAction: "ready" }, "invalid-project-pipeline-config: projects.demo.pipeline.name"],
@@ -260,9 +254,6 @@ describe("pipeline start admission", () => {
   });
 
   test("rejects absolute, missing, and non-file seed paths before daemon contact", async () => {
-    // @mutate v2/src/commands/pipeline-start-admission.ts "if (isAbsolute(seedPath)) return { ok: false, detail: \"pipeline: --seed must be a relative path\\n\" };" -> "if (false) return { ok: false, detail: \"pipeline: --seed must be a relative path\\n\" };"
-    // @mutate v2/src/commands/pipeline-start-admission.ts "if (!statSync(path).isFile()) {" -> "if (false) {"
-    // @mutate v2/src/commands/pipeline-start-admission.ts "if (seedPath !== undefined) {" -> "if (false) {"
     mkdirSync(join(invocationCwd, "directory-seed"), { recursive: true });
     for (const [seedPath, detail] of [
       [join(fixtureRoot, "absolute.md"), "pipeline: --seed must be a relative path\n"],
@@ -299,8 +290,6 @@ describe("pipeline start admission", () => {
   });
 
   test("rejects direct and symlink seed escapes before daemon contact", async () => {
-    // @mutate v2/src/commands/pipeline-start-admission.ts "if (!inside(realpathSync(projectRoot), canonical)) {" -> "if (false) {"
-    // @mutate v2/src/commands/pipeline-start-admission.ts "if (!seedResolution.ok) {" -> "if (false) {"
     const outside = mkdtempSync(join(process.cwd(), ".scratch", "pipeline-admission-outside-"));
     const outsideSeed = join(outside, "outside.md");
     writeFileSync(outsideSeed, "outside", "utf8");
@@ -322,7 +311,6 @@ describe("pipeline start admission", () => {
   });
 
   test("returns a named daemon refusal without a pipeline id", async () => {
-    // @mutate v2/src/commands/pipeline-start-admission.ts "if (error instanceof RpcError) {" -> "if (false) {"
     const harness = makeHarness({
       request: async () => {
         throw new RpcError("admission_failed", "refused");
@@ -341,7 +329,6 @@ describe("pipeline start admission", () => {
   });
 
   test("returns a named malformed-success failure without a pipeline id", async () => {
-    // @mutate v2/src/commands/pipeline-start-admission.ts "if (pipelineId === undefined) {" -> "if (pipelineId !== undefined) {"
     const harness = makeHarness({ request: async () => ({ accepted: true }) });
     const result = await admitPipelineStart({ projectKey: "demo", seedText: "text" }, harness.deps);
     expect(result).toEqual({

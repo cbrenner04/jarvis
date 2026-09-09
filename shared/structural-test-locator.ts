@@ -28,7 +28,6 @@ export type MarkerSliceInput =
 export function locateMarkerSlice(input: MarkerSliceInput): string {
   if ("pattern" in input) {
     const match = input.text.match(input.pattern);
-    // @mutate shared/structural-test-locator.ts "match === null" -> "match !== null"
     if (match === null) {
       throw new StructuralTestLocatorError("marker-slice", input.searchKey ?? input.pattern.source);
     }
@@ -40,13 +39,11 @@ export function locateMarkerSlice(input: MarkerSliceInput): string {
   }
 
   const startIndex = input.text.indexOf(input.start);
-  // @mutate shared/structural-test-locator.ts "startIndex === -1" -> "startIndex !== -1"
   if (startIndex === -1) {
     throw new StructuralTestLocatorError("marker-slice", input.searchKey ?? input.start);
   }
   const sliceStart = startIndex + input.start.length;
   const endIndex = input.text.indexOf(input.end, sliceStart);
-  // @mutate shared/structural-test-locator.ts "endIndex === -1" -> "endIndex !== -1"
   if (endIndex === -1) {
     throw new StructuralTestLocatorError("marker-slice", input.searchKey ?? input.end);
   }
@@ -62,13 +59,11 @@ export type SymbolSliceInput = {
 
 export function locateSymbolSlice(input: SymbolSliceInput): string {
   const owner = input.candidates.find((text) => text.includes(input.start));
-  // @mutate shared/structural-test-locator.ts "owner === undefined" -> "owner !== undefined"
   if (owner === undefined) {
     throw new StructuralTestLocatorError("symbol-slice", input.searchKey ?? input.start);
   }
   const from = owner.indexOf(input.start);
   const toIndex = owner.indexOf(input.end, from + input.start.length);
-  // @mutate shared/structural-test-locator.ts "toIndex === -1" -> "toIndex !== -1"
   if (toIndex === -1) {
     throw new StructuralTestLocatorError("symbol-slice", input.searchKey ?? input.end);
   }
@@ -77,7 +72,6 @@ export function locateSymbolSlice(input: SymbolSliceInput): string {
 
 export function locateDiscoveredFile(discovered: Readonly<Record<string, string>>, relativePath: string): string {
   const content = discovered[relativePath];
-  // @mutate shared/structural-test-locator.ts "content === undefined" -> "content !== undefined"
   if (content === undefined) {
     throw new StructuralTestLocatorError("discovered-file", relativePath);
   }

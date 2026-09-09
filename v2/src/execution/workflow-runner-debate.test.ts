@@ -337,7 +337,6 @@ describe("executeWorkflow review-debate dispatch", () => {
 
       // Mutation checkpoint: the terminal `loop_finished` record must carry the same
       // `completionCommitError` the workflow result returns, not merely permit it in the schema.
-      // @mutate v2/src/execution/workflow-runner.ts "completionCommitError: completionCommitErrorMessage," -> ""
       const loopFinished = logSink.getEventsForRun(result.runId).filter((event) => event.kind === "loop_finished");
       expect(loopFinished.at(-1)).toMatchObject({
         loopOutcomeKind: "completion_commit_failed",
@@ -716,7 +715,6 @@ describe("executeWorkflow implement patch review", () => {
   });
 
   test("routes to the second linked subspec by criteria when the first is criteria-complete with an unchecked index box, pinning that selection across the write loop", async () => {
-    // @mutate v2/src/execution/workflow-runner.ts "resolvePinnedLinkedSubspec(worktreeIndexPath, worktreePath, routing.active.index)" -> "resolveActiveLinkedSubspec(worktreeIndexPath, worktreePath)"
     const reviewCalls: string[] = [];
     const branchName = "linked-routing-criteria-second";
     const implementStep = {
@@ -862,7 +860,6 @@ describe("executeWorkflow implement patch review", () => {
   });
 
   test("labels debate review commits by workflow pass", async () => {
-    // @mutate v2/src/execution/completion-commit.ts "return `review-debate(${step.pass}): ${title}`;" -> "return title;"
     const implementStep = createStep({
       stepId: "implement",
       role: "implement",

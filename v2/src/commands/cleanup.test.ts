@@ -1307,7 +1307,6 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     let stdout = "";
     const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
 
-    // @mutate v2/src/commands/cleanup.ts "if (worktree.branch !== undefined) return worktree.branch === spec.branch;" -> "if (worktree.branch !== undefined) return worktree.branch === spec.branch; return true;"
     await runCleanupCommand({ dryRun: true }, registry, jarvisRoot, mockRunner, async () => [], store, io);
     expect(stdout).toContain(`archive: ${join(home, unrelated)}`);
     expect(stdout).toContain(`Skipped artifact: ${join(home, owned)} — another materialized worktree owns this spec`);
@@ -3943,7 +3942,6 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
   });
 
   test("reset refusal names landed-criteria drift before dirty reuse when both apply", async () => {
-    // @mutate v2/src/commands/cleanup.ts "landedCriteriaAbsentFromBase(specTree)" -> "false"
     const branch = "impl/landed-before-dirty";
     const specDir = join(projectRoot, "v2", "spec", "ordered-spec");
     const subspecRel = "v2/spec/ordered-spec/00-task.md";
@@ -3987,7 +3985,6 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
   });
 
   test("resetStaleWorkspace refuses unlanded commits with no PR before retirement", async () => {
-    // @mutate v2/src/commands/cleanup.ts "nonStagingPaths.length > 0" -> "false"
     const branch = "impl/unlanded-no-pr";
     const worktreePath = await setupWorktreeAndBranch(branch);
     const implRel = "impl-work.txt";
@@ -4031,7 +4028,6 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
   });
 
   test("resetStaleWorkspace refuses unlanded commits even when disposableLane is set", async () => {
-    // @mutate v2/src/commands/cleanup.ts "prGate.pr === undefined" -> "prGate.pr === undefined && !disposableLane"
     const branch = "impl/unlanded-disposable";
     const worktreePath = await setupWorktreeAndBranch(branch);
     const implRel = "impl-disposable.txt";
@@ -4071,7 +4067,6 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
   });
 
   test("resetStaleWorkspace retires a disposable never-landed lane past descendant drift", async () => {
-    // @mutate v2/src/commands/cleanup.ts "options.disposableLane === true" -> "false"
     const branch = "impl/disposable-descendant";
     const worktreePath = await setupWorktreeAndBranch(branch);
     const worktreeHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
@@ -4097,7 +4092,6 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
   });
 
   test("resetStaleWorkspace retires a disposable never-landed lane past landed-criteria drift", async () => {
-    // @mutate v2/src/commands/cleanup.ts "!disposableLane" -> "false"
     const branch = "impl/disposable-landed-criteria";
     const specDir = join(projectRoot, "v2", "spec", "disposable-spec");
     const subspecRel = "v2/spec/disposable-spec/00-task.md";
@@ -4337,7 +4331,6 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
   });
 
   test("listDirtyWorktreePathsForStaleReset ignores untracked harness sidecars", async () => {
-    // @mutate v2/src/commands/cleanup.ts "if (untracked && isJarvisHarnessSidecarPath(entry.currentPath)) continue;" -> "if (false) continue;"
     const branch = "impl/dirty-list-harness-sidecars";
     const worktreePath = await setupWorktreeAndBranch(branch);
     writeFileSync(join(worktreePath, ".jarvis-verdict.md"), "verdict\n");
@@ -4350,7 +4343,6 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
   });
 
   test("listDirtyWorktreePathsForStaleReset treats staged harness sidecar changes as dirty", async () => {
-    // @mutate v2/src/commands/cleanup.ts 'entry.stagedStatus === "untracked"' -> 'entry.stagedStatus !== "untracked"'
     const branch = "impl/dirty-list-staged-harness-sidecar";
     const worktreePath = await setupWorktreeAndBranch(branch);
     writeFileSync(join(worktreePath, ".jarvis-verdict.md"), "verdict\n");
@@ -4363,7 +4355,6 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
   });
 
   test("listDirtyWorktreePathsForStaleReset ignores a worktree holding only the materialized node_modules symlink", async () => {
-    // @mutate v2/src/commands/cleanup.ts "if (untracked && isMaterializedNodeModulesPath(worktreePath, entry.currentPath)) continue;" -> "if (false) continue;"
     const branch = "impl/dirty-list-node-modules-symlink";
     const worktreePath = await setupWorktreeAndBranch(branch);
     symlinkSync("/nonexistent-target-for-test", join(worktreePath, "node_modules"));

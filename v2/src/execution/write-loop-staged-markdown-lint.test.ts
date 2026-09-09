@@ -166,7 +166,6 @@ describe("plan write step staged Markdown lint", () => {
       offendingFile: ".jarvis-plan-stage/00-one.md",
     });
     // Mutation checkpoint: skipping the pre-finalization plan-draft staged-Markdown lint guard must turn this test RED.
-    // @mutate v2/src/execution/write-loop.ts "// \"plan write step staged Markdown lint violation reprompts before finalize\" RED.\n        if (lintResult.kind === \"violation\") {" -> "// \"plan write step staged Markdown lint violation reprompts before finalize\" RED.\n        if (false) {"
   });
 
   test("plan write step clean staged Markdown finalizes without extra invocation", async () => {
@@ -428,7 +427,6 @@ describe("intent write step staged Markdown lint", () => {
       offendingFile: ".jarvis-intent-stage/lint-violation.md",
     });
     // Mutation checkpoint: skipping the pre-finalization intent-split staged-Markdown lint guard must turn this test RED.
-    // @mutate v2/src/execution/write-loop.ts "// \"intent write step staged Markdown lint violation reprompts before finalize\" RED.\n        if (lintResult.kind === \"violation\") {" -> "// \"intent write step staged Markdown lint violation reprompts before finalize\" RED.\n        if (false) {"
   });
 
   test("intent write step clean staged Markdown finalizes without extra invocation", async () => {

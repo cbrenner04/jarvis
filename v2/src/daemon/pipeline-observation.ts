@@ -40,7 +40,6 @@ export function derivePipelineBoundary(
     if (stage.kind !== "approval") continue;
     if (isAuthoredStageSatisfied(stage, record)) continue;
     if (record.status !== "awaiting" && record.status !== "pending") continue;
-    // @mutate daemon-pipeline-observation.test.ts "failed branch plus undecided sibling gate remains non-terminal"
     if (split !== null && fanOutBranchSuffixTerminallySettled(pipeline, split, record.branchKey)) continue;
     if (!branchSuffixPredecessorsSatisfied(pipeline, record, split)) continue;
     return { kind: "awaiting-approval", stageId: stage.stageId, branchKey: record.branchKey };

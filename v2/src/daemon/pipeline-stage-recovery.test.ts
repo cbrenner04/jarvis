@@ -138,7 +138,6 @@ function reviewDebateStep(args: { cwd: string; durablePath: string; branch?: str
 
 describe("resolveBlockedPlanStageRecoveryTarget", () => {
   test("selects the named non-first fan-out result for plan recovery", async () => {
-    // @mutate v2/src/daemon/pipeline-stage-recovery.ts "fanOutPlanResultForBranch(downstreamInputs, resolution.results, branchKey)" -> "({ ok: true as const, result: { steps: resolution.results[0]?.steps ?? [] } })"
     const branchKeys = ["branch-a", "branch-b", "branch-c"];
     const stages: PipelineStageRecord[] = [
       stageRow({
@@ -208,7 +207,6 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
   });
 
   test("refuses fan-out recovery when the named branch has no paired result", async () => {
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (result === undefined) {" -> "if (false) {"
     const stages: PipelineStageRecord[] = [
       stageRow({
         stageId: "intent",
@@ -386,7 +384,6 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
 
     // Keystone checkpoint: rebinding the recovered step/landing to the raw re-resolved step
     // restores redraft-shaped output (the stale, freshly-resolved durablePath) — must go RED.
-    // @mutate v2/src/daemon/pipeline-stage-recovery.ts "landing: { ...reviewStep.landing, durablePath: entryRun.specPath }," -> "landing: reviewStep.landing,"
   });
 
   test("resolves a review-failed plan stage through pipeline recovery", async () => {
@@ -498,7 +495,6 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
         },
       );
 
-      // @mutate v2/src/daemon/pipeline-stage-recovery.ts "if (!isPlanStageEntryRunRecoverable(entryRun, store, reviewStep.stepId)) {" -> "if (false) {"
       expect(resolution.ok).toBe(true);
       if (!resolution.ok) throw new Error("expected an admitted recovery target");
       expect(resolution.target.steps).toHaveLength(1);
@@ -598,9 +594,6 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
     // Mutation checkpoints: inverting each guard suppresses the refusal (and the request stays
     // absent — either the guard's `false` branch throws downstream, or it wrongly proceeds to
     // resolution/an admitted target) — must go RED.
-    // @mutate v2/src/daemon/pipeline-stage-recovery.ts "if (!pipeline) {" -> "if (false) {"
-    // @mutate v2/src/daemon/pipeline-stage-recovery.ts "if (!branchHasRows(pipeline, branchKey)) {" -> "if (false) {"
-    // @mutate v2/src/daemon/pipeline-stage-recovery.ts "if (pipeline.context === null) {" -> "if (false) {"
   });
 
   test("refuses an unrecoverable stage target with a named reason", async () => {
@@ -724,12 +717,6 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
     // absent because the bypassed guard's `false` branch either throws downstream on the
     // fixture's own missing data, or (resolution-error / cwd-mismatch) never reaches an
     // admitted target — must go RED.
-    // @mutate v2/src/daemon/pipeline-stage-recovery.ts "if (!failed) {" -> "if (false) {"
-    // @mutate v2/src/daemon/pipeline-stage-recovery.ts "if (stage.workflow !== \"plan\") {" -> "if (false) {"
-    // @mutate v2/src/daemon/pipeline-stage-recovery.ts "if (entryRunId === null || entryRun === null || !entryRun.stepId) {" -> "if (false) {"
-    // @mutate v2/src/daemon/pipeline-stage-recovery.ts "if (resolution.ok === false) {" -> "if (false) {"
-    // @mutate v2/src/daemon/pipeline-stage-recovery.ts "if (reviewStep === undefined) {" -> "if (false) {"
-    // @mutate v2/src/daemon/pipeline-stage-recovery.ts "if (reviewStep.cwd !== entryRun.worktreePath) {" -> "if (false) {"
   });
 });
 
@@ -1031,7 +1018,6 @@ describe("recoverPipelineBranchStage", () => {
 
       // Keystone checkpoint: reverting the success settlement write to `failed` restores the
       // blocked dead end (row never leaves `failed`) — must go RED.
-      // @mutate v2/src/daemon/pipeline-stage-recovery.ts "patch: { status: \"succeeded\", artifact: stageArtifactFromEntryRun(entryRunId, entryRun) }," -> "patch: { status: \"failed\", artifact: stageArtifactFromEntryRun(entryRunId, entryRun) },"
       expect(outcome.kind).toBe("recovered");
       expect(setup.draftAgentInvocations).toEqual([]);
       expect(setup.dispatchCalls).toEqual([]);
@@ -1062,7 +1048,6 @@ describe("recoverPipelineBranchStage", () => {
 
       // Continue-only-on-success checkpoint: skipping continuation on a successful settlement
       // leaves approve-plan `pending` instead of `awaiting` — must go RED.
-      // @mutate v2/src/daemon/pipeline-stage-recovery.ts "if (settlement.kind === \"recovered\") {" -> "if (false) {"
     });
   });
 
@@ -1114,7 +1099,6 @@ describe("recoverPipelineBranchStage", () => {
 
       // Mutation checkpoint: relaxing the success predicate to `outcome.ok` alone treats this
       // completion-commit failure as a success — must go RED.
-      // @mutate v2/src/daemon/pipeline-stage-recovery.ts "const succeeded = outcome.ok && outcome.kind === \"complete\";" -> "const succeeded = outcome.ok;"
       const outcome = await recoverPipelineBranchStage({ pipelineId, branchKey: "branch-a" }, deps);
 
       expect(outcome.kind).toBe("not_recovered");
@@ -1185,8 +1169,6 @@ describe("recoverPipelineBranchStage", () => {
       // Mutation checkpoints: inverting either the attempt-outcome predicate or the
       // failure-settlement guard leaves the still-invalid staged tree admitted as `succeeded` —
       // must go RED.
-      // @mutate v2/src/daemon/pipeline-stage-recovery.ts "const succeeded = outcome.ok && outcome.kind === \"complete\";" -> "const succeeded = true;"
-      // @mutate v2/src/daemon/pipeline-stage-recovery.ts "if (!succeeded) {" -> "if (false) {"
       const outcome = await recoverPipelineBranchStage(
         { pipelineId: setup.pipelineId, branchKey: "branch-a" },
         setup.deps,
@@ -1314,7 +1296,6 @@ describe("recoverPipelineBranchStage", () => {
 
       // Mutation checkpoint: bypassing the held-claim refusal reaches the throwing attempt seam
       // — must go RED.
-      // @mutate v2/src/daemon/pipeline-stage-recovery.ts "if (claim.kind === \"refused\") {" -> "if (false) {"
       const outcome = await recoverPipelineBranchStage({ pipelineId, branchKey: "branch-a" }, deps);
 
       expect(outcome).toEqual({ kind: "stage_claimed", pipelineId, branchKey: "branch-a", stageId: "plan" });
@@ -1369,7 +1350,5 @@ describe("pipeline stage recovery admission structure", () => {
     expect(releaseIndex).toBeGreaterThan(finallyIndex);
 
     // Mutation checkpoints: claim after attempt start or release outside finally must go RED.
-    // @mutate v2/src/daemon/pipeline-stage-recovery.ts "const admission = claimResolvedPipelineBranchStageRecovery(args, target, deps.store);" -> "const outcome = await attempt({ runId: target.runId, project: target.project, branch: target.branch, worktreePath: target.worktreePath, writeStepId: target.writeStepId, steps: [...target.steps], stateStore: deps.store }); const admission = claimResolvedPipelineBranchStageRecovery(args, target, deps.store);"
-    // @mutate v2/src/daemon/pipeline-stage-recovery.ts "} finally {\n    store.releasePipelineStageAdmission({ pipelineId, stageId, branchKey });\n  }" -> "  }\n  store.releasePipelineStageAdmission({ pipelineId, stageId, branchKey });"
   });
 });

@@ -103,7 +103,6 @@ describe("review-intent-enforcement", () => {
   });
 
   test("git-enabled: getChangedPaths preserves lossless status paths", async () => {
-    // @mutate v2/src/execution/review-intent-enforcement.ts "return new Set(inventory.map((entry) => entry.currentPath));" -> "return new Set(inventory.map((entry) => entry.currentPath.trim()));"
     const paths = ["space path.md", "line\nbreak.md", "café/雪.md", " leading-and-trailing.md "];
     const changed = await changedPathsFromInventory(paths.map((path) => `?? ${path}\0`).join(""));
     expect(changed).toEqual(new Set(paths));

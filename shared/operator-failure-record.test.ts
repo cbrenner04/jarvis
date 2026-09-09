@@ -57,7 +57,6 @@ describe("parseOperatorFailureRecord", () => {
     for (const json of invalid) {
       expect(parseOperatorFailureRecord(json as string)).toEqual({ kind: "invalid" });
     }
-    // @mutate shared/operator-failure-record.ts "!PATH_ORIGINS.has(value.origin)" -> "false"
     expect(parseOperatorFailureRecord(JSON.stringify(base))).toEqual({ kind: "valid", record: base });
   });
 });

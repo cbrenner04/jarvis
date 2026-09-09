@@ -41,7 +41,6 @@ describe("resolveCiTestScope", () => {
   });
 
   test("spec-only diff with unresolvable base skips tests", () => {
-    // @mutate scripts/ci-test-scope.ts "if (classified.length === 0) {" -> "if (false) {"
     expect(resolveCiTestScope(["v2/spec/some-spec/index.md"], false)).toEqual([]);
   });
 

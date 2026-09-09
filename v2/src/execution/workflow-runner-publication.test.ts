@@ -468,7 +468,6 @@ describe("executeWorkflow completion publication", () => {
   });
 
   test("workflow completion publication settles PR evidence and terminal cause atomically", async () => {
-    // @mutate v2/src/execution/workflow-runner.ts restoring standalone `setPrEvidence` before terminal `setRunStatus` on the success tail turns the test RED.
     const step1 = createStep({ stepId: "step-1", role: "implement", branchName: "atomic-workflow-pub" });
     const step2 = createStep({ stepId: "step-2", role: "implement", branchName: "atomic-workflow-pub" });
     const prNumber = 99;
@@ -779,7 +778,6 @@ describe("executeWorkflow completion publication", () => {
 
       // Mutation checkpoint: the terminal `loop_finished` record must carry the same
       // `completionCommitError` the workflow result returns, not merely permit it in the schema.
-      // @mutate v2/src/execution/workflow-runner.ts "completionCommitError: publicationCommitErrorMessage," -> ""
       const loopFinished = logSink.getEventsForRun(result.runId).filter((event) => event.kind === "loop_finished");
       expect(loopFinished.at(-1)).toMatchObject({
         loopOutcomeKind: "completion_commit_failed",
@@ -1406,7 +1404,6 @@ describe("executeWorkflow completion publication", () => {
 
       // Mutation checkpoint: the terminal `loop_finished` record must carry the same
       // `completionCommitError` the workflow result returns, not merely permit it in the schema.
-      // @mutate v2/src/execution/workflow-runner.ts "completionCommitError: uncommittedChangesMessage," -> ""
       const loopFinished = logSink.getEventsForRun(result.runId).filter((event) => event.kind === "loop_finished");
       expect(loopFinished.at(-1)).toMatchObject({
         loopOutcomeKind: "completion_commit_failed",
@@ -1570,7 +1567,6 @@ describe("executeWorkflow completion publication", () => {
   });
 
   test("review-owned finalization passes stamped readyCommand from review step on first dispatch", async () => {
-    // @mutate v2/src/execution/workflow-runner.ts "isReviewLastStep ? steps[steps.length - 1] : completionStep" -> "completionStep"
     const { workspace, withExternalWorktree } = createIntentWorktreeHarness("review-gate-command");
     const invocationId = "review-gate-command";
     const baseWriteStep = createStep({
@@ -1663,7 +1659,6 @@ describe("executeWorkflow completion publication", () => {
   });
 
   test("review-owned ready-gate repair autofix invokes stamped fixCommand from review step on first dispatch", async () => {
-    // @mutate v2/src/execution/workflow-runner.ts "gateCommands.fixCommand !== undefined ? { fixCommand: gateCommands.fixCommand } : {}"
     const writeStep = createStep({
       stepId: "implement",
       role: "implement",
@@ -2844,7 +2839,6 @@ describe("executeWorkflow completion publication", () => {
   });
 
   test("branch commit count never decreases across implement write, shrink, and review boundaries", async () => {
-    // @mutate v2/src/execution/write-loop.ts "args.bindingResolution?.role === \"shrink\"" -> "args.bindingResolution?.role !== \"shrink\""
     const workspace = initGitWorkspace("monotonic-publication-");
     mkdirSync(join(workspace, "spec/publication-history"), { recursive: true });
     writeFileSync(join(workspace, "spec/publication-history/index.md"), "# Publication history\n");
@@ -2942,7 +2936,6 @@ describe("executeWorkflow completion publication", () => {
   }
 
   test("a completed run with no content ahead of base neither pushes nor opens a PR", async () => {
-    // @mutate v2/src/execution/workflow-runner.ts "if (publicationSha !== undefined && baseDiffOutcome !== \"empty\") {" -> "if (publicationSha !== undefined) {"
     const { workspace, step } = noWorkShrinkStep("no-content-ahead-of-base", false);
     const headBeforeCompletionCommit = execFileSync("git", ["rev-parse", "HEAD"], {
       cwd: workspace,
@@ -3163,7 +3156,6 @@ describe("executeWorkflow completion publication", () => {
   }
 
   test("unattributed completion boundary publishes under the branch commit attribution", async () => {
-    // @mutate v2/src/execution/workflow-runner.ts "? await branchCommitAgent(completionStep)" -> "? boundaryAgent"
     const branchName = "unattributed-boundary-attributed";
     const { workspace, step } = unattributedBoundaryStep(branchName, "Jarvis-Agent: claude");
     const commitCalls: string[] = [];
@@ -3193,7 +3185,6 @@ describe("executeWorkflow completion publication", () => {
   });
 
   test("a branch whose commits carry no Jarvis-Agent trailer resolves no publishing identity", async () => {
-    // @mutate v2/src/execution/workflow-runner.ts "find((agent) => agent.length > 0)" -> "find((agent) => agent.length === 0)"
     // A no-break-space trailer value trims to "" in JS but is not the empty string to git, so the
     // trailer line survives into `jarvisAgentTrailers` as a genuine "" element instead of being
     // dropped entirely (an absent trailer yields `[]`, over which both the real and mutated

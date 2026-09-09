@@ -68,7 +68,6 @@ describe("createCompletionPublisher", () => {
   });
 
   it("retargets PR base to repository base when requested base ref is absent from remote", async () => {
-    // @mutate v2/src/execution/completion-publisher.ts "if (!(await branchExistsOnOriginAsync" -> "if (false && !(await branchExistsOnOriginAsync"
     const requestedBase = "plan/merged-first";
     const resolvedBase = "main";
     const ghCalls: string[] = [];

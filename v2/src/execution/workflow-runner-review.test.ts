@@ -146,7 +146,6 @@ describe("executeWorkflow implement patch light review", () => {
   });
 
   test("labels a light review mutation commit by workflow pass", async () => {
-    // @mutate v2/src/execution/workflow-runner.ts "isReviewLastStep && lastResult.reviewPass !== undefined" -> "false"
     const implementStep = createStep({
       stepId: "implement",
       role: "implement",
@@ -451,7 +450,6 @@ describe("executeWorkflow implement patch light review", () => {
   });
 
   test("labels only review passes that commit changes", async () => {
-    // @mutate v2/src/execution/workflow-runner.ts "isReviewLastStep && lastResult.reviewPass !== undefined" -> "isReviewLastStep"
     const implementStep = createStep({
       stepId: "implement",
       role: "implement",
@@ -506,7 +504,6 @@ describe("executeWorkflow implement patch light review", () => {
   });
 
   test("attributes a delayed review publication to its last mutating pass", async () => {
-    // @mutate v2/src/execution/workflow-runner.ts "return { pass: index + 1, agent: actuatorAgent(cycle as Extract<C, { kind: \"completed\" }>) };" -> "return { pass: cycles.length, agent: actuatorAgent(cycle as Extract<C, { kind: \"completed\" }>) };"
     const implementStep = createStep({
       stepId: "implement",
       role: "implement",
@@ -568,7 +565,6 @@ describe("executeWorkflow implement patch light review", () => {
 
 describe("executeWorkflow review actuator staged Markdown lint", () => {
   test("review actuator staged Markdown lint violation blocks completion before landing", async () => {
-    // @mutate v2/src/execution/reviewed-staged-markdown-lint.ts "if (result.kind === \"clean\") return { kind: \"pass\" };" -> "if (true) return { kind: \"pass\" };"
     if (
       skipReviewWithoutHarnessMarkdownlint(
         "review actuator staged Markdown lint violation blocks completion before landing",
@@ -794,7 +790,6 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
   });
 
   test("review actuator staged Markdown lint blocks a checkpoint re-entry landing", async () => {
-    // @mutate v2/src/execution/reviewed-staged-markdown-lint.ts "if (result.kind === \"clean\") return { kind: \"pass\" };" -> "if (true) return { kind: \"pass\" };"
     if (
       skipReviewWithoutHarnessMarkdownlint("review actuator staged Markdown lint blocks a checkpoint re-entry landing")
     ) {

@@ -222,7 +222,6 @@ test("implement.recover returns not_admitted for excluded outcome kinds", async 
       requestFrame("recover", "implement.recover", { project: "demo", branch: "recover", specPath: "spec.md" }),
       new AbortController().signal,
     );
-    // @mutate v2/src/daemon/daemon-workflow-admission-handlers.ts "!REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS.has(outcomeKind)" -> "REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS.has(outcomeKind)"
     expect(frame).toMatchObject({ kind: "response", result: { kind: "not_admitted" } });
     expect(fixture.calls()).toEqual({ ready: 0, publishes: 0 });
   } finally {
@@ -327,7 +326,6 @@ test("workflow failure does not re-demote a paused step run", async () => {
 
   const pausedRunId = stateStore.findRunByProjectBranch({ project: "demo", branch, stepId: "step-1" })?.id;
   expect(pausedRunId).toBeTruthy();
-  // @mutate v2/src/daemon/daemon-workflow-admission-handlers.ts "status === \"paused\"" -> "status !== \"paused\""
   expect(stateStore.loadRun(pausedRunId as string)?.status).toBe("paused");
 });
 
@@ -338,7 +336,6 @@ test("implement.recover refuses worktree_claimed without dispatch", async () => 
       requestFrame("recover", "implement.recover", { project: "demo", branch: "recover", specPath: "spec.md" }),
       new AbortController().signal,
     );
-    // @mutate v2/src/daemon/daemon-workflow-admission-handlers.ts "if (claimError) return claimError;" -> "if (!claimError) return claimError;"
     expect(frame).toMatchObject({
       kind: "error",
       code: "worktree_claimed",

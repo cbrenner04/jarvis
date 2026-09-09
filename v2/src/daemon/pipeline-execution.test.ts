@@ -519,7 +519,6 @@ function restartSweepWait(runs: Record<string, Partial<Run>>): PipelineWorkflowW
 
 describe("runPipeline", () => {
   test("red ready gate settlement names the gate command and bounded output", async () => {
-    // @mutate v2/src/daemon/run-operator-error.ts "...(event.readyGateCommand !== undefined" -> "...(false"
     const definition: PipelineDefinition = {
       name: "ready-gate-detail",
       stages: [{ stageId: "s1", kind: "workflow", workflow: "implement", review: "none" }],
@@ -1103,7 +1102,6 @@ describe("continuePipeline", () => {
     const s1MidFlight = stages().find((stage) => stage.stageId === "s1");
     expect(s1MidFlight?.status).toBe("running");
     expect(s1MidFlight?.workflowInvocationId).toBe("run-0");
-    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (claim.kind === \"refused\") {" -> "if (false) {"
 
     waitDeferred.resolve("completed");
     await Promise.all([first, second]);
@@ -1200,8 +1198,6 @@ describe("continuePipeline", () => {
       endedAt: null,
     });
     // Unlike the pending-row race above, both losing paths observe a live-linked running row and must not settle it.
-    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (claim.kind === \"refused\") {" -> "if (false) {"
-    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (admission.kind === \"refused\") {" -> "if (false) {"
 
     adoptWait.resolve("completed");
     await Promise.all([staleContinuation, winningAdopter, losingAdopter]);
@@ -1505,7 +1501,6 @@ describe("pipeline activation after restart", () => {
     expect(stages().find((s) => s.stageId === "s2")?.status).toBe("succeeded");
     expect(dispatchOrder).toEqual([1]);
     expect(terminalPublicationCalls).toBe(1);
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (!isPipelineContinuable(pipeline) && !hasRedrivableDeferredSettlement(store, pipeline, reconciledEntryRunIds)) continue;" -> "if (!isPipelineContinuable(pipeline)) continue;"
   });
 
   test("restart sweep preserves PR evidence through final deferred settlement for terminal publication", async () => {
@@ -1726,7 +1721,6 @@ describe("pipeline activation after restart", () => {
     const pipeline = store.loadPipeline(PIPELINE_ID);
     if (!pipeline) throw new Error("expected pipeline");
     expect(derivePipelineState(pipeline)).toBe("failed");
-    // @mutate v2/src/daemon/pipeline-execution.ts "const unsettledEntryRunId = unsettledTerminalStageEntryRunId(store, stage);" -> "const unsettledEntryRunId = undefined;"
   });
 
   test("restart sweep leaves a deferred stage whose entry run is still live untouched", async () => {
@@ -1765,7 +1759,6 @@ describe("pipeline activation after restart", () => {
     expect(continued).toBe(0);
     expect(dispatchCalled).toBe(false);
     expect(stages()).toEqual(before);
-    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (isLiveEntryRun(store, deferredEntryRunId)) return undefined;" -> "if (false) return undefined;"
   });
 
   test("restart sweep leaves a running stage without a deferred marker untouched", async () => {
@@ -1798,7 +1791,6 @@ describe("pipeline activation after restart", () => {
     expect(continued).toBe(0);
     expect(dispatchCalled).toBe(false);
     expect(stages()).toEqual(before);
-    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (rollupStatus !== \"failed\") return undefined;" -> "if (false) return undefined;"
   });
 
   test("restart sweep leaves an unsettled stage whose entry run is still live untouched", async () => {
@@ -1835,7 +1827,6 @@ describe("pipeline activation after restart", () => {
     expect(continued).toBe(0);
     expect(dispatchCalled).toBe(false);
     expect(stages()).toEqual(before);
-    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (isLiveEntryRun(store, linkedEntryRunId)) return undefined;" -> "if (false) return undefined;"
   });
 
   test("restart sweep leaves an unsettled stage whose entry run was just reconciled untouched", async () => {
@@ -1874,7 +1865,6 @@ describe("pipeline activation after restart", () => {
     expect(continued).toBe(0);
     expect(dispatchCalled).toBe(false);
     expect(stages()).toEqual(before);
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (reconciledEntryRunIds.has(redrivableEntryRunId)) return false;" -> "if (false) return false;"
   });
 
   test("restart sweep leaves a deferred stage whose entry run was just reconciled untouched", async () => {
@@ -1913,7 +1903,6 @@ describe("pipeline activation after restart", () => {
     expect(continued).toBe(0);
     expect(dispatchCalled).toBe(false);
     expect(stages()).toEqual(before);
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (reconciledEntryRunIds.has(redrivableEntryRunId)) return false;" -> "if (false) return false;"
   });
 
   test("resume reopens and redispatches after an unsettled terminally failed stage", async () => {
@@ -1973,7 +1962,6 @@ describe("pipeline activation after restart", () => {
     expect(stages().find((s) => s.stageId === "s1")?.status).toBe("succeeded");
     expect(stages().find((s) => s.stageId === "s2")?.status).toBe("succeeded");
     expect(dispatchOrder).toEqual([0, 1]);
-    // @mutate v2/src/daemon/pipeline-execution.ts "return hasRedrivableDeferredSettlement(store, pipeline, NO_RECONCILED_ENTRY_RUNS);" -> "return false;"
   });
 
   test("after an applied reopen dispatches only the reopened failed stage and preserves predecessor evidence", async () => {
@@ -2938,7 +2926,6 @@ describe("resumePipeline", () => {
       const successor = stages().find((stage) => stage.stageId === "s3");
       expect(successor?.workflowInvocationId).toBe("run-2");
       expect(successor?.status).toBe("succeeded");
-      // @mutate v2/src/daemon/pipeline-execution.ts "if (!resumeAwaitingClaimsOnly(derivedState) && resumeApprovedGatePendingStrandApplies(pipeline)) {" -> "if (false) {"
     }
   });
 
@@ -2995,7 +2982,6 @@ describe("resumePipeline", () => {
       expect(
         stages().find((stage) => stage.stageId === "plan" && stage.branchKey === "beta")?.workflowInvocationId,
       ).toBeNull();
-      // @mutate v2/src/daemon/pipeline-execution.ts "if (!resumeAwaitingClaimsOnly(derivedState) && resumeApprovedGatePendingStrandApplies(pipeline)) {" -> "if (resumeApprovedGatePendingStrandApplies(pipeline)) {"
     }
   });
 
@@ -3093,7 +3079,6 @@ describe("resumePipeline", () => {
       });
       expect(dispatchOrder).toEqual([]);
       expect(stages().map((stage) => ({ ...stage }))).toEqual(before);
-      // @mutate v2/src/daemon/pipeline-execution.ts "if (branchKeys.length > 0) {" -> "if (false) {"
     }
   });
 
@@ -3119,7 +3104,6 @@ describe("resumePipeline", () => {
     expect(outcome.branchKeys).toContain(FAN_OUT_RESUME_BRANCH_SIBLING_A);
     expect(dispatchOrder).toEqual([]);
     expect(stages().find((stage) => stage.stageId === "gate" && stage.branchKey === "default")?.status).toBe("skipped");
-    // @mutate v2/src/daemon/pipeline-execution.ts "failed.stage.workflow !== \"plan\"" -> "failed.stage.workflow === \"plan\""
   });
 
   test("unscoped resume does not list resumable non-plan failures on aggregate awaiting-approval", async () => {
@@ -3172,7 +3156,6 @@ describe("resumePipeline", () => {
     expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
     expect(dispatchOrder).toEqual([]);
     expect(stages().find((stage) => stage.stageId === "gate" && stage.branchKey === "alpha")?.status).toBe("awaiting");
-    // @mutate v2/src/daemon/pipeline-execution.ts "failed.stage.workflow !== \"plan\"" -> "false"
   });
 
   test("unscoped resume does not list resumable failed plan branches under aggregate running", async () => {
@@ -3231,7 +3214,6 @@ describe("resumePipeline", () => {
       expect(outcome).toEqual({ kind: "refused", pipelineId: PIPELINE_ID, reason: "pipeline_not_resumable" });
       expect(dispatchOrder).toEqual([]);
       expect(stages().map((stage) => ({ ...stage }))).toEqual(before);
-      // @mutate v2/src/daemon/pipeline-execution.ts "if (resumeAwaitingClaimsOnly(derivedState)) {" -> "if (true) {"
     }
   });
 
@@ -3324,7 +3306,6 @@ describe("resumePipeline", () => {
       expect(stages().find((stage) => stage.stageId === "plan" && stage.branchKey === "alpha")).toEqual(
         alphaPlanBefore,
       );
-      // @mutate v2/src/daemon/pipeline-execution.ts "return continueAfterAdmission(continuationBranchKey, undefined);" -> "return continueAfterAdmission();"
     }
   });
 
@@ -3378,7 +3359,6 @@ describe("resumePipeline", () => {
       expect(outcome).toEqual({ kind: "refused", pipelineId: PIPELINE_ID, reason: "pipeline_not_resumable" });
       expect(dispatchOrder).toEqual([]);
       expect(stages().map((stage) => ({ ...stage }))).toEqual(before);
-      // @mutate v2/src/daemon/pipeline-execution.ts "if (derivedState === \"running\") {" -> "if (false) {"
     }
   });
 
@@ -3605,7 +3585,6 @@ describe("resumePipeline", () => {
   });
 
   test("resume drives settlement for a stage wedged behind a durably terminal entry run", async () => {
-    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "...(entryRun.prNumber != null ? { prNumber: entryRun.prNumber } : {})," -> "...(false ? { prNumber: entryRun.prNumber } : {}),"
     const entryRunId = "run-resume-settle-1";
     const reviewRunId = "run-resume-settle-1-review";
     const snapshot = restartSweepEntrySnapshot("inv-resume-settle-1");
@@ -3664,11 +3643,9 @@ describe("resumePipeline", () => {
       },
     ]);
     expect(terminalPublicationCalls).toBe(1);
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (resumeDrivesDeferredSettlement(store, derivedState, pipeline)) return continueAfterAdmission();" -> "if (false) return continueAfterAdmission();"
   });
 
   test("deferred settlement fails when a ready pipeline's completed entry run lacks publication PR evidence", async () => {
-    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "code: \"completion_publication_missing_pr_evidence\"" -> "code: \"ignored\""
     const definition: PipelineDefinition = {
       name: "missing-publication-evidence",
       terminalAction: "ready",
@@ -3803,7 +3780,6 @@ describe("resumePipeline", () => {
     expect(outcome).toEqual({ kind: "refused", pipelineId: PIPELINE_ID, reason: "pipeline_not_resumable" });
     expect(dispatchCalled).toBe(false);
     expect(stages()).toEqual(before);
-    // @mutate v2/src/daemon/pipeline-execution.ts "return hasRedrivableDeferredSettlement(store, pipeline, NO_RECONCILED_ENTRY_RUNS);" -> "return true;"
   });
 
   test("resume still refuses an interrupted pipeline carrying a redrivable deferred stage", async () => {
@@ -3851,7 +3827,6 @@ describe("resumePipeline", () => {
     expect(outcome).toEqual({ kind: "refused", pipelineId: PIPELINE_ID, reason: "pipeline_not_resumable" });
     expect(dispatchCalled).toBe(false);
     expect(stages()).toEqual(before);
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (derivedState !== \"running\") return false;" -> "if (false) return false;"
   });
 });
 
@@ -3985,14 +3960,6 @@ describe("resumePipeline branch scope", () => {
 
     // Keystone checkpoint: rebinding branchScope to undefined restores whole-pipeline admission on the aggregate
     // fan-out state (a live `running` sibling), which refuses the whole resume instead of admitting this branch.
-    // @mutate v2/src/daemon/pipeline-execution.ts "const branchScope = options.branchKey === DEFAULT_PIPELINE_STAGE_BRANCH_KEY ? undefined : options.branchKey;" -> "const branchScope = undefined;"
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (branchScope !== undefined) {" -> "if (false) {"
-    // @mutate v2/src/daemon/pipeline-execution.ts "const reopen = store.reopenFailedPipeline({ pipelineId, branchKey: branchScope });" -> "const reopen = store.reopenFailedPipeline({ pipelineId });"
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (branchKey.trim() === \"\") return { kind: \"refused\", detail: { reason: \"branch_not_found\" } };" -> "if (true) return { kind: \"refused\", detail: { reason: \"branch_not_found\" } };"
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (findFanOutSplit(pipeline) === null) return { kind: \"refused\", detail: { reason: \"branch_not_found\" } };" -> "if (true) return { kind: \"refused\", detail: { reason: \"branch_not_found\" } };"
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (boundary === BRANCH_ADMISSION_BOUNDARY_NOT_FOUND) {" -> "if (true) {"
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (!branchSuffixRowsPresent(pipeline, boundary, branchKey)) {" -> "if (true) {"
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (hasDefault && hasNamed) return position;" -> "if (true) return position;"
     const outcome = await resumePipeline(
       PIPELINE_ID,
       { store, dispatch, wait, resolveStage },
@@ -4027,10 +3994,6 @@ describe("resumePipeline branch scope", () => {
     const dispatchOrder: number[] = [];
     const deps = pipelineTestDeps(store, dispatchOrder);
 
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (scan.kind === \"gate_awaiting\") {" -> "if (scan.kind === \"gate_rejected\") {"
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (scan.kind === \"gate_rejected\") {" -> "if (scan.kind === \"gate_awaiting\") {"
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (record.status === \"failed\") return { kind: \"resumable\" };" -> "if (true) return { kind: \"resumable\" };"
-    // @mutate v2/src/daemon/pipeline-execution.ts "return { kind: \"not_resumable\", status: record.status };" -> "return { kind: \"resumable\" };"
     const awaitingOutcome = await resumePipeline(PIPELINE_ID, deps, { branchKey: RESUME_BRANCH_AWAITING });
     expect(awaitingOutcome).toEqual({
       kind: "refused",
@@ -4261,8 +4224,6 @@ describe("resumePipeline branch scope", () => {
     const planAfter = stageRecord(after, "plan", APPROVED_PENDING_BRANCH);
     expect(planAfter?.status).toBe("succeeded");
     expect(planAfter?.workflowInvocationId).toBe("run-target-plan");
-    // @mutate v2/src/daemon/pipeline-execution.ts "return { kind: \"admissible\", reopenFailed: false };" -> "return { kind: \"not_resumable\", status: record.status };"
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (admission.reopenFailedStage) {" -> "if (true) {"
   });
 });
 
@@ -5041,8 +5002,6 @@ describe("derivePipelineState fan-out suffix settlement-first", () => {
       "plan/beta": { status: "running", workflowInvocationId: "run-beta-plan" },
     });
 
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (aggregation.anyRunning) return \"running\";" -> "if (false) return \"running\";"
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (aggregation.anyFailed) return \"failed\";" -> "if (aggregation.anyFailed) return \"failed\"; if (false) return \"running\";"
     expect(derivePipelineState(pipeline)).toBe("running");
   });
 
@@ -5053,8 +5012,6 @@ describe("derivePipelineState fan-out suffix settlement-first", () => {
       "plan/beta": { status: "running", workflowInvocationId: "run-beta-plan" },
     });
 
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (aggregation.anyRunning) return \"running\";" -> "if (false) return \"running\";"
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (aggregation.anyRejected) return \"rejected\";" -> "if (aggregation.anyRejected) return \"rejected\"; if (false) return \"running\";"
     expect(derivePipelineState(pipeline)).toBe("running");
   });
 
@@ -5066,8 +5023,6 @@ describe("derivePipelineState fan-out suffix settlement-first", () => {
       "implement/beta": { status: "succeeded", endedAt: 3 },
     });
 
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (aggregation.anyFailed) return \"failed\";" -> "if (false) return \"failed\";"
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (record.status === \"pending\") {" -> "if (false && record.status === \"pending\") {"
     expect(derivePipelineState(pipeline)).toBe("failed");
   });
 
@@ -5079,7 +5034,6 @@ describe("derivePipelineState fan-out suffix settlement-first", () => {
       "implement/beta": { status: "succeeded", endedAt: 3 },
     });
 
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (!(anyRejected || anyFailed)) {" -> "if (false) {"
     expect(derivePipelineState(pipeline)).toBe("failed");
   });
 
@@ -5090,8 +5044,6 @@ describe("derivePipelineState fan-out suffix settlement-first", () => {
       "plan/beta": {},
     });
 
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (aggregation.anyActionablePending) return \"pending\";" -> "if (false) return \"pending\";"
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (record.status === \"pending\") {" -> "if (false && record.status === \"pending\") {"
     expect(derivePipelineState(pipeline)).toBe("pending");
   });
 });
@@ -5205,7 +5157,6 @@ describe("pipeline branch fan-out execution", () => {
   });
 
   test("fan-out plan dispatch binds results by derived branch key when branchKeys order diverges from downstreamInputs", async () => {
-    // @mutate v2/src/daemon/pipeline-execution.ts "branchResult: binding.result" -> "branchResult: opts.results[opts.branchKeys.indexOf(targetBranchKey)]!"
     const downstreamInputs = [...FAN_OUT_DOWNSTREAM];
     const results = downstreamInputs.map((path) => ({
       steps: [
@@ -5333,7 +5284,6 @@ describe("pipeline branch fan-out execution", () => {
   });
 
   test("fan-out plan binding failure stops the caller branch suffix walk", async () => {
-    // @mutate v2/src/daemon/pipeline-execution.ts "failure.targetBranchKey === branchKey" -> "failure.targetBranchKey !== branchKey"
     const shortResults = [
       {
         steps: [
@@ -5380,7 +5330,6 @@ describe("pipeline branch fan-out execution", () => {
   });
 
   test("fan-out sibling dispatch failure does not stop the caller branch suffix walk", async () => {
-    // @mutate v2/src/daemon/pipeline-execution.ts "targetBranchKey === branchKey" -> "targetBranchKey !== branchKey"
     const { store, stages } = fakeStore(FAN_OUT_LINEAR_DEFINITION, {
       "run-intent": { specPath: "ready-intents", downstreamInputs: [...FAN_OUT_DOWNSTREAM] },
     });
@@ -5426,7 +5375,6 @@ describe("pipeline branch fan-out execution", () => {
   });
 
   test("fan-out plan dispatch refuses a branch-key mismatch without sibling dispatch", async () => {
-    // @mutate v2/src/daemon/pipeline-execution.ts "branchKeys: admission.branchKeys" -> "branchKeys: [...admission.branchKeys, 'gamma']"
     const downstreamInputs = [...FAN_OUT_DOWNSTREAM];
     const results = downstreamInputs.map((path) => ({
       steps: [
@@ -5452,8 +5400,6 @@ describe("pipeline branch fan-out execution", () => {
   });
 
   test("fan-out plan dispatch forwards per-branch runStaleResetPreflight from results", async () => {
-    // @mutate v2/src/daemon/pipeline-execution.ts "branchResult.runStaleResetPreflight !== undefined" -> "branchResult.runStaleResetPreflight === undefined"
-    // @mutate v2/src/daemon/pipeline-execution.ts "branchResult.preflightCapture !== undefined" -> "branchResult.preflightCapture === undefined"
     let alphaStaleResetInvoked = false;
     const alphaRejectingPreflight = async () => {
       alphaStaleResetInvoked = true;
@@ -5644,7 +5590,6 @@ describe("pipeline branch fan-out execution", () => {
     expect(alpha?.startedAt).toBe(alphaStartedAt);
     expect(alpha?.endedAt).toBeNull();
     expect(alpha?.failureDetail).toBeNull();
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (entryRunId != null && isLiveEntryRun(store, entryRunId)) return entryRunId;" -> "if (false) return entryRunId;"
 
     alphaWait.resolve("completed");
     await donePromise;
@@ -5829,7 +5774,6 @@ describe("pipeline branch fan-out execution", () => {
     const beta = stageRecord(stages(), "plan", "beta");
     expect(beta?.status).not.toBe("failed");
     expect((beta?.failureDetail as { code?: string } | null)?.code).not.toBe("worktree_claimed");
-    // @mutate v2/src/daemon/pipeline-execution.ts "const branchOutcomes = await runConcurrently(branchDispatchTasks);" -> "const branchOutcomes = []; for (const task of branchDispatchTasks) branchOutcomes.push(await task());"
 
     alphaPlanWait.resolve("completed");
     await donePromise;
@@ -5861,7 +5805,6 @@ describe("pipeline branch fan-out execution", () => {
     // Alpha's implement dispatch is stuck awaiting its deferred entry-run wait; the beta
     // sibling's own suffix walk must not be blocked behind it.
     expect(dispatchLog.some((entry) => entry.stageId === "implement" && entry.branchKey === "beta")).toBe(true);
-    // @mutate v2/src/daemon/pipeline-execution.ts "await runConcurrently(suffixDispatchTasks);" -> "for (const task of suffixDispatchTasks) await task();"
 
     alphaImplementWait.resolve("completed");
     await donePromise;
@@ -6532,7 +6475,6 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     };
   }
 
-  // @mutate v2/src/daemon/pipeline-workflow-preparation.ts "maybeResetStaleWorkspace" -> "noopStaleReset"
   test("pipeline intent-stage re-dispatch resets a poisoned worktree before the write step", async () => {
     const worktreePath = await materializeWorktree(intentBranch);
     writeFileSync(join(worktreePath, ".jarvis-intent-review-verdict.md"), "verdict\n", "utf8");
@@ -6573,7 +6515,6 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     }
   });
 
-  // @mutate v2/src/daemon/pipeline-execution.ts "if (!staleReset.ok) {" -> "if (false) {"
   test("pipeline intent-stage stale-reset refusal fails stage without dispatch", async () => {
     const worktreePath = await materializeWorktree(intentBranch);
     writeFileSync(join(worktreePath, "README.md"), "dirty\n", "utf8");
@@ -6952,7 +6893,6 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     }
   });
 
-  // @mutate v2/src/daemon/pipeline-execution.ts "classifyNeverLandedLane" -> "classifyNeverLandedLaneInverted"
   test("pipeline resume rematerializes a never-landed lane with stale worktree and draft-tree operator blocker", async () => {
     const intentWorktree = await materializeWorktree(intentBranch);
     await seedIntentReadyIntent(intentWorktree);
@@ -7015,7 +6955,6 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     }
   });
 
-  // @mutate v2/src/daemon/pipeline-execution.ts "disposableLane: true" -> "disposableLane: false"
   test("pipeline resume rematerializes never-landed lane through landed-criteria-only drift", async () => {
     const specDir = join(projectRoot, "spec", "plan");
     const subspecRel = "spec/plan/index.md";
@@ -7074,7 +7013,6 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     }
   });
 
-  // @mutate v2/src/daemon/pipeline-execution.ts "classification.neverLanded" -> "!classification.neverLanded"
   test("pipeline resume rematerializes never-landed lane with mixed harness and operator blocker", async () => {
     const intentWorktree = await materializeWorktree(intentBranch);
     await seedIntentReadyIntent(intentWorktree);
@@ -7126,7 +7064,6 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     }
   });
 
-  // @mutate v2/src/commands/cleanup.ts "nonStagingPaths.length > 0" -> "false"
   test("pipeline resume refuses never-landed lane with unpushed commits and names salvage path", async () => {
     const intentWorktree = await materializeWorktree(intentBranch);
     await seedIntentReadyIntent(intentWorktree);
@@ -7182,7 +7119,6 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     }
   });
 
-  // @mutate v2/src/daemon/pipeline-execution.ts "operatorBlockerCommittedOnBase" -> "async () => undefined"
   test("pipeline resume refuses operator blocker committed on base", async () => {
     const intentWorktree = await materializeWorktree(intentBranch);
     await seedIntentReadyIntent(intentWorktree);
@@ -7245,7 +7181,6 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     }
   });
 
-  // @mutate v2/src/commands/cleanup.ts "if (prGate.status !== \"ok\" || prGate.pr !== undefined) {" -> "if (prGate.status !== \"ok\") {"
   test("pipeline resume refuses operator blocker on live draft PR", async () => {
     const intentWorktree = await materializeWorktree(intentBranch);
     await seedIntentReadyIntent(intentWorktree);
@@ -7306,7 +7241,6 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     }
   });
 
-  // @mutate v2/src/daemon/pipeline-execution.ts "appendStagedPlanIntentPath" -> "omitStagedPlanIntentPath"
   test("failed plan resume operator blocker refusal includes staged intent.md absolute path", async () => {
     const intentWorktree = await materializeWorktree(intentBranch);
     await seedIntentReadyIntent(intentWorktree);
@@ -7368,7 +7302,6 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     }
   });
 
-  // @mutate v2/src/daemon/pipeline-execution.ts "appendStagedPlanIntentPath" -> "omitStagedPlanIntentPath"
   test("failed plan resume mixed blockers refusal includes staged intent.md absolute path", async () => {
     const intentWorktree = await materializeWorktree(intentBranch);
     await seedIntentReadyIntent(intentWorktree);
@@ -7502,7 +7435,6 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     }
   });
 
-  // @mutate v2/src/daemon/pipeline-execution.ts "skipLandedCriteriaGate: options.resetDespiteLandedCriteria === true," -> "skipLandedCriteriaGate: false,"
   test("failed plan resume with resetDespiteLandedCriteria clears landed-criteria refusal and dispatches", async () => {
     mkdirSync(join(projectRoot, "spec", "plan"), { recursive: true });
     writeFileSync(
@@ -7713,7 +7645,6 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     }
   });
 
-  // @mutate v2/src/daemon/pipeline-execution.ts "if (injection === undefined) return { ok: true };" -> "if (true) return { ok: true };"
   test("pipeline implement-stage stale-reset refusal fails stage without dispatch", async () => {
     const intentWorktree = await materializeWorktree(intentBranch);
     await seedIntentReadyIntent(intentWorktree);
@@ -7770,7 +7701,6 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     }
   });
 
-  // @mutate v2/src/daemon/pipeline-execution.ts "options.resetDespiteDirty === true" -> "false"
   test("failed implement resume with resetDespiteDirty clears dirty reuse and dispatches", async () => {
     const intentWorktree = await materializeWorktree(intentBranch);
     await seedIntentReadyIntent(intentWorktree);
@@ -7894,7 +7824,6 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     }
   });
 
-  // @mutate v2/src/daemon/pipeline-execution.ts "const staleReset = await runSharedStaleResetPreflight(" -> "const staleReset = { ok: true } as const; void runSharedStaleResetPreflight("
   test("pipeline fan-out stale-reset refusal fails branch without dispatch", async () => {
     const intentWorktree = await materializeWorktree(intentBranch);
     await seedIntentReadyIntent(intentWorktree);
@@ -8043,7 +7972,6 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     }
   });
 
-  // @mutate v2/src/daemon/pipeline-execution.ts "if (operatorPaths.length > 0) {" -> "if (false) {"
   test("resolveFailedPlanDirtyGate arms the dirty gate for operator paths outside harness draft stage", async () => {
     const intentWorktree = await materializeWorktree(intentBranch);
     await seedIntentReadyIntent(intentWorktree);
@@ -8440,7 +8368,6 @@ describe("pipeline plan stage ready-intent consumption", () => {
   });
 
   test("pipeline plan stage landing deletes consumed ready-intent from plan worktree", async () => {
-    // @mutate v2/src/execution/publication-workflow-steps.ts "paths: [resolve(project.root, input.readyIntent)]," -> "paths: [join(input.cwd, input.readyIntent)],"
     const definition = PIPELINE_REGISTRY["full-review"];
     if (definition === undefined) throw new Error("expected full-review pipeline");
     const planStageIndex = definition.stages.findIndex((stage) => stage.stageId === "plan");

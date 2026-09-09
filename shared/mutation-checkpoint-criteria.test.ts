@@ -3,7 +3,6 @@ import { isCheckpointTestFileReference } from "./mutation-checkpoint-criteria.ts
 
 describe("checkpoint pin-file recognition", () => {
   test("recognizes language-neutral checkpoint pin files", () => {
-    // @mutate shared/mutation-checkpoint-criteria.ts "return LANGUAGE_NEUTRAL_CHECKPOINT_TEST_FILE_PATTERN.test(name);" -> "return false;"
     const recognized = [
       "ChessPracticeTests/RootContentTest.swift",
       "ChessPracticeTests/RootContentTests.swift",

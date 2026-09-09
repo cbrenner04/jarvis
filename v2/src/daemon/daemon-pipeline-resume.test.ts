@@ -439,7 +439,6 @@ test("pipeline_resume lists resumable failed plan branch keys when branch key is
     },
   });
   expect(stateStore.loadPipeline(pipelineId)?.stages.map((stage) => ({ ...stage }))).toEqual(before);
-  // @mutate v2/src/daemon/pipeline-execution.ts "if (branchKeys.length > 0) {" -> "if (false) {"
 });
 
 test("pipeline_resume admits unscoped and explicit-default approved-gate pending strands", async () => {
@@ -485,7 +484,6 @@ test("pipeline_resume admits unscoped and explicit-default approved-gate pending
       stateStore.loadPipeline(pipelineId)?.stages.find((stage) => stage.stageId === "s3")?.workflowInvocationId,
     ).not.toBeNull();
     resumeHandlers.close();
-    // @mutate v2/src/daemon/pipeline-execution.ts "if (!resumeAwaitingClaimsOnly(derivedState) && resumeApprovedGatePendingStrandApplies(pipeline)) {" -> "if (false) {"
   }
 });
 
@@ -526,7 +524,6 @@ test("pipeline_resume branchKey replays only the named branch while sibling gate
   // Keystone checkpoint: dropping the forwarded branch scope derives unscoped admission on the
   // aggregate fan-out state (two siblings still `awaiting`), which claims awaiting-approval
   // instead of reopening and dispatching the target branch's failed `plan` stage.
-  // @mutate v2/src/daemon/daemon.ts "...(branchKey !== undefined ? { branchKey } : {})," -> "...(false ? { branchKey } : {}),"
   const response = await resumeHandlers.pipeline_resume(
     requestFrame("resume", "pipeline_resume", { pipelineId, branchKey: RESUME_BRANCH_TARGET }),
     new AbortController().signal,
@@ -682,7 +679,6 @@ test("pipeline_resume continues an approved-gate pending strand on the named bra
     "awaiting",
   );
   resumeHandlers.close();
-  // @mutate v2/src/daemon/pipeline-execution.ts "return { kind: \"admissible\", reopenFailed: false };" -> "return { kind: \"not_resumable\", status: record.status };"
 });
 
 test("pipeline_resume refuses the named branch's own awaiting gate without dispatch", async () => {
@@ -726,7 +722,6 @@ test("pipeline_resume rejects malformed branchKey with invalid_params", async ()
   // handler. For "" and "   " it resurfaces as resumePipeline's own branch_not_found refusal
   // result frame in place of this invalid_params error frame; for the non-string case it makes
   // the handler fault (params.branchKey.trim() throws) instead of returning invalid_params.
-  // @mutate v2/src/daemon/daemon.ts "if (params.branchKey !== undefined && (typeof params.branchKey !== \"string\" || params.branchKey.trim() === \"\")) {" -> "if (false) {"
   for (const branchKey of ["", "   "]) {
     const response = await handlers.pipeline_resume(
       requestFrame("resume", "pipeline_resume", { pipelineId, branchKey }),
@@ -755,7 +750,6 @@ test("pipeline_resume rejects malformed branchKey with invalid_params", async ()
   // omitted, turning every existing unscoped pipeline_resume test in this file red. Pin it here
   // too, rather than relying solely on the other unscoped tests in this file, so the checkpoint
   // is self-sufficient against test relocation.
-  // @mutate v2/src/daemon/daemon.ts "if (params.branchKey !== undefined && (typeof params.branchKey !== \"string\" || params.branchKey.trim() === \"\")) {" -> "if (true && (typeof params.branchKey !== \"string\" || params.branchKey.trim() === \"\")) {"
   const terminalPipelineId = stateStore.createPipeline({ definition: REOPEN_DEFINITION, context: ADMISSION_CONTEXT });
   stateStore.updateStage({
     pipelineId: terminalPipelineId,

@@ -149,7 +149,6 @@ describe("publication landing hooks", () => {
     writeFileSync(join(stage, "00-first.md"), "# First\n");
     writeFileSync(join(stage, "verdict-plan.md"), "Apply edit\n");
 
-    // @mutate v2/src/execution/publication-landing.ts "(entry.name === \"index.md\" || entry.name === \"intent.md\" || NUMBERED_SUBSPEC_PATTERN.test(entry.name))," -> "(entry.name === \"index.md\" || entry.name === \"intent.md\" || entry.name === \"verdict-plan.md\" || NUMBERED_SUBSPEC_PATTERN.test(entry.name)),"
     const result = await landPublication(
       { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: "v2/spec/sidecar-free" },
       root,
@@ -251,8 +250,6 @@ describe("publication landing hooks", () => {
     writeFileSync(join(root, ".jarvis-plan-stage", "00-first.md"), "# First\n");
     writeFileSync(join(root, ".jarvis-plan-stage", "01-second.md"), "# Second\n");
 
-    // @mutate v2/src/execution/publication-landing.ts "if (!linked.has(file)) fail(`plan: unlinked_numbered_subspec: ${file} is not linked from index.md`);" -> "if (false) fail(`plan: unlinked_numbered_subspec: ${file} is not linked from index.md`);"
-    // @mutate v2/src/execution/publication-landing.ts "assertLinkedNumberedSubspecs(stage, files);" -> ""
     await expect(
       landPublication({ kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: "v2/spec/tree" }, root),
     ).rejects.toThrow("unlinked_numbered_subspec");

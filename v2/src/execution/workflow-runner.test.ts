@@ -175,7 +175,6 @@ describe("executeWorkflow external linked implement routing", () => {
   });
 
   test("completes external linked subspecs in place while cwd stays in a spec-free worktree", async () => {
-    // @mutate v2/src/execution/workflow-runner.ts "resolveLinkedImplementRoutingRoot(step, worktreePath)" -> "worktreePath"
     const projectKey = "Org/External-Linked";
     const planName = "feature";
     const { projectRoot, specReadRoot, indexPath, firstSubspecPath } = writeExternalPlanFixture(projectKey, planName);
@@ -273,7 +272,6 @@ describe("executeWorkflow external linked implement routing", () => {
   });
 
   test("routes external linked index through dirname(specPath) when specReadRoot is absent", async () => {
-    // @mutate v2/src/execution/workflow-runner.ts "step.externalPlanSpec === true" -> "step.externalPlanSpec !== true"
     const projectKey = "Org/External-Linked-Fallback";
     const planName = "feature-fallback";
     const { projectRoot, specReadRoot, indexPath, firstSubspecPath } = writeExternalPlanFixture(projectKey, planName);

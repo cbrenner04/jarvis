@@ -567,7 +567,6 @@ describe("v2 cli dispatch", () => {
   });
 
   test("init dispatch and help expose the non-interactive contract", async () => {
-    // @mutate v2/src/cli.ts "commandEntry(\"init\", runInitCliCommand)," -> ""
     const helpCap = captureIo();
     const helpCode = await main(["help", "init"], helpCap.io);
 
@@ -607,9 +606,6 @@ describe("v2 cli dispatch", () => {
   });
 
   test("init routing guard inversions expose hidden or invalid routes", async () => {
-    // @mutate v2/src/cli.ts "if (entry !== undefined) return entry.handler(argv.slice(1), out, runtimeDeps, operatorSessionId);" -> "if (false) return entry.handler(argv.slice(1), out, runtimeDeps, operatorSessionId);"
-    // @mutate v2/src/commands/init.ts "else throw new Error(USAGE);" -> "else {}"
-    // @mutate v2/src/cli.ts "if (unknown === undefined || unknown.pathSoFar.length === 0) return candidate;" -> "if (false) return candidate;"
     const configPath = writeMachineConfig({});
 
     const dispatchCap = captureIo();

@@ -2855,7 +2855,6 @@ test("resumes paused implement~link-N into linked subspec routing and records it
     });
 
     const response = await resumeDirect(localHandlers, runId);
-    // @mutate v2/src/daemon/daemon-run-lifecycle-handlers.ts "matchesLinkedSiblingStepId(stepId, step.stepId)" -> "!matchesLinkedSiblingStepId(stepId, step.stepId)"
     expect(response).toEqual({ kind: "response", result: { ok: true } });
     expect(resumedInput?.stepId).toBe("implement~link-1");
     expect(resumedInput?.expectedArtifactPath).toBe("two.md");

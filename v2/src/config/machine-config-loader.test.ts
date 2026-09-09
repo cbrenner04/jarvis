@@ -341,7 +341,6 @@ describe("readProjectReadyCommand", () => {
   });
 
   test("readProjectReadyCommand ignores a blank or non-string readyCommand", () => {
-    // @mutate v2/src/config/machine-config-loader.ts "typeof readyCommand === \"string\" && readyCommand.trim() !== \"\"" -> "typeof readyCommand === \"string\""
     const blankPath = writeConfig({ projects: { demo: { root: "/tmp/repo", readyCommand: "   " } } });
     expect(readProjectReadyCommand("demo", blankPath)).toBeUndefined();
 
@@ -387,7 +386,6 @@ describe("readCodexSandboxMode", () => {
   });
 
   test("unrecognized Codex sandbox modes fall back to workspace-write", () => {
-    // @mutate v2/src/config/machine-config-loader.ts "(CODEX_SANDBOX_MODES as readonly string[]).includes(value)" -> "true"
     expect(readCodexSandboxMode(writeConfig({ codexSandboxMode: "full-access" }))).toBe("workspace-write");
     expect(readCodexSandboxMode(writeConfig({ codexSandboxMode: "yolo" }))).toBe("workspace-write");
   });

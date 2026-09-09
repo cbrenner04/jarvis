@@ -163,7 +163,6 @@ test("notification_wait blocks until sweep records the next delivery", async () 
 });
 
 test("notification_wait with an incident's own cursor blocks for the next delivery", async () => {
-  // @mutate v2/src/persistence/state-store.ts ") > (?, ?, ?)" -> ") >= (?, ?, ?)"
   const runId = seedBlockedRun();
   const first = deriveOperatorIncidents(store, DERIVATION_NOW_MS).find((row) => row.runId === runId);
   if (first === undefined) throw new Error("expected blocked incident");

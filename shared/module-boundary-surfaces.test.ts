@@ -44,7 +44,6 @@ afterEach(() => {
 
 describe("plan draft normalization", () => {
   test("accepts a bullet naming one path alongside dotted identifiers and numeric literals", () => {
-    // @mutate shared/module-boundary-surfaces.ts "([^`\\s]*\\/[^`\\s]*\\.[A-Za-z0-9]+)" -> "([^`\\s]*\\.[A-Za-z0-9]+)"
     const dir = scratchDir("dotted-identifiers");
     stageDraft(dir, {
       "00-fields.md":

@@ -111,7 +111,6 @@ describe("renderAttribution", () => {
   });
 
   test("renders ordered mixed step counts per agent", async () => {
-    // @mutate v2/src/execution/pr-attribution.ts "agentCounts.set(kind, (agentCounts.get(kind) ?? 0) + 1);" -> "agentCounts.set(kind, 1);"
     commitWithMessage(
       "a.txt",
       "First\n\nSpec: spec/foo/00-first.md\n\nJarvis-Agent: Claude Opus 4.8\nJarvis-Step: write",
@@ -136,7 +135,6 @@ describe("renderAttribution", () => {
   });
 
   test("normalizes review steps and deduplicates trailers per commit", async () => {
-    // @mutate v2/src/execution/pr-attribution.ts "const distinctAgents = new Set(commit.jarvisAgentTrailers.filter((agent) => agent !== \"\"));" -> "const distinctAgents = commit.jarvisAgentTrailers.filter((agent) => agent !== \"\");"
     commitWithMessage(
       "a.txt",
       [
@@ -161,7 +159,6 @@ describe("renderAttribution", () => {
   });
 
   test("suppresses invalid and single-kind step counts", async () => {
-    // @mutate v2/src/execution/pr-attribution.ts "    if (kindsPresent.length <= 1) {\n      continue;\n    }" -> "    if (kindsPresent.length < 1) {\n      continue;\n    }"
     commitWithMessage("a.txt", "First\n\nSpec: spec/foo/00-first.md\n\nJarvis-Agent: X");
     commitWithMessage("b.txt", "Second\n\nSpec: spec/foo/01-second.md\n\nJarvis-Agent: X\nJarvis-Step: bogus-step");
     commitWithMessage(
@@ -174,7 +171,6 @@ describe("renderAttribution", () => {
   });
 
   test("excludes non-subspec commits from step counts", async () => {
-    // @mutate v2/src/execution/pr-attribution.ts "return commits.filter((c) => c.firstBodyLine.startsWith(SUBSPEC_FIRST_BODY_LINE_PREFIX));" -> "return commits.filter(() => true);"
     commitWithMessage("a.txt", "First\n\nSpec: spec/foo/00-first.md\n\nJarvis-Agent: Z\nJarvis-Step: write");
     commitWithMessage("b.txt", "WIP: progress\n\nNo Spec: line here\n\nJarvis-Agent: Z\nJarvis-Step: review 1");
     const out = await renderAttribution({ cwd: dir, base: "base" });

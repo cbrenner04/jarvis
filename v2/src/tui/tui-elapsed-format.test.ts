@@ -57,7 +57,6 @@ describe("formatElapsedWallClock", () => {
 });
 
 test("aggregate duration formatting is labeled nonnegative and width-aware", () => {
-  // @mutate v2/src/tui/tui-elapsed-format.ts "if (durationMs <= 0) return \"0s\";" -> "if (durationMs <= 0) return \"\";"
   expect([
     formatAggregateDuration(-1),
     formatAggregateDuration(0),

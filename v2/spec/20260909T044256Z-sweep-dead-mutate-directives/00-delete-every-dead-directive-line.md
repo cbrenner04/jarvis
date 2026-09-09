@@ -19,10 +19,10 @@
 
 ## Acceptance criteria
 
-- [ ] `grep -rnE '^\s*// @mutate\b' v2 shared scripts --include='*.ts' | grep -v '@mutate-equivalent'` returns zero lines.
-- [ ] `bun run test:v2`, `bun run test:integration:v2`, `bun run test:shared`, and `bun run test:integration:shared` pass with the same per-file pass counts as on the pre-sweep base (inventory diff recorded in the PR).
-- [ ] `bun run check` and `bun run typecheck` pass.
-- [ ] `v2/docs/operator-runbook.md` carries no live-tense description of `@mutate` checkpoint verification.
+- [x] `grep -rnE '^\s*// @mutate\b' v2 shared scripts --include='*.ts' | grep -v '@mutate-equivalent'` returns zero lines.
+- [x] `bun run test:v2`, `bun run test:integration:v2`, `bun run test:shared`, and `bun run test:integration:shared` pass with the same per-file pass counts as on the pre-sweep base (inventory diff recorded in the PR).
+- [x] `bun run check` and `bun run typecheck` pass.
+- [x] `v2/docs/operator-runbook.md` carries no live-tense description of `@mutate` checkpoint verification.
 
 ## Documentation updates
 

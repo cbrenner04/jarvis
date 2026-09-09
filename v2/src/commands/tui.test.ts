@@ -129,7 +129,6 @@ describe("tui command", () => {
   });
 
   test("jarvis tui resolves and supplies the invoking profile and keyed socket before opening", async () => {
-    // @mutate v2/src/commands/tui.ts "if (machineProfile === undefined) return Promise.resolve(1);" -> "if (machineProfile !== undefined) return Promise.resolve(1);"
     const socketPath = "/tmp/daemon-0123456789abcdef.sock";
     let seenSocketPath: string | undefined;
     let seenMachineProfile: string | undefined;
@@ -267,8 +266,6 @@ describe("tui command", () => {
   });
 
   test("jarvis tui supplies monitor controls whose detached admission uses pipeline start seams", async () => {
-    // @mutate v2/src/commands/tui.ts "admitDetachedPipelineStart: detachedPipelineStartAdmission(deps)," -> "admitDetachedPipelineStart: async () => ({ kind: \"admitted\", pipelineId: \"bypass\" }),"
-    // @mutate v2/src/tui/tui-entry.tsx "return deps.admitDetachedPipelineStart(input);" -> "return Promise.resolve({ kind: \"admitted\", pipelineId: \"bypass\" });"
     const paths = tempPaths();
     const configPath = pipelineMachineConfig("demo", { name: "fast", terminalAction: "leave-draft" }, fx.repoRoot);
     const registry = { demo: { root: fx.repoRoot } };

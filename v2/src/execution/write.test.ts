@@ -286,7 +286,6 @@ describe("write behavior", () => {
   });
 
   test("done completes when only a wrapped human-only criterion is unchecked", async () => {
-    // @mutate v2/src/execution/write.ts ".filter((criterion) => !criterion.humanOnly && !criterion.checked)" -> ".filter((criterion) => criterion.humanOnly && !criterion.checked)"
     const { jarvisRoot } = createJarvisHome();
     const subspec = writeImplementSubspec(
       jarvisRoot,
@@ -1025,8 +1024,6 @@ describe("write behavior", () => {
   });
 
   test("plan redraft recognizes only reserved harness blocker sections", async () => {
-    // @mutate v2/src/execution/write.ts "if (lines[i] !== BLOCKER_HEADING) continue;" -> "if (false) continue;"
-    // @mutate v2/src/execution/write.ts "return body.startsWith(RESERVED_HARNESS_BLOCKER_MARKER);" -> "return true;"
     const { jarvisRoot } = createJarvisHome();
     const branchName = "plan-redraft-recognize-reserved";
     const stagePath = seedPreservedPlanDraftStage(jarvisRoot, branchName);
@@ -1061,7 +1058,6 @@ describe("write behavior", () => {
   });
 
   test("plan redraft removes complete harness blocker sections without disturbing agent content", async () => {
-    // @mutate v2/src/execution/write.ts "remaining.splice(section.start, section.end - section.start);" -> "undefined;"
     const { jarvisRoot } = createJarvisHome();
     const branchName = "plan-redraft-remove-sections";
     const stagePath = seedPreservedPlanDraftStage(jarvisRoot, branchName);
@@ -1082,7 +1078,6 @@ describe("write behavior", () => {
   });
 
   test("plan lint reprompt forwards canonical harness diagnostics", async () => {
-    // @mutate v2/src/execution/write.ts "if (diagnostics.length === 0) return prompt;" -> "if (true) return prompt;"
     const { jarvisRoot } = createJarvisHome();
     const branchName = "plan-lint-reprompt-diagnostics";
     const stagePath = seedPreservedPlanDraftStage(jarvisRoot, branchName);
@@ -1121,7 +1116,6 @@ describe("write behavior", () => {
   });
 
   test("plan redraft preserves a non-reserved agent blocker beside harness diagnostics", async () => {
-    // @mutate v2/src/execution/write.ts ".filter((section) => isReservedHarnessBlockerBody(section.body))" -> ".filter(() => true)"
     const { jarvisRoot } = createJarvisHome();
     const branchName = "plan-redraft-mixed-blockers";
     const stagePath = seedPreservedPlanDraftStage(jarvisRoot, branchName);
@@ -1258,7 +1252,6 @@ describe("write behavior", () => {
   });
 
   test("plan-draft contract_miss rejects ambiguous nested spec/ directories", async () => {
-    // @mutate v2/src/execution/write.ts "if (nestedDirs.length !== 1)" -> "if (nestedDirs.length === 1)"
     const { jarvisRoot } = createJarvisHome();
     const ambiguousFixtures: Array<{ label: string; setup: (stagePath: string) => void }> = [
       {
@@ -1714,7 +1707,6 @@ describe("write behavior", () => {
     expect(specGuidance).not.toContain("jarvis1");
     expect(specGuidance).not.toContain("## Plan same-seam siblings serially");
     expect(specGuidance).not.toContain("~/.jarvis/specs/");
-    // @mutate shared/spec-guidance-path.ts "\"v2\", \"docs\", \"spec-guidance-agent-core.md\"" -> "\"v1\", \"docs\", \"spec-guidance.md\""
   });
 
   test("plan-reviewed preset draft step invokes binding", async () => {

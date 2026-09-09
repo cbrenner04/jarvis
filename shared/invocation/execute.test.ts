@@ -333,7 +333,6 @@ describe("shared invocation fallback", () => {
   });
 
   test("ok invocation carries adapter warnings on invocation_completed row", async () => {
-    // @mutate shared/invocation/execute.ts "warnings: okResult?.warnings ?? []," -> ""
     const rows: InvocationCompletedRecord[] = [];
     await executeWithQuotaFallback({
       prompt: "p",

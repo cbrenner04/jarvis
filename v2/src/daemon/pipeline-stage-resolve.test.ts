@@ -1580,8 +1580,6 @@ describe("resolveStageWorkflowSteps", () => {
     const result = await resolveStageWorkflowSteps(fanOutDefinition, 2, baseContext, stageArtifacts, deps);
     expect(result.ok).toBe(true);
     if (!result.ok || "results" in result) throw new Error("expected single resolution");
-    // @mutate v2/src/daemon/pipeline-stage-resolve.ts "return stageArtifacts.get(key);" -> "return stageArtifacts.get(candidate.stageId);"
-    // @mutate v2/src/daemon/pipeline-stage-resolve.ts "if (splitPosition === undefined || stageIndex <= splitPosition) {" -> "if (true) {"
     expect(seenInput?.specPath).toBe(betaPlanIndex);
     expect(seenInput?.baseRef).toBe("main");
     expect(seenInput?.baseRef).not.toBe("plan/beta");

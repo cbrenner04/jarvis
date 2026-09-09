@@ -353,8 +353,6 @@ describe("livenessTone", () => {
 
 describe("buildTreeRunRow liveness", () => {
   test("omits liveness for every not-live run or ad-hoc row while retaining live liveness", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "...(run.isLive ? { live: \"live\", liveTone: \"active\" as const } : {})," -> "...(run.isLive ? { live: \"live\", liveTone: \"active\" as const } : { live: \"idle\" }),"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "...(run.isLive ? { live: \"live\", liveTone: \"active\" as const } : {})," -> "...(run.isLive ? {} : { live: \"live\", liveTone: \"active\" as const }),"
     const liveRow: WorkflowTableRow = {
       kind: "standalone",
       run: workflowRun("run-live", "in-progress", "inv-live", { isLive: true }),
@@ -547,7 +545,6 @@ describe("monitorTextLines", () => {
 
   test("renders ruled Queue heading only for queued rows", () => {
     // Mutation checkpoint: disabling empty-Queue suppression must turn this assertion RED.
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (queuedRuns.length === 0) return [];" -> "if (false) return [];"
     // Empty queue: no heading painted at all.
     const emptyLines = monitorTextLines(monitorState({ runs: [SINGLE_STEP_RUN], selectedNodeId: "run-single" }));
     expect(emptyLines.some((line) => line.includes("Queue"))).toBe(false);
@@ -579,7 +576,6 @@ describe("monitorTextLines", () => {
     const newerIndex = lines.findIndex((line) => line.includes("run-queued-newer"));
 
     // Keystone checkpoint: reverting to the bare `Queue` label must turn this assertion RED.
-    // @mutate v2/src/tui/tui-monitor-lines.ts "row(untoned(`── Queue (${queuedRuns.length}) ──`))" -> "row(untoned(\"Queue\"))"
     expect(queueIndex).toBeGreaterThan(-1);
     expect(olderIndex).toBeGreaterThan(queueIndex);
     expect(newerIndex).toBeGreaterThan(olderIndex);
@@ -745,7 +741,6 @@ describe("monitorLeftPaneTreeRows", () => {
 describe("monitorLeftPaneAttentionRows", () => {
   test("renders the pinned attention segment", () => {
     // Keystone checkpoint: an in-body mutation directive disables the complete attention consumer integration.
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (projection.total === 0) return [];" -> "return [];"
     const undatedGate = pipelineSnapshot({
       pipelineId: "pipe-gate",
       name: "full-review",
@@ -856,7 +851,6 @@ describe("monitorLeftPaneAttentionRows", () => {
     // Mutation checkpoint: in-body mutation directives invert overflow rendering, empty-segment
     // suppression, durable-age omission, queue order, attention viewport subtraction, and the
     // tree-budget floor; each turns this test red.
-    // @mutate v2/src/tui/tui-monitor-lines.ts "projection.overflow > 0 ? [row(untoned(`+${projection.overflow} more`))] : []" -> "[row(untoned(`+${projection.overflow} more`))]"
     expect(overflowLines).toHaveLength(1 + 6 + 1);
     expect(overflowLines.at(-1)).toBe("+2 more");
     expect(overflowLines.slice(1, 7).every((line) => line.includes("idle"))).toBe(true);
@@ -872,7 +866,6 @@ describe("monitorLeftPaneAttentionRows", () => {
     const fewLines = monitorLeftPaneAttentionRows(fewState, TREE_NOW_MS).map(joinMonitorRow);
     expect(fewLines).toHaveLength(1 + 3);
     expect(fewLines.some((line) => line.includes("more"))).toBe(false);
-    // @mutate v2/src/tui/tui-monitor-lines.ts "age === \"\" ? [] : [separator(), untoned(`idle ${age}`)]" -> "[separator(), untoned(`idle ${age}`)]"
 
     const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage("run-implement")] });
     const matchedRun = workflowRun("run-implement", "in-progress", INVOCATION_MATCHED);
@@ -908,9 +901,6 @@ describe("monitorLeftPaneAttentionRows", () => {
     expect(tight.fullTreeRows.map((r) => r.id)).toEqual(roomy.fullTreeRows.map((r) => r.id));
     expect(roomy.treeRows).toEqual(roomy.fullTreeRows);
     expect(tight.treeRows.length).toBe(Math.max(0, tightLayout.paneHeight - 3 - 1 - 1));
-    // @mutate v2/src/tui/tui-monitor-lines.ts "leftPaneAttentionRowCount(state) + leftPaneWorkHeadingRowCount(displayNodes) + leftPaneQueueHeadingRowCount(state)" -> "leftPaneWorkHeadingRowCount(displayNodes) + leftPaneQueueHeadingRowCount(state)"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "leftPaneAttentionRowCount(state) + leftPaneWorkHeadingRowCount(displayNodes) + leftPaneQueueHeadingRowCount(state)" -> "leftPaneAttentionRowCount(state) + leftPaneQueueHeadingRowCount(state)"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "leftPaneAttentionRowCount(state) + leftPaneWorkHeadingRowCount(displayNodes) + leftPaneQueueHeadingRowCount(state)" -> "leftPaneAttentionRowCount(state) + leftPaneWorkHeadingRowCount(displayNodes)"
 
     // Queue reservation and rows are unaffected by the attention/Work segments (existing Queue stays after the tree).
     expect(monitorLeftPaneQueueRows(baseState).map(joinMonitorRow)[0]).toBe("── Queue (1) ──");
@@ -923,7 +913,6 @@ describe("monitorLeftPaneAttentionRows", () => {
     });
     const overwhelmedLayout = treeLayout(7); // paneHeight 3
     expect(monitorLeftPaneTreeRows(overwhelmedState, overwhelmedLayout, TREE_NOW_MS).treeRows).toEqual([]);
-    // @mutate v2/src/tui/tui-monitor-lines.ts "Math.max(0, layout.paneHeight - reserved)" -> "layout.paneHeight - reserved"
   });
 
   test("a gate set alone exceeding the pane height floors the tree budget at zero and keeps every gate selectable", () => {
@@ -957,7 +946,6 @@ describe("monitorLeftPaneAttentionRows", () => {
 describe("monitorLeftPaneWorkHeadingRows", () => {
   test("renders ruled Work heading from the full work model", () => {
     // Mutation checkpoint: painting Work for a genuinely empty model must turn this guard RED.
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (displayNodes.length === 0) return [];" -> "return [];"
     const emptyState = monitorState({});
     expect(monitorLeftPaneWorkHeadingRows(emptyState)).toEqual([]);
 
@@ -1004,7 +992,6 @@ describe("mergePipelineSnapshots", () => {
   test("merging two sockets serving the same pipeline yields one snapshot per pipelineId", () => {
     // Keystone: reverting the never-seen-pipelineId guard to always-push reproduces the pre-fix
     // duplicate-row defect (concatenation, one snapshot per socket instead of one per pipelineId).
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (existingIndex === undefined) {" -> "if (true) {"
     const snapshotA = pipelineSnapshot({ pipelineId: "shared", state: "running" });
     const snapshotB = pipelineSnapshot({ pipelineId: "shared", state: "running" });
 
@@ -1016,7 +1003,6 @@ describe("mergePipelineSnapshots", () => {
 
   test("the more-advanced snapshot at the later socket path outranks the earlier, less-advanced one", () => {
     // Mutation checkpoint: collapsing the collision guard to first-encounter-wins turns this test RED.
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (pipelineSnapshotOutranks(snapshot, socketPath, current, currentSocketPath)) {" -> "if (false) {"
     const lessAdvanced = pipelineSnapshot({ pipelineId: "shared", state: "running", finishedAtMs: null, stages: [] });
     const moreAdvanced = pipelineSnapshot({
       pipelineId: "shared",
@@ -1036,7 +1022,6 @@ describe("mergePipelineSnapshots", () => {
 
   test("the more-advanced snapshot at the earlier socket path outranks the later, less-advanced one", () => {
     // Mutation checkpoint: collapsing the collision guard to unconditional last-wins turns this test RED.
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (pipelineSnapshotOutranks(snapshot, socketPath, current, currentSocketPath)) {" -> "if (true) {"
     const moreAdvanced = pipelineSnapshot({
       pipelineId: "shared",
       state: "succeeded",
@@ -1176,7 +1161,6 @@ describe("monitorSelectableNodeIds", () => {
   });
 
   test("every ad-hoc row stays selectable when the work tree overflows the pane", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "node.kind === \"adhoc\" ? [node] : flattenPipelineNode(node, effectiveExpansion, builderRuns)" -> "node.kind === \"adhoc\" ? [] : flattenPipelineNode(node, effectiveExpansion, builderRuns)"
     const terminalColumns = 80;
     const terminalRows = 24;
     const layout = computeShellLayout(terminalColumns, terminalRows, 0);
@@ -1204,7 +1188,6 @@ describe("monitorSelectableNodeIds", () => {
 
   test("prefixes capped attention ids before every full-flatten tree id and excludes overflow", () => {
     // Mutation checkpoint: dropping the attention-id prefix, or including the overflow row, must turn this pin RED.
-    // @mutate v2/src/tui/tui-monitor-lines.ts "[...projection.rows.map((attentionRow) => attentionRow.id), ...fullTreeRows.map((row) => row.id)]" -> "fullTreeRows.map((row) => row.id)"
     const sevenFailures: DaemonListRunRow[] = Array.from({ length: 7 }, (_, index) =>
       workflowRun(`run-select-${index}`, "failed", `inv-select-${index}`, {
         finishedAtMs: TREE_NOW_MS - 1_000 * (index + 1),
@@ -1261,9 +1244,7 @@ describe("monitorSelectableNodeIds", () => {
 describe("attention selection target detail", () => {
   test("attention selection resolves target detail beyond collapsed ancestors", () => {
     // Keystone checkpoint: an in-body mutation directive disables the complete attention-target resolution.
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (attentionTargetId !== null) {" -> "if (false) {"
     // Mutation checkpoint: suppressing attention-target aliasing here must turn this pin RED.
-    // @mutate v2/src/tui/tui-monitor-lines.ts "return projection.rows.find((attentionRow) => attentionRow.id === selected)?.targetId ?? null;" -> "return null;"
     const pipelineId = "pipe-attr";
     const attributedRun = workflowRun("run-attributed", "failed", "inv-attr", {
       finishedAtMs: TREE_NOW_MS - 5_000,
@@ -1303,7 +1284,6 @@ describe("attention selection target detail", () => {
 
     // Mutation checkpoint: resolving stages against the complete joined model (not painted/expanded rows) here
     // must turn collapsed-ancestor target resolution RED.
-    // @mutate v2/src/tui/tui-monitor-lines.ts "for (const stage of pipelineStageNodes(pipeline)) {" -> "for (const stage of []) {"
     const attributedState = { ...state, selectedNodeId: attributedRow?.id ?? null };
     const attributedLines = monitorRightPaneSegmentRows(attributedState, TREE_NOW_MS).map(joinMonitorRow);
     expect(attributedState.selectedNodeId).toBe(attributedRow?.id ?? null);
@@ -1377,7 +1357,6 @@ describe("monitorRightPaneSegmentRows", () => {
   ];
 
   test("pipeline selection renders complete identity and durable-order stage roll-up", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (treeRow?.kind === \"pipeline\") {" -> "if (false) {"
     const state = monitorState({
       runs: detailedRuns,
       selectedNodeId: PIPELINE_ID,
@@ -1388,7 +1367,6 @@ describe("monitorRightPaneSegmentRows", () => {
   });
 
   test("pipeline detail renders absolute timestamps as ISO 8601 UTC", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "value: formatAbsoluteTimestamp(value)" -> "value: String(value)"
     const state = monitorState({
       runs: detailedRuns,
       selectedNodeId: PIPELINE_ID,
@@ -1404,7 +1382,6 @@ describe("monitorRightPaneSegmentRows", () => {
   });
 
   test("absent absolute timestamps paint no detail row", () => {
-    // @mutate v2/src/tui/tui-timestamp-format.ts "if (epochMs == null) { return \"\"; }" -> "if (false) { return \"\"; }"
     const snapshot = pipelineSnapshot({
       pipelineId: "pipe-no-absolute-timestamps",
       state: "pending",
@@ -1535,8 +1512,6 @@ describe("monitorRightPaneSegmentRows", () => {
   });
 
   test("a failed stage with no start paints failed before start in tree and detail", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (stage.status === \"failed\" && stage.startedAt === null) return \"failed before start\";" -> "if (false) return \"failed before start\";"
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return compact ? \"failed!\" : \"failed before start\";" -> "return \"failed before start\";"
     const failedEndedAt = TREE_NOW_MS - 10_000;
     const snapshot = pipelineSnapshot({
       pipelineId: "pipe-failed-before-start",
@@ -1584,7 +1559,6 @@ describe("monitorRightPaneSegmentRows", () => {
   });
 
   test("pipeline selection separates identity, stage roll-up, and stage detail with blank rows", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "return index === 0 ? [] : [row(untoned(SECTION_GAP))];" -> "return [];"
     const stageNodeId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
     const state = monitorState({
       runs: detailedRuns,
@@ -1623,7 +1597,6 @@ describe("monitorRightPaneSegmentRows", () => {
   });
 
   test("a stage-less pipeline renders no Stages heading", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "const present = sections.filter((section) => section.rows.length > 0);" -> "const present = [...sections];"
     const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [] });
     const state = monitorState({
       selectedNodeId: PIPELINE_ID,
@@ -1657,7 +1630,6 @@ describe("monitorRightPaneSegmentRows", () => {
   });
 
   test("a decided gate record paints a compact gate row with its outcome", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "return status === \"approved\" || status === \"rejected\";" -> "return false;"
     const snapshot = pipelineSnapshot({
       pipelineId: PIPELINE_ID,
       stages: [
@@ -1679,7 +1651,6 @@ describe("monitorRightPaneSegmentRows", () => {
   });
 
   test("roll-up rows drop an empty elapsed and an empty decided age", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "const present = fields.filter(([, value]) => value !== \"\");" -> "const present = [...fields];"
     const snapshot = pipelineSnapshot({
       pipelineId: PIPELINE_ID,
       stages: [
@@ -1701,7 +1672,6 @@ describe("monitorRightPaneSegmentRows", () => {
   });
 
   test("stage selection appends the selected durable record with exact branch and stable diagnostics", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (treeRow?.kind === \"stage\") {" -> "if (false) {"
     const stageNodeId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
     const state = monitorState({
       runs: detailedRuns,
@@ -1735,7 +1705,6 @@ describe("monitorRightPaneSegmentRows", () => {
   });
 
   test("stage detail under a branch is that branch's own record", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "pipeline?.snapshot.stages.find((stage) => stage.stageId === treeRow.stageId && stage.branchKey === treeRow.branchKey)" -> "pipeline?.snapshot.stages.find((stage) => stage.stageId === treeRow.stageId)"
     const snapshot = pipelineSnapshot({
       pipelineId: PIPELINE_ID,
       stages: [
@@ -1813,7 +1782,6 @@ describe("monitorRightPaneSegmentRows", () => {
   });
 
   test("a completed intent stage artifact renders its downstream intents one path per line", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "return typeof record.entryRunId === \"string\" && typeof record.specPath === \"string\";" -> "return false;"
     const artifact = {
       entryRunId: "run-intent",
       invocationId: "inv-intent",
@@ -1854,7 +1822,6 @@ describe("monitorRightPaneSegmentRows", () => {
   });
 
   test("an artifact with no downstream inputs paints no downstreamInputs label", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (paths.length === 0) return [];" -> "if (paths.length < 0) return [];"
     const snapshot = pipelineSnapshot({
       pipelineId: PIPELINE_ID,
       stages: [
@@ -1881,7 +1848,6 @@ describe("monitorRightPaneSegmentRows", () => {
   });
 
   test("a stage with no artifact paints no Artifact heading", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (isEmptyDetailValue(artifact)) return [];" -> "if (false) return [];"
     const snapshot = pipelineSnapshot({
       pipelineId: PIPELINE_ID,
       stages: [snapshotStage({ stageId: "intent", artifact: null })],
@@ -1897,7 +1863,6 @@ describe("monitorRightPaneSegmentRows", () => {
   });
 
   test("an unrecognized artifact shape renders as indented multi-line JSON", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "const artifactSection = stageArtifactSection(stage.artifact);" -> "const artifactSection = { rows: detailRows([[\"artifact\", stage.artifact]]) };"
     const snapshot = pipelineSnapshot({
       pipelineId: PIPELINE_ID,
       stages: [
@@ -1952,7 +1917,6 @@ describe("monitorRightPaneSegmentRows", () => {
   });
 
   test("pipeline project resolves entry runs and is omitted when joined rows are absent or conflict", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (projects.size !== 1 || project.length === 0) return [];" -> "if (false) return [];"
     const absent = pipelineSnapshot({
       pipelineId: "pipe-absent",
       stages: [snapshotStage({ stageId: "write", workflowInvocationId: null })],
@@ -1999,9 +1963,6 @@ describe("monitorRightPaneSegmentRows", () => {
   });
 
   test("attributed run detail is resolved only from the selected durable row", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "state.runs.find((run) => run.runId === selectedRunId)" -> "state.runs[0]"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (selectedRun === undefined) {" -> "if (true) {"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (state.steeringFeedback !== null) {" -> "if (false) {"
     const snapshot = pipelineSnapshot({
       ...detailedSnapshot,
       stages: [detailedStage],
@@ -2111,7 +2072,6 @@ describe("monitorRightPaneSegmentRows", () => {
   });
 
   test("unattributed run detail omits null and empty-string fields", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (isEmptyDetailValue(value)) return [];" -> "if (false) return [];"
     const selectedRun: DaemonListRunRow = {
       runId: "run-unattributed",
       project: "",
@@ -2150,7 +2110,6 @@ describe("monitorRightPaneSegmentRows", () => {
   });
 
   test("detail rows keep falsy-but-present values", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "return value === undefined || value === null || value === \"\";" -> "return !value;"
     const selectedRun: DaemonListRunRow = {
       runId: "run-falsy",
       project: "demo",
@@ -2175,7 +2134,6 @@ describe("monitorRightPaneSegmentRows", () => {
   });
 
   test("ad-hoc run detail omits pipeline context when a pipeline row precedes it", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (treeRow === undefined || treeRow.kind === \"adhoc\") return undefined;" -> "if (treeRow === undefined) return undefined;"
     const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage("run-active")] });
     const matchedRun = workflowRun("run-implement", "in-progress", INVOCATION_MATCHED);
     // Distinct (project, branch) from matchedRun's so this invocation stays genuinely unattributed.
@@ -2306,7 +2264,6 @@ describe("monitorRightPaneSegmentRows", () => {
   }
 
   test("split detail wraps losslessly by display columns without ellipsis", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "wrapMonitorRows(rows, effectiveRightPaneWidth(layout, columns))" -> "rows"
     const columns = 120;
     const width = computeShellLayout(columns, 72, 0).rightWidth;
     const rows = monitorRightPaneSegmentRows(wrappingState(columns), TREE_NOW_MS);
@@ -2343,7 +2300,6 @@ describe("monitorRightPaneSegmentRows", () => {
   });
 
   test("stacked detail uses the full terminal width", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "layout.layoutMode === \"split\"" -> "true"
     const columns = 80;
     const layout = computeShellLayout(columns, 72, 0);
     const rows = monitorRightPaneSegmentRows(wrappingState(columns), TREE_NOW_MS);
@@ -2357,7 +2313,6 @@ describe("monitorRightPaneSegmentRows", () => {
   });
 
   test("one-column detail floors width, preserves zero-column marks, and atomically overflows wide graphemes", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "Math.max(1, layout.layoutMode === \"split\" ? layout.rightWidth : columns)" -> "layout.layoutMode === \"split\" ? layout.rightWidth : columns"
     const feedback = `\u0301${"narrow".repeat(4)}界`;
     const state = monitorState({
       runs: [SINGLE_STEP_RUN],
@@ -2383,9 +2338,6 @@ describe("monitorRightPaneSegmentRows", () => {
   });
 
   test("wrapping preserves source segment tones across wide and combining characters", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (segments.length > 0 && usedWidth + graphemeWidth > width) flush();" -> "if (false) flush();"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (current !== undefined && current.tone === segment.tone) {" -> "if (false) {"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (segments.length > 0 || wrapped.length === 0) flush();" -> "if (false) flush();"
     const source = [
       {
         segments: [
@@ -2423,10 +2375,6 @@ describe("monitorRightPaneSegmentRows", () => {
 
 describe("monitorDockLines", () => {
   test("classifies every pipeline state into the four dock buckets", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (snapshot.state === \"awaiting-approval\") return \"awaitingGate\";" -> "if (snapshot.state !== \"awaiting-approval\") return \"awaitingGate\";"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (RUNNING_PIPELINE_STATES.has(snapshot.state)) return \"running\";" -> "if (!RUNNING_PIPELINE_STATES.has(snapshot.state)) return \"running\";"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (snapshot.state === \"succeeded\") return \"done\";" -> "if (snapshot.state !== \"succeeded\") return \"done\";"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (FAILED_PIPELINE_STATES.has(snapshot.state)) return \"failed\";" -> "if (!FAILED_PIPELINE_STATES.has(snapshot.state)) return \"failed\";"
     const snapshots = [
       pipelineSnapshot({ pipelineId: "awaiting", state: "awaiting-approval" }),
       pipelineSnapshot({ pipelineId: "pending", state: "pending" }),
@@ -2445,7 +2393,6 @@ describe("monitorDockLines", () => {
   });
 
   test("classifies a reachable fan-out gate ahead of sibling running work", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (snapshotHasReachableUndecidedGate(snapshot)) return \"awaitingGate\";" -> "if (false) return \"awaitingGate\";"
     const snapshot = pipelineSnapshot({
       pipelineId: "fan-out",
       name: "full-review",
@@ -2506,7 +2453,6 @@ describe("monitorDockLines", () => {
   });
 
   test("counts pipeline observations by the merge-level winner per pipelineId", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "buckets[classifyPipelineObservation(snapshot)] += 1;" -> "buckets[classifyPipelineObservation(snapshot)] += 0;"
     // "colliding" is running (unfinished) on /a and terminal on /b; the merge winner is /b's
     // terminal snapshot (finished beats unfinished), so it counts once as "done", not twice.
     const state = monitorState({
@@ -2520,7 +2466,6 @@ describe("monitorDockLines", () => {
   });
 
   test("renders running and awaiting-gate counts before dock metadata", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "return `${running} running · ${awaitingGate} awaiting gate · ${failed} failed · ${done} done · ${profile}@${digest} · refresh ${refresh}${feedback}`;" -> "return `${running + awaitingGate} active · ${profile}@${digest} · refresh ${refresh}${feedback}`;"
     const state = monitorState({
       machineProfile: "profile",
       keyedSocketDigest: "digest",
@@ -2543,8 +2488,6 @@ describe("monitorDockLines", () => {
   });
 
   test("classifies ad-hoc workflow groups through their terminal rollup", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (workflowGroupHasActiveMember(members) || !isTerminalRunStatus(rollup)) {" -> "if (!workflowGroupHasActiveMember(members) && isTerminalRunStatus(rollup)) {"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (rollup === \"completed\") {" -> "if (rollup !== \"completed\") {"
     const workflow = (invocationId: string) => ({
       invocationId,
       steps: [
@@ -2722,8 +2665,6 @@ describe("monitorDockLines", () => {
   });
 
   test("retains command feedback alongside RPC errors, clears only RPC on refresh, and fits both suffixes at narrow widths", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (state.lastRpcError !== null && state.lastRpcError !== undefined) {" -> "if (false) {"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (state.lastCommandResult !== null && state.lastCommandResult !== undefined) {" -> "if (false) {"
     const state = monitorState({
       machineProfile: "profile",
       keyedSocketDigest: "digest",
@@ -2755,10 +2696,6 @@ describe("monitorDockLines", () => {
   });
 
   test("bounds and sanitizes input at split, stacked, and tiny widths", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (/^[\\p{Cc}\\p{Cf}]+$/u.test(grapheme)) return DOCK_CONTROL_REPLACEMENT;" -> "if (false) return DOCK_CONTROL_REPLACEMENT;"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (used + paintedWidth > columns) break;" -> "if (false) break;"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (grapheme === \"\\t\") {" -> "if (false) {"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "width > columns ? DOCK_CONTROL_REPLACEMENT : safe" -> "false ? DOCK_CONTROL_REPLACEMENT : safe"
     for (const terminalColumns of [80, 120]) {
       for (const commandBuffer of [
         "",
@@ -2835,9 +2772,6 @@ describe("monitorDockLines", () => {
   });
 
   test("keeps clamped start, middle, and end cursors visible without mutating state", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (index === cursor) atoms.push({ text: DOCK_CURSOR, width: 1, cursor: true });" -> "if (false) atoms.push({ text: DOCK_CURSOR, width: 1, cursor: true });"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (cursor === graphemes.length) atoms.push({ text: DOCK_CURSOR, width: 1, cursor: true });" -> "if (false) atoms.push({ text: DOCK_CURSOR, width: 1, cursor: true });"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (cursorIndex < 0) return [];" -> "if (true) return [];"
     const buffer = "zero-one-two-three-four";
     const cases = [
       [-10, ["> ▏zero-on", "e-two-thre"]],
@@ -2859,10 +2793,6 @@ describe("monitorDockLines", () => {
   });
 
   test("keeps the cursor visible when an atomic grapheme consumes a row boundary", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "return columns === 1 ? \"\" : \"> \";" -> "return false ? \"\" : \"> \";"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (current.used + width > current.capacity) current = second;" -> "if (false) current = second;"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (current.used + paintedWidth > current.capacity) break;" -> "if (false) break;"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if (![first, second].some((line) => line.content.includes(DOCK_CURSOR))) {" -> "if (false) {"
     const lines = monitorDockLines(monitorState({ commandBuffer: "界a", commandCursor: 2, terminalColumns: 3 }));
 
     expect(lines.slice(1, 3)).toEqual(["> ▏", ""]);
@@ -2870,12 +2800,6 @@ describe("monitorDockLines", () => {
   });
 
   test("shows contextual command-focus hints without multiline editing", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "if ((state.focus ?? \"tree\") === \"command\") return \"Esc tree · Enter submit\";" -> "if (false) return \"Esc tree · Enter submit\";"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "state.selectedNodeId !== null && isExpandablePipelineNodeId(pipelineNodes, state.selectedNodeId)" -> "false"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "state.runs.find((run) => run.runId === state.selectedNodeId)" -> "state.runs.find(() => false)"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "    selectedRun?.isLive === true &&" -> "    false &&"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "...(expandable ? [\"e expand/collapse\"] : [])" -> "...[]"
-    // @mutate v2/src/tui/tui-monitor-lines.ts "...(killable ? [\"k kill\"] : [])" -> "...[]"
     const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage("run-active")] });
     const stageId = monitorPipelineStageNodeId(PIPELINE_ID, "implement", "default");
     const active = workflowRun("run-active", "in-progress", INVOCATION_MATCHED);
@@ -2916,7 +2840,6 @@ describe("monitorDockLines", () => {
 
   test("dock hints advertise Enter reveal only for an attention-row selection", () => {
     // Mutation checkpoint: forcing the reveal condition true in tui-monitor-lines.ts must turn this pin RED.
-    // @mutate v2/src/tui/tui-monitor-lines.ts "state.selectedNodeId !== null && resolveAttentionTargetId(state, state.selectedNodeId) !== null" -> "true"
     const branchPipelineId = "pipe-hint-branch";
     const branchSnapshot = pipelineSnapshot({
       pipelineId: branchPipelineId,
@@ -3028,7 +2951,6 @@ describe("dismissed run exclusion", () => {
 
   test("a shown dismissed run row is labeled dismissed", () => {
     // Mutation checkpoint: removing the run marker helper's early return drops the marker and turns this test red.
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if ((run.dismissedAt ?? null) === null) return label;" -> "if (false) return label;"
     const dismissedRun = workflowRun("run-dismissed-stage-leaf", "in-progress", "inv-dismissed-stage-leaf", {
       dismissedAt: TREE_NOW_MS + 500,
     });

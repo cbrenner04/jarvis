@@ -222,7 +222,6 @@ export function classifiedStatusWritesMapEqualityGuard(writes: readonly StatusWr
 }
 
 test("every terminal pipeline stage-run write carries endedAt", () => {
-  // @mutate v2/src/daemon/pipeline-execution.ts "store.updateStage({ pipelineId, stageId: record.stageId, branchKey, patch: { status: \"skipped\", endedAt: Date.now() } });" -> "store.updateStage({ pipelineId, stageId: record.stageId, branchKey, patch: { status: \"skipped\" } });"
   const writes = listPipelineStageStatusWriteSourcePaths().flatMap(parseStatusWrites);
   expect(writes.length).toBeGreaterThan(0);
   expect(TERMINAL_STAGE_RUN_STATUSES.has("approved")).toBe(false);
@@ -510,7 +509,6 @@ describe("unsettledTerminalStageEntryRunId", () => {
     expect(
       unsettledTerminalStageEntryRunId(store, stageRecord({ status: "running", workflowInvocationId: entryRunId })),
     ).toBeUndefined();
-    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (rollupStatus !== \"failed\") return undefined;" -> "if (false) return undefined;"
   });
 });
 
@@ -711,7 +709,6 @@ describe("adoptPipelineStageUnderAdmission", () => {
     expect(releaseCount).toBe(0);
     expect(reloadedEntryRunIds).toEqual([entryRunId]);
     expect(patches).toHaveLength(0);
-    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (admission.kind === \"refused\") {" -> "if (false) {"
   });
 });
 
@@ -747,7 +744,6 @@ describe("dispatchPipelineStage", () => {
     expect(patches.some((p) => p.patch.status === "succeeded")).toBe(false);
     expect(patches.some((p) => p.patch.status === "failed")).toBe(false);
     expect(patches.some((p) => p.patch.endedAt !== undefined)).toBe(false);
-    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "const rollupStatus = await wait(dispatched.entryRunId);" -> "store.updateStage({ ...stageTarget, patch: { status: \"failed\", endedAt: Date.now() } }); const rollupStatus = await wait(dispatched.entryRunId);"
     waitDeferred.resolve("completed");
     await donePromise;
   });
@@ -841,7 +837,6 @@ describe("dispatchPipelineStage", () => {
     expect(patches[0]?.patch.failureDetail).toEqual({ code: "worktree_claimed", message: "already claimed" });
     expect(patches[0]?.patch.startedAt).toBeUndefined();
     expect(patches[0]?.patch.workflowInvocationId).toBeUndefined();
-    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (!dispatched.ok) {" -> "if (false) {"
   });
 
   test("post-admission linkage-write failure preserves the live entry run and settles after recovery", async () => {
@@ -888,7 +883,6 @@ describe("dispatchPipelineStage", () => {
       invocationId: "inv-link-fail",
       specPath: "spec/recover.md",
     });
-    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (admittedEntryRunId !== undefined && isLiveEntryRun(store, admittedEntryRunId)) {" -> "if (false) {"
   });
 
   test("post-admission wait rejection preserves the live entry run and settles after recovery", async () => {
@@ -932,7 +926,6 @@ describe("dispatchPipelineStage", () => {
       invocationId: "inv-wait-fail",
       specPath: "spec/wait-recover.md",
     });
-    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (admittedEntryRunId !== undefined && isLiveEntryRun(store, admittedEntryRunId)) {" -> "if (false) {"
   });
 
   test("dispatch catch over a live admitted entry run records settlement_deferred", async () => {
@@ -967,7 +960,6 @@ describe("dispatchPipelineStage", () => {
       entryRunId,
       rollupStatus: "in-progress",
     });
-    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (admittedEntryRunId !== undefined && isLiveEntryRun(store, admittedEntryRunId)) {" -> "if (false) {"
   });
 
   test("non-success settlement declines to terminalize a still-live entry run", async () => {
@@ -999,7 +991,6 @@ describe("dispatchPipelineStage", () => {
       entryRunId,
       rollupStatus: "failed",
     });
-    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "if (isLiveEntryRun(store, entryRunId)) {" -> "if (false) {"
   });
 
   test("adopt settlement does not terminalize when wait resolves non-completed over a still-live entry run", async () => {
@@ -1111,7 +1102,6 @@ describe("dispatchPipelineStage", () => {
       nextAction: "resume",
       message,
     });
-    // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "composeRunOperatorError(entryRun, terminalRecord, logRecords)" -> "composeRunOperatorError(entryRun)"
   });
 
   test("a completed rollup without a recorded spec path records failed, not succeeded with an empty artifact", async () => {
@@ -1380,7 +1370,6 @@ async function runImplementStageDispatch(
 
 describe("pipeline stage dispatch step-config stamping", () => {
   test("dispatches implement write steps with configured fix and ready commands", async () => {
-    // @mutate v2/src/commands/workflow-step-config-stamp.ts "...(fixCommand !== undefined ? { fixCommand } : {})," -> "...(false ? { fixCommand } : {}),"
     const dispatched = await runImplementStageDispatch(
       { projects: { demo: { fixCommand: "npm run fix-custom", readyCommand: "npm run verify-custom" } } },
       "light",

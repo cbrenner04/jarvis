@@ -1738,7 +1738,6 @@ describe("shared workflow-start preparation", () => {
 
 describe("readyCommand admission", () => {
   test("stamps the configured readyCommand onto write steps", async () => {
-    // @mutate v2/src/commands/workflow.ts "...(readyCommand !== undefined ? { readyCommand } : {})," -> "...({}),"
     const cap = captureIo();
     const sent: unknown[] = [];
     const configPath = writeMachineConfig({ projects: { demo: { readyCommand: "npm run verify" } } });
@@ -1790,8 +1789,6 @@ describe("readyCommand admission", () => {
   });
 
   test("stamps configured gate commands onto review and review-debate steps", async () => {
-    // @mutate v2/src/commands/workflow-step-config-stamp.ts "...(fixCommand !== undefined ? { fixCommand } : {})," -> "...(false ? { fixCommand } : {}),"
-    // @mutate v2/src/commands/workflow-step-config-stamp.ts "...(readyCommand !== undefined ? { readyCommand } : {})," -> "...(false ? { readyCommand } : {}),"
     const cap = captureIo();
     const sent: unknown[] = [];
     const configPath = writeMachineConfig({
@@ -2509,7 +2506,6 @@ describe("implement preflight stale workspace reset", () => {
   /** Pre-fix hardcoded stale-reset roster; vacuous when membership grows without a matching edit. */
   const HAND_MAINTAINED_STALE_RESET_WORKFLOWS = new Set(["implement", "plan", "intent"]);
 
-  // @mutate v2/src/commands/stale-reset-workspace.ts "const STALE_RESET_WORKFLOWS = new Set([\"implement\", \"plan\", \"intent\"]);" -> "const STALE_RESET_WORKFLOWS = new Set([\"implement\", \"plan\"]);"
   test("STALE_RESET_WORKFLOWS membership includes intent", () => {
     expect(STALE_RESET_WORKFLOWS.has("intent")).toBe(true);
     expect(STALE_RESET_WORKFLOWS.has("implement")).toBe(true);
@@ -3351,7 +3347,6 @@ describe("implement preflight stale workspace reset", () => {
   });
 
   test("run workflow implement refuses re-run when worktree HEAD is not a descendant of base", async () => {
-    // @mutate v2/src/commands/cleanup.ts "isDescendantOfBase(worktreeHead, baseRef, projectRoot, runner)" -> "true"
     const worktreePath = await materializeStaleWorktree();
     const worktreeHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
     writeFileSync(join(resetProjectRoot, "base-advance.md"), "advance\n", "utf8");

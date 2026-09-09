@@ -138,27 +138,6 @@ describe("parseTuiCommand", () => {
   });
 
   test("pins every parser guard", () => {
-    // @mutate v2/src/tui/tui-command-parser.ts "if (escaping) {" -> "if (false) {"
-    // @mutate v2/src/tui/tui-command-parser.ts "if (/\\s/u.test(character) || character === '\"' || character === \"\\\\\") {" -> "if (false) {"
-    // @mutate v2/src/tui/tui-command-parser.ts "if (character === \"\\\\\") {" -> "if (false) {"
-    // @mutate v2/src/tui/tui-command-parser.ts "if (character === '\"') {" -> "if (false) {"
-    // @mutate v2/src/tui/tui-command-parser.ts "if (/\\s/u.test(character) && !quoted) {" -> "if (false) {"
-    // @mutate v2/src/tui/tui-command-parser.ts "if (tokenStarted) {" -> "if (false) {"
-    // @mutate v2/src/tui/tui-command-parser.ts "if (quoted) return { kind: \"error\", code: \"unterminated_quote\" };" -> "if (false) return { kind: \"error\", code: \"unterminated_quote\" };"
-    // @mutate v2/src/tui/tui-command-parser.ts "if (escaping === true) token += \"\\\\\";" -> "if (false) token += \"\\\\\";"
-    // @mutate v2/src/tui/tui-command-parser.ts "if (tokenStarted === true) tokens.push(token);" -> "if (false) tokens.push(token);"
-    // @mutate v2/src/tui/tui-command-parser.ts "if (tokens.length < 2) return error(\"missing_project\");" -> "if (false) return error(\"missing_project\");"
-    // @mutate v2/src/tui/tui-command-parser.ts "if (value === undefined || value.startsWith(\"-\")) return error(\"missing_seed_value\");" -> "if (false) return error(\"missing_seed_value\");"
-    // @mutate v2/src/tui/tui-command-parser.ts "if (token.startsWith(\"-\")) return error(\"unknown_option\");" -> "if (false) return error(\"unknown_option\");"
-    // @mutate v2/src/tui/tui-command-parser.ts "if (pathSeeds.length > 1 || textSeeds.length > 1) return error(\"duplicate_seed_flag\");" -> "if (false) return error(\"duplicate_seed_flag\");"
-    // @mutate v2/src/tui/tui-command-parser.ts "if (pathSeeds.length === 1 && textSeeds.length === 1) return error(\"both_seed_flags\");" -> "if (false) return error(\"both_seed_flags\");"
-    // @mutate v2/src/tui/tui-command-parser.ts "if (pathSeeds.length === 0 && textSeeds.length === 0) return error(\"missing_seed_choice\");" -> "if (false) return error(\"missing_seed_choice\");"
-    // @mutate v2/src/tui/tui-command-parser.ts "if (pathSeeds[0] !== undefined) {" -> "if (false) {"
-    // @mutate v2/src/tui/tui-command-parser.ts "if (tokenized.kind === \"error\") return tokenized;" -> "if (false) return tokenized;"
-    // @mutate v2/src/tui/tui-command-parser.ts "if (tokens.length === 0) return error(\"malformed_input\");" -> "if (false) return error(\"malformed_input\");"
-    // @mutate v2/src/tui/tui-command-parser.ts "if (verb !== \"start\" && verb !== \"expand\" && verb !== \"collapse\") return error(\"unknown_verb\");" -> "if (false) return error(\"unknown_verb\");"
-    // @mutate v2/src/tui/tui-command-parser.ts "if (verb === \"expand\" || verb === \"collapse\") {" -> "if (false) {"
-    // @mutate v2/src/tui/tui-command-parser.ts "if (tokens.length > 1) return error(\"unexpected_arguments\");" -> "if (false) return error(\"unexpected_arguments\");"
     expectCode("unknown", "unknown_verb");
   });
 });

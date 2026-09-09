@@ -43,7 +43,6 @@ describe("shared linked-subspec routing", () => {
   });
 
   test("selects the second link by criteria when the first is criteria-complete despite an unchecked index box", () => {
-    // @mutate shared/linked-subspec-routing.ts "selected === undefined && incomplete" -> "selected === undefined && !incomplete"
     const dir = setup("# Tree\n\n- [ ] [One](one.md)\n- [ ] [Two](two.md)\n", {
       "one.md": "# One\n\n## Acceptance criteria\n\n- [x] Done\n",
       "two.md": "# Two\n\n## Acceptance criteria\n\n- [ ] Todo\n",

@@ -339,7 +339,6 @@ describe("buildImplementWorkflowSteps", () => {
   });
 
   test("rejects an already-complete linked tree with only a wrapped human-only criterion unchecked", async () => {
-    // @mutate shared/linked-subspec-routing.ts "return parseSpec(body).acceptanceCriteria.some((criterion) => !criterion.humanOnly && !criterion.checked);" -> "return parseSpec(body).acceptanceCriteria.some((criterion) => criterion.humanOnly && !criterion.checked);"
     const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
     const machineProfile = writeValidProfile();
 
@@ -590,7 +589,6 @@ describe("buildImplementWorkflowSteps", () => {
   });
 
   test("builds an incomplete external plan index without base-ref membership", async () => {
-    // @mutate v2/src/execution/implement-workflow-steps.ts "resolvedInput.externalPlanSpec === true" -> "resolvedInput.externalPlanSpec !== true"
     const projectKey = "Org/Repo";
     const planName = "feature";
     const { root, specReadRoot, indexPath, registry } = writeRegisteredExternalPlanFixture(projectKey, planName, {

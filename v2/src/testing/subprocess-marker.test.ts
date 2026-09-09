@@ -13,7 +13,6 @@ function fakeChild(): { child: ChildProcess; stdout: PassThrough; emitter: Event
 
 describe("waitForStdoutMarker", () => {
   test("waits past the former ten-second budget for a late marker", async () => {
-    // @mutate v2/src/testing/subprocess-marker.ts "if (buffered.includes(marker)) {" -> "if (false) {"
     const { child, stdout } = fakeChild();
     const originalNow = Date.now;
     const started = originalNow();

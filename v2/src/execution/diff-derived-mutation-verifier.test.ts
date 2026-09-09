@@ -1062,7 +1062,6 @@ index 1234567..abcdefg 100644
     }
 
     it("a killing set slower than the ceiling settles inconclusive naming the measured baseline", async () => {
-      // @mutate v2/src/execution/diff-derived-mutation-verifier.ts "if (baseline.kind !== \"measured\") return \"inconclusive\";" -> "if (false) return \"inconclusive\";"
       const clock = fakeClock();
       const result = await verifyTimeout(
         async (_cwd, _scope, options) => {
@@ -1100,7 +1099,6 @@ index 1234567..abcdefg 100644
     });
 
     it("the per-candidate bound scales with the whole resolved killing set and is clamped", async () => {
-      // @mutate v2/src/execution/diff-derived-mutation-verifier.ts "Math.ceil(baselineMs * KILLING_TEST_BUDGET_FACTOR)" -> "KILLING_TEST_BUDGET_FLOOR_MS"
       expect(killingTestBudgetMs(1_000)).toBe(KILLING_TEST_BUDGET_FLOOR_MS);
       expect(killingTestBudgetMs(45_000)).toBe(90_000);
       expect(killingTestBudgetMs(100_000)).toBe(KILLING_TEST_BUDGET_CEILING_MS);

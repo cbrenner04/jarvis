@@ -16,7 +16,7 @@ import {
   mutationRecordFileName,
   parseEquivalentMutationDirective,
   peakVerifierTestRuns,
-  resetVerifierTestRunTrackingForTest,
+  resetVerifierTestRunTracking,
   resolveImporterScanRoot,
   resolveSiblingKillingTests,
   runDiffDerivedScopedTests,
@@ -968,7 +968,7 @@ index f424d7da..be281d02 100644
   });
 
   it("caps concurrent bun test invocations at MAX_CONCURRENT_VERIFIER_TEST_RUNS", async () => {
-    resetVerifierTestRunTrackingForTest();
+    resetVerifierTestRunTracking();
     // Deterministic overlap: each run blocks on an explicit gate (no real timers,
     // which the determinism guard forbids), so admitted runs stay in flight until
     // released and the semaphore's peak reflects the cap.
@@ -1484,7 +1484,7 @@ index 1234567..abcdefg 100644
   });
 
   it("overlaps distinct-file candidate cycles while serializing same-file cycles", async () => {
-    resetVerifierTestRunTrackingForTest();
+    resetVerifierTestRunTracking();
     const other = dualGuardFixture("src/other.ts", "other", "c", "d");
     const diff = multi.diff + other.diff;
 

@@ -1571,8 +1571,8 @@ describe("executeWorkflow review dispatch", () => {
             throw new ReadyGateError("bun run ready", 1, "still red");
           },
           runFixCommand: async () => {},
-          bypassPersistedReadyGateRepairFenceForTest: true,
-          mutationRepairBindingFactoryForTest: () => ({
+          persistedRepairFenceEnforcer: async () => undefined,
+          mutationRepairBindingFactory: () => ({
             id: "auto-derived-implement-binding",
             metadata: { agent: "current-agent", model: "current-model" },
             invoke: async ({ prompt, cwd }) => {
@@ -2172,7 +2172,7 @@ describe("executeWorkflow review dispatch", () => {
             },
             completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" }),
             readyFinalizer: async () => {},
-            bypassPersistedReadyGateRepairFenceForTest: true,
+            persistedRepairFenceEnforcer: async () => undefined,
           });
           expect(bypassed).toMatchObject({ ok: true });
           expect(bypassedCommitCalls).toBeGreaterThan(0);
@@ -2348,7 +2348,7 @@ describe("executeWorkflow review dispatch", () => {
             },
             completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" }),
             readyFinalizer: async () => {},
-            bypassPersistedReadyGateRepairFenceForTest: true,
+            persistedRepairFenceEnforcer: async () => undefined,
           });
           expect(bypassed).toMatchObject({ ok: true });
           expect(bypassedCommitCalls).toBeGreaterThan(0);
@@ -2407,7 +2407,7 @@ describe("executeWorkflow review dispatch", () => {
             },
             completionPublisher: async () => ({ pushSha: "deadbeef", prNumber: 3, prUrl: "https://example.test/pr/3" }),
             readyFinalizer: async () => {},
-            bypassPersistedReadyGateRepairFenceForTest: true,
+            persistedRepairFenceEnforcer: async () => undefined,
           });
           expect(bypassed).toMatchObject({ ok: true });
           expect(bypassedCommitCalls).toBeGreaterThan(0);

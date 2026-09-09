@@ -220,7 +220,7 @@ let peakConcurrentVerifierTestRuns = 0;
 let currentConcurrentVerifierTestRuns = 0;
 let verifierTestRunSemaphore: VerifierTestRunSemaphore | undefined;
 
-export function resetVerifierTestRunTrackingForTest(): void {
+export function resetVerifierTestRunTracking(): void {
   peakConcurrentVerifierTestRuns = 0;
   currentConcurrentVerifierTestRuns = 0;
   verifierTestRunSemaphore = undefined;
@@ -856,10 +856,6 @@ function isInsideTimerCallback(content: string, lineNum: number): boolean {
   }
 
   return false;
-}
-
-export function isInsideTimerCallbackForTest(content: string, lineNum: number): boolean {
-  return isInsideTimerCallback(content, lineNum);
 }
 
 async function testCandidate(

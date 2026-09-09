@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { findProductionInvertHookViolations, isTestFile, shouldScanFile } from "./guard-production-test-flags.ts";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+  collectProductionSourceFiles,
+  findProductionInvertHookViolations,
+  isTestFile,
+  runProductionInvertHookGuard,
+  shouldScanFile,
+} from "./guard-production-test-flags.ts";
 
 function violations(source: string, file = "v2/src/example.ts") {
   return findProductionInvertHookViolations([{ file, source }]);
@@ -234,7 +242,7 @@ describe("production invert-hook guard", () => {
   describe("scope and skips", () => {
     test("skips shared/prompts/step-rules.ts", () => {
       const source =
-        'export const DEFAULT_WRITE_STEP_RULES = "Do not add `set*ForTest`/`set*ForTests` exports, `invert*ForTest` and `*ForTest`/`*ForTests` module variables, `invert*` function parameters, `*ForTest`/`*ForTests` function parameters, `invert*ForTest` type members, or `*ForTest`/`*ForTests` type members in production code.";';
+        'export const DEFAULT_WRITE_STEP_RULES = "Do not add `*ForTest`/`*ForTests` type members, function parameters, module variables, or exported functions/variables, nor `invert*` function parameters, in production code.";';
       expect(violations(source, "shared/prompts/step-rules.ts")).toEqual([]);
     });
 
@@ -255,6 +263,112 @@ describe("production invert-hook guard", () => {
       expect(shouldScanFile("v2/src/tui/View.test.tsx")).toBe(false);
       expect(violations(source, "v2/src/module.test.ts")).toEqual([]);
       expect(violations(source, "v2/src/tui/View.test.tsx")).toEqual([]);
+    });
+  });
+
+  describe("real-source shapes", () => {
+    test("flags a ForTest member after a nested object member in a real WriteLoopInput excerpt", () => {
+      const source = [
+        "export type WriteLoopInput = WriteExecuteInput & {",
+        "  /** Optional binding resolution overrides. */",
+        "  bindingResolution?: { resolve: (id: string) => ResolvedAgentBinding; retries?: number };",
+        "  readyFinalizer?: ReadyFinalizer;",
+        "  /** Test seam: skip persisted-fence enforcement on completed-run retry and resume recovery. */",
+        "  bypassPersistedReadyGateRepairFenceForTest?: boolean;",
+        "  landingContractReprompt?: { violation: string; offendingFile: string };",
+        "};",
+      ].join("\n");
+      expect(violations(source, "v2/src/execution/write-loop.ts")).toEqual([
+        { file: "v2/src/execution/write-loop.ts", line: 6, shape: "*ForTest type member" },
+      ]);
+    });
+
+    test("flags a seam declared on an intersection type alias", () => {
+      const source = [
+        "export type ReviewMutationResumeDeps = IntentFinalizationResumeDeps & {",
+        "  mutationRepair?: { verifier: MutationVerifier };",
+        "  bypassPersistedReadyGateRepairFenceForTest?: boolean;",
+        "  mutationRepairBindingFactoryForTest?: (binding: ResolvedAgentBinding) => InvocationBinding;",
+        "};",
+        "type A = B & { fooForTest?: boolean };",
+        "type U = C | { barForTests: number };",
+      ].join("\n");
+      expect(violations(source, "v2/src/execution/workflow-runner-resume.ts")).toEqual([
+        { file: "v2/src/execution/workflow-runner-resume.ts", line: 3, shape: "*ForTest type member" },
+        { file: "v2/src/execution/workflow-runner-resume.ts", line: 4, shape: "*ForTest type member" },
+        { file: "v2/src/execution/workflow-runner-resume.ts", line: 6, shape: "*ForTest type member" },
+        { file: "v2/src/execution/workflow-runner-resume.ts", line: 7, shape: "*ForTest type member" },
+      ]);
+    });
+
+    test("flags an exported ForTest function without a set prefix", () => {
+      const source = [
+        "let peak = 0;",
+        "export function resetVerifierTestRunTrackingForTest(): void {",
+        "  peak = 0;",
+        "}",
+        "export function isInsideTimerCallbackForTest(content: string, lineNum: number): boolean {",
+        "  return content.length > lineNum;",
+        "}",
+        "export const buildFixtureForTests = () => peak;",
+        "function helper() {}",
+        "export { helper as helperForTest };",
+      ].join("\n");
+      expect(violations(source, "v2/src/execution/diff-derived-mutation-verifier.ts")).toEqual([
+        { file: "v2/src/execution/diff-derived-mutation-verifier.ts", line: 2, shape: "*ForTest export" },
+        { file: "v2/src/execution/diff-derived-mutation-verifier.ts", line: 5, shape: "*ForTest export" },
+        { file: "v2/src/execution/diff-derived-mutation-verifier.ts", line: 8, shape: "*ForTest export" },
+        { file: "v2/src/execution/diff-derived-mutation-verifier.ts", line: 8, shape: "*ForTest module variable" },
+        { file: "v2/src/execution/diff-derived-mutation-verifier.ts", line: 10, shape: "*ForTest export" },
+      ]);
+    });
+
+    test("does not flag mentions that are not declarations", () => {
+      const source = [
+        "import type { RunnerForTests } from './runners.ts';",
+        "const runners = new Map<string, RunnerForTests>();",
+        "function run(deps: { enabled: boolean }, fooForTest: never) {",
+        "  if (deps.enabled) {",
+        "    return runners.size;",
+        "  }",
+        "  return 0;",
+        "}",
+        "export function check(deps: Deps): boolean {",
+        "  const fooForTest = deps.fooForTest === true;",
+        "  if (fooForTest) {",
+        "    return true;",
+        "  }",
+        "  return invertFoo(deps);",
+        "}",
+      ].join("\n");
+      // Only the parameter declaration on line 3 is a seam; the type argument, property access,
+      // local binding, and condition are mentions.
+      expect(violations(source, "v2/src/example.ts")).toEqual([
+        { file: "v2/src/example.ts", line: 3, shape: "*ForTest parameter" },
+      ]);
+    });
+
+    test("reports every seam present in the scan roots", () => {
+      const cwd = join(import.meta.dir, "..");
+      const reported = new Set(
+        runProductionInvertHookGuard(cwd).map((violation) => `${violation.file}:${violation.line}`),
+      );
+      const candidatePattern = /(?<![.\w])((?:invert\w+)|(?:\w+ForTests?))(?=\s*[?:(=,)])/g;
+      const candidates: string[] = [];
+      for (const { file } of collectProductionSourceFiles(cwd)) {
+        const lines = readFileSync(join(cwd, file), "utf8").split("\n");
+        lines.forEach((text, index) => {
+          const code = text.trim();
+          if (code.startsWith("//") || code.startsWith("*") || code.startsWith("/*")) return;
+          for (const match of code.matchAll(candidatePattern)) {
+            const name = match[1] ?? "";
+            if (!/ForTests?$/.test(name) && !/^invert[A-Z]/.test(name)) continue;
+            candidates.push(`${file}:${index + 1}`);
+          }
+        });
+      }
+      const missed = candidates.filter((candidate) => !reported.has(candidate));
+      expect(missed).toEqual([]);
     });
   });
 });

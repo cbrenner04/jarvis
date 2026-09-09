@@ -502,7 +502,7 @@ async function runLoop(args: {
   completionCommitter?: WriteLoopInput["completionCommitter"];
   completionPublisher?: WriteLoopInput["completionPublisher"];
   readyFinalizer?: WriteLoopInput["readyFinalizer"];
-  bypassPersistedReadyGateRepairFenceForTest?: boolean;
+  persistedRepairFenceEnforcer?: WriteLoopInput["persistedRepairFenceEnforcer"];
   stepId?: string;
   workflowSnapshot?: WriteLoopInput["workflowSnapshot"];
   promptId?: WriteLoopInput["promptId"];
@@ -547,8 +547,8 @@ async function runLoop(args: {
     ...(args.completionCommitter !== undefined ? { completionCommitter: args.completionCommitter } : {}),
     ...(args.completionPublisher !== undefined ? { completionPublisher: args.completionPublisher } : {}),
     ...(args.readyFinalizer !== undefined ? { readyFinalizer: args.readyFinalizer } : {}),
-    ...(args.bypassPersistedReadyGateRepairFenceForTest !== undefined
-      ? { bypassPersistedReadyGateRepairFenceForTest: args.bypassPersistedReadyGateRepairFenceForTest }
+    ...(args.persistedRepairFenceEnforcer !== undefined
+      ? { persistedRepairFenceEnforcer: args.persistedRepairFenceEnforcer }
       : {}),
     ...(args.stepId !== undefined ? { stepId: args.stepId } : {}),
     ...(args.workflowSnapshot !== undefined ? { workflowSnapshot: args.workflowSnapshot } : {}),
@@ -5345,7 +5345,7 @@ export function isLoadSensitive(file: string): boolean {
           completionCommitter: async () => ({ commitSha: "commit-retry", filesChanged: 1 }),
           completionPublisher: async () => ({}),
           readyFinalizer: async () => {},
-          bypassPersistedReadyGateRepairFenceForTest: true,
+          persistedRepairFenceEnforcer: async () => undefined,
         });
         expect(bypassed.kind).toBe("complete");
       });
@@ -5446,7 +5446,7 @@ export function isLoadSensitive(file: string): boolean {
           completionCommitter: async () => ({ commitSha: "commit-retry", filesChanged: 1 }),
           completionPublisher: async () => ({}),
           readyFinalizer: async () => {},
-          bypassPersistedReadyGateRepairFenceForTest: true,
+          persistedRepairFenceEnforcer: async () => undefined,
         });
         expect(bypassed.kind).toBe("complete");
 

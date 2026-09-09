@@ -71,6 +71,7 @@ import {
   hasRetainedFinalizationCheckpoint,
   isExhaustedRedTerminalEvidence,
   MAX_MUTATION_REPAIR_ATTEMPTS,
+  type PersistedRepairFenceEnforcer,
   publishWithReadyRepair,
   runMutationRepairIteration,
   type WriteLoopInput,
@@ -1669,9 +1670,10 @@ export type ReviewMutationResumeDeps = IntentFinalizationResumeDeps & {
     WriteLoopInput,
     "bindings" | "stepRules" | "iterationTimeoutMs" | "iterationCeilingMs" | "idleOutputMs"
   >;
-  bypassPersistedReadyGateRepairFenceForTest?: boolean;
-  /** Tests only: override binding factory for auto-derived publication-time mutation repair. */
-  mutationRepairBindingFactoryForTest?: (binding: ResolvedAgentBinding) => InvocationBinding;
+  /** Injection seam for persisted-fence enforcement; production uses `enforcePersistedReadyGateRepairFence`. */
+  persistedRepairFenceEnforcer?: PersistedRepairFenceEnforcer;
+  /** Injection seam for the auto-derived publication-time mutation repair binding factory. */
+  mutationRepairBindingFactory?: (binding: ResolvedAgentBinding) => InvocationBinding;
 };
 
 /** Settle the review-mutation resume attempt as a visible failure — never a silent no-op or a strand at `in-progress`. */
@@ -1718,7 +1720,7 @@ async function commitReviewMutationResumeChanges(
   creationTitle: string,
   deps: ReviewMutationResumeDeps,
 ): Promise<ReviewMutationResumeOutcome | undefined> {
-  const recoveryFenceError = await enforcePersistedReadyGateRepairFence(
+  const recoveryFenceError = await (deps.persistedRepairFenceEnforcer ?? enforcePersistedReadyGateRepairFence)(
     {
       worktreePath: context.worktreePath,
       baseRef: context.baseRef,
@@ -1726,9 +1728,6 @@ async function commitReviewMutationResumeChanges(
     },
     store,
     context.writeSiblingRunId,
-    {
-      bypass: deps.bypassPersistedReadyGateRepairFenceForTest === true,
-    },
   );
   if (recoveryFenceError !== undefined) {
     return settleReviewMutationResumeFailure(
@@ -2183,7 +2182,7 @@ async function runReviewMutationCommitAndPublish(
   const commitFailure = await commitReviewMutationResumeChanges(context, store, attemptId, creationTitle, deps);
   if (commitFailure !== undefined) return commitFailure;
 
-  const publishFenceError = await enforcePersistedReadyGateRepairFence(
+  const publishFenceError = await (deps.persistedRepairFenceEnforcer ?? enforcePersistedReadyGateRepairFence)(
     {
       worktreePath: context.worktreePath,
       baseRef: context.baseRef,
@@ -2191,9 +2190,6 @@ async function runReviewMutationCommitAndPublish(
     },
     store,
     context.writeSiblingRunId,
-    {
-      bypass: deps.bypassPersistedReadyGateRepairFenceForTest === true,
-    },
   );
   if (publishFenceError !== undefined) {
     return settleReviewMutationResumeFailure(
@@ -2281,7 +2277,7 @@ function buildAutoDerivedMutationRepairDeps(
   if (!Array.isArray(agents) || agents.length === 0 || agentModelConfig === undefined) return undefined;
 
   const stepRules = writeSibling?.queuedInput?.stepRules ?? writeRun.queuedInput?.stepRules ?? DEFAULT_WRITE_STEP_RULES;
-  const createBinding = deps.mutationRepairBindingFactoryForTest ?? createResolvedAgentBinding;
+  const createBinding = deps.mutationRepairBindingFactory ?? createResolvedAgentBinding;
   try {
     const bindings = resolveInvocationBindings(
       resolveExecutableRole("implement"),

@@ -17,10 +17,10 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/coding-standards.md` and `v2/docs/test-writing.md` list the enforced shapes including exported `*ForTest` helpers and name the real-source verification.
-- [ ] `shared/prompts/step-rules.ts` prohibition line matches the enforced shapes and `v2/src/execution/write.test.ts` pins it.
-- [ ] `v2/docs/v1-behaviors.md` records the widened structural enforcement.
-- [ ] `bun run lint:md`, `bun run typecheck`, and `bun run test:v2` pass.
+- [x] `v2/docs/coding-standards.md` and `v2/docs/test-writing.md` list the enforced shapes including exported `*ForTest` helpers and name the real-source verification.
+- [x] `shared/prompts/step-rules.ts` prohibition line matches the enforced shapes and `v2/src/execution/write.test.ts` pins it.
+- [x] `v2/docs/v1-behaviors.md` records the widened structural enforcement.
+- [x] `bun run lint:md`, `bun run typecheck`, and `bun run test:v2` pass.
 
 ## Documentation updates
 

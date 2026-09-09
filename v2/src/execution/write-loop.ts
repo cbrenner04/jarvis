@@ -392,8 +392,8 @@ export type WriteLoopInput = WriteExecuteInput & {
   skipReadyFinalization?: boolean;
   /** When true, idle-output stall waits for the child process to close (finalization repair). */
   joinProcessOnIdleStall?: boolean;
-  /** Test seam: skip persisted-fence enforcement on completed-run retry and resume recovery. */
-  bypassPersistedReadyGateRepairFenceForTest?: boolean;
+  /** Injection seam for persisted-fence enforcement on completed-run retry and resume recovery; production uses `enforcePersistedReadyGateRepairFence`. */
+  persistedRepairFenceEnforcer?: PersistedRepairFenceEnforcer;
   /** Reprompt context for the next intent-split iteration after a landing-contract miss. */
   landingContractReprompt?: { violation: string; offendingFile: string };
   /** Reprompt context for the next plan-draft iteration after a staged Markdown lint miss. */
@@ -1009,16 +1009,18 @@ function readyGateRepairFencePersisted(store: StateStore, runId: string): ReadyG
   return run?.readyGateRepairFence ?? undefined;
 }
 
+export type PersistedRepairFenceEnforcer = (
+  scope: ReadyGateScopeInput,
+  store: StateStore,
+  runId: string,
+) => Promise<Error | undefined>;
+
 /** Enforce a persisted ready-gate repair fence before recovery commit or publish. */
 export async function enforcePersistedReadyGateRepairFence(
   scope: ReadyGateScopeInput,
   store: StateStore,
   runId: string,
-  options?: { bypass?: boolean },
 ): Promise<Error | undefined> {
-  if (options?.bypass === true) {
-    return undefined;
-  }
   const run = store.loadRun(runId);
   if (run?.readyGateRepairFenceCorrupt === true) {
     return new Error(REPAIR_FENCE_MISSING_PROVENANCE_MESSAGE);
@@ -1070,7 +1072,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             args.specPath,
             prepared.creationTitle,
           );
-          const recoveryFenceError = await enforcePersistedReadyGateRepairFence(
+          const recoveryFenceError = await (args.persistedRepairFenceEnforcer ?? enforcePersistedReadyGateRepairFence)(
             {
               worktreePath,
               baseRef: args.worktree.baseRef,
@@ -1078,9 +1080,6 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             },
             store,
             prepared.result.runId,
-            {
-              bypass: args.bypassPersistedReadyGateRepairFenceForTest === true,
-            },
           );
           if (recoveryFenceError !== undefined) {
             return completionCommitFailed(args, store, prepared.result, recoveryFenceError);

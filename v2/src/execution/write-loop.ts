@@ -505,20 +505,34 @@ export const DEFAULT_ITERATION_TIMEOUT_MS = 600_000;
 /** Bound on ordinary iteration quiescence; finalization repairs always join without a bound. */
 export const DEFAULT_QUIESCENCE_TIMEOUT_MS = 30_000;
 
-type IterationActiveGate = { command: string; startedAtMs: number };
+type IterationActiveGate = { command: string; startedAtMs: number; lease: GateInvocationLease };
 
 export const MAX_CONCURRENT_AGENT_GATE_INVOCATIONS = 1;
 
-let agentGateSlotHeld = false;
+/** An owned hold on the machine-wide gate-invocation budget; only its holder can release it. */
+export type GateInvocationLease = { release: () => void };
 
-export function tryAcquireAgentGateInvocationSlot(): boolean {
-  if (agentGateSlotHeld) return false;
-  agentGateSlotHeld = true;
-  return true;
+const liveGateInvocationLeases = new Set<GateInvocationLease>();
+
+/** Pure admission: one more full-suite gate invocation fits while the live count is below the limit. */
+export function gateInvocationAdmits(heldCount: number, limit: number): boolean {
+  return heldCount < limit;
 }
 
-export function releaseAgentGateInvocationSlot(): void {
-  agentGateSlotHeld = false;
+/** Acquire an owned lease, or `undefined` when `MAX_CONCURRENT_AGENT_GATE_INVOCATIONS` leases are live. Release is idempotent and removes only this lease. */
+export function acquireGateInvocationLease(): GateInvocationLease | undefined {
+  if (!gateInvocationAdmits(liveGateInvocationLeases.size, MAX_CONCURRENT_AGENT_GATE_INVOCATIONS)) return undefined;
+  const lease: GateInvocationLease = {
+    release: () => {
+      liveGateInvocationLeases.delete(lease);
+    },
+  };
+  liveGateInvocationLeases.add(lease);
+  return lease;
+}
+
+export function liveGateInvocationLeaseCount(): number {
+  return liveGateInvocationLeases.size;
 }
 
 function createIterationActiveGateTracker(options: {
@@ -540,15 +554,20 @@ function createIterationActiveGateTracker(options: {
     getActiveGate: () => activeGate,
     onAgentShellCommand: (command: string) => {
       if (!isReadyTestCommand(command) || activeGate !== undefined) return;
-      if (iterationCeilingHeadroomMs() < TEST_STEP_BUDGET_MS || !tryAcquireAgentGateInvocationSlot()) {
+      if (iterationCeilingHeadroomMs() < TEST_STEP_BUDGET_MS) {
         options.onRefused(command);
         return;
       }
-      activeGate = { command, startedAtMs: options.clock() };
+      const lease = acquireGateInvocationLease();
+      if (lease === undefined) {
+        options.onRefused(command);
+        return;
+      }
+      activeGate = { command, startedAtMs: options.clock(), lease };
     },
     onAgentShellCommandComplete: () => {
       if (activeGate === undefined) return;
-      releaseAgentGateInvocationSlot();
+      activeGate.lease.release();
       activeGate = undefined;
     },
   };
@@ -2152,21 +2171,27 @@ function isInterruptedRace(raced: RaceOutcome): raced is { kind: "aborted" | "ti
   return raced.kind === "aborted" || raced.kind === "timed_out";
 }
 
-async function settleFinalizationRepair(
-  raced: RaceOutcome,
-  execution: Promise<QuiescedExecutionOutcome>,
-  abortExecution: () => void,
-): Promise<IterationSettlement> {
-  abortExecution();
-  const quiesced = await execution;
-  return isInterruptedRace(raced) ? { kind: raced.kind, quiesced } : quiesced;
-}
-
-/** Release the machine-wide slot only when this iteration's tracker holds it: another lane's
+/** Release the gate lease only when this iteration's tracker holds it: another lane's
  * in-flight gate must survive an unrelated iteration settling. */
 function releaseIterationGateSlot(gateTracker?: ReturnType<typeof createIterationActiveGateTracker>): void {
   if (gateTracker?.getActiveGate() !== undefined) {
     gateTracker.onAgentShellCommandComplete();
+  }
+}
+
+/** Every exit path — settled, aborted, or thrown execution — releases a lease the repair iteration acquired. */
+async function settleFinalizationRepair(
+  raced: RaceOutcome,
+  execution: Promise<QuiescedExecutionOutcome>,
+  abortExecution: () => void,
+  gateTracker?: ReturnType<typeof createIterationActiveGateTracker>,
+): Promise<IterationSettlement> {
+  try {
+    abortExecution();
+    const quiesced = await execution;
+    return isInterruptedRace(raced) ? { kind: raced.kind, quiesced } : quiesced;
+  } finally {
+    releaseIterationGateSlot(gateTracker);
   }
 }
 
@@ -2294,7 +2319,7 @@ async function awaitIteration(
   }
 
   if (settlementPolicy === "finalization-repair") {
-    return settleFinalizationRepair(raced, execution, abortExecution);
+    return settleFinalizationRepair(raced, execution, abortExecution, gateTracker);
   }
   return settleBoundedIteration(
     raced,

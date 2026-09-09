@@ -20,11 +20,11 @@
 
 ## Acceptance criteria
 
-- [ ] `write-loop.test.ts` test `a lane that never acquired the slot cannot release it` proves that releasing a lease twice, and calling `release()` on one lane's lease while another lane's lease is live, leaves the other lane's hold intact; it fails against the current unconditional `releaseAgentGateInvocationSlot`.
-- [ ] `write-loop.test.ts` test `gateInvocationAdmits bounds admission by the limit it is given` proves `gateInvocationAdmits(0, 2)` and `(1, 2)` admit and `(2, 2)` refuses, and that `acquireGateInvocationLease` refuses once `MAX_CONCURRENT_AGENT_GATE_INVOCATIONS` leases are live; it fails against the current boolean.
-- [ ] `write-loop.test.ts` test `a finalization-repair iteration releases the gate lease it acquired` proves the lease is free after a repair-policy iteration settles on each exit path (settled, aborted, threw); it fails against the current `settleFinalizationRepair`.
-- [ ] `write-loop.test.ts` tests `serializes concurrent gate invocations so only one lane proceeds` and `an iteration without a gate does not release another lane's held slot` stay green.
-- [ ] `bun run typecheck`, `bun run check`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `write-loop.test.ts` test `a lane that never acquired the slot cannot release it` proves that releasing a lease twice, and calling `release()` on one lane's lease while another lane's lease is live, leaves the other lane's hold intact; it fails against the current unconditional `releaseAgentGateInvocationSlot`.
+- [x] `write-loop.test.ts` test `gateInvocationAdmits bounds admission by the limit it is given` proves `gateInvocationAdmits(0, 2)` and `(1, 2)` admit and `(2, 2)` refuses, and that `acquireGateInvocationLease` refuses once `MAX_CONCURRENT_AGENT_GATE_INVOCATIONS` leases are live; it fails against the current boolean.
+- [x] `write-loop.test.ts` test `a finalization-repair iteration releases the gate lease it acquired` proves the lease is free after a repair-policy iteration settles on each exit path (settled, aborted, threw); it fails against the current `settleFinalizationRepair`.
+- [x] `write-loop.test.ts` tests `serializes concurrent gate invocations so only one lane proceeds` and `an iteration without a gate does not release another lane's held slot` stay green.
+- [x] `bun run typecheck`, `bun run check`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -62,6 +62,7 @@ import type { StepRunResult } from "./step-runner.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import { executeWrite as realExecuteWrite, type WriteExecuteInput } from "./write.ts";
 import {
+  acquireGateInvocationLease,
   appendRuntimeSmokeOutcome,
   applyOperatorSessionId,
   buildSubspecCompletionInventory,
@@ -72,15 +73,16 @@ import {
   executeWriteLoop,
   findFirstMarkdownOnlyFenceViolation,
   findFirstRepairFenceViolation,
+  gateInvocationAdmits,
   getUncommittedPaths,
+  liveGateInvocationLeaseCount,
+  MAX_CONCURRENT_AGENT_GATE_INVOCATIONS,
   persistRetainedFinalizationCheckpoint,
   publishCompletionArtifacts,
   publishWithReadyRepair,
-  releaseAgentGateInvocationSlot,
   runBuiltInReadyGateAutofixBiome,
   runMutationRepairIteration,
   shouldFailTerminalCompletionForDirtyWorktree,
-  tryAcquireAgentGateInvocationSlot,
   validateReadyGateRepairCompletion,
   type WallSegmentSchedule,
   type WriteLoopInput,
@@ -1038,7 +1040,8 @@ describe.serial("agent gate shell observability", () => {
 
 describe.serial("gate invocation budget and settlement", () => {
   afterEach(() => {
-    releaseAgentGateInvocationSlot();
+    // Every test releases what it acquired; a leaked lease is a test defect, not something to reset by fiat.
+    expect(liveGateInvocationLeaseCount()).toBe(0);
   });
 
   test("refuses gate invocation when iteration ceiling headroom cannot accommodate TEST_STEP_BUDGET_MS", async () => {
@@ -1088,7 +1091,7 @@ describe.serial("gate invocation budget and settlement", () => {
   });
 
   test("serializes concurrent gate invocations so only one lane proceeds", async () => {
-    // @mutate v2/src/execution/write-loop.ts "tryAcquireAgentGateInvocationSlot()" -> "false"
+    // @mutate v2/src/execution/write-loop.ts "const lease = acquireGateInvocationLease();" -> "const lease = undefined;"
     const gateCommand = "bun run test:v2";
     const { startedFrame, completedFrame, resultFrame } = gateShellFrames(gateCommand);
     let releaseFirstGate!: () => void;
@@ -1186,15 +1189,16 @@ describe.serial("gate invocation budget and settlement", () => {
   });
 
   test("an iteration without a gate does not release another lane's held slot", async () => {
-    // @mutate v2/src/execution/write-loop.ts "if (gateTracker?.getActiveGate() !== undefined) {\n    gateTracker.onAgentShellCommandComplete();\n  }" -> "if (gateTracker?.getActiveGate() !== undefined) {\n    gateTracker.onAgentShellCommandComplete();\n    return;\n  }\n  releaseAgentGateInvocationSlot();"
+    // @mutate v2/src/execution/write-loop.ts "if (gateTracker?.getActiveGate() !== undefined) {\n    gateTracker.onAgentShellCommandComplete();\n  }" -> "for (const lease of liveGateInvocationLeases) lease.release();"
     const { resultFrame } = claudeGateShellFrames("bun run test:v2");
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     roots.push(join(jarvisRoot, ".."));
     const store = openStateStore(stateDbPath);
     const sink = new TestLogSink();
+    // Another lane is mid-suite and holds the sole lease.
+    const otherLane = acquireGateInvocationLease();
+    expect(otherLane).toBeDefined();
     try {
-      // Another lane is mid-suite and holds the sole slot.
-      expect(tryAcquireAgentGateInvocationSlot()).toBe(true);
       const result = await executeWriteLoop({
         specPath: "spec.md",
         stepRules: "Return progress.",
@@ -1216,8 +1220,120 @@ describe.serial("gate invocation budget and settlement", () => {
         bindings: [claudeGateShellBinding([resultFrame])],
       });
       expect(result.kind).not.toBe("gate_invocation_refused");
-      // The unrelated lane's settle must not have freed the other lane's slot.
-      expect(tryAcquireAgentGateInvocationSlot()).toBe(false);
+      // The unrelated lane's settle must not have freed the other lane's lease.
+      expect(acquireGateInvocationLease()).toBeUndefined();
+    } finally {
+      otherLane?.release();
+      store.close();
+    }
+  });
+
+  test("a lane that never acquired the slot cannot release it", () => {
+    // @mutate v2/src/execution/write-loop.ts "liveGateInvocationLeases.delete(lease);" -> "liveGateInvocationLeases.clear();"
+    const first = acquireGateInvocationLease();
+    expect(first).toBeDefined();
+    first?.release();
+    first?.release();
+    expect(liveGateInvocationLeaseCount()).toBe(0);
+
+    const second = acquireGateInvocationLease();
+    expect(second).toBeDefined();
+    // A stale lease from an earlier hold cannot free the lease another lane holds now.
+    first?.release();
+    expect(liveGateInvocationLeaseCount()).toBe(1);
+    expect(acquireGateInvocationLease()).toBeUndefined();
+    second?.release();
+    expect(liveGateInvocationLeaseCount()).toBe(0);
+  });
+
+  test("gateInvocationAdmits bounds admission by the limit it is given", () => {
+    // @mutate v2/src/execution/write-loop.ts "return heldCount < limit;" -> "return true;"
+    expect(gateInvocationAdmits(0, 2)).toBe(true);
+    expect(gateInvocationAdmits(1, 2)).toBe(true);
+    expect(gateInvocationAdmits(2, 2)).toBe(false);
+    const leases: Array<ReturnType<typeof acquireGateInvocationLease>> = [];
+    for (let i = 0; i < MAX_CONCURRENT_AGENT_GATE_INVOCATIONS; i += 1) {
+      const lease = acquireGateInvocationLease();
+      expect(lease).toBeDefined();
+      leases.push(lease);
+    }
+    expect(acquireGateInvocationLease()).toBeUndefined();
+    for (const lease of leases) lease?.release();
+    expect(liveGateInvocationLeaseCount()).toBe(0);
+  });
+
+  test.each([
+    "settled",
+    "threw",
+    "aborted",
+  ] as const)("a finalization-repair iteration releases the gate lease it acquired (%s)", async (exit) => {
+    // @mutate v2/src/execution/write-loop.ts "} finally {\n    releaseIterationGateSlot(gateTracker);\n  }" -> "} finally {\n  }"
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const store = openStateStore(stateDbPath);
+    const controller = new AbortController();
+    let calls = 0;
+    let gateCalls = 0;
+    let leaseCountDuringRepair = -1;
+    const bindings: InvocationBinding[] = [
+      {
+        id: "repair-gate",
+        metadata: { agent: "codex", model: "test" },
+        invoke: async ({ cwd, signal, onAgentShellCommand }) => {
+          calls += 1;
+          if (calls === 1) {
+            writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" };
+          }
+          // The repair agent starts a full-suite gate and never reports its completion frame.
+          await onAgentShellCommand?.("bun run test:v2");
+          leaseCountDuringRepair = liveGateInvocationLeaseCount();
+          if (exit === "threw") throw new Error("repair agent crashed mid-suite");
+          if (exit === "aborted") {
+            await new Promise<void>((resolve) => {
+              if (signal?.aborted) return resolve();
+              signal?.addEventListener("abort", () => resolve(), { once: true });
+              queueMicrotask(() => controller.abort());
+            });
+            return { kind: "ok", stdout: "progress", stderr: "" };
+          }
+          return { kind: "ok", stdout: "done", stderr: "" };
+        },
+      },
+    ];
+    try {
+      const result = await executeWriteLoop({
+        worktree: {
+          projectRoot: "/fake",
+          projectName: "demo",
+          branchName: `repair-lease-${exit}`,
+          baseRef: "HEAD",
+          jarvisRoot,
+        },
+        specPath: "spec.md",
+        stepRules: "Return exactly one terminal token.",
+        expectedArtifactPath: "proof.txt",
+        bindings,
+        stateStore: store,
+        withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
+        signal: controller.signal,
+        maxIterations: 2,
+        quiescenceTimeoutMs: 1,
+        iterationCeilingMs: TEST_STEP_BUDGET_MS + 60_000,
+        completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
+        completionPublisher: async () => ({}),
+        runFixCommand: async () => {},
+        readyFinalizer: async () => {
+          gateCalls += 1;
+          // Stay red through the autofix retry so a repair iteration actually runs.
+          if (gateCalls <= 2) throw new ReadyGateError("bun run ready", 1, "red");
+        },
+      });
+      expect(calls).toBeGreaterThanOrEqual(2);
+      expect(leaseCountDuringRepair).toBe(1);
+      expect(result.kind).toBeDefined();
+      expect(liveGateInvocationLeaseCount()).toBe(0);
     } finally {
       store.close();
     }

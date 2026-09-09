@@ -11,9 +11,6 @@ import { DEFAULT_WRITE_STEP_RULES, IMPLEMENT_WRITE_STEP_RULES } from "./write-lo
 const { roots } = trackedTempRoots();
 const committedSpecGuidance = readSpecGuidance();
 
-const MULTI_SURFACE_BULLET =
-  "The state-store persists completed runs atomically, and the CLI validates run flags before dispatch.";
-
 function runWrite(args: {
   jarvisRoot: string;
   bindings: readonly InvocationBinding[];
@@ -650,7 +647,7 @@ describe("write behavior", () => {
     expect(readFileSync(intentPath, "utf8")).toBe(intentSeed);
   });
 
-  test("plan-draft completion normalizes the k=2 staged fixture before shape validation", async () => {
+  test("plan-draft completion keeps the authored staged fixture after shape validation", async () => {
     const { jarvisRoot } = createJarvisHome();
     roots.push(join(jarvisRoot, ".."));
     const fixtureDir = join(import.meta.dir, "../../../shared/fixtures/module-boundary-surfaces/k2");
@@ -688,21 +685,14 @@ describe("write behavior", () => {
 
     expect(result.result.kind).toBe("complete");
     expect(validationCalls).toBeGreaterThan(0);
-    expect(readdirSync(stagePath).sort()).toEqual(["00-persistence.md", "01-cli.md", "index.md", "intent.md"]);
-    // Shape validation now runs before normalization, so these assert the normalized output
-    // after the call rather than inside completionValidator.
-    expect(readFileSync(join(stagePath, "index.md"), "utf8")).toBe(
-      "# Staged plan\n\n- [ ] [00 - Persistence](./00-persistence.md)\n- [ ] [01 - CLI](./01-cli.md)\n",
-    );
-    const criteriaOf = (file: string): string[] =>
-      readFileSync(join(stagePath, file), "utf8")
-        .split("\n")
-        .filter((line) => /^-\s\[[ xX]\]\s+/u.test(line));
-    expect(criteriaOf("00-persistence.md")).toEqual(["- [ ] The state-store persists completed runs atomically."]);
-    expect(criteriaOf("01-cli.md")).toEqual(["- [ ] The CLI validates run flags before dispatch."]);
+    const authoredFiles = readdirSync(fixtureDir).sort();
+    expect(readdirSync(stagePath).sort()).toEqual(authoredFiles);
+    for (const file of authoredFiles) {
+      expect(readFileSync(join(stagePath, file))).toEqual(readFileSync(join(fixtureDir, file)));
+    }
   });
 
-  test("plan-draft completion normalizes durable output before recovery", async () => {
+  test("plan-draft completion keeps authored durable output before recovery", async () => {
     const { jarvisRoot } = createJarvisHome();
     roots.push(join(jarvisRoot, ".."));
     const fixtureDir = join(import.meta.dir, "../../../shared/fixtures/module-boundary-surfaces/k2");
@@ -730,7 +720,11 @@ describe("write behavior", () => {
     });
 
     expect(result.result.kind).toBe("complete");
-    expect(readdirSync(stagePath).sort()).toEqual(["00-persistence.md", "01-cli.md", "index.md", "intent.md"]);
+    const authoredFiles = readdirSync(fixtureDir).sort();
+    expect(readdirSync(stagePath).sort()).toEqual(authoredFiles);
+    for (const file of authoredFiles) {
+      expect(readFileSync(join(stagePath, file))).toEqual(readFileSync(join(fixtureDir, file)));
+    }
   });
 
   test("plan-draft completion rejects an inconsistent staged index", async () => {
@@ -763,7 +757,7 @@ describe("write behavior", () => {
     expect(result.result.kind).toBe("contract_miss");
   });
 
-  test("plan-draft contract_miss on staging normalizer failure does not pass via durable fallback", async () => {
+  test("plan-draft contract_miss on staging index failure does not pass via durable fallback", async () => {
     const { jarvisRoot } = createJarvisHome();
     const subspecFile = "00-one.md";
     const durableSpecPath = "v2/spec/2099-01-01T00-00-00Z-plan-draft";
@@ -783,10 +777,10 @@ describe("write behavior", () => {
 
         mkdirSync(stagePath, { recursive: true });
         writeFileSync(join(stagePath, "intent.md"), "---\nname: test\n---\n", "utf8");
-        writeFileSync(join(stagePath, "index.md"), `# Index\n\n- [ ] [00 - One](./${subspecFile})\n`, "utf8");
+        writeFileSync(join(stagePath, "index.md"), "# Index\n\n- [ ] [Wrong](./01-wrong.md)\n", "utf8");
         writeFileSync(
           join(stagePath, subspecFile),
-          `# One\n\n## Acceptance criteria\n\n- [ ] ${MULTI_SURFACE_BULLET}\n`,
+          "# One\n\n## Acceptance criteria\n\n- [ ] Any criterion.\n",
           "utf8",
         );
       },
@@ -795,38 +789,8 @@ describe("write behavior", () => {
     expect(result.result.kind).toBe("contract_miss");
     if (result.result.kind === "contract_miss") {
       expect(result.result.failedContractId).toBe("artifact.exists");
-      expect(result.result.failureReason).toContain("multi-surface ## Acceptance criteria bullet");
-      expect(result.result.failureReason).toContain(subspecFile);
-      expect(result.result.failureReason).toContain(MULTI_SURFACE_BULLET);
+      expect(result.result.failureReason).toContain("Plan index links unknown subspec 01-wrong.md");
       expect(result.result.failureReason).not.toBe("plan.draft.shape");
-    }
-  });
-
-  test("plan-draft contract_miss on multi-surface acceptance bullet carries normalizer message", async () => {
-    const { jarvisRoot } = createJarvisHome();
-    const subspecFile = "00-one.md";
-
-    const result = await runPlanDraftWrite({
-      jarvisRoot,
-      branchName: "plan-multi-surface",
-      agentSetup: (_cwd, stagePath) => {
-        mkdirSync(stagePath, { recursive: true });
-        writeFileSync(join(stagePath, "intent.md"), "---\nname: test\n---\n", "utf8");
-        writeFileSync(join(stagePath, "index.md"), `# Index\n\n- [ ] [00 - One](./${subspecFile})\n`, "utf8");
-        writeFileSync(
-          join(stagePath, subspecFile),
-          `# One\n\n## Acceptance criteria\n\n- [ ] ${MULTI_SURFACE_BULLET}\n`,
-          "utf8",
-        );
-      },
-    });
-
-    expect(result.result.kind).toBe("contract_miss");
-    if (result.result.kind === "contract_miss") {
-      expect(result.result.failedContractId).toBe("artifact.exists");
-      expect(result.result.failureReason).toContain("multi-surface ## Acceptance criteria bullet");
-      expect(result.result.failureReason).toContain(subspecFile);
-      expect(result.result.failureReason).toContain(MULTI_SURFACE_BULLET);
     }
   });
 

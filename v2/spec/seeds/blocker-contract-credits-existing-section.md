@@ -27,4 +27,4 @@ Pipeline `af881ac0` on `cbrenner04/chess-mvp-yolo`, run `fb52cb87`, lane `board-
 
 ## Documentation updates
 
-- `v2/docs/` write-behavior/blocker contract doc (and `v1/docs/` equivalent if shared) — a `## Blocker` present at settle time satisfies the contract, not only one appended during the settling invocation.
+- `v2/docs/` write-behavior/blocker contract doc — a `## Blocker` present at settle time satisfies the contract, not only one appended during the settling invocation.

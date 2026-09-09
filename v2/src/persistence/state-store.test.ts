@@ -583,6 +583,19 @@ describe("StateStore", () => {
     expect(run.workflowSnapshot).toEqual(workflowSnapshot);
   });
 
+  test("loadRun accepts review-shaped workflow snapshot steps without gate commands", () => {
+    const workflowSnapshot = {
+      invocationId: "legacy-review-gate",
+      steps: [
+        { stepId: "review", role: "", behavior: "review" as const, durable: true },
+        { stepId: "implement-review", role: "", behavior: "review-debate" as const, durable: true },
+      ],
+    };
+    const runId = seedRun(store, { stepId: "review", workflowSnapshot });
+
+    expect(loadRunOrThrow(store, runId).workflowSnapshot).toEqual(workflowSnapshot);
+  });
+
   test("loadRun retains implement reviewPasses on the workflow snapshot", () => {
     const withZero = {
       invocationId: "workflow-implement-0",

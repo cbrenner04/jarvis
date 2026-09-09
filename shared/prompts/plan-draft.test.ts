@@ -54,6 +54,21 @@ describe("buildPlanDraftPrompt", () => {
     expect(prompt).toContain("exhausts the implement budget and times out with the work already correct");
   });
 
+  test("renders the one-artifact bullet rule without the retired surface taxonomy", () => {
+    const prompt = buildPlanDraftPrompt({
+      name: "my-plan",
+      intent: "do thing",
+      specGuidance: SPEC_GUIDANCE,
+    });
+    const rules = prompt.split("## Rules\n\n")[1]?.split("\n\n## Instructions")[0];
+
+    expect(rules).toContain(
+      "**One artifact per bullet.** A bullet under `## Acceptance criteria`, `## Decisions`, or `## Documentation updates` may name at most one backticked repo-relative artifact path.",
+    );
+    expect(rules).not.toContain("module-boundary surface");
+    expect(rules).not.toContain("blocks the whole draft");
+  });
+
   test("appends file output and step completion sections when supplied", () => {
     const prompt = buildPlanDraftPrompt({
       name: "my-plan",

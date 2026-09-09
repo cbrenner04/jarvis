@@ -137,6 +137,7 @@ export type ReadyGateClassification = {
   gateRepairAllowsetPaths?: readonly string[];
   baseRefProbeError?: string;
   commandMissingEvidence?: string;
+  readyCommandSource?: "configured" | "default";
 };
 
 export type ReadyGateScopeInput = {
@@ -169,6 +170,7 @@ export class ReadyGateError extends Error {
   readonly baseRefProbeError?: string;
   readonly scopeBaseRef?: string;
   readonly commandMissingEvidence?: string;
+  readonly readyCommandSource?: "configured" | "default";
 
   constructor(
     readonly command: string,
@@ -194,6 +196,9 @@ export class ReadyGateError extends Error {
     if (classification?.commandMissingEvidence !== undefined) {
       this.commandMissingEvidence = classification.commandMissingEvidence;
     }
+    if (classification?.readyCommandSource !== undefined) {
+      this.readyCommandSource = classification.readyCommandSource;
+    }
     if (scopeBaseRef !== undefined) {
       this.scopeBaseRef = scopeBaseRef;
     }
@@ -217,6 +222,9 @@ export function readyGateFailureLogFields(
     ...(output.length > 0 ? { readyGateOutput: output } : {}),
     ...(loopOutcomeKind === "ready_gate_command_missing" && source.commandMissingEvidence !== undefined
       ? { readyGateCommandMissingEvidence: source.commandMissingEvidence }
+      : {}),
+    ...(loopOutcomeKind === "ready_gate_command_missing" && source.readyCommandSource !== undefined
+      ? { readyGateCommandSource: source.readyCommandSource }
       : {}),
   };
 }
@@ -531,7 +539,11 @@ export async function classifyReadyGateFailure(
   }
   const commandMissingEvidence = findMissingReadyGateCommandEvidence(error.output, error.spawnCode);
   if (commandMissingEvidence !== undefined) {
-    return { kind: "ready_gate_command_missing", commandMissingEvidence };
+    return {
+      kind: "ready_gate_command_missing",
+      commandMissingEvidence,
+      readyCommandSource: scope?.readyCommand !== undefined ? "configured" : "default",
+    };
   }
   if (error.command !== resolveReadyGateCommand(scope?.readyCommand).display) {
     return { kind: "ready_gate_failed" };
@@ -756,7 +768,8 @@ export async function classifyReadyGateError(
     classification.outsidePaths === error.outsidePaths &&
     classification.gateRepairAllowsetPaths === error.gateRepairAllowsetPaths &&
     classification.baseRefProbeError === error.baseRefProbeError &&
-    classification.commandMissingEvidence === error.commandMissingEvidence
+    classification.commandMissingEvidence === error.commandMissingEvidence &&
+    classification.readyCommandSource === error.readyCommandSource
   ) {
     return error;
   }

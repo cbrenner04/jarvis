@@ -330,6 +330,31 @@ describe("executeWorkflow fresh dispatch", () => {
 });
 
 describe("executeWorkflow completion publication", () => {
+  function gateCommandReviewStep(branch: string, overrides: Partial<ReviewWorkflowStep> = {}): ReviewWorkflowStep {
+    const cwd = overrides.cwd ?? "/fake";
+    return {
+      behavior: "review",
+      stepId: "review",
+      project: "demo",
+      branch,
+      cwd,
+      prompt: "review",
+      verdictPath: join(mkdtempSync(join(tmpdir(), `workflow-${branch}-`)), "verdict.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: {
+        claude: { critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] } },
+        codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
+      },
+      createBinding: ({ agentId, adapterModel }) => ({
+        id: `${agentId}/${adapterModel}`,
+        metadata: { agent: agentId, model: adapterModel },
+        invoke: async () => ({ kind: "ok" as const, stdout: agentId === "claude" ? "apply" : "done", stderr: "" }),
+      }),
+      ...overrides,
+    };
+  }
+
   test("classifies completion publication, ready-gate, and ready-flip failures in results and loop_finished", async () => {
     const cases: Array<{
       kind: "completion_commit_failed" | "ready_gate_failed" | "ready_flip_failed";
@@ -1052,26 +1077,7 @@ describe("executeWorkflow completion publication", () => {
       branchName: "reviewed-intent-title",
       creationTitle: "intent: reviewed-seed",
     });
-    const reviewStep: ReviewWorkflowStep = {
-      behavior: "review",
-      stepId: "review",
-      project: "demo",
-      branch: "reviewed-intent-title",
-      cwd: "/fake",
-      prompt: "review",
-      verdictPath: join(mkdtempSync(join(tmpdir(), "workflow-review-title-")), "verdict.md"),
-      maxCycles: 1,
-      agents: { critic: ["claude"], actuator: ["codex"] },
-      agentModelConfig: {
-        claude: { critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] } },
-        codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
-      },
-      createBinding: ({ agentId, adapterModel }) => ({
-        id: `${agentId}/${adapterModel}`,
-        metadata: { agent: agentId, model: adapterModel },
-        invoke: async () => ({ kind: "ok" as const, stdout: agentId === "claude" ? "apply" : "done", stderr: "" }),
-      }),
-    };
+    const reviewStep = gateCommandReviewStep("reviewed-intent-title");
     const titles: unknown[] = [];
 
     await withStateStore(async (store) => {
@@ -1560,6 +1566,137 @@ describe("executeWorkflow completion publication", () => {
 
       expect(result.kind).toBe("complete");
       expect(summaries).toEqual(["intent: reviewed-seed\n- reviewed.md"]);
+    });
+  });
+
+  test("review-owned finalization passes stamped readyCommand from review step on first dispatch", async () => {
+    // @mutate v2/src/execution/workflow-runner.ts "isReviewLastStep ? steps[steps.length - 1] : completionStep" -> "completionStep"
+    const { workspace, withExternalWorktree } = createIntentWorktreeHarness("review-gate-command");
+    const invocationId = "review-gate-command";
+    const baseWriteStep = createStep({
+      stepId: "intent",
+      role: "plan",
+      branchName: "review-gate-command",
+      specPath: "ready-intents",
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId,
+        baseRef: "none",
+      },
+      creationTitle: "intent: gate-command",
+      workflowInvocationId: invocationId,
+      withExternalWorktree,
+      agentModelConfig: {
+        claude: {
+          plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+        },
+      },
+    });
+    const writeStep: WriteWorkflowStep = {
+      ...baseWriteStep,
+      worktree: { ...baseWriteStep.worktree, git: false, localPath: workspace },
+    };
+    const reviewStep: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "review",
+      project: "demo",
+      branch: "review-gate-command",
+      cwd: workspace,
+      prompt: "review",
+      verdictPath: join(workspace, ".jarvis-intent-review-verdict.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: {
+        claude: { critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] } },
+        codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
+      },
+      readyCommand: "npm run verify",
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
+        stagingDir: join(workspace, ".jarvis-intent-stage"),
+        invocationId,
+        baseRef: "HEAD",
+      },
+      createBinding: ({ agentId }) => ({
+        id: agentId,
+        metadata: { agent: agentId, model: agentId },
+        invoke: async () => ({ kind: "ok" as const, stdout: agentId === "claude" ? "apply" : "done", stderr: "" }),
+      }),
+    };
+
+    await withStateStore(async (store) => {
+      seedLandedIntentFiles(workspace, invocationId, ["reviewed.md"]);
+      seedCompletedWriteRun(store, writeStep, workspace, invocationId);
+      const reviewRunId = store.createRun({
+        project: "demo",
+        specRef: "",
+        worktreePath: workspace,
+        branch: "review-gate-command",
+        specPath: "",
+        stepId: "review",
+      });
+      const reviewAttemptId = store.recordAttemptStart(reviewRunId);
+      store.commitCompletionBoundary({
+        attemptId: reviewAttemptId,
+        runStatus: "completed",
+        outcomeKind: "done",
+        completionAgent: "codex",
+      });
+
+      let finalizerReadyCommand: string | undefined;
+      const result = await executeWorkflow({
+        steps: [writeStep, reviewStep],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async (input) => {
+          finalizerReadyCommand = input.readyCommand;
+        },
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(finalizerReadyCommand).toBe("npm run verify");
+    });
+  });
+
+  test("review-owned ready-gate repair autofix invokes stamped fixCommand from review step on first dispatch", async () => {
+    // @mutate v2/src/execution/workflow-runner.ts "gateCommands.fixCommand !== undefined ? { fixCommand: gateCommands.fixCommand } : {}"
+    const writeStep = createStep({
+      stepId: "implement",
+      role: "implement",
+      branchName: "review-fix-command",
+    });
+    const reviewStep = gateCommandReviewStep("review-fix-command", { fixCommand: "npm run lint-fix" });
+    const logSink = new TestLogSink();
+    let observedFixCommand: string | undefined;
+    let gateCalls = 0;
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [writeStep, reviewStep],
+        stateStore: store,
+        logSink,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        runFixCommand: async (opts) => {
+          observedFixCommand = opts.fixCommand;
+        },
+        readyFinalizer: async () => {
+          gateCalls += 1;
+          if (gateCalls <= 2) throw new ReadyGateError("bun run ready", 1, "tests failed");
+        },
+      });
+
+      expect(result.kind).toBe("complete");
+      expect(observedFixCommand).toBe("npm run lint-fix");
+      expect(gateCalls).toBe(3);
+      expect(logSink.getEventsForRun(result.runId)).toContainEqual({
+        kind: "ready_gate_repair",
+        attempt: 1,
+        gateExitCode: 1,
+      });
     });
   });
 

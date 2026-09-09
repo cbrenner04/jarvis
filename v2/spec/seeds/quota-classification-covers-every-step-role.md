@@ -22,5 +22,5 @@ An implement's write steps hit codex's usage limit, classified `quota`, and fell
 
 ## Documentation updates
 
-- `v1/docs/quota-signals.md` — the multi-line codex tail shape.
+- `v2/docs/quota-signals.md` — the multi-line codex tail shape.
 - `v2/docs/operator-runbook.md` — stranded-paused incidents.

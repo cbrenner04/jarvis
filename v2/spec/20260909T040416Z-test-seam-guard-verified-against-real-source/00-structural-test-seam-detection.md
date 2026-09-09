@@ -20,14 +20,14 @@
 
 ## Acceptance criteria
 
-- [ ] `scripts/guard-production-test-flags.test.ts` test `flags a ForTest member after a nested object member in a real WriteLoopInput excerpt` proves the guard reports `bypassPersistedReadyGateRepairFenceForTest` at its real position inside a type with a nested object member preceding it; it fails against the current `[^}]*` window.
-- [ ] `scripts/guard-production-test-flags.test.ts` test `flags a seam declared on an intersection type alias` proves `type A = B & { fooForTest?: boolean }` is reported; it fails against the current type-alias character class.
-- [ ] `scripts/guard-production-test-flags.test.ts` test `flags an exported ForTest function without a set prefix` proves `export function resetVerifierTestRunTrackingForTest(): void {}` is reported as `*ForTest export`; it fails against the current export rule.
-- [ ] `scripts/guard-production-test-flags.test.ts` test `does not flag mentions that are not declarations` proves `new Map<string, RunnerForTests>()`, `deps.fooForTest === true`, and `if (fooForTest) {` produce no violation; it fails against the current generic-window pattern.
-- [ ] `scripts/guard-production-test-flags.test.ts` test `reports every seam present in the scan roots` enumerates candidate seams at run time and proves the guard reports each at its file and line; it fails against the current inert scan on the pre-`01` tree.
-- [ ] `scripts/guard-production-test-flags.test.ts` invert-shape and scope/skip cases stay green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:shared` passes.
+- [x] `scripts/guard-production-test-flags.test.ts` test `flags a ForTest member after a nested object member in a real WriteLoopInput excerpt` proves the guard reports `bypassPersistedReadyGateRepairFenceForTest` at its real position inside a type with a nested object member preceding it; it fails against the current `[^}]*` window.
+- [x] `scripts/guard-production-test-flags.test.ts` test `flags a seam declared on an intersection type alias` proves `type A = B & { fooForTest?: boolean }` is reported; it fails against the current type-alias character class.
+- [x] `scripts/guard-production-test-flags.test.ts` test `flags an exported ForTest function without a set prefix` proves `export function resetVerifierTestRunTrackingForTest(): void {}` is reported as `*ForTest export`; it fails against the current export rule.
+- [x] `scripts/guard-production-test-flags.test.ts` test `does not flag mentions that are not declarations` proves `new Map<string, RunnerForTests>()`, `deps.fooForTest === true`, and `if (fooForTest) {` produce no violation; it fails against the current generic-window pattern.
+- [x] `scripts/guard-production-test-flags.test.ts` test `reports every seam present in the scan roots` enumerates candidate seams at run time and proves the guard reports each at its file and line; it fails against the current inert scan on the pre-`01` tree.
+- [x] `scripts/guard-production-test-flags.test.ts` invert-shape and scope/skip cases stay green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:shared` passes.
 
 ## Documentation updates
 

@@ -442,12 +442,10 @@ describe("write behavior", () => {
     expect(capturedPrompt).toContain("not from the wider suite or transitive importers");
     expect(extractFinalStepRules(capturedPrompt)).toContain(HUMAN_ONLY_STEP_RULES);
     expect(capturedPrompt).toContain("Do not add");
-    expect(capturedPrompt).toContain("`set*ForTest`/`set*ForTests` exports");
-    expect(capturedPrompt).toContain("`invert*ForTest` and `*ForTest`/`*ForTests` module variables");
-    expect(capturedPrompt).toContain("`invert*` function parameters");
-    expect(capturedPrompt).toContain("`*ForTest`/`*ForTests` function parameters");
-    expect(capturedPrompt).toContain("`invert*ForTest` type members");
-    expect(capturedPrompt).toContain("`*ForTest`/`*ForTests` type members");
+    expect(capturedPrompt).toContain(
+      "`*ForTest`/`*ForTests` type members, function parameters, module variables, or exported functions/variables",
+    );
+    expect(capturedPrompt).toContain("nor `invert*` function parameters");
     expect(capturedPrompt).not.toContain("comment checkpoint on the pinning test");
     expect(capturedPrompt).not.toContain("Place `// @mutate`");
     expect(capturedPrompt).toContain(

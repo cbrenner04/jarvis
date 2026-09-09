@@ -1,7 +1,3 @@
----
-name: implement-base-fails-closed-on-stale-local-main
----
-
 # `--base main` fails closed when the local branch is behind its upstream
 
 ## Problem

@@ -103,6 +103,9 @@ function pipelineDeps(
 ): NonNullable<Parameters<typeof main>[2]> {
   return {
     cwd: () => fx.repoRoot,
+    // Hermetic default: owner routing now fans out through `socketDiscovery` on every
+    // single-pipeline verb; keep it off the ambient `~/.jarvis` unless a test overrides it.
+    socketDiscovery: async () => [],
     ...(configPath === undefined
       ? {}
       : {
@@ -111,6 +114,54 @@ function pipelineDeps(
           loadAgentModelConfig: () => ALL_REVIEW_ROLES_CONFIG,
         }),
     ...extra,
+  };
+}
+
+/** connectIpcClient sequence for a single-pipeline verb once routed through owner resolution:
+ * an empty cross-daemon `pipeline_list` (so the id argument passes through unresolved), an
+ * `owner` `pipeline_owner` witness for it, then the verb connection built by `verbClient`. */
+function ownerRoutedConnectIpcClient(
+  pipelineId: string,
+  verbClient: () => IpcClient,
+): (socketPath: string) => Promise<IpcClient> {
+  let calls = 0;
+  return async () => {
+    calls += 1;
+    if (calls === 1) return pipelineListClient({ pipelines: [] });
+    if (calls === 2) return pipelineListClient({ kind: "owner", pipelineId });
+    return verbClient();
+  };
+}
+
+/** connectIpcClient for a `resolvePipelineDaemon` refusal reached before any verb RPC: an empty
+ * cross-daemon `pipeline_list`, then `witness` on the `pipeline_owner` probe. A third call means
+ * the code under test wrongly reached a verb RPC after a refusal. */
+function ownerResolutionRefusalConnectIpcClient(witness: unknown): (socketPath: string) => Promise<IpcClient> {
+  let calls = 0;
+  return async () => {
+    calls += 1;
+    if (calls === 1) return pipelineListClient({ pipelines: [] });
+    if (calls === 2) return pipelineListClient(witness);
+    throw new Error(`connectIpcClient called unexpectedly on call ${calls}`);
+  };
+}
+
+/** connectIpcClient across a two-socket owner-routing scenario: every socket answers an empty
+ * cross-daemon `pipeline_list`, then its own `pipeline_owner` witness from `witnessBySocket`;
+ * only `ownerSocket` additionally answers the verb RPC via `verbClient`. */
+function multiSocketOwnerRoutedConnectIpcClient(
+  witnessBySocket: Readonly<Record<string, unknown>>,
+  ownerSocket: string,
+  verbClient: () => IpcClient,
+): (socketPath: string) => Promise<IpcClient> {
+  const callsBySocket = new Map<string, number>();
+  return async (socketPath: string) => {
+    const calls = (callsBySocket.get(socketPath) ?? 0) + 1;
+    callsBySocket.set(socketPath, calls);
+    if (calls === 1) return pipelineListClient({ pipelines: [] });
+    if (calls === 2) return pipelineListClient(witnessBySocket[socketPath]);
+    if (socketPath === ownerSocket) return verbClient();
+    throw new Error(`connectIpcClient called unexpectedly for ${socketPath} on call ${calls}`);
   };
 }
 
@@ -191,8 +242,26 @@ function pipelineListClient(result: unknown, sent: unknown[] = []): IpcClient {
   };
 }
 
-function pipelineWaitFrame(id: string, boundary: unknown): unknown {
-  return { kind: "response", id, result: boundary };
+/** Single-request client answering with an RPC error, correlated via the request's own id (see
+ * {@link pipelineListClient}). */
+function pipelineErrorRpcClient(code: string, message: string, sent: unknown[] = []): IpcClient {
+  let request: { id: string } | undefined;
+  let closed = false;
+  return {
+    send(frame: unknown): void {
+      sent.push(frame);
+      request = frame as { id: string };
+    },
+    async nextFrame() {
+      await Promise.resolve();
+      if (closed) throw new Error("connection closed");
+      if (request === undefined) throw new Error("request not sent");
+      return { kind: "error", id: request.id, code, message };
+    },
+    close(): void {
+      closed = true;
+    },
+  };
 }
 
 const SAMPLE_PIPELINE_SNAPSHOT = {
@@ -1019,25 +1088,18 @@ describe("pipeline list", () => {
 
   test("dismiss prints the candidates named by a pipeline_id_ambiguous refusal", async () => {
     const cap = captureIo();
-    const code = await withFixedUuid([SESSION_UUID, "pipe-dismiss-ambiguous"], () =>
-      main(["pipeline", "dismiss", "aaaaaaaa"], cap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () =>
-          makeIpcClient([
-            {
-              kind: "response",
-              id: "pipe-dismiss-ambiguous",
-              result: {
-                kind: "refused",
-                pipelineId: "aaaaaaaa",
-                reason: "pipeline_id_ambiguous",
-                candidates: ["aaaaaaaa-1111", "aaaaaaaa-2222"],
-                message: "pipeline id aaaaaaaa matches 2 pipelines: aaaaaaaa-1111, aaaaaaaa-2222",
-              },
-            },
-          ]),
-      }),
-    );
+    const code = await main(["pipeline", "dismiss", "aaaaaaaa"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("aaaaaaaa", () =>
+        pipelineListClient({
+          kind: "refused",
+          pipelineId: "aaaaaaaa",
+          reason: "pipeline_id_ambiguous",
+          candidates: ["aaaaaaaa-1111", "aaaaaaaa-2222"],
+          message: "pipeline id aaaaaaaa matches 2 pipelines: aaaaaaaa-1111, aaaaaaaa-2222",
+        }),
+      ),
+    });
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "", stderr: "pipeline_id_ambiguous\naaaaaaaa-1111\naaaaaaaa-2222\n" });
@@ -1396,12 +1458,10 @@ describe("pipeline wait", () => {
     const cap = captureIo();
     const sent: unknown[] = [];
 
-    const code = await withFixedUuid([SESSION_UUID, "pipe-wait"], () =>
-      main(["pipeline", "wait", "pipe-1"], cap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () => makeIpcClient([pipelineWaitFrame("pipe-wait", boundary)], { sent }),
-      }),
-    );
+    const code = await main(["pipeline", "wait", "pipe-1"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () => pipelineListClient(boundary, sent)),
+    });
 
     expect(code).toBe(expectedExit);
     expect(cap.read()).toEqual({ stdout: `${JSON.stringify(boundary)}\n`, stderr: "" });
@@ -1414,12 +1474,10 @@ describe("pipeline wait", () => {
     const startedAt = Date.now();
     const boundary = { kind: "awaiting-approval", stageId: "gate", branchKey: "default" } as const;
 
-    const code = await withFixedUuid([SESSION_UUID, "pipe-wait-now"], () =>
-      main(["pipeline", "wait", "pipe-1"], cap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () => makeIpcClient([pipelineWaitFrame("pipe-wait-now", boundary)]),
-      }),
-    );
+    const code = await main(["pipeline", "wait", "pipe-1"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () => pipelineListClient(boundary)),
+    });
 
     expect(Date.now() - startedAt).toBeLessThan(500);
     expect(code).toBe(0);
@@ -1463,20 +1521,12 @@ describe("pipeline wait", () => {
   test("unknown pipeline ID surfaces daemon unknown_pipeline on stderr", async () => {
     const cap = captureIo();
 
-    const code = await withFixedUuid([SESSION_UUID, "pipe-wait-miss"], () =>
-      main(["pipeline", "wait", "pipe-missing"], cap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () =>
-          makeIpcClient([
-            {
-              kind: "error",
-              id: "pipe-wait-miss",
-              code: "unknown_pipeline",
-              message: "Pipeline pipe-missing not found",
-            },
-          ]),
-      }),
-    );
+    const code = await main(["pipeline", "wait", "pipe-missing"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("pipe-missing", () =>
+        pipelineErrorRpcClient("unknown_pipeline", "Pipeline pipe-missing not found"),
+      ),
+    });
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
@@ -1489,12 +1539,10 @@ describe("pipeline wait", () => {
     const cap = captureIo();
     const sent: unknown[] = [];
 
-    const code = await withFixedUuid([SESSION_UUID, "pipe-wait-abort"], () =>
-      main(["pipeline", "wait", "pipe-abort"], cap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () => ipcClientAbortingOnWait([], sent),
-      }),
-    );
+    const code = await main(["pipeline", "wait", "pipe-abort"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("pipe-abort", () => ipcClientAbortingOnWait([], sent)),
+    });
 
     expect(code).toBe(1);
     expect(cap.read().stdout).toBe("");
@@ -1507,12 +1555,10 @@ describe("pipeline wait", () => {
     const cap = captureIo();
     const boundary = { kind: "awaiting-approval", stageId: "gate", branchKey: "alpha" } as const;
 
-    const code = await withFixedUuid([SESSION_UUID, "pipe-wait-fan"], () =>
-      main(["pipeline", "wait", "pipe-fan"], cap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () => makeIpcClient([pipelineWaitFrame("pipe-wait-fan", boundary)]),
-      }),
-    );
+    const code = await main(["pipeline", "wait", "pipe-fan"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("pipe-fan", () => pipelineListClient(boundary)),
+    });
 
     expect(code).toBe(0);
     expect(cap.read().stdout).toBe(`${JSON.stringify(boundary)}\n`);
@@ -1528,12 +1574,10 @@ describe("pipeline approve and reject", () => {
     const cap = captureIo();
     const sent: unknown[] = [];
 
-    const code = await withFixedUuid([SESSION_UUID, `pipe-${subcommand}`], () =>
-      main(["pipeline", subcommand, "pipe-1", "gate", "default"], cap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () => makeIpcClient([pipelineWaitFrame(`pipe-${subcommand}`, result)], { sent }),
-      }),
-    );
+    const code = await main(["pipeline", subcommand, "pipe-1", "gate", "default"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () => pipelineListClient(result, sent)),
+    });
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: "", stderr: "" });
@@ -1548,23 +1592,15 @@ describe("pipeline approve and reject", () => {
     const approveCap = captureIo();
     const approveSent: unknown[] = [];
 
-    const approveCode = await withFixedUuid([SESSION_UUID, "pipe-approve-alpha"], () =>
-      main(["pipeline", "approve", "pipe-fan", "gate", "alpha"], approveCap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () =>
-          makeIpcClient(
-            [
-              pipelineWaitFrame("pipe-approve-alpha", {
-                kind: "applied",
-                pipelineId: "pipe-fan",
-                stageId: "gate",
-                decision: "approved",
-              }),
-            ],
-            { sent: approveSent },
-          ),
-      }),
-    );
+    const approveCode = await main(["pipeline", "approve", "pipe-fan", "gate", "alpha"], approveCap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("pipe-fan", () =>
+        pipelineListClient(
+          { kind: "applied", pipelineId: "pipe-fan", stageId: "gate", decision: "approved" },
+          approveSent,
+        ),
+      ),
+    });
 
     expect(approveCode).toBe(0);
     expect(ipcFramesWithMethod(approveSent, "pipeline_approve")).toEqual([
@@ -1601,23 +1637,15 @@ describe("pipeline approve and reject", () => {
     const rejectCap = captureIo();
     const rejectSent: unknown[] = [];
 
-    const rejectCode = await withFixedUuid([SESSION_UUID, "pipe-reject-beta"], () =>
-      main(["pipeline", "reject", "pipe-fan", "gate", "beta"], rejectCap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () =>
-          makeIpcClient(
-            [
-              pipelineWaitFrame("pipe-reject-beta", {
-                kind: "applied",
-                pipelineId: "pipe-fan",
-                stageId: "gate",
-                decision: "rejected",
-              }),
-            ],
-            { sent: rejectSent },
-          ),
-      }),
-    );
+    const rejectCode = await main(["pipeline", "reject", "pipe-fan", "gate", "beta"], rejectCap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("pipe-fan", () =>
+        pipelineListClient(
+          { kind: "applied", pipelineId: "pipe-fan", stageId: "gate", decision: "rejected" },
+          rejectSent,
+        ),
+      ),
+    });
 
     expect(rejectCode).toBe(0);
     expect(ipcFramesWithMethod(rejectSent, "pipeline_reject")).toEqual([
@@ -1654,23 +1682,15 @@ describe("pipeline approve and reject", () => {
     const cap = captureIo();
     const sent: unknown[] = [];
 
-    const code = await withFixedUuid([SESSION_UUID, "pipe-approve-wrong"], () =>
-      main(["pipeline", "approve", "pipe-fan", "gate", "beta"], cap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () =>
-          makeIpcClient(
-            [
-              pipelineWaitFrame("pipe-approve-wrong", {
-                kind: "refused",
-                pipelineId: "pipe-fan",
-                stageId: "gate",
-                reason: "status_not_awaiting",
-              }),
-            ],
-            { sent },
-          ),
-      }),
-    );
+    const code = await main(["pipeline", "approve", "pipe-fan", "gate", "beta"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("pipe-fan", () =>
+        pipelineListClient(
+          { kind: "refused", pipelineId: "pipe-fan", stageId: "gate", reason: "status_not_awaiting" },
+          sent,
+        ),
+      ),
+    });
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "", stderr: "status_not_awaiting\n" });
@@ -1698,20 +1718,12 @@ describe("pipeline approve and reject", () => {
   test("pipeline approve prints status_not_awaiting on stderr and exits non-zero", async () => {
     const cap = captureIo();
 
-    const code = await withFixedUuid([SESSION_UUID, "pipe-approve-refused"], () =>
-      main(["pipeline", "approve", "pipe-1", "gate", "default"], cap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () =>
-          makeIpcClient([
-            pipelineWaitFrame("pipe-approve-refused", {
-              kind: "refused",
-              pipelineId: "pipe-1",
-              stageId: "gate",
-              reason: "status_not_awaiting",
-            }),
-          ]),
-      }),
-    );
+    const code = await main(["pipeline", "approve", "pipe-1", "gate", "default"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () =>
+        pipelineListClient({ kind: "refused", pipelineId: "pipe-1", stageId: "gate", reason: "status_not_awaiting" }),
+      ),
+    });
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "", stderr: "status_not_awaiting\n" });
@@ -1720,20 +1732,12 @@ describe("pipeline approve and reject", () => {
   test("pipeline reject prints invalid_decision on stderr with no success stdout", async () => {
     const cap = captureIo();
 
-    const code = await withFixedUuid([SESSION_UUID, "pipe-reject-refused"], () =>
-      main(["pipeline", "reject", "pipe-1", "gate", "default"], cap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () =>
-          makeIpcClient([
-            pipelineWaitFrame("pipe-reject-refused", {
-              kind: "refused",
-              pipelineId: "pipe-1",
-              stageId: "gate",
-              reason: "invalid_decision",
-            }),
-          ]),
-      }),
-    );
+    const code = await main(["pipeline", "reject", "pipe-1", "gate", "default"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () =>
+        pipelineListClient({ kind: "refused", pipelineId: "pipe-1", stageId: "gate", reason: "invalid_decision" }),
+      ),
+    });
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "", stderr: "invalid_decision\n" });
@@ -1777,12 +1781,10 @@ describe("pipeline approve and reject", () => {
   ] as const)("pipeline %s prints invalid daemon response for malformed envelope", async (subcommand) => {
     const cap = captureIo();
 
-    const code = await withFixedUuid([SESSION_UUID, `pipe-${subcommand}-bad`], () =>
-      main(["pipeline", subcommand, "pipe-1", "gate", "default"], cap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () => makeIpcClient([pipelineWaitFrame(`pipe-${subcommand}-bad`, { kind: "unknown" })]),
-      }),
-    );
+    const code = await main(["pipeline", subcommand, "pipe-1", "gate", "default"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () => pipelineListClient({ kind: "unknown" })),
+    });
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
@@ -1790,21 +1792,17 @@ describe("pipeline approve and reject", () => {
 });
 
 describe("pipeline resume", () => {
-  test.each([
-    ["pipe-resume-failed", "pipe-failed"],
-    ["pipe-resume-await", "pipe-await"],
-  ] as const)("pipeline resume exits 0 on resumed for %s", async (rpcId, pipelineId) => {
+  test.each(["pipe-failed", "pipe-await"] as const)("pipeline resume exits 0 on resumed for %s", async (pipelineId) => {
     // Inversion target: runPipelineMutationCommand exit mapping in pipeline.ts — treating resumed outcomes as failure turns this test RED.
     const cap = captureIo();
     const sent: unknown[] = [];
 
-    const code = await withFixedUuid([SESSION_UUID, rpcId], () =>
-      main(["pipeline", "resume", pipelineId], cap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () =>
-          makeIpcClient([pipelineWaitFrame(rpcId, { kind: "resumed", pipelineId })], { sent }),
-      }),
-    );
+    const code = await main(["pipeline", "resume", pipelineId], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient(pipelineId, () =>
+        pipelineListClient({ kind: "resumed", pipelineId }, sent),
+      ),
+    });
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: `${pipelineId}\n`, stderr: "" });
@@ -1815,15 +1813,12 @@ describe("pipeline resume", () => {
     const cap = captureIo();
     const sent: unknown[] = [];
 
-    const code = await withFixedUuid([SESSION_UUID, "pipe-resume-branch"], () =>
-      main(["pipeline", "resume", "pipe-1", " alpha "], cap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () =>
-          makeIpcClient([pipelineWaitFrame("pipe-resume-branch", { kind: "resumed", pipelineId: "pipe-1" })], {
-            sent,
-          }),
-      }),
-    );
+    const code = await main(["pipeline", "resume", "pipe-1", " alpha "], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () =>
+        pipelineListClient({ kind: "resumed", pipelineId: "pipe-1" }, sent),
+      ),
+    });
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: "pipe-1\n", stderr: "" });
@@ -1862,15 +1857,12 @@ describe("pipeline resume", () => {
             ...(resetDespiteLandedCriteria ? ["--reset-despite-landed-criteria"] : []),
           ];
 
-    const code = await withFixedUuid([SESSION_UUID, "pipe-resume-flags"], () =>
-      main(argv, cap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () =>
-          makeIpcClient([pipelineWaitFrame("pipe-resume-flags", { kind: "resumed", pipelineId: "pipe-1" })], {
-            sent,
-          }),
-      }),
-    );
+    const code = await main(argv, cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () =>
+        pipelineListClient({ kind: "resumed", pipelineId: "pipe-1" }, sent),
+      ),
+    });
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: "pipe-1\n", stderr: "" });
@@ -1890,18 +1882,17 @@ describe("pipeline resume", () => {
   });
 
   test.each([
-    ["pipe-resume-done", "pipe-done", "pipeline_terminal_succeeded"],
-    ["pipe-resume-rej", "pipe-rej", "pipeline_terminal_rejected"],
-  ] as const)("pipeline resume on terminal pipeline prints %s on stderr", async (rpcId, pipelineId, reason) => {
+    ["pipe-done", "pipeline_terminal_succeeded"],
+    ["pipe-rej", "pipeline_terminal_rejected"],
+  ] as const)("pipeline resume on terminal pipeline prints %s on stderr", async (pipelineId, reason) => {
     const cap = captureIo();
 
-    const code = await withFixedUuid([SESSION_UUID, rpcId], () =>
-      main(["pipeline", "resume", pipelineId], cap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () =>
-          makeIpcClient([pipelineWaitFrame(rpcId, { kind: "refused", pipelineId, reason })]),
-      }),
-    );
+    const code = await main(["pipeline", "resume", pipelineId], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient(pipelineId, () =>
+        pipelineListClient({ kind: "refused", pipelineId, reason }),
+      ),
+    });
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "", stderr: `${reason}\n` });
@@ -1910,21 +1901,18 @@ describe("pipeline resume", () => {
   test("pipeline resume prints a branch-scoped refusal verbatim on stderr", async () => {
     const cap = captureIo();
 
-    const code = await withFixedUuid([SESSION_UUID, "pipe-resume-branch-refused"], () =>
-      main(["pipeline", "resume", "pipe-fan", "alpha"], cap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () =>
-          makeIpcClient([
-            pipelineWaitFrame("pipe-resume-branch-refused", {
-              kind: "refused",
-              pipelineId: "pipe-fan",
-              branchKey: "alpha",
-              stageId: "gate",
-              reason: "branch_awaiting_approval",
-            }),
-          ]),
-      }),
-    );
+    const code = await main(["pipeline", "resume", "pipe-fan", "alpha"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("pipe-fan", () =>
+        pipelineListClient({
+          kind: "refused",
+          pipelineId: "pipe-fan",
+          branchKey: "alpha",
+          stageId: "gate",
+          reason: "branch_awaiting_approval",
+        }),
+      ),
+    });
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "", stderr: "branch_awaiting_approval\n" });
@@ -1934,20 +1922,12 @@ describe("pipeline resume", () => {
     const cap = captureIo();
     const branchKeys = ["resume-target", "resume-sibling-a"];
 
-    const code = await withFixedUuid([SESSION_UUID, "pipe-resume-list-branches"], () =>
-      main(["pipeline", "resume", "pipe-fan"], cap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () =>
-          makeIpcClient([
-            pipelineWaitFrame("pipe-resume-list-branches", {
-              kind: "refused",
-              pipelineId: "pipe-fan",
-              reason: "branch_resume_required",
-              branchKeys,
-            }),
-          ]),
-      }),
-    );
+    const code = await main(["pipeline", "resume", "pipe-fan"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("pipe-fan", () =>
+        pipelineListClient({ kind: "refused", pipelineId: "pipe-fan", reason: "branch_resume_required", branchKeys }),
+      ),
+    });
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({
@@ -2016,12 +1996,10 @@ describe("pipeline resume", () => {
   ] as const)("pipeline resume prints invalid daemon response for malformed envelope (%s)", async ({ response }) => {
     const cap = captureIo();
 
-    const code = await withFixedUuid([SESSION_UUID, "pipe-resume-bad"], () =>
-      main(["pipeline", "resume", "pipe-1"], cap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () => makeIpcClient([pipelineWaitFrame("pipe-resume-bad", response)]),
-      }),
-    );
+    const code = await main(["pipeline", "resume", "pipe-1"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () => pipelineListClient(response)),
+    });
 
     expect(code).toBe(1);
     expect(cap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
@@ -2031,16 +2009,12 @@ describe("pipeline resume", () => {
     const cap = captureIo();
     const sent: unknown[] = [];
 
-    const code = await withFixedUuid([SESSION_UUID, "pipe-resume-id-mismatch"], () =>
-      main(["pipeline", "resume", "pipe-positional"], cap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () =>
-          makeIpcClient(
-            [pipelineWaitFrame("pipe-resume-id-mismatch", { kind: "resumed", pipelineId: "pipe-daemon" })],
-            { sent },
-          ),
-      }),
-    );
+    const code = await main(["pipeline", "resume", "pipe-positional"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("pipe-positional", () =>
+        pipelineListClient({ kind: "resumed", pipelineId: "pipe-daemon" }, sent),
+      ),
+    });
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: "pipe-daemon\n", stderr: "" });
@@ -2062,12 +2036,10 @@ describe("pipeline recover", () => {
       entryRunId: "run-9",
     };
 
-    const code = await withFixedUuid([SESSION_UUID, "pipe-recover"], () =>
-      main(["pipeline", "recover", "pipe-1", " alpha "], cap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () => makeIpcClient([pipelineWaitFrame("pipe-recover", result)], { sent }),
-      }),
-    );
+    const code = await main(["pipeline", "recover", "pipe-1", " alpha "], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () => pipelineListClient(result, sent)),
+    });
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: `${JSON.stringify(result)}\n`, stderr: "" });
@@ -2093,22 +2065,20 @@ describe("pipeline recover", () => {
       entryRunId: "run-9",
     };
 
-    const code = await withFixedUuid([SESSION_UUID, "pipe-recover-flags"], () =>
-      main(
-        [
-          "pipeline",
-          "recover",
-          "pipe-1",
-          "alpha",
-          ...(resetDespiteDirty ? ["--reset-despite-dirty"] : []),
-          ...(resetDespiteLandedCriteria ? ["--reset-despite-landed-criteria"] : []),
-        ],
-        cap.io,
-        {
-          ...pipelineDeps(undefined),
-          connectIpcClient: async () => makeIpcClient([pipelineWaitFrame("pipe-recover-flags", result)], { sent }),
-        },
-      ),
+    const code = await main(
+      [
+        "pipeline",
+        "recover",
+        "pipe-1",
+        "alpha",
+        ...(resetDespiteDirty ? ["--reset-despite-dirty"] : []),
+        ...(resetDespiteLandedCriteria ? ["--reset-despite-landed-criteria"] : []),
+      ],
+      cap.io,
+      {
+        ...pipelineDeps(undefined),
+        connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () => pipelineListClient(result, sent)),
+      },
     );
 
     expect(code).toBe(0);
@@ -2130,21 +2100,18 @@ describe("pipeline recover", () => {
 
   test("pipeline recover reports daemon refusals without admitting", async () => {
     const refusedCap = captureIo();
-    const refusedCode = await withFixedUuid([SESSION_UUID, "pipe-recover-refused"], () =>
-      main(["pipeline", "recover", "pipe-1", "alpha"], refusedCap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () =>
-          makeIpcClient([
-            pipelineWaitFrame("pipe-recover-refused", {
-              kind: "resolution_refused",
-              pipelineId: "pipe-1",
-              branchKey: "alpha",
-              reason: "no_failed_stage",
-              message: "branch alpha carries no failed workflow stage row",
-            }),
-          ]),
-      }),
-    );
+    const refusedCode = await main(["pipeline", "recover", "pipe-1", "alpha"], refusedCap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () =>
+        pipelineListClient({
+          kind: "resolution_refused",
+          pipelineId: "pipe-1",
+          branchKey: "alpha",
+          reason: "no_failed_stage",
+          message: "branch alpha carries no failed workflow stage row",
+        }),
+      ),
+    });
     expect(refusedCode).toBe(1);
     expect(refusedCap.read()).toEqual({
       stdout: "",
@@ -2152,20 +2119,12 @@ describe("pipeline recover", () => {
     });
 
     const claimedCap = captureIo();
-    const claimedCode = await withFixedUuid([SESSION_UUID, "pipe-recover-claimed"], () =>
-      main(["pipeline", "recover", "pipe-1", "alpha"], claimedCap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () =>
-          makeIpcClient([
-            pipelineWaitFrame("pipe-recover-claimed", {
-              kind: "stage_claimed",
-              pipelineId: "pipe-1",
-              branchKey: "alpha",
-              stageId: "plan",
-            }),
-          ]),
-      }),
-    );
+    const claimedCode = await main(["pipeline", "recover", "pipe-1", "alpha"], claimedCap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () =>
+        pipelineListClient({ kind: "stage_claimed", pipelineId: "pipe-1", branchKey: "alpha", stageId: "plan" }),
+      ),
+    });
     expect(claimedCode).toBe(1);
     expect(claimedCap.read()).toEqual({
       stdout: "",
@@ -2173,31 +2132,26 @@ describe("pipeline recover", () => {
     });
 
     const unknownCap = captureIo();
-    const unknownCode = await withFixedUuid([SESSION_UUID, "pipe-recover-unknown"], () =>
-      main(["pipeline", "recover", "pipe-1", "alpha"], unknownCap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () => makeIpcClient([pipelineWaitFrame("pipe-recover-unknown", { kind: "unknown" })]),
-      }),
-    );
+    const unknownCode = await main(["pipeline", "recover", "pipe-1", "alpha"], unknownCap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () => pipelineListClient({ kind: "unknown" })),
+    });
     expect(unknownCode).toBe(1);
     expect(unknownCap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
 
     const malformedCap = captureIo();
-    const malformedCode = await withFixedUuid([SESSION_UUID, "pipe-recover-malformed"], () =>
-      main(["pipeline", "recover", "pipe-1", "alpha"], malformedCap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () =>
-          makeIpcClient([
-            pipelineWaitFrame("pipe-recover-malformed", {
-              kind: "admitted",
-              pipelineId: "pipe-1",
-              branchKey: "alpha",
-              stageId: "plan",
-              // entryRunId missing: an admitted envelope stripped of its handles must not admit.
-            }),
-          ]),
-      }),
-    );
+    const malformedCode = await main(["pipeline", "recover", "pipe-1", "alpha"], malformedCap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () =>
+        pipelineListClient({
+          kind: "admitted",
+          pipelineId: "pipe-1",
+          branchKey: "alpha",
+          stageId: "plan",
+          // entryRunId missing: an admitted envelope stripped of its handles must not admit.
+        }),
+      ),
+    });
     expect(malformedCode).toBe(1);
     expect(malformedCap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
   });
@@ -2248,18 +2202,12 @@ describe("pipeline dismiss", () => {
     const cap = captureIo();
     const sent: unknown[] = [];
 
-    const code = await withFixedUuid([SESSION_UUID, "pipe-dismiss"], () =>
-      main(["pipeline", "dismiss", "pipe-1"], cap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () =>
-          makeIpcClient(
-            [pipelineWaitFrame("pipe-dismiss", { kind: "applied", pipelineId: "pipe-1", state: "failed" })],
-            {
-              sent,
-            },
-          ),
-      }),
-    );
+    const code = await main(["pipeline", "dismiss", "pipe-1"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () =>
+        pipelineListClient({ kind: "applied", pipelineId: "pipe-1", state: "failed" }, sent),
+      ),
+    });
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: "pipeline dismiss: pipe-1\n", stderr: "" });
@@ -2272,16 +2220,12 @@ describe("pipeline dismiss", () => {
     const cap = captureIo();
     const sent: unknown[] = [];
 
-    const code = await withFixedUuid([SESSION_UUID, "pipe-undismiss"], () =>
-      main(["pipeline", "undismiss", "pipe-1"], cap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () =>
-          makeIpcClient(
-            [pipelineWaitFrame("pipe-undismiss", { kind: "applied", pipelineId: "pipe-1", state: "failed" })],
-            { sent },
-          ),
-      }),
-    );
+    const code = await main(["pipeline", "undismiss", "pipe-1"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () =>
+        pipelineListClient({ kind: "applied", pipelineId: "pipe-1", state: "failed" }, sent),
+      ),
+    });
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: "pipeline undismiss: pipe-1\n", stderr: "" });
@@ -2291,57 +2235,50 @@ describe("pipeline dismiss", () => {
   });
 
   test("dismiss and undismiss refuse an unknown pipeline id", async () => {
-    async function expectRefusal(argv: readonly string[], rpcId: string): Promise<void> {
+    async function expectRefusal(argv: readonly string[]): Promise<void> {
       const cap = captureIo();
-      const code = await withFixedUuid([SESSION_UUID, rpcId], () =>
-        main([...argv], cap.io, {
-          ...pipelineDeps(undefined),
-          connectIpcClient: async () =>
-            makeIpcClient([
-              pipelineWaitFrame(rpcId, { kind: "refused", pipelineId: "pipe-1", reason: "pipeline_not_found" }),
-            ]),
-        }),
-      );
+      const code = await main([...argv], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () =>
+          pipelineListClient({ kind: "refused", pipelineId: "pipe-1", reason: "pipeline_not_found" }),
+        ),
+      });
       expect(code).toBe(1);
       expect(cap.read()).toEqual({ stdout: "", stderr: "pipeline_not_found\n" });
     }
 
-    await expectRefusal(["pipeline", "dismiss", "pipe-1"], "pipe-dismiss-refused");
-    await expectRefusal(["pipeline", "undismiss", "pipe-1"], "pipe-undismiss-refused");
+    await expectRefusal(["pipeline", "dismiss", "pipe-1"]);
+    await expectRefusal(["pipeline", "undismiss", "pipe-1"]);
   });
 
   test("dismissing a live pipeline warns naming its state", async () => {
-    async function expectWarning(state: string, rpcId: string): Promise<void> {
+    async function expectWarning(state: string): Promise<void> {
       const cap = captureIo();
-      const code = await withFixedUuid([SESSION_UUID, rpcId], () =>
-        main(["pipeline", "dismiss", "pipe-1"], cap.io, {
-          ...pipelineDeps(undefined),
-          connectIpcClient: async () =>
-            makeIpcClient([pipelineWaitFrame(rpcId, { kind: "applied", pipelineId: "pipe-1", state })]),
-        }),
-      );
+      const code = await main(["pipeline", "dismiss", "pipe-1"], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () =>
+          pipelineListClient({ kind: "applied", pipelineId: "pipe-1", state }),
+        ),
+      });
       expect(code).toBe(0);
       const output = cap.read();
       expect(output.stdout).toBe("pipeline dismiss: pipe-1\n");
       expect(output.stderr).toBe(`pipeline dismiss: pipe-1 is ${state} and now hidden from listings\n`);
     }
 
-    await expectWarning("running", "pipe-dismiss-running");
-    await expectWarning("awaiting-approval", "pipe-dismiss-awaiting");
+    await expectWarning("running");
+    await expectWarning("awaiting-approval");
   });
 
   test("dismissing a terminal pipeline prints no warning", async () => {
     const cap = captureIo();
 
-    const code = await withFixedUuid([SESSION_UUID, "pipe-dismiss-terminal"], () =>
-      main(["pipeline", "dismiss", "pipe-1"], cap.io, {
-        ...pipelineDeps(undefined),
-        connectIpcClient: async () =>
-          makeIpcClient([
-            pipelineWaitFrame("pipe-dismiss-terminal", { kind: "applied", pipelineId: "pipe-1", state: "failed" }),
-          ]),
-      }),
-    );
+    const code = await main(["pipeline", "dismiss", "pipe-1"], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () =>
+        pipelineListClient({ kind: "applied", pipelineId: "pipe-1", state: "failed" }),
+      ),
+    });
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: "pipeline dismiss: pipe-1\n", stderr: "" });
@@ -2372,20 +2309,229 @@ describe("pipeline dismiss", () => {
   });
 
   test("dismiss prints invalid daemon response for a malformed envelope", async () => {
-    async function expectInvalid(response: unknown, rpcId: string): Promise<void> {
+    async function expectInvalid(response: unknown): Promise<void> {
       const cap = captureIo();
-      const code = await withFixedUuid([SESSION_UUID, rpcId], () =>
-        main(["pipeline", "dismiss", "pipe-1"], cap.io, {
-          ...pipelineDeps(undefined),
-          connectIpcClient: async () => makeIpcClient([pipelineWaitFrame(rpcId, response)]),
-        }),
-      );
+      const code = await main(["pipeline", "dismiss", "pipe-1"], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: ownerRoutedConnectIpcClient("pipe-1", () => pipelineListClient(response)),
+      });
       expect(code).toBe(1);
       expect(cap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
     }
 
-    await expectInvalid({ kind: "unknown" }, "pipe-dismiss-bad-kind");
-    await expectInvalid({ kind: "applied", pipelineId: "pipe-1", state: "not-a-real-state" }, "pipe-dismiss-bad-state");
+    await expectInvalid({ kind: "unknown" });
+    await expectInvalid({ kind: "applied", pipelineId: "pipe-1", state: "not-a-real-state" });
+  });
+});
+
+describe("pipeline verb owner routing", () => {
+  const invokingSocket = "/jarvis/daemon-ffff.sock";
+  const ownerSocket = "/jarvis/daemon-0000.sock";
+
+  test("approves through a non-invoking owner", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const code = await main(["pipeline", "approve", "pipe-1", "gate", "default"], cap.io, {
+      ...pipelineDeps(undefined),
+      socketPath: invokingSocket,
+      socketDiscovery: async () => [ownerSocket],
+      connectIpcClient: multiSocketOwnerRoutedConnectIpcClient(
+        {
+          [invokingSocket]: { kind: "not_owner", pipelineId: "pipe-1" },
+          [ownerSocket]: { kind: "owner", pipelineId: "pipe-1" },
+        },
+        ownerSocket,
+        () =>
+          pipelineListClient({ kind: "applied", pipelineId: "pipe-1", stageId: "gate", decision: "approved" }, sent),
+      ),
+    });
+
+    expect(code).toBe(0);
+    expect(ipcFramesWithMethod(sent, "pipeline_approve")).toEqual([
+      expect.objectContaining({ params: { pipelineId: "pipe-1", stageId: "gate", branchKey: "default" } }),
+    ]);
+  });
+
+  test("refuses a cross-daemon ambiguous id prefix before any owner probe", async () => {
+    const cap = captureIo();
+    const socketA = "/jarvis/daemon-1111.sock";
+    const socketB = "/jarvis/daemon-2222.sock";
+
+    const code = await main(["pipeline", "wait", "aaaaaaaa"], cap.io, {
+      ...pipelineDeps(undefined),
+      socketPath: socketA,
+      socketDiscovery: async () => [socketB],
+      connectIpcClient: async (socketPath) =>
+        pipelineListClient({
+          pipelines: [
+            { ...SAMPLE_PIPELINE_SNAPSHOT, pipelineId: socketPath === socketA ? "aaaaaaaa1111" : "aaaaaaaa2222" },
+          ],
+        }),
+    });
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({
+      stdout: "",
+      stderr: "pipeline id aaaaaaaa matches 2 pipelines: aaaaaaaa1111, aaaaaaaa2222\n",
+    });
+  });
+
+  test.each([
+    ["reject", ["pipeline", "reject", "pipe-1", "gate", "default"], "pipeline_reject"],
+    ["resume", ["pipeline", "resume", "pipe-1"], "pipeline_resume"],
+    ["recover", ["pipeline", "recover", "pipe-1", "alpha"], "pipeline_recover"],
+    ["dismiss", ["pipeline", "dismiss", "pipe-1"], "pipeline_dismiss"],
+    ["undismiss", ["pipeline", "undismiss", "pipe-1"], "pipeline_undismiss"],
+    ["wait", ["pipeline", "wait", "pipe-1"], "pipeline_wait"],
+  ] as const)("routes every single-pipeline verb through a non-invoking owner (%s)", async (label, argv, method) => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const results: Record<string, unknown> = {
+      reject: { kind: "applied", pipelineId: "pipe-1", stageId: "gate", decision: "rejected" },
+      resume: { kind: "resumed", pipelineId: "pipe-1" },
+      recover: { kind: "admitted", pipelineId: "pipe-1", branchKey: "alpha", stageId: "plan", entryRunId: "run-1" },
+      dismiss: { kind: "applied", pipelineId: "pipe-1", state: "failed" },
+      undismiss: { kind: "applied", pipelineId: "pipe-1", state: "failed" },
+      wait: { kind: "terminal", state: "succeeded" },
+    };
+
+    const code = await main([...argv], cap.io, {
+      ...pipelineDeps(undefined),
+      socketPath: invokingSocket,
+      socketDiscovery: async () => [ownerSocket],
+      connectIpcClient: multiSocketOwnerRoutedConnectIpcClient(
+        {
+          [invokingSocket]: { kind: "not_owner", pipelineId: "pipe-1" },
+          [ownerSocket]: { kind: "owner", pipelineId: "pipe-1" },
+        },
+        ownerSocket,
+        () => pipelineListClient(results[label], sent),
+      ),
+    });
+
+    expect(code).toBe(0);
+    expect(ipcFramesWithMethod(sent, method)).toHaveLength(1);
+  });
+
+  test("uses a durable-state endpoint or refuses duplicate owners", async () => {
+    const smallerSocket = "/jarvis/daemon-0000.sock";
+    const largerSocket = "/jarvis/daemon-ffff.sock";
+
+    // A terminal pipeline: no live `owner`, both sockets answer `durable_state`; the verb still
+    // runs, routed to the resolver's deterministic (lexicographically smallest) socket.
+    const terminalCap = captureIo();
+    const terminalSent: unknown[] = [];
+    const terminalCode = await main(["pipeline", "wait", "pipe-terminal"], terminalCap.io, {
+      ...pipelineDeps(undefined),
+      socketPath: largerSocket,
+      socketDiscovery: async () => [smallerSocket],
+      connectIpcClient: multiSocketOwnerRoutedConnectIpcClient(
+        {
+          [smallerSocket]: { kind: "durable_state", pipelineId: "pipe-terminal", state: "succeeded" },
+          [largerSocket]: { kind: "durable_state", pipelineId: "pipe-terminal", state: "succeeded" },
+        },
+        smallerSocket,
+        () => pipelineListClient({ kind: "terminal", state: "succeeded" }, terminalSent),
+      ),
+    });
+    expect(terminalCode).toBe(0);
+    expect(ipcFramesWithMethod(terminalSent, "pipeline_wait")).toHaveLength(1);
+
+    // A reconciled-interrupted pipeline never presents a live `owner`; `resume` still executes,
+    // routed to the same deterministic socket.
+    const resumeCap = captureIo();
+    const resumeSent: unknown[] = [];
+    const resumeCode = await main(["pipeline", "resume", "pipe-interrupted"], resumeCap.io, {
+      ...pipelineDeps(undefined),
+      socketPath: largerSocket,
+      socketDiscovery: async () => [smallerSocket],
+      connectIpcClient: multiSocketOwnerRoutedConnectIpcClient(
+        {
+          [smallerSocket]: { kind: "durable_state", pipelineId: "pipe-interrupted", state: "interrupted" },
+          [largerSocket]: { kind: "durable_state", pipelineId: "pipe-interrupted", state: "interrupted" },
+        },
+        smallerSocket,
+        () => pipelineListClient({ kind: "resumed", pipelineId: "pipe-interrupted" }, resumeSent),
+      ),
+    });
+    expect(resumeCode).toBe(0);
+    expect(ipcFramesWithMethod(resumeSent, "pipeline_resume")).toHaveLength(1);
+
+    // Two `owner` claimants refuse before any verb RPC, naming both socket paths.
+    const conflictCap = captureIo();
+    const conflictCode = await main(["pipeline", "wait", "pipe-conflict"], conflictCap.io, {
+      ...pipelineDeps(undefined),
+      socketPath: largerSocket,
+      socketDiscovery: async () => [smallerSocket],
+      connectIpcClient: multiSocketOwnerRoutedConnectIpcClient(
+        {
+          [smallerSocket]: { kind: "owner", pipelineId: "pipe-conflict" },
+          [largerSocket]: { kind: "owner", pipelineId: "pipe-conflict" },
+        },
+        "/jarvis/unreachable.sock",
+        () => {
+          throw new Error("must not issue a verb RPC on owner conflict");
+        },
+      ),
+    });
+    expect(conflictCode).toBe(1);
+    expect(conflictCap.read()).toEqual({
+      stdout: "",
+      stderr:
+        "pipeline_owner_conflict: Pipeline pipe-conflict is claimed by multiple daemons " +
+        `(${smallerSocket}, ${largerSocket}); this needs manual investigation before retrying.\n`,
+    });
+  });
+
+  test("reports pipeline owner resolution failures", async () => {
+    let startCalls = 0;
+    const failingDeps = {
+      ...pipelineDeps(undefined),
+      startDaemon: async () => {
+        startCalls += 1;
+        throw new Error("must not start a daemon");
+      },
+    };
+
+    const noOwnerCap = captureIo();
+    const noOwnerCode = await main(["pipeline", "wait", "pipe-no-owner"], noOwnerCap.io, {
+      ...failingDeps,
+      connectIpcClient: ownerResolutionRefusalConnectIpcClient({ kind: "not_owner", pipelineId: "pipe-no-owner" }),
+    });
+    expect(noOwnerCode).toBe(1);
+    expect(noOwnerCap.read()).toEqual({
+      stdout: "",
+      stderr:
+        "pipeline_no_live_owner: Pipeline pipe-no-owner has no live owner; run jarvis daemon start, then retry.\n",
+    });
+
+    const notFoundCap = captureIo();
+    const notFoundCode = await main(["pipeline", "wait", "pipe-missing"], notFoundCap.io, {
+      ...failingDeps,
+      connectIpcClient: ownerResolutionRefusalConnectIpcClient({ kind: "not_found", pipelineId: "pipe-missing" }),
+    });
+    expect(notFoundCode).toBe(1);
+    expect(notFoundCap.read()).toEqual({
+      stdout: "",
+      stderr:
+        "pipeline_not_found: Pipeline pipe-missing was not found; run jarvis pipeline list --all to verify the id.\n",
+    });
+
+    const unavailableCap = captureIo();
+    const unavailableCode = await main(["pipeline", "wait", "pipe-unreachable"], unavailableCap.io, {
+      ...failingDeps,
+      connectIpcClient: async (socketPath) => {
+        throw new Error(`connect ENOENT ${socketPath}`);
+      },
+    });
+    expect(unavailableCode).toBe(1);
+    expect(unavailableCap.read()).toEqual({
+      stdout: "",
+      stderr: "pipeline_daemon_unavailable: No live pipeline daemon responded; run jarvis daemon start, then retry.\n",
+    });
+
+    expect(startCalls).toBe(0);
   });
 });
 

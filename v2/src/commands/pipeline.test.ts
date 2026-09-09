@@ -751,6 +751,68 @@ describe("pipeline list", () => {
     expect(ipcFramesWithMethod(sent, "pipeline_list")).toHaveLength(1);
   });
 
+  test("list lengthens colliding eight-character id prefixes until they are distinct", async () => {
+    const NOW_MS = 2_000_000_000_000;
+    const cap = captureIo();
+    const row = (pipelineId: string, name: string) => ({
+      pipelineId,
+      name,
+      state: "succeeded",
+      seedPath: undefined,
+      createdAt: NOW_MS,
+      stages: [{ stageId: "only", branchKey: "default", position: 0, status: "succeeded" }],
+    });
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-list-collide"], () =>
+      main(["pipeline", "list"], cap.io, {
+        ...pipelineDeps(undefined),
+        now: () => NOW_MS,
+        connectIpcClient: async () =>
+          makeIpcClient([
+            pipelineListFrame("pipe-list-collide", [
+              row("aaaaaaaa-1111-4000-8000-000000000001", "first"),
+              row("aaaaaaaa-2222-4000-8000-000000000002", "second"),
+              row("cccccccc-0000-4000-8000-000000000003", "third"),
+            ]),
+          ]),
+      }),
+    );
+
+    expect(code).toBe(0);
+    expect(
+      cap
+        .read()
+        .stdout.split("\n")
+        .map((line) => line.split("\t")[0]),
+    ).toEqual(["aaaaaaaa-1", "aaaaaaaa-2", "cccccccc", ""]);
+  });
+
+  test("dismiss prints the candidates named by a pipeline_id_ambiguous refusal", async () => {
+    const cap = captureIo();
+    const code = await withFixedUuid([SESSION_UUID, "pipe-dismiss-ambiguous"], () =>
+      main(["pipeline", "dismiss", "aaaaaaaa"], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () =>
+          makeIpcClient([
+            {
+              kind: "response",
+              id: "pipe-dismiss-ambiguous",
+              result: {
+                kind: "refused",
+                pipelineId: "aaaaaaaa",
+                reason: "pipeline_id_ambiguous",
+                candidates: ["aaaaaaaa-1111", "aaaaaaaa-2222"],
+                message: "pipeline id aaaaaaaa matches 2 pipelines: aaaaaaaa-1111, aaaaaaaa-2222",
+              },
+            },
+          ]),
+      }),
+    );
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "", stderr: "pipeline_id_ambiguous\naaaaaaaa-1111\naaaaaaaa-2222\n" });
+  });
+
   test("list filters human output by cutoff and exact pipeline state", async () => {
     const NOW_MS = 3_000_000_000_000;
     const cutoffIso = new Date(NOW_MS - HOUR).toISOString();

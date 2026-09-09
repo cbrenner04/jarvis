@@ -20,12 +20,12 @@
 
 ## Acceptance criteria
 
-- [ ] A test proves the first column of `pipeline list` human output is accepted verbatim by `pipeline dismiss`; it fails against the current `slice(0, 8)` rendering.
-- [ ] A test proves a strict prefix of exactly one pipeline id resolves for `pipeline dismiss` and `pipeline wait`, while an argument matching no pipeline still returns the verb's existing not-found reason.
-- [ ] A test proves an ambiguous prefix (two pipelines sharing it) refuses with `pipeline_id_ambiguous`, names both candidates, and dismisses neither.
-- [ ] A test proves two pipelines sharing their first eight characters are listed with distinct, longer prefixes, and that an argument shorter than eight characters never resolves.
-- [ ] `pipeline list --json` continues to emit the full `pipelineId` field unchanged.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test proves the first column of `pipeline list` human output is accepted verbatim by `pipeline dismiss`; it fails against the current `slice(0, 8)` rendering.
+- [x] A test proves a strict prefix of exactly one pipeline id resolves for `pipeline dismiss` and `pipeline wait`, while an argument matching no pipeline still returns the verb's existing not-found reason.
+- [x] A test proves an ambiguous prefix (two pipelines sharing it) refuses with `pipeline_id_ambiguous`, names both candidates, and dismisses neither.
+- [x] A test proves two pipelines sharing their first eight characters are listed with distinct, longer prefixes, and that an argument shorter than eight characters never resolves.
+- [x] `pipeline list --json` continues to emit the full `pipelineId` field unchanged.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

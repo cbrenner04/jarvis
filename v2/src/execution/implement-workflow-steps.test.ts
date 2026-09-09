@@ -566,6 +566,129 @@ describe("buildImplementWorkflowSteps", () => {
     });
   });
 
+  /** Local clone whose `main` tracks `origin/main`; `aheadCommits` land on origin only. */
+  function cloneWithStaleMain(aheadCommits: number): { root: string; originPath: string } {
+    const base = mkdtempSync(join(tmpdir(), "implement-workflow-steps-stale-base-"));
+    const seed = join(base, "seed");
+    mkdirSync(seed);
+    initGitRepo(seed);
+    execFileSync("git", ["checkout", "-qb", "main"], { cwd: seed });
+    mkdirSync(join(seed, "spec"));
+    writeFileSync(join(seed, "spec", "index.md"), "- [ ] [Work](./work.md)\n", "utf8");
+    writeFileSync(join(seed, "spec", "work.md"), "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n", "utf8");
+    execFileSync("git", ["add", "spec"], { cwd: seed });
+    execFileSync("git", ["commit", "-qm", "base"], { cwd: seed });
+    const originPath = join(base, "origin.git");
+    execFileSync("git", ["clone", "-q", "--bare", seed, originPath]);
+    const root = join(base, "checkout");
+    execFileSync("git", ["clone", "-q", originPath, root]);
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: root });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
+    for (let index = 0; index < aheadCommits; index += 1) {
+      writeFileSync(join(seed, `merged-${index}.txt`), "merged\n", "utf8");
+      execFileSync("git", ["add", "."], { cwd: seed });
+      execFileSync("git", ["commit", "-qm", `merged ${index}`], { cwd: seed });
+    }
+    if (aheadCommits > 0) execFileSync("git", ["push", "-q", originPath, "main:main"], { cwd: seed });
+    return { root, originPath };
+  }
+
+  function recordingRunner(): { runner: AsyncSubprocessRunner; argv: string[][] } {
+    const argv: string[][] = [];
+    return {
+      argv,
+      runner: {
+        runAsync: (cmd, args, cwd, options) => {
+          argv.push([cmd, ...args]);
+          return realAsyncSubprocessRunner.runAsync(cmd, args, cwd, options);
+        },
+      },
+    };
+  }
+
+  test("--base main refuses base_behind_origin when local main is strictly behind its upstream", async () => {
+    const { root } = cloneWithStaleMain(1);
+    const localSha = execFileSync("git", ["rev-parse", "main"], { cwd: root, encoding: "utf8" }).trim();
+    const machineConfigPath = writeJson("config.json", { agents: ["claude"], projects: { project: { root } } });
+
+    const result = await buildImplementWorkflowSteps(
+      { cwd: root, baseRef: "main", specPath: "spec/index.md", configPath: machineConfigPath },
+      {
+        loadWorkflowSteps: () => {
+          throw new Error("should not load workflow steps");
+        },
+      },
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toContain("base_behind_origin");
+    expect(result.error).toContain(`main is at ${localSha.slice(0, 12)}`);
+    const upstreamSha = execFileSync("git", ["rev-parse", "origin/main"], { cwd: root, encoding: "utf8" }).trim();
+    expect(result.error).toContain(`origin/main is at ${upstreamSha.slice(0, 12)}`);
+    expect(result.error).toContain("--base origin/main");
+  });
+
+  test("--base origin/main and an up-to-date local main both admit", async () => {
+    const machineProfile = writeValidProfile();
+    for (const [ahead, baseRef] of [
+      [1, "origin/main"],
+      [0, "main"],
+    ] as const) {
+      const { root } = cloneWithStaleMain(ahead);
+      const machineConfigPath = writeJson("config.json", { agents: ["claude"], projects: { project: { root } } });
+      const result = await buildImplementWorkflowSteps(
+        { cwd: root, baseRef, specPath: "spec/index.md", configPath: machineConfigPath },
+        { loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }) },
+      );
+      expect(result.ok).toBe(true);
+    }
+  });
+
+  test("a base branch with no upstream admits without fetching", async () => {
+    const root = mkdtempSync(join(tmpdir(), "implement-workflow-steps-no-upstream-"));
+    mkdirSync(join(root, "spec"));
+    writeFileSync(join(root, "spec", "index.md"), "- [ ] [Work](./work.md)\n", "utf8");
+    writeFileSync(join(root, "spec", "work.md"), "# Work\n\n## Acceptance criteria\n\n- [ ] Work\n", "utf8");
+    initGitRepo(root);
+    execFileSync("git", ["add", "spec"], { cwd: root });
+    execFileSync("git", ["commit", "-qm", "base"], { cwd: root });
+    const machineConfigPath = writeJson("config.json", { agents: ["claude"], projects: { project: { root } } });
+    const machineProfile = writeValidProfile();
+    const { runner, argv } = recordingRunner();
+
+    const result = await buildImplementWorkflowSteps(
+      { cwd: root, baseRef: "HEAD", specPath: "spec/index.md", configPath: machineConfigPath },
+      {
+        asyncSubprocessRunner: runner,
+        loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(argv.some((call) => call[1] === "fetch")).toBe(false);
+  });
+
+  test("a failed upstream fetch falls through to admission with a note", async () => {
+    const { root } = cloneWithStaleMain(1);
+    execFileSync("git", ["remote", "set-url", "origin", join(root, "no-such-remote.git")], { cwd: root });
+    const machineConfigPath = writeJson("config.json", { agents: ["claude"], projects: { project: { root } } });
+    const machineProfile = writeValidProfile();
+    const notes: string[] = [];
+
+    const result = await buildImplementWorkflowSteps(
+      { cwd: root, baseRef: "main", specPath: "spec/index.md", configPath: machineConfigPath },
+      {
+        warn: (message) => notes.push(message),
+        loadWorkflowSteps: (steps) => loadWorkflowSteps(steps, { machineConfigPath, machineProfile, machinesDir }),
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toContain("base freshness not checked");
+  });
+
   test("accepts a base-tracked spec launched below the registered project root", async () => {
     const root = mkdtempSync(join(tmpdir(), "implement-workflow-steps-base-ref-"));
     mkdirSync(join(root, "spec", "nested"), { recursive: true });

@@ -553,11 +553,11 @@ function renderPipelineDaemonResolutionRefusal(resolution: PipelineDaemonResolut
     case "pipeline_owner_conflict":
       return `pipeline_owner_conflict: Pipeline ${resolution.pipelineId} is claimed by multiple daemons (${resolution.claimantPaths.join(", ")}); this needs manual investigation before retrying.\n`;
     case "pipeline_no_live_owner":
-      return `pipeline_no_live_owner: Pipeline ${resolution.pipelineId} has no live owner; run jarvis daemon start, then retry.\n`;
+      return `pipeline_no_live_owner: Pipeline ${resolution.pipelineId} has no live owner; run ${resolution.recovery}.\n`;
     case "pipeline_not_found":
       return `pipeline_not_found: Pipeline ${resolution.pipelineId} was not found; run jarvis pipeline list --all to verify the id.\n`;
     default:
-      return "pipeline_daemon_unavailable: No live pipeline daemon responded; run jarvis daemon start, then retry.\n";
+      return `pipeline_daemon_unavailable: No live pipeline daemon responded; run ${PIPELINE_NO_LIVE_OWNER_RECOVERY}.\n`;
   }
 }
 

@@ -18,7 +18,7 @@ name: completion-commit-never-stages-review-verdicts
 
 ## Acceptance criteria
 
-- [ ] A test drives a completion commit over a worktree containing a `verdict-*.md` file and asserts the resulting commit tree contains no verdict file; it fails against the pre-fix `completionStageArgs`.
+- [ ] A test drives a completion commit over a worktree containing an untracked `verdict-*.md` file and asserts the resulting commit tree contains no verdict file; it fails against the pre-fix `completionStageArgs`.
 - [ ] A test asserts a verdict file nested inside a spec-tree directory in the worktree is likewise unstaged by the completion commit.
 - [ ] A test asserts an already-tracked verdict file is not deleted by the completion commit (staging is narrowed, not a removal).
 - [ ] `completion-commit` tests covering the materialized node_modules exclusion stay green (behavior unchanged by the added exclusion).

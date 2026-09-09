@@ -10,14 +10,14 @@ name: implement-review-verdict-resolves-outside-the-spec-tree
 
 ## Decisions
 
-- The implement verdict resolves to a harness sidecar directory at the worktree root, sibling to the other `.jarvis-*` stages, rather than to the spec directory; rules out writing harness state into a directory whose entire contents are committed and archived.
-- The path stays deterministic per run so the review cycle, the retry/actuator read of `priorCycleVerdict`, and the ownership marker (`<verdictPath>.owner`) all resolve to the same file; rules out a per-cycle temp path that breaks verdict-dependent retry.
+- The implement verdict resolves to `<worktree>/.jarvis-implement-review/verdict-patch.md`, in the worktree-root `.jarvis-implement-review/` harness sidecar directory, rather than to the spec directory; rules out writing harness state into a directory whose entire contents are committed and archived.
+- That path stays deterministic per run so the review cycle, the retry/actuator read of `priorCycleVerdict`, and the ownership marker (`<verdictPath>.owner`) all resolve to the same file; rules out a per-cycle temp path that breaks verdict-dependent retry.
 - The sidecar directory is created by the step builder or review cycle before first write; rules out relying on the spec dir having already existed.
 - Landing and archival semantics are untouched — the verdict is never committed in the first place; rules out teaching `cleanup` to strip verdicts during archival.
 
 ## Acceptance criteria
 
-- [ ] A test asserts the built implement workflow's review step `verdictPath` is outside the spec directory, under the harness sidecar path; it fails against the pre-fix builder.
+- [ ] A test asserts the built implement workflow's review step `verdictPath` is outside the spec directory at `<worktree>/.jarvis-implement-review/verdict-patch.md`; it fails against the pre-fix builder.
 - [ ] A test asserts the same resolved `verdictPath` is used by both the light and debate review step shapes.
 - [ ] A test asserts the verdict written during a review cycle is readable at the resolved path on the next cycle, so `priorCycleVerdict` retry still works.
 - [ ] A test asserts a completed reviewed implement's published tree contains no `verdict-*.md`.
@@ -25,7 +25,7 @@ name: implement-review-verdict-resolves-outside-the-spec-tree
 
 ## Documentation updates
 
-- `v2/docs/write-behavior.md` — the review verdict is harness state, never published spec content; name its resolved sidecar path.
+- `v2/docs/write-behavior.md` — the review verdict is harness state at `<worktree>/.jarvis-implement-review/verdict-patch.md`, never published spec content.
 - `v2/docs/operator-runbook.md` — drop the hand-publish instruction to strip `verdict-*.md`, and the note in the multi-subspec publication gotcha.
 - `v2/docs/v1-behaviors.md` — record that implement no longer writes its verdict into the spec tree.
 

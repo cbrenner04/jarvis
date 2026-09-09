@@ -1,4 +1,8 @@
-import { type InvocationFailureDetail, isExhaustedRoleTimeout } from "../execution/invocation-failure.ts";
+import {
+  type BindingAttemptSummary,
+  type InvocationFailureDetail,
+  isExhaustedRoleTimeout,
+} from "../execution/invocation-failure.ts";
 import type { PublicationFailure } from "../execution/publication-retry.ts";
 import {
   nonTerminatingMutationLogFields,
@@ -6,11 +10,12 @@ import {
   survivingMutationLogFields,
 } from "../execution/ready-finalize.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
-import type {
-  ContractMissDetailEvent,
-  LoopFinishedEvent,
-  PersistedRecord,
-  RunExecutionFailedEvent,
+import {
+  type ContractMissDetailEvent,
+  type LoopFinishedEvent,
+  type PersistedRecord,
+  type RunExecutionFailedEvent,
+  truncateLogText,
 } from "../persistence/log-stream.ts";
 import type { Attempt, RunStatus } from "../persistence/state-store.ts";
 
@@ -142,6 +147,22 @@ export function isPostBoundaryStateStoreLockTimeout(
   return lastCommittedAttempt(run.attempts ?? [])?.outcomeKind === "done";
 }
 
+/** Same bound `write-loop.ts` applies to the raw stderr tail, reused for the composed attribution message. */
+const ECHOED_INVOCATION_ERROR_MESSAGE_MAX_CODE_UNITS = 2048;
+
+function formatBindingAttempt(attempt: BindingAttemptSummary): string {
+  return `${attempt.bindingId} (${attempt.agent ?? "unknown-agent"}/${attempt.model ?? "unknown-model"}): ${attempt.resultKind}`;
+}
+
+/** Attributed message for an echoed-input `error`-kind failure: no live message exists to project. */
+function composeEchoedInvocationErrorMessage(bindingAttempts: BindingAttemptSummary[]): string {
+  const message =
+    bindingAttempts.length === 0
+      ? "invocation_error"
+      : `invocation_error: ${bindingAttempts.map(formatBindingAttempt).join("; ")}`;
+  return truncateLogText(message, ECHOED_INVOCATION_ERROR_MESSAGE_MAX_CODE_UNITS);
+}
+
 function mapInvocationFailureDetail(
   detail: InvocationFailureDetail | null | undefined,
   projectModelConfigMessage = false,
@@ -150,6 +171,9 @@ function mapInvocationFailureDetail(
   const error = isExhaustedRoleTimeout(detail)
     ? op("role_timeout", "stop", false)
     : (INVOCATION_BY_FAILURE_KIND[detail.failureKind] ?? op("invocation_error", "stop"));
+  if (detail.failureKind === "error" && detail.echoedInput === true) {
+    return { ...error, message: composeEchoedInvocationErrorMessage(detail.bindingAttempts) };
+  }
   return (detail.failureKind === "error" || (projectModelConfigMessage && detail.failureKind === "model_config")) &&
     detail.message !== undefined
     ? { ...error, message: detail.message }

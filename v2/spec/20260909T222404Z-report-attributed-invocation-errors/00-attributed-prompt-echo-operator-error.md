@@ -17,14 +17,14 @@ The write loop already suppresses the echo: a settling binding whose stderr echo
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/run-operator-error.test.ts` proves a settled `invocation_failure` detail with `failureKind: "error"`, `echoedInput: true`, and two `bindingAttempts` composes an `invocation_error` whose `message` names the failure class and both rungs' `bindingId`, agent, model, and `resultKind` in chain order; it fails against the pre-fix code, which composes no `message` field at all for this detail.
-- [ ] `v2/src/daemon/run-operator-error.test.ts` proves an `echoedInput: true`, `failureKind: "error"` detail with empty `bindingAttempts` composes an `invocation_error` message naming the failure class and no bindings; it fails against the pre-fix code's message-less composition.
-- [ ] `composeRunOperatorError projects binding-chain invocation stderr when present and omits it when absent` (existing test) stays green — non-echoed `error`-kind stderr passthrough is unchanged.
-- [ ] `composeRunOperatorError differs for stall vs error failureKind` and the `composeRunOperatorError does not project message for %s invocation failure` cases (existing tests) stay green — `reason`, `retryable`, and `nextAction` for `invocation_error` and sibling failure kinds are unchanged.
-- [ ] `v2/src/daemon/daemon-wait-run-completion.test.ts` gains a case, alongside `list and wait project persisted binding-chain invocation stderr onto the operator error`, proving `run list` and `run wait` expose the identical composed `invocation_error` for one settled prompt-echo run — preservation of existing shared-composition parity (both entry points consume `composeRunOperatorError`), not new per-entry-point logic.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/daemon/run-operator-error.test.ts` proves a settled `invocation_failure` detail with `failureKind: "error"`, `echoedInput: true`, and two `bindingAttempts` composes an `invocation_error` whose `message` names the failure class and both rungs' `bindingId`, agent, model, and `resultKind` in chain order; it fails against the pre-fix code, which composes no `message` field at all for this detail.
+- [x] `v2/src/daemon/run-operator-error.test.ts` proves an `echoedInput: true`, `failureKind: "error"` detail with empty `bindingAttempts` composes an `invocation_error` message naming the failure class and no bindings; it fails against the pre-fix code's message-less composition.
+- [x] `composeRunOperatorError projects binding-chain invocation stderr when present and omits it when absent` (existing test) stays green — non-echoed `error`-kind stderr passthrough is unchanged.
+- [x] `composeRunOperatorError differs for stall vs error failureKind` and the `composeRunOperatorError does not project message for %s invocation failure` cases (existing tests) stay green — `reason`, `retryable`, and `nextAction` for `invocation_error` and sibling failure kinds are unchanged.
+- [x] `v2/src/daemon/daemon-wait-run-completion.test.ts` gains a case, alongside `list and wait project persisted binding-chain invocation stderr onto the operator error`, proving `run list` and `run wait` expose the identical composed `invocation_error` for one settled prompt-echo run — preservation of existing shared-composition parity (both entry points consume `composeRunOperatorError`), not new per-entry-point logic.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

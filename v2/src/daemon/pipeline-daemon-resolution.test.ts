@@ -6,7 +6,9 @@ import {
   queryPipelineListsFromSocketPaths,
   resolvePipelineDaemon,
   resolvePipelineDaemonFromSocketPaths,
+  resolvePipelineIdAcrossDaemons,
 } from "./pipeline-daemon-resolution.ts";
+import { ambiguousPipelineIdMessage } from "./pipeline-id-resolution.ts";
 import type { PipelineSnapshot } from "./pipeline-observation.ts";
 
 const PIPELINE_ID = "pipeline-full-id";
@@ -342,4 +344,125 @@ test("pipeline list accepts a snapshot carrying an optional string field", async
     snapshotsBySocketPath: { [INVOKING_SOCKET]: [snapshot] },
     hasMalformedResponse: false,
   });
+});
+
+function pipelineSnapshot(pipelineId: string, overrides: Partial<PipelineSnapshot> = {}): PipelineSnapshot {
+  return {
+    pipelineId,
+    name: "test",
+    state: "running",
+    terminalPublicationSucceededAt: null,
+    terminalPublicationFailure: null,
+    createdAt: 1,
+    finishedAtMs: null,
+    dismissedAt: null,
+    stages: [],
+    ...overrides,
+  };
+}
+
+test("resolves a unique cross-daemon prefix to the full pipeline id", async () => {
+  const idOnOtherSocket = "aaaa1111bbbb";
+  const idOnInvokingSocket = "cccc2222dddd";
+  const sent: unknown[] = [];
+  const result = await resolvePipelineIdAcrossDaemons(
+    "aaaa1111",
+    {
+      socketPath: INVOKING_SOCKET,
+      socketDiscovery: async () => [OTHER_SOCKET],
+      connectIpcClient: async (socketPath) =>
+        replyingClient(
+          {
+            result: {
+              pipelines: [pipelineSnapshot(socketPath === OTHER_SOCKET ? idOnOtherSocket : idOnInvokingSocket)],
+            },
+          },
+          sent,
+        ),
+    },
+    20,
+  );
+
+  expect(result).toEqual({ kind: "resolved", pipelineId: idOnOtherSocket });
+  expect(sent).toHaveLength(2);
+});
+
+test("refuses a prefix matching ids across two daemons with the ambiguous message, without further RPC", async () => {
+  const idOnOtherSocket = "abc12345xxxx";
+  const idOnInvokingSocket = "abc12345yyyy";
+  const sent: unknown[] = [];
+  const result = await resolvePipelineIdAcrossDaemons(
+    "abc12345",
+    {
+      socketPath: INVOKING_SOCKET,
+      socketDiscovery: async () => [OTHER_SOCKET],
+      connectIpcClient: async (socketPath) =>
+        replyingClient(
+          {
+            result: {
+              pipelines: [pipelineSnapshot(socketPath === OTHER_SOCKET ? idOnOtherSocket : idOnInvokingSocket)],
+            },
+          },
+          sent,
+        ),
+    },
+    20,
+  );
+
+  const candidates = [idOnOtherSocket, idOnInvokingSocket].sort();
+  expect(result).toEqual({
+    kind: "ambiguous",
+    candidates,
+    message: ambiguousPipelineIdMessage("abc12345", candidates),
+  });
+  expect(sent).toHaveLength(2);
+  expect(sent.every((frame) => (frame as { method?: string }).method === "pipeline_list")).toBeTrue();
+});
+
+test("resolves a dismissed pipeline's full id via the merged, dismissed-inclusive listing", async () => {
+  const dismissedId = "dismissed-pipeline-id";
+  const sent: unknown[] = [];
+  const result = await resolvePipelineIdAcrossDaemons(
+    dismissedId,
+    {
+      socketPath: INVOKING_SOCKET,
+      socketDiscovery: async () => [],
+      connectIpcClient: async () =>
+        replyingClient({ result: { pipelines: [pipelineSnapshot(dismissedId, { dismissedAt: 5 })] } }, sent),
+    },
+    20,
+  );
+
+  expect(result).toEqual({ kind: "resolved", pipelineId: dismissedId });
+  expect(
+    sent.every((frame) => (frame as { params?: { includeDismissed?: unknown } }).params?.includeDismissed === true),
+  ).toBeTrue();
+});
+
+test("returns unmatched when an argument matches zero ids across the merged listing", async () => {
+  const result = await resolvePipelineIdAcrossDaemons(
+    "no-such-pipeline",
+    {
+      socketPath: INVOKING_SOCKET,
+      socketDiscovery: async () => [OTHER_SOCKET],
+      connectIpcClient: async () => replyingClient({ result: { pipelines: [pipelineSnapshot(PIPELINE_ID)] } }),
+    },
+    20,
+  );
+
+  expect(result).toEqual({ kind: "unmatched", pipelineId: "no-such-pipeline" });
+});
+
+test("never prefix-resolves an argument shorter than the minimum prefix length", async () => {
+  const result = await resolvePipelineIdAcrossDaemons(
+    "ab",
+    {
+      socketPath: INVOKING_SOCKET,
+      socketDiscovery: async () => [],
+      connectIpcClient: async () => replyingClient({ result: { pipelines: [pipelineSnapshot("abcdefghijkl")] } }),
+    },
+    20,
+  );
+
+  expect(result).toEqual({ kind: "unmatched", pipelineId: "ab" });
 });

@@ -19,12 +19,12 @@
 
 ## Acceptance criteria
 
-- [ ] A regression test proves an argument that uniquely prefixes one pipeline id across the merged, cross-daemon listing resolves to that full id — the reachable pre-fix gap being that no such cross-daemon resolution exists yet, so nothing before this subspec can turn a prefix into a routable full id.
-- [ ] A regression test proves an argument prefixing ids in two different daemons' stores refuses with the existing `pipeline_id_ambiguous` message, naming every matching candidate, without issuing any further RPC.
-- [ ] A regression test proves a dismissed pipeline's full id still resolves via the merged listing (`includeDismissed: true`).
-- [ ] A regression test proves an argument matching zero ids returns unresolved rather than refusing.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] A regression test proves an argument that uniquely prefixes one pipeline id across the merged, cross-daemon listing resolves to that full id — the reachable pre-fix gap being that no such cross-daemon resolution exists yet, so nothing before this subspec can turn a prefix into a routable full id.
+- [x] A regression test proves an argument prefixing ids in two different daemons' stores refuses with the existing `pipeline_id_ambiguous` message, naming every matching candidate, without issuing any further RPC.
+- [x] A regression test proves a dismissed pipeline's full id still resolves via the merged listing (`includeDismissed: true`).
+- [x] A regression test proves an argument matching zero ids returns unresolved rather than refusing.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

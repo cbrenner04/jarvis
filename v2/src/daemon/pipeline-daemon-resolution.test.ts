@@ -280,3 +280,42 @@ test("pipeline list queries retain valid snapshots and distinguish malformed rep
     sent.every((frame) => (frame as { params?: { includeDismissed?: unknown } }).params?.includeDismissed === true),
   ).toBeTrue();
 });
+
+test("pipeline list accepts null timestamps and rejects non-numeric timestamps", async () => {
+  const snapshot: PipelineSnapshot = {
+    pipelineId: PIPELINE_ID,
+    name: "test",
+    state: "running",
+    terminalPublicationSucceededAt: null,
+    terminalPublicationFailure: null,
+    createdAt: 1,
+    finishedAtMs: null,
+    dismissedAt: null,
+    stages: [],
+  };
+
+  const valid = await queryPipelineListsFromSocketPaths(
+    async () => replyingClient({ result: { pipelines: [snapshot] } }),
+    [INVOKING_SOCKET],
+    undefined,
+    20,
+  );
+  expect(valid).toEqual({
+    snapshotsBySocketPath: { [INVOKING_SOCKET]: [snapshot] },
+    hasMalformedResponse: false,
+  });
+
+  const invalidTimestamp = {
+    ...snapshot,
+    terminalPublicationSucceededAt: 1,
+    finishedAtMs: 2,
+    dismissedAt: "invalid",
+  };
+  const invalid = await queryPipelineListsFromSocketPaths(
+    async () => replyingClient({ result: { pipelines: [invalidTimestamp] } }),
+    [INVOKING_SOCKET],
+    undefined,
+    20,
+  );
+  expect(invalid).toEqual({ snapshotsBySocketPath: {}, hasMalformedResponse: true });
+});

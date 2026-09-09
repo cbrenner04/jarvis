@@ -3010,6 +3010,59 @@ describe("pipeline reconciliation", () => {
     sweepStore.close();
   });
 
+  test("beginRunReconciliation leaves a paused row with a completed last attempt untouched", async () => {
+    const sweepStore = openSweepStore(async () => false);
+
+    const pausedRunId = seedOrphanRun();
+    const pausedAttemptId = seedStore.recordAttemptStart(pausedRunId);
+    seedStore.commitCompletionBoundary({ attemptId: pausedAttemptId, runStatus: "paused", outcomeKind: "progress" });
+
+    const softStoppedRunId = seedOrphanRun();
+    const softStoppedAttemptId = seedStore.recordAttemptStart(softStoppedRunId);
+    seedStore.commitCompletionBoundary({
+      attemptId: softStoppedAttemptId,
+      runStatus: "budget-soft-stopped",
+      outcomeKind: "progress",
+    });
+
+    const admitted = await sweepStore.beginRunReconciliation();
+
+    expect(admitted).not.toContain(pausedRunId);
+    expect(admitted).not.toContain(softStoppedRunId);
+    for (const [runId, status] of [
+      [pausedRunId, "paused"],
+      [softStoppedRunId, "budget-soft-stopped"],
+    ] as const) {
+      const run = loadRunOrThrow(sweepStore, runId);
+      expect(run.status).toBe(status);
+      expect(run.reconciledAt).toBeNull();
+      const raw = new Database(TEST_DB_PATH);
+      const pending = raw.prepare("SELECT reconciliation_pending AS pending FROM runs WHERE id = ?").get(runId) as {
+        pending: number;
+      };
+      raw.close();
+      expect(pending.pending).toBe(0);
+    }
+
+    sweepStore.close();
+  });
+
+  test("beginRunReconciliation still admits a paused row whose attempt is open", async () => {
+    const sweepStore = openSweepStore(async () => false);
+
+    const runId = seedOrphanRun({ status: "paused" });
+    const openAttemptId = seedStore.recordAttemptStart(runId);
+
+    const admitted = await sweepStore.beginRunReconciliation();
+
+    expect(admitted).toContain(runId);
+    const run = loadRunOrThrow(sweepStore, runId);
+    expect(run.status).toBe("paused");
+    expect(run.attempts.find((attempt) => attempt.id === openAttemptId)?.completedAt).not.toBeNull();
+
+    sweepStore.close();
+  });
+
   test("a dismissed run stays loadable and keeps its lifecycle", async () => {
     const sweepStore = openSweepStore(async () => false);
 

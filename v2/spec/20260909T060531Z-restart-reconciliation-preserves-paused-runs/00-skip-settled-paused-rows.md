@@ -12,10 +12,10 @@
 
 ## Acceptance criteria
 
-- [ ] `state-store.test.ts` test `beginRunReconciliation leaves a paused row with a completed last attempt untouched` seeds a dead-owner `paused` run whose attempt completed on a `paused` boundary and asserts it is not returned, not `reconciliation_pending`, and still `paused`; it fails against the current `ORPHAN_STATUSES` admission.
-- [ ] A test proves a dead-owner `paused` row with an `in-progress` attempt is still admitted and settled `killed`.
-- [ ] `daemon-reconciliation.test.ts` proves a daemon start over a durably paused, resumable row appends no `run_reconciled` event and leaves the row `paused`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `state-store.test.ts` test `beginRunReconciliation leaves a paused row with a completed last attempt untouched` seeds a dead-owner `paused` run whose attempt completed on a `paused` boundary and asserts it is not returned, not `reconciliation_pending`, and still `paused`; it fails against the current `ORPHAN_STATUSES` admission.
+- [x] A test proves a dead-owner `paused` row with an `in-progress` attempt is still admitted and settled `killed`.
+- [x] `daemon-reconciliation.test.ts` proves a daemon start over a durably paused, resumable row appends no `run_reconciled` event and leaves the row `paused`.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

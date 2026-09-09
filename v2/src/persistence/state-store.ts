@@ -1327,6 +1327,14 @@ function applySchemaMigrations(db: Database): void {
 
 const ORPHAN_STATUSES = "'queued', 'in-progress', 'paused', 'budget-soft-stopped'";
 
+/**
+ * Rows with orphanable work: every `queued`/`in-progress` row, but a `paused` or `budget-soft-stopped`
+ * row only while an attempt is still open — a committed pause boundary is a durable, resumable
+ * checkpoint with no live process to orphan, and a restart must not kill it.
+ */
+const ORPHAN_WORK_PREDICATE =
+  "status IN ('queued', 'in-progress') OR (status IN ('paused', 'budget-soft-stopped') AND EXISTS (SELECT 1 FROM attempts WHERE attempts.run_id = runs.id AND attempts.status = 'in-progress'))";
+
 /** Run-column finish timestamp when no in-progress attempt carries reconciliation time. */
 export function orphanSettlementReconciledAt(inProgressAttemptId: string | undefined, finishAt: number): number | null {
   return inProgressAttemptId === undefined ? finishAt : null;
@@ -2645,7 +2653,7 @@ class StateStoreImpl implements StateStore {
   async beginRunReconciliation(): Promise<string[]> {
     const candidates = this.db
       .prepare(
-        `SELECT id, owner_identity AS ownerIdentity FROM runs WHERE status IN (${ORPHAN_STATUSES}) AND reconciliation_pending = 0`,
+        `SELECT id, owner_identity AS ownerIdentity FROM runs WHERE reconciliation_pending = 0 AND (${ORPHAN_WORK_PREDICATE})`,
       )
       .all() as Array<{
       id: string;

@@ -51,9 +51,25 @@
 - Started treating pre-ticked criteria in a stranded worktree as a vacuous-tick defect, then dropped it: the ticks matched #3578's real landed state and I could not explain how they reached that worktree. Not seeded.
 - First instinct on #3588's red CI was to re-run it. The cause was a pre-v1-freeze branch base still calling `v1Tests(...)`; the fix was a rebase, and the merge-base check is the cheap discriminator.
 
+## Second half: planning, and a day lost to a misclassified quota
+
+The session continued well past the point this report was first drafted. Two things dominated it.
+
+**Planning was corrupting its own drafts, and it reached other projects.** Three consecutive plan lanes needed hand-collapsing before the cause was found, and I first recorded it — wrongly — as plan-agent output quality. It was the harness: `normalizePlanDraftSpecDir` re-split every authored draft by a hardcoded jarvis surface taxonomy, copying the parent body into each child, so identical `## Problem` text, bare surface titles, zero-criteria children and index/title drift were produced **by construction**. The agents' content was sound every time. Worse, the taxonomy ran for **every registered project** on ordinary vocabulary (`flags?`, `database`, `storage`, `persist*`, `socket`), and was already half-firing on `chess-mvp-yolo`, a SwiftUI app with no persistence layer, CLI or daemon. Retired with its taxonomy in [#3628](https://github.com/cbrenner04/jarvis/pull/3628); the one-artifact-per-bullet rule survives via the vocabulary-free `referencedArtifactPaths`. Independent review of that fix caught two regressions inside it — a path regex widened until `run.finishedAtMs` and the literal `0.0038492` counted as artifact paths, and a silently dropped missing-criteria check that would have let a zero-criteria subspec read as vacuously complete.
+
+**A misclassified cursor exhaustion cost the operator's other project a full day.** Cursor reports exhaustion as `ActionRequiredError: … You're out of usage`; none of the nine `cursorQuotaPatterns` matched it, so it classified generic `error`. Because the agent order advances on quota only, the chain stopped there — and `claude`, the configured third rung, was **never invoked** across eight failed stages on five lanes, while succeeding normally for this project on the same daemon. Fixed in [#3633](https://github.com/cbrenner04/jarvis/pull/3633) with two independent anchors from the live banner, deliberately not matching the `ActionRequiredError` class name, which also covers auth. The durable half — advancing past any rung that did no work, and naming every rung tried in the settled error — stays seeded.
+
+**I told the operator their other session "looked fine"** on the basis of one live run, without reading its failure history. The eight failures were in `run list` the whole time. Checking one green row and generalising is the same mistake this report criticises the gates for.
+
+**A daemon incident, self-inflicted.** Merging source work rotates the daemon digest for *every* registered project, because `jarvis` is one shared binary. The operator's second session lost its daemon mid-work. Nothing was stranded — every row was terminal — and re-issuing the command was the whole recovery, but it is a real cross-project hazard, now in the runbook. Rule adopted: while another session works, restrict to docs- and spec-only merges.
+
+**Two observations left unseeded, each seen once.** Startup reconciliation did not settle two non-terminal rows whose owning daemon was gone; they needed a manual `run kill --force`. And `run list` reported a row `in-progress` while `run resume` on it reported "Cannot resume a **completed** run" — same row, seconds apart.
+
 ## Operating notes
 
-**Agent order (`codex, cursor, claude`, unchanged as instructed).** 55 invocations, $12.81 list-price. Codex exited `quota` on **20 of 33** invocations (61%), cascading to cursor each time; cursor 3/19; claude 0/3.
+**Costs.** Operator $245.71 (claude-opus-5), API 1h56m04s against 21h32m15s wall; 787 requests, 99% of input tokens from cache, 2 misses (~1.5m tokens re-cached) both from idling past the 1h TTL while waiting on gates. Agent $27.02 list-price over 124 invocations and 4h17m of agent wall clock. **Total $272.73** for 35 PRs, 133 files touched on `main`, 5 specs implemented end-to-end and 2 held deliberately.
+
+**Agent order (`codex, cursor, claude`, restored after a temporary claude-first unblock).** codex 69 invocations (22 ok), cursor 47 (36 ok), claude 8 (8 ok). **55 of 124 exits were `quota`** — the cost of running codex-first against a recovering quota window all day, and the reason the cursor misclassification was so expensive: with codex intermittently out, cursor was the only thing between the work and a working third rung.
 
 **Stale-base diffs.** I merged sixteen PRs while lanes were live, so `git diff main..HEAD` on any lane shows my own merges as reversions. Always diff against the merge-base; the runbook's "do not merge while lanes are live" has this as its practical cost.
 

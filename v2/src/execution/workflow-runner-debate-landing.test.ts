@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -154,6 +155,40 @@ describe("executeWorkflow review-debate landing", () => {
         [0, [0]],
       ]),
     );
+  });
+
+  test("a completed reviewed implement publishes no verdict file", async () => {
+    const branchName = "implement-review-sidecar-publication";
+    const { harness, step: implementStep } = createShrinkTestStep(branchName, async ({ cwd, shrink }) => {
+      if (!shrink) writeFileSync(join(cwd, "proof.txt"), "implemented\n", "utf8");
+      return { kind: "ok", stdout: "done", stderr: "" };
+    });
+    const verdictPath = join(harness.workspace, ".jarvis-implement-review", "verdict-patch.md");
+    const reviewCalls: string[] = [];
+    const reviewStep = createPatchReviewDebateStep({
+      branchName,
+      verdictPath,
+      cwd: harness.workspace,
+      createBinding: createTrackedReviewDebateBindingFactory(reviewCalls, undefined),
+    });
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [implementStep, reviewStep],
+        stateStore: store,
+        completionCommitter: createCompletionCommitter(),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+      expect(result.kind).toBe("complete");
+    });
+
+    const publishedPaths = execFileSync("git", ["ls-tree", "-r", "--name-only", "HEAD"], {
+      cwd: harness.workspace,
+      encoding: "utf8",
+    }).split("\n");
+    expect(reviewCalls).toEqual(["ADV", "ADVOC", "ADJ", "ACT"]);
+    expect(publishedPaths.some((path) => /^verdict-.*\.md$/.test(path.split("/").at(-1) ?? ""))).toBe(false);
   });
 
   test("exhausted review-debate actuator timeout is not actuator-only-retry eligible; re-dispatch replays the full debate on a fresh row", async () => {

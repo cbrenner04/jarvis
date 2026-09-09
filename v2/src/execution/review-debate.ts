@@ -1,4 +1,5 @@
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import type {
   InvocationBinding,
   InvocationOk,
@@ -131,6 +132,7 @@ export async function executeReviewDebate(args: ReviewDebateInput): Promise<Revi
     const adjudicatorFinal = adjudicator.final;
     if (adjudicatorFinal === null) throw new Error("unreachable: adjudicator failure already handled above");
     const verdict = (adjudicatorFinal.result as InvocationOk).stdout;
+    mkdirSync(dirname(args.verdictPath), { recursive: true });
     writeFileSync(args.verdictPath, verdict, "utf8");
 
     if (verdict.trim().length === 0) {

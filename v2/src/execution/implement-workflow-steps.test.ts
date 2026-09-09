@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import type { ProjectMatch } from "../../../shared/project-registry.ts";
 import { projectSafeId } from "../../../shared/project-safe-id.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
@@ -275,12 +275,13 @@ describe("buildImplementWorkflowSteps", () => {
     expect(light.steps[0].implementReviewBehavior).toBe("light");
   });
 
-  test("positive reviewPasses appends one review-debate step with maxCycles and verdict path", async () => {
+  test("positive reviewPasses appends one review-debate step with maxCycles and worktree-sidecar verdict path", async () => {
     const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
     const machineProfile = writeValidProfile();
+    const specPath = "spec/index.md";
 
     const result = await buildImplementWorkflowSteps(
-      { ...INPUT, reviewPasses: 2 },
+      { ...INPUT, specPath, reviewPasses: 2 },
       mockProjectDeps(machineConfigPath, machineProfile),
     );
 
@@ -292,11 +293,12 @@ describe("buildImplementWorkflowSteps", () => {
     expect(review?.behavior).toBe("review-debate");
     if (review?.behavior !== "review-debate") return;
     expect(review.maxCycles).toBe(2);
-    expect(review.verdictPath).toContain("verdict-patch.md");
+    expect(review.verdictPath).toBe(join(review.cwd, ".jarvis-implement-review", "verdict-patch.md"));
+    expect(relative(join(review.cwd, "spec"), review.verdictPath)).toStartWith("..");
     expect(review.profile?.domain).toBe("implement");
     // Must survive the daemon IPC JSON round-trip: a function context is silently dropped.
     expect(JSON.parse(JSON.stringify(review.profileContext))).toMatchObject({
-      specPath: INPUT.specPath,
+      specPath,
       passNumber: 1,
       totalPasses: 2,
     });
@@ -321,7 +323,7 @@ describe("buildImplementWorkflowSteps", () => {
     if (review?.behavior !== "review") return;
     expect(review.stepId).toBe("implement-review");
     expect(review.maxCycles).toBe(2);
-    expect(review.verdictPath).toContain("verdict-patch.md");
+    expect(review.verdictPath).toBe(join(review.cwd, ".jarvis-implement-review", "verdict-patch.md"));
     expect(review.profile?.domain).toBe("implement");
     expect(JSON.parse(JSON.stringify(review.profileContext))).toMatchObject({
       specPath: INPUT.specPath,
@@ -329,6 +331,23 @@ describe("buildImplementWorkflowSteps", () => {
       totalPasses: 2,
     });
     expect(review.prompt).toBe("implement.prompt.review.critic");
+  });
+
+  test("light and debate review shapes share one resolved verdict path", async () => {
+    const machineConfigPath = writeJson("config.json", { agents: ["claude"] });
+    const deps = mockProjectDeps(machineConfigPath, writeValidProfile());
+    const debate = await buildImplementWorkflowSteps({ ...INPUT, reviewPasses: 1 }, deps);
+    const light = await buildImplementWorkflowSteps({ ...INPUT, reviewPasses: 1, reviewBehavior: "light" }, deps);
+
+    expect(debate.ok).toBe(true);
+    expect(light.ok).toBe(true);
+    if (!debate.ok || !light.ok) return;
+    const debateReview = debate.steps[1];
+    const lightReview = light.steps[1];
+    expect(debateReview?.behavior).toBe("review-debate");
+    expect(lightReview?.behavior).toBe("review");
+    if (debateReview?.behavior !== "review-debate" || lightReview?.behavior !== "review") return;
+    expect(debateReview.verdictPath).toBe(lightReview.verdictPath);
   });
 
   test("rejects invalid reviewPasses at build time", async () => {
@@ -741,7 +760,7 @@ describe("buildImplementWorkflowSteps", () => {
           cwd: root,
           baseRef: "main",
           specPath: indexPath,
-          reviewPasses: 0,
+          reviewPasses: 1,
           configPath: machineConfigPath,
           projectRegistry: registry,
         },
@@ -767,6 +786,11 @@ describe("buildImplementWorkflowSteps", () => {
         externalPlanSpec: true,
         specReadRoot: realpathSync(specReadRoot),
       });
+      const review = result.steps[1];
+      expect(review?.behavior).toBe("review-debate");
+      if (review?.behavior !== "review-debate") return;
+      expect(review.verdictPath).toBe(join(review.cwd, ".jarvis-implement-review", "verdict-patch.md"));
+      expect(relative(specReadRoot, review.verdictPath).startsWith("..")).toBe(true);
     } finally {
       removeTestPaths(root, specReadRoot);
     }

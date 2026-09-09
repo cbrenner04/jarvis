@@ -74,6 +74,8 @@ export type BuildImplementWorkflowStepsDeps = {
   ) => ReturnType<typeof realResolveActiveLinkedSubspec>;
   readSpecFile?: (path: string) => string;
   asyncSubprocessRunner?: AsyncSubprocessRunner;
+  /** Receives non-fatal preflight notes (e.g. a base-freshness fetch that could not run). */
+  warn?: (message: string) => void;
 };
 
 export type BuildImplementWorkflowStepsResult =
@@ -112,6 +114,65 @@ async function isSpecAvailableInBaseRef(
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Default sink for non-fatal preflight notes; the CLI and daemon both surface stderr. */
+function warnToStderr(message: string): void {
+  console.error(message);
+}
+
+async function gitStdout(runner: AsyncSubprocessRunner, projectRoot: string, args: string[]): Promise<string> {
+  return (await runner.runAsync("git", args, projectRoot)).trim();
+}
+
+/**
+ * Refuse a `--base` that names a local branch strictly behind its upstream: `gh pr merge` never advances
+ * the checkout's local branch, so materializing from it re-implements the lane that just merged (#3381).
+ * No upstream, up-to-date/ahead, diverged, or an unfetchable upstream all admit; `--base origin/main`
+ * is the escape hatch.
+ */
+async function checkBaseFreshness(
+  projectRoot: string,
+  baseRef: string,
+  runner: AsyncSubprocessRunner,
+  warn?: (message: string) => void,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  let upstream: string;
+  try {
+    upstream = await gitStdout(runner, projectRoot, ["rev-parse", "--abbrev-ref", `${baseRef}@{upstream}`]);
+  } catch {
+    return { ok: true };
+  }
+  const slash = upstream.indexOf("/");
+  if (upstream.length === 0 || slash <= 0) return { ok: true };
+  const remote = upstream.slice(0, slash);
+  const remoteBranch = upstream.slice(slash + 1);
+  try {
+    await runner.runAsync("git", ["fetch", "--quiet", remote, remoteBranch], projectRoot, { stdio: "ignore" });
+  } catch (error) {
+    warn?.(
+      `base freshness not checked: could not fetch ${upstream} (${error instanceof Error ? error.message : String(error)})`,
+    );
+    return { ok: true };
+  }
+  try {
+    const localSha = await gitStdout(runner, projectRoot, ["rev-parse", baseRef]);
+    const upstreamSha = await gitStdout(runner, projectRoot, ["rev-parse", upstream]);
+    if (localSha === upstreamSha) return { ok: true };
+    try {
+      await runner.runAsync("git", ["merge-base", "--is-ancestor", localSha, upstreamSha], projectRoot, {
+        stdio: "ignore",
+      });
+    } catch {
+      return { ok: true }; // ahead or diverged: not the stale-checkout shape
+    }
+    return {
+      ok: false,
+      error: `base_behind_origin: ${baseRef} is at ${localSha.slice(0, 12)}, ${upstream} is at ${upstreamSha.slice(0, 12)}; run git pull or pass --base ${upstream}`,
+    };
+  } catch {
+    return { ok: true };
   }
 }
 
@@ -341,6 +402,8 @@ async function resolveChainedImplementLaunch(
       reviewBehavior: reviewConfig.reviewBehavior,
     };
   }
+  const freshness = await checkBaseFreshness(match.root, input.baseRef, runner, deps.warn ?? warnToStderr);
+  if (!freshness.ok) return { error: freshness.error };
   const preflightBaseRef = input.preflightBaseRef ?? input.baseRef;
   if (!(await isSpecAvailableInBaseRef(specReadRoot, preflightBaseRef, input.specPath, runner))) {
     return { error: `Spec path unavailable in base ref ${preflightBaseRef}: ${input.specPath}` };
@@ -408,14 +471,11 @@ async function resolveImplementLaunch(
   const reviewConfig = resolveImplementReviewConfig(input, match, input.configPath ?? deps.configPath);
   if ("error" in reviewConfig) return reviewConfig;
 
+  const freshness = await checkBaseFreshness(match.root, input.baseRef, runner, deps.warn ?? warnToStderr);
+  if (!freshness.ok) return { error: freshness.error };
   if (
     externalPlanSpec !== true &&
-    !(await isSpecAvailableInBaseRef(
-      match.root,
-      input.baseRef,
-      projectRelativeSpecPath,
-      deps.asyncSubprocessRunner ?? realAsyncSubprocessRunner,
-    ))
+    !(await isSpecAvailableInBaseRef(match.root, input.baseRef, projectRelativeSpecPath, runner))
   ) {
     return { error: `Spec path unavailable in base ref ${input.baseRef}: ${projectRelativeSpecPath}` };
   }

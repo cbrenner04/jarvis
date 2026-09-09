@@ -13,11 +13,11 @@
 
 ## Acceptance criteria
 
-- [ ] `implement-workflow-steps.test.ts` test `--base main refuses base_behind_origin when local main is strictly behind its upstream` builds a project repo with an `origin` remote one commit ahead of local `main` and asserts `buildImplementWorkflowSteps` returns an error naming `base_behind_origin`, both SHAs, and the `--base origin/main` escape; it fails against the current silent admission.
-- [ ] A test proves `--base origin/main` on the same repo admits, and that an up-to-date local `main` admits.
-- [ ] A test proves a base branch with no upstream admits without fetching (the subprocess runner sees no `fetch`).
-- [ ] A test proves a failed fetch falls through to admission with a note rather than a refusal.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `implement-workflow-steps.test.ts` test `--base main refuses base_behind_origin when local main is strictly behind its upstream` builds a project repo with an `origin` remote one commit ahead of local `main` and asserts `buildImplementWorkflowSteps` returns an error naming `base_behind_origin`, both SHAs, and the `--base origin/main` escape; it fails against the current silent admission.
+- [x] A test proves `--base origin/main` on the same repo admits, and that an up-to-date local `main` admits.
+- [x] A test proves a base branch with no upstream admits without fetching (the subprocess runner sees no `fetch`).
+- [x] A test proves a failed fetch falls through to admission with a note rather than a refusal.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

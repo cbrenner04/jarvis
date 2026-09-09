@@ -173,6 +173,8 @@ jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md
 jarvis run workflow implement --base main --spec v2/spec/<spec>/index.md --detach  # return after admission; track via printed run ID
 ```
 
+**`--base main` names the checkout's local branch.** `gh pr merge` never advances it, so after merging, an implement launched with `--base main` would branch from a stale base and re-implement the lane that just merged. Preflight now fetches the base branch's upstream and refuses admission with `base_behind_origin: main is at <sha>, origin/main is at <sha>; run git pull or pass --base origin/main` when the local branch is strictly behind (#3381). Pass `--base origin/main` to branch from the fetched remote directly, or fast-forward the checkout first. A base with no upstream, an up-to-date or ahead local branch, or an unfetchable remote (offline) admits as before; the unfetchable case prints a `base freshness not checked` note on stderr.
+
 For opted-in projects, standalone intent and plan admit absolute queue paths under that project's external specs home when `cwd` resolves to the owning registered project. Admission and routing: [`workflow-runner.md` § Authoring helper and presets](./workflow-runner.md#authoring-helper-and-presets); layout: [`install-and-config.md` § External specs home](./install-and-config.md#external-specs-home).
 
 ```sh

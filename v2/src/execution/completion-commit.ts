@@ -222,15 +222,25 @@ const ADD_ALL_ARGS = ["add", "-A"] as const;
 // never descends into a symlink to stage its target's contents.
 const NODE_MODULES_GLOB = `${MATERIALIZED_NODE_MODULES_PATH.slice(0, -1)}[${MATERIALIZED_NODE_MODULES_PATH.slice(-1)}]`;
 const EXCLUDE_MATERIALIZED_NODE_MODULES = ["--", ".", `:(exclude)${NODE_MODULES_GLOB}`] as const;
+// Excludes review-verdict basenames at any depth from `add -A`, never `git rm --cached` an
+// already-tracked verdict: narrowing the stage pathspec can't turn a poisoned repo's next commit
+// into an unrequested deletion of a verdict a prior commit already tracked. Review-landing
+// already treats verdict files as transient (excludeVerdictFromStaging), but an untracked verdict
+// left in the worktree at completion time must never become durable output just because a
+// completion commit stages the whole worktree. The `glob` magic word (not the default pathspec
+// matching) is required for `**/` to match both the root and nested depths.
+const EXCLUDE_REVIEW_VERDICTS = ":(exclude,glob)**/verdict-*.md";
 
 /** `git add -A` pathspec for a completion commit; excludes the materialized node_modules
- * symlink when present so no harness completion commit ever stages it. */
+ * symlink when present, and review-verdict basenames unconditionally, so no harness completion
+ * commit ever stages them. */
 export function completionStageArgs(worktreePath: string, excludedPaths: readonly string[] = []): string[] {
   const exclusions = excludedPaths.map((path) => `:(exclude,literal)${path}`);
   if (isMaterializedNodeModulesPath(worktreePath, MATERIALIZED_NODE_MODULES_PATH)) {
     exclusions.push(EXCLUDE_MATERIALIZED_NODE_MODULES[2]);
   }
-  return exclusions.length === 0 ? [...ADD_ALL_ARGS] : [...ADD_ALL_ARGS, "--", ".", ...exclusions];
+  exclusions.push(EXCLUDE_REVIEW_VERDICTS);
+  return [...ADD_ALL_ARGS, "--", ".", ...exclusions];
 }
 
 /**

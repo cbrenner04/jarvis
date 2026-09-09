@@ -23,16 +23,16 @@ Completion commits stage the entire worktree, so an untracked review verdict can
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/completion-commit.test.ts` test `completion commit omits an untracked review verdict` drives a real worktree without a verdict ignore, commits another change, and proves the commit tree excludes the root verdict; it fails against the pre-fix staging arguments.
-- [ ] `v2/src/execution/completion-commit.test.ts` test `completion commit omits a nested review verdict` proves a verdict beneath a spec-tree directory is absent from the commit tree; it fails against the pre-fix staging arguments.
-- [ ] `v2/src/execution/completion-commit.test.ts` test `an already-tracked review verdict survives the completion commit` proves narrowed staging retains the verdict entry already present at `HEAD`.
-- [ ] `v2/src/execution/completion-commit.test.ts` tests covering the materialized node_modules exclusion stay green.
-- [ ] `v2/src/execution/workflow-runner-resume.test.ts` verdict-exclusion tests stay green.
-- [ ] `.gitignore` ignores the verdict-*.md basename pattern.
-- [ ] `v2/docs/write-behavior.md` states that completion commits never stage review verdict files and do not delete verdict entries already tracked at `HEAD`.
-- [ ] `v2/docs/workflow-runner.md` no longer describes implement review verdicts as committed durable output and cross-links the completion-staging contract.
-- [ ] `v2/docs/v1-behaviors.md` records that completion commits exclude review verdict basenames at any depth without deleting tracked verdict entries.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/execution/completion-commit.test.ts` test `completion commit omits an untracked review verdict` drives a real worktree without a verdict ignore, commits another change, and proves the commit tree excludes the root verdict; it fails against the pre-fix staging arguments.
+- [x] `v2/src/execution/completion-commit.test.ts` test `completion commit omits a nested review verdict` proves a verdict beneath a spec-tree directory is absent from the commit tree; it fails against the pre-fix staging arguments.
+- [x] `v2/src/execution/completion-commit.test.ts` test `an already-tracked review verdict survives the completion commit` proves narrowed staging retains the verdict entry already present at `HEAD`.
+- [x] `v2/src/execution/completion-commit.test.ts` tests covering the materialized node_modules exclusion stay green.
+- [x] `v2/src/execution/workflow-runner-resume.test.ts` verdict-exclusion tests stay green.
+- [x] `.gitignore` ignores the verdict-*.md basename pattern.
+- [x] `v2/docs/write-behavior.md` states that completion commits never stage review verdict files and do not delete verdict entries already tracked at `HEAD`.
+- [x] `v2/docs/workflow-runner.md` no longer describes implement review verdicts as committed durable output and cross-links the completion-staging contract.
+- [x] `v2/docs/v1-behaviors.md` records that completion commits exclude review verdict basenames at any depth without deleting tracked verdict entries.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

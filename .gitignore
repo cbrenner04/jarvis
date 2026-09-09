@@ -12,3 +12,7 @@ running-thoughts.md
 
 # Harness plan-staging sidecar (never committed; published to v2/spec/)
 .jarvis-plan-stage/
+
+# Review-verdict scratch output (transient; completion commits also exclude it — see
+# v2/docs/write-behavior.md)
+verdict-*.md

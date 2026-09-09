@@ -20,15 +20,15 @@ Run and pipeline persistence need one cross-library evidence contract before eit
 
 ## Acceptance criteria
 
-- [ ] `shared/operator-failure-record.test.ts` test `parseOperatorFailureRecord accepts a record with expectation, observation, near miss, retryability, and both path origins` serializes a representative record and asserts `{ kind: "valid", record }`; it fails against the pre-fix module absence reachable on main.
-- [ ] `shared/operator-failure-record.test.ts` test `parseOperatorFailureRecord accepts omitted nearMiss and an empty referencedPaths list` proves those precise optionality and cardinality rules; it fails against the pre-fix module absence reachable on main.
-- [ ] `shared/operator-failure-record.test.ts` test `parseOperatorFailureRecord rejects malformed JSON and invalid record shapes without throwing` asserts `{ kind: "invalid" }` for malformed syntax, a non-object, missing or wrongly typed required fields, a non-array path list, and invalid path/origin values; it fails against the pre-fix module absence reachable on main.
-- [ ] `v2/docs/state-store.md` documents the shared record fields and `harness-internal` / `operator-repository` path-origin contract.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:shared` passes.
-- [ ] `bun run test:integration:shared` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `shared/operator-failure-record.test.ts` test `parseOperatorFailureRecord accepts a record with expectation, observation, near miss, retryability, and both path origins` serializes a representative record and asserts `{ kind: "valid", record }`; it fails against the pre-fix module absence reachable on main.
+- [x] `shared/operator-failure-record.test.ts` test `parseOperatorFailureRecord accepts omitted nearMiss and an empty referencedPaths list` proves those precise optionality and cardinality rules; it fails against the pre-fix module absence reachable on main.
+- [x] `shared/operator-failure-record.test.ts` test `parseOperatorFailureRecord rejects malformed JSON and invalid record shapes without throwing` asserts `{ kind: "invalid" }` for malformed syntax, a non-object, missing or wrongly typed required fields, a non-array path list, and invalid path/origin values; it fails against the pre-fix module absence reachable on main.
+- [x] `v2/docs/state-store.md` documents the shared record fields and `harness-internal` / `operator-repository` path-origin contract.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:shared` passes.
+- [x] `bun run test:integration:shared` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

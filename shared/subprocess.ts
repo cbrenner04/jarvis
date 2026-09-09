@@ -20,10 +20,11 @@ export type AsyncSubprocessOptions = {
    * Opt-in process-group mode: spawns the child detached (its own process group) so abort and
    * timeout signal the whole group (`-pgid`, SIGTERM then SIGKILL) instead of only the direct
    * child, reaching grandchildren (e.g. `bun test` pool workers under a gate command). Presence
-   * of this option enables the mode; `onGroupId`, if given, fires once synchronously after spawn
-   * with the group id (== `child.pid`, since a detached child is its own group leader) so the
-   * caller can record it for later reaping. Not invoked if spawn failed (`child.pid` undefined).
-   * POSIX-only.
+   * of this option enables the mode. Timeout and abort settle only after confirmed group
+   * disappearance (lifecycle detail: `v2/docs/v2-architecture.md`); `onGroupId`, if given, fires
+   * once synchronously after spawn with the group id (== `child.pid`, since a detached child is
+   * its own group leader) so the caller can record it for owner-crash recovery, not for a live
+   * owner's own settlement. Not invoked if spawn failed (`child.pid` undefined). POSIX-only.
    */
   processGroup?: { onGroupId?: (pgid: number) => void };
 };
@@ -87,7 +88,10 @@ function runGroupMode(
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     let settled = false;
-    let groupKilled = false;
+    let killGroupPromise: Promise<void> | undefined;
+    let cause: "timeout" | "abort" | undefined;
+    let groupConfirmedDead = false;
+    let pendingCloseSettle: (() => void) | undefined;
     let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
@@ -104,31 +108,74 @@ function runGroupMode(
     child.stdout?.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
     child.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
 
-    const killGroup = () => {
-      // Guarded by `groupKilled`, not `settled`: a timeout rejects immediately after
-      // signaling, but the SIGKILL escalation below must still fire on its own schedule.
-      if (groupKilled) return;
-      groupKilled = true;
-      if (child.pid === undefined) return;
+    // Signals SIGTERM immediately, escalates to SIGKILL after a referenced 50ms grace (the
+    // timer holds the event loop open so an owner exiting right after settlement can't cut the
+    // escalation short), then confirms the whole group is gone before resolving. Idempotent:
+    // repeat calls (timeout racing abort) return the same in-flight promise.
+    const killGroup = (): Promise<void> => {
+      if (killGroupPromise !== undefined) return killGroupPromise;
+      if (child.pid === undefined) {
+        killGroupPromise = Promise.resolve();
+        return killGroupPromise;
+      }
       const pgid = child.pid;
       try {
         process.kill(-pgid, "SIGTERM");
       } catch {
-        // already gone (ESRCH) or not permitted (EPERM); treat as already-dead.
+        // already gone (ESRCH) or not permitted (EPERM); escalation still confirms below.
       }
-      setTimeout(() => {
-        try {
-          process.kill(-pgid, "SIGKILL");
-        } catch {
-          // already gone (ESRCH) or not permitted (EPERM); treat as already-dead.
-        }
-      }, 50).unref?.();
+      killGroupPromise = new Promise<void>((resolveDead) => {
+        setTimeout(() => {
+          try {
+            process.kill(-pgid, "SIGKILL");
+          } catch {
+            // already gone (ESRCH) or not permitted (EPERM); confirmation probe still runs.
+          }
+          // No confirmation deadline: probe every 10ms until ESRCH. Any other outcome,
+          // including EPERM, means the group's liveness is unconfirmed, so keep polling.
+          const probe = () => {
+            try {
+              process.kill(-pgid, 0);
+              setTimeout(probe, 10);
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code === "ESRCH") resolveDead();
+              else setTimeout(probe, 10);
+            }
+          };
+          probe();
+        }, 50);
+      });
+      return killGroupPromise;
     };
 
-    const onAbort = () => killGroup();
+    // Sole settlement authority for timeout/abort: a no-op until the group is confirmed dead,
+    // then called from both the confirmation callback and (if it arrives later) the direct
+    // child's own `close`, whichever comes last — safe to call from either order or repeatedly.
+    const finalizeAfterConfirmedDeath = () => {
+      if (settled || !groupConfirmedDead) return;
+      if (cause === "timeout") {
+        settled = true;
+        settle();
+        reject(
+          new AsyncSubprocessError(`Command timed out after ${options.timeoutMs}ms`, undefined, "", "", "ETIMEDOUT"),
+        );
+      } else if (cause === "abort" && pendingCloseSettle !== undefined) {
+        pendingCloseSettle();
+      }
+    };
+
+    const triggerTermination = (newCause: "timeout" | "abort") => {
+      if (cause === undefined) cause = newCause;
+      killGroup().then(() => {
+        groupConfirmedDead = true;
+        finalizeAfterConfirmedDeath();
+      });
+    };
+
+    const onAbort = () => triggerTermination("abort");
     const cleanupAbort = () => options.signal?.removeEventListener("abort", onAbort);
     if (options.signal !== undefined) {
-      if (options.signal.aborted) killGroup();
+      if (options.signal.aborted) onAbort();
       else options.signal.addEventListener("abort", onAbort, { once: true });
     }
 
@@ -146,32 +193,40 @@ function runGroupMode(
 
     child.on("close", (code, signal) => {
       if (settled) return;
-      settled = true;
-      settle();
       const stdout = Buffer.concat(stdoutChunks).toString("utf8");
       const stderr = Buffer.concat(stderrChunks).toString("utf8");
-      if (code !== 0 || signal !== null) {
-        reject(
-          new AsyncSubprocessError(
-            `Command failed: ${cmd} ${args.join(" ")}`,
-            code ?? undefined,
-            stdout,
-            stderr,
-            signal ?? undefined,
-          ),
-        );
-      } else resolve(stdio === "ignore" ? "" : stdout);
+      const applyCloseResult = () => {
+        if (settled) return;
+        settled = true;
+        settle();
+        if (code !== 0 || signal !== null) {
+          reject(
+            new AsyncSubprocessError(
+              `Command failed: ${cmd} ${args.join(" ")}`,
+              code ?? undefined,
+              stdout,
+              stderr,
+              signal ?? undefined,
+            ),
+          );
+        } else resolve(stdio === "ignore" ? "" : stdout);
+      };
+      // Group-mode close outside timeout/abort (`cause` unset) settles right away — natural
+      // success or non-zero exit never waits on group-death confirmation. Under abort, the
+      // direct child's own close classification (status/code/output) is retained but held
+      // until the whole group is confirmed dead (`finalizeAfterConfirmedDeath` is a no-op
+      // until then); under timeout, close is ignored entirely, so `ETIMEDOUT` always wins.
+      if (cause === undefined) applyCloseResult();
+      else if (cause === "abort") {
+        pendingCloseSettle = applyCloseResult;
+        finalizeAfterConfirmedDeath();
+      }
     });
 
     if (options.timeoutMs !== undefined) {
       timeoutTimer = setTimeout(() => {
         if (settled) return;
-        killGroup();
-        settled = true;
-        cleanupAbort();
-        reject(
-          new AsyncSubprocessError(`Command timed out after ${options.timeoutMs}ms`, undefined, "", "", "ETIMEDOUT"),
-        );
+        triggerTermination("timeout");
       }, options.timeoutMs);
       timeoutTimer.unref?.();
     }

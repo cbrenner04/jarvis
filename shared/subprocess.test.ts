@@ -1,5 +1,6 @@
-import { describe, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, rmSync } from "node:fs";
+import { describe, expect, spyOn, test } from "bun:test";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import {
   branchExistsLocal,
   branchExistsLocalAsync,
@@ -27,6 +28,20 @@ function readPidFile(pidFile: string): number | undefined {
     return contents === "" ? undefined : Number(contents);
   } catch {
     return undefined;
+  }
+}
+
+/** Fresh path under `.scratch/` for a fixture's readiness marker or pid file. */
+function scratchPath(name: string): string {
+  mkdirSync(`${cwd}/.scratch`, { recursive: true });
+  return `${cwd}/.scratch/${name}-${Date.now()}-${Math.random()}`;
+}
+
+/** Polls until `path` exists, for readiness handshakes with a fixture process. */
+async function waitForFile(path: string, attempts = 100): Promise<void> {
+  for (let i = 0; i < attempts; i++) {
+    if (existsSync(path)) return;
+    await new Promise((r) => setTimeout(r, 10));
   }
 }
 
@@ -308,6 +323,278 @@ describe("realAsyncSubprocessRunner", () => {
       }
       rmSync(pidFile, { force: true });
     }
+  }, 5000);
+});
+
+describe("group-mode termination lifecycle", () => {
+  /** Node fixture that ignores SIGTERM, writes `readyFile` once armed, then spins forever. */
+  function resistantScript(readyFile: string): string {
+    return `process.on('SIGTERM', () => {}); require('fs').writeFileSync(${JSON.stringify(readyFile)}, 'ready'); setInterval(() => {}, 1000);`;
+  }
+
+  function errnoError(code: string): NodeJS.ErrnoException {
+    const error = new Error(code) as NodeJS.ErrnoException;
+    error.code = code;
+    return error;
+  }
+
+  test("timeout rejects only after process.kill(-pgid, 0) confirms ESRCH", async () => {
+    const readyFile = scratchPath("subprocess-test-timeout-esrch");
+    let probeConfirmedAt: number | undefined;
+    const realKill = process.kill.bind(process);
+    const killSpy = spyOn(process, "kill").mockImplementation((pid: number, signal?: string | number) => {
+      if (signal === 0) {
+        try {
+          return realKill(pid, signal);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ESRCH" && probeConfirmedAt === undefined) {
+            probeConfirmedAt = Date.now();
+          }
+          throw error;
+        }
+      }
+      return realKill(pid, signal);
+    });
+
+    try {
+      const promise = realAsyncSubprocessRunner.runAsync("node", ["-e", resistantScript(readyFile)], cwd, {
+        timeoutMs: 80,
+        processGroup: {},
+      });
+
+      await waitForFile(readyFile);
+      expect(existsSync(readyFile)).toBe(true);
+
+      await expect(promise).rejects.toMatchObject({ code: "ETIMEDOUT" });
+      const settledAt = Date.now();
+      // Pre-fix, the timeout rejected synchronously on signaling and never probed at all.
+      expect(probeConfirmedAt).toBeDefined();
+      expect(settledAt - (probeConfirmedAt as number)).toBeLessThan(50);
+    } finally {
+      killSpy.mockRestore();
+      rmSync(readyFile, { force: true });
+    }
+  }, 5000);
+
+  test("timeout keeps its promise pending through the 50ms SIGTERM grace", async () => {
+    const readyFile = scratchPath("subprocess-test-timeout-grace");
+    let sigtermAt: number | undefined;
+    const realKill = process.kill.bind(process);
+    const killSpy = spyOn(process, "kill").mockImplementation((pid: number, signal?: string | number) => {
+      if (signal === "SIGTERM" && sigtermAt === undefined) sigtermAt = Date.now();
+      return realKill(pid, signal);
+    });
+
+    try {
+      const promise = realAsyncSubprocessRunner.runAsync("node", ["-e", resistantScript(readyFile)], cwd, {
+        timeoutMs: 80,
+        processGroup: {},
+      });
+      let settledFlag = false;
+      promise.catch(() => {
+        settledFlag = true;
+      });
+
+      await waitForFile(readyFile);
+      expect(existsSync(readyFile)).toBe(true);
+
+      for (let i = 0; i < 50 && sigtermAt === undefined; i++) {
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      expect(sigtermAt).toBeDefined();
+
+      // Still inside the 50ms grace: pre-fix code rejected immediately on signaling here.
+      await new Promise((r) => setTimeout(r, 30));
+      expect(settledFlag).toBe(false);
+
+      await expect(promise).rejects.toMatchObject({ code: "ETIMEDOUT" });
+      expect(settledFlag).toBe(true);
+    } finally {
+      killSpy.mockRestore();
+      rmSync(readyFile, { force: true });
+    }
+  }, 5000);
+
+  test("post-SIGKILL confirmation polls through EPERM and other non-ESRCH probe errors with no deadline", async () => {
+    const EPERM_PROBES = 4;
+    let probeCount = 0;
+    let reportedPgid: number | undefined;
+    const realKill = process.kill.bind(process);
+    const killSpy = spyOn(process, "kill").mockImplementation((_pid: number, signal?: string | number) => {
+      if (signal === 0) {
+        probeCount++;
+        throw errnoError(probeCount <= EPERM_PROBES ? "EPERM" : "ESRCH");
+      }
+      return true;
+    });
+
+    try {
+      const promise = realAsyncSubprocessRunner.runAsync("node", ["-e", "setInterval(() => {}, 1000);"], cwd, {
+        timeoutMs: 50,
+        processGroup: {
+          onGroupId: (pgid) => {
+            reportedPgid = pgid;
+          },
+        },
+      });
+
+      await expect(promise).rejects.toMatchObject({ code: "ETIMEDOUT" });
+      // Pre-fix polling doesn't exist at all, so this would never see a probe call.
+      expect(probeCount).toBeGreaterThan(EPERM_PROBES);
+    } finally {
+      killSpy.mockRestore();
+      if (reportedPgid !== undefined) {
+        try {
+          realKill(-reportedPgid, "SIGKILL");
+        } catch {
+          // already gone
+        }
+      }
+    }
+  }, 5000);
+
+  test("abort settles only after confirmed group death, retaining the direct child's close status/output", async () => {
+    const leaderReady = scratchPath("subprocess-test-abort-leader-ready");
+    const memberReady = scratchPath("subprocess-test-abort-member-ready");
+    const leaderCommand = [
+      "printf 'leader-out'",
+      "printf 'leader-err' 1>&2",
+      `node -e ${JSON.stringify(resistantScript(memberReady))} &`,
+      `touch "${leaderReady}"`,
+      "sleep 100",
+    ].join("\n");
+
+    let probeConfirmedAt: number | undefined;
+    const realKill = process.kill.bind(process);
+    const killSpy = spyOn(process, "kill").mockImplementation((pid: number, signal?: string | number) => {
+      if (signal === 0) {
+        try {
+          return realKill(pid, signal);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "ESRCH" && probeConfirmedAt === undefined) {
+            probeConfirmedAt = Date.now();
+          }
+          throw error;
+        }
+      }
+      return realKill(pid, signal);
+    });
+
+    const controller = new AbortController();
+    try {
+      const promise = realAsyncSubprocessRunner.runAsync("sh", ["-c", leaderCommand], cwd, {
+        signal: controller.signal,
+        processGroup: {},
+      });
+
+      await waitForFile(leaderReady);
+      await waitForFile(memberReady);
+      expect(existsSync(leaderReady)).toBe(true);
+      expect(existsSync(memberReady)).toBe(true);
+
+      controller.abort();
+      const outcome = await promise.catch((error: unknown) => error);
+      const settledAt = Date.now();
+
+      expect(outcome).toBeInstanceOf(AsyncSubprocessError);
+      const error = outcome as AsyncSubprocessError;
+      expect(error.stdout).toBe("leader-out");
+      expect(error.stderr).toBe("leader-err");
+      expect(error.code).toBe("SIGTERM");
+
+      // Pre-fix, this settled straight off the direct child's close, before the spinning
+      // member (still alive at that point) was ever confirmed dead.
+      expect(probeConfirmedAt).toBeDefined();
+      expect(settledAt).toBeGreaterThanOrEqual(probeConfirmedAt as number);
+    } finally {
+      killSpy.mockRestore();
+      rmSync(leaderReady, { force: true });
+      rmSync(memberReady, { force: true });
+    }
+  }, 5000);
+
+  test("an owner that exits immediately after a group-mode timeout rejection leaves no group survivor", async () => {
+    const ownerScript = scratchPath("subprocess-owner");
+    const pgidFile = scratchPath("subprocess-owner-pgid");
+    const subprocessModulePath = new URL("./subprocess.ts", import.meta.url).pathname;
+
+    writeFileSync(
+      `${ownerScript}.ts`,
+      [
+        `import { realAsyncSubprocessRunner } from ${JSON.stringify(subprocessModulePath)};`,
+        `import { writeFileSync } from "node:fs";`,
+        `realAsyncSubprocessRunner`,
+        `  .runAsync("node", ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);"], process.cwd(), {`,
+        `    timeoutMs: 80,`,
+        `    processGroup: { onGroupId: (pgid) => writeFileSync(${JSON.stringify(pgidFile)}, String(pgid)) },`,
+        `  })`,
+        `  .catch(() => process.exit(0));`,
+      ].join("\n"),
+    );
+
+    try {
+      execFileSync("bun", ["run", `${ownerScript}.ts`], { cwd, stdio: "ignore" });
+
+      const pgid = Number(readFileSync(pgidFile, "utf8").trim());
+      expect(Number.isNaN(pgid)).toBe(false);
+      expect(() => process.kill(-pgid, 0)).toThrow();
+    } finally {
+      rmSync(`${ownerScript}.ts`, { force: true });
+      rmSync(pgidFile, { force: true });
+    }
+  }, 10000);
+
+  async function assertNaturalCloseLeavesMemberAlive(exitCode: number): Promise<void> {
+    const memberReady = scratchPath(`subprocess-test-natural-${exitCode}-ready`);
+    const leaderCommand = [
+      `node -e ${JSON.stringify(resistantScript(memberReady))} >/dev/null 2>&1 &`,
+      "echo $!",
+      `exit ${exitCode}`,
+    ].join("\n");
+
+    let probeCalls = 0;
+    const realKill = process.kill.bind(process);
+    const killSpy = spyOn(process, "kill").mockImplementation((pid: number, signal?: string | number) => {
+      if (signal === 0) probeCalls++;
+      return realKill(pid, signal);
+    });
+
+    let memberPid: number | undefined;
+    try {
+      const promise = realAsyncSubprocessRunner.runAsync("sh", ["-c", leaderCommand], cwd, { processGroup: {} });
+      if (exitCode === 0) {
+        memberPid = Number((await promise).trim());
+      } else {
+        const error = await promise.catch((e: unknown) => e as AsyncSubprocessError);
+        expect(error).toBeInstanceOf(AsyncSubprocessError);
+        memberPid = Number((error as AsyncSubprocessError).stdout.trim());
+      }
+
+      await waitForFile(memberReady);
+      expect(existsSync(memberReady)).toBe(true);
+      // Natural close never probes the group at all.
+      expect(probeCalls).toBe(0);
+      expect(Number.isNaN(memberPid)).toBe(false);
+      expect(() => process.kill(memberPid as number, 0)).not.toThrow();
+    } finally {
+      killSpy.mockRestore();
+      if (memberPid !== undefined) {
+        try {
+          process.kill(memberPid, "SIGKILL");
+        } catch {
+          // already gone
+        }
+      }
+      rmSync(memberReady, { force: true });
+    }
+  }
+
+  test("natural group-mode success leaves a surviving member alive without group probing", async () => {
+    await assertNaturalCloseLeavesMemberAlive(0);
+  }, 5000);
+
+  test("natural group-mode non-zero close leaves a surviving member alive without group probing", async () => {
+    await assertNaturalCloseLeavesMemberAlive(3);
   }, 5000);
 });
 

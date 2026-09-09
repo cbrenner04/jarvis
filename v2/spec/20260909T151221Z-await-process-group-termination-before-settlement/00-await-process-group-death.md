@@ -27,21 +27,21 @@ Group-mode timeout can reject immediately after SIGTERM, and timeout or abort le
 
 ## Acceptance criteria
 
-- [ ] `shared/subprocess.test.ts` uses a readiness handshake before `timeoutMs` against a group with a SIGTERM-resistant spinning member and proves timeout rejection occurs only after `process.kill(-pgid, 0)` throws `ESRCH`; the test fails against the pre-fix immediate timeout rejection.
-- [ ] `shared/subprocess.test.ts` proves that timeout promise remains unsettled through the 50 ms SIGTERM grace and settles only after confirmed disappearance; the test fails against the pre-fix immediate timeout rejection.
-- [ ] `shared/subprocess.test.ts` uses a controllable group probe to prove 10 ms polling continues through `EPERM` and other non-`ESRCH` probe errors without a confirmation deadline, and settles only on a later `ESRCH`; the test fails against the pre-fix implementation.
-- [ ] `shared/subprocess.test.ts` uses a readiness handshake before aborting a group whose leader writes `stdout` and `stderr`, then exits on SIGTERM while a member ignores SIGTERM and spins; settlement occurs only after `process.kill(-pgid, 0)` throws `ESRCH` and retains `AsyncSubprocessError` `status`, `code`, `stdout`, and `stderr` from direct-child close; the test fails against the pre-fix direct-child-close settlement.
-- [ ] `shared/subprocess.test.ts` launches a separate subprocess owner that exits immediately after its group-mode timeout rejects and proves no member of the recorded group survives owner exit; the test fails against the pre-fix unreferenced escalation.
-- [ ] `shared/subprocess.test.ts` proves natural group-mode success and non-zero close leave a deliberately surviving member alive for fixture cleanup, without group probing or termination; the test fails if natural close starts reaping the group.
-- [ ] Existing `shared/subprocess.test.ts` group-mode abort tests stay green.
-- [ ] `shared/subprocess.ts` documents only the non-obvious `processGroup` symbol contract: timeout and abort await confirmed disappearance, while `onGroupId` supports owner-crash recovery.
-- [ ] `v2/docs/v2-architecture.md` is the canonical record of referenced SIGTERM-to-SIGKILL escalation, 10 ms `ESRCH` confirmation, and durable reaping as the owner-crash fallback.
-- [ ] `v2/docs/v1-behaviors.md` records the strengthened contract inherited by ready gates, required integration, mutation verification, and future consumers, cross-linking the canonical architecture record without repeating the mechanism.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
-- [ ] `bun run test:shared` passes.
-- [ ] `bun run test:integration:shared` passes.
+- [x] `shared/subprocess.test.ts` uses a readiness handshake before `timeoutMs` against a group with a SIGTERM-resistant spinning member and proves timeout rejection occurs only after `process.kill(-pgid, 0)` throws `ESRCH`; the test fails against the pre-fix immediate timeout rejection.
+- [x] `shared/subprocess.test.ts` proves that timeout promise remains unsettled through the 50 ms SIGTERM grace and settles only after confirmed disappearance; the test fails against the pre-fix immediate timeout rejection.
+- [x] `shared/subprocess.test.ts` uses a controllable group probe to prove 10 ms polling continues through `EPERM` and other non-`ESRCH` probe errors without a confirmation deadline, and settles only on a later `ESRCH`; the test fails against the pre-fix implementation.
+- [x] `shared/subprocess.test.ts` uses a readiness handshake before aborting a group whose leader writes `stdout` and `stderr`, then exits on SIGTERM while a member ignores SIGTERM and spins; settlement occurs only after `process.kill(-pgid, 0)` throws `ESRCH` and retains `AsyncSubprocessError` `status`, `code`, `stdout`, and `stderr` from direct-child close; the test fails against the pre-fix direct-child-close settlement.
+- [x] `shared/subprocess.test.ts` launches a separate subprocess owner that exits immediately after its group-mode timeout rejects and proves no member of the recorded group survives owner exit; the test fails against the pre-fix unreferenced escalation.
+- [x] `shared/subprocess.test.ts` proves natural group-mode success and non-zero close leave a deliberately surviving member alive for fixture cleanup, without group probing or termination; the test fails if natural close starts reaping the group.
+- [x] Existing `shared/subprocess.test.ts` group-mode abort tests stay green.
+- [x] `shared/subprocess.ts` documents only the non-obvious `processGroup` symbol contract: timeout and abort await confirmed disappearance, while `onGroupId` supports owner-crash recovery.
+- [x] `v2/docs/v2-architecture.md` is the canonical record of referenced SIGTERM-to-SIGKILL escalation, 10 ms `ESRCH` confirmation, and durable reaping as the owner-crash fallback.
+- [x] `v2/docs/v1-behaviors.md` records the strengthened contract inherited by ready gates, required integration, mutation verification, and future consumers, cross-linking the canonical architecture record without repeating the mechanism.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
+- [x] `bun run test:shared` passes.
+- [x] `bun run test:integration:shared` passes.
 
 ## Documentation updates
 

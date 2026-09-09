@@ -7,6 +7,7 @@ import {
   checkArtifactEligibility,
   completedSpecEligibility,
   isExternalPlanArtifact,
+  resolveConsumedReadyIntent,
 } from "./cleanup-artifacts.ts";
 
 let sequence = 0;
@@ -96,6 +97,38 @@ describe("completed v2 artifact archival", () => {
     expect(existsSync(spec.source)).toBe(false);
     expect(existsSync(ready)).toBe(false);
     expect(readFileSync(runs, "utf8")).toBe("durable row\n");
+  });
+
+  test("archiveCompletedSpec prunes a slug-named ready-intent for a timestamped spec directory", () => {
+    const stamped = fixture(complete, { "intent.md": "queued intent\n" });
+    const source = join(stamped.home, "20260909T000000Z-example");
+    renameSync(stamped.source, source);
+    const spec: ArtifactSpec = { ...stamped, source, name: "20260909T000000Z-example" };
+    const ready = join(spec.home, "ready-intents", "example.md");
+    mkdirSync(join(spec.home, "ready-intents"), { recursive: true });
+    writeFileSync(ready, "queued intent\n");
+
+    expect(resolveConsumedReadyIntent(spec)).toBe(ready);
+    expect(archiveCompletedSpec(spec)).toEqual({
+      status: "archived",
+      destination: join(spec.home, "completed", "20260909T000000Z-example"),
+      intentPruned: true,
+    });
+    expect(existsSync(ready)).toBe(false);
+  });
+
+  test("archiveCompletedSpec leaves a slug-named ready-intent whose bytes differ", () => {
+    const stamped = fixture(complete, { "intent.md": "archived intent\n" });
+    const source = join(stamped.home, "20260909T000001Z-example");
+    renameSync(stamped.source, source);
+    const spec: ArtifactSpec = { ...stamped, source, name: "20260909T000001Z-example" };
+    const ready = join(spec.home, "ready-intents", "example.md");
+    mkdirSync(join(spec.home, "ready-intents"), { recursive: true });
+    writeFileSync(ready, "a different queue file\n");
+
+    expect(resolveConsumedReadyIntent(spec)).toBeUndefined();
+    expect(archiveCompletedSpec(spec)).toMatchObject({ status: "archived", intentPruned: false });
+    expect(readFileSync(ready, "utf8")).toBe("a different queue file\n");
   });
 
   test("retains a differing ready-intent and restores the source when pruning fails", () => {

@@ -2234,6 +2234,86 @@ describe("write loop", () => {
     });
   });
 
+  test("missing_blocker settlement records the matched token evidence", async () => {
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    const sink = new TestLogSink();
+    let invocations = 0;
+
+    const result = await runLoop({
+      jarvisRoot,
+      stateDbPath,
+      bindings: [
+        {
+          id: "sim.1",
+          invoke: async () => {
+            invocations += 1;
+            return {
+              kind: "ok",
+              stdout: invocations === 1 ? "Seeds a fixture, then reports.\nFinal: blocked" : "still no blocker file",
+              stderr: "",
+            };
+          },
+        },
+      ],
+      logSink: sink,
+    });
+
+    expect(result.outcomeKind).toBe("missing_blocker");
+    const detail = sink.getEventsForRun(result.runId).find((event) => event.kind === "missing_blocker_detail");
+    expect(detail).toMatchObject({
+      kind: "missing_blocker_detail",
+      responseText: "still no blocker file",
+      token: "blocked",
+      tokenContext: "Final: blocked",
+    });
+  });
+
+  test("blocked classification over fully ticked criteria with no blocker section settles complete", async () => {
+    // @mutate v2/src/execution/step-runner.ts "if (contract.completionCheck?.() === true) {" -> "if (false) {"
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const sink = new TestLogSink();
+    const branchName = "blocked-over-complete";
+    const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);
+    mkdirSync(worktreePath, { recursive: true });
+    writeFileSync(join(worktreePath, "subspec.md"), "# Subspec\n\n## Acceptance criteria\n\n- [x] Works\n", "utf8");
+    const store = openStateStore(stateDbPath);
+    let invocations = 0;
+    try {
+      const result = await executeWriteLoop({
+        worktree: { projectRoot: "/fake", projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
+        specPath: "spec.md",
+        expectedArtifactPath: "subspec.md",
+        promptId: "patch.prompt.body",
+        stepRules: "Return exactly one terminal token.",
+        stateStore: store,
+        withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
+        logSink: sink,
+        maxIterations: 1,
+        publishCompletion: false,
+        bindings: [
+          {
+            id: "sim.1",
+            metadata: { agent: "test-agent", model: "test" },
+            invoke: async () => {
+              invocations += 1;
+              // Every criterion is ticked and no blocker is written; the token misleads.
+              return { kind: "ok", stdout: "Asserts the blocked-lane regression.\nblocked", stderr: "" };
+            },
+          },
+        ],
+      });
+      expect(invocations).toBe(1);
+      expect(result.kind).toBe("complete");
+      const events = sink.getEventsForRun(result.runId).map((event) => event.kind);
+      expect(events).not.toContain("blocker_reprompt");
+      expect(events).not.toContain("missing_blocker_detail");
+    } finally {
+      store.close();
+    }
+  });
+
   test("blocked reprompt that writes blocker text terminates as blocked", async () => {
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     let invocations = 0;

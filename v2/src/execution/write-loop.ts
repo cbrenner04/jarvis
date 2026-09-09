@@ -1925,6 +1925,8 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           kind: "missing_blocker_detail",
           attemptId,
           responseText: truncateLogText(result.responseText),
+          token: "blocked",
+          ...(result.tokenContext !== undefined ? { tokenContext: truncateLogText(result.tokenContext, 200) } : {}),
         });
       }
       if (result.kind === "contract_miss") {

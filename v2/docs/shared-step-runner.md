@@ -8,7 +8,8 @@ Contract:
 - Invocation is executed exactly once through shared quota fallback.
 - Token parsing happens once in runner code and accepts only `done`, `no-work`,
   `blocked`, `progress`. It tolerates agent prose: an exact match wins, else the
-  last line that is itself a bare token, else a lenient last-word scan.
+  last line that is itself a bare token, else the last token-shaped word on the last
+  non-empty line (never a word earlier in the body).
 - `done` and `no-work` run contract checks in order.
 - `progress` skips contract checks and returns a typed non-complete result.
 - `blocked` with no `blockerTextContract` returns a typed blocked result and skips

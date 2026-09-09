@@ -30,6 +30,11 @@ export type StepContract = {
 /** Before/after check that a blocked token appended a new non-empty `## Blocker` to the spec file. */
 export type BlockerTextContract = {
   id: string;
+  /**
+   * When present and true while no blocker was appended, a `blocked` token over demonstrably complete
+   * work (every non-human-only criterion ticked) takes the completion path instead of a blocker re-prompt.
+   */
+  completionCheck?: () => boolean;
   specPath: string;
   specBefore: string;
 };
@@ -73,7 +78,7 @@ export type StepRunResult = {
       failureReason?: string;
     }
   | { kind: "invalid_token"; tokenText: string }
-  | { kind: "missing_blocker"; token: "blocked"; responseText: string }
+  | { kind: "missing_blocker"; token: "blocked"; responseText: string; tokenContext?: string }
   | {
       kind: "invocation_failure";
       failureKind: InvocationFailureKind;
@@ -92,11 +97,16 @@ function asToken(value: string): StepOutcomeToken | null {
   return TERMINAL_TOKENS.includes(value as StepOutcomeToken) ? (value as StepOutcomeToken) : null;
 }
 
-// Agents emit prose, so prefer the most explicit signal: exact match, then a
-// bare-token line, then a lenient last-word scan.
-export function parseStepOutcomeToken(stdout: string): StepOutcomeToken | null {
+/** The terminal token plus the line it was read from, for durable evidence when the token misleads. */
+export type StepOutcomeTokenDetail = { token: StepOutcomeToken; line: string };
+
+// Agents emit prose, so prefer the most explicit signal: exact match, then a bare-token line, then
+// the last token-shaped word on the **last** non-empty line. A token-shaped word earlier in the body
+// ("seeds a blocked run" in a summary) never decides the outcome; a last line with no token takes
+// the token-only re-prompt path instead.
+export function parseStepOutcomeTokenDetail(stdout: string): StepOutcomeTokenDetail | null {
   const exact = asToken(stdout.trim());
-  if (exact !== null) return exact;
+  if (exact !== null) return { token: exact, line: stdout.trim() };
 
   const lines = stdout
     .split("\n")
@@ -104,12 +114,18 @@ export function parseStepOutcomeToken(stdout: string): StepOutcomeToken | null {
     .filter((line) => line.length > 0);
   for (let i = lines.length - 1; i >= 0; i -= 1) {
     const token = asToken(lines[i] ?? "");
-    if (token !== null) return token;
+    if (token !== null) return { token, line: lines[i] ?? "" };
   }
 
-  const matches = [...stdout.matchAll(TOKEN_WORD_PATTERN)];
+  const lastLine = lines[lines.length - 1];
+  if (lastLine === undefined) return null;
+  const matches = [...lastLine.matchAll(TOKEN_WORD_PATTERN)];
   const last = matches[matches.length - 1]?.[1];
-  return last === undefined ? null : (last as StepOutcomeToken);
+  return last === undefined ? null : { token: last as StepOutcomeToken, line: lastLine };
+}
+
+export function parseStepOutcomeToken(stdout: string): StepOutcomeToken | null {
+  return parseStepOutcomeTokenDetail(stdout)?.token ?? null;
 }
 
 /** signal/sessionLog/onOutputProgress extras shared by every `executeWithQuotaFallback` call site. */
@@ -195,7 +211,7 @@ function evaluateBlockerTextContract(contract: BlockerTextContract): { satisfied
 }
 
 type StepTokenResolution =
-  | { token: StepOutcomeToken; tokenText?: undefined; reprompt?: StepReprompt }
+  | { token: StepOutcomeToken; tokenLine: string; tokenText?: undefined; reprompt?: StepReprompt }
   | { token: null; tokenText: string; reprompt?: StepReprompt };
 
 type ContractEvalResult = { ok: true } | { ok: false; failedContractId: string; failureReason?: string };
@@ -220,28 +236,30 @@ async function evaluateContracts(contracts: readonly StepContract[], cwd: string
 
 /** Resolves the terminal token, re-prompting once (token-only) when the first response carries none. */
 async function resolveStepToken(args: StepRunInput, stdout: string): Promise<StepTokenResolution> {
-  const firstToken = parseStepOutcomeToken(stdout);
-  if (firstToken !== null) {
-    return { token: firstToken };
+  const first = parseStepOutcomeTokenDetail(stdout);
+  if (first !== null) {
+    return { token: first.token, tokenLine: first.line };
   }
 
   const responseText = stdout.trim();
   const repromptInvocation = await requestTokenReprompt(args, responseText);
   const reprompt: StepReprompt = { responseText, invocation: repromptInvocation };
   const repromptResult = repromptInvocation.final?.result;
-  const repromptToken =
-    repromptResult !== undefined && repromptResult.kind === "ok" ? asToken(repromptResult.stdout.trim()) : null;
+  const repromptStdout =
+    repromptResult !== undefined && repromptResult.kind === "ok" ? repromptResult.stdout.trim() : "";
+  const repromptToken = asToken(repromptStdout);
 
   if (repromptToken === null) {
     return { token: null, tokenText: responseText, reprompt };
   }
-  return { token: repromptToken, reprompt };
+  return { token: repromptToken, tokenLine: repromptStdout, reprompt };
 }
 
 async function resolveBlockedResult(
   args: StepRunInput,
   invocation: InvocationExecution,
   repromptField: { reprompt?: StepReprompt },
+  tokenContext: string,
 ): Promise<StepRunResult> {
   const contract = args.blockerTextContract;
   if (contract === undefined) {
@@ -262,6 +280,12 @@ async function resolveBlockedResult(
       ...repromptField,
       ...(firstEval.blockerText !== undefined ? { blockerText: firstEval.blockerText } : {}),
     };
+  }
+
+  // No blocker was written. If the step's completion criteria all hold, the token misled: treat the
+  // iteration as done rather than asking for a blocker over finished work.
+  if (contract.completionCheck?.() === true) {
+    return { kind: "complete", token: "done", invocation, ...repromptField };
   }
 
   const blockerRepromptInvocation = await requestBlockerReprompt(args);
@@ -289,6 +313,7 @@ async function resolveBlockedResult(
     kind: "missing_blocker",
     token: "blocked",
     responseText,
+    tokenContext,
     invocation,
     ...repromptField,
     blockerReprompt,
@@ -335,7 +360,7 @@ export async function runStep(args: StepRunInput): Promise<StepRunResult> {
   }
 
   if (token === "blocked") {
-    return resolveBlockedResult(args, invocation, repromptField);
+    return resolveBlockedResult(args, invocation, repromptField, resolved.tokenLine);
   }
 
   if (token === "progress") {

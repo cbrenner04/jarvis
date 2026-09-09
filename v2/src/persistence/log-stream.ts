@@ -190,6 +190,9 @@ export type MissingBlockerDetailEvent = {
   kind: "missing_blocker_detail";
   attemptId: string;
   responseText: string;
+  /** The classified token and the response line it was read from, so a misclassification is visible from the log. */
+  token?: "blocked";
+  tokenContext?: string;
 };
 
 /** Agent response body when a terminal token misses a write-step contract; truncated at append time. */

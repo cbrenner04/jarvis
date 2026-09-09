@@ -836,7 +836,7 @@ describe("cleanup command through main", () => {
     expect(stderr).not.toContain("connect ENOENT");
     expect(stdout).toContain(`Skipped merged worktree: ${worktreePath}`);
     expect(stdout).toContain("Daemon unreachable; run `jarvis daemon start`");
-    expect(stdout).toContain(`Skipped stranded artifact: ${stranded}`);
+    expect(stdout).toContain(`Skipped artifact: ${stranded}`);
     expect(stdout).not.toContain(rawSocketError);
     expect(existsSync(deadSocket)).toBe(false);
     expect(existsSync(worktreePath)).toBe(true);

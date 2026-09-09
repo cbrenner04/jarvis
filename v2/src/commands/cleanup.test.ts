@@ -1044,7 +1044,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
         io,
       );
 
-      expect(stdout).not.toContain("Skipped stranded artifact:");
+      expect(stdout).not.toContain("Skipped artifact:");
       expect(stdout).not.toContain(".scratch");
       expect(stdout).not.toContain(".jarvis-plan-stage");
       expect(stdout).not.toContain(".jarvis-intent-stage");
@@ -1232,11 +1232,9 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(stdout).toContain(`archive: ${join(home, eligible)}`);
     expect(stdout).toContain(`archive: ${join(home, relative)}`);
     expect(stdout).toContain(`archive: ${join(home, otherOnly)}`);
-    expect(stdout).toContain(
-      `Skipped stranded artifact: ${join(home, owned)} — another materialized worktree owns this spec`,
-    );
+    expect(stdout).toContain(`Skipped artifact: ${join(home, owned)} — another materialized worktree owns this spec`);
     expect(stdout).not.toContain(
-      `Skipped stranded artifact: ${join(home, eligible)} — another materialized worktree owns this spec`,
+      `Skipped artifact: ${join(home, eligible)} — another materialized worktree owns this spec`,
     );
 
     stdout = "";
@@ -1256,18 +1254,108 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     );
     expect(existsSync(join(home, "completed", eligible))).toBe(true);
     expect(existsSync(join(home, late))).toBe(true);
-    expect(stdout).toContain(
-      `Skipped stranded artifact: ${join(home, late)} — another materialized worktree owns this spec`,
-    );
+    expect(stdout).toContain(`Skipped artifact: ${join(home, late)} — another materialized worktree owns this spec`);
 
     createSpec(guarded, "[x] Done");
     const detached = await addWorktree("detached-owner");
     await realAsyncSubprocessRunner.runAsync("git", ["checkout", "--detach"], detached);
+    // A detached worktree owns only the artifact its own durable run row resolves to.
+    runs.push({
+      project: "project",
+      branch: "custom-guarded",
+      worktreePath: detached,
+      specPath: join(detached, "v2", "spec", guarded, "index.md"),
+    });
     stdout = "";
     await runCleanupCommand({ dryRun: true }, registry, jarvisRoot, mockRunner, async () => [], store, io);
-    expect(stdout).toContain(
-      `Skipped stranded artifact: ${join(home, guarded)} — another materialized worktree owns this spec`,
+    expect(stdout).toContain(`Skipped artifact: ${join(home, guarded)} — another materialized worktree owns this spec`);
+  });
+
+  test("detached owner blocks only its own artifact", async () => {
+    const home = join(projectRoot, "v2", "spec");
+    const owned = "20260908T000001Z-detached-owned";
+    const unrelated = "20260908T000002Z-detached-unrelated";
+    createSpec(owned, "[x] Done");
+    createSpec(unrelated, "[x] Done");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "detached ownership fixtures"], projectRoot);
+    const detached = await createWorktree("detached-identified");
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "--detach"], detached);
+
+    const store: StateStore = {
+      listRuns: () =>
+        [
+          {
+            project: "project",
+            branch: "detached-identified",
+            worktreePath: detached,
+            specPath: join(detached, "v2", "spec", owned, "index.md"),
+          },
+          {
+            project: "project",
+            branch: "implement/unrelated",
+            worktreePath: projectRoot,
+            specPath: join(home, unrelated, "index.md"),
+          },
+        ] as never[],
+    } as unknown as StateStore;
+    const mockRunner: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) =>
+        cmd === "gh" && args[1] === "list" ? "[]" : realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot),
+    };
+    const registry = { project: { root: projectRoot } };
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    // @mutate v2/src/commands/cleanup.ts "if (worktree.branch !== undefined) return worktree.branch === spec.branch;" -> "if (worktree.branch !== undefined) return worktree.branch === spec.branch; return true;"
+    await runCleanupCommand({ dryRun: true }, registry, jarvisRoot, mockRunner, async () => [], store, io);
+    expect(stdout).toContain(`archive: ${join(home, unrelated)}`);
+    expect(stdout).toContain(`Skipped artifact: ${join(home, owned)} — another materialized worktree owns this spec`);
+    expect(stdout).not.toContain(`Skipped artifact: ${join(home, unrelated)}`);
+
+    stdout = "";
+    await runCleanupCommand(
+      { promptConfirm: async () => true },
+      registry,
+      jarvisRoot,
+      mockRunner,
+      async () => [],
+      store,
+      io,
     );
+    expect(existsSync(join(home, "completed", unrelated))).toBe(true);
+    expect(existsSync(join(home, owned))).toBe(true);
+    expect(existsSync(join(home, "completed", owned))).toBe(false);
+  });
+
+  test("each skipped artifact is reported once", async () => {
+    const home = join(projectRoot, "v2", "spec");
+    const specName = "20260908T000003Z-skip-once";
+    const branch = "feat/skip-once";
+    createSpec(specName, "[ ] Not done");
+    await materializeWorktree(branch, "skip-once owner");
+    const registry = { project: { root: projectRoot } };
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    // Retirement archival and the post-retirement stranded pass both refuse this one identity.
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        registry,
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        async () => [],
+        storeForStrandedSpec(specName, branch),
+        io,
+      ),
+    ).toBe(0);
+    expect(existsSync(join(jarvisRoot, "worktrees", "project", branch))).toBe(false);
+    expect(existsSync(join(home, specName))).toBe(true);
+    const skipLines = stdout.split("\n").filter((line) => line.startsWith(`Skipped artifact: ${join(home, specName)}`));
+    expect(skipLines).toHaveLength(1);
+    expect(skipLines[0]).toContain("unchecked acceptance criterion");
+    expect(stdout).not.toContain("Skipped stranded artifact:");
   });
 
   test("runCleanupCommand rechecks eligibility after confirmation and spares a worktree that went live in the race window", async () => {
@@ -5217,14 +5305,15 @@ describe("cleanup: session log retention", () => {
 });
 
 describe("hasBranchKeyedArtifactOwner", () => {
-  test("guard inversion: branch-keyed external plan ownership treats matching and detached branches as owners", () => {
+  test("guard inversion: branch-keyed ownership treats matching branches and identified detached worktrees as owners", () => {
     const root = join(process.env.TMPDIR || "/tmp", `jarvis-branch-owner-${Date.now()}`);
-    const registry = { project: { root: "/repo" } };
+    const projectRoot = join(root, "repo");
+    const registry = { project: { root: projectRoot } };
     const jarvis = join(root, "jarvis-home");
     const worktreesRoot = join(jarvis, "worktrees", "project");
     const spec: ArtifactSpec = {
-      home: join(jarvis, "specs", "project", "plans"),
-      source: join(jarvis, "specs", "project", "plans", "feature"),
+      home: join(projectRoot, "v2", "spec"),
+      source: join(projectRoot, "v2", "spec", "feature"),
       name: "feature",
       branch: "implement/feature",
     };
@@ -5232,12 +5321,42 @@ describe("hasBranchKeyedArtifactOwner", () => {
     const detached = { path: join(worktreesRoot, "detached"), branch: undefined };
     const unrelated = { path: join(worktreesRoot, "feat", "other"), branch: "feat/other" };
     const excluded = matching.path;
+    const storeWithRuns = (runs: Array<{ worktreePath: string; specPath: string }>): StateStore =>
+      ({
+        listRuns: () => runs.map((run) => ({ project: "project", branch: "any", ...run })) as never[],
+      }) as unknown as StateStore;
+    const owning = {
+      store: storeWithRuns([
+        { worktreePath: detached.path, specPath: join(detached.path, "v2", "spec", "feature", "index.md") },
+      ]),
+      projectRoot,
+    };
+    const otherArtifact = {
+      store: storeWithRuns([
+        { worktreePath: detached.path, specPath: join(detached.path, "v2", "spec", "other", "index.md") },
+      ]),
+      projectRoot,
+    };
+    const otherWorktree = {
+      store: storeWithRuns([
+        { worktreePath: unrelated.path, specPath: join(unrelated.path, "v2", "spec", "feature", "index.md") },
+      ]),
+      projectRoot,
+    };
 
     expect(hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [matching], jarvis)).toBe(false);
-    expect(hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [detached], jarvis)).toBe(true);
     expect(hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [unrelated], jarvis)).toBe(false);
+    // A detached worktree is not a blanket owner: without identity, or with rows naming another artifact or worktree, it owns nothing.
+    expect(hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [detached], jarvis)).toBe(false);
+    expect(hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [detached], jarvis, otherArtifact)).toBe(
+      false,
+    );
+    expect(hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [detached], jarvis, otherWorktree)).toBe(
+      false,
+    );
+    expect(hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [detached], jarvis, owning)).toBe(true);
     expect(
-      hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [matching, detached, unrelated], jarvis),
+      hasBranchKeyedArtifactOwner(spec, "project", excluded, registry, [matching, detached, unrelated], jarvis, owning),
     ).toBe(true);
   });
 });

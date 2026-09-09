@@ -21,9 +21,9 @@ The same artifact can be skipped in both pre-retirement archival and stranded pa
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/cleanup.test.ts` test `each skipped artifact is reported once` drives the pre-retirement and stranded passes over one identity and asserts one merged `Skipped artifact:` line; it fails against the pre-fix duplicate output.
-- [ ] `v2/docs/operator-runbook.md` documents deduplicated skip reporting for artifact refusals.
-- [ ] `v2/docs/v1-behaviors.md` records the deduplicated skip-output delta.
+- [x] `v2/src/commands/cleanup.test.ts` test `each skipped artifact is reported once` drives the pre-retirement and stranded passes over one identity and asserts one merged `Skipped artifact:` line; it fails against the pre-fix duplicate output.
+- [x] `v2/docs/operator-runbook.md` documents deduplicated skip reporting for artifact refusals.
+- [x] `v2/docs/v1-behaviors.md` records the deduplicated skip-output delta.
 
 ## Documentation updates
 

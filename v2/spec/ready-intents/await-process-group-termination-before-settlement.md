@@ -32,9 +32,10 @@ Group-mode timeout and abort signal SIGTERM, reject immediately, and leave an un
 
 - [ ] `shared/subprocess.test.ts` spawns a group-mode child that ignores SIGTERM and spins, drives `timeoutMs`, and proves `process.kill(-pgid, 0)` throws `ESRCH` when the returned promise rejects; the test fails against the pre-fix implementation.
 - [ ] `shared/subprocess.test.ts` proves the timeout promise remains unsettled until group disappearance is confirmed; the test fails against the pre-fix immediate rejection.
+- [ ] `shared/subprocess.test.ts` spawns a group-mode child that ignores SIGTERM and spins, drives an abort signal, and proves `process.kill(-pgid, 0)` throws `ESRCH` only once the returned promise settles; the test fails against the pre-fix immediate rejection.
 - [ ] A subprocess-owner regression exits immediately after its group-mode timeout and proves no member of the recorded group survives; it fails against the pre-fix unreferenced escalation.
 - [ ] Existing group-mode abort tests in `shared/subprocess.test.ts` stay green.
-- [ ] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2`, and `bun run test:shared` pass.
+- [ ] `bun run typecheck`, `bun run test:v2`, `bun run test:integration:v2`, `bun run test:shared`, and `bun run test:integration:shared` pass.
 
 ## Documentation updates
 

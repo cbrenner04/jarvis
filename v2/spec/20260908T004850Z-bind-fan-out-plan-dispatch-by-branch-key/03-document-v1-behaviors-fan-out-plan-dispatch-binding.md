@@ -18,7 +18,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/v1-behaviors.md` `:643` records branch-key-bound fan-out plan dispatch and recovery binding under `[v2 behavior change]` with no remaining positional `branchKeys`/`results` index pairing for that behavior.
+- [x] `v2/docs/v1-behaviors.md` `:643` records branch-key-bound fan-out plan dispatch and recovery binding under `[v2 behavior change]` with no remaining positional `branchKeys`/`results` index pairing for that behavior.
 
 ## Documentation updates
 

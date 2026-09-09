@@ -17,11 +17,11 @@ Two copies of the same join — `cleanup.ts` `provenIntentPrune` (preview) and `
 
 ## Acceptance criteria
 
-- [ ] `cleanup-artifacts.test.ts` test `archiveCompletedSpec prunes a slug-named ready-intent for a timestamped spec directory` proves a `20260909T000000Z-example` spec whose `intent.md` byte-matches `ready-intents/example.md` archives with `intentPruned: true` and the queue file gone; it fails against the current `${spec.name}.md` lookup.
-- [ ] `cleanup-artifacts.test.ts` test `archiveCompletedSpec leaves a slug-named ready-intent whose bytes differ` proves a differing `ready-intents/example.md` survives with `intentPruned: false`.
-- [ ] `cleanup.test.ts` test `dry-run previews and apply prunes the slug-named consumed ready-intent` proves `--dry-run` prints `(prune consumed ready-intent)` and apply prints `(pruned consumed ready-intent)` for a timestamped spec with a slug-named queue file; it fails against the current preview join.
-- [ ] Existing unstamped-fixture prune tests stay green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `cleanup-artifacts.test.ts` test `archiveCompletedSpec prunes a slug-named ready-intent for a timestamped spec directory` proves a `20260909T000000Z-example` spec whose `intent.md` byte-matches `ready-intents/example.md` archives with `intentPruned: true` and the queue file gone; it fails against the current `${spec.name}.md` lookup.
+- [x] `cleanup-artifacts.test.ts` test `archiveCompletedSpec leaves a slug-named ready-intent whose bytes differ` proves a differing `ready-intents/example.md` survives with `intentPruned: false`.
+- [x] `cleanup.test.ts` test `dry-run previews and apply prunes the slug-named consumed ready-intent` proves `--dry-run` prints `(prune consumed ready-intent)` and apply prints `(pruned consumed ready-intent)` for a timestamped spec with a slug-named queue file; it fails against the current preview join.
+- [x] Existing unstamped-fixture prune tests stay green.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

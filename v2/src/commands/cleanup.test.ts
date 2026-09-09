@@ -1101,6 +1101,47 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       expect(stdout).toContain("foo-bar");
     }));
 
+  test("dry-run previews and apply prunes the slug-named consumed ready-intent", async () => {
+    const home = join(projectRoot, "v2", "spec");
+    const specName = "20260909T000002Z-slug-prune";
+    const branch = "feat/slug-prune";
+    const intent = "---\nname: slug-prune\n---\n\n# Slug prune\n";
+    createSpec(specName, "[x] Done", intent);
+    // The real queue file is slug-named; the fixture's timestamped copy is the legacy shape.
+    rmSync(join(home, "ready-intents", `${specName}.md`));
+    const slugReady = join(home, "ready-intents", "slug-prune.md");
+    writeFileSync(slugReady, intent);
+    await materializeWorktree(branch, "slug prune owner");
+    const registry = { project: { root: projectRoot } };
+    const store = storeForStrandedSpec(specName, branch);
+
+    let dryStdout = "";
+    await runCleanupCommand({ dryRun: true }, registry, jarvisRoot, ghRunnerForPr("MERGED"), async () => [], store, {
+      stdout: (s) => (dryStdout += s),
+      stderr: () => {},
+    });
+    expect(dryStdout).toContain(
+      `archive: ${join(home, specName)} -> ${join(home, "completed", specName)} (prune consumed ready-intent)`,
+    );
+    expect(existsSync(slugReady)).toBe(true);
+
+    let applyStdout = "";
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        registry,
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        async () => [],
+        store,
+        { stdout: (s) => (applyStdout += s), stderr: () => {} },
+      ),
+    ).toBe(0);
+    expect(applyStdout).toContain("(pruned consumed ready-intent)");
+    expect(existsSync(join(home, "completed", specName))).toBe(true);
+    expect(existsSync(slugReady)).toBe(false);
+  });
+
   test("refuses open-home stranded archival while a materialized owner is not retired", async () => {
     const home = join(projectRoot, "v2", "spec");
     const specName = "20260726T000002Z-open-home-blocked";

@@ -125,27 +125,42 @@ export type ArchiveResult =
  * Move one already-eligible artifact and optionally consume its proven input.
  * Every post-move failure attempts to restore both paths before returning.
  */
+const SPEC_TIMESTAMP_PREFIX = /^\d{8}T\d{6}Z-/;
+
+/**
+ * The ready-intent an archived spec consumed, when one exists and byte-matches `intent.md`.
+ * Spec directories are timestamped (`20260908T050011Z-<slug>`) while ready-intents are slug-named,
+ * so the slug is tried first; the raw directory name covers unstamped homes. A filename match alone
+ * never qualifies — only identical bytes prove the queue file is the consumed input.
+ */
+export function resolveConsumedReadyIntent(spec: ArtifactSpec, fs: ArtifactFs = realFs): string | undefined {
+  const sourceIntent = join(spec.source, "intent.md");
+  if (!fs.exists(sourceIntent)) return undefined;
+  const slug = spec.name.replace(SPEC_TIMESTAMP_PREFIX, "");
+  const candidates = [...new Set([slug, spec.name])].map((name) => join(spec.home, "ready-intents", `${name}.md`));
+  const intentBytes = fs.read(sourceIntent);
+  return candidates.find((candidate) => fs.exists(candidate) && fs.read(candidate).equals(intentBytes));
+}
+
 export function archiveCompletedSpec(
   spec: ArtifactSpec,
   fs: ArtifactFs = realFs,
   options?: { intentPrune?: boolean },
 ): ArchiveResult {
   const destination = join(spec.home, "completed", basename(spec.source));
-  const readyIntent = join(spec.home, "ready-intents", `${spec.name}.md`);
-  const sourceIntent = join(spec.source, "intent.md");
   if (fs.exists(destination))
     return { status: "skipped", reason: `archive destination already exists: ${destination}` };
 
   const allowIntentPrune = options?.intentPrune ?? !isExternalPlanArtifact(spec);
-  let pruneIntent = false;
+  let readyIntent: string | undefined;
   if (allowIntentPrune) {
     try {
-      pruneIntent =
-        fs.exists(readyIntent) && fs.exists(sourceIntent) && fs.read(readyIntent).equals(fs.read(sourceIntent));
+      readyIntent = resolveConsumedReadyIntent(spec, fs);
     } catch (error) {
       return { status: "skipped", reason: `failed to inspect ready-intent: ${String(error)}` };
     }
   }
+  const pruneIntent = readyIntent !== undefined;
 
   try {
     fs.mkdir(dirname(destination));
@@ -154,7 +169,7 @@ export function archiveCompletedSpec(
     return { status: "skipped", reason: `failed to archive spec: ${String(error)}` };
   }
 
-  if (!pruneIntent) return { status: "archived", destination, intentPruned: false };
+  if (!pruneIntent || readyIntent === undefined) return { status: "archived", destination, intentPruned: false };
   try {
     fs.unlink(readyIntent);
     return { status: "archived", destination, intentPruned: true };

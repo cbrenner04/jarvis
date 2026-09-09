@@ -35,6 +35,7 @@ import {
   archiveCompletedSpec,
   checkArtifactEligibility,
   isExternalPlanArtifact,
+  resolveConsumedReadyIntent,
 } from "./cleanup-artifacts.ts";
 import { DAEMON_DIGEST_ARTIFACT_FILE, reapDeadDaemonSockets } from "./daemon.ts";
 
@@ -795,12 +796,7 @@ function sourceForRun(
 function provenIntentPrune(spec: ArtifactSpec): boolean {
   if (isExternalPlanArtifact(spec) || spec.source.endsWith(".md")) return false;
   try {
-    const ready = join(spec.home, "ready-intents", `${spec.name}.md`);
-    return (
-      existsSync(ready) &&
-      existsSync(join(spec.source, "intent.md")) &&
-      readFileSync(ready).equals(readFileSync(join(spec.source, "intent.md")))
-    );
+    return resolveConsumedReadyIntent(spec) !== undefined;
   } catch {
     return false;
   }

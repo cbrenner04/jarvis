@@ -47,7 +47,6 @@ import { publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
 import {
   isResumableOutOfScopeTerminalEvidence,
-  NonTerminatingMutationError,
   nonTerminatingMutationLogFields,
   outOfScopeSettlementResumable,
   ReadyGateError,

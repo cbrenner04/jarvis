@@ -265,6 +265,8 @@ export type WriteExecuteInput = {
   completionValidator?: (specDir: string) => { valid: boolean; reason?: string };
   sessionLog?: SessionLog;
   onInvocationOutputProgress?: () => void;
+  onAgentShellCommand?: (command: string) => void | Promise<void>;
+  onAgentShellCommandComplete?: () => void | Promise<void>;
   idleOutputMs?: number;
   joinProcessOnIdleStall?: boolean;
   landingContractReprompt?: { violation: string; offendingFile: string };
@@ -313,6 +315,10 @@ function runWriteStep(
     ...(write.sessionLog !== undefined ? { sessionLog: write.sessionLog } : {}),
     ...(write.onInvocationOutputProgress !== undefined
       ? { onInvocationOutputProgress: write.onInvocationOutputProgress }
+      : {}),
+    ...(write.onAgentShellCommand !== undefined ? { onAgentShellCommand: write.onAgentShellCommand } : {}),
+    ...(write.onAgentShellCommandComplete !== undefined
+      ? { onAgentShellCommandComplete: write.onAgentShellCommandComplete }
       : {}),
     ...(write.idleOutputMs !== undefined ? { idleOutputMs: write.idleOutputMs } : {}),
     ...(write.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),

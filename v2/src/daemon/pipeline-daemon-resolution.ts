@@ -1,4 +1,3 @@
-import type { CliDeps } from "../cli/deps.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import type { PipelineDerivedState } from "./pipeline-execution.ts";
@@ -9,10 +8,10 @@ const PIPELINE_OWNER_RPC_TIMEOUT_MS = 2_000;
 export const PIPELINE_NO_LIVE_OWNER_RECOVERY = "jarvis daemon start, then retry";
 
 type PipelineOwnerWitness =
-  | { kind: "owner"; pipelineId: string }
-  | { kind: "not_owner"; pipelineId: string }
-  | { kind: "durable_state"; pipelineId: string; state: PipelineDerivedState }
-  | { kind: "not_found"; pipelineId: string };
+  | { kind: "owner" }
+  | { kind: "not_owner" }
+  | { kind: "durable_state"; state: PipelineDerivedState }
+  | { kind: "not_found" };
 
 export type PipelineDaemonResolution =
   | { kind: "owner"; pipelineId: string; socketPath: string }
@@ -22,7 +21,7 @@ export type PipelineDaemonResolution =
   | { kind: "pipeline_not_found"; pipelineId: string }
   | { kind: "pipeline_daemon_unavailable"; pipelineId: string };
 
-export type PipelineDaemonResolutionDeps = QueryDaemonListsDeps & Pick<CliDeps, "startDaemon">;
+export type PipelineDaemonResolutionDeps = QueryDaemonListsDeps;
 
 const PIPELINE_STATES: ReadonlySet<string> = new Set([
   "succeeded",
@@ -42,10 +41,10 @@ function parsePipelineOwnerWitness(value: unknown, pipelineId: string): Pipeline
     case "owner":
     case "not_owner":
     case "not_found":
-      return { kind: response.kind, pipelineId };
+      return { kind: response.kind };
     case "durable_state":
       return typeof response.state === "string" && PIPELINE_STATES.has(response.state)
-        ? { kind: "durable_state", pipelineId, state: response.state as PipelineDerivedState }
+        ? { kind: "durable_state", state: response.state as PipelineDerivedState }
         : undefined;
     default:
       return undefined;
@@ -88,9 +87,8 @@ async function queryPipelineOwner(
   pipelineId: string,
   timeoutMs: number,
 ): Promise<PipelineOwnerWitness | undefined> {
-  let client: IpcClient | undefined;
   try {
-    client = await connectWithinTimeout(connectIpcClient, socketPath, timeoutMs);
+    const client = await connectWithinTimeout(connectIpcClient, socketPath, timeoutMs);
     const transport = createRpcTransport(client);
     try {
       const result = await transport.request("pipeline_owner", { pipelineId }, { timeoutMs });
@@ -99,7 +97,6 @@ async function queryPipelineOwner(
       transport.close();
     }
   } catch {
-    client?.close();
     return undefined;
   }
 }

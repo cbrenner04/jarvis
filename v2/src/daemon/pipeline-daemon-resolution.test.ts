@@ -45,7 +45,6 @@ function durable(state: "succeeded" | "interrupted", pipelineId = PIPELINE_ID): 
 
 test("resolves a non-invoking active owner", async () => {
   const connected: string[] = [];
-  const startCalls: string[] = [];
   const result = await resolvePipelineDaemon(
     PIPELINE_ID,
     {
@@ -55,17 +54,12 @@ test("resolves a non-invoking active owner", async () => {
         connected.push(socketPath);
         return replyingClient(socketPath === OTHER_SOCKET ? owner("owner") : owner("not_owner"));
       },
-      startDaemon: async (socketPath) => {
-        startCalls.push(socketPath);
-        return { pid: 1, socketPath };
-      },
     },
     20,
   );
 
   expect(result).toEqual({ kind: "owner", pipelineId: PIPELINE_ID, socketPath: OTHER_SOCKET });
   expect(connected).toEqual([OTHER_SOCKET, INVOKING_SOCKET]);
-  expect(startCalls).toEqual([]);
 });
 
 test("skips a failed socket before a later owner witness", async () => {
@@ -183,35 +177,4 @@ test("reports absent and unavailable pipelines", async () => {
     20,
   );
   expect(malformed).toEqual({ kind: "pipeline_daemon_unavailable", pipelineId: PIPELINE_ID });
-});
-
-test("never auto-starts", async () => {
-  const replies: Reply[][] = [
-    [owner("owner")],
-    [durable("succeeded")],
-    [owner("not_owner")],
-    [owner("owner"), owner("owner")],
-    [owner("not_found")],
-    [{ error: { code: "broken", message: "failed" } }],
-  ];
-  const startCalls: string[] = [];
-
-  for (const socketReplies of replies) {
-    let index = 0;
-    await resolvePipelineDaemon(
-      PIPELINE_ID,
-      {
-        socketPath: INVOKING_SOCKET,
-        socketDiscovery: async () => (socketReplies.length === 2 ? [OTHER_SOCKET] : []),
-        connectIpcClient: async () => replyingClient(socketReplies[index++] as Reply),
-        startDaemon: async (socketPath) => {
-          startCalls.push(socketPath);
-          return { pid: 1, socketPath };
-        },
-      },
-      20,
-    );
-  }
-
-  expect(startCalls).toEqual([]);
 });

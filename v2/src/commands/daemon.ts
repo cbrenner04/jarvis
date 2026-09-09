@@ -8,6 +8,7 @@ import { formatLifecycleError } from "../cli/ipc.ts";
 import { DAEMON_LOG_USAGE, DAEMON_USAGE } from "../cli/usage.ts";
 import { connectIpcClient } from "../ipc/client.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
+import { probeSocketLiveness } from "../ipc/server.ts";
 
 type SocketClassification = {
   status: "dead" | "live" | "preserved";
@@ -55,6 +56,19 @@ export async function reapDeadDaemonSockets(
 }
 
 async function classifySocket(socketPath: string): Promise<SocketClassification> {
+  const liveness = await probeSocketLiveness(socketPath);
+  if (liveness === "stale") {
+    return { status: "dead" };
+  }
+  if (liveness === "absent") {
+    // ENOENT on an absent path is the sandbox/bound-but-unlinked false negative; a present file
+    // with no listener is stale (Bun reports ENOENT where Node reports ECONNREFUSED).
+    return existsSync(socketPath)
+      ? { status: "dead" }
+      : { status: "preserved", reason: "socket path unavailable (ENOENT)" };
+  }
+  // Timeout-class `live` is inconclusive: only an answered `health` proves a daemon; every other
+  // outcome (including a late ECONNREFUSED) preserves the path and reports why.
   try {
     const client = await connectIpcClient(socketPath);
     const transport = createRpcTransport(client);
@@ -66,16 +80,6 @@ async function classifySocket(socketPath: string): Promise<SocketClassification>
     }
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
-    if (err.code === "ECONNREFUSED") {
-      return { status: "dead" };
-    }
-    // ENOENT on an absent path is the sandbox/bound-but-unlinked false negative; a present file
-    // with no listener is stale (Bun reports ENOENT where Node reports ECONNREFUSED).
-    if (err.code === "ENOENT") {
-      return existsSync(socketPath)
-        ? { status: "dead" }
-        : { status: "preserved", reason: "socket path unavailable (ENOENT)" };
-    }
     const reason = err.message || String(error);
     return { status: "preserved", reason };
   }

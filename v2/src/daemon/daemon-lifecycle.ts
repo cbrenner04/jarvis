@@ -6,6 +6,7 @@ import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { connectIpcClient } from "../ipc/client";
 import { createRpcTransport } from "../ipc/rpc-transport";
+import { parseDaemonBindFailureLogLine } from "../ipc/server.ts";
 import { isTerminalRunStatus, openStateStore, type StateStore } from "../persistence/state-store";
 import { parseStatusResult } from "./daemon-wire";
 
@@ -74,6 +75,23 @@ async function probeSocket(socketPath: string, timeoutMs: number): Promise<boole
   }
 }
 
+async function readBindFailureFromLog(logPath: string, logOffsetBytes = 0, timeoutMs = 500) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (existsSync(logPath)) {
+      const content = readFileSync(logPath, "utf-8").slice(logOffsetBytes);
+      for (const line of content.split("\n").reverse()) {
+        const bindFailure = parseDaemonBindFailureLogLine(line);
+        if (bindFailure !== undefined) {
+          return bindFailure;
+        }
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return undefined;
+}
+
 function setupLogFile(logPath: string, logCapBytes: number): number | undefined {
   const logDir = dirname(logPath);
   if (!existsSync(logDir)) {
@@ -96,6 +114,7 @@ function setupLogFile(logPath: string, logCapBytes: number): number | undefined 
   }
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: daemon startup sequences socket probing, occupancy-aware reclaim, spawn, and readiness handshake as one ordered lifecycle; each branch depends on the prior step's outcome, so extracting them would thread the whole startup state through helpers without reducing the real decision count.
 export async function startDaemon(
   socketPath: string,
   options?: {
@@ -123,6 +142,8 @@ export async function startDaemon(
   const daemonScript = options?.daemonScript ?? resolve(import.meta.dir, "../daemon-entrypoint.ts");
 
   const logFd = options?.logPath ? setupLogFile(options.logPath, logCapBytes) : undefined;
+  const logOffsetBytes =
+    options?.logPath !== undefined && existsSync(options.logPath) ? statSync(options.logPath).size : 0;
 
   const proc = spawn("bun", [daemonScript], {
     detached: true,
@@ -158,6 +179,12 @@ export async function startDaemon(
   const startTime = Date.now();
   while (Date.now() - startTime < readinessTimeoutMs) {
     if (!processProber.isAlive(pid)) {
+      if (options?.logPath !== undefined) {
+        const bindFailure = await readBindFailureFromLog(options.logPath, logOffsetBytes);
+        if (bindFailure !== undefined) {
+          throw bindFailure;
+        }
+      }
       throw new Error(`Daemon process ${pid} died during startup`);
     }
     const up = await socketProber.probe(socketPath, 100);

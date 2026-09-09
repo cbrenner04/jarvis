@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startIpcServer } from "../ipc/server.ts";
+import { DaemonSocketBindFailureError, probeSocketLiveness, startIpcServer } from "../ipc/server.ts";
 import { captureIo, cliMain as main, tempPaths } from "../testing/cli-test-helpers.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import { reapDeadDaemonSockets } from "./daemon.ts";
@@ -220,6 +220,34 @@ describe("daemon command", () => {
 });
 
 describe("reapDeadDaemonSockets", () => {
+  socketTest("startup reclaim and cleanup reaper classify an identical path identically", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-shared-classifier-"));
+    const socket = join(dir, "daemon-0000000000000000.sock");
+    writeFileSync(socket, "");
+
+    try {
+      const liveness = await probeSocketLiveness(socket);
+      expect(liveness).not.toBe("live");
+
+      const reaperResult = await reapDeadDaemonSockets(dir);
+      expect(reaperResult.dead).toContain(socket);
+      expect(reaperResult.preserved.map((item) => item.path)).not.toContain(socket);
+
+      if (!existsSync(socket)) {
+        writeFileSync(socket, "");
+      }
+
+      if (liveness === "stale") {
+        const server = await startIpcServer(socket);
+        await server.close();
+      } else {
+        await expect(startIpcServer(socket)).rejects.toBeInstanceOf(DaemonSocketBindFailureError);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("identifies a socket with no listener as dead (ECONNREFUSED)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-reap-"));
     const deadSocket = join(dir, "daemon-0000000000000001.sock");

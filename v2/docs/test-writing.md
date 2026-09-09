@@ -231,9 +231,9 @@ During implementation, invert each added or modified real guard and prove its pi
 
 Premise-falsification review and other shared helpers use `isCheckpointTestFileReference` to recognize language-neutral test basenames. JavaScript compatibility accepts a basename containing lowercase `.test.` or matching case-insensitive terminal `.test.[cm]?[jt]sx?`. Additional patterns are case-sensitive and whole-basename anchored: `*Test.swift`, `*Tests.swift`, `*Test.m`, `*Tests.m`, `*Test.kt`, `*Tests.kt`, `*Test.java`, `*Tests.java`, `*_test.go`, `*_test.py`, `test_*.py`, `*_test.rb`, `*_spec.rb`, and `*_test.exs`; `*` may be empty. Recognition does not add mutation commands, execute another language's tests, or imply toolchain support.
 
-Implement and plan write-step rules use the source-clean shared default block, which has no checkpoint-authoring syntax; no checkpoint-authoring filter remains. Implement prompts still carry human-only markers and invert-hook prohibition. Static enforcement runs under `bun run check` via `scripts/guard-production-test-flags.ts`.
+Implement and plan write-step rules use the source-clean shared default block, which has no checkpoint-authoring syntax; no checkpoint-authoring filter remains. Implement prompts still carry human-only markers and the production test-seam prohibition. Static enforcement runs under `bun run check` via `scripts/guard-production-test-flags.ts`.
 
-Forbidden production invert hooks: `setInvert*ForTest` exports, `invert*ForTest` module variables, `invert*` function parameters, `invert*ForTest` type members.
+Forbidden production test seams (six shape families, enforced by `bun run check` via `scripts/guard-production-test-flags.ts`): `set*ForTest` / `set*ForTests` exports, `*ForTest` / `*ForTests` module variables, `invert*` function parameters, `*ForTest` / `*ForTests` function parameters, `invert*ForTest` type members, and `*ForTest` / `*ForTests` type members. The `invert*` shapes are the historical subset; the suffix shapes cover every other seam of the same kind. Contract details: [`coding-standards.md` § Production test seams](./coding-standards.md#production-test-seams).
 
 ## Test doubles must not call production behavior
 

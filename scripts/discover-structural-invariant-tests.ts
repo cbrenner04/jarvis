@@ -56,7 +56,7 @@ function matchesSourceRead(source: string): boolean {
 }
 
 function matchesRegistryMirror(source: string): boolean {
-  for (const match of source.matchAll(/const\s+([A-Z][A-Z0-9_]*)\s*(?::[^=]+)?=\s*[\[{]/g)) {
+  for (const match of source.matchAll(/const\s+([A-Z][A-Z0-9_]*)\s*(?::[^=]+)?=\s*[[{]/g)) {
     if (REGISTRY_MIRROR_NAME.test(match[1] ?? "")) return true;
   }
   return false;

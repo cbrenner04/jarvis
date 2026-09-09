@@ -61,9 +61,9 @@ New or migrated path-aware Git status consumers must use `getGitStatusInventory`
 
 `bun run check` enforces this lossless inventory boundary via `scripts/guard-lossless-git-status-inventory.ts` for `v2/src/execution/review-intent-enforcement.ts`, `v2/src/execution/completion-commit.ts`, `v2/src/execution/write-loop.ts`, and `v2/src/commands/cleanup.ts`.
 
-## Production invert-for-test hooks
+## Production test seams
 
-Production code under `v2/src` and `shared` must not carry the four invert-for-test hook shapes: `setInvert*ForTest` exports, `invert*ForTest` module variables, `invert*` function parameters, and `invert*ForTest` type members. `bun run check` enforces this via `scripts/guard-production-test-flags.ts`. Other `*ForTest` hooks remain out of scope.
+Production code under the scan roots `v2/src` and `shared` (the third root, frozen `v1/src`, is excluded) must not carry the six test-seam shape families: `set*ForTest` / `set*ForTests` exports (covers `setInvert*ForTest`), `*ForTest` / `*ForTests` module variables (covers `invert*ForTest`), `invert*` function parameters, `*ForTest` / `*ForTests` function parameters, `invert*ForTest` type members, and `*ForTest` / `*ForTests` type members. `bun run check` enforces this via `scripts/guard-production-test-flags.ts`, which skips `.test.` files and `shared/prompts/step-rules.ts`. Non-`set*` exported helpers whose names end in `ForTest` (for example `resetVerifierTestRunTrackingForTest`) remain out of scope.
 
 ## Workflow composition gate
 

@@ -29,15 +29,15 @@ This subspec builds the resolution seam only. The pipeline verbs adopt it in lat
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/pipeline-daemon-resolution.test.ts`'s `resolves a non-invoking active owner` regression proves a `pipeline_owner` witness on a discovered non-invoking socket routes there and the result names it as an `owner` witness; it fails against the pre-fix code, where no such resolution exists.
-- [ ] `v2/src/daemon/pipeline-daemon-resolution.test.ts`'s `skips a failed socket before a later owner witness` regression proves per-socket connect failure, RPC failure, and a connect-then-never-responds socket (via the per-socket timeout) are all non-fatal and skipped before a later owner witness is reached.
-- [ ] `v2/src/daemon/pipeline-daemon-resolution.test.ts`'s `selects a durable-state endpoint or reports a dead active owner` regression proves terminal and reconciled-interrupted pipelines, answered from sockets fed in non-sorted order, select the lexicographically first answering endpoint (proving the resolver's own sort, not input order) and name it as a `durable_state` witness, while an active pipeline with no owner witness returns `pipeline_no_live_owner` carrying `jarvis daemon start`, then retry.
-- [ ] `v2/src/daemon/pipeline-daemon-resolution.test.ts`'s `refuses duplicate owner witnesses` test proves two injected `owner` witnesses — a defensive guard, since the store already prevents this — return `pipeline_owner_conflict` with sorted claimant paths and that no control RPC is issued.
-- [ ] `v2/src/daemon/pipeline-daemon-resolution.test.ts`'s `reports absent and unavailable pipelines` regression proves an id absent from every socket returns `pipeline_not_found`, all-failed sockets return `pipeline_daemon_unavailable`, and neither result carries a raw connect error string.
-- [ ] `v2/src/daemon/pipeline-daemon-resolution.test.ts`'s `never auto-starts` regression proves an injected daemon-start seam is never invoked on any result path.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/daemon/pipeline-daemon-resolution.test.ts`'s `resolves a non-invoking active owner` regression proves a `pipeline_owner` witness on a discovered non-invoking socket routes there and the result names it as an `owner` witness; it fails against the pre-fix code, where no such resolution exists.
+- [x] `v2/src/daemon/pipeline-daemon-resolution.test.ts`'s `skips a failed socket before a later owner witness` regression proves per-socket connect failure, RPC failure, and a connect-then-never-responds socket (via the per-socket timeout) are all non-fatal and skipped before a later owner witness is reached.
+- [x] `v2/src/daemon/pipeline-daemon-resolution.test.ts`'s `selects a durable-state endpoint or reports a dead active owner` regression proves terminal and reconciled-interrupted pipelines, answered from sockets fed in non-sorted order, select the lexicographically first answering endpoint (proving the resolver's own sort, not input order) and name it as a `durable_state` witness, while an active pipeline with no owner witness returns `pipeline_no_live_owner` carrying `jarvis daemon start`, then retry.
+- [x] `v2/src/daemon/pipeline-daemon-resolution.test.ts`'s `refuses duplicate owner witnesses` test proves two injected `owner` witnesses — a defensive guard, since the store already prevents this — return `pipeline_owner_conflict` with sorted claimant paths and that no control RPC is issued.
+- [x] `v2/src/daemon/pipeline-daemon-resolution.test.ts`'s `reports absent and unavailable pipelines` regression proves an id absent from every socket returns `pipeline_not_found`, all-failed sockets return `pipeline_daemon_unavailable`, and neither result carries a raw connect error string.
+- [x] `v2/src/daemon/pipeline-daemon-resolution.test.ts`'s `never auto-starts` regression proves an injected daemon-start seam is never invoked on any result path.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

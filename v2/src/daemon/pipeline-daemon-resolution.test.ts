@@ -317,3 +317,29 @@ test("pipeline list distinguishes null from non-numeric nullable timestamps", as
   );
   expect(invalid).toEqual({ snapshotsBySocketPath: {}, hasMalformedResponse: true });
 });
+
+test("pipeline list accepts a snapshot carrying an optional string field", async () => {
+  const snapshot: PipelineSnapshot = {
+    pipelineId: PIPELINE_ID,
+    name: "test",
+    state: "running",
+    seedPath: "/seeds/example.md",
+    terminalPublicationSucceededAt: null,
+    terminalPublicationFailure: null,
+    createdAt: 1,
+    finishedAtMs: null,
+    dismissedAt: null,
+    stages: [],
+  };
+
+  const result = await queryPipelineListsFromSocketPaths(
+    async () => replyingClient({ result: { pipelines: [snapshot] } }),
+    [INVOKING_SOCKET],
+    undefined,
+    20,
+  );
+  expect(result).toEqual({
+    snapshotsBySocketPath: { [INVOKING_SOCKET]: [snapshot] },
+    hasMalformedResponse: false,
+  });
+});

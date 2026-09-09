@@ -53,13 +53,13 @@ export type InvocationBinding<T extends InvocationResult = InvocationResult> = {
     onAgentShellCommandComplete?: () => void | Promise<void>;
     additionalReadDirs?: readonly string[];
   }) => Promise<T>;
-  shouldAdvance?: (result: T) => boolean;
+  shouldAdvance?: (result: T | InvocationError) => boolean;
   metadata?: { agent: string; model: string };
 };
 
 export type InvocationAttempt<T extends InvocationResult = InvocationResult> = {
   binding: InvocationBinding<T>;
-  result: T;
+  result: T | InvocationError;
   invocationId?: string;
 };
 
@@ -154,7 +154,7 @@ function logBindingStart<T extends InvocationResult>(
   appendSessionLog(sessionLog, "outbound", prompt);
 }
 
-function logBindingInbound<T extends InvocationResult>(sessionLog: SessionLog | undefined, result: T): void {
+function logBindingInbound(sessionLog: SessionLog | undefined, result: InvocationResult): void {
   if (result.kind === "ok") {
     appendSessionLog(sessionLog, "inbound_stdout", result.stdout);
     appendSessionLog(sessionLog, "inbound_stderr", result.stderr);
@@ -168,7 +168,7 @@ async function appendInvocationTelemetry<T extends InvocationResult>(
   binding: InvocationBinding<T>,
   bindingIndex: number,
   invocationId: string,
-  result: T,
+  result: InvocationResult,
   startedAt: number,
   telemetryFailures: InvocationTelemetryFailure[],
 ): Promise<void> {
@@ -212,11 +212,32 @@ function pickShellCommandCallbacks(args: {
 }
 
 /**
+ * Awaits `binding.invoke`, normalizing a rejection into a `kind: "error"` result
+ * (sentinel `exitCode: -1`, thrown diagnostic as `stderr`) so it flows through the
+ * same attempt/telemetry/`shouldAdvance` path as a returned result. A rejection
+ * that occurs while `signal` is already aborted is a caller-driven cancellation,
+ * not a binding failure, and propagates unchanged.
+ */
+async function invokeBinding<T extends InvocationResult>(
+  binding: InvocationBinding<T>,
+  invokeArgs: Parameters<InvocationBinding<T>["invoke"]>[0],
+  signal: AbortSignal | undefined,
+): Promise<T | InvocationError> {
+  try {
+    return await binding.invoke(invokeArgs);
+  } catch (error) {
+    if (signal?.aborted === true) throw error;
+    return {
+      kind: "error",
+      exitCode: -1,
+      stderr: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
  * Run bindings in order, advancing when the binding's `shouldAdvance` predicate
  * returns true (default: `result.kind === "quota"`).
- *
- * Plan/intent inner loops override the predicate to also advance on `error` and
- * `model_config`; patch/review/shrink keep terminal `model_config` and `error`.
  */
 export async function executeWithQuotaFallback<T extends InvocationResult = InvocationResult>(args: {
   prompt: string;
@@ -238,16 +259,20 @@ export async function executeWithQuotaFallback<T extends InvocationResult = Invo
   for (const [bindingIndex, binding] of args.bindings.entries()) {
     const startedAt = Date.now();
     logBindingStart(args.sessionLog, binding, args.prompt);
-    const result = await binding.invoke({
-      prompt: args.prompt,
-      cwd: args.cwd,
-      ...(args.signal !== undefined ? { signal: args.signal } : {}),
-      ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
-      ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
-      ...(args.onOutputProgress !== undefined ? { onOutputProgress: args.onOutputProgress } : {}),
-      ...pickShellCommandCallbacks(args),
-      ...(args.additionalReadDirs !== undefined ? { additionalReadDirs: args.additionalReadDirs } : {}),
-    });
+    const result = await invokeBinding(
+      binding,
+      {
+        prompt: args.prompt,
+        cwd: args.cwd,
+        ...(args.signal !== undefined ? { signal: args.signal } : {}),
+        ...(args.idleOutputMs !== undefined ? { idleOutputMs: args.idleOutputMs } : {}),
+        ...(args.joinProcessOnIdleStall === true ? { joinProcessOnIdleStall: true } : {}),
+        ...(args.onOutputProgress !== undefined ? { onOutputProgress: args.onOutputProgress } : {}),
+        ...pickShellCommandCallbacks(args),
+        ...(args.additionalReadDirs !== undefined ? { additionalReadDirs: args.additionalReadDirs } : {}),
+      },
+      args.signal,
+    );
     logBindingInbound(args.sessionLog, result);
     const invocationId = args.telemetry?.invocationIds[bindingIndex];
     const attempt = { binding, result, ...(invocationId !== undefined ? { invocationId } : {}) };
@@ -272,13 +297,13 @@ export async function executeWithQuotaFallback<T extends InvocationResult = Invo
   return { attempts, final, telemetryFailures };
 }
 
-function createInvocationCompletedRecord<T extends InvocationResult>(args: {
+function createInvocationCompletedRecord(args: {
   telemetry: InvocationTelemetryContext;
   invocationId: string;
   metadata: { agent: string; model: string };
   bindingId: string;
   bindingIndex: number;
-  result: T;
+  result: InvocationResult;
   durationMs: number;
 }): InvocationCompletedRecord {
   const isOk = args.result.kind === "ok";

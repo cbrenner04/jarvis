@@ -521,6 +521,22 @@ describe("step runner token re-prompt", () => {
     expect(result.reprompt).toBeUndefined();
   });
 
+  test("a rejecting binding.invoke settles invocation_failure instead of rejecting runStep", async () => {
+    const bindings: InvocationBinding[] = [
+      {
+        id: "agent",
+        invoke: async () => {
+          throw new Error("spawn ENOENT");
+        },
+      },
+    ];
+
+    const result = await runStep({ prompt: "p", cwd: "/tmp", bindings, contracts: [] });
+
+    expect(result.kind).toBe("invocation_failure");
+    if (result.kind === "invocation_failure") expect(result.failureKind).toBe("error");
+  });
+
   test("first response carrying a token triggers no re-prompt", async () => {
     let invocations = 0;
     const bindings: InvocationBinding[] = [

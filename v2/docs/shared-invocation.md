@@ -28,6 +28,8 @@ Contract:
 
 Fallback default is quota-only: `model_config` and other `error` kinds are terminal unless a binding's `shouldAdvance` opts in (review actuator adds idle-timeout advance on non-final rungs).
 
+**Pre-result binding failures.** A binding's `invoke` may reject before returning a typed `InvocationResult` (spawn failure, adapter crash). `executeWithQuotaFallback` normalizes that rejection in place to a `kind: "error"` result with sentinel `exitCode: -1` and the thrown diagnostic (`error.message`, or `String(error)` for a non-`Error` throw) as `stderr`, then runs it through the same attempt push, telemetry append, session-transcript inbound logging, and `shouldAdvance` evaluation as a returned result. The default `shouldAdvance` (`result.kind === "quota"`) treats a normalized failure like any other `error`: the chain stops at the first rung unless the binding overrides `shouldAdvance`. A rejection that occurs while the caller's `signal` is already aborted is a caller-driven cancellation, not a binding failure, and propagates unchanged — no attempt is pushed, no telemetry row is appended. The `invocation_completed.exit_reason` for a normalized failure is the sentinel-only string `exit_code:-1`; the raw diagnostic is not duplicated into telemetry, only into the session transcript's `inbound_stderr` line (when a `sessionLog` is passed), so a real process `error.exitCode` and a normalized rejection stay distinguishable in telemetry (`exit_code:<n>` vs `exit_code:-1`) even though both settle `exit_kind: "error"`.
+
 Bindings:
 
 - Shared execution consumes an already-flattened ordered binding list. For

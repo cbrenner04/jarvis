@@ -32,19 +32,19 @@ Every entered binding attempt is represented. A rejecting `invoke` is normalized
 
 ## Acceptance criteria
 
-- [ ] `shared/invocation/execute.test.ts` proves a binding whose `invoke` rejects before returning an `InvocationResult` yields an ordered attempt and one `invocation_completed` row naming `agent`, `model`, `binding_id`, and a failure `exit_kind`; it fails against the pre-fix escaping-failure path.
-- [ ] `shared/invocation/execute.test.ts` proves a normalized pre-result failure obeys the binding's `shouldAdvance` policy — the default (quota-only) policy stops the chain at the first rung, and a binding-supplied predicate advances or stops per its own return value — and that every attempted rung is returned in chain order.
-- [ ] `shared/invocation/execute.test.ts` proves a rejection that occurs while the invocation's `signal` is already aborted is not normalized: it still propagates out of `executeWithQuotaFallback` with no attempt pushed and no telemetry row appended.
-- [ ] `shared/invocation/execute.test.ts` proves the normalized sentinel (`exit_code:-1`) is distinguishable from a binding-returned `kind: "error"` result carrying a real process exit code, by asserting both `invocation_completed.exit_reason` values in the same test.
-- [ ] `shared/invocation/execute.test.ts` proves the raw thrown diagnostic reaches the invocation session transcript as an `inbound_stderr` line, and that `invocation_completed.exit_reason` for the same attempt contains only the sentinel exit-code string, not the diagnostic text.
-- [ ] `v2/src/execution/step-runner.test.ts` proves `runStep` returns a settled `{ kind: "invocation_failure", failureKind: "error", ... }` outcome, not a rejected promise, when the sole configured binding's `invoke` rejects before returning a result; it fails against the pre-fix escaping-failure path.
-- [ ] Existing settled-result telemetry and quota-fallback tests in `shared/invocation/execute.test.ts` stay green (behavior unchanged for bindings that return a typed result).
-- [ ] `v2/docs/shared-invocation.md` documents pre-result failure normalization, the default-`shouldAdvance` fallback consequence, cancellation exclusion, and the transcript-vs-telemetry diagnostic split.
-- [ ] `v2/docs/operator-runbook.md` states that an entered binding leaves an attributed telemetry row only when telemetry context, that binding's invocation ID, and its `agent`/`model` metadata were all present for the attempt, so a correctly filtered empty result under those conditions means no binding was entered.
-- [ ] `v2/docs/v1-behaviors.md` amends the existing shared-invocation entries covering `shared/invocation/execute.ts`/`agents.ts` telemetry to record the changed v2 binding-failure behavior, rather than adding an unrelated new entry.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:shared` and `bun run test:integration:shared` pass.
-- [ ] `bun run test:v2` and `bun run test:integration:v2` pass.
+- [x] `shared/invocation/execute.test.ts` proves a binding whose `invoke` rejects before returning an `InvocationResult` yields an ordered attempt and one `invocation_completed` row naming `agent`, `model`, `binding_id`, and a failure `exit_kind`; it fails against the pre-fix escaping-failure path.
+- [x] `shared/invocation/execute.test.ts` proves a normalized pre-result failure obeys the binding's `shouldAdvance` policy — the default (quota-only) policy stops the chain at the first rung, and a binding-supplied predicate advances or stops per its own return value — and that every attempted rung is returned in chain order.
+- [x] `shared/invocation/execute.test.ts` proves a rejection that occurs while the invocation's `signal` is already aborted is not normalized: it still propagates out of `executeWithQuotaFallback` with no attempt pushed and no telemetry row appended.
+- [x] `shared/invocation/execute.test.ts` proves the normalized sentinel (`exit_code:-1`) is distinguishable from a binding-returned `kind: "error"` result carrying a real process exit code, by asserting both `invocation_completed.exit_reason` values in the same test.
+- [x] `shared/invocation/execute.test.ts` proves the raw thrown diagnostic reaches the invocation session transcript as an `inbound_stderr` line, and that `invocation_completed.exit_reason` for the same attempt contains only the sentinel exit-code string, not the diagnostic text.
+- [x] `v2/src/execution/step-runner.test.ts` proves `runStep` returns a settled `{ kind: "invocation_failure", failureKind: "error", ... }` outcome, not a rejected promise, when the sole configured binding's `invoke` rejects before returning a result; it fails against the pre-fix escaping-failure path.
+- [x] Existing settled-result telemetry and quota-fallback tests in `shared/invocation/execute.test.ts` stay green (behavior unchanged for bindings that return a typed result).
+- [x] `v2/docs/shared-invocation.md` documents pre-result failure normalization, the default-`shouldAdvance` fallback consequence, cancellation exclusion, and the transcript-vs-telemetry diagnostic split.
+- [x] `v2/docs/operator-runbook.md` states that an entered binding leaves an attributed telemetry row only when telemetry context, that binding's invocation ID, and its `agent`/`model` metadata were all present for the attempt, so a correctly filtered empty result under those conditions means no binding was entered.
+- [x] `v2/docs/v1-behaviors.md` amends the existing shared-invocation entries covering `shared/invocation/execute.ts`/`agents.ts` telemetry to record the changed v2 binding-failure behavior, rather than adding an unrelated new entry.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:shared` and `bun run test:integration:shared` pass.
+- [x] `bun run test:v2` and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

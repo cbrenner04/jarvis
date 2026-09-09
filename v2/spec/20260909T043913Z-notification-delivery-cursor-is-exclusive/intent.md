@@ -1,7 +1,3 @@
----
-name: notification-delivery-cursor-is-exclusive
----
-
 # `notifications wait --since <deliveryCursor>` re-delivers the incident at that cursor forever
 
 ## Problem

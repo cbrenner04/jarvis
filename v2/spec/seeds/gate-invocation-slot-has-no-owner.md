@@ -6,6 +6,8 @@ name: gate-invocation-slot-has-no-owner
 
 ## Problem
 
+**Partially landed 2026-09-08 ([#3617](https://github.com/cbrenner04/jarvis/pull/3617) hand-finish):** `releaseIterationGateSlot` now releases only through the owning tracker, so an unrelated lane's settle no longer clears a held slot; regression `an iteration without a gate does not release another lane's held slot` in `write-loop.test.ts` fails against the old code. Still open below: the exported unconditional `releaseAgentGateInvocationSlot`, the decorative cap, and finalization-repair release paths.
+
 The gate-invocation serialization added for [[implement-gate-invocation-outlives-the-iteration-ceiling]] does not serialize. Its slot is an unowned module-global boolean, and any lane can release another lane's hold.
 
 `v2/src/execution/write-loop.ts:512-521`:
@@ -55,7 +57,7 @@ The lane settled 16/16 acceptance criteria with `check`, `typecheck`, `lint:md`,
 
 ## Acceptance criteria
 
-- [ ] A test proves a lane holding the slot still holds it after an unrelated write loop settles an iteration with no active gate; it fails against the current unconditional `releaseAgentGateInvocationSlot`.
+- [x] A test proves a lane holding the slot still holds it after an unrelated write loop settles an iteration with no active gate; it fails against the current unconditional `releaseAgentGateInvocationSlot`. (Landed in #3617.)
 - [ ] A test proves a lane that never acquired the slot cannot release it.
 - [ ] A test proves setting `MAX_CONCURRENT_AGENT_GATE_INVOCATIONS` to 2 admits exactly two concurrent gate invocations and refuses the third; it fails against the current boolean.
 - [ ] A test proves a finalization-repair iteration that acquired the slot releases it on every exit path.

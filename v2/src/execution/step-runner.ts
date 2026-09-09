@@ -9,7 +9,7 @@ import {
 import type { SessionLog } from "../../../shared/invocation/session-log.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { renderArtifactTemplate } from "../../../shared/prompts/render.ts";
-import { extractBlockerBody, hasGenuineBlocker } from "../../../shared/spec-parser.ts";
+import { agentAuthoredBlockerBody, extractBlockerBody, hasGenuineBlocker } from "../../../shared/spec-parser.ts";
 import type { InvocationFailureKind } from "./invocation-failure.ts";
 
 const TERMINAL_TOKENS = ["done", "no-work", "blocked", "progress"] as const;
@@ -27,7 +27,10 @@ export type StepContract = {
   check: (args: { cwd: string }) => StepContractCheckResult | Promise<StepContractCheckResult>;
 };
 
-/** Before/after check that a blocked token appended a new non-empty `## Blocker` to the spec file. */
+/**
+ * A blocked token is credited when the spec file gained a new non-empty `## Blocker` this invocation,
+ * or already carries an agent-authored one at settle time (an earlier iteration's section counts).
+ */
 export type BlockerTextContract = {
   id: string;
   /**
@@ -203,11 +206,13 @@ function evaluateBlockerTextContract(contract: BlockerTextContract): { satisfied
   } catch {
     return { satisfied: false };
   }
-  if (!hasGenuineBlocker(contract.specBefore, specAfter)) {
-    return { satisfied: false };
+  if (hasGenuineBlocker(contract.specBefore, specAfter)) {
+    const blockerText = extractBlockerBody(specAfter)?.body;
+    return { satisfied: true, ...(blockerText !== undefined ? { blockerText } : {}) };
   }
-  const blockerText = extractBlockerBody(specAfter)?.body;
-  return { satisfied: true, ...(blockerText !== undefined ? { blockerText } : {}) };
+  // Present at settle time, authored in an earlier iteration: credited without demanding a duplicate.
+  const existing = agentAuthoredBlockerBody(specAfter);
+  return existing === undefined ? { satisfied: false } : { satisfied: true, blockerText: existing };
 }
 
 type StepTokenResolution =

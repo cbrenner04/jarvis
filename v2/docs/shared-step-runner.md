@@ -17,7 +17,11 @@ Contract:
 - When `blockerTextContract` is set and the token is `blocked`, the runner checks
   that the spec file gained a new non-empty `## Blocker` section (before/after
   against `specBefore`, same shape as `hasGenuineBlocker` in
-  `shared/spec-parser.ts`). Pass → ordinary `blocked`. Miss → exactly one
+  `shared/spec-parser.ts`) **or** already carries a non-empty agent-authored
+  `## Blocker` at settle time (`agentAuthoredBlockerBody`; a section authored in
+  an earlier iteration counts, a harness-marker section `Artifact contract check
+  failed:` does not). Pass → ordinary `blocked` carrying that section's body as
+  `blockerText`. Miss → exactly one
   blocker-text re-prompt (`write.blocker-reprompt`) over the same bindings, then
   re-check. Second miss → `missing_blocker` with the re-prompt response text
   (not `blocked`, not `contract_miss`). The re-prompt carries

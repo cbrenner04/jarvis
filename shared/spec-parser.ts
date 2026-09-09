@@ -157,6 +157,16 @@ function readFrontmatter(text: string): string | null {
   return normalized.slice(0, end + 5);
 }
 
+/** Body prefix `appendBlockerToSpec` writes; marks a harness-authored `## Blocker`, never an agent's. */
+export const RESERVED_HARNESS_BLOCKER_MARKER = "Artifact contract check failed:";
+
+/** Non-empty body of the first `## Blocker` section when an agent (not the harness marker) wrote it. */
+export function agentAuthoredBlockerBody(content: string): string | undefined {
+  const body = extractBlockerBody(content)?.body;
+  if (body === undefined || body.startsWith(RESERVED_HARNESS_BLOCKER_MARKER)) return undefined;
+  return body;
+}
+
 /** True when `after` is `before` plus a newly appended non-empty `## Blocker` section. */
 export function hasGenuineBlocker(before: string, after: string): boolean {
   const blocker = extractBlockerBody(after);

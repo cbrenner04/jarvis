@@ -22,7 +22,7 @@ import { buildHarnessNormalizerDiagnosticsSection, buildPlanDraftPrompt } from "
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { PromptRenderingError, renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import { readSpecGuidance } from "../../../shared/spec-guidance-path.ts";
-import { hasGenuineBlocker, parseSpec } from "../../../shared/spec-parser.ts";
+import { hasGenuineBlocker, parseSpec, RESERVED_HARNESS_BLOCKER_MARKER } from "../../../shared/spec-parser.ts";
 import { dualConstraintRepromptDetail, type SurvivingMutationRepromptContext } from "../persistence/log-stream.ts";
 import {
   type ExternalWorktreeInput,
@@ -335,8 +335,6 @@ function resolveImplementAdditionalReadDirs(
   return undefined;
 }
 
-/** Reserved marker `appendBlockerToSpec` writes; identifies a harness-authored `## Blocker`. */
-const RESERVED_HARNESS_BLOCKER_MARKER = "Artifact contract check failed:";
 const BLOCKER_HEADING = "## Blocker";
 const LEVEL_TWO_HEADING_PATTERN = /^##\s/;
 

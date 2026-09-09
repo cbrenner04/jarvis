@@ -491,8 +491,10 @@ The loop classifies and routes results:
 - **`blocked`**: agent is blocked. Default write steps declare a
   `write.blocker-text` contract: the resolved spec file must gain a new non-empty
   `## Blocker` section during the invocation (before/after against content
-  captured before spawn — presence-only is insufficient because harness-appended
-  or stale blockers would pass). Satisfied → loop stops as terminal `blocked`
+  captured before spawn) **or** already carry a non-empty agent-authored one at
+  settle time — a section written in an earlier iteration of the same run counts,
+  so the agent is never asked to append a duplicate; a harness-appended section
+  (body starting `Artifact contract check failed:`) never counts. Satisfied → loop stops as terminal `blocked`
   (distinct from `contract_miss`). Miss → one `write.blocker-reprompt`
   (`prompts/write/blocker-reprompt.md`) over the same bindings; the write loop
   appends `blocker_reprompt` (not `token_reprompt`) with the first response text.

@@ -61,6 +61,7 @@ describe("daemon command", () => {
         called += 1;
         expect(socketPath).toBe(paths.socketPath);
         expect(options?.pidPath).toBe(paths.pidPath);
+        return { reconciledRunIds: [] };
       },
     });
 
@@ -90,6 +91,7 @@ describe("daemon command", () => {
     const forcedCode = await main(["daemon", "stop", "--force"], cap.io, {
       stopDaemon: async (_socket, options) => {
         force = options?.force;
+        return { reconciledRunIds: [] };
       },
     });
     expect(forcedCode).toBe(0);

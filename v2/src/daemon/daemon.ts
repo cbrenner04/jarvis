@@ -63,6 +63,7 @@ import {
   type RunControlHandlerContextDeps,
 } from "./daemon-run-control-context.ts";
 import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
+import { reconcileOrphanedRuns, reconciliationTerminalStatus } from "./daemon-run-reconciliation.ts";
 import { createTailStreamHandler } from "./daemon-tail-stream.ts";
 import { createImplementRecoverHandler, createWorkflowStartAdmission } from "./daemon-workflow-admission-handlers.ts";
 import {
@@ -72,6 +73,8 @@ import {
   runNotificationSweepIntervalTick,
 } from "./operator-notification-sweep.ts";
 import type { RunOperatorError } from "./run-operator-error.ts";
+
+export { reconcileOrphanedRuns };
 
 export type WorktreeOwnership = {
   runId: string;
@@ -128,14 +131,6 @@ export function forceSettleStatusAdmitsRun(status: RunStatus): boolean {
   return !isTerminalRunStatus(status);
 }
 
-function reconciliationTerminalStatus(run: Run): "killed" | "interrupted" | undefined {
-  if (isTerminalRunStatus(run.status)) return undefined;
-  const isReviewDebate = run.workflowSnapshot?.steps.some(
-    (step) => step.stepId === run.stepId && step.behavior === "review-debate",
-  );
-  return isReviewDebate ? "interrupted" : "killed";
-}
-
 export function settleGuardedKill(store: StateStore, runId: string): void {
   const run = store.loadRun(runId);
   if (!run || isTerminalRunStatus(run.status)) return;
@@ -167,37 +162,6 @@ export class DaemonDoubleClaimError extends Error {
 
 function worktreeClaimedMessage(key: OwnershipKey): string {
   return `Worktree already claimed for project=${key.project}, branch=${key.branch}`;
-}
-
-/** Marks orphaned runs before IPC is exposed. Review-debate rows are interrupted. */
-export async function reconcileOrphanedRuns(
-  stateStore: StateStore,
-  logSink: LogSink,
-  logReader?: LogReader,
-): Promise<string[]> {
-  const reconciledRunIds: string[] = [];
-  for (const runId of await stateStore.beginRunReconciliation()) {
-    let run = stateStore.loadRun(runId);
-    const terminalStatus = run === null ? undefined : reconciliationTerminalStatus(run);
-    if (terminalStatus !== undefined) {
-      stateStore.commitTerminalRunSettlement({ runId, status: terminalStatus });
-      run = stateStore.loadRun(runId);
-    }
-    const eventPersisted = logReader
-      ?.tail(runId)
-      .some(
-        (record) =>
-          record.event.kind === "run_reconciled" &&
-          record.event.runStatus === run?.status &&
-          record.event.reason === "daemon_restart",
-      );
-    if ((run?.status === "killed" || run?.status === "interrupted") && !eventPersisted) {
-      logSink.append(runId, { kind: "run_reconciled", runStatus: run.status, reason: "daemon_restart" });
-    }
-    stateStore.finishRunReconciliation(runId);
-    reconciledRunIds.push(runId);
-  }
-  return reconciledRunIds;
 }
 
 /** Signal a recorded process group with SIGTERM then SIGKILL after the shared 50ms grace. */

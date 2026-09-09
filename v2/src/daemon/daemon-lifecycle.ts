@@ -1,18 +1,29 @@
 import { spawn } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { getExecutableTreeDigest } from "../../../shared/executable-tree.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { connectIpcClient } from "../ipc/client";
 import { createRpcTransport } from "../ipc/rpc-transport";
 import { parseDaemonBindFailureLogLine } from "../ipc/server.ts";
+import { jarvisHome } from "../paths.ts";
+import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { isTerminalRunStatus, openStateStore, type StateStore } from "../persistence/state-store";
-import { parseStatusResult } from "./daemon-wire";
+import { reconcileOrphanedRuns } from "./daemon-run-reconciliation.ts";
+import { parseListRuns, parseStatusResult } from "./daemon-wire";
 
+/**
+ * A non-forced stop refuses only non-terminal rows the daemon reports live. Orphaned rows (non-terminal,
+ * not live) are named separately so the operator can tell the guard working from the old deadlock.
+ */
 export class DaemonStopRefusedError extends Error {
-  constructor(readonly runIds: readonly string[]) {
-    super(`active durable runs: ${runIds.join(", ")}`);
+  constructor(
+    readonly liveRunIds: readonly string[],
+    readonly orphanedRunIds: readonly string[] = [],
+  ) {
+    const orphaned = orphanedRunIds.length > 0 ? `; orphaned (reconciled on stop): ${orphanedRunIds.join(", ")}` : "";
+    super(`live durable runs: ${liveRunIds.join(", ")}${orphaned}`);
     this.name = "DaemonStopRefusedError";
   }
 }
@@ -227,8 +238,28 @@ async function terminateProcess(pid: number, killTimeoutMs: number, processProbe
   }
 }
 
-/** Refuse a non-forced stop when the durable store holds any non-terminal run. */
-function assertStopAllowed(stateStore: Pick<StateStore, "listRuns" | "close"> | undefined): void {
+/** Ask the daemon which run ids it holds live; throws when it does not answer. */
+async function defaultListLiveRunIds(socketPath: string): Promise<readonly string[]> {
+  const client = await connectIpcClient(socketPath);
+  const transport = createRpcTransport(client);
+  try {
+    const listed = parseListRuns(await transport.request("list", undefined, { timeoutMs: 2_000 }));
+    if (listed === undefined) throw new Error("malformed list response");
+    return listed.runs.filter((row) => row.isLive).map((row) => row.runId);
+  } finally {
+    transport.close();
+  }
+}
+
+/**
+ * Split non-terminal durable rows into live (the daemon holds them) and orphaned (nobody does).
+ * An unreachable daemon is not evidence that nothing is running, so `liveRunIds === undefined`
+ * counts every non-terminal row as live.
+ */
+function partitionNonTerminalRuns(
+  stateStore: Pick<StateStore, "listRuns" | "close"> | undefined,
+  liveRunIds: ReadonlySet<string> | undefined,
+): { live: string[]; orphaned: string[] } {
   let store = stateStore;
   let ownsStore = false;
   try {
@@ -236,16 +267,31 @@ function assertStopAllowed(stateStore: Pick<StateStore, "listRuns" | "close"> | 
       store = openStateStore();
       ownsStore = true;
     }
-    const blockers = store
+    const nonTerminal = store
       .listRuns()
       .filter((run) => !isTerminalRunStatus(run.status))
       .map((run) => run.id);
-    if (blockers.length > 0) throw new DaemonStopRefusedError(blockers);
+    if (liveRunIds === undefined) return { live: nonTerminal, orphaned: [] };
+    return {
+      live: nonTerminal.filter((id) => liveRunIds.has(id)),
+      orphaned: nonTerminal.filter((id) => !liveRunIds.has(id)),
+    };
   } catch (error) {
-    if (error instanceof DaemonStopRefusedError) throw error;
     throw new DaemonStopInspectionError(error);
   } finally {
     if (ownsStore) store?.close();
+  }
+}
+
+/** Settle orphaned non-terminal rows through the same path daemon startup uses. */
+async function defaultReconcileOrphans(logsPath: string): Promise<string[]> {
+  const store = openStateStore();
+  const sink = openLogSink(logsPath);
+  try {
+    return await reconcileOrphanedRuns(store, sink, openLogReader(logsPath));
+  } finally {
+    sink.close();
+    store.close();
   }
 }
 
@@ -258,14 +304,26 @@ export async function stopDaemon(
     force?: boolean;
     stateStore?: Pick<StateStore, "listRuns" | "close">;
     processProber?: ProcessProber;
+    /** Live run ids as the daemon reports them; rejection means "unreachable" and counts every non-terminal row live. */
+    listLiveRunIds?: (socketPath: string) => Promise<readonly string[]>;
+    /** Stop-time reconciliation of orphaned rows; defaults to the shared startup path over the state store and log stream. */
+    reconcileOrphans?: (orphanedRunIds: readonly string[]) => Promise<string[]>;
+    logsPath?: string;
   },
-): Promise<void> {
+): Promise<{ reconciledRunIds: string[] }> {
   const drainTimeoutMs = options?.drainTimeoutMs ?? 2_000;
   const killTimeoutMs = options?.killTimeoutMs ?? 3_000;
   const processProber = options?.processProber ?? { isAlive: isProcessAlive };
 
-  if (!options?.force) {
-    assertStopAllowed(options?.stateStore);
+  let liveRunIds: ReadonlySet<string> | undefined;
+  try {
+    liveRunIds = new Set(await (options?.listLiveRunIds ?? defaultListLiveRunIds)(socketPath));
+  } catch {
+    liveRunIds = undefined;
+  }
+  const rows = partitionNonTerminalRuns(options?.stateStore, liveRunIds);
+  if (!options?.force && rows.live.length > 0) {
+    throw new DaemonStopRefusedError(rows.live, rows.orphaned);
   }
 
   let pid: number | null = null;
@@ -298,6 +356,13 @@ export async function stopDaemon(
   if (options?.pidPath) {
     rmSync(options.pidPath, { force: true });
   }
+
+  // The daemon is down, so its rows have no live owner: settle them the way startup would.
+  const orphaned = [...rows.orphaned, ...(options?.force ? rows.live : [])];
+  if (orphaned.length === 0) return { reconciledRunIds: [] };
+  const logsPath = options?.logsPath ?? join(jarvisHome(), "state", "logs.jsonl");
+  const reconcile = options?.reconcileOrphans ?? (() => defaultReconcileOrphans(logsPath));
+  return { reconciledRunIds: await reconcile(orphaned) };
 }
 
 export type DaemonStatusResult =

@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
+import { openStateStore } from "../persistence/state-store.ts";
+import { reconcileOrphanedRuns } from "./daemon-run-reconciliation.ts";
 
 /**
  * Waits for a real spawned child to cold-start, print, and flush into `logPath`.
@@ -479,21 +482,115 @@ describe("daemon-lifecycle", () => {
       specPath: "spec.md",
     });
 
-    test("refuses every non-terminal durable run before shutdown", async () => {
+    const nonTerminalRows = () => [
+      run("queued-id", "queued"),
+      run("live-id", "in-progress"),
+      run("paused-id", "paused"),
+      run("non-live-id", "budget-soft-stopped"),
+    ];
+
+    test("stopDaemon treats an unreachable daemon as all-live", async () => {
+      // @mutate v2/src/daemon/daemon-lifecycle.ts "if (liveRunIds === undefined) return { live: nonTerminal, orphaned: [] };" -> "if (liveRunIds === undefined) return { live: [], orphaned: nonTerminal };"
+      const processProber: ProcessProber = { isAlive: () => false };
+      const stateStore = { listRuns: nonTerminalRows, close: () => {} };
+      const reconciled: string[][] = [];
+
+      await expect(
+        stopDaemon("/nonexistent/socket", {
+          stateStore,
+          processProber,
+          listLiveRunIds: async () => {
+            throw new Error("connect ENOENT");
+          },
+          reconcileOrphans: async (ids) => {
+            reconciled.push([...ids]);
+            return [...ids];
+          },
+        }),
+      ).rejects.toEqual(new DaemonStopRefusedError(["queued-id", "live-id", "paused-id", "non-live-id"]));
+      expect(reconciled).toEqual([]);
+    });
+
+    test("stopDaemon still refuses a live non-terminal row and names it live", async () => {
       const processProber: ProcessProber = { isAlive: () => false };
       const stateStore = {
-        listRuns: () => [
-          run("queued-id", "queued"),
-          run("live-id", "in-progress"),
-          run("paused-id", "paused"),
-          run("non-live-id", "budget-soft-stopped"),
-        ],
+        listRuns: () => [run("live-id", "in-progress"), run("done-id", "completed")],
         close: () => {},
       };
 
-      await expect(stopDaemon("/nonexistent/socket", { stateStore, processProber })).rejects.toEqual(
-        new DaemonStopRefusedError(["queued-id", "live-id", "paused-id", "non-live-id"]),
-      );
+      const refusal = stopDaemon("/nonexistent/socket", {
+        stateStore,
+        processProber,
+        listLiveRunIds: async () => ["live-id"],
+        reconcileOrphans: async () => [],
+      });
+      await expect(refusal).rejects.toBeInstanceOf(DaemonStopRefusedError);
+      await refusal.catch((error: DaemonStopRefusedError) => {
+        expect(error.liveRunIds).toEqual(["live-id"]);
+        expect(error.orphanedRunIds).toEqual([]);
+        expect(error.message).toBe("live durable runs: live-id");
+      });
+    });
+
+    test("stopDaemon refusal names live and orphaned rows separately", async () => {
+      const processProber: ProcessProber = { isAlive: () => false };
+      const stateStore = { listRuns: nonTerminalRows, close: () => {} };
+
+      const refusal = stopDaemon("/nonexistent/socket", {
+        stateStore,
+        processProber,
+        listLiveRunIds: async () => ["live-id", "paused-id"],
+        reconcileOrphans: async () => [],
+      });
+      await refusal.catch((error: DaemonStopRefusedError) => {
+        expect(error.liveRunIds).toEqual(["live-id", "paused-id"]);
+        expect(error.orphanedRunIds).toEqual(["queued-id", "non-live-id"]);
+        expect(error.message).toBe(
+          "live durable runs: live-id, paused-id; orphaned (reconciled on stop): queued-id, non-live-id",
+        );
+      });
+      await expect(refusal).rejects.toBeInstanceOf(DaemonStopRefusedError);
+    });
+
+    test("stopDaemon settles an orphaned non-terminal row instead of refusing", async () => {
+      // @mutate v2/src/daemon/daemon-lifecycle.ts "if (!options?.force && rows.live.length > 0) {" -> "if (!options?.force && rows.live.length + rows.orphaned.length > 0) {"
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-stop-reconcile-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+      const dbPath = join(tmpDir, "state.sqlite");
+      const logsPath = join(tmpDir, "logs.jsonl");
+      // The row belongs to a daemon incarnation that is gone; the stopping CLI is a different process.
+      const ownerStore = openStateStore(dbPath, { currentIdentity: "daemon-old:1" });
+      const orphanId = ownerStore.createRun({
+        project: "demo",
+        specRef: "spec.md",
+        worktreePath: "/tmp/worktree",
+        branch: "orphan",
+        specPath: "spec.md",
+      });
+      ownerStore.close();
+      const store = openStateStore(dbPath, { currentIdentity: "cli:2", isOwnerAlive: async () => false });
+      try {
+        const stopped = await stopDaemon("/nonexistent/socket", {
+          stateStore: store,
+          processProber: { isAlive: () => false },
+          listLiveRunIds: async () => [],
+          reconcileOrphans: async () => {
+            const sink = openLogSink(logsPath);
+            try {
+              return await reconcileOrphanedRuns(store, sink, openLogReader(logsPath));
+            } finally {
+              sink.close();
+            }
+          },
+        });
+        expect(stopped.reconciledRunIds).toEqual([orphanId]);
+        expect(store.loadRun(orphanId)?.status).toBe("killed");
+        const records = openLogReader(logsPath).tail(orphanId);
+        expect(records.some((record) => record.event.kind === "run_reconciled")).toBe(true);
+      } finally {
+        store.close();
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
     });
 
     test("allows all durable terminal statuses and refuses store failures", async () => {
@@ -508,7 +605,9 @@ describe("daemon-lifecycle", () => {
         close: () => {},
       };
 
-      await expect(stopDaemon("/nonexistent/socket", { stateStore, processProber })).resolves.toBeUndefined();
+      await expect(
+        stopDaemon("/nonexistent/socket", { stateStore, processProber, listLiveRunIds: async () => [] }),
+      ).resolves.toEqual({ reconciledRunIds: [] });
       await expect(
         stopDaemon("/nonexistent/socket", {
           stateStore: {
@@ -533,8 +632,9 @@ describe("daemon-lifecycle", () => {
           processProber,
           drainTimeoutMs: 100,
           killTimeoutMs: 100,
+          stateStore: { listRuns: () => [], close: () => {} },
         }),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ reconciledRunIds: [] });
     });
 
     test("completes without error when pidPath file missing", async () => {
@@ -549,8 +649,9 @@ describe("daemon-lifecycle", () => {
           processProber,
           drainTimeoutMs: 100,
           killTimeoutMs: 100,
+          stateStore: { listRuns: () => [], close: () => {} },
         }),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ reconciledRunIds: [] });
     });
   });
 

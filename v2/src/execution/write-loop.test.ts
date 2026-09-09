@@ -6240,6 +6240,52 @@ export function isLoadSensitive(file: string): boolean {
       expect(publishCalls).toBe(2);
     });
 
+    test("an inconclusive mutation candidate is recorded on the run and publication proceeds", async () => {
+      // @mutate v2/src/execution/write-loop.ts "if (candidates.length === 0) return;" -> "return;"
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      const logSink = new TestLogSink();
+      const inconclusive = {
+        file: "v2/src/execution/slow.ts",
+        line: 3,
+        reason: "inconclusive: unmutated killing set (v2/src/execution/slow.test.ts) exceeded the 120000ms ceiling",
+      };
+      const result = await runLoop({
+        jarvisRoot,
+        stateDbPath,
+        promptId: "patch.prompt.body",
+        logSink,
+        bindings: [
+          {
+            id: "implement",
+            metadata: { agent: "test-agent", model: "test" },
+            invoke: async ({ cwd }) => {
+              writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+              return { kind: "ok", stdout: "done", stderr: "" };
+            },
+          },
+        ],
+        verifyDiffDerivedMutations: async () => ({
+          kind: "pass",
+          runBase: "HEAD",
+          inspectedPaths: [inconclusive.file],
+          candidateCount: 1,
+          acceptedSites: [],
+          skippedCandidates: [inconclusive, { file: "v2/src/execution/other.ts", line: 9, reason: "stale candidate" }],
+        }),
+        completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      const events = logSink.getEventsForRun(result.runId);
+      expect(events.find((event) => event.kind === "mutation_verification_inconclusive")).toMatchObject({
+        kind: "mutation_verification_inconclusive",
+        candidates: [inconclusive],
+      });
+      expect(events.at(-1)).toMatchObject({ kind: "loop_finished", loopOutcomeKind: "complete" });
+    });
+
     test("implement complete surviving mutation reprompts before publication", async () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       const logSink = new TestLogSink();

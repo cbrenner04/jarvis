@@ -110,6 +110,18 @@ export type RunExecutionFailedEvent = {
   message?: string;
 };
 
+/**
+ * Raw bounded stderr diagnostic from a terminal invocation-failure settlement, emitted on every
+ * such settlement regardless of prompt-echo classification, so the bytes stay retrievable via
+ * `jarvis run log` even when the operator summary suppresses an echoed tail.
+ */
+export type InvocationFailureDiagnosticEvent = {
+  kind: "invocation_failure_diagnostic";
+  attemptId: string;
+  stderrTail: string;
+  echoedInput: boolean;
+};
+
 export type RunReconciledEvent = {
   kind: "run_reconciled";
   runStatus: "killed" | "interrupted";
@@ -241,6 +253,7 @@ type LogEventWithoutLoopFinished =
   | RuntimeSmokeOutcomeEvent
   | IterationCommitEvent
   | RunExecutionFailedEvent
+  | InvocationFailureDiagnosticEvent
   | RunReconciledEvent
   | RunRecoveryEvent
   | InvalidTokenDetailEvent

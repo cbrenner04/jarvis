@@ -27,11 +27,11 @@ On terminal `invocation_failure` the write loop stores the final binding's stder
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/write-loop.test.ts` proves a final stderr tail matching the dispatched prompt is marked as echoed input on the persisted detail, is not carried as the detail `message`, and has its raw bounded tail emitted in a retrievable structured run-log event; it fails against the pre-fix message-only persistence path.
-- [ ] `v2/src/execution/write-loop.test.ts` proves an ordinary real stderr tail is persisted byte-for-byte within the existing bound as the detail `message`, is not marked echoed, and is emitted in the same run-log evidence shape; it fails against the pre-fix code, which emits no such event.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/execution/write-loop.test.ts` proves a final stderr tail matching the dispatched prompt is marked as echoed input on the persisted detail, is not carried as the detail `message`, and has its raw bounded tail emitted in a retrievable structured run-log event; it fails against the pre-fix message-only persistence path.
+- [x] `v2/src/execution/write-loop.test.ts` proves an ordinary real stderr tail is persisted byte-for-byte within the existing bound as the detail `message`, is not marked echoed, and is emitted in the same run-log evidence shape; it fails against the pre-fix code, which emits no such event.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

@@ -466,6 +466,7 @@ async function executePlanDraftWrite(
       return {
         kind: "invocation_failure",
         failureKind: "model_config",
+        echoedInput: false,
         invocation: { attempts: [], final: null, telemetryFailures: [] },
       };
     }
@@ -611,6 +612,7 @@ async function executeDefaultWrite(
       return {
         kind: "invocation_failure",
         failureKind: "model_config",
+        echoedInput: false,
         invocation: { attempts: [], final: null, telemetryFailures: [] },
       };
     }

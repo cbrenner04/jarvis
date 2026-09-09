@@ -27,6 +27,8 @@ export type InvocationFailureDetail = {
   boundMs?: number;
   /** `true` when a `failureKind: "timeout"` settled after every configured rung timed out. */
   exhaustedRoleTimeout?: boolean;
+  /** `true` when the settling binding's stderr echoed the dispatched prompt rather than reporting a real failure. */
+  echoedInput?: boolean;
 };
 
 /** Terminal, non-retryable `failureKind: "timeout"` — every configured rung timed out. */

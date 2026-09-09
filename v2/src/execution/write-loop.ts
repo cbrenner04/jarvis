@@ -1874,14 +1874,22 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         (existsSync(join(worktreePath, ".git")) || completionAgent !== undefined);
       const boundaryRunStatus = keepsCompletionInProgress ? ("in-progress" as const) : terminal.runStatus;
       const bindingAttempts = (invocation: InvocationExecution) =>
-        invocation.attempts.map((attempt) => ({ bindingId: attempt.binding.id, resultKind: attempt.result.kind }));
+        invocation.attempts.map((attempt) => ({
+          bindingId: attempt.binding.id,
+          resultKind: attempt.result.kind,
+          ...(attempt.binding.metadata?.agent !== undefined ? { agent: attempt.binding.metadata.agent } : {}),
+          ...(attempt.binding.metadata?.model !== undefined ? { model: attempt.binding.metadata.model } : {}),
+        }));
       const finalStderr = result.kind === "invocation_failure" ? result.invocation.final?.result.stderr : undefined;
+      const boundedStderrTail = finalStderr?.slice(-INVOCATION_FAILURE_MESSAGE_MAX_CODE_UNITS);
+      const echoedInput = result.kind === "invocation_failure" && result.echoedInput;
       const detail =
         result.kind === "invocation_failure"
           ? {
               failureKind: result.failureKind,
               bindingAttempts: bindingAttempts(result.invocation),
-              ...(finalStderr ? { message: finalStderr.slice(-INVOCATION_FAILURE_MESSAGE_MAX_CODE_UNITS) } : {}),
+              ...(echoedInput ? { echoedInput: true } : {}),
+              ...(boundedStderrTail && !echoedInput ? { message: boundedStderrTail } : {}),
             }
           : result.kind === "stall"
             ? {
@@ -1913,6 +1921,14 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         outcomeKind: terminal.outcomeKind,
         runStatus: boundaryRunStatus,
       });
+      if (result.kind === "invocation_failure" && boundedStderrTail) {
+        args.logSink?.append(runId, {
+          kind: "invocation_failure_diagnostic",
+          attemptId,
+          stderrTail: boundedStderrTail,
+          echoedInput: result.echoedInput,
+        });
+      }
       if (result.kind === "invalid_token") {
         args.logSink?.append(runId, {
           kind: "invalid_token_detail",

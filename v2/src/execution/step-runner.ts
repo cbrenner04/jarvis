@@ -85,6 +85,8 @@ export type StepRunResult = {
   | {
       kind: "invocation_failure";
       failureKind: InvocationFailureKind;
+      /** `true` when the settling binding's stderr echoed the dispatched prompt rather than reporting a real failure. */
+      echoedInput: boolean;
     }
   | {
       kind: "stall";
@@ -95,6 +97,16 @@ export type StepRunResult = {
 );
 
 const TOKEN_WORD_PATTERN = new RegExp(`\\b(${TERMINAL_TOKENS.join("|")})\\b`, "g");
+
+/**
+ * True when a non-empty trimmed stderr is contained within the dispatched prompt: the settling
+ * binding echoed its input rather than reporting a real failure. Some agents echo the dispatched
+ * prompt (or its tail) on stderr instead of a diagnostic.
+ */
+function isEchoedInputStderr(prompt: string, stderr: string): boolean {
+  const trimmed = stderr.trim();
+  return trimmed.length > 0 && prompt.includes(trimmed);
+}
 
 function asToken(value: string): StepOutcomeToken | null {
   return TERMINAL_TOKENS.includes(value as StepOutcomeToken) ? (value as StepOutcomeToken) : null;
@@ -340,6 +352,7 @@ export async function runStep(args: StepRunInput): Promise<StepRunResult> {
     return {
       kind: "invocation_failure",
       failureKind: "no_binding",
+      echoedInput: false,
       invocation,
     };
   }
@@ -352,6 +365,7 @@ export async function runStep(args: StepRunInput): Promise<StepRunResult> {
     return {
       kind: "invocation_failure",
       failureKind: result.kind,
+      echoedInput: isEchoedInputStderr(args.prompt, result.stderr),
       invocation,
     };
   }

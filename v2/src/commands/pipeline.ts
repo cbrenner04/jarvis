@@ -24,6 +24,7 @@ import {
 } from "../cli/usage.ts";
 import { loadMachineConfig, readProjectConfigRecord } from "../config/machine-config-loader.ts";
 import { isPipelineTerminal, type PipelineDerivedState } from "../daemon/pipeline-execution.ts";
+import { uniquePipelineIdPrefixes } from "../daemon/pipeline-id-resolution.ts";
 import type {
   PipelineBoundaryResult,
   PipelineSnapshot,
@@ -78,14 +79,20 @@ function readPipelineListResult(value: unknown): { pipelines: unknown[] } | unde
 export type PipelineMutationOutcome =
   | { kind: "applied" }
   | { kind: "resumed"; pipelineId: string }
-  | { kind: "refused"; reason: string; branchKeys?: string[] };
+  | { kind: "refused"; reason: string; branchKeys?: string[]; candidates?: string[] };
 
 function parsePipelineMutationOutcome(
   value: unknown,
   successKind: "applied" | "resumed",
 ): PipelineMutationOutcome | undefined {
   if (typeof value !== "object" || value === null) return undefined;
-  const record = value as { kind?: unknown; reason?: unknown; branchKeys?: unknown; pipelineId?: unknown };
+  const record = value as {
+    kind?: unknown;
+    reason?: unknown;
+    branchKeys?: unknown;
+    candidates?: unknown;
+    pipelineId?: unknown;
+  };
   if (record.kind === successKind) {
     if (successKind === "resumed" && !isNonEmptyString(record.pipelineId)) return undefined;
     return successKind === "resumed"
@@ -97,13 +104,22 @@ function parsePipelineMutationOutcome(
       record.reason === "branch_resume_required" && Array.isArray(record.branchKeys)
         ? record.branchKeys.filter((key): key is string => typeof key === "string")
         : [];
+    const candidates = stringCandidates(record.reason, record.candidates);
     return {
       kind: "refused",
       reason: record.reason,
       ...(branchKeys.length > 0 ? { branchKeys } : {}),
+      ...(candidates.length > 0 ? { candidates } : {}),
     };
   }
   return undefined;
+}
+
+/** Candidate ids named by a `pipeline_id_ambiguous` refusal; empty for every other reason. */
+function stringCandidates(reason: unknown, candidates: unknown): string[] {
+  return reason === "pipeline_id_ambiguous" && Array.isArray(candidates)
+    ? candidates.filter((candidate): candidate is string => typeof candidate === "string")
+    : [];
 }
 
 function parsePipelineDecisionArgs(
@@ -456,10 +472,13 @@ function seedBasename(seedPath: string | undefined): string {
 }
 
 function renderPipelineListRows(pipelines: readonly PipelineSnapshot[], nowMs: number, showDismissal: boolean): string {
+  // Every printed prefix resolves through the daemon's `resolvePipelineIdArgument`; a shared
+  // eight-character prefix lengthens until unique within this listing.
+  const idPrefixes = uniquePipelineIdPrefixes(pipelines.map((pipeline) => pipeline.pipelineId));
   return `${pipelines
     .map((pipeline) =>
       [
-        pipeline.pipelineId.slice(0, 8),
+        idPrefixes.get(pipeline.pipelineId) ?? pipeline.pipelineId,
         pipeline.name,
         pipeline.state,
         seedBasename(pipeline.seedPath),
@@ -576,8 +595,9 @@ async function runPipelineMutationCommand(
     }
     if (outcome.kind === "refused") {
       io.stderr(`${outcome.reason}\n`);
-      if (outcome.branchKeys !== undefined) {
-        io.stderr(`${outcome.branchKeys.join("\n")}\n`);
+      const named = outcome.branchKeys ?? outcome.candidates;
+      if (named !== undefined) {
+        io.stderr(`${named.join("\n")}\n`);
       }
     } else if (outcome.kind === "resumed" && successKind === "resumed") {
       io.stdout(`${outcome.pipelineId}\n`);
@@ -662,7 +682,7 @@ async function runPipelineRecoverCommand(
 
 export type PipelineDismissalOutcome =
   | { kind: "applied"; pipelineId: string; state: PipelineDerivedState }
-  | { kind: "refused"; pipelineId: string; reason: string };
+  | { kind: "refused"; pipelineId: string; reason: string; candidates?: string[] };
 
 function parsePipelineDismissalArgs(argv: readonly string[]): { ok: true; pipelineId: string } | { ok: false } {
   if (argv.length !== 1) return { ok: false };
@@ -673,7 +693,13 @@ function parsePipelineDismissalArgs(argv: readonly string[]): { ok: true; pipeli
 
 function parsePipelineDismissalOutcome(value: unknown): PipelineDismissalOutcome | undefined {
   if (typeof value !== "object" || value === null) return undefined;
-  const record = value as { kind?: unknown; pipelineId?: unknown; state?: unknown; reason?: unknown };
+  const record = value as {
+    kind?: unknown;
+    pipelineId?: unknown;
+    state?: unknown;
+    reason?: unknown;
+    candidates?: unknown;
+  };
   if (!isNonEmptyString(record.pipelineId)) return undefined;
   if (record.kind === "applied") {
     if (typeof record.state !== "string") return undefined;
@@ -682,7 +708,13 @@ function parsePipelineDismissalOutcome(value: unknown): PipelineDismissalOutcome
     return { kind: "applied", pipelineId: record.pipelineId, state };
   }
   if (record.kind === "refused" && typeof record.reason === "string") {
-    return { kind: "refused", pipelineId: record.pipelineId, reason: record.reason };
+    const candidates = stringCandidates(record.reason, record.candidates);
+    return {
+      kind: "refused",
+      pipelineId: record.pipelineId,
+      reason: record.reason,
+      ...(candidates.length > 0 ? { candidates } : {}),
+    };
   }
   return undefined;
 }
@@ -704,6 +736,7 @@ async function runPipelineDismissalCommand(
     }
     if (outcome.kind !== "applied") {
       io.stderr(`${outcome.reason}\n`);
+      if (outcome.candidates !== undefined) io.stderr(`${outcome.candidates.join("\n")}\n`);
       return 1;
     }
     // Mutation checkpoint: neutering this guard to `if (false)` must drop the live-state

@@ -664,6 +664,7 @@ Admission walks the branch's own durable rows for its authored `stageId`s (`find
 Refusals (each with no target returned):
 
 - `pipeline_not_found` — unknown `pipelineId`.
+- `pipeline_id_ambiguous` — the `pipelineId` argument is a prefix of two or more pipelines; `message` lists them (see [Pipeline id arguments](#pipeline-id-arguments)).
 - `branch_not_found` — unknown or empty `branchKey`, or no durable row carries it.
 - `no_failed_stage` — the branch carries no `failed` workflow stage row.
 - `stage_not_plan` — the branch's failed row is an authored `workflow: "intent"` or `"implement"` stage, not `"plan"`.
@@ -737,6 +738,10 @@ Stage satisfaction for the walk: workflow stages satisfy on `succeeded`; approva
 Terminal states: `succeeded`, `failed`, `rejected`, `interrupted`. Non-terminal: `pending`, `running`, `awaiting-approval`. Callers must not infer terminality from raw stage vocabulary alone.
 
 After the ordered stage walk completes with every authored stage satisfied and no early `stop`, `runPipeline` invokes `executeTerminalPublication` when the admitted definition carries `terminalAction`. Executor input resolves from the authored-order last succeeded workflow stage artifact (`prNumber`, `prUrl` from the stage artifact; `worktreePath`, `branch`, `baseRef` from `store.loadRun(artifact.entryRunId)`). Successful stage settlement copies the fresh entry-run PR pair into that artifact; for `ready`/`merge`, missing completion-publication evidence during deferred settlement fails the final workflow stage before this invocation. Success stamps `terminal_publication_succeeded_at`; failure records `terminal_publication_failure` without rewriting stage rows. `continuePipeline` and `recoverContinuablePipelines` idempotently finish pending settlement when stages are satisfied but the success marker is absent. Terminal-publication failure is non-resumable via `pipeline_resume` / `reopenFailedPipeline` in this slice.
+
+### Pipeline id arguments
+
+Every pipeline verb that takes a `pipelineId` (`pipeline_approve`, `pipeline_reject`, `pipeline_resume`, `pipeline_recover`, `pipeline_dismiss`, `pipeline_undismiss`, `pipeline_wait`) resolves it through `resolvePipelineIdArgument` (`v2/src/daemon/pipeline-id-resolution.ts`) before touching the store: an exact id wins; otherwise an argument of at least `PIPELINE_ID_PREFIX_MIN_LENGTH` (8) characters that strictly prefixes exactly one pipeline id — dismissed pipelines included — resolves to it, so the prefix `pipeline list` prints is a valid argument. Two or more matches refuse with reason `pipeline_id_ambiguous` and a `message` naming every candidate: as `{ kind: "refused", pipelineId: <argument>, reason, candidates, message }` for approve/reject/resume/dismiss/undismiss, as `resolution_refused` for recover, and as an error frame with code `pipeline_id_ambiguous` for wait. No match leaves the argument as given, so each verb's existing not-found reason is unchanged. Shorter arguments never prefix-resolve. The CLI's human `pipeline list` prints, per row, the shortest prefix (≥ 8 characters) unique within that listing (`uniquePipelineIdPrefixes`); `--json` keeps the full `pipelineId`.
 
 ### Pipeline wait
 

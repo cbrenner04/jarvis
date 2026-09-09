@@ -20,6 +20,11 @@ import {
   runPipeline,
 } from "./pipeline-execution.ts";
 import {
+  ambiguousPipelineIdMessage,
+  PIPELINE_ID_AMBIGUOUS,
+  resolvePipelineIdArgument,
+} from "./pipeline-id-resolution.ts";
+import {
   PIPELINE_WAIT_ABORTED,
   PipelineWaitAbortedError,
   projectPipelineSnapshot,
@@ -137,6 +142,27 @@ export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: Pipe
     return { kind: "response", result: { pipelineId } };
   };
 
+  /** Resolve a verb's id argument (exact or unique ≥8-char prefix); `ambiguous` carries the refusal payload. */
+  const resolvePipelineId = (
+    argument: string,
+  ): {
+    pipelineId: string;
+    ambiguous?: { reason: typeof PIPELINE_ID_AMBIGUOUS; candidates: string[]; message: string };
+  } => {
+    const resolution = resolvePipelineIdArgument(store, argument);
+    if (resolution.kind === "ambiguous") {
+      return {
+        pipelineId: argument,
+        ambiguous: {
+          reason: PIPELINE_ID_AMBIGUOUS,
+          candidates: resolution.candidates,
+          message: ambiguousPipelineIdMessage(argument, resolution.candidates),
+        },
+      };
+    }
+    return { pipelineId: resolution.pipelineId };
+  };
+
   const handlePipelineApprovalDecisionHandler =
     (decision: "approved" | "rejected"): RpcHandler =>
     (frame) => {
@@ -147,7 +173,11 @@ export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: Pipe
       if (!params?.pipelineId || !params?.stageId) {
         return { kind: "error", code: "invalid_params", message: "pipelineId and stageId required" };
       }
-      const { pipelineId, stageId, branchKey } = params;
+      const { stageId, branchKey } = params;
+      const { pipelineId, ambiguous } = resolvePipelineId(params.pipelineId);
+      if (ambiguous !== undefined) {
+        return { kind: "response", result: { kind: "refused", pipelineId, stageId, ...ambiguous } };
+      }
       const outcome = applyPipelineApprovalDecision(pipelineId, stageId, decision, pipelineExecutionDeps(), branchKey);
       return { kind: "response", result: outcome };
     };
@@ -173,7 +203,10 @@ export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: Pipe
     if (params.branchKey !== undefined && (typeof params.branchKey !== "string" || params.branchKey.trim() === "")) {
       return { kind: "error", code: "invalid_params", message: "branchKey must be a non-blank string" };
     }
-    const { pipelineId } = params;
+    const { pipelineId, ambiguous } = resolvePipelineId(params.pipelineId);
+    if (ambiguous !== undefined) {
+      return { kind: "response", result: { kind: "refused", pipelineId, ...ambiguous } };
+    }
     const branchKey = params.branchKey as string | undefined;
     const outcome = await resumePipeline(pipelineId, pipelineExecutionDeps(), {
       detachContinuation: true,
@@ -208,7 +241,20 @@ export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: Pipe
     ) {
       return { kind: "error", code: "invalid_params", message: "pipelineId and branchKey required" };
     }
-    const { pipelineId, branchKey } = params;
+    const { branchKey } = params;
+    const { pipelineId, ambiguous } = resolvePipelineId(params.pipelineId);
+    if (ambiguous !== undefined) {
+      return {
+        kind: "response",
+        result: {
+          kind: "resolution_refused",
+          pipelineId,
+          branchKey,
+          reason: ambiguous.reason,
+          message: ambiguous.message,
+        },
+      };
+    }
 
     const resolution = await resolveBlockedPlanStageRecoveryTarget({ pipelineId, branchKey }, { store, resolveStage });
     if (!resolution.ok) {
@@ -277,9 +323,13 @@ export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: Pipe
     (mode: "dismiss" | "undismiss"): RpcHandler =>
     (frame) => {
       const params = frame.params as { pipelineId?: unknown } | undefined;
-      const pipelineId = typeof params?.pipelineId === "string" ? params.pipelineId : "";
-      if (pipelineId.length === 0) {
+      const argument = typeof params?.pipelineId === "string" ? params.pipelineId : "";
+      if (argument.length === 0) {
         return { kind: "error", code: "invalid_params", message: "pipelineId required" };
+      }
+      const { pipelineId, ambiguous } = resolvePipelineId(argument);
+      if (ambiguous !== undefined) {
+        return { kind: "response", result: { kind: "refused", pipelineId, ...ambiguous } };
       }
       const outcome =
         mode === "dismiss" ? store.dismissPipeline({ pipelineId }) : store.undismissPipeline({ pipelineId });
@@ -307,7 +357,10 @@ export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: Pipe
       return { kind: "error", code: "invalid_params", message: "Missing pipelineId" };
     }
 
-    const pipelineId = params.pipelineId;
+    const { pipelineId, ambiguous } = resolvePipelineId(params.pipelineId);
+    if (ambiguous !== undefined) {
+      return { kind: "error", code: ambiguous.reason, message: ambiguous.message };
+    }
     if (!store.loadPipeline(pipelineId)) {
       return { kind: "error", code: "unknown_pipeline", message: `Pipeline ${pipelineId} not found` };
     }

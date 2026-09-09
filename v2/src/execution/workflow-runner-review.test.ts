@@ -949,6 +949,7 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
         stagingDir: ".jarvis-intent-stage",
         invocationId: "intent-resume-md-lint-exhaust-admit",
         baseRef: "none",
+        inputs: { sourceRoot: tmpdir(), paths: [], consumeFrom: "worktree" },
       },
       withExternalWorktree,
       createBinding: createBindingFactory(async ({ cwd }) => {
@@ -1043,6 +1044,7 @@ describe("executeWorkflow review actuator staged Markdown lint", () => {
               durable: true,
               expectedArtifactPath: ".jarvis-intent-stage",
               agents: ["claude"],
+              landingInputs: { sourceRoot: tmpdir(), paths: [], consumeFrom: "worktree" as const },
             },
             { stepId: "review", role: "", durable: true, behavior: "review" as const },
           ],

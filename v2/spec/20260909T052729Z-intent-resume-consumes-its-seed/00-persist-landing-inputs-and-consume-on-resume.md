@@ -18,11 +18,11 @@ The first-pass landing (`landReviewedPublicationOutput` in `publication-landing.
 
 ## Acceptance criteria
 
-- [ ] `workflow-runner-resume.test.ts` test `intent resume consumes the seed recorded in the persisted landing inputs` seeds a failed intent review row whose snapshot write step carries `landingInputs` naming a seed file, resumes it, and asserts the seed is gone after landing; it fails against the current inputs-less rebuild.
-- [ ] `workflow-runner-resume.test.ts` test `intent resume without recorded landing inputs refuses instead of publishing` proves a snapshot lacking `landingInputs` settles a named refusal and publishes nothing; it fails against the current best-effort landing.
-- [ ] An existing or new landing test proves the first-pass intent landing still consumes `landing.inputs`.
-- [ ] `workflow-runner.test.ts` or `workflow-runner-core.test.ts` proves `buildWorkflowSnapshot` records `landingInputs` from a write step's `landing.inputs`.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `workflow-runner-resume.test.ts` test `intent resume consumes the seed recorded in the persisted landing inputs` seeds a failed intent review row whose snapshot write step carries `landingInputs` naming a seed file, resumes it, and asserts the seed is gone after landing; it fails against the current inputs-less rebuild.
+- [x] `workflow-runner-resume.test.ts` test `intent resume without recorded landing inputs refuses instead of publishing` proves a snapshot lacking `landingInputs` settles a named refusal and publishes nothing; it fails against the current best-effort landing.
+- [x] An existing or new landing test proves the first-pass intent landing still consumes `landing.inputs`.
+- [x] `workflow-runner.test.ts` or `workflow-runner-core.test.ts` proves `buildWorkflowSnapshot` records `landingInputs` from a write step's `landing.inputs`.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -60,6 +60,7 @@ import {
   type WriteWorkflowStep,
 } from "./workflow-runner.ts";
 import {
+  INTENT_RESUME_LANDING_INPUTS_NOT_RECORDED,
   reconstructPausedWriteResumeInput,
   recoverPlanStage,
   resolveIntentFinalizationResumeContext,
@@ -70,6 +71,9 @@ import {
   resumeReviewMutationFinalization,
 } from "./workflow-runner-resume.ts";
 import { findFirstMarkdownOnlyFenceViolation } from "./write-loop.ts";
+
+/** Seed-less landing inputs: a recorded, empty seed set so resume admission is exercised without consumption. */
+const EMPTY_LANDING_INPUTS = { sourceRoot: tmpdir(), paths: [] as string[], consumeFrom: "worktree" as const };
 
 describe("executeWorkflow review dispatch", () => {
   test("retries reviewed-intent landing without rerunning review and persists its cause", async () => {
@@ -279,6 +283,7 @@ describe("executeWorkflow review dispatch", () => {
         stagingDir: ".jarvis-intent-stage",
         invocationId: "intent-finalize-resume",
         baseRef: "none",
+        inputs: EMPTY_LANDING_INPUTS,
       },
       agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] } } },
       creationTitle: "intent: finalize-resume",
@@ -299,6 +304,7 @@ describe("executeWorkflow review dispatch", () => {
       stagingDir: ".jarvis-intent-stage",
       invocationId: "intent-finalize-resume",
       baseRef: "none",
+      inputs: EMPTY_LANDING_INPUTS,
     };
     const reviewStep: ReviewWorkflowStep = {
       behavior: "review",
@@ -411,6 +417,7 @@ describe("executeWorkflow review dispatch", () => {
         stagingDir: ".jarvis-intent-stage",
         invocationId: "intent-finalize-debate-baseref",
         baseRef: "none",
+        inputs: EMPTY_LANDING_INPUTS,
       },
       agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] } } },
       creationTitle: "intent: finalize-debate-baseref",
@@ -613,6 +620,7 @@ describe("executeWorkflow review dispatch", () => {
               durable: true,
               expectedArtifactPath: ".jarvis-intent-stage",
               agents: ["claude"],
+              landingInputs: EMPTY_LANDING_INPUTS,
             },
             { stepId: "review", role: "", durable: true, behavior: "review" as const },
           ],
@@ -866,6 +874,7 @@ describe("executeWorkflow review dispatch", () => {
               durable: true,
               expectedArtifactPath: ".jarvis-intent-stage",
               agents: ["claude"],
+              landingInputs: EMPTY_LANDING_INPUTS,
               fixCommand: "new-config-fix",
               readyCommand: "new-config-ready",
             },
@@ -1120,7 +1129,14 @@ describe("executeWorkflow review dispatch", () => {
           invocationId: "intent-file-handoff",
           creationTitle: "intent: file-handoff",
           steps: [
-            { stepId: "intent", role: "plan", durable: true, expectedArtifactPath: ".jarvis-intent-stage", agents: [] },
+            {
+              stepId: "intent",
+              role: "plan",
+              durable: true,
+              expectedArtifactPath: ".jarvis-intent-stage",
+              agents: [],
+              landingInputs: EMPTY_LANDING_INPUTS,
+            },
             { stepId: "review", role: "", durable: true, behavior: "review" as const },
           ],
         },
@@ -1174,6 +1190,7 @@ describe("executeWorkflow review dispatch", () => {
         stagingDir: ".jarvis-intent-stage",
         invocationId: "intent-pipeline-handoff",
         baseRef: "none",
+        inputs: EMPTY_LANDING_INPUTS,
       },
       creationTitle: "intent: pipeline-handoff",
       withExternalWorktree,
@@ -1252,7 +1269,14 @@ describe("executeWorkflow review dispatch", () => {
           invocationId: "intent-write-not-completed",
           creationTitle: "intent: write-not-completed",
           steps: [
-            { stepId: "intent", role: "plan", durable: true, expectedArtifactPath: ".jarvis-intent-stage", agents: [] },
+            {
+              stepId: "intent",
+              role: "plan",
+              durable: true,
+              expectedArtifactPath: ".jarvis-intent-stage",
+              agents: [],
+              landingInputs: EMPTY_LANDING_INPUTS,
+            },
             { stepId: "review", role: "", durable: true, behavior: "review" as const },
           ],
         },
@@ -4659,6 +4683,77 @@ describe("resolveWriteNonTerminatingResumeContext", () => {
         ok: false,
         message: "run did not fail with non_terminating_mutation_failed",
       });
+    });
+  });
+});
+
+describe("intent finalization resume seed consumption", () => {
+  function stagedWorkspaceWithSeed(prefix: string): { workspace: string; sourceRoot: string; seedPath: string } {
+    const workspace = mkdtempSync(join(tmpdir(), prefix));
+    mkdirSync(join(workspace, ".jarvis-intent-stage"), { recursive: true });
+    writeLintCleanIntentStageFile(join(workspace, ".jarvis-intent-stage"), "example.md");
+    mkdirSync(join(workspace, "ready-intents"), { recursive: true });
+    // A git-disabled worktree consumes from the source root, as the intent builder records it.
+    const sourceRoot = mkdtempSync(join(tmpdir(), `${prefix}source-`));
+    const seedPath = join(sourceRoot, "example.md");
+    writeFileSync(seedPath, "seed\n", "utf8");
+    return { workspace, sourceRoot, seedPath };
+  }
+
+  test("intent resume consumes the seed recorded in the persisted landing inputs", async () => {
+    const { workspace, sourceRoot, seedPath } = stagedWorkspaceWithSeed("intent-resume-consumes-seed-");
+    await withStateStore(async (store) => {
+      const reviewRunId = seedFailedIntentReviewResumeRun(store, workspace, {
+        branch: "intent/consumes-seed",
+        invocationId: "intent-consumes-seed",
+        landingInputs: { sourceRoot, paths: [seedPath], consumeFrom: "source" },
+      });
+      const run = store.loadRun(reviewRunId);
+      if (!run) throw new Error("expected review run");
+
+      const outcome = await resumePopulatedIntentPublication(run, store, {
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(outcome).toMatchObject({ ok: true });
+      expect(existsSync(join(workspace, "ready-intents", "example.md"))).toBe(true);
+      expect(existsSync(seedPath)).toBe(false);
+    });
+  });
+
+  test("intent resume without recorded landing inputs refuses instead of publishing", async () => {
+    const { workspace, seedPath } = stagedWorkspaceWithSeed("intent-resume-no-inputs-");
+    await withStateStore(async (store) => {
+      const reviewRunId = seedFailedIntentReviewResumeRun(store, workspace, {
+        branch: "intent/no-inputs",
+        invocationId: "intent-no-inputs",
+        landingInputs: null,
+      });
+      const run = store.loadRun(reviewRunId);
+      if (!run) throw new Error("expected review run");
+
+      expect(resolveIntentFinalizationResumeContext(run, store)).toEqual({
+        ok: false,
+        message: INTENT_RESUME_LANDING_INPUTS_NOT_RECORDED,
+      });
+      let committed = false;
+      const outcome = await resumePopulatedIntentPublication(run, store, {
+        completionCommitter: async () => {
+          committed = true;
+          return { commitSha: "commit-1" };
+        },
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(outcome).toEqual({ ok: false, message: INTENT_RESUME_LANDING_INPUTS_NOT_RECORDED });
+      expect(committed).toBe(false);
+      expect(readdirSync(join(workspace, "ready-intents"))).toEqual([]);
+      expect(existsSync(join(workspace, ".jarvis-intent-stage", "example.md"))).toBe(true);
+      expect(existsSync(seedPath)).toBe(true);
+      expect(store.loadRun(reviewRunId)?.status).toBe("failed");
     });
   });
 });

@@ -16,6 +16,7 @@ import type { LogEvent, LogSink, PersistedRecord } from "../persistence/log-stre
 import type { openStateStore } from "../persistence/state-store.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, trackedTempRoots } from "../testing/write-fixtures.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
+import type { PublicationInputs } from "./publication-landing.ts";
 import type { WorkBoundaryRecordedRecord } from "./work-boundary-telemetry.ts";
 import type {
   ReviewDebateWorkflowStep,
@@ -533,8 +534,14 @@ export function seedFailedIntentReviewResumeRun(
     invocationId: string;
     intentAgents?: readonly string[];
     intentStepConfig?: { fixCommand?: string; readyCommand?: string };
+    /** Seed inputs recorded on the write step; `null` omits them (a pre-recording snapshot). */
+    landingInputs?: PublicationInputs | null;
   },
 ): string {
+  const landingInputs =
+    options.landingInputs === undefined
+      ? { sourceRoot: workspace, paths: [], consumeFrom: "worktree" as const }
+      : options.landingInputs;
   const base = {
     project: "demo",
     specRef: "main",
@@ -550,6 +557,7 @@ export function seedFailedIntentReviewResumeRun(
           durable: true,
           expectedArtifactPath: ".jarvis-intent-stage",
           agents: options.intentAgents ?? ["claude"],
+          ...(landingInputs !== null ? { landingInputs } : {}),
           ...(options.intentStepConfig?.fixCommand !== undefined
             ? { fixCommand: options.intentStepConfig.fixCommand }
             : {}),

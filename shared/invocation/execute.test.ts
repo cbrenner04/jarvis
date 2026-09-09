@@ -687,6 +687,22 @@ describe("shared invocation fallback", () => {
     expect(seen).toEqual([true, undefined, undefined]);
   });
 
+  test("onOutputProgress is forwarded to invoke only when provided", async () => {
+    const seen: (boolean | undefined)[] = [];
+    const capture: InvocationBinding = {
+      id: "capture",
+      invoke: async (invokeArgs) => {
+        seen.push(invokeArgs.onOutputProgress !== undefined);
+        return { kind: "ok", stdout: "", stderr: "" };
+      },
+    };
+
+    await executeWithQuotaFallback({ prompt: "p", cwd: "/tmp", bindings: [capture], onOutputProgress: () => {} });
+    await executeWithQuotaFallback({ prompt: "p", cwd: "/tmp", bindings: [capture] });
+
+    expect(seen).toEqual([true, false]);
+  });
+
   test("model_config and error results write stderr under inbound_stderr", async () => {
     const modelLog = fakeSessionLog();
     await executeWithQuotaFallback({

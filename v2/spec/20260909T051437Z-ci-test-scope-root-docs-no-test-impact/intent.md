@@ -1,7 +1,3 @@
----
-name: ci-test-scope-treats-root-docs-as-full
----
-
 # CI test-scope classifier runs the full aggregate for a root-doc edit
 
 ## Problem

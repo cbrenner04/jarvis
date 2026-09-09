@@ -9,6 +9,6 @@ Broaden `scripts/guard-production-test-flags.ts` beyond the historical `invert*F
 
 ## Subspecs
 
-- [ ] [00 - Generalize production test-seam guard](./00-generalize-production-test-seam-guard.md)
-- [ ] [01 - Align coding-standards test-seam section](./01-align-coding-standards-test-seam-section.md)
-- [ ] [02 - Align test-writing forbidden seams](./02-align-test-writing-forbidden-seams.md)
+- [x] [00 - Generalize production test-seam guard](./00-generalize-production-test-seam-guard.md)
+- [x] [01 - Align coding-standards test-seam section](./01-align-coding-standards-test-seam-section.md)
+- [x] [02 - Align test-writing forbidden seams](./02-align-test-writing-forbidden-seams.md)

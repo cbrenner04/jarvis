@@ -489,6 +489,16 @@ describe("daemon-lifecycle", () => {
       run("non-live-id", "budget-soft-stopped"),
     ];
 
+    test("refuses every non-terminal durable run before shutdown", async () => {
+      // No daemon answers on this socket, so liveness is unknown and every non-terminal row counts as live.
+      const processProber: ProcessProber = { isAlive: () => false };
+      const stateStore = { listRuns: nonTerminalRows, close: () => {} };
+
+      await expect(stopDaemon("/nonexistent/socket", { stateStore, processProber })).rejects.toEqual(
+        new DaemonStopRefusedError(["queued-id", "live-id", "paused-id", "non-live-id"]),
+      );
+    });
+
     test("stopDaemon treats an unreachable daemon as all-live", async () => {
       // @mutate v2/src/daemon/daemon-lifecycle.ts "if (liveRunIds === undefined) return { live: nonTerminal, orphaned: [] };" -> "if (liveRunIds === undefined) return { live: [], orphaned: nonTerminal };"
       const processProber: ProcessProber = { isAlive: () => false };

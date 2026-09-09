@@ -32,7 +32,11 @@ export type PermittedDaemonNonterminalSetRunStatus = {
 
 export const PERMITTED_DAEMON_TERMINAL_WRITES: PermittedDaemonTerminalWrite[] = [
   { file: "daemon.ts", functionName: "settleGuardedKill", writer: "commitTerminalRunSettlement" },
-  { file: "daemon.ts", functionName: "reconcileOrphanedRuns", writer: "commitTerminalRunSettlement" },
+  {
+    file: "daemon-run-reconciliation.ts",
+    functionName: "reconcileOrphanedRuns",
+    writer: "commitTerminalRunSettlement",
+  },
   { file: "daemon.ts", functionName: "promoteQueuedRunImpl", writer: "commitTerminalRunSettlement" },
   { file: "daemon.ts", functionName: "recoverReconciledRuns", writer: "commitTerminalRunSettlement" },
   {

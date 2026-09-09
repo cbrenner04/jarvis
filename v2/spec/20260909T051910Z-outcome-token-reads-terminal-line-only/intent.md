@@ -1,7 +1,3 @@
----
-name: outcome-token-parsing-matches-blocked-in-prose
----
-
 # Outcome parsing matches `blocked` inside agent prose, pausing a run that completed its subspec
 
 ## Problem

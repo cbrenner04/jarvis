@@ -417,7 +417,14 @@ describe("createCompletionCommitter", () => {
     });
 
     const restage = calls.find((call) => call.args[0] === "add");
-    expect(restage?.args).toEqual(["add", "-A", "--", ".", ":(exclude,literal)external-index.md"]);
+    expect(restage?.args).toEqual([
+      "add",
+      "-A",
+      "--",
+      ".",
+      ":(exclude,literal)external-index.md",
+      ":(exclude,glob)**/verdict-*.md",
+    ]);
   });
 
   test("defaults absent and legacy pending step metadata to write", async () => {
@@ -900,6 +907,78 @@ describe("createCompletionCommitter", () => {
       stdio: "pipe",
     });
     expect(committed).toBe("not a symlink\n");
+  });
+
+  test("completion commit omits an untracked review verdict", async () => {
+    // No `.gitignore` verdict rule here: the pathspec exclusion, not incidental gitignore
+    // skipping, must be what keeps the verdict out of `add -A`.
+    const { worktreePath, seedHead } = initRealGitWorktreeWithoutGitignore();
+    writeFileSync(join(worktreePath, "verdict-review.md"), "root verdict\n");
+    writeFileSync(join(worktreePath, "v2/spec/test/index.md"), "# Test Spec Title\n\nUpdated body.\n");
+
+    const result = await createCompletionCommitter()(completionInput(worktreePath, { iterationTimeoutMs: 60_000 }));
+
+    expect(result.commitSha).toBeDefined();
+    expect(result.commitSha).not.toBe(seedHead);
+    const tracked = execFileSync("git", ["ls-tree", "-r", "--name-only", "HEAD"], {
+      cwd: worktreePath,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    expect(tracked).not.toContain("verdict-review.md");
+    expect(existsSync(join(worktreePath, "verdict-review.md"))).toBe(true);
+    const committed = execFileSync("git", ["show", "HEAD:v2/spec/test/index.md"], {
+      cwd: worktreePath,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    expect(committed).toContain("Updated body.");
+  });
+
+  test("completion commit omits a nested review verdict", async () => {
+    const { worktreePath, seedHead } = initRealGitWorktreeWithoutGitignore();
+    mkdirSync(join(worktreePath, "v2/spec/test/sub"), { recursive: true });
+    writeFileSync(join(worktreePath, "v2/spec/test/sub/verdict-plan.md"), "nested verdict\n");
+    writeFileSync(join(worktreePath, "v2/spec/test/index.md"), "# Test Spec Title\n\nUpdated body.\n");
+
+    const result = await createCompletionCommitter()(completionInput(worktreePath, { iterationTimeoutMs: 60_000 }));
+
+    expect(result.commitSha).toBeDefined();
+    expect(result.commitSha).not.toBe(seedHead);
+    const tracked = execFileSync("git", ["ls-tree", "-r", "--name-only", "HEAD"], {
+      cwd: worktreePath,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    expect(tracked).not.toContain("verdict-plan.md");
+    expect(existsSync(join(worktreePath, "v2/spec/test/sub/verdict-plan.md"))).toBe(true);
+  });
+
+  test("an already-tracked review verdict survives the completion commit", async () => {
+    const { worktreePath } = initRealGitWorktreeWithoutGitignore();
+    const verdictPath = join(worktreePath, "verdict-review.md");
+    writeFileSync(verdictPath, "tracked verdict\n");
+    execSync("git add -A", { cwd: worktreePath, stdio: "pipe" });
+    execSync("git commit -q -m 'track verdict'", { cwd: worktreePath, stdio: "pipe" });
+    const trackedHead = headSha(worktreePath);
+    writeFileSync(join(worktreePath, "v2/spec/test/index.md"), "# Test Spec Title\n\nUpdated body.\n");
+
+    const result = await createCompletionCommitter()(completionInput(worktreePath, { iterationTimeoutMs: 60_000 }));
+
+    expect(result.commitSha).toBeDefined();
+    expect(result.commitSha).not.toBe(trackedHead);
+    const tracked = execFileSync("git", ["ls-tree", "-r", "--name-only", "HEAD"], {
+      cwd: worktreePath,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    expect(tracked).toContain("verdict-review.md");
+    const committed = execFileSync("git", ["show", "HEAD:verdict-review.md"], {
+      cwd: worktreePath,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    expect(committed).toBe("tracked verdict\n");
   });
 
   test("a node_modules symlink already tracked at HEAD survives the completion commit", async () => {

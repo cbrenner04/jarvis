@@ -8,6 +8,9 @@ import { AsyncSubprocessError, type AsyncSubprocessOptions } from "../../../shar
 import {
   type DiffDerivedMutationVerifierInput,
   extractRenderObserverMapFromSource,
+  KILLING_TEST_BUDGET_CEILING_MS,
+  KILLING_TEST_BUDGET_FLOOR_MS,
+  killingTestBudgetMs,
   MAX_CONCURRENT_VERIFIER_TEST_RUNS,
   MAX_INSPECTED_MUTATIONS,
   MAX_KILLING_TEST_MS,
@@ -16,6 +19,7 @@ import {
   mutationRecordFileName,
   parseEquivalentMutationDirective,
   peakVerifierTestRuns,
+  type RunScopedTestsOptions,
   resetVerifierTestRunTracking,
   resolveImporterScanRoot,
   resolveSiblingKillingTests,
@@ -1028,8 +1032,9 @@ index 1234567..abcdefg 100644
 `;
 
     function verifyTimeout(
-      runScopedTests: (cwd: string, scope: string[]) => Promise<boolean>,
+      runScopedTests: (cwd: string, scope: string[], options?: RunScopedTestsOptions) => Promise<boolean>,
       writeFile: (path: string, content: string) => Promise<void> = async () => {},
+      extra: { now?: () => number; listDir?: () => string[] } = {},
     ) {
       return verifyDiffDerivedMutations(
         { worktreePath: "/test/path", runBase: "main" },
@@ -1038,16 +1043,116 @@ index 1234567..abcdefg 100644
           untrackedFiles: async () => [],
           readFile: async (path) => (path.endsWith(".test.ts") ? "export {};\n" : source),
           writeFile,
-          listDir: () => [],
+          listDir: extra.listDir ?? (() => []),
           runScopedTests,
+          ...(extra.now !== undefined ? { now: extra.now } : {}),
         },
       );
     }
+
+    /** A fake clock the scoped-test fake advances by the "runtime" of each call. */
+    function fakeClock() {
+      let nowMs = 1_000_000;
+      return {
+        now: () => nowMs,
+        advance: (ms: number) => {
+          nowMs += ms;
+        },
+      };
+    }
+
+    it("a killing set slower than the ceiling settles inconclusive naming the measured baseline", async () => {
+      // @mutate v2/src/execution/diff-derived-mutation-verifier.ts "if (baseline.kind !== \"measured\") return \"inconclusive\";" -> "if (false) return \"inconclusive\";"
+      const clock = fakeClock();
+      const result = await verifyTimeout(
+        async (_cwd, _scope, options) => {
+          clock.advance((options?.timeoutMs ?? 0) + 1);
+          throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+        },
+        undefined,
+        { now: clock.now },
+      );
+      expect(result.kind).toBe("pass");
+      if (result.kind === "pass") {
+        expect(result.skippedCandidates).toHaveLength(1);
+        expect(result.skippedCandidates[0]).toMatchObject({ file: "src/hangs.ts", line: 2 });
+        expect(result.skippedCandidates[0]?.reason).toContain("inconclusive");
+        expect(result.skippedCandidates[0]?.reason).toContain(`${KILLING_TEST_BUDGET_CEILING_MS}ms ceiling`);
+        expect(result.skippedCandidates[0]?.reason).toContain("src/hangs.test.ts");
+      }
+    });
+
+    it("a genuinely non-terminating mutant still settles non-terminating-mutation", async () => {
+      const clock = fakeClock();
+      const result = await verifyTimeout(
+        async (_cwd, _scope, options) => {
+          if (options?.timeoutMs === KILLING_TEST_BUDGET_CEILING_MS) {
+            clock.advance(2_000); // unmutated baseline well inside the floor
+            return true;
+          }
+          clock.advance((options?.timeoutMs ?? 0) + 1);
+          throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+        },
+        undefined,
+        { now: clock.now },
+      );
+      expect(result).toMatchObject({ kind: "non-terminating-mutation", sourceSite: { file: "src/hangs.ts", line: 2 } });
+    });
+
+    it("the per-candidate bound scales with the whole resolved killing set and is clamped", async () => {
+      // @mutate v2/src/execution/diff-derived-mutation-verifier.ts "Math.ceil(baselineMs * KILLING_TEST_BUDGET_FACTOR)" -> "KILLING_TEST_BUDGET_FLOOR_MS"
+      expect(killingTestBudgetMs(1_000)).toBe(KILLING_TEST_BUDGET_FLOOR_MS);
+      expect(killingTestBudgetMs(45_000)).toBe(90_000);
+      expect(killingTestBudgetMs(100_000)).toBe(KILLING_TEST_BUDGET_CEILING_MS);
+
+      const clock = fakeClock();
+      const bounds: number[] = [];
+      const runtimeByTest: Record<string, number> = { "src/hangs.test.ts": 7_000, "src/hangs-slow.test.ts": 38_000 };
+      const result = await verifyTimeout(
+        async (_cwd, scope, options) => {
+          const timeoutMs = options?.timeoutMs ?? 0;
+          bounds.push(timeoutMs);
+          // The whole set runs concurrently; its wall time is the slowest member.
+          const wall = Math.max(...scope.map((path) => runtimeByTest[path] ?? 0));
+          if (wall > timeoutMs) {
+            clock.advance(timeoutMs + 1);
+            throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+          }
+          clock.advance(wall);
+          return false; // killed once the bound accommodates the slow sibling
+        },
+        undefined,
+        { now: clock.now, listDir: () => ["hangs-slow.test.ts"] },
+      );
+      expect(result.kind).toBe("pass");
+      // floor attempt (timed out), baseline at the ceiling (38s measured), retry at 2 × 38s.
+      expect(bounds).toEqual([KILLING_TEST_BUDGET_FLOOR_MS, KILLING_TEST_BUDGET_CEILING_MS, 76_000]);
+    });
+
+    it("an inconclusive candidate is recorded and does not fail the run", async () => {
+      const clock = fakeClock();
+      const result = await verifyTimeout(
+        async (_cwd, _scope, options) => {
+          clock.advance((options?.timeoutMs ?? 0) + 1);
+          throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+        },
+        undefined,
+        { now: clock.now },
+      );
+      expect(result.kind).toBe("pass");
+      if (result.kind === "pass") {
+        expect(result.candidateCount).toBeGreaterThan(0);
+        expect(result.skippedCandidates.map((candidate) => candidate.reason.startsWith("inconclusive:"))).toEqual([
+          true,
+        ]);
+      }
+    });
 
     it("bounds a never-settling detached subprocess and settles verification", async () => {
       let receivedOptions: AsyncSubprocessOptions | undefined;
       const neverSettlingRunner = {
         runAsync: async (_command: string, _args: string[], _cwd: string, options?: AsyncSubprocessOptions) => {
+          if (options?.timeoutMs === KILLING_TEST_BUDGET_CEILING_MS) return ""; // unmutated baseline is fast
           receivedOptions = options;
           if (options?.timeoutMs === MAX_KILLING_TEST_MS && options.processGroup !== undefined) {
             throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
@@ -1057,7 +1162,9 @@ index 1234567..abcdefg 100644
         },
       };
 
-      const result = await verifyTimeout((cwd, scope) => runDiffDerivedScopedTests(cwd, scope, neverSettlingRunner));
+      const result = await verifyTimeout((cwd, scope, options) =>
+        runDiffDerivedScopedTests(cwd, scope, neverSettlingRunner, options),
+      );
 
       expect(receivedOptions?.timeoutMs).toBe(MAX_KILLING_TEST_MS);
       expect(receivedOptions?.processGroup).toBeDefined();
@@ -1065,7 +1172,8 @@ index 1234567..abcdefg 100644
     }, 1_000);
 
     it("classifies scoped-test timeout separately from caught and surviving mutations", async () => {
-      const result = await verifyTimeout(async () => {
+      const result = await verifyTimeout(async (_cwd, _scope, options) => {
+        if (options?.timeoutMs === KILLING_TEST_BUDGET_CEILING_MS) return true; // unmutated baseline is fast
         throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
       });
 
@@ -1118,7 +1226,12 @@ index 1234567..abcdefg 100644
       let currentContent = source;
       const writes: string[] = [];
       const result = await verifyTimeout(
-        async () => {
+        async (_cwd, _scope, options) => {
+          if (options?.timeoutMs === KILLING_TEST_BUDGET_CEILING_MS) {
+            // The baseline must run against the restored original bytes.
+            expect(currentContent).toBe(source);
+            return true;
+          }
           throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
         },
         async (_path, content) => {

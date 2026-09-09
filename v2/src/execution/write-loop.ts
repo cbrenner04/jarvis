@@ -1722,6 +1722,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           worktreePath,
           runBase: args.worktree.baseRef,
         });
+        appendInconclusiveMutationCandidates(args.logSink, runId, attemptId, verificationResult);
         if (verificationResult.kind === "surviving-mutation") {
           try {
             await checkpointSettledIteration(args, prepared, store, runId, worktreePath, attemptId, result);
@@ -2961,6 +2962,21 @@ export type CompletionPublishSuccess = {
   requestedBase?: string;
   resolvedBase?: string;
 };
+
+/** An inconclusive candidate is recorded on the run and never fails it by itself. */
+function appendInconclusiveMutationCandidates(
+  logSink: LogSink | undefined,
+  runId: string,
+  attemptId: string,
+  verificationResult: VerificationResult,
+): void {
+  if (verificationResult.kind !== "pass") return;
+  const candidates = verificationResult.skippedCandidates.filter((candidate) =>
+    candidate.reason.startsWith("inconclusive:"),
+  );
+  if (candidates.length === 0) return;
+  logSink?.append(runId, { kind: "mutation_verification_inconclusive", attemptId, candidates });
+}
 
 export function appendRuntimeSmokeOutcome(
   logSink: LogSink | undefined,

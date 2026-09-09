@@ -88,7 +88,8 @@ function deduplicateCandidates(candidates: Candidate[]): Candidate[] {
 
 type GitDiff = (cwd: string, baseRef: string) => Promise<string>;
 type UntrackedFiles = (cwd: string) => Promise<string[]>;
-type RunScopedTests = (cwd: string, scope: string[]) => Promise<boolean>;
+export type RunScopedTestsOptions = { timeoutMs?: number };
+type RunScopedTests = (cwd: string, scope: string[], options?: RunScopedTestsOptions) => Promise<boolean>;
 type ReadFile = (path: string) => Promise<string>;
 type WriteFile = (path: string, content: string) => Promise<void>;
 type RegisteredPromptPaths = (cwd: string, baseRef: string) => Promise<string[]>;
@@ -117,6 +118,31 @@ export const MAX_INSPECTED_MUTATIONS = 25;
 export const MAX_PROMPT_RENDER_VERIFICATIONS = 5;
 export const MAX_VERIFICATION_MS = 5 * 60_000;
 export const MAX_KILLING_TEST_MS = 30_000;
+/** Per-candidate bound = clamp(baseline × factor, floor, ceiling); the floor is the historical fixed budget. */
+export const KILLING_TEST_BUDGET_FACTOR = 2;
+export const KILLING_TEST_BUDGET_FLOOR_MS = MAX_KILLING_TEST_MS;
+export const KILLING_TEST_BUDGET_CEILING_MS = 120_000;
+
+export function killingTestBudgetMs(baselineMs: number): number {
+  const scaled = Math.ceil(baselineMs * KILLING_TEST_BUDGET_FACTOR);
+  return Math.min(KILLING_TEST_BUDGET_CEILING_MS, Math.max(KILLING_TEST_BUDGET_FLOOR_MS, scaled));
+}
+
+/** What the unmutated killing set established before any candidate in it was tested. */
+export type KillingTestBaseline =
+  | { kind: "measured"; elapsedMs: number; budgetMs: number }
+  | { kind: "exceeded-ceiling" }
+  | { kind: "deadline" };
+
+export function inconclusiveCandidateReason(
+  baseline: Exclude<KillingTestBaseline, { kind: "measured" }>,
+  killingTests: readonly string[],
+): string {
+  const set = killingTests.join(", ");
+  return baseline.kind === "exceeded-ceiling"
+    ? `inconclusive: unmutated killing set (${set}) exceeded the ${KILLING_TEST_BUDGET_CEILING_MS}ms ceiling, so a timeout cannot be attributed to the mutant`
+    : `inconclusive: unmutated killing set (${set}) could not be measured before the verification deadline`;
+}
 export const MAX_CONCURRENT_VERIFIER_TEST_RUNS = 4;
 export const MAX_IMPORTER_DISCOVERY_CANDIDATES_PER_FILE = 200;
 
@@ -281,8 +307,8 @@ async function defaultUntrackedFiles(cwd: string): Promise<string[]> {
   }
 }
 
-async function defaultRunScopedTests(cwd: string, scope: string[]): Promise<boolean> {
-  return runDiffDerivedScopedTests(cwd, scope);
+async function defaultRunScopedTests(cwd: string, scope: string[], options?: RunScopedTestsOptions): Promise<boolean> {
+  return runDiffDerivedScopedTests(cwd, scope, undefined, options);
 }
 
 type ScopedTestRunner = {
@@ -293,15 +319,17 @@ export async function runDiffDerivedScopedTests(
   cwd: string,
   scope: string[],
   runner?: ScopedTestRunner,
+  options?: RunScopedTestsOptions,
 ): Promise<boolean> {
   if (scope.length === 0) return true;
   const subprocess = runner ?? (await import("../../../shared/subprocess.ts")).realAsyncSubprocessRunner;
   const semaphore = getVerifierTestRunSemaphore();
+  const timeoutMs = options?.timeoutMs ?? MAX_KILLING_TEST_MS;
   const results = await Promise.allSettled(
     scope.map((testPath) =>
       semaphore.run(async () => {
         await subprocess.runAsync("bun", ["test", testPath], cwd, {
-          timeoutMs: MAX_KILLING_TEST_MS,
+          timeoutMs,
           processGroup: {},
         });
       }),
@@ -858,6 +886,36 @@ function isInsideTimerCallback(content: string, lineNum: number): boolean {
   return false;
 }
 
+/**
+ * Run the mutated killing set at the floor budget. Only when that times out is the unmutated set
+ * measured: a baseline inside the floor proves the mutant hangs; a slower baseline widens the bound
+ * (2×, capped) and the mutated set runs once more; a baseline past the ceiling or the deadline
+ * settles `inconclusive`. Fast suites therefore never pay for a baseline run.
+ */
+async function runMutatedKillingSet(
+  input: DiffDerivedMutationVerifierInput,
+  runScopedTests: RunScopedTests,
+  killingTestPaths: string[],
+  measureBaseline: (killingTests: readonly string[]) => Promise<KillingTestBaseline>,
+  mutant: { restore: () => Promise<void>; reapply: () => Promise<void> },
+): Promise<boolean | "inconclusive"> {
+  try {
+    return await runScopedTests(input.worktreePath, killingTestPaths, { timeoutMs: KILLING_TEST_BUDGET_FLOOR_MS });
+  } catch (error) {
+    if (!(error instanceof AsyncSubprocessError && error.code === "ETIMEDOUT")) throw error;
+  }
+  // Measure the unmutated set: the mutant must be off disk while the baseline runs.
+  await mutant.restore();
+  const baseline = await measureBaseline(killingTestPaths);
+  if (baseline.kind !== "measured") return "inconclusive";
+  // The unmutated set finished inside the floor: the mutated timeout is the mutant's.
+  if (baseline.budgetMs <= KILLING_TEST_BUDGET_FLOOR_MS) {
+    throw new AsyncSubprocessError("killing set timed out at the floor budget", undefined, "", "", "ETIMEDOUT");
+  }
+  await mutant.reapply();
+  return await runScopedTests(input.worktreePath, killingTestPaths, { timeoutMs: baseline.budgetMs });
+}
+
 async function testCandidate(
   candidate: Candidate,
   originalContent: string,
@@ -866,18 +924,39 @@ async function testCandidate(
   runScopedTests: RunScopedTests,
   killingTestPaths: string[],
   mutationRecordStore: MutationRecordStore,
+  measureBaseline: (killingTests: readonly string[]) => Promise<KillingTestBaseline>,
 ): Promise<MutationFailureResult | SkippedCandidate | null> {
   const filePath = `${input.worktreePath}/${candidate.file}`;
   let mutationWritten = false;
+  let recordWritten = false;
 
   try {
     const mutatedContent = applyMutation(originalContent, candidate);
     mutationRecordStore.record(input.worktreePath, candidate);
+    recordWritten = true;
     await writeFile(filePath, mutatedContent);
     mutationWritten = true;
 
     // Killed if any resolved killing test fails under the mutation; runScopedTests returns false on the first failure.
-    const testsPassed = await runScopedTests(input.worktreePath, killingTestPaths);
+    const testsPassed = await runMutatedKillingSet(input, runScopedTests, killingTestPaths, measureBaseline, {
+      restore: async () => {
+        await writeFile(filePath, originalContent);
+        mutationWritten = false;
+      },
+      reapply: async () => {
+        await writeFile(filePath, mutatedContent);
+        mutationWritten = true;
+      },
+    });
+    if (testsPassed === "inconclusive") {
+      const baseline = await measureBaseline(killingTestPaths);
+      if (baseline.kind === "measured") throw new Error("inconclusive settlement requires an unmeasured baseline");
+      return {
+        file: candidate.file,
+        line: candidate.line,
+        reason: inconclusiveCandidateReason(baseline, killingTestPaths),
+      };
+    }
     if (testsPassed) {
       const result: SurvivingMutationResult = {
         kind: "surviving-mutation",
@@ -910,10 +989,9 @@ async function testCandidate(
     }
     throw new Error(`Failed to test candidate for ${candidate.file}:${candidate.line}`);
   } finally {
-    if (mutationWritten) {
-      await writeFile(filePath, originalContent);
-      mutationRecordStore.remove(input.worktreePath, candidate);
-    }
+    // The record outlives a baseline restore: remove it whenever this candidate recorded one.
+    if (mutationWritten) await writeFile(filePath, originalContent);
+    if (recordWritten) mutationRecordStore.remove(input.worktreePath, candidate);
   }
 
   return null;
@@ -1233,6 +1311,28 @@ async function verifyCandidates(
   const skippedCandidates: SkippedCandidate[] = [];
   const fileCache = new Map<string, string>();
   const fileChains = new Map<string, Promise<void>>();
+  const baselines = new Map<string, Promise<KillingTestBaseline>>();
+
+  /** Measure the unmutated killing set at most once per distinct set, only after a floor timeout; the measurement counts against the deadline. */
+  function baselineFor(killingTests: readonly string[]): Promise<KillingTestBaseline> {
+    const key = [...killingTests].sort().join("\u0000");
+    const cached = baselines.get(key);
+    if (cached !== undefined) return cached;
+    const measurement = (async (): Promise<KillingTestBaseline> => {
+      if (now() + KILLING_TEST_BUDGET_CEILING_MS > deadline) return { kind: "deadline" };
+      const startedAt = now();
+      try {
+        await runScopedTests(input.worktreePath, [...killingTests], { timeoutMs: KILLING_TEST_BUDGET_CEILING_MS });
+      } catch (error) {
+        if (error instanceof AsyncSubprocessError && error.code === "ETIMEDOUT") return { kind: "exceeded-ceiling" };
+        throw error;
+      }
+      const elapsedMs = Math.max(0, now() - startedAt);
+      return { kind: "measured", elapsedMs, budgetMs: killingTestBudgetMs(elapsedMs) };
+    })();
+    baselines.set(key, measurement);
+    return measurement;
+  }
 
   async function getFileContent(file: string): Promise<string | null> {
     const cached = fileCache.get(file);
@@ -1300,6 +1400,7 @@ async function verifyCandidates(
           runScopedTests,
           resolution.killingTests,
           mutationRecordStore,
+          baselineFor,
         );
         if (result !== null) {
           if ("kind" in result) {

@@ -170,6 +170,13 @@ export type SurvivingMutationRepromptEvent = {
   dualConstraint?: true;
 };
 
+/** Emitted when mutation verification passed but left candidates it could not evaluate (killing set too slow or deadline). */
+export type MutationVerificationInconclusiveEvent = {
+  kind: "mutation_verification_inconclusive";
+  attemptId: string;
+  candidates: Array<{ file: string; line: number; reason: string }>;
+};
+
 export type SurvivingMutationRepromptContext = Omit<SurvivingMutationRepromptEvent, "kind" | "attemptId">;
 
 export function dualConstraintRepromptDetail(dualConstraint?: true): string {
@@ -239,6 +246,7 @@ type LogEventWithoutLoopFinished =
   | LandingContractRepromptEvent
   | StagedMarkdownLintRepromptEvent
   | SurvivingMutationRepromptEvent
+  | MutationVerificationInconclusiveEvent
   | MissingBlockerDetailEvent
   | ContractMissDetailEvent
   | BlockerTextDetailEvent

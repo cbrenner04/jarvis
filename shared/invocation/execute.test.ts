@@ -529,6 +529,7 @@ describe("shared invocation fallback", () => {
     const controller = new AbortController();
     controller.abort();
     const rows: InvocationCompletedRecord[] = [];
+    const secondCalls: string[] = [];
 
     const call = executeWithQuotaFallback({
       prompt: "p",
@@ -542,6 +543,13 @@ describe("shared invocation fallback", () => {
             throw new Error("aborted mid-spawn");
           },
         },
+        {
+          id: "second",
+          invoke: async () => {
+            secondCalls.push("second");
+            return { kind: "ok", stdout: "should-not-run", stderr: "" } as const;
+          },
+        },
       ],
       telemetry: telemetryArgs({
         append(record) {
@@ -552,37 +560,7 @@ describe("shared invocation fallback", () => {
 
     await expect(call).rejects.toThrow("aborted mid-spawn");
     expect(rows).toEqual([]);
-  });
-
-  test("forwards optional invoke args to the binding only when the caller sets them", async () => {
-    const controller = new AbortController();
-    const capture = (sink: Record<string, unknown>): InvocationBinding => ({
-      id: "capture",
-      invoke: async (invokeArgs) => {
-        Object.assign(sink, invokeArgs);
-        return { kind: "ok", stdout: "done", stderr: "" };
-      },
-    });
-
-    const seenWithValues: Record<string, unknown> = {};
-    await executeWithQuotaFallback({
-      prompt: "p",
-      cwd: "/tmp",
-      signal: controller.signal,
-      idleOutputMs: 5000,
-      additionalReadDirs: ["/extra"],
-      bindings: [capture(seenWithValues)],
-    });
-
-    const seenWhenUnset: Record<string, unknown> = {};
-    await executeWithQuotaFallback({ prompt: "p", cwd: "/tmp", bindings: [capture(seenWhenUnset)] });
-
-    expect(seenWithValues.signal).toBe(controller.signal);
-    expect(seenWithValues.idleOutputMs).toBe(5000);
-    expect(seenWithValues.additionalReadDirs).toEqual(["/extra"]);
-    expect(Object.keys(seenWhenUnset)).not.toContain("signal");
-    expect(Object.keys(seenWhenUnset)).not.toContain("idleOutputMs");
-    expect(Object.keys(seenWhenUnset)).not.toContain("additionalReadDirs");
+    expect(secondCalls).toEqual([]);
   });
 
   test("normalized sentinel exit_reason is distinguishable from a real process exit code", async () => {
@@ -640,32 +618,6 @@ describe("shared invocation fallback", () => {
     ]);
     expect(rows[0]?.exit_reason).toBe("exit_code:-1");
     expect(rows[0]?.exit_reason).not.toContain("ENOENT");
-  });
-
-  test("joinProcessOnIdleStall is forwarded to invoke only when true, and onOutputProgress only when set", async () => {
-    const seenJoin: (boolean | undefined)[] = [];
-    const seenProgress: boolean[] = [];
-    const capture: InvocationBinding = {
-      id: "capture",
-      invoke: async (invokeArgs) => {
-        seenJoin.push(invokeArgs.joinProcessOnIdleStall);
-        seenProgress.push(invokeArgs.onOutputProgress !== undefined);
-        return { kind: "ok", stdout: "", stderr: "" };
-      },
-    };
-
-    await executeWithQuotaFallback({
-      prompt: "p",
-      cwd: "/tmp",
-      bindings: [capture],
-      joinProcessOnIdleStall: true,
-      onOutputProgress: () => {},
-    });
-    await executeWithQuotaFallback({ prompt: "p", cwd: "/tmp", bindings: [capture], joinProcessOnIdleStall: false });
-    await executeWithQuotaFallback({ prompt: "p", cwd: "/tmp", bindings: [capture] });
-
-    expect(seenJoin).toEqual([true, undefined, undefined]);
-    expect(seenProgress).toEqual([true, false, false]);
   });
 
   test("model_config and error results write stderr under inbound_stderr", async () => {

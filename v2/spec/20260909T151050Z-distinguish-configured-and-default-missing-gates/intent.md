@@ -38,3 +38,7 @@ Expose the executed command and its configured-versus-default source in operator
 
 - `v2/docs/operator-runbook.md` — document the command-source evidence and the configured `fix_config` versus built-in `stop` remediation split.
 - `v2/docs/v1-behaviors.md` — update the v2 parity entry for source-aware missing-gate remediation.
+
+## Blocker
+
+Artifact contract check failed: Plan subspec 00-source-aware-missing-gate-remediation.md has a ## Acceptance criteria bullet naming multiple artifact paths (pipeline-execution.test.ts, run.test.ts): `pipeline-execution.test.ts` and `run.test.ts` missing-gate projections stay green (list/wait/pipeline `failureDetail` shape unchanged by the mapping change).

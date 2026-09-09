@@ -32,7 +32,3 @@ name: completion-commit-never-stages-review-verdicts
 - `v2/docs/v1-behaviors.md` — record that completion commits exclude `verdict-*.md`.
 
 ## Prerequisites
-
-## Blocker
-
-- Product contract unresolved: `v2/docs/write-behavior.md` and `v2/docs/v1-behaviors.md` define implement-review `verdict-patch.md` as durable output, while this intent requires its unconditional exclusion. Choose transient implement verdicts or an exclusion narrowed to non-implement review sidecars, and specify how cleanup archives already-tracked verdicts without leaving the old committed path or deleting historic output.

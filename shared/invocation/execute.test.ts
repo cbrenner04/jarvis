@@ -554,100 +554,35 @@ describe("shared invocation fallback", () => {
     expect(rows).toEqual([]);
   });
 
-  test("forwards a live signal to the binding's invoke", async () => {
+  test("forwards optional invoke args to the binding only when the caller sets them", async () => {
     const controller = new AbortController();
-    let seenSignal: AbortSignal | undefined;
+    const capture = (sink: Record<string, unknown>): InvocationBinding => ({
+      id: "capture",
+      invoke: async (invokeArgs) => {
+        Object.assign(sink, invokeArgs);
+        return { kind: "ok", stdout: "done", stderr: "" };
+      },
+    });
 
+    const seenWithValues: Record<string, unknown> = {};
     await executeWithQuotaFallback({
       prompt: "p",
       cwd: "/tmp",
       signal: controller.signal,
-      bindings: [
-        {
-          id: "first",
-          invoke: async (invokeArgs) => {
-            seenSignal = invokeArgs.signal;
-            return { kind: "ok", stdout: "done", stderr: "" } as const;
-          },
-        },
-      ],
-    });
-
-    expect(seenSignal).toBe(controller.signal);
-  });
-
-  test("forwards idleOutputMs to the binding's invoke only when set", async () => {
-    let seenWithValue: number | undefined;
-    let sawKeyWhenUnset = true;
-
-    await executeWithQuotaFallback({
-      prompt: "p",
-      cwd: "/tmp",
       idleOutputMs: 5000,
-      bindings: [
-        {
-          id: "first",
-          invoke: async (invokeArgs) => {
-            seenWithValue = invokeArgs.idleOutputMs;
-            return { kind: "ok", stdout: "done", stderr: "" } as const;
-          },
-        },
-      ],
-    });
-
-    await executeWithQuotaFallback({
-      prompt: "p",
-      cwd: "/tmp",
-      bindings: [
-        {
-          id: "second",
-          invoke: async (invokeArgs) => {
-            sawKeyWhenUnset = "idleOutputMs" in invokeArgs;
-            return { kind: "ok", stdout: "done", stderr: "" } as const;
-          },
-        },
-      ],
-    });
-
-    expect(seenWithValue).toBe(5000);
-    expect(sawKeyWhenUnset).toBe(false);
-  });
-
-  test("forwards additionalReadDirs to the binding's invoke only when set", async () => {
-    let seenWithValue: readonly string[] | undefined;
-    let sawKeyWhenUnset = true;
-
-    await executeWithQuotaFallback({
-      prompt: "p",
-      cwd: "/tmp",
       additionalReadDirs: ["/extra"],
-      bindings: [
-        {
-          id: "first",
-          invoke: async (invokeArgs) => {
-            seenWithValue = invokeArgs.additionalReadDirs;
-            return { kind: "ok", stdout: "done", stderr: "" } as const;
-          },
-        },
-      ],
+      bindings: [capture(seenWithValues)],
     });
 
-    await executeWithQuotaFallback({
-      prompt: "p",
-      cwd: "/tmp",
-      bindings: [
-        {
-          id: "second",
-          invoke: async (invokeArgs) => {
-            sawKeyWhenUnset = "additionalReadDirs" in invokeArgs;
-            return { kind: "ok", stdout: "done", stderr: "" } as const;
-          },
-        },
-      ],
-    });
+    const seenWhenUnset: Record<string, unknown> = {};
+    await executeWithQuotaFallback({ prompt: "p", cwd: "/tmp", bindings: [capture(seenWhenUnset)] });
 
-    expect(seenWithValue).toEqual(["/extra"]);
-    expect(sawKeyWhenUnset).toBe(false);
+    expect(seenWithValues.signal).toBe(controller.signal);
+    expect(seenWithValues.idleOutputMs).toBe(5000);
+    expect(seenWithValues.additionalReadDirs).toEqual(["/extra"]);
+    expect(Object.keys(seenWhenUnset)).not.toContain("signal");
+    expect(Object.keys(seenWhenUnset)).not.toContain("idleOutputMs");
+    expect(Object.keys(seenWhenUnset)).not.toContain("additionalReadDirs");
   });
 
   test("normalized sentinel exit_reason is distinguishable from a real process exit code", async () => {
@@ -707,37 +642,30 @@ describe("shared invocation fallback", () => {
     expect(rows[0]?.exit_reason).not.toContain("ENOENT");
   });
 
-  test("joinProcessOnIdleStall is forwarded to invoke only when true", async () => {
-    const seen: (boolean | undefined)[] = [];
+  test("joinProcessOnIdleStall is forwarded to invoke only when true, and onOutputProgress only when set", async () => {
+    const seenJoin: (boolean | undefined)[] = [];
+    const seenProgress: boolean[] = [];
     const capture: InvocationBinding = {
       id: "capture",
       invoke: async (invokeArgs) => {
-        seen.push(invokeArgs.joinProcessOnIdleStall);
+        seenJoin.push(invokeArgs.joinProcessOnIdleStall);
+        seenProgress.push(invokeArgs.onOutputProgress !== undefined);
         return { kind: "ok", stdout: "", stderr: "" };
       },
     };
 
-    await executeWithQuotaFallback({ prompt: "p", cwd: "/tmp", bindings: [capture], joinProcessOnIdleStall: true });
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [capture],
+      joinProcessOnIdleStall: true,
+      onOutputProgress: () => {},
+    });
     await executeWithQuotaFallback({ prompt: "p", cwd: "/tmp", bindings: [capture], joinProcessOnIdleStall: false });
     await executeWithQuotaFallback({ prompt: "p", cwd: "/tmp", bindings: [capture] });
 
-    expect(seen).toEqual([true, undefined, undefined]);
-  });
-
-  test("onOutputProgress is forwarded to invoke only when provided", async () => {
-    const seen: (boolean | undefined)[] = [];
-    const capture: InvocationBinding = {
-      id: "capture",
-      invoke: async (invokeArgs) => {
-        seen.push(invokeArgs.onOutputProgress !== undefined);
-        return { kind: "ok", stdout: "", stderr: "" };
-      },
-    };
-
-    await executeWithQuotaFallback({ prompt: "p", cwd: "/tmp", bindings: [capture], onOutputProgress: () => {} });
-    await executeWithQuotaFallback({ prompt: "p", cwd: "/tmp", bindings: [capture] });
-
-    expect(seen).toEqual([true, false]);
+    expect(seenJoin).toEqual([true, undefined, undefined]);
+    expect(seenProgress).toEqual([true, false, false]);
   });
 
   test("model_config and error results write stderr under inbound_stderr", async () => {

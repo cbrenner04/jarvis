@@ -1026,6 +1026,20 @@ test.each([
     status: "failed" as const,
     logOutcome: "idle_output_timeout" as const,
   },
+  {
+    invocationId: "gate-invocation-refused",
+    status: "failed" as const,
+    logOutcome: "gate_invocation_refused" as const,
+  },
+  {
+    invocationId: "gate-only-iteration-timeout",
+    status: "failed" as const,
+    logOutcome: "iteration_timeout" as const,
+    loopExtra: {
+      gateInvocationCommand: "bun run test:v2",
+      gateInvocationElapsedMs: 120_000,
+    },
+  },
 ] as const)("resume admits $invocationId reason (composes nextAction: resume)", async (config) => {
   const runId = createWorkflowRun({ invocationId: config.invocationId });
   stateStore.setRunStatus(runId, config.status);
@@ -1071,10 +1085,13 @@ test.each([
       survivingMutation?: string;
       survivingMutationSourceFile?: string;
       survivingMutationSourceLine?: number;
+      gateInvocationCommand?: string;
+      gateInvocationElapsedMs?: number;
     } = {
       loopOutcomeKind: config.logOutcome,
       iterationsConsumed: 1,
       resumable: true,
+      ...("loopExtra" in config ? config.loopExtra : {}),
     };
     if (config.withLog && config.logOutcome === "surviving_mutation_failed") {
       loopEvent.survivingMutation = "op";
@@ -1112,6 +1129,7 @@ const WRITE_LOOP_OUTCOME_KINDS = [
   "contract_miss",
   "invocation_failure",
   "iteration_timeout",
+  "gate_invocation_refused",
   "idle_output_timeout",
   "budget-exhausted",
   "paused",

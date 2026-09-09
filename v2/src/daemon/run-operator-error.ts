@@ -43,6 +43,7 @@ const RUN_OPERATOR_ERROR_REASONS = [
   "non_terminating_mutation_failed",
   "mutation_repair_exhausted",
   "iteration_timeout",
+  "gate_invocation_refused",
   "idle_output_timeout",
   "unsupported_resume_context",
 ] as const;
@@ -184,6 +185,7 @@ function resumableFinalizationLoopFinishedOutranksAttemptDetail(event: LoopFinis
     case "completion_commit_failed":
     case "iteration_commit_failed":
     case "iteration_timeout":
+    case "gate_invocation_refused":
     case "idle_output_timeout":
     case "landing_failed":
       return true;
@@ -307,6 +309,11 @@ function mapFromLoopFinished(
         ...(event.publicationFailure !== undefined ? { publicationFailure: event.publicationFailure } : {}),
       };
     }
+    case "gate_invocation_refused":
+      return {
+        ...op("gate_invocation_refused", "resume", true),
+        ...(event.gateCommand !== undefined ? { message: `Gate invocation refused: ${event.gateCommand}` } : {}),
+      };
     case "idle_output_timeout":
       return event.resumable ? op("idle_output_timeout", "resume", true) : op("idle_output_timeout", "stop");
     default:
@@ -348,6 +355,7 @@ export const RUN_OPERATOR_ERROR_RECOVERY = {
   mutation_repair_exhausted: "manually fix and publish the worktree, or untick criteria before re-running implement",
   iteration_timeout:
     "run jarvis run resume when nextAction is resume, otherwise inspect the stall in jarvis run log and re-dispatch the workflow",
+  gate_invocation_refused: "run jarvis run resume when the gate slot or ceiling headroom clears",
   idle_output_timeout:
     "run jarvis run resume when nextAction is resume, otherwise inspect the stall in jarvis run log and re-dispatch the workflow",
   unsupported_resume_context: "fix the persisted workflow snapshot or re-run the spec",

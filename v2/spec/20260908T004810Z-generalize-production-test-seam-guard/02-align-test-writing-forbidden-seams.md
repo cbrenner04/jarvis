@@ -13,7 +13,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/test-writing.md` — forbidden production test-seam list matches the six shape families enforced by `scripts/guard-production-test-flags.ts`.
+- [x] `v2/docs/test-writing.md` — forbidden production test-seam list matches the six shape families enforced by `scripts/guard-production-test-flags.ts`.
 
 ## Documentation updates
 

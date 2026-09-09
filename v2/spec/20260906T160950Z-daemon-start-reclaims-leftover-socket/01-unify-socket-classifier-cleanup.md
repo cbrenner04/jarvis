@@ -21,10 +21,10 @@ Startup reclaim (subspec 00) and `jarvis cleanup`'s `reapDeadDaemonSockets` reac
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/daemon.test.ts` test `startup reclaim and cleanup reaper classify an identical path identically` proves the shared classifier and `reapDeadDaemonSockets` reach the same dead/live verdict on a constructed path; it fails against the pre-fix duplicated logic.
-- [ ] `v2/src/commands/daemon.test.ts` `reapDeadDaemonSockets` tests stay green (behavior unchanged for live, dead, preserved, and enumeration-failure cases).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
+- [x] `v2/src/commands/daemon.test.ts` test `startup reclaim and cleanup reaper classify an identical path identically` proves the shared classifier and `reapDeadDaemonSockets` reach the same dead/live verdict on a constructed path; it fails against the pre-fix duplicated logic.
+- [x] `v2/src/commands/daemon.test.ts` `reapDeadDaemonSockets` tests stay green (behavior unchanged for live, dead, preserved, and enumeration-failure cases).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
 
 ## Documentation updates
 

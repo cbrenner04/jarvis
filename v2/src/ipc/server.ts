@@ -254,11 +254,49 @@ export class DaemonSocketInUseError extends Error {
   readonly socketPath: string;
 
   constructor(socketPath: string) {
-    super(
-      `A daemon is already listening on ${socketPath}. ` + `Refusing to replace it — stop the running daemon first.`,
-    );
+    super(`A daemon is already listening on ${socketPath}. Refusing to replace it — stop the running daemon first.`);
     this.name = "DaemonSocketInUseError";
     this.socketPath = socketPath;
+  }
+}
+
+/** Structured stderr marker prefix for an unrecoverable daemon socket bind failure. */
+export const DAEMON_BIND_FAILURE_LOG_PREFIX = "JARVIS_DAEMON_BIND_FAILURE:";
+
+/** Raised when `listen` still fails after bounded occupancy reclaim. */
+export class DaemonSocketBindFailureError extends Error {
+  readonly socketPath: string;
+  readonly errno: string;
+
+  constructor(socketPath: string, errno: string) {
+    super(`Cannot bind daemon socket ${socketPath}: ${errno}. Run \`jarvis cleanup\` to remove dead socket files.`);
+    this.name = "DaemonSocketBindFailureError";
+    this.socketPath = socketPath;
+    this.errno = errno;
+  }
+}
+
+export function formatDaemonBindFailureLogLine(error: DaemonSocketBindFailureError): string {
+  return `${DAEMON_BIND_FAILURE_LOG_PREFIX}${JSON.stringify({
+    socketPath: error.socketPath,
+    errno: error.errno,
+  })}`;
+}
+
+export function parseDaemonBindFailureLogLine(line: string): DaemonSocketBindFailureError | undefined {
+  const markerIndex = line.indexOf(DAEMON_BIND_FAILURE_LOG_PREFIX);
+  if (markerIndex === -1) {
+    return undefined;
+  }
+  const payload = line.slice(markerIndex + DAEMON_BIND_FAILURE_LOG_PREFIX.length);
+  try {
+    const parsed: unknown = JSON.parse(payload);
+    if (!isRecord(parsed) || typeof parsed.socketPath !== "string" || typeof parsed.errno !== "string") {
+      return undefined;
+    }
+    return new DaemonSocketBindFailureError(parsed.socketPath, parsed.errno);
+  } catch {
+    return undefined;
   }
 }
 
@@ -421,6 +459,7 @@ function listenForIpcServer(
   return new Promise((resolve, reject) => {
     const attemptListen = (allowOccupancyReclaim: boolean): void => {
       server.once("error", (error: unknown) => {
+        // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: one error handler fans out over EADDRINUSE-vs-other errors, reclaim-permitted-vs-not, and the async reprobe verdict; the branches share the pending listen state and retry closure, so splitting them would duplicate the bind path.
         void (async () => {
           if (allowOccupancyReclaim && isAddrInUseError(error)) {
             // EADDRINUSE proves the path is occupied; the reprobe decides whether anything is
@@ -432,6 +471,14 @@ function listenForIpcServer(
               attemptListen(false);
               return;
             }
+            const errno = isRecord(error) && typeof error.code === "string" ? error.code : "UNKNOWN";
+            reject(new DaemonSocketBindFailureError(socketPath, errno));
+            return;
+          }
+          if (!allowOccupancyReclaim) {
+            const errno = isRecord(error) && typeof error.code === "string" ? error.code : "UNKNOWN";
+            reject(new DaemonSocketBindFailureError(socketPath, errno));
+            return;
           }
           reject(error);
         })();

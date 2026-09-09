@@ -22,8 +22,8 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/operator-runbook.md` reconciles § Daemon lifecycle socket-probe/reclaim prose (stale-only removal, `ENOENT` skips removal, 250ms timeout ⇒ live) with the occupancy-aware reclaim contract in `daemon-host.md`, and documents recovery for a wedged `daemon start` including that diagnosis lives in `~/.jarvis/daemon-<digest>.log` until `daemon-process-log-read` ships.
-- [ ] `v2/docs/v1-behaviors.md` records reclaim of an unbindable leftover socket on daemon start with sources pointing at `v2/src/ipc/server.ts` and `v2/docs/daemon-host.md`.
+- [x] `v2/docs/operator-runbook.md` reconciles § Daemon lifecycle socket-probe/reclaim prose (stale-only removal, `ENOENT` skips removal, 250ms timeout ⇒ live) with the occupancy-aware reclaim contract in `daemon-host.md`, and documents recovery for a wedged `daemon start` including that diagnosis lives in `~/.jarvis/daemon-<digest>.log` until `daemon-process-log-read` ships.
+- [x] `v2/docs/v1-behaviors.md` records reclaim of an unbindable leftover socket on daemon start with sources pointing at `v2/src/ipc/server.ts` and `v2/docs/daemon-host.md`.
 
 ## Documentation updates
 

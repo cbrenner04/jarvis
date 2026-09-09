@@ -14,7 +14,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/coding-standards.md` — production test-seam prohibition matches the six shape families enforced by `scripts/guard-production-test-flags.ts` and names all three scan roots.
+- [x] `v2/docs/coding-standards.md` — production test-seam prohibition matches the six shape families enforced by `scripts/guard-production-test-flags.ts` and names all three scan roots.
 
 ## Documentation updates
 

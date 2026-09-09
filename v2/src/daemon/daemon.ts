@@ -22,7 +22,13 @@ import {
 import { loadMachineProfileModels } from "../config/machine-profile-loader.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import { applyOperatorSessionId, executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
-import { type IpcServer, type RpcHandler, startIpcServer } from "../ipc/server";
+import {
+  DaemonSocketBindFailureError,
+  formatDaemonBindFailureLogLine,
+  type IpcServer,
+  type RpcHandler,
+  startIpcServer,
+} from "../ipc/server";
 import { jarvisHome } from "../paths.ts";
 import {
   type LogReader,
@@ -925,6 +931,10 @@ export async function startDaemonRuntime(
   try {
     server = await (startupDeps.startIpcServer ?? startIpcServer)(socketPath, handlers, tailStreamHandler);
   } catch (err) {
+    if (err instanceof DaemonSocketBindFailureError) {
+      console.error(formatDaemonBindFailureLogLine(err));
+      process.exit(1);
+    }
     console.error(`Failed to start IPC server on ${socketPath}:`, err);
     process.exit(1);
   }

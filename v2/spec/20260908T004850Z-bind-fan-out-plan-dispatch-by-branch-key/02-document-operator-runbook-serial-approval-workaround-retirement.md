@@ -18,7 +18,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/operator-runbook.md` no longer documents serial fan-out gate approval or hand-driving later lanes as a workaround for sibling ready-intent consumption blocking plan dispatch, and still documents simultaneous back-to-back fan-out gate approval.
+- [x] `v2/docs/operator-runbook.md` no longer documents serial fan-out gate approval or hand-driving later lanes as a workaround for sibling ready-intent consumption blocking plan dispatch, and still documents simultaneous back-to-back fan-out gate approval.
 
 ## Documentation updates
 

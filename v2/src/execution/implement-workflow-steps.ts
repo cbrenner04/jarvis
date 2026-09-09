@@ -352,7 +352,7 @@ function resolveImplementReviewConfig(
 
 /** Base freshness on the publication base, then spec availability on the chained preflight base. */
 async function preflightChainedBase(
-  refs: { projectRoot: string; baseRef: string; specReadRoot: string; preflightBaseRef?: string },
+  refs: { projectRoot: string; baseRef: string; specReadRoot: string; preflightBaseRef?: string | undefined },
   specPath: string,
   runner: AsyncSubprocessRunner,
   warn: (message: string) => void,

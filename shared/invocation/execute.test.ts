@@ -670,6 +670,23 @@ describe("shared invocation fallback", () => {
     expect(rows[0]?.exit_reason).not.toContain("ENOENT");
   });
 
+  test("joinProcessOnIdleStall is forwarded to invoke only when true", async () => {
+    const seen: (boolean | undefined)[] = [];
+    const capture: InvocationBinding = {
+      id: "capture",
+      invoke: async (invokeArgs) => {
+        seen.push(invokeArgs.joinProcessOnIdleStall);
+        return { kind: "ok", stdout: "", stderr: "" };
+      },
+    };
+
+    await executeWithQuotaFallback({ prompt: "p", cwd: "/tmp", bindings: [capture], joinProcessOnIdleStall: true });
+    await executeWithQuotaFallback({ prompt: "p", cwd: "/tmp", bindings: [capture], joinProcessOnIdleStall: false });
+    await executeWithQuotaFallback({ prompt: "p", cwd: "/tmp", bindings: [capture] });
+
+    expect(seen).toEqual([true, undefined, undefined]);
+  });
+
   test("model_config and error results write stderr under inbound_stderr", async () => {
     const modelLog = fakeSessionLog();
     await executeWithQuotaFallback({

@@ -576,6 +576,43 @@ describe("shared invocation fallback", () => {
     expect(seenSignal).toBe(controller.signal);
   });
 
+  test("forwards idleOutputMs to the binding's invoke only when set", async () => {
+    let seenWithValue: number | undefined;
+    let sawKeyWhenUnset = true;
+
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      idleOutputMs: 5000,
+      bindings: [
+        {
+          id: "first",
+          invoke: async (invokeArgs) => {
+            seenWithValue = invokeArgs.idleOutputMs;
+            return { kind: "ok", stdout: "done", stderr: "" } as const;
+          },
+        },
+      ],
+    });
+
+    await executeWithQuotaFallback({
+      prompt: "p",
+      cwd: "/tmp",
+      bindings: [
+        {
+          id: "second",
+          invoke: async (invokeArgs) => {
+            sawKeyWhenUnset = "idleOutputMs" in invokeArgs;
+            return { kind: "ok", stdout: "done", stderr: "" } as const;
+          },
+        },
+      ],
+    });
+
+    expect(seenWithValue).toBe(5000);
+    expect(sawKeyWhenUnset).toBe(false);
+  });
+
   test("normalized sentinel exit_reason is distinguishable from a real process exit code", async () => {
     const rows: InvocationCompletedRecord[] = [];
     await executeWithQuotaFallback({

@@ -1,7 +1,3 @@
----
-name: daemon-stop-refusal-checks-run-liveness
----
-
 # `daemon stop` and `run kill` deadlock each other over a non-terminal, not-live run row
 
 ## Problem

@@ -450,6 +450,7 @@ The exact columns are grown behind their consumers, not designed ahead of them: 
   opt in, binding the spawn to the run's termination `AbortSignal` so a
   killed/abandoned/timed-out run's gate process group is signaled on
   termination.
+- **Group-mode termination awaits confirmed death.** This is the canonical record of the mechanism (do not duplicate it elsewhere). SIGTERM fires immediately on abort or timeout; SIGKILL escalates after a 50ms grace on a *referenced* timer, so an owner that returns or exits right after the promise settles can't cut escalation short. After SIGKILL, `runAsync` polls `process.kill(-pgid, 0)` every 10ms until it throws `ESRCH`, with no confirmation deadline; any other probe outcome, including `EPERM`, is treated as still-alive and polling continues indefinitely. Timeout settles only once disappearance is confirmed, always as `AsyncSubprocessError` `ETIMEDOUT`; abort settles only once disappearance is confirmed too, but keeps the direct child's own close classification (status/code/stdout/stderr) instead of a generic error. Natural close (success or non-zero exit with no timeout/abort in play) settles immediately and never triggers group probing or termination. Durable pgid reaping via `onGroupId` (the ready-gate/required-integration wiring above) remains the fallback for owner-crash recovery; it is not needed for a live owner's own settlement, which this lifecycle already guarantees.
 
 ### Blocked runs pause for the operator
 

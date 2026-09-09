@@ -835,6 +835,40 @@ function hasInRepoArtifactOwner(
   );
 }
 
+/** Durable-row lookup that lets a detached or unresolved managed worktree prove which artifact it owns. */
+export type ArtifactOwnerIdentity = {
+  store: StateStore;
+  projectRoot: string;
+  configPath?: string;
+};
+
+function canonicalArtifactPath(path: string): string {
+  try {
+    return resolve(realpathSync(path));
+  } catch {
+    return resolve(path);
+  }
+}
+
+/**
+ * A worktree with no resolvable branch (detached or unresolved `HEAD`) owns an artifact only when
+ * one of its own durable run rows resolves to that artifact's source; without identity it owns nothing.
+ */
+function detachedWorktreeOwnsArtifact(
+  worktree: DiscoveredWorktree,
+  spec: ArtifactSpec,
+  project: string,
+  registry: Record<string, ProjectRegistryEntry>,
+  identity: ArtifactOwnerIdentity,
+): boolean {
+  const specSource = canonicalArtifactPath(spec.source);
+  return identity.store.listRuns().some((run) => {
+    if (run.project !== project || run.worktreePath !== worktree.path) return false;
+    const source = sourceForRun(run, worktree.path, identity.projectRoot, registry, identity.configPath);
+    return source !== undefined && canonicalArtifactPath(source) === specSource;
+  });
+}
+
 export function hasBranchKeyedArtifactOwner(
   spec: ArtifactSpec,
   project: string,
@@ -842,12 +876,44 @@ export function hasBranchKeyedArtifactOwner(
   registry: Record<string, ProjectRegistryEntry>,
   allWorktrees: readonly DiscoveredWorktree[],
   jarvisRoot: string,
+  identity?: ArtifactOwnerIdentity,
 ): boolean {
   return allWorktrees.some((worktree) => {
     if (worktree.path === excludeWorktreePath) return false;
     if (projectForWorktree(worktree, registry, jarvisRoot) !== project) return false;
-    return worktree.branch === undefined || worktree.branch === spec.branch;
+    if (worktree.branch !== undefined) return worktree.branch === spec.branch;
+    return identity !== undefined && detachedWorktreeOwnsArtifact(worktree, spec, project, registry, identity);
   });
+}
+
+/** Refusal ranking for one artifact skipped by several passes: ownership beats eligibility, concrete paths beat bare messages. */
+function skipReasonRank(reason: string): number {
+  if (reason.includes("owns this spec")) return 3;
+  return reason.includes("/") ? 2 : 1;
+}
+
+/** Collapses every artifact refusal in one cleanup invocation to one `Skipped artifact:` line per canonical identity. */
+export type ArtifactSkipLedger = {
+  skip: (source: string, reason: string) => void;
+  flush: () => void;
+};
+
+export function createArtifactSkipLedger(io: { stdout: (s: string) => void }): ArtifactSkipLedger {
+  const entries = new Map<string, { source: string; reason: string; rank: number }>();
+  return {
+    skip: (source, reason) => {
+      const key = canonicalArtifactPath(source);
+      const rank = skipReasonRank(reason);
+      const existing = entries.get(key);
+      if (existing === undefined || rank > existing.rank) entries.set(key, { source, reason, rank });
+    },
+    flush: () => {
+      for (const entry of entries.values()) {
+        io.stdout(`Skipped artifact: ${entry.source} — ${entry.reason}\n`);
+      }
+      entries.clear();
+    },
+  };
 }
 
 async function archiveRetiredArtifact(
@@ -858,12 +924,13 @@ async function archiveRetiredArtifact(
   runner: AsyncSubprocessRunner,
   jarvisRoot: string,
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
+  skips: ArtifactSkipLedger,
 ): Promise<void> {
   const projectRoot = registry[candidate.project]?.root;
   if (projectRoot === undefined) return;
   const spec = artifactForRetiredWorktree(candidate, projectRoot, store, registry);
   if (spec === undefined) {
-    io.stdout(`Skipped artifact: ${candidate.worktree.path} — no durable spec identity\n`);
+    skips.skip(candidate.worktree.path, "no durable spec identity");
     return;
   }
 
@@ -878,11 +945,12 @@ async function archiveRetiredArtifact(
             registry,
             allWorktrees,
             jarvisRoot,
+            { store, projectRoot },
           )
         : hasInRepoArtifactOwner(spec, projectRoot, candidate.worktree.path, allWorktrees),
   });
   if (eligibility.status === "ineligible") {
-    io.stdout(`Skipped artifact: ${spec.source} — ${eligibility.reason}\n`);
+    skips.skip(spec.source, eligibility.reason);
     return;
   }
 
@@ -1030,7 +1098,9 @@ export async function inspectStrandedArtifacts(
   store: StateStore,
   runner: AsyncSubprocessRunner,
   io: { stdout: (s: string) => void },
+  sharedSkips?: ArtifactSkipLedger,
 ): Promise<StrandedArtifact[]> {
+  const skips = sharedSkips ?? createArtifactSkipLedger(io);
   const eligible: StrandedArtifact[] = [];
   for (const artifact of artifacts) {
     if (!existsSync(artifact.source)) continue;
@@ -1038,12 +1108,13 @@ export async function inspectStrandedArtifacts(
     if (projectRoot === undefined) continue;
     const branch = recordedStrandedBranch(artifact, projectRoot, store, registry);
     if (branch === undefined) {
-      io.stdout(`Skipped stranded artifact: ${artifact.source} — no durable implementation branch\n`);
+      skips.skip(artifact.source, "no durable implementation branch");
       continue;
     }
     const identified = { ...artifact, branch };
-    if (hasBranchKeyedArtifactOwner(identified, artifact.project, "", registry, allWorktrees, jarvisRoot)) {
-      io.stdout(`Skipped stranded artifact: ${artifact.source} — another materialized worktree owns this spec\n`);
+    const identity: ArtifactOwnerIdentity = { store, projectRoot };
+    if (hasBranchKeyedArtifactOwner(identified, artifact.project, "", registry, allWorktrees, jarvisRoot, identity)) {
+      skips.skip(artifact.source, "another materialized worktree owns this spec");
       continue;
     }
     const inspection = await checkArtifactEligibility(identified, {
@@ -1053,9 +1124,10 @@ export async function inspectStrandedArtifacts(
     if (inspection.status === "eligible") {
       eligible.push(identified);
     } else {
-      io.stdout(`Skipped stranded artifact: ${artifact.source} — ${inspection.reason}\n`);
+      skips.skip(artifact.source, inspection.reason);
     }
   }
+  if (sharedSkips === undefined) skips.flush();
   return eligible;
 }
 
@@ -1159,6 +1231,7 @@ async function retireEligibleWorktrees(
   daemonClient: DaemonClient,
   retiredBranches: Set<string>,
   ownerProjectsByRepositoryRoot: ReadonlyMap<string, readonly string[]>,
+  skips: ArtifactSkipLedger,
 ): Promise<number> {
   if (candidates.length === 0) return 0;
   return performWorktreeRemovals(
@@ -1166,7 +1239,7 @@ async function retireEligibleWorktrees(
     runner,
     io,
     async (candidate) => {
-      await archiveRetiredArtifact(candidate, registry, discovered, store, runner, jarvisRoot, io);
+      await archiveRetiredArtifact(candidate, registry, discovered, store, runner, jarvisRoot, io, skips);
     },
     (candidate) => registry[candidate.project]?.root ?? ".",
     {
@@ -1349,12 +1422,16 @@ async function retireStrandedArtifacts(
   registry: Record<string, ProjectRegistryEntry>,
   jarvisRoot: string,
   runner: AsyncSubprocessRunner,
+  store: StateStore,
   io: { stdout: (s: string) => void },
+  skips: ArtifactSkipLedger,
 ): Promise<void> {
   for (const spec of stranded) {
     const current = await discoverMaterializedWorktrees(registry, jarvisRoot, runner);
-    if (hasBranchKeyedArtifactOwner(spec, spec.project, "", registry, current, jarvisRoot)) {
-      io.stdout(`Skipped stranded artifact: ${spec.source} — another materialized worktree owns this spec\n`);
+    const projectRoot = registry[spec.project]?.root;
+    const identity = projectRoot === undefined ? undefined : { store, projectRoot };
+    if (hasBranchKeyedArtifactOwner(spec, spec.project, "", registry, current, jarvisRoot, identity)) {
+      skips.skip(spec.source, "another materialized worktree owns this spec");
       continue;
     }
     reportArchive(spec, archiveCompletedSpec(spec), "stranded artifact", io);
@@ -1402,6 +1479,7 @@ type CleanupDiscoveryContext = {
   reaperResult: ReaperResult;
   sessionLogPlan: SessionLogReapPlan;
   daemonUnreachable: DiscoveredWorktree[];
+  skips: ArtifactSkipLedger;
 };
 
 async function gatherCleanupDiscoveryContext(
@@ -1415,6 +1493,7 @@ async function gatherCleanupDiscoveryContext(
   sessionsDir: string,
   configPath: string,
   clock: () => Date,
+  skips: ArtifactSkipLedger,
 ): Promise<CleanupDiscoveryContext> {
   const branchRefDiscovery = await discoverMergedBranchRefCandidates(registry, { runner, ownershipRegistry });
   const discoveryExit = reportUnusableProjects(branchRefDiscovery.unusableProjects, io);
@@ -1439,6 +1518,7 @@ async function gatherCleanupDiscoveryContext(
     store,
     runner,
     io,
+    skips,
   );
   const reaperResult = await reapDeadDaemonSockets(jarvisRoot);
   const sessionLogPlan = discoverExpiredSessionLogs(sessionsDir, configPath, clock, store, io);
@@ -1455,6 +1535,7 @@ async function gatherCleanupDiscoveryContext(
     reaperResult,
     sessionLogPlan,
     daemonUnreachable,
+    skips,
   };
 }
 
@@ -1534,6 +1615,7 @@ async function executeConfirmedCleanup(
     daemonClient,
     retiredBranches,
     ctx.branchRefDiscovery.ownerProjectsByRepositoryRoot,
+    ctx.skips,
   );
   const branchRefExit = await applyMergedBranchRefPrunes(
     ctx.branchRefDiscovery.candidates,
@@ -1572,8 +1654,9 @@ async function executeConfirmedCleanup(
     store,
     runner,
     io,
+    ctx.skips,
   );
-  await retireStrandedArtifacts(strandedAfterRetirement, registry, jarvisRoot, runner, io);
+  await retireStrandedArtifacts(strandedAfterRetirement, registry, jarvisRoot, runner, store, io, ctx.skips);
   if (stillEligible.length === 0 && ctx.candidates.length > 0) {
     io.stdout("No worktrees remain eligible after re-check.\n");
   }
@@ -1605,6 +1688,41 @@ export async function runCleanupCommand(
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
   ownershipRegistry: Record<string, ProjectRegistryEntry> = registry,
 ): Promise<number> {
+  const skips = createArtifactSkipLedger(io);
+  try {
+    return await runCleanupCommandWithSkipLedger(
+      options,
+      registry,
+      jarvisRoot,
+      runner,
+      daemonClient,
+      store,
+      io,
+      ownershipRegistry,
+      skips,
+    );
+  } finally {
+    skips.flush();
+  }
+}
+
+async function runCleanupCommandWithSkipLedger(
+  options: {
+    dryRun?: boolean;
+    promptConfirm?: (message: string) => Promise<boolean>;
+    sessionsDir?: string;
+    configPath?: string;
+    clock?: () => Date;
+  },
+  registry: Record<string, ProjectRegistryEntry>,
+  jarvisRoot: string,
+  runner: AsyncSubprocessRunner,
+  daemonClient: DaemonClient,
+  store: StateStore,
+  io: { stdout: (s: string) => void; stderr: (s: string) => void },
+  ownershipRegistry: Record<string, ProjectRegistryEntry>,
+  skips: ArtifactSkipLedger,
+): Promise<number> {
   const ctx = await gatherCleanupDiscoveryContext(
     registry,
     ownershipRegistry,
@@ -1616,6 +1734,7 @@ export async function runCleanupCommand(
     options.sessionsDir ?? join(jarvisRoot, "sessions"),
     options.configPath ?? join(jarvisRoot, "config.json"),
     options.clock ?? (() => new Date()),
+    skips,
   );
 
   for (const worktree of ctx.daemonUnreachable) {

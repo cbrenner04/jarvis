@@ -19,9 +19,9 @@ A same-project managed worktree with detached or unresolved `HEAD` currently blo
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/cleanup.test.ts` test `detached owner blocks only its own artifact` stages an unrelated completed spec for archival while preserving the owned spec; it fails against the pre-fix repo-wide ownership gate.
-- [ ] `v2/docs/operator-runbook.md` documents spec-scoped detached and unresolved worktree ownership for stranded and post-retirement archival.
-- [ ] `v2/docs/v1-behaviors.md` records the spec-scoped detached-ownership delta.
+- [x] `v2/src/commands/cleanup.test.ts` test `detached owner blocks only its own artifact` stages an unrelated completed spec for archival while preserving the owned spec; it fails against the pre-fix repo-wide ownership gate.
+- [x] `v2/docs/operator-runbook.md` documents spec-scoped detached and unresolved worktree ownership for stranded and post-retirement archival.
+- [x] `v2/docs/v1-behaviors.md` records the spec-scoped detached-ownership delta.
 
 ## Documentation updates
 

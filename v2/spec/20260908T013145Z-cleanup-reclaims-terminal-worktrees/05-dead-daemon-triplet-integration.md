@@ -18,12 +18,12 @@ The prerequisite keyed-daemon triplet classification must remain wired through t
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/cleanup.test.ts` test `dead daemon digest reaps socket pid and log` stays green.
-- [ ] `v2/docs/operator-runbook.md` cross-links dead daemon digest triplet preview, apply, and fail-safe preservation within the unified cleanup invocation.
-- [ ] `v2/docs/v1-behaviors.md` records that unified cleanup reaps dead daemon digest triplets per the prerequisite contract.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/commands/cleanup.test.ts` test `dead daemon digest reaps socket pid and log` stays green.
+- [x] `v2/docs/operator-runbook.md` cross-links dead daemon digest triplet preview, apply, and fail-safe preservation within the unified cleanup invocation.
+- [x] `v2/docs/v1-behaviors.md` records that unified cleanup reaps dead daemon digest triplets per the prerequisite contract.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

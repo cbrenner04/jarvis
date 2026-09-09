@@ -17,16 +17,16 @@ When `startIpcServer` bind still fails after occupancy reclaim, the child logs `
 
 ## Task checklist
 
-- [ ] Introduce a typed bind-failure error and a structured stderr log marker in the IPC/daemon startup path when reclaim is exhausted.
-- [ ] On startup death before readiness, have `startDaemon` tail the daemon log for the marker and rethrow the typed error to the CLI caller.
-- [ ] Add a regression test on the detached-spawn path (`startDaemon` with `logPath`, real child) proving the operator-facing error shape.
+- [x] Introduce a typed bind-failure error and a structured stderr log marker in the IPC/daemon startup path when reclaim is exhausted.
+- [x] On startup death before readiness, have `startDaemon` tail the daemon log for the marker and rethrow the typed error to the CLI caller.
+- [x] Add a regression test on the detached-spawn path (`startDaemon` with `logPath`, real child) proving the operator-facing error shape.
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-lifecycle.sandbox-unrunnable.test.ts` test `unrecoverable socket bind names path errno and cleanup recovery` proves a bind failure that survives reclaim surfaces on the detached-spawn path an operator-facing error naming the socket path, `errno`, and `jarvis cleanup` recovery; it fails against the current bare `died during startup` (`daemon-lifecycle.sandbox-unrunnable.test.ts` test `throws if process dies during startup` is reachable on main).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/daemon/daemon-lifecycle.sandbox-unrunnable.test.ts` test `unrecoverable socket bind names path errno and cleanup recovery` proves a bind failure that survives reclaim surfaces on the detached-spawn path an operator-facing error naming the socket path, `errno`, and `jarvis cleanup` recovery; it fails against the current bare `died during startup` (`daemon-lifecycle.sandbox-unrunnable.test.ts` test `throws if process dies during startup` is reachable on main).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

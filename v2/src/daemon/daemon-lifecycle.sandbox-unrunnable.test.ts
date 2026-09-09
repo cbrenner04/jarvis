@@ -26,6 +26,7 @@ async function waitForLogMarkers(logPath: string, markers: string[], timeoutMs =
   return content;
 }
 
+import { DaemonSocketBindFailureError, formatDaemonBindFailureLogLine } from "../ipc/server.ts";
 import type { Run } from "../persistence/state-store";
 import { makeIpcClient } from "../testing/cli-test-helpers.ts";
 import {
@@ -96,6 +97,88 @@ describe("daemon-lifecycle", () => {
           daemonScript: "/fake/script",
         }),
       ).rejects.toThrow("died during startup");
+    });
+
+    test("startup death ignores bind-failure markers from prior spawns in the same log", async () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        const socketPath = join(tmpDir, "daemon.sock");
+        const logPath = join(tmpDir, "daemon.log");
+        const staleMarker = formatDaemonBindFailureLogLine(new DaemonSocketBindFailureError(socketPath, "EADDRINUSE"));
+        writeFileSync(logPath, `prior run\n${staleMarker}\n`);
+
+        const daemonScript = join(tmpDir, "exit-immediately.ts");
+        writeFileSync(daemonScript, `process.exit(1);\n`);
+
+        const socketProber: SocketProber = {
+          probe: async () => false,
+        };
+
+        let aliveChecks = 0;
+        const processProber: ProcessProber = {
+          isAlive: () => {
+            aliveChecks++;
+            return aliveChecks <= 2;
+          },
+        };
+
+        await expect(
+          startDaemon(socketPath, {
+            socketProber,
+            processProber,
+            readinessTimeoutMs: 5_000,
+            daemonScript,
+            logPath,
+          }),
+        ).rejects.toThrow("died during startup");
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("unrecoverable socket bind names path errno and cleanup recovery", async () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        const socketPath = join(tmpDir, "daemon.sock");
+        const logPath = join(tmpDir, "daemon.log");
+        const serverModule = join(import.meta.dir, "../ipc/server.ts");
+        const daemonScript = join(tmpDir, "bind-fail-daemon.ts");
+        writeFileSync(
+          daemonScript,
+          [
+            `import { writeFileSync } from "node:fs";`,
+            `import { startIpcServer, formatDaemonBindFailureLogLine, DaemonSocketBindFailureError } from ${JSON.stringify(serverModule)};`,
+            `const socketPath = process.env.DAEMON_SOCKET_PATH!;`,
+            `writeFileSync(socketPath, "");`,
+            `try { await startIpcServer(socketPath, undefined, undefined, async () => ({ liveness: "absent", peerConnected: false })); }`,
+            `catch (err) { if (err instanceof DaemonSocketBindFailureError) console.error(formatDaemonBindFailureLogLine(err)); process.exit(1); }`,
+          ].join("\n"),
+        );
+
+        const socketProber: SocketProber = {
+          probe: async () => false,
+        };
+
+        await expect(
+          startDaemon(socketPath, {
+            socketProber,
+            readinessTimeoutMs: 10_000,
+            daemonScript,
+            logPath,
+          }),
+        ).rejects.toMatchObject({
+          name: "DaemonSocketBindFailureError",
+          socketPath,
+          errno: "EADDRINUSE",
+          message: expect.stringContaining("jarvis cleanup"),
+        });
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
     });
 
     test("returns metadata when socket becomes ready", async () => {

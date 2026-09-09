@@ -1,9 +1,12 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  DaemonSocketBindFailureError,
   DaemonSocketInUseError,
+  formatDaemonBindFailureLogLine,
+  parseDaemonBindFailureLogLine,
   probeSocketLiveness,
   removeStaleSocketPath,
   type SocketLiveness,
@@ -90,6 +93,17 @@ test("DaemonSocketInUseError names the contested socket path", () => {
   const err = new DaemonSocketInUseError("/tmp/daemon-abc.sock");
   expect(err.socketPath).toBe("/tmp/daemon-abc.sock");
   expect(err.message).toContain("/tmp/daemon-abc.sock");
+});
+
+test("DaemonSocketBindFailureError and bind-failure log marker round-trip", () => {
+  const err = new DaemonSocketBindFailureError("/tmp/daemon-abc.sock", "EADDRINUSE");
+  expect(err.socketPath).toBe("/tmp/daemon-abc.sock");
+  expect(err.errno).toBe("EADDRINUSE");
+  expect(err.message).toContain("/tmp/daemon-abc.sock");
+  expect(err.message).toContain("EADDRINUSE");
+  expect(err.message).toContain("jarvis cleanup");
+  expect(parseDaemonBindFailureLogLine(formatDaemonBindFailureLogLine(err))).toEqual(err);
+  expect(parseDaemonBindFailureLogLine("Fatal daemon error: listen EADDRINUSE")).toBeUndefined();
 });
 
 test("probeSocketLiveness reports a missing path absent without consulting the filesystem", async () => {
@@ -205,9 +219,21 @@ test("startIpcServer refuses reclaim on EADDRINUSE when reprobe returns absent",
   try {
     await expect(
       startIpcServer(path, undefined, undefined, probingSequence(unanswered("absent"))),
-    ).rejects.toMatchObject({ code: "EADDRINUSE" });
+    ).rejects.toBeInstanceOf(DaemonSocketBindFailureError);
     expect(existsSync(path)).toBe(true);
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("startIpcServer propagates first-attempt listen errors that never ran occupancy reclaim", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-bind-"));
+  chmodSync(dir, 0o500);
+  const path = join(dir, "daemon.sock");
+  try {
+    await expect(startIpcServer(path)).rejects.not.toBeInstanceOf(DaemonSocketBindFailureError);
+  } finally {
+    chmodSync(dir, 0o700);
     rmSync(dir, { recursive: true, force: true });
   }
 });

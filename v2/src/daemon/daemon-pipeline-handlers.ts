@@ -28,6 +28,7 @@ import {
   PIPELINE_WAIT_ABORTED,
   PipelineWaitAbortedError,
   projectPipelineSnapshot,
+  resolvePipelineOwnership,
   waitForPipelineBoundary,
 } from "./pipeline-observation.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
@@ -65,6 +66,7 @@ export type PipelineHandlers = {
   pipeline_undismiss: RpcHandler;
   pipeline_list: RpcHandler;
   pipeline_wait: RpcHandler;
+  pipeline_owner: RpcHandler;
   continueContinuablePipelines: () => Promise<void>;
   pipelineExecutionDeps: () => Omit<PipelineExecutionDeps, "context">;
 };
@@ -351,6 +353,21 @@ export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: Pipe
     return { kind: "response", result: { pipelines: pipelines.map(projectPipelineSnapshot) } };
   };
 
+  /**
+   * Durable ownership answer for one full pipeline id — no prefix resolution. A `pipeline_list`
+   * snapshot proves nothing about ownership under a shared store; this is the dedicated answer.
+   */
+  const pipeline_owner: RpcHandler = (frame) => {
+    const params = frame.params as { pipelineId?: unknown } | undefined;
+    if (typeof params?.pipelineId !== "string" || params.pipelineId.length === 0) {
+      return { kind: "error", code: "invalid_params", message: "pipelineId required" };
+    }
+    const { pipelineId } = params;
+    const pipeline = store.loadPipeline(pipelineId);
+    const ownership = resolvePipelineOwnership(pipeline, store.currentOwnerIdentity());
+    return { kind: "response", result: { ...ownership, pipelineId } };
+  };
+
   const pipeline_wait: RpcHandler = async (frame, signal) => {
     const params = frame.params as { pipelineId?: unknown } | undefined;
     if (typeof params?.pipelineId !== "string" || params.pipelineId.length === 0) {
@@ -390,6 +407,7 @@ export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: Pipe
     pipeline_undismiss,
     pipeline_list,
     pipeline_wait,
+    pipeline_owner,
     continueContinuablePipelines,
     pipelineExecutionDeps,
   };

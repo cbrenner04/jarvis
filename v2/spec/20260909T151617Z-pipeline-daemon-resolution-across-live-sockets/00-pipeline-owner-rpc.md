@@ -25,14 +25,14 @@ A daemon exposes pipeline state only through `pipeline_list`, whose snapshots ar
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-pipeline-owner.test.ts`'s `classifies an owned active pipeline` regression proves an `active` row stamped with this daemon's identity answers `{kind:"owner"}`; it fails against the pre-fix code, where no `pipeline_owner` RPC exists.
-- [ ] `v2/src/daemon/daemon-pipeline-owner.test.ts`'s `classifies a foreign active pipeline` regression proves an `active` row under another identity, including a `null` owner, answers `not_owner` rather than `owner`.
-- [ ] `v2/src/daemon/daemon-pipeline-owner.test.ts`'s `classifies reconciled and terminal pipelines` regression proves an `interrupted` row and a terminal-derived-state row answer `durable_state`, including when the terminal row is `active` and stamped with this daemon's own identity — terminal precedes ownership.
-- [ ] `v2/src/daemon/daemon-pipeline-owner.test.ts`'s `classifies an absent pipeline` regression proves an unknown id answers `not_found` and no error frame.
-- [ ] `v2/src/daemon/daemon-pipeline-owner.test.ts`'s `rejects a malformed pipelineId` regression proves a missing or non-string `pipelineId` param returns a structured error frame rather than `not_found`.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `v2/src/daemon/daemon-pipeline-owner.test.ts`'s `classifies an owned active pipeline` regression proves an `active` row stamped with this daemon's identity answers `{kind:"owner"}`; it fails against the pre-fix code, where no `pipeline_owner` RPC exists.
+- [x] `v2/src/daemon/daemon-pipeline-owner.test.ts`'s `classifies a foreign active pipeline` regression proves an `active` row under another identity, including a `null` owner, answers `not_owner` rather than `owner`.
+- [x] `v2/src/daemon/daemon-pipeline-owner.test.ts`'s `classifies reconciled and terminal pipelines` regression proves an `interrupted` row and a terminal-derived-state row answer `durable_state`, including when the terminal row is `active` and stamped with this daemon's own identity — terminal precedes ownership.
+- [x] `v2/src/daemon/daemon-pipeline-owner.test.ts`'s `classifies an absent pipeline` regression proves an unknown id answers `not_found` and no error frame.
+- [x] `v2/src/daemon/daemon-pipeline-owner.test.ts`'s `rejects a malformed pipelineId` regression proves a missing or non-string `pipelineId` param returns a structured error frame rather than `not_found`.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

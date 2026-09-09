@@ -623,6 +623,9 @@ export type Attempt = {
 
 /** Repository-style durable state API, keyed by IDs; no generic SQL surface. */
 export interface StateStore {
+  /** This process's own owner identity (`<pid>:<process-start-epoch>`), stamped on rows it admits. */
+  currentOwnerIdentity(): string;
+
   /** Insert a run (zero attempts, status defaults to `in-progress`); returns its ID. */
   createRun(args: {
     project: string;
@@ -1692,6 +1695,10 @@ class StateStoreImpl implements StateStore {
     addColumnIfMissing(this.db, "runs", "operator_failure_record", "TEXT");
     this.currentIdentity = overrides?.currentIdentity ?? CURRENT_OWNER_IDENTITY;
     this.isOwnerAliveProbe = overrides?.isOwnerAlive ?? isOwnerAlive;
+  }
+
+  currentOwnerIdentity(): string {
+    return this.currentIdentity;
   }
 
   createRun(args: {

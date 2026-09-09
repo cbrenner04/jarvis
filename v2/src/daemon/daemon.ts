@@ -600,7 +600,7 @@ export function promoteQueuedRunImpl(deps: PromoteQueuedRunDeps, bypassSettleDel
  *   `undismiss`), workflow admission (`check_workflow_start_claim`, `implement.recover`),
  *   pipeline (`pipeline_start`, `pipeline_approve`, `pipeline_reject`, `pipeline_resume`,
  *   `pipeline_recover`, `pipeline_dismiss`, `pipeline_undismiss`, `pipeline_list`,
- *   `pipeline_wait`, `continueContinuablePipelines`), test seam (`pipelineExecutionDeps`),
+ *   `pipeline_wait`, `pipeline_owner`, `continueContinuablePipelines`), test seam (`pipelineExecutionDeps`),
  *   review-progress hooks, `close`/`hasActiveRuns`/`setRetiring`/`isRetiring`, and shared
  *   `context`. Each RPC handler signals rejections via `{ kind: "error", code, message }`; they do
  *   not throw.
@@ -698,6 +698,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
     pipeline_undismiss: pipeline.pipeline_undismiss,
     pipeline_list: pipeline.pipeline_list,
     pipeline_wait: pipeline.pipeline_wait,
+    pipeline_owner: pipeline.pipeline_owner,
     notification_wait,
     notification_list,
     continueContinuablePipelines: pipeline.continueContinuablePipelines,

@@ -685,6 +685,7 @@ function loadWorkBoundaryRows(path: string): WorkBoundaryRecordedRecord[] {
 function crashOnceMidBoundary(inner: StateStore): StateStore {
   let crashed = false;
   return {
+    currentOwnerIdentity: () => inner.currentOwnerIdentity(),
     createRun: (args) => inner.createRun(args),
     setCreationTitle: (runId, title) => inner.setCreationTitle(runId, title),
     setRunSpecPath: (runId, specPath) => inner.setRunSpecPath(runId, specPath),
@@ -785,6 +786,7 @@ function storeObservingCompletedWrites(inner: StateStore): {
     });
   };
   const store: StateStore = {
+    currentOwnerIdentity: () => inner.currentOwnerIdentity(),
     createRun: (args) => inner.createRun(args),
     setCreationTitle: (runId, title) => inner.setCreationTitle(runId, title),
     setRunSpecPath: (runId, specPath) => inner.setRunSpecPath(runId, specPath),
@@ -6071,6 +6073,7 @@ export function isLoadSensitive(file: string): boolean {
         let failedStatusWrites = 0;
         const inner = openStateStore(stateDbPath);
         const store: StateStore = {
+          currentOwnerIdentity: () => inner.currentOwnerIdentity(),
           createRun: (args) => inner.createRun(args),
           setCreationTitle: (runId, title) => inner.setCreationTitle(runId, title),
           setRunSpecPath: (runId, specPath) => inner.setRunSpecPath(runId, specPath),

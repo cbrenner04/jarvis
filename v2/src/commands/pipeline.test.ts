@@ -16,6 +16,7 @@ import {
 } from "../cli/usage.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { IpcClient } from "../ipc/client.ts";
+import type { IpcFrame } from "../ipc/types.ts";
 import {
   type CliRepoFixture,
   captureIo,
@@ -222,7 +223,8 @@ function pipelineListFrame(id: string, pipelines: unknown[]): unknown {
   return { kind: "response", id, result: { pipelines: completePipelineListSnapshots(pipelines) } };
 }
 
-function pipelineListClient(result: unknown, sent: unknown[] = []): IpcClient {
+/** Single-request client replying with `reply(id)`, correlated via the request's own id. */
+function singleRequestClient(reply: (id: string) => IpcFrame, sent: unknown[] = []): IpcClient {
   let request: { id: string } | undefined;
   let closed = false;
   return {
@@ -234,7 +236,7 @@ function pipelineListClient(result: unknown, sent: unknown[] = []): IpcClient {
       await Promise.resolve();
       if (closed) throw new Error("connection closed");
       if (request === undefined) throw new Error("request not sent");
-      return { kind: "response", id: request.id, result };
+      return reply(request.id);
     },
     close(): void {
       closed = true;
@@ -242,26 +244,13 @@ function pipelineListClient(result: unknown, sent: unknown[] = []): IpcClient {
   };
 }
 
-/** Single-request client answering with an RPC error, correlated via the request's own id (see
- * {@link pipelineListClient}). */
+function pipelineListClient(result: unknown, sent: unknown[] = []): IpcClient {
+  return singleRequestClient((id) => ({ kind: "response", id, result }), sent);
+}
+
+/** Single-request client answering with an RPC error. */
 function pipelineErrorRpcClient(code: string, message: string, sent: unknown[] = []): IpcClient {
-  let request: { id: string } | undefined;
-  let closed = false;
-  return {
-    send(frame: unknown): void {
-      sent.push(frame);
-      request = frame as { id: string };
-    },
-    async nextFrame() {
-      await Promise.resolve();
-      if (closed) throw new Error("connection closed");
-      if (request === undefined) throw new Error("request not sent");
-      return { kind: "error", id: request.id, code, message };
-    },
-    close(): void {
-      closed = true;
-    },
-  };
+  return singleRequestClient((id) => ({ kind: "error", id, code, message }), sent);
 }
 
 const SAMPLE_PIPELINE_SNAPSHOT = {

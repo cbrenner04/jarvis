@@ -252,18 +252,21 @@ function mapFromLoopFinished(
             }
           : {}),
       };
-    case "ready_gate_command_missing":
+    case "ready_gate_command_missing": {
+      const nextAction = event.readyGateCommandSource === "default" ? "stop" : "fix_config";
+      const label = event.readyGateCommandSource === undefined ? "" : ` (${event.readyGateCommandSource})`;
       return {
-        ...op("ready_gate_command_missing", "fix_config", false),
+        ...op("ready_gate_command_missing", nextAction, false),
         ...(event.readyGateCommand !== undefined
           ? {
               message:
                 event.readyGateOutput === undefined
-                  ? `Ready gate command missing: ${event.readyGateCommand}`
-                  : `Ready gate command missing: ${event.readyGateCommand}\n${event.readyGateOutput}`,
+                  ? `Ready gate command missing${label}: ${event.readyGateCommand}`
+                  : `Ready gate command missing${label}: ${event.readyGateCommand}\n${event.readyGateOutput}`,
             }
           : {}),
       };
+    }
     case "ready_gate_out_of_scope":
       return event.resumable
         ? {
@@ -344,7 +347,8 @@ export const RUN_OPERATOR_ERROR_RECOVERY = {
   completion_commit_failed: "fix git/gh publication, then jarvis run resume",
   iteration_commit_failed: "fix git state, then jarvis run resume",
   ready_gate_failed: "fix the ready gate failure, then jarvis run resume",
-  ready_gate_command_missing: "fix the configured ready gate command in project config, then re-dispatch the workflow",
+  ready_gate_command_missing:
+    "when the missing command is configured, fix it in project config and re-dispatch the workflow; when it's the built-in default (bun run ready), the harness can't resolve it — stop and fix the harness/environment instead",
   ready_gate_out_of_scope:
     "when nextAction is resume, jarvis run resume may change outside-path attribution; unchanged outside paths are terminal — do not repair unrelated source files",
   ready_flip_failed:

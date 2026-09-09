@@ -1385,6 +1385,27 @@ describe("run control", () => {
     expect(row()[16]).toBe(JSON.stringify(message));
   });
 
+  test.each([
+    ["configured", "fix_config", "Ready gate command missing (configured): npm run gate"],
+    ["default", "stop", "Ready gate command missing (default): bun run ready"],
+  ] as const)("run list renders %s-source ready_gate_command_missing nextAction and message", async (readyGateCommandSource, nextAction, message) => {
+    const { code, row } = await runSoloList([
+      {
+        runId: `gate-${readyGateCommandSource}`,
+        project: "demo",
+        branch: "main",
+        status: "failed",
+        isLive: false,
+        error: { reason: "ready_gate_command_missing", retryable: false, nextAction, message },
+      },
+    ]);
+
+    expect(code).toBe(0);
+    expect(row()[5]).toBe("ready_gate_command_missing");
+    expect(row()[7]).toBe(nextAction);
+    expect(row()[16]).toBe(JSON.stringify(message));
+  });
+
   test("run list --all requests dismissed runs", async () => {
     const { code, sent } = await runSoloList([soloDaemonListRow("solo-run")], ["--all"]);
 
@@ -1458,6 +1479,28 @@ describe("run control", () => {
       error?: { completionCommitError?: string };
     };
     expect(parsed.error?.completionCommitError).toBe(COMPLETION_COMMIT_ERROR_MSG);
+  });
+
+  test.each([
+    ["configured", "fix_config", "Ready gate command missing (configured): npm run gate"],
+    ["default", "stop", "Ready gate command missing (default): bun run ready"],
+  ] as const)("run wait passes through %s-source ready_gate_command_missing nextAction and message", async (_readyGateCommandSource, nextAction, message) => {
+    const cap = captureIo();
+    const code = await runWait(cap, "run-shrink", [
+      waitResponse({
+        runStatus: "failed",
+        loopOutcomeKind: "ready_gate_command_missing",
+        resumable: false,
+        error: { reason: "ready_gate_command_missing", retryable: false, nextAction, message },
+      }),
+    ]);
+
+    expect(code).toBe(1);
+    const parsed = JSON.parse(cap.read().stdout.trimEnd()) as {
+      error?: { nextAction?: string; message?: string };
+    };
+    expect(parsed.error?.nextAction).toBe(nextAction);
+    expect(parsed.error?.message).toBe(message);
   });
 
   test("run wait missing run ID prints run-control usage and exits 1", async () => {

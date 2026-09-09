@@ -1,0 +1,172 @@
+import type { IpcClient } from "../ipc/client.ts";
+import { createRpcTransport } from "../ipc/rpc-transport.ts";
+import type { startDaemon } from "./daemon-lifecycle.ts";
+import type { PipelineDerivedState } from "./pipeline-execution.ts";
+import { type QueryDaemonListsDeps, resolveDaemonListSocketPaths } from "./query-daemon-lists-from-sockets.ts";
+
+const PIPELINE_OWNER_RPC_TIMEOUT_MS = 2_000;
+
+export const PIPELINE_NO_LIVE_OWNER_RECOVERY = "jarvis daemon start, then retry";
+
+type PipelineOwnerWitness =
+  | { kind: "owner" }
+  | { kind: "not_owner" }
+  | { kind: "durable_state"; state: PipelineDerivedState }
+  | { kind: "not_found" };
+
+export type PipelineDaemonResolution =
+  | { kind: "owner"; pipelineId: string; socketPath: string }
+  | { kind: "durable_state"; pipelineId: string; socketPath: string; state: PipelineDerivedState }
+  | { kind: "pipeline_owner_conflict"; pipelineId: string; claimantPaths: string[] }
+  | { kind: "pipeline_no_live_owner"; pipelineId: string; recovery: typeof PIPELINE_NO_LIVE_OWNER_RECOVERY }
+  | { kind: "pipeline_not_found"; pipelineId: string }
+  | { kind: "pipeline_daemon_unavailable"; pipelineId: string };
+
+export type PipelineDaemonResolutionDeps = QueryDaemonListsDeps & {
+  /** Never invoked by resolution; exposed only so callers/tests can assert it stays untouched. */
+  startDaemon: typeof startDaemon;
+};
+
+const PIPELINE_STATE_KEYS = {
+  succeeded: true,
+  failed: true,
+  rejected: true,
+  interrupted: true,
+  "awaiting-approval": true,
+  running: true,
+  pending: true,
+} satisfies Record<PipelineDerivedState, true>;
+
+const PIPELINE_STATES: ReadonlySet<string> = new Set(Object.keys(PIPELINE_STATE_KEYS));
+
+function parsePipelineOwnerWitness(value: unknown, pipelineId: string): PipelineOwnerWitness | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const response = value as { kind?: unknown; pipelineId?: unknown; state?: unknown };
+  if (response.pipelineId !== pipelineId) return undefined;
+  switch (response.kind) {
+    case "owner":
+    case "not_owner":
+    case "not_found":
+      return { kind: response.kind };
+    case "durable_state":
+      return typeof response.state === "string" && PIPELINE_STATES.has(response.state)
+        ? { kind: "durable_state", state: response.state as PipelineDerivedState }
+        : undefined;
+    default:
+      return undefined;
+  }
+}
+
+function connectWithinTimeout(
+  connectIpcClient: (socketPath: string) => Promise<IpcClient>,
+  socketPath: string,
+  timeoutMs: number,
+): Promise<IpcClient> {
+  return new Promise((resolve, reject) => {
+    let pending = true;
+    const timer = setTimeout(() => {
+      pending = false;
+      reject(new Error("pipeline daemon connection timed out"));
+    }, timeoutMs);
+    void connectIpcClient(socketPath).then(
+      (client) => {
+        if (!pending) {
+          client.close();
+          return;
+        }
+        pending = false;
+        clearTimeout(timer);
+        resolve(client);
+      },
+      (error: unknown) => {
+        pending = false;
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+async function queryPipelineOwner(
+  connectIpcClient: (socketPath: string) => Promise<IpcClient>,
+  socketPath: string,
+  pipelineId: string,
+  timeoutMs: number,
+): Promise<PipelineOwnerWitness | undefined> {
+  try {
+    const client = await connectWithinTimeout(connectIpcClient, socketPath, timeoutMs);
+    const transport = createRpcTransport(client);
+    try {
+      const result = await transport.request("pipeline_owner", { pipelineId }, { timeoutMs });
+      return parsePipelineOwnerWitness(result, pipelineId);
+    } finally {
+      transport.close();
+    }
+  } catch {
+    return undefined;
+  }
+}
+
+/** Queries every supplied socket; individual connection, RPC, timeout, and payload failures are ignored. */
+export async function resolvePipelineDaemonFromSocketPaths(
+  connectIpcClient: (socketPath: string) => Promise<IpcClient>,
+  socketPaths: readonly string[],
+  pipelineId: string,
+  timeoutMs = PIPELINE_OWNER_RPC_TIMEOUT_MS,
+): Promise<PipelineDaemonResolution> {
+  const answers = await Promise.all(
+    socketPaths.map(async (socketPath) => ({
+      socketPath,
+      witness: await queryPipelineOwner(connectIpcClient, socketPath, pipelineId, timeoutMs),
+    })),
+  );
+  const owners = answers.filter(
+    (answer): answer is { socketPath: string; witness: Extract<PipelineOwnerWitness, { kind: "owner" }> } =>
+      answer.witness?.kind === "owner",
+  );
+  if (owners.length > 1) {
+    return {
+      kind: "pipeline_owner_conflict",
+      pipelineId,
+      claimantPaths: owners.map(({ socketPath }) => socketPath).sort(),
+    };
+  }
+  const owner = owners[0];
+  if (owner !== undefined) return { kind: "owner", pipelineId, socketPath: owner.socketPath };
+
+  const durableAnswers = answers.filter(
+    (
+      answer,
+    ): answer is {
+      socketPath: string;
+      witness: Extract<PipelineOwnerWitness, { kind: "durable_state" }>;
+    } => answer.witness?.kind === "durable_state",
+  );
+  const durableSocketPath = durableAnswers.map(({ socketPath }) => socketPath).sort()[0];
+  const durable = durableAnswers.find((answer) => answer.socketPath === durableSocketPath);
+  if (durable !== undefined) {
+    return {
+      kind: "durable_state",
+      pipelineId,
+      socketPath: durable.socketPath,
+      state: durable.witness.state,
+    };
+  }
+  if (answers.some(({ witness }) => witness?.kind === "not_owner")) {
+    return { kind: "pipeline_no_live_owner", pipelineId, recovery: PIPELINE_NO_LIVE_OWNER_RECOVERY };
+  }
+  if (answers.some(({ witness }) => witness?.kind === "not_found")) {
+    return { kind: "pipeline_not_found", pipelineId };
+  }
+  return { kind: "pipeline_daemon_unavailable", pipelineId };
+}
+
+/** Resolves a full pipeline id across the same discovered-plus-invoking socket set used by run listing. */
+export async function resolvePipelineDaemon(
+  pipelineId: string,
+  deps: PipelineDaemonResolutionDeps,
+  timeoutMs = PIPELINE_OWNER_RPC_TIMEOUT_MS,
+): Promise<PipelineDaemonResolution> {
+  const socketPaths = await resolveDaemonListSocketPaths(deps);
+  return resolvePipelineDaemonFromSocketPaths(deps.connectIpcClient, socketPaths, pipelineId, timeoutMs);
+}

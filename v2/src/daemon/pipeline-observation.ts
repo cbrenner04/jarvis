@@ -47,6 +47,31 @@ export function derivePipelineBoundary(
   return null;
 }
 
+export type PipelineOwnershipResult =
+  | { kind: "owner" }
+  | { kind: "not_owner" }
+  | { kind: "durable_state"; state: PipelineDerivedState }
+  | { kind: "not_found" };
+
+/**
+ * Ownership answer for `pipeline_owner`: derived-terminal state (or a reconciled `interrupted`
+ * durable status) is checked first, independent of `ownerIdentity` — a finished pipeline whose
+ * owner happens to still be up is not routed as if further control RPCs made sense against it.
+ * Otherwise an `active` row is `owner` only under this process's own identity; any other
+ * identity, including `null` (unowned), is `not_owner`.
+ */
+export function resolvePipelineOwnership(
+  pipeline: (Pipeline & { stages: PipelineStageRecord[] }) | null,
+  currentIdentity: string,
+): PipelineOwnershipResult {
+  if (pipeline === null) return { kind: "not_found" };
+  const state = derivePipelineState(pipeline);
+  if (isPipelineTerminal(state) || pipeline.status === "interrupted") {
+    return { kind: "durable_state", state };
+  }
+  return pipeline.ownerIdentity === currentIdentity ? { kind: "owner" } : { kind: "not_owner" };
+}
+
 type PipelineWaitWake = () => void;
 
 export class PipelineWaitObserver {

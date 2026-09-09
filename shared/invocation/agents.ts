@@ -640,14 +640,16 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
       settle({ kind: "ok", stdout: outBuf, stderr: errBuf });
     };
 
+    // Auth and quota outrank a transient marker: an exhausted or de-authenticated agent never
+    // recovers on retry, and a stray transport line elsewhere in the tail must not mask the banner.
     const settleNonZeroExit = (exitCode: number) => {
       const diagnostics = `${errBuf}${outBuf}`;
-      if (isTransientSignal(config.classifier, exitCode, diagnostics)) {
-        settle({ kind: "error", exitCode, stderr: diagnostics });
-      } else if (isCredentialAuthSignal(config.classifier, exitCode, diagnostics)) {
+      if (isCredentialAuthSignal(config.classifier, exitCode, diagnostics)) {
         settle({ kind: "quota", stderr: diagnostics, authFailure: true });
       } else if (isQuotaSignal(config.classifier, exitCode, diagnostics)) {
         settle({ kind: "quota", stderr: diagnostics });
+      } else if (isTransientSignal(config.classifier, exitCode, diagnostics)) {
+        settle({ kind: "error", exitCode, stderr: diagnostics });
       } else if (isModelConfigurationSignal(config.classifier, diagnostics)) {
         settle({ kind: "model_config", stderr: diagnostics });
       } else {

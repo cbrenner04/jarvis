@@ -2549,7 +2549,8 @@ describe("write loop", () => {
     });
 
     expect(result.kind).toBe("invocation_failure");
-    expect(result.bindingAttempts).toEqual([{ bindingId: "sim.1", resultKind: "error" }]);
+    const detail = loadRunOnce(stateDbPath, result.runId)?.attempts[0]?.invocationFailureDetail;
+    expect(detail?.bindingAttempts).toEqual([{ bindingId: "sim.1", resultKind: "error" }]);
   });
 
   test("binding-chain invocation failure persists only the bounded final stderr tail", async () => {

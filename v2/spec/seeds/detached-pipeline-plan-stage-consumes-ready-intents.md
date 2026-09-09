@@ -22,7 +22,7 @@ Related: [[intent-resume-consumes-its-seed]] (#3410) is the resume-path instance
 
 - [ ] A test reproducing the detached handoff proves the plan landing deletes the consumed ready-intent from its actual source (or records a named skip reason); fails against the current silent no-op.
 - [ ] External-home ready-intents consume through the same path, pinned by a test that drives the consumer.
-- [ ] A cleanup test proves `provenIntentPrune` resolves a timestamped spec directory to its slug-named ready-intent (or the prune is retired in favour of plan-stage consumption); fails against the current `${spec.name}.md` lookup, which never resolves.
+- [x] A cleanup test proves `provenIntentPrune` resolves a timestamped spec directory to its slug-named ready-intent (or the prune is retired in favour of plan-stage consumption); fails against the current `${spec.name}.md` lookup, which never resolves. (Carved into spec `cleanup-prunes-consumed-ready-intent-by-slug`, 2026-09-09.)
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

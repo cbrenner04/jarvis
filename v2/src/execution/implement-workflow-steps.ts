@@ -350,6 +350,22 @@ function resolveImplementReviewConfig(
   return { reviewPasses: reviewPasses.reviewPasses, reviewBehavior: reviewBehavior.reviewBehavior };
 }
 
+/** Base freshness on the publication base, then spec availability on the chained preflight base. */
+async function preflightChainedBase(
+  refs: { projectRoot: string; baseRef: string; specReadRoot: string; preflightBaseRef?: string },
+  specPath: string,
+  runner: AsyncSubprocessRunner,
+  warn: (message: string) => void,
+): Promise<string | undefined> {
+  const freshness = await checkBaseFreshness(refs.projectRoot, refs.baseRef, runner, warn);
+  if (!freshness.ok) return freshness.error;
+  const preflightBaseRef = refs.preflightBaseRef ?? refs.baseRef;
+  if (!(await isSpecAvailableInBaseRef(refs.specReadRoot, preflightBaseRef, specPath, runner))) {
+    return `Spec path unavailable in base ref ${preflightBaseRef}: ${specPath}`;
+  }
+  return undefined;
+}
+
 /**
  * Pipeline-chained launch: the spec tree lives on the prior stage's worktree, so the spec read root
  * and spec-availability preflight run against `preflightGitRoot` / `preflightBaseRef` rather than
@@ -402,12 +418,13 @@ async function resolveChainedImplementLaunch(
       reviewBehavior: reviewConfig.reviewBehavior,
     };
   }
-  const freshness = await checkBaseFreshness(match.root, input.baseRef, runner, deps.warn ?? warnToStderr);
-  if (!freshness.ok) return { error: freshness.error };
-  const preflightBaseRef = input.preflightBaseRef ?? input.baseRef;
-  if (!(await isSpecAvailableInBaseRef(specReadRoot, preflightBaseRef, input.specPath, runner))) {
-    return { error: `Spec path unavailable in base ref ${preflightBaseRef}: ${input.specPath}` };
-  }
+  const preflightError = await preflightChainedBase(
+    { projectRoot: match.root, baseRef: input.baseRef, specReadRoot, preflightBaseRef: input.preflightBaseRef },
+    input.specPath,
+    runner,
+    deps.warn ?? warnToStderr,
+  );
+  if (preflightError !== undefined) return { error: preflightError };
   return {
     ...input,
     branchName: input.branchName ?? basename(dirname(resolvedSpecPath)),

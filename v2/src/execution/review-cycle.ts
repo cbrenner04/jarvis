@@ -1,4 +1,5 @@
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import type {
   InvocationBinding,
   InvocationOk,
@@ -84,6 +85,7 @@ export async function executeReviewCycle(args: ReviewCycleInput): Promise<Review
   const cycles: ReviewCycleOutcome[] = [];
   for (let cycle = 0; cycle < args.maxCycles; cycle += 1) {
     try {
+      mkdirSync(dirname(args.verdictPath), { recursive: true });
       writeFileSync(args.verdictPath, "", "utf8");
     } catch {
       return { kind: "invocation_failure", failureKind: "error", cycles };

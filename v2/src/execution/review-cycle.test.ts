@@ -142,11 +142,10 @@ describe("executeReviewCycle", () => {
     expect(result.cycles).toHaveLength(1);
   });
 
-  test("reports verdict I/O failure without a cycle when invalidation fails", async () => {
-    const calls: string[] = [];
-    const result = await executeReviewCycle(input(join(dir(), "missing", "verdict.md"), calls));
-    expect(result).toEqual({ kind: "invocation_failure", failureKind: "error", cycles: [] });
-    expect(calls).toHaveLength(0);
+  test("creates a missing verdict parent before invalidation", async () => {
+    const path = join(dir(), "missing", "verdict.md");
+    await executeReviewCycle(input(path, []));
+    expect(readFileSync(path, "utf8")).toBe("fix it");
   });
 });
 

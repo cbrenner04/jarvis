@@ -25,7 +25,7 @@ import { openInkMonitor } from "./tui-ink-monitor.tsx";
 import { runTuiLogFollow } from "./tui-log-follow-entry.tsx";
 import {
   firstSelectableNodeId,
-  mergePipelineSnapshots,
+  mergeMonitorPipelineSnapshots,
   monitorLeftPaneTreeRows,
   monitorPipelineDisplayOptions,
   monitorSelectableNodeIds,
@@ -164,7 +164,7 @@ function monitorShellState(
 }
 
 function pipelineNodesForState(state: TuiMonitorState) {
-  const snapshots = mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath);
+  const snapshots = mergeMonitorPipelineSnapshots(state.pipelineSnapshotsBySocketPath);
   return buildMonitorPipelineTreeJoin(snapshots, state.runs, monitorPipelineDisplayOptions(state)).pipelineNodes;
 }
 

@@ -1,4 +1,5 @@
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
+import { mergePipelineSnapshots } from "../daemon/merge-pipeline-snapshots.ts";
 import { derivePipelineBoundary, type PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import type { PipelineStageArtifact } from "../daemon/pipeline-stage-dispatch.ts";
 import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
@@ -286,7 +287,7 @@ function classifyPipelineObservation(snapshot: PipelineSnapshot): PipelineObserv
 /** Snapshots displayed by the session's dismissed-pipeline visibility toggle. */
 export function displayedPipelineSnapshots(state: TuiMonitorState): PipelineSnapshot[] {
   const showDismissed = state.showDismissed === true;
-  return mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath).filter(
+  return mergeMonitorPipelineSnapshots(state.pipelineSnapshotsBySocketPath).filter(
     (snapshot) => !isHiddenDismissedPipeline(snapshot, showDismissed),
   );
 }
@@ -303,7 +304,7 @@ export function pipelineObservationBuckets(state: TuiMonitorState): PipelineObse
 function dockWorkStatusBuckets(state: TuiMonitorState): PipelineObservationBuckets {
   const buckets = pipelineObservationBuckets(state);
   const { adHocNodes } = buildMonitorPipelineTreeJoin(
-    mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath),
+    mergeMonitorPipelineSnapshots(state.pipelineSnapshotsBySocketPath),
     state.runs,
     monitorPipelineDisplayOptions(state),
   );
@@ -435,7 +436,7 @@ function paintDockInputRows(atoms: readonly DockInputAtom[], columns: number): [
 function dockHintLine(state: TuiMonitorState, nowMs: number): string {
   if ((state.focus ?? "tree") === "command") return "Esc tree · Enter submit";
   const { pipelineNodes } = buildMonitorPipelineTreeJoin(
-    mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath),
+    mergeMonitorPipelineSnapshots(state.pipelineSnapshotsBySocketPath),
     state.runs,
     monitorPipelineDisplayOptions(state),
   );
@@ -482,52 +483,14 @@ export function monitorLeftPaneTableRows(state: TuiMonitorState): WorkflowTableR
   return buildWorkflowTableRows(selectableRuns, state.runs, new Set());
 }
 
-function countEndedStages(snapshot: PipelineSnapshot): number {
-  return snapshot.stages.filter((stage) => stage.endedAt !== null).length;
-}
-
-/** True when `candidate` outranks `current` for the same pipelineId: finished beats unfinished, then more ended stages, then earlier socket path. */
-function pipelineSnapshotOutranks(
-  candidate: PipelineSnapshot,
-  candidateSocketPath: string,
-  current: PipelineSnapshot,
-  currentSocketPath: string,
-): boolean {
-  const candidateFinished = candidate.finishedAtMs !== null;
-  const currentFinished = current.finishedAtMs !== null;
-  if (candidateFinished !== currentFinished) return candidateFinished;
-  const candidateEndedCount = countEndedStages(candidate);
-  const currentEndedCount = countEndedStages(current);
-  if (candidateEndedCount !== currentEndedCount) return candidateEndedCount > currentEndedCount;
-  return candidateSocketPath < currentSocketPath;
-}
-
-/** One snapshot per pipelineId, sorted-socket-path emission order, collision winner via `pipelineSnapshotOutranks`. */
-export function mergePipelineSnapshots(
+export function mergeMonitorPipelineSnapshots(
   pipelineSnapshotsBySocketPath: Readonly<Record<string, PipelineListResult>> | undefined,
 ): PipelineSnapshot[] {
-  if (pipelineSnapshotsBySocketPath === undefined) return [];
-  const merged: PipelineSnapshot[] = [];
-  const indexByPipelineId = new Map<string, number>();
-  const socketPathByPipelineId = new Map<string, string>();
-  for (const socketPath of Object.keys(pipelineSnapshotsBySocketPath).sort()) {
-    for (const snapshot of pipelineSnapshotsBySocketPath[socketPath]?.pipelines ?? []) {
-      const existingIndex = indexByPipelineId.get(snapshot.pipelineId);
-      if (existingIndex === undefined) {
-        indexByPipelineId.set(snapshot.pipelineId, merged.length);
-        socketPathByPipelineId.set(snapshot.pipelineId, socketPath);
-        merged.push(snapshot);
-        continue;
-      }
-      const current = merged[existingIndex]!;
-      const currentSocketPath = socketPathByPipelineId.get(snapshot.pipelineId)!;
-      if (pipelineSnapshotOutranks(snapshot, socketPath, current, currentSocketPath)) {
-        merged[existingIndex] = snapshot;
-        socketPathByPipelineId.set(snapshot.pipelineId, socketPath);
-      }
-    }
-  }
-  return merged;
+  return mergePipelineSnapshots(
+    Object.fromEntries(
+      Object.entries(pipelineSnapshotsBySocketPath ?? {}).map(([socketPath, result]) => [socketPath, result.pipelines]),
+    ),
+  );
 }
 
 function leftPaneQueueHeadingRowCount(state: TuiMonitorState): number {
@@ -549,7 +512,7 @@ function leftPaneAttentionRowCount(state: TuiMonitorState, nowMs: number): numbe
 
 /** Complete, unclipped work-tree model — shared by the Work heading, tree rows, and scroll follow. */
 function leftPaneWorkDisplayNodes(state: TuiMonitorState): readonly MonitorPipelineTreeDisplayNode[] {
-  const snapshots = mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath);
+  const snapshots = mergeMonitorPipelineSnapshots(state.pipelineSnapshotsBySocketPath);
   const expandedNodeIds = new Set(state.expandedPipelineNodeIds ?? []);
   return buildMonitorPipelineTree(
     snapshots,
@@ -1091,7 +1054,7 @@ function unwrappedRightPaneSegmentRows(state: TuiMonitorState, layout: ShellLayo
 
   const attentionTargetId = resolveAttentionTargetId(state, selected, nowMs);
   if (attentionTargetId !== null) {
-    const snapshots = mergePipelineSnapshots(state.pipelineSnapshotsBySocketPath);
+    const snapshots = mergeMonitorPipelineSnapshots(state.pipelineSnapshotsBySocketPath);
     const { pipelineNodes, adHocNodes } = buildMonitorPipelineTreeJoin(
       snapshots,
       state.runs,

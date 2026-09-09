@@ -2,6 +2,7 @@ import type { IpcClient } from "../ipc/client.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import type { startDaemon } from "./daemon-lifecycle.ts";
 import type { PipelineDerivedState } from "./pipeline-execution.ts";
+import type { PipelineSnapshot } from "./pipeline-observation.ts";
 import { type QueryDaemonListsDeps, resolveDaemonListSocketPaths } from "./query-daemon-lists-from-sockets.ts";
 
 const PIPELINE_OWNER_RPC_TIMEOUT_MS = 2_000;
@@ -13,6 +14,11 @@ type PipelineOwnerWitness =
   | { kind: "not_owner" }
   | { kind: "durable_state"; state: PipelineDerivedState }
   | { kind: "not_found" };
+
+export type PipelineListQueryResult = {
+  snapshotsBySocketPath: Readonly<Record<string, readonly PipelineSnapshot[]>>;
+  hasMalformedResponse: boolean;
+};
 
 export type PipelineDaemonResolution =
   | { kind: "owner"; pipelineId: string; socketPath: string }
@@ -38,6 +44,8 @@ const PIPELINE_STATE_KEYS = {
 } satisfies Record<PipelineDerivedState, true>;
 
 const PIPELINE_STATES: ReadonlySet<string> = new Set(Object.keys(PIPELINE_STATE_KEYS));
+
+const PIPELINE_TERMINAL_ACTIONS: ReadonlySet<string> = new Set(["leave-draft", "ready", "merge"]);
 
 function parsePipelineOwnerWitness(value: unknown, pipelineId: string): PipelineOwnerWitness | undefined {
   if (typeof value !== "object" || value === null) return undefined;
@@ -105,6 +113,131 @@ async function queryPipelineOwner(
   } catch {
     return undefined;
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isNullableNumber(value: unknown): value is number | null {
+  return value === null || (typeof value === "number" && Number.isFinite(value));
+}
+
+function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || typeof value === "string";
+}
+
+function isPublicationFailure(value: unknown): boolean {
+  if (!isRecord(value) || typeof value.operation !== "string" || typeof value.message !== "string") return false;
+  return (
+    (value.exitCode === undefined || (typeof value.exitCode === "number" && Number.isFinite(value.exitCode))) &&
+    isOptionalString(value.stdoutTail) &&
+    isOptionalString(value.stderrTail)
+  );
+}
+
+function isTerminalPublicationFailure(value: unknown): boolean {
+  if (value === null) return true;
+  if (
+    !isRecord(value) ||
+    typeof value.terminalAction !== "string" ||
+    !PIPELINE_TERMINAL_ACTIONS.has(value.terminalAction)
+  ) {
+    return false;
+  }
+  return (
+    isPublicationFailure(value.failure) &&
+    (value.prNumber === undefined || typeof value.prNumber === "number") &&
+    isOptionalString(value.prUrl)
+  );
+}
+
+function isPipelineStageSnapshot(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.id === "string" &&
+    typeof value.stageId === "string" &&
+    typeof value.branchKey === "string" &&
+    typeof value.position === "number" &&
+    Number.isFinite(value.position) &&
+    typeof value.status === "string" &&
+    (value.workflowInvocationId === null || typeof value.workflowInvocationId === "string") &&
+    isNullableNumber(value.startedAt) &&
+    isNullableNumber(value.endedAt) &&
+    isNullableNumber(value.decidedAt) &&
+    Object.hasOwn(value, "artifact") &&
+    Object.hasOwn(value, "failureDetail")
+  );
+}
+
+function isPipelineSnapshot(value: unknown): value is PipelineSnapshot {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.pipelineId === "string" &&
+    typeof value.name === "string" &&
+    typeof value.state === "string" &&
+    PIPELINE_STATES.has(value.state) &&
+    (value.terminalAction === undefined ||
+      (typeof value.terminalAction === "string" && PIPELINE_TERMINAL_ACTIONS.has(value.terminalAction))) &&
+    isOptionalString(value.seedPath) &&
+    isNullableNumber(value.terminalPublicationSucceededAt) &&
+    isTerminalPublicationFailure(value.terminalPublicationFailure) &&
+    typeof value.createdAt === "number" &&
+    Number.isFinite(value.createdAt) &&
+    isNullableNumber(value.finishedAtMs) &&
+    isNullableNumber(value.dismissedAt) &&
+    Array.isArray(value.stages) &&
+    value.stages.every(isPipelineStageSnapshot)
+  );
+}
+
+function parsePipelineList(value: unknown): readonly PipelineSnapshot[] | undefined {
+  if (!isRecord(value) || !Array.isArray(value.pipelines) || !value.pipelines.every(isPipelineSnapshot))
+    return undefined;
+  return value.pipelines;
+}
+
+async function queryPipelineList(
+  connectIpcClient: (socketPath: string) => Promise<IpcClient>,
+  socketPath: string,
+  params: { includeDismissed: true } | undefined,
+  timeoutMs: number,
+): Promise<{ snapshots?: readonly PipelineSnapshot[]; malformed: boolean }> {
+  try {
+    const client = await connectWithinTimeout(connectIpcClient, socketPath, timeoutMs);
+    const transport = createRpcTransport(client);
+    try {
+      const snapshots = parsePipelineList(await transport.request("pipeline_list", params, { timeoutMs }));
+      return snapshots === undefined ? { malformed: true } : { snapshots, malformed: false };
+    } catch {
+      return { malformed: false };
+    } finally {
+      transport.close();
+    }
+  } catch {
+    return { malformed: false };
+  }
+}
+
+/** Queries every supplied socket without starting a daemon; individual connection, RPC, and timeout failures are skipped. */
+export async function queryPipelineListsFromSocketPaths(
+  connectIpcClient: (socketPath: string) => Promise<IpcClient>,
+  socketPaths: readonly string[],
+  params: { includeDismissed: true } | undefined,
+  timeoutMs = PIPELINE_OWNER_RPC_TIMEOUT_MS,
+): Promise<PipelineListQueryResult> {
+  const answers = await Promise.all(
+    socketPaths.map(async (socketPath) => ({
+      socketPath,
+      ...(await queryPipelineList(connectIpcClient, socketPath, params, timeoutMs)),
+    })),
+  );
+  return {
+    snapshotsBySocketPath: Object.fromEntries(
+      answers.flatMap(({ socketPath, snapshots }) => (snapshots === undefined ? [] : [[socketPath, snapshots]])),
+    ),
+    hasMalformedResponse: answers.some(({ malformed }) => malformed),
+  };
 }
 
 /** Queries every supplied socket; individual connection, RPC, timeout, and payload failures are ignored. */

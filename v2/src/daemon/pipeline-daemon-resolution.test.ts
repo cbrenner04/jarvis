@@ -3,9 +3,11 @@ import type { IpcClient } from "../ipc/client.ts";
 import type { PipelineDaemonResolutionDeps } from "./pipeline-daemon-resolution.ts";
 import {
   PIPELINE_NO_LIVE_OWNER_RECOVERY,
+  queryPipelineListsFromSocketPaths,
   resolvePipelineDaemon,
   resolvePipelineDaemonFromSocketPaths,
 } from "./pipeline-daemon-resolution.ts";
+import type { PipelineSnapshot } from "./pipeline-observation.ts";
 
 const PIPELINE_ID = "pipeline-full-id";
 const INVOKING_SOCKET = "/jarvis/daemon-bbbb.sock";
@@ -213,4 +215,131 @@ test("never auto-starts", async () => {
   }
 
   expect(startCalls).toBe(0);
+});
+
+test("pipeline list queries retain valid snapshots and distinguish malformed replies", async () => {
+  const validSocket = "/1-valid.sock";
+  const malformedSocket = "/2-malformed.sock";
+  const rpcFailureSocket = "/3-rpc-failure.sock";
+  const connectFailureSocket = "/4-connect-failure.sock";
+  const sent: unknown[] = [];
+  const snapshot: PipelineSnapshot = {
+    pipelineId: PIPELINE_ID,
+    name: "test",
+    state: "running",
+    terminalPublicationSucceededAt: null,
+    terminalPublicationFailure: null,
+    createdAt: 1,
+    finishedAtMs: null,
+    dismissedAt: null,
+    stages: [
+      {
+        id: "stage-1",
+        stageId: "stage",
+        branchKey: "default",
+        position: 0,
+        status: "running",
+        workflowInvocationId: null,
+        startedAt: null,
+        endedAt: null,
+        decidedAt: null,
+        artifact: null,
+        failureDetail: null,
+      },
+    ],
+  };
+
+  const result = await queryPipelineListsFromSocketPaths(
+    async (socketPath) => {
+      if (socketPath === connectFailureSocket) throw new Error("connect failed");
+      if (socketPath === rpcFailureSocket) {
+        return replyingClient({ error: { code: "broken", message: "rpc failed" } }, sent);
+      }
+      return replyingClient(
+        {
+          result:
+            socketPath === validSocket
+              ? { pipelines: [snapshot] }
+              : { pipelines: [snapshot, { ...snapshot, stages: [{ ...snapshot.stages[0], endedAt: "broken" }] }] },
+        },
+        sent,
+      );
+    },
+    [validSocket, malformedSocket, rpcFailureSocket, connectFailureSocket],
+    { includeDismissed: true },
+    20,
+  );
+
+  expect(result).toEqual({
+    snapshotsBySocketPath: { [validSocket]: [snapshot] },
+    hasMalformedResponse: true,
+  });
+  expect(sent).toHaveLength(3);
+  expect(sent.every((frame) => (frame as { method?: string }).method === "pipeline_list")).toBeTrue();
+  expect(
+    sent.every((frame) => (frame as { params?: { includeDismissed?: unknown } }).params?.includeDismissed === true),
+  ).toBeTrue();
+});
+
+test("pipeline list distinguishes null from non-numeric nullable timestamps", async () => {
+  const snapshot: PipelineSnapshot = {
+    pipelineId: PIPELINE_ID,
+    name: "test",
+    state: "running",
+    terminalPublicationSucceededAt: 1,
+    terminalPublicationFailure: null,
+    createdAt: 1,
+    finishedAtMs: 2,
+    dismissedAt: null,
+    stages: [],
+  };
+
+  const valid = await queryPipelineListsFromSocketPaths(
+    async () => replyingClient({ result: { pipelines: [snapshot] } }),
+    [INVOKING_SOCKET],
+    undefined,
+    20,
+  );
+  expect(valid).toEqual({
+    snapshotsBySocketPath: { [INVOKING_SOCKET]: [snapshot] },
+    hasMalformedResponse: false,
+  });
+
+  const invalidTimestamp = {
+    ...snapshot,
+    dismissedAt: "invalid",
+  };
+  const invalid = await queryPipelineListsFromSocketPaths(
+    async () => replyingClient({ result: { pipelines: [invalidTimestamp] } }),
+    [INVOKING_SOCKET],
+    undefined,
+    20,
+  );
+  expect(invalid).toEqual({ snapshotsBySocketPath: {}, hasMalformedResponse: true });
+});
+
+test("pipeline list accepts a snapshot carrying an optional string field", async () => {
+  const snapshot: PipelineSnapshot = {
+    pipelineId: PIPELINE_ID,
+    name: "test",
+    state: "running",
+    seedPath: "/seeds/example.md",
+    terminalPublicationSucceededAt: null,
+    terminalPublicationFailure: null,
+    createdAt: 1,
+    finishedAtMs: null,
+    dismissedAt: null,
+    stages: [],
+  };
+
+  const result = await queryPipelineListsFromSocketPaths(
+    async () => replyingClient({ result: { pipelines: [snapshot] } }),
+    [INVOKING_SOCKET],
+    undefined,
+    20,
+  );
+  expect(result).toEqual({
+    snapshotsBySocketPath: { [INVOKING_SOCKET]: [snapshot] },
+    hasMalformedResponse: false,
+  });
 });

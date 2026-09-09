@@ -16,7 +16,7 @@ import {
 } from "./tui-ink-monitor.tsx";
 import type { InjectedInkUi, InkUseInput, InkUsePaste } from "./tui-ink-runtime.ts";
 import { loadInkUi } from "./tui-ink-runtime.ts";
-import { mergePipelineSnapshots, monitorDockLines } from "./tui-monitor-lines.ts";
+import { mergeMonitorPipelineSnapshots, monitorDockLines } from "./tui-monitor-lines.ts";
 import {
   buildMonitorPipelineTreeJoin,
   isExpandablePipelineNodeId,
@@ -1121,7 +1121,7 @@ describe("openInkMonitor", () => {
       const selectedNodeId = current.selectedNodeId;
       if (selectedNodeId === null) return;
       const { pipelineNodes } = buildMonitorPipelineTreeJoin(
-        mergePipelineSnapshots(current.pipelineSnapshotsBySocketPath),
+        mergeMonitorPipelineSnapshots(current.pipelineSnapshotsBySocketPath),
         current.runs,
       );
       if (!isExpandablePipelineNodeId(pipelineNodes, selectedNodeId)) return;

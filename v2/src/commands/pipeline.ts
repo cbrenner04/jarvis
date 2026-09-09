@@ -23,6 +23,12 @@ import {
   PIPELINE_WAIT_USAGE,
 } from "../cli/usage.ts";
 import { loadMachineConfig, readProjectConfigRecord } from "../config/machine-config-loader.ts";
+import { mergePipelineSnapshots } from "../daemon/merge-pipeline-snapshots.ts";
+import {
+  PIPELINE_NO_LIVE_OWNER_RECOVERY,
+  type PipelineListQueryResult,
+  queryPipelineListsFromSocketPaths,
+} from "../daemon/pipeline-daemon-resolution.ts";
 import { isPipelineTerminal, type PipelineDerivedState } from "../daemon/pipeline-execution.ts";
 import { uniquePipelineIdPrefixes } from "../daemon/pipeline-id-resolution.ts";
 import type {
@@ -30,6 +36,7 @@ import type {
   PipelineSnapshot,
   PipelineTerminalState,
 } from "../daemon/pipeline-observation.ts";
+import { resolveDaemonListSocketPaths } from "../daemon/query-daemon-lists-from-sockets.ts";
 import { getPipelineDefinition } from "../execution/pipeline-registry.ts";
 import { resolveProjectPipeline } from "../execution/project-pipeline-resolution.ts";
 import type { IpcClient } from "../ipc/client.ts";
@@ -68,12 +75,6 @@ function parsePipelineWaitBoundary(value: unknown): PipelineBoundaryResult | und
 
 function exitCodeForPipelineTerminalState(state: PipelineTerminalState): number {
   return state === "succeeded" ? 0 : 1;
-}
-
-function readPipelineListResult(value: unknown): { pipelines: unknown[] } | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const pipelines = (value as { pipelines?: unknown }).pipelines;
-  return Array.isArray(pipelines) ? { pipelines } : undefined;
 }
 
 export type PipelineMutationOutcome =
@@ -409,14 +410,18 @@ function selectPipelines(
   cutoff: number,
   state: PipelineDerivedState | undefined,
 ): PipelineSnapshot[] {
-  return pipelines
-    .filter((pipeline) => {
+  return orderPipelines(
+    pipelines.filter((pipeline) => {
       // Mutation checkpoint: returning true unconditionally must turn the cutoff/state filter tests RED.
       return pipeline.createdAt >= cutoff && (state === undefined || pipeline.state === state);
-    })
-    .sort((a, b) =>
-      a.createdAt !== b.createdAt ? b.createdAt - a.createdAt : a.pipelineId.localeCompare(b.pipelineId),
-    );
+    }),
+  );
+}
+
+function orderPipelines(pipelines: readonly PipelineSnapshot[]): PipelineSnapshot[] {
+  return [...pipelines].sort((a, b) =>
+    a.createdAt !== b.createdAt ? b.createdAt - a.createdAt : a.pipelineId.localeCompare(b.pipelineId),
+  );
 }
 
 function formatPipelineCreatedAge(createdAt: number, nowMs: number): string {
@@ -504,36 +509,40 @@ async function runPipelineListCommand(argv: readonly string[], io: Io, deps: Pip
     return 1;
   }
 
-  return withRunClient(io, deps, async (client) => {
-    try {
-      const result = await request(client, "pipeline_list", parsed.all ? { includeDismissed: true } : undefined);
-      const snapshot = readPipelineListResult(result);
-      if (snapshot === undefined) {
-        io.stderr("invalid daemon response\n");
-        return 1;
-      }
+  let queryResult: PipelineListQueryResult;
+  try {
+    const socketPaths = await resolveDaemonListSocketPaths(deps);
+    queryResult = await queryPipelineListsFromSocketPaths(
+      deps.connectIpcClient,
+      socketPaths,
+      parsed.all ? { includeDismissed: true } : undefined,
+    );
+  } catch {
+    io.stderr(`No live pipeline daemon responded; run ${PIPELINE_NO_LIVE_OWNER_RECOVERY}.\n`);
+    return 1;
+  }
 
-      if (parsed.json) {
-        io.stdout(`${JSON.stringify(snapshot)}\n`);
-        return 0;
-      }
+  if (Object.keys(queryResult.snapshotsBySocketPath).length === 0) {
+    io.stderr(
+      queryResult.hasMalformedResponse
+        ? "invalid daemon response\n"
+        : `No live pipeline daemon responded; run ${PIPELINE_NO_LIVE_OWNER_RECOVERY}.\n`,
+    );
+    return 1;
+  }
 
-      const cutoff = parsed.since ?? -Infinity;
-      const selected = selectPipelines(snapshot.pipelines as PipelineSnapshot[], cutoff, parsed.state);
-      if (selected.length === 0) {
-        io.stdout("No pipelines.\n");
-        return 0;
-      }
-      io.stdout(renderPipelineListRows(selected, deps.now(), parsed.all));
-      return 0;
-    } catch (error) {
-      if (error instanceof RpcError) {
-        io.stderr(formatRpcError(error));
-        return 1;
-      }
-      throw error;
-    }
-  });
+  const merged = mergePipelineSnapshots(queryResult.snapshotsBySocketPath);
+  if (parsed.json) {
+    io.stdout(`${JSON.stringify({ pipelines: orderPipelines(merged) })}\n`);
+    return 0;
+  }
+  const selected = selectPipelines(merged, parsed.since ?? -Infinity, parsed.state);
+  if (selected.length === 0) {
+    io.stdout("No pipelines.\n");
+    return 0;
+  }
+  io.stdout(renderPipelineListRows(selected, deps.now(), parsed.all));
+  return 0;
 }
 
 async function runPipelineWaitCommand(pipelineId: string, io: Io, deps: CliDeps): Promise<number> {

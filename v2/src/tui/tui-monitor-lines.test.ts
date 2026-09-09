@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
+import { mergePipelineSnapshots } from "../daemon/merge-pipeline-snapshots.ts";
 import type { PipelineSnapshot } from "../daemon/pipeline-observation.ts";
 import { RUN_STATUSES } from "../persistence/state-store.ts";
 import { ATTENTION_TERMINAL_RECENCY_MS, buildAttentionRows } from "./tui-attention-rows.ts";
@@ -9,7 +10,6 @@ import {
   joinMonitorRow,
   livenessTone,
   type MonitorLineRow,
-  mergePipelineSnapshots,
   monitorDockLines,
   monitorLeftPaneAttentionRows,
   monitorLeftPaneQueueRows,
@@ -984,7 +984,7 @@ describe("mergePipelineSnapshots", () => {
     const onB = pipelineSnapshot({ pipelineId: "b-only", state: "running" });
     const onA = pipelineSnapshot({ pipelineId: "a-only", state: "running" });
 
-    const merged = mergePipelineSnapshots({ "/b": { pipelines: [onB] }, "/a": { pipelines: [onA] } });
+    const merged = mergePipelineSnapshots({ "/b": [onB], "/a": [onA] });
 
     expect(merged.map((snapshot) => snapshot.pipelineId)).toEqual(["a-only", "b-only"]);
   });
@@ -995,7 +995,7 @@ describe("mergePipelineSnapshots", () => {
     const snapshotA = pipelineSnapshot({ pipelineId: "shared", state: "running" });
     const snapshotB = pipelineSnapshot({ pipelineId: "shared", state: "running" });
 
-    const merged = mergePipelineSnapshots({ "/a": { pipelines: [snapshotA] }, "/b": { pipelines: [snapshotB] } });
+    const merged = mergePipelineSnapshots({ "/a": [snapshotA], "/b": [snapshotB] });
 
     expect(merged).toHaveLength(1);
     expect(merged[0]?.pipelineId).toBe("shared");
@@ -1012,8 +1012,8 @@ describe("mergePipelineSnapshots", () => {
     });
 
     const merged = mergePipelineSnapshots({
-      "/a": { pipelines: [lessAdvanced] },
-      "/b": { pipelines: [moreAdvanced] },
+      "/a": [lessAdvanced],
+      "/b": [moreAdvanced],
     });
 
     expect(merged).toHaveLength(1);
@@ -1031,12 +1031,38 @@ describe("mergePipelineSnapshots", () => {
     const lessAdvanced = pipelineSnapshot({ pipelineId: "shared", state: "running", finishedAtMs: null, stages: [] });
 
     const merged = mergePipelineSnapshots({
-      "/a": { pipelines: [moreAdvanced] },
-      "/b": { pipelines: [lessAdvanced] },
+      "/a": [moreAdvanced],
+      "/b": [lessAdvanced],
     });
 
     expect(merged).toHaveLength(1);
     expect(merged[0]?.finishedAtMs).toBe(10);
+  });
+
+  test("unfinished collisions prefer more ended stages, then the earlier socket path", () => {
+    const fewerEnded = pipelineSnapshot({
+      pipelineId: "ended-shared",
+      name: "fewer-ended",
+      state: "running",
+      finishedAtMs: null,
+      stages: [snapshotStage({ stageId: "intent", endedAt: 10 })],
+    });
+    const moreEnded = pipelineSnapshot({
+      pipelineId: "ended-shared",
+      name: "more-ended",
+      state: "running",
+      finishedAtMs: null,
+      stages: [snapshotStage({ stageId: "intent", endedAt: 10 }), snapshotStage({ stageId: "plan", endedAt: 20 })],
+    });
+    const earlierPath = pipelineSnapshot({ pipelineId: "path-shared", name: "earlier-path", state: "running" });
+    const laterPath = pipelineSnapshot({ pipelineId: "path-shared", name: "later-path", state: "running" });
+
+    const merged = mergePipelineSnapshots({
+      "/a": [fewerEnded, earlierPath],
+      "/b": [moreEnded, laterPath],
+    });
+
+    expect(merged.map(({ name }) => name)).toEqual(["more-ended", "earlier-path"]);
   });
 
   test("two sockets serving an identical expanded pipeline paint no duplicate node ids at any tree depth", () => {

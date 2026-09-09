@@ -9,9 +9,13 @@ const SCAN_ROOTS = ["v2/src", "shared"] as const;
 
 const SHAPES = {
   setInvertExport: "setInvert*ForTest export",
+  setForTestExport: "set*ForTest export",
   invertModuleVariable: "invert*ForTest module variable",
+  forTestModuleVariable: "*ForTest module variable",
   invertParameter: "invert* parameter",
+  forTestParameter: "*ForTest parameter",
   invertTypeMember: "invert*ForTest type member",
+  forTestTypeMember: "*ForTest type member",
 } as const;
 
 function lineAt(source: string, index: number): number {
@@ -33,6 +37,25 @@ function paramsContainInvert(params: string): boolean {
   return /\binvert\w*\b/.test(params);
 }
 
+function paramsContainForTestSuffix(params: string): boolean {
+  return /\b(?!invert)\w+ForTests?\b/.test(params);
+}
+
+function findSetForTestExportViolations(source: string, file: string): GuardViolation[] {
+  const violations: GuardViolation[] = [];
+  const patterns = [
+    /\bexport\s+(?:async\s+)?function\s+(set(?!Invert)\w+ForTests?)\b/g,
+    /\bexport\s+(?:const|let|var)\s+(set(?!Invert)\w+ForTests?)\b/g,
+    /\bexport\s*\{[^}]*\b(set(?!Invert)\w+ForTests?)\b/g,
+  ];
+  for (const pattern of patterns) {
+    for (const match of source.matchAll(pattern)) {
+      violations.push({ file, line: lineAt(source, match.index ?? 0), shape: SHAPES.setForTestExport });
+    }
+  }
+  return violations;
+}
+
 function findSetInvertExportViolations(source: string, file: string): GuardViolation[] {
   const violations: GuardViolation[] = [];
   const patterns = [
@@ -44,6 +67,14 @@ function findSetInvertExportViolations(source: string, file: string): GuardViola
     for (const match of source.matchAll(pattern)) {
       violations.push({ file, line: lineAt(source, match.index ?? 0), shape: SHAPES.setInvertExport });
     }
+  }
+  return violations;
+}
+
+function findForTestModuleVariableViolations(source: string, file: string): GuardViolation[] {
+  const violations: GuardViolation[] = [];
+  for (const match of source.matchAll(/^(?:export\s+)?(?:const|let|var)\s+((?!invert)\w+ForTests?)\b/gm)) {
+    violations.push({ file, line: lineAt(source, match.index ?? 0), shape: SHAPES.forTestModuleVariable });
   }
   return violations;
 }
@@ -75,6 +106,25 @@ function findInvertParameterViolations(source: string, file: string): GuardViola
   return violations;
 }
 
+function findForTestParameterViolations(source: string, file: string): GuardViolation[] {
+  const violations: GuardViolation[] = [];
+  const signaturePatterns = [
+    /\bfunction\s*(?:\w+\s*)?\(([^)]*)\)/g,
+    /\bconstructor\s*\(([^)]*)\)/g,
+    /\b(?:public|private|protected|readonly|async\s+)*\w+\s*\(([^)]*)\)\s*(?::[^{;]*)?\s*\{/g,
+    /\(([^)]*)\)\s*=>/g,
+  ];
+  for (const pattern of signaturePatterns) {
+    for (const match of source.matchAll(pattern)) {
+      const params = match[1] ?? "";
+      if (paramsContainForTestSuffix(params)) {
+        violations.push({ file, line: lineAt(source, match.index ?? 0), shape: SHAPES.forTestParameter });
+      }
+    }
+  }
+  return violations;
+}
+
 function findInvertTypeMemberViolations(source: string, file: string): GuardViolation[] {
   const violations: GuardViolation[] = [];
   const patterns = [
@@ -85,6 +135,21 @@ function findInvertTypeMemberViolations(source: string, file: string): GuardViol
   for (const pattern of patterns) {
     for (const match of source.matchAll(pattern)) {
       violations.push({ file, line: lineAt(source, match.index ?? 0), shape: SHAPES.invertTypeMember });
+    }
+  }
+  return violations;
+}
+
+function findForTestTypeMemberViolations(source: string, file: string): GuardViolation[] {
+  const violations: GuardViolation[] = [];
+  const patterns = [
+    /\binterface\s+[\w<>,\s]*\{[^}]*\b((?!invert)\w+ForTests?)\s*\??:/g,
+    /\btype\s+[\w<>,\s=`]*\{[^}]*\b((?!invert)\w+ForTests?)\s*\??:/g,
+    /<[^>]*\b((?!invert)\w+ForTests?)\b/g,
+  ];
+  for (const pattern of patterns) {
+    for (const match of source.matchAll(pattern)) {
+      violations.push({ file, line: lineAt(source, match.index ?? 0), shape: SHAPES.forTestTypeMember });
     }
   }
   return violations;
@@ -105,9 +170,13 @@ export function findProductionInvertHookViolations(files: readonly GuardFile[]):
     if (!shouldScanFile(file)) return [];
     return dedupeViolations([
       ...findSetInvertExportViolations(source, file),
+      ...findSetForTestExportViolations(source, file),
       ...findInvertModuleVariableViolations(source, file),
+      ...findForTestModuleVariableViolations(source, file),
       ...findInvertParameterViolations(source, file),
+      ...findForTestParameterViolations(source, file),
       ...findInvertTypeMemberViolations(source, file),
+      ...findForTestTypeMemberViolations(source, file),
     ]);
   });
 }

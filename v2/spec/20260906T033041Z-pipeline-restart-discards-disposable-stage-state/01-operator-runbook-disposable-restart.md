@@ -20,7 +20,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/operator-runbook.md` documents default failed-plan resume disposal for never-landed lanes, landed versus draft-tree operator `## Blocker` handling, unlanded-commits salvage refusal, open-draft-PR exclusion from disposable classification, when `pipeline recover` versus default disposable resume applies, and retires superseded per-lane manual-teardown guidance.
+- [x] `v2/docs/operator-runbook.md` documents default failed-plan resume disposal for never-landed lanes, landed versus draft-tree operator `## Blocker` handling, unlanded-commits salvage refusal, open-draft-PR exclusion from disposable classification, when `pipeline recover` versus default disposable resume applies, and retires superseded per-lane manual-teardown guidance.
 
 ## Documentation updates
 

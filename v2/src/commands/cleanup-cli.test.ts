@@ -295,7 +295,6 @@ async function withScopedCleanupFixture(
 
 describe("named cleanup project scope", () => {
   test("named cleanup scopes project-owned preview and apply to one registered project", async () => {
-    // @mutate v2/src/commands/cleanup-cli.ts ": Object.fromEntries(Object.entries(registry).filter(([name]) => name === projectName));" -> ": registry;"
     for (const scenario of [
       { name: "dry-run", argv: ["selected", "--dry-run"], apply: false, interactive: false },
       { name: "interactive", argv: ["selected"], apply: true, interactive: true },
@@ -462,7 +461,6 @@ describe("named cleanup project scope", () => {
   });
 
   test("cleanup rejects an unknown project before daemon discovery or cleanup survey", async () => {
-    // @mutate v2/src/commands/cleanup-cli.ts "if (projectName !== undefined && !Object.hasOwn(registry, projectName)) {" -> "if (false) {"
     const root = mkdtempSync(join(tmpdir(), "jarvis-cleanup-unknown-"));
     const socket = join(root, "daemon-dead.sock");
     writeFileSync(socket, "");
@@ -502,7 +500,6 @@ describe("named cleanup project scope", () => {
   });
 
   test("cleanup rejects a project combined with abandon before registry access", async () => {
-    // @mutate v2/src/commands/cleanup-cli.ts "if (projectName !== undefined && abandonName !== undefined) {" -> "if (false) {"
     for (const project of ["selected", "unknown"]) {
       let registryCalls = 0;
       let daemonCalls = 0;
@@ -526,7 +523,6 @@ describe("named cleanup project scope", () => {
   });
 
   test("cleanup rejects more than one positional project before reading the registry", async () => {
-    // @mutate v2/src/commands/cleanup-cli.ts "if (positionals.length > 1) {" -> "if (false) {"
     let registryCalls = 0;
     let daemonCalls = 0;
     const cap = captureIo();

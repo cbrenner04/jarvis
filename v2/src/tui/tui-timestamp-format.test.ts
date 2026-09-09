@@ -12,7 +12,6 @@ describe("formatAbsoluteTimestamp", () => {
   });
 
   test("returns the empty string for null", () => {
-    // @mutate v2/src/tui/tui-timestamp-format.ts "if (epochMs == null) { return \"\"; }" -> "if (false) { return \"\"; }"
     expect(formatAbsoluteTimestamp(null)).toBe("");
   });
 

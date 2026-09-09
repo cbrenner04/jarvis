@@ -29,9 +29,6 @@ function clampExtremeOffsets(columns: number): { floorOffset: number; ceilingOff
 
 describe("computeShellLayout", () => {
   test("ordinary and wide terminals use the retuned left-pane clamp", () => {
-    // @mutate v2/src/tui/tui-shell-layout.ts "const LEFT_BASE_FRACTION = 0.45;" -> "const LEFT_BASE_FRACTION = 0.38;"
-    // @mutate v2/src/tui/tui-shell-layout.ts "const LEFT_FLOOR = 80;" -> "const LEFT_FLOOR = 72;"
-    // @mutate v2/src/tui/tui-shell-layout.ts "const LEFT_CEILING_FRACTION = 0.5;" -> "const LEFT_CEILING_FRACTION = 0.4;"
     expect(computeShellLayout(180, 50, 0)).toMatchObject({ leftWidth: 81, rightWidth: 98 });
     expect(computeShellLayout(200, 50, 0)).toMatchObject({ leftWidth: 90, rightWidth: 109 });
     expect(computeShellLayout(245, 72, 0)).toMatchObject({ leftWidth: 111, rightWidth: 133 });
@@ -56,7 +53,6 @@ describe("computeShellLayout", () => {
 
   test("split layout reserves a divider column between left and right widths", () => {
     // Keystone checkpoint: computing rightWidth without subtracting dividerWidth must turn this test RED.
-    // @mutate v2/src/tui/tui-shell-layout.ts "rightWidth: columns - leftWidth - dividerWidth," -> "rightWidth: columns - leftWidth,"
     for (const { columns, leftWidth, rightWidth } of [
       { columns: 180, leftWidth: 81, rightWidth: 98 },
       { columns: 200, leftWidth: 90, rightWidth: 109 },
@@ -68,7 +64,6 @@ describe("computeShellLayout", () => {
     }
 
     // Mutation checkpoint: always charging a divider column in the stacked branch must turn this test RED.
-    // @mutate v2/src/tui/tui-shell-layout.ts "const dividerWidth = layoutMode === \"split\" ? 1 : 0;" -> "const dividerWidth = 1;"
     expect(computeShellLayout(119, 72, 0)).toMatchObject({ layoutMode: "stacked", dividerWidth: 0, rightWidth: 39 });
 
     const { floorOffset, ceilingOffset } = clampExtremeOffsets(245);
@@ -126,7 +121,6 @@ describe("monitorRowFloor", () => {
 describe("composeMonitorRow", () => {
   test("composes fill-width labels and per-kind clusters", () => {
     // Keystone checkpoint: restoring the fixed-width label baseline here must turn this test RED.
-    // @mutate v2/src/tui/tui-shell-layout.ts "const labelWidth = paneWidth - hierarchyColumns(spec.depth) - 1 - clusterWidth(atoms);" -> "const labelWidth = 22;"
     const cases: { depth: number; row: MonitorLineRow }[] = [
       {
         depth: 0,
@@ -228,14 +222,12 @@ describe("cluster degradation", () => {
 
     // A full cluster fits: every declared atom, in order.
     // Mutation checkpoint: composeMonitorRow's fit-budget guard omitting MIN_LABEL_COLUMNS must turn this RED.
-    // @mutate v2/src/tui/tui-shell-layout.ts "return hierarchyColumns(depth) + gap + clusterWidth(atoms) + MIN_LABEL_COLUMNS <= paneWidth;" -> "return hierarchyColumns(depth) + gap + clusterWidth(atoms) <= paneWidth;"
     const full = composePipelineRow(pipelineInput, fitWidth(fullAtomsWidth));
     expect(clusterAtoms(full)).toEqual([definition, attention, elapsed]);
     expect(Bun.stringWidth(labelSegment(full))).toBe(MIN_LABEL_COLUMNS);
 
     // One display column less drops exactly the rightmost atom (elapsed) and cleans its separator.
     // Mutation checkpoint: dropRightmostDroppable dropping a non-droppable atom must turn this RED.
-    // @mutate v2/src/tui/tui-shell-layout.ts "if (atoms[index]?.droppable) return [...atoms.slice(0, index), ...atoms.slice(index + 1)];" -> "return [...atoms.slice(0, index), ...atoms.slice(index + 1)];"
     const droppedElapsed = composePipelineRow(pipelineInput, fitWidth(fullAtomsWidth) - 1);
     expect(clusterAtoms(droppedElapsed)).toEqual([definition, attention]);
     expect(clusterAtoms(droppedElapsed)).not.toContain(elapsed);
@@ -243,7 +235,6 @@ describe("cluster degradation", () => {
 
     // Continuing to shrink drops attention next, per the pipeline's declared right-to-left order.
     // Mutation checkpoint: degradeCluster keeping empty/exhausted atoms here must turn this RED.
-    // @mutate v2/src/tui/tui-shell-layout.ts "let atoms = fullAtoms.filter((atom) => atom.text.length > 0);" -> "let atoms = [...fullAtoms];"
     const droppedAttention = composePipelineRow(pipelineInput, fitWidth(twoAtomsWidth) - 1);
     expect(clusterAtoms(droppedAttention)).toEqual([definition]);
     expect(clusterAtoms(droppedAttention)).not.toContain(attention);
@@ -251,16 +242,13 @@ describe("cluster degradation", () => {
 
     // Exhausting every droppable atom substitutes the compact pipeline status.
     // Mutation checkpoint: degradeCluster skipping the compact-status fallback must turn this RED.
-    // @mutate v2/src/tui/tui-shell-layout.ts "if (atoms.length === 0 || !clusterFits(atoms, depth, paneWidth)) return [compactAtom];" -> "if (false) return [compactAtom];"
     const compact = composePipelineRow(pipelineInput, fitWidth(oneAtomWidth) - 1);
     expect(clusterAtoms(compact)).toEqual([status]);
     expect(Bun.stringWidth(labelSegment(compact))).toBeGreaterThanOrEqual(MIN_LABEL_COLUMNS);
 
     // Below the floor, composition falls back to one clipped, unpadded line via the same grapheme-safe primitive.
     // Mutation checkpoint: composeMonitorRow's floor comparison must turn this RED.
-    // @mutate v2/src/tui/tui-shell-layout.ts "if (paneWidth < monitorRowFloor(spec.depth, spec.compactStatus)) {" -> "if (false) {"
     // Mutation checkpoint: clippedRowLine returning the unclipped naive line must turn this RED.
-    // @mutate v2/src/tui/tui-shell-layout.ts "return { segments: [{ text: clipToWidth(naive, paneWidth) }] };" -> "return { segments: [{ text: naive }] };"
     const floor = monitorRowFloor(depth, status);
     const belowFloor = composePipelineRow(pipelineInput, floor - 1);
     expect(belowFloor.segments).toHaveLength(1);
@@ -268,7 +256,6 @@ describe("cluster degradation", () => {
 
     // Grapheme-width guard: a wide/combining grapheme never gets split mid-cluster while clipping.
     // Mutation checkpoint: letting a grapheme overshoot width here must turn grapheme-safe clipping RED.
-    // @mutate v2/src/tui/tui-shell-layout.ts "if (used + graphemeWidth > width) break;" -> "if (used + graphemeWidth > width + 1) break;"
     const wideLabelRow = composePipelineRow({ ...pipelineInput, label: "✋".repeat(20) }, floor - 1);
     const wideLabelText = wideLabelRow.segments[0]?.text ?? "";
     expect(Bun.stringWidth(wideLabelText)).toBeLessThanOrEqual(floor - 1);
@@ -354,7 +341,6 @@ describe("run and ad-hoc rows", () => {
     expect(activeElapsed2).not.toBe(activeElapsed1);
 
     // A standalone terminal row with no finish has zero elapsed at its own admission, frozen across clocks.
-    // @mutate v2/src/tui/tui-shell-layout.ts "const endMs = latestFinishedAtMs ?? latestCreatedAtMs;" -> "const endMs = latestFinishedAtMs ?? nowMs;"
     const finishlessRun: DaemonListRunRow = {
       ...SAMPLE_RUN,
       runId: "run-finishless",
@@ -434,7 +420,6 @@ describe("run and ad-hoc rows", () => {
       },
       stepId: "c",
     };
-    // @mutate v2/src/tui/tui-shell-layout.ts "if (workflowGroupHasActiveMember(members)) return null;" -> "if (false) return null;"
     const groupNoFinishElapsed = clusterAtoms(
       buildTreeRunRow(
         { kind: "workflow-collapsed", representative: groupNoFinishB, members: [groupNoFinishA, groupNoFinishB] },
@@ -474,7 +459,6 @@ describe("run and ad-hoc rows", () => {
   });
 
   test("a run row leads with its role and follows with the short run id", () => {
-    // @mutate v2/src/tui/tui-shell-layout.ts "const head = runRowLabelHead(monitorTreeRun(tableRow));" -> "const head = monitorTreeRun(tableRow).runId;"
     const run: DaemonListRunRow = { ...WORKFLOW_CHILD_RUN, runId: "12345678-1234-1234-1234-123456789abc" };
     const label = runRowLabel({ kind: "workflow-child", run });
 
@@ -482,7 +466,6 @@ describe("run and ad-hoc rows", () => {
   });
 
   test("a collapsed workflow row keeps its step context suffix after the role-first head", () => {
-    // @mutate v2/src/tui/tui-shell-layout.ts "if (tableRow.kind !== \"workflow-collapsed\") return head;" -> "if (tableRow.kind === \"workflow-collapsed\") return head;"
     const representative: DaemonListRunRow = {
       runId: "87654321-4321-4321-4321-cba987654321",
       project: "demo",

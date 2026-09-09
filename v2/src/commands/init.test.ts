@@ -128,7 +128,6 @@ const ADVERTISED_MACHINE_PROFILES = ["home", "work"] as const;
 
 describe("init machine bootstrap", () => {
   test("fresh init bootstraps a compatible machine idempotently", async () => {
-    // @mutate v2/src/commands/init.ts "next.agents = [...agents];" -> ""
     const fx = fixture();
 
     const first = await run(fx, ["--profile", "home"], ["claude"]);
@@ -279,12 +278,6 @@ describe("init machine bootstrap", () => {
   });
 
   test("machine bootstrap guard inversions expose unsafe state", async () => {
-    // @mutate v2/src/commands/init.ts "entry.isFile() && entry.name.endsWith(\".json\") && entry.name.length > 5" -> "entry.isFile()"
-    // @mutate v2/src/commands/init.ts "if (requestedProfile !== undefined && configuredProfile !== undefined && requestedProfile !== configuredProfile) {" -> "if (false) {"
-    // @mutate v2/src/commands/init.ts "if (Array.isArray((modelConfig as LoadError).errors)) {" -> "if (false) {"
-    // @mutate v2/src/commands/init.ts "if (!isExecutable(agent)) {" -> "if (false) {"
-    // @mutate v2/src/commands/init.ts "if (typeof value !== \"string\" || value.length === 0) {" -> "if (false) {"
-    // @mutate v2/src/commands/init.ts "if (!needsWrite) return undefined;" -> "if (false) return undefined;"
     const enumeration = fixture();
     writeFileSync(join(enumeration.machinesDir, "README"), "not a profile\n");
     expect((await run(enumeration, ["--profile", "missing"], ["claude"])).stderr).toBe(
@@ -323,7 +316,6 @@ describe("init machine bootstrap", () => {
 
 describe("init project registration", () => {
   test("project registration is additive and idempotent", async () => {
-    // @mutate v2/src/commands/init.ts "nextProject.root = projectRoot;" -> ""
     const named = fixture();
     const writes = { count: 0 };
     expect(
@@ -463,13 +455,6 @@ describe("init project registration", () => {
   });
 
   test("project registration guard inversions expose unsafe mutation", async () => {
-    // @mutate v2/src/commands/init.ts "if (resolvedCwd !== projectRoot) {" -> "if (false) {"
-    // @mutate v2/src/commands/init.ts "if (projectKey === undefined || !PROJECT_KEY_PATTERN.test(projectKey)) {" -> "if (false) {"
-    // @mutate v2/src/commands/init.ts "if (existingRootKeys.some((key) => key !== projectKey)) {" -> "if (false) {"
-    // @mutate v2/src/commands/init.ts "if (storedRoot !== undefined && resolve(storedRoot as string) !== projectRoot) {" -> "if (false) {"
-    // @mutate v2/src/commands/init.ts "if (nextProject.origin === undefined) {" -> "if (true) {"
-    // @mutate v2/src/commands/init.ts "if (existingProject !== undefined) validateProjectEntry(projectKey, existingProject);" -> ""
-    // @mutate v2/src/commands/init.ts "const nextProject = { ...(existingProject ?? {}) };" -> "const nextProject: Record<string, unknown> = {};"
     const nested = fixture();
     const nestedCwd = join(nested.projectRoot, "nested");
     mkdirSync(nestedCwd);
@@ -539,7 +524,6 @@ describe("init project registration", () => {
 
 describe("init planning directory", () => {
   test("scaffold writes only contained queue sentinels", async () => {
-    // @mutate v2/src/commands/init.ts "writeQueueSentinel(path);" -> ""
     const fx = fixture();
     seedConfig(fx, { agents: ["claude"], machineProfile: "home", ...registeredProject(fx) });
 
@@ -709,12 +693,6 @@ describe("init planning directory", () => {
   });
 
   test("scaffold guard inversions expose escaping or partial writes", async () => {
-    // @mutate v2/src/commands/init.ts "return requestedTargetDir ?? owned ?? legacyModePlanTargetDir(existing) ?? \"spec\";" -> "return \"spec\";"
-    // @mutate v2/src/commands/init.ts "if (requestedTargetDir === undefined || requestedTargetDir === owned) return { targetDir };" -> "if (true) return { targetDir };"
-    // @mutate v2/src/commands/init.ts "if (!inside(projectRootReal, real)) {" -> "if (false) {"
-    // @mutate v2/src/commands/init.ts "if (exists) continue;" -> "if (false) continue;"
-    // @mutate v2/src/commands/init.ts "if (options.scaffold === true) scaffoldQueueDirs(registration.projectRoot, targetDir, writeQueueSentinel);" -> "scaffoldQueueDirs(registration.projectRoot, targetDir, writeQueueSentinel);"
-    // @mutate v2/src/commands/init.ts "if (options.scaffold === true) assertScaffoldable(registration.projectRoot, targetDir);" -> ""
     const precedence = fixture();
     seedConfig(precedence, {
       agents: ["claude"],
@@ -783,7 +761,6 @@ describe("init planning directory", () => {
 
 describe("init readiness", () => {
   test("setup renders the complete stable readiness report", async () => {
-    // @mutate v2/src/commands/init.ts "io.stdout(renderReadinessReport(readinessResults));" -> ""
     const fx = fixture();
     mkdirSync(join(fx.projectRoot, "spec"));
     const result = await run(fx, ["--profile", "home"], ["claude"], undefined, {
@@ -934,12 +911,6 @@ describe("init readiness", () => {
   });
 
   test("readiness evaluator guard inversions expose false admission", async () => {
-    // @mutate v2/src/commands/init-readiness.ts "const ordered = orderReadinessResults(results);" -> "const ordered = results;"
-    // @mutate v2/src/commands/init-readiness.ts "return results.some((result) => isReadinessCheckRequired(result.id) && result.status !== \"ok\") ? 1 : 0;" -> "return 0;"
-    // @mutate v2/src/commands/init-readiness.ts "const unrunnable = context.agents.filter((agent) => !context.isExecutable(agent));" -> "const unrunnable: string[] = [];"
-    // @mutate v2/src/commands/init-readiness.ts "const originMatches = current === context.storedOrigin;" -> "const originMatches = true;"
-    // @mutate v2/src/commands/init-readiness.ts "const line = value.split(/\\r?\\n/).find((part) => part.trim().length > 0) ?? \"\";" -> "const line = value;"
-    // @mutate v2/src/commands/init-readiness.ts "return REQUIRED_READINESS_CHECKS.has(id);" -> "return true;"
     const fx = fixture();
     const baseContext: ReadinessContext = {
       machinesDir: fx.machinesDir,
@@ -998,7 +969,6 @@ describe("init readiness", () => {
 
 describe("init read-only check", () => {
   test("setup and check share the complete readiness report", async () => {
-    // @mutate v2/src/commands/init.ts "io.stdout(renderReadinessReport(checkResults));" -> ""
     const fx = fixture();
     mkdirSync(join(fx.projectRoot, "spec"));
     seedConfig(fx, { agents: ["claude"], machineProfile: "home", ...registeredProject(fx) });
@@ -1131,7 +1101,6 @@ describe("init read-only check", () => {
   });
 
   test("check mode guard inversions expose implicit repair", async () => {
-    // @mutate v2/src/commands/init.ts "if (options.check === true) {" -> "if (false) {"
     // read-only dispatch: --check must never fall through to setup's mutating path.
     const dispatch = fixture();
     const dispatchBytes = seedConfig(dispatch, { agents: ["claude"], machineProfile: "home" });
@@ -1143,7 +1112,6 @@ describe("init read-only check", () => {
     expect(writesDispatch.count).toBe(0);
     expect(readFileSync(dispatch.configPath, "utf8")).toBe(dispatchBytes);
 
-    // @mutate v2/src/commands/init.ts "return requestedTargetDir ?? owned ?? legacyModePlanTargetDir(existing) ?? \"spec\";" -> "return \"spec\";"
     // selector precedence: an explicit --target-dir must win over the stored owned target dir.
     const precedence = fixture();
     seedConfig(precedence, {
@@ -1169,14 +1137,12 @@ describe("init read-only check", () => {
     );
     expect(precedenceResult.stdout).toContain("spec-directory ok");
 
-    // @mutate v2/src/commands/init-readiness.ts "if (context.profileConfigured === false) return missing(\"machine profile is not configured\");" -> ""
     // missing-configured-state: an unconfigured profile must not read as ok even when the roster binds.
     const unconfigured = fixture();
     seedConfig(unconfigured, { agents: ["claude"], ...registeredProject(unconfigured) });
     const unconfiguredResult = await run(unconfigured, ["--check", "--profile", "home"], ["claude"]);
     expect(unconfiguredResult.stdout).toContain("machine-profile missing");
 
-    // @mutate v2/src/commands/init.ts "if (requestedProfile !== undefined && configuredProfile !== undefined && requestedProfile !== configuredProfile) {" -> "if (false) {"
     // profile conflict: a selector conflicting with the configured profile must reject, not silently pick one.
     const conflict = fixture();
     seedConfig(conflict, { agents: ["claude"], machineProfile: "home", ...registeredProject(conflict) });
@@ -1184,7 +1150,6 @@ describe("init read-only check", () => {
     expect(conflictResult.code).toBe(1);
     expect(conflictResult.stderr).toContain("conflicts with --profile");
 
-    // @mutate v2/src/commands/init.ts "if (projectKey === undefined || !PROJECT_KEY_PATTERN.test(projectKey)) {" -> "if (false) {"
     // selector validation: an unsafe --name must reject before any probe runs.
     const unsafe = fixture();
     seedConfig(unsafe, { agents: ["claude"], machineProfile: "home" });
@@ -1192,7 +1157,6 @@ describe("init read-only check", () => {
     expect(unsafeResult.code).toBe(1);
     expect(unsafeResult.stderr).toContain("must match");
 
-    // @mutate v2/src/commands/init.ts "if (options.scaffold === true) throw new Error(\"--check does not accept --scaffold\");" -> ""
     // scaffold-rejection: `--check --scaffold` must reject before any writes or probes.
     const scaffold = fixture();
     seedConfig(scaffold, { agents: ["claude"], machineProfile: "home", ...registeredProject(scaffold) });

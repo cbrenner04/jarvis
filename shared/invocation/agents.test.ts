@@ -225,7 +225,6 @@ describe("parseShellToolFrameLine", () => {
       "claude",
     );
     expect(start).toEqual({ phase: "start", command: "bun run test:shared", toolUseId: "toolu_shell" });
-    // @mutate shared/invocation/agents.ts "name === \"Shell\"" -> "name !== \"Shell\""
   });
 
   test("parses top-level claude tool_use Bash starts and ignores non-shell tool_use", () => {
@@ -250,7 +249,6 @@ describe("parseShellToolFrameLine", () => {
         "claude",
       ),
     ).toBeNull();
-    // @mutate shared/invocation/agents.ts "command === null" -> "command !== null"
   });
 
   test("ignores non-shell claude tool_use blocks even with a command-shaped input", () => {
@@ -265,7 +263,6 @@ describe("parseShellToolFrameLine", () => {
       "claude",
     );
     expect(result).toBeNull();
-    // @mutate shared/invocation/agents.ts "name === \"Bash\"" -> "name !== \"Bash\""
   });
 
   test("parses claude assistant Bash tool_use starts and tool_result completions", () => {
@@ -280,7 +277,6 @@ describe("parseShellToolFrameLine", () => {
       "claude",
     );
     expect(start).toEqual({ phase: "start", command: "bun run test:v2", toolUseId: "toolu_1" });
-    // @mutate shared/invocation/agents.ts "name === \"Bash\"" -> "name === \"Read\""
     expect(parseShellToolFrameLine(JSON.stringify({ type: "tool_result", tool_use_id: "toolu_1" }), "claude")).toEqual({
       phase: "complete",
       toolUseId: "toolu_1",
@@ -367,7 +363,6 @@ describe("parseShellToolFrameLine", () => {
 
     expect(commands).toEqual(["bun run test:v2"]);
     expect(completions).toBe(1);
-    // @mutate shared/invocation/agents.ts "processShellToolStdoutLine(line, config.classifier, shellToolParseState, opts);" -> ""
   });
 
   test("claude binding invokes onAgentShellCommand for streamed partial shell input_json_delta", async () => {
@@ -424,7 +419,6 @@ describe("parseShellToolFrameLine", () => {
 
     expect(commands).toContain("bun run test:shared");
     expect(completions).toBe(1);
-    // @mutate shared/invocation/agents.ts "partial.trim() === \"\"" -> "partial.trim() !== \"\""
   });
 
   test("claude binding ignores content_block_stop and uncorrelated tool_result for shell completion", async () => {
@@ -525,7 +519,6 @@ describe("createResolvedAgentBinding", () => {
       "--verbose",
       "--include-partial-messages",
     ]);
-    // @mutate shared/invocation/agents.ts "--include-partial-messages" -> ""
     expect(fake.calls[0]?.opts.cwd).toBe("/repo");
     expect(fake.calls[0]?.opts.detached).toBe(true);
     expect(fake.calls[0]?.opts.stdio).toEqual(["pipe", "pipe", "pipe"]);
@@ -1202,7 +1195,6 @@ describe("createResolvedAgentBinding", () => {
   });
 
   test("Codex sandbox argv retains approval policy only when sandboxed", async () => {
-    // @mutate shared/invocation/agents.ts "args.sandboxMode !== \"danger-full-access\"" -> "args.sandboxMode === \"danger-full-access\""
     const fake = fakeSpawn([
       { kind: "settle", code: 1, stderr: "stop" },
       { kind: "settle", code: 1, stderr: "stop" },
@@ -1507,7 +1499,6 @@ describe("createResolvedAgentBinding", () => {
     const expectedCost = computeCost(pricedUsage, "gpt-5.6-sol", loadPrices()).cost_usd;
     expect(result.kind === "ok" && result.cost_usd).toBeCloseTo(expectedCost ?? 0, 10);
     expect(result.kind === "ok" && result.cost_usd).toBeCloseTo(0.135824, 10);
-    // @mutate shared/invocation/agents.ts "return finalizeCodexInvocationResult(result, resolved.sessionFile, args.priceKey);" -> "return result;"
 
     const rows: InvocationCompletedRecord[] = [];
     await executeWithQuotaFallback({
@@ -1523,7 +1514,6 @@ describe("createResolvedAgentBinding", () => {
       cost_source: "computed",
     });
     expect(rows[0]?.cost_usd).toBeCloseTo(0.135824, 10);
-    // @mutate shared/invocation/agents.ts "Math.max(0, input - cachedInput)" -> "input"
   });
 
   test("codex binding with matched rollout whose token_count info is all null keeps unavailable no-usage", async () => {
@@ -1551,7 +1541,6 @@ describe("createResolvedAgentBinding", () => {
     expect(result.kind === "ok" && result.warnings).toEqual([
       "codex usage unavailable: matched session has token_count events with null info only",
     ]);
-    // @mutate shared/invocation/agents.ts "if (selected === \"all-info-null\") {" -> "if (false) {"
   });
 
   test("codex binding uses last non-null token_count event, not max total", async () => {

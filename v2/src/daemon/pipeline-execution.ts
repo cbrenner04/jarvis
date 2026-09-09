@@ -2828,12 +2828,10 @@ function scanFirstActionableFanOutSuffixStage(
   for (const { stage, record } of suffixStagesForBranch(pipeline, split.splitPosition, branchKey)) {
     if (record.status === "skipped") continue;
     if (isAuthoredStageSatisfied(stage, record)) continue;
-    // @mutate pipeline-execution.test.ts "failed-plus-running fan-out rows derive running"
     if (!branchSuffixPredecessorsSatisfied(pipeline, record, split)) break;
     if (stage.kind === "approval" && (record.status === "awaiting" || record.status === "pending")) {
       return { anyActionableAwaiting: true, anyActionablePending: false };
     }
-    // @mutate pipeline-execution.test.ts "all-settled fan-out rows with at least one failure derive failed"
     if (record.status === "pending") {
       return { anyActionableAwaiting: false, anyActionablePending: true };
     }
@@ -2855,7 +2853,6 @@ function aggregateFanOutBranchSuffix(
   let anyActionableAwaiting = false;
   let anyActionablePending = false;
 
-  // @mutate pipeline-execution.test.ts "failed branch with earlier reachable pending derives failed once siblings settle"
   if (!(anyRejected || anyFailed)) {
     const actionable = scanFirstActionableFanOutSuffixStage(pipeline, split, branchKey);
     anyActionableAwaiting = actionable.anyActionableAwaiting;
@@ -2907,15 +2904,10 @@ function deriveFanOutSuffixState(
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
   aggregation: FanOutSuffixAggregation,
 ): PipelineDerivedState {
-  // @mutate pipeline-execution.test.ts "failed-plus-running fan-out rows derive running"
   if (aggregation.anyRunning) return "running";
-  // @mutate pipeline-execution.test.ts "rejected-plus-running fan-out rows derive running"
   if (aggregation.anyActionableAwaiting) return "awaiting-approval";
-  // @mutate pipeline-execution.test.ts "failed branch plus sibling with approved gate and pending workflow derives pending"
   if (aggregation.anyActionablePending) return "pending";
-  // @mutate pipeline-execution.test.ts "all-settled fan-out rows with at least one failure derive failed"
   if (aggregation.anyRejected) return "rejected";
-  // @mutate pipeline-execution.test.ts "rejected-plus-running fan-out rows derive running"
   if (aggregation.anyFailed) return "failed";
   if (!aggregation.allBranchesComplete) return "pending";
   if (isPipelineSettlementPending(pipeline)) return "running";

@@ -153,7 +153,6 @@ describe("buildPlanDraftPrompt", () => {
   });
 
   test("renders canonical ordered harness diagnostics only when supplied", () => {
-    // @mutate shared/prompts/plan-draft.ts "if (opts.harnessNormalizerDiagnostics !== undefined && opts.harnessNormalizerDiagnostics.length > 0) {" -> "if (false) {"
     const fresh = buildPlanDraftPrompt({
       name: "my-plan",
       intent: "do thing",

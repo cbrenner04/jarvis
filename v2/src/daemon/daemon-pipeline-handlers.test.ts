@@ -104,7 +104,6 @@ test("pipeline_start admits valid context and returns durable pipelineId", async
     new AbortController().signal,
   );
 
-  // @mutate v2/src/daemon/daemon-pipeline-handlers.ts "if (!admitted?.context) {" -> "if (admitted?.context) {"
   expect(response).toEqual({ kind: "response", result: { pipelineId: expect.any(String) } });
   const pipelineId = (response as { result: { pipelineId: string } }).result.pipelineId;
   const admitted = stateStore.loadPipeline(pipelineId);
@@ -296,7 +295,6 @@ test("pipeline_approve and pipeline_reject require pipelineId and stageId", asyn
     requestFrame("approve-unknown", "pipeline_approve", { pipelineId: "missing", stageId: "gate" }),
     new AbortController().signal,
   );
-  // @mutate v2/src/daemon/daemon-pipeline-handlers.ts "!params?.pipelineId" -> "params?.pipelineId"
   expect(approve).toEqual({
     kind: "response",
     result: { kind: "refused", pipelineId: "missing", stageId: "gate", reason: "pipeline_not_found" },
@@ -318,7 +316,6 @@ test("pipeline_resume requires pipelineId", async () => {
     requestFrame("resume-unknown", "pipeline_resume", { pipelineId: "missing-pipeline" }),
     new AbortController().signal,
   );
-  // @mutate v2/src/daemon/daemon-pipeline-handlers.ts "!params" -> "params"
   expect(response).toEqual({
     kind: "response",
     result: { kind: "refused", pipelineId: "missing-pipeline", reason: "pipeline_not_found" },
@@ -341,7 +338,6 @@ test("pipeline_resume forwards branchKey to resumePipeline when provided", async
     requestFrame("resume-branch", "pipeline_resume", { pipelineId, branchKey: "unknown-branch" }),
     new AbortController().signal,
   );
-  // @mutate v2/src/daemon/daemon-pipeline-handlers.ts "...(branchKey !== undefined ? { branchKey } : {})," -> "...(branchKey === undefined ? { branchKey } : {}),"
   expect(response).toEqual({
     kind: "response",
     result: { kind: "refused", pipelineId, branchKey: "unknown-branch", reason: "branch_not_found" },

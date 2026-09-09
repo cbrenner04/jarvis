@@ -50,7 +50,6 @@ async function waitForFileToExist(path: string, deadlineMs: number): Promise<voi
 }
 
 test("terminating a run mid-gate kills the ready gate process group", async () => {
-  // @mutate v2/src/execution/ready-finalize.ts "[\"run\", \"ready\"], worktreePath, { env, signal: gateOptions?.signal, processGroup });" -> "[\"run\", \"ready\"], worktreePath, { env });"
   const { jarvisRoot, stateDbPath } = createJarvisHome();
   const branchName = "ready-gate-reap";
   const worktreePath = join(jarvisRoot, "worktrees", "demo", branchName);

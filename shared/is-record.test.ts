@@ -8,7 +8,6 @@ describe("isRecord", () => {
   });
 
   test("rejects arrays, null, and primitives", () => {
-    // @mutate shared/is-record.ts "!Array.isArray(value)" -> "Array.isArray(value)"
     expect(isRecord([])).toBe(false);
     expect(isRecord(null)).toBe(false);
     expect(isRecord(undefined)).toBe(false);

@@ -170,7 +170,6 @@ describe("landIntentWorkflowOutput", () => {
   });
 
   test("landing with a harness-created node_modules symlink reports no rogue path", async () => {
-    // @mutate v2/src/execution/intent-output.ts "if (isMaterializedNodeModulesPath(input.worktreePath, path)) return false;" -> "if (false) return false;"
     const repo = createRepo();
     stage(repo);
     materializeNodeModulesSymlink(repo);
@@ -192,7 +191,6 @@ describe("landIntentWorkflowOutput", () => {
   });
 
   test("an untracked real node_modules directory is still rogue intent output", async () => {
-    // @mutate v2/src/execution/external-worktree.ts "return lstatSync(join(worktreePath, MATERIALIZED_NODE_MODULES_PATH), { throwIfNoEntry: false })?.isSymbolicLink() === true;" -> "return true;"
     const repo = createRepo();
     stage(repo);
     mkdirSync(join(repo, "node_modules"));
@@ -212,7 +210,6 @@ describe("landIntentWorkflowOutput", () => {
   });
 
   test("a different untracked worktree-root path is still rogue intent output", async () => {
-    // @mutate v2/src/execution/external-worktree.ts "if (path !== MATERIALIZED_NODE_MODULES_PATH) return false;" -> "if (false) return false;"
     const repo = createRepo();
     stage(repo);
     materializeNodeModulesSymlink(repo);

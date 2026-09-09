@@ -191,7 +191,6 @@ async function expectFreshWorktreeHasNoNodeModules(nodeModules: "none" | "file")
 describe("external worktree helper", () => {
   test("provisions project dependencies before the first callback", async () => {
     // Mutation checkpoint: inverting the directory guard to always-false must turn this RED.
-    // @mutate v2/src/execution/external-worktree.ts "statSync(projectNodeModules, { throwIfNoEntry: false })?.isDirectory()" -> "false"
     const { repoRoot, jarvisRoot, runner } = setupMockRepo();
     let callbackLink: string | undefined;
 
@@ -208,7 +207,6 @@ describe("external worktree helper", () => {
 
   test("a project without node_modules leaves the fresh worktree root free of it", async () => {
     // Keystone checkpoint: restoring the baseline unconditional symlink must turn this RED.
-    // @mutate v2/src/execution/external-worktree.ts "statSync(projectNodeModules, { throwIfNoEntry: false })?.isDirectory()" -> "true"
     await expectFreshWorktreeHasNoNodeModules("none");
   });
 

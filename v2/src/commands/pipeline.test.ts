@@ -553,7 +553,6 @@ describe("pipeline list", () => {
           ),
       }),
     );
-    // @mutate v2/src/commands/pipeline.ts "if (parsed.json) {" -> "if (false) {"
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({
@@ -628,7 +627,6 @@ describe("pipeline list", () => {
   });
 
   test("list renders one human row per pipeline", async () => {
-    // @mutate v2/src/commands/pipeline.ts "io.stdout(renderPipelineListRows(selected, deps.now()));" -> "io.stdout(`${JSON.stringify(snapshot)}\n`);"
     const NOW_MS = 2_000_000_000_000;
     const cap = captureIo();
     const sent: unknown[] = [];
@@ -754,7 +752,6 @@ describe("pipeline list", () => {
   });
 
   test("list filters human output by cutoff and exact pipeline state", async () => {
-    // @mutate v2/src/commands/pipeline.ts "return pipeline.createdAt >= cutoff && (state === undefined || pipeline.state === state);" -> "return true;"
     const NOW_MS = 3_000_000_000_000;
     const cutoffIso = new Date(NOW_MS - HOUR).toISOString();
 
@@ -846,7 +843,6 @@ describe("pipeline list", () => {
   });
 
   test("list rejects json combined with human filters", async () => {
-    // @mutate v2/src/commands/pipeline.ts "if (parsed.json && (parsed.since !== undefined || parsed.state !== undefined)) {" -> "if (false) {"
     for (const argv of [
       ["pipeline", "list", "--json", "--since", "1h"],
       ["pipeline", "list", "--json", "--state", "running"],
@@ -869,7 +865,6 @@ describe("pipeline list", () => {
   });
 
   test("list reports no pipelines for an empty human selection", async () => {
-    // @mutate v2/src/commands/pipeline.ts "if (selected.length === 0) {" -> "if (false) {"
     const emptyStoreCap = captureIo();
     const emptyStoreCode = await withFixedUuid([SESSION_UUID, "pipe-list-empty-human"], () =>
       main(["pipeline", "list"], emptyStoreCap.io, {
@@ -906,7 +901,6 @@ describe("pipeline list", () => {
         connectIpcClient: async () => makeIpcClient([pipelineListFrame("pipe-list-all", [])], { sent }),
       }),
     );
-    // @mutate v2/src/commands/pipeline.ts "parsed.all ? { includeDismissed: true } : undefined" -> "undefined"
 
     expect(code).toBe(0);
     expect(ipcFramesWithMethod(sent, "pipeline_list")).toEqual([
@@ -924,7 +918,6 @@ describe("pipeline list", () => {
         connectIpcClient: async () => makeIpcClient([pipelineListFrame("pipe-list-default", [])], { sent }),
       }),
     );
-    // @mutate v2/src/commands/pipeline.ts "parsed.all ? { includeDismissed: true } : undefined" -> "{ includeDismissed: true }"
 
     expect(code).toBe(0);
     const frames = ipcFramesWithMethod(sent, "pipeline_list");
@@ -959,8 +952,6 @@ describe("pipeline list", () => {
         connectIpcClient: async () => makeIpcClient([pipelineListFrame("pipe-list-all-human", [dismissed, live])]),
       }),
     );
-
-    // @mutate v2/src/commands/pipeline.ts "...(showDismissal ? [typeof pipeline.dismissedAt === \"number\" ? \"dismissed\" : \"-\"] : [])," -> "...[],"
 
     expect(code).toBe(0);
     expect(cap.read().stdout).toBe(
@@ -999,8 +990,6 @@ describe("pipeline list", () => {
         connectIpcClient: async () => makeIpcClient([pipelineListFrame("pipe-list-no-all-human", [dismissed, live])]),
       }),
     );
-
-    // @mutate v2/src/commands/pipeline.ts "...(showDismissal ? [typeof pipeline.dismissedAt === \"number\" ? \"dismissed\" : \"-\"] : [])," -> "...[typeof pipeline.dismissedAt === \"number\" ? \"dismissed\" : \"-\"],"
 
     expect(code).toBe(0);
     const lines = cap.read().stdout.trim().split("\n");
@@ -1540,7 +1529,6 @@ describe("pipeline resume", () => {
           }),
       }),
     );
-    // @mutate v2/src/commands/pipeline.ts "{ pipelineId: parsed.pipelineId, ...(parsed.branchKey !== undefined ? { branchKey: parsed.branchKey } : {}) }," -> "{ pipelineId: parsed.pipelineId },"
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: "pipe-1\n", stderr: "" });
@@ -1588,7 +1576,6 @@ describe("pipeline resume", () => {
           }),
       }),
     );
-    // @mutate v2/src/commands/pipeline.ts "...(parsed.resetDespiteDirty ? { resetDespiteDirty: true } : {})," -> ""
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: "pipe-1\n", stderr: "" });
@@ -1672,7 +1659,6 @@ describe("pipeline resume", () => {
       stdout: "",
       stderr: `branch_resume_required\n${branchKeys.join("\n")}\n`,
     });
-    // @mutate v2/src/commands/pipeline.ts "if (outcome.branchKeys !== undefined) {" -> "if (false) {"
   });
 
   test.each([
@@ -1706,7 +1692,6 @@ describe("pipeline resume", () => {
         throw new Error("should not contact daemon");
       },
     });
-    // @mutate v2/src/commands/pipeline.ts "if (positionals.length < 1 || positionals.length > 2) return { ok: false };" -> "if (positionals.length < 1) return { ok: false };"
 
     expect(tooManyArgsCode).toBe(1);
     expect(tooManyArgsContacted).toBe(false);
@@ -1723,7 +1708,6 @@ describe("pipeline resume", () => {
         throw new Error("should not contact daemon");
       },
     });
-    // @mutate v2/src/commands/pipeline.ts "if (branchKey.trim().length === 0) return { ok: false };" -> "if (branchKey.length === 0) return { ok: false };"
 
     expect(blankBranchCode).toBe(1);
     expect(blankBranchContacted).toBe(false);
@@ -1789,7 +1773,6 @@ describe("pipeline recover", () => {
         connectIpcClient: async () => makeIpcClient([pipelineWaitFrame("pipe-recover", result)], { sent }),
       }),
     );
-    // @mutate v2/src/commands/pipeline.ts "return runPipelineRecoverCommand(parsed, io, deps);" -> "io.stderr(PIPELINE_USAGE); return 1;"
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: `${JSON.stringify(result)}\n`, stderr: "" });
@@ -1832,7 +1815,6 @@ describe("pipeline recover", () => {
         },
       ),
     );
-    // @mutate v2/src/commands/pipeline.ts "...(resetDespiteDirty ? { resetDespiteDirty: true } : {})," -> ""
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: `${JSON.stringify(result)}\n`, stderr: "" });
@@ -1868,7 +1850,6 @@ describe("pipeline recover", () => {
           ]),
       }),
     );
-    // @mutate v2/src/commands/pipeline.ts "return outcome.kind === \"admitted\" ? 0 : 1;" -> "return 0;"
     expect(refusedCode).toBe(1);
     expect(refusedCap.read()).toEqual({
       stdout: "",
@@ -1903,7 +1884,6 @@ describe("pipeline recover", () => {
         connectIpcClient: async () => makeIpcClient([pipelineWaitFrame("pipe-recover-unknown", { kind: "unknown" })]),
       }),
     );
-    // @mutate v2/src/commands/pipeline.ts "if (typeof record.kind !== \"string\" || !PIPELINE_RECOVER_RESULT_KINDS.has(record.kind)) return undefined;" -> "if (typeof record.kind !== \"string\") return undefined;"
     expect(unknownCode).toBe(1);
     expect(unknownCap.read()).toEqual({ stdout: "", stderr: "invalid daemon response\n" });
 
@@ -1946,8 +1926,6 @@ describe("pipeline recover", () => {
     await expectUsage(["pipeline", "recover", "pipe-1"]);
     await expectUsage(["pipeline", "recover", "pipe-1", "alpha", "extra"]);
     await expectUsage(["pipeline", "recover", "pipe-1", "   "]);
-    // @mutate v2/src/commands/pipeline.ts "if (positionals.length !== 2) return { ok: false };" -> "if (positionals.length < 2) return { ok: false };"
-    // @mutate v2/src/commands/pipeline.ts "if (pipelineId.trim().length === 0 || branchKey.trim().length === 0) return { ok: false };" -> "if (pipelineId.length === 0 || branchKey.length === 0) return { ok: false };"
   });
 
   test("help pipeline recover matches recover usage", async () => {
@@ -1987,7 +1965,6 @@ describe("pipeline dismiss", () => {
           ),
       }),
     );
-    // @mutate v2/src/commands/pipeline.ts "const method = mode === \"dismiss\" ? \"pipeline_dismiss\" : \"pipeline_undismiss\";" -> "const method = \"pipeline_undismiss\";"
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: "pipeline dismiss: pipe-1\n", stderr: "" });
@@ -2036,7 +2013,6 @@ describe("pipeline dismiss", () => {
 
     await expectRefusal(["pipeline", "dismiss", "pipe-1"], "pipe-dismiss-refused");
     await expectRefusal(["pipeline", "undismiss", "pipe-1"], "pipe-undismiss-refused");
-    // @mutate v2/src/commands/pipeline.ts "if (outcome.kind !== \"applied\") {" -> "if (false) {"
   });
 
   test("dismissing a live pipeline warns naming its state", async () => {
@@ -2057,7 +2033,6 @@ describe("pipeline dismiss", () => {
 
     await expectWarning("running", "pipe-dismiss-running");
     await expectWarning("awaiting-approval", "pipe-dismiss-awaiting");
-    // @mutate v2/src/commands/pipeline.ts "if (mode === \"dismiss\" && !isPipelineTerminal(outcome.state)) {" -> "if (false) {"
   });
 
   test("dismissing a terminal pipeline prints no warning", async () => {
@@ -2072,7 +2047,6 @@ describe("pipeline dismiss", () => {
           ]),
       }),
     );
-    // @mutate v2/src/commands/pipeline.ts "mode === \"dismiss\" && !isPipelineTerminal(outcome.state)" -> "mode === \"dismiss\""
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: "pipeline dismiss: pipe-1\n", stderr: "" });
@@ -2100,7 +2074,6 @@ describe("pipeline dismiss", () => {
     await expectUsage(["pipeline", "undismiss"], PIPELINE_UNDISMISS_USAGE);
     await expectUsage(["pipeline", "undismiss", "   "], PIPELINE_UNDISMISS_USAGE);
     await expectUsage(["pipeline", "undismiss", "pipe-1", "extra"], PIPELINE_UNDISMISS_USAGE);
-    // @mutate v2/src/commands/pipeline.ts "if (argv.length !== 1) return { ok: false };" -> "if (false) return { ok: false };"
   });
 
   test("dismiss prints invalid daemon response for a malformed envelope", async () => {

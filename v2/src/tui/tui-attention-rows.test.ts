@@ -124,7 +124,6 @@ describe("buildAttentionRows", () => {
 
     expect(projection.total).toBe(6);
     // Keystone checkpoint: an in-body mutation directive disables the complete attention projection.
-    // @mutate v2/src/tui/tui-attention-rows.ts "return { rows, total: incidents.length, overflow: incidents.length - rows.length };" -> "return { rows: [], total: 0, overflow: 0 };"
     expect(projection.rows.length).toBe(6);
     expect(projection.overflow).toBe(0);
 
@@ -257,9 +256,6 @@ describe("buildAttentionRows", () => {
 
     // Mutation checkpoint: in-body mutation directives invert the dated-before-undated guard,
     // target-id tie-break, and row-id tie-break; each turns this test red.
-    // @mutate v2/src/tui/tui-attention-rows.ts "return aDated ? -1 : 1;" -> "return aDated ? 1 : -1;"
-    // @mutate v2/src/tui/tui-attention-rows.ts "return a.targetId < b.targetId ? -1 : 1;" -> "return a.targetId < b.targetId ? 1 : -1;"
-    // @mutate v2/src/tui/tui-attention-rows.ts "return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;" -> "return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;"
   });
 
   test("filters attention sources", () => {
@@ -341,15 +337,6 @@ describe("buildAttentionRows", () => {
     // Mutation checkpoint: in-body mutation directives invert every added source, canonical-source
     // suppression, predecessor-kind timestamp, terminal-publication durability, and filtering; each
     // turns this test red.
-    // @mutate v2/src/tui/tui-attention-rows.ts "if (stage.status === \"awaiting\") {" -> "if (false) {"
-    // @mutate v2/src/tui/tui-attention-rows.ts "} else if (stage.status === \"rejected\") {" -> "} else if (false) {"
-    // @mutate v2/src/tui/tui-attention-rows.ts "if (stage.status === \"failed\") {" -> "if (false) {"
-    // @mutate v2/src/tui/tui-attention-rows.ts "if (status === \"failed\") return \"failed-run\";" -> "if (false) return \"failed-run\";"
-    // @mutate v2/src/tui/tui-attention-rows.ts "if (status === \"blocked\") return \"blocked-run\";" -> "if (false) return \"blocked-run\";"
-    // @mutate v2/src/tui/tui-attention-rows.ts "if (!hasPipelineTerminalPublicationFailure(snapshot)) return [];" -> "return [];"
-    // @mutate v2/src/tui/tui-attention-rows.ts "if (seen.has(snapshot.pipelineId)) continue;" -> "if (false) continue;"
-    // @mutate v2/src/tui/tui-attention-rows.ts "if (kinds.get(predecessor.stageId) === \"approval\") return predecessor.decidedAt;" -> "return predecessor.endedAt;"
-    // @mutate v2/src/tui/tui-attention-rows.ts "return finishAts.length > 0 ? Math.max(...finishAts) : null;" -> "return finishAts.length > 0 ? Math.max(...finishAts) : snapshot.createdAt;"
   });
 
   test("every awaiting gate stays selectable when gates exceed the failure cap", () => {
@@ -371,7 +358,6 @@ describe("buildAttentionRows", () => {
       );
     }
     // Keystone checkpoint: an in-body mutation directive restores the pre-fix shared six-row cap.
-    // @mutate v2/src/tui/tui-attention-rows.ts "const rows = [...gates, ...failures.slice(0, ATTENTION_ROW_CAP)];" -> "const rows = incidents.slice(0, ATTENTION_ROW_CAP);"
   });
 
   test("the newest awaiting gate sorts ahead of a stale gate backlog", () => {
@@ -390,7 +376,6 @@ describe("buildAttentionRows", () => {
 
     expect(projection.rows[0]?.id).toBe(`attention:gate:${newest.pipelineId}:approve-intent:default`);
     // Mutation checkpoint: an in-body mutation directive reverting gate orientation turns this test red.
-    // @mutate v2/src/tui/tui-attention-rows.ts "const oriented = GATE_KINDS.has(a.kind) ? -sinceDelta : sinceDelta;" -> "const oriented = sinceDelta;"
   });
 
   test("failures still sort oldest-idle-first behind every gate", () => {
@@ -415,7 +400,6 @@ describe("buildAttentionRows", () => {
     ]);
     // Mutation checkpoint: an in-body mutation directive reorienting failures to newest-first turns
     // this negative case red.
-    // @mutate v2/src/tui/tui-attention-rows.ts "const oriented = GATE_KINDS.has(a.kind) ? -sinceDelta : sinceDelta;" -> "const oriented = -sinceDelta;"
   });
 
   test("failures beyond the cap stay in display-only overflow", () => {
@@ -431,7 +415,6 @@ describe("buildAttentionRows", () => {
     // Oldest-idle-first keeps run-fail-0..5; the newest-sorted failure is dropped by the cap.
     expect(projection.rows.map((row) => row.id)).not.toContain("attention:failed-run:run-fail-6");
     // Mutation checkpoint: an in-body mutation directive dropping the failure cap turns this test red.
-    // @mutate v2/src/tui/tui-attention-rows.ts "const rows = [...gates, ...failures.slice(0, ATTENTION_ROW_CAP)];" -> "const rows = [...gates, ...failures];"
   });
 
   test("a dismissed pipeline's gate, failed-stage, and publication-failure incidents leave the attention segment", () => {
@@ -470,7 +453,6 @@ describe("buildAttentionRows", () => {
 
   test("a dismissed pipeline suppresses a failed invocation reached through its entry run", () => {
     // Negative case: proves the suppressed run row is absent, not merely re-targeted.
-    // @mutate v2/src/tui/tui-attention-rows.ts "return invocationId !== undefined && hiddenInvocationIds.has(invocationId);" -> "return false;"
     const dismissed = pipelineSnapshot({
       pipelineId: "pipe-dismissed",
       dismissedAt: 1_700_000_500_000,
@@ -557,7 +539,6 @@ describe("buildAttentionRows", () => {
   test("a dismissed run's own attention row is suppressed", () => {
     // Mutation checkpoint: dropping the hidden-run guard restores baseline semantics (a dismissed run's
     // incident row survives with an unresolvable target) and turns this test red.
-    // @mutate v2/src/tui/tui-attention-rows.ts "if (isHiddenDismissedRun(run, options.showDismissed === true)) continue;" -> "if (false) continue;"
     const dismissedFailedRun = listRun({
       runId: "run-dismissed-own-attention",
       status: "failed",
@@ -586,7 +567,6 @@ describe("buildAttentionRows", () => {
     expect(projection.rows.some((row) => row.targetId === "run-stale-fail")).toBe(false);
     expect(projection.total).toBe(0);
     // Keystone checkpoint: an in-body mutation directive restores baseline always-surface semantics.
-    // @mutate v2/src/tui/tui-attention-rows.ts "if (GATE_KINDS.has(row.kind)) return true;" -> "return true;"
   });
 
   test("a terminal failure inside the recency window is still surfaced", () => {
@@ -603,7 +583,6 @@ describe("buildAttentionRows", () => {
     expect(projection.total).toBe(1);
     // Mutation checkpoint: an in-body mutation directive replaces the window comparison with an
     // always-stale return, turning this positive case red.
-    // @mutate v2/src/tui/tui-attention-rows.ts "return nowMs - row.sinceMs <= ATTENTION_TERMINAL_RECENCY_MS;" -> "return false;"
   });
 
   test("an awaiting or rejected gate is surfaced regardless of age", () => {
@@ -622,7 +601,6 @@ describe("buildAttentionRows", () => {
     expect(projection.rows.map((row) => row.kind).sort()).toEqual(["awaiting-gate", "rejected-gate"]);
     expect(projection.total).toBe(2);
     // Mutation checkpoint: an in-body mutation directive inverts the gate bypass, turning this test red.
-    // @mutate v2/src/tui/tui-attention-rows.ts "if (GATE_KINDS.has(row.kind)) return true;" -> "if (GATE_KINDS.has(row.kind)) return false;"
   });
 
   test("a terminal incident with no durable timestamp is not surfaced", () => {
@@ -643,7 +621,6 @@ describe("buildAttentionRows", () => {
     expect(projection.rows).toEqual([]);
     expect(projection.total).toBe(0);
     // Mutation checkpoint: an in-body mutation directive inverts the undated guard, turning this test red.
-    // @mutate v2/src/tui/tui-attention-rows.ts "if (row.sinceMs === null) return false;" -> "if (row.sinceMs === null) return true;"
   });
 
   test("recency is evaluated against the caller's clock, not wall-clock time", () => {
@@ -656,6 +633,5 @@ describe("buildAttentionRows", () => {
     expect(projection.total).toBe(1);
     // Mutation checkpoint: an in-body mutation directive swaps the threaded clock for wall time,
     // turning this test red.
-    // @mutate v2/src/tui/tui-attention-rows.ts "isSurfacedIncident(row, nowMs)" -> "isSurfacedIncident(row, Date.now())"
   });
 });

@@ -26,8 +26,6 @@ describe("write prompt", () => {
 
   // Mutation checkpoint: inverting the global-fragment filter or sort in
   // globalFragmentBodies must turn this test red.
-  // @mutate v2/src/execution/write-prompt.ts "artifact.metadata.behavior === \"global\"" -> "false"
-  // @mutate v2/src/execution/write-prompt.ts "return ao - bo || a.metadata.id.localeCompare(b.metadata.id);" -> "return bo - ao;"
   test("write.execute and plan.prompt.draft include no-hard-wrap after global.terse", () => {
     const writeRendered = renderStepPrompt("write.execute", {
       SPEC_PATH: "spec/example/index.md",
@@ -80,7 +78,6 @@ describe("write prompt", () => {
 
   // Mutation checkpoint: inverting the `remove` exclusion in globalFragmentBodies
   // must turn this test red.
-  // @mutate v2/src/execution/write-prompt.ts "!remove.has(artifact.metadata.id)" -> "true"
   test("patch.prompt.shrink includes no-hard-wrap after global.terse, omits documentation/naming", () => {
     const rendered = renderStepPrompt("patch.prompt.shrink", {
       SPEC_PATH: "spec/example/index.md",

@@ -993,7 +993,6 @@ describe("buildSubspecCompletionInventory", () => {
 
 describe.serial("agent gate shell observability", () => {
   test("implement iteration records classified active-gate state from streamed shell frames", async () => {
-    // @mutate v2/src/execution/write-loop.ts "if (!isReadyTestCommand(command) || activeGate !== undefined) return;" -> "if (activeGate !== undefined) return;"
     const gateCommand = "bun run test:v2";
     expect(isReadyTestCommand(gateCommand)).toBe(true);
     expect(isReadyTestCommand("bun test")).toBe(false);
@@ -1045,7 +1044,6 @@ describe.serial("gate invocation budget and settlement", () => {
   });
 
   test("refuses gate invocation when iteration ceiling headroom cannot accommodate TEST_STEP_BUDGET_MS", async () => {
-    // @mutate v2/src/execution/write-loop.ts "iterationCeilingHeadroomMs() < TEST_STEP_BUDGET_MS" -> "iterationCeilingHeadroomMs() >= TEST_STEP_BUDGET_MS"
     const gateCommand = "bun run test:v2";
     const { startedFrame, completedFrame, resultFrame } = gateShellFrames(gateCommand);
     const { jarvisRoot, stateDbPath } = createJarvisHome();
@@ -1091,7 +1089,6 @@ describe.serial("gate invocation budget and settlement", () => {
   });
 
   test("serializes concurrent gate invocations so only one lane proceeds", async () => {
-    // @mutate v2/src/execution/write-loop.ts "const lease = acquireGateInvocationLease();" -> "const lease = undefined;"
     const gateCommand = "bun run test:v2";
     const { startedFrame, completedFrame, resultFrame } = gateShellFrames(gateCommand);
     let releaseFirstGate!: () => void;
@@ -1189,7 +1186,6 @@ describe.serial("gate invocation budget and settlement", () => {
   });
 
   test("an iteration without a gate does not release another lane's held slot", async () => {
-    // @mutate v2/src/execution/write-loop.ts "if (gateTracker?.getActiveGate() !== undefined) {\n    gateTracker.onAgentShellCommandComplete();\n  }" -> "for (const lease of liveGateInvocationLeases) lease.release();"
     const { resultFrame } = claudeGateShellFrames("bun run test:v2");
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     roots.push(join(jarvisRoot, ".."));
@@ -1229,7 +1225,6 @@ describe.serial("gate invocation budget and settlement", () => {
   });
 
   test("a lane that never acquired the slot cannot release it", () => {
-    // @mutate v2/src/execution/write-loop.ts "liveGateInvocationLeases.delete(lease);" -> "liveGateInvocationLeases.clear();"
     const first = acquireGateInvocationLease();
     expect(first).toBeDefined();
     first?.release();
@@ -1247,7 +1242,6 @@ describe.serial("gate invocation budget and settlement", () => {
   });
 
   test("gateInvocationAdmits bounds admission by the limit it is given", () => {
-    // @mutate v2/src/execution/write-loop.ts "return heldCount < limit;" -> "return true;"
     expect(gateInvocationAdmits(0, 2)).toBe(true);
     expect(gateInvocationAdmits(1, 2)).toBe(true);
     expect(gateInvocationAdmits(2, 2)).toBe(false);
@@ -1267,7 +1261,6 @@ describe.serial("gate invocation budget and settlement", () => {
     "threw",
     "aborted",
   ] as const)("a finalization-repair iteration releases the gate lease it acquired (%s)", async (exit) => {
-    // @mutate v2/src/execution/write-loop.ts "} finally {\n    releaseIterationGateSlot(gateTracker);\n  }" -> "} finally {\n  }"
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     roots.push(join(jarvisRoot, ".."));
     const store = openStateStore(stateDbPath);
@@ -1589,7 +1582,6 @@ describe("write loop", () => {
     }
 
     test("passes specReadRoot as additionalReadDirs and completes when external subspec criteria are ticked from worktree cwd", async () => {
-      // @mutate v2/src/execution/write.ts "args.externalPlanSpec === true && args.specReadRoot !== undefined" -> "false"
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       const { specReadRoot, externalSubspec, criterion } = writeExternalImplementFixture();
       let observedAdditionalReadDirs: readonly string[] | undefined;
@@ -1623,7 +1615,6 @@ describe("write loop", () => {
     });
 
     test("contract_miss appends blocker to external active subspec when expectedArtifactPath is absolute", async () => {
-      // @mutate v2/src/execution/write-loop.ts "args.externalPlanSpec === true && isAbsolute(args.expectedArtifactPath)" -> "false"
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       const { specReadRoot, externalSubspec, criterion } = writeExternalImplementFixture();
       const worktreePath = join(jarvisRoot, "worktrees", "demo", "write-run");
@@ -1888,7 +1879,6 @@ describe("write loop", () => {
   test("plan-draft blocker contract_miss appends plan.draft.blocker to staged intent.md", async () => {
     // Keystone checkpoint: reverting the all-contract plan.prompt.draft route to the prior
     // artifact.exists-only route must turn this pin RED.
-    // @mutate v2/src/execution/write-loop.ts ": args.promptId === PLAN_DRAFT_PROMPT_ID" -> ": args.promptId === PLAN_DRAFT_PROMPT_ID && result.failedContractId === \"artifact.exists\""
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     const branchName = "plan-draft-blocker-contract-route";
     const sink = new TestLogSink();
@@ -1910,7 +1900,6 @@ describe("write loop", () => {
 
   test("plan-draft blocker contract_miss routes every failed contract to staged intent.md", async () => {
     // Mutation checkpoint: inverting the plan.prompt.draft routing guard must turn this pin RED.
-    // @mutate v2/src/execution/write-loop.ts ": args.promptId === PLAN_DRAFT_PROMPT_ID" -> ": args.promptId !== PLAN_DRAFT_PROMPT_ID"
     const { jarvisRoot, stateDbPath } = createJarvisHome();
 
     const blockerSink = new TestLogSink();
@@ -2023,7 +2012,6 @@ describe("write loop", () => {
   test("plan-draft blocker contract_miss skips absent or non-file staged intent.md", async () => {
     // Mutation checkpoint: inverting the direct-existing-regular-file append guard must turn this
     // pin RED by allowing a suppressed append.
-    // @mutate v2/src/execution/write-loop.ts "if (isEligibleBlockerAppendTarget(blockerPath)) {" -> "if (!isEligibleBlockerAppendTarget(blockerPath)) {"
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     const blockedIntent = `${PLAN_DRAFT_INTENT_SEED}\n## Blocker\n\nAgent got stuck.\n`;
 
@@ -2100,7 +2088,6 @@ describe("write loop", () => {
   });
 
   test("plan redraft clears normalizer blockers and forwards canonical diagnostics", async () => {
-    // @mutate v2/src/execution/write.ts "const harnessDiagnostics = preserveStage ? collectAndClearHarnessDiagnostics(intentPath) : [];" -> "const harnessDiagnostics: string[] = [];"
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     const branchName = "plan-redraft-clears-harness-blockers";
     const subspecFile = "00-one.md";
@@ -2771,7 +2758,6 @@ describe("write loop", () => {
     };
 
     test("passes the configured ready command to the ready finalizer", async () => {
-      // @mutate v2/src/execution/write-loop.ts "...(seams.readyCommand !== undefined ? { readyCommand: seams.readyCommand } : {})," -> "...({}),"
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       let observedReadyCommand: string | undefined;
       const result = await runLoop({
@@ -2790,7 +2776,6 @@ describe("write loop", () => {
     });
 
     test("routes markdown-only workflow prompts around the ready gate", async () => {
-      // @mutate v2/src/execution/write-loop.ts "skipReadyGate: resolveMarkdownOnlyWorkflowPromptId(seams.promptId, seams.landing) !== undefined," -> "skipReadyGate: resolveMarkdownOnlyWorkflowPromptId(seams.promptId, seams.landing) === undefined,"
       const calls: string[] = [];
       const readyFinalizer = createReadyFinalizer({
         runReadyGate: async () => {
@@ -3105,11 +3090,6 @@ describe("write loop", () => {
     });
 
     test("ready gate terminal evidence truncates oversized output to its tail", async () => {
-      // @mutate v2/src/execution/ready-finalize.ts "loopOutcomeKind !== \"ready_gate_failed\"" -> "loopOutcomeKind === \"ready_gate_failed\""
-      // @mutate v2/src/execution/ready-finalize.ts "!(source instanceof ReadyGateError)" -> "source instanceof ReadyGateError"
-      // @mutate v2/src/execution/ready-finalize.ts "source.gateFailureKind !== loopOutcomeKind" -> "source.gateFailureKind === loopOutcomeKind"
-      // @mutate v2/src/execution/ready-finalize.ts ".slice(-4096)" -> ".slice(4096)"
-      // @mutate v2/src/execution/ready-finalize.ts "...(output.length > 0 ? { readyGateOutput: output } : {})" -> "...(output.length === 0 ? { readyGateOutput: output } : {})"
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       const logSink = new TestLogSink();
       const discardedPrefix = "discarded-prefix-".repeat(300);
@@ -3359,7 +3339,6 @@ describe("write loop", () => {
 
     describe("ready-gate repair autofix", () => {
       test("labels ready-gate repair commits", async () => {
-        // @mutate v2/src/execution/write-loop.ts "step: { kind: \"ready-gate\" }," -> ""
         // Autofix commits through git for real: `enumerateRepairCompletionCandidates` short-circuits
         // to `[]` without a `.git` dir, which would mask the recommit under a fake committer.
         const autofixHome = createJarvisHome();
@@ -3662,7 +3641,6 @@ describe("write loop", () => {
       });
 
       test("an aborted signal short-circuits ready-gate repair without spending an iteration", async () => {
-        // @mutate v2/src/execution/write-loop.ts "if (args.signal?.aborted) return buildReadyRepairPublishResult(outcome, iterationsConsumed);" -> ""
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         roots.push(join(jarvisRoot, ".."));
         const store = openStateStore(stateDbPath);
@@ -3751,8 +3729,6 @@ describe("write loop", () => {
       });
 
       test("settles ready_gate_command_missing without autofix or repair when the gate command is absent", async () => {
-        // @mutate v2/src/execution/write-loop.ts "if (outcome.kind === \"ready_gate_command_missing\") {" -> ""
-        // @mutate v2/src/execution/ready-finalize.ts "if (isMissingReadyGateCommandOutput(error.output)) {" -> "if (!isMissingReadyGateCommandOutput(error.output)) {"
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         const logSink = new TestLogSink();
         let fixCalls = 0;
@@ -3816,7 +3792,6 @@ describe("write loop", () => {
       });
 
       test("ready-gate repair autofix ignores pre-existing out-of-diff lint findings", async () => {
-        // @mutate v2/src/execution/write-loop.ts "args.fixCommand === undefined && args.runFixCommand === undefined" -> "false"
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         roots.push(join(jarvisRoot, ".."));
         const store = openStateStore(stateDbPath);
@@ -4053,7 +4028,6 @@ describe("write loop", () => {
       });
 
       test("autofix output failing typecheck is reverted before the fence commit", async () => {
-        // @mutate v2/src/execution/write-loop.ts "typecheckResult.exitCode !== 0" -> "false"
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         const logSink = new TestLogSink();
         const branchName = "repair-autofix-typecheck-discard";
@@ -4817,7 +4791,6 @@ export function isLoadSensitive(file: string): boolean {
         expect(fenced.gateCalls).toBe(2);
         // Mutation checkpoint: the terminal `loop_finished` record must carry the same
         // `completionCommitError` the write loop returns, not merely permit it in the schema.
-        // @mutate v2/src/execution/write-loop.ts "completionCommitError: completionCommitErrorMessage," -> ""
         expect(logSink.getEventsForRun(fenced.result.runId).at(-1)).toMatchObject({
           kind: "loop_finished",
           loopOutcomeKind: "completion_commit_failed",
@@ -4826,7 +4799,6 @@ export function isLoadSensitive(file: string): boolean {
       });
 
       test("repair refuses a staged path outside the attributable allowset", async () => {
-        // @mutate v2/src/execution/write-loop.ts "!allowedPaths.has(normalized)" -> "false"
         const { jarvisRoot, stateDbPath } = createJarvisHome();
         const branchName = "repair-fence-attributable-allowset";
         const { worktreePath, baseRef } = initRepairFenceWorktree(jarvisRoot, branchName, {
@@ -5124,7 +5096,6 @@ export function isLoadSensitive(file: string): boolean {
       });
 
       test("repair completion candidates omit the harness-materialized node_modules symlink", async () => {
-        // @mutate v2/src/execution/write-loop.ts "const stageArgs = completionStageArgs(worktreePath);" -> "const stageArgs = ['add', '-A'];"
         const root = mkdtempSync(join(tmpdir(), "repair-fence-node-modules-"));
         roots.push(root);
         execFileSync("git", ["init"], { cwd: root, stdio: "pipe" });
@@ -5823,7 +5794,6 @@ export function isLoadSensitive(file: string): boolean {
       expect(result.completionCommitError).toContain("PR evidence");
       // Mutation checkpoint: the terminal `loop_finished` record must carry the same
       // `completionCommitError` the write loop returns, not merely permit it in the schema.
-      // @mutate v2/src/execution/write-loop.ts "completionCommitError: completionCommitErrorMessage," -> ""
       expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
         kind: "loop_finished",
         loopOutcomeKind: "completion_commit_failed",
@@ -5860,7 +5830,6 @@ export function isLoadSensitive(file: string): boolean {
 
       // Mutation checkpoint: the terminal `loop_finished` record must carry the same
       // `completionCommitError` and `publicationFailure` the write loop returns.
-      // @mutate v2/src/execution/write-loop.ts "completionCommitError: completionCommitErrorMessage," -> ""
       const loopFinished = logSink.getEventsForRun(result.runId).filter((event) => event.kind === "loop_finished");
       expect(loopFinished.at(-1)).toMatchObject({
         loopOutcomeKind: "completion_commit_failed",
@@ -5899,7 +5868,6 @@ export function isLoadSensitive(file: string): boolean {
     });
 
     test("fresh completion publication persists PR evidence before the run becomes completed", async () => {
-      // @mutate v2/src/execution/write-loop.ts "store.setPrEvidence(runId, publication.success.prNumber, publication.success.prUrl);" -> "void publication.success;"
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       const inner = openStateStore(stateDbPath);
       const { store, completedWrites } = storeObservingCompletedWrites(inner);
@@ -5924,7 +5892,6 @@ export function isLoadSensitive(file: string): boolean {
     });
 
     test("resumed completion publication persists PR evidence before the run becomes completed and reuses the published PR", async () => {
-      // @mutate v2/src/execution/write-loop.ts "store.setPrEvidence(prepared.result.runId, publication.success.prNumber, publication.success.prUrl);" -> "void publication.success;"
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       const branchName = "resume-pr-evidence-order";
       const publish = { commitSha: "commit-1", filesChanged: 2 };
@@ -6241,7 +6208,6 @@ export function isLoadSensitive(file: string): boolean {
     });
 
     test("an inconclusive mutation candidate is recorded on the run and publication proceeds", async () => {
-      // @mutate v2/src/execution/write-loop.ts "if (candidates.length === 0) return;" -> "return;"
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       const logSink = new TestLogSink();
       const inconclusive = {
@@ -8550,7 +8516,6 @@ index 1234567..abcdefg 100644
 
     test("terminal completion reuses the latest settled iteration without adding a marker commit", async () => {
       // Mutation checkpoint: inverting `!statSync(specPath).isDirectory()` must turn this RED.
-      // @mutate v2/src/execution/write-loop.ts "if (!statSync(specPath).isDirectory()) return undefined;" -> "if (statSync(specPath).isDirectory()) return undefined;"
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       roots.push(join(jarvisRoot, ".."));
       const branchName = "iter-terminal-boundary";
@@ -8862,7 +8827,6 @@ index 1234567..abcdefg 100644
     });
 
     test("uncommitted paths omit the materialized node_modules symlink and keep other untracked work", async () => {
-      // @mutate v2/src/execution/write-loop.ts ".filter((path) => !isMaterializedNodeModulesPath(worktreePath, path));" -> ".filter(() => true);"
       const worktreePath = mkdtempSync(join(tmpdir(), "uncommitted-paths-node-modules-"));
       roots.push(worktreePath);
       execFileSync("git", ["init"], { cwd: worktreePath, stdio: "pipe" });
@@ -8886,8 +8850,6 @@ index 1234567..abcdefg 100644
     });
 
     test("terminal completion reports the nested untracked file", async () => {
-      // @mutate v2/src/execution/write-loop.ts ".map((entry) => entry.currentPath)" -> ".map((entry) => { const slash = entry.currentPath.indexOf(\"/\"); return slash >= 0 ? `${entry.currentPath.slice(0, slash + 1)}` : entry.currentPath; })"
-      // @mutate v2/src/execution/write-loop.ts "shouldFailTerminalCompletionForDirtyWorktree(undefined, uncommitted)" -> "false"
       const nestedPath = "untracked-dir/only-dirt.txt";
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       roots.push(join(jarvisRoot, ".."));
@@ -9369,8 +9331,6 @@ index 1234567..abcdefg 100644
           resumable: true,
           message: expectedCause,
         });
-        // @mutate v2/src/execution/write-loop.ts "message: iterationCommitErrorMessage," -> ""
-        // @mutate v2/src/execution/write-loop.ts "completionCommitError: iterationCommitErrorMessage," -> ""
 
         const oversizedStderr = "e".repeat(600);
         const oversizedBranch = `${branchName}-oversized`;
@@ -9438,7 +9398,6 @@ index 1234567..abcdefg 100644
     });
 
     test("checkpoint durability uses best-effort biome format not completion check", async () => {
-      // @mutate v2/src/execution/completion-commit.ts "await runCheckpointFormat({ cwd: input.worktreePath, paths: changedPaths, timeoutMs }, subprocessRunner)" -> "await runCompletionFormat({ cwd: input.worktreePath, paths: changedPaths, timeoutMs }, subprocessRunner)"
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       roots.push(join(jarvisRoot, ".."));
       const branchName = "iter-checkpoint-format-mode";
@@ -10305,7 +10264,6 @@ index 1234567..abcdefg 100644
     });
 
     test("no-work over dirty worktree with publishCompletion false settles non-completed failure naming uncommitted paths", async () => {
-      // @mutate v2/src/execution/write-loop.ts "shouldFailTerminalCompletionForDirtyWorktree(undefined, uncommitted)" -> "false"
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       roots.push(join(jarvisRoot, ".."));
       const branchName = "no-work-dirty-publish-off";
@@ -10377,7 +10335,6 @@ index 1234567..abcdefg 100644
     }
 
     test("iteration_timeout with gate-only outstanding active subspec is resumable", async () => {
-      // @mutate v2/src/execution/write-loop.ts "isIterationTimeoutResumable(inventory, worktreePath, args.expectedArtifactPath)" -> "hasCompletedSubspec(inventory)"
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       roots.push(join(jarvisRoot, ".."));
       const branchName = "timeout-gate-only-outstanding";
@@ -10502,7 +10459,6 @@ index 1234567..abcdefg 100644
     });
 
     test("committedResult replay preserves gate-only-outstanding iteration_timeout resumability", async () => {
-      // @mutate v2/src/execution/write-loop.ts "isIterationTimeoutResumable(inventory, resumeContext.worktreePath, resumeContext.expectedArtifactPath)" -> "hasCompletedSubspec(inventory)"
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       roots.push(join(jarvisRoot, ".."));
       const branchName = "timeout-gate-only-committed-replay";
@@ -10584,7 +10540,6 @@ index 1234567..abcdefg 100644
     });
 
     test("iteration_timeout with one completed subspec is resumable", async () => {
-      // @mutate v2/src/execution/write-loop.ts "isIterationTimeoutResumable(inventory, worktreePath, args.expectedArtifactPath)" -> "false"
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       roots.push(join(jarvisRoot, ".."));
       const branchName = "timeout-one-complete";

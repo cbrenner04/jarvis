@@ -406,7 +406,6 @@ test("pipeline_recover admits one branch and advances it without redrafting", as
   // Keystone checkpoint: neutering the detached-recovery dispatch (`await run;` -> `void run;`)
   // returns before the attempt/settlement/continuation finish, restoring an admission-only
   // no-op — the settlement assertions below observe the still-`failed` row and go RED.
-  // @mutate v2/src/daemon/pipeline-stage-recovery.ts "await run;" -> "void run;"
   expect(outcome).toEqual({ kind: "admitted", pipelineId, branchKey: "branch-a", stageId: "plan", entryRunId });
   expect(draftAgentInvocations).toEqual([]);
   expect(dispatchCalls).toEqual([]);
@@ -448,28 +447,24 @@ test("pipeline_recover refuses invalid params, an unresolvable target, and a ret
     requestFrame("r", "pipeline_recover", { pipelineId: 42, branchKey: "valid-branch" }),
     new AbortController().signal,
   );
-  // @mutate v2/src/daemon/daemon.ts "      typeof params?.pipelineId !== \"string\" ||" -> "      false ||"
   expect(nonExistentPipelineNotStringResponse).toEqual(INVALID_PARAMS_ERROR);
 
   const emptyPipelineIdResponse = await validationHandlers.pipeline_recover(
     requestFrame("r", "pipeline_recover", { pipelineId: "", branchKey: "valid-branch" }),
     new AbortController().signal,
   );
-  // @mutate v2/src/daemon/daemon.ts "params.pipelineId.length === 0 ||" -> "false ||"
   expect(emptyPipelineIdResponse).toEqual(INVALID_PARAMS_ERROR);
 
   const nonExistentBranchNotStringResponse = await validationHandlers.pipeline_recover(
     requestFrame("r", "pipeline_recover", { pipelineId: "valid-pipeline", branchKey: 42 }),
     new AbortController().signal,
   );
-  // @mutate v2/src/daemon/daemon.ts "typeof params?.branchKey !== \"string\" ||" -> "false ||"
   expect(nonExistentBranchNotStringResponse).toEqual(INVALID_PARAMS_ERROR);
 
   const emptyBranchKeyResponse = await validationHandlers.pipeline_recover(
     requestFrame("r", "pipeline_recover", { pipelineId: "valid-pipeline", branchKey: "" }),
     new AbortController().signal,
   );
-  // @mutate v2/src/daemon/daemon.ts "params.branchKey.length === 0" -> "false"
   expect(emptyBranchKeyResponse).toEqual(INVALID_PARAMS_ERROR);
 
   const unresolvedResponse = await validationHandlers.pipeline_recover(
@@ -517,7 +512,6 @@ test("pipeline_recover refuses invalid params, an unresolvable target, and a ret
     resolveStage: recoveryStageResolver({ branch, worktreePath, specPath }),
   });
 
-  // @mutate v2/src/daemon/daemon-workflow-admission-handlers.ts "const claimError = previewWorkflowStartClaimAdmissionRefusal(store, registry, activeRuns, lifecycle.key);" -> "const claimError = undefined;"
   const claimedResponse = await claimedHandlers.pipeline_recover(
     requestFrame("r", "pipeline_recover", { pipelineId, branchKey: "branch-a" }),
     new AbortController().signal,
@@ -534,7 +528,6 @@ test("pipeline_recover refuses invalid params, an unresolvable target, and a ret
   expect(planRowAfterClaim?.workflowInvocationId).toBe(entryRunId);
 
   handlers.setRetiring();
-  // @mutate v2/src/daemon/daemon.ts "if (retiring === true) {" -> "if (false) {"
   const retiringResponse = await handlers.pipeline_recover(
     requestFrame("r", "pipeline_recover", { pipelineId, branchKey: "branch-a" }),
     new AbortController().signal,
@@ -942,7 +935,6 @@ test("a retiring daemon waits for an in-flight detached recovery", async () => {
   });
 
   // Mutation checkpoint: removing common `activeRuns` registration leaves `hasActiveRuns()` false while detached.
-  // @mutate v2/src/daemon/daemon.ts "activeRuns.set(lifecycle.activeKey, lifecycle.activeRun);" -> "void lifecycle.activeKey;"
   // The attempt has not settled: hasActiveRuns() stays true, and retirement waits rather than shutting down.
   expect(waitHandlers.hasActiveRuns()).toBe(true);
   expect(waitHandlers.context.activeRuns.get(`demo:${branch}`)).toEqual({ kind: "recovery", runId: entryRunId });

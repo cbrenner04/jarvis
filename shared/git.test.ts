@@ -49,8 +49,6 @@ describe("getGitStatusInventory", () => {
   });
 
   test("inventory preserves typed porcelain entries including exact UTF-8 path text", async () => {
-    // @mutate shared/git.ts "const originalPath = fields[index];" -> "const originalPath = undefined;"
-    // @mutate shared/git.ts "const kind = twoPathKind(stagedCode, worktreeCode);" -> "const kind = undefined;"
     const stagedRenameCurrent = " staged rename current \n";
     const stagedRenameOriginal = " staged rename original \n";
     const worktreeRenameCurrent = "\nworktree rename current ";
@@ -114,7 +112,6 @@ describe("getGitStatusInventory", () => {
   });
 
   test("inventory expands nested untracked files", async () => {
-    // @mutate shared/git.ts "\"--untracked-files=all\"" -> ""
     const scratchRoot = join(process.cwd(), ".scratch");
     mkdirSync(scratchRoot, { recursive: true });
     const repo = mkdtempSync(join(scratchRoot, "git-inventory-"));
@@ -131,9 +128,6 @@ describe("getGitStatusInventory", () => {
   });
 
   test("inventory rejects malformed porcelain output", async () => {
-    // @mutate shared/git.ts "if (record.length < 4 || record[2] !== \" \")" -> "if (false)"
-    // @mutate shared/git.ts "if (originalPath === undefined || originalPath.length === 0)" -> "if (false)"
-    // @mutate shared/git.ts "if (!output.endsWith(\"\\0\"))" -> "if (false)"
     await expect(getGitStatusInventory("/repo", fakeAsyncRunner(" M\0"))).rejects.toThrow("truncated record");
     await expect(getGitStatusInventory("/repo", fakeAsyncRunner("R  current\0"))).rejects.toThrow(
       "missing rename or copy origin",

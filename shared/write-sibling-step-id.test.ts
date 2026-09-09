@@ -19,14 +19,12 @@ const representativeSteps = [
 
 describe("write-sibling step id", () => {
   test("matches exact authored step ids", () => {
-    // @mutate shared/write-sibling-step-id.ts "candidateStepId === stepId" -> "candidateStepId !== stepId"
     expect(matchesExactStepId("implement", "implement")).toBe(true);
     expect(matchesExactStepId("implement~link-1", "implement")).toBe(false);
     expect(matchesExactStepId(undefined, "implement")).toBe(false);
   });
 
   test("matches linked sibling step ids without parsing link index", () => {
-    // @mutate shared/write-sibling-step-id.ts "candidateStepId?.startsWith(`${writeStepId}${LINK_STEP_ID_INFIX}`) ?? false" -> "!(candidateStepId?.startsWith(`${writeStepId}${LINK_STEP_ID_INFIX}`) ?? false)"
     expect(matchesLinkedSiblingStepId("implement~link-1", "implement")).toBe(true);
     expect(matchesLinkedSiblingStepId("implement~link-2", "implement")).toBe(true);
     expect(matchesLinkedSiblingStepId("implement~link-", "implement")).toBe(true);
@@ -35,7 +33,6 @@ describe("write-sibling step id", () => {
   });
 
   test("isWriteSiblingStepId admits exact and linked rows but not hidden shrink", () => {
-    // @mutate shared/write-sibling-step-id.ts "matchesExactStepId(candidateStepId, writeStepId) || matchesLinkedSiblingStepId(candidateStepId, writeStepId)" -> "matchesExactStepId(candidateStepId, writeStepId) && matchesLinkedSiblingStepId(candidateStepId, writeStepId)"
     expect(isWriteSiblingStepId("implement", "implement")).toBe(true);
     expect(isWriteSiblingStepId("implement~link-1", "implement")).toBe(true);
     expect(isWriteSiblingStepId("implement~shrink", "implement")).toBe(false);
@@ -43,7 +40,6 @@ describe("write-sibling step id", () => {
   });
 
   test("detects hidden-shrink ids via shared shrink suffix", () => {
-    // @mutate shared/write-sibling-step-id.ts "return shrinkStepIdEndsWith(stepId)" -> "return !shrinkStepIdEndsWith(stepId)"
     expect(isHiddenShrinkStepId("implement~shrink")).toBe(true);
     expect(isHiddenShrinkStepId("step-1~shrink")).toBe(true);
     expect(isHiddenShrinkStepId("implement~link-1")).toBe(false);
@@ -52,7 +48,6 @@ describe("write-sibling step id", () => {
   });
 
   test("resolveAuthoredStepId maps exact, linked, and shrink run ids to authored ids", () => {
-    // @mutate shared/write-sibling-step-id.ts "if (shrinkStepIdEndsWith(runStepId))" -> "if (!shrinkStepIdEndsWith(runStepId))"
     expect(resolveAuthoredStepId("implement")).toBe("implement");
     expect(resolveAuthoredStepId(`implement${LINK_STEP_ID_INFIX}1`)).toBe("implement");
     expect(resolveAuthoredStepId(`implement${SHRINK_STEP_ID_SUFFIX}`)).toBe("implement");
@@ -60,7 +55,6 @@ describe("write-sibling step id", () => {
   });
 
   test("findSnapshotStepForRunStepId resolves representative workflow steps from run ids", () => {
-    // @mutate shared/write-sibling-step-id.ts "return steps.find((step) => step.stepId === authoredStepId)" -> "return steps.find((step) => step.stepId !== authoredStepId)"
     expect(findSnapshotStepForRunStepId(representativeSteps, "implement")).toEqual(representativeSteps[2]);
     expect(findSnapshotStepForRunStepId(representativeSteps, "implement~link-2")).toEqual(representativeSteps[2]);
     expect(findSnapshotStepForRunStepId(representativeSteps, "implement~shrink")).toEqual(representativeSteps[2]);

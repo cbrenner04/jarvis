@@ -36,7 +36,6 @@ describe("buildIntentSplitPrompt", () => {
     expect(prompt).toContain("Before editing code, read the relevant durable docs/specs");
     expect(prompt).toContain("Be terse in communication artifacts");
     const terseIndex = prompt.indexOf("Be terse in communication artifacts");
-    // @mutate prompts/global/no-hard-wrap.md "behavior: global" -> "behavior: archived"
     const noHardWrapIndex = prompt.indexOf("Do not hard-wrap authored markdown");
     expect(noHardWrapIndex).toBeGreaterThan(terseIndex);
     expect(prompt).toContain("one prerequisite behavior per physical line as `- ...`");

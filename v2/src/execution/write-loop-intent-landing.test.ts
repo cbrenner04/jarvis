@@ -217,7 +217,6 @@ Still prose after every attempt.
   });
 
   test("rogue path outside stage settles landing_failed without reprompt and names its cause", async () => {
-    // @mutate v2/src/execution/write-loop.ts "message: truncateLogText(gate.error)," -> ""
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sink = new TestLogSink();
     const branchName = `intent-landing-rogue-${Date.now()}`;
@@ -273,7 +272,6 @@ Still prose after every attempt.
   });
 
   test("non-repromptable landing cause truncates oversized rogue path lists", async () => {
-    // @mutate v2/src/execution/write-loop.ts "message: truncateLogText(gate.error)," -> "message: gate.error,"
     const { jarvisRoot, stateDbPath } = createJarvisHome();
     const sink = new TestLogSink();
     const branchName = `intent-landing-rogue-truncated-${Date.now()}`;

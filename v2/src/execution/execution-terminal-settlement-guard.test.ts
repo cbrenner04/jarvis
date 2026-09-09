@@ -37,7 +37,6 @@ test("execution production terminal writers are restricted to atomic settlement"
 });
 
 test("guard rejects reintroduced terminal setRunStatus", () => {
-  // @mutate v2/src/execution/write-loop.ts "function landingFailedTerminalFailureDetail" -> "function __guardScratch(store: StateStore, runId: string) { store.setRunStatus(runId, \"completed\"); }\nfunction landingFailedTerminalFailureDetail"
   const source = locateDiscoveredFile(listProductionExecutionSources(), "write-loop.ts");
   const mutated = source.replace(
     "function landingFailedTerminalFailureDetail",

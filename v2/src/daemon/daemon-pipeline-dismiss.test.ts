@@ -83,7 +83,6 @@ test("dismissed pipelines drop out of the default pipeline_list", async () => {
     new AbortController().signal,
   );
 
-  // @mutate v2/src/daemon/daemon.ts "includeDismissed || pipeline.dismissedAt === null" -> "true"
   const response = await handlers.pipeline_list(requestFrame("l", "pipeline_list"), new AbortController().signal);
   const ids = (response as { result: { pipelines: PipelineSnapshot[] } }).result.pipelines.map((p) => p.pipelineId);
   expect(ids).toContain(pipelineB);
@@ -99,7 +98,6 @@ test("includeDismissed returns dismissed pipelines with dismissedAt set", async 
     new AbortController().signal,
   );
 
-  // @mutate v2/src/daemon/daemon.ts "params?.includeDismissed === true" -> "false"
   const response = await handlers.pipeline_list(
     requestFrame("l", "pipeline_list", { includeDismissed: true }),
     new AbortController().signal,
@@ -174,7 +172,6 @@ test("a repeat dismiss stays applied and leaves the original dismissedAt unchang
 test("an unknown pipeline id is refused on dismiss and undismiss", async () => {
   const realPipelineId = stateStore.createPipeline({ definition: SINGLE_WORKFLOW("real") });
 
-  // @mutate v2/src/daemon/daemon.ts "if (outcome.kind === \"refused\") {" -> "if (false) {"
   const dismissResponse = await handlers.pipeline_dismiss(
     requestFrame("d", "pipeline_dismiss", { pipelineId: "no-such-pipeline" }),
     new AbortController().signal,
@@ -199,7 +196,6 @@ test("an unknown pipeline id is refused on dismiss and undismiss", async () => {
 });
 
 test("a missing pipelineId is refused invalid_params on dismiss and undismiss", async () => {
-  // @mutate v2/src/daemon/daemon.ts "if (pipelineId.length === 0) {" -> "if (false) {"
   const dismissResponse = await handlers.pipeline_dismiss(
     requestFrame("d", "pipeline_dismiss", {}),
     new AbortController().signal,

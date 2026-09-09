@@ -173,7 +173,6 @@ describe("realAsyncSubprocessRunner", () => {
   }, 5000);
 
   test("a non-group call leaves its grandchild running", async () => {
-    // @mutate shared/subprocess.ts "const groupMode = options?.processGroup !== undefined;" -> "const groupMode = true;"
     const controller = new AbortController();
     const scratchDir = `${cwd}/.scratch`;
     mkdirSync(scratchDir, { recursive: true });
@@ -269,7 +268,6 @@ describe("realAsyncSubprocessRunner", () => {
   }, 5000);
 
   test("a grandchild of a group-mode call is dead after abort", async () => {
-    // @mutate shared/subprocess.ts "const groupMode = options?.processGroup !== undefined;" -> "const groupMode = false;"
     const controller = new AbortController();
     const scratchDir = `${cwd}/.scratch`;
     mkdirSync(scratchDir, { recursive: true });

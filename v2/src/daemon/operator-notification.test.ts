@@ -398,8 +398,6 @@ test("derives stage incident with branchKey for failed fan-out lane on live pipe
 
   const incidents = deriveOperatorIncidents(store);
 
-  // @mutate v2/src/daemon/operator-incidents.ts "if (!isPipelineTerminal(state)) {" -> "if (isPipelineTerminal(state)) {"
-  // @mutate v2/src/daemon/operator-incidents.ts "if (stage.status === \"failed\") {" -> "if (stage.status !== \"failed\") {"
   expect(incidents).toContainEqual(
     expect.objectContaining({
       kind: "stage-failed",
@@ -448,7 +446,6 @@ test("suppresses entry-run terminal incident when failed fan-out lane emits stag
       incident.runId === blockedSiblingRunId,
   );
 
-  // @mutate v2/src/daemon/operator-incidents.ts "addSuppressedInvocationForFailedStage(stage, entryRunsById, suppressedInvocationIds);" -> ""
   expect(laneIncidents).toEqual([
     expect.objectContaining({
       kind: "stage-failed",
@@ -575,7 +572,6 @@ test.each([{ label: "awaiting approval" }])("delivery ledger suppresses incident
 
   const lookupMetrics = instrumentStageAttributedLookups(store);
   const incidents = deriveOperatorIncidents(store);
-  // @mutate v2/src/daemon/operator-incidents.ts "onlyDeliveredIncidents(delivered, previewPipelineIncidentKeys(store, pipeline))" -> "!onlyDeliveredIncidents(delivered, previewPipelineIncidentKeys(store, pipeline))"
   expect(incidents).toEqual([]);
   expect(lookupMetrics.read()).toEqual({
     loadRunsByIdsCount: 0,
@@ -673,7 +669,6 @@ test("deriveOperatorIncidents excludes terminal runs outside the recency bound",
   const { blockedRunId, awaitingPipelineId } = seedActionableDerivationFixtures();
 
   const incidents = deriveOperatorIncidents(store, DERIVATION_NOW_MS);
-  // @mutate v2/src/daemon/operator-incidents.ts "const sinceMs = nowMs - ATTENTION_TERMINAL_RECENCY_MS;" -> "const sinceMs = 0;"
   expect(incidents).toEqual([
     expect.objectContaining({
       kind: "pipeline-awaiting-approval",

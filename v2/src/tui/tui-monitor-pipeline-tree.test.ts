@@ -230,8 +230,6 @@ describe("buildMonitorPipelineTreeJoin", () => {
   });
 
   test("a missing retained entry run leaves the stage unresolved and claimless", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return retainedRuns.find((run) => run.runId === stage.workflowInvocationId)?.workflow?.invocationId ?? null;" -> "return retainedRuns.find((run) => run.runId !== stage.workflowInvocationId)?.workflow?.invocationId ?? null;"
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return retainedRuns.find((run) => run.runId === stage.workflowInvocationId)?.workflow?.invocationId ?? null;" -> "return retainedRuns.find((run) => run.runId === stage.workflowInvocationId)?.workflow?.invocationId ?? stage.workflowInvocationId;"
     const snapshot = pipelineSnapshot({
       pipelineId: PIPELINE_ID,
       state: "pending",
@@ -258,7 +256,6 @@ describe("buildMonitorPipelineTreeJoin", () => {
   });
 
   test("a retained entry row without workflow metadata leaves the stage unresolved and claimless", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return retainedRuns.find((run) => run.runId === stage.workflowInvocationId)?.workflow?.invocationId ?? null;" -> "return retainedRuns.find((run) => run.workflow !== undefined)?.workflow?.invocationId ?? null;"
     const snapshot = pipelineSnapshot({
       pipelineId: PIPELINE_ID,
       state: "pending",
@@ -286,7 +283,6 @@ describe("buildMonitorPipelineTreeJoin", () => {
   });
 
   test("an ad-hoc top-level row is labeled with its entry run's branch", () => {
-    // @mutate v2/src/tui/tui-monitor-lines.ts "label: labelOverride ?? runRowLabel(tableRow)," -> "label: runRowLabel(tableRow),"
     const branch = "adhoc-work";
     const run = workflowRun(
       { runId: "12345678-1234-1234-1234-123456789abc", status: "in-progress", branch },
@@ -401,7 +397,6 @@ describe("buildMonitorPipelineTreeJoin", () => {
   });
 
   test("two pipelines of one definition label their rows with distinct seed basenames", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "label: dismissedPipelineLabel(node.snapshot, pipelineRowLabel(node.snapshot))," -> "label: node.snapshot.name,"
     const workRowsNode = {
       kind: "pipeline" as const,
       id: "pipe-1",
@@ -440,7 +435,6 @@ describe("buildMonitorPipelineTreeJoin", () => {
   });
 
   test("a pipeline with no recorded seed path labels its row with the definition name and short pipeline id", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (slug.length > 0) return slug;" -> "if (slug.length >= 0) return slug;"
     const pipelineId = "3fa85f64-5717-4562-b3fc-2c963f66afa6";
     const pipelineNode = {
       kind: "pipeline" as const,
@@ -526,7 +520,6 @@ describe("buildMonitorPipelineTreeJoin", () => {
   test("a run sharing a stage's branch under a different invocation nests under that stage and emits no ad-hoc row", () => {
     // Keystone checkpoint: an in-body directive replacing the claim-collection call with an empty
     // claim list restores baseline invocation-id-only attribution and turns this test red.
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "const stageBranchClaims = collectStageBranchClaims(displayedSnapshots, runs, builderRuns);" -> "const stageBranchClaims: StageBranchClaim[] = [];"
     const branch = "plan/x";
     const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage("run-a")] });
     const runA = workflowRun({ runId: "run-a", status: "in-progress", branch }, INVOCATION_MATCHED);
@@ -540,7 +533,6 @@ describe("buildMonitorPipelineTreeJoin", () => {
   });
 
   test("a same-branch run from a different project is not attributed and stays a top-level ad-hoc row", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return `${project} ${branch}`;" -> "return branch;"
     const branch = "shared-branch";
     const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage("run-stage")] });
     const stageRun = workflowRun(
@@ -560,7 +552,6 @@ describe("buildMonitorPipelineTreeJoin", () => {
   });
 
   test("an unmatched invocation is claimed as a unit even when only one of its member runs matches the stage's branch", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return members.some((member) => memberMatchesClaim(member, claim));" -> "return memberMatchesClaim(members[0] as DaemonListRunRow, claim);"
     const branch = "plan/x";
     const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage("run-stage")] });
     const stageRun = workflowRun({ runId: "run-stage", status: "in-progress", branch }, INVOCATION_MATCHED);
@@ -598,7 +589,6 @@ describe("buildMonitorPipelineTreeJoin", () => {
   });
 
   test("a workflow run on a branch no stage owns still renders as a top-level ad-hoc row", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (invocationId !== undefined && branchAttribution.has(invocationId)) return false;" -> "if (invocationId !== undefined && !branchAttribution.has(invocationId)) return false;"
     const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage("run-stage")] });
     const stageRun = workflowRun({ runId: "run-stage", status: "in-progress" }, INVOCATION_MATCHED);
     const unrelatedRun = workflowRun(
@@ -612,7 +602,6 @@ describe("buildMonitorPipelineTreeJoin", () => {
   });
 
   test("a blank branch never attributes a run to a stage", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return trimmed.length === 0 ? null : trimmed;" -> "return branch;"
     const snapshot = pipelineSnapshot({ pipelineId: PIPELINE_ID, stages: [implementStage("run-stage")] });
     const stageRun = workflowRun({ runId: "run-stage", status: "in-progress", branch: "" }, INVOCATION_MATCHED);
     const blankBranchLeak = workflowRun(
@@ -642,8 +631,6 @@ describe("buildMonitorPipelineTreeJoin", () => {
   });
 
   test("a same-branch leaked invocation follows a resolved stage claim", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return retainedRuns.find((run) => run.runId === stage.workflowInvocationId)?.workflow?.invocationId ?? null;" -> "return stage.workflowInvocationId;"
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (best === undefined || startedAtRank(claim) >= startedAtRank(best)) best = claim;" -> "if (best === undefined) best = claim;"
     const branch = "plan/tie-break";
     const earlyPipelineId = "pipe-early";
     const latePipelineId = "pipe-late";
@@ -782,7 +769,6 @@ describe("dismissed pipeline exclusion", () => {
 
   test("a dismissed pipeline and its stage, branch, and run rows leave the default work tree", () => {
     // Keystone checkpoint: an in-body mutation directive restores baseline semantics (every snapshot paints).
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return snapshot.dismissedAt !== null && !showDismissed;" -> "return false;"
     const { snapshots, runs } = dismissedFixture();
     const { pipelineNodes, adHocNodes, builderRuns } = buildMonitorPipelineTreeJoin(snapshots, runs);
     const expandedNodeIds = new Set(
@@ -820,7 +806,6 @@ describe("dismissed pipeline exclusion", () => {
   test("a dismissed pipeline's attributed runs never resurface as ad-hoc top-level rows", () => {
     // Mutation checkpoint: computing matchedInvocationIds off the filtered snapshot list turns this RED — the
     // dismissed pipeline's attributed runs would then read as unmatched and repaint as ad-hoc rows.
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "const matchedInvocationIds = collectMatchedInvocationIds(snapshots, runs);" -> "const matchedInvocationIds = collectMatchedInvocationIds(displayedSnapshots, runs);"
     const { snapshots, runs } = dismissedFixture();
     const { adHocNodes } = buildMonitorPipelineTreeJoin(snapshots, runs);
 
@@ -829,7 +814,6 @@ describe("dismissed pipeline exclusion", () => {
   });
 
   test("a claim from a dismissed pipeline's stage never attributes a run", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "const stageBranchClaims = collectStageBranchClaims(displayedSnapshots, runs, builderRuns);" -> "const stageBranchClaims = collectStageBranchClaims(snapshots, runs, builderRuns);"
     const branch = "dismissed-plan-branch";
     const { snapshots, runs } = dismissedFixture({ branch });
     const leakedRun = workflowRun(
@@ -844,7 +828,6 @@ describe("dismissed pipeline exclusion", () => {
 
   test("a shown dismissed pipeline row is labeled dismissed", () => {
     // Mutation checkpoint: removing the marker helper's early return drops the marker and turns this test red.
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (snapshot.dismissedAt === null) return label;" -> "if (false) return label;"
     const dismissedNode = {
       kind: "pipeline" as const,
       id: DISMISSED_PIPELINE_ID,
@@ -922,7 +905,6 @@ describe("dismissed run exclusion", () => {
 
   test("a dismissed ad-hoc run group leaves the default work tree", () => {
     // Keystone checkpoint: an in-body mutation directive restores baseline semantics (every non-queued run paints).
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return (run.dismissedAt ?? null) !== null && !showDismissed;" -> "return false;"
     const { snapshots, runs, dismissedEntryRunId, dismissedSecondRunId, undismissedRunId } = dismissedRunGroupFixture();
     const { pipelineNodes, adHocNodes, builderRuns } = buildMonitorPipelineTreeJoin(snapshots, runs);
     const expandedNodeIds = new Set(pipelineNodes.map((pipeline) => pipeline.id));
@@ -944,7 +926,6 @@ describe("dismissed run exclusion", () => {
   test("a dismissed ad-hoc run group paints when the projection shows dismissed runs", () => {
     // Mutation checkpoint: dropping the `!showDismissed` term hides the group in both modes — the negative
     // case proving suppression is conditional on the session option, not unconditional.
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return (run.dismissedAt ?? null) !== null && !showDismissed;" -> "return (run.dismissedAt ?? null) !== null;"
     const { snapshots, runs, dismissedEntryRunId, dismissedSecondRunId } = dismissedRunGroupFixture();
     const { adHocNodes } = buildMonitorPipelineTreeJoin(snapshots, runs, { showDismissed: true });
 
@@ -1064,7 +1045,6 @@ describe("branch-grouped pipeline subtree", () => {
   const MONITOR_BRANCH = "tui-pipeline-tree-monitor";
 
   test("the stage roll-up groups post-split records under their branch after the pre-split records", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "const branched = split !== null && stage.position >= split;" -> "const branched = false;"
     const snapshot = pipelineSnapshot({
       pipelineId: PIPELINE_ID,
       stages: [
@@ -1087,7 +1067,6 @@ describe("branch-grouped pipeline subtree", () => {
   });
 
   test("the stage roll-up drops the post-split default placeholder record", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (isElidedPlaceholderStage(stage, split)) continue;" -> "if (false) continue;"
     const snapshot = pipelineSnapshot({
       pipelineId: PIPELINE_ID,
       stages: [
@@ -1107,7 +1086,6 @@ describe("branch-grouped pipeline subtree", () => {
   });
 
   test("post-split stages group under one branch node per branchKey after pre-split stages", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return branchedPositions.length === 0 ? null : Math.min(...branchedPositions);" -> "return null;"
     const snapshot = pipelineSnapshot({
       pipelineId: PIPELINE_ID,
       stages: [
@@ -1140,7 +1118,6 @@ describe("branch-grouped pipeline subtree", () => {
   });
 
   test("a post-split default placeholder row is absent while a pre-split default stage renders", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return stage.position >= splitPosition && stage.branchKey === MONITOR_TREE_DEFAULT_BRANCH_KEY;" -> "return false;"
     const snapshot = pipelineSnapshot({
       pipelineId: PIPELINE_ID,
       stages: [
@@ -1163,7 +1140,6 @@ describe("branch-grouped pipeline subtree", () => {
   });
 
   test("branch labels strip the prefix shared by siblings and a lone branch keeps its full key", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (branchKeys.length < 2) return [...branchKeys];" -> "if (branchKeys.length < 0) return [...branchKeys];"
     expect(strippedBranchLabels(["tui-pipeline-list-poll", MODEL_BRANCH, MONITOR_BRANCH])).toEqual([
       "list-poll",
       "tree-model",
@@ -1174,7 +1150,6 @@ describe("branch-grouped pipeline subtree", () => {
   });
 
   test("a branch summarizes as its first unsatisfied stage and falls back to its last stage status", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "!SATISFIED_BRANCH_STAGE_STATUSES.has(record.status)" -> "record.status !== \"succeeded\""
     const branchKey = "model";
     const midFlight = pipelineSnapshot({
       pipelineId: "pipe-mid-flight",
@@ -1232,7 +1207,6 @@ describe("branch-grouped pipeline subtree", () => {
   test("branch idle keys off an actively running member record, not a failed summary status", () => {
     // A branch's summary is its first *unsatisfied* record, so a failed early stage can summarize
     // while a later stage in the same branch is genuinely running. Idle must still hide.
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return records.some((record) => record.status === \"running\");" -> "return false;"
     const branchKey = "alpha";
     const nowMs = 1_800_000_000_000;
     const snapshot = pipelineSnapshot({
@@ -1271,7 +1245,6 @@ describe("branch-grouped pipeline subtree", () => {
   });
 
   test("selecting a run under a branch expands that branch only and leaves sibling branches collapsed", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (runNodeMatchesSelection(run, selectedNodeId)) return new Set([pipeline.id, branch.id, stage.id]);" -> "if (runNodeMatchesSelection(run, selectedNodeId)) return new Set([pipeline.id, stage.id]);"
     const snapshot = pipelineSnapshot({
       pipelineId: PIPELINE_ID,
       stages: [
@@ -1345,7 +1318,6 @@ describe("gate elision and intent yield", () => {
     });
     const pipelineNodes = joinTree([snapshot]);
     const ids = flattenJoined(pipelineNodes, new Set([PIPELINE_ID]), null, 20).map((node) => node.id);
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return status !== \"awaiting\" && status !== \"rejected\";" -> "return false;"
 
     expect(ids).not.toContain(monitorPipelineStageNodeId(PIPELINE_ID, "approve-intent", "default"));
     expect(ids).toContain(monitorPipelineStageNodeId(PIPELINE_ID, "approve-plan", "default"));
@@ -1368,7 +1340,6 @@ describe("gate elision and intent yield", () => {
     const pipelineNodes = joinTree([snapshot]);
     const branchId = monitorPipelineBranchNodeId(PIPELINE_ID, branchKey);
     const ids = flattenJoined(pipelineNodes, new Set([PIPELINE_ID, branchId]), null, 20).map((node) => node.id);
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (kind !== \"approval\") return false;" -> "if (kind === \"approval\") return false;"
 
     expect(ids).not.toContain(monitorPipelineStageNodeId(PIPELINE_ID, "approve-intent", "default"));
     expect(ids).toContain(monitorPipelineStageNodeId(PIPELINE_ID, "implement", branchKey));
@@ -1390,7 +1361,6 @@ describe("gate elision and intent yield", () => {
     const pipelineNodes = joinTree([snapshot]);
     const branchId = monitorPipelineBranchNodeId(PIPELINE_ID, branchKey);
     const ids = flattenJoined(pipelineNodes, new Set([PIPELINE_ID, branchId]), null, 20).map((node) => node.id);
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (!resolved.ok) return new Map();" -> "if (resolved.ok) return new Map();"
 
     expect(ids).not.toContain(monitorPipelineStageNodeId(PIPELINE_ID, "approve-plan", branchKey));
   });
@@ -1414,7 +1384,6 @@ describe("gate elision and intent yield", () => {
     expect(intentStage).toBeDefined();
     expect(planStage).toBeDefined();
     if (intentStage === undefined || planStage === undefined) throw new Error("expected intent and plan stages");
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (inputs.length === 0) return \"\";" -> "if (inputs.length < 0) return \"\";"
 
     const intentRow = buildStageMonitorTreeRow(intentStage, 90, FILTER_NOW_MS);
     const planRow = buildStageMonitorTreeRow(planStage, 90, FILTER_NOW_MS);
@@ -1426,7 +1395,6 @@ describe("gate elision and intent yield", () => {
 
 describe("row semantics", () => {
   test("derives structural expansion glyphs and pipeline-local attention", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "const annotatedPipeline = withExpansionMarker({ ...pipeline, attention: pipelineAttentionSummary(pipeline) }, effectiveExpansion);" -> "const annotatedPipeline = pipeline;"
     const invocation = "inv-glyph-run";
     const withRun = pipelineSnapshot({
       pipelineId: "pipe-glyph-run",
@@ -1449,7 +1417,6 @@ describe("row semantics", () => {
     expect(isExpandablePipelineNodeId(pipelineNodes, leafStageId)).toBe(false);
 
     const collapsed = flattenJoined(pipelineNodes, new Set(), null, 20, [run]);
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return effectiveExpansion.has(node.id) ? \"▼\" : \"▶\";" -> "return effectiveExpansion.has(node.id) ? \"▶\" : \"▼\";"
     expect(collapsed.find((node) => node.id === "pipe-glyph-run")).toMatchObject({ marker: "▶", depth: 0 });
     expect(collapsed.find((node) => node.id === "pipe-glyph-empty")).toMatchObject({ marker: "", depth: 0 });
 
@@ -1568,10 +1535,6 @@ describe("row semantics", () => {
     if (gateAndFailureNode === undefined || rejectedGateNode === undefined || unresolvedNode === undefined) {
       throw new Error("expected pipeline nodes");
     }
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (!resolved.ok) return new Map();" -> "if (resolved.ok) return new Map();"
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (isElidedPlaceholderStage(stage, splitPosition)) continue;" -> "if (false) continue;"
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (gateCount > 0) atoms.push(`✋${gateCount}`);" -> "atoms.push(`✋${gateCount}`);"
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (failedCount > 0) atoms.push(`✗${failedCount}`);" -> "atoms.push(`✗${failedCount}`);"
     expect(pipelineAttentionSummary(gateAndFailureNode)).toBe("✋1 ✗1");
     expect(pipelineAttentionSummary(rejectedGateNode)).toBe("✋1");
     expect(pipelineAttentionSummary(unresolvedNode)).toBe("✗1");
@@ -1725,7 +1688,6 @@ describe("monitor pipeline tree elapsed cells", () => {
   });
 
   test("pipeline and branch rows report summed work while a parked pipeline reports idle", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "elapsed: formatPipelineTreeTiming(node, nowMs)," -> "elapsed: formatElapsedWallClock(node.snapshot.createdAt, node.snapshot.finishedAtMs, nowMs),"
     const nowMs = 1_800_000_000_000;
     const sixDaysAgo = nowMs - 6 * 86_400_000;
     const snapshot = pipelineSnapshot({
@@ -1814,9 +1776,6 @@ describe("monitor pipeline tree elapsed cells", () => {
   });
 
   test("work timing clamps invalid intervals and advances only running stages", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (stage.startedAt === null) return 0;" -> "if (false) return 0;"
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "const endMs = stage.endedAt ?? (stage.status === \"running\" ? nowMs : stage.startedAt);" -> "const endMs = stage.endedAt ?? (true ? nowMs : stage.startedAt);"
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return Math.max(0, endMs - stage.startedAt);" -> "return endMs - stage.startedAt;"
     const nowMs = 1_800_000_000_000;
     const pipeline = joinTree([
       pipelineSnapshot({
@@ -1845,9 +1804,6 @@ describe("monitor pipeline tree elapsed cells", () => {
   });
 
   test("last activity selects durable timestamps and is best effort for evicted runs", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return activity.length === 0 ? null : Math.max(...activity);" -> "return activity.length < 0 ? null : Math.max(...activity);"
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (member.finishedAtMs !== undefined) activity.push(member.finishedAtMs);" -> "if (false) activity.push(member.finishedAtMs);"
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "const idleMs = Math.max(0, nowMs - timing.lastActivityMs);" -> "const idleMs = nowMs - timing.lastActivityMs;"
     const nowMs = 1_800_000_000_000;
     const sixDaysAgo = nowMs - 6 * 86_400_000;
     const timing = (pipelineId: string, stage: PipelineSnapshot["stages"][number], runs: DaemonListRunRow[] = []) => {
@@ -1892,7 +1848,6 @@ describe("monitor pipeline tree elapsed cells", () => {
   });
 
   test("pipeline rows hide idle only while running", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (hidesIdle) return work;" -> "if (false) return work;"
     const nowMs = 1_800_000_000_000;
     const stage = snapshotStage({
       stageId: "stage",
@@ -1920,7 +1875,6 @@ describe("monitor pipeline tree elapsed cells", () => {
   });
 
   test("pipeline timing has full and compact tree representations", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "const compact = pipelineBranchTimingCompact(width);" -> "const compact = false;"
     const nowMs = 1_800_000_000_000;
     const pipeline = joinTree([
       pipelineSnapshot({
@@ -1945,7 +1899,6 @@ describe("monitor pipeline tree elapsed cells", () => {
   });
 
   test("ordinary split geometry renders labeled pipeline and branch timing", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return leftPaneWidth < 80;" -> "return leftPaneWidth < 100;"
     const nowMs = 1_800_000_000_000;
     const oneMinuteAgo = nowMs - 60_000;
     const snapshot = pipelineSnapshot({
@@ -1978,7 +1931,6 @@ describe("monitor pipeline tree elapsed cells", () => {
   });
 
   test("timing width boundary keeps the narrow compact fallback", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return leftPaneWidth < 80;" -> "return leftPaneWidth >= 80;"
     const nowMs = 1_800_000_000_000;
     const oneMinuteAgo = nowMs - 60_000;
     const pipeline = joinTree([
@@ -2044,7 +1996,6 @@ describe("monitor pipeline tree elapsed cells", () => {
   test("the compact timing cell keeps full work and elides idle when the paired form overflows", () => {
     // Keystone: multi-hour work paired with multi-day idle (`w23h/i100d`, 10 chars) is the parked-pipeline
     // case the work-idle feature exists to surface — the `w` marker and full work value must survive.
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (!compact) return formatted.slice(formatted.length - width);" -> "return formatted.slice(formatted.length - width);"
     const nowMs = 1_800_000_000_000;
     const hundredDaysAgo = nowMs - 100 * 86_400_000;
     const pipeline = joinTree([
@@ -2069,7 +2020,6 @@ describe("monitor pipeline tree elapsed cells", () => {
 
   test("a compact timing string that fits eight columns keeps its idle segment", () => {
     // Mutation checkpoint: an off-by-one in the width comparison must turn this RED.
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (formatted.length <= width) return formatted.padStart(width);" -> "if (formatted.length < width) return formatted.padStart(width);"
     const nowMs = 1_800_000_000_000;
     const oneMinuteAgo = nowMs - 60_000;
     const pipeline = joinTree([
@@ -2195,12 +2145,10 @@ describe("monitor pipeline tree elapsed cells", () => {
       throw new Error("expected branch nodes");
     }
 
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "const startedAt = starts.length === 0 ? null : Math.min(...starts);" -> "const startedAt = starts.length === 0 ? null : Math.max(...starts);"
     expect(beforeBranch.startedAt).toBeNull();
     expect(beforeBranch.endedAt).toBeNull();
     expect(formatElapsedWallClock(beforeBranch.startedAt, beforeBranch.endedAt, ACTIVE_NOW_MS)).toBe("");
 
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "const allEnded = stages.length > 0 && stages.every((stage) => stage.endedAt !== null);" -> "const allEnded = true;"
     expect(activeBranch.startedAt).toBe(STAGE_START_MS);
     expect(activeBranch.endedAt).toBeNull();
     const activeElapsedEarly = formatElapsedWallClock(activeBranch.startedAt, activeBranch.endedAt, ACTIVE_NOW_MS);
@@ -2212,7 +2160,6 @@ describe("monitor pipeline tree elapsed cells", () => {
     expect(activeElapsedEarly).toBe(formatElapsedWallClock(STAGE_START_MS, null, ACTIVE_NOW_MS));
     expect(activeElapsedEarly).not.toBe(activeElapsedLater);
 
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "const endedAt = allEnded ? Math.max(...stages.map((stage) => stage.endedAt as number)) : null;" -> "const endedAt = null;"
     expect(terminalBranch.startedAt).toBe(STAGE_START_MS);
     expect(terminalBranch.endedAt).toBe(STAGE_START_MS + 90_000);
     const terminalElapsedAtEnd = formatElapsedWallClock(
@@ -2248,7 +2195,6 @@ describe("buildMonitorPipelineTree", () => {
   });
 
   test("ad-hoc work items order among pipelines by rank then finish", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "workflowGroupHasActiveMember(members)" -> "true"
     const runningPipeline = pipelineSnapshot({ pipelineId: "pipe-running", createdAt: 1000, finishedAtMs: null });
     const terminalPipeline = pipelineSnapshot({
       pipelineId: "pipe-terminal",
@@ -2310,7 +2256,6 @@ describe("buildMonitorPipelineTree", () => {
 
     // With the finished member evicted, the retained finishless member cannot manufacture the
     // evicted member's finish; the group falls back to its own retained admission timestamp.
-    // @mutate v2/src/tui/tui-shell-layout.ts "const endMs = latestFinishedAtMs ?? latestCreatedAtMs;" -> "const endMs = latestFinishedAtMs ?? nowMs;"
     const onlyFinishlessRetained = buildMonitorPipelineTree([], [finishlessMember], new Set(), null);
     const adhocRetained = onlyFinishlessRetained.find((node) => node.kind === "adhoc");
     if (adhocRetained === undefined || adhocRetained.kind !== "adhoc") throw new Error("expected adhoc node");
@@ -2408,7 +2353,6 @@ describe("flattenMonitorPipelineTree workflow constituent rows", () => {
 
   test("selecting a collapsed non-representative member materializes it as its own row", () => {
     // Keystone: reverting the member-match arm to identity-only comparison must turn this RED.
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "run.id === selectedNodeId || workflowTableRowMembers(run.tableRow).some((member) => member.runId === selectedNodeId)" -> "run.id === selectedNodeId"
     const displayNodes = flattenSelectedMultiMemberStage(new Set(), "run-implement");
 
     expect(
@@ -2421,7 +2365,6 @@ describe("flattenMonitorPipelineTree workflow constituent rows", () => {
 
   test("a branch-nested collapsed member materializes under its branch and stage ancestors", () => {
     // Mutation checkpoint: neutering the member-match arm at the branch-site call in resolveBranchAncestors must turn this RED.
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "if (runNodeMatchesSelection(run, selectedNodeId)) return new Set([pipeline.id, branch.id, stage.id]);" -> "if (run.id === selectedNodeId) return new Set([pipeline.id, branch.id, stage.id]);"
     const branchInvocation = "inv-branch-multi";
     const branchWorkflow = { invocationId: branchInvocation, steps: [...MULTI_WORKFLOW_STEPS] };
     const branchKey = "alpha";
@@ -2605,7 +2548,6 @@ describe("flattenMonitorPipelineTree reveal-on-select", () => {
 
 describe("flattenMonitorPipelineTree ordering", () => {
   test("top-level rows order running before gated before terminal", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "state === GATED_PIPELINE_STATE" -> "false"
     const snapshots = [
       pipelineSnapshot({ pipelineId: "running-1000", createdAt: 1000, finishedAtMs: null }),
       pipelineSnapshot({ pipelineId: "running-2000", createdAt: 2000, finishedAtMs: null }),
@@ -2640,7 +2582,6 @@ describe("flattenMonitorPipelineTree ordering", () => {
   });
 
   test("terminal rows order newest finish first", () => {
-    // @mutate v2/src/tui/tui-monitor-pipeline-tree.ts "return (b.finishedAtMs ?? b.createdAt) - (a.finishedAtMs ?? a.createdAt);" -> "return (a.finishedAtMs ?? a.createdAt) - (b.finishedAtMs ?? b.createdAt);"
     const snapshots = [
       pipelineSnapshot({ pipelineId: "terminal-old", createdAt: 50, state: "succeeded", finishedAtMs: 300 }),
       pipelineSnapshot({ pipelineId: "terminal-new", createdAt: 100, state: "succeeded", finishedAtMs: 500 }),

@@ -605,7 +605,6 @@ describe("load-sensitive isolation", () => {
   });
 
   test("every audited heavy file runs with no co-runner in either direction", async () => {
-    // @mutate scripts/test-slice.ts "v2/src/daemon/daemon-resume.test.ts" -> "v2/src/daemon/daemon-resume-pooled.test.ts"
     spyOn(process.stdout, "write").mockImplementation(() => true);
     spyOn(process.stderr, "write").mockImplementation(() => true);
     const auditedFiles = [

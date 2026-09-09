@@ -132,7 +132,6 @@ describe("StateStore", () => {
   test("records and replaces the in-flight ready-gate group id", () => {
     const runId = seedRun(store);
     // Keystone checkpoint: baseline read semantics must turn this test RED.
-    // @mutate v2/src/persistence/state-store.ts "    ...run," -> "    ...run, readyGatePgid: null,"
 
     store.setReadyGatePgid(runId, 4242);
     expect(loadRunOrThrow(store, runId).readyGatePgid).toBe(4242);
@@ -145,7 +144,6 @@ describe("StateStore", () => {
     const runId = seedRun(store);
     store.setReadyGatePgid(runId, 4242);
     // Mutation checkpoint: setReadyGatePgid's pgid === null branch (its own UPDATE ... SET ready_gate_pgid = NULL)
-    // @mutate v2/src/persistence/state-store.ts "if (pgid === null) {" -> "if (false) {"
 
     store.setReadyGatePgid(runId, null);
     expect(loadRunOrThrow(store, runId).readyGatePgid ?? null).toBeNull();
@@ -360,8 +358,6 @@ describe("StateStore", () => {
       incidentId: incidents[1]!.incidentId,
       transition: incidents[1]!.transition,
     });
-    // @mutate v2/src/persistence/state-store.ts ") > (?, ?, ?)" -> ") >= (?, ?, ?)"
-    // @mutate v2/src/persistence/state-store.ts "incident_json IS NOT NULL" -> "incident_json IS NULL"
     // The cursor names an already-delivered incident: chaining from it never re-delivers it.
     const results = store.listDeliveredNotificationIncidents({ sinceCursor: middleCursor });
     expect(results).toEqual([sinkIncident(incidents[2]!), sinkIncident(incidents[3]!)]);
@@ -401,7 +397,6 @@ describe("StateStore", () => {
       incidentId: "stage:pipe-1:plan:default",
       transition: "settlement_deferred:entry_run_dead",
     };
-    // @mutate v2/src/persistence/state-store.ts "if (parts.length < idPartCount + 1) {" -> "if (parts.length >= idPartCount + 1) {"
     expect(decodeNotificationDeliveryCursor(encodeNotificationDeliveryCursor(stageCursor))).toEqual(stageCursor);
     expect(
       decodeNotificationDeliveryCursor(
@@ -948,7 +943,6 @@ describe("StateStore", () => {
       store.setRunStatus(runId, status);
 
       const run = loadRunOrThrow(store, runId);
-      // @mutate v2/src/persistence/state-store.ts "isTerminalRunStatus(status) ? Date.now() : null" -> "null"
       expect(run.finishedAt).not.toBeNull();
       expect(run.finishedAt).toBeGreaterThanOrEqual(before);
       expect(run.attempts).toEqual([]);
@@ -962,7 +956,6 @@ describe("StateStore", () => {
     expect(loadRunOrThrow(store, runId).finishedAt).not.toBeNull();
 
     store.setRunStatus(runId, "in-progress");
-    // @mutate v2/src/persistence/state-store.ts "isTerminalRunStatus(status) ? Date.now() : null" -> "Date.now()"
     expect(loadRunOrThrow(store, runId).finishedAt).toBeNull();
   });
 });
@@ -1032,7 +1025,6 @@ describe("commitGuardedKill", () => {
     const killedRunId = seedRun(store);
     store.commitGuardedKill(killedRunId);
     const killedRun = loadRunOrThrow(store, killedRunId);
-    // @mutate v2/src/persistence/state-store.ts ".run(finishedAt, runId);" -> ".run(null, runId);"
     expect(killedRun.status).toBe("killed");
     expect(killedRun.finishedAt).not.toBeNull();
 
@@ -1099,7 +1091,6 @@ describe("commitGuardedKill", () => {
         },
       }),
     ).toThrow("forced mid-settlement failure");
-    // @mutate v2/src/persistence/state-store.ts "this.db.transaction(applySettlement)();" -> "applySettlement();"
 
     const after = loadRunOrThrow(store, runId);
     expect(after.status).toBe(before.status);
@@ -2050,7 +2041,6 @@ describe("pipelines", () => {
 
       const stage = store.loadPipeline(pipelineId)?.stages.find((row) => row.stageId === "plan");
       if (!stage) throw new Error("plan stage should exist");
-      // @mutate v2/src/persistence/state-store.ts "return { ...patch, endedAt: now };" -> "return patch;"
       expect(stage.endedAt).not.toBeNull();
       expect(stage.endedAt).toBeGreaterThanOrEqual(before);
       expect(stage.startedAt).toBeNull();
@@ -2074,7 +2064,6 @@ describe("pipelines", () => {
 
       const stage = store.loadPipeline(pipelineId)?.stages.find((row) => row.stageId === "plan");
       if (!stage) throw new Error("plan stage should exist");
-      // @mutate v2/src/persistence/state-store.ts "!isTerminalStageStatus(patch.status)" -> "false"
       expect(stage.endedAt).toBeNull();
     }
   });
@@ -2085,7 +2074,6 @@ describe("pipelines", () => {
 
     const stage = store.loadPipeline(pipelineId)?.stages.find((row) => row.stageId === "plan");
     if (!stage) throw new Error("plan stage should exist");
-    // @mutate v2/src/persistence/state-store.ts "typeof patch.endedAt === \"number\"" -> "false"
     expect(stage.endedAt).toBe(1_700_000_000_000);
   });
 
@@ -2498,7 +2486,6 @@ describe("pipelines", () => {
       const approval = approvalStageRecord(loadPipelineOrThrow(store, pipelineId));
       store.commitApprovalBoundary({ stageRecordId: approval.id });
 
-      // @mutate v2/src/persistence/state-store.ts "decidedAt: Date.now()," -> "decidedAt: null,"
       expect(store.commitApprovalDecision({ stageRecordId: approval.id, decision })).toEqual({
         kind: "applied",
         stageRecordId: approval.id,
@@ -2522,7 +2509,6 @@ describe("pipelines", () => {
     const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
     const approval = approvalStageRecord(loadPipelineOrThrow(store, pipelineId));
 
-    // @mutate v2/src/persistence/state-store.ts "decidedAt: null," -> "decidedAt: Date.now(),"
     expect(store.commitApprovalBoundary({ stageRecordId: approval.id })).toEqual({
       kind: "applied",
       stageRecordId: approval.id,
@@ -3618,7 +3604,6 @@ describe("failed pipeline reopen", () => {
     store.updateStage({ pipelineId, stageId: "gate", patch: { status: "failed" } });
     store.updateStage({ pipelineId, stageId: "gate-two", patch: { status: "skipped" } });
 
-    // @mutate v2/src/persistence/state-store.ts "decided_at = NULL," -> "decided_at = decided_at,"
     expect(store.reopenFailedPipeline({ pipelineId })).toEqual({ kind: "applied", stageRecordId: gate.id });
 
     const after = loadPipelineOrThrow(store, pipelineId);
@@ -4031,14 +4016,10 @@ describe("failed pipeline reopen", () => {
     if (!failedRow || !suffixRow) throw new Error("target rows should exist");
 
     // Keystone checkpoint: forcing whole-pipeline selection hits gamma's sibling failure too and refuses.
-    // @mutate v2/src/persistence/state-store.ts "const branchKey = args.branchKey;" -> "const branchKey = undefined;"
     // Mutation checkpoint: disabling the named-scope dispatch falls back to whole-pipeline analysis.
-    // @mutate v2/src/persistence/state-store.ts "if (branchKey !== undefined && branchKey !== DEFAULT_PIPELINE_STAGE_BRANCH_KEY) {" -> "if (false) {"
     // Mutation checkpoint: disabling the boundary membership skip aborts the search at stage-0 (no alpha row there).
-    // @mutate v2/src/persistence/state-store.ts "if (defaultRows.length === 0 || namedRows.length === 0) continue;" -> "if (false) continue;"
     // Mutation checkpoint: dropping the scope from the in-transaction re-analysis re-widens it to whole-pipeline,
     // which hits gamma's sibling failure and refuses.
-    // @mutate v2/src/persistence/state-store.ts "analyzeFailedPipelineReopenShape(freshStages, branchKey)" -> "analyzeFailedPipelineReopenShape(freshStages)"
     expect(store.reopenFailedPipeline({ pipelineId, branchKey: "alpha" })).toEqual({
       kind: "applied",
       stageRecordId: failedRow.id,
@@ -4163,7 +4144,6 @@ describe("failed pipeline reopen", () => {
     };
 
     // Mutation checkpoint: allowing >1 rows on either side of the boundary lets the first duplicate silently win.
-    // @mutate v2/src/persistence/state-store.ts "if (defaultRows.length > 1 || namedRows.length > 1) return null;" -> "if (false) return null;"
     const dupDefaultA: PipelineStageRecord = {
       ...base,
       id: "dup-default-a",
@@ -4194,7 +4174,6 @@ describe("failed pipeline reopen", () => {
     });
 
     // Mutation checkpoint: dropping the stageId comparison lets a misaligned pair pass as the boundary.
-    // @mutate v2/src/persistence/state-store.ts "if (!defaultRow || !namedRow || defaultRow.stageId !== namedRow.stageId) return null;" -> "if (!defaultRow || !namedRow) return null;"
     const misalignedDefault: PipelineStageRecord = {
       ...base,
       id: "misaligned-default",
@@ -4217,7 +4196,6 @@ describe("failed pipeline reopen", () => {
     });
 
     // Mutation checkpoint: skipping the null-boundary refusal lets an all-named row set (no `default` anywhere) pass.
-    // @mutate v2/src/persistence/state-store.ts "if (boundaryPosition === null) return null;" -> "if (false) return null;"
     const onlyNamed0: PipelineStageRecord = {
       ...base,
       id: "only-named-0",
@@ -4240,7 +4218,6 @@ describe("failed pipeline reopen", () => {
     });
 
     // Mutation checkpoint: allowing a duplicated prefix row through lets the first duplicate silently win.
-    // @mutate v2/src/persistence/state-store.ts "if (defaultRows.length !== 1) return null;" -> "if (false) return null;"
     const prefixDup1a: PipelineStageRecord = {
       ...base,
       id: "prefix-dup-1a",
@@ -4278,7 +4255,6 @@ describe("failed pipeline reopen", () => {
     ).toEqual({ kind: "invalid", reason: "malformed_continuation" });
 
     // Mutation checkpoint: allowing a duplicated continuation row through lets the first duplicate silently win.
-    // @mutate v2/src/persistence/state-store.ts "if (namedRows.length !== 1) return null;" -> "if (false) return null;"
     const boundaryDefault1: PipelineStageRecord = {
       ...base,
       id: "boundary-default-1",
@@ -4402,7 +4378,6 @@ describe("failed pipeline reopen", () => {
 
     // Mutation checkpoint: dropping the conditional-write status guard lets the failed-row write land
     // even though the trigger already moved the suffix row out from under it, masking the interference.
-    // @mutate v2/src/persistence/state-store.ts "        WHERE id = ? AND status = ?" -> "        WHERE id = ?"
     expect(store.reopenFailedPipeline({ pipelineId, branchKey: "alpha" })).toEqual({
       kind: "refused",
       pipelineId,
@@ -4690,7 +4665,6 @@ describe("pipeline dismissal", () => {
   });
 
   test("dismissPipeline persists dismissedAt across reopen", () => {
-    // @mutate v2/src/persistence/state-store.ts ".run(dismissedAt, args.pipelineId)" -> ".run(null, args.pipelineId)"
     const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline("dismiss-reopen") });
     const before = Date.now();
 
@@ -4708,7 +4682,6 @@ describe("pipeline dismissal", () => {
     const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline("undismiss") });
     store.dismissPipeline({ pipelineId });
 
-    // @mutate v2/src/persistence/state-store.ts "SET dismissed_at = NULL WHERE id = ?" -> "SET dismissed_at = dismissed_at WHERE id = ?"
     expect(store.undismissPipeline({ pipelineId })).toEqual({ kind: "applied", pipelineId });
     expect(loadPipelineOrThrow(store, pipelineId).dismissedAt).toBeNull();
 
@@ -4725,8 +4698,6 @@ describe("pipeline dismissal", () => {
   });
 
   test("dismiss and undismiss only affect the targeted pipeline row", () => {
-    // @mutate v2/src/persistence/state-store.ts "UPDATE pipelines SET dismissed_at = ? WHERE id = ? AND dismissed_at IS NULL" -> "UPDATE pipelines SET dismissed_at = ? WHERE dismissed_at IS NULL"
-    // @mutate v2/src/persistence/state-store.ts "UPDATE pipelines SET dismissed_at = NULL WHERE id = ?" -> "UPDATE pipelines SET dismissed_at = NULL"
     const pipelineA = store.createPipeline({ definition: singlePlanStagePipeline("dismiss-scope-a") });
     const pipelineB = store.createPipeline({ definition: singlePlanStagePipeline("dismiss-scope-b") });
 
@@ -4769,7 +4740,6 @@ describe("pipeline dismissal", () => {
   });
 
   test("dismissPipeline and undismissPipeline refuse an unknown pipeline id", () => {
-    // @mutate v2/src/persistence/state-store.ts "this.db.prepare(\"SELECT 1 FROM pipelines WHERE id = ?\").get(pipelineId) !== null;" -> "true;"
     const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline("unknown-refusal") });
 
     expect(store.dismissPipeline({ pipelineId: "no-such-pipeline" })).toEqual({
@@ -4786,7 +4756,6 @@ describe("pipeline dismissal", () => {
   });
 
   test("re-dismissing a dismissed pipeline preserves the first dismissal timestamp", () => {
-    // @mutate v2/src/persistence/state-store.ts "UPDATE pipelines SET dismissed_at = ? WHERE id = ? AND dismissed_at IS NULL" -> "UPDATE pipelines SET dismissed_at = ? WHERE id = ?"
     const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline("dismiss-idempotent") });
     const raw = new Database(TEST_DB_PATH);
     try {
@@ -4814,7 +4783,6 @@ describe("run dismissal", () => {
   });
 
   test("dismissRun persists dismissedAt across reopen", () => {
-    // @mutate v2/src/persistence/state-store.ts ".run(dismissedAt, runId)" -> ".run(null, runId)"
     const runId = seedRun(store);
     const before = Date.now();
 
@@ -4832,7 +4800,6 @@ describe("run dismissal", () => {
     const runId = seedRun(store);
     store.dismissRun(runId);
 
-    // @mutate v2/src/persistence/state-store.ts "UPDATE runs SET dismissed_at = NULL WHERE id = ?" -> "UPDATE runs SET dismissed_at = dismissed_at WHERE id = ?"
     expect(store.undismissRun(runId)).toEqual({ kind: "applied", runId });
     expect(loadRunOrThrow(store, runId).dismissedAt).toBeNull();
 
@@ -4849,7 +4816,6 @@ describe("run dismissal", () => {
   });
 
   test("re-dismissing a dismissed run preserves the first dismissal timestamp", () => {
-    // @mutate v2/src/persistence/state-store.ts "UPDATE runs SET dismissed_at = ? WHERE id = ? AND dismissed_at IS NULL" -> "UPDATE runs SET dismissed_at = ? WHERE id = ?"
     const runId = seedRun(store);
     const raw = new Database(TEST_DB_PATH);
     try {
@@ -4863,8 +4829,6 @@ describe("run dismissal", () => {
   });
 
   test("dismiss and undismiss only affect the targeted run row", () => {
-    // @mutate v2/src/persistence/state-store.ts "UPDATE runs SET dismissed_at = ? WHERE id = ? AND dismissed_at IS NULL" -> "UPDATE runs SET dismissed_at = ? WHERE (id = ? OR 1 = 1) AND dismissed_at IS NULL"
-    // @mutate v2/src/persistence/state-store.ts "UPDATE runs SET dismissed_at = NULL WHERE id = ?" -> "UPDATE runs SET dismissed_at = NULL"
     const runA = seedRun(store, { branch: "dismiss-scope-a" });
     const runB = seedRun(store, { branch: "dismiss-scope-b" });
 
@@ -4908,7 +4872,6 @@ describe("run dismissal", () => {
   });
 
   test("dismissRun and undismissRun refuse an unknown run id", () => {
-    // @mutate v2/src/persistence/state-store.ts "return this.db.prepare(\"SELECT 1 FROM runs WHERE id = ?\").get(runId) !== null;" -> "return true;"
     const runId = seedRun(store);
 
     expect(store.dismissRun("no-such-run")).toEqual({
@@ -4998,7 +4961,6 @@ describe("incident candidate list queries", () => {
     const recentTerminalId = seedTerminalRun("blocked", RECENT_MS);
 
     const first = store.listIncidentCandidateRuns({ statuses: RUN_STATUSES, sinceMs: SINCE_MS });
-    // @mutate v2/src/persistence/state-store.ts "finished_at >= ?" -> "finished_at > ?"
     expect(first.map((run) => run.id).sort()).toEqual([inProgressId, recentTerminalId].sort());
 
     for (let index = 0; index < 40; index += 1) {
@@ -5014,7 +4976,6 @@ describe("incident candidate list queries", () => {
     patchRunRow(runId, { status: "completed", finishedAt: null, createdAt: OLD_MS });
 
     const candidates = store.listIncidentCandidateRuns({ statuses: RUN_STATUSES, sinceMs: SINCE_MS });
-    // @mutate v2/src/persistence/state-store.ts "finished_at IS NULL" -> "finished_at IS NOT NULL"
     expect(candidates.map((run) => run.id)).toContain(runId);
   });
 
@@ -5051,7 +5012,6 @@ describe("incident candidate list queries", () => {
     const recentTerminalPipelineId = seedFullyTerminalPipeline("recent-terminal", RECENT_MS);
 
     const first = store.listIncidentCandidatePipelines({ sinceMs: SINCE_MS });
-    // @mutate v2/src/persistence/state-store.ts ") >= ?" -> ") > ?"
     expect(first.map((pipeline) => pipeline.id).sort()).toEqual(
       [awaitingPipelineId, inFlightPipelineId, recentTerminalPipelineId].sort(),
     );
@@ -5085,7 +5045,6 @@ describe("incident candidate list queries", () => {
     }
 
     const candidates = store.listIncidentCandidatePipelines({ sinceMs: SINCE_MS });
-    // @mutate v2/src/persistence/state-store.ts "ps.status NOT IN (${INCIDENT_CANDIDATE_STABLE_STAGE_STATUSES_SQL})" -> "ps.status IN (${INCIDENT_CANDIDATE_STABLE_STAGE_STATUSES_SQL})"
     const match = candidates.find((pipeline) => pipeline.id === pipelineId);
     expect(match).toBeDefined();
     expect(match?.stages.find((stage) => stage.stageId === "gate")?.status).toBe("awaiting");
@@ -5157,7 +5116,6 @@ describe("operator failure records", () => {
     store.commitTerminalRunSettlement({ runId, status: "failed", operatorFailureRecord: REPLACEMENT });
     expect(loadRunOrThrow(store, runId).operatorFailureRecord).toEqual(REPLACEMENT);
 
-    // @mutate v2/src/persistence/state-store.ts "args.operatorFailureRecord === null\n            ? null" -> "args.operatorFailureRecord === null\n            ? undefined"
     store.commitTerminalRunSettlement({ runId, status: "failed", operatorFailureRecord: null });
     expect(loadRunOrThrow(store, runId).operatorFailureRecord).toBeNull();
     expect(rawColumn(runId)).toBeNull();
@@ -5280,7 +5238,6 @@ describe("operator failure records", () => {
         failureDetail: RECORD,
       }),
     ).toThrow('requires status "failed"');
-    // @mutate v2/src/persistence/state-store.ts "if (record === undefined) {\n      throw" -> "if (false) {\n      throw"
     expect(() =>
       store.commitTerminalStageOperatorFailureRecord({
         pipelineId,

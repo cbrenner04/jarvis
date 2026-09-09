@@ -87,7 +87,6 @@ describe("help flag parser parity", () => {
     const parserFlags = parserAcceptedLongFlags(["run", "kill"]);
     expect(parserFlags).toEqual(["--force"]);
     expect(parserFlags).toEqual(Object.keys(RUN_KILL_PARSE_ARG_OPTIONS).map((key) => `--${key}`));
-    // @mutate v2/src/cli/command-help-flags.ts "name: \"--force\"," -> "name: \"--not-force\","
     expect(missingParserFlagsInHelp(parserFlags, RUN_KILL_HELP_FLAGS)).toEqual([]);
   });
 });

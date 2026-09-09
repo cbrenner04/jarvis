@@ -40,8 +40,6 @@ function reviewDebateStep(): ReviewDebateWorkflowStep {
 
 describe("stampWorkflowStepsWithMachineConfig gate commands", () => {
   test("stamps configured fixCommand and readyCommand onto write, review, and review-debate steps", () => {
-    // @mutate v2/src/commands/workflow-step-config-stamp.ts "...(fixCommand !== undefined ? { fixCommand } : {})," -> "...(fixCommand === undefined ? { fixCommand } : {}),"
-    // @mutate v2/src/commands/workflow-step-config-stamp.ts "...(readyCommand !== undefined ? { readyCommand } : {})," -> "...(readyCommand === undefined ? { readyCommand } : {}),"
     const configPath = writeMachineConfig({
       projects: { demo: { fixCommand: "npm run fix-custom", readyCommand: "npm run verify-custom" } },
     });
@@ -76,7 +74,6 @@ describe("stampWorkflowStepsWithMachineConfig gate commands", () => {
   });
 
   test("stamps write iteration bounds and review role timeouts on their respective behaviors", () => {
-    // @mutate v2/src/commands/workflow-step-config-stamp.ts "if (step.behavior === \"write\")" -> "if (step.behavior !== \"write\")"
     const configPath = writeMachineConfig({
       iterationTimeoutMs: 101_000,
       iterationCeilingMs: 202_000,

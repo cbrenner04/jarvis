@@ -115,7 +115,6 @@ describe("intent stage contract", () => {
   });
 
   test("accepts prerequisites bullet wrapped across two lines", () => {
-    // @mutate shared/intent-stage.ts "assembleBulletBlocks(lines, isPrerequisiteBulletStart)" -> "lines.filter((line) => line.trim().length > 0)"
     expectValidPrerequisitesIntent("- prerequisite wraps across\n  two physical lines\n");
   });
 

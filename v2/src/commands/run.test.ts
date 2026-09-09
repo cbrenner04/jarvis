@@ -793,7 +793,6 @@ describe("run control", () => {
       }),
     );
 
-    // @mutate v2/src/commands/run.ts "const params = values.force === true ? { runId, force: true } : { runId };" -> "const params = { runId };"
     expect(code).toBe(0);
     expect(sent).toEqual([
       { kind: "request", id: requestId, method: "kill", params: { runId: "run-123", force: true } },
@@ -813,7 +812,6 @@ describe("run control", () => {
       }),
     );
 
-    // @mutate v2/src/commands/run.ts "const params = values.force === true ? { runId, force: true } : { runId };" -> "const params = { runId, force: true };"
     expect(code).toBe(0);
     expect(sent).toEqual([{ kind: "request", id: requestId, method: "kill", params: { runId: "run-123" } }]);
     expect(cap.read()).toEqual({ stdout: "killed run-123\n", stderr: "" });
@@ -884,7 +882,6 @@ describe("run control", () => {
   });
 
   test("pause and resume reject --force as a usage error", async () => {
-    // @mutate v2/src/commands/run.ts "const options = subcommand === \"kill\" ? RUN_KILL_PARSE_ARG_OPTIONS : {};" -> "const options = RUN_KILL_PARSE_ARG_OPTIONS;"
     for (const argv of [
       ["run", "pause", "--force", "run-123"],
       ["run", "resume", "--force", "run-123"],
@@ -1334,7 +1331,6 @@ describe("run control", () => {
     expect(row()[13]).toBe("42");
     expect(row()[14]).toBe("https://github.com/demo/pull/42");
     expect(row()[15]).toBe(JSON.stringify(COMPLETION_COMMIT_ERROR_MSG));
-    // @mutate v2/src/commands/run.ts "e?.completionCommitError === undefined ? \"-\" : JSON.stringify(e.completionCommitError)," -> "\"-\","
   });
 
   test("run list renders trailing completionCommitError column as - when absent", async () => {
@@ -1345,7 +1341,6 @@ describe("run control", () => {
     expect(code).toBe(0);
     expect(row()[15]).toBe("-");
     expect(row()[16]).toBe("-");
-    // @mutate v2/src/commands/run.ts "e?.completionCommitError === undefined ? \"-\" : JSON.stringify(e.completionCommitError)," -> "JSON.stringify(e?.completionCommitError ?? \"-\"),"
   });
 
   test("run list confines tab and newline completionCommitError to trailing column", async () => {
@@ -1369,7 +1364,6 @@ describe("run control", () => {
     expect(code).toBe(0);
     expect(stdout.trimEnd().split("\n")).toHaveLength(1);
     expect(row()[15]).toBe(JSON.stringify(completionCommitError));
-    // @mutate v2/src/commands/run.ts "e?.completionCommitError === undefined ? \"-\" : JSON.stringify(e.completionCommitError)," -> "e?.completionCommitError ?? \"-\","
   });
 
   test("run list renders invocation stderr as JSON in a stable trailing message column", async () => {
@@ -1389,7 +1383,6 @@ describe("run control", () => {
     expect(stdout.trimEnd().split("\n")).toHaveLength(1);
     expect(row()[15]).toBe("-");
     expect(row()[16]).toBe(JSON.stringify(message));
-    // @mutate v2/src/commands/run.ts "e?.message === undefined ? \"-\" : JSON.stringify(e.message)," -> "e?.message ?? \"-\","
   });
 
   test("run list --all requests dismissed runs", async () => {
@@ -1399,7 +1392,6 @@ describe("run control", () => {
     expect(sent).toEqual([
       { kind: "request", id: SOLO_LIST_ROW_REQUEST_ID, method: "list", params: { includeDismissed: true } },
     ]);
-    // @mutate v2/src/commands/run.ts "if (values.all === true) params.includeDismissed = true;" -> "if (false) params.includeDismissed = true;"
   });
 
   test("run list without --all omits the includeDismissed opt-in", async () => {
@@ -1407,7 +1399,6 @@ describe("run control", () => {
 
     expect(code).toBe(0);
     expect(sent).toEqual([{ kind: "request", id: SOLO_LIST_ROW_REQUEST_ID, method: "list" }]);
-    // @mutate v2/src/commands/run.ts "if (values.all === true) params.includeDismissed = true;" -> "params.includeDismissed = true;"
   });
 
   test("run list --all marks dismissed rows", async () => {
@@ -1423,7 +1414,6 @@ describe("run control", () => {
     const [dismissed, notDismissed] = rows();
     expect(dismissed?.[17]).toBe("dismissed");
     expect(notDismissed?.[17]).toBe("-");
-    // @mutate v2/src/commands/run.ts "...(showDismissal ? [typeof run.dismissedAt === \"number\" ? \"dismissed\" : \"-\"] : [])," -> "...[],"
   });
 
   test("run list without --all renders no dismissal column", async () => {
@@ -1431,7 +1421,6 @@ describe("run control", () => {
 
     expect(code).toBe(0);
     expect(row()).toHaveLength(17);
-    // @mutate v2/src/commands/run.ts "...(showDismissal ? [typeof run.dismissedAt === \"number\" ? \"dismissed\" : \"-\"] : [])," -> "...[typeof run.dismissedAt === \"number\" ? \"dismissed\" : \"-\"],"
   });
 
   test("run list --all --since <duration> --project <name> composes the opt-in with dimension filters", async () => {
@@ -1469,7 +1458,6 @@ describe("run control", () => {
       error?: { completionCommitError?: string };
     };
     expect(parsed.error?.completionCommitError).toBe(COMPLETION_COMMIT_ERROR_MSG);
-    // @mutate v2/src/cli/run-completion.ts "if (result.error !== undefined) payload.error = result.error;" -> ""
   });
 
   test("run wait missing run ID prints run-control usage and exits 1", async () => {
@@ -1576,7 +1564,6 @@ describe("run dismiss", () => {
     );
     // Keystone checkpoint: rewriting the RPC call to always send "undismiss" turns this test
     // red while the undismiss test below stays green.
-    // @mutate v2/src/commands/run.ts "response = await request(client, method, { runId });" -> "response = await request(client, \"undismiss\", { runId });"
 
     expect(code).toBe(0);
     expect(sent).toEqual([{ kind: "request", id: requestId, method: "dismiss", params: { runId: "run-123" } }]);
@@ -1623,7 +1610,6 @@ describe("run dismiss", () => {
     await expectWarning("budget-soft-stopped", "00000000-0000-4000-8000-000000000045");
     // Mutation checkpoint: neutering the live-status warning guard to `if (false)` drops the
     // warning, turning this test red.
-    // @mutate v2/src/commands/run.ts "if (mode === \"dismiss\" && !isTerminalRunStatus(outcome.status)) {" -> "if (false) {"
   });
 
   test("dismissing a terminal run prints no warning", async () => {
@@ -1639,7 +1625,6 @@ describe("run dismiss", () => {
     // Mutation checkpoint: dropping the terminal-status term from the same guard makes a
     // terminal dismissal emit the live warning, turning this test red — proves the guard
     // suppresses the warning rather than the warning never firing.
-    // @mutate v2/src/commands/run.ts "mode === \"dismiss\" && !isTerminalRunStatus(outcome.status)" -> "mode === \"dismiss\""
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: "dismissed run-123\n", stderr: "" });
@@ -1679,7 +1664,6 @@ describe("run dismiss", () => {
     await expectRefusal(["run", "undismiss", "run-404"], "00000000-0000-4000-8000-000000000049");
     // Mutation checkpoint: neutering the refusal branch to `if (false)` makes a refusal print
     // the success confirmation on stdout and exit 0, turning this test red.
-    // @mutate v2/src/commands/run.ts "if (outcome.kind === \"refused\") {" -> "if (false) {"
   });
 
   test("dismiss and undismiss reject bad arity before contacting the daemon", async () => {
@@ -1703,7 +1687,6 @@ describe("run dismiss", () => {
     // Mutation checkpoint: neutering the argument-count check in parseRunDismissalArgs to
     // `if (false)` makes an extra positional connect and issue an RPC instead of printing
     // usage, turning this test red.
-    // @mutate v2/src/commands/run.ts "if (argv.length !== 1) return { ok: false };" -> "if (false) return { ok: false };"
   });
 
   test("dismiss and undismiss print invalid daemon response for an unparsable envelope", async () => {

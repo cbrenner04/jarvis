@@ -421,7 +421,6 @@ describe("createCompletionCommitter", () => {
   });
 
   test("defaults absent and legacy pending step metadata to write", async () => {
-    // @mutate v2/src/execution/completion-commit.ts "}\\n${renderJarvisStepTrailer(step)}`," -> "}`,"
     // Fresh direct completion: bare title, `Jarvis-Step: write` added beside `Jarvis-Agent`.
     const { worktreePath, gitDir } = setupWorktree("v2/spec/test/index.md");
     const calls: GitCall[] = [];
@@ -493,7 +492,6 @@ describe("createCompletionCommitter", () => {
   });
 
   test("preserves prepared pending step message on retry", async () => {
-    // @mutate v2/src/execution/completion-commit.ts "if (JARVIS_STEP_TRAILER_PRESENT.test(pending.message)) return pending;" -> "if (false) return pending;"
     const { worktreePath, gitDir } = setupWorktree("v2/spec/test/index.md");
     const pendingPath = join(gitDir, "jarvis-completion-pending.json");
     const preparedMessage =
@@ -537,7 +535,6 @@ describe("createCompletionCommitter", () => {
   });
 
   test("upgrades only trailerless legacy pending messages", async () => {
-    // @mutate v2/src/execution/completion-commit.ts "if (JARVIS_STEP_TRAILER_PRESENT.test(pending.message)) return pending;" -> "if (false) return pending;"
     // Trailer-less legacy pending message: upgraded once with `Jarvis-Step: write` appended.
     const { worktreePath, gitDir } = setupWorktree("v2/spec/test/index.md");
     const pendingPath = join(gitDir, "jarvis-completion-pending.json");
@@ -666,7 +663,6 @@ describe("createCompletionCommitter", () => {
   });
 
   test("formats changed files before staging so committed tree passes biome check", async () => {
-    // @mutate v2/src/execution/completion-commit.ts "await runCompletionFormat({" -> "if (false) { await runCompletionFormat({"
     const { worktreePath, seedHead } = initRealGitWorktree();
     const targetPath = examplePath(worktreePath);
     writeUnformattedExample(worktreePath);
@@ -715,7 +711,6 @@ describe("createCompletionCommitter", () => {
   });
 
   test("completion formatting receives lossless status paths", async () => {
-    // @mutate v2/src/execution/completion-commit.ts "inventory.map((entry) => entry.currentPath)" -> "inventory.map((entry) => entry.currentPath.trim())"
     const { worktreePath } = initRealGitWorktree();
     const paths = ["src/space name.ts", "src/line\nbreak.ts", "src/naïve.ts", " leading.ts", "src/trailing /file.ts"];
     for (const path of paths) {
@@ -866,7 +861,6 @@ describe("createCompletionCommitter", () => {
   });
 
   test("completion commit omits the harness-materialized node_modules symlink", async () => {
-    // @mutate v2/src/execution/completion-commit.ts "return [...ADD_ALL_ARGS, ...EXCLUDE_MATERIALIZED_NODE_MODULES];" -> "return [...ADD_ALL_ARGS];"
     const { worktreePath, seedHead } = initRealGitWorktreeWithoutGitignore();
     symlinkSync(join(repoRoot, "node_modules"), join(worktreePath, "node_modules"), "dir");
     writeFileSync(join(worktreePath, "v2/spec/test/index.md"), "# Test Spec Title\n\nUpdated body.\n");
@@ -892,7 +886,6 @@ describe("createCompletionCommitter", () => {
   });
 
   test("a real untracked node_modules directory is still committed", async () => {
-    // @mutate v2/src/execution/completion-commit.ts "if (!isMaterializedNodeModulesPath(worktreePath, MATERIALIZED_NODE_MODULES_PATH)) return [...ADD_ALL_ARGS];" -> "if (false) return [...ADD_ALL_ARGS];"
     const { worktreePath, seedHead } = initRealGitWorktreeWithoutGitignore();
     mkdirSync(join(worktreePath, "node_modules"));
     writeFileSync(join(worktreePath, "node_modules/marker.txt"), "not a symlink\n");

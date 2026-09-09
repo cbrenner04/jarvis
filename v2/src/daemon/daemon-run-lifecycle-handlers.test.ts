@@ -96,7 +96,6 @@ test("list always retains non-terminal runs regardless of terminal retention bou
   if (listed.kind !== "response") return;
 
   const runs = (listed.result as { runs: unknown[] }).runs;
-  // @mutate v2/src/daemon/daemon-run-lifecycle-handlers.ts "if (!isTerminalRunStatus(run.status)) {" -> "if (isTerminalRunStatus(run.status)) {"
   expect(runs).toHaveLength(110);
 });
 
@@ -143,7 +142,6 @@ test("list retains aged-out terminal workflow steps when a live sibling shares t
   if (listed.kind !== "response") return;
 
   const runIds = new Set((listed.result as { runs: Array<{ runId: string }> }).runs.map((row) => row.runId));
-  // @mutate v2/src/daemon/daemon-run-lifecycle-handlers.ts "if (invocationId !== undefined) keptInvocationIds.add(invocationId);" -> "if (invocationId === undefined) keptInvocationIds.add(invocationId);"
   expect(runIds.has(liveStepId)).toBe(true);
   expect(runIds.has(agedTerminalStepId)).toBe(true);
 });
@@ -191,7 +189,6 @@ test("list retains aged-out terminal workflow steps when a kept terminal sibling
   if (listed.kind !== "response") return;
 
   const runIds = new Set((listed.result as { runs: Array<{ runId: string }> }).runs.map((row) => row.runId));
-  // @mutate v2/src/daemon/daemon-run-lifecycle-handlers.ts "if (invocationId !== undefined) keptInvocationIds.add(invocationId);" -> "if (invocationId === undefined) keptInvocationIds.add(invocationId);"
   expect(runIds.has(keptTerminalStepId)).toBe(true);
   expect(runIds.has(agedTerminalStepId)).toBe(true);
 });
@@ -279,7 +276,6 @@ test("resume admits a paused direct write run with durable queuedInput", async (
   });
 
   const resumed = await handlers.resume({ kind: "request", id: "r1", method: "resume", params: { runId } }, signal);
-  // @mutate v2/src/daemon/daemon-run-lifecycle-handlers.ts "if (run.status !== \"paused\")" -> "if (run.status === \"paused\")"
   expect(resumed).toEqual({ kind: "response", result: { ok: true } });
 });
 
@@ -354,7 +350,6 @@ test("resume admits a paused workflow write step with exact snapshot stepId", as
     });
 
     const resumed = await handlers.resume({ kind: "request", id: "r1", method: "resume", params: { runId } }, signal);
-    // @mutate v2/src/daemon/daemon-run-lifecycle-handlers.ts "candidate.stepId === stepId" -> "candidate.stepId !== stepId"
     expect(resumed).toEqual({ kind: "response", result: { ok: true } });
     expect(resumedInputs).toHaveLength(1);
     expect(resumedInputs[0]?.stepId).toBe("implement");
@@ -437,7 +432,6 @@ test("resume maps hidden ~shrink stepId to shrink role via snapshot base step", 
     });
 
     const resumed = await handlers.resume({ kind: "request", id: "r1", method: "resume", params: { runId } }, signal);
-    // @mutate v2/src/daemon/daemon-run-lifecycle-handlers.ts "stepId?.endsWith(\"~shrink\") === true" -> "stepId?.endsWith(\"~shrink\") !== true"
     expect(resumed).toEqual({ kind: "response", result: { ok: true } });
     expect(resumedInputs).toHaveLength(1);
     expect(resumedInputs[0]?.bindingResolution?.role).toBe("shrink");
@@ -510,7 +504,6 @@ test("workflow entry wait reports non_terminating_mutation_failed owned by a dur
     expect(waited.kind).toBe("response");
     if (waited.kind !== "response") return;
 
-    // @mutate v2/src/daemon/daemon-run-lifecycle-handlers.ts "terminalRecord.event.loopOutcomeKind !== \"non_terminating_mutation_failed\"" -> "terminalRecord.event.loopOutcomeKind === \"non_terminating_mutation_failed\""
     expect(waited.result).toMatchObject({
       runStatus: "failed",
       loopOutcomeKind: "non_terminating_mutation_failed",

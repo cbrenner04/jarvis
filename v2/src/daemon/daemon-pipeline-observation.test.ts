@@ -232,8 +232,6 @@ test("pipeline_list preserves the failed-before-start stage from a pre-admission
   ).result.pipelines.find((pipeline) => pipeline.pipelineId === pipelineId)?.stages[0];
   if (!wire) throw new Error("expected projected stage");
 
-  // @mutate v2/src/daemon/pipeline-stage-dispatch.ts "settleUnexpectedThrow(store, stageTarget, error);" -> "store.updateStage({ ...stageTarget, patch: { status: \"failed\", startedAt: Date.now() } });"
-  // @mutate v2/src/daemon/pipeline-observation.ts "endedAt: stage.endedAt," -> "endedAt: null,"
   const storedShape = {
     status: stored.status,
     startedAt: stored.startedAt,
@@ -290,7 +288,6 @@ test("pipeline_list reports every admitted pipeline with identity, derived state
 });
 
 test("pipeline_list projects decidedAt for approved and rejected gates", async () => {
-  // @mutate v2/src/daemon/pipeline-observation.ts "decidedAt: stage.decidedAt," -> "decidedAt: null,"
   const [approvedPipelineId, rejectedPipelineId] = createApprovalPipelines();
   openApprovalGates([approvedPipelineId, rejectedPipelineId]);
 
@@ -350,7 +347,6 @@ test("projectPipelineSnapshot projects stored terminal and admission diagnostics
 
   const successSnapshot = projectPipelineSnapshot(success);
   const failureSnapshot = projectPipelineSnapshot(failure);
-  // @mutate v2/src/daemon/pipeline-observation.ts "terminalAction: pipeline.definition.terminalAction," -> "terminalAction: undefined,"
   expect(successSnapshot).toMatchObject({
     terminalAction: "ready",
     seedPath: "seeds/intent.md",
@@ -386,7 +382,6 @@ test("projectPipelineSnapshot projects stored stage identity, position, and fals
   const [plan, gate, implement] = pipeline.stages;
   if (!plan || !gate || !implement) throw new Error("expected stored stages");
 
-  // @mutate v2/src/daemon/pipeline-observation.ts "artifact: stage.artifact," -> "artifact: null,"
   expect(projectPipelineSnapshot(pipeline).stages).toEqual([
     {
       id: plan.id,
@@ -1047,7 +1042,6 @@ test("projectPipelineSnapshot derives finishedAtMs from max stage endedAt withou
 });
 
 test("pipeline finish uses approval decidedAt for rejected and approved-final gates", async () => {
-  // @mutate v2/src/daemon/pipeline-observation.ts "const candidateFinishAts = pipeline.stages.flatMap((stage) => [stage.endedAt, stage.decidedAt]);" -> "const candidateFinishAts = pipeline.stages.flatMap((stage) => [stage.endedAt]);"
   const [approvedPipelineId, rejectedPipelineId] = createApprovalPipelines();
   const approvedBefore = stateStore.loadPipeline(approvedPipelineId);
   const rejectedBefore = stateStore.loadPipeline(rejectedPipelineId);
@@ -1106,9 +1100,6 @@ test("failed branch plus undecided sibling gate remains non-terminal and exposes
     "plan/beta": { status: "succeeded", endedAt: 2 },
   });
 
-  // @mutate v2/src/daemon/pipeline-execution.ts "if (aggregation.anyActionableAwaiting) return \"awaiting-approval\";" -> "if (false) return \"awaiting-approval\";"
-  // @mutate v2/src/daemon/pipeline-execution.ts "if (!branchSuffixPredecessorsSatisfied(pipeline, record, split)) break;" -> "if (false) break;"
-  // @mutate v2/src/daemon/pipeline-observation.ts "if (split !== null && fanOutBranchSuffixTerminallySettled(pipeline, split, record.branchKey)) continue;" -> "if (false) continue;"
   expect(isPipelineTerminal(derivePipelineState(pipeline))).toBe(false);
   expect(derivePipelineBoundary(pipeline)).toEqual({
     kind: "awaiting-approval",
@@ -1159,6 +1150,5 @@ test("pipeline_wait holds open for failed-plus-running fan-out rows then returns
   });
 
   const boundary = await waitPromise;
-  // @mutate v2/src/daemon/pipeline-execution.ts "if (aggregation.anyRunning) return \"running\";" -> "if (false) return \"running\";"
   expect(boundary).toEqual({ kind: "terminal", state: "failed" });
 });

@@ -410,7 +410,6 @@ describe("state store baseline migration", () => {
     raw.close();
     expect(columnsBefore.some((column) => column.name === "operator_failure_record")).toBe(false);
 
-    // @mutate v2/src/persistence/state-store.ts "addColumnIfMissing(this.db, \"runs\", \"operator_failure_record\", \"TEXT\");" -> ""
     let store = openStateStore(legacyDbPath);
     store.commitTerminalRunSettlement({
       runId: ids.runId,

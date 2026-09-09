@@ -101,7 +101,6 @@ test("dismissed runs drop out of the default list", async () => {
   const dismissResponse = await dismissDirect(handlers, runA);
   expect(dismissResponse).toEqual({ kind: "response", result: { kind: "applied", runId: runA, status: "completed" } });
 
-  // @mutate v2/src/daemon/daemon.ts "includeDismissed || (run.dismissedAt ?? null) === null" -> "true"
   const runs = await listRunsDirect(handlers);
   const ids = runs?.map((row) => row.runId);
   expect(ids).toContain(runB);
@@ -117,7 +116,6 @@ test("includeDismissed returns dismissed runs with dismissedAt set", async () =>
   const bRowDefault = defaultRuns?.find((row) => row.runId === runB);
   if (!bRowDefault) throw new Error("expected the non-dismissed sibling in the default listing");
 
-  // @mutate v2/src/daemon/daemon.ts "listParams?.includeDismissed === true" -> "false"
   const includeDismissedRuns = await listRunsDirect(handlers, { includeDismissed: true });
   const aRow = includeDismissedRuns?.find((row) => row.runId === runA);
   const bRow = includeDismissedRuns?.find((row) => row.runId === runB);
@@ -187,7 +185,6 @@ test("a dismissed run does not consume a terminal retention slot", async () => {
   const dismissedId = terminalIds[25] as string;
   await dismissDirect(handlers, dismissedId);
 
-  // @mutate v2/src/daemon/daemon.ts "applyRetention(store.listRuns().filter(isNotDismissed))" -> "applyRetention(store.listRuns()).filter(isNotDismissed)"
   const runs = await listRunsDirect(handlers);
   expect(runs).toHaveLength(50);
   const ids = runs?.map((row) => row.runId);
@@ -200,7 +197,6 @@ test("includeDismissed alone does not bypass terminal retention", async () => {
     seedRun(stateStore, { status: "completed", createdAt: index });
   }
 
-  // @mutate v2/src/daemon/daemon.ts "listRpcRequestIsFiltered(listParams)" -> "listRpcRequestIsFiltered(listParams) || includeDismissed"
   const runs = await listRunsDirect(handlers, { includeDismissed: true });
   expect(runs).toHaveLength(50);
 });
@@ -226,7 +222,6 @@ test("a dismissed run is still returned by a filtered list when includeDismissed
 test("an unknown run id is refused on dismiss and undismiss", async () => {
   const realRunId = seedRun(stateStore, { status: "completed" });
 
-  // @mutate v2/src/daemon/daemon.ts "if (dismissal.kind === \"refused\") {" -> "if (false) {"
   const dismissResponse = await dismissDirect(handlers, "no-such-run");
   expect(dismissResponse).toEqual({
     kind: "response",
@@ -244,7 +239,6 @@ test("an unknown run id is refused on dismiss and undismiss", async () => {
 });
 
 test("a missing runId is refused invalid_params on dismiss and undismiss", async () => {
-  // @mutate v2/src/daemon/daemon.ts "if (runId.length === 0) {" -> "if (false) {"
   const dismissResponse = await dismissDirect(handlers);
   expect(dismissResponse).toEqual({ kind: "error", code: "invalid_params", message: "runId required" });
 
@@ -283,7 +277,6 @@ test("a dismissed sibling step run does not change a surviving entry row's proje
 
   await dismissDirect(handlers, step2Id);
 
-  // @mutate v2/src/daemon/daemon.ts "indexListedRuns([...indexInputRuns.values()])" -> "indexListedRuns(projectedRuns)"
   const after = await listRunsDirect(handlers);
   const step1RowAfter = after?.find((row) => row.runId === step1Id);
   if (!step1RowAfter) throw new Error("expected the entry row still listed after dismissing its sibling");

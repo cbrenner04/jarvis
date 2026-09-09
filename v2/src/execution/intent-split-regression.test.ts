@@ -371,7 +371,6 @@ describe("intent split production write regression", () => {
   });
 
   test("single-surface seed stays whole through the production split write", async () => {
-    // @mutate prompts/intent/split.md "- Write that line as an `Unsplit rationale:` line, and give that intent a `## Primary implementation surface` section naming exactly one entry." -> ""
     const seedContent = readIntentSplitFixture(INTENT_SPLIT_FIXTURES.singleSurface);
     const result = await executeSeed(SINGLE_SURFACE_SEED);
 

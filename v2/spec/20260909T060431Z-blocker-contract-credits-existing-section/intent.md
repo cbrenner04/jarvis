@@ -1,7 +1,3 @@
----
-name: blocker-contract-credits-existing-section
----
-
 # The blocker contract credits a `## Blocker` already present at settle time, not only one appended this invocation
 
 ## Problem

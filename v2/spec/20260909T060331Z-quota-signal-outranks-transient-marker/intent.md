@@ -1,7 +1,3 @@
----
-name: quota-classification-covers-every-step-role
----
-
 # Quota classification and fallback cover every step role, and a stranded run raises an incident
 
 ## Problem
@@ -16,7 +12,7 @@ An implement's write steps hit codex's usage limit, classified `quota`, and fell
 
 ## Acceptance criteria
 
-- [x] A classification test proves the #3372 stderr shape (noise line, then usage-limit banner) classifies `quota` on a shrink-role invocation and advances the agent order; fails against the current `error` classification. (Carved into spec `quota-signal-outranks-transient-marker`, 2026-09-09.)
+- [ ] A classification test proves the #3372 stderr shape (noise line, then usage-limit banner) classifies `quota` on a shrink-role invocation and advances the agent order; fails against the current `error` classification.
 - [ ] An incident test proves a `paused`/`resumable: false` run with no live row derives an operator incident.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.
 

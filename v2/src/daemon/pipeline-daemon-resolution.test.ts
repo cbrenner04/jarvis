@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import type { IpcClient } from "../ipc/client.ts";
+import type { PipelineDaemonResolutionDeps } from "./pipeline-daemon-resolution.ts";
 import {
   PIPELINE_NO_LIVE_OWNER_RECOVERY,
   resolvePipelineDaemon,
@@ -43,6 +44,10 @@ function durable(state: "succeeded" | "interrupted", pipelineId = PIPELINE_ID): 
   return { result: { kind: "durable_state", pipelineId, state } };
 }
 
+function refusingStartDaemon(): never {
+  throw new Error("should not start a daemon");
+}
+
 test("resolves a non-invoking active owner", async () => {
   const connected: string[] = [];
   const result = await resolvePipelineDaemon(
@@ -54,6 +59,7 @@ test("resolves a non-invoking active owner", async () => {
         connected.push(socketPath);
         return replyingClient(socketPath === OTHER_SOCKET ? owner("owner") : owner("not_owner"));
       },
+      startDaemon: refusingStartDaemon,
     },
     20,
   );
@@ -95,12 +101,9 @@ test("skips a failed socket before a later owner witness", async () => {
 test("selects a durable-state endpoint or reports a dead active owner", async () => {
   const high = "/jarvis/daemon-ffff.sock";
   const low = "/jarvis/daemon-0000.sock";
-  for (const [state, expectedState] of [
-    ["succeeded", "succeeded"],
-    ["interrupted", "interrupted"],
-  ] as const) {
+  for (const state of ["succeeded", "interrupted"] as const) {
     const result = await resolvePipelineDaemonFromSocketPaths(
-      async (socketPath) => replyingClient(socketPath === high ? durable(state) : durable(expectedState)),
+      async () => replyingClient(durable(state)),
       [high, low],
       PIPELINE_ID,
       20,
@@ -109,7 +112,7 @@ test("selects a durable-state endpoint or reports a dead active owner", async ()
       kind: "durable_state",
       pipelineId: PIPELINE_ID,
       socketPath: low,
-      state: expectedState,
+      state,
     });
   }
 
@@ -177,4 +180,37 @@ test("reports absent and unavailable pipelines", async () => {
     20,
   );
   expect(malformed).toEqual({ kind: "pipeline_daemon_unavailable", pipelineId: PIPELINE_ID });
+});
+
+test("never auto-starts", async () => {
+  let startCalls = 0;
+  const startDaemon: PipelineDaemonResolutionDeps["startDaemon"] = async () => {
+    startCalls += 1;
+    throw new Error("should not start a daemon");
+  };
+  const connectors: Array<(socketPath: string) => Promise<ReturnType<typeof replyingClient>>> = [
+    async () => replyingClient(owner("owner")), // owner
+    async () => replyingClient(durable("succeeded")), // durable_state
+    async () => replyingClient(owner("owner")), // pipeline_owner_conflict (both sockets claim owner)
+    async () => replyingClient(owner("not_owner")), // pipeline_no_live_owner
+    async () => replyingClient(owner("not_found")), // pipeline_not_found
+    async () => {
+      throw new Error("connect ENOENT /raw/path.sock");
+    }, // pipeline_daemon_unavailable
+  ];
+
+  for (const connectIpcClient of connectors) {
+    await resolvePipelineDaemon(
+      PIPELINE_ID,
+      {
+        socketPath: INVOKING_SOCKET,
+        socketDiscovery: async () => [OTHER_SOCKET],
+        connectIpcClient,
+        startDaemon,
+      },
+      20,
+    );
+  }
+
+  expect(startCalls).toBe(0);
 });

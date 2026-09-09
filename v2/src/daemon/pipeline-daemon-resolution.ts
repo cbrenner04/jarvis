@@ -1,5 +1,6 @@
 import type { IpcClient } from "../ipc/client.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
+import type { startDaemon } from "./daemon-lifecycle.ts";
 import type { PipelineDerivedState } from "./pipeline-execution.ts";
 import { type QueryDaemonListsDeps, resolveDaemonListSocketPaths } from "./query-daemon-lists-from-sockets.ts";
 
@@ -21,17 +22,22 @@ export type PipelineDaemonResolution =
   | { kind: "pipeline_not_found"; pipelineId: string }
   | { kind: "pipeline_daemon_unavailable"; pipelineId: string };
 
-export type PipelineDaemonResolutionDeps = QueryDaemonListsDeps;
+export type PipelineDaemonResolutionDeps = QueryDaemonListsDeps & {
+  /** Never invoked by resolution; exposed only so callers/tests can assert it stays untouched. */
+  startDaemon: typeof startDaemon;
+};
 
-const PIPELINE_STATES: ReadonlySet<string> = new Set([
-  "succeeded",
-  "failed",
-  "rejected",
-  "interrupted",
-  "awaiting-approval",
-  "running",
-  "pending",
-]);
+const PIPELINE_STATE_KEYS = {
+  succeeded: true,
+  failed: true,
+  rejected: true,
+  interrupted: true,
+  "awaiting-approval": true,
+  running: true,
+  pending: true,
+} satisfies Record<PipelineDerivedState, true>;
+
+const PIPELINE_STATES: ReadonlySet<string> = new Set(Object.keys(PIPELINE_STATE_KEYS));
 
 function parsePipelineOwnerWitness(value: unknown, pipelineId: string): PipelineOwnerWitness | undefined {
   if (typeof value !== "object" || value === null) return undefined;
@@ -128,16 +134,16 @@ export async function resolvePipelineDaemonFromSocketPaths(
   const owner = owners[0];
   if (owner !== undefined) return { kind: "owner", pipelineId, socketPath: owner.socketPath };
 
-  const durable = answers
-    .filter(
-      (
-        answer,
-      ): answer is {
-        socketPath: string;
-        witness: Extract<PipelineOwnerWitness, { kind: "durable_state" }>;
-      } => answer.witness?.kind === "durable_state",
-    )
-    .sort((left, right) => left.socketPath.localeCompare(right.socketPath))[0];
+  const durableAnswers = answers.filter(
+    (
+      answer,
+    ): answer is {
+      socketPath: string;
+      witness: Extract<PipelineOwnerWitness, { kind: "durable_state" }>;
+    } => answer.witness?.kind === "durable_state",
+  );
+  const durableSocketPath = durableAnswers.map(({ socketPath }) => socketPath).sort()[0];
+  const durable = durableAnswers.find((answer) => answer.socketPath === durableSocketPath);
   if (durable !== undefined) {
     return {
       kind: "durable_state",

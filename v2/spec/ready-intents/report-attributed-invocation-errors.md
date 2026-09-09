@@ -6,7 +6,6 @@ name: report-attributed-invocation-errors
 
 ## Prerequisites
 
-- Every entered binding attempt, including one that fails before returning a typed result, is represented with its binding outcome and emits one attributed `invocation_completed` row when telemetry is configured before the invocation chain settles.
 - Terminal binding-chain failure settlement persists every attempted rung's binding, agent, model, and outcome, marks whether its bounded diagnostic is echoed input, and writes the raw bounded diagnostic to the structured run log without changing ordinary real-stderr bytes.
 
 ## Module-boundary surface

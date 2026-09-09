@@ -15,22 +15,21 @@ export function stampWorkflowStepsWithMachineConfig(
   const configuredIdleOutputMs = readConfiguredIdleOutputTimeoutMs(machineConfigPath);
   const reviewRoleTimeoutMs = readReviewRoleTimeoutMs(machineConfigPath);
   return steps.map((step) => {
-    if (step.behavior !== "write") {
-      return step.behavior === "review" || step.behavior === "review-debate"
-        ? {
-            ...step,
-            roleTimeoutMs: reviewRoleTimeoutMs,
-            ...(configuredIdleOutputMs === undefined ? {} : { idleOutputMs: configuredIdleOutputMs }),
-          }
-        : step;
-    }
-    const fixCommand = readProjectFixCommand(step.worktree.projectName, machineConfigPath);
-    const readyCommand = readProjectReadyCommand(step.worktree.projectName, machineConfigPath);
-    return {
-      ...step,
-      ...bounds,
+    const projectName = step.behavior === "write" ? step.worktree.projectName : step.project;
+    const fixCommand = readProjectFixCommand(projectName, machineConfigPath);
+    const readyCommand = readProjectReadyCommand(projectName, machineConfigPath);
+    const gateCommands = {
       ...(fixCommand !== undefined ? { fixCommand } : {}),
       ...(readyCommand !== undefined ? { readyCommand } : {}),
+    };
+    if (step.behavior === "write") {
+      return { ...step, ...bounds, ...gateCommands };
+    }
+    return {
+      ...step,
+      roleTimeoutMs: reviewRoleTimeoutMs,
+      ...(configuredIdleOutputMs === undefined ? {} : { idleOutputMs: configuredIdleOutputMs }),
+      ...gateCommands,
     };
   });
 }

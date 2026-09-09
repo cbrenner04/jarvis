@@ -14,6 +14,7 @@ import {
   createImplementBodySummaryStep,
   createIntentWorktreeHarness,
   createLazyIntentWorktreeHarness,
+  createPatchReviewDebateStep,
   createShrinkTestStep,
   createStep,
   createStepInput,
@@ -23,7 +24,9 @@ import {
   IMPLEMENT_BODY_SPEC_PATH,
   loadTelemetryRows,
   okTokenBindingFactory,
+  reviewedIntentStep,
   roots,
+  stageReviewedIntent,
   TestLogSink,
   TWO_AGENTS,
 } from "./workflow-runner.test-support.ts";
@@ -1577,6 +1580,66 @@ describe("executeWorkflow", () => {
       const run = store.findRunByProjectBranch({ project: "demo", branch: "workflow-run", stepId: "implement" });
       expect(run?.workflowSnapshot?.reviewBehavior).toBe("light");
     });
+  });
+
+  test("persists stamped gate commands on review and review-debate workflow snapshot steps through store reload", async () => {
+    const stateDbPath = join(mkdtempSync(join(tmpdir(), "review-gate-snapshot-store-")), "store.sqlite");
+    const gateCommands = { fixCommand: "make fix", readyCommand: "make test" };
+    const reviewWorkspace = mkdtempSync(join(tmpdir(), "review-gate-snapshot-"));
+    stageReviewedIntent(reviewWorkspace);
+    const reviewStep = reviewedIntentStep(reviewWorkspace, {
+      branch: "intent/gate-snapshot",
+      maxCycles: 0,
+      ...gateCommands,
+    });
+    const debateCwd = mkdtempSync(join(tmpdir(), "review-debate-gate-snapshot-"));
+    const reviewDebateStep = {
+      ...createPatchReviewDebateStep({
+        branchName: "implement/gate-snapshot",
+        verdictPath: join(debateCwd, "verdict.md"),
+        cwd: debateCwd,
+        maxCycles: 0,
+      }),
+      ...gateCommands,
+    };
+
+    let store = openStateStore(stateDbPath);
+    try {
+      const reviewResult = await executeWorkflow({ steps: [reviewStep], stateStore: store });
+      const reviewRunId = reviewResult.runId;
+      expect(store.loadRun(reviewRunId)?.workflowSnapshot?.steps[0]).toMatchObject({
+        stepId: "review",
+        behavior: "review",
+        ...gateCommands,
+      });
+
+      store.close();
+      store = openStateStore(stateDbPath);
+      expect(store.loadRun(reviewRunId)?.workflowSnapshot?.steps[0]).toMatchObject({
+        stepId: "review",
+        behavior: "review",
+        ...gateCommands,
+      });
+
+      const debateResult = await executeWorkflow({ steps: [reviewDebateStep], stateStore: store });
+      expect(debateResult.kind).toBe("complete");
+      const debateRunId = debateResult.runId;
+      expect(store.loadRun(debateRunId)?.workflowSnapshot?.steps[0]).toMatchObject({
+        stepId: "implement-review",
+        behavior: "review-debate",
+        ...gateCommands,
+      });
+
+      store.close();
+      store = openStateStore(stateDbPath);
+      expect(store.loadRun(debateRunId)?.workflowSnapshot?.steps[0]).toMatchObject({
+        stepId: "implement-review",
+        behavior: "review-debate",
+        ...gateCommands,
+      });
+    } finally {
+      store.close();
+    }
   });
 
   test("workflow-step execution with empty agents returns no_binding", async () => {

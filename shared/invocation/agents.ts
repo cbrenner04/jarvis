@@ -1332,6 +1332,11 @@ const codexQuotaPatterns = [
 
 const cursorQuotaPatterns = [
   /\byou['’]ve hit your usage limit\b/i,
+  // Cursor's current exhaustion banner: "ActionRequiredError: Increase limits for faster
+  // responses You're out of usage. Switch to Auto, or ask your admin to increase your limit
+  // to continue." Two independent anchors so a reworded half still classifies.
+  /\bout of usage\b/i,
+  /\bincrease your limit\b/i,
   /\byou['’]ve hit your free requests limit\b/i,
   /\btotal usage limit reached\b/i,
   /\bmonthly cursor usage limit\b/i,

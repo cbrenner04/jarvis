@@ -143,6 +143,7 @@ Status key: `Matched` — verified against a real sample in this doc; `Unverifie
 
 ### `cursorQuotaPatterns`
 
+- `/\bout of usage\b/i`, `/\bincrease your limit\b/i` — **Verified 2026-09-08.** Cursor's live exhaustion banner is `ActionRequiredError: Increase limits for faster responses You're out of usage. Switch to Auto, or ask your admin to increase your limit to continue.` Two independent anchors are used so a reworded half still classifies; the `ActionRequiredError` class name is deliberately *not* matched, since it also covers non-quota action-required conditions. Before these landed the banner classified `error`, and because the agent order advances on quota only, the chain stopped one rung short of an available agent — eight stages on project `sudoku` failed that way in a day.
 - `/\byou['’]ve hit your usage limit\b/i`, `/\byou['’]ve hit your free requests limit\b/i`, `/\btotal usage limit reached\b/i`, `/\bmonthly cursor usage limit\b/i`, `/\bon-demand spending limit\b/i`, `/\bspend limit\b/i`, `/\bresource_exhausted\b/i`, `/\binsufficient[_ ]quota\b/i`, `/\bquota exceeded\b/i` — Unverified.
 
 ### `opencodeQuotaPatterns`

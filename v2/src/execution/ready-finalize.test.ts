@@ -258,6 +258,13 @@ describe("ready gate untouched-path classification", () => {
     );
     expect(scriptNotFound.gateFailureKind).toBe("ready_gate_command_missing");
     expect(scriptNotFound.commandMissingEvidence).toBe(anchored);
+    // @mutate v2/src/execution/ready-finalize.ts "classification.commandMissingEvidence === error.commandMissingEvidence" -> "classification.commandMissingEvidence !== error.commandMissingEvidence"
+    const prebuilt = new ReadyGateError("bun run ready", 1, anchored, false, {
+      kind: "ready_gate_command_missing",
+      commandMissingEvidence: anchored,
+      readyCommandSource: "default",
+    });
+    expect(await classifyReadyGateError(prebuilt, scope, allowedSeams)).toBe(prebuilt);
   });
 
   it("projects readyGateCommandMissingEvidence on ready_gate_command_missing settlement", async () => {
@@ -271,6 +278,7 @@ describe("ready gate untouched-path classification", () => {
       readyGateCommand: "bun run ready",
       readyGateOutput: evidence,
       readyGateCommandMissingEvidence: evidence,
+      readyGateCommandSource: "default",
     });
 
     const longLine = `error: Script not found "${"x".repeat(600)}"`;

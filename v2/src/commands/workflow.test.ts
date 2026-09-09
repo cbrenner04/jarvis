@@ -79,6 +79,40 @@ const IMPLEMENT_ARGS = [
   "index.md",
 ] as const;
 
+function fakeReviewStep(): ReviewWorkflowStep {
+  return {
+    behavior: "review",
+    stepId: "review",
+    project: "demo",
+    branch: "implement-run",
+    agents: { critic: ["claude"], actuator: ["claude"] },
+    agentModelConfig: {},
+    cwd: fx.repoRoot,
+    verdictPath: "verdict.md",
+    maxCycles: 1,
+  };
+}
+
+function fakeReviewDebateStep(): ReviewDebateWorkflowStep {
+  return {
+    behavior: "review-debate",
+    stepId: "review-debate",
+    project: "demo",
+    branch: "implement-run",
+    agents: {
+      adversary: ["claude"],
+      advocate: ["claude"],
+      adjudicator: ["claude"],
+      actuator: ["claude"],
+    },
+    agentModelConfig: {},
+    cwd: fx.repoRoot,
+    verdictPath: "verdict.md",
+    maxCycles: 1,
+    prompts: { adversary: "a", advocate: "b", adjudicator: "c" },
+  };
+}
+
 const IMPLEMENT_USAGE =
   "usage: jarvis run workflow implement --base <ref> --spec <path> [--branch <name>] [--artifact <path>] [--review-passes <n>] [--review-behavior debate|light] [--reset-despite-dirty] [--reset-despite-landed-criteria] [--detach]\n";
 const INTENT_USAGE =
@@ -1450,40 +1484,6 @@ describe("review-passes and review-behavior resolution", () => {
 });
 
 describe("review-role timeout resolution", () => {
-  function fakeReviewStep(): ReviewWorkflowStep {
-    return {
-      behavior: "review",
-      stepId: "review",
-      project: "demo",
-      branch: "implement-run",
-      agents: { critic: ["claude"], actuator: ["claude"] },
-      agentModelConfig: {},
-      cwd: fx.repoRoot,
-      verdictPath: "verdict.md",
-      maxCycles: 1,
-    };
-  }
-
-  function fakeReviewDebateStep(): ReviewDebateWorkflowStep {
-    return {
-      behavior: "review-debate",
-      stepId: "review-debate",
-      project: "demo",
-      branch: "implement-run",
-      agents: {
-        adversary: ["claude"],
-        advocate: ["claude"],
-        adjudicator: ["claude"],
-        actuator: ["claude"],
-      },
-      agentModelConfig: {},
-      cwd: fx.repoRoot,
-      verdictPath: "verdict.md",
-      maxCycles: 1,
-      prompts: { adversary: "a", advocate: "b", adjudicator: "c" },
-    };
-  }
-
   async function startReviewIdleBudgetWorkflow(idleOutputTimeoutMs?: number): Promise<AnyWorkflowStep[]> {
     const cap = captureIo();
     const sent: unknown[] = [];
@@ -1787,6 +1787,71 @@ describe("readyCommand admission", () => {
     expect(code).toBe(0);
     const sentSteps = (sent[0] as { params: { steps: AnyWorkflowStep[] } }).params.steps;
     expect(sentSteps[0]).not.toHaveProperty("readyCommand");
+  });
+
+  test("stamps configured gate commands onto review and review-debate steps", async () => {
+    // @mutate v2/src/commands/workflow-step-config-stamp.ts "...(fixCommand !== undefined ? { fixCommand } : {})," -> "...(false ? { fixCommand } : {}),"
+    // @mutate v2/src/commands/workflow-step-config-stamp.ts "...(readyCommand !== undefined ? { readyCommand } : {})," -> "...(false ? { readyCommand } : {}),"
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const configPath = writeMachineConfig({
+      projects: { demo: { fixCommand: "npm run fix-custom", readyCommand: "npm run verify-custom" } },
+    });
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main([...IMPLEMENT_ARGS], cap.io, {
+        cwd: () => fx.repoSub,
+        machineConfigPath: configPath,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          implement: () => ({
+            ok: true,
+            steps: [...fx.fakeImplementSteps.slice(0, 1), fakeReviewStep(), fakeReviewDebateStep()],
+          }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "run-review-gate-commands", COMPLETED_WAIT_RESULT), { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    const sentSteps = (sent[0] as { params: { steps: AnyWorkflowStep[] } }).params.steps;
+    expect(sentSteps[1]).toMatchObject({
+      behavior: "review",
+      fixCommand: "npm run fix-custom",
+      readyCommand: "npm run verify-custom",
+    });
+    expect(sentSteps[2]).toMatchObject({
+      behavior: "review-debate",
+      fixCommand: "npm run fix-custom",
+      readyCommand: "npm run verify-custom",
+    });
+  });
+
+  test("leaves review gate commands unstamped when project overrides are absent", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const configPath = writeMachineConfig({ projects: { demo: {} } });
+
+    const code = await withWorkflowUuids("start", "wait", () =>
+      main([...IMPLEMENT_ARGS], cap.io, {
+        cwd: () => fx.repoSub,
+        machineConfigPath: configPath,
+        readProjectRegistry: () => ({ "test-project": { root: fx.repoRoot } }),
+        workflowPresetBuilders: {
+          implement: () => ({ ok: true, steps: [...fx.fakeImplementSteps.slice(0, 1), fakeReviewStep()] }),
+        },
+        connectIpcClient: async () =>
+          makeIpcClient(workflowFrames("start", "wait", "run-review-gate-commands-absent", COMPLETED_WAIT_RESULT), {
+            sent,
+          }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    const sentSteps = (sent[0] as { params: { steps: AnyWorkflowStep[] } }).params.steps;
+    expect(sentSteps[1]).not.toHaveProperty("fixCommand");
+    expect(sentSteps[1]).not.toHaveProperty("readyCommand");
   });
 });
 

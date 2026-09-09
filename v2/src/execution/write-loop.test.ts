@@ -227,9 +227,6 @@ function claudeGateShellBinding(frames: string[]) {
 
 const PLAN_DRAFT_INTENT_SEED = "---\nname: test\n---\n\n## Prerequisites\n\nnone\n";
 const PLAN_DRAFT_SPEC_PATH = "v2/spec/2099-01-01T00-00-00Z-plan-draft";
-const MULTI_SURFACE_BULLET =
-  "The state-store persists completed runs atomically, and the CLI validates run flags before dispatch.";
-
 /** Dispatches a plan.prompt.draft run whose agent appends a genuine `## Blocker` section to
  * staged intent.md, tripping the plan.draft.blocker prerequisite contract. */
 function runPlanDraftAgentBlocker(
@@ -263,15 +260,16 @@ function runPlanDraftAgentBlocker(
   });
 }
 
-function writeMultiSurfacePlanDraftStage(stagePath: string, subspecFile = "00-one.md"): void {
+function writePlanDraftStage(stagePath: string, subspecFile = "00-one.md"): void {
   mkdirSync(stagePath, { recursive: true });
   writeFileSync(join(stagePath, "intent.md"), "---\nname: test\n---\n", "utf8");
   writeFileSync(join(stagePath, "index.md"), `# Index\n\n- [ ] [00 - One](./${subspecFile})\n`, "utf8");
-  writeFileSync(
-    join(stagePath, subspecFile),
-    `# One\n\n## Acceptance criteria\n\n- [ ] ${MULTI_SURFACE_BULLET}\n`,
-    "utf8",
-  );
+  writeFileSync(join(stagePath, subspecFile), "# One\n\n## Acceptance criteria\n\n- [ ] Valid criterion.\n", "utf8");
+}
+
+function writeBrokenIndexPlanDraftStage(stagePath: string, subspecFile = "00-one.md"): void {
+  writePlanDraftStage(stagePath, subspecFile);
+  writeFileSync(join(stagePath, "index.md"), "# Index\n\n- [ ] [Wrong](./01-wrong.md)\n", "utf8");
 }
 
 function loopTelemetry(sinkPath: string): NonNullable<WriteLoopInput["telemetry"]> {
@@ -1667,7 +1665,7 @@ describe("write loop", () => {
         {
           id: "agent",
           invoke: async ({ cwd }) => {
-            writeMultiSurfacePlanDraftStage(join(cwd, ".jarvis-plan-stage"), subspecFile);
+            writeBrokenIndexPlanDraftStage(join(cwd, ".jarvis-plan-stage"), subspecFile);
             return { kind: "ok", stdout: agentStdout, stderr: "" };
           },
         },
@@ -1683,9 +1681,8 @@ describe("write loop", () => {
       responseText: agentStdout,
     });
     const loggedFailureReason = detail && "failureReason" in detail ? detail.failureReason : undefined;
-    expect(loggedFailureReason).toContain("multi-surface");
-    expect(loggedFailureReason).toContain(MULTI_SURFACE_BULLET);
-    expect(detail && "responseText" in detail ? detail.responseText : "").not.toContain("multi-surface");
+    expect(loggedFailureReason).toContain("Plan index links unknown subspec 01-wrong.md");
+    expect(detail && "responseText" in detail ? detail.responseText : "").not.toContain("Plan index");
   });
 
   test("plan-draft normalizer contract_miss appends blocker to staged intent.md", async () => {
@@ -1704,7 +1701,7 @@ describe("write loop", () => {
         {
           id: "agent",
           invoke: async ({ cwd }) => {
-            writeMultiSurfacePlanDraftStage(join(cwd, ".jarvis-plan-stage"), subspecFile);
+            writeBrokenIndexPlanDraftStage(join(cwd, ".jarvis-plan-stage"), subspecFile);
             return { kind: "ok", stdout: "done", stderr: "" };
           },
         },
@@ -1722,9 +1719,7 @@ describe("write loop", () => {
     );
     const intent = readFileSync(intentPath, "utf8");
     expect(intent).toContain("## Blocker");
-    expect(intent).toContain("multi-surface");
-    expect(intent).toContain(subspecFile);
-    expect(intent).toContain(MULTI_SURFACE_BULLET);
+    expect(intent).toContain("Plan index links unknown subspec 01-wrong.md");
     const specPath = join(jarvisRoot, "worktrees", "demo", "plan-draft-normalizer-blocker", PLAN_DRAFT_SPEC_PATH);
     if (existsSync(specPath)) {
       expect(readFileSync(specPath, "utf8")).not.toContain("## Blocker");
@@ -1959,16 +1954,11 @@ describe("write loop", () => {
       id: "agent",
       invoke: async ({ cwd, prompt }) => {
         capturedPrompts.push(prompt);
-        // Same-shape multi-surface bullet on every rejected attempt; the normalizer keeps
-        // rejecting it deterministically until the final, valid-draft attempt below.
-        writeFileSync(
-          join(cwd, ".jarvis-plan-stage", "index.md"),
-          `# Index\n\n- [ ] [00 - One](./${subspecFile})\n`,
-          "utf8",
-        );
+        // The broken link remains on every rejected attempt until the final valid draft below.
+        writeFileSync(join(cwd, ".jarvis-plan-stage", "index.md"), "# Index\n\n- [ ] [Wrong](./01-wrong.md)\n", "utf8");
         writeFileSync(
           join(cwd, ".jarvis-plan-stage", subspecFile),
-          `# One\n\n## Acceptance criteria\n\n- [ ] ${MULTI_SURFACE_BULLET}\n`,
+          "# One\n\n## Acceptance criteria\n\n- [ ] Valid criterion.\n",
           "utf8",
         );
         return { kind: "ok", stdout: "done", stderr: "" };
@@ -2030,8 +2020,7 @@ describe("write loop", () => {
     expect(capturedPrompts[1]).toContain("## Prior harness normalizer diagnostics");
     expect(capturedPrompts[1]).toContain("<<<HARNESS_NORMALIZER_DIAGNOSTIC 1 BEGIN>>>");
     expect(capturedPrompts[1]).not.toContain("<<<HARNESS_NORMALIZER_DIAGNOSTIC 2 BEGIN>>>");
-    expect(capturedPrompts[1]).toContain(subspecFile);
-    expect(capturedPrompts[1]).toContain(MULTI_SURFACE_BULLET);
+    expect(capturedPrompts[1]).toContain("Plan index links unknown subspec 01-wrong.md");
     expect(capturedPrompts[2]).toContain("## Prior harness normalizer diagnostics");
     expect(capturedPrompts[2]).toContain("<<<HARNESS_NORMALIZER_DIAGNOSTIC 1 BEGIN>>>");
     expect(capturedPrompts[2]).not.toContain("<<<HARNESS_NORMALIZER_DIAGNOSTIC 2 BEGIN>>>");
@@ -3646,6 +3635,7 @@ describe("write loop", () => {
           loopOutcomeKind: "ready_gate_command_missing",
           resumable: false,
           readyGateCommand: "bun run ready",
+          readyGateCommandSource: "default",
           readyGateOutput: 'Script not found "ready"',
         });
         const run = openStateStore(stateDbPath).loadRun(result.runId);
@@ -4529,7 +4519,7 @@ export function isLoadSensitive(file: string): boolean {
           encoding: "utf8",
           stdio: "pipe",
         }).trim();
-        writeMultiSurfacePlanDraftStage(join(worktreePath, ".jarvis-plan-stage"));
+        writePlanDraftStage(join(worktreePath, ".jarvis-plan-stage"));
         writeFileSync(join(worktreePath, PLAN_DRAFT_SPEC_PATH, "index.md"), "# Plan Index\n", "utf8");
         execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });
         execFileSync("git", ["-C", worktreePath, "commit", "-m", "iteration"], { stdio: "pipe" });
@@ -4581,7 +4571,7 @@ export function isLoadSensitive(file: string): boolean {
           encoding: "utf8",
           stdio: "pipe",
         }).trim();
-        writeMultiSurfacePlanDraftStage(join(worktreePath, ".jarvis-plan-stage"));
+        writePlanDraftStage(join(worktreePath, ".jarvis-plan-stage"));
         writeFileSync(join(worktreePath, PLAN_DRAFT_SPEC_PATH, "index.md"), "# Plan Index\n", "utf8");
         writeFileSync(join(worktreePath, "v2/src/untouched.test.ts"), "iteration\n", "utf8");
         execFileSync("git", ["-C", worktreePath, "add", "-A"], { stdio: "pipe" });

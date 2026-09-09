@@ -1,562 +1,240 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import {
-  classifyModuleBoundaryText,
-  MODULE_BOUNDARY_SURFACES,
-  type ModuleBoundarySurface,
-  moduleBoundariesForAcceptanceCriteria,
-  normalizePlanDraftSpecDir,
-  orderModuleBoundariesForSplit,
-  referencedArtifactPaths,
-  spansMultipleModuleBoundaries,
-  splitResiduePattern,
-} from "./module-boundary-surfaces.ts";
-import { locateMarkerSlice, StructuralTestLocatorError } from "./structural-test-locator.ts";
+import { normalizePlanDraftSpecDir } from "./module-boundary-surfaces.ts";
 
-const PHRASE_FIXTURES = [
-  ["The state-store persists run status atomically.", ["persistence"]],
-  ["Daemon request handling rejects malformed socket messages.", ["daemon"]],
-  ["The CLI validates run flags before dispatch.", ["cli"]],
-] as const;
-
-type FixtureManifest = {
-  forbiddenProvenance: string[];
-  fixtures: Array<{
-    name: string;
-    parentSlug: string;
-    planningLabels: string[];
-    expectedChildren: unknown[];
-  }>;
-};
-
-const FIXTURE_ROOT = join(import.meta.dir, "fixtures", "module-boundary-surfaces");
-const MANIFEST = JSON.parse(readFileSync(join(FIXTURE_ROOT, "manifest.json"), "utf8")) as FixtureManifest;
-const PRESERVED_SECTIONS = [
-  { key: "decisions", heading: "## Decisions", checkbox: false },
-  { key: "acceptanceCriteria", heading: "## Acceptance criteria", checkbox: true },
-  { key: "documentationUpdates", heading: "## Documentation updates", checkbox: false },
-] as const;
 const scratchRoot = resolve(".scratch");
 const tempDirs: string[] = [];
 
-function stagedFixture(name: string): string {
+function scratchDir(name: string): string {
   mkdirSync(scratchRoot, { recursive: true });
   const dir = mkdtempSync(join(scratchRoot, `module-boundary-${name}-`));
   tempDirs.push(dir);
-  cpSync(join(FIXTURE_ROOT, name), dir, { recursive: true });
   return dir;
 }
 
-function markdownSection(body: string, heading: string): string {
-  const lines = body.replace(/\r\n/g, "\n").split("\n");
-  const startLine = lines.indexOf(heading);
-  if (startLine === -1) {
-    return locateMarkerSlice({
-      text: body,
-      start: `${heading}\n`,
-      end: `\n${heading}\n`,
-      searchKey: heading,
-    });
-  }
-  const endLine = lines.findIndex((line, index) => index > startLine && /^##\s/u.test(line ?? ""));
-  return lines.slice(startLine + 1, endLine === -1 ? undefined : endLine).join("\n");
+function stageDraft(dir: string, subspecs: Readonly<Record<string, string>>): void {
+  const links = Object.keys(subspecs)
+    .map((file) => `- [ ] [${file.slice(3, -3)}](./${file})`)
+    .join("\n");
+  writeFileSync(join(dir, "index.md"), `# Authored plan\n\n${links}\n`);
+  writeFileSync(join(dir, "intent.md"), "# Authored intent\n");
+  for (const [file, body] of Object.entries(subspecs)) writeFileSync(join(dir, file), body);
 }
 
-function sectionBulletLines(body: string, heading: string, checkbox: boolean): string[] {
-  const section = markdownSection(body, heading);
-  const pattern = checkbox ? /^\s*-\s\[[ xX]\]\s+/u : /^\s*-\s+(?!\[[ xX]\])/u;
-  return section.split("\n").filter((line) => pattern.test(line));
-}
-
-function optionalSectionBulletLines(body: string, heading: string, checkbox: boolean): string[] {
-  if (!body.replace(/\r\n/g, "\n").includes(heading)) return [];
-  try {
-    return sectionBulletLines(body, heading, checkbox);
-  } catch (error) {
-    if (error instanceof StructuralTestLocatorError && error.searchKey === heading) return [];
-    throw error;
-  }
-}
-
-function acceptanceCriteriaTexts(parentBody: string): string[] {
-  return sectionBulletLines(parentBody, "## Acceptance criteria", true).map((line) =>
-    line.replace(/^\s*-\s\[[ xX]\]\s+/u, "").trim(),
+function treeBytes(dir: string): Map<string, Buffer> {
+  return new Map(
+    readdirSync(dir)
+      .sort()
+      .map((file) => [file, readFileSync(join(dir, file))]),
   );
 }
 
-function expectedSplitFilenames(fixture: FixtureManifest["fixtures"][number]): string[] {
-  const parentBody = readFileSync(join(FIXTURE_ROOT, fixture.name, `00-${fixture.parentSlug}.md`), "utf8");
-  const boundaries = moduleBoundariesForAcceptanceCriteria(acceptanceCriteriaTexts(parentBody));
-  if (boundaries.length < 2) return [`00-${fixture.parentSlug}.md`];
-  const ordered = orderModuleBoundariesForSplit(parentBody, boundaries);
-  return ordered.map((surface, index) => `${index.toString().padStart(2, "0")}-${surface}.md`);
-}
-
-function bulletSurfaces(line: string): ModuleBoundarySurface[] {
-  const text = line
-    .replace(/^\s*-\s\[[ xX]\]\s+/u, "")
-    .replace(/^\s*-\s+/u, "")
-    .trim();
-  return classifyModuleBoundaryText(text);
-}
-
-function bulletsForSplitSurface(
-  lines: readonly string[],
-  surface: ModuleBoundarySurface,
-  boundaryIndex: number,
-): string[] {
-  return lines.filter(
-    (line) => bulletSurfaces(line)[0] === surface || (boundaryIndex === 0 && bulletSurfaces(line).length === 0),
-  );
-}
-
-function survivingParentBullets(body: string, parentSlug: string, heading: string, checkbox: boolean): string[] {
-  const residue = splitResiduePattern(parentSlug);
-  return sectionBulletLines(body, heading, checkbox).filter((line) => !residue.test(line));
-}
-
-function indexChecklistFiles(indexBody: string): string[] {
-  return indexBody
-    .replace(/\r\n/g, "\n")
-    .split("\n")
-    .flatMap((line) => {
-      const match = line.match(/^\s*-\s\[[ xX]\]\s+\[[^\]]+\]\((?:\.\/)?([^)]+)\)$/u);
-      return match?.[1] && /^\d{2}-.*\.md$/u.test(match[1]) ? [match[1]] : [];
-    });
-}
-
-function assertEmittedUnion(
-  dir: string,
-  emittedFiles: readonly string[],
-  parentBody: string,
-  parentSlug: string,
-  section: (typeof PRESERVED_SECTIONS)[number],
-): void {
-  const union = emittedFiles.flatMap((file) =>
-    sectionBulletLines(readFileSync(join(dir, file), "utf8"), section.heading, section.checkbox),
-  );
-  const surviving = survivingParentBullets(parentBody, parentSlug, section.heading, section.checkbox);
-  expect([...union].sort()).toEqual([...surviving].sort());
+function typescriptFiles(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) return typescriptFiles(path);
+    return entry.isFile() && entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts") ? [path] : [];
+  });
 }
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-describe("module boundary surfaces", () => {
-  test("classifies committed phrases", () => {
-    for (const [phrase, expectedSurfaces] of PHRASE_FIXTURES) {
-      for (const surface of expectedSurfaces) {
-        expect(MODULE_BOUNDARY_SURFACES.includes(surface)).toBe(true);
-      }
-      const expectedSet = new Set<ModuleBoundarySurface>(expectedSurfaces);
-      const registryOrdered = MODULE_BOUNDARY_SURFACES.filter((surface) => expectedSet.has(surface));
-      expect(classifyModuleBoundaryText(phrase)).toEqual([...registryOrdered]);
-    }
+describe("plan draft normalization", () => {
+  test("accepts a bullet naming one path alongside dotted identifiers and numeric literals", () => {
+    // @mutate shared/module-boundary-surfaces.ts "([^`\\s]*\\/[^`\\s]*\\.[A-Za-z0-9]+)" -> "([^`\\s]*\\.[A-Za-z0-9]+)"
+    const dir = scratchDir("dotted-identifiers");
+    stageDraft(dir, {
+      "00-fields.md":
+        "# Fields\n\n## Problem\n\nFraming.\n\n## Acceptance criteria\n\n- [ ] `v2/src/state/store.ts` exposes `run.finishedAtMs` at `0.0038492` per token via `test.skipIf`.\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
   });
 
-  test("detects a three-boundary acceptance-criteria union", () => {
-    const acceptanceCriteria = PHRASE_FIXTURES.map(([phrase]) => phrase);
+  test("still rejects a bullet naming two root-level artifact files", () => {
+    const dir = scratchDir("root-level-pair");
+    stageDraft(dir, {
+      "00-roots.md":
+        "# Roots\n\n## Problem\n\nFraming.\n\n## Acceptance criteria\n\n- [ ] `package.json` and `README.md` both change.\n",
+    });
 
-    expect(moduleBoundariesForAcceptanceCriteria(acceptanceCriteria)).toEqual(["persistence", "daemon", "cli"]);
-    expect(spansMultipleModuleBoundaries(acceptanceCriteria)).toBe(true);
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow(/package\.json, README\.md/u);
   });
 
-  test("ignores zero-match text when detecting multiple boundaries", () => {
-    const acceptanceCriteria = [
-      "The state-store persists run status atomically.",
-      "Persisted records survive process restart.",
-      "The behavior remains covered by a regression test.",
+  test("rejects a subspec with no acceptance-criteria heading", () => {
+    const dir = scratchDir("missing-criteria");
+    stageDraft(dir, {
+      "00-no-criteria.md": "# No criteria\n\n## Problem\n\nFraming.\n\n## Tasks\n\n- Do the thing.\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow(/missing ## Acceptance criteria/u);
+  });
+
+  test("keeps authored files, titles, and problems when criteria name jarvis surfaces", () => {
+    const dir = scratchDir("jarvis-vocabulary");
+    const subspecs = {
+      "03-run-lifecycle.md":
+        "# Run lifecycle\n\n## Problem\n\nKeep this exact lifecycle framing.\n\n## Acceptance criteria\n\n- [ ] `v2/src/daemon/host.ts` reloads runs.\n- [ ] The state-store persists runs.\n",
+      "07-status-copy.md":
+        "# Status copy\n\n## Problem\n\nKeep this exact copy framing.\n\n## Acceptance criteria\n\n- [ ] Status text stays concise.\n",
+    };
+    stageDraft(dir, subspecs);
+    const before = treeBytes(dir);
+
+    normalizePlanDraftSpecDir(dir);
+
+    expect(treeBytes(dir)).toEqual(before);
+  });
+
+  test("does not classify product vocabulary", () => {
+    const dir = scratchDir("product-vocabulary");
+    stageDraft(dir, {
+      "00-session-preferences.md":
+        "# Session preferences\n\n## Problem\n\nPreserve the product draft.\n\n## Acceptance criteria\n\n- [ ] The preference persists across relaunch.\n- [ ] A feature flag controls rollout.\n",
+    });
+    const before = treeBytes(dir);
+
+    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
+    expect(treeBytes(dir)).toEqual(before);
+  });
+
+  test("rejects an acceptance criterion naming two artifact paths with actionable context", () => {
+    const dir = scratchDir("two-artifact-criterion");
+    stageDraft(dir, {
+      "00-runtime.md":
+        "# Runtime\n\n## Acceptance criteria\n\n- [ ] `shared/state.ts` persists daemon state covered by `shared/state.test.ts`.\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow(
+      "Plan subspec 00-runtime.md has a ## Acceptance criteria bullet naming multiple artifact paths (shared/state.ts, shared/state.test.ts): `shared/state.ts` persists daemon state covered by `shared/state.test.ts`.",
+    );
+  });
+
+  test("accepts one artifact regardless of product vocabulary and accepts prose without an artifact", () => {
+    const dir = scratchDir("artifact-count");
+    stageDraft(dir, {
+      "00-preferences.md":
+        "# Preferences\n\n## Decisions\n\n- Keep rollout reversible.\n\n## Acceptance criteria\n\n- [ ] `src/preferences.ts` proves the persisted flag behavior.\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
+  });
+
+  test("rejects two artifact paths without module-boundary vocabulary", () => {
+    const dir = scratchDir("two-artifact-unsplit");
+    stageDraft(dir, {
+      "00-cart.md":
+        "# Cart\n\n## Acceptance criteria\n\n- [ ] `src/cart.ts` returns the total covered by `test/cart.test.ts`.\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow("src/cart.ts, test/cart.test.ts");
+  });
+
+  test("rejects two root-level artifact paths", () => {
+    const dir = scratchDir("two-root-artifacts");
+    stageDraft(dir, {
+      "00-packaging.md":
+        "# Packaging\n\n## Acceptance criteria\n\n- [ ] `package.json` and `README.md` describe the release.\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow("package.json, README.md");
+  });
+
+  test.each(["## Decisions", "## Documentation updates"])("rejects two artifact paths under %s", (heading) => {
+    const dir = scratchDir("two-artifact-supporting-bullet");
+    stageDraft(dir, {
+      "00-cart.md": `# Cart\n\n${heading}\n\n- \`src/cart.ts\` and \`test/cart.test.ts\` change together.\n\n## Acceptance criteria\n\n- [ ] Cart totals are correct.\n`,
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow(
+      `Plan subspec 00-cart.md has a ${heading} bullet naming multiple artifact paths (src/cart.ts, test/cart.test.ts)`,
+    );
+  });
+
+  test.each([
+    "## Acceptance criteria",
+    "## Decisions",
+    "## Documentation updates",
+  ])("validates every %s occurrence", (heading) => {
+    const dir = scratchDir("duplicate-governed-section");
+    const bullet =
+      heading === "## Acceptance criteria"
+        ? "- [ ] `src/cart.ts` and `test/cart.test.ts` change together."
+        : "- `src/cart.ts` and `test/cart.test.ts` change together.";
+    stageDraft(dir, {
+      "00-cart.md":
+        heading === "## Acceptance criteria"
+          ? `# Cart\n\n${heading}\n\n- [ ] A single artifact is enough.\n\n${heading}\n\n${bullet}\n`
+          : `# Cart\n\n## Acceptance criteria\n\n- [ ] Something is proven.\n\n${heading}\n\n- A single artifact is enough.\n\n${heading}\n\n${bullet}\n`,
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow(
+      `Plan subspec 00-cart.md has a ${heading} bullet naming multiple artifact paths (src/cart.ts, test/cart.test.ts)`,
+    );
+  });
+
+  test("leaves a subspec with zero acceptance criteria authored and unnumbered", () => {
+    const dir = scratchDir("empty-criteria");
+    stageDraft(dir, {
+      "04-empty.md": "# Empty criteria\n\n## Problem\n\nKeep this placeholder intact.\n\n## Acceptance criteria\n",
+      "09-cross-cutting.md":
+        "# Cross-cutting\n\n## Problem\n\nKeep this title and numbering.\n\n## Acceptance criteria\n\n- [ ] The daemon reads the state-store.\n- [ ] The CLI displays the result.\n",
+    });
+    const before = treeBytes(dir);
+
+    normalizePlanDraftSpecDir(dir);
+
+    expect(treeBytes(dir)).toEqual(before);
+  });
+
+  test("rejects unknown, duplicate, and missing index links", () => {
+    const unknown = scratchDir("unknown-link");
+    stageDraft(unknown, { "00-known.md": "# Known\n" });
+    writeFileSync(join(unknown, "index.md"), "# Plan\n\n- [ ] [Unknown](./00-unknown.md)\n");
+    expect(() => normalizePlanDraftSpecDir(unknown)).toThrow("Plan index links unknown subspec 00-unknown.md");
+
+    const duplicate = scratchDir("duplicate-link");
+    stageDraft(duplicate, { "00-known.md": "# Known\n" });
+    writeFileSync(
+      join(duplicate, "index.md"),
+      "# Plan\n\n- [ ] [Known](./00-known.md)\n- [ ] [Known again](./00-known.md)\n",
+    );
+    expect(() => normalizePlanDraftSpecDir(duplicate)).toThrow("Plan index links 00-known.md more than once");
+
+    const missing = scratchDir("missing-link");
+    stageDraft(missing, { "00-known.md": "# Known\n", "01-unlinked.md": "# Unlinked\n" });
+    writeFileSync(join(missing, "index.md"), "# Plan\n\n- [ ] [Known](./00-known.md)\n");
+    expect(() => normalizePlanDraftSpecDir(missing)).toThrow("Plan index does not link 01-unlinked.md");
+  });
+
+  test("production modules import no retired surface-classification export", () => {
+    const retired = [
+      "MODULE_BOUNDARY_SURFACES",
+      "ModuleBoundarySurface",
+      "classifyModuleBoundaryText",
+      "moduleBoundariesForAcceptanceCriteria",
+      "spansMultipleModuleBoundaries",
+      "orderModuleBoundariesForSplit",
+      "splitResiduePattern",
     ];
-
-    expect(classifyModuleBoundaryText(acceptanceCriteria[2] ?? "")).toEqual([]);
-    expect(moduleBoundariesForAcceptanceCriteria(acceptanceCriteria)).toEqual(["persistence"]);
-    expect(spansMultipleModuleBoundaries(acceptanceCriteria)).toBe(false);
-  });
-
-  test("leaves a single-boundary staged tree unchanged", () => {
-    mkdirSync(scratchRoot, { recursive: true });
-    const dir = mkdtempSync(join(scratchRoot, "module-boundary-single-"));
-    tempDirs.push(dir);
-    writeFileSync(join(dir, "index.md"), "# Staged plan\r\n\r\n- [ ] [03 - Persistence](./03-persistence.md)\r\n");
-    writeFileSync(
-      join(dir, "03-persistence.md"),
-      "# Preserve this title\r\n\r\n## Acceptance criteria\r\n\r\n- [ ] The state-store persists runs atomically.\r\n",
-    );
-    const beforeFiles = readdirSync(dir).sort();
-    const beforeBytes = beforeFiles.map((file) => readFileSync(join(dir, file)));
-
-    normalizePlanDraftSpecDir(dir);
-
-    const afterFiles = readdirSync(dir).sort();
-    expect(afterFiles).toEqual(beforeFiles);
-    expect(afterFiles.map((file) => readFileSync(join(dir, file)))).toEqual(beforeBytes);
-  });
-
-  for (const fixture of MANIFEST.fixtures) {
-    test(`normalizes the ${fixture.name} staged tree without provenance`, () => {
-      const dir = stagedFixture(fixture.name);
-      const parentBody = readFileSync(join(FIXTURE_ROOT, fixture.name, `00-${fixture.parentSlug}.md`), "utf8");
-      const expectedFiles = expectedSplitFilenames(fixture);
-      const boundaries = moduleBoundariesForAcceptanceCriteria(acceptanceCriteriaTexts(parentBody));
-      const ordered = boundaries.length >= 2 ? orderModuleBoundariesForSplit(parentBody, boundaries) : [...boundaries];
-
-      normalizePlanDraftSpecDir(dir);
-
-      const emittedFiles = readdirSync(dir)
-        .filter((file) => /^\d{2}-.*\.md$/u.test(file))
-        .sort();
-      expect(emittedFiles).toEqual(expectedFiles);
-      expect(indexChecklistFiles(readFileSync(join(dir, "index.md"), "utf8"))).toEqual(expectedFiles);
-      for (const [boundaryIndex, surface] of ordered.entries()) {
-        const expectedFile = expectedFiles[boundaryIndex];
-        if (expectedFile === undefined) throw new Error(`missing expected file for ${surface}`);
-        const body = readFileSync(join(dir, expectedFile), "utf8");
-        for (const section of PRESERVED_SECTIONS) {
-          const expectedBullets = bulletsForSplitSurface(
-            survivingParentBullets(parentBody, fixture.parentSlug, section.heading, section.checkbox),
-            surface,
-            boundaryIndex,
-          );
-          if (expectedBullets.length === 0) {
-            expect(optionalSectionBulletLines(body, section.heading, section.checkbox)).toEqual([]);
-            continue;
-          }
-          expect(sectionBulletLines(body, section.heading, section.checkbox)).toEqual(expectedBullets);
-        }
-      }
-      for (const section of PRESERVED_SECTIONS) {
-        assertEmittedUnion(dir, emittedFiles, parentBody, fixture.parentSlug, section);
-      }
-      const durableText = [
-        ...emittedFiles,
-        ...emittedFiles.map((file) => readFileSync(join(dir, file), "utf8")),
-        readFileSync(join(dir, "index.md"), "utf8"),
-      ]
-        .join("\n")
-        .toLowerCase();
-      const forbidden = [...MANIFEST.forbiddenProvenance, fixture.parentSlug, ...fixture.planningLabels].map((text) =>
-        text.toLowerCase(),
-      );
-      for (const phrase of forbidden) expect(durableText).not.toContain(phrase);
-      if (fixture.name === "k2") {
-        expect(readFileSync(join(dir, "00-persistence.md"), "utf8")).toContain(
-          "Keep this unrelated draft scope for callers.",
+    const offenders = [resolve("shared"), resolve("v2/src")]
+      .flatMap(typescriptFiles)
+      .filter((file) => file !== resolve("shared/module-boundary-surfaces.ts"))
+      .flatMap((file) => {
+        const body = readFileSync(file, "utf8");
+        const imports = [
+          ...body.matchAll(/import\s*\{([^}]*)\}\s*from\s*["'][^"']*module-boundary-surfaces\.ts["']/gsu),
+        ];
+        return imports.flatMap((match) =>
+          retired
+            .filter((name) => new RegExp(`\\b${name}\\b`, "u").test(match[1] ?? ""))
+            .map((name) => `${file}: ${name}`),
         );
-      }
-    });
-  }
+      });
 
-  test("inverting draft dependency order guard fails k4", () => {
-    const fixture = MANIFEST.fixtures.find((entry) => entry.name === "k4");
-    if (!fixture) throw new Error("k4 fixture is missing");
-    const parentBody = readFileSync(join(FIXTURE_ROOT, "k4", `00-${fixture.parentSlug}.md`), "utf8");
-    const expectedFiles = expectedSplitFilenames(fixture);
-    const boundaries = moduleBoundariesForAcceptanceCriteria(acceptanceCriteriaTexts(parentBody));
-    const ordered = orderModuleBoundariesForSplit(parentBody, boundaries);
-    const firstSurface = ordered[0];
-    if (firstSurface === undefined) throw new Error("k4 split order is empty");
-    const dir = stagedFixture("k4");
-
-    normalizePlanDraftSpecDir(dir);
-
-    const emittedFiles = readdirSync(dir)
-      .filter((file) => /^\d{2}-.*\.md$/u.test(file))
-      .sort();
-    expect(emittedFiles).toEqual(expectedFiles);
-    expect(emittedFiles[0]).toBe(`00-${firstSurface}.md`);
-    const firstBody = readFileSync(join(dir, emittedFiles[0] ?? ""), "utf8");
-    expect(firstBody).toContain("The behavior remains covered by a regression test.");
-    const persistenceFile = expectedFiles[1];
-    if (persistenceFile === undefined) throw new Error("k4 persistence file is missing");
-    expect(readFileSync(join(dir, persistenceFile), "utf8")).not.toContain(
-      "The behavior remains covered by a regression test.",
-    );
-  });
-
-  test("orders prerequisite requires/depends-on bullets with prerequisite surface first", () => {
-    const body = [
-      "## Prerequisites",
-      "",
-      "- The CLI depends on persistence.",
-      "",
-      "## Acceptance criteria",
-      "",
-      "- [ ] The state-store persists completed runs atomically.",
-      "- [ ] The CLI validates run flags before dispatch.",
-    ].join("\n");
-    const boundaries = moduleBoundariesForAcceptanceCriteria([
-      "The state-store persists completed runs atomically.",
-      "The CLI validates run flags before dispatch.",
-    ]);
-    expect(orderModuleBoundariesForSplit(body, boundaries)).toEqual(["persistence", "cli"]);
-  });
-
-  test("hard-errors contradictory draft dependency edges", () => {
-    const k4Draft = readFileSync(join(FIXTURE_ROOT, "k4", "00-cli-first-state.md"), "utf8");
-    const body = k4Draft.replace(
-      "- Implement CLI before persistence.",
-      "- Implement CLI before persistence.\n- Implement persistence before CLI.",
-    );
-    const boundaries = moduleBoundariesForAcceptanceCriteria([
-      "The state-store persists completed runs atomically.",
-      "The CLI validates run flags before dispatch.",
-    ]);
-    expect(() => orderModuleBoundariesForSplit(body, boundaries)).toThrow(
-      "contradictory module-boundary dependency order",
-    );
-  });
-
-  test("hard-errors before dropping a multi-surface acceptance criterion", () => {
-    const fixture = MANIFEST.fixtures[0];
-    if (!fixture) throw new Error("k2 fixture is missing");
-    const dir = stagedFixture(fixture.name);
-    const sourcePath = join(dir, `00-${fixture.parentSlug}.md`);
-    const multiSurface =
-      "- [ ] The state-store persists completed runs atomically,\n      and the CLI exposes the same completed run.";
-    const source = readFileSync(sourcePath, "utf8").replace(
-      "- [ ] The state-store persists completed runs atomically.",
-      multiSurface,
-    );
-    writeFileSync(sourcePath, source);
-
-    expect(() => normalizePlanDraftSpecDir(dir)).toThrow("multi-surface ## Acceptance criteria bullet");
-    expect(readFileSync(sourcePath, "utf8")).toContain(multiSurface);
-  });
-
-  test("hard-errors before dropping an out-of-union decision bullet", () => {
-    const fixture = MANIFEST.fixtures[0];
-    if (!fixture) throw new Error("k2 fixture is missing");
-    const dir = stagedFixture(fixture.name);
-    const sourcePath = join(dir, `00-${fixture.parentSlug}.md`);
-    const outOfUnion = "- Stage the write-loop before splitting.";
-    const source = readFileSync(sourcePath, "utf8").replace(
-      "- Validate CLI flags before dispatch.",
-      `- Validate CLI flags before dispatch.\n${outOfUnion}`,
-    );
-    writeFileSync(sourcePath, source);
-
-    expect(() => normalizePlanDraftSpecDir(dir)).toThrow("out-of-union ## Decisions bullet");
-    expect(readFileSync(sourcePath, "utf8")).toContain(outOfUnion);
-    expect(readdirSync(dir).filter((file) => /^\d{2}-.*\.md$/u.test(file))).toEqual([`00-${fixture.parentSlug}.md`]);
-  });
-
-  test("hard-errors before dropping an out-of-union documentation bullet", () => {
-    const fixture = MANIFEST.fixtures[0];
-    if (!fixture) throw new Error("k2 fixture is missing");
-    const dir = stagedFixture(fixture.name);
-    const sourcePath = join(dir, `00-${fixture.parentSlug}.md`);
-    const outOfUnion = "- Document execution-loop staging in the operator runbook.";
-    const source = readFileSync(sourcePath, "utf8").replace(
-      "- Document CLI flag validation in install-and-config.",
-      `- Document CLI flag validation in install-and-config.\n${outOfUnion}`,
-    );
-    writeFileSync(sourcePath, source);
-
-    expect(() => normalizePlanDraftSpecDir(dir)).toThrow("out-of-union ## Documentation updates bullet");
-    expect(readFileSync(sourcePath, "utf8")).toContain(outOfUnion);
-    expect(readdirSync(dir).filter((file) => /^\d{2}-.*\.md$/u.test(file))).toEqual([`00-${fixture.parentSlug}.md`]);
-  });
-
-  describe("declared single-surface staged plans", () => {
-    const MULTI_SURFACE_BULLET =
-      "- [ ] The state-store persists completed runs atomically,\n      and the CLI exposes the same completed run.";
-    const DECLARED_SURFACE = "shared/module-boundary-surfaces.ts";
-    const RATIONALE =
-      "Unsplit rationale: Reading and suppressing the split both sit on the plan-draft normalization path, so splitting does not apply.";
-
-    function declarationIntent(): string {
-      return [
-        "# Declared single-surface intent",
-        "",
-        "## Primary implementation surface",
-        "",
-        DECLARED_SURFACE,
-        "",
-        RATIONALE,
-        "",
-      ].join("\n");
-    }
-
-    function stageK2WithMultiSurfaceBullet(): { dir: string; sourcePath: string } {
-      const dir = stagedFixture("k2");
-      const sourcePath = join(dir, "00-phase-1-state-cli.md");
-      const source = readFileSync(sourcePath, "utf8").replace(
-        "- [ ] The state-store persists completed runs atomically.",
-        MULTI_SURFACE_BULLET,
-      );
-      writeFileSync(sourcePath, source);
-      return { dir, sourcePath };
-    }
-
-    test("a declared single-surface staged plan normalizes without splitting", () => {
-      // @mutate shared/module-boundary-surfaces.ts "if (declaresSingleSurface(specDir)) return;" -> "if (false) return;"
-      const { dir } = stageK2WithMultiSurfaceBullet();
-      writeFileSync(join(dir, "intent.md"), declarationIntent());
-      const beforeFiles = readdirSync(dir).sort();
-      const beforeBytes = beforeFiles.map((file) => readFileSync(join(dir, file)));
-
-      normalizePlanDraftSpecDir(dir);
-
-      const afterFiles = readdirSync(dir).sort();
-      expect(afterFiles).toEqual(beforeFiles);
-      expect(afterFiles.map((file) => readFileSync(join(dir, file)))).toEqual(beforeBytes);
-    });
-
-    test("a staged plan missing either half of the declaration still splits", () => {
-      // @mutate shared/module-boundary-surfaces.ts "return hasRationale && surfaceLines.length === 1;" -> "return hasRationale || surfaceLines.length === 1;"
-      const variants: Array<(dir: string) => void> = [
-        (dir) => rmSync(join(dir, "intent.md")),
-        (dir) =>
-          writeFileSync(
-            join(dir, "intent.md"),
-            [
-              "# Declared single-surface intent",
-              "",
-              "## Primary implementation surface",
-              "",
-              DECLARED_SURFACE,
-              "",
-            ].join("\n"),
-          ),
-        (dir) =>
-          writeFileSync(
-            join(dir, "intent.md"),
-            [
-              "# Declared single-surface intent",
-              "",
-              "## Primary implementation surface",
-              "",
-              DECLARED_SURFACE,
-              "",
-              "Unsplit rationale:",
-              "",
-            ].join("\n"),
-          ),
-        (dir) =>
-          writeFileSync(join(dir, "intent.md"), ["# Declared single-surface intent", "", RATIONALE, ""].join("\n")),
-        (dir) =>
-          writeFileSync(
-            join(dir, "intent.md"),
-            [
-              "# Declared single-surface intent",
-              "",
-              "## Primary implementation surface",
-              "",
-              DECLARED_SURFACE,
-              "shared/other-surface.ts",
-              "",
-              RATIONALE,
-              "",
-            ].join("\n"),
-          ),
-      ];
-
-      for (const applyVariant of variants) {
-        const { dir } = stageK2WithMultiSurfaceBullet();
-        applyVariant(dir);
-
-        expect(() => normalizePlanDraftSpecDir(dir)).toThrow("multi-surface ## Acceptance criteria bullet");
-      }
-    });
-
-    test("a declaration only in a subspec body does not suppress the split", () => {
-      const { dir, sourcePath } = stageK2WithMultiSurfaceBullet();
-      writeFileSync(join(dir, "intent.md"), "# Persist runs and expose them through the CLI\n");
-      const source = readFileSync(sourcePath, "utf8");
-      writeFileSync(
-        sourcePath,
-        `${source}\n## Primary implementation surface\n\n${DECLARED_SURFACE}\n\n${RATIONALE}\n`,
-      );
-
-      expect(() => normalizePlanDraftSpecDir(dir)).toThrow("multi-surface ## Acceptance criteria bullet");
-    });
-
-    test("a declared staged plan still refuses a broken index link", () => {
-      const { dir: linkDir } = stageK2WithMultiSurfaceBullet();
-      writeFileSync(join(linkDir, "intent.md"), declarationIntent());
-      writeFileSync(
-        join(linkDir, "index.md"),
-        readFileSync(join(linkDir, "index.md"), "utf8").replace("00-phase-1-state-cli.md", "00-does-not-exist.md"),
-      );
-      expect(() => normalizePlanDraftSpecDir(linkDir)).toThrow("Plan index links unknown subspec");
-    });
-  });
-});
-
-describe("plan draft criterion admission", () => {
-  function stageDraft(dir: string, subspecFile: string, acceptanceCriteriaBlock: string): void {
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "index.md"), `# Staged plan\n\n- [ ] [Subspec](./${subspecFile})\n`);
-    writeFileSync(
-      join(dir, subspecFile),
-      `# Preserve this title\n\n## Acceptance criteria\n\n${acceptanceCriteriaBlock}\n`,
-    );
-  }
-
-  function scratchDir(name: string): string {
-    mkdirSync(scratchRoot, { recursive: true });
-    const dir = mkdtempSync(join(scratchRoot, `criterion-${name}-`));
-    tempDirs.push(dir);
-    return dir;
-  }
-
-  test("admits keystone-shaped criteria during draft normalization", () => {
-    const admittedDir = scratchDir("admitted");
-    stageDraft(
-      admittedDir,
-      "00-persistence.md",
-      "- [ ] Keystone checkpoint: inverting the undated-row ordering guard makes the scoped test fail.",
-    );
-    expect(() => normalizePlanDraftSpecDir(admittedDir)).not.toThrow();
-
-    const brokenLinkDir = scratchDir("broken-link");
-    stageDraft(brokenLinkDir, "00-persistence.md", "- [ ] Keystone checkpoint: legacy shape.");
-    writeFileSync(join(brokenLinkDir, "index.md"), "# Staged plan\n\n- [ ] [Missing](./00-missing.md)\n");
-    expect(() => normalizePlanDraftSpecDir(brokenLinkDir)).toThrow("Plan index links unknown subspec");
-  });
-});
-
-describe("single-artifact acceptance-criteria bullets", () => {
-  test("a bullet naming exactly one artifact path is not reported multi-surface", () => {
-    const fixture = MANIFEST.fixtures[0];
-    if (!fixture) throw new Error("k2 fixture is missing");
-    const dir = stagedFixture(fixture.name);
-    const sourcePath = join(dir, `00-${fixture.parentSlug}.md`);
-    // Verbatim from the plan run blocked 2026-09-02: one doc file, but "daemon" in the prose and
-    // "workflow-runner" in the filename each match a surface pattern.
-    const singleFile =
-      "- [ ] `v2/docs/workflow-runner.md` records that standalone and chained implement share the external-spec contract without duplicating daemon resolution detail.";
-    writeFileSync(
-      sourcePath,
-      readFileSync(sourcePath, "utf8").replace("- [ ] The state-store persists completed runs atomically.", singleFile),
-    );
-
-    expect(classifyModuleBoundaryText(singleFile).length).toBeGreaterThan(1);
-    // Pre-fix this threw the multi-surface error for that bullet; other fixture-union errors are unrelated.
-    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow("multi-surface ## Acceptance criteria bullet");
-  });
-
-  test("a multi-surface bullet naming two artifact paths is still rejected", () => {
-    const fixture = MANIFEST.fixtures[0];
-    if (!fixture) throw new Error("k2 fixture is missing");
-    const dir = stagedFixture(fixture.name);
-    const sourcePath = join(dir, `00-${fixture.parentSlug}.md`);
-    writeFileSync(
-      sourcePath,
-      readFileSync(sourcePath, "utf8").replace(
-        "- [ ] The state-store persists completed runs atomically.",
-        "- [ ] `v2/src/persistence/state-store.ts` persists completed runs and `v2/src/cli.ts` exposes them.",
-      ),
-    );
-
-    expect(() => normalizePlanDraftSpecDir(dir)).toThrow("multi-surface ## Acceptance criteria bullet");
-  });
-
-  test("referencedArtifactPaths extracts distinct backticked paths and ignores prose and flags", () => {
-    expect(referencedArtifactPaths("`v2/docs/a.md` and `v2/docs/a.md` again")).toEqual(["v2/docs/a.md"]);
-    expect(referencedArtifactPaths("`--reset-despite-dirty` names no file")).toEqual([]);
-    expect(referencedArtifactPaths("`a/b.ts` plus `c/d.md`")).toEqual(["a/b.ts", "c/d.md"]);
+    expect(offenders).toEqual([]);
   });
 });

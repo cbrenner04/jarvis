@@ -80,6 +80,7 @@ import {
   runBuiltInReadyGateAutofixBiome,
   runMutationRepairIteration,
   shouldFailTerminalCompletionForDirtyWorktree,
+  tryAcquireAgentGateInvocationSlot,
   validateReadyGateRepairCompletion,
   type WallSegmentSchedule,
   type WriteLoopInput,
@@ -1175,6 +1176,44 @@ describe.serial("gate invocation budget and settlement", () => {
         resumable: true,
         gateCommand,
       });
+    } finally {
+      store.close();
+    }
+  });
+
+  test("an iteration without a gate does not release another lane's held slot", async () => {
+    // @mutate v2/src/execution/write-loop.ts "if (gateTracker?.getActiveGate() !== undefined) {\n    gateTracker.onAgentShellCommandComplete();\n  }" -> "if (gateTracker?.getActiveGate() !== undefined) {\n    gateTracker.onAgentShellCommandComplete();\n    return;\n  }\n  releaseAgentGateInvocationSlot();"
+    const { resultFrame } = claudeGateShellFrames("bun run test:v2");
+    const { jarvisRoot, stateDbPath } = createJarvisHome();
+    roots.push(join(jarvisRoot, ".."));
+    const store = openStateStore(stateDbPath);
+    const sink = new TestLogSink();
+    try {
+      // Another lane is mid-suite and holds the sole slot.
+      expect(tryAcquireAgentGateInvocationSlot()).toBe(true);
+      const result = await executeWriteLoop({
+        specPath: "spec.md",
+        stepRules: "Return progress.",
+        expectedArtifactPath: "proof.txt",
+        stateStore: store,
+        withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
+        sessionsDir: join(jarvisRoot, "sessions"),
+        logSink: sink,
+        maxIterations: 1,
+        iterationCeilingMs: TEST_STEP_BUDGET_MS + 60_000,
+        clock: () => new Date("2026-09-08T06:00:00.000Z"),
+        worktree: {
+          projectRoot: "/fake",
+          projectName: "demo",
+          branchName: "gate-slot-unrelated-lane",
+          baseRef: "HEAD",
+          jarvisRoot,
+        },
+        bindings: [claudeGateShellBinding([resultFrame])],
+      });
+      expect(result.kind).not.toBe("gate_invocation_refused");
+      // The unrelated lane's settle must not have freed the other lane's slot.
+      expect(tryAcquireAgentGateInvocationSlot()).toBe(false);
     } finally {
       store.close();
     }

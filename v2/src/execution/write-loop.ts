@@ -511,7 +511,7 @@ export const MAX_CONCURRENT_AGENT_GATE_INVOCATIONS = 1;
 
 let agentGateSlotHeld = false;
 
-function tryAcquireAgentGateInvocationSlot(): boolean {
+export function tryAcquireAgentGateInvocationSlot(): boolean {
   if (agentGateSlotHeld) return false;
   agentGateSlotHeld = true;
   return true;
@@ -2163,12 +2163,12 @@ async function settleFinalizationRepair(
   return isInterruptedRace(raced) ? { kind: raced.kind, quiesced } : quiesced;
 }
 
+/** Release the machine-wide slot only when this iteration's tracker holds it: another lane's
+ * in-flight gate must survive an unrelated iteration settling. */
 function releaseIterationGateSlot(gateTracker?: ReturnType<typeof createIterationActiveGateTracker>): void {
   if (gateTracker?.getActiveGate() !== undefined) {
     gateTracker.onAgentShellCommandComplete();
-    return;
   }
-  releaseAgentGateInvocationSlot();
 }
 
 async function settleBoundedIteration(

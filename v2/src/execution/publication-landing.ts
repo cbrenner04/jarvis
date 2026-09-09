@@ -3,7 +3,8 @@ import { basename, join, relative, resolve } from "node:path";
 import { consumePublicationInputs } from "../../../shared/publication-input-consumption.ts";
 import { type IntentOutputConfig, landIntentWorkflowOutput } from "./intent-output.ts";
 
-type PublicationInputs = { sourceRoot: string; paths: string[]; consumeFrom: "worktree" | "source" };
+/** Seed files a landing consumes after publishing; persisted on the workflow snapshot so resume consumes the same set. */
+export type PublicationInputs = { sourceRoot: string; paths: string[]; consumeFrom: "worktree" | "source" };
 
 export type PublicationLanding =
   | {

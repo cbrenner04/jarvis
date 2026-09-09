@@ -1,4 +1,5 @@
 import {
+  INTENT_RESUME_LANDING_INPUTS_NOT_RECORDED,
   resolveCompletionCommitFailedResumeContext,
   resolveExhaustedRedResumeContext,
   resolveIntentFinalizationResumeContext,
@@ -54,8 +55,15 @@ export function resolveRunResumeAdmission(
   logRecords: readonly PersistedRecord[] | undefined,
   deps: RunResumeAdmissionDeps,
 ): RunResumeAdmission {
-  if (isIntentFinalizationResumable(run, deps.store)) {
+  const intentFinalization = resolveIntentFinalizationResumeContext(
+    { ...run, attempts: run.attempts ?? [] },
+    deps.store,
+  );
+  if (intentFinalization.ok) {
     return { admitted: true };
+  }
+  if (intentFinalization.message === INTENT_RESUME_LANDING_INPUTS_NOT_RECORDED) {
+    return { admitted: false, refusal: "unsupported", message: intentFinalization.message };
   }
   if (isFinalizationTailResumable(run, deps.store, terminalRecord)) {
     return { admitted: true };

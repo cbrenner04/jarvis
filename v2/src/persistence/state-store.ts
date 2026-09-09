@@ -11,6 +11,7 @@ import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { InvocationFailureDetail } from "../execution/invocation-failure.ts";
 import type { PipelineDefinition, PipelineTerminalAction } from "../execution/pipeline-definition.ts";
+import type { PublicationInputs } from "../execution/publication-landing.ts";
 import type { PublicationFailure } from "../execution/publication-retry.ts";
 import { isWriteLoopOutcomeKind, type WriteLoopInput, type WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import { ORCHESTRATION_STORE_PATH } from "../paths.ts";
@@ -92,6 +93,8 @@ export type WorkflowSnapshotStep = {
   externalPlanSpec?: true;
   /** Authoritative external routing root for an admitted plan. */
   specReadRoot?: string;
+  /** Seed inputs the write step's landing consumes; resume replays consumption from here. Absent on legacy snapshots. */
+  landingInputs?: PublicationInputs;
 };
 
 /** Durable workflow invocation snapshot shared by every step run in that workflow. */

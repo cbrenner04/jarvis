@@ -38,6 +38,46 @@ import {
 } from "./workflow-runner.ts";
 
 describe("intent publication input consumption", () => {
+  test("buildWorkflowSnapshot records landingInputs from a write step's landing.inputs", async () => {
+    const source = createIntentWorktreeHarness("snapshot-inputs-source").workspace;
+    const inputs = { sourceRoot: source, paths: [join(source, "queue/seed.md")], consumeFrom: "worktree" as const };
+    const withInputs = createStep({
+      stepId: "intent",
+      role: "plan",
+      branchName: "snapshot-landing-inputs",
+      landing: {
+        kind: "intent-stage",
+        output: { durableDir: "ready-intents" },
+        stagingDir: ".jarvis-intent-stage",
+        invocationId: "snapshot-inputs",
+        baseRef: "HEAD",
+        inputs,
+      },
+      agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] } } },
+    });
+    const withoutInputs = createStep({ stepId: "implement", role: "implement", branchName: "snapshot-no-inputs" });
+
+    await withStateStore(async (store) => {
+      await executeWorkflow({ steps: [withInputs], stateStore: store });
+      await executeWorkflow({ steps: [withoutInputs], stateStore: store });
+
+      const recorded = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "snapshot-landing-inputs",
+        stepId: "intent",
+      })?.workflowSnapshot?.steps[0];
+      expect(recorded).toMatchObject({ stepId: "intent", landingInputs: inputs });
+
+      const plain = store.findRunByProjectBranch({
+        project: "demo",
+        branch: "snapshot-no-inputs",
+        stepId: "implement",
+      })?.workflowSnapshot?.steps[0];
+      expect(plain).toBeDefined();
+      expect(plain).not.toHaveProperty("landingInputs");
+    });
+  });
+
   test("keeps the registered file through failures, maps Git deletion into its completion diff, and consumes no-Git sources", async () => {
     const source = createIntentWorktreeHarness("input-source").workspace;
     const worktree = createIntentWorktreeHarness("input-worktree").workspace;

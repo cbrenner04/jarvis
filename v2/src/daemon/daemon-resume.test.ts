@@ -1453,6 +1453,7 @@ function createIntentFinalizationRuns(overrides: {
         expectedArtifactPath: ".jarvis-intent-stage",
         agents: ["codex"],
         agentModelConfig: AGENT_MODEL_CONFIG,
+        landingInputs: { sourceRoot: tmpdir(), paths: [], consumeFrom: "worktree" as const },
       },
       { stepId: "review", role: "", durable: true, behavior: "review" as const },
     ],

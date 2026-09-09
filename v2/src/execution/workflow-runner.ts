@@ -48,7 +48,7 @@ import { listLandedIntentFiles } from "./intent-output.ts";
 import { deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import { readBranchCommits } from "./pr-attribution.ts";
-import { landPublication, type PublicationLanding } from "./publication-landing.ts";
+import { landPublication, type PublicationInputs, type PublicationLanding } from "./publication-landing.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
 import {
@@ -1518,6 +1518,12 @@ function isDurableWorkflowStep(step: AnyWorkflowStep): boolean {
   );
 }
 
+/** Persist the seed set a landing consumes so intent-finalization resume replays the same consumption. */
+function snapshotLandingInputs(landing: PublicationLanding | undefined): { landingInputs?: PublicationInputs } {
+  const inputs = landing !== undefined && landing.kind !== "none" ? landing.inputs : undefined;
+  return inputs !== undefined ? { landingInputs: inputs } : {};
+}
+
 /**
  * Every step, including review behaviors, contributes an entry to the shared snapshot
  * so the daemon's `list` handler can render a row for it. The shared durability
@@ -1557,6 +1563,7 @@ function buildWorkflowSnapshot(
           ...(step.readyCommand !== undefined ? { readyCommand: step.readyCommand } : {}),
           ...(step.externalPlanSpec === true ? { externalPlanSpec: true as const } : {}),
           ...(step.specReadRoot !== undefined ? { specReadRoot: step.specReadRoot } : {}),
+          ...snapshotLandingInputs(step.landing),
         }
       : {}),
   }));

@@ -922,6 +922,10 @@ export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promi
   return { ok: true, ...result, ...(commit.commitSha !== undefined ? { commitSha: commit.commitSha } : {}) };
 }
 
+/** Refusal reason when the persisted write step predates seed-consumption recording; publishing would strand the seed. */
+export const INTENT_RESUME_LANDING_INPUTS_NOT_RECORDED =
+  "landing inputs not recorded on the persisted snapshot; re-run the intent";
+
 /**
  * Admission and reconstruction for resuming a review-behavior step's `landing_failed` row without
  * re-entering review: requires a failed review/review-debate row whose last attempt recorded
@@ -935,13 +939,17 @@ export function resolveIntentFinalizationResumeContext(
 ): IntentFinalizationResumeResolution {
   const head = resolveReviewRowHead(run, store);
   if (!head.ok) return head;
-  const { snapshot, writeRun, completionAgent, behavior, reviewPass } = head.head;
+  const { snapshot, writeStep, writeRun, completionAgent, behavior, reviewPass } = head.head;
   const lastAttempt = run.attempts.at(-1);
   if (!isReviewLandingRecoveryAttempt(lastAttempt)) {
     return { ok: false, message: "run did not fail at landing" };
   }
   if (!hasPopulatedIntentStage(run.worktreePath)) {
     return { ok: false, message: "the intent stage is empty or missing" };
+  }
+  const landingInputs = writeStep?.landingInputs;
+  if (landingInputs === undefined) {
+    return { ok: false, message: INTENT_RESUME_LANDING_INPUTS_NOT_RECORDED };
   }
 
   const configuredDurableDir = configuredIntentDurableDir(run.worktreePath, writeRun.specPath);
@@ -963,6 +971,7 @@ export function resolveIntentFinalizationResumeContext(
         stagingDir: INTENT_STAGE_DIR,
         invocationId: snapshot.invocationId,
         baseRef: run.specRef,
+        inputs: landingInputs,
       },
       completionAgent,
       creationTitleHint: snapshot.creationTitle,

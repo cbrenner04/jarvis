@@ -18,11 +18,11 @@
 
 ## Acceptance criteria
 
-- [ ] `step-runner.test.ts` test `outcome parsing ignores a blocked token inside prose after the terminal token` proves a response whose last line is `done` and whose earlier summary prose contains `blocked` parses as `done`, and a response whose only token-shaped word sits mid-body parses as no token; it fails against the current whole-body scan.
-- [ ] `write-loop.test.ts` test `blocked classification over fully ticked criteria with no blocker section settles complete` drives a `blocked` response against a subspec with every non-human-only criterion ticked and no `## Blocker`, and asserts the completion path (no blocker reprompt, no `missing_blocker`); it fails against the current reprompt path.
-- [ ] `write-loop.test.ts` test `missing_blocker settlement records the matched token evidence` asserts the durable log carries a `missing_blocker_detail` record with the token and surrounding text; it fails against the current opaque settlement.
-- [ ] Existing `parseStepOutcomeToken` and blocker-contract tests stay green.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `step-runner.test.ts` test `outcome parsing ignores a blocked token inside prose after the terminal token` proves a response whose last line is `done` and whose earlier summary prose contains `blocked` parses as `done`, and a response whose only token-shaped word sits mid-body parses as no token; it fails against the current whole-body scan.
+- [x] `write-loop.test.ts` test `blocked classification over fully ticked criteria with no blocker section settles complete` drives a `blocked` response against a subspec with every non-human-only criterion ticked and no `## Blocker`, and asserts the completion path (no blocker reprompt, no `missing_blocker`); it fails against the current reprompt path.
+- [x] `write-loop.test.ts` test `missing_blocker settlement records the matched token evidence` asserts the durable log carries a `missing_blocker_detail` record with the token and surrounding text; it fails against the current opaque settlement.
+- [x] Existing `parseStepOutcomeToken` and blocker-contract tests stay green.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

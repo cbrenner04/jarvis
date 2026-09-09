@@ -658,6 +658,11 @@ async function executeDefaultWrite(
           id: "write.blocker-text",
           specPath: blockerTextTargetPath,
           specBefore: readFileSync(blockerTextTargetPath, "utf8"),
+          // Implement only: a `blocked` token with no blocker over fully ticked criteria is a
+          // misclassified completion, not a blocker request.
+          ...(promptId === "patch.prompt.body"
+            ? { completionCheck: () => getUntickedNonHumanOnlyCriteria(expectedArtifactPath).length === 0 }
+            : {}),
         }
       : undefined;
 

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { InvocationBinding, InvocationCompletedRecord } from "../../../shared/invocation/execute.ts";
 import type { SessionLog, SessionLogTag } from "../../../shared/invocation/session-log.ts";
 import { resolveInvocationBindings } from "../config/agent-model-config.ts";
-import { parseStepOutcomeToken, runStep, type StepContract } from "./step-runner.ts";
+import { parseStepOutcomeToken, parseStepOutcomeTokenDetail, runStep, type StepContract } from "./step-runner.ts";
 
 function fakeSessionLog(): { log: SessionLog; lines: { tag: SessionLogTag; text: string }[] } {
   const lines: { tag: SessionLogTag; text: string }[] = [];
@@ -93,6 +93,17 @@ describe("step runner token parsing", () => {
 
   test("extracts token from prose output", () => {
     expect(parseStepOutcomeToken("I updated the file.\nFinal: progress\n")).toBe("progress");
+  });
+
+  test("outcome parsing ignores a blocked token inside prose after the terminal token", () => {
+    // The body names a fixture ("seeds a blocked run"); only the last line decides.
+    expect(parseStepOutcomeToken("Added a regression test that seeds a blocked run.\nAll criteria ticked.\ndone")).toBe(
+      "done",
+    );
+    expect(parseStepOutcomeToken("Summary: seeds a blocked run, then done")).toBe("done");
+    // A token-shaped word only mid-body is not a terminal token; the caller re-prompts instead.
+    expect(parseStepOutcomeToken("The run is blocked on nothing.\nMore prose without a token")).toBeNull();
+    expect(parseStepOutcomeTokenDetail("prose\nFinal: blocked")).toEqual({ token: "blocked", line: "Final: blocked" });
   });
 });
 

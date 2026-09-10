@@ -447,9 +447,9 @@ describe("write behavior", () => {
     expect(capturedPrompt).toContain("nor `invert*` function parameters");
     expect(capturedPrompt).not.toContain("comment checkpoint on the pinning test");
     expect(capturedPrompt).not.toContain("Place `// @mutate`");
-    expect(capturedPrompt).toContain(
-      "When a guard sits inside a `setTimeout` or `setInterval` callback, extract it into a pure exported predicate and test both truth directions directly without a real-timer wait.",
-    );
+    // The timer-callback rule is jarvis-specific and now lives in this repo's AGENTS.md, not the neutral rules fragment.
+    expect(capturedPrompt).not.toContain("When a guard sits inside a `setTimeout` or `setInterval` callback");
+    expect(capturedPrompt).toContain("Run the scoped test script(s) for the surfaces you touched");
   });
 
   test("patch.prompt.shrink renders DEFAULT_WRITE_STEP_RULES as final block", async () => {

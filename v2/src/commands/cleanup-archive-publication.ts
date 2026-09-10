@@ -122,6 +122,16 @@ export function createArchivePublicationSession(deps: ArchivePublicationDeps): A
     }
   }
 
+  /** A checkout with no committer identity (CI, fresh machines) still gets a committed archive. */
+  async function commitIdentityFlags(): Promise<string[]> {
+    try {
+      await git(["config", "user.email"], worktreePath);
+      return [];
+    } catch {
+      return ["-c", "user.name=jarvis cleanup", "-c", "user.email=jarvis-cleanup@localhost"];
+    }
+  }
+
   async function rollback(step: ArchivePublicationStep, error: unknown): Promise<ArchivePublicationResult> {
     try {
       await git(["reset", "--hard", "HEAD"], worktreePath);
@@ -185,7 +195,7 @@ export function createArchivePublicationSession(deps: ArchivePublicationDeps): A
       }
       try {
         const subject = `spec: archive ${spec.name}${relReadyIntent !== undefined ? " and prune its consumed ready-intent" : ""}`;
-        await git(["commit", "--quiet", "-m", subject], worktreePath);
+        await git([...(await commitIdentityFlags()), "commit", "--quiet", "-m", subject], worktreePath);
       } catch (error) {
         return rollback("commit", error);
       }

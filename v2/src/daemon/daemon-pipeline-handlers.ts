@@ -42,7 +42,7 @@ import { resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
 
 const STALE_RESET_RPC_TIMEOUT_MS = 30_000;
 
-export type PipelineHandlerDeps = {
+type PipelineHandlerDeps = {
   pipelineDispatch: PipelineWorkflowDispatch;
   pipelineWait: PipelineWorkflowWait;
   admitWorkflowStart: WorkflowStartAdmission["admitWorkflowStart"];
@@ -56,7 +56,7 @@ export type PipelineHandlerDeps = {
   reconciledRunIds?: readonly string[];
 };
 
-export type PipelineHandlers = {
+type PipelineHandlers = {
   pipeline_start: RpcHandler;
   pipeline_approve: RpcHandler;
   pipeline_reject: RpcHandler;

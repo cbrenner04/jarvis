@@ -3,7 +3,7 @@ import type { RunStatus, WorkflowSnapshot } from "../persistence/state-store.ts"
 import type { LoadedRun } from "./daemon.ts";
 
 export type WorkflowStepListStatus = "pending" | "in_progress" | "completed" | "stopped";
-export type WorkflowStepTerminalOutcome =
+type WorkflowStepTerminalOutcome =
   | "complete"
   | "blocked"
   | "contract_miss"
@@ -17,7 +17,7 @@ export type WorkflowStepTerminalOutcome =
   | "interrupted"
   | "killed";
 
-export type WorkflowStepListSnapshot = {
+type WorkflowStepListSnapshot = {
   stepId: string;
   role: string;
   status: WorkflowStepListStatus;

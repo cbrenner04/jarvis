@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
 
-export class PublicationTitleResolutionError extends Error {
+class PublicationTitleResolutionError extends Error {
   constructor(specPath: string, cause: unknown) {
     const reason = cause instanceof Error ? cause.message : String(cause);
     super(`Title resolution failed for spec ${specPath}: ${reason}`);

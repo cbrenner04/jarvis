@@ -7,7 +7,7 @@ const EXECUTION_DIR = import.meta.dir;
 const NONTERMINAL_RUN_STATUSES = new Set<RunStatus>(["in-progress", "paused", "queued", "budget-soft-stopped"]);
 const SETTLEMENT_EVIDENCE = /terminalCause:|completionBoundarySettlementFields\(|completedPublicationBoundaryFields\(/;
 
-export type TerminalSettlementViolation = {
+type TerminalSettlementViolation = {
   file: string;
   line: number;
   functionName: string;
@@ -15,21 +15,21 @@ export type TerminalSettlementViolation = {
   detail?: string;
 };
 
-export type PermittedTerminalWrite = {
+type PermittedTerminalWrite = {
   file: string;
   functionName: string;
   writer: "commitTerminalRunSettlement" | "commitCompletionBoundary";
   count?: number;
 };
 
-export type PermittedNonterminalSetRunStatus = {
+type PermittedNonterminalSetRunStatus = {
   file: string;
   functionName: string;
   status: RunStatus;
   count?: number;
 };
 
-export const PERMITTED_TERMINAL_WRITES: PermittedTerminalWrite[] = [
+const PERMITTED_TERMINAL_WRITES: PermittedTerminalWrite[] = [
   {
     file: "successor-step-idle-watchdog.ts",
     functionName: "settleSuccessorShellStall",
@@ -127,7 +127,7 @@ export const PERMITTED_TERMINAL_WRITES: PermittedTerminalWrite[] = [
   { file: "write-loop.ts", functionName: "iterationCommitFailed", writer: "commitTerminalRunSettlement" },
 ];
 
-export const PERMITTED_NONTERMINAL_SET_RUN_STATUS: PermittedNonterminalSetRunStatus[] = [
+const PERMITTED_NONTERMINAL_SET_RUN_STATUS: PermittedNonterminalSetRunStatus[] = [
   { file: "workflow-runner.ts", functionName: "settlePostCommitShrinkForResume", status: "paused" },
   { file: "workflow-runner.ts", functionName: "executeWorkflow", status: "in-progress" },
   { file: "workflow-runner-resume.ts", functionName: "runIntentResumeCommitAndPublish", status: "in-progress" },

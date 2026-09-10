@@ -5,7 +5,7 @@ import { renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import type { PublicationLanding } from "./publication-landing.ts";
 import { type LintStagedMarkdownDeps, lintStagedMarkdown } from "./staged-markdown-lint.ts";
 
-export type ReviewedStagedMarkdownLintAdmission =
+type ReviewedStagedMarkdownLintAdmission =
   | { kind: "skip" }
   | { kind: "pass" }
   | { kind: "violation"; ruleId: string; filePath: string; message: string }

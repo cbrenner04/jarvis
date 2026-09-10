@@ -5,7 +5,7 @@ export const PIPELINE_ID_PREFIX_MIN_LENGTH = 8;
 
 export const PIPELINE_ID_AMBIGUOUS = "pipeline_id_ambiguous";
 
-export type PipelineIdResolution =
+type PipelineIdResolution =
   | { kind: "resolved"; pipelineId: string }
   | { kind: "ambiguous"; candidates: string[] }
   /** Nothing matched; the verb keeps its own not-found handling for the argument as given. */

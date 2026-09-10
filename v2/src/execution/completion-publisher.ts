@@ -22,7 +22,7 @@ export type CompletionPublisherInput = ExternalSpecGitScope & {
   narrative?: string;
 };
 
-export type CompletionPublisherResult = {
+type CompletionPublisherResult = {
   pushSha?: string;
   prNumber?: number;
   prUrl?: string;

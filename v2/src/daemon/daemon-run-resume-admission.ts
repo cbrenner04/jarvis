@@ -16,7 +16,7 @@ export type RunResumeAdmission =
   | { admitted: true }
   | { admitted: false; refusal: "terminal" | "unsupported"; message?: string };
 
-export type RunResumeAdmissionDeps = {
+type RunResumeAdmissionDeps = {
   store: StateStore;
   reconstructWriteResume: (run: Run, logRecords?: readonly PersistedRecord[]) => ResolvedWriteLoopInput;
 };
@@ -85,13 +85,4 @@ export function resolveRunResumeAdmission(
   return { admitted: true };
 }
 
-export function isResumeAdmitted(
-  run: Run & { attempts?: Attempt[] },
-  terminalRecord: TerminalLogRecord | undefined,
-  deps: RunResumeAdmissionDeps,
-  logRecords?: readonly PersistedRecord[],
-): boolean {
-  return resolveRunResumeAdmission(run, terminalRecord, logRecords, deps).admitted;
-}
-
-export { isFinalizationTailResumable, isIntentFinalizationResumable, isReviewMutationResumable };
+export { isFinalizationTailResumable, isIntentFinalizationResumable };

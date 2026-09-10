@@ -32,7 +32,7 @@ export function exitCodeForWriteResult(kind: Awaited<ReturnType<typeof executeWr
   return 1;
 }
 
-export function exitCodeForWaitResult(result: WaitRunCompletionResult): number {
+function exitCodeForWaitResult(result: WaitRunCompletionResult): number {
   if (result.loopOutcomeKind !== undefined) {
     return exitCodeForWriteResult(result.loopOutcomeKind);
   }

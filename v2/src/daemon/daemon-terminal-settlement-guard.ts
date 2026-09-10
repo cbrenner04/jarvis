@@ -8,7 +8,7 @@ const DAEMON_DIR = import.meta.dir;
 const NONTERMINAL_RUN_STATUSES = new Set<RunStatus>(["in-progress", "paused", "queued", "budget-soft-stopped"]);
 const SETTLEMENT_EVIDENCE = /terminalCause:|completionBoundarySettlementFields\(|completedPublicationBoundaryFields\(/;
 
-export type DaemonTerminalSettlementViolation = {
+type DaemonTerminalSettlementViolation = {
   file: string;
   line: number;
   functionName: string;
@@ -16,21 +16,21 @@ export type DaemonTerminalSettlementViolation = {
   detail?: string;
 };
 
-export type PermittedDaemonTerminalWrite = {
+type PermittedDaemonTerminalWrite = {
   file: string;
   functionName: string;
   writer: "commitTerminalRunSettlement" | "commitCompletionBoundary";
   count?: number;
 };
 
-export type PermittedDaemonNonterminalSetRunStatus = {
+type PermittedDaemonNonterminalSetRunStatus = {
   file: string;
   functionName: string;
   status: RunStatus;
   count?: number;
 };
 
-export const PERMITTED_DAEMON_TERMINAL_WRITES: PermittedDaemonTerminalWrite[] = [
+const PERMITTED_DAEMON_TERMINAL_WRITES: PermittedDaemonTerminalWrite[] = [
   { file: "daemon.ts", functionName: "settleGuardedKill", writer: "commitTerminalRunSettlement" },
   {
     file: "daemon-run-reconciliation.ts",
@@ -56,7 +56,7 @@ export const PERMITTED_DAEMON_TERMINAL_WRITES: PermittedDaemonTerminalWrite[] = 
   },
 ];
 
-export const PERMITTED_DAEMON_NONTERMINAL_SET_RUN_STATUS: PermittedDaemonNonterminalSetRunStatus[] = [
+const PERMITTED_DAEMON_NONTERMINAL_SET_RUN_STATUS: PermittedDaemonNonterminalSetRunStatus[] = [
   { file: "daemon.ts", functionName: "promoteQueuedRunImpl", status: "in-progress" },
 ];
 
@@ -239,7 +239,7 @@ function keyOccurrenceCounts(keys: readonly string[]): Map<string, number> {
   return counts;
 }
 
-export function inventoryMismatchMessage(
+function inventoryMismatchMessage(
   label: string,
   expected: readonly string[],
   actual: readonly string[],

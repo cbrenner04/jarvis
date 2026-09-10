@@ -96,7 +96,7 @@ export const EXTRACTED_FROM_WORKFLOW_RUNNER = [
   "settleSuccessfulReviewMutationPublication",
 ] as const;
 
-export type WorkflowRunnerResumeInjectedDeps = {
+type WorkflowRunnerResumeInjectedDeps = {
   persistIntentHandoff: (
     store: StateStore,
     landing: PublicationLanding | undefined,
@@ -291,7 +291,7 @@ export async function landReviewedPublicationOutput(
 const INTENT_STAGE_DIR = ".jarvis-intent-stage";
 
 /** Reconstructed context for resuming a review-behavior step's populated-stage `landing_failed` row. */
-export type IntentFinalizationResumeContext = {
+type IntentFinalizationResumeContext = {
   runId: string;
   worktreePath: string;
   project: string;
@@ -307,7 +307,7 @@ export type IntentFinalizationResumeContext = {
   reviewPass: number | undefined;
 };
 
-export type IntentFinalizationResumeResolution =
+type IntentFinalizationResumeResolution =
   | { ok: true; context: IntentFinalizationResumeContext }
   | { ok: false; message: string };
 
@@ -498,7 +498,7 @@ function resolveReviewMutationRowHead(run: Run, store: StateStore): ReviewRowHea
 }
 
 /** True when `.jarvis-intent-stage/` exists under `worktreePath` and holds at least one file. */
-export function hasPopulatedIntentStage(worktreePath: string): boolean {
+function hasPopulatedIntentStage(worktreePath: string): boolean {
   const stageDir = join(worktreePath, INTENT_STAGE_DIR);
   if (!existsSync(stageDir)) return false;
   try {
@@ -511,7 +511,7 @@ export function hasPopulatedIntentStage(worktreePath: string): boolean {
 const PLAN_STAGE_DIR = ".jarvis-plan-stage";
 
 /** True when `.jarvis-plan-stage/` exists under `worktreePath` and holds at least one file. */
-export function hasPopulatedPlanStage(worktreePath: string): boolean {
+function hasPopulatedPlanStage(worktreePath: string): boolean {
   const stageDir = join(worktreePath, PLAN_STAGE_DIR);
   if (!existsSync(stageDir)) return false;
   try {
@@ -522,7 +522,7 @@ export function hasPopulatedPlanStage(worktreePath: string): boolean {
 }
 
 /** Reason codes an operator recovery request refuses admission with. */
-export type PlanStageRecoveryRefusalCode =
+type PlanStageRecoveryRefusalCode =
   | "missing_plan_context"
   | "stage_identity_mismatch"
   | "unrelated_plan_stage"
@@ -981,7 +981,7 @@ export function resolveIntentFinalizationResumeContext(
   };
 }
 
-export type IntentFinalizationResumeOutcome =
+type IntentFinalizationResumeOutcome =
   | { ok: true; commitSha?: string; prNumber?: number; prUrl?: string }
   | { ok: false; message: string };
 
@@ -1353,7 +1353,7 @@ export const REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS = new Set([
 ]);
 
 /** Reconstructed context for resuming a review-behavior row that settled `surviving_mutation_failed`. */
-export type ReviewMutationResumeContext = ExternalSpecGitScope & {
+type ReviewMutationResumeContext = ExternalSpecGitScope & {
   runId: string;
   /** Durable write-step row carrying persisted ready-gate repair fence provenance. */
   writeSiblingRunId: string;
@@ -1369,7 +1369,7 @@ export type ReviewMutationResumeContext = ExternalSpecGitScope & {
   creationTitleHint: string | undefined;
 };
 
-export type ReviewMutationResumeResolution =
+type ReviewMutationResumeResolution =
   | { ok: true; context: ReviewMutationResumeContext }
   | { ok: false; message: string };
 
@@ -1383,7 +1383,7 @@ function persistedExternalSpecGitScope(
     : {};
 }
 
-export type PausedWriteResumeReconstruction = { ok: true; input: WriteLoopInput } | { ok: false; message: string };
+type PausedWriteResumeReconstruction = { ok: true; input: WriteLoopInput } | { ok: false; message: string };
 
 function parseLinkedRowIndex(runStepId: string, authoredStepId: string): number | undefined {
   const prefix = `${authoredStepId}${LINK_STEP_ID_INFIX}`;
@@ -1669,11 +1669,9 @@ export function resolveCompletionCommitFailedResumeContext(
   });
 }
 
-export type ReviewMutationResumeOutcome =
-  | { ok: true; prNumber?: number; prUrl?: string }
-  | { ok: false; message: string };
+type ReviewMutationResumeOutcome = { ok: true; prNumber?: number; prUrl?: string } | { ok: false; message: string };
 
-export type ReviewMutationResumeDeps = IntentFinalizationResumeDeps & {
+type ReviewMutationResumeDeps = IntentFinalizationResumeDeps & {
   /** Present only for `implement.recover`; plain `run resume` remains agent-free. */
   mutationRepair?: Pick<
     WriteLoopInput,

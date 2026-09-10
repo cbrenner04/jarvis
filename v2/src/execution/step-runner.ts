@@ -60,10 +60,10 @@ type StepRunInput = {
 };
 
 /** The first (token-less) response plus the token-only re-prompt's own invocation. */
-export type StepReprompt = { responseText: string; invocation: InvocationExecution };
+type StepReprompt = { responseText: string; invocation: InvocationExecution };
 
 /** The blocker-text re-prompt's own invocation when a `blocked` token missed the blocker contract. */
-export type BlockerReprompt = { responseText: string; invocation: InvocationExecution };
+type BlockerReprompt = { responseText: string; invocation: InvocationExecution };
 
 /** Classified result for one shared step-runner invocation. */
 export type StepRunResult = {
@@ -113,7 +113,7 @@ function asToken(value: string): StepOutcomeToken | null {
 }
 
 /** The terminal token plus the line it was read from, for durable evidence when the token misleads. */
-export type StepOutcomeTokenDetail = { token: StepOutcomeToken; line: string };
+type StepOutcomeTokenDetail = { token: StepOutcomeToken; line: string };
 
 // Agents emit prose, so prefer the most explicit signal: exact match, then a bare-token line, then
 // the last token-shaped word on the **last** non-empty line. A token-shaped word earlier in the body

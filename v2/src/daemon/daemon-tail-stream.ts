@@ -3,7 +3,7 @@ import { FOLLOW_POLL_MS, type LogReader, type PersistedRecord } from "../persist
 import { isTerminalRunStatus, type StateStore } from "../persistence/state-store.ts";
 
 /** `loadRun` and `follow`/`onData` failures propagate to IPC as error `stream-end`. */
-export type TailStreamHandlerDeps = {
+type TailStreamHandlerDeps = {
   stateStore: StateStore;
   logReader: LogReader;
   /** Interval to re-check run status independent of `follow()` yields; defaults to `FOLLOW_POLL_MS`. */

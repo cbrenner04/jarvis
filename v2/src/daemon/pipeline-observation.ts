@@ -47,7 +47,7 @@ export function derivePipelineBoundary(
   return null;
 }
 
-export type PipelineOwnershipResult =
+type PipelineOwnershipResult =
   | { kind: "owner" }
   | { kind: "not_owner" }
   | { kind: "durable_state"; state: PipelineDerivedState }

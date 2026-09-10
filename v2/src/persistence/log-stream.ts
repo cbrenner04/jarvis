@@ -80,7 +80,7 @@ type LogLoopFinishedEvent =
       completionCommitError?: string;
     });
 
-export type RuntimeSmokeOutcomeEvent =
+type RuntimeSmokeOutcomeEvent =
   | {
       kind: "runtime_smoke_outcome";
       outcome: "observed-clean";
@@ -93,7 +93,7 @@ export type RuntimeSmokeOutcomeEvent =
     };
 
 /** Emitted on every settled main-loop iteration: the per-iteration commit made, or why it was skipped. */
-export type IterationCommitEvent =
+type IterationCommitEvent =
   | {
       kind: "iteration_commit";
       attemptId: string;
@@ -115,41 +115,41 @@ export type RunExecutionFailedEvent = {
  * such settlement regardless of prompt-echo classification, so the bytes stay retrievable via
  * `jarvis run log` even when the operator summary suppresses an echoed tail.
  */
-export type InvocationFailureDiagnosticEvent = {
+type InvocationFailureDiagnosticEvent = {
   kind: "invocation_failure_diagnostic";
   attemptId: string;
   stderrTail: string;
   echoedInput: boolean;
 };
 
-export type RunReconciledEvent = {
+type RunReconciledEvent = {
   kind: "run_reconciled";
   runStatus: "killed" | "interrupted";
   reason: "daemon_restart";
 };
 
-export type RunRecoveryEvent = {
+type RunRecoveryEvent = {
   kind: "run_recovery";
   outcome: "resumed" | "failed";
   message?: string;
 };
 
 /** Agent stdout excerpt when token parsing fails; truncated at append time. */
-export type InvalidTokenDetailEvent = {
+type InvalidTokenDetailEvent = {
   kind: "invalid_token_detail";
   attemptId: string;
   tokenText: string;
 };
 
 /** Emitted when a token-less step response triggers the runner's one token-only re-prompt. */
-export type TokenRepromptEvent = {
+type TokenRepromptEvent = {
   kind: "token_reprompt";
   attemptId: string;
   responseText: string;
 };
 
 /** Emitted when a `blocked` token misses the blocker-text contract and triggers `write.blocker-reprompt`. */
-export type BlockerRepromptEvent = {
+type BlockerRepromptEvent = {
   kind: "blocker_reprompt";
   attemptId: string;
   responseText: string;
@@ -183,7 +183,7 @@ export type SurvivingMutationRepromptEvent = {
 };
 
 /** Emitted when mutation verification passed but left candidates it could not evaluate (killing set too slow or deadline). */
-export type MutationVerificationInconclusiveEvent = {
+type MutationVerificationInconclusiveEvent = {
   kind: "mutation_verification_inconclusive";
   attemptId: string;
   candidates: Array<{ file: string; line: number; reason: string }>;
@@ -198,7 +198,7 @@ export function dualConstraintRepromptDetail(dualConstraint?: true): string {
 }
 
 /** Agent stdout excerpt when a rejected `blocked` token still has no blocker text; truncated at append time. */
-export type MissingBlockerDetailEvent = {
+type MissingBlockerDetailEvent = {
   kind: "missing_blocker_detail";
   attemptId: string;
   responseText: string;
@@ -217,14 +217,14 @@ export type ContractMissDetailEvent = {
 };
 
 /** Agent's `## Blocker` body text persisted when a `blocked` outcome satisfies the blocker-text contract; truncated at append time. */
-export type BlockerTextDetailEvent = {
+type BlockerTextDetailEvent = {
   kind: "blocker_text_detail";
   attemptId: string;
   blockerText: string;
 };
 
 /** Emitted when a completing implement write runs the coverage advisory re-prompt; deliver-only, no outcome change. */
-export type CoverageAdvisoryEvent = {
+type CoverageAdvisoryEvent = {
   kind: "coverage_advisory";
   attemptId: string;
   responseText: string;

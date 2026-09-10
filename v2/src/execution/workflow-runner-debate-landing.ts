@@ -99,7 +99,7 @@ type ReviewStepBindings = {
   actuator: readonly InvocationBinding[];
 };
 
-export type LandReviewedPublicationOutput = (
+type LandReviewedPublicationOutput = (
   worktreePath: string,
   deferred: Exclude<PublicationLanding, { kind: "none" }>,
   verdictPath: string,

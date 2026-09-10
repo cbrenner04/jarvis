@@ -177,7 +177,7 @@ async function checkBaseFreshness(
 }
 
 /** Resolve the spec path and its owning project match from the registry, with existence checks. */
-export type ImplementSpecIdentity = {
+type ImplementSpecIdentity = {
   project: string;
   projectRoot: string;
   specPath: string;

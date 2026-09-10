@@ -352,15 +352,6 @@ export function settleKilledWorkflowOwnership(args: {
   args.releaseRegistry();
 }
 
-export function runWithWriteLoopMachineConfigPath<T>(
-  machineConfigPath: string | undefined,
-  fn: (deps: WriteLoopBindingSourceDeps) => T,
-  baseDeps: WriteLoopBindingSourceDeps = {},
-): T {
-  const merged = machineConfigPath === undefined ? baseDeps : { ...baseDeps, machineConfigPath };
-  return fn(merged);
-}
-
 function isLoadError(value: AgentModelConfig | LoadError): value is LoadError {
   return "errors" in value && Array.isArray(value.errors);
 }
@@ -475,7 +466,7 @@ export function runListTerminalFinishAtMs(
  * fails open (see `runSharedStaleResetPreflight`). Defined in `daemon-pipeline-handlers.ts`.
  */
 
-export type RunControlHandlerDeps = RunControlHandlerContextDeps;
+type RunControlHandlerDeps = RunControlHandlerContextDeps;
 
 export type WaitRunCompletionResult = {
   runStatus: RunStatus;
@@ -518,7 +509,6 @@ export function projectWorkflowEntryResult(
 }
 
 export type { WorkflowStepListStatus } from "./workflow-list-snapshot.ts";
-export { stoppedOutcomeForRun } from "./workflow-list-snapshot.ts";
 
 /** Mutated by {@link promoteQueuedRunImpl} on each promotion; shared across calls. */
 export type PromotionSettleState = { suppressedUntil: number };
@@ -728,7 +718,7 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   return handlersOut;
 }
 
-export type DaemonStartupDeps = {
+type DaemonStartupDeps = {
   logsPath?: string;
   openLogSink?: typeof openLogSink;
   startIpcServer?: typeof startIpcServer;

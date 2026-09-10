@@ -15,7 +15,7 @@ type SocketClassification = {
   reason?: string;
 };
 
-export const DAEMON_SOCKET_FILE = /^daemon-([0-9a-f]{16})\.sock$/;
+const DAEMON_SOCKET_FILE = /^daemon-([0-9a-f]{16})\.sock$/;
 export const DAEMON_DIGEST_ARTIFACT_FILE = /^daemon-([0-9a-f]{16})\.(sock|pid|log)$/;
 
 export async function reapDeadDaemonSockets(

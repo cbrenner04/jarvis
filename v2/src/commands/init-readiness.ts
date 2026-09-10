@@ -18,9 +18,9 @@ export const READINESS_CHECK_ORDER = [
   "daemon",
 ] as const;
 
-export type ReadinessCheckId = (typeof READINESS_CHECK_ORDER)[number];
-export type ReadinessStatus = "ok" | "missing" | "warn";
-export type ReadinessResult = { id: ReadinessCheckId; status: ReadinessStatus; detail?: string };
+type ReadinessCheckId = (typeof READINESS_CHECK_ORDER)[number];
+type ReadinessStatus = "ok" | "missing" | "warn";
+type ReadinessResult = { id: ReadinessCheckId; status: ReadinessStatus; detail?: string };
 
 const REQUIRED_READINESS_CHECKS = new Set<ReadinessCheckId>([
   "bun",

@@ -22,7 +22,7 @@ import { daemonPathsByDigest } from "./paths.ts";
 
 type CommandHandler = (argv: readonly string[], io: Io, deps: CliDeps, operatorSessionId: string) => Promise<number>;
 
-export type CommandEntry = {
+type CommandEntry = {
   name: string;
   summary: string;
   usage: string;

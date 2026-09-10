@@ -23,7 +23,7 @@ export type CompletionStepMetadata =
   | { kind: "mutation-repair" }
   | { kind: "ready-gate" };
 
-export type CompletionCommitInput = ExternalSpecGitScope & {
+type CompletionCommitInput = ExternalSpecGitScope & {
   worktreePath: string;
   baseRef: string;
   specPath: string;
@@ -41,7 +41,7 @@ export type CompletionCommitInput = ExternalSpecGitScope & {
    * this and keeps the stored message's own step classification. */
   step?: CompletionStepMetadata;
 };
-export type CompletionCommitResult = { commitSha?: string; filesChanged?: number };
+type CompletionCommitResult = { commitSha?: string; filesChanged?: number };
 export type CompletionCommitter = (input: CompletionCommitInput) => Promise<CompletionCommitResult>;
 type Git = (cwd: string, args: readonly string[], env?: Record<string, string>) => Promise<string>;
 

@@ -13,7 +13,7 @@ export async function resolveDaemonListSocketPaths(deps: QueryDaemonListsDeps): 
   return [...new Set([...discovered, deps.socketPath])].sort();
 }
 
-export async function queryDaemonListsFromSocketPaths(
+async function queryDaemonListsFromSocketPaths(
   connectIpcClient: (socketPath: string) => Promise<IpcClient>,
   socketPaths: readonly string[],
   listParams: ListRpcParams | undefined,

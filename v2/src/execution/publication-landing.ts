@@ -23,7 +23,7 @@ export type PublicationLanding =
     }
   | { kind: "none" };
 
-export type PublicationLandingResult = { specPath: string; files: string[] };
+type PublicationLandingResult = { specPath: string; files: string[] };
 
 /**
  * Pure (no filesystem writes) check that `stage` satisfies the plan-tree landing contract —

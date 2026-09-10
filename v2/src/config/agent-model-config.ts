@@ -17,16 +17,16 @@ type ExecutableRole = (typeof EXECUTABLE_ROLES)[number];
 type Role = ExecutableRole | "operator";
 const executableRoleSet = new Set<string>(EXECUTABLE_ROLES);
 
-export type Model = {
+type Model = {
   readonly adapterModel: string;
   readonly priceKey: string;
 };
 
-export type ModelEscalation = {
+type ModelEscalation = {
   readonly rungs: readonly Model[];
 };
 
-export type ModelsByRole = Partial<Record<Role, ModelEscalation>>;
+type ModelsByRole = Partial<Record<Role, ModelEscalation>>;
 
 export type AgentModelConfig = Record<string, ModelsByRole | undefined>;
 

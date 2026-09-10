@@ -8,20 +8,20 @@ export type RuntimeSmokeVerifierInput = {
   runBase: string;
 };
 
-export type SmokeObservedClean = {
+type SmokeObservedClean = {
   kind: "observed-clean";
 };
 
 declare const nonEmptyDiscoveryReasonBrand: unique symbol;
 
-export type NonEmptyDiscoveryReason = string & { readonly [nonEmptyDiscoveryReasonBrand]: true };
+type NonEmptyDiscoveryReason = string & { readonly [nonEmptyDiscoveryReasonBrand]: true };
 
 export function nonEmptyDiscoveryReason(value: string): NonEmptyDiscoveryReason {
   if (value.trim() === "") throw new Error("Runtime smoke discovery reason must be non-empty");
   return value as NonEmptyDiscoveryReason;
 }
 
-export type SmokeNotRunnable = {
+type SmokeNotRunnable = {
   kind: "not-runnable";
   inspectedPaths: string[];
   discoveryReason: NonEmptyDiscoveryReason;
@@ -29,7 +29,7 @@ export type SmokeNotRunnable = {
 
 export type SmokePass = SmokeObservedClean | SmokeNotRunnable;
 
-export type SmokeFailure = {
+type SmokeFailure = {
   kind: "smoke-failure";
   command: string;
   observation: string;

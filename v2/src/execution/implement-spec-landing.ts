@@ -1,13 +1,13 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
 
-export type LandImplementSpecTreeInput = {
+type LandImplementSpecTreeInput = {
   worktreePath: string;
   specReadRoot: string;
   specPath: string;
 };
 
-export type LandImplementSpecTreeResult = { ok: true; specPath: string } | { ok: false; error: string };
+type LandImplementSpecTreeResult = { ok: true; specPath: string } | { ok: false; error: string };
 
 function listMarkdownFiles(dir: string): string[] {
   const entries = readdirSync(dir, { withFileTypes: true });

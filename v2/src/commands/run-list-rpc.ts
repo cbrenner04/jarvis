@@ -42,7 +42,7 @@ export function listRpcRequestIsFiltered(params: ListRpcParams | undefined): boo
   );
 }
 
-export type ListRpcMatchRun = Pick<Run, "createdAt" | "project" | "branch" | "specPath" | "status">;
+type ListRpcMatchRun = Pick<Run, "createdAt" | "project" | "branch" | "specPath" | "status">;
 
 export function runMatchesListRpcParams(run: ListRpcMatchRun, params: ListRpcParams | undefined): boolean {
   if (params === undefined) return true;

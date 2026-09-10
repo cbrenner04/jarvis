@@ -37,14 +37,14 @@ export function stageArtifactKey(stageId: string, branchKey: string = DEFAULT_PI
   return `${stageId}:${branchKey}`;
 }
 
-export type PipelineStageTarget = {
+type PipelineStageTarget = {
   pipelineId: string;
   stageId: string;
   branchKey?: string;
 };
 
 /** True when the entry run row exists and has not reached a terminal status. */
-export function isLiveEntryRun(store: StateStore, entryRunId: string): boolean {
+function isLiveEntryRun(store: StateStore, entryRunId: string): boolean {
   const run = store.loadRun(entryRunId);
   return run !== null && !isTerminalRunStatus(run.status);
 }

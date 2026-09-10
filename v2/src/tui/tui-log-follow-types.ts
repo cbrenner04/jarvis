@@ -36,10 +36,10 @@ export type TuiLogFollowViewHost = {
 };
 
 /** Discover live daemon sockets; injectable seam for testing. */
-export type SocketDiscovery = () => Promise<string[]>;
+type SocketDiscovery = () => Promise<string[]>;
 
 /** Retry configuration for {@link runTuiLogFollow} mid-stream reconnection. */
-export type TuiLogFollowRetryConfig = {
+type TuiLogFollowRetryConfig = {
   /** Maximum reconnection attempts after mid-stream transport loss; defaults to 5. */
   maxAttempts?: number;
   /** Delay in milliseconds before first retry, doubling on each attempt up to maxDelay; defaults to 100. */

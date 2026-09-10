@@ -66,7 +66,7 @@ export function orderSelectableRuns(runs: readonly DaemonListRunRow[]): DaemonLi
 }
 
 /** Selectable runs in monitor display order (collapsed workflows count as one row). */
-export function monitorSelectableRuns(state: TuiMonitorState): DaemonListRunRow[] {
+function monitorSelectableRuns(state: TuiMonitorState): DaemonListRunRow[] {
   const selectable = orderSelectableRuns(state.runs);
   return buildWorkflowTableRows(selectable, state.runs, new Set()).map((row) =>
     row.kind === "workflow-collapsed" ? row.representative : row.run,
@@ -250,7 +250,7 @@ type DockInputAtom = {
 
 type PipelineObservationBucket = "running" | "awaitingGate" | "failed" | "done";
 
-export type PipelineObservationBuckets = Record<PipelineObservationBucket, number>;
+type PipelineObservationBuckets = Record<PipelineObservationBucket, number>;
 
 const RUNNING_PIPELINE_STATES: ReadonlySet<PipelineSnapshot["state"]> = new Set(["pending", "running"]);
 const FAILED_PIPELINE_STATES: ReadonlySet<PipelineSnapshot["state"]> = new Set(["failed", "rejected", "interrupted"]);
@@ -285,7 +285,7 @@ function classifyPipelineObservation(snapshot: PipelineSnapshot): PipelineObserv
 }
 
 /** Snapshots displayed by the session's dismissed-pipeline visibility toggle. */
-export function displayedPipelineSnapshots(state: TuiMonitorState): PipelineSnapshot[] {
+function displayedPipelineSnapshots(state: TuiMonitorState): PipelineSnapshot[] {
   const showDismissed = state.showDismissed === true;
   return mergeMonitorPipelineSnapshots(state.pipelineSnapshotsBySocketPath).filter(
     (snapshot) => !isHiddenDismissedPipeline(snapshot, showDismissed),
@@ -478,7 +478,7 @@ export function monitorDockLines(state: TuiMonitorState, nowMs = Date.now()): [s
 }
 
 /** Workflow table rows for the left-pane grid (empty when no selectable runs). */
-export function monitorLeftPaneTableRows(state: TuiMonitorState): WorkflowTableRow[] {
+function monitorLeftPaneTableRows(state: TuiMonitorState): WorkflowTableRow[] {
   const selectableRuns = orderSelectableRuns(state.runs);
   return buildWorkflowTableRows(selectableRuns, state.runs, new Set());
 }

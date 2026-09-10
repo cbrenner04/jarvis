@@ -80,7 +80,7 @@ function exitCodeForPipelineTerminalState(state: PipelineTerminalState): number 
   return state === "succeeded" ? 0 : 1;
 }
 
-export type PipelineMutationOutcome =
+type PipelineMutationOutcome =
   | { kind: "applied" }
   | { kind: "resumed"; pipelineId: string }
   | { kind: "refused"; reason: string; branchKeys?: string[]; candidates?: string[] };
@@ -657,7 +657,7 @@ async function runPipelineMutationCommand(
   });
 }
 
-export type PipelineRecoverOutcome =
+type PipelineRecoverOutcome =
   | { kind: "admitted"; pipelineId: string; branchKey: string; stageId: string; entryRunId: string }
   | { kind: "resolution_refused"; pipelineId: string; branchKey: string; reason: string; message: string }
   | { kind: "stage_claimed"; pipelineId: string; branchKey: string; stageId: string };
@@ -729,7 +729,7 @@ async function runPipelineRecoverCommand(
   });
 }
 
-export type PipelineDismissalOutcome =
+type PipelineDismissalOutcome =
   | { kind: "applied"; pipelineId: string; state: PipelineDerivedState }
   | { kind: "refused"; pipelineId: string; reason: string; candidates?: string[] };
 

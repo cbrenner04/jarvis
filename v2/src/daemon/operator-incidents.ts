@@ -10,7 +10,7 @@ import {
 import { derivePipelineBoundary, type PipelineBoundaryResult } from "./pipeline-observation.ts";
 import { redrivableDeferredSettlementEntryRunId } from "./pipeline-stage-dispatch.ts";
 
-export type OperatorIncidentKind =
+type OperatorIncidentKind =
   | "pipeline-awaiting-approval"
   | "pipeline-terminal"
   | "stage-settlement-wedged"

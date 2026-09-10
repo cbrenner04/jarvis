@@ -61,7 +61,7 @@ export function isTerminalRunStatus(status: RunStatus): boolean {
 const BOUNDARY_TERMINAL_STATUSES: ReadonlySet<RunStatus> = new Set(["completed", "blocked", "failed", "interrupted"]);
 
 /** Statuses a committed completion boundary can leave permanently; `paused` and `killed` are excluded. */
-export function isBoundaryTerminalRunStatus(status: RunStatus): boolean {
+function isBoundaryTerminalRunStatus(status: RunStatus): boolean {
   return BOUNDARY_TERMINAL_STATUSES.has(status);
 }
 
@@ -109,7 +109,7 @@ export type WorkflowSnapshot = {
   reviewBehavior?: "debate" | "light";
 };
 
-export type AttemptStatus = "in-progress" | "completed";
+type AttemptStatus = "in-progress" | "completed";
 
 /** Outcome classification for an attempt. */
 export type OutcomeKind =
@@ -139,7 +139,7 @@ export type ReadyGateRepairFenceProvenance = {
 };
 
 /** Publication tail checkpoint retained when repair-budget exhaustion demotes a completed write row. */
-export type RetainedFinalizationCheckpoint = {
+type RetainedFinalizationCheckpoint = {
   completionAttemptId: string;
   completionAgent: string;
   prNumber?: number;
@@ -189,7 +189,7 @@ export type Run = {
   operatorFailureRecordCorrupt?: boolean;
 };
 
-export type PipelineStatus = "active" | "interrupted";
+type PipelineStatus = "active" | "interrupted";
 
 /** Immutable pipeline admission context persisted as a JSON snapshot on the pipeline row. `cwd` and `configPath` are required on admission; optional `seed` and `seedPath` are not required by the store; admission sets at most one; dual-populated or ambiguous rows load as stored. */
 export type PipelineContext = {
@@ -201,12 +201,12 @@ export type PipelineContext = {
   seedPath?: string;
 };
 
-export type PipelineContextLoaderError = {
+type PipelineContextLoaderError = {
   kind: "pipeline-context-loader";
   errors: readonly string[];
 };
 
-export type LoadPipelineContextResult =
+type LoadPipelineContextResult =
   | { ok: true; context: PipelineContext }
   | { ok: false; error: PipelineContextLoaderError };
 
@@ -245,7 +245,7 @@ export function loadPipelineContext(value: unknown): LoadPipelineContextResult {
 }
 
 /** Durable terminal-publication failure recorded on the pipeline row after stage success. */
-export type PipelineTerminalPublicationFailure = {
+type PipelineTerminalPublicationFailure = {
   terminalAction: PipelineTerminalAction;
   failure: PublicationFailure;
   prNumber?: number;
@@ -279,25 +279,25 @@ export type ApprovalRefusalReason =
   | "status_not_awaiting"
   | "invalid_decision";
 
-export type ApprovalOperationOutcome =
+type ApprovalOperationOutcome =
   | { kind: "applied"; stageRecordId: string }
   | { kind: "refused"; stageRecordId: string; reason: ApprovalRefusalReason };
 
-export type PipelineContinuationRefusalReason = "pipeline_not_found" | "not_active" | "stale_owner" | "claim_lost";
+type PipelineContinuationRefusalReason = "pipeline_not_found" | "not_active" | "stale_owner" | "claim_lost";
 
-export type PipelineContinuationOutcome =
+type PipelineContinuationOutcome =
   | { kind: "applied"; pipelineId: string }
   | { kind: "refused"; pipelineId: string; reason: PipelineContinuationRefusalReason };
 
-export type PipelineDismissalRefusalReason = "pipeline_not_found";
+type PipelineDismissalRefusalReason = "pipeline_not_found";
 
-export type PipelineDismissalOutcome =
+type PipelineDismissalOutcome =
   | { kind: "applied"; pipelineId: string }
   | { kind: "refused"; pipelineId: string; reason: PipelineDismissalRefusalReason };
 
-export type RunDismissalRefusalReason = "run_not_found";
+type RunDismissalRefusalReason = "run_not_found";
 
-export type RunDismissalOutcome =
+type RunDismissalOutcome =
   | { kind: "applied"; runId: string }
   | { kind: "refused"; runId: string; reason: RunDismissalRefusalReason };
 
@@ -332,15 +332,15 @@ export type PipelineReopenRefusalReason =
   | "malformed_continuation"
   | "reopen_lost";
 
-export type PipelineReopenOutcome =
+type PipelineReopenOutcome =
   | { kind: "applied"; stageRecordId: string }
   | { kind: "refused"; pipelineId: string; reason: PipelineReopenRefusalReason };
 
-export type PipelineStageAdmissionLoadOutcome = { kind: "absent" } | { kind: "present"; holderIdentity: string };
+type PipelineStageAdmissionLoadOutcome = { kind: "absent" } | { kind: "present"; holderIdentity: string };
 
-export type PipelineStageAdmissionClaimOutcome = { kind: "applied" } | { kind: "refused"; reason: "claim_lost" };
+type PipelineStageAdmissionClaimOutcome = { kind: "applied" } | { kind: "refused"; reason: "claim_lost" };
 
-export type PipelineStageAdmissionReleaseOutcome = { kind: "applied" } | { kind: "refused"; reason: "stale_holder" };
+type PipelineStageAdmissionReleaseOutcome = { kind: "applied" } | { kind: "refused"; reason: "stale_holder" };
 
 /** True when the authored stage at `stageId` is `kind: "approval"`. */
 export function isApprovalAuthoredStage(stageId: string, definition: PipelineDefinition): boolean {
@@ -368,7 +368,7 @@ export function reopenSuffixAllowsStatus(status: string): boolean {
   return status === "skipped";
 }
 
-export type FailedPipelineReopenShape =
+type FailedPipelineReopenShape =
   | { kind: "valid"; failedStageRecordId: string; suffixStageRecordIds: readonly string[] }
   | {
       kind: "invalid";
@@ -576,7 +576,7 @@ export type PipelineStageRecord = {
  * unchanged; an explicit `null` clears a nullable field. `status`, when
  * present, is a non-null string. Empty patches are rejected by `updateStage`.
  */
-export type StageLifecyclePatch = {
+type StageLifecyclePatch = {
   status?: string;
   workflowInvocationId?: string | null;
   startedAt?: number | null;
@@ -586,7 +586,7 @@ export type StageLifecyclePatch = {
 };
 
 /** Typed terminal-stage write: a `failed` status carrying an `OperatorFailureRecord` as its whole `failure_detail`. */
-export type TerminalStageOperatorFailureRecordPatch = {
+type TerminalStageOperatorFailureRecordPatch = {
   pipelineId: string;
   stageId: string;
   branchKey?: string;
@@ -596,7 +596,7 @@ export type TerminalStageOperatorFailureRecordPatch = {
 };
 
 /** Typed terminal-stage read of a `failed` row whose `failure_detail` is an `OperatorFailureRecord`. */
-export type TerminalStageOperatorFailureRecord = {
+type TerminalStageOperatorFailureRecord = {
   stageRecordId: string;
   pipelineId: string;
   stageId: string;
@@ -948,7 +948,7 @@ export type NotificationDeliveryIncident = {
   sinceMs: number | null;
 };
 
-export type NotificationDeliveryCursor = {
+type NotificationDeliveryCursor = {
   deliveredAt: number;
   incidentId: string;
   transition: string;
@@ -1436,7 +1436,7 @@ export function reconciliationStableStageStatus(status: string): boolean {
 const TERMINAL_STAGE_STATUSES: ReadonlySet<string> = new Set(["succeeded", "failed", "interrupted", "skipped"]);
 
 /** True when `status` is a terminal stage-run outcome. */
-export function isTerminalStageStatus(status: string): boolean {
+function isTerminalStageStatus(status: string): boolean {
   return TERMINAL_STAGE_STATUSES.has(status);
 }
 
@@ -1445,7 +1445,7 @@ export function isTerminalStageStatus(status: string): boolean {
  * `endedAt` is not already a number lands `endedAt = now`, overriding an explicit `null`.
  * Non-terminal and decided-approval statuses are unaffected; `startedAt` is never synthesized.
  */
-export function stageLifecyclePatchWithTerminalFinish(patch: StageLifecyclePatch, now: number): StageLifecyclePatch {
+function stageLifecyclePatchWithTerminalFinish(patch: StageLifecyclePatch, now: number): StageLifecyclePatch {
   if (patch.status === undefined || !isTerminalStageStatus(patch.status)) return patch;
   if (typeof patch.endedAt === "number") return patch;
   return { ...patch, endedAt: now };

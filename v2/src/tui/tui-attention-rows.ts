@@ -23,7 +23,7 @@ import { monitorTreeRun } from "./tui-shell-layout.ts";
 export { ATTENTION_TERMINAL_RECENCY_MS };
 
 /** One projected operator-attention incident. */
-export type AttentionRowKind =
+type AttentionRowKind =
   | "awaiting-gate"
   | "rejected-gate"
   | "failed-stage"
@@ -45,7 +45,7 @@ export type AttentionRow = {
   gate?: { pipelineId: string; stageId: string; branchKey: string };
 };
 
-export type AttentionProjection = {
+type AttentionProjection = {
   rows: readonly AttentionRow[];
   /** Surfaced incidents after the recency filter, before the failure cap. */
   total: number;

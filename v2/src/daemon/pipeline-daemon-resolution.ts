@@ -306,7 +306,7 @@ export async function resolvePipelineDaemon(
   return resolvePipelineDaemonFromSocketPaths(deps.connectIpcClient, socketPaths, pipelineId, timeoutMs);
 }
 
-export type PipelineIdCrossDaemonResolution =
+type PipelineIdCrossDaemonResolution =
   | { kind: "resolved"; pipelineId: string }
   | { kind: "ambiguous"; candidates: string[]; message: string }
   /** Nothing matched; the caller keeps its own not-found handling for the argument as given. */

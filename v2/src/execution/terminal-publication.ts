@@ -29,7 +29,7 @@ export class TerminalPublicationError extends Error {
   }
 }
 
-export type TerminalPublicationSeams = {
+type TerminalPublicationSeams = {
   runReadyGate?: ReadyGate;
   ghReadyFlip?: GhReadyFlip;
   ghMerge?: GhReadyFlip;

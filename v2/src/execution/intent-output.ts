@@ -18,7 +18,7 @@ export type IntentOutputConfig = {
   durableDir: string;
 };
 
-export type IntentOutputResult = {
+type IntentOutputResult = {
   specPath: string;
   files: string[];
   downstreamInputs?: string[];
@@ -40,12 +40,12 @@ function listFiles(worktreePath: string, dir: string = worktreePath, out: string
   return out;
 }
 
-export function intentStageModifiedPaths(allPaths: readonly string[]): string[] {
+function intentStageModifiedPaths(allPaths: readonly string[]): string[] {
   return allPaths.filter((path) => path === ".jarvis-intent-stage" || path.startsWith(".jarvis-intent-stage/"));
 }
 
 /** Worktree-relative paths changed since `baseRef` (or full listing when git is unavailable). */
-export async function listWorktreeChangedPaths(
+async function listWorktreeChangedPaths(
   worktreePath: string,
   baseRef: string,
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
@@ -75,12 +75,12 @@ function failure(message: string): never {
   throw new Error(`${message}; rerun to retry pre-publication`);
 }
 
-export function intentPublicationSpecPath(worktreePath: string, durableDir: string): string {
+function intentPublicationSpecPath(worktreePath: string, durableDir: string): string {
   return relative(worktreePath, resolve(worktreePath, durableDir)).replace(/\\/g, "/");
 }
 
 /** Pipeline handoff for intent landing: one file → file `specPath`; N≥2 → directory `specPath` plus per-file `downstreamInputs`. */
-export function intentPipelineHandoff(
+function intentPipelineHandoff(
   worktreePath: string,
   durableDir: string,
   files: readonly string[],

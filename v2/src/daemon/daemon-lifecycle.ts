@@ -365,12 +365,12 @@ export async function stopDaemon(
   return { reconciledRunIds: await reconcile(orphaned) };
 }
 
-export type DaemonStatusResult =
+type DaemonStatusResult =
   | { state: "running"; loadedRevision: string; currentRevision: string }
   | { state: "stale"; loadedRevision: string; currentRevision: string }
   | { state: "stopped" };
 
-export type GetCurrentRevisionFn = () => Promise<string>;
+type GetCurrentRevisionFn = () => Promise<string>;
 
 const jarvisRepoRoot = resolve(import.meta.dir, "../../..");
 

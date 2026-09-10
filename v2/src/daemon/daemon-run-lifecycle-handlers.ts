@@ -78,12 +78,13 @@ import {
   terminalResumeRefusalMessage,
 } from "./run-operator-error.ts";
 import { workflowRowSnapshot } from "./workflow-list-snapshot.ts";
-export type LifecycleStartResult =
+
+type LifecycleStartResult =
   | { kind: "response"; result: unknown }
   | { kind: "error"; code: string; message: string }
   | Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }>;
 
-export type RunLifecycleHandlerDeps = {
+type RunLifecycleHandlerDeps = {
   handleWorkflowStart: (steps: AnyWorkflowStep[]) => LifecycleStartResult;
   pipelineDispatch?: PipelineWorkflowDispatch;
   pipelineWait?: PipelineWorkflowWait;

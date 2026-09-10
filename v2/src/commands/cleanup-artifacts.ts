@@ -14,7 +14,7 @@ export type ArtifactSpec = {
   branch: string;
 };
 
-export type ArtifactEligibility = { status: "eligible" } | { status: "ineligible"; reason: string };
+type ArtifactEligibility = { status: "eligible" } | { status: "ineligible"; reason: string };
 
 /** True when `home` is `~/.jarvis/specs/<safeId>/plans`. */
 export function isExternalPlanArtifact(spec: ArtifactSpec): boolean {
@@ -25,7 +25,7 @@ export function isExternalPlanArtifact(spec: ArtifactSpec): boolean {
   return relativeToSpecs !== "" && !relativeToSpecs.startsWith("..") && !isAbsolute(relativeToSpecs);
 }
 
-export type ArtifactInspection = {
+type ArtifactInspection = {
   /** Returns the number of matching open PRs; errors must reject. */
   findOpenPrs: (branch: string) => Promise<number>;
   /** Returns whether another materialized workspace owns this spec; errors must reject. */
@@ -117,7 +117,7 @@ export async function checkArtifactEligibility(
   return { status: "eligible" };
 }
 
-export type ArchiveResult =
+type ArchiveResult =
   | { status: "archived"; destination: string; intentPruned: boolean }
   | { status: "skipped"; reason: string };
 

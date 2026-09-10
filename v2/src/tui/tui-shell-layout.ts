@@ -18,7 +18,7 @@ export function shortMonitorId(id: string): string {
   return id.slice(0, SHORT_MONITOR_ID_LENGTH);
 }
 
-export type LayoutMode = "stacked" | "split";
+type LayoutMode = "stacked" | "split";
 
 export type ShellLayout = {
   layoutMode: LayoutMode;
@@ -162,7 +162,7 @@ function compactStatusText(status: string): string {
   return status.length > 0 ? status : EMPTY_STATUS_PLACEHOLDER;
 }
 
-export type MonitorRowClusterAtom = {
+type MonitorRowClusterAtom = {
   text: string;
   droppable: boolean;
   tone?: MonitorSegmentTone;

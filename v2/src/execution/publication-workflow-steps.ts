@@ -52,21 +52,21 @@ export type PlanWorkflowInput = {
   reviewBehavior?: "debate" | "light";
 };
 type ProjectConfig = ProjectMatch & { git?: boolean; plan?: { commit?: boolean; targetDir?: string } };
-export type IntentWorkflowIdentity = {
+type IntentWorkflowIdentity = {
   invocationId: string;
   project: string;
   slug: string;
   branch: string;
   seedFingerprint: string;
 };
-export type PlanWorkflowIdentity = { name: string; branch: string };
+type PlanWorkflowIdentity = { name: string; branch: string };
 export type IntentWorkflowResult =
   | { ok: true; steps: AnyWorkflowStep[]; identity: IntentWorkflowIdentity }
   | { ok: false; error: string };
 export type PlanWorkflowResult =
   | { ok: true; steps: AnyWorkflowStep[]; identity: PlanWorkflowIdentity }
   | { ok: false; error: string };
-export type IntentCollision = { message: string; recordedInvocationId?: string; resumable?: boolean };
+type IntentCollision = { message: string; recordedInvocationId?: string; resumable?: boolean };
 type LoaderDeps = {
   loadWorkflowSteps?: (
     steps: readonly WorkflowSourceStep[],
@@ -80,7 +80,7 @@ type LoaderDeps = {
   machineProfile?: string;
   machinesDir?: MachineProfileLoadOptions["machinesDir"];
 };
-export type IntentWorkflowDeps = LoaderDeps & {
+type IntentWorkflowDeps = LoaderDeps & {
   resolveProjectMatch?: (path: string) => ProjectMatch | undefined;
   readSeed?: (path: string) => string;
   resolveBaseBranch?: (projectRoot: string) => string | Promise<string>;

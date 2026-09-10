@@ -4,7 +4,7 @@ import { join } from "node:path";
 const PIPELINE_EXECUTION_PATH = join(import.meta.dir, "pipeline-execution.ts");
 const COMMENT_RE = /\/\*[\s\S]*?\*\/|\/\/[^\n]*/g;
 
-export type BypassViolation = { line: number };
+type BypassViolation = { line: number };
 
 /** Fails when a `bypass` token in `pipeline-execution.ts` comments lacks `@pinned-bypass:` in the same block. */
 export function scanPipelineExecutionBypasses(source: string): BypassViolation[] {

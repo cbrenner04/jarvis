@@ -14,7 +14,7 @@ export type ReviewCycleRole = "critic" | "actuator";
 type RoleExecution = Awaited<ReturnType<typeof invokeReviewRole>>;
 
 /** Critic bindings are read-only by caller convention; the executor adds no sandbox. */
-export type ReviewCycleRoleBindings = {
+type ReviewCycleRoleBindings = {
   critic: readonly InvocationBinding[];
   actuator: readonly InvocationBinding[];
 };

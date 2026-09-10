@@ -10,7 +10,7 @@ export const BASE_WORKFLOW_NAMES = ["intent", "plan", "implement"] as const;
 export const WORKFLOW_REVIEW_POSTURES = ["none", "light", "debate"] as const;
 
 export type BaseWorkflowName = (typeof BASE_WORKFLOW_NAMES)[number];
-export type WorkflowReviewPosture = (typeof WORKFLOW_REVIEW_POSTURES)[number];
+type WorkflowReviewPosture = (typeof WORKFLOW_REVIEW_POSTURES)[number];
 type SuccessfulWorkflowBuild = Extract<WorkflowPresetBuilderResult, { ok: true }>;
 
 export type WorkflowStartResetFlags = {
@@ -20,7 +20,7 @@ export type WorkflowStartResetFlags = {
 };
 
 /** Mirrors `DestroyedArtifacts` without importing cleanup's daemon dependency graph. */
-export type WorkflowStartDestroyedArtifacts = {
+type WorkflowStartDestroyedArtifacts = {
   closedPrNumber?: number;
   worktreePath?: string;
   localBranch?: string;

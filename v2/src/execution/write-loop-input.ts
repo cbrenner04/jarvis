@@ -29,7 +29,7 @@ export const IMPLEMENT_WRITE_STEP_RULES = `${DEFAULT_WRITE_STEP_RULES}\n${KILLIN
 export const DEFAULT_WRITE_AGENTS = ["claude"] as const;
 
 /** Raw launch field values shared by CLI argv mapping and the TUI collector. */
-export type WriteLaunchFieldValues = {
+type WriteLaunchFieldValues = {
   projectRoot: string;
   projectName: string;
   branchName: string;

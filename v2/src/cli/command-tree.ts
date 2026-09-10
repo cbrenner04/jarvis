@@ -338,7 +338,7 @@ export function resolveHelpPath(node: CommandNode, segments: readonly string[]):
   return chain;
 }
 
-export interface UnknownSegment {
+interface UnknownSegment {
   segment: string;
   pathSoFar: readonly string[];
   siblings: readonly CommandNode[];

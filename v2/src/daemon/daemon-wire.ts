@@ -12,7 +12,7 @@ type DaemonWorkflowStepSnapshot = {
 };
 
 /** Optional workflow metadata on daemon `list` rows. */
-export type DaemonWorkflowSnapshot = {
+type DaemonWorkflowSnapshot = {
   invocationId: string;
   steps: DaemonWorkflowStepSnapshot[];
 };

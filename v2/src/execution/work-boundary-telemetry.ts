@@ -20,7 +20,7 @@ export function defaultTelemetrySinkPath(): string {
   return join(jarvisHome(), "telemetry.jsonl");
 }
 
-export type BoundaryTelemetryContext = {
+type BoundaryTelemetryContext = {
   sinkPath?: string;
 };
 
@@ -32,7 +32,7 @@ export type BoundaryStamp = {
 };
 
 /** Append one `work_boundary_recorded` row to the JSONL sink at `sinkPath`. */
-export function appendWorkBoundaryRecorded(
+function appendWorkBoundaryRecorded(
   sinkPath: string,
   record: Omit<WorkBoundaryRecordedRecord, "schema_version" | "record_kind" | "ts">,
 ): void {
@@ -46,7 +46,7 @@ export function appendWorkBoundaryRecorded(
   appendFileSync(sinkPath, `${JSON.stringify(line)}\n`, "utf8");
 }
 
-export function resolveTelemetrySinkPath(sinkPath?: string): string {
+function resolveTelemetrySinkPath(sinkPath?: string): string {
   return sinkPath ?? defaultTelemetrySinkPath();
 }
 

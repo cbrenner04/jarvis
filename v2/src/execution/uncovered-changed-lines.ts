@@ -2,17 +2,17 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { type ChangedLine, changedPathsFromDiff, defaultGitDiff, isProductionFile, parseDiff } from "./diff-scan.ts";
 
-export type UncoveredChangedLinesInput = {
+type UncoveredChangedLinesInput = {
   worktreePath: string;
   runBase: string;
 };
 
-export type UncoveredSite = {
+type UncoveredSite = {
   file: string;
   line: number;
 };
 
-export type UncoveredChangedLinesReport = {
+type UncoveredChangedLinesReport = {
   uncoveredSites: UncoveredSite[];
   reportText: string;
 };

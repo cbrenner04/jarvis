@@ -71,6 +71,12 @@ Production code under the scan roots `v2/src` and `shared` (the third root, froz
 
 `bun run check` runs `scripts/guard-production-test-support-imports.ts`: a production module that imports a `*.test-support.ts` path (static, type, side-effect, dynamic, `require`, or re-export) fails the gate, and so does a `v2/tsconfig.json` that drops the exclude. Manual red-check: add `import "./workflow-runner.test-support.ts";` to any file under `v2/src/execution/` that is not a test, run `bun run check`, delete the line.
 
+## Export hygiene gate
+
+Every export of a `v2/src` production module (the `isProductionSourceFile` predicate above, restricted to `v2/src/`) must be imported by some other file anywhere in the repo — `v2/`, `shared/`, `scripts/`, and `test/`, tests and the `v2/src/testing/` harness included. `bun run check` runs `scripts/guard-dead-exports.ts`, a static import graph over relative specifiers: named, default, namespace, and dynamic imports plus `export … from` re-exports count as references; an export referenced only inside its own file is dead and must be demoted to module-private, and one referenced nowhere is deleted. The gate replaced the seven-symbol `export-surface-trim.test.ts` pin.
+
+`DEAD_EXPORT_ALLOWLIST` in the script names surface that is intentionally public but statically unreferenced, keyed `<file>#<symbol>` with a reason (today only `v2/src/cli.ts#main`, the `bin/jarvis` entry point). Add an entry only for a real external consumer, never to keep an unused export. Manual red-check: add `export const probe = 1;` to any production file under `v2/src/`, run `bun run check`, delete the line.
+
 ## Workflow composition gate
 
 New workflow behavior must compose the existing publication, review, landing, and linked-subspec routing groups. Do not duplicate those groups in preset-specific paths.

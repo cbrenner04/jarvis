@@ -84,7 +84,7 @@ function notificationResultFromIncident(
   };
 }
 
-export function findNextNotificationWaitResult(
+function findNextNotificationWaitResult(
   store: StateStore,
   filter: NotificationWaitFilter,
 ): NotificationWaitResult | null {
@@ -93,7 +93,7 @@ export function findNextNotificationWaitResult(
   return notificationResultFromIncident(store, incident);
 }
 
-export function listNotificationResults(store: StateStore, filter: NotificationWaitFilter): NotificationWaitResult[] {
+function listNotificationResults(store: StateStore, filter: NotificationWaitFilter): NotificationWaitResult[] {
   const results: NotificationWaitResult[] = [];
   for (const incident of store.listDeliveredNotificationIncidents(filter)) {
     const result = notificationResultFromIncident(store, incident);

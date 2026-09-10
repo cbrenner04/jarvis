@@ -218,7 +218,6 @@ v2/src/execution/write-loop-timeout.sandbox-unrunnable.test.ts out-of-scope no-s
 v2/src/execution/write-loop.test.ts in-scope source-read
 v2/src/execution/write-prompt.test.ts out-of-scope no-structural-signal
 v2/src/execution/write.test.ts in-scope source-read
-v2/src/export-surface-trim.test.ts out-of-scope no-structural-signal
 v2/src/ipc/ipc.sandbox-unrunnable.test.ts out-of-scope no-structural-signal
 v2/src/ipc/rpc-transport.test.ts out-of-scope no-structural-signal
 v2/src/paths.test.ts in-scope source-read

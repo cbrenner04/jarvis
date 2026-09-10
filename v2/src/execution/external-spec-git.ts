@@ -48,14 +48,14 @@ function matchesExternalSpecCopy(worktreePath: string, path: string, externalArt
   }
 }
 
-export type ExternalSpecTreeSnapshot = {
+type ExternalSpecTreeSnapshot = {
   root: string;
   files: Map<string, Buffer>;
   allowedArtifacts: Set<string>;
 };
 
 /** Captures external markdown that post-implement roles must not mutate. */
-export function captureExternalSpecTree(
+function captureExternalSpecTree(
   scope: ExternalSpecGitScope,
   allowedArtifacts: readonly string[] = [],
 ): ExternalSpecTreeSnapshot | undefined {
@@ -70,7 +70,7 @@ export function captureExternalSpecTree(
 }
 
 /** Restores and reports any forbidden external-spec markdown drift. */
-export function restoreExternalSpecTree(snapshot: ExternalSpecTreeSnapshot | undefined): string[] {
+function restoreExternalSpecTree(snapshot: ExternalSpecTreeSnapshot | undefined): string[] {
   if (snapshot === undefined) return [];
   if (!existsSync(snapshot.root)) mkdirSync(snapshot.root, { recursive: true });
   const current = new Set(listExternalSpecArtifacts(snapshot.root));

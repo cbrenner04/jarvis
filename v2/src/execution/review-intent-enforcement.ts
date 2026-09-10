@@ -62,7 +62,7 @@ function listFiles(root: string, dir: string = root, out: string[] = []): string
  * changes afterward. Git-enabled repos are diffed via `git status`; a plain (git-disabled)
  * directory is backed up in full since there is no VCS history to restore from.
  */
-export type TreeSnapshot = { kind: "git" } | { kind: "fs"; backupDir: string; files: Set<string> };
+type TreeSnapshot = { kind: "git" } | { kind: "fs"; backupDir: string; files: Set<string> };
 
 /**
  * Snapshot the working tree so later changes can be detected and, if unauthorized, undone.
@@ -156,7 +156,7 @@ function ownerMarkerPath(verdictPath: string): string {
 }
 
 /** Verdict lifecycle state. */
-export type VerdictState = { kind: "missing" } | { kind: "owned"; invocationId: string } | { kind: "foreign" };
+type VerdictState = { kind: "missing" } | { kind: "owned"; invocationId: string } | { kind: "foreign" };
 
 /**
  * Check verdict file ownership before review starts, tying ownership to `invocationId` via a
@@ -290,18 +290,5 @@ export async function executeReviewCycleEnforced(args: {
 export function excludeVerdictFromStaging(_stagingDir: string, verdictPath: string): void {
   if (existsSync(verdictPath)) {
     rmSync(verdictPath, { force: true });
-  }
-}
-
-/**
- * Clean up the verdict file and its ownership marker after successful validation/landing.
- */
-export function cleanupVerdictFile(verdictPath: string): void {
-  if (existsSync(verdictPath)) {
-    rmSync(verdictPath, { force: true });
-  }
-  const markerPath = ownerMarkerPath(verdictPath);
-  if (existsSync(markerPath)) {
-    rmSync(markerPath, { force: true });
   }
 }

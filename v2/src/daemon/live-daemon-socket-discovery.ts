@@ -8,7 +8,7 @@ import { jarvisHome } from "../paths.ts";
 export type SocketProber = (socketPath: string, timeoutMs: number) => Promise<boolean>;
 
 /** Default prober: attempts health RPC, returns true if successful. */
-export async function defaultSocketProber(socketPath: string, probeTimeoutMs: number): Promise<boolean> {
+async function defaultSocketProber(socketPath: string, probeTimeoutMs: number): Promise<boolean> {
   let client: IpcClient | undefined;
   try {
     client = await connectIpcClient(socketPath, probeTimeoutMs);

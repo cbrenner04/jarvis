@@ -11,13 +11,13 @@ import type { getPipelineDefinition } from "./pipeline-registry.ts";
 
 type PipelineLookup = typeof getPipelineDefinition;
 
-export type InvalidProjectPipelineConfigError = {
+type InvalidProjectPipelineConfigError = {
   code: "invalid-project-pipeline-config";
   key: string;
   message: string;
 };
 
-export type ProjectPipelineResolutionResult =
+type ProjectPipelineResolutionResult =
   | { ok: true; definition: PipelineDefinition }
   | {
       ok: false;

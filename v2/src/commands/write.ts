@@ -8,7 +8,7 @@ import {
   parseWriteArgs,
 } from "../execution/write-loop-input.ts";
 
-export type WriteCliInput = { ok: true; input: WriteLoopInput } | { ok: false; message?: string };
+type WriteCliInput = { ok: true; input: WriteLoopInput } | { ok: false; message?: string };
 
 function isLoadError(value: AgentModelConfig | LoadError): value is LoadError {
   return "errors" in value && Array.isArray((value as LoadError).errors);

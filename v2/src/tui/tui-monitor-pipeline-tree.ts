@@ -21,7 +21,7 @@ import {
   shortMonitorId,
 } from "./tui-shell-layout.ts";
 
-export type MonitorPipelineTreeRunNode = {
+type MonitorPipelineTreeRunNode = {
   kind: "run";
   id: string;
   depth: number;
@@ -47,7 +47,7 @@ export type MonitorPipelineTreeStageNode = {
   marker?: string;
 };
 
-export type MonitorPipelineTreeBranchNode = {
+type MonitorPipelineTreeBranchNode = {
   kind: "branch";
   id: string;
   depth: 1;
@@ -97,7 +97,7 @@ export type MonitorPipelineTreeDisplayNode =
   | MonitorPipelineTreeRunNode
   | MonitorPipelineTreeAdHocNode;
 
-export type PipelineStageRollupGroup = {
+type PipelineStageRollupGroup = {
   branchKey: string | null;
   records: readonly PipelineSnapshot["stages"][number][];
 };
@@ -259,7 +259,7 @@ function latestActivity(activity: readonly number[]): number | null {
   return activity.length === 0 ? null : Math.max(...activity);
 }
 
-export type WorkIdleTiming = {
+type WorkIdleTiming = {
   workMs: number;
   idleMs: number | null;
 };

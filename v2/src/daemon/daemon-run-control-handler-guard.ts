@@ -4,7 +4,7 @@ export const DAEMON_RUN_CONTROL_HANDLER_FORBIDDEN_SYMBOL_SCAN_EXCLUDED_FILES = [
   "daemon-run-control-handler-guard.ts",
 ] as const;
 
-export type DaemonRunControlHandlerGuardViolation = {
+type DaemonRunControlHandlerGuardViolation = {
   file: string;
   symbol: (typeof DAEMON_RUN_CONTROL_HANDLER_FORBIDDEN_SYMBOLS)[number];
   line: number;

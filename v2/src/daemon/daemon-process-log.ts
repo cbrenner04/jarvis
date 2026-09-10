@@ -1,13 +1,13 @@
 import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 
 /** stdout/stderr sink for `jarvis daemon log`. */
-export type DaemonLogIo = {
+type DaemonLogIo = {
   writeOut: (chunk: string) => void;
   writeErr: (chunk: string) => void;
 };
 
 /** Injectable fs seam for tests. */
-export type DaemonLogFs = {
+type DaemonLogFs = {
   existsSync: typeof existsSync;
   statSync: typeof statSync;
   openSync: typeof openSync;
@@ -18,7 +18,7 @@ export type DaemonLogFs = {
 const defaultFs: DaemonLogFs = { existsSync, statSync, openSync, readSync, closeSync };
 
 /** Interval `followDaemonProcessLog` polls for appends. */
-export const FOLLOW_POLL_MS = 200;
+const FOLLOW_POLL_MS = 200;
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

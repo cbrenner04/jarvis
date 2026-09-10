@@ -31,12 +31,12 @@ import {
   singleStageResolutionSteps,
 } from "./pipeline-stage-resolve.ts";
 
-export type PipelineStageRecoveryDeps = {
+type PipelineStageRecoveryDeps = {
   store: StateStore;
   resolveStage?: typeof resolveStageWorkflowSteps;
 };
 
-export type PipelineStageRecoveryRefusalReason =
+type PipelineStageRecoveryRefusalReason =
   | "pipeline_not_found"
   | "branch_not_found"
   | "missing_context"
@@ -47,7 +47,7 @@ export type PipelineStageRecoveryRefusalReason =
   | "stage_not_recoverable";
 
 /** A recovery target admitted for a branch's blocked plan stage: enough to build a `PlanStageRecoveryRequest`. */
-export type PipelineStageRecoveryTarget = {
+type PipelineStageRecoveryTarget = {
   runId: string;
   project: string;
   branch: string;
@@ -58,7 +58,7 @@ export type PipelineStageRecoveryTarget = {
   stageId: string;
 };
 
-export type PipelineStageRecoveryResolution =
+type PipelineStageRecoveryResolution =
   | { ok: true; target: PipelineStageRecoveryTarget }
   | { ok: false; reason: PipelineStageRecoveryRefusalReason; message: string };
 
@@ -270,7 +270,7 @@ export type PipelineStageRecoveryExecutionDeps = Omit<PipelineExecutionDeps, "co
   completionCommitter?: CompletionCommitter;
 };
 
-export type PipelineStageRecoveryExecutionOutcome =
+type PipelineStageRecoveryExecutionOutcome =
   | {
       kind: "resolution_refused";
       pipelineId: string;
@@ -461,7 +461,7 @@ async function runClaimedRecoveryAttempt(
 }
 
 /** {@link admitAndRecoverPipelineBranchStage}'s result: admission decided synchronously; attempt outcome is not carried. */
-export type PipelineStageRecoveryAdmission =
+type PipelineStageRecoveryAdmission =
   | { kind: "admitted"; pipelineId: string; branchKey: string; stageId: string; entryRunId: string }
   | {
       kind: "resolution_refused";

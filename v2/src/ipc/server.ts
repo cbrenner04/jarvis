@@ -261,7 +261,7 @@ export class DaemonSocketInUseError extends Error {
 }
 
 /** Structured stderr marker prefix for an unrecoverable daemon socket bind failure. */
-export const DAEMON_BIND_FAILURE_LOG_PREFIX = "JARVIS_DAEMON_BIND_FAILURE:";
+const DAEMON_BIND_FAILURE_LOG_PREFIX = "JARVIS_DAEMON_BIND_FAILURE:";
 
 /** Raised when `listen` still fails after bounded occupancy reclaim. */
 export class DaemonSocketBindFailureError extends Error {
@@ -313,7 +313,7 @@ export type SocketProbeDetail = {
  * traverses exactly the code path `probeSocketDetailed` does — a liveness-only seam cannot express
  * `peerConnected`, which is what distinguishes a probe timeout from a daemon that answered.
  */
-export type DetailedSocketProbe = (path: string, timeoutMs: number) => Promise<SocketProbeDetail>;
+type DetailedSocketProbe = (path: string, timeoutMs: number) => Promise<SocketProbeDetail>;
 
 /**
  * Map a connect failure to a liveness verdict.
@@ -322,7 +322,7 @@ export type DetailedSocketProbe = (path: string, timeoutMs: number) => Promise<S
  * or "nothing is here" (ENOENT) permits removal. Every other failure is inconclusive and must
  * read as live: unlinking on an inconclusive probe is exactly what strands a running daemon.
  */
-export function classifySocketConnectError(err: NodeJS.ErrnoException): SocketLiveness {
+function classifySocketConnectError(err: NodeJS.ErrnoException): SocketLiveness {
   if (err.code === "ENOENT") {
     return "absent";
   }

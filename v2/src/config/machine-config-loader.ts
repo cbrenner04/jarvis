@@ -4,11 +4,11 @@ import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import { MACHINE_CONFIG_PATH } from "../paths.ts";
 
 export const DEFAULT_ITERATION_TIMEOUT_MS = 600_000;
-export const DEFAULT_ITERATION_CEILING_MS = 1_800_000;
+const DEFAULT_ITERATION_CEILING_MS = 1_800_000;
 export const DEFAULT_IDLE_OUTPUT_TIMEOUT_MS = 90_000;
 export const DEFAULT_REVIEW_ROLE_TIMEOUT_MS = 1_800_000;
 
-export type WritePathIterationBounds = {
+type WritePathIterationBounds = {
   iterationTimeoutMs: number;
   iterationCeilingMs: number;
   idleOutputMs?: number;
@@ -24,7 +24,7 @@ function readPositiveNumberField(configPath: string, field: string, defaultValue
 }
 
 /** Resolves the machine-wide write iteration wall segment. */
-export function readIterationTimeoutMs(configPath: string = MACHINE_CONFIG_PATH): number {
+function readIterationTimeoutMs(configPath: string = MACHINE_CONFIG_PATH): number {
   return readPositiveNumberField(configPath, "iterationTimeoutMs", DEFAULT_ITERATION_TIMEOUT_MS);
 }
 
@@ -34,7 +34,7 @@ export function readIterationCeilingMs(configPath: string = MACHINE_CONFIG_PATH)
 }
 
 /** Resolves idle-output watchdog budget for write-path ordering (v1-aligned default). */
-export function readIdleOutputTimeoutMs(configPath: string = MACHINE_CONFIG_PATH): number {
+function readIdleOutputTimeoutMs(configPath: string = MACHINE_CONFIG_PATH): number {
   return readConfiguredIdleOutputTimeoutMs(configPath) ?? DEFAULT_IDLE_OUTPUT_TIMEOUT_MS;
 }
 
@@ -53,7 +53,7 @@ export function readReviewRoleTimeoutMs(configPath: string = MACHINE_CONFIG_PATH
   return readPositiveNumberField(configPath, "reviewRoleTimeoutMs", DEFAULT_REVIEW_ROLE_TIMEOUT_MS);
 }
 
-export const DEFAULT_CODEX_SANDBOX_MODE: CodexSandboxMode = "workspace-write";
+const DEFAULT_CODEX_SANDBOX_MODE: CodexSandboxMode = "workspace-write";
 
 const CODEX_SANDBOX_MODES: readonly CodexSandboxMode[] = ["read-only", "workspace-write", "danger-full-access"];
 

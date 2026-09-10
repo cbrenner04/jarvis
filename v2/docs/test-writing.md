@@ -106,8 +106,6 @@ Shared write-execution fixtures (`createJarvisHome`, `createFakeWithExternalWork
 
 Write-step stubs for daemon pipeline tests live in [`v2/src/testing/workflow-step-fixtures.ts`](../src/testing/workflow-step-fixtures.ts). **`createMinimalDispatchWriteStep`** returns a type-complete `WriteWorkflowStep` (assignable to `AnyWorkflowStep` without a cast) with stub `worktree`, `agentModelConfig`, and dispatch metadata — use it for dispatch-only pipeline tests that only need steps in handler inputs or resolve-stage stubs. **`writeStepFixtures().createWriteStep`** (built on the [`write-fixtures.ts`](../src/testing/write-fixtures.ts) temp-root and Jarvis-home helpers) wires `createBinding`, `withExternalWorktree`, and tracked temp directories — prefer it when the test drives binding factories, artifact writes, or worktree materialization. Do not duplicate the full `createWriteStep` signature in specs; cross-link the module instead.
 
-The `setupSandboxGitRepo` fixture lives in [`v2/src/testing/sandbox-git-repo.ts`](../src/testing/sandbox-git-repo.ts) and is **sandbox-only** — it spawns real `git` commands and must only be imported from `.sandbox-unrunnable.test.ts` files. Agent-runnable tests must not import it.
-
 The daemon smoke test (`v2/src/daemon/daemon.sandbox-unrunnable.test.ts`) demonstrates the minimal real-process fixture. Detached daemons spawned by sandbox-unrunnable tests must use `createTestDaemonLifecycle`: it registers the PID before readiness can fail, force-reaps it after completed or failed tests, and opts it into launcher-death reaping for interrupted test runners. Production daemon launches must not opt in.
 
 Pure in-memory logic (e.g., `WorktreeOwnershipRegistry`) belongs in agent-runnable tests (`daemon-registry.test.ts`) without `.sandbox-unrunnable` markers, even when moved from a real-process context. Use DI seams to inject the registry instance under test with mocked state, not real OS operations.
@@ -223,7 +221,7 @@ When a guard inside a `setInterval` callback changes, extract it into a pure exp
 
 **Production instance:** `shouldShutdownNow` in [`daemon.ts`](../src/daemon/daemon.ts), pinned by [`daemon-retire-superseded.test.ts`](../src/daemon/daemon-retire-superseded.test.ts).
 
-**Teaching fixture:** [`timer-callback-guard-fixture.ts`](../src/testing/timer-callback-guard-fixture.ts) — pure `shouldStopPolling` plus `registerStopPoll` for the `setInterval` wiring. Inverting `!hasPendingWork` to `hasPendingWork` fails the first predicate case; see [`timer-callback-guard-fixture.test.ts`](../src/testing/timer-callback-guard-fixture.test.ts).
+**Teaching fixture:** [`timer-callback-guard-fixture.ts`](../src/testing/timer-callback-guard-fixture.ts) — the pure `shouldStopPolling` predicate extracted from a `setInterval` callback. Inverting `!hasPendingWork` to `hasPendingWork` fails the first predicate case; see [`timer-callback-guard-fixture.test.ts`](../src/testing/timer-callback-guard-fixture.test.ts).
 
 ## Structural-invariant tests
 

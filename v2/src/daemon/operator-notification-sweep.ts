@@ -4,12 +4,12 @@ import { deriveOperatorIncidents, type OperatorIncident, serializeOperatorIncide
 
 export const NOTIFICATION_SWEEP_INTERVAL_MS = 5_000;
 
-export type NotificationSinkSpawnResult = { ok: true } | { ok: false };
+type NotificationSinkSpawnResult = { ok: true } | { ok: false };
 
 export type NotificationSinkSpawner = (command: string, incidentJson: string) => NotificationSinkSpawnResult;
 
 /** Fire-and-forget sink spawn; incident JSON is written to stdin. */
-export function spawnNotificationSinkCommand(command: string, incidentJson: string): NotificationSinkSpawnResult {
+function spawnNotificationSinkCommand(command: string, incidentJson: string): NotificationSinkSpawnResult {
   try {
     const child = spawn("bash", ["-c", command], {
       stdio: ["pipe", "ignore", "ignore"],

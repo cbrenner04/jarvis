@@ -40,12 +40,12 @@ import { daemonFailureDetail, type RunControlHandlerContext } from "./daemon-run
 import type { RunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 import { findTerminalLogRecord } from "./run-operator-error.ts";
 
-export type WorkflowStartResult =
+type WorkflowStartResult =
   | { kind: "response"; result: unknown }
   | { kind: "error"; code: string; message: string }
   | Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }>;
 
-export type WorkflowStartLifecycle = {
+type WorkflowStartLifecycle = {
   key: OwnershipKey;
   ownership: WorktreeOwnership;
   activeKey: string;
@@ -65,7 +65,7 @@ export type WorkflowStartAdmission = {
   check_workflow_start_claim: RpcHandler;
 };
 
-export type WorkflowAdmissionHandlerDeps = {
+type WorkflowAdmissionHandlerDeps = {
   resumeFinalizationOnly: RunLifecycleHandlers["resumeFinalizationOnly"];
 };
 

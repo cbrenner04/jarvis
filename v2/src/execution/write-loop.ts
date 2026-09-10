@@ -175,13 +175,13 @@ export type WriteLoopResult = {
   gateInvocationElapsedMs?: number;
 } & Partial<InvocationFailureDetail>;
 
-export type SubspecCompletionInventory = {
+type SubspecCompletionInventory = {
   completedSubspecPaths: readonly string[];
   remainingSubspecPaths: readonly string[];
   inventoryError?: string;
 };
 
-export function hasCompletedSubspec(inventory: SubspecCompletionInventory): boolean {
+function hasCompletedSubspec(inventory: SubspecCompletionInventory): boolean {
   return inventory.completedSubspecPaths.length > 0;
 }
 
@@ -215,7 +215,7 @@ function isGateOnlyOutstandingForSubspecBody(body: string): boolean {
   return hasUncheckedGate;
 }
 
-export function isIterationTimeoutResumable(
+function isIterationTimeoutResumable(
   inventory: SubspecCompletionInventory,
   worktreePath: string,
   expectedArtifactPath?: string,
@@ -329,7 +329,7 @@ export function buildSubspecCompletionInventory(
   }
 }
 
-export type WallSegmentScheduleHandle = { cancel: () => void };
+type WallSegmentScheduleHandle = { cancel: () => void };
 /** Schedules `fire` after `delayMs`; returns a handle to cancel it. Production default is `setTimeout`. */
 export type WallSegmentSchedule = (fire: () => void, delayMs: number) => WallSegmentScheduleHandle;
 
@@ -497,20 +497,20 @@ const MAX_READY_GATE_REPAIRS = 3;
 
 export { MAX_READY_GATE_REPAIRS };
 
-export type ReadyGateOrigin = "repair_budget_exhausted";
+type ReadyGateOrigin = "repair_budget_exhausted";
 export const MAX_MUTATION_REPAIR_ATTEMPTS = 3;
 const READY_GATE_OUTPUT_MAX_CHARS = 16 * 1024;
 const COVERAGE_ADVISORY_PROMPT_ID = "write.coverage-advisory";
 export const DEFAULT_ITERATION_TIMEOUT_MS = 600_000;
 /** Bound on ordinary iteration quiescence; finalization repairs always join without a bound. */
-export const DEFAULT_QUIESCENCE_TIMEOUT_MS = 30_000;
+const DEFAULT_QUIESCENCE_TIMEOUT_MS = 30_000;
 
 type IterationActiveGate = { command: string; startedAtMs: number; lease: GateInvocationLease };
 
 export const MAX_CONCURRENT_AGENT_GATE_INVOCATIONS = 1;
 
 /** An owned hold on the machine-wide gate-invocation budget; only its holder can release it. */
-export type GateInvocationLease = { release: () => void };
+type GateInvocationLease = { release: () => void };
 
 const liveGateInvocationLeases = new Set<GateInvocationLease>();
 
@@ -900,7 +900,7 @@ function findFirstHarnessSidecarBasenameViolation(candidates: readonly string[])
   return undefined;
 }
 
-export function findRepairFenceViolations(candidates: readonly string[], allowedPaths: Set<string>): string[] {
+function findRepairFenceViolations(candidates: readonly string[], allowedPaths: Set<string>): string[] {
   const normalizedCandidates: string[] = [];
   for (const raw of candidates) {
     const normalized = validateRepoRelativePath(raw);
@@ -2170,7 +2170,7 @@ type RaceOutcome =
   | { kind: "aborted" };
 
 /** What the raced-away invocation actually produced once it quiesced (or failed to). */
-export type QuiescedExecutionOutcome = Extract<RaceOutcome, { kind: "settled" } | { kind: "threw" }>;
+type QuiescedExecutionOutcome = Extract<RaceOutcome, { kind: "settled" } | { kind: "threw" }>;
 
 type IterationSettlement =
   | Extract<RaceOutcome, { kind: "settled" } | { kind: "threw" }>
@@ -2178,7 +2178,7 @@ type IterationSettlement =
   | { kind: "aborted"; quiesced: QuiescedExecutionOutcome }
   | { kind: "gate_invocation_refused"; gateCommand: string; quiesced: QuiescedExecutionOutcome };
 
-export type AbortWatchdogRole = "abort" | "watchdog";
+type AbortWatchdogRole = "abort" | "watchdog";
 type IterationSettlementPolicy = "bounded" | "finalization-repair";
 
 /** Pure precedence predicate: which settlement kind a given race role produces. */
@@ -2944,7 +2944,7 @@ function withBoundaryTelemetry(
   };
 }
 
-export type CompletionPublicationSeams = Pick<
+type CompletionPublicationSeams = Pick<
   WriteLoopInput,
   | "completionPublisher"
   | "readyFinalizer"
@@ -2955,7 +2955,7 @@ export type CompletionPublicationSeams = Pick<
   | "landing"
 >;
 
-export type CompletionPublishFailure = {
+type CompletionPublishFailure = {
   kind:
     | "completion_commit_failed"
     | "ready_gate_failed"
@@ -2973,7 +2973,7 @@ export type CompletionPublishFailure = {
   resolvedBase?: string;
 };
 
-export type CompletionPublishSuccess = {
+type CompletionPublishSuccess = {
   prNumber?: number;
   prUrl?: string;
   runtimeSmokeOutcome: SmokePass | undefined;
@@ -3023,7 +3023,7 @@ type CompletionPublishInput = Parameters<typeof publishCompletionArtifacts>[1];
 type CompletionPublishOutcome = CompletionPublishFailure | (CompletionPublishSuccess & { kind: "success" });
 
 /** `unsettled` consumed no iteration; `blocked` and `continue` each consumed one. */
-export type RepairIterationOutcome = "unsettled" | "blocked" | "continue";
+type RepairIterationOutcome = "unsettled" | "blocked" | "continue";
 
 /** One repair iteration: reprompt the agent with the gate failure, then record its boundary. */
 async function runReadyRepairIteration(
@@ -3505,7 +3505,7 @@ function buildReadyRepairPublishResult(
 
 const AUTOFIX_TYPECHECK_OUTPUT_TAIL_MAX = 4096;
 
-export type AutofixTypecheckResult = {
+type AutofixTypecheckResult = {
   exitCode: number;
   output: string;
 };
@@ -3627,7 +3627,7 @@ async function runAutofixTypecheckVerification(
 
 const READY_GATE_AUTOFIX_MAX_DIAGNOSTICS = 256;
 
-export type RunBuiltInReadyGateAutofixBiomeOpts = ExternalSpecGitScope & {
+type RunBuiltInReadyGateAutofixBiomeOpts = ExternalSpecGitScope & {
   cwd: string;
   baseRef: string;
   timeoutMs: number;
@@ -4225,7 +4225,7 @@ function resolveContractMissBlockerPath(
   return resolveSpecPath(worktreePath, args.specPath);
 }
 
-export type ProgressIterationCommitOutcome =
+type ProgressIterationCommitOutcome =
   | { kind: "committed"; commitSha: string }
   | { kind: "skipped"; skipReason: "no_git" | "no_file_changes" | "no_binding" };
 

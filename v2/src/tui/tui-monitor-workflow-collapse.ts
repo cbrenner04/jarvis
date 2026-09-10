@@ -42,7 +42,7 @@ export function partitionRunsByWorkflowInvocation(runs: readonly DaemonListRunRo
 }
 
 /** Entry or active constituent used as the collapsed row identity. */
-export function workflowGroupRepresentative(members: readonly DaemonListRunRow[]): DaemonListRunRow {
+function workflowGroupRepresentative(members: readonly DaemonListRunRow[]): DaemonListRunRow {
   const active = members.find((run) => isActiveRunStatus(run.status));
   if (active !== undefined) return active;
 

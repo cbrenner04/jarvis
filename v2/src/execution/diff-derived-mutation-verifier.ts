@@ -12,20 +12,20 @@ export type DiffDerivedMutationVerifierInput = {
   runBase: string;
 };
 
-export type AcceptedSite = {
+type AcceptedSite = {
   file: string;
   line: number;
   mutation: string;
   reason: string;
 };
 
-export type SkippedCandidate = {
+type SkippedCandidate = {
   file: string;
   line: number;
   reason: string;
 };
 
-export type PassResult = {
+type PassResult = {
   kind: "pass";
   runBase: string;
   inspectedPaths: string[];
@@ -34,7 +34,7 @@ export type PassResult = {
   skippedCandidates: SkippedCandidate[];
 };
 
-export type SurvivingMutationResult = {
+type SurvivingMutationResult = {
   kind: "surviving-mutation";
   mutation: string;
   sourceSite: {
@@ -54,7 +54,7 @@ type MutationFailureResult =
 
 export type VerificationResult = PassResult | MutationFailureResult;
 
-export type Candidate = {
+type Candidate = {
   file: string;
   line: number;
   columnStart: number;
@@ -115,11 +115,11 @@ type VerifierSeams = {
 
 /** Verification bounds: hitting either ends the run as a pass over the candidates inspected so far. */
 export const MAX_INSPECTED_MUTATIONS = 25;
-export const MAX_PROMPT_RENDER_VERIFICATIONS = 5;
+const MAX_PROMPT_RENDER_VERIFICATIONS = 5;
 export const MAX_VERIFICATION_MS = 5 * 60_000;
 export const MAX_KILLING_TEST_MS = 30_000;
 /** Per-candidate bound = clamp(baseline × factor, floor, ceiling); the floor is the historical fixed budget. */
-export const KILLING_TEST_BUDGET_FACTOR = 2;
+const KILLING_TEST_BUDGET_FACTOR = 2;
 export const KILLING_TEST_BUDGET_FLOOR_MS = MAX_KILLING_TEST_MS;
 export const KILLING_TEST_BUDGET_CEILING_MS = 120_000;
 
@@ -129,12 +129,12 @@ export function killingTestBudgetMs(baselineMs: number): number {
 }
 
 /** What the unmutated killing set established before any candidate in it was tested. */
-export type KillingTestBaseline =
+type KillingTestBaseline =
   | { kind: "measured"; elapsedMs: number; budgetMs: number }
   | { kind: "exceeded-ceiling" }
   | { kind: "deadline" };
 
-export function inconclusiveCandidateReason(
+function inconclusiveCandidateReason(
   baseline: Exclude<KillingTestBaseline, { kind: "measured" }>,
   killingTests: readonly string[],
 ): string {
@@ -144,7 +144,7 @@ export function inconclusiveCandidateReason(
     : `inconclusive: unmutated killing set (${set}) could not be measured before the verification deadline`;
 }
 export const MAX_CONCURRENT_VERIFIER_TEST_RUNS = 4;
-export const MAX_IMPORTER_DISCOVERY_CANDIDATES_PER_FILE = 200;
+const MAX_IMPORTER_DISCOVERY_CANDIDATES_PER_FILE = 200;
 
 const IMPORTER_SCAN_SURFACE_PREFIXES = ["v2/src/", "shared/"] as const;
 const RENDER_OBSERVER_MAP_RELATIVE_PATH = "shared/prompts/render-observer-tests.ts";
@@ -673,7 +673,7 @@ function isCodePath(path: string): boolean {
   return /\.[cm]?[jt]sx?$/.test(path);
 }
 
-export function resolveCoLocatedKillingTest(productionPath: string): string | null {
+function resolveCoLocatedKillingTest(productionPath: string): string | null {
   if (!isCodePath(productionPath)) return null;
   const basename = productionPath.split("/").pop() ?? "";
   if (basename.includes(".test.")) return null;

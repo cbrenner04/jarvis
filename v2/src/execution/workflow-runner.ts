@@ -207,7 +207,7 @@ function settleWorkflowPublicationFailure(
 }
 
 /** Post-implement-commit shrink outcomes that resume at the hidden `~shrink` row without re-invoking implement. */
-export function isPostCommitShrinkResumableOutcome(
+function isPostCommitShrinkResumableOutcome(
   result: Pick<WriteLoopResult, "kind"> & Partial<Pick<WriteLoopResult, "failureKind">>,
   artifact?: { worktreePath: string; expectedArtifactPath: string },
 ): boolean {
@@ -239,7 +239,7 @@ function settlePostCommitShrinkForResume(
   return { ...shrinkResult, resumable: true };
 }
 
-export type WorkflowPresetName = keyof typeof WORKFLOW_PRESET_LENGTHS;
+type WorkflowPresetName = keyof typeof WORKFLOW_PRESET_LENGTHS;
 
 export class LinkedIndexReadError extends Error {
   readonly indexPath: string;
@@ -353,7 +353,7 @@ export type ReviewProgress =
 export type ReviewDebateProgress = ReviewProgress;
 
 /** One authored workflow step with durable run identity, dispatched on `behavior` at execution. */
-export type WorkflowStep = WriteWorkflowStep;
+type WorkflowStep = WriteWorkflowStep;
 
 export type AnyWorkflowStep = WorkflowStep | ReviewDebateWorkflowStep | ReviewWorkflowStep;
 
@@ -1665,7 +1665,7 @@ function snapshotMatchesAuthoredSteps(
 }
 
 /** Gate-owning step's stamped overrides for the publication tail's ready-gate finalization. */
-export function resolvePublicationGateCommands(
+function resolvePublicationGateCommands(
   steps: readonly AnyWorkflowStep[],
   completionStep: WriteWorkflowStep | undefined,
   isReviewLastStep: boolean,

@@ -17,7 +17,7 @@ export type PipelineStartAdmissionInput = { projectKey: string } & (
   | { seedText: string; seedPath?: never }
 );
 
-export type PipelineStartPreAdmissionFailure =
+type PipelineStartPreAdmissionFailure =
   | "invalid-seed-input"
   | "unregistered-project"
   | "configuration-read-exception"
@@ -27,7 +27,7 @@ export type PipelineStartPreAdmissionFailure =
   | "invalid-seed-path"
   | "invalid-project-pipeline";
 
-export type PipelineStartAdmissionFailure =
+type PipelineStartAdmissionFailure =
   | "daemon-refusal"
   | "malformed-daemon-response"
   | "rpc-transport-failure"
@@ -46,7 +46,7 @@ export type PipelineStartAdmissionResult =
       detail: string;
     };
 
-export type PipelineStartAdmissionConnection = {
+type PipelineStartAdmissionConnection = {
   close(): void;
 };
 

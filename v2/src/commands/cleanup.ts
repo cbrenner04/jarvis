@@ -31,10 +31,13 @@ import { RpcError } from "../ipc/rpc-errors.ts";
 import { jarvisHome, managedWorktreePath, worktreesRoot as worktreesRootPath } from "../paths.ts";
 import { isTerminalRunStatus, type Run, type StateStore } from "../persistence/state-store.ts";
 import {
+  type ArchiveResult,
   type ArtifactSpec,
   archiveCompletedSpec,
   checkArtifactEligibility,
+  consumedExternalReadyIntentPlan,
   isExternalPlanArtifact,
+  pruneConsumedQueueEntry,
   resolveConsumedReadyIntent,
 } from "./cleanup-artifacts.ts";
 import { DAEMON_DIGEST_ARTIFACT_FILE, reapDeadDaemonSockets } from "./daemon.ts";
@@ -954,6 +957,12 @@ async function archiveRetiredArtifact(
 }
 
 function previewArtifact(spec: ArtifactSpec, io: { stdout: (s: string) => void }): void {
+  if (spec.queue !== undefined) {
+    const consumer = consumedExternalReadyIntentPlan(spec);
+    const consumedBy = consumer === undefined ? "" : ` (consumed by plans/completed/${basename(consumer.planDir)})`;
+    io.stdout(`  prune: ${spec.queue === "seed" ? "seeds" : "ready-intents"}/${basename(spec.source)}${consumedBy}\n`);
+    return;
+  }
   const target = isExternalPlanArtifact(spec)
     ? `plans/${basename(spec.source)} -> plans/completed/${basename(spec.source)}`
     : `${spec.source} -> ${join(spec.home, "completed", basename(spec.source))}`;
@@ -1033,6 +1042,64 @@ function discoverExternalPlanStrandedArtifacts(
   return artifacts;
 }
 
+const EXTERNAL_QUEUES = [
+  ["seeds", "seed"],
+  ["ready-intents", "ready-intent"],
+] as const;
+
+/**
+ * Queue entries (`seeds/<name>.md`, `ready-intents/<name>.md`) in every opted-in project's external
+ * home: same skip rules as in-repo queue siblings — Markdown files only, dot-entries and
+ * directories ignored. They surface consumed or stale queue files that cleanup could not see.
+ */
+function discoverExternalQueueStrandedArtifacts(
+  registry: Record<string, ProjectRegistryEntry>,
+  configPath: string,
+  safeIdOwners: Map<string, string[]>,
+): DiscoveredStrandedArtifact[] {
+  const artifacts: DiscoveredStrandedArtifact[] = [];
+  for (const [project] of Object.entries(registry)) {
+    const safeId = projectSafeId(project);
+    if ((safeIdOwners.get(safeId) ?? []).length !== 1) continue;
+    const projectConfig = readProjectConfigRecord(project, configPath);
+    if (projectConfig === undefined || !planSourcePublishesExternally(projectConfig)) continue;
+    for (const [dirName, queue] of EXTERNAL_QUEUES) {
+      const home = join(jarvisHome(), "specs", safeId, dirName);
+      if (!existsSync(home)) continue;
+      try {
+        for (const child of readdirSync(home, { withFileTypes: true })) {
+          if (!child.isFile() || child.name.startsWith(".") || !child.name.endsWith(".md")) continue;
+          artifacts.push({ home, source: join(home, child.name), name: child.name.slice(0, -3), project, queue });
+        }
+      } catch {
+        // A queue home that cannot be read has no safely inspectable candidates.
+      }
+    }
+  }
+  return artifacts;
+}
+
+/** Queue entries are never spec trees: decide them here so no completeness or branch check runs. */
+function inspectQueueEntry(
+  artifact: DiscoveredStrandedArtifact,
+  skips: ArtifactSkipLedger,
+): StrandedArtifact | undefined {
+  if (artifact.queue === "seed") {
+    skips.skip(artifact.source, "pending seed: consumed by intent admission, not cleanup");
+    return undefined;
+  }
+  const consumer = consumedExternalReadyIntentPlan({ ...artifact, branch: "" });
+  if (consumer === undefined) {
+    skips.skip(artifact.source, "unconsumed ready-intent: no plan tree carries its bytes");
+    return undefined;
+  }
+  if (!consumer.archived) {
+    skips.skip(artifact.source, `consumed by open plan plans/${basename(consumer.planDir)}; prune after it archives`);
+    return undefined;
+  }
+  return { ...artifact, branch: "" };
+}
+
 export function discoverStrandedArtifacts(
   registry: Record<string, ProjectRegistryEntry>,
   io?: { stdout: (s: string) => void },
@@ -1059,7 +1126,11 @@ export function discoverStrandedArtifacts(
     owners.push(project);
     safeIdOwners.set(safeId, owners);
   }
-  return [...artifacts, ...discoverExternalPlanStrandedArtifacts(registry, configPath, safeIdOwners, io)];
+  return [
+    ...artifacts,
+    ...discoverExternalPlanStrandedArtifacts(registry, configPath, safeIdOwners, io),
+    ...discoverExternalQueueStrandedArtifacts(registry, configPath, safeIdOwners),
+  ];
 }
 
 function recordedStrandedBranch(
@@ -1102,6 +1173,11 @@ export async function inspectStrandedArtifacts(
     if (!existsSync(artifact.source)) continue;
     const projectRoot = registry[artifact.project]?.root;
     if (projectRoot === undefined) continue;
+    if (artifact.queue !== undefined) {
+      const queued = inspectQueueEntry(artifact, skips);
+      if (queued !== undefined) eligible.push(queued);
+      continue;
+    }
     const branch = recordedStrandedBranch(artifact, projectRoot, store, registry);
     if (branch === undefined) {
       skips.skip(artifact.source, "no durable implementation branch");
@@ -1129,11 +1205,13 @@ export async function inspectStrandedArtifacts(
 
 function reportArchive(
   spec: ArtifactSpec,
-  result: ReturnType<typeof archiveCompletedSpec>,
+  result: ArchiveResult,
   prefix: string,
   io: { stdout: (s: string) => void },
 ): void {
-  if (result.status === "archived") {
+  if (result.status === "pruned") {
+    io.stdout(`Pruned consumed ready-intent: ${spec.source} (consumed by ${result.consumedBy})\n`);
+  } else if (result.status === "archived") {
     io.stdout(
       `Archived: ${spec.source} -> ${result.destination}${result.intentPruned ? " (pruned consumed ready-intent)" : ""}\n`,
     );
@@ -1423,6 +1501,10 @@ async function retireStrandedArtifacts(
   skips: ArtifactSkipLedger,
 ): Promise<void> {
   for (const spec of stranded) {
+    if (spec.queue !== undefined) {
+      reportArchive(spec, pruneConsumedQueueEntry(spec), "stranded artifact", io);
+      continue;
+    }
     const current = await discoverMaterializedWorktrees(registry, jarvisRoot, runner);
     const projectRoot = registry[spec.project]?.root;
     const identity = projectRoot === undefined ? undefined : { store, projectRoot };

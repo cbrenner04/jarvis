@@ -145,7 +145,7 @@ By default, intent and plan publication land in the registered project's reposit
   plans/completed/<name>/     # archived completed plans (jarvis cleanup)
 ```
 
-Completed external plans archive under `plans/completed/<name>/` within the same `plans/` home — there is no root-level `completed/` sibling in the external home. Admission rules for absolute queue paths: [`workflow-runner.md`](./workflow-runner.md#authoring-helper-and-presets).
+Completed external plans archive under `plans/completed/<name>/` within the same `plans/` home — there is no root-level `completed/` sibling in the external home. `jarvis cleanup` also inspects `seeds/` and `ready-intents/` entries here and prunes a ready-intent once the plan that consumed it (byte-identical `intent.md`) is archived; see [`operator-runbook.md`](./operator-runbook.md#cleanup-eligibility-gate). Admission rules for absolute queue paths: [`workflow-runner.md`](./workflow-runner.md#authoring-helper-and-presets).
 
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |

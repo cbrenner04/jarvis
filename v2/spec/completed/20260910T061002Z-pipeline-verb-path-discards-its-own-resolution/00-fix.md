@@ -1,7 +1,3 @@
----
-name: pipeline-verb-path-discards-its-own-resolution
----
-
 # A pipeline verb routes by the id it resolved, then asks the daemon to act on the raw argument
 
 ## Problem
@@ -35,11 +31,12 @@ No observed misroute: this is a latent defect, seeded because the shape is one t
 
 ## Acceptance criteria
 
-- [ ] A test proves a verb dispatched with a prefix sends the resolved full pipeline id in its RPC params, not the raw argument; it fails against the current raw-argument passthrough.
-- [ ] A test proves a prefix that is unique only because one socket's `pipeline_list` was malformed refuses rather than resolving; it fails against the current dropped `hasMalformedResponse`.
-- [ ] A test proves that refusal is distinguishable from `pipeline_id_ambiguous` and from not-found.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test proves a verb dispatched with a prefix sends the resolved full pipeline id in its RPC params, not the raw argument; it fails against the current raw-argument passthrough.
+- [x] A test proves a prefix that is unique only because one socket's `pipeline_list` was malformed refuses rather than resolving; it fails against the current dropped `hasMalformedResponse`.
+- [x] A test proves that refusal is distinguishable from `pipeline_id_ambiguous` and from not-found.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
 - `v2/docs/operator-runbook.md` — under the pipeline verbs, state that a prefix resolves against every answering daemon and that an incomplete id set refuses rather than guessing.
+- `v2/docs/v1-behaviors.md` — record the corrected v2 behavior.

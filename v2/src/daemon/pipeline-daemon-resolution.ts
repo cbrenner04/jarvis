@@ -306,6 +306,7 @@ export async function resolvePipelineDaemon(
 type PipelineIdCrossDaemonResolution =
   | { kind: "resolved"; pipelineId: string }
   | { kind: "ambiguous"; candidates: string[]; message: string }
+  | { kind: "incomplete"; message: string }
   /** Nothing matched; the caller keeps its own not-found handling for the argument as given. */
   | { kind: "unmatched"; pipelineId: string };
 
@@ -329,6 +330,12 @@ export async function resolvePipelineIdAcrossDaemons(
   const ids = mergePipelineSnapshots(queryResult.snapshotsBySocketPath).map((snapshot) => snapshot.pipelineId);
   if (ids.includes(argument)) return { kind: "resolved", pipelineId: argument };
   if (argument.length < PIPELINE_ID_PREFIX_MIN_LENGTH) return { kind: "unmatched", pipelineId: argument };
+  if (queryResult.hasMalformedResponse || socketPaths.some((path) => !(path in queryResult.snapshotsBySocketPath))) {
+    return {
+      kind: "incomplete",
+      message: `pipeline_id_set_incomplete: Cannot resolve prefix ${argument}: a daemon listing was malformed or unavailable; restore daemon connectivity or use a known full pipeline id.`,
+    };
+  }
   const candidates = ids.filter((id) => id.startsWith(argument)).sort();
   const [only] = candidates;
   if (candidates.length === 1 && only !== undefined) return { kind: "resolved", pipelineId: only };

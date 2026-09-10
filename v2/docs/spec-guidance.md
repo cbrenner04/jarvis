@@ -61,7 +61,7 @@ Sibling seeds/intents that edit the same code seam must be planned (and implemen
 
 A bullet under `## Acceptance criteria`, `## Decisions`, or `## Documentation updates` may name at most one backticked repo-relative artifact path claimed as built or changed; a bullet naming more than one is refused. Two wording-based exemptions apply regardless of section:
 
-- **Stays-unchanged**: several artifacts named as staying unchanged, with no build verb attached to a different artifact in the same bullet. Example: "`a.test.ts` and `b.test.ts` missing-gate projections stay green (shape unchanged by the mapping change)."
+- **Stays-unchanged**: several artifacts named as staying unchanged, with no build verb anywhere in the bullet. Example: "`a.test.ts` and `b.test.ts` missing-gate projections stay green (shape unchanged by the mapping change)."
 - **Shared decision**: one outcome stated to hold identically across several artifacts, rather than a distinct build claim per artifact (marker: "identical" or "the same"). Example: "Both `x.ts` and `y.ts` take the identical resolved path from one builder-local binding."
 
 Wording that matches neither exemption is refused (fail closed). A bullet mixing stays-unchanged wording with a genuine build claim on a second artifact is still refused.

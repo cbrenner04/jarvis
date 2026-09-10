@@ -84,6 +84,37 @@ describe("plan draft normalization", () => {
     expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
   });
 
+  // Each case below was accepted before the exemptions were made to fail closed: the shared-outcome
+  // marker short-circuited the mixed-claim refusal, and the preservation vocabulary matched bare
+  // "green" / "stops" in ordinary prose about new work.
+  test.each([
+    [
+      "shared-outcome marker does not launder a build claim",
+      "- [ ] Adds `v2/src/a.ts` and `v2/src/b.ts` with the same validation logic.\n",
+    ],
+    [
+      "shared-outcome marker does not defeat the stays-unchanged mixed-claim refusal",
+      "- [ ] `v2/src/a.test.ts` stays green while `v2/src/b.ts` introduces the same guard.\n",
+    ],
+    [
+      "incidental same-directory prose is not an exemption",
+      "- [ ] Creates `v2/src/a.ts` and its test `v2/src/a.test.ts` in the same directory.\n",
+    ],
+    [
+      "bare green is not preservation wording",
+      "- [ ] New `v2/src/a.ts` and `v2/src/b.ts` land with `bun run test:v2` green.\n",
+    ],
+    [
+      "bare stops is not preservation wording",
+      "- [ ] `v2/src/a.ts` gains a guard that stops the retry; `v2/src/b.ts` gains the projection.\n",
+    ],
+  ])("rejects a multi-artifact bullet where %s", (name, bullet) => {
+    const dir = scratchDir(`fail-closed-${name.replace(/[^a-z]+/gu, "-")}`);
+    stageDraft(dir, { "00-case.md": `# Case\n\n## Acceptance criteria\n\n${bullet}` });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow(/naming multiple artifact paths/u);
+  });
+
   test("rejects a bullet mixing stays-unchanged wording with a distinct build claim", () => {
     const dir = scratchDir("mixed-claim");
     stageDraft(dir, {

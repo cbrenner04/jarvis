@@ -316,10 +316,9 @@ jarvis run workflow plan --ready-intent spec/ready-intents/my-feature.md
 jarvis run workflow plan --ready-intent spec/ready-intents/my-feature.md --review-passes 2 --review-behavior debate
 ```
 
-For a lighter critic-actuator pass, use `plan-reviewed-light` or pass `--review-behavior light`:
+For a lighter critic-actuator pass, pass `--review-behavior light`:
 
 ```bash
-jarvis run workflow plan-reviewed-light --ready-intent spec/ready-intents/my-feature.md
 jarvis run workflow plan --ready-intent spec/ready-intents/my-feature.md --review-behavior light
 ```
 

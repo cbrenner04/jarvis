@@ -207,7 +207,7 @@ Complete project example:
 
 ### Workflow invocation bounds
 
-Direct `jarvis write` and workflow write steps resolve three optional machine keys from `~/.jarvis/config.json` before dispatch. The same machine-wide `idleOutputTimeoutMs` also governs every workflow review-role invocation.
+`jarvis run start` and workflow write steps resolve three optional machine keys from `~/.jarvis/config.json` before dispatch. The same machine-wide `idleOutputTimeoutMs` also governs every workflow review-role invocation.
 
 | Key | Role | Default | Validation |
 | --- | --- | --- | --- |
@@ -274,9 +274,9 @@ Surfaced when reading `~/.jarvis/config.json` (also blocks `set-agents` writes a
 
 `set-agents` CSV parse failures (before any write) print their own stderr lines and exit `1` without mutating the file.
 
-### Model-resolution errors → `jarvis run` (and `jarvis write`)
+### Model-resolution errors → `jarvis run`
 
-These run after machine config parses. They surface when building a run/write input — e.g. `jarvis run start …`, `jarvis run workflow implement …`, or `jarvis write …` — not at `jarvis config show`.
+These run after machine config parses. They surface when building a run/write input — e.g. `jarvis run start …` or `jarvis run workflow implement …` — not at `jarvis config show`.
 
 | Symptom | Fix |
 | --- | --- |

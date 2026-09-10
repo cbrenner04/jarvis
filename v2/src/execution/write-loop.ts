@@ -102,6 +102,7 @@ import { lintStagedMarkdown } from "./staged-markdown-lint.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import { reportUncoveredChangedLines } from "./uncovered-changed-lines.ts";
+import { storeVerifierProcessGroupRecorder, type VerifierProcessGroupRecorder } from "./verifier-process-groups.ts";
 import { type BoundaryStamp, boundaryStampFromStoredRun, emitWorkBoundaryRecorded } from "./work-boundary-telemetry.ts";
 import { executeWrite, type WriteExecuteInput } from "./write.ts";
 
@@ -3145,6 +3146,7 @@ async function classifyReadyGatePublishFailure(
   input: CompletionPublishInput,
   readyCommand?: string,
   seams?: ReadyGateScopeSeams,
+  verifierProcessGroups?: VerifierProcessGroupRecorder,
 ): Promise<CompletionPublishFailure> {
   if (failure.kind !== "ready_gate_failed" || !(failure.error instanceof ReadyGateError)) {
     return failure;
@@ -3156,6 +3158,7 @@ async function classifyReadyGatePublishFailure(
       baseRef: input.baseRef,
       specPath: input.specPath,
       ...(readyCommand !== undefined ? { readyCommand } : {}),
+      ...(verifierProcessGroups !== undefined ? { verifierProcessGroups } : {}),
     },
     seams,
   );
@@ -3366,10 +3369,16 @@ async function commitRepairAndRepublish(
         ...externalSpecGitScope(args),
       });
     }
-    const onGateGroupId = (pgid: number | null): void => store.setReadyGatePgid(result.runId, pgid);
-    let outcome = await publishCompletionArtifacts(args, input, onGateGroupId);
+    const verifierProcessGroups = storeVerifierProcessGroupRecorder(store, result.runId);
+    let outcome = await publishCompletionArtifacts(args, input, verifierProcessGroups);
     if (outcome.kind !== "success") {
-      outcome = await classifyReadyGatePublishFailure(outcome, input, args.readyCommand, args.readyGateScopeSeams);
+      outcome = await classifyReadyGatePublishFailure(
+        outcome,
+        input,
+        args.readyCommand,
+        args.readyGateScopeSeams,
+        verifierProcessGroups,
+      );
     }
     return { kind: "success", outcome };
   } catch (error) {
@@ -3714,10 +3723,16 @@ export async function publishWithReadyRepair(
   iterationsConsumed: number,
   input: CompletionPublishInput,
 ): Promise<ReadyRepairPublishResult> {
-  const onGateGroupId = (pgid: number | null): void => store.setReadyGatePgid(result.runId, pgid);
-  let outcome = await publishCompletionArtifacts(args, input, onGateGroupId);
+  const verifierProcessGroups = storeVerifierProcessGroupRecorder(store, result.runId);
+  let outcome = await publishCompletionArtifacts(args, input, verifierProcessGroups);
   if (outcome.kind !== "success") {
-    outcome = await classifyReadyGatePublishFailure(outcome, input, args.readyCommand, args.readyGateScopeSeams);
+    outcome = await classifyReadyGatePublishFailure(
+      outcome,
+      input,
+      args.readyCommand,
+      args.readyGateScopeSeams,
+      verifierProcessGroups,
+    );
   }
   if (outcome.kind === "ready_gate_command_missing") {
     return buildReadyRepairPublishResult(outcome, iterationsConsumed);
@@ -3851,15 +3866,16 @@ async function runPublisher(
 async function runReadyFinalizer(
   seams: CompletionPublicationSeams,
   input: { worktreePath: string; baseRef: string; branch: string; requiredIntegrationScope?: string },
-  onGateGroupId?: (pgid: number | null) => void,
+  verifierProcessGroups?: VerifierProcessGroupRecorder,
 ): Promise<SmokePass | undefined> {
   const readyFinalizer =
     seams.readyFinalizer ??
     createReadyFinalizer({
-      runMutationVerification: async (worktreePath: string, baseRef: string) => {
+      runMutationVerification: async (worktreePath: string, baseRef: string, processGroups) => {
         const verificationResult = await verifyDiffDerivedMutations({
           worktreePath,
           runBase: baseRef,
+          ...(processGroups !== undefined ? { processGroups } : {}),
         });
         if (verificationResult.kind === "surviving-mutation") {
           throw new SurvivingMutationError(
@@ -3877,10 +3893,11 @@ async function runReadyFinalizer(
           );
         }
       },
-      runRuntimeSmokeVerification: async (worktreePath: string, baseRef: string) => {
+      runRuntimeSmokeVerification: async (worktreePath: string, baseRef: string, processGroups) => {
         const verificationResult = await verifyRuntimeSmoke({
           worktreePath,
           runBase: baseRef,
+          ...(processGroups !== undefined ? { processGroups } : {}),
         });
         return verificationResult;
       },
@@ -3891,7 +3908,7 @@ async function runReadyFinalizer(
     baseRef: input.baseRef,
     ...(input.requiredIntegrationScope ? { requiredIntegrationScope: input.requiredIntegrationScope } : {}),
     ...(seams.signal !== undefined ? { signal: seams.signal } : {}),
-    ...(onGateGroupId !== undefined ? { onGateGroupId } : {}),
+    ...(verifierProcessGroups !== undefined ? { verifierProcessGroups } : {}),
     ...(seams.readyCommand !== undefined ? { readyCommand: seams.readyCommand } : {}),
     skipReadyGate: resolveMarkdownOnlyWorkflowPromptId(seams.promptId, seams.landing) !== undefined,
   };
@@ -3982,7 +3999,7 @@ export async function publishCompletionArtifacts(
     specTemplate?: boolean;
     requiredIntegrationScope?: string;
   } & ExternalSpecGitScope,
-  onGateGroupId?: (pgid: number | null) => void,
+  verifierProcessGroups?: VerifierProcessGroupRecorder,
 ): Promise<CompletionPublishFailure | (CompletionPublishSuccess & { kind: "success" })> {
   let publisherResult: Awaited<ReturnType<CompletionPublisher>> | undefined;
   let runtimeSmokeOutcome: SmokePass | undefined;
@@ -4014,7 +4031,7 @@ export async function publishCompletionArtifacts(
           branch: input.branch,
           ...(input.requiredIntegrationScope ? { requiredIntegrationScope: input.requiredIntegrationScope } : {}),
         },
-        onGateGroupId,
+        verifierProcessGroups,
       );
     }
   } catch (finalizeError) {

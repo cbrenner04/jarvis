@@ -2,10 +2,14 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, normalize, relative, resolve } from "node:path";
+import type { AsyncSubprocessOptions, AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { defaultGitDiff, extractFileFromDiffLine, isProductionFile } from "./diff-scan.ts";
+import { trackProcessGroup, type VerifierProcessGroupRecorder } from "./verifier-process-groups.ts";
 export type RuntimeSmokeVerifierInput = {
   worktreePath: string;
   runBase: string;
+  /** Records each entrypoint probe spawn's process group on the owning run row. */
+  processGroups?: VerifierProcessGroupRecorder;
 };
 
 type SmokeObservedClean = {
@@ -44,6 +48,7 @@ type ExecuteEntrypoint = (
   args: readonly string[],
   timeoutMs: number,
   env?: Record<string, string>,
+  processGroups?: VerifierProcessGroupRecorder,
 ) => Promise<{ success: boolean; output: string }>;
 
 type ReadSourceFile = (path: string) => Promise<string | null>;
@@ -69,25 +74,36 @@ const RUNTIME_SURFACES: readonly RunnableSurface[] = [
   { entrypoint: "v2/src/cli.ts", args: ["help"], handshakeType: "cli-help" },
 ];
 
+/** Entrypoint probe bound to a runner: detaches the child and records its process group for the spawn's lifetime. */
+export function createExecuteEntrypoint(runner: Pick<AsyncSubprocessRunner, "runAsync">): ExecuteEntrypoint {
+  return async (cwd, entrypoint, args, timeoutMs, env, processGroups) => {
+    const tracked = trackProcessGroup(processGroups);
+    try {
+      const options: AsyncSubprocessOptions = { timeoutMs, processGroup: tracked.processGroup };
+      if (env) {
+        options.env = Object.assign({}, process.env, env);
+      }
+      const output = await runner.runAsync("bun", ["run", entrypoint, ...args], cwd, options);
+      return { success: true, output };
+    } catch (e) {
+      const error = e instanceof Error ? e.message : String(e);
+      return { success: false, output: error };
+    } finally {
+      tracked.settle();
+    }
+  };
+}
+
 async function defaultExecuteEntrypoint(
   cwd: string,
   entrypoint: string,
   args: readonly string[],
   timeoutMs: number,
   env?: Record<string, string>,
+  processGroups?: VerifierProcessGroupRecorder,
 ): Promise<{ success: boolean; output: string }> {
   const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
-  try {
-    const options: { timeoutMs: number; env?: NodeJS.ProcessEnv } = { timeoutMs };
-    if (env) {
-      options.env = Object.assign({}, process.env, env);
-    }
-    const output = await realAsyncSubprocessRunner.runAsync("bun", ["run", entrypoint, ...args], cwd, options);
-    return { success: true, output };
-  } catch (e) {
-    const error = e instanceof Error ? e.message : String(e);
-    return { success: false, output: error };
-  }
+  return createExecuteEntrypoint(realAsyncSubprocessRunner)(cwd, entrypoint, args, timeoutMs, env, processGroups);
 }
 
 async function defaultReadPidFile(path: string): Promise<number | null> {
@@ -281,7 +297,10 @@ export async function verifyRuntimeSmoke(
   seams?: VerifierSeams,
 ): Promise<VerificationResult> {
   const gitDiff = seams?.gitDiff ?? defaultGitDiff;
-  const executeEntrypoint = seams?.executeEntrypoint ?? defaultExecuteEntrypoint;
+  const executeEntrypointSeam = seams?.executeEntrypoint ?? defaultExecuteEntrypoint;
+  // Every probe spawn records against the owning run; bind once so the handshake helpers stay unaware.
+  const executeEntrypoint: ExecuteEntrypoint = (cwd, entrypoint, args, timeoutMs, env) =>
+    executeEntrypointSeam(cwd, entrypoint, args, timeoutMs, env, input.processGroups);
   const readSourceFile = seams?.readSourceFile ?? defaultReadSourceFile;
   const readPidFile = seams?.readPidFile ?? defaultReadPidFile;
   const getCurrentTime = seams?.getCurrentTime ?? defaultGetCurrentTime;

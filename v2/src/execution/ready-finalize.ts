@@ -27,6 +27,7 @@ import {
 } from "./publication-retry.ts";
 import { normalizePublicationSpecPath } from "./publication-spec-path.ts";
 import type { SmokePass, VerificationResult } from "./runtime-smoke-verifier.ts";
+import { trackProcessGroup, type VerifierProcessGroupRecorder } from "./verifier-process-groups.ts";
 
 export type ReadyFinalizeInput = {
   worktreePath: string;
@@ -34,7 +35,8 @@ export type ReadyFinalizeInput = {
   baseRef: string;
   requiredIntegrationScope?: string;
   signal?: AbortSignal;
-  onGateGroupId?: (pgid: number | null) => void;
+  /** Records each finalization spawn's process group on the owning run row. */
+  verifierProcessGroups?: VerifierProcessGroupRecorder;
   /** Per-project ready command override (`bun run ready` when unset). */
   readyCommand?: string;
   /** Skip only the project ready gate; the remaining finalization checks still run. */
@@ -57,7 +59,7 @@ export type ReadyGate = (
   baseRef: string,
   options?: {
     signal?: AbortSignal | undefined;
-    onGroupId?: ((pgid: number | null) => void) | undefined;
+    processGroups?: VerifierProcessGroupRecorder | undefined;
     readyCommand?: string | undefined;
   },
 ) => Promise<void>;
@@ -65,8 +67,16 @@ export type GhReadyFlip = (branch: string, worktreePath: string) => Promise<void
 type Delay = (ms: number) => Promise<void>;
 type RetryNotice = (message: string) => void;
 
-type MutationVerificationRunner = (worktreePath: string, baseRef: string) => Promise<void>;
-type RuntimeSmokeVerificationRunner = (worktreePath: string, baseRef: string) => Promise<VerificationResult>;
+type MutationVerificationRunner = (
+  worktreePath: string,
+  baseRef: string,
+  processGroups?: VerifierProcessGroupRecorder,
+) => Promise<void>;
+type RuntimeSmokeVerificationRunner = (
+  worktreePath: string,
+  baseRef: string,
+  processGroups?: VerifierProcessGroupRecorder,
+) => Promise<VerificationResult>;
 
 export type ReadyFinalizerSeams = {
   runReadyGate?: ReadyGate;
@@ -146,6 +156,8 @@ export type ReadyGateScopeInput = {
   specPath: string;
   /** Per-project ready command override, for matching `ReadyGateError.command` at classification. */
   readyCommand?: string;
+  /** Records the base-ref reproduction probe's process group on the owning run row. */
+  verifierProcessGroups?: VerifierProcessGroupRecorder;
 };
 
 export type BaseRefProbeResult = "pass" | "fail" | { kind: "error"; message: string };
@@ -403,12 +415,15 @@ function v2ProbeModeFromTerminalCommand(terminalCommand: string): "agent" | "int
 function createWorktreeSpawn(
   runner: AsyncSubprocessRunner,
   worktreeDir: string,
+  processGroups: VerifierProcessGroupRecorder | undefined,
 ): (command: string, args: string[], options: { timeout: number }) => Promise<SpawnOutcome> {
   return async (command, args, options) => {
+    const tracked = trackProcessGroup(processGroups);
     try {
       await runner.runAsync(command, args, worktreeDir, {
         maxBuffer: READY_GATE_MAX_BUFFER,
         timeoutMs: options.timeout,
+        processGroup: tracked.processGroup,
       });
       return { status: 0, signal: null, stdout: "", stderr: "", timedOut: false };
     } catch (error) {
@@ -453,16 +468,26 @@ function createDefaultReproduceReadyGateAtBaseRef(runner: AsyncSubprocessRunner)
       const v2Mode = v2ProbeModeFromTerminalCommand(terminalCommand);
       try {
         if (v2Mode !== undefined) {
-          const results = await runV2TestFiles(v2Mode, [path], createWorktreeSpawn(runner, worktreeDir));
+          const results = await runV2TestFiles(
+            v2Mode,
+            [path],
+            createWorktreeSpawn(runner, worktreeDir, scope.verifierProcessGroups),
+          );
           if (aggregateExitCode(results) === 0) {
             return "pass";
           }
           return "fail";
         }
-        await runner.runAsync("bun", buildBaseRefProbeCommandArgs(terminalCommand, path), worktreeDir, {
-          maxBuffer: READY_GATE_MAX_BUFFER,
-          env: probeEnv,
-        });
+        const tracked = trackProcessGroup(scope.verifierProcessGroups);
+        try {
+          await runner.runAsync("bun", buildBaseRefProbeCommandArgs(terminalCommand, path), worktreeDir, {
+            maxBuffer: READY_GATE_MAX_BUFFER,
+            env: probeEnv,
+            processGroup: tracked.processGroup,
+          });
+        } finally {
+          tracked.settle();
+        }
         return "pass";
       } catch (error) {
         if (error instanceof AsyncSubprocessError) {
@@ -1026,40 +1051,24 @@ async function deriveReadyGateChildEnv(
   return { ...process.env, JARVIS_READY_TIER: "full", JARVIS_READY_TEST_SCOPE: testScope };
 }
 
-/**
- * Wraps a caller-supplied group-id recorder so a throw (e.g. a closed store handle) can neither
- * leave a just-spawned group unbound from the abort signal nor, from the settlement clear inside
- * a `finally`, replace an in-flight gate failure with a misattributed one.
- */
-function guardedOnGroupId(onGroupId: ((pgid: number | null) => void) | undefined): (pgid: number | null) => void {
-  return (pgid) => {
-    try {
-      onGroupId?.(pgid);
-    } catch {
-      // recorder failures must not unbind an already-spawned group or override the gate outcome
-    }
-  };
-}
-
 function createDefaultRunReadyGate(runner: AsyncSubprocessRunner): ReadyGate {
   return async (
     worktreePath: string,
     baseRef: string,
     gateOptions?: {
       signal?: AbortSignal | undefined;
-      onGroupId?: ((pgid: number | null) => void) | undefined;
+      processGroups?: VerifierProcessGroupRecorder | undefined;
       readyCommand?: string | undefined;
     },
   ): Promise<void> => {
     const env = await deriveReadyGateChildEnv(runner, worktreePath, baseRef);
-    const recordGroupId = guardedOnGroupId(gateOptions?.onGroupId);
-    const processGroup = { onGroupId: (pgid: number) => recordGroupId(pgid) };
+    const tracked = trackProcessGroup(gateOptions?.processGroups);
     const command = resolveReadyGateCommand(gateOptions?.readyCommand);
     try {
       await runner.runAsync(command.head, command.args, worktreePath, {
         env,
         signal: gateOptions?.signal,
-        processGroup,
+        processGroup: tracked.processGroup,
       });
     } catch (error) {
       if (error instanceof AsyncSubprocessError) {
@@ -1070,7 +1079,7 @@ function createDefaultRunReadyGate(runner: AsyncSubprocessRunner): ReadyGate {
       const detail = error instanceof Error ? error.message : String(error);
       throw new ReadyGateError(command.display, undefined, detail);
     } finally {
-      recordGroupId(null);
+      tracked.settle();
     }
   };
 }
@@ -1078,19 +1087,21 @@ function createDefaultRunReadyGate(runner: AsyncSubprocessRunner): ReadyGate {
 type RequiredIntegrationRunner = (
   worktreePath: string,
   scope: string,
-  options?: { signal?: AbortSignal | undefined; onGroupId?: ((pgid: number | null) => void) | undefined },
+  options?: { signal?: AbortSignal | undefined; processGroups?: VerifierProcessGroupRecorder | undefined },
 ) => Promise<void>;
 
 function createDefaultRunRequiredIntegration(runner: AsyncSubprocessRunner): RequiredIntegrationRunner {
   return async (
     worktreePath: string,
     scope: string,
-    integrationOptions?: { signal?: AbortSignal | undefined; onGroupId?: ((pgid: number | null) => void) | undefined },
+    integrationOptions?: { signal?: AbortSignal | undefined; processGroups?: VerifierProcessGroupRecorder | undefined },
   ): Promise<void> => {
-    const recordIntegrationGroupId = guardedOnGroupId(integrationOptions?.onGroupId);
-    const processGroup = { onGroupId: (pgid: number) => recordIntegrationGroupId(pgid) };
+    const tracked = trackProcessGroup(integrationOptions?.processGroups);
     try {
-      await runner.runAsync("bun", ["run", scope], worktreePath, { signal: integrationOptions?.signal, processGroup });
+      await runner.runAsync("bun", ["run", scope], worktreePath, {
+        signal: integrationOptions?.signal,
+        processGroup: tracked.processGroup,
+      });
     } catch (error) {
       if (error instanceof AsyncSubprocessError) {
         const output = `${error.stdout}${error.stderr}`;
@@ -1100,7 +1111,7 @@ function createDefaultRunRequiredIntegration(runner: AsyncSubprocessRunner): Req
       const detail = error instanceof Error ? error.message : String(error);
       throw new ReadyGateError(scope, undefined, detail);
     } finally {
-      recordIntegrationGroupId(null);
+      tracked.settle();
     }
   };
 }
@@ -1145,21 +1156,21 @@ export function createReadyFinalizer(seams?: ReadyFinalizerSeams): ReadyFinalize
     if (!input.skipReadyGate) {
       await runReadyGate(input.worktreePath, input.baseRef, {
         signal: input.signal,
-        onGroupId: input.onGateGroupId,
+        processGroups: input.verifierProcessGroups,
         readyCommand: input.readyCommand,
       });
     }
     if (input.requiredIntegrationScope) {
       await runRequiredIntegration(input.worktreePath, input.requiredIntegrationScope, {
         signal: input.signal,
-        onGroupId: input.onGateGroupId,
+        processGroups: input.verifierProcessGroups,
       });
     }
     if (runMutationVerification) {
-      await runMutationVerification(input.worktreePath, input.baseRef);
+      await runMutationVerification(input.worktreePath, input.baseRef, input.verifierProcessGroups);
     }
     const runtimeSmokeOutcome = runRuntimeSmokeVerification
-      ? await runRuntimeSmokeVerification(input.worktreePath, input.baseRef)
+      ? await runRuntimeSmokeVerification(input.worktreePath, input.baseRef, input.verifierProcessGroups)
       : undefined;
     if (runtimeSmokeOutcome?.kind === "smoke-failure") {
       throw new RuntimeSmokeFailedError(runtimeSmokeOutcome.command, runtimeSmokeOutcome.observation);

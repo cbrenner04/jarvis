@@ -27,6 +27,12 @@ import {
   validateRepoRelativePath,
 } from "./ready-finalize.ts";
 import { nonEmptyDiscoveryReason } from "./runtime-smoke-verifier.ts";
+import type { VerifierProcessGroupRecorder } from "./verifier-process-groups.ts";
+
+/** Records spawn ids then `null` on settle, mirroring the retired single-callback sequence. */
+function pushRecorder(recorded: Array<number | null>): VerifierProcessGroupRecorder {
+  return { record: (pgid) => recorded.push(pgid), clear: () => recorded.push(null) };
+}
 
 function gateOutput(parts: {
   completions?: Array<{ stepId: string; attemptId: string; command: string; status: number }>;
@@ -606,6 +612,51 @@ describe("ready gate untouched-path classification", () => {
     } finally {
       mock.module("../../../scripts/run-v2-tests.ts", () => realRunV2Tests);
     }
+  });
+
+  it("base-ref reproduction probe records its process group on the owning run row", async () => {
+    const failingPath = "v2/src/untouched.test.ts";
+    const recorded: number[] = [];
+    const cleared: number[] = [];
+    const probeSeams: ReadyGateScopeSeams = {
+      gitDiffNameStatus: async () => `M\0v2/src/changed.ts\0`,
+      gitUntracked: async () => "",
+      listSpecTreePaths: async () => ["v2/spec/demo/index.md"],
+    };
+    const mockRunner: AsyncSubprocessRunner = {
+      async runAsync(cmd, args, _cwd, options) {
+        if (cmd === "git" && args?.[0] === "merge-base") return "abc123\n";
+        if (cmd === "bun") {
+          // The probe spawn must be detached and bound: without a processGroup option this never fires.
+          options?.processGroup?.onGroupId?.(777);
+        }
+        return "";
+      },
+    };
+    const output = gateOutput({
+      completions: [{ stepId: "2", attemptId: "2.1", command: "bun run test:shared", status: 1 }],
+      failingFiles: [{ attemptId: "2.1", path: failingPath }],
+    });
+    const error = new ReadyGateError("bun run ready", 1, output);
+    const scopeWithRecorder = {
+      worktreePath: "/tmp/run-worktree",
+      baseRef: "main",
+      specPath: "v2/spec/demo/index.md",
+      verifierProcessGroups: {
+        record: (pgid: number) => recorded.push(pgid),
+        clear: (pgid: number) => cleared.push(pgid),
+      },
+    };
+    await classifyReadyGateFailure(
+      error,
+      [failingPath],
+      new Set(["v2/src/changed.ts"]),
+      scopeWithRecorder,
+      probeSeams,
+      mockRunner,
+    );
+    expect(recorded).toEqual([777]);
+    expect(cleared).toEqual([777]);
   });
 
   it("base-ref reproduction classifies a base-passing worktree-failing path as in scope", async () => {
@@ -1358,7 +1409,7 @@ index 1234567..abcdefg 100644
     };
     const finalizer = createReadyFinalizer({ asyncSubprocessRunner: mockRunner, ghReadyFlip: async () => {} });
 
-    await finalizer({ ...input, onGateGroupId: (pgid) => recorded.push(pgid) });
+    await finalizer({ ...input, verifierProcessGroups: pushRecorder(recorded) });
 
     expect(recorded).toEqual([4242, null]);
   });
@@ -1378,7 +1429,7 @@ index 1234567..abcdefg 100644
     };
     const finalizer = createReadyFinalizer({ asyncSubprocessRunner: mockRunner });
 
-    await expect(finalizer({ ...input, onGateGroupId: (pgid) => recorded.push(pgid) })).rejects.toThrow(
+    await expect(finalizer({ ...input, verifierProcessGroups: pushRecorder(recorded) })).rejects.toThrow(
       "ready gate failed",
     );
 
@@ -1402,7 +1453,7 @@ index 1234567..abcdefg 100644
     await finalizer({
       ...input,
       requiredIntegrationScope: "test:integration:v2",
-      onGateGroupId: (pgid) => recorded.push(pgid),
+      verifierProcessGroups: pushRecorder(recorded),
     });
 
     expect(recorded).toEqual([1111, null, 2222, null]);
@@ -1437,7 +1488,7 @@ index 1234567..abcdefg 100644
       finalizer({
         ...input,
         requiredIntegrationScope: "test:integration:v2",
-        onGateGroupId: (pgid) => recorded.push(pgid),
+        verifierProcessGroups: pushRecorder(recorded),
       }),
     ).rejects.toThrow("stdout failure");
 
@@ -1467,7 +1518,7 @@ index 1234567..abcdefg 100644
       },
     });
 
-    await finalizer({ ...input, onGateGroupId: throwingRecorder });
+    await finalizer({ ...input, verifierProcessGroups: { record: throwingRecorder, clear: throwingRecorder } });
 
     expect(calls).toBe(2);
     expect(flipCalls).toBe(1);
@@ -1494,7 +1545,9 @@ index 1234567..abcdefg 100644
       },
     });
 
-    await expect(finalizer({ ...input, onGateGroupId: throwingRecorder })).rejects.toThrow(ReadyGateError);
+    await expect(
+      finalizer({ ...input, verifierProcessGroups: { record: throwingRecorder, clear: throwingRecorder } }),
+    ).rejects.toThrow(ReadyGateError);
     expect(flipCalls).toBe(0);
   });
 

@@ -3500,3 +3500,50 @@ describe("registered prompt path discovery", () => {
     expect(source).not.toMatch(/\.split\("\\n"\)[\s\S]{0,120}prompts\/\$\{/);
   });
 });
+
+describe("verifier spawn process-group recording", () => {
+  it("each concurrent scoped verifier spawn records its own process group without overwriting siblings", async () => {
+    const recorded: number[] = [];
+    const cleared: number[] = [];
+    let nextPgid = 1000;
+    let inFlight = 0;
+    const mockRunner = {
+      runAsync: async (_cmd: string, _args: string[], _cwd: string, options?: AsyncSubprocessOptions) => {
+        inFlight += 1;
+        options?.processGroup?.onGroupId?.(nextPgid++);
+        // Yield so concurrent siblings interleave, then settle (no timer: determinism guard).
+        await Promise.resolve();
+        inFlight -= 1;
+        return "";
+      },
+    };
+    const scope = Array.from(
+      { length: MAX_CONCURRENT_VERIFIER_TEST_RUNS + 2 },
+      (_, i) => `shared/fixture/p${i}.test.ts`,
+    );
+    const passed = await runDiffDerivedScopedTests("/test/path", scope, mockRunner, {
+      processGroups: { record: (pgid) => recorded.push(pgid), clear: (pgid) => cleared.push(pgid) },
+    });
+    expect(passed).toBe(true);
+    expect(inFlight).toBe(0);
+    // One id per spawn, every one recorded, every one cleared exactly once.
+    const expected = Array.from({ length: scope.length }, (_, i) => 1000 + i);
+    expect([...recorded].sort((a, b) => a - b)).toEqual(expected);
+    expect([...cleared].sort((a, b) => a - b)).toEqual(expected);
+  });
+
+  it("clears a spawn's recorded group when the killing test fails", async () => {
+    const cleared: number[] = [];
+    const mockRunner = {
+      runAsync: async (_cmd: string, _args: string[], _cwd: string, options?: AsyncSubprocessOptions) => {
+        options?.processGroup?.onGroupId?.(42);
+        throw new AsyncSubprocessError("failed", 1, "", "red", undefined);
+      },
+    };
+    const passed = await runDiffDerivedScopedTests("/test/path", ["shared/fixture/red.test.ts"], mockRunner, {
+      processGroups: { record: () => {}, clear: (pgid) => cleared.push(pgid) },
+    });
+    expect(passed).toBe(false);
+    expect(cleared).toEqual([42]);
+  });
+});

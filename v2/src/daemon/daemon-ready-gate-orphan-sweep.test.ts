@@ -82,6 +82,39 @@ test("sweeps a ready-gate pgid when the owning run owner is dead", async () => {
   sweepStore.close();
 });
 
+test("sweeps every recorded verifier group for a dead-owner run, not only the ready-gate group", async () => {
+  const runId = createRun(seedStore);
+  seedStore.setReadyGatePgid(runId, 100);
+  seedStore.recordVerifierProcessGroup(runId, 200);
+  seedStore.recordVerifierProcessGroup(runId, 300);
+  const kills: Array<{ pid: number; signal: NodeJS.Signals }> = [];
+  process.kill = ((pid, signal) => {
+    kills.push({ pid: pid as number, signal: signal as NodeJS.Signals });
+    return true;
+  }) as typeof process.kill;
+
+  const sweepStore = openSweepStore(async (identity) => identity !== PRIOR_IDENTITY);
+  await sweepOrphanReadyGateGroups(sweepStore);
+
+  const terminated = kills.filter((entry) => entry.signal === "SIGTERM").map((entry) => -entry.pid);
+  expect(terminated.sort((a, b) => a - b)).toEqual([100, 200, 300]);
+  // Each swept id is cleared individually: no stale sibling survives the sweep.
+  expect(await sweepStore.listReadyGateSweepCandidates()).toEqual([]);
+  expect(sweepStore.loadRun(runId)?.readyGatePgid ?? null).toBeNull();
+  // Drain every escalation timer before the next test swaps process.kill.
+  const deadline = Date.now() + 5_000;
+  while (kills.filter((entry) => entry.signal === "SIGKILL").length < 3 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  expect(
+    kills
+      .filter((entry) => entry.signal === "SIGKILL")
+      .map((entry) => -entry.pid)
+      .sort((a, b) => a - b),
+  ).toEqual([100, 200, 300]);
+  sweepStore.close();
+});
+
 test("signalReadyGateProcessGroup escalates SIGTERM to SIGKILL", async () => {
   const pgid = 616161;
   const kills: Array<{ pid: number; signal: NodeJS.Signals }> = [];

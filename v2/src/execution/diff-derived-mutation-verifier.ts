@@ -11,10 +11,13 @@ import {
 import { AsyncSubprocessError, type AsyncSubprocessOptions } from "../../../shared/subprocess.ts";
 import { type ChangedLine, changedPathsFromDiff, defaultGitDiff, isProductionFile, parseDiff } from "./diff-scan.ts";
 import { importedModulePaths, resolveImportedModule } from "./runtime-smoke-verifier.ts";
+import { trackProcessGroup, type VerifierProcessGroupRecorder } from "./verifier-process-groups.ts";
 
 export type DiffDerivedMutationVerifierInput = {
   worktreePath: string;
   runBase: string;
+  /** Records each scoped `bun test` spawn's process group on the owning run row. */
+  processGroups?: VerifierProcessGroupRecorder;
 };
 
 type AcceptedSite = {
@@ -93,7 +96,7 @@ function deduplicateCandidates(candidates: Candidate[]): Candidate[] {
 
 type GitDiff = (cwd: string, baseRef: string) => Promise<string>;
 type UntrackedFiles = (cwd: string) => Promise<string[]>;
-export type RunScopedTestsOptions = { timeoutMs?: number };
+export type RunScopedTestsOptions = { timeoutMs?: number; processGroups?: VerifierProcessGroupRecorder };
 type RunScopedTests = (cwd: string, scope: string[], options?: RunScopedTestsOptions) => Promise<boolean>;
 type ReadFile = (path: string) => Promise<string>;
 type WriteFile = (path: string, content: string) => Promise<void>;
@@ -333,10 +336,16 @@ export async function runDiffDerivedScopedTests(
   const results = await Promise.allSettled(
     scope.map((testPath) =>
       semaphore.run(async () => {
-        await subprocess.runAsync("bun", ["test", testPath], cwd, {
-          timeoutMs,
-          processGroup: {},
-        });
+        // One recorded group per spawn: concurrent siblings must not overwrite each other's ids.
+        const tracked = trackProcessGroup(options?.processGroups);
+        try {
+          await subprocess.runAsync("bun", ["test", testPath], cwd, {
+            timeoutMs,
+            processGroup: tracked.processGroup,
+          });
+        } finally {
+          tracked.settle();
+        }
       }),
     ),
   );
@@ -1422,7 +1431,12 @@ export async function verifyDiffDerivedMutations(
 ): Promise<VerificationResult> {
   const gitDiff = seams?.gitDiff ?? defaultGitDiff;
   const untrackedFilesFunc = seams?.untrackedFiles ?? defaultUntrackedFiles;
-  const runScopedTests = seams?.runScopedTests ?? defaultRunScopedTests;
+  const scopedTestRunner = seams?.runScopedTests ?? defaultRunScopedTests;
+  const runScopedTests: RunScopedTests = (cwd, scope, options) =>
+    scopedTestRunner(cwd, scope, {
+      ...options,
+      ...(input.processGroups !== undefined ? { processGroups: input.processGroups } : {}),
+    });
   const readFile = seams?.readFile ?? defaultReadFile;
   const writeFile = seams?.writeFile ?? defaultWriteFile;
   const registeredPromptPaths = seams?.registeredPromptPaths ?? defaultRegisteredPromptPaths;

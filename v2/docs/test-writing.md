@@ -225,6 +225,16 @@ When a guard inside a `setInterval` callback changes, extract it into a pure exp
 
 **Teaching fixture:** [`timer-callback-guard-fixture.ts`](../src/testing/timer-callback-guard-fixture.ts) — pure `shouldStopPolling` plus `registerStopPoll` for the `setInterval` wiring. Inverting `!hasPendingWork` to `hasPendingWork` fails the first predicate case; see [`timer-callback-guard-fixture.test.ts`](../src/testing/timer-callback-guard-fixture.test.ts).
 
+## Structural-invariant tests
+
+A structural-invariant test pins a property of the source tree (a module does not import X, a registry lists every artifact, a helper has one definition) rather than a runtime behavior. Anchor it on the property, not the arrangement:
+
+- **Assert the property, not the arrangement.** The invariant must survive a sound rename, move, or reorder. Line numbers, symbol names, hand-maintained file lists, and copied registry literals are arrangement, not property; a test keyed on them goes red on hygiene and stays green on the defect it was written for.
+- **Anchor on the source of truth.** Read the real registry, manifest, or discovery script output (`prompts/registry.txt`, `scripts/discover-structural-invariant-tests.ts`, the shared production-file predicate) instead of mirroring it into the test. A mirror drifts silently and pins yesterday's inventory.
+- **Fail loudly when the subject cannot be located.** Use `shared/structural-test-locator.ts` (`locateMarkerSlice`, `locateSymbolSlice`, `locateDiscoveredFile`, `locateFrontmatterField`); each throws `StructuralTestLocatorError` naming the search key instead of returning an empty slice that every absence assertion passes against.
+- **Pair absence with presence for moves.** A test that only asserts the old site is gone passes vacuously once the whole feature is deleted; assert the new site exists with the same contract in the same test.
+- **Reference the audit, do not re-list.** `v2/docs/structural-invariant-test-audit.md` carries the discovery rules, the classification rubric, and the live inventory; cite it rather than maintaining a second list of structural tests in prose.
+
 ## Guard-inversion evidence
 
 During implementation, invert each added or modified real guard and prove its pinning test turns red. Production invert hooks are not evidence.

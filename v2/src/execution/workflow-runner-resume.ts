@@ -85,8 +85,7 @@ export const EXTRACTED_FROM_WORKFLOW_RUNNER = [
   "resumePopulatedIntentPublication",
   "resumeReviewMutationFinalization",
   "landReviewedPublicationOutput",
-  "settleIntentResumeFailure",
-  "settleReviewMutationResumeFailure",
+  "settlePublicationResumeFailure",
   "resolveReviewMutationRowHead",
   "admitPlanRecoveryBlockerAndClaim",
   "restoreVerdictSidecars",
@@ -1016,16 +1015,32 @@ function intentFinalizationSettlementResumable(store: StateStore, runId: string)
   return resolveIntentFinalizationResumeContext(settledRun, store).ok;
 }
 
-/** Settle the resume attempt as a visible failure — never a silent no-op on an admitted resume. */
-function settleIntentResumeFailure(
+type PublicationResumeSettlementPolicy = {
+  /** Whether the emitted `loop_finished` is retryable, judged after the boundary commits. */
+  resumable: (store: StateStore, runId: string, loopOutcomeKind: WriteLoopOutcomeKind) => boolean;
+};
+
+/** Intent finalization: retryable iff the settled run still admits `resumePopulatedIntentPublication`. */
+const INTENT_FINALIZATION_RESUME_POLICY: PublicationResumeSettlementPolicy = {
+  resumable: (store, runId) => intentFinalizationSettlementResumable(store, runId),
+};
+
+/**
+ * Settle a publication-resume attempt (intent finalization or review-mutation finalization) as a
+ * visible failure — never a silent no-op on an admitted resume. One writer serves both callers so
+ * the `resumable` projection cannot re-diverge; the policy owns retryability, the context supplies
+ * the trace landing when the caller has one.
+ */
+function settlePublicationResumeFailure(
   store: StateStore,
-  context: IntentFinalizationResumeContext,
+  context: { runId: string; branch: string; landing?: WriteWorkflowStep["landing"] },
   attemptId: string,
   loopOutcomeKind: WriteLoopOutcomeKind,
   iterationsConsumed: number,
   message: string,
-  deps: IntentFinalizationResumeDeps,
-): IntentFinalizationResumeOutcome {
+  logSink: LogSink | undefined,
+  policy: PublicationResumeSettlementPolicy,
+): { ok: false; message: string } {
   store.commitCompletionBoundary({
     attemptId,
     runStatus: "failed",
@@ -1033,23 +1048,22 @@ function settleIntentResumeFailure(
     invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message },
     ...completionBoundarySettlementFields(loopOutcomeKind, terminalFailureDetailFromError(undefined, message)),
   });
-  const intentResumeCommitErrorMessage = message;
-  deps.logSink?.append(context.runId, {
+  logSink?.append(context.runId, {
     kind: "loop_finished",
     loopOutcomeKind,
     iterationsConsumed,
-    resumable: intentFinalizationSettlementResumable(store, context.runId),
-    ...(loopOutcomeKind === "completion_commit_failed"
-      ? { completionCommitError: intentResumeCommitErrorMessage }
-      : {}),
+    resumable: policy.resumable(store, context.runId, loopOutcomeKind),
+    ...(loopOutcomeKind === "completion_commit_failed" ? { completionCommitError: message } : {}),
   });
-  traceCompletionPublication(
-    deps.logSink,
-    context.runId,
-    context.landing,
-    context.branch,
-    `${loopOutcomeKind}: ${message}`,
-  );
+  if (context.landing !== undefined) {
+    traceCompletionPublication(
+      logSink,
+      context.runId,
+      context.landing,
+      context.branch,
+      `${loopOutcomeKind}: ${message}`,
+    );
+  }
   return { ok: false, message };
 }
 
@@ -1103,14 +1117,15 @@ async function settleIntentResumeUncommittedFailure(
   const remainingStaged = remainingStagedIntentPaths(context.worktreePath, context.landing);
   const namedPaths = [...new Set([...uncommitted, ...remainingStaged])];
   if (namedPaths.length === 0) return undefined;
-  return settleIntentResumeFailure(
+  return settlePublicationResumeFailure(
     store,
     context,
     attemptId,
     "completion_commit_failed",
     0,
     `Uncommitted changes: ${namedPaths.join(", ")}`,
-    deps,
+    deps.logSink,
+    INTENT_FINALIZATION_RESUME_POLICY,
   );
 }
 
@@ -1172,7 +1187,16 @@ async function runIntentResumeCommitAndPublish(
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return settleIntentResumeFailure(store, context, attemptId, "completion_commit_failed", 0, message, deps);
+    return settlePublicationResumeFailure(
+      store,
+      context,
+      attemptId,
+      "completion_commit_failed",
+      0,
+      message,
+      deps.logSink,
+      INTENT_FINALIZATION_RESUME_POLICY,
+    );
   }
   const uncommittedFailure = await settleIntentResumeUncommittedFailure(published, context, store, attemptId, deps);
   if (uncommittedFailure !== undefined) return uncommittedFailure;
@@ -1292,14 +1316,15 @@ export async function resumePopulatedIntentPublication(
 
   try {
     if (context.completionAgent === undefined) {
-      return settleIntentResumeFailure(
+      return settlePublicationResumeFailure(
         store,
         context,
         attemptId,
         "invocation_failure",
         0,
         "no completion agent available to attribute the publication commit",
-        deps,
+        deps.logSink,
+        INTENT_FINALIZATION_RESUME_POLICY,
       );
     }
 
@@ -1326,13 +1351,31 @@ export async function resumePopulatedIntentPublication(
       },
     });
     if (!landed.ok) {
-      return settleIntentResumeFailure(store, context, attemptId, "invocation_failure", 0, landed.message, deps);
+      return settlePublicationResumeFailure(
+        store,
+        context,
+        attemptId,
+        "invocation_failure",
+        0,
+        landed.message,
+        deps.logSink,
+        INTENT_FINALIZATION_RESUME_POLICY,
+      );
     }
 
     return await runIntentResumeCommitAndPublish(context, store, attemptId, deps, writeSibling);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return settleIntentResumeFailure(store, context, attemptId, "invocation_failure", 0, message, deps);
+    return settlePublicationResumeFailure(
+      store,
+      context,
+      attemptId,
+      "invocation_failure",
+      0,
+      message,
+      deps.logSink,
+      INTENT_FINALIZATION_RESUME_POLICY,
+    );
   }
 }
 
@@ -1684,36 +1727,12 @@ type ReviewMutationResumeDeps = IntentFinalizationResumeDeps & {
 };
 
 /** Settle the review-mutation resume attempt as a visible failure — never a silent no-op or a strand at `in-progress`. */
-function settleReviewMutationResumeFailure(
-  store: StateStore,
-  context: ReviewMutationResumeContext,
-  attemptId: string,
-  loopOutcomeKind: WriteLoopOutcomeKind,
-  message: string,
-  deps: ReviewMutationResumeDeps,
-): ReviewMutationResumeOutcome {
-  store.commitCompletionBoundary({
-    attemptId,
-    runStatus: "failed",
-    outcomeKind: "invocation_failure",
-    invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message },
-    ...completionBoundarySettlementFields(loopOutcomeKind, terminalFailureDetailFromError(undefined, message)),
-  });
-  const reviewMutationResumeCommitErrorMessage = message;
-  deps.logSink?.append(context.runId, {
-    kind: "loop_finished",
-    loopOutcomeKind,
-    iterationsConsumed: 0,
-    // Reflects this resolver's own retryability (see the sibling emit site below), not a blanket
-    // "this tail can always be retried" — e.g. `invocation_failure` (no completion agent, thrown
-    // error) is never in the admitted set, so it must not claim resumable either.
-    resumable: REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS.has(loopOutcomeKind),
-    ...(loopOutcomeKind === "completion_commit_failed"
-      ? { completionCommitError: reviewMutationResumeCommitErrorMessage }
-      : {}),
-  });
-  return { ok: false, message };
-}
+/** Review-mutation finalization: retryable iff the outcome kind is one this resolver itself admits. */
+const REVIEW_MUTATION_RESUME_POLICY: PublicationResumeSettlementPolicy = {
+  // `invocation_failure` (no completion agent, thrown error) is never in the admitted set, so it
+  // must not claim resumable either.
+  resumable: (_store, _runId, loopOutcomeKind) => REVIEW_MUTATION_RESUMABLE_OUTCOME_KINDS.has(loopOutcomeKind),
+};
 
 /**
  * Commit uncommitted worktree changes (the natural "fix coverage, then resume" operator gesture)
@@ -1737,13 +1756,15 @@ async function commitReviewMutationResumeChanges(
     context.writeSiblingRunId,
   );
   if (recoveryFenceError !== undefined) {
-    return settleReviewMutationResumeFailure(
+    return settlePublicationResumeFailure(
       store,
       context,
       attemptId,
       "completion_commit_failed",
+      0,
       recoveryFenceError.message,
-      deps,
+      deps.logSink,
+      REVIEW_MUTATION_RESUME_POLICY,
     );
   }
   const committer = deps.completionCommitter ?? createCompletionCommitter();
@@ -1760,18 +1781,29 @@ async function commitReviewMutationResumeChanges(
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return settleReviewMutationResumeFailure(store, context, attemptId, "completion_commit_failed", message, deps);
+    return settlePublicationResumeFailure(
+      store,
+      context,
+      attemptId,
+      "completion_commit_failed",
+      0,
+      message,
+      deps.logSink,
+      REVIEW_MUTATION_RESUME_POLICY,
+    );
   }
   if (published.commitSha === undefined) {
     const uncommitted = await getUncommittedPaths(context.worktreePath, externalSpecGitScope(context));
     if (uncommitted.length > 0) {
-      return settleReviewMutationResumeFailure(
+      return settlePublicationResumeFailure(
         store,
         context,
         attemptId,
         "completion_commit_failed",
+        0,
         `Uncommitted changes: ${uncommitted.join(", ")}`,
-        deps,
+        deps.logSink,
+        REVIEW_MUTATION_RESUME_POLICY,
       );
     }
   }
@@ -1976,13 +2008,15 @@ async function runMutationRepairAttempt(
     const message = error instanceof Error ? error.message : String(error);
     return {
       kind: "settled",
-      outcome: await settleReviewMutationResumeFailure(
+      outcome: await settlePublicationResumeFailure(
         store,
         context,
         store.recordAttemptStart(context.runId),
         "completion_commit_failed",
+        0,
         message,
-        deps,
+        deps.logSink,
+        REVIEW_MUTATION_RESUME_POLICY,
       ),
     };
   }
@@ -2023,13 +2057,15 @@ async function runMutationRepairAttempt(
     appendRuntimeSmokeOutcome(deps.logSink, context.runId, publication.failure.runtimeSmokeOutcome);
     return {
       kind: "settled",
-      outcome: await settleReviewMutationResumeFailure(
+      outcome: await settlePublicationResumeFailure(
         store,
         context,
         store.recordAttemptStart(context.runId),
         publication.failure.kind,
+        0,
         publication.failure.error?.message ?? publication.failure.kind,
-        deps,
+        deps.logSink,
+        REVIEW_MUTATION_RESUME_POLICY,
       ),
     };
   }
@@ -2199,13 +2235,15 @@ async function runReviewMutationCommitAndPublish(
     context.writeSiblingRunId,
   );
   if (publishFenceError !== undefined) {
-    return settleReviewMutationResumeFailure(
+    return settlePublicationResumeFailure(
       store,
       context,
       attemptId,
       "completion_commit_failed",
+      0,
       publishFenceError.message,
-      deps,
+      deps.logSink,
+      REVIEW_MUTATION_RESUME_POLICY,
     );
   }
 
@@ -2386,13 +2424,15 @@ async function replayMutationFinalization(
 
   try {
     if (context.completionAgent === undefined) {
-      return settleReviewMutationResumeFailure(
+      return settlePublicationResumeFailure(
         store,
         context,
         attemptId,
         "invocation_failure",
+        0,
         "no completion agent available to attribute the publication commit",
-        deps,
+        deps.logSink,
+        REVIEW_MUTATION_RESUME_POLICY,
       );
     }
 
@@ -2404,7 +2444,16 @@ async function replayMutationFinalization(
     return await runReviewMutationCommitAndPublish(context, store, attemptId, deps, writeSibling);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return settleReviewMutationResumeFailure(store, context, attemptId, "invocation_failure", message, deps);
+    return settlePublicationResumeFailure(
+      store,
+      context,
+      attemptId,
+      "invocation_failure",
+      0,
+      message,
+      deps.logSink,
+      REVIEW_MUTATION_RESUME_POLICY,
+    );
   }
 }
 

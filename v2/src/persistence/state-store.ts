@@ -667,6 +667,9 @@ export interface StateStore {
   /** Remove every recorded verifier process group id for the run and clear the gate-slot column. */
   clearVerifierProcessGroups(runId: string): void;
 
+  /** Every verifier process group id currently recorded for the run, in recording order. */
+  verifierProcessGroups(runId: string): number[];
+
   /** Non-live run rows carrying recorded verifier process group ids (daemon startup orphan sweep). */
   listReadyGateSweepCandidates(): Promise<ReadonlyArray<{ runId: string; readyGatePgid: number }>>;
 
@@ -1786,6 +1789,16 @@ class StateStoreImpl implements StateStore {
   clearVerifierProcessGroup(runId: string, pgid: number): void {
     this.db.prepare("DELETE FROM run_verifier_process_groups WHERE run_id = ? AND pgid = ?").run(runId, pgid);
     this.db.prepare("UPDATE runs SET ready_gate_pgid = NULL WHERE id = ? AND ready_gate_pgid = ?").run(runId, pgid);
+  }
+
+  verifierProcessGroups(runId: string): number[] {
+    return (
+      this.db
+        .prepare("SELECT pgid FROM run_verifier_process_groups WHERE run_id = ? ORDER BY rowid")
+        .all(runId) as Array<{
+        pgid: number;
+      }>
+    ).map((row) => row.pgid);
   }
 
   clearVerifierProcessGroups(runId: string): void {

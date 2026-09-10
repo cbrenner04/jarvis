@@ -98,7 +98,7 @@ test("terminating a run mid-gate kills the ready gate process group", async () =
             void waitForFileToExist(join(worktreePath, TRAP_MARKER), 45_000)
               .then(() => {
                 if (runId !== undefined) {
-                  midFlightPgid = store.loadRun(runId)?.readyGatePgid ?? null;
+                  midFlightPgid = store.verifierProcessGroups(runId)[0] ?? null;
                 }
                 controller.abort();
               })
@@ -142,7 +142,7 @@ test("terminating a run mid-gate kills the ready gate process group", async () =
     }
     expect(runId).toBeDefined();
     if (runId !== undefined) {
-      expect(store.loadRun(runId)?.readyGatePgid ?? null).toBeNull();
+      expect(store.verifierProcessGroups(runId)).toEqual([]);
     }
   } finally {
     store.close();

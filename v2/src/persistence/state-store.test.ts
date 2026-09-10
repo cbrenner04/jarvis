@@ -160,6 +160,17 @@ describe("StateStore", () => {
     reopened.close();
   });
 
+  test("verifierProcessGroups lists recorded ids in order and drops cleared ones", () => {
+    const runId = seedRun(store);
+    expect(store.verifierProcessGroups(runId)).toEqual([]);
+    store.recordVerifierProcessGroup(runId, 300);
+    store.recordVerifierProcessGroup(runId, 100);
+    store.recordVerifierProcessGroup(runId, 200);
+    expect(store.verifierProcessGroups(runId)).toEqual([300, 100, 200]);
+    store.clearVerifierProcessGroup(runId, 100);
+    expect(store.verifierProcessGroups(runId)).toEqual([300, 200]);
+  });
+
   test("recordVerifierProcessGroup duplicate insert is idempotent", () => {
     const runId = seedRun(store);
     store.recordVerifierProcessGroup(runId, 4242);

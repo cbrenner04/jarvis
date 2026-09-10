@@ -2413,11 +2413,12 @@ describe("implement preflight stale workspace reset", () => {
         expect(connected.registry.isClaimed(key)).toBe(true);
         expect(connected.stateStore.loadRun(runId)?.status).not.toBe(expectedStatus);
 
-        const killed = await connected.handlers.kill(
+        // Kill aborts synchronously, then waits (bounded) for durable settlement: the row stays live and
+        // the lock and claim stay held while the repair has not quiesced.
+        const killPromise = connected.handlers.kill(
           { kind: "request", id: "kill", method: "kill", params: { runId } },
           new AbortController().signal,
         );
-        expect(killed).toEqual({ kind: "response", result: { ok: true } });
         expect(repairSignal?.aborted).toBe(true);
         expect(connected.stateStore.loadRun(runId)?.status).not.toBe("killed");
 
@@ -2433,6 +2434,8 @@ describe("implement preflight stale workspace reset", () => {
         );
         expect(claimed).toMatchObject({ kind: "error", code: "worktree_claimed" });
         releaseRepair?.();
+        const killed = await killPromise;
+        expect(killed).toMatchObject({ kind: "response", result: { ok: true, outcome: "settled", status: "killed" } });
       } else {
         await repairStarted;
         expect(existsSync(lockPath)).toBe(true);

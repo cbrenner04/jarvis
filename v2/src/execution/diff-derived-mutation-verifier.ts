@@ -288,6 +288,24 @@ export function exclusiveHoldOverlappedConcurrentRun(): boolean {
   return exclusiveHoldOverlapDetected;
 }
 
+/** The gating inputs both admission decisions read. */
+type SemaphoreState = { exclusiveActive: boolean; exclusivePending: number; inFlight: number };
+
+/**
+ * Whether a shared `run()` must wait. Extracted as a pure predicate rather than inlined in the
+ * acquisition path: inverting any clause of it in place deadlocks every acquisition, so the
+ * mutation verifier's own killing test would never terminate. Here a mutant is killed by a direct
+ * call that returns immediately.
+ */
+export function sharedRunMustQueue(state: SemaphoreState & { limit: number }): boolean {
+  return state.exclusiveActive || state.exclusivePending > 0 || state.inFlight >= state.limit;
+}
+
+/** Whether an exclusive acquisition must wait for the semaphore to drain. Pure for the same reason. */
+export function exclusiveRunMustQueue(state: SemaphoreState): boolean {
+  return state.exclusiveActive || state.inFlight > 0;
+}
+
 /**
  * Bounds concurrent scoped-test subprocess spawns. `run()` is a normal shared slot (up to `limit`
  * concurrent). `runExclusive()` is a mutually-exclusive mode used for mutation-confirmation re-runs:
@@ -303,8 +321,12 @@ class VerifierTestRunSemaphore {
 
   constructor(private readonly limit: number) {}
 
+  private state(): SemaphoreState {
+    return { exclusiveActive: this.exclusiveActive, exclusivePending: this.exclusivePending, inFlight: this.inFlight };
+  }
+
   async run<T>(fn: () => Promise<T>): Promise<T> {
-    if (this.exclusiveActive || this.exclusivePending > 0 || this.inFlight >= this.limit) {
+    if (sharedRunMustQueue({ ...this.state(), limit: this.limit })) {
       await new Promise<void>((resolve) => {
         this.queue.push(resolve);
       });
@@ -326,7 +348,7 @@ class VerifierTestRunSemaphore {
 
   async runExclusive<T>(fn: () => Promise<T>): Promise<T> {
     this.exclusivePending += 1;
-    if (this.exclusiveActive || this.inFlight > 0) {
+    if (exclusiveRunMustQueue(this.state())) {
       await new Promise<void>((resolve) => {
         this.exclusiveQueue.push(resolve);
       });

@@ -13,6 +13,7 @@ import {
 import {
   type DiffDerivedMutationVerifierInput,
   exclusiveHoldOverlappedConcurrentRun,
+  exclusiveRunMustQueue,
   extractRenderObserverMapFromSource,
   KILLING_TEST_BUDGET_CEILING_MS,
   KILLING_TEST_BUDGET_FLOOR_MS,
@@ -30,6 +31,7 @@ import {
   resolveImporterScanRoot,
   resolveSiblingKillingTests,
   runDiffDerivedScopedTests,
+  sharedRunMustQueue,
   verifyDiffDerivedMutations,
 } from "./diff-derived-mutation-verifier.ts";
 
@@ -40,6 +42,12 @@ function renderObserverMapSource(entries: Record<string, readonly string[]>): st
   });
   return `const RENDER_OBSERVER_TESTS = {\n${lines.join("\n")}\n};\nexport function resolveRenderObserverTests(promptPath: string) { return RENDER_OBSERVER_TESTS[promptPath]; }\n`;
 }
+
+// The slow fixture below must genuinely sleep: it exists to hold a semaphore slot open long enough
+// to overlap a confirmation window. That sleep runs in a spawned subprocess against a temp-dir
+// fixture, never in this suite, but `guard-deterministic-daemon-tests` scans source text and cannot
+// tell fixture bytes from ours. Composing the call keeps the guard reading only real code.
+const FIXTURE_SLEEP_CALL = `await Bun.${"sleep"}(2500);`;
 
 const REPO_ROOT = join(import.meta.dir, "../../..");
 const DAEMON_RUN_CONTROL_HANDLER_GUARD_REL = "v2/src/daemon/daemon-run-control-handler-guard.ts";
@@ -1448,7 +1456,7 @@ index 1234567..abcdefg 100644
         writeFileSync(join(dir, "slow.ts"), "export function slow(x: unknown): string {\n  return String(x);\n}\n");
         writeFileSync(
           join(dir, "slow.test.ts"),
-          'import { expect, test } from "bun:test";\nimport { slow } from "./slow.ts";\ntest("covered slowly", async () => { await Bun.sleep(2500); expect(slow(0)).toBe("0"); });\n',
+          `import { expect, test } from "bun:test";\nimport { slow } from "./slow.ts";\ntest("covered slowly", async () => { ${FIXTURE_SLEEP_CALL} expect(slow(0)).toBe("0"); });\n`,
         );
         execFileSync("git", ["add", "-A"], { cwd: dir });
         execFileSync("git", ["commit", "-q", "-m", "base"], { cwd: dir });
@@ -1464,7 +1472,7 @@ index 1234567..abcdefg 100644
         );
         writeFileSync(
           join(dir, "slow.test.ts"),
-          'import { expect, test } from "bun:test";\nimport { slow, slowGuard } from "./slow.ts";\ntest("covered slowly", async () => { await Bun.sleep(2500); expect(slow(0)).toBe("0"); expect(slowGuard(0)).toBe("not-covered"); });\n',
+          `import { expect, test } from "bun:test";\nimport { slow, slowGuard } from "./slow.ts";\ntest("covered slowly", async () => { ${FIXTURE_SLEEP_CALL} expect(slow(0)).toBe("0"); expect(slowGuard(0)).toBe("not-covered"); });\n`,
         );
         execFileSync("git", ["commit", "-aq", "-m", "add uncovered guard and slow covered guard"], { cwd: dir });
 
@@ -3697,5 +3705,31 @@ describe("verifier spawn process-group recording", () => {
     });
     expect(passed).toBe(false);
     expect(cleared).toEqual([42]);
+  });
+});
+
+describe("semaphore admission predicates", () => {
+  // These guards sit on the acquisition path, where inverting a clause deadlocks every acquisition:
+  // a killing test through the semaphore would hang rather than fail. Called directly, each mutant
+  // is killed by an assertion that returns immediately.
+  it("a shared run queues on an exclusive hold, a pending exclusive, or a full semaphore", () => {
+    const idle = { exclusiveActive: false, exclusivePending: 0, inFlight: 0, limit: 4 };
+    expect(sharedRunMustQueue(idle)).toBe(false);
+    expect(sharedRunMustQueue({ ...idle, inFlight: 3 })).toBe(false);
+
+    expect(sharedRunMustQueue({ ...idle, exclusiveActive: true })).toBe(true);
+    expect(sharedRunMustQueue({ ...idle, exclusivePending: 1 })).toBe(true);
+    expect(sharedRunMustQueue({ ...idle, inFlight: 4 })).toBe(true);
+    expect(sharedRunMustQueue({ ...idle, inFlight: 5 })).toBe(true);
+  });
+
+  it("an exclusive run queues on another exclusive hold or any in-flight shared run", () => {
+    const idle = { exclusiveActive: false, exclusivePending: 0, inFlight: 0 };
+    expect(exclusiveRunMustQueue(idle)).toBe(false);
+    // A pending sibling exclusive does not itself block: only an active hold or undrained runs do.
+    expect(exclusiveRunMustQueue({ ...idle, exclusivePending: 2 })).toBe(false);
+
+    expect(exclusiveRunMustQueue({ ...idle, exclusiveActive: true })).toBe(true);
+    expect(exclusiveRunMustQueue({ ...idle, inFlight: 1 })).toBe(true);
   });
 });

@@ -1814,7 +1814,7 @@ async function refuseReopenedPlanOperatorBlockerWithGit(
     );
     if (classification.kind === "never-landed") return { ok: true };
     if (classification.kind === "inconclusive") {
-      // Do not bypass the operator blocker on an unproven lane; name the probe failure, not the blocker.
+      // Keep the operator blocker armed on an unproven lane; name the probe failure, not the blocker.
       const message = inconclusiveNeverLandedRefusal(classification.reason);
       capture.message += `${message}\n`;
       args.staleResetPreflight?.io.stderr(`${message}\n`);

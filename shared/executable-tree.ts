@@ -24,7 +24,7 @@ export const PATH_BOUNCE_CLASSIFICATION_FIXTURE = [
   { path: "v2/docs/operator-runbook.md", bounceRequired: false },
   { path: "v1/src/cli.ts", bounceRequired: false },
   { path: "scripts/run-v2-tests.ts", bounceRequired: false },
-  { path: "prompts/patch/rules.md", bounceRequired: false },
+  { path: "prompts/implement/rules.md", bounceRequired: false },
 ] as const;
 
 function normalizeChangedPath(changedPath: string): string {

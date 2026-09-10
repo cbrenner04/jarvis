@@ -133,7 +133,7 @@ const WORKFLOW_PRESET_LENGTHS = {
 
 /** Presets whose `role`/`promptId` are pinned by the preset, overriding any caller-supplied values. */
 const WORKFLOW_PRESET_PINNED_FIELDS: Partial<Record<WorkflowPresetName, { role: string; promptId: string }>> = {
-  implement: { role: "implement", promptId: "patch.prompt.body" },
+  implement: { role: "implement", promptId: "implement.prompt.body" },
   intent: { role: "plan", promptId: "intent.prompt.split" },
   plan: { role: "plan", promptId: "plan.prompt.draft" },
   "plan-reviewed": { role: "plan", promptId: "plan.prompt.draft" },

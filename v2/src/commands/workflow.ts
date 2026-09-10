@@ -136,7 +136,7 @@ function resolveImplementMutationRepair(deps: CliDeps): ImplementRecoveryRequest
           behavior: "write",
           stepId: "implement",
           role: "implement",
-          promptId: "patch.prompt.body",
+          promptId: "implement.prompt.body",
           stepRules: IMPLEMENT_WRITE_STEP_RULES,
           worktree: { projectRoot: "", projectName: "", branchName: "", baseRef: "" },
           specPath: "",

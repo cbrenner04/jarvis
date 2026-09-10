@@ -12,13 +12,13 @@ plan/review-advocate.md
 plan/review-critic.md
 plan/review-adjudicator.md
 plan/review-actuator.md
-patch/instructions.md
 patch/pr-description.md
 patch/review-adversary.md
 patch/review-advocate.md
 patch/review-adjudicator.md
-patch/rules.md
 patch/shrink.md
+implement/instructions.md
+implement/rules.md
 implement/review-adversary.md
 implement/review-advocate.md
 implement/review-adjudicator.md

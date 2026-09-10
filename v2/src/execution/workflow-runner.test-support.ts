@@ -232,7 +232,7 @@ export function createImplementBodySummaryStep(branchName: string) {
   const step = createStep({
     stepId: "implement",
     role: "implement",
-    promptId: "patch.prompt.body",
+    promptId: "implement.prompt.body",
     branchName,
     specPath: IMPLEMENT_BODY_SPEC_PATH,
   });

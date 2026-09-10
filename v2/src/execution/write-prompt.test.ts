@@ -47,18 +47,18 @@ describe("write prompt", () => {
     }
   });
 
-  test("patch.rules directs scoped test runs and warns off the full aggregate", () => {
-    const body = loadPromptRegistry().getById("patch.rules").body;
+  test("implement.rules directs scoped test runs and warns off the full aggregate", () => {
+    const body = loadPromptRegistry().getById("implement.rules").body;
 
     expect(body).toContain("Run the scoped test script(s) for the surfaces you touched");
-    expect(body).toContain("never the full aggregate `bun run test` unless the scope rule resolves to it");
+    expect(body).toContain("never the full aggregate suite unless the target repo's scope rule resolves to it");
     expect(body).toContain("exhausts the iteration budget");
     // The pre-fix rule made the aggregate the default and only allowed skipping it.
     expect(body).not.toContain("skip `bun run test` only when");
   });
 
-  test("patch.prompt.body includes no-hard-wrap after global.terse", () => {
-    const rendered = renderStepPrompt("patch.prompt.body", {
+  test("implement.prompt.body includes no-hard-wrap after global.terse", () => {
+    const rendered = renderStepPrompt("implement.prompt.body", {
       SPEC_PATH: "spec/example/index.md",
       SIBLINGS_BLOCK: "",
       REPO_GUIDANCE: "Follow repo guidance.",

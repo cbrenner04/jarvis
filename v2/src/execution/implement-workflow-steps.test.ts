@@ -203,7 +203,7 @@ describe("buildImplementWorkflowSteps", () => {
     expect(step?.behavior).toBe("write");
     if (step?.behavior !== "write") return;
     expect(step.role).toBe("implement");
-    expect(step.promptId).toBe("patch.prompt.body");
+    expect(step.promptId).toBe("implement.prompt.body");
     expect(step.stepRules).toBe(IMPLEMENT_WRITE_STEP_RULES);
     expect(step.agents).toEqual(["claude"]);
     expect(step.agentModelConfig).toEqual(VALID_AGENT_MODEL_CONFIG);

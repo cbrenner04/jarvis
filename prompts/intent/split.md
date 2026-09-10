@@ -1,8 +1,8 @@
 ---
 id: intent.prompt.split
-behavior: plan
+behavior: intent
 kind: step
-revision: 4
+revision: 5
 placeholders: [WORKDIR:string!, SEED_LABEL:string!, SEED_CONTENT:string!]
 remove: [global.naming]
 ---

@@ -255,7 +255,7 @@ describe("resolveWorkflowPreset", () => {
     expect(steps).toHaveLength(1);
     expect(steps[0]?.behavior).toBe("write");
     expect((steps[0] as WriteWorkflowStep).role).toBe("implement");
-    expect((steps[0] as WriteWorkflowStep).promptId).toBe("patch.prompt.body");
+    expect((steps[0] as WriteWorkflowStep).promptId).toBe("implement.prompt.body");
   });
 
   test("resolves implement to two steps with pinned role and promptId", () => {
@@ -267,10 +267,10 @@ describe("resolveWorkflowPreset", () => {
     expect(steps).toHaveLength(2);
     expect(steps[0]?.behavior).toBe("write");
     expect((steps[0] as WriteWorkflowStep).role).toBe("implement");
-    expect((steps[0] as WriteWorkflowStep).promptId).toBe("patch.prompt.body");
+    expect((steps[0] as WriteWorkflowStep).promptId).toBe("implement.prompt.body");
     expect(steps[1]?.behavior).toBe("write");
     expect((steps[1] as WriteWorkflowStep).role).toBe("implement");
-    expect((steps[1] as WriteWorkflowStep).promptId).toBe("patch.prompt.body");
+    expect((steps[1] as WriteWorkflowStep).promptId).toBe("implement.prompt.body");
   });
 
   test("throws on zero implement preset steps", () => {

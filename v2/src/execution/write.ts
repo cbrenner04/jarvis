@@ -77,7 +77,7 @@ function resolveWriteStepPlaceholder(name: string, ctx: WriteStepPlaceholderCont
     case "ACTIVE_SUBSPEC_BODY":
       return readActiveSubspecBody(ctx.expectedArtifactPath);
     case "PATCH_RULES":
-      return loadPromptRegistry().getById("patch.rules").body.trim();
+      return loadPromptRegistry().getById("implement.rules").body.trim();
     default:
       return undefined;
   }
@@ -590,7 +590,7 @@ async function executeDefaultWrite(
   let prompt: string;
   try {
     const survivingReprompt = args.survivingMutationReprompt;
-    if (promptId === "patch.prompt.body" && survivingReprompt !== undefined) {
+    if (promptId === "implement.prompt.body" && survivingReprompt !== undefined) {
       prompt = renderArtifactTemplate(loadPromptRegistry().getById("write.surviving-mutation-reprompt"), {
         SPEC_PATH: expectedArtifactPath,
         STEP_RULES: args.stepRules,
@@ -626,9 +626,9 @@ async function executeDefaultWrite(
     },
   ];
 
-  // Add criteria-ticked contract for implement writes (patch.prompt.body)
+  // Add criteria-ticked contract for implement writes (implement.prompt.body)
   // Check the active subspec for unticked non-human-only acceptance criteria
-  if (promptId === "patch.prompt.body" && expectedArtifactPath.length > 0 && args.externalSpecReadOnly !== true) {
+  if (promptId === "implement.prompt.body" && expectedArtifactPath.length > 0 && args.externalSpecReadOnly !== true) {
     const unticked = getUntickedNonHumanOnlyCriteria(expectedArtifactPath);
     if (unticked.length > 0) {
       contracts.push({
@@ -643,13 +643,13 @@ async function executeDefaultWrite(
   }
 
   // Blocker-text contract applies to both run path (DEFAULT_PROMPT_ID on specPath)
-  // and implement path (patch.prompt.body on expectedArtifactPath, the active subspec).
+  // and implement path (implement.prompt.body on expectedArtifactPath, the active subspec).
   const blockerTextTargetPath =
     args.externalSpecReadOnly === true
       ? undefined
       : promptId === DEFAULT_PROMPT_ID
         ? specPath
-        : promptId === "patch.prompt.body" && expectedArtifactPath.length > 0
+        : promptId === "implement.prompt.body" && expectedArtifactPath.length > 0
           ? expectedArtifactPath
           : undefined;
   const blockerTextContract: BlockerTextContract | undefined =
@@ -660,7 +660,7 @@ async function executeDefaultWrite(
           specBefore: readFileSync(blockerTextTargetPath, "utf8"),
           // Implement only: a `blocked` token with no blocker over fully ticked criteria is a
           // misclassified completion, not a blocker request.
-          ...(promptId === "patch.prompt.body"
+          ...(promptId === "implement.prompt.body"
             ? { completionCheck: () => getUntickedNonHumanOnlyCriteria(expectedArtifactPath).length === 0 }
             : {}),
         }

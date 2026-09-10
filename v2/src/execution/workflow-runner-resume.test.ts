@@ -1499,7 +1499,7 @@ describe("executeWorkflow review dispatch", () => {
         expect(store.loadRun(reviewRunId)?.status).toBe("completed");
         expect(prompts).toHaveLength(2);
         expect(prompts[0]).toContain("Mutation: operator-flip: === → !==");
-        expect(prompts[0]).not.toContain("patch.prompt.body");
+        expect(prompts[0]).not.toContain("implement.prompt.body");
         expect(prompts[1]).toContain("The ready gate failed:");
       });
     } finally {
@@ -2446,7 +2446,7 @@ describe("executeWorkflow review dispatch", () => {
     const implementStep = createStep({
       stepId: "implement",
       role: "implement",
-      promptId: "patch.prompt.body",
+      promptId: "implement.prompt.body",
       branchName,
       verifyDiffDerivedMutations: async () => {
         verifyCalls += 1;

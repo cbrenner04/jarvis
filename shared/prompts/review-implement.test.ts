@@ -131,7 +131,7 @@ test("roots external critic and debate SPEC_TREE labels at specReadRoot", async 
 
 function renderPatchBody(repoGuidance: string): string {
   const registry = loadPromptRegistry();
-  const artifact = registry.getById("patch.prompt.body");
+  const artifact = registry.getById("implement.prompt.body");
   const body = assemblePromptForStep({ registry, stepPromptId: artifact.metadata.id });
   return renderArtifactTemplate(
     { ...artifact, body },

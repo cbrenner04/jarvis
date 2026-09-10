@@ -26,10 +26,10 @@ The first rollout includes shared global guidance fragments plus prompt artifact
   PR-description fragment used by patch and plan PR-body generation steps to
   request model-authored Description and Decisions list
 
-- `patch.prompt.body` (`prompts/patch/instructions.md`)
+- `implement.prompt.body` (`prompts/implement/instructions.md`) — the implement write-step body; carries `<PATCH_RULES>` as the placeholder key for `implement.rules`
 - `patch.prompt.pr-description` (`prompts/patch/pr-description.md`)
-- `patch.rules` (`prompts/patch/rules.md`)
-- `patch.prompt.shrink` (`prompts/patch/shrink.md`) — post-completion simplification gate; layered with `global.terse -> global.no-hard-wrap` only (not `patch.rules`)
+- `implement.rules` (`prompts/implement/rules.md`) — target-repo-neutral implement rules injected through `PATCH_RULES`; jarvis-specific test recovery rules live in this repo's `AGENTS.md`
+- `patch.prompt.shrink` (`prompts/patch/shrink.md`) — post-completion simplification gate; layered with `global.terse -> global.no-hard-wrap` only (not `implement.rules`)
 - `patch.prompt.review.adversary` / `.advocate` / `.adjudicator` (`prompts/patch/review-*.md`) — read-only debate review roles; same patch-review placeholder contract as the critic plus role-chaining placeholders for advocate/adjudicator; retained for the frozen v1 tree with summary-only `BRANCH_DIFF` prose (`git diff --stat` plus changed paths, not a unified diff); no live engine renders them
 - `implement.prompt.review.critic` / `.adversary` / `.advocate` / `.adjudicator` (`prompts/implement/review-*.md`) — implement review critic and debate roles, split from the `patch.prompt.review.*` family; same placeholder contract as their patch counterparts, but `BRANCH_DIFF` is always the merge-base unified diff (stat, changed paths, then the diff itself), never summary-only
 - `plan.prompt.draft` (`prompts/plan/draft.md`)
@@ -87,10 +87,10 @@ Shared rendering follows this contract:
 - Step definitions may explicitly add or remove named fragments.
 - Remove directives are strict runtime behavior (removal is honored, not
   best-effort).
-- Patch layering is `global.documentation -> global.naming -> global.terse -> global.no-hard-wrap -> patch.prompt.body`.
+- Implement layering is `global.documentation -> global.naming -> global.terse -> global.no-hard-wrap -> implement.prompt.body` (`behavior: implement` has no behavior fragments; the implement review roles share the lane).
 - Plan draft/review layering is `global.documentation -> global.terse -> global.no-hard-wrap -> plan.decisions-ledger -> plan.defer-to-consumer -> plan.prompt.*`.
-- `patch.rules` remains step-owned injected content, not an always-layered patch fragment.
-- `patch.prompt.shrink` is a post-completion step prompt (not layered into `patch.prompt.body`). It layers `global.terse -> global.no-hard-wrap` only — not `global.documentation`, `global.naming`, or `patch.rules`. Prevention surfaces (`global.terse`, `patch.rules`) run during implementation; `patch.prompt.shrink` is the post-completion gate that hunts named bloat patterns after the spec is complete.
+- `implement.rules` remains step-owned injected content, not an always-layered implement fragment.
+- `patch.prompt.shrink` is a post-completion step prompt (not layered into `implement.prompt.body`). It layers `global.terse -> global.no-hard-wrap` only — not `global.documentation`, `global.naming`, or `implement.rules`. Prevention surfaces (`global.terse`, `implement.rules`) run during implementation; `patch.prompt.shrink` is the post-completion gate that hunts named bloat patterns after the spec is complete.
 - `global.documentation` requires docs-first execution order: read relevant
   durable docs/specs before code edits, and update docs/specs in the same
   subspec when behavior/architecture/workflow/prompt/operator-facing semantics

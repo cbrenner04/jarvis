@@ -1,8 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { createPromptRegistry } from "./registry.ts";
+import { join, relative } from "node:path";
+import {
+  createPromptRegistry,
+  loadPromptRegistry,
+  parsePromptRegistryManifest,
+  readRegisteredPromptPaths,
+} from "./registry.ts";
 
 function withFrontmatter(meta: string, body = "Body"): string {
   return `---\n${meta}\n---\n${body}\n`;
@@ -201,5 +206,29 @@ describe("prompt registry load validation", () => {
     expect(() => createPromptRegistry([writePromptFixture(missingFields)])).toThrow(
       "expected string header, begin, end, and placeholder",
     );
+  });
+});
+
+describe("prompt registry manifest surface", () => {
+  test("parsePromptRegistryManifest returns repo-relative prompt paths, trimmed, blanks dropped", () => {
+    expect(parsePromptRegistryManifest("global/terse.md\n\n  plan/draft.md  \n\n")).toEqual([
+      "prompts/global/terse.md",
+      "prompts/plan/draft.md",
+    ]);
+    expect(parsePromptRegistryManifest("\n")).toEqual([]);
+  });
+
+  test("readRegisteredPromptPaths reads the checked-in manifest and matches the loaded registry", () => {
+    const repoRoot = join(import.meta.dir, "..", "..");
+    const paths = readRegisteredPromptPaths(repoRoot);
+    const loaded = loadPromptRegistry()
+      .all()
+      .map((artifact) => `prompts/${relative(join(repoRoot, "prompts"), artifact.sourcePath)}`);
+    expect(paths).toEqual(loaded);
+    expect(paths).toContain("prompts/plan/draft.md");
+  });
+
+  test("readRegisteredPromptPaths throws when the manifest is absent", () => {
+    expect(() => readRegisteredPromptPaths(join(import.meta.dir, "no-such-root"))).toThrow();
   });
 });

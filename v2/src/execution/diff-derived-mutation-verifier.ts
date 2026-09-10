@@ -3,6 +3,11 @@ import { mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync,
 import { isAbsolute, join, normalize, relative, resolve } from "node:path";
 import ts from "typescript";
 import { guarded } from "../../../scripts/guard-deterministic-daemon-tests.ts";
+import {
+  PROMPT_REGISTRY_MANIFEST_PATH,
+  parsePromptRegistryManifest,
+  readRegisteredPromptPaths,
+} from "../../../shared/prompts/registry.ts";
 import { AsyncSubprocessError, type AsyncSubprocessOptions } from "../../../shared/subprocess.ts";
 import { type ChangedLine, changedPathsFromDiff, defaultGitDiff, isProductionFile, parseDiff } from "./diff-scan.ts";
 import { importedModulePaths, resolveImportedModule } from "./runtime-smoke-verifier.ts";
@@ -427,35 +432,29 @@ async function defaultWriteFile(path: string, content: string): Promise<void> {
   writeFileSync(path, content);
 }
 
-function registeredPromptPaths(manifest: string): string[] {
-  return manifest
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((path) => `prompts/${path}`);
-}
-
 function currentRegisteredPromptPaths(cwd: string): { available: boolean; paths: Set<string> } {
   try {
-    return {
-      available: true,
-      paths: new Set(registeredPromptPaths(readFileSync(`${cwd}/prompts/registry.txt`, "utf-8"))),
-    };
+    return { available: true, paths: new Set(readRegisteredPromptPaths(cwd)) };
   } catch {
     return { available: false, paths: new Set() };
   }
 }
 
+/** Worktree manifest first; a deleted manifest still has registered artifacts at the base ref. */
 async function defaultRegisteredPromptPaths(cwd: string, baseRef: string): Promise<string[]> {
   try {
-    return registeredPromptPaths(readFileSync(`${cwd}/prompts/registry.txt`, "utf-8"));
+    return readRegisteredPromptPaths(cwd);
   } catch {
-    // A deleted manifest can still have registered artifacts at the base.
+    // Fall through to the base-ref manifest.
   }
   try {
     const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
-    const manifest = await realAsyncSubprocessRunner.runAsync("git", ["show", `${baseRef}:prompts/registry.txt`], cwd);
-    return registeredPromptPaths(manifest);
+    const manifest = await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["show", `${baseRef}:${PROMPT_REGISTRY_MANIFEST_PATH}`],
+      cwd,
+    );
+    return parsePromptRegistryManifest(manifest);
   } catch {
     return [];
   }

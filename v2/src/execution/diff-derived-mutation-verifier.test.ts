@@ -4,6 +4,7 @@ import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, syml
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveRenderObserverTests } from "../../../shared/prompts/render-observer-tests.ts";
+import { locateMarkerSlice } from "../../../shared/structural-test-locator.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessOptions,
@@ -3479,5 +3480,23 @@ ${keptBodyLine}
     }
     rmSync(dir, { recursive: true, force: true });
     rmSync(outside, { recursive: true, force: true });
+  });
+});
+
+describe("registered prompt path discovery", () => {
+  it("resolves registered prompt paths through the shared registry surface, not a local manifest parser", () => {
+    const source = readFileSync(join(import.meta.dir, "diff-derived-mutation-verifier.ts"), "utf8");
+    // Presence: the verifier imports the registry module's manifest surface.
+    const importLine = locateMarkerSlice({
+      text: source,
+      pattern: /^import \{[^}]*\} from "\.\.\/\.\.\/\.\.\/shared\/prompts\/registry\.ts";$/m,
+      searchKey: "shared/prompts/registry.ts import",
+    });
+    expect(importLine).toContain("parsePromptRegistryManifest");
+    expect(importLine).toContain("readRegisteredPromptPaths");
+    expect(importLine).toContain("PROMPT_REGISTRY_MANIFEST_PATH");
+    // Absence: no textual re-parse of the manifest remains in the verifier.
+    expect(source).not.toContain("registry.txt");
+    expect(source).not.toMatch(/\.split\("\\n"\)[\s\S]{0,120}prompts\/\$\{/);
   });
 });

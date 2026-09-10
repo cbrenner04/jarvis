@@ -232,7 +232,7 @@ describe("write behavior", () => {
     const result = await runWrite({
       jarvisRoot,
       artifactPath: subspec,
-      promptId: "patch.prompt.body",
+      promptId: "implement.prompt.body",
       bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
     });
 
@@ -258,7 +258,7 @@ describe("write behavior", () => {
     const result = await runWrite({
       jarvisRoot,
       artifactPath: subspec,
-      promptId: "patch.prompt.body",
+      promptId: "implement.prompt.body",
       bindings: [capturingBinding((prompt) => (capturedPrompt = prompt))],
     });
 
@@ -278,7 +278,7 @@ describe("write behavior", () => {
     const result = await runWrite({
       jarvisRoot,
       artifactPath: subspec,
-      promptId: "patch.prompt.body",
+      promptId: "implement.prompt.body",
       bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
     });
 
@@ -295,7 +295,7 @@ describe("write behavior", () => {
     const result = await runWrite({
       jarvisRoot,
       artifactPath: subspec,
-      promptId: "patch.prompt.body",
+      promptId: "implement.prompt.body",
       bindings: [
         {
           id: "agent",
@@ -384,7 +384,7 @@ describe("write behavior", () => {
   });
 
   // Pins patch prompt propagation of the source-clean default write-step rules.
-  test("patch.prompt.body resolves step placeholders and invokes binding", async () => {
+  test("implement.prompt.body resolves step placeholders and invokes binding", async () => {
     const { jarvisRoot } = createJarvisHome();
     roots.push(join(jarvisRoot, ".."));
     const specPath = "v2/spec/demo/index.md";
@@ -405,7 +405,7 @@ describe("write behavior", () => {
       specPath,
       stepRules: IMPLEMENT_WRITE_STEP_RULES,
       expectedArtifactPath: subspecPath,
-      promptId: "patch.prompt.body",
+      promptId: "implement.prompt.body",
       bindings: [
         {
           id: "agent",
@@ -447,9 +447,9 @@ describe("write behavior", () => {
     expect(capturedPrompt).toContain("nor `invert*` function parameters");
     expect(capturedPrompt).not.toContain("comment checkpoint on the pinning test");
     expect(capturedPrompt).not.toContain("Place `// @mutate`");
-    expect(capturedPrompt).toContain(
-      "When a guard sits inside a `setTimeout` or `setInterval` callback, extract it into a pure exported predicate and test both truth directions directly without a real-timer wait.",
-    );
+    // The timer-callback rule is jarvis-specific and now lives in this repo's AGENTS.md, not the neutral rules fragment.
+    expect(capturedPrompt).not.toContain("When a guard sits inside a `setTimeout` or `setInterval` callback");
+    expect(capturedPrompt).toContain("Run the scoped test script(s) for the surfaces you touched");
   });
 
   test("patch.prompt.shrink renders DEFAULT_WRITE_STEP_RULES as final block", async () => {
@@ -1791,7 +1791,7 @@ describe("write behavior", () => {
 });
 
 // Pins the implement-path arm of executeDefaultWrite's blocker-text-contract path selection:
-// the contract must attach for promptId "patch.prompt.body", keyed on the active subspec
+// the contract must attach for promptId "implement.prompt.body", keyed on the active subspec
 // (expectedArtifactPath), not on specPath. The fake worktree always seeds a spec.md WITHOUT
 // a `## Blocker`, so a subspec-keyed contract and a specPath-keyed one diverge observably.
 describe("write behavior: implement-path blocker-text contract", () => {
@@ -1803,7 +1803,7 @@ describe("write behavior: implement-path blocker-text contract", () => {
     const result = await runWrite({
       jarvisRoot,
       artifactPath: subspec,
-      promptId: "patch.prompt.body",
+      promptId: "implement.prompt.body",
       bindings: [
         {
           id: "agent",
@@ -1829,7 +1829,7 @@ describe("write behavior: implement-path blocker-text contract", () => {
     const result = await runWrite({
       jarvisRoot,
       artifactPath: subspec,
-      promptId: "patch.prompt.body",
+      promptId: "implement.prompt.body",
       bindings: [
         {
           id: "agent",
@@ -1855,7 +1855,7 @@ describe("write behavior: implement-path blocker-text contract", () => {
     const result = await runWrite({
       jarvisRoot,
       artifactPath: "missing-subspec.md",
-      promptId: "patch.prompt.body",
+      promptId: "implement.prompt.body",
       bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "blocked", stderr: "" }) }],
     });
 

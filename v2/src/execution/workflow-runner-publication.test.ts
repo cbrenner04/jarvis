@@ -2449,7 +2449,7 @@ describe("executeWorkflow completion publication", () => {
       stepId: "implement",
       role: "implement",
       branchName: "implement-distinct-turns",
-      promptId: "patch.prompt.body",
+      promptId: "implement.prompt.body",
       specPath: "spec/publication-history/index.md",
       expectedArtifactPath: "spec/publication-history/index.md",
       linkedIndexRouting: true,

@@ -1707,7 +1707,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       }
 
       // Run coverage advisory for completing implement writes before terminal boundary
-      if (result.kind === "complete" && args.promptId === "patch.prompt.body") {
+      if (result.kind === "complete" && args.promptId === "implement.prompt.body") {
         const advisoryResult = await runCoverageAdvisory(worktreePath, args.bindings, args.signal);
         if (advisoryResult !== null) {
           args.logSink?.append(runId, {
@@ -2062,7 +2062,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
             branch: args.worktree.branchName,
             creationTitle,
             ...externalSpecGitScope(args),
-            ...(args.promptId === "patch.prompt.body" || args.promptId === "plan.prompt.draft"
+            ...(args.promptId === "implement.prompt.body" || args.promptId === "plan.prompt.draft"
               ? { specTemplate: true }
               : {}),
             ...(args.requiredIntegrationScope ? { requiredIntegrationScope: args.requiredIntegrationScope } : {}),
@@ -4230,7 +4230,7 @@ type ProgressIterationCommitOutcome =
   | { kind: "skipped"; skipReason: "no_git" | "no_file_changes" | "no_binding" };
 
 function activeSubspecTitle(args: WriteLoopInput, worktreePath: string): string | undefined {
-  if (args.promptId !== "patch.prompt.body") return undefined;
+  if (args.promptId !== "implement.prompt.body") return undefined;
   const specPath = resolveSpecPath(worktreePath, args.specPath);
   let specTree: string;
   if (basename(specPath) === "index.md") {

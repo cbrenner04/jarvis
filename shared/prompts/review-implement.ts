@@ -74,8 +74,8 @@ function passContext(context: ReviewDebateRenderContext): string {
 
 function patchBodyPrompt(specPath: string): string {
   const registry = loadPromptRegistry();
-  const artifact = registry.getById("patch.prompt.body");
-  const template = assemblePromptForStep({ registry, stepPromptId: "patch.prompt.body" });
+  const artifact = registry.getById("implement.prompt.body");
+  const template = assemblePromptForStep({ registry, stepPromptId: "implement.prompt.body" });
   return renderArtifactTemplate(
     { ...artifact, body: template },
     {
@@ -84,7 +84,7 @@ function patchBodyPrompt(specPath: string): string {
       REPO_GUIDANCE: "",
       ACTIVE_SUBSPEC_PATH: "",
       ACTIVE_SUBSPEC_BODY: "",
-      PATCH_RULES: registry.getById("patch.rules").body.trim(),
+      PATCH_RULES: registry.getById("implement.rules").body.trim(),
       TIMEOUT_CHECKPOINT_CONTEXT: "",
       STEP_RULES: "",
     },

@@ -637,7 +637,7 @@ index be281d02..00000000
       "prompts/intent/split.md",
       "prompts/write/execute.md",
       "prompts/patch/shrink.md",
-      "prompts/patch/instructions.md",
+      "prompts/implement/instructions.md",
     ];
     const uncoveredPath = promptPaths[5];
     if (uncoveredPath === undefined) throw new Error("expected six prompt paths");

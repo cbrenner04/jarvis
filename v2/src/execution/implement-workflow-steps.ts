@@ -723,7 +723,7 @@ export async function buildImplementWorkflowSteps(
     behavior: "write",
     stepId: "implement",
     role: "implement",
-    promptId: "patch.prompt.body",
+    promptId: "implement.prompt.body",
     stepRules: IMPLEMENT_WRITE_STEP_RULES,
     worktree: {
       projectRoot: match.root,

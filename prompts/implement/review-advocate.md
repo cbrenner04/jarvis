@@ -1,8 +1,8 @@
 ---
 id: implement.prompt.review.advocate
-behavior: patch
+behavior: implement
 kind: step
-revision: 2
+revision: 3
 placeholders: [SPEC_PATH:string!, SPEC_TREE:string!, BRANCH_DIFF:string!, ADVERSARY_FINDINGS:string!, REVIEW_PASS_NUMBER:string!, REVIEW_PASS_CONTEXT:string!]
 ---
 # Implement Mode — Review: Advocate

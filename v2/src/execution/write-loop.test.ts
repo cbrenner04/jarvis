@@ -1592,7 +1592,7 @@ describe("write loop", () => {
       const result = await runLoop({
         jarvisRoot,
         stateDbPath,
-        promptId: "patch.prompt.body",
+        promptId: "implement.prompt.body",
         specPath: join(specReadRoot, "index.md"),
         artifactPath: externalSubspec,
         externalPlanSpec: true,
@@ -1627,7 +1627,7 @@ describe("write loop", () => {
       const result = await runLoop({
         jarvisRoot,
         stateDbPath,
-        promptId: "patch.prompt.body",
+        promptId: "implement.prompt.body",
         specPath: join(specReadRoot, "index.md"),
         artifactPath: externalSubspec,
         externalPlanSpec: true,
@@ -1697,7 +1697,7 @@ describe("write loop", () => {
       logSink: sink,
       maxIterations: 1,
       publishCompletion: false,
-      promptId: "patch.prompt.body",
+      promptId: "implement.prompt.body",
       artifactPath: "00-subspec.md",
       bindings: [{ id: "implement", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
     });
@@ -2286,7 +2286,7 @@ describe("write loop", () => {
         worktree: { projectRoot: "/fake", projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot },
         specPath: "spec.md",
         expectedArtifactPath: "subspec.md",
-        promptId: "patch.prompt.body",
+        promptId: "implement.prompt.body",
         stepRules: "Return exactly one terminal token.",
         stateStore: store,
         withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
@@ -2999,7 +2999,7 @@ describe("write loop", () => {
 
       await expect(publish("intent.prompt.split")).resolves.toMatchObject({ kind: "success" });
       await expect(publish("plan.prompt.draft")).resolves.toMatchObject({ kind: "success" });
-      await expect(publish("patch.prompt.body")).resolves.toMatchObject({ kind: "ready_gate_command_missing" });
+      await expect(publish("implement.prompt.body")).resolves.toMatchObject({ kind: "ready_gate_command_missing" });
       expect(calls).toEqual(["mutation", "smoke", "flip", "mutation", "smoke", "flip", "gate"]);
     });
 
@@ -6412,7 +6412,7 @@ export function isLoadSensitive(file: string): boolean {
       const result = await runLoop({
         jarvisRoot,
         stateDbPath,
-        promptId: "patch.prompt.body",
+        promptId: "implement.prompt.body",
         logSink,
         bindings: [
           {
@@ -6456,7 +6456,7 @@ export function isLoadSensitive(file: string): boolean {
       const result = await runLoop({
         jarvisRoot,
         stateDbPath,
-        promptId: "patch.prompt.body",
+        promptId: "implement.prompt.body",
         maxIterations: 3,
         logSink,
         bindings: [
@@ -6545,7 +6545,7 @@ index 1234567..abcdefg 100644
       const result = await runLoop({
         jarvisRoot,
         stateDbPath,
-        promptId: "patch.prompt.body",
+        promptId: "implement.prompt.body",
         logSink,
         bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
         verifyDiffDerivedMutations: async (input) => {
@@ -6583,7 +6583,7 @@ index 1234567..abcdefg 100644
       const result = await runLoop({
         jarvisRoot,
         stateDbPath,
-        promptId: "patch.prompt.body",
+        promptId: "implement.prompt.body",
         maxIterations: 2,
         logSink,
         bindings: [
@@ -6656,7 +6656,7 @@ index 1234567..abcdefg 100644
       const result = await runLoop({
         jarvisRoot,
         stateDbPath,
-        promptId: "patch.prompt.body",
+        promptId: "implement.prompt.body",
         maxIterations: 3,
         logSink,
         bindings: [
@@ -8374,7 +8374,7 @@ index 1234567..abcdefg 100644
           withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
           sessionsDir: join(jarvisRoot, "sessions"),
           logSink,
-          promptId: "patch.prompt.body",
+          promptId: "implement.prompt.body",
         });
 
         expect(result.kind).toBe("complete");
@@ -8447,7 +8447,7 @@ index 1234567..abcdefg 100644
           stateStore: store,
           withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
           sessionsDir: join(jarvisRoot, "sessions"),
-          promptId: "patch.prompt.body",
+          promptId: "implement.prompt.body",
         });
 
         expect(result.kind).toBe("complete");
@@ -8498,7 +8498,7 @@ index 1234567..abcdefg 100644
           withExternalWorktree: createFakeWithExternalWorktree(jarvisRoot),
           sessionsDir: join(jarvisRoot, "sessions"),
           logSink,
-          promptId: "patch.prompt.body",
+          promptId: "implement.prompt.body",
         });
 
         expect(result.kind).toBe("complete");
@@ -8738,7 +8738,7 @@ index 1234567..abcdefg 100644
             stepRules: "Return progress or done.",
             specPath: "spec",
             expectedArtifactPath: "spec/00-active.md",
-            promptId: "patch.prompt.body",
+            promptId: "implement.prompt.body",
             worktree: { projectRoot: "/fake", projectName: "demo", branchName, baseRef: seedBase, jarvisRoot },
             bindings: simulatedBindings(["progress", "progress", "done"]),
             completionPublisher: async () => ({}),

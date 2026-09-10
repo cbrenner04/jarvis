@@ -1,90 +1,86 @@
 # Prompts
 
-Registered prompts are artifacts with stable IDs and versions, living in the `prompts/` directory and indexed via `prompts/registry.txt`. Each prompt serves one or more roles and workflows. This doc captures registry-level entries and their usage scope. Frontmatter keys, placeholder contracts, and delimiter policy are indexed in [`v1/docs/prompt-governance.md`](../../v1/docs/prompt-governance.md); variant and optional-section contracts below are the v2 durable home for those keys.
+The prompt corpus lives under `prompts/` and is indexed by `prompts/registry.txt`; `shared/prompts/registry.ts` loads every listed artifact at startup and rejects unknown ids at render time. Each artifact is a Markdown file whose frontmatter declares its `id`, `behavior`, `kind` (`step` or `fragment`), `revision`, `placeholders`, and the fragment directives below. Frontmatter keys, placeholder syntax, delimiter policy, and the validation boundary are owned by [`prompt-governance.md`](./prompt-governance.md); placement of prompt prose versus docs is owned by [`documentation-standard.md`](./documentation-standard.md). This document is the operator map: which id renders where, through which path, with which fragments.
 
-## Variants and optionalSections
+## Fragment frontmatter contract
 
-Prompt artifacts may declare `variants` and `optionalSections` as single-line JSON frontmatter values (parsed in `shared/prompts/registry.ts`). Absent keys default to `{}` and `[]`.
+A `fragment` artifact is prose prepended to step prompts; a `step` artifact is the prompt body itself. Inclusion is declared, never hand-rolled by callers:
 
-### Frontmatter shapes
+- `behavior:` — the lane an artifact belongs to. Fragments with `behavior: global` (`global.documentation`, `global.naming`, `global.terse`, `global.no-hard-wrap`, ranked by `order:`) prepend to every step; fragments whose `behavior` matches the step's `behavior` prepend after the globals. Lanes today: `global`, `plan` (fragments `plan.decisions-ledger`, `plan.defer-to-consumer`), `write` (fragment `write.principles`), `intent`, `implement`, `patch`. `implement.rules` (`behavior: implement-rules`) and `shared.pr-description` (`behavior: shared-pr-description`) deliberately sit on lanes no step declares, so they attach only where named.
+- `add:` — extra fragment ids appended after the lane fragments (`plan.prompt.pr-description` and `patch.prompt.pr-description` add `shared.pr-description`).
+- `remove:` — fragment ids excluded for this step (every intent and plan review role removes `global.naming`; `patch.prompt.shrink` removes `global.documentation` and `global.naming`).
+- `order:` — rank within a lane; unranked fragments sort last by id.
 
-- `variants` — JSON object mapping variant id to an ordered array of `{ "anchor": string, "replacement": string, "replaceAll"?: boolean }`. Variant ids are non-empty strings.
-- `optionalSections` — JSON array of `{ "header": string, "begin": string, "end": string, "placeholder": string }`. Each `placeholder` must name a placeholder declared in the artifact `placeholders` frontmatter (`NAME:string` or `NAME:string!`).
+The lane label is load-bearing: `intent.prompt.split` carries `behavior: intent` (a lane with no fragments) precisely so it does not inherit the plan fragments, and `implement/review-*.md` carry `behavior: implement` for the same reason.
 
-### Registry load-time validation
+## Render paths
 
-Malformed JSON for either key fails registry load. Structural rejects at load time:
+Two assemblers exist today; the [`declarative-fragment-policy-single-assembler`](../spec/ready-intents/declarative-fragment-policy-single-assembler.md) ready-intent converges them.
 
-- `variants` is not a plain object, any variant id is empty, any variant entry is not an array, or any substitution object lacks string `anchor`/`replacement` or has non-boolean `replaceAll`.
-- `optionalSections` is not an array, any entry is not a plain object, or any entry lacks string `header`/`begin`/`end`/`placeholder`.
-- Any `optionalSections[].placeholder` is not declared in `placeholders`.
+- **Shared assembler** — `assemblePromptForStep` (`shared/prompts/assemble.ts`): globals, then lane fragments, then `add`, minus `remove`, then the step body; `renderArtifactTemplate` (`shared/prompts/render.ts`) then applies variants, optional sections, and placeholders. Used by every shared renderer: `plan-draft.ts`, `intent-split.ts`, `review-plan.ts`, `review-intent.ts`, `review-implement.ts`.
+- **v2 write path** — `renderStepPrompt` (`v2/src/execution/write-prompt.ts`): globals minus `remove`, then the step body, then `renderArtifactTemplate`. It omits lane fragments and `add` by design (`write.execute` carries `write.principles` through its `PRINCIPLES` placeholder instead). `executeWrite` (`v2/src/execution/write.ts`) routes every write step through it, resolving the step-owned placeholders (`REPO_GUIDANCE`, `ACTIVE_SUBSPEC_*`, `PATCH_RULES`, `STEP_RULES`, `SPEC_GUIDANCE`) before invocation; see [`write-behavior.md § Write-step prompt placeholders`](./write-behavior.md#write-step-prompt-placeholders).
 
-### Render pipeline (`renderArtifactTemplate`)
+Reprompts (`write.token-reprompt`, `write.blocker-reprompt`, `write.landing-contract-reprompt`, `write.staged-markdown-lint-reprompt`, `write.surviving-mutation-reprompt`, `write.coverage-advisory`) render the bare artifact through `renderArtifactTemplate` with no fragments.
 
-Resolution runs on whatever `artifact.body` the caller passes (assembled or on-disk body). Order:
+## Per-workflow step prompts
 
-1. **Variant selection** — when `options.variant` is set, apply that variant's substitution array to the body in array order, each entry on the evolving string. Omitted `options.variant` is a no-op even when `variants` is populated. `replaceAll` omitted substitutes the first `anchor` match only (`String.prototype.replace`); `replaceAll: true` uses `replaceAll`.
-2. **Optional-section omission** — for each `optionalSections` entry, when the bound placeholder value is empty (`undefined`, `null`, `""`, or whitespace-only string; non-string values coerce to `""` before the test), excise from the first `header` occurrence through the matching `end` inclusive, then consume trailing `\n` characters. `begin` is a positional validator: it must appear after `header` and before `end`, but excision starts at `header`, not `begin`. Non-empty bound values leave the section intact for normal placeholder substitution.
-3. **Placeholder substitution** — `renderTemplateWithDeclarations` on the post-variant, post-excision body.
+### Implement
 
-### Reserved plan variant ids
+- `implement.prompt.body` (`prompts/implement/instructions.md`, `behavior: implement`) — the implement write step, pinned by the `implement` preset (`WORKFLOW_PRESET_PINNED_FIELDS` in `workflow-runner.ts`) and by `implement-workflow-steps.ts`. Placeholders: `SPEC_PATH`, `SIBLINGS_BLOCK`, `REPO_GUIDANCE`, `ACTIVE_SUBSPEC_PATH`, `ACTIVE_SUBSPEC_BODY`, `PATCH_RULES`, `TIMEOUT_CHECKPOINT_CONTEXT`, `STEP_RULES`; the repo-guidance, active-subspec, and timeout-checkpoint blocks are optional sections that vanish when their placeholder is empty. Implement-only branching in the write loop (criteria-ticked completion contract, blocker-text contract, in-loop mutation verification, coverage advisory, checkpoint subjects) keys on this id.
+- `implement.rules` (`prompts/implement/rules.md`, fragment) — the target-repo-neutral rules injected through the `PATCH_RULES` placeholder (the key survived the id migration from `patch.rules`). Rules that only apply to this repository (serial `bun test` re-run, injected machine-config fixtures, timer-callback guard extraction) live in `AGENTS.md`, which reaches the agent as `REPO_GUIDANCE`.
+- `patch.prompt.shrink` (`prompts/patch/shrink.md`, `behavior: patch`) — the post-completion shrink step; layers `global.terse` and `global.no-hard-wrap` only.
+- `patch.prompt.pr-description` — implement PR-body narrative step; see [`workflow-runner.md § Implement PR body template`](./workflow-runner.md#implement-pr-body-template).
 
-- `flat-layout` — flat spec-path layout for plan draft and plan review prompts.
-- `nested-target-dir` — nested `targetDir` spec-path layout for plan draft and plan review prompts.
+`write.execute` (`prompts/write/execute.md`, `behavior: write`) is **not** the implement prompt: it is the default only for a standalone `jarvis run start` write loop with no workflow, injecting `SPEC_PATH`, `PRINCIPLES` (`write.principles`), and `STEP_RULES`.
 
-Migration of call sites from post-render string surgery to these ids is scoped in [`v2/spec/ready-intents/eliminate-prompt-string-surgery.md`](../spec/ready-intents/eliminate-prompt-string-surgery.md).
+### Plan
 
-### Render-time anchor errors (`PromptRenderingError`)
+- `plan.prompt.draft` — pinned by the `plan` preset; placeholders `WORKDIR`, `NAME`, `INTENT`, `SPEC_GUIDANCE`, `TARGET_DIR`; variants `flat-layout` / `nested-target-dir` select the spec-path layout. Rules carry step mechanics only; authoring norms come from the injected [`spec-guidance-agent-core.md`](./spec-guidance-agent-core.md). See [`write-behavior.md § Plan write-step seeding`](./write-behavior.md#plan-write-step-seeding-and-completion-contract).
+- `plan.prompt.review-actuator` — verdict-application step (same variants as the draft) plus injected `SPEC_GUIDANCE`.
+- `plan.prompt.pr-description` — plan PR-body step, adds `shared.pr-description`.
 
-- `unknown_variant` — `options.variant` names an id absent from `artifact.metadata.variants`.
-- `missing_template_anchor` — a variant `anchor` or optional-section `header`/`begin`/`end` is absent from the template body before substitution or excision. No silent no-op on prompt prose drift.
+### Intent
 
-Other `PromptRenderingError` reasons (`unknown_placeholder`, `missing_value`, `type_mismatch`, `invalid_placeholder_pattern`, `delimiter_violation`) are covered in [`prompt-governance.md`](./prompt-governance.md#validation-boundary).
+- `intent.prompt.split` — pinned by the `intent` preset; placeholders `WORKDIR`, `SEED_LABEL`, `SEED_CONTENT`; no `SPEC_GUIDANCE` injection (the prompt directs the agent to read the agent core for sizing). Landing-shape violations reprompt via `write.landing-contract-reprompt`; see [`write-behavior.md § Intent split landing contracts`](./write-behavior.md#intent-split-landing-contracts).
+- `intent.prompt.review` / `intent.prompt.review-actuator` — light review critic and actuator over the staged ready-intent (`STAGED_INTENT`, `SPEC_GUIDANCE`, `VERDICT_PATH` / `VERDICT`).
 
-## Write-step prompts
+### Write-loop reprompts
 
-### `write.execute`
+| Id | Trigger | Placeholders | Home |
+| --- | --- | --- | --- |
+| `write.token-reprompt` | first response carries no terminal token | `RESPONSE_TEXT` | [`write-behavior.md § Terminal token`](./write-behavior.md#terminal-token) |
+| `write.blocker-reprompt` | `blocked` misses the blocker-text contract | none | same |
+| `write.landing-contract-reprompt` | intent-split staged output fails landing shape | `VIOLATION`, `OFFENDING_FILE`, `STAGING_DIR` | [§ Intent split landing contracts](./write-behavior.md#intent-split-landing-contracts) |
+| `write.staged-markdown-lint-reprompt` | staged plan/intent Markdown fails markdownlint | `RULE_ID`, `VIOLATION`, `OFFENDING_FILE`, `STAGING_DIR` | [`workflow-runner.md § Review dispatch`](./workflow-runner.md#review-dispatch) |
+| `write.ready-repair` | ready gate fails at publication | `SPEC_PATH`, `STEP_RULES`, `GATE_COMMAND`, `GATE_EXIT_CODE`, `GATE_OUTPUT` | [`workflow-runner.md § Ready gate repair`](./workflow-runner.md#ready-gate-repair) |
+| `write.surviving-mutation-reprompt` | in-loop diff-derived verification finds an uncovered guard | `SPEC_PATH`, `STEP_RULES`, `SURVIVING_MUTATION`, `SOURCE_FILE`, `SOURCE_LINE`, `DUAL_CONSTRAINT_DETAIL` | [§ Diff-derived mutation verification](./write-behavior.md#diff-derived-mutation-verification) |
+| `write.mutation-repair` | publication-time confirm-only verification finds a repair-introduced survivor | same as above | same |
+| `write.coverage-advisory` | implement completes with uncovered changed lines (deliver-only) | `COVERAGE_REPORT` | [§ Coverage advisory](./write-behavior.md#coverage-advisory) |
 
-Default write-step prompt for plan, implement, and standalone write. Injects `SPEC_PATH`, `STEP_RULES`, `PRINCIPLES`, `REPO_GUIDANCE`, and `ACTIVE_SUBSPEC_BODY`. See [`write-behavior.md`](./write-behavior.md#write-step-prompt-placeholders).
+## Review-role families
 
-### `write.token-reprompt`
+Four families share one terse skeleton — a role header, bare data blocks (the staged document or spec tree, the diff, the prior role's output), and a short `Rules` list — and one domain policy (`shared/prompts/review-profile.ts`: verdict source, empty-verdict stop, read-only critic / writing actuator).
 
-One-shot re-prompt issued when the agent's first response carries no terminal token (`done`, `no-work`, `blocked`, `progress`). Injects `RESPONSE_TEXT` (the first response). Used by the step runner; see [`write-behavior.md`](./write-behavior.md#terminal-token).
+| Family | Ids | Renderer | Status |
+| --- | --- | --- | --- |
+| plan | `plan.prompt.review.critic`, `.adversary`, `.advocate`, `.adjudicator`, `plan.prompt.review-actuator` | `shared/prompts/review-plan.ts` | converged to the intent-family style |
+| implement | `implement.prompt.review.critic`, `.adversary`, `.advocate`, `.adjudicator` (`behavior: implement`); actuator renders `implement.prompt.body` with a verdict preamble | `shared/prompts/review-implement.ts` | converged to the intent-family style; `BRANCH_DIFF` is the merge-base unified diff |
+| intent | `intent.prompt.review`, `intent.prompt.review-actuator`, `intent.prompt.review.adversary`, `.advocate`, `.adjudicator` | `shared/prompts/review-intent.ts` | the reference style |
+| patch | `patch.prompt.review.adversary`, `.advocate`, `.adjudicator` | none in v2 | **frozen** with the retired v1 engine; summary-only `BRANCH_DIFF` |
 
-### `write.blocker-reprompt`
+Light review runs critic then actuator; debate review runs adversary → advocate → adjudicator, whose verdict drives the actuator (`REVIEW_PASS_NUMBER` / `REVIEW_PASS_CONTEXT` thread passes). Dispatch, verdict persistence, and landing are in [`workflow-runner.md § Review dispatch`](./workflow-runner.md#review-dispatch) and [`write-behavior.md § Review cycle`](./write-behavior.md#review-cycle); per-role placeholder tables are pinned by the registry and render tests, not repeated here.
 
-One-shot re-prompt issued when a `blocked` token misses the blocker-text contract. No placeholders. Used by the step runner; see [`write-behavior.md`](./write-behavior.md#terminal-token).
+## Ownership and change discipline
 
-### `write.landing-contract-reprompt`
+- A registered artifact change needs render coverage: `shared/prompts/render-observer-tests.ts` maps each `prompts/**` path to the tests that render it through its production renderer, and ready finalization fails with `missing-render-coverage` otherwise ([`test-writing.md § Prompt changes`](./test-writing.md#prompt-changes)).
+- Bump `revision` on every prose change; the growth-budget and contract-preservation tests under `shared/prompts/` bound review-role drift.
+- Post-render string surgery on assembled prompts is forbidden (`shared/prompts/no-prompt-surgery-guard.ts`); express layout differences as variants.
 
-Re-prompt issued when `intent.prompt.split` staged output fails landing-shape validation before write-loop completion. Injects `VIOLATION`, `OFFENDING_FILE`, and `STAGING_DIR`. Used by the write loop; see [`write-behavior.md`](./write-behavior.md#intent-split-landing-contracts).
+## Variants and optional sections
 
-### `write.staged-markdown-lint-reprompt`
+Artifacts may declare `variants` and `optionalSections` as single-line JSON frontmatter values (absent keys default to `{}` and `[]`).
 
-Re-prompt issued when staged plan or intent Markdown fails markdownlint before write-loop completion or before review actuator landing. Injects `RULE_ID`, `VIOLATION` (markdownlint message), `OFFENDING_FILE`, and `STAGING_DIR`. Used by the write loop and the review completion seam (`landReviewedOutputOrFail`, `finishReviewedLanding`); see [`workflow-runner.md`](./workflow-runner.md#review-dispatch) and [`write-behavior.md`](./write-behavior.md#intent-review-cycle).
+- `variants` — object mapping a variant id to an ordered array of `{ "anchor", "replacement", "replaceAll"? }`; reserved plan ids are `flat-layout` and `nested-target-dir`.
+- `optionalSections` — array of `{ "header", "begin", "end", "placeholder" }`; each `placeholder` must be declared in `placeholders`.
 
-### `write.ready-repair`
-
-Re-prompt issued when the ready gate fails during completion publication. Injects `SPEC_PATH`, `STEP_RULES`, `GATE_COMMAND`, `GATE_EXIT_CODE`, and `GATE_OUTPUT`. Used by the write loop's publication boundary; see [`write-behavior.md`](./write-behavior.md#ready-finalization).
-
-### `write.surviving-mutation-reprompt`
-
-Re-prompt issued when in-loop diff-derived mutation verification finds an uncovered changed guard on an implement `done`/`no-work` iteration before completion commit or publication. Injects `SPEC_PATH`, `STEP_RULES`, `SURVIVING_MUTATION`, `SOURCE_FILE`, `SOURCE_LINE`, and `DUAL_CONSTRAINT_DETAIL` (same names as `write.mutation-repair`). Used by the implement write loop; see [`write-behavior.md`](./write-behavior.md#diff-derived-mutation-verification).
-
-### `write.mutation-repair`
-
-Re-prompt issued when publication-time confirm-only mutation verification finds a repair-introduced surviving mutation after in-loop verification already passed. Injects `SPEC_PATH`, `STEP_RULES`, `SURVIVING_MUTATION`, `SOURCE_FILE`, `SOURCE_LINE`, and `DUAL_CONSTRAINT_DETAIL`. Used by implement-initiated recovery at publication; see [`write-behavior.md`](./write-behavior.md#diff-derived-mutation-verification).
-
-### `write.coverage-advisory`
-
-Advisory re-prompt issued after a completing implement write when uncovered changed lines are detected. Injects `COVERAGE_REPORT` (the report text from `reportUncoveredChangedLines`). The advisory is **deliver-only**: the agent's response is logged but does not change the completion outcome, iteration count, or run status. Used by the write loop's completion path; see [`write-behavior.md`](./write-behavior.md#coverage-advisory).
-
-## Plan and intent prompts
-
-Plan draft and plan review inject `SPEC_GUIDANCE` from [`spec-guidance-agent-core.md`](./spec-guidance-agent-core.md) at the install root (agent core only; operator guidance stays in [`spec-guidance.md`](./spec-guidance.md)). Intent review injects the same agent core as `SPEC_GUIDANCE`; intent split has no `SPEC_GUIDANCE` placeholder and instead directs the agent to read [`spec-guidance-agent-core.md`](./spec-guidance-agent-core.md) for sizing and reviewability. See [`write-behavior.md`](./write-behavior.md#plan-write-step-seeding-and-completion-contract), [`workflow-runner.md`](./workflow-runner.md#execution-contract).
-
-- `plan.prompt.draft` — `WORKDIR`, `NAME`, `INTENT` (ready-intent seed); Rules carry step mechanics only (write boundaries, blocker contract, frontmatter preservation, subspec/index linkage), with authoring norms owned by injected `SPEC_GUIDANCE`
-- `plan.prompt.review.*` — debate and light review roles with materialized draft context
-- `plan.prompt.review-actuator` — verdict-application step mechanics including structural product-AC rewrite, plus injected `SPEC_GUIDANCE`
-- `intent.prompt.split` — seed and staging placeholders; reads agent-core sizing guidance via prompt task (no `SPEC_GUIDANCE` injection)
-- `intent.prompt.review` / `intent.prompt.review-actuator` — staged ready-intent Markdown and critic verdict slot
+Registry load rejects malformed shapes (non-object `variants`, empty ids, non-array entries, missing `anchor`/`replacement`, non-boolean `replaceAll`, undeclared section placeholders). `renderArtifactTemplate` runs in order: variant substitution (first match unless `replaceAll`), optional-section excision from `header` through `end` when the bound value is empty or whitespace (`begin` is a positional validator only), then placeholder substitution. `PromptRenderingError` reasons `unknown_variant` and `missing_template_anchor` fail loudly on prose drift; the remaining reasons are listed in [`prompt-governance.md § Validation boundary`](./prompt-governance.md#validation-boundary).

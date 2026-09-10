@@ -57,6 +57,15 @@ Sibling seeds/intents that edit the same code seam must be planned (and implemen
 
 `intent` splits one seed into reviewed, one-per-surface ready-intents under `<targetDir>/ready-intents/` and opens a draft PR. `plan` consumes one ready-intent into a spec tree conforming to the agent core (index with H1 and task list, numbered subspecs each with an exact `## Acceptance criteria` section), runs its review passes, and opens a draft PR. The plan agent authors the numbered subspecs; Jarvis validates their shape and index links but runs no post-hoc surface split. Both commands accept `--target-dir <dir>`. Preset contracts and flags: [`workflow-runner.md`](./workflow-runner.md).
 
+### One artifact per bullet
+
+A bullet under `## Acceptance criteria`, `## Decisions`, or `## Documentation updates` may name at most one backticked repo-relative artifact path claimed as built or changed; a bullet naming more than one is refused. Two wording-based exemptions apply regardless of section:
+
+- **Stays-unchanged**: several artifacts named as staying unchanged, with no build verb anywhere in the bullet. Example: "`a.test.ts` and `b.test.ts` missing-gate projections stay green (shape unchanged by the mapping change)."
+- **Shared decision**: one outcome stated to hold identically across several artifacts, rather than a distinct build claim per artifact (marker: "identical" or "the same"). Example: "Both `x.ts` and `y.ts` take the identical resolved path from one builder-local binding."
+
+Wording that matches neither exemption is refused (fail closed). A bullet mixing stays-unchanged wording with a genuine build claim on a second artifact is still refused.
+
 Review the generated index and subspecs on the PR; edit the files directly if needed, then merge. Once merged, the spec is available to `implement`. Plan-generated specs follow the same merge-first rule.
 
 When work starts from a structured index (a feature checklist, a work queue): treat the item plus matching context docs as source input, write a concise build brief, draft with `intent`/`plan`, implement with `implement`. Do not frame work-start prompts as "draft a spec" — done is merged implementation code, not generated spec artifacts.

@@ -39,14 +39,45 @@ export function referencedArtifactPaths(text: string): string[] {
   return [...paths];
 }
 
+// Bare `green` and `stops` are deliberately absent: they fire on ordinary prose about new work
+// ("lands with the suite green", "a guard that stops the retry"), which is not a preservation claim.
+const PRESERVATION_VERB_PATTERN = /\b(?:stays?|remains?|unchanged|preserved|continues?)\b/iu;
+// Wide by intent. Both exemptions fail closed, per the spec: a false refusal costs a reword, a false
+// accept silently hides a fat bullet.
+const BUILD_VERB_PATTERN =
+  /\b(?:creates?|adds?|introduces?|implements?|builds?|generates?|writes?|gains?|gets?|grows?|learns?|emits?|extends?|wires?|routes?|threads?)\b/iu;
+const SHARED_OUTCOME_PATTERN = /\bidentical\b|\bthe same\b/iu;
+
+/** A bullet claiming named artifacts stay unchanged (preservation wording, no build verb anywhere in
+ * the bullet) — exempt from the single-artifact count. */
+function isStaysUnchangedBullet(text: string): boolean {
+  return PRESERVATION_VERB_PATTERN.test(text) && !BUILD_VERB_PATTERN.test(text);
+}
+
+/**
+ * A bullet stating one outcome holds identically across the named artifacts, rather than a distinct
+ * build claim per artifact — exempt from the single-artifact count. The marker alone is not enough:
+ * "the same" and "identical" are ordinary incidental prose ("in the same directory", "the same shape"),
+ * so a bullet that also makes a build claim is not exempt.
+ */
+function isSharedDecisionBullet(text: string): boolean {
+  return SHARED_OUTCOME_PATTERN.test(text) && !BUILD_VERB_PATTERN.test(text);
+}
+
 function assertSingleArtifactBullets(file: string, heading: string, bullets: readonly string[]): void {
   for (const bullet of bullets) {
     const paths = referencedArtifactPaths(bullet);
-    if (paths.length > 1) {
-      throw new Error(
-        `Plan subspec ${file} has a ${heading} bullet naming multiple artifact paths (${paths.join(", ")}): ${bullet}`,
-      );
-    }
+    if (paths.length <= 1) continue;
+    if (isStaysUnchangedBullet(bullet) || isSharedDecisionBullet(bullet)) continue;
+    // A bullet carrying exempt wording that reaches here did so because of its build claim; say so,
+    // rather than leaving the author to guess which reading fired.
+    const reading =
+      PRESERVATION_VERB_PATTERN.test(bullet) || SHARED_OUTCOME_PATTERN.test(bullet)
+        ? "mixes exempt wording with a build claim"
+        : "read as built or changed";
+    throw new Error(
+      `Plan subspec ${file} has a ${heading} bullet naming multiple artifact paths (${paths.join(", ")}): ${bullet} (${reading})`,
+    );
   }
 }
 

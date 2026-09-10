@@ -63,8 +63,10 @@ describe("buildPlanDraftPrompt", () => {
     const rules = prompt.split("## Rules\n\n")[1]?.split("\n\n## Instructions")[0];
 
     expect(rules).toContain(
-      "**One artifact per bullet.** A bullet under `## Acceptance criteria`, `## Decisions`, or `## Documentation updates` may name at most one backticked repo-relative artifact path.",
+      "**One artifact per bullet.** A bullet under `## Acceptance criteria`, `## Decisions`, or `## Documentation updates` may name at most one backticked repo-relative artifact path claimed as built or changed.",
     );
+    expect(rules).toContain("stays green");
+    expect(rules).toContain('marker: "identical" or "the same"');
     expect(rules).not.toContain("module-boundary surface");
     expect(rules).not.toContain("blocks the whole draft");
   });

@@ -61,7 +61,14 @@ import { lintReviewedStagedMarkdownOrFail } from "./reviewed-staged-markdown-lin
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
 import { lintStagedMarkdown } from "./staged-markdown-lint.ts";
-import type { AnyWorkflowStep, WorkflowResult, WorkflowRunnerInput, WriteWorkflowStep } from "./workflow-runner.ts";
+import type {
+  AnyWorkflowStep,
+  ReviewDebateWorkflowStep,
+  ReviewWorkflowStep,
+  WorkflowResult,
+  WorkflowRunnerInput,
+  WriteWorkflowStep,
+} from "./workflow-runner.ts";
 import { revalidateStagedPlanContract } from "./workflow-runner-debate-landing.ts";
 import {
   appendRuntimeSmokeOutcome,
@@ -647,8 +654,9 @@ export function isPlanStageEntryRunRecoverable(
 /**
  * Names one stopped plan run to recover: the run identified by `runId` must still resolve to
  * the persisted `(project, branch, worktreePath, writeStepId)` relationship captured for that
- * attempt. `steps` are the captured remaining review actuator step(s) to run after admission —
- * recovery never constructs or invokes a plan-draft step itself.
+ * attempt. `steps` carries the captured review step, whose `landing`/`verdictPath` config
+ * recovery reads to land the on-disk staged tree directly — recovery never dispatches that
+ * step's review/actuator roles, and never constructs or invokes a plan-draft step itself.
  */
 export type PlanStageRecoveryRequest = Omit<WorkflowRunnerInput, "steps"> & {
   runId: string;
@@ -714,7 +722,9 @@ function resolvePlanBlockerProvenance(
  * constructs. This reuses the identical commit primitive (`createCompletionCommitter`, the same
  * one the ordinary tail calls) so recovered and ordinary plan publication share one commit
  * construction and one durable-file allowlist (`planFiles`); recovery just supplies its own
- * attribution since it has no write-step row to read it from.
+ * attribution since it has no write-step row to read it from. Recovery never dispatches the
+ * review step, so its row (if any) never carries a completion agent; `fallbackAgent` — the
+ * captured plan-draft step's configured agent — attributes the commit instead.
  */
 async function commitRecoveredPlanLanding(
   context: {
@@ -725,6 +735,7 @@ async function commitRecoveredPlanLanding(
     durablePath: string;
     stepId: string;
     behavior: "review" | "review-debate";
+    fallbackAgent: string | undefined;
   },
   store: StateStore,
   completionCommitter: CompletionCommitter | undefined,
@@ -734,7 +745,7 @@ async function commitRecoveredPlanLanding(
     branch: context.branch,
     stepId: context.stepId,
   });
-  const agent = reviewRun ? resumeInjected().reviewCompletionAgent(reviewRun) : undefined;
+  const agent = (reviewRun ? resumeInjected().reviewCompletionAgent(reviewRun) : undefined) ?? context.fallbackAgent;
   if (agent === undefined) {
     return {
       kind: "completion_commit_failed",
@@ -776,9 +787,10 @@ async function commitRecoveredPlanLanding(
  * hand-corrected, without redrafting: verifies the run identified by `runId` still identifies
  * the captured `(project, branch, worktreePath, writeStepId)` checkout and a populated
  * `.jarvis-plan-stage/`, admits it independently of `resumable`, strips only a proven
- * harness-authored blocker, then runs the captured remaining review actuator step(s) via
- * {@link executeWorkflow} (shared landing) and, once landing completes, commits the durable
- * output via {@link commitRecoveredPlanLanding}.
+ * harness-authored blocker, validates the on-disk staged tree, then lands it directly via
+ * {@link landReviewedPublicationOutput} — no review/actuator role runs between validation and
+ * landing, so nothing can mutate the operator's correction — and, once landing completes,
+ * commits the durable output via {@link commitRecoveredPlanLanding}.
  */
 /** Admission-time blocker/claim checks for the two plan-recovery paths; returns a refusal outcome or `undefined` to proceed. */
 function admitPlanRecoveryBlockerAndClaim(
@@ -820,6 +832,13 @@ function admitPlanRecoveryBlockerAndClaim(
   return undefined;
 }
 
+/** Narrows a captured recovery step to the review/review-debate step carrying its plan-tree landing config. */
+function isPlanTreeLandingStep(step: AnyWorkflowStep): step is (ReviewWorkflowStep | ReviewDebateWorkflowStep) & {
+  landing: Extract<PublicationLanding, { kind: "plan-tree" }>;
+} {
+  return (step.behavior === "review" || step.behavior === "review-debate") && step.landing?.kind === "plan-tree";
+}
+
 export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promise<PlanStageRecoveryOutcome> {
   const store = request.stateStore;
   const run = store.loadRun(request.runId);
@@ -854,6 +873,18 @@ export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promi
       message: "plan-stage recovery requires Git-backed publication mode",
     };
   }
+  // Resolved before anything mutates the staged tree. A request with no plan-tree landing step is a
+  // malformed *request*, not an invalid tree: refusing after the blocker strip would permanently
+  // edit the operator's `intent.md` and then report their markdown as the problem.
+  const landingStep = request.steps.find(isPlanTreeLandingStep);
+  if (landingStep === undefined) {
+    return {
+      ok: false,
+      code: "missing_plan_context",
+      message: "no plan-tree landing step captured for recovery",
+    };
+  }
+
   const blockerAdmission = admitPlanRecoveryBlockerAndClaim(
     run,
     store,
@@ -863,7 +894,8 @@ export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promi
   );
   if (blockerAdmission) return blockerAdmission;
 
-  // Revalidate before the first review: an operator correction never trusted past admission.
+  // Validate the on-disk staged tree before landing: an operator correction never trusted past
+  // admission. No agent role runs between this check and landing, so it never needs repeating.
   const stagingDir = join(run.worktreePath, PLAN_STAGE_DIR);
   const contract = revalidateStagedPlanContract(stagingDir);
   if (!contract.ok) {
@@ -877,31 +909,18 @@ export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promi
     return { ok: false, code: "plan_stage_invalid", message: lint.message };
   }
 
-  const {
-    runId: _runId,
-    project: _project,
-    branch: _branch,
-    worktreePath: _worktreePath,
-    writeStepId: _writeStepId,
-    steps,
-    stateStore: _stateStore,
-    ...forwarded
-  } = request;
-  // Revalidate again immediately before landing: a review actuator can still mutate staging.
-  const revalidatedSteps = steps.map((step) =>
-    step.behavior === "review" || step.behavior === "review-debate"
-      ? { ...step, revalidateStagedPlanBeforeLanding: true }
-      : step,
-  );
-  const result = await resumeInjected().executeWorkflow({ ...forwarded, steps: revalidatedSteps, stateStore: store });
-  if (result.kind !== "complete") {
-    return { ok: true, ...result };
-  }
-  const landingStep = revalidatedSteps.find(
-    (step) => (step.behavior === "review" || step.behavior === "review-debate") && step.landing?.kind === "plan-tree",
-  );
-  if (landingStep === undefined || landingStep.landing?.kind !== "plan-tree") {
-    return { ok: true, ...result };
+  const landed = await landReviewedPublicationOutput(run.worktreePath, landingStep.landing, landingStep.verdictPath);
+  if (!landed.ok) {
+    return {
+      ok: true,
+      kind: "invocation_failure",
+      stepIndex: 0,
+      stepId: landingStep.stepId,
+      runId: run.id,
+      iterationsConsumed: 0,
+      resumable: true,
+      invocationFailureMessage: landed.message,
+    };
   }
   const commit = await commitRecoveredPlanLanding(
     {
@@ -911,15 +930,34 @@ export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promi
       baseRef: run.specRef,
       durablePath: landingStep.landing.durablePath,
       stepId: landingStep.stepId,
-      behavior: landingStep.behavior as "review" | "review-debate",
+      behavior: landingStep.behavior,
+      fallbackAgent: writeStep?.agents?.[0],
     },
     store,
     request.completionCommitter,
   );
   if (commit.kind === "completion_commit_failed") {
-    return { ok: true, ...result, kind: "completion_commit_failed", completionCommitError: commit.message };
+    return {
+      ok: true,
+      kind: "completion_commit_failed",
+      stepIndex: 0,
+      stepId: landingStep.stepId,
+      runId: run.id,
+      iterationsConsumed: 0,
+      resumable: true,
+      completionCommitError: commit.message,
+    };
   }
-  return { ok: true, ...result, ...(commit.commitSha !== undefined ? { commitSha: commit.commitSha } : {}) };
+  return {
+    ok: true,
+    kind: "complete",
+    stepIndex: 0,
+    stepId: landingStep.stepId,
+    runId: run.id,
+    iterationsConsumed: 0,
+    resumable: false,
+    ...(commit.commitSha !== undefined ? { commitSha: commit.commitSha } : {}),
+  };
 }
 
 /** Refusal reason when the persisted write step predates seed-consumption recording; publishing would strand the seed. */

@@ -557,6 +557,19 @@ describe("resume test title scanner", () => {
   });
 });
 
+/**
+ * Leaf titles this guard no longer requires: each covered behavior that
+ * `recover-validates-on-disk-plan-stage` (00-land-on-disk-stage-without-agent-roles) removed —
+ * `recoverPlanStage` stopped revalidating immediately before landing and stopped dispatching a
+ * review role at all, so the second-revalidation and dispatch-retry scenarios these titles
+ * named no longer exist to test.
+ */
+const RETIRED_LEAF_TITLES = new Set<string>([
+  "recoverPlanStage > revalidates a review-mutated recovered plan stage before landing",
+  "recoverPlanStage review-failed admission > quota exhaustion during recovery review falls through to the next configured reviewer in one recovery attempt",
+  "recoverPlanStage review-failed admission > a terminal recovery review failure preserves staged bytes in one attempt",
+]);
+
 describe("workflow-runner resume test inventory", () => {
   test("resolves merge-base against the first available base ref", () => {
     expect(resolveMergeBase()).toMatch(/^[0-9a-f]{40}$/);
@@ -569,7 +582,8 @@ describe("workflow-runner resume test inventory", () => {
 
     for (const anchor of anchors) {
       const expected = collectExpectedTitles(anchor, mergeBase);
-      const { missing } = multisetParity(expected, destinationTitles);
+      const { missing: rawMissing } = multisetParity(expected, destinationTitles);
+      const missing = rawMissing.filter((title) => !RETIRED_LEAF_TITLES.has(title));
 
       // Missing-only: surplus destination titles are allowed when co-located files split or grow.
       expect({

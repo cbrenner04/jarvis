@@ -16,20 +16,20 @@ The landing primitive recovery needs already exists without any role dispatch: `
 
 ## Acceptance criteria
 
-- [ ] A regression test in `v2/src/execution/workflow-runner-resume.test.ts` recovers a blocked plan stage whose on-disk tree differs from the agent's draft and asserts the landed durable tree is byte-identical to the on-disk tree; it fails against the pre-fix code.
-- [ ] A test asserts a recovery attempt records no new run row and appends no `iteration_started` for the blocked run, and that the injected `executeWorkflow` seam is never called.
-- [ ] A test asserts a `plan_stage_invalid` failure message names a file present in the on-disk staged tree at invocation, never one only the agent's draft contained.
-- [ ] `revalidateStagedPlanBeforeLanding` no longer appears in `v2/src/execution/workflow-runner.ts`.
-- [ ] `revalidateStagedPlanBeforeLanding` no longer appears in `v2/src/execution/workflow-runner-debate-landing.ts`.
-- [ ] The admission and refusal tests in `v2/src/execution/workflow-runner-resume.test.ts` (`missing_plan_context`, `stage_identity_mismatch`, `unrelated_plan_stage`, `recovery_requires_git`, `operator_blocker`) stay green — admission is unchanged by this subspec.
-- [ ] `v2/src/daemon/pipeline-stage-recovery.test.ts` stays green: the stage still settles `failed` with the attempt's own reason and reopens only on `complete`.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] A regression test in `v2/src/execution/workflow-runner-resume.test.ts` recovers a blocked plan stage whose on-disk tree differs from the agent's draft and asserts the landed durable tree is byte-identical to the on-disk tree; it fails against the pre-fix code.
+- [x] A test asserts a recovery attempt records no new run row and appends no `iteration_started` for the blocked run, and that the injected `executeWorkflow` seam is never called.
+- [x] A test asserts a `plan_stage_invalid` failure message names a file present in the on-disk staged tree at invocation, never one only the agent's draft contained.
+- [x] `revalidateStagedPlanBeforeLanding` no longer appears in `v2/src/execution/workflow-runner.ts`.
+- [x] `revalidateStagedPlanBeforeLanding` no longer appears in `v2/src/execution/workflow-runner-debate-landing.ts`.
+- [x] The admission and refusal tests in `v2/src/execution/workflow-runner-resume.test.ts` (`missing_plan_context`, `stage_identity_mismatch`, `unrelated_plan_stage`, `recovery_requires_git`, `operator_blocker`) stay green — admission is unchanged by this subspec.
+- [x] `v2/src/daemon/pipeline-stage-recovery.test.ts` stays green: the stage still settles `failed` with the attempt's own reason and reopens only on `complete`.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 
-- [ ] `v2/docs/pipeline-execution.md` — recover validates and lands the on-disk staged tree; it invokes no agent role and neither restores nor redrafts.
-- [ ] `v2/docs/workflow-runner.md` — `recoverPlanStage` is a validate-then-land path, not an `executeWorkflow` review re-entry.
-- [ ] `v2/docs/operator-runbook.md` — the hand-correct-then-recover procedure works; delete the "`pipeline recover` discards your correction (2026-09-08)" bullet and the note that `resume` is the only path for a blocked `full-review` plan stage, and record that the prior `stage_resolution_failed` refusal no longer reproduces.
-- [ ] `v2/docs/v1-behaviors.md` — update the `recoverPlanStage` entry: recovery no longer runs the caller-supplied review step through `executeWorkflow`; it lands the validated on-disk tree itself.
+- [x] `v2/docs/pipeline-execution.md` — recover validates and lands the on-disk staged tree; it invokes no agent role and neither restores nor redrafts.
+- [x] `v2/docs/workflow-runner.md` — `recoverPlanStage` is a validate-then-land path, not an `executeWorkflow` review re-entry.
+- [x] `v2/docs/operator-runbook.md` — the hand-correct-then-recover procedure works; delete the "`pipeline recover` discards your correction (2026-09-08)" bullet and the note that `resume` is the only path for a blocked `full-review` plan stage, and record that the prior `stage_resolution_failed` refusal no longer reproduces.
+- [x] `v2/docs/v1-behaviors.md` — update the `recoverPlanStage` entry: recovery no longer runs the caller-supplied review step through `executeWorkflow`; it lands the validated on-disk tree itself.

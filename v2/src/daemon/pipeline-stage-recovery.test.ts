@@ -404,7 +404,7 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
     const snapshot = {
       invocationId,
       steps: [
-        { stepId: "plan", role: "plan", expectedArtifactPath: ".jarvis-plan-stage" },
+        { stepId: "plan", role: "plan", expectedArtifactPath: ".jarvis-plan-stage", agents: ["claude"] },
         { stepId: "plan-review", role: "", behavior: "review-debate" as const },
       ],
     };
@@ -479,10 +479,9 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
           return {
             id: agentId,
             metadata: { agent: agentId, model: agentId },
-            invoke: async () =>
-              agentId === "claude"
-                ? ({ kind: "ok", stdout: "Looks good", stderr: "" } as const)
-                : ({ kind: "ok", stdout: "done", stderr: "" } as const),
+            invoke: async () => {
+              throw new Error("pipeline recovery must not dispatch a review role");
+            },
           };
         },
       };
@@ -513,7 +512,7 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
       expect(outcome.ok).toBe(true);
       if (!outcome.ok) throw new Error("unreachable");
       expect(outcome.kind).toBe("complete");
-      expect(writeInvocations).toEqual(["claude", "codex"]);
+      expect(writeInvocations).toEqual([]);
       expect(existsSync(join(durable, "00-first.md"))).toBe(true);
     });
   });
@@ -776,7 +775,7 @@ describe("recoverPipelineBranchStage", () => {
       stepId: args.stepId,
       workflowSnapshot: {
         invocationId: args.invocationId,
-        steps: [{ stepId: args.stepId, role: "plan", expectedArtifactPath: ".jarvis-plan-stage" }],
+        steps: [{ stepId: args.stepId, role: "plan", expectedArtifactPath: ".jarvis-plan-stage", agents: ["claude"] }],
       },
     });
     const attemptId = store.recordAttemptStart(runId);

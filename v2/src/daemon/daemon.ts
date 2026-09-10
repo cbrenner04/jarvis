@@ -7,7 +7,7 @@ import {
   type ResolvedAgentBindingOptions,
 } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
-import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import {
   type AgentModelConfig,
   type LoadError,
@@ -72,6 +72,7 @@ import {
   runNotificationSweep,
   runNotificationSweepIntervalTick,
 } from "./operator-notification-sweep.ts";
+import type { KillSurvivor } from "./run-kill-outcome.ts";
 import type { RunOperatorError } from "./run-operator-error.ts";
 
 export { reconcileOrphanedRuns };
@@ -162,6 +163,44 @@ export class DaemonDoubleClaimError extends Error {
 
 function worktreeClaimedMessage(key: OwnershipKey): string {
   return `Worktree already claimed for project=${key.project}, branch=${key.branch}`;
+}
+
+/** Signal every verifier process group recorded on any of `runIds`; returns the signalled ids. */
+export function signalRecordedVerifierProcessGroups(store: StateStore, runIds: Iterable<string>): number[] {
+  const signalled = new Set<number>();
+  for (const runId of runIds) {
+    for (const pgid of store.verifierProcessGroups(runId)) {
+      if (signalled.has(pgid)) continue;
+      signalled.add(pgid);
+      signalReadyGateProcessGroup(pgid);
+    }
+  }
+  return [...signalled];
+}
+
+/** Processes still alive in any of `pgids`, each with its current parent pid (`ps -A -o pid=,ppid=,pgid=`). */
+export async function observeProcessGroupSurvivors(
+  pgids: readonly number[],
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<KillSurvivor[]> {
+  if (pgids.length === 0) return [];
+  const wanted = new Set(pgids);
+  let table: string;
+  try {
+    table = await runner.runAsync("ps", ["-A", "-o", "pid=,ppid=,pgid="], ".");
+  } catch {
+    return [];
+  }
+  const survivors: KillSurvivor[] = [];
+  for (const line of table.split("\n")) {
+    const [pid, ppid, pgid] = line
+      .trim()
+      .split(/\s+/)
+      .map((field) => Number.parseInt(field, 10));
+    if (pid === undefined || pgid === undefined || !Number.isInteger(pid) || !wanted.has(pgid)) continue;
+    survivors.push({ pid, ppid: ppid !== undefined && Number.isInteger(ppid) ? ppid : null });
+  }
+  return survivors;
 }
 
 /** Signal a recorded process group with SIGTERM then SIGKILL after the shared 50ms grace. */

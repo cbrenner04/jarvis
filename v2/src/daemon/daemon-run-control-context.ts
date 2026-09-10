@@ -23,6 +23,7 @@ import { bindPipelineWaitObserver, PipelineWaitObserver } from "./pipeline-obser
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
 import type { PipelineStageRecoveryAttempt } from "./pipeline-stage-recovery.ts";
 import type { resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
+import type { KillSurvivor } from "./run-kill-outcome.ts";
 
 export type RunControlHandlerContextDeps = {
   stateStore: StateStore;
@@ -47,6 +48,14 @@ export type RunControlHandlerContextDeps = {
   reconciledRunIds?: readonly string[];
   notificationWaitRegistry?: NotificationWaitRegistry;
   writeLoopBindingSourceDeps?: WriteLoopBindingSourceDeps;
+  /** Kill settlement seams: bounded wait clock and survivor observation (production: 30s poll, `ps`). */
+  killSettlement?: KillSettlementDeps;
+};
+
+export type KillSettlementDeps = {
+  boundMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+  observeSurvivors?: (pgids: readonly number[]) => Promise<KillSurvivor[]>;
 };
 
 export type RunControlHandlerContext = {
@@ -70,6 +79,7 @@ export type RunControlHandlerContext = {
   settleDelayMs: () => number;
   settleState: PromotionSettleState;
   writeLoopBindingSourceDeps?: WriteLoopBindingSourceDeps;
+  killSettlement: KillSettlementDeps | undefined;
 };
 
 export function createRunControlHandlerContext(deps: RunControlHandlerContextDeps): RunControlHandlerContext {
@@ -118,6 +128,7 @@ export function createRunControlHandlerContext(deps: RunControlHandlerContextDep
   const settleState: PromotionSettleState = { suppressedUntil: 0 };
 
   return {
+    killSettlement: deps.killSettlement,
     registry,
     activeRuns,
     waitAbortControllers,

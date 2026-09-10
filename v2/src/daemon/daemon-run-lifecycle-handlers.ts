@@ -44,23 +44,27 @@ import {
 } from "../persistence/state-store.ts";
 import { rollupWorkflowRunStatus } from "../persistence/workflow-run-status-rollup.ts";
 import {
+  type ActiveRun,
   activeRunAcceptsKill,
   checkWorktreeClaimed,
   forceSettleAdmitsRun,
   forceSettleStatusAdmitsRun,
   type LoadedRun,
   type OwnershipKey,
+  observeProcessGroupSurvivors,
   projectWorkflowEntryResult,
   promoteQueuedRunImpl,
   type ResolvedWriteLoopInput,
   resolveWriteLoopBindings,
   runListTerminalFinishAtMs,
   settleGuardedKill,
+  signalRecordedVerifierProcessGroups,
   type WaitRunCompletionResult,
   workflowInvocationIsLive,
 } from "./daemon.ts";
 import {
   daemonFailureDetail,
+  type KillSettlementDeps,
   ownershipKeyString,
   type RunControlHandlerContext,
 } from "./daemon-run-control-context.ts";
@@ -71,6 +75,12 @@ import {
   resolveRunResumeAdmission,
 } from "./daemon-run-resume-admission.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
+import {
+  KILL_SETTLEMENT_BOUND_MS,
+  KILL_SETTLEMENT_POLL_MS,
+  type KillSurvivor,
+  type RunKillOutcome,
+} from "./run-kill-outcome.ts";
 import {
   composeRunOperatorError,
   findTerminalLogRecord,
@@ -224,6 +234,50 @@ type StartResult =
   | { kind: "error"; code: string; message: string }
   | Promise<{ kind: "response"; result: unknown } | { kind: "error"; code: string; message: string }>;
 
+type ResolvedKillSettlement = {
+  boundMs: number;
+  sleep: (ms: number) => Promise<void>;
+  observeSurvivors: (pgids: readonly number[]) => Promise<KillSurvivor[]>;
+};
+
+function resolveKillSettlement(deps: KillSettlementDeps | undefined): ResolvedKillSettlement {
+  return {
+    boundMs: deps?.boundMs ?? KILL_SETTLEMENT_BOUND_MS,
+    sleep: deps?.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
+    observeSurvivors: deps?.observeSurvivors ?? ((pgids) => observeProcessGroupSurvivors(pgids)),
+  };
+}
+
+/** Every run id whose active row shares `controller` (a workflow's entry, claim, and step rows), plus `runId`. */
+function runIdsSharingAbortController(
+  activeRuns: Map<string, ActiveRun>,
+  controller: AbortController,
+  runId: string,
+): Set<string> {
+  const runIds = new Set<string>([runId]);
+  for (const active of activeRuns.values()) {
+    if ((active.kind === "workflow" || active.kind === "write-loop") && active.abortController === controller) {
+      runIds.add(active.runId);
+    }
+  }
+  return runIds;
+}
+
+/** Bounded poll for the named row reaching a terminal status; true when it settled within the bound. */
+async function awaitDurableKill(
+  store: StateStore,
+  runId: string,
+  settlement: ResolvedKillSettlement,
+): Promise<boolean> {
+  const polls = Math.max(1, Math.ceil(settlement.boundMs / KILL_SETTLEMENT_POLL_MS));
+  for (let poll = 0; ; poll += 1) {
+    const status = store.loadRun(runId)?.status;
+    if (status === undefined || isTerminalRunStatus(status)) return true;
+    if (poll >= polls) return false;
+    await settlement.sleep(KILL_SETTLEMENT_POLL_MS);
+  }
+}
+
 export function createRunLifecycleHandlers(
   ctx: RunControlHandlerContext,
   deps: RunLifecycleHandlerDeps,
@@ -243,6 +297,7 @@ export function createRunLifecycleHandlers(
     settleState,
     writeLoopBindingSourceDeps = {},
   } = ctx;
+  const killSettlement = resolveKillSettlement(ctx.killSettlement);
   const logsPath = ctx.logsPath;
 
   const reconstructDirectWriteResume = (run: Run): ResolvedWriteLoopInput => {
@@ -776,19 +831,65 @@ export function createRunLifecycleHandlers(
     const activeRun = activeRuns.get(ks) ?? activeRuns.get(runId);
     if (activeRunAcceptsKill(activeRun, runId)) {
       activeRun.abortController.abort();
+      // Signal every recorded verifier group of this run and of every row sharing its controller
+      // before any wait: a hung gate/verifier child is what keeps quiescence from finishing.
+      const signalled = signalRecordedVerifierProcessGroups(
+        store,
+        runIdsSharingAbortController(activeRuns, activeRun.abortController, runId),
+      );
       if (activeRun.kind === "workflow") {
         activeRun.pendingKill = true;
-        return { kind: "response", result: { ok: true } };
+      } else {
+        settleGuardedKill(store, runId);
       }
-      settleGuardedKill(store, runId);
-      return { kind: "response", result: { ok: true } };
+      if (params.force === true) {
+        // Force settlement wins over unfinished quiescence; later guarded cleanup finds the row terminal.
+        settleGuardedKill(store, runId);
+        const survivors = await killSettlement.observeSurvivors(signalled);
+        const status = store.loadRun(runId)?.status ?? "killed";
+        return {
+          kind: "response",
+          result: { ok: true, outcome: "force-settled", runId, status, survivors } satisfies RunKillOutcome,
+        };
+      }
+      if (await awaitDurableKill(store, runId, killSettlement)) {
+        const survivors = await killSettlement.observeSurvivors(signalled);
+        // Terminal, not necessarily `killed`: a boundary-terminal sibling row keeps its own status.
+        const status = store.loadRun(runId)?.status ?? "killed";
+        return {
+          kind: "response",
+          result: { ok: true, outcome: "settled", runId, status, survivors } satisfies RunKillOutcome,
+        };
+      }
+      const survivors = await killSettlement.observeSurvivors(signalled);
+      const status = store.loadRun(runId)?.status ?? run.status;
+      return {
+        kind: "response",
+        result: {
+          ok: false,
+          outcome: "unsettled",
+          runId,
+          status,
+          survivors,
+          boundMs: killSettlement.boundMs,
+        } satisfies RunKillOutcome,
+      };
     }
 
     if (await forceSettleAdmitsRun(store, runId, run.status, params?.force)) {
       const admittedRun = store.loadRun(runId);
       if (admittedRun !== null && forceSettleStatusAdmitsRun(admittedRun.status)) {
         settleGuardedKill(store, runId);
-        return { kind: "response", result: { ok: true } };
+        return {
+          kind: "response",
+          result: {
+            ok: true,
+            outcome: "force-settled",
+            runId,
+            status: "killed",
+            survivors: [],
+          } satisfies RunKillOutcome,
+        };
       }
     }
 

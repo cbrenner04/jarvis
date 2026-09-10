@@ -315,8 +315,6 @@ export type ReviewDebateWorkflowStep = Omit<ReviewDebateInput, "bindings" | "onR
     createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
     landing?: PublicationLanding;
     stagedMarkdownLintMaxReprompts?: number;
-    /** Set only by plan-stage recovery: revalidate staged plan bytes immediately before landing. */
-    revalidateStagedPlanBeforeLanding?: boolean;
     /** Identifies an admitted external plan whose markdown remains read-only during review. */
     externalPlanSpec?: true;
     /** External review prompt label root and recovery boundary. */
@@ -335,8 +333,6 @@ export type ReviewWorkflowStep = Omit<ReviewCycleInput, "bindings" | "onRoleStar
     createBinding?: (binding: ResolvedAgentBinding) => InvocationBinding;
     landing?: PublicationLanding;
     stagedMarkdownLintMaxReprompts?: number;
-    /** Set only by plan-stage recovery: revalidate staged plan bytes immediately before landing. */
-    revalidateStagedPlanBeforeLanding?: boolean;
     /** Identifies an admitted external plan whose markdown remains read-only during review. */
     externalPlanSpec?: true;
     /** External review prompt label root and recovery boundary. */

@@ -3153,6 +3153,7 @@ describe("recoverPlanStage", () => {
             stepId: args.stepId,
             role: "plan",
             expectedArtifactPath: args.expectedArtifactPath ?? ".jarvis-plan-stage",
+            agents: ["claude"],
           },
         ],
       },
@@ -3222,14 +3223,15 @@ describe("recoverPlanStage", () => {
     const stepId = "plan";
     const specPath = "spec/2026-recovered-plan";
     const reason = "`## Decisions` bullet is outside the allowed union";
+    const agentDraftBody = "# Draft with an out-of-union Decisions bullet\n";
 
     writeLintCleanPlanStage(stage, "00-first.md");
-    writeFileSync(join(stage, "00-first.md"), "# Draft with an out-of-union Decisions bullet\n", "utf8");
+    writeFileSync(join(stage, "00-first.md"), agentDraftBody, "utf8");
     writeFileSync(join(stage, "intent.md"), `---\nname: test\n---\n${harnessPlanBlocker(reason)}`, "utf8");
     const { sourceRoot, path: sourceReadyIntent } = seedSourceReadyIntent("recover-plan-stage-keystone-source-");
 
     const correctedSubspecBody = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd012CleanSubspec);
-    const actuatorPrompts: string[] = [];
+    const reviewerCalls: string[] = [];
 
     await withStateStore(async (store) => {
       const runId = seedBlockedPlanDraftRun(store, {
@@ -3250,7 +3252,8 @@ describe("recoverPlanStage", () => {
         failureReason: reason,
       });
 
-      // Operator corrects the staged subspec that tripped the contract miss.
+      // Operator corrects the staged subspec that tripped the contract miss; the on-disk tree
+      // now differs from the agent's original draft.
       writeFileSync(join(stage, "00-first.md"), correctedSubspecBody, "utf8");
 
       const reviewStep = planReviewStep({
@@ -3258,8 +3261,12 @@ describe("recoverPlanStage", () => {
         stage,
         durable,
         branch,
+        // Pre-fix, recovery dispatched this actuator, which regenerated the agent's original
+        // draft over the operator's correction (the bug this subspec fixes). Post-fix, recovery
+        // never calls it, so the on-disk correction lands byte-identical.
         invoke: async (agentId) => {
-          if (agentId === "codex") actuatorPrompts.push("actuator");
+          reviewerCalls.push(agentId);
+          if (agentId === "codex") writeFileSync(join(stage, "00-first.md"), agentDraftBody, "utf8");
           return { kind: "ok", stdout: agentId === "claude" ? "Looks good" : "done", stderr: "" };
         },
         inputs: { sourceRoot, paths: [sourceReadyIntent], consumeFrom: "source" },
@@ -3279,7 +3286,7 @@ describe("recoverPlanStage", () => {
       expect(outcome.ok).toBe(true);
       if (!outcome.ok) throw new Error("unreachable");
       expect(outcome.kind).toBe("complete");
-      expect(actuatorPrompts).toEqual(["actuator"]);
+      expect(reviewerCalls).toEqual([]);
       expect(readFileSync(join(durable, "00-first.md"), "utf8")).toBe(correctedSubspecBody);
       expect(readFileSync(join(durable, "intent.md"), "utf8")).not.toContain("## Blocker");
       expect(existsSync(sourceReadyIntent)).toBe(false);
@@ -3393,6 +3400,60 @@ describe("recoverPlanStage", () => {
       expect(finalTracked).toContain("spec/2026-commit-clean/index.md");
       expect(finalTracked).toContain("spec/2026-commit-clean/intent.md");
       expect(finalTracked).not.toContain("ready-intents/test.md");
+    });
+  });
+
+  test("a landing collision surfaces as an invocation failure without dispatching a role", async () => {
+    const worktreePath = planWorktree("recover-plan-stage-landing-conflict-");
+    const stage = join(worktreePath, ".jarvis-plan-stage");
+    const durable = join(worktreePath, "spec", "2026-landing-conflict");
+    const branch = "recover-plan-stage-landing-conflict";
+    const stepId = "plan";
+    const specPath = "spec/2026-landing-conflict";
+
+    writeLintCleanPlanStage(stage, "00-first.md");
+    // The staged tree passes admission and pre-landing validation on its own; the durable
+    // destination already carries a same-named file with different bytes, a collision `landPublication`
+    // itself, not the earlier checks, catches.
+    mkdirSync(durable, { recursive: true });
+    writeFileSync(join(durable, "index.md"), "# Pre-existing conflicting index\n", "utf8");
+
+    await withStateStore(async (store) => {
+      const runId = seedBlockedPlanDraftRun(store, {
+        project: "demo",
+        branch,
+        worktreePath,
+        specPath,
+        stepId,
+        invocationId: "recover-plan-stage-landing-conflict-inv",
+        outcomeKind: "contract_miss",
+      });
+
+      const reviewStep = planReviewStep({
+        worktreePath,
+        stage,
+        durable,
+        branch,
+        invoke: async () => {
+          throw new Error("recovery must not dispatch a review role");
+        },
+      });
+
+      const outcome = await recoverPlanStage({
+        runId,
+        project: "demo",
+        branch,
+        worktreePath,
+        writeStepId: stepId,
+        steps: [reviewStep],
+        stateStore: store,
+      });
+
+      expect(outcome.ok).toBe(true);
+      if (!outcome.ok) throw new Error("unreachable");
+      expect(outcome.kind).toBe("invocation_failure");
+      expect(outcome.invocationFailureMessage).toContain("already exists with different contents");
+      expect(existsSync(join(stage, "index.md"))).toBe(true);
     });
   });
 
@@ -3935,16 +3996,23 @@ describe("recoverPlanStage", () => {
     }
   });
 
-  test("revalidates a review-mutated recovered plan stage before landing", async () => {
-    const worktreePath = planWorktree("recover-plan-stage-review-mutated-");
-    const stage = join(worktreePath, ".jarvis-plan-stage");
-    const durable = join(worktreePath, "spec", "2026-review-mutated");
-    const branch = "recover-plan-stage-review-mutated";
-    const stepId = "plan";
-    const specPath = "spec/2026-review-mutated";
+  test("an invalid-stage refusal names an on-disk file, never one only the agent's deleted draft contained", async () => {
+    if (skipReviewWithoutHarnessMarkdownlint("plan_stage_invalid refusal names an on-disk file")) return;
 
-    writeLintCleanPlanStage(stage, "00-first.md");
-    const { sourceRoot, path: sourceReadyIntent } = seedSourceReadyIntent("recover-plan-stage-review-mutated-source-");
+    const worktreePath = planWorktree("recover-plan-stage-named-file-");
+    const stage = join(worktreePath, ".jarvis-plan-stage");
+    const durable = join(worktreePath, "spec", "2026-named-file");
+    const branch = "recover-plan-stage-named-file";
+    const stepId = "plan";
+    const specPath = "spec/2026-named-file";
+
+    // The agent's original draft included "00-daemon.md"; the operator deleted it and replaced
+    // it with "00-fixed.md", which carries a genuine, unrelated lint violation.
+    writeLintCleanPlanStage(stage, "00-daemon.md");
+    rmSync(join(stage, "00-daemon.md"));
+    const violationBytes = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038ViolationSubspec);
+    writeFileSync(join(stage, "00-fixed.md"), violationBytes, "utf8");
+    writeFileSync(join(stage, "index.md"), "# Index\n\n- [ ] [Fixed](./00-fixed.md)\n", "utf8");
 
     await withStateStore(async (store) => {
       const runId = seedBlockedPlanDraftRun(store, {
@@ -3953,26 +4021,18 @@ describe("recoverPlanStage", () => {
         worktreePath,
         specPath,
         stepId,
-        invocationId: "recover-plan-stage-review-mutated-inv",
+        invocationId: "recover-plan-stage-named-file-inv",
         outcomeKind: "contract_miss",
       });
 
-      // The mutated index below duplicates a link rather than dropping one: `landPublication`'s
-      // own unlinked-numbered-subspec guard would already catch a dropped link, so a duplicate
-      // link is what isolates this checkpoint's normalizer re-check from that landing guard.
-      const mutatedIndex = "# Index\n\n- [ ] [One](./00-first.md)\n- [ ] [One again](./00-first.md)\n";
       const reviewStep = planReviewStep({
         worktreePath,
         stage,
         durable,
         branch,
-        invoke: async (agentId) => {
-          if (agentId === "codex") {
-            writeFileSync(join(stage, "index.md"), mutatedIndex, "utf8");
-          }
-          return { kind: "ok", stdout: agentId === "claude" ? "Looks good" : "done", stderr: "" };
+        invoke: async () => {
+          throw new Error("review must not run on an invalid recovered plan stage");
         },
-        inputs: { sourceRoot, paths: [sourceReadyIntent], consumeFrom: "source" },
       });
 
       const outcome = await recoverPlanStage({
@@ -3985,14 +4045,67 @@ describe("recoverPlanStage", () => {
         stateStore: store,
       });
 
+      expect(outcome.ok).toBe(false);
+      if (outcome.ok) throw new Error("unreachable");
+      expect(outcome.code).toBe("plan_stage_invalid");
+      expect(outcome.message).toContain("00-fixed.md");
+      expect(outcome.message).not.toContain("00-daemon.md");
+    });
+  });
+
+  test("recovers without creating a review run row, logging iteration_started, or dispatching a role", async () => {
+    const worktreePath = planWorktree("recover-plan-stage-no-dispatch-");
+    const stage = join(worktreePath, ".jarvis-plan-stage");
+    const durable = join(worktreePath, "spec", "2026-no-dispatch");
+    const branch = "recover-plan-stage-no-dispatch";
+    const stepId = "plan";
+    const specPath = "spec/2026-no-dispatch";
+
+    writeLintCleanPlanStage(stage, "00-first.md");
+
+    await withStateStore(async (store) => {
+      const runId = seedBlockedPlanDraftRun(store, {
+        project: "demo",
+        branch,
+        worktreePath,
+        specPath,
+        stepId,
+        invocationId: "recover-plan-stage-no-dispatch-inv",
+        outcomeKind: "contract_miss",
+      });
+      const logSink = new TestLogSink();
+      const runCountBefore = store.listRuns().length;
+
+      const reviewStep = planReviewStep({
+        worktreePath,
+        stage,
+        durable,
+        branch,
+        // The only externally observable effect of the `executeWorkflow` seam recovery used to
+        // go through is dispatching this role and creating its own run row; proving neither
+        // happens proves that seam was never called.
+        invoke: async () => {
+          throw new Error("recovery must not dispatch a review role");
+        },
+      });
+
+      const outcome = await recoverPlanStage({
+        runId,
+        project: "demo",
+        branch,
+        worktreePath,
+        writeStepId: stepId,
+        steps: [reviewStep],
+        stateStore: store,
+        logSink,
+      });
+
       expect(outcome.ok).toBe(true);
       if (!outcome.ok) throw new Error("unreachable");
-      expect(outcome.kind).toBe("invocation_failure");
-      const failedRun = store.loadRun(outcome.runId);
-      expect(failedRun?.attempts.at(-1)?.invocationFailureDetail?.message).toContain("more than once");
-      expect(readFileSync(join(stage, "index.md"), "utf8")).toBe(mutatedIndex);
-      expect(existsSync(sourceReadyIntent)).toBe(true);
-      expect(existsSync(durable)).toBe(false);
+      expect(outcome.kind).toBe("complete");
+      expect(store.listRuns().length).toBe(runCountBefore);
+      expect(store.findRunByProjectBranch({ project: "demo", branch, stepId: reviewStep.stepId })).toBeNull();
+      expect(logSink.getEventsForRun(runId).map((event) => event.kind)).not.toContain("iteration_started");
     });
   });
 });
@@ -4055,7 +4168,7 @@ describe("recoverPlanStage review-failed admission", () => {
     return {
       invocationId,
       steps: [
-        { stepId: "plan", role: "plan", expectedArtifactPath: ".jarvis-plan-stage" },
+        { stepId: "plan", role: "plan", expectedArtifactPath: ".jarvis-plan-stage", agents: ["claude"] },
         { stepId: "plan-review", role: "", behavior: "review" as const },
       ],
     };
@@ -4138,8 +4251,6 @@ describe("recoverPlanStage review-failed admission", () => {
     writeLintCleanPlanStage(stage, "00-first.md");
     writeFileSync(join(stage, "00-first.md"), subspecBody, "utf8");
 
-    const reviewerCalls: string[] = [];
-
     await withStateStore(async (store) => {
       const runId = seedCompletedPlanWriteRun(store, {
         project: "demo",
@@ -4163,10 +4274,8 @@ describe("recoverPlanStage review-failed admission", () => {
         stage,
         durable,
         branch,
-        invoke: async (agentId, adapterModel) => {
-          reviewerCalls.push(`${agentId}/${adapterModel}`);
-          if (agentId === "claude") return { kind: "ok", stdout: "Looks good", stderr: "" };
-          return { kind: "ok", stdout: "done", stderr: "" };
+        invoke: async () => {
+          throw new Error("recovery must not dispatch a review role");
         },
       });
 
@@ -4183,137 +4292,8 @@ describe("recoverPlanStage review-failed admission", () => {
       expect(outcome.ok).toBe(true);
       if (!outcome.ok) throw new Error("unreachable");
       expect(outcome.kind).toBe("complete");
-      expect(reviewerCalls).toEqual(["claude/critic-1", "codex/actuator"]);
       expect(readFileSync(join(durable, "00-first.md"), "utf8")).toBe(subspecBody);
       expect(readFileSync(join(durable, "intent.md"), "utf8")).not.toContain("## Blocker");
-    });
-  });
-
-  test("quota exhaustion during recovery review falls through to the next configured reviewer in one recovery attempt", async () => {
-    const worktreePath = planWorktree("recover-review-failed-quota-");
-    const stage = join(worktreePath, ".jarvis-plan-stage");
-    const durable = join(worktreePath, "spec", "2026-review-failed-quota");
-    const branch = "recover-review-failed-quota";
-    const stepId = "plan";
-    const specPath = "spec/2026-review-failed-quota";
-    const invocationId = "recover-review-failed-quota-inv";
-    writeLintCleanPlanStage(stage, "00-first.md");
-
-    const reviewerCalls: string[] = [];
-    const _planDraftCalls: string[] = [];
-
-    await withStateStore(async (store) => {
-      const runId = seedCompletedPlanWriteRun(store, {
-        project: "demo",
-        branch,
-        worktreePath,
-        specPath,
-        stepId,
-        invocationId,
-      });
-      seedFailedPlanReviewRun(store, {
-        project: "demo",
-        branch,
-        worktreePath,
-        stepId: "plan-review",
-        invocationId,
-        outcomeKind: "invocation_failure",
-        invocationFailureDetail: { failureKind: "quota", bindingAttempts: [] },
-      });
-
-      const reviewStep = planReviewStep({
-        worktreePath,
-        stage,
-        durable,
-        branch,
-        invoke: async (agentId, adapterModel) => {
-          reviewerCalls.push(`${agentId}/${adapterModel}`);
-          if (adapterModel === "critic-1") return { kind: "quota", stderr: "quota" };
-          if (agentId === "claude") return { kind: "ok", stdout: "Looks good", stderr: "" };
-          return { kind: "ok", stdout: "done", stderr: "" };
-        },
-      });
-
-      const outcome = await recoverPlanStage({
-        runId,
-        project: "demo",
-        branch,
-        worktreePath,
-        writeStepId: stepId,
-        steps: [reviewStep],
-        stateStore: store,
-      });
-
-      expect(outcome.ok).toBe(true);
-      if (!outcome.ok) throw new Error("unreachable");
-      expect(outcome.kind).toBe("complete");
-      expect(reviewerCalls).toEqual(["claude/critic-1", "claude/critic-2", "codex/actuator"]);
-      expect(existsSync(join(durable, "00-first.md"))).toBe(true);
-    });
-  });
-
-  test("a terminal recovery review failure preserves staged bytes in one attempt", async () => {
-    const worktreePath = planWorktree("recover-review-failed-terminal-");
-    const stage = join(worktreePath, ".jarvis-plan-stage");
-    const durable = join(worktreePath, "spec", "2026-review-failed-terminal");
-    const branch = "recover-review-failed-terminal";
-    const stepId = "plan";
-    const specPath = "spec/2026-review-failed-terminal";
-    const invocationId = "recover-review-failed-terminal-inv";
-    const subspecBody = readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd012CleanSubspec);
-    writeLintCleanPlanStage(stage, "00-first.md");
-    writeFileSync(join(stage, "00-first.md"), subspecBody, "utf8");
-    const beforeIntent = readFileSync(join(stage, "intent.md"), "utf8");
-    const beforeIndex = readFileSync(join(stage, "index.md"), "utf8");
-    const beforeSubspec = readFileSync(join(stage, "00-first.md"), "utf8");
-
-    await withStateStore(async (store) => {
-      const runId = seedCompletedPlanWriteRun(store, {
-        project: "demo",
-        branch,
-        worktreePath,
-        specPath,
-        stepId,
-        invocationId,
-      });
-      seedFailedPlanReviewRun(store, {
-        project: "demo",
-        branch,
-        worktreePath,
-        stepId: "plan-review",
-        invocationId,
-        outcomeKind: "idle_output_timeout",
-      });
-
-      const reviewStep = planReviewStep({
-        worktreePath,
-        stage,
-        durable,
-        branch,
-        idleOutputMs: 20,
-        invoke: async (agentId) =>
-          agentId === "claude"
-            ? ({ kind: "stall", stderr: "silent critic" } as const)
-            : ({ kind: "ok", stdout: "done", stderr: "" } as const),
-      });
-
-      const outcome = await recoverPlanStage({
-        runId,
-        project: "demo",
-        branch,
-        worktreePath,
-        writeStepId: stepId,
-        steps: [reviewStep],
-        stateStore: store,
-      });
-
-      expect(outcome.ok).toBe(true);
-      if (!outcome.ok) throw new Error("unreachable");
-      expect(outcome.kind === "idle_output_timeout" || outcome.kind === "invocation_failure").toBe(true);
-      expect(readFileSync(join(stage, "intent.md"), "utf8")).toBe(beforeIntent);
-      expect(readFileSync(join(stage, "index.md"), "utf8")).toBe(beforeIndex);
-      expect(readFileSync(join(stage, "00-first.md"), "utf8")).toBe(beforeSubspec);
-      expect(existsSync(durable)).toBe(false);
     });
   });
 

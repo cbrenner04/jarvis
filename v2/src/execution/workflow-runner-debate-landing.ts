@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, rmSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { join, relative } from "node:path";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
@@ -680,12 +680,7 @@ async function repromptReviewedStagedMarkdownLintOrFail(
 export async function landReviewedOutputOrFail(
   step: Pick<
     ReviewDebateWorkflowStep | ReviewWorkflowStep,
-    | "cwd"
-    | "verdictPath"
-    | "branch"
-    | "project"
-    | "stagedMarkdownLintMaxReprompts"
-    | "revalidateStagedPlanBeforeLanding"
+    "cwd" | "verdictPath" | "branch" | "project" | "stagedMarkdownLintMaxReprompts"
   >,
   landing: Exclude<PublicationLanding, { kind: "none" }>,
   attemptId: string,
@@ -697,24 +692,6 @@ export async function landReviewedOutputOrFail(
   actuatorContext?: ReviewedLandingActuatorRepromptContext,
   options?: { stagedMarkdownLintMaxReprompts?: number },
 ): Promise<ReviewDebateStepOutcome | undefined> {
-  if (step.revalidateStagedPlanBeforeLanding === true && landing.kind === "plan-tree") {
-    const contract = revalidateStagedPlanContract(resolve(step.cwd, landing.stagingDir));
-    if (!contract.ok) {
-      store.commitCompletionBoundary({
-        attemptId,
-        runStatus: "failed",
-        outcomeKind: "invocation_failure",
-        invocationFailureDetail: { failureKind: "landing", bindingAttempts: [], message: contract.reason },
-        ...completionBoundarySettlementFields("invocation_failure", {
-          failureKind: "landing",
-          bindingAttempts: [],
-          message: contract.reason,
-        }),
-      });
-      return { kind: "invocation_failure", runId, iterationsConsumed, resumable: true };
-    }
-  }
-
   const maxReprompts =
     options?.stagedMarkdownLintMaxReprompts ??
     step.stagedMarkdownLintMaxReprompts ??

@@ -209,9 +209,9 @@ Opt-in; never fired by restart continuation. Branch key mandatory.
 | **Refused** `resolution_refused` | `pipeline_not_found`, `branch_not_found`, `missing_context`, `no_failed_stage`, `stage_not_plan`, `stage_not_linked`, `stage_resolution_failed`, `stage_not_recoverable` |
 | **Refused** `stage_claimed` | Another holder owns durable stage admission |
 | **Attempt refused** | `recoverPlanStage` — `operator_blocker`, `plan_stage_invalid`, `recovery_requires_git`, etc. (stage stays `failed`) |
-| **Succeeded** | Review landing + `reopenFailedPipeline` + stage `succeeded` + `continuePipeline(branchKey)` |
+| **Succeeded** | Validated on-disk-tree landing + `reopenFailedPipeline` + stage `succeeded` + `continuePipeline(branchKey)` |
 
-Distinct from `pipeline resume`: recover never invokes plan drafting; `pipeline resume` redispatches the ordinary write step. Tests: `pipeline-stage-recovery.test.ts`; `daemon-pipeline-recover.test.ts`.
+Distinct from `pipeline resume`: recover never invokes plan drafting or any review/actuator role — it validates the operator's on-disk staged tree and lands it directly; `pipeline resume` redispatches the ordinary write step. Tests: `pipeline-stage-recovery.test.ts`; `daemon-pipeline-recover.test.ts`.
 
 After recovery-specific RPC validation and effect-free target resolution, live dispatch and recovery use the same daemon admission order: queued or live ownership after stale workflow-claim reclamation, then memory headroom, common registry/`activeRuns` acquisition, then lifecycle-specific durable admission. Thus ownership is not masked by memory pressure, while invalid recovery input or an unresolvable target returns before the memory check. Any refusal or exception before execution rolls common acquisition and recovery durable admission/log resources back, so the failed target stage stays byte-for-byte unchanged and the attempt does not run; an admitted detached recovery retains its `recovery` active-run identity until attempt, settlement, and continuation finish.
 

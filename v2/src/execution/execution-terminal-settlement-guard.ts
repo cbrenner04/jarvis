@@ -62,7 +62,6 @@ const PERMITTED_TERMINAL_WRITES: PermittedTerminalWrite[] = [
     file: "workflow-runner-debate-landing.ts",
     functionName: "landReviewedOutputOrFail",
     writer: "commitCompletionBoundary",
-    count: 2,
   },
   {
     file: "workflow-runner-debate-landing.ts",

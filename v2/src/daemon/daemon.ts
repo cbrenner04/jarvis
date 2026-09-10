@@ -956,8 +956,10 @@ export async function startDaemonRuntime(
       runControlHandlers.resume,
     );
     recoveryStatus = { ...recoveryStatus, pending: false, resumed: recovery?.resumed ?? 0 };
-    // Reconciled runs are live again (their promises are tracked), so the sweep settles only the
-    // stages whose invocation this daemon does not drive, then continues what is continuable.
+    // Runs reconciled by this startup are excluded from the sweep's settlement by id: resuming one
+    // does not register it anywhere the sweep can observe, and its durable row still reads the
+    // terminal status reconciliation wrote, so settling from that row would fail its stage out from
+    // under a run that is actively resuming.
     await continueContinuablePipelines();
   } finally {
     recoveryLogSink.close();

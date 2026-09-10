@@ -1033,14 +1033,18 @@ export async function recoverContinuablePipelines(
   store: StateStore,
   pipelineDeps: Omit<PipelineExecutionDeps, "context">,
   isOwnerAliveProbe: OwnerLivenessProbe = isOwnerAlive,
+  reconciledEntryRunIds: ReadonlySet<string> = new Set(),
 ): Promise<{ continued: number }> {
+  // A run this same startup reconciled and handed to `recoverReconciledRuns` is being resumed right
+  // now, and resumption does not register it as live anywhere the sweep can see: its durable row
+  // still reads the terminal status reconciliation wrote. Settling from that row would fail the
+  // stage — and skip its suffix — out from under a run that is actively working, and nothing would
+  // re-settle it afterwards, because settlement only ever matches a `running` stage row.
+  const isEntryRunLive = (entryRunId: string): boolean =>
+    reconciledEntryRunIds.has(entryRunId) || (pipelineDeps.isEntryRunLive?.(entryRunId) ?? false);
   skipSuffixOfSettledFailures(
     store,
-    settleOrphanedRunningStages({
-      store,
-      isEntryRunLive: pipelineDeps.isEntryRunLive ?? (() => false),
-      loadLogRecords: pipelineDeps.loadLogRecords,
-    }),
+    settleOrphanedRunningStages({ store, isEntryRunLive, loadLogRecords: pipelineDeps.loadLogRecords }),
   );
   let continued = 0;
   for (const pipeline of store.listPipelines()) {
@@ -1425,6 +1429,10 @@ function skipRemainingStages(
   for (const record of stageRecords) {
     if (record.position < fromPosition) continue;
     if (record.branchKey !== branchKey) continue;
+    // Only an undispatched row is skippable. In the in-loop failure path the suffix is always
+    // `pending`, but settlement-driven skipping can meet a row another settlement already
+    // terminalized, and overwriting a `failed` row with `skipped` would erase its failureDetail.
+    if (record.status !== "pending") continue;
     // biome-ignore format: mutation checkpoint requires this exact single-line writer
     store.updateStage({ pipelineId, stageId: record.stageId, branchKey, patch: { status: "skipped", endedAt: Date.now() } });
   }
@@ -1557,6 +1565,7 @@ type AdvanceWorkflowStageArgs = {
   dispatchClaims: PipelineDispatchClaims;
   peerClaimTimeoutMs: number;
   loadLogRecords?: (entryRunId: string) => PersistedRecord[];
+  isEntryRunLive?: PipelineExecutionDeps["isEntryRunLive"];
   staleResetPreflight?: PipelineExecutionDeps["staleResetPreflight"];
   reopenedStageReset?: PipelineExecutionDeps["reopenedStageReset"];
 };
@@ -2209,7 +2218,8 @@ async function runFanOutBranchAction(
     preflightCapture?: { message: string };
   },
 ): Promise<"acted" | "skip"> {
-  const { pipelineId, stage, index, split, store, dispatch, wait, loadLogRecords, dispatchClaims } = args;
+  const { pipelineId, stage, index, split, store, dispatch, wait, loadLogRecords, isEntryRunLive, dispatchClaims } =
+    args;
   const { targetBranchKey, targetRecord, pipeline, steps } = opts;
   const stageTarget = { pipelineId, stageId: stage.stageId, branchKey: targetBranchKey };
   const stageRecords = store.loadPipeline(pipelineId)?.stages ?? [];
@@ -2227,6 +2237,7 @@ async function runFanOutBranchAction(
             entryRunId: linkedEntryRun,
             wait,
             ...(loadLogRecords !== undefined ? { loadLogRecords } : {}),
+            ...(isEntryRunLive !== undefined ? { isEntryRunLive } : {}),
           }),
         ),
     });
@@ -2273,6 +2284,7 @@ async function runFanOutBranchAction(
     wait,
     store,
     ...(loadLogRecords !== undefined ? { loadLogRecords } : {}),
+    ...(isEntryRunLive !== undefined ? { isEntryRunLive } : {}),
   });
   return "acted";
 }
@@ -2311,6 +2323,7 @@ async function adoptRunningWorkflowStage(
     store,
     wait,
     loadLogRecords,
+    isEntryRunLive,
     dispatchClaims,
   } = args;
   const stageTarget = { pipelineId, stageId: stage.stageId, branchKey };
@@ -2325,6 +2338,7 @@ async function adoptRunningWorkflowStage(
           entryRunId,
           wait,
           ...(loadLogRecords !== undefined ? { loadLogRecords } : {}),
+          ...(isEntryRunLive !== undefined ? { isEntryRunLive } : {}),
         }),
       ),
   });
@@ -2438,6 +2452,7 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
     wait,
     resolveStage,
     loadLogRecords,
+    isEntryRunLive,
   } = args;
 
   try {
@@ -2545,6 +2560,7 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
       wait,
       store,
       ...(loadLogRecords !== undefined ? { loadLogRecords } : {}),
+      ...(isEntryRunLive !== undefined ? { isEntryRunLive } : {}),
     });
     return finishDispatchedWorkflowStage({
       store,
@@ -2686,6 +2702,7 @@ async function runAuthoredStages(args: {
             dispatchClaims,
             peerClaimTimeoutMs,
             ...(deps.loadLogRecords !== undefined ? { loadLogRecords: deps.loadLogRecords } : {}),
+            ...(deps.isEntryRunLive !== undefined ? { isEntryRunLive: deps.isEntryRunLive } : {}),
             ...(deps.staleResetPreflight !== undefined ? { staleResetPreflight: deps.staleResetPreflight } : {}),
             ...(deps.reopenedStageReset !== undefined ? { reopenedStageReset: deps.reopenedStageReset } : {}),
           });

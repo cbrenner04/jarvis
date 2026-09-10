@@ -231,11 +231,19 @@ function fakeStore(
             stages: PipelineStageRecord[];
           })
         : null,
-    updateStage: (args: { stageId: string; branchKey?: string; patch: Record<string, unknown> }) => {
+    updateStage: (args: {
+      stageId: string;
+      branchKey?: string;
+      patch: Record<string, unknown>;
+      requiredStatus?: string;
+    }) => {
       const branchKey = args.branchKey ?? "default";
       const record = stages.find((s) => s.stageId === args.stageId && s.branchKey === branchKey);
       if (!record) throw new Error(`unknown stage ${args.stageId} (branch ${branchKey})`);
+      // Mirror the store's compare-and-set: a settlement racing another writer must no-op.
+      if (args.requiredStatus !== undefined && record.status !== args.requiredStatus) return false;
       Object.assign(record, args.patch);
+      return true;
     },
     createPipelineStageBranch: (args: { pipelineId: string; stageId: string; branchKey: string }) => {
       if (args.pipelineId !== PIPELINE_ID) throw new Error(`Pipeline ${args.pipelineId} not found`);
@@ -1182,7 +1190,7 @@ describe("continuePipeline", () => {
       if (["succeeded", "failed", "interrupted", "skipped"].includes(args.patch.status ?? "")) {
         terminalPatchCount += 1;
       }
-      updateStage(args);
+      return updateStage(args);
     };
 
     let dispatchCount = 0;
@@ -1950,7 +1958,7 @@ describe("pipeline activation after restart", () => {
     expect(stages()).toEqual(before);
   });
 
-  test("restart sweep leaves a stage whose entry run this daemon still drives untouched", async () => {
+  test("restart sweep leaves an unsettled stage whose entry run was just reconciled untouched", async () => {
     const entryRunId = "run-restart-sweep-unsettled-reconciled";
     const reviewRunId = "run-restart-sweep-unsettled-reconciled-review";
     const runs = restartSweepRollupWedgeRuns(
@@ -1976,15 +1984,16 @@ describe("pipeline activation after restart", () => {
       return { ok: true, entryRunId: "should-not-dispatch" };
     };
 
-    // Reconciled runs are resumed before the sweep runs, so this daemon drives the invocation again:
-    // liveness — not a set of reconciled ids — is what keeps the sweep off the row.
-    const { continued } = await recoverContinuablePipelines(store, {
+    // The run was reconciled by this same startup and is being resumed: resumption registers it
+    // nowhere the sweep can see, and its durable row still reads reconciliation's terminal status.
+    // Only the reconciled-id set keeps the sweep off the row — an injected liveness probe would
+    // assert a signal production never produces.
+    const { continued } = await recoverContinuablePipelines(
       store,
-      dispatch,
-      wait: restartSweepWait(runs),
-      resolveStage: resolveStageStub(),
-      isEntryRunLive: (candidate: string) => candidate === entryRunId,
-    });
+      { store, dispatch, wait: restartSweepWait(runs), resolveStage: resolveStageStub() },
+      async () => false,
+      new Set([entryRunId]),
+    );
 
     expect(continued).toBe(0);
     expect(dispatchCalled).toBe(false);

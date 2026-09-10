@@ -345,9 +345,12 @@ function fakeStore(runsById: Record<string, Partial<Run>> = {}): {
       stageId: string;
       branchKey?: string;
       patch: Record<string, unknown>;
+      requiredStatus?: string;
     }) => {
-      patches.push(args);
       const key = stageKey(args.pipelineId, args.stageId, args.branchKey);
+      // Mirror the store's compare-and-set: a settlement racing another writer must no-op.
+      if (args.requiredStatus !== undefined && stageRows.get(key)?.status !== args.requiredStatus) return false;
+      patches.push(args);
       const existing =
         stageRows.get(key) ??
         ({
@@ -860,7 +863,7 @@ describe("dispatchPipelineStage", () => {
         linkageWrites += 1;
         if (linkageWrites === 1) throw new Error("forced linkage write failure");
       }
-      originalUpdateStage(args);
+      return originalUpdateStage(args);
     };
 
     await dispatchPipelineStage({

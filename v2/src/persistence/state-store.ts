@@ -729,7 +729,14 @@ export interface StateStore {
   createPipelineStageBranch(args: { pipelineId: string; stageId: string; branchKey: string }): string;
 
   /** Apply a targeted lifecycle patch keyed by `(pipelineId, stageId, branchKey)`; omitted `branchKey` defaults to `"default"`. */
-  updateStage(args: { pipelineId: string; stageId: string; branchKey?: string; patch: StageLifecyclePatch }): void;
+  updateStage(args: {
+    pipelineId: string;
+    stageId: string;
+    branchKey?: string;
+    patch: StageLifecyclePatch;
+    /** Compare-and-set: apply only while the row still holds this status, and report whether it did. */
+    requiredStatus?: PipelineStageRecord["status"];
+  }): boolean;
 
   /**
    * Typed terminal-stage write: `failed` plus an `OperatorFailureRecord` stored directly as
@@ -2302,7 +2309,13 @@ class StateStoreImpl implements StateStore {
     return row === null ? null : mapStageRow(row);
   }
 
-  updateStage(args: { pipelineId: string; stageId: string; branchKey?: string; patch: StageLifecyclePatch }): void {
+  updateStage(args: {
+    pipelineId: string;
+    stageId: string;
+    branchKey?: string;
+    patch: StageLifecyclePatch;
+    requiredStatus?: PipelineStageRecord["status"];
+  }): boolean {
     const branchKey = args.branchKey ?? DEFAULT_PIPELINE_STAGE_BRANCH_KEY;
     const patch = stageLifecyclePatchWithTerminalFinish(args.patch, Date.now());
     const keys = (Object.keys(patch) as (keyof StageLifecyclePatch)[]).filter((key) => patch[key] !== undefined);
@@ -2329,15 +2342,21 @@ class StateStoreImpl implements StateStore {
       params.push(value as SQLQueryBindings);
     }
     params.push(args.pipelineId, args.stageId, branchKey);
+    // `requiredStatus` makes the write a compare-and-set, so a settlement racing another writer
+    // no-ops instead of clobbering the status that writer already committed.
+    const statusPredicate = args.requiredStatus === undefined ? "" : " AND status = ?";
+    if (args.requiredStatus !== undefined) params.push(args.requiredStatus);
 
     const result = this.db
       .prepare(
-        `UPDATE pipeline_stages SET ${setClauses.join(", ")} WHERE pipeline_id = ? AND stage_id = ? AND branch_key = ?`,
+        `UPDATE pipeline_stages SET ${setClauses.join(", ")} WHERE pipeline_id = ? AND stage_id = ? AND branch_key = ?${statusPredicate}`,
       )
       .run(...params);
     if (result.changes === 0) {
+      if (args.requiredStatus !== undefined) return false;
       throw new Error(`Stage ${args.stageId} (branch ${branchKey}) not found in pipeline ${args.pipelineId}`);
     }
+    return true;
   }
 
   commitTerminalStageOperatorFailureRecord(args: TerminalStageOperatorFailureRecordPatch): void {

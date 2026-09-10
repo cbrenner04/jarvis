@@ -199,7 +199,7 @@ const RETIRED_TEST_TITLES: ReadonlySet<string> = new Set([
   "restart sweep fails a running stage whose entry run ended failed without a deferred marker",
   "restart sweep leaves a running stage without a deferred marker untouched",
   "restart sweep leaves an unsettled stage whose entry run is still live untouched",
-  "restart sweep leaves an unsettled stage whose entry run was just reconciled untouched",
+  // The marker-less and deferred reconciled cases collapse to one test now that there is no marker.
   "restart sweep leaves a deferred stage whose entry run was just reconciled untouched",
   "resume reopens and redispatches after an unsettled terminally failed stage",
   "deferred settlement fails when a ready pipeline's completed entry run lacks publication PR evidence",
@@ -278,6 +278,7 @@ describe("daemon test inventory", () => {
     const mergeBase = resolveMergeBase();
     const repoPaths = listDaemonTestFilesAtRef(mergeBase);
     const worktreeSources = loadWorktreeSources(repoPaths);
+    const retiredTitlesObserved = new Set<string>();
 
     for (const repoPath of repoPaths) {
       const mergeBaseSource = loadAtRef(mergeBase, repoPath);
@@ -287,6 +288,17 @@ describe("daemon test inventory", () => {
       const expectedTitles = collectTestTitles(mergeBaseSource);
       const actualTitles = collectTestTitles(locateDiscoveredFile(worktreeSources, repoPath));
       expect(missingOnlyPreservationViolation(expectedTitles, actualTitles, RETIRED_TEST_TITLES)).toEqual([]);
+      for (const title of actualTitles) {
+        // A retired title that is still present means the allowlist entry is stale and is now
+        // suppressing a live title — the failure mode an unexpiring allowlist invites.
+        expect(RETIRED_TEST_TITLES.has(title)).toBe(false);
+      }
+      for (const title of expectedTitles) {
+        if (RETIRED_TEST_TITLES.has(title)) retiredTitlesObserved.add(title);
+      }
     }
+    // Every allowlisted title must correspond to a title that genuinely existed at the merge base:
+    // an entry matching nothing is dead weight that will silently absorb a future deletion.
+    expect([...RETIRED_TEST_TITLES].filter((title) => !retiredTitlesObserved.has(title))).toEqual([]);
   });
 });

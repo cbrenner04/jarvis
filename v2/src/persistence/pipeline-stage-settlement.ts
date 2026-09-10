@@ -251,6 +251,7 @@ export function settleLinkedStagesFromEntryRunWith(
     if (rollupStatus !== "completed") {
       store.updateStage({
         ...target,
+        requiredStatus: "running",
         patch: {
           status: "failed",
           endedAt,
@@ -265,6 +266,7 @@ export function settleLinkedStagesFromEntryRunWith(
     if (entryRun.specPath.length === 0 || missingPrEvidence) {
       store.updateStage({
         ...target,
+        requiredStatus: "running",
         patch: {
           status: "failed",
           endedAt,
@@ -281,6 +283,7 @@ export function settleLinkedStagesFromEntryRunWith(
     }
     store.updateStage({
       ...target,
+      requiredStatus: "running",
       patch: {
         status: "succeeded",
         endedAt,

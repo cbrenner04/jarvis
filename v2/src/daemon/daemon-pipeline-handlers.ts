@@ -395,7 +395,12 @@ export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: Pipe
   };
 
   const continueContinuablePipelines = async (): Promise<void> => {
-    await recoverContinuablePipelines(store, pipelineExecutionDeps());
+    await recoverContinuablePipelines(
+      store,
+      pipelineExecutionDeps(),
+      undefined,
+      new Set(deps.reconciledRunIds ?? []),
+    );
   };
 
   return {

@@ -138,7 +138,7 @@ async function checkBaseFreshness(
   baseRef: string,
   runner: AsyncSubprocessRunner,
   warn?: (message: string) => void,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true } | { ok: false; error: string; upstream: string }> {
   let upstream: string;
   try {
     upstream = await gitStdout(runner, projectRoot, ["rev-parse", "--abbrev-ref", `${baseRef}@{upstream}`]);
@@ -168,11 +168,22 @@ async function checkBaseFreshness(
     }
     return {
       ok: false,
+      upstream,
       error: `base_behind_origin: ${baseRef} is at ${localSha.slice(0, 12)}, ${upstream} is at ${upstreamSha.slice(0, 12)}; run git pull or pass --base ${upstream}`,
     };
   } catch {
     return { ok: true };
   }
+}
+
+/** Pipelines have no --base override: use the fetched upstream only when the local base is strictly behind. */
+export async function resolvePipelineImplementBase(
+  gitRoot: string,
+  baseRef: string,
+  runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
+): Promise<string> {
+  const freshness = await checkBaseFreshness(gitRoot, baseRef, runner, warnToStderr);
+  return freshness.ok ? baseRef : freshness.upstream;
 }
 
 /** Resolve the spec path and its owning project match from the registry, with existence checks. */

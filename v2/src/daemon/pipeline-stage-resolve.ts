@@ -8,6 +8,7 @@ import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import {
   type BuildImplementWorkflowStepsInput,
   resolveExternalPlanSpecIdentity,
+  resolvePipelineImplementBase,
 } from "../execution/implement-workflow-steps.ts";
 import type { PipelineDefinition, PipelineStage } from "../execution/pipeline-definition.ts";
 import type { IntentWorkflowInput, PlanWorkflowInput } from "../execution/publication-workflow-steps.ts";
@@ -582,7 +583,9 @@ async function resolveImplementStage(
   const readRoot = specPathResult.readRoot;
 
   const usesDefaultBuilder = builders.implement === WORKFLOW_PRESET_BUILDERS.implement;
-  const baseRef = await getBaseBranch(context.cwd);
+  const defaultBase = await getBaseBranch(context.cwd);
+  const baseRoot = (await isGitRepoAsync(readRoot)) ? readRoot : context.cwd;
+  const baseRef = await resolvePipelineImplementBase(baseRoot, defaultBase);
   let input: BuildImplementWorkflowStepsInput = {
     cwd: readRoot,
     baseRef,

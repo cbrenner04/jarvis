@@ -338,6 +338,8 @@ Worktree locks, agent child processes, and log sinks stay with the admitting dae
 
 ### Admission guards for `start` and `resume`
 
+**Resume reconstruction bounds.** A snapshot-backed resume replays the step's persisted `iterationTimeoutMs` / `iterationCeilingMs` / `idleOutputMs`. A persisted ceiling is authoritative; a snapshot without one resolves the ceiling from the daemon's injected machine-config path (`writeLoopBindingSourceDeps.machineConfigPath`, the same source binding resolution reads), never by rebuilding `~/.jarvis/config.json` from `jarvisHome()` — a daemon scoped to another config must not read the operator home. The structural guard in `write-loop-binding-source-guard.test.ts` pins the resume site to the injected path.
+
 There is no global single in-flight guard — multiple runs may be active concurrently across different `(project, branch)` keys.
 
 1. **Existing queued run for the key (`start` only):** Rejected with

@@ -21,17 +21,17 @@ Add a confirmation run: when the killing set passes under the mutant, re-run the
 
 ## Acceptance criteria
 
-- [ ] A test in `v2/src/execution/diff-derived-mutation-verifier.test.ts` where the resolved killing set passes on the first run under the mutant and fails on the second returns a `pass` result with that candidate treated as killed; it fails against the pre-fix code.
-- [ ] A candidate whose killing set passes twice under the mutant still returns `surviving-mutation` naming the mutation and source file+line.
-- [ ] The confirmation run executes the same killing-set scope at the same `timeoutMs` that produced the first clean pass, including after the baseline-widened retry path.
-- [ ] In the "defaultRunScopedTests (real subprocess, no seam)" test group, `peakVerifierTestRuns()` (or equivalent exclusive-hold tracking) shows no overlap between a confirmation run and any concurrent scoped test run.
-- [ ] A survivor discovered with less remaining time than the confirmation run's budget is reported without a confirmation run.
-- [ ] A confirmation run that times out settles the candidate `inconclusive`, not `surviving-mutation` or `non-terminating-mutation`.
-- [ ] Inconclusive settlement on the non-confirmation path and `non-terminating-mutation` settlement are unchanged (existing inconclusive and non-terminating test cases in `v2/src/execution/diff-derived-mutation-verifier.test.ts` stay green).
-- [ ] The existing `finally` restore in `testCandidate` (`restores pre-mutation bytes after scoped-test timeout`) is unchanged; no applied mutant remains after verification returns on the confirmed-survivor path.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] A test in `v2/src/execution/diff-derived-mutation-verifier.test.ts` where the resolved killing set passes on the first run under the mutant and fails on the second returns a `pass` result with that candidate treated as killed; it fails against the pre-fix code.
+- [x] A candidate whose killing set passes twice under the mutant still returns `surviving-mutation` naming the mutation and source file+line.
+- [x] The confirmation run executes the same killing-set scope at the same `timeoutMs` that produced the first clean pass, including after the baseline-widened retry path.
+- [x] In the "defaultRunScopedTests (real subprocess, no seam)" test group, `peakVerifierTestRuns()` (or equivalent exclusive-hold tracking) shows no overlap between a confirmation run and any concurrent scoped test run.
+- [x] A survivor discovered with less remaining time than the confirmation run's budget is reported without a confirmation run.
+- [x] A confirmation run that times out settles the candidate `inconclusive`, not `surviving-mutation` or `non-terminating-mutation`.
+- [x] Inconclusive settlement on the non-confirmation path and `non-terminating-mutation` settlement are unchanged (existing inconclusive and non-terminating test cases in `v2/src/execution/diff-derived-mutation-verifier.test.ts` stay green).
+- [x] The existing `finally` restore in `testCandidate` (`restores pre-mutation bytes after scoped-test timeout`) is unchanged; no applied mutant remains after verification returns on the confirmed-survivor path.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

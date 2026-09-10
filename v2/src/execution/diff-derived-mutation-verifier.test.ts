@@ -12,6 +12,7 @@ import {
 } from "../../../shared/subprocess.ts";
 import {
   type DiffDerivedMutationVerifierInput,
+  exclusiveHoldOverlappedConcurrentRun,
   extractRenderObserverMapFromSource,
   KILLING_TEST_BUDGET_CEILING_MS,
   KILLING_TEST_BUDGET_FLOOR_MS,
@@ -1249,6 +1250,100 @@ index 1234567..abcdefg 100644
       expect(writes[0]).not.toBe(source);
       expect(writes[1]).toBe(source);
     });
+
+    describe("confirmation re-run of a clean killing-set pass", () => {
+      it("a killing set that passes once and fails on confirmation treats the candidate as killed", async () => {
+        let callCount = 0;
+        const result = await verifyTimeout(async () => {
+          callCount += 1;
+          return callCount === 1;
+        });
+
+        expect(callCount).toBe(2);
+        expect(result.kind).toBe("pass");
+        if (result.kind === "pass") expect(result.candidateCount).toBeGreaterThan(0);
+      });
+
+      it("a killing set that passes on both the primary run and the confirmation reports the survivor", async () => {
+        let callCount = 0;
+        const result = await verifyTimeout(async () => {
+          callCount += 1;
+          return true;
+        });
+
+        expect(callCount).toBe(2);
+        expect(result.kind).toBe("surviving-mutation");
+        if (result.kind === "surviving-mutation") {
+          expect(result.mutation).toContain("guard-flip");
+          expect(result.sourceSite).toEqual({ file: "src/hangs.ts", line: 2 });
+        }
+      });
+
+      it("confirmation reuses the exact budget that produced the primary clean pass after a baseline-widened retry", async () => {
+        const clock = fakeClock();
+        const bounds: number[] = [];
+        const runtimeByTest: Record<string, number> = { "src/hangs.test.ts": 7_000, "src/hangs-slow.test.ts": 38_000 };
+        const result = await verifyTimeout(
+          async (_cwd, scope, options) => {
+            const timeoutMs = options?.timeoutMs ?? 0;
+            bounds.push(timeoutMs);
+            if (timeoutMs === KILLING_TEST_BUDGET_CEILING_MS) {
+              clock.advance(38_000); // unmutated baseline, measured at the slow sibling's wall time
+              return true;
+            }
+            const wall = Math.max(...scope.map((path) => runtimeByTest[path] ?? 0));
+            if (wall > timeoutMs) {
+              clock.advance(timeoutMs + 1);
+              throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+            }
+            clock.advance(wall);
+            return true; // both the widened retry and the confirmation pass
+          },
+          undefined,
+          { now: clock.now, listDir: () => ["hangs-slow.test.ts"] },
+        );
+
+        expect(result.kind).toBe("surviving-mutation");
+        // floor attempt (timed out), baseline at the ceiling, widened retry (76s), confirmation at the same 76s.
+        expect(bounds).toEqual([KILLING_TEST_BUDGET_FLOOR_MS, KILLING_TEST_BUDGET_CEILING_MS, 76_000, 76_000]);
+      });
+
+      it("skips confirmation and reports the survivor when too little time remains for it", async () => {
+        const clock = fakeClock();
+        let callCount = 0;
+        const result = await verifyTimeout(
+          async () => {
+            callCount += 1;
+            // Consume the deadline: after this primary pass, no time remains for confirmation at the floor budget.
+            clock.advance(MAX_VERIFICATION_MS - KILLING_TEST_BUDGET_FLOOR_MS + 1);
+            return true;
+          },
+          undefined,
+          { now: clock.now },
+        );
+
+        expect(callCount).toBe(1);
+        expect(result.kind).toBe("surviving-mutation");
+      });
+
+      it("a confirmation run that times out settles the candidate inconclusive, not surviving or non-terminating", async () => {
+        let callCount = 0;
+        const result = await verifyTimeout(async () => {
+          callCount += 1;
+          if (callCount === 1) return true; // primary pass at the floor budget
+          throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT"); // confirmation times out
+        });
+
+        expect(callCount).toBe(2);
+        expect(result.kind).toBe("pass");
+        if (result.kind === "pass") {
+          expect(result.skippedCandidates).toHaveLength(1);
+          expect(result.skippedCandidates[0]).toMatchObject({ file: "src/hangs.ts", line: 2 });
+          expect(result.skippedCandidates[0]?.reason).toContain("inconclusive");
+          expect(result.skippedCandidates[0]?.reason).toContain("confirmation");
+        }
+      });
+    });
   });
 
   describe("defaultRunScopedTests (real subprocess, no seam)", () => {
@@ -1334,6 +1429,56 @@ index 1234567..abcdefg 100644
         rmSync(dir, { recursive: true, force: true });
       }
     });
+
+    it("isolates a confirmation re-run from a concurrent scoped test run via the real subprocess semaphore", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "mutation-verifier-isolation-"));
+      try {
+        execFileSync("git", ["init", "-q", "-b", "verifier-fixture"], { cwd: dir });
+        execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+        execFileSync("git", ["config", "user.name", "test"], { cwd: dir });
+        writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "fixture" }));
+        // risky.ts: an uncovered guard, so its primary pass is clean and a confirmation re-run follows.
+        writeFileSync(join(dir, "risky.ts"), "export function risky(x: unknown): string {\n  return String(x);\n}\n");
+        writeFileSync(
+          join(dir, "risky.test.ts"),
+          'import { expect, test } from "bun:test";\nimport { risky } from "./risky.ts";\ntest("covered", () => { expect(risky(0)).toBe("0"); });\n',
+        );
+        // slow.ts: a covered guard whose killing test sleeps, holding a normal semaphore slot open
+        // long enough to overlap risky.ts's confirmation window if isolation is not enforced.
+        writeFileSync(join(dir, "slow.ts"), "export function slow(x: unknown): string {\n  return String(x);\n}\n");
+        writeFileSync(
+          join(dir, "slow.test.ts"),
+          'import { expect, test } from "bun:test";\nimport { slow } from "./slow.ts";\ntest("covered slowly", async () => { await Bun.sleep(2500); expect(slow(0)).toBe("0"); });\n',
+        );
+        execFileSync("git", ["add", "-A"], { cwd: dir });
+        execFileSync("git", ["commit", "-q", "-m", "base"], { cwd: dir });
+        const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();
+
+        writeFileSync(
+          join(dir, "risky.ts"),
+          'export function risky(x: unknown): string {\n  return String(x);\n}\n\nexport function riskyGuard(x: unknown): string {\n  if (!x) return "not-covered";\n  return "reached";\n}\n',
+        );
+        writeFileSync(
+          join(dir, "slow.ts"),
+          'export function slow(x: unknown): string {\n  return String(x);\n}\n\nexport function slowGuard(x: unknown): string {\n  if (!x) return "not-covered";\n  return "reached";\n}\n',
+        );
+        writeFileSync(
+          join(dir, "slow.test.ts"),
+          'import { expect, test } from "bun:test";\nimport { slow, slowGuard } from "./slow.ts";\ntest("covered slowly", async () => { await Bun.sleep(2500); expect(slow(0)).toBe("0"); expect(slowGuard(0)).toBe("not-covered"); });\n',
+        );
+        execFileSync("git", ["commit", "-aq", "-m", "add uncovered guard and slow covered guard"], { cwd: dir });
+
+        resetVerifierTestRunTracking();
+        const result = await verifyDiffDerivedMutations({ worktreePath: dir, runBase: baseSha });
+
+        expect(result).toMatchObject({ kind: "surviving-mutation", sourceSite: { file: "risky.ts" } });
+        expect(exclusiveHoldOverlappedConcurrentRun()).toBe(false);
+        expect(peakVerifierTestRuns()).toBeGreaterThan(0);
+        expect(execFileSync("git", ["status", "--porcelain"], { cwd: dir }).toString().trim()).toBe("");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }, 60_000);
 
     it(
       "bounds scanDaemonRunControlHandlerForbiddenSymbols while (true) exit-guard flip via real killing test",
@@ -1632,7 +1777,8 @@ index 1234567..abcdefg 100644
     let call = 0;
     const { result } = await runMultiGuardVerification(async () => {
       call += 1;
-      return call === 2;
+      // Candidate a (call 1) is killed; candidate b passes both its primary run (call 2) and confirmation (call 3).
+      return call !== 1;
     });
     expect(result.kind).toBe("surviving-mutation");
     if (result.kind === "surviving-mutation") {
@@ -1845,7 +1991,11 @@ index 1234567..abcdefg 100644
     if (result.kind === "surviving-mutation") {
       expect(result.sourceSite).toEqual({ file: "src/first.ts", line: 2 });
     }
-    expect(scopedCalls).toEqual(["src/first.test.ts", "src/second.test.ts"]);
+    // The injected seam never reaches the semaphore, so first.ts's confirmation re-run (a second
+    // "src/first.test.ts" call) isn't gated on second.ts's still-in-flight run draining first.
+    expect(scopedCalls[0]).toBe("src/first.test.ts");
+    expect(scopedCalls.filter((call) => call === "src/first.test.ts")).toHaveLength(2);
+    expect(scopedCalls.filter((call) => call === "src/second.test.ts")).toHaveLength(1);
   });
 });
 
@@ -2488,7 +2638,7 @@ index 1234567..abcdefg 100644
           },
         },
       );
-      expect(scopedCalls).toBe(1);
+      expect(scopedCalls).toBe(2); // primary pass + confirmation re-run
       expect(result.kind).toBe("surviving-mutation");
       if (result.kind !== "surviving-mutation") throw new Error("expected surviving-mutation");
       expect(result.dualConstraint).toBe(true);

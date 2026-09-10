@@ -106,7 +106,12 @@ function deduplicateCandidates(candidates: Candidate[]): Candidate[] {
 
 type GitDiff = (cwd: string, baseRef: string) => Promise<string>;
 type UntrackedFiles = (cwd: string) => Promise<string[]>;
-export type RunScopedTestsOptions = { timeoutMs?: number; processGroups?: VerifierProcessGroupRecorder };
+export type RunScopedTestsOptions = {
+  timeoutMs?: number;
+  processGroups?: VerifierProcessGroupRecorder;
+  /** Run under the semaphore's exclusive mode: no concurrent sibling scoped-test run in flight. Used for mutation-confirmation re-runs. */
+  isolated?: boolean;
+};
 type RunScopedTests = (cwd: string, scope: KillingTestPaths, options?: RunScopedTestsOptions) => Promise<boolean>;
 type ReadFile = (path: string) => Promise<string>;
 type WriteFile = (path: string, content: string) => Promise<void>;
@@ -262,11 +267,15 @@ function observerPathConfinedToWorktree(worktreePath: string, observerPath: stri
 
 let peakConcurrentVerifierTestRuns = 0;
 let currentConcurrentVerifierTestRuns = 0;
+let exclusiveHoldActive = false;
+let exclusiveHoldOverlapDetected = false;
 let verifierTestRunSemaphore: VerifierTestRunSemaphore | undefined;
 
 export function resetVerifierTestRunTracking(): void {
   peakConcurrentVerifierTestRuns = 0;
   currentConcurrentVerifierTestRuns = 0;
+  exclusiveHoldActive = false;
+  exclusiveHoldOverlapDetected = false;
   verifierTestRunSemaphore = undefined;
 }
 
@@ -274,20 +283,35 @@ export function peakVerifierTestRuns(): number {
   return peakConcurrentVerifierTestRuns;
 }
 
+/** Whether a `run()` slot was ever active concurrently with an exclusive hold (or vice versa) since the last reset. Should never go true; isolation gating exists precisely to keep this false under real contention. */
+export function exclusiveHoldOverlappedConcurrentRun(): boolean {
+  return exclusiveHoldOverlapDetected;
+}
+
+/**
+ * Bounds concurrent scoped-test subprocess spawns. `run()` is a normal shared slot (up to `limit`
+ * concurrent). `runExclusive()` is a mutually-exclusive mode used for mutation-confirmation re-runs:
+ * it waits for all in-flight `run()` slots to drain, then runs `fn` with sole use of the semaphore,
+ * blocking new `run()` admissions until `fn` settles.
+ */
 class VerifierTestRunSemaphore {
   private inFlight = 0;
   private readonly queue: Array<() => void> = [];
+  private exclusiveActive = false;
+  private exclusivePending = 0;
+  private readonly exclusiveQueue: Array<() => void> = [];
 
   constructor(private readonly limit: number) {}
 
   async run<T>(fn: () => Promise<T>): Promise<T> {
-    if (this.inFlight >= this.limit) {
+    if (this.exclusiveActive || this.exclusivePending > 0 || this.inFlight >= this.limit) {
       await new Promise<void>((resolve) => {
         this.queue.push(resolve);
       });
     }
     this.inFlight += 1;
     currentConcurrentVerifierTestRuns += 1;
+    if (exclusiveHoldActive) exclusiveHoldOverlapDetected = true;
     if (currentConcurrentVerifierTestRuns > peakConcurrentVerifierTestRuns) {
       peakConcurrentVerifierTestRuns = currentConcurrentVerifierTestRuns;
     }
@@ -296,8 +320,57 @@ class VerifierTestRunSemaphore {
     } finally {
       this.inFlight -= 1;
       currentConcurrentVerifierTestRuns -= 1;
+      this.dispatchOne();
+    }
+  }
+
+  async runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+    this.exclusivePending += 1;
+    if (this.exclusiveActive || this.inFlight > 0) {
+      await new Promise<void>((resolve) => {
+        this.exclusiveQueue.push(resolve);
+      });
+    }
+    this.exclusivePending -= 1;
+    this.exclusiveActive = true;
+    exclusiveHoldActive = true;
+    if (currentConcurrentVerifierTestRuns > 0) exclusiveHoldOverlapDetected = true;
+    try {
+      return await fn();
+    } finally {
+      this.exclusiveActive = false;
+      exclusiveHoldActive = false;
+      this.dispatchAfterExclusiveRelease();
+    }
+  }
+
+  /** A normal release frees exactly one slot: hand it to the next exclusive waiter (once fully drained) or, absent one, the next queued `run()` caller. */
+  private dispatchOne(): void {
+    if (this.exclusiveActive) return;
+    if (this.inFlight === 0) {
+      const nextExclusive = this.exclusiveQueue.shift();
+      if (nextExclusive !== undefined) {
+        nextExclusive();
+        return;
+      }
+    }
+    if (this.exclusivePending > 0) return;
+    const next = this.queue.shift();
+    if (next !== undefined) next();
+  }
+
+  /** An exclusive release frees all `limit` slots at once: hand off to the next exclusive waiter, or admit up to `limit` queued `run()` callers. */
+  private dispatchAfterExclusiveRelease(): void {
+    const nextExclusive = this.exclusiveQueue.shift();
+    if (nextExclusive !== undefined) {
+      nextExclusive();
+      return;
+    }
+    if (this.exclusivePending > 0) return;
+    for (let admitted = 0; admitted < this.limit && this.queue.length > 0; admitted += 1) {
       const next = this.queue.shift();
-      if (next !== undefined) next();
+      if (next === undefined) break;
+      next();
     }
   }
 }
@@ -331,22 +404,24 @@ export async function runDiffDerivedScopedTests(
   const subprocess = runner ?? (await import("../../../shared/subprocess.ts")).realAsyncSubprocessRunner;
   const semaphore = getVerifierTestRunSemaphore();
   const timeoutMs = options?.timeoutMs ?? MAX_KILLING_TEST_MS;
-  const results = await Promise.allSettled(
-    scope.map((testPath) =>
-      semaphore.run(async () => {
-        // One recorded group per spawn: concurrent siblings must not overwrite each other's ids.
-        const tracked = trackProcessGroup(options?.processGroups);
-        try {
-          await subprocess.runAsync("bun", ["test", testPath], cwd, {
-            timeoutMs,
-            processGroup: tracked.processGroup,
-          });
-        } finally {
-          tracked.settle();
-        }
-      }),
-    ),
-  );
+  const spawnOne = async (testPath: string): Promise<void> => {
+    // One recorded group per spawn: concurrent siblings must not overwrite each other's ids.
+    const tracked = trackProcessGroup(options?.processGroups);
+    try {
+      await subprocess.runAsync("bun", ["test", testPath], cwd, {
+        timeoutMs,
+        processGroup: tracked.processGroup,
+      });
+    } finally {
+      tracked.settle();
+    }
+  };
+  // Isolated mode holds the semaphore exclusively for the whole batch: spawning via semaphore.run()
+  // here (as the non-isolated path does) would self-deadlock, since the exclusive hold already owns
+  // every slot the per-call run() would wait on.
+  const results = options?.isolated
+    ? await semaphore.runExclusive(() => Promise.allSettled(scope.map((testPath) => spawnOne(testPath))))
+    : await Promise.allSettled(scope.map((testPath) => semaphore.run(() => spawnOne(testPath))));
   for (const result of results) {
     if (result.status === "rejected" && !(result.reason instanceof AsyncSubprocessError)) {
       throw result.reason;
@@ -884,6 +959,9 @@ function isInsideTimerCallback(content: string, lineNum: number): boolean {
   return false;
 }
 
+/** A clean pass records the budget it ran at, so a confirmation re-run can reuse the same bound. */
+type KillingSetRunResult = { passed: true; timeoutMs: number } | { passed: false } | "inconclusive";
+
 /**
  * Run the mutated killing set at the floor budget. Only when that times out is the unmutated set
  * measured: a baseline inside the floor proves the mutant hangs; a slower baseline widens the bound
@@ -896,11 +974,12 @@ async function runMutatedKillingSet(
   killingTestPathList: string[],
   measureBaseline: (killingTests: readonly string[]) => Promise<KillingTestBaseline>,
   mutant: { restore: () => Promise<void>; reapply: () => Promise<void> },
-): Promise<boolean | "inconclusive"> {
+): Promise<KillingSetRunResult> {
   try {
-    return await runScopedTests(input.worktreePath, killingTestPaths(killingTestPathList), {
+    const passed = await runScopedTests(input.worktreePath, killingTestPaths(killingTestPathList), {
       timeoutMs: KILLING_TEST_BUDGET_FLOOR_MS,
     });
+    return passed ? { passed: true, timeoutMs: KILLING_TEST_BUDGET_FLOOR_MS } : { passed: false };
   } catch (error) {
     if (!(error instanceof AsyncSubprocessError && error.code === "ETIMEDOUT")) throw error;
   }
@@ -913,9 +992,14 @@ async function runMutatedKillingSet(
     throw new AsyncSubprocessError("killing set timed out at the floor budget", undefined, "", "", "ETIMEDOUT");
   }
   await mutant.reapply();
-  return await runScopedTests(input.worktreePath, killingTestPaths(killingTestPathList), {
+  const passed = await runScopedTests(input.worktreePath, killingTestPaths(killingTestPathList), {
     timeoutMs: baseline.budgetMs,
   });
+  return passed ? { passed: true, timeoutMs: baseline.budgetMs } : { passed: false };
+}
+
+function confirmationTimeoutReason(killingTests: readonly string[], budgetMs: number): string {
+  return `inconclusive: confirmation re-run of killing set (${killingTests.join(", ")}) timed out at ${budgetMs}ms`;
 }
 
 async function testCandidate(
@@ -927,10 +1011,32 @@ async function testCandidate(
   killingTestPathList: string[],
   mutationRecordStore: MutationRecordStore,
   measureBaseline: (killingTests: readonly string[]) => Promise<KillingTestBaseline>,
+  now: () => number,
+  deadline: number,
 ): Promise<MutationFailureResult | SkippedCandidate | null> {
   const filePath = `${input.worktreePath}/${candidate.file}`;
   let mutationWritten = false;
   let recordWritten = false;
+
+  function survivorResult(): SurvivingMutationResult {
+    const result: SurvivingMutationResult = {
+      kind: "surviving-mutation",
+      mutation: candidate.mutation,
+      sourceSite: {
+        file: candidate.file,
+        line: candidate.line,
+      },
+    };
+
+    if (
+      isInsideTimerCallback(originalContent, candidate.line) &&
+      guarded(candidate.file.replace(/\.ts$/, ".test.ts"))
+    ) {
+      result.dualConstraint = true;
+    }
+
+    return result;
+  }
 
   try {
     const mutatedContent = applyMutation(originalContent, candidate);
@@ -940,7 +1046,7 @@ async function testCandidate(
     mutationWritten = true;
 
     // Killed if any resolved killing test fails under the mutation; runScopedTests returns false on the first failure.
-    const testsPassed = await runMutatedKillingSet(input, runScopedTests, killingTestPathList, measureBaseline, {
+    const killingSetResult = await runMutatedKillingSet(input, runScopedTests, killingTestPathList, measureBaseline, {
       restore: async () => {
         await writeFile(filePath, originalContent);
         mutationWritten = false;
@@ -950,7 +1056,7 @@ async function testCandidate(
         mutationWritten = true;
       },
     });
-    if (testsPassed === "inconclusive") {
+    if (killingSetResult === "inconclusive") {
       const baseline = await measureBaseline(killingTestPathList);
       if (baseline.kind === "measured") throw new Error("inconclusive settlement requires an unmeasured baseline");
       return {
@@ -959,24 +1065,35 @@ async function testCandidate(
         reason: inconclusiveCandidateReason(baseline, killingTestPathList),
       };
     }
-    if (testsPassed) {
-      const result: SurvivingMutationResult = {
-        kind: "surviving-mutation",
-        mutation: candidate.mutation,
-        sourceSite: {
-          file: candidate.file,
-          line: candidate.line,
-        },
-      };
+    if (killingSetResult.passed) {
+      // A single clean pass is unreliable under concurrent verifier test runs (contention can flip a
+      // killed mutation to a false pass). Confirm with an isolated re-run at the same budget before
+      // reporting a survivor; skip it only when there isn't time left to pay for it.
+      const confirmationBudget = killingSetResult.timeoutMs;
+      if (now() + confirmationBudget > deadline) return survivorResult();
 
-      if (
-        isInsideTimerCallback(originalContent, candidate.line) &&
-        guarded(candidate.file.replace(/\.ts$/, ".test.ts"))
-      ) {
-        result.dualConstraint = true;
+      let confirmationPassed: boolean;
+      try {
+        confirmationPassed = await runScopedTests(input.worktreePath, killingTestPaths(killingTestPathList), {
+          timeoutMs: confirmationBudget,
+          isolated: true,
+        });
+      } catch (error) {
+        if (error instanceof AsyncSubprocessError && error.code === "ETIMEDOUT") {
+          // The primary pass already proved the mutant terminates inside this budget; a confirmation
+          // timeout is contention, not a non-terminating mutant, so it settles inconclusive rather
+          // than non-terminating-mutation.
+          return {
+            file: candidate.file,
+            line: candidate.line,
+            reason: confirmationTimeoutReason(killingTestPathList, confirmationBudget),
+          };
+        }
+        throw error;
       }
 
-      return result;
+      if (confirmationPassed) return survivorResult();
+      // Confirmation failed: the mutation is killed. Fall through to the killed/null return below.
     }
   } catch (error) {
     if (error instanceof AsyncSubprocessError && error.code === "ETIMEDOUT") {
@@ -1405,6 +1522,8 @@ async function verifyCandidates(
           resolution.killingTests,
           mutationRecordStore,
           baselineFor,
+          now,
+          deadline,
         );
         if (result !== null) {
           if ("kind" in result) {

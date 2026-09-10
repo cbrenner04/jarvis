@@ -29,6 +29,7 @@ import type { Run, StateStore } from "../persistence/state-store.ts";
 import { makeIpcClient } from "../testing/cli-test-helpers.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import {
+  classifyNeverLandedLane,
   createAbsentDaemonClient,
   createBulkCleanupDaemonClient,
   createStaleResetDaemonClient,
@@ -2107,6 +2108,31 @@ describe("cleanup: discover materialized worktrees", () => {
     const discovered = await discoverMaterializedWorktrees(registry, jarvisRoot);
 
     expect(discovered).toHaveLength(0);
+  });
+});
+
+describe("classifyNeverLandedLane", () => {
+  test("a failed gh probe is inconclusive, never a confirmed never-landed lane", async () => {
+    const classification = await classifyNeverLandedLane("/repo", "plan/probe-fail", "main", {
+      runAsync: async (cmd, args) => {
+        if (cmd === "gh" && args[0] === "pr" && args[1] === "list") throw GH_PR_LIST_PROBE_ERROR;
+        throw new Error(`unexpected: ${cmd} ${args.join(" ")}`);
+      },
+    });
+    expect(classification).toEqual({
+      kind: "inconclusive",
+      reason: expect.stringContaining(OPEN_PR_PROBE_UNREACHABLE_REASON),
+    });
+  });
+
+  test("a ready PR classifies the lane as landed without touching git", async () => {
+    const classification = await classifyNeverLandedLane(
+      "/repo",
+      "plan/ready-pr",
+      "main",
+      ghPrListRunner("/repo", [{ number: 7, isDraft: false }]),
+    );
+    expect(classification).toEqual({ kind: "landed" });
   });
 });
 

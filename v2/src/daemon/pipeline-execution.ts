@@ -1616,7 +1616,12 @@ async function runPlanStageStaleResetPreflight(
       worktree.baseRef,
       runner,
     );
-    if (classification.neverLanded) {
+    if (classification.kind === "inconclusive") {
+      // A failed probe is not proof of an empty lane: preserve the worktree and refuse before any reset.
+      io.stderr(`${inconclusiveNeverLandedRefusal(classification.reason)}\n`);
+      return 1;
+    }
+    if (classification.kind === "never-landed") {
       resetFlags = { ...flags, disposableLane: true };
     }
   }
@@ -1721,6 +1726,11 @@ function stagedPlanOperatorBlocker(steps: readonly AnyWorkflowStep[]): string | 
   return operatorBlockerMessageInIntentContent(readFileSync(intentPath, "utf8"), intentPath);
 }
 
+/** Refusal for a failed-plan lane whose never-landed classification could not be established. */
+export function inconclusiveNeverLandedRefusal(reason: string): string {
+  return `Error: Cannot redraft failed plan stage: never-landed classification is inconclusive (${reason}); the lane is preserved. Re-run \`jarvis pipeline resume\` where \`gh\` is reachable (outside the agent sandbox), or hand-finish with \`jarvis cleanup --abandon <branch>\` after confirming no open PR.`;
+}
+
 function refusePlanOperatorBlockerMessage(
   blocker: string,
   args: AdvanceWorkflowStageArgs,
@@ -1802,7 +1812,14 @@ async function refuseReopenedPlanOperatorBlockerWithGit(
       worktree.baseRef,
       runner,
     );
-    if (classification.neverLanded) return { ok: true };
+    if (classification.kind === "never-landed") return { ok: true };
+    if (classification.kind === "inconclusive") {
+      // Keep the operator blocker armed on an unproven lane; name the probe failure, not the blocker.
+      const message = inconclusiveNeverLandedRefusal(classification.reason);
+      capture.message += `${message}\n`;
+      args.staleResetPreflight?.io.stderr(`${message}\n`);
+      return { ok: false, message };
+    }
   }
 
   return refusePlanOperatorBlockerMessage(blocker, args, capture);

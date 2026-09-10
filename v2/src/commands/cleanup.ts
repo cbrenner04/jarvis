@@ -2375,9 +2375,17 @@ export async function gateOnOpenPrs(
   return { status: "ok", pr };
 }
 
-export type NeverLandedLaneClassification = { neverLanded: boolean };
+/**
+ * `never-landed`: confirmed no open PR and no unlanded commit outside harness staging.
+ * `landed`: an open PR or unlanded work protects the lane.
+ * `inconclusive`: PR ownership or git state could not be determined; `reason` names the probe failure.
+ */
+export type NeverLandedLaneClassification =
+  | { kind: "never-landed" }
+  | { kind: "landed" }
+  | { kind: "inconclusive"; reason: string };
 
-/** Structural never-landed: no open PR and no unpushed commits whose paths leave harness workflow staging. */
+/** Structural never-landed: no open PR and no unpushed commits whose paths leave harness workflow staging. A failed probe is inconclusive, never a confirmed absence. */
 export async function classifyNeverLandedLane(
   projectRoot: string,
   branch: string,
@@ -2386,19 +2394,19 @@ export async function classifyNeverLandedLane(
 ): Promise<NeverLandedLaneClassification> {
   try {
     const prGate = await gateOnOpenPrs(branch, runner, projectRoot);
-    if (prGate.status !== "ok" || prGate.pr !== undefined) {
-      return { neverLanded: false };
-    }
+    if (prGate.status === "unknown") return { kind: "inconclusive", reason: prGate.reason };
+    if (prGate.status === "refused" || prGate.pr !== undefined) return { kind: "landed" };
     const commitCount = await unlandedCommitCount(projectRoot, branch, baseRef, runner);
     if (commitCount > 0) {
       const nonStagingPaths = await unlandedNonStagingPaths(projectRoot, branch, baseRef, runner);
-      if (nonStagingPaths.length > 0) {
-        return { neverLanded: false };
-      }
+      if (nonStagingPaths.length > 0) return { kind: "landed" };
     }
-    return { neverLanded: true };
-  } catch {
-    return { neverLanded: false };
+    return { kind: "never-landed" };
+  } catch (error) {
+    return {
+      kind: "inconclusive",
+      reason: `could not classify lane: ${error instanceof Error ? error.message : String(error)}`,
+    };
   }
 }
 

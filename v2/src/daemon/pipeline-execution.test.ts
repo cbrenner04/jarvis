@@ -7135,6 +7135,79 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     }
   });
 
+  test("pipeline resume preserves the lane and keeps the operator blocker when the PR probe is inconclusive", async () => {
+    const intentWorktree = await materializeWorktree(intentBranch);
+    await seedIntentReadyIntent(intentWorktree);
+    const planWorktree = await materializeWorktree(planBranch, intentBranch);
+    await advanceBasePastWorktree(planWorktree, intentWorktree, intentBranch);
+    mkdirSync(join(planWorktree, ".jarvis-plan-stage"), { recursive: true });
+    writeFileSync(
+      join(planWorktree, ".jarvis-plan-stage", "intent.md"),
+      "# Intent\n\n## Blocker\n\noperator decision required\n",
+      "utf8",
+    );
+    const ghUnreachable: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "gh") throw new Error("gh: connect: operation not permitted");
+        return realAsyncSubprocessRunner.runAsync(cmd, args, cwd ?? projectRoot);
+      },
+    };
+
+    const { store, stages } = fakeStore(
+      planChainDefinition(),
+      {
+        "run-intent": { specPath: readyIntentRel, worktreePath: intentWorktree, branch: intentBranch },
+        "run-plan": { specPath: "spec/plan" },
+      },
+      { context: { ...persistedContext, cwd: projectRoot }, ownerIdentity: PRIOR_OWNER },
+    );
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      patch: { status: "succeeded", artifact: intentArtifact() },
+    });
+    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "plan", patch: { status: "failed" } });
+
+    let stderr = "";
+    let dispatchCalled = false;
+    const rpc = daemonRpcClient();
+    try {
+      const outcome = await resumePipeline(PIPELINE_ID, {
+        store,
+        dispatch: async () => {
+          dispatchCalled = true;
+          return { ok: true, entryRunId: "run-plan", invocationId: "inv-plan" };
+        },
+        wait: async () => "completed",
+        resolveStage: resolveStageWithFixedPlanSteps,
+        staleResetPreflight: staleResetBundle(
+          rpc,
+          {
+            stdout: () => {},
+            stderr: (text) => {
+              stderr += text;
+            },
+          },
+          ghUnreachable,
+        ),
+      });
+
+      expect(outcome).toEqual({ kind: "resumed", pipelineId: PIPELINE_ID });
+      expect(dispatchCalled).toBe(false);
+      expect(existsSync(planWorktree)).toBe(true);
+      expect(existsSync(join(planWorktree, ".jarvis-plan-stage", "intent.md"))).toBe(true);
+      expect(stderr).toContain("never-landed classification is inconclusive");
+      expect(stderr).toContain("gh is unreachable from this environment");
+      expect(stderr).toContain("outside the agent sandbox");
+      expect(stderr).not.toContain("retired-and-rematerialized from base");
+      const detail = (stageRecord(stages(), "plan")?.failureDetail as { message?: string } | null)?.message ?? "";
+      expect(detail).toContain("never-landed classification is inconclusive");
+      expect(detail).toContain("gh is unreachable from this environment");
+    } finally {
+      rpc.close();
+    }
+  });
+
   test("pipeline resume refuses never-landed lane with unpushed commits and names salvage path", async () => {
     const intentWorktree = await materializeWorktree(intentBranch);
     await seedIntentReadyIntent(intentWorktree);

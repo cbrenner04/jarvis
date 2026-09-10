@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join } from "node:path";
+import { collectSourceFiles, isProductionSourceFile } from "./production-files.ts";
 
 const SYNC_CHILD_PROCESS_NAMES = ["execSync", "execFileSync", "spawnSync"] as const;
 const SYNC_GIT_HELPERS = [
@@ -21,14 +21,7 @@ function lineAt(source: string, index: number): number {
   return source.slice(0, index).split("\n").length;
 }
 
-function guarded(file: string): boolean {
-  return (
-    (file.startsWith("v2/") || file.startsWith("shared/")) &&
-    !file.endsWith(".test.ts") &&
-    !file.endsWith(".test-support.ts") &&
-    !file.startsWith("v2/src/testing/")
-  );
-}
+const guarded = isProductionSourceFile;
 
 function moduleViolations(
   source: string,
@@ -103,19 +96,10 @@ export function findSyncChildProcessViolations(files: readonly GuardFile[]): Gua
   });
 }
 
-function collectFiles(root: string, cwd: string): GuardFile[] {
-  return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(root, entry.name);
-    if (entry.isDirectory()) return collectFiles(path, cwd);
-    const file = relative(cwd, path);
-    return entry.isFile() && /\.tsx?$/.test(file) ? [{ file, source: readFileSync(path, "utf8") }] : [];
-  });
-}
-
 export function runSyncChildProcessGuard(cwd: string): GuardViolation[] {
   return findSyncChildProcessViolations([
-    ...collectFiles(join(cwd, "v2"), cwd),
-    ...collectFiles(join(cwd, "shared"), cwd),
+    ...collectSourceFiles(join(cwd, "v2"), cwd),
+    ...collectSourceFiles(join(cwd, "shared"), cwd),
   ]);
 }
 

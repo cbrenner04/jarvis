@@ -3,7 +3,11 @@ import { partitionTestFiles, walkTestFiles } from "./test-slice.ts";
 
 /** Aggregate suite: agent and integration tests both run through the pooled per-file seam. */
 export function aggregateTestFiles(): { agent: string[]; integration: string[] } {
-  const sharedAndHarness = partitionTestFiles([...walkTestFiles("shared"), ...walkTestFiles("test")]);
+  const sharedAndHarness = partitionTestFiles([
+    ...walkTestFiles("shared"),
+    ...walkTestFiles("test"),
+    ...walkTestFiles("scripts"),
+  ]);
   return {
     agent: [...v2Tests("agent"), ...sharedAndHarness.agent],
     integration: [...v2Tests("integration"), ...sharedAndHarness.integration],

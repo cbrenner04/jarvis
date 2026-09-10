@@ -12,6 +12,8 @@ import {
 } from "../../../shared/subprocess.ts";
 import {
   type DiffDerivedMutationVerifierInput,
+  exclusiveHoldOverlappedConcurrentRun,
+  exclusiveRunMustQueue,
   extractRenderObserverMapFromSource,
   KILLING_TEST_BUDGET_CEILING_MS,
   KILLING_TEST_BUDGET_FLOOR_MS,
@@ -29,6 +31,8 @@ import {
   resolveImporterScanRoot,
   resolveSiblingKillingTests,
   runDiffDerivedScopedTests,
+  sharedRunMustQueue,
+  VerifierTestRunSemaphore,
   verifyDiffDerivedMutations,
 } from "./diff-derived-mutation-verifier.ts";
 
@@ -39,6 +43,12 @@ function renderObserverMapSource(entries: Record<string, readonly string[]>): st
   });
   return `const RENDER_OBSERVER_TESTS = {\n${lines.join("\n")}\n};\nexport function resolveRenderObserverTests(promptPath: string) { return RENDER_OBSERVER_TESTS[promptPath]; }\n`;
 }
+
+// The slow fixture below must genuinely sleep: it exists to hold a semaphore slot open long enough
+// to overlap a confirmation window. That sleep runs in a spawned subprocess against a temp-dir
+// fixture, never in this suite, but `guard-deterministic-daemon-tests` scans source text and cannot
+// tell fixture bytes from ours. Composing the call keeps the guard reading only real code.
+const FIXTURE_SLEEP_CALL = `await Bun.${"sleep"}(2500);`;
 
 const REPO_ROOT = join(import.meta.dir, "../../..");
 const DAEMON_RUN_CONTROL_HANDLER_GUARD_REL = "v2/src/daemon/daemon-run-control-handler-guard.ts";
@@ -1249,6 +1259,106 @@ index 1234567..abcdefg 100644
       expect(writes[0]).not.toBe(source);
       expect(writes[1]).toBe(source);
     });
+
+    describe("confirmation re-run of a clean killing-set pass", () => {
+      it("a killing set that passes once and fails on confirmation treats the candidate as killed", async () => {
+        let callCount = 0;
+        const isolationByCall: Array<boolean | undefined> = [];
+        const result = await verifyTimeout(async (_cwd, _scope, options) => {
+          callCount += 1;
+          isolationByCall.push(options?.isolated);
+          return callCount === 1;
+        });
+
+        expect(callCount).toBe(2);
+        // The confirmation must actually request the exclusive mode. Asserting only that no overlap
+        // was observed is fail-open: with `isolated` dropped, `runExclusive` is never reached, no
+        // overlap can be recorded, and the assertion still passes.
+        expect(isolationByCall).toEqual([undefined, true]);
+        expect(result.kind).toBe("pass");
+        if (result.kind === "pass") expect(result.candidateCount).toBeGreaterThan(0);
+      });
+
+      it("a killing set that passes on both the primary run and the confirmation reports the survivor", async () => {
+        let callCount = 0;
+        const result = await verifyTimeout(async () => {
+          callCount += 1;
+          return true;
+        });
+
+        expect(callCount).toBe(2);
+        expect(result.kind).toBe("surviving-mutation");
+        if (result.kind === "surviving-mutation") {
+          expect(result.mutation).toContain("guard-flip");
+          expect(result.sourceSite).toEqual({ file: "src/hangs.ts", line: 2 });
+        }
+      });
+
+      it("confirmation reuses the exact budget that produced the primary clean pass after a baseline-widened retry", async () => {
+        const clock = fakeClock();
+        const bounds: number[] = [];
+        const runtimeByTest: Record<string, number> = { "src/hangs.test.ts": 7_000, "src/hangs-slow.test.ts": 38_000 };
+        const result = await verifyTimeout(
+          async (_cwd, scope, options) => {
+            const timeoutMs = options?.timeoutMs ?? 0;
+            bounds.push(timeoutMs);
+            if (timeoutMs === KILLING_TEST_BUDGET_CEILING_MS) {
+              clock.advance(38_000); // unmutated baseline, measured at the slow sibling's wall time
+              return true;
+            }
+            const wall = Math.max(...scope.map((path) => runtimeByTest[path] ?? 0));
+            if (wall > timeoutMs) {
+              clock.advance(timeoutMs + 1);
+              throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT");
+            }
+            clock.advance(wall);
+            return true; // both the widened retry and the confirmation pass
+          },
+          undefined,
+          { now: clock.now, listDir: () => ["hangs-slow.test.ts"] },
+        );
+
+        expect(result.kind).toBe("surviving-mutation");
+        // floor attempt (timed out), baseline at the ceiling, widened retry (76s), confirmation at the same 76s.
+        expect(bounds).toEqual([KILLING_TEST_BUDGET_FLOOR_MS, KILLING_TEST_BUDGET_CEILING_MS, 76_000, 76_000]);
+      });
+
+      it("skips confirmation and reports the survivor when too little time remains for it", async () => {
+        const clock = fakeClock();
+        let callCount = 0;
+        const result = await verifyTimeout(
+          async () => {
+            callCount += 1;
+            // Consume the deadline: after this primary pass, no time remains for confirmation at the floor budget.
+            clock.advance(MAX_VERIFICATION_MS - KILLING_TEST_BUDGET_FLOOR_MS + 1);
+            return true;
+          },
+          undefined,
+          { now: clock.now },
+        );
+
+        expect(callCount).toBe(1);
+        expect(result.kind).toBe("surviving-mutation");
+      });
+
+      it("a confirmation run that times out settles the candidate inconclusive, not surviving or non-terminating", async () => {
+        let callCount = 0;
+        const result = await verifyTimeout(async () => {
+          callCount += 1;
+          if (callCount === 1) return true; // primary pass at the floor budget
+          throw new AsyncSubprocessError("timed out", undefined, "", "", "ETIMEDOUT"); // confirmation times out
+        });
+
+        expect(callCount).toBe(2);
+        expect(result.kind).toBe("pass");
+        if (result.kind === "pass") {
+          expect(result.skippedCandidates).toHaveLength(1);
+          expect(result.skippedCandidates[0]).toMatchObject({ file: "src/hangs.ts", line: 2 });
+          expect(result.skippedCandidates[0]?.reason).toContain("inconclusive");
+          expect(result.skippedCandidates[0]?.reason).toContain("confirmation");
+        }
+      });
+    });
   });
 
   describe("defaultRunScopedTests (real subprocess, no seam)", () => {
@@ -1334,6 +1444,56 @@ index 1234567..abcdefg 100644
         rmSync(dir, { recursive: true, force: true });
       }
     });
+
+    it("isolates a confirmation re-run from a concurrent scoped test run via the real subprocess semaphore", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "mutation-verifier-isolation-"));
+      try {
+        execFileSync("git", ["init", "-q", "-b", "verifier-fixture"], { cwd: dir });
+        execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+        execFileSync("git", ["config", "user.name", "test"], { cwd: dir });
+        writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "fixture" }));
+        // risky.ts: an uncovered guard, so its primary pass is clean and a confirmation re-run follows.
+        writeFileSync(join(dir, "risky.ts"), "export function risky(x: unknown): string {\n  return String(x);\n}\n");
+        writeFileSync(
+          join(dir, "risky.test.ts"),
+          'import { expect, test } from "bun:test";\nimport { risky } from "./risky.ts";\ntest("covered", () => { expect(risky(0)).toBe("0"); });\n',
+        );
+        // slow.ts: a covered guard whose killing test sleeps, holding a normal semaphore slot open
+        // long enough to overlap risky.ts's confirmation window if isolation is not enforced.
+        writeFileSync(join(dir, "slow.ts"), "export function slow(x: unknown): string {\n  return String(x);\n}\n");
+        writeFileSync(
+          join(dir, "slow.test.ts"),
+          `import { expect, test } from "bun:test";\nimport { slow } from "./slow.ts";\ntest("covered slowly", async () => { ${FIXTURE_SLEEP_CALL} expect(slow(0)).toBe("0"); });\n`,
+        );
+        execFileSync("git", ["add", "-A"], { cwd: dir });
+        execFileSync("git", ["commit", "-q", "-m", "base"], { cwd: dir });
+        const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();
+
+        writeFileSync(
+          join(dir, "risky.ts"),
+          'export function risky(x: unknown): string {\n  return String(x);\n}\n\nexport function riskyGuard(x: unknown): string {\n  if (!x) return "not-covered";\n  return "reached";\n}\n',
+        );
+        writeFileSync(
+          join(dir, "slow.ts"),
+          'export function slow(x: unknown): string {\n  return String(x);\n}\n\nexport function slowGuard(x: unknown): string {\n  if (!x) return "not-covered";\n  return "reached";\n}\n',
+        );
+        writeFileSync(
+          join(dir, "slow.test.ts"),
+          `import { expect, test } from "bun:test";\nimport { slow, slowGuard } from "./slow.ts";\ntest("covered slowly", async () => { ${FIXTURE_SLEEP_CALL} expect(slow(0)).toBe("0"); expect(slowGuard(0)).toBe("not-covered"); });\n`,
+        );
+        execFileSync("git", ["commit", "-aq", "-m", "add uncovered guard and slow covered guard"], { cwd: dir });
+
+        resetVerifierTestRunTracking();
+        const result = await verifyDiffDerivedMutations({ worktreePath: dir, runBase: baseSha });
+
+        expect(result).toMatchObject({ kind: "surviving-mutation", sourceSite: { file: "risky.ts" } });
+        expect(exclusiveHoldOverlappedConcurrentRun()).toBe(false);
+        expect(peakVerifierTestRuns()).toBeGreaterThan(0);
+        expect(execFileSync("git", ["status", "--porcelain"], { cwd: dir }).toString().trim()).toBe("");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }, 60_000);
 
     it(
       "bounds scanDaemonRunControlHandlerForbiddenSymbols while (true) exit-guard flip via real killing test",
@@ -1632,7 +1792,8 @@ index 1234567..abcdefg 100644
     let call = 0;
     const { result } = await runMultiGuardVerification(async () => {
       call += 1;
-      return call === 2;
+      // Candidate a (call 1) is killed; candidate b passes both its primary run (call 2) and confirmation (call 3).
+      return call !== 1;
     });
     expect(result.kind).toBe("surviving-mutation");
     if (result.kind === "surviving-mutation") {
@@ -1845,7 +2006,11 @@ index 1234567..abcdefg 100644
     if (result.kind === "surviving-mutation") {
       expect(result.sourceSite).toEqual({ file: "src/first.ts", line: 2 });
     }
-    expect(scopedCalls).toEqual(["src/first.test.ts", "src/second.test.ts"]);
+    // The injected seam never reaches the semaphore, so first.ts's confirmation re-run (a second
+    // "src/first.test.ts" call) isn't gated on second.ts's still-in-flight run draining first.
+    expect(scopedCalls[0]).toBe("src/first.test.ts");
+    expect(scopedCalls.filter((call) => call === "src/first.test.ts")).toHaveLength(2);
+    expect(scopedCalls.filter((call) => call === "src/second.test.ts")).toHaveLength(1);
   });
 });
 
@@ -2488,7 +2653,7 @@ index 1234567..abcdefg 100644
           },
         },
       );
-      expect(scopedCalls).toBe(1);
+      expect(scopedCalls).toBe(2); // primary pass + confirmation re-run
       expect(result.kind).toBe("surviving-mutation");
       if (result.kind !== "surviving-mutation") throw new Error("expected surviving-mutation");
       expect(result.dualConstraint).toBe(true);
@@ -3547,5 +3712,94 @@ describe("verifier spawn process-group recording", () => {
     });
     expect(passed).toBe(false);
     expect(cleared).toEqual([42]);
+  });
+});
+
+describe("semaphore handoff", () => {
+  // A waiter resumes at least one microtask after `resolve()`. The invariant that closes the window
+  // is that whoever *grants* a slot books it, so the semaphore's state already reflects the
+  // admission before the waiter's continuation runs. Asserting the state at that instant is
+  // deterministic; trying to schedule a third caller inside the window is not.
+  function deferred(): { promise: Promise<void>; resolve: () => void } {
+    let resolve = (): void => {};
+    const promise = new Promise<void>((res) => {
+      resolve = () => res();
+    });
+    return { promise, resolve };
+  }
+
+  it("books a shared slot at handoff, before the waiting caller resumes", async () => {
+    const semaphore = new VerifierTestRunSemaphore(1);
+    const firstRelease = deferred();
+    const queuedRelease = deferred();
+    let queuedBodyEntered = false;
+
+    const first = semaphore.run(() => firstRelease.promise);
+    const queued = semaphore.run(async () => {
+      queuedBodyEntered = true;
+      await queuedRelease.promise;
+    });
+    firstRelease.resolve();
+    await Promise.resolve();
+
+    // The queued caller has been handed the slot but has not entered its body yet.
+    expect(queuedBodyEntered).toBe(false);
+    expect(semaphore.admissionStateForTest.inFlight).toBe(1);
+
+    queuedRelease.resolve();
+    await queued;
+  });
+
+  it("books an exclusive hold at handoff, before the waiting caller resumes", async () => {
+    const semaphore = new VerifierTestRunSemaphore(4);
+    const sharedRelease = deferred();
+    const exclusiveRelease = deferred();
+    let exclusiveBodyEntered = false;
+
+    const shared = semaphore.run(() => sharedRelease.promise);
+    const exclusive = semaphore.runExclusive(async () => {
+      exclusiveBodyEntered = true;
+      await exclusiveRelease.promise;
+    });
+    sharedRelease.resolve();
+    await Promise.resolve();
+
+    // The hold is granted and recorded even though the exclusive caller has not resumed, so a
+    // caller arriving in this window is gated by `exclusiveActive` rather than reading it as free.
+    expect(exclusiveBodyEntered).toBe(false);
+    expect(semaphore.admissionStateForTest.exclusiveActive).toBe(true);
+    expect(semaphore.admissionStateForTest.exclusivePending).toBe(0);
+
+    exclusiveRelease.resolve();
+    await exclusive;
+  });
+});
+
+describe("semaphore admission predicates", () => {
+  // These guards sit on the acquisition path, where inverting a clause deadlocks every acquisition:
+  // a killing test through the semaphore would hang rather than fail. Called directly, each mutant
+  // is killed by an assertion that returns immediately.
+  it("a shared run queues on an exclusive hold, a pending exclusive, or a full semaphore", () => {
+    const idle = { exclusiveActive: false, exclusivePending: 0, inFlight: 0, limit: 4 };
+    expect(sharedRunMustQueue(idle)).toBe(false);
+    expect(sharedRunMustQueue({ ...idle, inFlight: 3 })).toBe(false);
+
+    expect(sharedRunMustQueue({ ...idle, exclusiveActive: true })).toBe(true);
+    expect(sharedRunMustQueue({ ...idle, exclusivePending: 1 })).toBe(true);
+    expect(sharedRunMustQueue({ ...idle, inFlight: 4 })).toBe(true);
+    expect(sharedRunMustQueue({ ...idle, inFlight: 5 })).toBe(true);
+  });
+
+  it("an exclusive run queues on another exclusive hold or any in-flight shared run", () => {
+    const idle = { exclusiveActive: false, exclusivePending: 0, inFlight: 0 };
+    expect(exclusiveRunMustQueue(idle)).toBe(false);
+    // `exclusivePending` counts this caller too, so it cannot gate on its own registration.
+    expect(exclusiveRunMustQueue({ ...idle, exclusivePending: 2 })).toBe(false);
+
+    expect(exclusiveRunMustQueue({ ...idle, exclusiveActive: true })).toBe(true);
+    expect(exclusiveRunMustQueue({ ...idle, inFlight: 1 })).toBe(true);
+    // A sibling already queued for the slot blocks: otherwise a fast-path exclusive arriving while
+    // that sibling is mid-handoff would take a second, overlapping hold.
+    expect(exclusiveRunMustQueue({ ...idle, exclusiveWaiting: 1 })).toBe(true);
   });
 });

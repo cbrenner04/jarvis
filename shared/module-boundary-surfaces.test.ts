@@ -207,6 +207,18 @@ describe("plan draft normalization", () => {
     stageDraft(missing, { "00-known.md": "# Known\n", "01-unlinked.md": "# Unlinked\n" });
     writeFileSync(join(missing, "index.md"), "# Plan\n\n- [ ] [Known](./00-known.md)\n");
     expect(() => normalizePlanDraftSpecDir(missing)).toThrow("Plan index does not link 01-unlinked.md");
+
+    // An annotated link is a linked subspec: two plan lanes were blocked `contract_miss` on drafts
+    // whose index linked every subspec with a trailing `— why` clause.
+    const annotated = scratchDir("annotated-link");
+    stageDraft(annotated, { "00-known.md": "# Known\n", "01-second.md": "# Second\n" });
+    writeFileSync(
+      join(annotated, "index.md"),
+      "# Plan\n\n- [ ] [Known](./00-known.md) — exclusive verifier test-run mode\n" +
+        "- [ ] [Second](./01-second.md) (after 00)\n",
+    );
+    // Later contracts still apply to this minimal draft; only the index-link verdict is asserted.
+    expect(() => normalizePlanDraftSpecDir(annotated)).not.toThrow(/Plan index does not link/);
   });
 
   test("production modules import no retired surface-classification export", () => {

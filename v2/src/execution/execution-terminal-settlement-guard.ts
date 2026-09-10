@@ -75,17 +75,16 @@ const PERMITTED_TERMINAL_WRITES: PermittedTerminalWrite[] = [
     functionName: "finishReviewedLanding",
     writer: "commitCompletionBoundary",
   },
-  { file: "workflow-runner-resume.ts", functionName: "settleIntentResumeFailure", writer: "commitCompletionBoundary" },
+  {
+    file: "workflow-runner-resume.ts",
+    functionName: "settlePublicationResumeFailure",
+    writer: "commitCompletionBoundary",
+  },
   {
     file: "workflow-runner-resume.ts",
     functionName: "runIntentResumeCommitAndPublish",
     writer: "commitCompletionBoundary",
     count: 2,
-  },
-  {
-    file: "workflow-runner-resume.ts",
-    functionName: "settleReviewMutationResumeFailure",
-    writer: "commitCompletionBoundary",
   },
   {
     file: "workflow-runner-resume.ts",

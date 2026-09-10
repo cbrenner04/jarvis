@@ -41,3 +41,18 @@ test("workflow-runner-resume.ts and workflow-runner.ts import the shared write-s
   expect(resumeModuleSource.match(SHARED_MATCHER_IMPORT)).not.toBeNull();
   expect(workflowRunnerSource.match(SHARED_MATCHER_IMPORT)).not.toBeNull();
 });
+
+test("publication resume settlement has one writer: the intent and review-mutation twins are gone", () => {
+  const resumeModuleSource = locateDiscoveredFile(PRODUCTION_SOURCES, "workflow-runner-resume.ts");
+  // Presence: the shared helper is defined and reached from both resume families.
+  expect(resumeModuleSource.match(functionDefinitionPattern("settlePublicationResumeFailure"))).not.toBeNull();
+  expect(resumeModuleSource).toMatch(/INTENT_FINALIZATION_RESUME_POLICY,?\s*\)/);
+  expect(resumeModuleSource).toMatch(/REVIEW_MUTATION_RESUME_POLICY,?\s*\)/);
+  // Absence: neither twin is defined or called anywhere under v2/src/execution/.
+  for (const [, source] of Object.entries(PRODUCTION_SOURCES)) {
+    for (const twin of ["settleIntentResumeFailure", "settleReviewMutationResumeFailure"]) {
+      expect(source.match(functionDefinitionPattern(twin))).toBeNull();
+      expect(source).not.toContain(`${twin}(`);
+    }
+  }
+});

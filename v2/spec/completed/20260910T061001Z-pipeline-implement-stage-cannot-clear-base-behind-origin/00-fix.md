@@ -26,10 +26,10 @@ Recovery was `git pull --ff-only origin main` in the operator checkout followed 
 
 ## Acceptance criteria
 
-- [ ] A test proves a pipeline implement stage whose resolved base is strictly behind its upstream admits and dispatches against the fetched remote head, rather than settling `failed`; it fails against the current unconditional refusal.
-- [ ] A test proves a standalone `jarvis run workflow implement --base main` with a base behind its upstream still refuses with `base_behind_origin` (guard retained for the caller that can act on it).
-- [ ] A test proves the pipeline-stage path does not consult or mutate the operator's primary checkout to satisfy the freshness requirement.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test proves a pipeline implement stage whose resolved base is strictly behind its upstream admits and dispatches against the fetched remote head, rather than settling `failed`; it fails against the current unconditional refusal.
+- [x] A test proves a standalone `jarvis run workflow implement --base main` with a base behind its upstream still refuses with `base_behind_origin` (guard retained for the caller that can act on it).
+- [x] A test proves the pipeline-stage path does not consult or mutate the operator's primary checkout to satisfy the freshness requirement.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

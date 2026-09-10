@@ -82,6 +82,23 @@ describe("landImplementSpecTreeFromReadRoot", () => {
     expect(readFileSync(join(implementWorktree, "spec/feature/verdict-patch.md"), "utf8")).toBe("# Verdict\n");
   });
 
+  test("reentry preserves local criteria while materializing absent spec files", () => {
+    const source = track(mkdtempSync(join(tmpdir(), "chained-source-")));
+    const worktree = track(mkdtempSync(join(tmpdir(), "chained-worktree-")));
+    mkdirSync(join(source, "spec"));
+    mkdirSync(join(worktree, "spec"));
+    writeFileSync(join(source, "spec/index.md"), "- [ ] [Work](./00-work.md)\n");
+    writeFileSync(join(source, "spec/00-work.md"), "- [ ] Work\n");
+    writeFileSync(join(worktree, "spec/00-work.md"), "- [x] Work\n");
+    const input = { worktreePath: worktree, specReadRoot: source, specPath: "spec/index.md", preserveExisting: true };
+    expect(landImplementSpecTreeFromReadRoot(input)).toEqual({ ok: true, specPath: "spec/index.md" });
+    writeFileSync(join(worktree, "spec/index.md"), "- [x] [Work](./00-work.md)\n");
+    expect(landImplementSpecTreeFromReadRoot(input).ok).toBe(true);
+    expect(readFileSync(join(worktree, "spec/00-work.md"), "utf8")).toBe("- [x] Work\n");
+    expect(readFileSync(join(worktree, "spec/index.md"), "utf8")).toContain("- [x]");
+    expect(readFileSync(join(source, "spec/00-work.md"), "utf8")).toBe("- [ ] Work\n");
+  });
+
   afterEach(() => {
     for (const root of roots.splice(0)) {
       rmSync(root, { recursive: true, force: true });

@@ -1204,6 +1204,48 @@ describe("resolveStageWorkflowSteps", () => {
     expect(writeStep.worktree.baseRef).not.toBe(intentBranch);
   });
 
+  test("chained implement uses fetched upstream without changing the operator checkout", async () => {
+    const { repoRoot, configPath, planBranch, planWorktree, planSpecRel } = createChainedHandoffRepo();
+    const remoteHome = mkdtempSync(join(tmpdir(), "pipeline-upstream-"));
+    const remote = join(remoteHome, "origin.git");
+    const publisher = join(remoteHome, "publisher");
+    const git = (cwd: string, args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
+    try {
+      git(repoRoot, ["clone", "-q", "--bare", repoRoot, remote]);
+      git(repoRoot, ["remote", "add", "origin", remote]);
+      git(repoRoot, ["fetch", "-q", "origin"]);
+      git(repoRoot, ["branch", "--set-upstream-to=origin/main", "main"]);
+      git(repoRoot, ["clone", "-q", "--branch", "main", remote, publisher]);
+      git(publisher, ["config", "user.email", "test@example.com"]);
+      git(publisher, ["config", "user.name", "Test"]);
+      writeFileSync(join(publisher, "merged.txt"), "merged while pipeline waits\n");
+      git(publisher, ["add", "merged.txt"]);
+      git(publisher, ["commit", "-qm", "merge another lane"]);
+      git(publisher, ["push", "-q", "origin", "main"]);
+      const expectedHead = git(publisher, ["rev-parse", "HEAD"]);
+      const originalHead = git(repoRoot, ["rev-parse", "HEAD"]);
+      const originalStatus = git(repoRoot, ["status", "--porcelain"]);
+      const context = { cwd: repoRoot, baseRef: "main", configPath };
+      const artifacts = new Map([[stageArtifactKey("plan"), stageArtifact("run-plan", planSpecRel)]]);
+      const result = await resolveStageWorkflowSteps(planImplementDefinition, 1, context, artifacts, {
+        builders: WORKFLOW_PRESET_BUILDERS,
+        ...chainedDeps(planWorktree, planBranch),
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      const write = singleStageResolutionSteps(result).find((step) => step.behavior === "write");
+      expect(write?.behavior).toBe("write");
+      if (write?.behavior !== "write") return;
+      expect(write.worktree.baseRef).toBe("origin/main");
+      expect(git(planWorktree, ["rev-parse", write.worktree.baseRef])).toBe(expectedHead);
+      expect(git(repoRoot, ["rev-parse", "HEAD"])).toBe(originalHead);
+      expect(git(repoRoot, ["status", "--porcelain"])).toBe(originalStatus);
+      expect(existsSync(join(repoRoot, "merged.txt"))).toBe(false);
+    } finally {
+      rmSync(remoteHome, { recursive: true, force: true });
+    }
+  });
+
   test("implement stage resolves through real preset builders when plan spec exists only on plan worktree branch", async () => {
     const { repoRoot, configPath, planBranch, planWorktree, planSpecRel } = createChainedHandoffRepo();
     expect(existsSync(join(repoRoot, planSpecRel))).toBe(false);

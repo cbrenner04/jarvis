@@ -8433,8 +8433,13 @@ describe("pipeline chained plan and implement publication baseRef", () => {
       expect(writeStep?.worktree.baseRef).toBe(defaultBranch);
 
       const subspecPath = join(planWorktree, `${planSpecDir}/00-work.md`);
-      writeStep.createBinding = createBindingFactory(async () => {
-        writeFileSync(subspecPath, "# Work\n\n## Acceptance criteria\n\n- [x] Work\n", "utf8");
+      writeStep.createBinding = createBindingFactory(async ({ cwd }) => {
+        expect(existsSync(join(cwd, planSpecRel))).toBe(true);
+        writeFileSync(
+          join(cwd, `${planSpecDir}/00-work.md`),
+          "# Work\n\n## Acceptance criteria\n\n- [x] Work\n",
+          "utf8",
+        );
         return { kind: "ok", stdout: "done", stderr: "" } as const;
       });
 
@@ -8450,6 +8455,10 @@ describe("pipeline chained plan and implement publication baseRef", () => {
       const implementWorktreePath = getExternalWorktreePath(writeStep.worktree);
       expect(readFileSync(join(implementWorktreePath, planSpecRel), "utf8")).toContain("- [x]");
       expect(readFileSync(join(implementWorktreePath, `${planSpecDir}/00-work.md`), "utf8")).toContain("- [x] Work");
+      expect(readFileSync(subspecPath, "utf8")).toContain("- [ ] Work");
+      const review = singleStageResolutionSteps(resolved).find((step) => step.behavior === "review");
+      if (review?.behavior !== "review") throw new Error("review step not resolved");
+      expect(review.profileContext).toMatchObject({ specPath: planSpecRel, cwd: implementWorktreePath });
     } finally {
       store.close();
     }

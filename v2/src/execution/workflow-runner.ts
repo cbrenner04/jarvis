@@ -4,6 +4,7 @@ import type { RunFixCommandOpts } from "../../../shared/fix-command.ts";
 import { getCurrentHeadAsync } from "../../../shared/git.ts";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
+import { isRecord } from "../../../shared/is-record.ts";
 import {
   completeLinkedSubspec,
   type LinkedIndexRoutingResult,
@@ -576,6 +577,51 @@ function resolveLinkedImplementRoutingRoot(step: WriteWorkflowStep, worktreePath
   return worktreePath;
 }
 
+function needsChainedSpecMaterialization(step: AnyWorkflowStep): step is WriteWorkflowStep {
+  return (
+    step.behavior === "write" &&
+    step.role === "implement" &&
+    step.externalPlanSpec !== true &&
+    step.specReadRoot !== undefined
+  );
+}
+
+/** Give chained in-repo execution, criteria checks, snapshots, and review one writable spec home. */
+async function materializeChainedImplementSpecs(steps: readonly AnyWorkflowStep[]): Promise<void> {
+  for (const step of steps) {
+    if (!needsChainedSpecMaterialization(step)) continue;
+    const readRoot = step.specReadRoot;
+    if (readRoot === undefined) continue;
+    const worktreePath = getExternalWorktreePath(step.worktree);
+    const expectedArtifactPath = relative(readRoot, resolve(readRoot, step.expectedArtifactPath));
+    const result = await (step.withExternalWorktree ?? realWithExternalWorktree)(step.worktree, () =>
+      landImplementSpecTreeFromReadRoot({
+        worktreePath,
+        specReadRoot: readRoot,
+        specPath: step.specPath,
+        preserveExisting: true,
+      }),
+    );
+    if (result.lock.kind !== "acquired" || result.value === undefined)
+      throw new Error(`implement.spec_landing_unavailable: ${step.specPath}`);
+    if (!result.value.ok) throw new Error(result.value.error);
+    step.specPath = result.value.specPath;
+    step.expectedArtifactPath = expectedArtifactPath;
+    delete step.specReadRoot;
+    for (const review of steps) {
+      if (
+        (review.behavior === "review" || review.behavior === "review-debate") &&
+        review.project === step.worktree.projectName &&
+        review.branch === step.worktree.branchName &&
+        review.profile?.domain === "implement" &&
+        isRecord(review.profileContext)
+      ) {
+        review.profileContext = { ...review.profileContext, specPath: step.specPath, cwd: worktreePath };
+      }
+    }
+  }
+}
+
 function resolveImplementSpecPathForPublication(step: WriteWorkflowStep, worktreePath: string): string {
   if (step.externalPlanSpec === true || step.specReadRoot === undefined) {
     return step.specPath;
@@ -807,6 +853,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
     let boundaryTelemetryFailure: string | undefined;
     let implementReviewEligible = false;
     const touchedStepsInExecution = new Set<string>();
+    if (args.steps.some(needsChainedSpecMaterialization)) await materializeChainedImplementSpecs(args.steps);
     const workflowSnapshot = buildWorkflowSnapshot(args.steps, store, args.freshDispatch);
     const reviewPassCommitDeps = buildReviewPassCommitDeps(args, workflowSnapshot);
 

@@ -32,6 +32,7 @@ import {
   resolveSiblingKillingTests,
   runDiffDerivedScopedTests,
   sharedRunMustQueue,
+  VerifierTestRunSemaphore,
   verifyDiffDerivedMutations,
 } from "./diff-derived-mutation-verifier.ts";
 
@@ -1262,12 +1263,18 @@ index 1234567..abcdefg 100644
     describe("confirmation re-run of a clean killing-set pass", () => {
       it("a killing set that passes once and fails on confirmation treats the candidate as killed", async () => {
         let callCount = 0;
-        const result = await verifyTimeout(async () => {
+        const isolationByCall: Array<boolean | undefined> = [];
+        const result = await verifyTimeout(async (_cwd, _scope, options) => {
           callCount += 1;
+          isolationByCall.push(options?.isolated);
           return callCount === 1;
         });
 
         expect(callCount).toBe(2);
+        // The confirmation must actually request the exclusive mode. Asserting only that no overlap
+        // was observed is fail-open: with `isolated` dropped, `runExclusive` is never reached, no
+        // overlap can be recorded, and the assertion still passes.
+        expect(isolationByCall).toEqual([undefined, true]);
         expect(result.kind).toBe("pass");
         if (result.kind === "pass") expect(result.candidateCount).toBeGreaterThan(0);
       });
@@ -3708,6 +3715,66 @@ describe("verifier spawn process-group recording", () => {
   });
 });
 
+describe("semaphore handoff", () => {
+  // A waiter resumes at least one microtask after `resolve()`. The invariant that closes the window
+  // is that whoever *grants* a slot books it, so the semaphore's state already reflects the
+  // admission before the waiter's continuation runs. Asserting the state at that instant is
+  // deterministic; trying to schedule a third caller inside the window is not.
+  function deferred(): { promise: Promise<void>; resolve: () => void } {
+    let resolve = (): void => {};
+    const promise = new Promise<void>((res) => {
+      resolve = () => res();
+    });
+    return { promise, resolve };
+  }
+
+  it("books a shared slot at handoff, before the waiting caller resumes", async () => {
+    const semaphore = new VerifierTestRunSemaphore(1);
+    const firstRelease = deferred();
+    const queuedRelease = deferred();
+    let queuedBodyEntered = false;
+
+    const first = semaphore.run(() => firstRelease.promise);
+    const queued = semaphore.run(async () => {
+      queuedBodyEntered = true;
+      await queuedRelease.promise;
+    });
+    firstRelease.resolve();
+    await Promise.resolve();
+
+    // The queued caller has been handed the slot but has not entered its body yet.
+    expect(queuedBodyEntered).toBe(false);
+    expect(semaphore.admissionStateForTest.inFlight).toBe(1);
+
+    queuedRelease.resolve();
+    await queued;
+  });
+
+  it("books an exclusive hold at handoff, before the waiting caller resumes", async () => {
+    const semaphore = new VerifierTestRunSemaphore(4);
+    const sharedRelease = deferred();
+    const exclusiveRelease = deferred();
+    let exclusiveBodyEntered = false;
+
+    const shared = semaphore.run(() => sharedRelease.promise);
+    const exclusive = semaphore.runExclusive(async () => {
+      exclusiveBodyEntered = true;
+      await exclusiveRelease.promise;
+    });
+    sharedRelease.resolve();
+    await Promise.resolve();
+
+    // The hold is granted and recorded even though the exclusive caller has not resumed, so a
+    // caller arriving in this window is gated by `exclusiveActive` rather than reading it as free.
+    expect(exclusiveBodyEntered).toBe(false);
+    expect(semaphore.admissionStateForTest.exclusiveActive).toBe(true);
+    expect(semaphore.admissionStateForTest.exclusivePending).toBe(0);
+
+    exclusiveRelease.resolve();
+    await exclusive;
+  });
+});
+
 describe("semaphore admission predicates", () => {
   // These guards sit on the acquisition path, where inverting a clause deadlocks every acquisition:
   // a killing test through the semaphore would hang rather than fail. Called directly, each mutant
@@ -3726,10 +3793,13 @@ describe("semaphore admission predicates", () => {
   it("an exclusive run queues on another exclusive hold or any in-flight shared run", () => {
     const idle = { exclusiveActive: false, exclusivePending: 0, inFlight: 0 };
     expect(exclusiveRunMustQueue(idle)).toBe(false);
-    // A pending sibling exclusive does not itself block: only an active hold or undrained runs do.
+    // `exclusivePending` counts this caller too, so it cannot gate on its own registration.
     expect(exclusiveRunMustQueue({ ...idle, exclusivePending: 2 })).toBe(false);
 
     expect(exclusiveRunMustQueue({ ...idle, exclusiveActive: true })).toBe(true);
     expect(exclusiveRunMustQueue({ ...idle, inFlight: 1 })).toBe(true);
+    // A sibling already queued for the slot blocks: otherwise a fast-path exclusive arriving while
+    // that sibling is mid-handoff would take a second, overlapping hold.
+    expect(exclusiveRunMustQueue({ ...idle, exclusiveWaiting: 1 })).toBe(true);
   });
 });

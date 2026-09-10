@@ -301,9 +301,13 @@ export function sharedRunMustQueue(state: SemaphoreState & { limit: number }): b
   return state.exclusiveActive || state.exclusivePending > 0 || state.inFlight >= state.limit;
 }
 
-/** Whether an exclusive acquisition must wait for the semaphore to drain. Pure for the same reason. */
-export function exclusiveRunMustQueue(state: SemaphoreState): boolean {
-  return state.exclusiveActive || state.inFlight > 0;
+/**
+ * Whether an exclusive acquisition must wait for the semaphore to drain. Pure for the same reason.
+ * A sibling already queued for the exclusive slot blocks too: without that, a fast-path exclusive
+ * arriving while a queued one is mid-handoff would take a second, overlapping hold.
+ */
+export function exclusiveRunMustQueue(state: SemaphoreState & { exclusiveWaiting?: number }): boolean {
+  return state.exclusiveActive || state.inFlight > 0 || (state.exclusiveWaiting ?? 0) > 0;
 }
 
 /**
@@ -312,7 +316,7 @@ export function exclusiveRunMustQueue(state: SemaphoreState): boolean {
  * it waits for all in-flight `run()` slots to drain, then runs `fn` with sole use of the semaphore,
  * blocking new `run()` admissions until `fn` settles.
  */
-class VerifierTestRunSemaphore {
+export class VerifierTestRunSemaphore {
   private inFlight = 0;
   private readonly queue: Array<() => void> = [];
   private exclusiveActive = false;
@@ -321,8 +325,38 @@ class VerifierTestRunSemaphore {
 
   constructor(private readonly limit: number) {}
 
+  /**
+   * Admission state as the guards see it. Read by the handoff regressions, which assert a slot is
+   * booked at handoff — before the waiter's continuation runs — rather than by the waiter itself.
+   */
+  get admissionStateForTest(): SemaphoreState {
+    return this.state();
+  }
+
   private state(): SemaphoreState {
     return { exclusiveActive: this.exclusiveActive, exclusivePending: this.exclusivePending, inFlight: this.inFlight };
+  }
+
+  /**
+   * Admission is booked by whoever grants it, never by the waiter when it wakes. A waiter resumes a
+   * microtask or more after `resolve()`, so counting the slot in the continuation would leave it
+   * invisible in between — and both guards read only that state. Anything entering the semaphore in
+   * that window would bypass the gate: two exclusive holds could overlap, or an exclusive hold could
+   * be granted on top of a shared run that had been admitted but not yet counted.
+   */
+  private beginShared(): void {
+    this.inFlight += 1;
+    currentConcurrentVerifierTestRuns += 1;
+    if (exclusiveHoldActive) exclusiveHoldOverlapDetected = true;
+    if (currentConcurrentVerifierTestRuns > peakConcurrentVerifierTestRuns) {
+      peakConcurrentVerifierTestRuns = currentConcurrentVerifierTestRuns;
+    }
+  }
+
+  private beginExclusive(): void {
+    this.exclusiveActive = true;
+    exclusiveHoldActive = true;
+    if (currentConcurrentVerifierTestRuns > 0) exclusiveHoldOverlapDetected = true;
   }
 
   async run<T>(fn: () => Promise<T>): Promise<T> {
@@ -330,12 +364,9 @@ class VerifierTestRunSemaphore {
       await new Promise<void>((resolve) => {
         this.queue.push(resolve);
       });
-    }
-    this.inFlight += 1;
-    currentConcurrentVerifierTestRuns += 1;
-    if (exclusiveHoldActive) exclusiveHoldOverlapDetected = true;
-    if (currentConcurrentVerifierTestRuns > peakConcurrentVerifierTestRuns) {
-      peakConcurrentVerifierTestRuns = currentConcurrentVerifierTestRuns;
+      // `dispatchOne` / `dispatchAfterExclusiveRelease` already called `beginShared` for this slot.
+    } else {
+      this.beginShared();
     }
     try {
       return await fn();
@@ -348,15 +379,15 @@ class VerifierTestRunSemaphore {
 
   async runExclusive<T>(fn: () => Promise<T>): Promise<T> {
     this.exclusivePending += 1;
-    if (exclusiveRunMustQueue(this.state())) {
+    if (exclusiveRunMustQueue({ ...this.state(), exclusiveWaiting: this.exclusiveQueue.length })) {
       await new Promise<void>((resolve) => {
         this.exclusiveQueue.push(resolve);
       });
+      // The dispatcher decremented `exclusivePending` and called `beginExclusive` for this hold.
+    } else {
+      this.exclusivePending -= 1;
+      this.beginExclusive();
     }
-    this.exclusivePending -= 1;
-    this.exclusiveActive = true;
-    exclusiveHoldActive = true;
-    if (currentConcurrentVerifierTestRuns > 0) exclusiveHoldOverlapDetected = true;
     try {
       return await fn();
     } finally {
@@ -372,19 +403,26 @@ class VerifierTestRunSemaphore {
     if (this.inFlight === 0) {
       const nextExclusive = this.exclusiveQueue.shift();
       if (nextExclusive !== undefined) {
+        this.exclusivePending -= 1;
+        this.beginExclusive();
         nextExclusive();
         return;
       }
     }
     if (this.exclusivePending > 0) return;
     const next = this.queue.shift();
-    if (next !== undefined) next();
+    if (next !== undefined) {
+      this.beginShared();
+      next();
+    }
   }
 
   /** An exclusive release frees all `limit` slots at once: hand off to the next exclusive waiter, or admit up to `limit` queued `run()` callers. */
   private dispatchAfterExclusiveRelease(): void {
     const nextExclusive = this.exclusiveQueue.shift();
     if (nextExclusive !== undefined) {
+      this.exclusivePending -= 1;
+      this.beginExclusive();
       nextExclusive();
       return;
     }
@@ -392,6 +430,7 @@ class VerifierTestRunSemaphore {
     for (let admitted = 0; admitted < this.limit && this.queue.length > 0; admitted += 1) {
       const next = this.queue.shift();
       if (next === undefined) break;
+      this.beginShared();
       next();
     }
   }
@@ -415,6 +454,31 @@ async function defaultRunScopedTests(
 type ScopedTestRunner = {
   runAsync: (command: string, args: string[], cwd: string, options?: AsyncSubprocessOptions) => Promise<string>;
 };
+
+/** `Promise.allSettled` over `items`, running at most `limit` at a time, preserving input order. */
+async function settleBounded<T>(
+  items: readonly string[],
+  limit: number,
+  run: (item: string) => Promise<T>,
+): Promise<PromiseSettledResult<T>[]> {
+  const results: PromiseSettledResult<T>[] = new Array(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      const item = items[index];
+      if (item === undefined) continue;
+      try {
+        results[index] = { status: "fulfilled", value: await run(item) };
+      } catch (reason) {
+        results[index] = { status: "rejected", reason };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, () => worker()));
+  return results;
+}
 
 export async function runDiffDerivedScopedTests(
   cwd: string,
@@ -440,9 +504,11 @@ export async function runDiffDerivedScopedTests(
   };
   // Isolated mode holds the semaphore exclusively for the whole batch: spawning via semaphore.run()
   // here (as the non-isolated path does) would self-deadlock, since the exclusive hold already owns
-  // every slot the per-call run() would wait on.
+  // every slot the per-call run() would wait on. It still honours the same concurrency bound inside
+  // the hold — an unbounded fan-out would reintroduce exactly the contention isolation exists to
+  // remove, and would spawn past `MAX_CONCURRENT_VERIFIER_TEST_RUNS` while claiming to cap it.
   const results = options?.isolated
-    ? await semaphore.runExclusive(() => Promise.allSettled(scope.map((testPath) => spawnOne(testPath))))
+    ? await semaphore.runExclusive(() => settleBounded(scope, MAX_CONCURRENT_VERIFIER_TEST_RUNS, spawnOne))
     : await Promise.allSettled(scope.map((testPath) => semaphore.run(() => spawnOne(testPath))));
   for (const result of results) {
     if (result.status === "rejected" && !(result.reason instanceof AsyncSubprocessError)) {

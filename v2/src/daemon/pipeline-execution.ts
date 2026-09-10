@@ -39,11 +39,9 @@ import {
   type PipelineStageArtifact,
   type PipelineWorkflowDispatch,
   type PipelineWorkflowWait,
-  redrivableDeferredSettlementEntryRunId,
   settlementLinkedEntryRunId,
   shouldStopForInFlightStageRow,
   stageArtifactKey,
-  unsettledTerminalStageEntryRunId,
 } from "./pipeline-stage-dispatch.ts";
 import {
   isFanOutStageResolution,
@@ -54,6 +52,7 @@ import {
   singleStageResolutionSteps,
 } from "./pipeline-stage-resolve.ts";
 import { capturingStaleReset } from "./pipeline-workflow-preparation.ts";
+import { settleOrphanedRunningStages } from "./stage-settlement-owner.ts";
 
 export type PipelineDerivedState =
   | "succeeded"
@@ -85,6 +84,8 @@ export type PipelineExecutionDeps = {
   context: PipelineContext;
   resolveStage?: typeof resolveStageWorkflowSteps;
   loadLogRecords?: (entryRunId: string) => PersistedRecord[];
+  /** True while this daemon still drives the entry run's invocation; stage settlement never judges a live run from its rows. */
+  isEntryRunLive?: (entryRunId: string) => boolean;
   executeTerminalPublication?: (input: TerminalPublicationInput) => Promise<TerminalPublicationResult>;
   /** Bound on a losing branch's wait for a peer's fan-out claim (see `awaitBoundedPeerClaim`). */
   peerClaimTimeoutMs?: number;
@@ -619,14 +620,20 @@ export async function resumePipeline(
     return continueAfterAdmission(undefined, reopenedStageReset);
   }
 
-  const derivedState = derivePipelineState(pipeline);
+  // Settlement precondition: a stage whose entry run this daemon no longer drives settles from
+  // its durable rows here, so resume sees the row it would otherwise have to redrive by hand.
+  const settledEntryRuns = settleOrphanedRunningStages(
+    { store, isEntryRunLive: deps.isEntryRunLive ?? (() => false), loadLogRecords: deps.loadLogRecords },
+    pipelineId,
+  );
+  const settledPipeline = settledEntryRuns.length > 0 ? store.loadPipeline(pipelineId) : null;
+  const derivedState = derivePipelineState(settledPipeline ?? pipeline);
 
   const terminalReason = resumeTerminalRefusalReason(derivedState);
   if (terminalReason) {
     return { kind: "refused", pipelineId, reason: terminalReason };
   }
   if (derivedState === "running") {
-    if (resumeDrivesDeferredSettlement(store, derivedState, pipeline)) return continueAfterAdmission();
     return { kind: "refused", pipelineId, reason: "pipeline_not_resumable" };
   }
   const approvedGateBranchKey = approvedGatePendingStrandBranchKey(pipeline);
@@ -1008,53 +1015,23 @@ async function settlePipelineTerminalPublication(
 }
 
 /**
- * `resumeDrivesDeferredSettlement`'s reconciled-set argument: resume runs on a live daemon, not
- * a restart batch, so no entry run has been reconciled-this-start.
+ * Daemon-start sweep: settle every `running` stage whose linked entry run this daemon does not
+ * drive (durable rows are the truth), then continue every continuable pipeline with no live
+ * owner. Settlement and continuation are one path — no redrive predicate decides differently.
  */
-const NO_RECONCILED_ENTRY_RUNS: ReadonlySet<string> = new Set();
-
-/** True when derived `running` reflects a redrivable deferred-settlement wedge, not live work. */
-export function resumeDrivesDeferredSettlement(
-  store: StateStore,
-  derivedState: PipelineDerivedState,
-  pipeline: Pipeline & { stages: PipelineStageRecord[] },
-): boolean {
-  if (derivedState !== "running") return false;
-  return hasRedrivableDeferredSettlement(store, pipeline, NO_RECONCILED_ENTRY_RUNS);
-}
-
-/**
- * True when a pipeline carries a `running` stage row whose deferred-settlement marker is
- * redrivable and whose linked entry run was not reconciled by this same daemon start — that
- * case is left to `recoverReconciledRuns` instead, so the sweep doesn't fail the stage out
- * from under a run that reconciliation is independently resuming.
- */
-export function hasRedrivableDeferredSettlement(
-  store: StateStore,
-  pipeline: Pipeline & { stages: PipelineStageRecord[] },
-  reconciledEntryRunIds: ReadonlySet<string>,
-): boolean {
-  for (const stage of pipeline.stages) {
-    const deferredEntryRunId = redrivableDeferredSettlementEntryRunId(store, stage);
-    const unsettledEntryRunId = unsettledTerminalStageEntryRunId(store, stage);
-    const redrivableEntryRunId = deferredEntryRunId ?? unsettledEntryRunId;
-    if (redrivableEntryRunId === undefined) continue;
-    if (reconciledEntryRunIds.has(redrivableEntryRunId)) return false;
-    return true;
-  }
-  return false;
-}
-
 export async function recoverContinuablePipelines(
   store: StateStore,
   pipelineDeps: Omit<PipelineExecutionDeps, "context">,
   isOwnerAliveProbe: OwnerLivenessProbe = isOwnerAlive,
-  reconciledEntryRunIds: ReadonlySet<string> = new Set(),
 ): Promise<{ continued: number }> {
+  settleOrphanedRunningStages({
+    store,
+    isEntryRunLive: pipelineDeps.isEntryRunLive ?? (() => false),
+    loadLogRecords: pipelineDeps.loadLogRecords,
+  });
   let continued = 0;
   for (const pipeline of store.listPipelines()) {
-    // biome-ignore format: mutation checkpoint requires this exact single-line guard
-    if (!isPipelineContinuable(pipeline) && !hasRedrivableDeferredSettlement(store, pipeline, reconciledEntryRunIds)) continue;
+    if (!isPipelineContinuable(pipeline)) continue;
     const owner = pipeline.ownerIdentity;
     if (owner !== null && (await isOwnerAliveProbe(owner))) continue;
     const outcome = await continuePipeline(pipeline.id, pipelineDeps);

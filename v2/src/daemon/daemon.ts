@@ -948,7 +948,6 @@ export async function startDaemonRuntime(
 
   const recoveryLogSink = createLogSink(logsPath);
   try {
-    await continueContinuablePipelines();
     await store.reconcilePipelines();
     const recovery = await (startupDeps.recoverReconciledRuns ?? recoverReconciledRuns)(
       reconciledRunIds,
@@ -957,6 +956,9 @@ export async function startDaemonRuntime(
       runControlHandlers.resume,
     );
     recoveryStatus = { ...recoveryStatus, pending: false, resumed: recovery?.resumed ?? 0 };
+    // Reconciled runs are live again (their promises are tracked), so the sweep settles only the
+    // stages whose invocation this daemon does not drive, then continues what is continuable.
+    await continueContinuablePipelines();
   } finally {
     recoveryLogSink.close();
   }

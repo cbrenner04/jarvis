@@ -85,6 +85,7 @@ export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: Pipe
       wait: pipelineWait,
       resolveStage,
       ...(logReader !== undefined ? { loadLogRecords: (entryRunId: string) => logReader.tail(entryRunId) } : {}),
+      isEntryRunLive: (entryRunId: string) => ctx.workflowPromisesByEntryRunId.has(entryRunId),
       ...(deps.executeTerminalPublication !== undefined
         ? { executeTerminalPublication: deps.executeTerminalPublication }
         : {}),
@@ -394,7 +395,7 @@ export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: Pipe
   };
 
   const continueContinuablePipelines = async (): Promise<void> => {
-    await recoverContinuablePipelines(store, pipelineExecutionDeps(), undefined, new Set(deps.reconciledRunIds ?? []));
+    await recoverContinuablePipelines(store, pipelineExecutionDeps());
   };
 
   return {

@@ -8,7 +8,6 @@ import {
   type PipelineDerivedState,
 } from "./pipeline-execution.ts";
 import { derivePipelineBoundary, type PipelineBoundaryResult } from "./pipeline-observation.ts";
-import { redrivableDeferredSettlementEntryRunId } from "./pipeline-stage-dispatch.ts";
 
 type OperatorIncidentKind =
   | "pipeline-awaiting-approval"
@@ -106,15 +105,6 @@ function previewPipelineIncidentKeys(
       keys.push({ incidentId: pipelineIncidentId(pipeline.id), transition: "publication-failed" });
     } else {
       keys.push({ incidentId: pipelineIncidentId(pipeline.id), transition: `terminal:${state}` });
-    }
-  }
-
-  for (const stage of pipeline.stages) {
-    if (redrivableDeferredSettlementEntryRunId(store, stage) !== undefined) {
-      keys.push({
-        incidentId: stageIncidentId(pipeline.id, stage.stageId, stage.branchKey),
-        transition: "settlement_deferred:entry_run_dead",
-      });
     }
   }
 
@@ -312,22 +302,6 @@ function collectPipelineIncidents(
       pushPublicationFailureIncident(incidents, pipeline, project);
     } else {
       pushPipelineTerminalIncident(incidents, pipeline, state, project);
-    }
-  }
-
-  for (const stage of pipeline.stages) {
-    if (redrivableDeferredSettlementEntryRunId(store, stage) !== undefined) {
-      incidents.push({
-        incidentId: stageIncidentId(pipeline.id, stage.stageId, stage.branchKey),
-        kind: "stage-settlement-wedged",
-        transition: "settlement_deferred:entry_run_dead",
-        project,
-        pipelineId: pipeline.id,
-        stageId: stage.stageId,
-        branchKey: stage.branchKey,
-        cause: "settlement_deferred",
-        sinceMs: stageSinceMs(stage),
-      });
     }
   }
 

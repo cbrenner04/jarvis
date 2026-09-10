@@ -169,6 +169,26 @@ type ScopedCleanupFixture = {
   selected: ScopedProject;
 };
 
+/** Every path committed on any `cleanup/archive-*` branch of `root`. */
+async function cleanupArchiveTree(root: string): Promise<string[]> {
+  const branches = (
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["for-each-ref", "--format=%(refname:short)", "refs/heads/cleanup/archive-*"],
+      root,
+    )
+  )
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const paths: string[] = [];
+  for (const branch of branches) {
+    const tree = await realAsyncSubprocessRunner.runAsync("git", ["ls-tree", "-r", "--name-only", branch], root);
+    paths.push(...tree.split("\n").filter((line) => line.length > 0));
+  }
+  return paths;
+}
+
 async function makeScopedCleanupFixture(label: string): Promise<ScopedCleanupFixture> {
   const root = mkdtempSync(join(tmpdir(), `jarvis-cleanup-scope-${label}-`));
   const jarvisRoot = join(root, "jarvis-home");
@@ -193,6 +213,13 @@ async function makeScopedCleanupFixture(label: string): Promise<ScopedCleanupFix
     const spec = join(projectRoot, "v2", "spec", `${project}-spec`);
     mkdirSync(spec, { recursive: true });
     writeFileSync(join(spec, "index.md"), `# ${project}\n\n## Acceptance criteria\n\n- [x] done\n`);
+    // Archive publication moves committed specs on a cleanup branch, so the spec must be on main.
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["-c", "user.email=t@t.com", "-c", "user.name=T", "commit", "-m", "spec"],
+      projectRoot,
+    );
     return { branch, root: projectRoot, spec, worktree };
   }
 
@@ -324,8 +351,9 @@ describe("named cleanup project scope", () => {
         if (scenario.apply) {
           expect(existsSync(fixture.selected.worktree)).toBe(false);
           expect(await refExists(fixture.selected)).toBe(false);
-          expect(existsSync(fixture.selected.spec)).toBe(false);
-          expect(existsSync(join(fixture.selected.root, "v2", "spec", "completed", "selected-spec"))).toBe(true);
+          // The archive is a commit on the cleanup branch; the operator checkout keeps the spec.
+          expect(existsSync(fixture.selected.spec)).toBe(true);
+          expect(await cleanupArchiveTree(fixture.selected.root)).toContain("v2/spec/completed/selected-spec/index.md");
           expect(existsSync(fixture.deadSocket)).toBe(false);
         } else {
           expect(existsSync(fixture.selected.worktree)).toBe(true);

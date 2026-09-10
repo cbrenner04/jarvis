@@ -240,6 +240,30 @@ describe("publication landing hooks", () => {
     expect(result).toEqual({ specPath: "", files: [] });
   });
 
+  test.each([
+    ["- [ ] [Work](./00-work.md) (after 00 and 03)", undefined],
+    ["- [x] [Work](00-work.md) — already shipped", undefined],
+    ["# Plan", "no index.md line links this file"],
+    ["Note: - [ ] [Work](./00-work.md)", "index.md mentions the file but has no parseable checkbox link"],
+    ["- [ ] Work: 00-work.md", "index.md mentions the file but has no parseable checkbox link"],
+  ])("plan landing extracts annotated links and diagnoses missing links: %s", async (line, refusal) => {
+    const root = repo();
+    const stage = join(root, ".jarvis-plan-stage");
+    mkdirSync(stage);
+    writeFileSync(join(stage, "index.md"), `${line}\n`);
+    writeFileSync(join(stage, "intent.md"), "intent\n");
+    writeFileSync(join(stage, "00-work.md"), "# Work\n");
+    const result = landPublication({ kind: "plan-tree", stagingDir: stage, durablePath: "spec/tree" }, root);
+    if (refusal !== undefined) {
+      await expect(result).rejects.toThrow(`00-work.md: ${refusal}`);
+      expect(existsSync(join(root, "spec/tree"))).toBe(false);
+    } else {
+      await result;
+      expect(readFileSync(join(root, "spec/tree/index.md"), "utf8")).toBe(`${line}\n`);
+      expect(existsSync(join(root, "spec/tree/00-work.md"))).toBe(true);
+    }
+  });
+
   test("plan landing rejects unlinked numbered subspecs", async () => {
     // Ordinary landing: the staging-dir call site rejects a numbered file index.md never links,
     // retains it in staging, and never places it (or the tree) in durable output.

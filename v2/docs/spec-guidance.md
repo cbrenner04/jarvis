@@ -35,6 +35,8 @@ repo: owner/target-repo
 - [ ] [01 - Second task](./01-second-task.md)
 ```
 
+Index links may carry trailing annotations, such as `- [ ] [Work](./00-work.md) (after 00)`. Publication extracts the checkbox link and ignores the annotation; leading prose before the checkbox remains invalid. Missing-link failures distinguish absent file references from mentions without a parseable checkbox link.
+
 During plan-draft the agent writes to `.jarvis-plan-stage/` in the worktree before landing to the durable path; staging accepts flat files or exactly one nested `spec/<name>/` tree, flattened before normalization. Implement runs target `index.md` (`jarvis run workflow implement --spec <index.md>`), never a subspec directly.
 
 ## Land the spec before implementing it

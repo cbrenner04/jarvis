@@ -2,6 +2,7 @@
 id: patch.prompt.pr-description
 behavior: patch
 kind: step
+fragmentPolicy: global
 revision: 3
 placeholders: [SPEC_PATH:string!, SPEC_CONTEXT:string!]
 add: [shared.pr-description]

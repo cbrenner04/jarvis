@@ -51,6 +51,7 @@ Each registered prompt artifact must start with leading frontmatter and include 
 - `id` (stable runtime lookup key)
 - `behavior` (real grouping key: `global`, `patch`, `plan`, or another scoped class)
 - `kind` (artifact type: `step` or `fragment`)
+- `fragmentPolicy` (steps only: `global`, `behavior`, or `none` — which fragments assemble ahead of the body; see [`prompts.md`](./prompts.md#fragment-frontmatter-contract))
 - `revision` (change-visible revision marker)
 
 Optional relationship fields used during validation:
@@ -82,8 +83,8 @@ Validation and rendering failures are intentionally split:
 
 Shared rendering follows this contract:
 
-- Assembly order is deterministic: `global -> behavior -> step`.
-- Rendering is metadata-driven by step `id`; callers do not pass explicit fragment lists.
+- Assembly order is deterministic: `global -> behavior -> step`, gated by the step's `fragmentPolicy` (`none` skips both fragment tiers, `global` skips the behavior tier).
+- Rendering is metadata-driven by step `id` through the one entry point `renderPromptForStep` (`shared/prompts/assemble.ts`); callers do not pass explicit fragment lists or hand-roll a render path.
 - Step definitions may explicitly add or remove named fragments.
 - Remove directives are strict runtime behavior (removal is honored, not
   best-effort).

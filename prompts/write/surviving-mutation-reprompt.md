@@ -2,6 +2,7 @@
 id: write.surviving-mutation-reprompt
 behavior: write
 kind: step
+fragmentPolicy: none
 revision: 1
 placeholders: [SPEC_PATH:string!, STEP_RULES:string!, SURVIVING_MUTATION:string!, SOURCE_FILE:string!, SOURCE_LINE:string!, DUAL_CONSTRAINT_DETAIL:string!]
 ---

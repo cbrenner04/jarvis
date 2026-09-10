@@ -2,6 +2,7 @@
 id: patch.prompt.review.adversary
 behavior: patch
 kind: step
+fragmentPolicy: global
 revision: 3
 placeholders: [SPEC_PATH:string!, SPEC_TREE:string!, BRANCH_DIFF:string!, REVIEW_PASS_NUMBER:string!, REVIEW_PASS_CONTEXT:string!]
 ---

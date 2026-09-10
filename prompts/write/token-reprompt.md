@@ -2,6 +2,7 @@
 id: write.token-reprompt
 behavior: write
 kind: step
+fragmentPolicy: none
 revision: 1
 placeholders: [RESPONSE_TEXT:string!]
 ---

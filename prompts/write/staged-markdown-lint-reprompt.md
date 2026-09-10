@@ -2,6 +2,7 @@
 id: write.staged-markdown-lint-reprompt
 behavior: write
 kind: step
+fragmentPolicy: none
 revision: 1
 placeholders: [RULE_ID:string!, OFFENDING_FILE:string!, STAGING_DIR:string!, VIOLATION:string!]
 ---

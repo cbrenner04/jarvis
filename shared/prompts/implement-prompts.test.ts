@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { assemblePromptForStep } from "./assemble.ts";
+import { assembleStepTemplate } from "./assemble.ts";
 import { loadPromptRegistry } from "./registry.ts";
 import { renderArtifactTemplate } from "./render.ts";
 
@@ -19,7 +19,7 @@ describe("implement-owned prompt artifacts", () => {
 
   test("assembled implement step prompt uses implement vocabulary, not Patch Mode", () => {
     const artifact = registry.getById("implement.prompt.body");
-    const template = assemblePromptForStep({ registry, stepPromptId: "implement.prompt.body" });
+    const template = assembleStepTemplate(registry, "implement.prompt.body");
     const rendered = renderArtifactTemplate(
       { ...artifact, body: template },
       {
@@ -48,7 +48,7 @@ describe("implement-owned prompt artifacts", () => {
   });
 
   test("intent split assembles globals only, no plan fragments", () => {
-    const assembled = assemblePromptForStep({ registry, stepPromptId: "intent.prompt.split" });
+    const assembled = assembleStepTemplate(registry, "intent.prompt.split");
     const stepBody = registry.getById("intent.prompt.split").body.trim();
     const fragmentPrefix = assembled.slice(0, assembled.indexOf(stepBody));
     for (const id of ["global.terse", "global.no-hard-wrap", "global.documentation"]) {

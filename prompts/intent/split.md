@@ -2,6 +2,7 @@
 id: intent.prompt.split
 behavior: intent
 kind: step
+fragmentPolicy: global
 revision: 5
 placeholders: [WORKDIR:string!, SEED_LABEL:string!, SEED_CONTENT:string!]
 remove: [global.naming]

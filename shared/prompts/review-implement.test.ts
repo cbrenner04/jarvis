@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { locateMarkerSlice } from "../structural-test-locator.ts";
 import { realAsyncSubprocessRunner } from "../subprocess.ts";
-import { assemblePromptForStep } from "./assemble.ts";
+import { assembleStepTemplate } from "./assemble.ts";
 import { loadPromptRegistry } from "./registry.ts";
 import { renderArtifactTemplate } from "./render.ts";
 import {
@@ -132,7 +132,7 @@ test("roots external critic and debate SPEC_TREE labels at specReadRoot", async 
 function renderPatchBody(repoGuidance: string): string {
   const registry = loadPromptRegistry();
   const artifact = registry.getById("implement.prompt.body");
-  const body = assemblePromptForStep({ registry, stepPromptId: artifact.metadata.id });
+  const body = assembleStepTemplate(registry, artifact.metadata.id);
   return renderArtifactTemplate(
     { ...artifact, body },
     {

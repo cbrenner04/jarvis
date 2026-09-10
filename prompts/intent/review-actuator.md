@@ -2,6 +2,7 @@
 id: intent.prompt.review-actuator
 behavior: intent
 kind: step
+fragmentPolicy: global
 revision: 2
 placeholders: [STAGED_INTENT:string!, SPEC_GUIDANCE:string!, VERDICT:string!]
 remove: [global.naming]

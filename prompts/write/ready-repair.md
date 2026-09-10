@@ -2,6 +2,7 @@
 id: write.ready-repair
 behavior: write
 kind: step
+fragmentPolicy: global
 revision: 1
 placeholders: [SPEC_PATH:string!, STEP_RULES:string!, GATE_COMMAND:string!, GATE_EXIT_CODE:string!, GATE_OUTPUT:string!]
 ---

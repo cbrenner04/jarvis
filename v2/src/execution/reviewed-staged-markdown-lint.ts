@@ -1,5 +1,6 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { renderPromptForStep } from "../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import type { PublicationLanding } from "./publication-landing.ts";
@@ -76,10 +77,13 @@ export function renderReviewedStagedMarkdownLintReprompt(
   reprompt: ReviewedStagedMarkdownLintReprompt,
   stagingDir: string,
 ): string {
-  return renderArtifactTemplate(loadPromptRegistry().getById("write.staged-markdown-lint-reprompt"), {
-    RULE_ID: reprompt.ruleId,
-    OFFENDING_FILE: reprompt.offendingFile,
-    STAGING_DIR: stagingDir,
-    VIOLATION: reprompt.message,
+  return renderPromptForStep({
+    stepPromptId: "write.staged-markdown-lint-reprompt",
+    placeholders: {
+      RULE_ID: reprompt.ruleId,
+      OFFENDING_FILE: reprompt.offendingFile,
+      STAGING_DIR: stagingDir,
+      VIOLATION: reprompt.message,
+    },
   });
 }

@@ -2,6 +2,7 @@
 id: intent.prompt.review.advocate
 behavior: intent
 kind: step
+fragmentPolicy: global
 revision: 1
 placeholders: [STAGED_INTENT:string!, SPEC_GUIDANCE:string!, ADVERSARY_FINDINGS:string!, REVIEW_PASS_NUMBER:string!, REVIEW_PASS_CONTEXT:string!]
 remove: [global.naming]

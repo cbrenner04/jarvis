@@ -2,6 +2,7 @@
 id: implement.prompt.review.adversary
 behavior: implement
 kind: step
+fragmentPolicy: global
 revision: 3
 placeholders: [SPEC_PATH:string!, SPEC_TREE:string!, BRANCH_DIFF:string!, REVIEW_PASS_NUMBER:string!, REVIEW_PASS_CONTEXT:string!]
 ---

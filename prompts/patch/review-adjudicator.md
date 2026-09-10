@@ -2,6 +2,7 @@
 id: patch.prompt.review.adjudicator
 behavior: patch
 kind: step
+fragmentPolicy: global
 revision: 2
 placeholders: [SPEC_PATH:string!, SPEC_TREE:string!, BRANCH_DIFF:string!, ADVOCATE_RESPONSE:string!, REVIEW_PASS_NUMBER:string!, REVIEW_PASS_CONTEXT:string!]
 ---

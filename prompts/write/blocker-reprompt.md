@@ -2,6 +2,7 @@
 id: write.blocker-reprompt
 behavior: write
 kind: step
+fragmentPolicy: none
 revision: 1
 placeholders: []
 ---

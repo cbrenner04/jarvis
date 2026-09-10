@@ -24,6 +24,7 @@ function fakeArtifact(id: string, body: string): PromptArtifact {
       id,
       behavior: "plan",
       kind: "step",
+      fragmentPolicy: "behavior",
       revision: "1",
       order: null,
       fragmentOf: [],

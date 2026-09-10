@@ -6,6 +6,7 @@ The prompt corpus lives under `prompts/` and is indexed by `prompts/registry.txt
 
 A `fragment` artifact is prose prepended to step prompts; a `step` artifact is the prompt body itself. Inclusion is declared, never hand-rolled by callers:
 
+- `fragmentPolicy:` — required on every `step`, forbidden on fragments: `global` prepends the ranked global fragments, `behavior` prepends globals then the step's lane, `none` prepends nothing; `add`/`remove` apply after the policy in every case. Registry load fails on a missing or unknown value.
 - `behavior:` — the lane an artifact belongs to. Fragments with `behavior: global` (`global.documentation`, `global.naming`, `global.terse`, `global.no-hard-wrap`, ranked by `order:`) prepend to every step; fragments whose `behavior` matches the step's `behavior` prepend after the globals. Lanes today: `global`, `plan` (fragments `plan.decisions-ledger`, `plan.defer-to-consumer`), `write` (fragment `write.principles`), `intent`, `implement`, `patch`. `implement.rules` (`behavior: implement-rules`) and `shared.pr-description` (`behavior: shared-pr-description`) deliberately sit on lanes no step declares, so they attach only where named.
 - `add:` — extra fragment ids appended after the lane fragments (`plan.prompt.pr-description` and `patch.prompt.pr-description` add `shared.pr-description`).
 - `remove:` — fragment ids excluded for this step (every intent and plan review role removes `global.naming`; `patch.prompt.shrink` removes `global.documentation` and `global.naming`).
@@ -13,14 +14,11 @@ A `fragment` artifact is prose prepended to step prompts; a `step` artifact is t
 
 The lane label is load-bearing: `intent.prompt.split` carries `behavior: intent` (a lane with no fragments) precisely so it does not inherit the plan fragments, and `implement/review-*.md` carry `behavior: implement` for the same reason.
 
-## Render paths
+## Render path
 
-Two assemblers exist today; the [`declarative-fragment-policy-single-assembler`](../spec/ready-intents/declarative-fragment-policy-single-assembler.md) ready-intent converges them.
+One assembler serves every engine: `renderPromptForStep` in `shared/prompts/assemble.ts`. It assembles the step template per the artifact's declared `fragmentPolicy`, then `renderArtifactTemplate` (`shared/prompts/render.ts`) applies variants, optional sections, and placeholder substitution, and the result is trimmed. Every step-prompt call site — the shared builders (`plan-draft.ts`, `intent-split.ts`, `review-plan.ts`, `review-intent.ts`, `review-implement.ts`) and the v2 write loop (`write.ts`, `write-loop.ts`, `step-runner.ts`, `reviewed-staged-markdown-lint.ts`) — reaches it; `step-prompt-dispatch-guard.test.ts` fails when production code outside the assembler calls `assemblePromptForStep`, `renderStepPrompt`, or bare `renderArtifactTemplate`, and `cross-path-render.test.ts` proves every registered step assembles exactly as its policy declares. `executeWrite` resolves the step-owned placeholders (`REPO_GUIDANCE`, `ACTIVE_SUBSPEC_*`, `PATCH_RULES`, `STEP_RULES`, `SPEC_GUIDANCE`) before invocation; see [`write-behavior.md § Write-step prompt placeholders`](./write-behavior.md#write-step-prompt-placeholders).
 
-- **Shared assembler** — `assemblePromptForStep` (`shared/prompts/assemble.ts`): globals, then lane fragments, then `add`, minus `remove`, then the step body; `renderArtifactTemplate` (`shared/prompts/render.ts`) then applies variants, optional sections, and placeholders. Used by every shared renderer: `plan-draft.ts`, `intent-split.ts`, `review-plan.ts`, `review-intent.ts`, `review-implement.ts`.
-- **v2 write path** — `renderStepPrompt` (`v2/src/execution/write-prompt.ts`): globals minus `remove`, then the step body, then `renderArtifactTemplate`. It omits lane fragments and `add` by design (`write.execute` carries `write.principles` through its `PRINCIPLES` placeholder instead). `executeWrite` (`v2/src/execution/write.ts`) routes every write step through it, resolving the step-owned placeholders (`REPO_GUIDANCE`, `ACTIVE_SUBSPEC_*`, `PATCH_RULES`, `STEP_RULES`, `SPEC_GUIDANCE`) before invocation; see [`write-behavior.md § Write-step prompt placeholders`](./write-behavior.md#write-step-prompt-placeholders).
-
-Reprompts (`write.token-reprompt`, `write.blocker-reprompt`, `write.landing-contract-reprompt`, `write.staged-markdown-lint-reprompt`, `write.surviving-mutation-reprompt`, `write.coverage-advisory`) render the bare artifact through `renderArtifactTemplate` with no fragments.
+Declared policies: `plan.prompt.*` (draft, review roles, review-actuator, pr-description) are `behavior`; `write.execute` is `global` with `PRINCIPLES` carrying `write.principles` (never duplicated by assembly); `implement.prompt.body`, `patch.prompt.shrink`, every intent, implement, and patch review role, `intent.prompt.split`, `write.ready-repair`, and `write.mutation-repair` are `global`; the reprompts (`write.token-reprompt`, `write.blocker-reprompt`, `write.landing-contract-reprompt`, `write.staged-markdown-lint-reprompt`, `write.surviving-mutation-reprompt`, `write.coverage-advisory`) are `none`.
 
 ## Per-workflow step prompts
 

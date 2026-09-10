@@ -2,6 +2,7 @@
 id: write.coverage-advisory
 behavior: write
 kind: step
+fragmentPolicy: none
 revision: 1
 placeholders: [COVERAGE_REPORT:string!]
 ---

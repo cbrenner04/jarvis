@@ -1,6 +1,6 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
-import { assemblePromptForStep } from "./assemble.ts";
+import { renderPromptForStep } from "./assemble.ts";
 import { loadPromptRegistry } from "./registry.ts";
 import { enforceDelimiterPolicy, PromptRenderingError, renderTemplateWithDeclarations } from "./render.ts";
 
@@ -35,13 +35,6 @@ export function buildIntentSplitPrompt(opts: {
   stagingDir: string;
   stepRules?: string;
 }): string {
-  const registry = loadPromptRegistry();
-  const artifact = registry.getById(INTENT_SPLIT_PROMPT_ID);
-  let template = assemblePromptForStep({
-    registry,
-    stepPromptId: INTENT_SPLIT_PROMPT_ID,
-  });
-
   enforceDelimiterPolicy({
     value: opts.seedContent,
     begin: "<<<SEED_BEGIN>>>",
@@ -49,11 +42,15 @@ export function buildIntentSplitPrompt(opts: {
     placeholderName: "SEED_CONTENT",
   });
 
+  let template: string;
   try {
-    template = renderTemplateWithDeclarations(template, artifact.metadata.placeholders, {
-      WORKDIR: opts.workdir,
-      SEED_LABEL: opts.seedLabel,
-      SEED_CONTENT: opts.seedContent,
+    template = renderPromptForStep({
+      stepPromptId: INTENT_SPLIT_PROMPT_ID,
+      placeholders: {
+        WORKDIR: opts.workdir,
+        SEED_LABEL: opts.seedLabel,
+        SEED_CONTENT: opts.seedContent,
+      },
     });
   } catch (err) {
     if (err instanceof PromptRenderingError) {

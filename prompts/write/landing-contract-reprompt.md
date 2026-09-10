@@ -2,6 +2,7 @@
 id: write.landing-contract-reprompt
 behavior: write
 kind: step
+fragmentPolicy: none
 revision: 1
 placeholders: [VIOLATION:string!, OFFENDING_FILE:string!, STAGING_DIR:string!]
 ---

@@ -2,6 +2,7 @@
 id: patch.prompt.shrink
 behavior: patch
 kind: step
+fragmentPolicy: global
 revision: 4
 remove: [global.documentation, global.naming]
 placeholders: [SPEC_PATH:string!, SPEC_TREE:string!, ALLOWLIST:string!, BRANCH_DIFF:string!, RUN_SCOPED_DIFF:string!, STEP_RULES:string!]

@@ -25,6 +25,7 @@ function testArtifact(overrides: Partial<PromptArtifact["metadata"]> & { body: s
       id: "test.prompt",
       behavior: "test",
       kind: "step",
+      fragmentPolicy: "global",
       revision: "1",
       order: null,
       fragmentOf: [],

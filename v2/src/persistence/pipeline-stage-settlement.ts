@@ -181,7 +181,7 @@ export type LinkedStageSettlement =
   | { kind: "no-linked-stages"; rollupStatus: RunStatus };
 
 /** The authored-order final workflow stage of a `ready`/`merge` pipeline must carry PR evidence to succeed. */
-export function terminalPublicationStageRequiresPrEvidence(definition: PipelineDefinition, stageId: string): boolean {
+function terminalPublicationStageRequiresPrEvidence(definition: PipelineDefinition, stageId: string): boolean {
   if (definition.terminalAction !== "ready" && definition.terminalAction !== "merge") return false;
   for (let index = definition.stages.length - 1; index >= 0; index -= 1) {
     const stage = definition.stages[index];

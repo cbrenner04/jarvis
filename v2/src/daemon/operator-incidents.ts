@@ -12,7 +12,6 @@ import { derivePipelineBoundary, type PipelineBoundaryResult } from "./pipeline-
 type OperatorIncidentKind =
   | "pipeline-awaiting-approval"
   | "pipeline-terminal"
-  | "stage-settlement-wedged"
   | "stage-failed"
   | "publication-failure"
   | "run-blocked"

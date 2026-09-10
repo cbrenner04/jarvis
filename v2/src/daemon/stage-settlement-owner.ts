@@ -1,6 +1,6 @@
 import type { PersistedRecord } from "../persistence/log-stream.ts";
 import type { LinkedStageSettlement, LinkedStageTarget } from "../persistence/pipeline-stage-settlement.ts";
-import type { StateStore } from "../persistence/state-store.ts";
+import { isTerminalRunStatus, type StateStore } from "../persistence/state-store.ts";
 import { composeRunOperatorError, findTerminalLogRecord } from "./run-operator-error.ts";
 
 /**
@@ -9,7 +9,7 @@ import { composeRunOperatorError, findTerminalLogRecord } from "./run-operator-e
  * liveness — an invocation this process is still driving must not be judged from its rows. Called
  * after a workflow's terminal event, on adoption after its wait, on resume, and at daemon start.
  */
-export type StageSettlementDeps = {
+type StageSettlementDeps = {
   store: StateStore;
   /** True while this daemon still drives the entry run's workflow invocation. */
   isEntryRunLive: (entryRunId: string) => boolean;
@@ -50,6 +50,14 @@ export function settleStagesForEntryRun(
   stageTargets?: readonly LinkedStageTarget[],
 ): LinkedStageSettlement | { kind: "live" } {
   if (deps.isEntryRunLive(entryRunId)) return { kind: "live" };
+  // The run's own durable row is the second liveness witness, and the load-bearing one whenever the
+  // in-memory probe cannot see the invocation (another daemon's, or a caller with no probe). A
+  // workflow that has not yet written its step rows rolls up `killed` — a durable step with no row
+  // is an interrupted workflow — so settling on the rollup alone would fail a stage whose run is
+  // still in-progress. A genuinely dead run reaches a terminal row through restart reconciliation,
+  // and settles then.
+  const entryRun = deps.store.loadRun(entryRunId);
+  if (entryRun !== null && !isTerminalRunStatus(entryRun.status)) return { kind: "live" };
   const logRecords = deps.loadLogRecords?.(entryRunId) ?? [];
   const publicationBaseRetarget = publicationBaseRetargetFromLogRecords(logRecords);
   const failureDetail = failureDetailFromLogs(deps.store, entryRunId, deps.loadLogRecords);

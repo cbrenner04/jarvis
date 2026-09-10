@@ -412,6 +412,9 @@ function createFakePipelineInvocation(
       store.setRunStatus(entryRunId, "failed");
       return "failed";
     }
+    // A completed workflow entry run carries its published PR: the final workflow stage of a
+    // `ready` pipeline settles `completion_publication_missing_pr_evidence` without it.
+    store.setPrEvidence(entryRunId, 4242, "https://example.com/pr/4242");
     store.setRunStatus(entryRunId, "completed");
     return "completed";
   };

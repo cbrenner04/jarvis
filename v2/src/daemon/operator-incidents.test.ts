@@ -113,40 +113,6 @@ test("pipeline and stage incidents emit project from entry runs and null when un
   store.close();
   store = openStateStore(dbPath);
 
-  const wedgedEntryRunId = seedWorkflowStageEntryRun("wedged-project", "inv-wedged", "plan");
-  const wedgedPipelineId = store.createPipeline({
-    definition: {
-      name: "workflow-wedged",
-      stages: [{ stageId: "plan", kind: "workflow", workflow: "plan", review: "none" }],
-    },
-  });
-  store.updateStage({
-    pipelineId: wedgedPipelineId,
-    stageId: "plan",
-    patch: {
-      status: "running",
-      workflowInvocationId: wedgedEntryRunId,
-      failureDetail: {
-        code: "settlement_deferred",
-        reason: "entry_run_still_live",
-        entryRunId: wedgedEntryRunId,
-        rollupStatus: "failed",
-      },
-    },
-  });
-
-  const wedgedIncidents = deriveOperatorIncidents(store);
-  expect(wedgedIncidents).toEqual([
-    expect.objectContaining({
-      kind: "stage-settlement-wedged",
-      pipelineId: wedgedPipelineId,
-      project: "wedged-project",
-    }),
-  ]);
-  const wedgedIncident = wedgedIncidents[0];
-  if (wedgedIncident === undefined) throw new Error("expected wedged stage incident");
-  expect(JSON.parse(serializeOperatorIncident(wedgedIncident))).toMatchObject({ project: "wedged-project" });
-
   removeOrchestrationStore(dbPath);
   store.close();
   store = openStateStore(dbPath);

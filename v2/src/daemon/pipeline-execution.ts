@@ -622,44 +622,58 @@ export async function resumePipeline(
 
   // Settlement precondition: a stage whose entry run this daemon no longer drives settles from
   // its durable rows here, so resume sees the row it would otherwise have to redrive by hand.
-  const settledEntryRuns = settleOrphanedRunningStages(
-    { store, isEntryRunLive: deps.isEntryRunLive ?? (() => false), loadLogRecords: deps.loadLogRecords },
-    pipelineId,
-  );
-  const settledPipeline = settledEntryRuns.length > 0 ? store.loadPipeline(pipelineId) : null;
-  const derivedState = derivePipelineState(settledPipeline ?? pipeline);
+  // An `interrupted` pipeline is refused outright below, so it is left byte-identical instead.
+  const settledEntryRuns =
+    derivePipelineState(pipeline) === "interrupted"
+      ? []
+      : settleOrphanedRunningStages(
+          { store, isEntryRunLive: deps.isEntryRunLive ?? (() => false), loadLogRecords: deps.loadLogRecords },
+          pipelineId,
+        );
+  skipSuffixOfSettledFailures(store, settledEntryRuns, pipelineId);
+  // Every read below must see the post-settlement rows, not the snapshot loaded before it.
+  const current = (settledEntryRuns.length > 0 ? store.loadPipeline(pipelineId) : null) ?? pipeline;
+  const derivedState = derivePipelineState(current);
 
   const terminalReason = resumeTerminalRefusalReason(derivedState);
   if (terminalReason) {
     return { kind: "refused", pipelineId, reason: terminalReason };
   }
+  if (settledEntryRuns.length > 0 && !current.stages.some((stage) => stage.status === "running")) {
+    // Settling the wedged stage from its durable rows *is* this resume's work. Continuation carries
+    // it forward where there is something to carry — a pending successor, or the terminal
+    // publication a fully-satisfied pipeline still owes. A stage this settled `failed` stops here
+    // instead of being reopened: discarding a failure the operator has not yet seen is their call to
+    // make with a second resume, not this one's.
+    return continueAfterAdmission();
+  }
   if (derivedState === "running") {
     return { kind: "refused", pipelineId, reason: "pipeline_not_resumable" };
   }
-  const approvedGateBranchKey = approvedGatePendingStrandBranchKey(pipeline);
+  const approvedGateBranchKey = approvedGatePendingStrandBranchKey(current);
   if (!resumeAwaitingClaimsOnly(derivedState) && approvedGateBranchKey !== undefined) {
     const continuationBranchKey =
       approvedGateBranchKey === DEFAULT_PIPELINE_STAGE_BRANCH_KEY ? undefined : approvedGateBranchKey;
     return continueAfterAdmission(continuationBranchKey, undefined);
   }
-  if (resumeDeferredRefusalApplies(derivedState, pipeline)) {
+  if (resumeDeferredRefusalApplies(derivedState, current)) {
     return { kind: "refused", pipelineId, reason: "pipeline_not_resumable" };
   }
 
   if (resumeAwaitingClaimsOnly(derivedState)) {
-    const branchKeys = listBranchResumeRequiredKeys(pipeline);
+    const branchKeys = listBranchResumeRequiredKeys(current);
     if (branchKeys.length > 0) {
       return { kind: "refused", pipelineId, reason: "branch_resume_required", branchKeys };
     }
-    if (pipeline.context === null) {
+    if (current.context === null) {
       return { kind: "refused", pipelineId, reason: "missing_context" };
     }
-    if (!persistedContextLoadPermitsContinuation(pipeline.context)) {
+    if (!persistedContextLoadPermitsContinuation(current.context)) {
       return { kind: "refused", pipelineId, reason: "pipeline_not_resumable" };
     }
     const claim = store.claimPipelineContinuation({
       pipelineId,
-      priorOwnerIdentity: pipeline.ownerIdentity,
+      priorOwnerIdentity: current.ownerIdentity,
     });
     if (claim.kind === "refused") {
       return { kind: "refused", pipelineId, reason: "claim_refused" };
@@ -668,11 +682,7 @@ export async function resumePipeline(
   }
 
   if (resumeFailedRequiresReopen(derivedState)) {
-    const reopenedStageReset = buildReopenedStageReset(
-      pipeline,
-      findFailedStageForReopen(pipeline, undefined),
-      options,
-    );
+    const reopenedStageReset = buildReopenedStageReset(current, findFailedStageForReopen(current, undefined), options);
     const reopen = store.reopenFailedPipeline({ pipelineId });
     if (reopen.kind === "refused") {
       return { kind: "refused", pipelineId, reason: reopen.reason };
@@ -681,7 +691,7 @@ export async function resumePipeline(
     return continueAfterAdmission(undefined, reopenedStageReset);
   }
 
-  if (resumeReopenedPendingContinuation(derivedState, pipeline)) {
+  if (resumeReopenedPendingContinuation(derivedState, current)) {
     return continueAfterAdmission();
   }
 
@@ -1024,11 +1034,14 @@ export async function recoverContinuablePipelines(
   pipelineDeps: Omit<PipelineExecutionDeps, "context">,
   isOwnerAliveProbe: OwnerLivenessProbe = isOwnerAlive,
 ): Promise<{ continued: number }> {
-  settleOrphanedRunningStages({
+  skipSuffixOfSettledFailures(
     store,
-    isEntryRunLive: pipelineDeps.isEntryRunLive ?? (() => false),
-    loadLogRecords: pipelineDeps.loadLogRecords,
-  });
+    settleOrphanedRunningStages({
+      store,
+      isEntryRunLive: pipelineDeps.isEntryRunLive ?? (() => false),
+      loadLogRecords: pipelineDeps.loadLogRecords,
+    }),
+  );
   let continued = 0;
   for (const pipeline of store.listPipelines()) {
     if (!isPipelineContinuable(pipeline)) continue;
@@ -1414,6 +1427,31 @@ function skipRemainingStages(
     if (record.branchKey !== branchKey) continue;
     // biome-ignore format: mutation checkpoint requires this exact single-line writer
     store.updateStage({ pipelineId, stageId: record.stageId, branchKey, patch: { status: "skipped", endedAt: Date.now() } });
+  }
+}
+
+/**
+ * A stage this settlement just failed ends its branch: its suffix is skipped, exactly as an
+ * in-loop stage failure does. Without this the suffix stays `pending`, so the pipeline derives
+ * `failed` while `reopenFailedPipeline` refuses it as a malformed continuation.
+ */
+function skipSuffixOfSettledFailures(
+  store: StateStore,
+  settledEntryRunIds: readonly string[],
+  pipelineId?: string,
+): void {
+  if (settledEntryRunIds.length === 0) return;
+  const settled = new Set(settledEntryRunIds);
+  const pipelines =
+    pipelineId === undefined
+      ? store.listPipelines()
+      : [store.loadPipeline(pipelineId)].filter((entry) => entry !== null);
+  for (const pipeline of pipelines) {
+    for (const record of pipeline.stages) {
+      if (record.status !== "failed") continue;
+      if (record.workflowInvocationId === null || !settled.has(record.workflowInvocationId)) continue;
+      skipRemainingStages(store, pipeline.id, pipeline.stages, record.position + 1, record.branchKey);
+    }
   }
 }
 

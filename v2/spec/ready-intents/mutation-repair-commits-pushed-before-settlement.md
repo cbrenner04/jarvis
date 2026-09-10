@@ -8,7 +8,7 @@ In run `1e1f893c` three `mutation-repair` commits were never pushed: the resume 
 
 Behavior: mutation-repair commits are pushed to the branch before the run settles, whatever the settlement kind, so the branch tip and the PR head agree at every terminal mutation-repair outcome.
 
-Documentation: `v2/docs/operator-runbook.md` (Flip-and-test false-positive check) records that a false positive can reach `mutation_repair_exhausted` and that the branch tip may be ahead of the PR head after that settlement.
+Documentation: `v2/docs/operator-runbook.md` (Flip-and-test false-positive check) drops its "branch tip may be ahead of the PR head" caveat for `mutation_repair_exhausted` — that gap is now closed — while still recording that a false positive can reach that settlement.
 
 ## Prerequisites
 

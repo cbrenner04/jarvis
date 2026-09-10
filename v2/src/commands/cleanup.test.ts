@@ -910,6 +910,97 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       });
     }));
 
+  test("discovers stranded artifacts in external seeds and ready-intents homes", async () =>
+    withJarvisHome(async () => {
+      writeMachineConfig({ git: false });
+      const externalHome = join(jarvisRoot, "specs", projectSafeId("project"));
+      const seedsHome = join(externalHome, "seeds");
+      const readyHome = join(externalHome, "ready-intents");
+      mkdirSync(seedsHome, { recursive: true });
+      mkdirSync(join(readyHome, "nested-dir"), { recursive: true });
+      writeFileSync(join(seedsHome, "queued-seed.md"), "# seed\n");
+      writeFileSync(join(seedsHome, ".hidden.md"), "# hidden\n");
+      writeFileSync(join(seedsHome, "notes.txt"), "not markdown\n");
+      writeFileSync(join(readyHome, "queued-intent.md"), "# intent\n");
+      writeFileSync(join(readyHome, ".jarvis-intent-stage.md"), "# staging\n");
+
+      const discovered = discoverStrandedArtifacts({ project: { root: projectRoot } });
+      const queue = discovered.filter((artifact) => artifact.queue !== undefined);
+      expect(queue.map((artifact) => [artifact.queue, artifact.name, artifact.home])).toEqual([
+        ["seed", "queued-seed", seedsHome],
+        ["ready-intent", "queued-intent", readyHome],
+      ]);
+      expect(discovered.some((artifact) => artifact.name === "notes")).toBe(false);
+      expect(discovered.some((artifact) => artifact.name === "nested-dir")).toBe(false);
+      expect(discovered.some((artifact) => artifact.name.startsWith("."))).toBe(false);
+
+      // Not opted in: the same layout under an in-repo-only project is invisible, like its in-repo queues.
+      writeMachineConfig({ git: true });
+      expect(discoverStrandedArtifacts({ project: { root: projectRoot } }).some((a) => a.queue !== undefined)).toBe(
+        false,
+      );
+    }));
+
+  test("external queue entries inspect as pending, consumed-by-open-plan, or prunable when the plan archived", async () =>
+    withJarvisHome(async () => {
+      writeMachineConfig({ git: false });
+      const externalHome = join(jarvisRoot, "specs", projectSafeId("project"));
+      const plansHome = join(externalHome, "plans");
+      const readyHome = join(externalHome, "ready-intents");
+      const seedsHome = join(externalHome, "seeds");
+      mkdirSync(join(plansHome, "completed", "20260910T000001Z-archived-plan"), { recursive: true });
+      mkdirSync(join(plansHome, "20260910T000002Z-open-plan"), { recursive: true });
+      mkdirSync(readyHome, { recursive: true });
+      mkdirSync(seedsHome, { recursive: true });
+      writeFileSync(join(plansHome, "completed", "20260910T000001Z-archived-plan", "intent.md"), "# archived intent\n");
+      writeFileSync(join(plansHome, "20260910T000002Z-open-plan", "intent.md"), "# open intent\n");
+      writeFileSync(join(plansHome, "20260910T000002Z-open-plan", "index.md"), "# open\n");
+      const consumedArchived = join(readyHome, "archived-plan.md");
+      const consumedOpen = join(readyHome, "open-plan.md");
+      const unconsumed = join(readyHome, "pending.md");
+      const seed = join(seedsHome, "pending-seed.md");
+      writeFileSync(consumedArchived, "# archived intent\n");
+      writeFileSync(consumedOpen, "# open intent\n");
+      writeFileSync(unconsumed, "# nobody consumed this\n");
+      writeFileSync(seed, "# seed\n");
+
+      const registry = { project: { root: projectRoot } };
+      const discovered = discoverStrandedArtifacts(registry).filter((artifact) => artifact.queue !== undefined);
+      let stdout = "";
+      const io = { stdout: (s: string) => (stdout += s) };
+      const eligible = await inspectStrandedArtifacts(
+        discovered,
+        registry,
+        [],
+        jarvisRoot,
+        { listRuns: () => [] } as unknown as StateStore,
+        realAsyncSubprocessRunner,
+        io,
+      );
+      expect(eligible.map((artifact) => artifact.source)).toEqual([consumedArchived]);
+      expect(stdout).toContain(`${seed} — pending seed`);
+      expect(stdout).toContain(`${unconsumed} — unconsumed ready-intent`);
+      expect(stdout).toContain(`${consumedOpen} — consumed by open plan plans/20260910T000002Z-open-plan`);
+
+      let applyStdout = "";
+      expect(
+        await runCleanupCommand(
+          { promptConfirm: async () => true },
+          registry,
+          jarvisRoot,
+          ghRunnerForPr("MERGED"),
+          async () => [],
+          { listRuns: () => [] } as unknown as StateStore,
+          { stdout: (s: string) => (applyStdout += s), stderr: () => {} },
+        ),
+      ).toBe(0);
+      expect(applyStdout).toContain(`Pruned consumed ready-intent: ${consumedArchived}`);
+      expect(existsSync(consumedArchived)).toBe(false);
+      expect(existsSync(consumedOpen)).toBe(true);
+      expect(existsSync(unconsumed)).toBe(true);
+      expect(existsSync(seed)).toBe(true);
+    }));
+
   test("dry-run previews external plan archive as plans/<name> -> plans/completed/<name> without mutation", async () =>
     withJarvisHome(async () => {
       const planName = "20260902T200001Z-external-dry-run";

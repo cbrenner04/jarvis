@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { parseSpec } from "../../../shared/spec-parser.ts";
 import { jarvisHome } from "../paths.ts";
@@ -12,7 +12,57 @@ export type ArtifactSpec = {
   name: string;
   /** Branch identity used for matching open-PR inspection. */
   branch: string;
+  /** Set for external queue entries (`~/.jarvis/specs/<safeId>/seeds|ready-intents/<name>.md`). */
+  queue?: "seed" | "ready-intent";
 };
+
+type ConsumedReadyIntentPlan = { planDir: string; archived: boolean };
+
+/**
+ * The external plan tree that consumed a queued ready-intent: a `plans/<x>/` (open) or
+ * `plans/completed/<x>/` (archived) directory whose `intent.md` byte-matches the queue file. A
+ * filename match alone never qualifies.
+ */
+export function consumedExternalReadyIntentPlan(
+  spec: ArtifactSpec,
+  fs: ArtifactFs = realFs,
+  listDir: (dir: string) => string[] = (dir) => (existsSync(dir) ? readdirSync(dir) : []),
+): ConsumedReadyIntentPlan | undefined {
+  if (spec.queue !== "ready-intent" || !fs.exists(spec.source)) return undefined;
+  const plansHome = join(dirname(spec.home), "plans");
+  const queued = fs.read(spec.source);
+  const candidates: ConsumedReadyIntentPlan[] = [
+    ...listDir(join(plansHome, "completed")).map((name) => ({
+      planDir: join(plansHome, "completed", name),
+      archived: true,
+    })),
+    ...listDir(plansHome)
+      .filter((name) => name !== "completed")
+      .map((name) => ({ planDir: join(plansHome, name), archived: false })),
+  ];
+  return candidates.find((candidate) => {
+    const intent = join(candidate.planDir, "intent.md");
+    return fs.exists(intent) && fs.read(intent).equals(queued);
+  });
+}
+
+/** Remove a queued ready-intent whose consuming plan is already archived. */
+export function pruneConsumedQueueEntry(spec: ArtifactSpec, fs: ArtifactFs = realFs): ArchiveResult {
+  const consumer = consumedExternalReadyIntentPlan(spec, fs);
+  if (consumer === undefined) return { status: "skipped", reason: "no archived plan consumed this ready-intent" };
+  if (!consumer.archived) {
+    return {
+      status: "skipped",
+      reason: `consumed by open plan ${basename(consumer.planDir)}; prune after it archives`,
+    };
+  }
+  try {
+    fs.unlink(spec.source);
+    return { status: "pruned", consumedBy: consumer.planDir };
+  } catch (error) {
+    return { status: "skipped", reason: `failed to prune consumed ready-intent: ${String(error)}` };
+  }
+}
 
 type ArtifactEligibility = { status: "eligible" } | { status: "ineligible"; reason: string };
 
@@ -117,8 +167,9 @@ export async function checkArtifactEligibility(
   return { status: "eligible" };
 }
 
-type ArchiveResult =
+export type ArchiveResult =
   | { status: "archived"; destination: string; intentPruned: boolean }
+  | { status: "pruned"; consumedBy: string }
   | { status: "skipped"; reason: string };
 
 /**

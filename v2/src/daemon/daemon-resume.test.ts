@@ -672,6 +672,46 @@ test("resume resolves iterationCeilingMs when snapshot step has wall segment onl
   }
 });
 
+test("resume resolves a missing iterationCeilingMs from the injected config", async () => {
+  const operatorHome = mkdtempSync(join(tmpdir(), "jarvis-resume-ceiling-operator-home-"));
+  const injectedHome = mkdtempSync(join(tmpdir(), "jarvis-resume-ceiling-injected-"));
+  const injectedMachines = join(injectedHome, "machines");
+  const previousHome = process.env.JARVIS_HOME;
+  process.env.JARVIS_HOME = operatorHome;
+  mkdirSync(injectedMachines, { recursive: true });
+  writeFileSync(
+    join(injectedMachines, `${MACHINE_PROFILE}.json`),
+    JSON.stringify({ models: defaultResumeProfileModels(["codex-fast", "codex-deep"]) }),
+  );
+  // Operator-home config carries a different ceiling than the daemon's injected config.
+  writeFileSync(
+    join(operatorHome, "config.json"),
+    JSON.stringify({ machineProfile: MACHINE_PROFILE, agents: ["codex"], iterationCeilingMs: 1_111_111 }),
+  );
+  writeFileSync(
+    join(injectedHome, "config.json"),
+    JSON.stringify({ machineProfile: MACHINE_PROFILE, agents: ["codex"], iterationCeilingMs: 2_222_222 }),
+  );
+  Object.assign(writeLoopBindingSourceDeps, {
+    machineConfigPath: join(injectedHome, "config.json"),
+    machinesDir: injectedMachines,
+  });
+
+  try {
+    const missingCeilingRunId = createWorkflowRun({ invocationId: "injected-ceiling", iterationTimeoutMs: 123 });
+    stateStore.setRunStatus(missingCeilingRunId, "paused");
+    expect(await resumeDirect(handlers, missingCeilingRunId)).toEqual({ kind: "response", result: { ok: true } });
+    // Neither the operator-home ceiling (1_111_111) nor a default leaked in; the persisted-ceiling
+    // precedence is pinned by "resume keeps persisted iterationCeilingMs on snapshot steps".
+    expect(starts[0]?.iterationCeilingMs).toBe(2_222_222);
+  } finally {
+    if (previousHome === undefined) delete process.env.JARVIS_HOME;
+    else process.env.JARVIS_HOME = previousHome;
+    rmSync(operatorHome, { recursive: true, force: true });
+    rmSync(injectedHome, { recursive: true, force: true });
+  }
+});
+
 test("resume keeps persisted iterationCeilingMs on snapshot steps", async () => {
   const isolatedHome = mkdtempSync(join(tmpdir(), "jarvis-resume-ceiling-persisted-"));
   const isolatedMachines = join(isolatedHome, "machines");

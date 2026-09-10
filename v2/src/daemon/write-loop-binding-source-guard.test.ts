@@ -194,3 +194,20 @@ test("daemon binding resolution re-loads from the machine profile unless the sna
       .ok,
   ).toBe(false);
 });
+
+test("daemon resume does not construct a ceiling config path from jarvisHome", () => {
+  const sources = listProductionSourcesUnderV2Src();
+  const callers = resolveWriteLoopBindingsCallSurface(sources);
+  expect(callers.length).toBeGreaterThan(0);
+  const resumeSites = callers
+    .map((path) => [path, sources[path] ?? ""] as const)
+    .filter(([, source]) => /iterationCeilingMs:\s*step\.iterationCeilingMs\s*\?\?/.test(source));
+  // Presence: the resume reconstruction site exists and reads the injected path.
+  expect(resumeSites.length).toBe(1);
+  for (const [path, source] of resumeSites) {
+    expect(source, path).toContain("readIterationCeilingMs(writeLoopBindingSourceDeps.machineConfigPath)");
+    // Absence: no caller rebuilds the machine-config path from the operator home.
+    expect(source, path).not.toMatch(/readIterationCeilingMs\(\s*join\(\s*jarvisHome\(\)/);
+    expect(source, path).not.toMatch(/readIterationCeilingMs\(\s*MACHINE_CONFIG_PATH/);
+  }
+});

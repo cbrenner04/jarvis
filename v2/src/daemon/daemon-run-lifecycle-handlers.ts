@@ -314,7 +314,9 @@ export function createRunLifecycleHandlers(
         ...(step.promptId !== undefined ? { promptId: step.promptId } : {}),
         ...(step.promptPlaceholders !== undefined ? { promptPlaceholders: step.promptPlaceholders } : {}),
         ...(step.iterationTimeoutMs === undefined ? {} : { iterationTimeoutMs: step.iterationTimeoutMs }),
-        iterationCeilingMs: step.iterationCeilingMs ?? readIterationCeilingMs(join(jarvisHome(), "config.json")),
+        // A missing snapshot ceiling resolves from the daemon's injected machine config, never the operator home.
+        iterationCeilingMs:
+          step.iterationCeilingMs ?? readIterationCeilingMs(writeLoopBindingSourceDeps.machineConfigPath),
         ...(step.idleOutputMs === undefined ? {} : { idleOutputMs: step.idleOutputMs }),
         ...(landingContractReprompt !== undefined ? { landingContractReprompt } : {}),
         ...(stagedMarkdownLintReprompt !== undefined ? { stagedMarkdownLintReprompt } : {}),

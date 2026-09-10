@@ -3403,6 +3403,69 @@ describe("recoverPlanStage", () => {
     });
   });
 
+  test("lands via a captured review-debate step's plan-tree landing config", async () => {
+    // Recovery's landing-step lookup accepts either a "review" or a "review-debate" captured
+    // step; the other tests in this suite only exercise "review". A review-debate step never
+    // short-circuits the "review" behavior check, so this is the only case that actually
+    // evaluates the "review-debate" comparison.
+    const worktreePath = planWorktree("recover-plan-stage-review-debate-");
+    const stage = join(worktreePath, ".jarvis-plan-stage");
+    const durable = join(worktreePath, "spec", "2026-review-debate");
+    const branch = "recover-plan-stage-review-debate";
+    const stepId = "plan";
+    const specPath = "spec/2026-review-debate";
+    const reason = "`## Decisions` bullet is outside the allowed union";
+
+    writeLintCleanPlanStage(stage, "00-first.md");
+    writeFileSync(join(stage, "intent.md"), `---\nname: test\n---\n${harnessPlanBlocker(reason)}`, "utf8");
+
+    await withStateStore(async (store) => {
+      const runId = seedBlockedPlanDraftRun(store, {
+        project: "demo",
+        branch,
+        worktreePath,
+        specPath,
+        stepId,
+        invocationId: "recover-plan-stage-review-debate-inv",
+        outcomeKind: "contract_miss",
+      });
+      const logSink = new TestLogSink();
+      logSink.append(runId, {
+        kind: "contract_miss_detail",
+        attemptId: "attempt-1",
+        failedContractId: "plan.decisions-shape",
+        responseText: "done",
+        failureReason: reason,
+      });
+
+      const reviewStep = createDebateStep({
+        stepId: "plan-review",
+        branch,
+        project: "demo",
+        cwd: worktreePath,
+        verdictPath: join(stage, "verdict-plan.md"),
+        landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: durable },
+      });
+
+      const outcome = await recoverPlanStage({
+        runId,
+        project: "demo",
+        branch,
+        worktreePath,
+        writeStepId: stepId,
+        steps: [reviewStep],
+        stateStore: store,
+        logSink,
+      });
+
+      expect(outcome.ok).toBe(true);
+      if (!outcome.ok) throw new Error("unreachable");
+      expect(outcome.kind).toBe("complete");
+      expect(existsSync(join(durable, "00-first.md"))).toBe(true);
+      expect(readFileSync(join(durable, "intent.md"), "utf8")).not.toContain("## Blocker");
+    });
+  });
+
   test("a landing collision surfaces as an invocation failure without dispatching a role", async () => {
     const worktreePath = planWorktree("recover-plan-stage-landing-conflict-");
     const stage = join(worktreePath, ".jarvis-plan-stage");

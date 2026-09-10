@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 import ts from "typescript";
+import { TEST_SUPPORT_SUFFIX } from "./production-files.ts";
 
 export type GuardViolation = { file: string; line: number; shape: string };
 type GuardFile = { file: string; source: string };
@@ -25,7 +26,7 @@ const INVERT_FOR_TEST = /^invert\w+ForTest$/;
 const INVERT_PREFIX = /^invert/;
 
 export function isTestFile(file: string): boolean {
-  return basename(file).includes(".test.");
+  return basename(file).includes(".test.") || file.endsWith(TEST_SUPPORT_SUFFIX);
 }
 
 export function shouldScanFile(file: string): boolean {

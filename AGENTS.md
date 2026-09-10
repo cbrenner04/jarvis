@@ -8,7 +8,7 @@ Jarvis is a minimal coding-agent harness driving an underlying agent CLI (`claud
 
 Work here is work on the harness itself. Layout:
 
-- root — shared glue, config, public docs, `scripts/` and `data/` (global `prices.json`), `prompts/` (committed per-workflow prompt templates), `reports/` (session reports), `test/` (root-tooling tests, run by the `test:shared` scripts)
+- root — shared glue, config, public docs, `scripts/` and `data/` (global `prices.json`), `prompts/` (committed per-workflow prompt templates), `reports/` (session reports), `test/` and `scripts/*.test.ts` (root-tooling tests, run by the `test:shared` scripts)
 - `shared/` — runtime code consumed by `v2`; `shared/**` must not import from `v2/**`
 - `v2/` — the implementation (src, spec, docs), with tests co-located next to the source files they cover
 - `v1/` — **frozen.** The retired first engine, kept on disk for reference only: not compiled, tested, linted, linked, or shipped (`bin/jarvis1` is gone). Never edit it, never route work to it, never cite it as a live source. See [v1/README.md](v1/README.md).

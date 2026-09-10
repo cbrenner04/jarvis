@@ -278,7 +278,6 @@ describe("daemon test inventory", () => {
     const mergeBase = resolveMergeBase();
     const repoPaths = listDaemonTestFilesAtRef(mergeBase);
     const worktreeSources = loadWorktreeSources(repoPaths);
-    const retiredTitlesObserved = new Set<string>();
 
     for (const repoPath of repoPaths) {
       const mergeBaseSource = loadAtRef(mergeBase, repoPath);
@@ -291,14 +290,12 @@ describe("daemon test inventory", () => {
       for (const title of actualTitles) {
         // A retired title that is still present means the allowlist entry is stale and is now
         // suppressing a live title — the failure mode an unexpiring allowlist invites.
+        //
+        // There is deliberately no companion check that every entry existed at the merge base. That
+        // holds only while the retiring branch is unmerged: once it lands, the merge base no longer
+        // contains those titles either, and the assertion red-gates every later branch.
         expect(RETIRED_TEST_TITLES.has(title)).toBe(false);
       }
-      for (const title of expectedTitles) {
-        if (RETIRED_TEST_TITLES.has(title)) retiredTitlesObserved.add(title);
-      }
     }
-    // Every allowlisted title must correspond to a title that genuinely existed at the merge base:
-    // an entry matching nothing is dead weight that will silently absorb a future deletion.
-    expect([...RETIRED_TEST_TITLES].filter((title) => !retiredTitlesObserved.has(title))).toEqual([]);
   });
 });

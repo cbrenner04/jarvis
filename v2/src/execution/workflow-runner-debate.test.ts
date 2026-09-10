@@ -433,7 +433,7 @@ describe("executeWorkflow linked implement routing", () => {
     });
   });
 
-  test("lands chained spec tree from specReadRoot into the implement worktree before publication", async () => {
+  test("lands chained spec tree from specReadRoot into the implement worktree before the agent writes and reads back its criteria", async () => {
     const planWorktree = mkdtempSync(join(tmpdir(), "chained-spec-landing-plan-"));
     roots.push(planWorktree);
     const specDir = join(planWorktree, "spec", "feature");
@@ -456,8 +456,13 @@ describe("executeWorkflow linked implement routing", () => {
         branchName,
         specPath: indexPath,
         expectedArtifactPath: join(specDir, "00-work.md"),
-        createBinding: createBindingFactory(async () => {
-          writeFileSync(join(specDir, "00-work.md"), "# Sub\n\n## Acceptance criteria\n\n- [x] criterion\n", "utf8");
+        createBinding: createBindingFactory(async ({ cwd }) => {
+          expect(readFileSync(join(cwd, "spec/feature/00-work.md"), "utf8")).toContain("criterion");
+          writeFileSync(
+            join(cwd, "spec/feature/00-work.md"),
+            "# Sub\n\n## Acceptance criteria\n\n- [x] criterion\n",
+            "utf8",
+          );
           return { kind: "ok", stdout: "done", stderr: "" } as const;
         }),
       }),
@@ -490,13 +495,17 @@ describe("executeWorkflow linked implement routing", () => {
         completionPublisher: async () => ({}),
         readyFinalizer: async () => {},
       });
-      expect(result.kind).toBe("complete");
+      expect(result).toMatchObject({ kind: "complete" });
+      expect(readFileSync(join(specDir, "00-work.md"), "utf8")).toContain("- [ ] criterion");
+      const run = store.listRuns().find((run) => run.stepId === "implement~link-0");
+      expect(run?.specPath).toBe("spec/feature/index.md");
+      expect(run?.workflowSnapshot?.steps[0]?.specReadRoot).toBeUndefined();
       expect(readFileSync(join(worktreePath, "spec/feature/index.md"), "utf8")).toContain("- [x]");
       expect(readFileSync(join(worktreePath, "spec/feature/00-work.md"), "utf8")).toContain("- [x] criterion");
     });
   });
 
-  test("routes linked subspecs from specReadRoot when the index lives outside the implement worktree", async () => {
+  test("keeps chained routing and index ticks in the implement worktree", async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), "linked-routing-spec-read-root-"));
     roots.push(projectRoot);
     const specDir = join(projectRoot, "spec", "feature");
@@ -519,8 +528,13 @@ describe("executeWorkflow linked implement routing", () => {
         branchName,
         specPath: indexPath,
         expectedArtifactPath: indexPath,
-        createBinding: createBindingFactory(async () => {
-          writeFileSync(join(specDir, "00-work.md"), "# Sub\n\n## Acceptance criteria\n\n- [x] criterion\n", "utf8");
+        createBinding: createBindingFactory(async ({ cwd }) => {
+          expect(readFileSync(join(cwd, "spec/feature/00-work.md"), "utf8")).toContain("criterion");
+          writeFileSync(
+            join(cwd, "spec/feature/00-work.md"),
+            "# Sub\n\n## Acceptance criteria\n\n- [x] criterion\n",
+            "utf8",
+          );
           return { kind: "ok", stdout: "done", stderr: "" } as const;
         }),
       }),
@@ -547,9 +561,54 @@ describe("executeWorkflow linked implement routing", () => {
 
     await withStateStore(async (store) => {
       const result = await executeWorkflow({ steps: [implementStep], stateStore: store });
-      expect(result.kind).toBe("complete");
-      expect(readFileSync(indexPath, "utf8")).toContain("- [x]");
+      expect(result).toMatchObject({ kind: "complete" });
+      expect(readFileSync(join(specDir, "00-work.md"), "utf8")).toContain("- [ ] criterion");
+      const run = store.listRuns().find((run) => run.stepId === "implement~link-0");
+      expect(run?.specPath).toBe("spec/feature/index.md");
+      expect(run?.workflowSnapshot?.steps[0]?.specReadRoot).toBeUndefined();
+      expect(readFileSync(indexPath, "utf8")).toContain("- [ ]");
       expect(readFileSync(join(worktreePath, "spec", "feature", "index.md"), "utf8")).toContain("- [x]");
+    });
+  });
+
+  test("missing chained spec refuses before a run row or agent invocation", async () => {
+    const source = mkdtempSync(join(tmpdir(), "chained-spec-missing-"));
+    roots.push(source);
+    const home = createJarvisHome();
+    roots.push(home.jarvisRoot);
+    let invoked = false;
+    const step: WriteWorkflowStep = {
+      ...createStep({
+        stepId: "implement",
+        role: "implement",
+        specPath: join(source, "missing/index.md"),
+        createBinding: createBindingFactory(async () => {
+          invoked = true;
+          return { kind: "ok", stdout: "done", stderr: "" };
+        }),
+      }),
+      specReadRoot: source,
+      worktree: {
+        projectRoot: source,
+        projectName: "demo",
+        branchName: "missing-spec",
+        baseRef: "HEAD",
+        jarvisRoot: home.jarvisRoot,
+      },
+      withExternalWorktree: async (args, run) => {
+        const path = getExternalWorktreePath(args);
+        mkdirSync(path, { recursive: true });
+        const worktree = { path, reused: false };
+        return { worktree, lock: { kind: "acquired" }, value: await run(worktree) };
+      },
+      linkedIndexRouting: true,
+    };
+    await withStateStore(async (store) => {
+      await expect(executeWorkflow({ steps: [step], stateStore: store })).rejects.toThrow(
+        join(source, "missing/index.md"),
+      );
+      expect(store.listRuns()).toHaveLength(0);
+      expect(invoked).toBe(false);
     });
   });
 

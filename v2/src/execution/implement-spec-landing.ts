@@ -7,6 +7,7 @@ type LandImplementSpecTreeInput = {
   worktreePath: string;
   specReadRoot: string;
   specPath: string;
+  preserveExisting?: boolean;
 };
 
 type LandImplementSpecTreeResult = { ok: true; specPath: string } | { ok: false; error: string };
@@ -16,7 +17,7 @@ function worktreeRelativeSpecPath(worktreePath: string, specPath: string): strin
   return relative(worktreePath, absolute).replace(/\\/g, "/");
 }
 
-/** Copy the routed spec tree from `specReadRoot` into the implement worktree for publication commits. */
+/** Materialize the routed spec tree in the implement worktree before execution or publication. */
 export function landImplementSpecTreeFromReadRoot(input: LandImplementSpecTreeInput): LandImplementSpecTreeResult {
   let worktreeCanonical: string;
   let readRootCanonical: string;
@@ -35,8 +36,8 @@ export function landImplementSpecTreeFromReadRoot(input: LandImplementSpecTreeIn
   const { worktreePath, specReadRoot } = input;
   const absoluteSpecPath = isAbsolute(input.specPath) ? input.specPath : join(specReadRoot, input.specPath);
   const specDir = dirname(absoluteSpecPath);
-  if (!existsSync(specDir)) {
-    return { ok: false, error: `implement.spec_landing_missing: spec tree absent at ${specDir}` };
+  if (!existsSync(absoluteSpecPath)) {
+    return { ok: false, error: `implement.spec_landing_missing: spec absent at ${absoluteSpecPath}` };
   }
 
   const relSpecPath = relative(specReadRoot, absoluteSpecPath).replace(/\\/g, "/");
@@ -51,7 +52,7 @@ export function landImplementSpecTreeFromReadRoot(input: LandImplementSpecTreeIn
     }
     const dest = join(worktreePath, relFromReadRoot);
     mkdirSync(dirname(dest), { recursive: true });
-    copyFileSync(src, dest);
+    if (!input.preserveExisting || !existsSync(dest)) copyFileSync(src, dest);
   }
 
   return { ok: true, specPath: relSpecPath };

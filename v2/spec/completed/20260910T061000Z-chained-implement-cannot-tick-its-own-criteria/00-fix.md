@@ -48,10 +48,10 @@ So the defect is not merely "the spec directory is missing". It is that **`specR
 
 ## Acceptance criteria
 
-- [ ] A test proves a chained implement stage's write step runs against a worktree that contains the spec directory named by its `specPath`; it fails against the current prior-worktree-only read root.
-- [ ] A test proves an acceptance criterion ticked by the agent during a chained implement stage is read back by the criteria-ticked completion contract from the same worktree; it fails against the current split where the agent writes the implement worktree and the contract reads the plan worktree.
-- [ ] A test proves a chained implement stage whose spec tree cannot be materialized fails at admission naming the unresolved path, with no run row and no agent invocation.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test proves a chained implement stage's write step runs against a worktree that contains the spec directory named by its `specPath`; it fails against the current prior-worktree-only read root.
+- [x] A test proves an acceptance criterion ticked by the agent during a chained implement stage is read back by the criteria-ticked completion contract from the same worktree; it fails against the current split where the agent writes the implement worktree and the contract reads the plan worktree.
+- [x] A test proves a chained implement stage whose spec tree cannot be materialized fails at admission naming the unresolved path, with no run row and no agent invocation.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

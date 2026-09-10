@@ -12,17 +12,36 @@ import type {
 const PROMPTS_DIR = join(import.meta.dir, "..", "..", "prompts");
 const REGISTRY_MANIFEST = join(PROMPTS_DIR, "registry.txt");
 
+export const PROMPT_REGISTRY_MANIFEST_PATH = "prompts/registry.txt";
+
+/**
+ * Parse `prompts/registry.txt` content: one artifact path per line, relative to `prompts/`; blank
+ * lines are ignored. Returns repo-relative `prompts/<entry>` paths. This is the only manifest
+ * parser — consumers that need the registered path list (render-coverage checks, verifiers)
+ * call this instead of re-splitting the file.
+ */
+export function parsePromptRegistryManifest(manifest: string): string[] {
+  return manifest
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((entry) => `prompts/${entry}`);
+}
+
+/** Registered artifact paths (repo-relative) read from `<repoRoot>/prompts/registry.txt`. */
+export function readRegisteredPromptPaths(repoRoot: string): string[] {
+  return parsePromptRegistryManifest(readFileSync(join(repoRoot, PROMPT_REGISTRY_MANIFEST_PATH), "utf8"));
+}
+
 /**
  * Read the explicit prompt seed list from `prompts/registry.txt`: one artifact
  * path per line, relative to `prompts/`. No path scanning — registration is an
  * auditable manifest so adding a prompt is a deliberate one-line edit.
  */
 function seededPromptArtifactFiles(dir: string = PROMPTS_DIR): string[] {
-  return readFileSync(REGISTRY_MANIFEST, "utf8")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((entry) => join(dir, entry));
+  return parsePromptRegistryManifest(readFileSync(REGISTRY_MANIFEST, "utf8")).map((entry) =>
+    join(dir, entry.slice("prompts/".length)),
+  );
 }
 
 function parseListValue(value: string): string[] {

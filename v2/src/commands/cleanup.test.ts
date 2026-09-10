@@ -117,6 +117,47 @@ function connectWithDeadSocket(
   };
 }
 
+/** A cleanup archive branch never has a PR in these fixtures: `gh` reports it open / unlisted, as production would before the operator pushes it. */
+function isCleanupArchiveBranchProbe(cmd: string, args: readonly string[]): boolean {
+  if (cmd !== "gh" || args[0] !== "pr") return false;
+  const branch = args[1] === "view" ? args[2] : args.includes("--head") ? args[args.indexOf("--head") + 1] : undefined;
+  return typeof branch === "string" && branch.startsWith("cleanup/archive-");
+}
+
+function cleanupArchiveBranchProbeResponse(args: readonly string[]): string {
+  return args[1] === "view" ? JSON.stringify({ state: "OPEN", mergedAt: null }) : "[]";
+}
+
+/** Archive publication moves committed specs on a cleanup branch, so fixtures must be committed first. */
+async function commitFixtures(root: string): Promise<void> {
+  await realAsyncSubprocessRunner.runAsync("git", ["add", "-A"], root);
+  try {
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-q", "-m", "fixtures"], root);
+  } catch {
+    // nothing new to commit
+  }
+}
+
+/** Every path committed on any `cleanup/archive-*` branch of `root`. */
+async function cleanupArchiveTree(root: string): Promise<string[]> {
+  const branches = (
+    await realAsyncSubprocessRunner.runAsync(
+      "git",
+      ["for-each-ref", "--format=%(refname:short)", "refs/heads/cleanup/archive-*"],
+      root,
+    )
+  )
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const paths: string[] = [];
+  for (const branch of branches) {
+    const tree = await realAsyncSubprocessRunner.runAsync("git", ["ls-tree", "-r", "--name-only", branch], root);
+    paths.push(...tree.split("\n").filter((line) => line.length > 0));
+  }
+  return paths;
+}
+
 describe("cleanup: end-to-end via runCleanupCommand", () => {
   let tempRoot: string;
   let projectRoot: string;
@@ -152,6 +193,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
   function ghRunnerForPr(state: "MERGED" | "OPEN"): AsyncSubprocessRunner {
     return {
       runAsync: async (cmd, args, cwd) => {
+        if (isCleanupArchiveBranchProbe(cmd, args)) return cleanupArchiveBranchProbeResponse(args);
         if (cmd === "gh" && args[0] === "pr" && args[1] === "view")
           return JSON.stringify(
             state === "MERGED"
@@ -368,6 +410,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     let retired = false;
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
+        if (isCleanupArchiveBranchProbe(cmd, args)) return cleanupArchiveBranchProbeResponse(args);
         if (cmd === "gh" && args[1] === "view")
           return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
         if (cmd === "gh" && args[1] === "list") {
@@ -397,6 +440,8 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     let stdout = "";
     const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
 
+    await commitFixtures(projectRoot);
+
     expect(
       await runCleanupCommand(
         { promptConfirm: async () => true },
@@ -409,11 +454,13 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       ),
     ).toBe(0);
     expect(order.indexOf("retire")).toBeLessThan(order.indexOf("post-retire pr list"));
-    expect(existsSync(source)).toBe(false);
-    expect(existsSync(join(projectRoot, "v2", "spec", "completed", specName))).toBe(true);
-    expect(existsSync(join(projectRoot, "v2", "spec", "ready-intents", `${specName}.md`))).toBe(false);
+    expect(existsSync(source)).toBe(true);
+    expect(await cleanupArchiveTree(projectRoot)).toContain(`v2/spec/completed/${specName}/index.md`);
+    expect(existsSync(join(projectRoot, "v2", "spec", "ready-intents", `${specName}.md`))).toBe(true);
+    expect(await cleanupArchiveTree(projectRoot)).not.toContain(`v2/spec/ready-intents/${specName}.md`);
     expect(stdout).toContain("pruned consumed ready-intent");
     stdout = "";
+    await commitFixtures(projectRoot);
     expect(
       await runCleanupCommand(
         { promptConfirm: async () => true },
@@ -480,6 +527,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     } as unknown as StateStore;
     const mockRunner: AsyncSubprocessRunner = {
       runAsync: async (cmd, args, cwd) => {
+        if (isCleanupArchiveBranchProbe(cmd, args)) return cleanupArchiveBranchProbeResponse(args);
         if (cmd === "gh" && args[1] === "view")
           return JSON.stringify({ state: "MERGED", mergedAt: "2026-01-01T00:00:00Z" });
         if (cmd === "gh" && args[1] === "list") {
@@ -503,6 +551,8 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     };
     let stdout = "";
 
+    await commitFixtures(projectRoot);
+
     expect(
       await runCleanupCommand(
         { promptConfirm: async () => true },
@@ -515,8 +565,8 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       ),
     ).toBe(0);
     expect(existsSync(worktreePath)).toBe(false);
-    expect(existsSync(source)).toBe(false);
-    expect(existsSync(join(projectRoot, "v2", "spec", "completed", specName))).toBe(true);
+    expect(existsSync(source)).toBe(true);
+    expect(await cleanupArchiveTree(projectRoot)).toContain(`v2/spec/completed/${specName}/index.md`);
     expect(stdout).not.toContain("no durable spec identity");
   });
 
@@ -712,6 +762,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(existsSync(join(home, complete))).toBe(true);
 
     stdout = "";
+    await commitFixtures(projectRoot);
     expect(
       await runCleanupCommand(
         { promptConfirm: async () => true },
@@ -723,8 +774,8 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
         io,
       ),
     ).toBe(0);
-    expect(existsSync(join(home, complete))).toBe(false);
-    expect(existsSync(join(home, "completed", complete))).toBe(true);
+    expect(existsSync(join(home, complete))).toBe(true);
+    expect(await cleanupArchiveTree(projectRoot)).toContain(`v2/spec/completed/${complete}/index.md`);
     expect(existsSync(join(home, incomplete))).toBe(true);
     expect(existsSync(join(home, open))).toBe(true);
     expect(existsSync(join(home, owned))).toBe(true);
@@ -768,6 +819,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
         return mockRunner.runAsync(cmd, args, cwd);
       },
     };
+    await commitFixtures(projectRoot);
     expect(
       await runCleanupCommand(
         { promptConfirm: async () => true },
@@ -784,11 +836,12 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     const archivedAt = stdout.indexOf(`Archived: ${openHomeSource} ->`);
     expect(retiredAt).toBeGreaterThanOrEqual(0);
     expect(archivedAt).toBeGreaterThan(retiredAt);
-    expect(existsSync(openHomeSource)).toBe(false);
-    expect(existsSync(join(home, "completed", specName))).toBe(true);
+    expect(existsSync(openHomeSource)).toBe(true);
+    expect(await cleanupArchiveTree(projectRoot)).toContain(`v2/spec/completed/${specName}/index.md`);
     expect(existsSync(worktreePath)).toBe(false);
 
     stdout = "";
+    await commitFixtures(projectRoot);
     expect(
       await runCleanupCommand(
         { promptConfirm: async () => true },
@@ -801,6 +854,78 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       ),
     ).toBe(0);
     expect(stdout).toContain("No eligible worktrees or stranded artifacts");
+  });
+
+  test("archive publication leaves the primary checkout clean", async () => {
+    const specName = "20260910T000010Z-publish-clean";
+    const intent = "---\nname: publish-clean\n---\n";
+    const { source, readyIntent } = createSpec(specName, "[x] Done", intent);
+    await commitFixtures(projectRoot);
+    const store = storeForStrandedSpec(specName, "implement/publish-clean");
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+
+    // The move is a commit on an isolated cleanup branch, never a rename in the operator checkout.
+    expect(await realAsyncSubprocessRunner.runAsync("git", ["status", "--porcelain"], projectRoot)).toBe("");
+    expect(existsSync(source)).toBe(true);
+    expect(readyIntent === undefined || existsSync(readyIntent)).toBe(true);
+    const tree = await cleanupArchiveTree(projectRoot);
+    expect(tree).toContain(`v2/spec/completed/${specName}/index.md`);
+    expect(tree).not.toContain(`v2/spec/${specName}/index.md`);
+    expect(tree).not.toContain(`v2/spec/ready-intents/${specName}.md`);
+    expect(stdout).toMatch(/committed on cleanup\/archive-\d{8}T\d{6}Z; the operator checkout is unchanged/);
+    expect(stdout).toMatch(
+      /Archive branch for project: cleanup\/archive-\d{8}T\d{6}Z \(1 commit\(s\)\) at .* — push it and open one archive PR\./,
+    );
+    expect(existsSync(join(jarvisRoot, "worktrees", "project", "cleanup"))).toBe(true);
+  });
+
+  test("archive publication failure restores the source tree", async () => {
+    const specName = "20260910T000011Z-publish-fails";
+    const { source } = createSpec(specName, "[x] Done");
+    await commitFixtures(projectRoot);
+    const store = storeForStrandedSpec(specName, "implement/publish-fails");
+    const merged = ghRunnerForPr("MERGED");
+    const failingCommit: AsyncSubprocessRunner = {
+      runAsync: async (cmd, args, cwd) => {
+        if (cmd === "git" && args[0] === "commit" && cwd?.includes(join("worktrees", "project", "cleanup"))) {
+          throw new Error("disk full");
+        }
+        return merged.runAsync(cmd, args, cwd);
+      },
+    };
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    await runCleanupCommand(
+      { promptConfirm: async () => true },
+      { project: { root: projectRoot } },
+      jarvisRoot,
+      failingCommit,
+      async () => [],
+      store,
+      io,
+    );
+
+    expect(stdout).toContain("archive publication failed at commit: ");
+    expect(stdout).not.toContain("Archived:");
+    expect(await realAsyncSubprocessRunner.runAsync("git", ["status", "--porcelain"], projectRoot)).toBe("");
+    expect(existsSync(source)).toBe(true);
+    expect(existsSync(join(projectRoot, "v2", "spec", "completed", specName))).toBe(false);
+    expect(await cleanupArchiveTree(projectRoot)).toEqual([]);
+    expect(existsSync(join(jarvisRoot, "worktrees", "project", "cleanup"))).toBe(false);
   });
 
   test("resolves absolute external plan specPath from durable implement run for retired-worktree archival", async () =>
@@ -1218,6 +1343,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(existsSync(slugReady)).toBe(true);
 
     let applyStdout = "";
+    await commitFixtures(projectRoot);
     expect(
       await runCleanupCommand(
         { promptConfirm: async () => true },
@@ -1230,8 +1356,9 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       ),
     ).toBe(0);
     expect(applyStdout).toContain("(pruned consumed ready-intent)");
-    expect(existsSync(join(home, "completed", specName))).toBe(true);
-    expect(existsSync(slugReady)).toBe(false);
+    expect(await cleanupArchiveTree(projectRoot)).toContain(`v2/spec/completed/${specName}/index.md`);
+    expect(existsSync(slugReady)).toBe(true);
+    expect(await cleanupArchiveTree(projectRoot)).not.toContain("v2/spec/ready-intents/slug-prune.md");
   });
 
   test("refuses open-home stranded archival while a materialized owner is not retired", async () => {
@@ -1280,6 +1407,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(existsSync(join(home, specName))).toBe(true);
 
     let applyStdout = "";
+    await commitFixtures(projectRoot);
     expect(
       await runCleanupCommand(
         { promptConfirm: async () => true },
@@ -1291,7 +1419,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
         { stdout: (s) => (applyStdout += s), stderr: () => {} },
       ),
     ).toBe(0);
-    expect(existsSync(join(home, "completed", specName))).toBe(true);
+    expect(await cleanupArchiveTree(projectRoot)).toContain(`v2/spec/completed/${specName}/index.md`);
     expect(applyStdout).toContain(`Archived: ${join(home, specName)} -> ${join(home, "completed", specName)}`);
   });
 
@@ -1371,6 +1499,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     );
 
     stdout = "";
+    await commitFixtures(projectRoot);
     await runCleanupCommand(
       {
         promptConfirm: async () => {
@@ -1385,7 +1514,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       store,
       io,
     );
-    expect(existsSync(join(home, "completed", eligible))).toBe(true);
+    expect(await cleanupArchiveTree(projectRoot)).toContain(`v2/spec/completed/${eligible}/index.md`);
     expect(existsSync(join(home, late))).toBe(true);
     expect(stdout).toContain(`Skipped artifact: ${join(home, late)} — another materialized worktree owns this spec`);
 
@@ -1446,6 +1575,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(stdout).not.toContain(`Skipped artifact: ${join(home, unrelated)}`);
 
     stdout = "";
+    await commitFixtures(projectRoot);
     await runCleanupCommand(
       { promptConfirm: async () => true },
       registry,
@@ -1455,7 +1585,7 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
       store,
       io,
     );
-    expect(existsSync(join(home, "completed", unrelated))).toBe(true);
+    expect(await cleanupArchiveTree(projectRoot)).toContain(`v2/spec/completed/${unrelated}/index.md`);
     expect(existsSync(join(home, owned))).toBe(true);
     expect(existsSync(join(home, "completed", owned))).toBe(false);
   });
@@ -5192,6 +5322,7 @@ describe("cleanup: prune verified merged branch refs", () => {
       },
     };
 
+    await commitFixtures(projectRoot);
     const code = await runCleanupCommand(
       { promptConfirm: async () => true },
       registry,
@@ -5207,7 +5338,7 @@ describe("cleanup: prune verified merged branch refs", () => {
     expect(stderr).toContain(`Failed to prune ref refs/heads/${first.branch}`);
     expect(stdout).not.toContain(`Pruned ref: project refs/heads/${first.branch}`);
     expect(stdout).toContain(`Pruned ref: project refs/heads/${second.branch}`);
-    expect(existsSync(join(projectRoot, "v2", "spec", "completed", specName))).toBe(true);
+    expect(await cleanupArchiveTree(projectRoot)).toContain(`v2/spec/completed/${specName}/index.md`);
     expect(await exactRefExists(projectRoot, `refs/heads/${first.branch}`)).toBe(true);
     expect(await exactRefExists(projectRoot, `refs/heads/${second.branch}`)).toBe(false);
   });

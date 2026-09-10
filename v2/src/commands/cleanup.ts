@@ -31,6 +31,12 @@ import { RpcError } from "../ipc/rpc-errors.ts";
 import { jarvisHome, managedWorktreePath, worktreesRoot as worktreesRootPath } from "../paths.ts";
 import { isTerminalRunStatus, type Run, type StateStore } from "../persistence/state-store.ts";
 import {
+  type ArchivePublicationResult,
+  type ArchivePublicationSession,
+  cleanupBranchCarryingArchive,
+  createArchivePublicationSession,
+} from "./cleanup-archive-publication.ts";
+import {
   type ArchiveResult,
   type ArtifactSpec,
   archiveCompletedSpec,
@@ -915,6 +921,58 @@ export function createArtifactSkipLedger(io: { stdout: (s: string) => void }): A
   };
 }
 
+/** One cleanup archive branch per project per invocation; in-repo archives commit there, never on the operator checkout. */
+export type ArchivePublicationSessions = {
+  for(project: string, projectRoot: string): ArchivePublicationSession;
+  all(): ReadonlyArray<[string, ArchivePublicationSession]>;
+};
+
+export function createArchivePublicationSessions(
+  runner: AsyncSubprocessRunner,
+  jarvisRoot: string,
+  stamp?: string,
+): ArchivePublicationSessions {
+  const sessions = new Map<string, ArchivePublicationSession>();
+  return {
+    for: (project, projectRoot) => {
+      let session = sessions.get(project);
+      if (session === undefined) {
+        session = createArchivePublicationSession({
+          runner,
+          projectRoot,
+          jarvisRoot,
+          project,
+          ...(stamp !== undefined ? { stamp } : {}),
+        });
+        sessions.set(project, session);
+      }
+      return session;
+    },
+    all: () => [...sessions.entries()],
+  };
+}
+
+/** In-repo specs publish on the cleanup branch; external plans and queue entries move in place. */
+async function archiveArtifactSpec(
+  spec: ArtifactSpec,
+  project: string,
+  projectRoot: string,
+  sessions: ArchivePublicationSessions,
+): Promise<ArchiveResult | ArchivePublicationResult> {
+  if (spec.queue !== undefined) return pruneConsumedQueueEntry(spec);
+  if (isExternalPlanArtifact(spec)) return archiveCompletedSpec(spec);
+  return sessions.for(project, projectRoot).publish(spec);
+}
+
+function reportArchiveSessions(sessions: ArchivePublicationSessions, io: { stdout: (s: string) => void }): void {
+  for (const [project, session] of sessions.all()) {
+    if (session.commits() === 0) continue;
+    io.stdout(
+      `Archive branch for ${project}: ${session.branch} (${session.commits()} commit(s)) at ${session.worktreePath} — push it and open one archive PR.\n`,
+    );
+  }
+}
+
 async function archiveRetiredArtifact(
   candidate: CleanupCandidate,
   registry: Record<string, ProjectRegistryEntry>,
@@ -924,6 +982,7 @@ async function archiveRetiredArtifact(
   jarvisRoot: string,
   io: { stdout: (s: string) => void; stderr: (s: string) => void },
   skips: ArtifactSkipLedger,
+  sessions: ArchivePublicationSessions,
 ): Promise<void> {
   const projectRoot = registry[candidate.project]?.root;
   if (projectRoot === undefined) return;
@@ -953,7 +1012,7 @@ async function archiveRetiredArtifact(
     return;
   }
 
-  reportArchive(spec, archiveCompletedSpec(spec), "artifact", io);
+  reportArchive(spec, await archiveArtifactSpec(spec, candidate.project, projectRoot, sessions), "artifact", io);
 }
 
 function previewArtifact(spec: ArtifactSpec, io: { stdout: (s: string) => void }): void {
@@ -1184,6 +1243,14 @@ export async function inspectStrandedArtifacts(
       continue;
     }
     const identified = { ...artifact, branch };
+    if (!isExternalPlanArtifact(identified)) {
+      const relDest = relative(projectRoot, join(artifact.home, "completed", basename(artifact.source)));
+      const staged = await cleanupBranchCarryingArchive(runner, projectRoot, relDest);
+      if (staged !== undefined) {
+        skips.skip(artifact.source, `already staged on cleanup branch ${staged}; push it and open the archive PR`);
+        continue;
+      }
+    }
     const identity: ArtifactOwnerIdentity = { store, projectRoot };
     if (hasBranchKeyedArtifactOwner(identified, artifact.project, "", registry, allWorktrees, jarvisRoot, identity)) {
       skips.skip(artifact.source, "another materialized worktree owns this spec");
@@ -1205,15 +1272,16 @@ export async function inspectStrandedArtifacts(
 
 function reportArchive(
   spec: ArtifactSpec,
-  result: ArchiveResult,
+  result: ArchiveResult | ArchivePublicationResult,
   prefix: string,
   io: { stdout: (s: string) => void },
 ): void {
   if (result.status === "pruned") {
     io.stdout(`Pruned consumed ready-intent: ${spec.source} (consumed by ${result.consumedBy})\n`);
   } else if (result.status === "archived") {
+    const where = "branch" in result ? ` (committed on ${result.branch}; the operator checkout is unchanged)` : "";
     io.stdout(
-      `Archived: ${spec.source} -> ${result.destination}${result.intentPruned ? " (pruned consumed ready-intent)" : ""}\n`,
+      `Archived: ${spec.source} -> ${result.destination}${result.intentPruned ? " (pruned consumed ready-intent)" : ""}${where}\n`,
     );
   } else {
     io.stdout(`Skipped ${prefix}: ${spec.source} — ${result.reason}\n`);
@@ -1306,6 +1374,7 @@ async function retireEligibleWorktrees(
   retiredBranches: Set<string>,
   ownerProjectsByRepositoryRoot: ReadonlyMap<string, readonly string[]>,
   skips: ArtifactSkipLedger,
+  sessions: ArchivePublicationSessions,
 ): Promise<number> {
   if (candidates.length === 0) return 0;
   return performWorktreeRemovals(
@@ -1313,7 +1382,7 @@ async function retireEligibleWorktrees(
     runner,
     io,
     async (candidate) => {
-      await archiveRetiredArtifact(candidate, registry, discovered, store, runner, jarvisRoot, io, skips);
+      await archiveRetiredArtifact(candidate, registry, discovered, store, runner, jarvisRoot, io, skips, sessions);
     },
     (candidate) => registry[candidate.project]?.root ?? ".",
     {
@@ -1499,20 +1568,21 @@ async function retireStrandedArtifacts(
   store: StateStore,
   io: { stdout: (s: string) => void },
   skips: ArtifactSkipLedger,
+  sessions: ArchivePublicationSessions,
 ): Promise<void> {
   for (const spec of stranded) {
+    const projectRoot = registry[spec.project]?.root;
+    if (projectRoot === undefined) continue;
     if (spec.queue !== undefined) {
       reportArchive(spec, pruneConsumedQueueEntry(spec), "stranded artifact", io);
       continue;
     }
     const current = await discoverMaterializedWorktrees(registry, jarvisRoot, runner);
-    const projectRoot = registry[spec.project]?.root;
-    const identity = projectRoot === undefined ? undefined : { store, projectRoot };
-    if (hasBranchKeyedArtifactOwner(spec, spec.project, "", registry, current, jarvisRoot, identity)) {
+    if (hasBranchKeyedArtifactOwner(spec, spec.project, "", registry, current, jarvisRoot, { store, projectRoot })) {
       skips.skip(spec.source, "another materialized worktree owns this spec");
       continue;
     }
-    reportArchive(spec, archiveCompletedSpec(spec), "stranded artifact", io);
+    reportArchive(spec, await archiveArtifactSpec(spec, spec.project, projectRoot, sessions), "stranded artifact", io);
   }
 }
 
@@ -1681,6 +1751,7 @@ async function executeConfirmedCleanup(
   const recheck = await recheckEligibleWorktrees(ctx.candidates, runner, daemonClient, store, io);
   const stillEligible = recheck.candidates;
   const retiredBranches = new Set<string>();
+  const sessions = createArchivePublicationSessions(runner, jarvisRoot);
   const result = await retireEligibleWorktrees(
     stillEligible,
     registry,
@@ -1694,6 +1765,7 @@ async function executeConfirmedCleanup(
     retiredBranches,
     ctx.branchRefDiscovery.ownerProjectsByRepositoryRoot,
     ctx.skips,
+    sessions,
   );
   const branchRefExit = await applyMergedBranchRefPrunes(
     ctx.branchRefDiscovery.candidates,
@@ -1734,7 +1806,8 @@ async function executeConfirmedCleanup(
     io,
     ctx.skips,
   );
-  await retireStrandedArtifacts(strandedAfterRetirement, registry, jarvisRoot, runner, store, io, ctx.skips);
+  await retireStrandedArtifacts(strandedAfterRetirement, registry, jarvisRoot, runner, store, io, ctx.skips, sessions);
+  reportArchiveSessions(sessions, io);
   if (stillEligible.length === 0 && ctx.candidates.length > 0) {
     io.stdout("No worktrees remain eligible after re-check.\n");
   }

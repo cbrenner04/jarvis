@@ -873,6 +873,18 @@ export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promi
       message: "plan-stage recovery requires Git-backed publication mode",
     };
   }
+  // Resolved before anything mutates the staged tree. A request with no plan-tree landing step is a
+  // malformed *request*, not an invalid tree: refusing after the blocker strip would permanently
+  // edit the operator's `intent.md` and then report their markdown as the problem.
+  const landingStep = request.steps.find(isPlanTreeLandingStep);
+  if (landingStep === undefined) {
+    return {
+      ok: false,
+      code: "missing_plan_context",
+      message: "no plan-tree landing step captured for recovery",
+    };
+  }
+
   const blockerAdmission = admitPlanRecoveryBlockerAndClaim(
     run,
     store,
@@ -897,10 +909,6 @@ export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promi
     return { ok: false, code: "plan_stage_invalid", message: lint.message };
   }
 
-  const landingStep = request.steps.find(isPlanTreeLandingStep);
-  if (landingStep === undefined) {
-    return { ok: false, code: "plan_stage_invalid", message: "no plan-tree landing step captured for recovery" };
-  }
   const landed = await landReviewedPublicationOutput(run.worktreePath, landingStep.landing, landingStep.verdictPath);
   if (!landed.ok) {
     return {

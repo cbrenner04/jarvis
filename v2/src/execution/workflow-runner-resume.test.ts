@@ -3255,6 +3255,8 @@ describe("recoverPlanStage", () => {
       // Operator corrects the staged subspec that tripped the contract miss; the on-disk tree
       // now differs from the agent's original draft.
       writeFileSync(join(stage, "00-first.md"), correctedSubspecBody, "utf8");
+      // Captured before landing consumes the stage.
+      const stagedIndexBody = readFileSync(join(stage, "index.md"), "utf8");
 
       const reviewStep = planReviewStep({
         worktreePath,
@@ -3287,7 +3289,11 @@ describe("recoverPlanStage", () => {
       if (!outcome.ok) throw new Error("unreachable");
       expect(outcome.kind).toBe("complete");
       expect(reviewerCalls).toEqual([]);
+      // The durable tree must be the operator's tree, whole: asserting one file's bytes would still
+      // pass if landing dropped a file, added one, or rewrote `index.md`.
+      expect(readdirSync(durable).sort()).toEqual(["00-first.md", "index.md", "intent.md"]);
       expect(readFileSync(join(durable, "00-first.md"), "utf8")).toBe(correctedSubspecBody);
+      expect(readFileSync(join(durable, "index.md"), "utf8")).toBe(stagedIndexBody);
       expect(readFileSync(join(durable, "intent.md"), "utf8")).not.toContain("## Blocker");
       expect(existsSync(sourceReadyIntent)).toBe(false);
 
@@ -3466,6 +3472,62 @@ describe("recoverPlanStage", () => {
     });
   });
 
+  test("a request with no plan-tree landing step refuses without touching the staged tree", async () => {
+    const worktreePath = planWorktree("recover-plan-stage-no-landing-");
+    const stage = join(worktreePath, ".jarvis-plan-stage");
+    const branch = "recover-plan-stage-no-landing";
+    const stepId = "plan";
+    const specPath = "spec/2026-no-landing";
+
+    writeLintCleanPlanStage(stage, "00-first.md");
+    const stagedIntentBody = readFileSync(join(stage, "intent.md"), "utf8");
+
+    await withStateStore(async (store) => {
+      const runId = seedBlockedPlanDraftRun(store, {
+        project: "demo",
+        branch,
+        worktreePath,
+        specPath,
+        stepId,
+        invocationId: "recover-plan-stage-no-landing-inv",
+        outcomeKind: "blocked",
+      });
+
+      // A captured review step whose landing is not a plan tree: the stage is recoverable, but the
+      // request carries nothing to land it with.
+      const nonPlanLandingStep = {
+        ...planReviewStep({
+          worktreePath,
+          stage,
+          durable: join(worktreePath, "spec", "2026-no-landing"),
+          branch,
+          invoke: async () => {
+            throw new Error("recovery must not dispatch a review role");
+          },
+        }),
+        landing: { kind: "intent-stage" as const, stagingDir: ".jarvis-intent-stage" },
+      } as unknown as ReviewWorkflowStep;
+
+      const outcome = await recoverPlanStage({
+        runId,
+        project: "demo",
+        branch,
+        worktreePath,
+        writeStepId: stepId,
+        steps: [nonPlanLandingStep],
+        stateStore: store,
+      });
+
+      expect(outcome.ok).toBe(false);
+      if (outcome.ok) throw new Error("unreachable");
+      // `plan_stage_invalid` would send the operator hunting through markdown that is fine.
+      expect(outcome.code).not.toBe("plan_stage_invalid");
+      expect(outcome.message).toContain("no plan-tree landing step captured");
+      // Refused ahead of the blocker strip, so the operator's tree is untouched.
+      expect(readFileSync(join(stage, "intent.md"), "utf8")).toBe(stagedIntentBody);
+    });
+  });
+
   test("a landing collision surfaces as an invocation failure without dispatching a role", async () => {
     const worktreePath = planWorktree("recover-plan-stage-landing-conflict-");
     const stage = join(worktreePath, ".jarvis-plan-stage");
@@ -3475,6 +3537,9 @@ describe("recoverPlanStage", () => {
     const specPath = "spec/2026-landing-conflict";
 
     writeLintCleanPlanStage(stage, "00-first.md");
+    const stagedIndexBody = readFileSync(join(stage, "index.md"), "utf8");
+    const stagedSubspecBody = readFileSync(join(stage, "00-first.md"), "utf8");
+    const stagedIntentBody = readFileSync(join(stage, "intent.md"), "utf8");
     // The staged tree passes admission and pre-landing validation on its own; the durable
     // destination already carries a same-named file with different bytes, a collision `landPublication`
     // itself, not the earlier checks, catches.
@@ -3516,7 +3581,12 @@ describe("recoverPlanStage", () => {
       if (!outcome.ok) throw new Error("unreachable");
       expect(outcome.kind).toBe("invocation_failure");
       expect(outcome.invocationFailureMessage).toContain("already exists with different contents");
+      // A failed landing must leave the operator's tree exactly as they left it: a half-consumed
+      // stage is the thing recovery exists to avoid.
       expect(existsSync(join(stage, "index.md"))).toBe(true);
+      expect(readFileSync(join(stage, "index.md"), "utf8")).toBe(stagedIndexBody);
+      expect(readFileSync(join(stage, "00-first.md"), "utf8")).toBe(stagedSubspecBody);
+      expect(readFileSync(join(stage, "intent.md"), "utf8")).toBe(stagedIntentBody);
     });
   });
 

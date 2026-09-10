@@ -290,7 +290,10 @@ function parseTasksAndSubspecs(lines: string[]): {
     const body = taskMatch[2].trim();
     tasks.push({ checked, body });
 
-    const linkMatch = body.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+    // An index link may carry a trailing annotation (`— why`, `(after 00)`), so the pattern must not
+    // anchor at the closing paren: an unrecognized link is not a linked subspec at all, which makes
+    // every criterion under it invisible to implement routing.
+    const linkMatch = body.match(/^\[([^\]]+)\]\(([^)]+)\)/);
     if (linkMatch?.[1] && linkMatch[2]) {
       linkedSubspecs.push({
         checked,

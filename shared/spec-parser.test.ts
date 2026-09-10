@@ -40,6 +40,25 @@ describe("parseSpec", () => {
     expect(parsed.warnings).toEqual([]);
   });
 
+  test("an annotated index link is still a linked subspec", () => {
+    // An annotated link read as "not a link" makes the subspec invisible to implement routing, so a
+    // spec with unchecked criteria reports as having no work. Observed on
+    // `20260910T211500Z-recover-validates-on-disk-plan-stage`: 16 unchecked criteria across two
+    // linked subspecs, 0 linked subspecs parsed.
+    const parsed = parseSpec(
+      [
+        "# Title",
+        "",
+        "- [ ] [00 - Zero](./00-zero.md) — lands the staged tree directly",
+        "- [ ] [01 - One](./01-one.md) (after 00)",
+        "",
+      ].join("\n"),
+    );
+
+    expect(parsed.linkedSubspecs.map((subspec) => subspec.path)).toEqual(["./00-zero.md", "./01-one.md"]);
+    expect(parsed.linkedSubspecs[0]?.text).toBe("00 - Zero");
+  });
+
   test("warns when acceptance criteria heading is malformed", () => {
     const parsed = parseSpec(`# Title\n\n### Acceptance criteria\n\n- [ ] Item\n`);
 

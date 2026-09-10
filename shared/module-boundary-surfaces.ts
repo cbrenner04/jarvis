@@ -39,14 +39,34 @@ export function referencedArtifactPaths(text: string): string[] {
   return [...paths];
 }
 
+const PRESERVATION_VERB_PATTERN = /\b(?:stays?|remains?|unchanged|preserved|continues?|stops?|green)\b/iu;
+const BUILD_VERB_PATTERN = /\b(?:creates?|adds?|introduces?|implements?|builds?|generates?|writes?)\b/iu;
+const SHARED_OUTCOME_PATTERN = /\bidentical\b|\bthe same\b/iu;
+
+/** A bullet claiming named artifacts stay unchanged (preservation wording, no build verb on a
+ * different artifact in the same bullet) — exempt from the single-artifact count. */
+export function isStaysUnchangedBullet(text: string): boolean {
+  return PRESERVATION_VERB_PATTERN.test(text) && !BUILD_VERB_PATTERN.test(text);
+}
+
+/** A bullet stating one outcome holds identically across the named artifacts, rather than a
+ * distinct build claim per artifact — exempt from the single-artifact count. */
+export function isSharedDecisionBullet(text: string): boolean {
+  return SHARED_OUTCOME_PATTERN.test(text);
+}
+
 function assertSingleArtifactBullets(file: string, heading: string, bullets: readonly string[]): void {
   for (const bullet of bullets) {
     const paths = referencedArtifactPaths(bullet);
-    if (paths.length > 1) {
-      throw new Error(
-        `Plan subspec ${file} has a ${heading} bullet naming multiple artifact paths (${paths.join(", ")}): ${bullet}`,
-      );
-    }
+    if (paths.length <= 1) continue;
+    if (isSharedDecisionBullet(bullet) || isStaysUnchangedBullet(bullet)) continue;
+    const reading =
+      PRESERVATION_VERB_PATTERN.test(bullet) && BUILD_VERB_PATTERN.test(bullet)
+        ? "mixes exempt wording with a build claim"
+        : "read as built or changed";
+    throw new Error(
+      `Plan subspec ${file} has a ${heading} bullet naming multiple artifact paths (${paths.join(", ")}): ${bullet} (${reading})`,
+    );
   }
 }
 

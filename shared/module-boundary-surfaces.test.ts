@@ -61,6 +61,37 @@ describe("plan draft normalization", () => {
     });
 
     expect(() => normalizePlanDraftSpecDir(dir)).toThrow(/package\.json, README\.md/u);
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow(/read as built or changed/u);
+  });
+
+  test("accepts the #3680 stays-unchanged fixture as an acceptance-criteria bullet", () => {
+    const dir = scratchDir("stays-unchanged-fixture");
+    stageDraft(dir, {
+      "00-projections.md":
+        "# Projections\n\n## Acceptance criteria\n\n- [ ] `v2/src/daemon/pipeline-execution.test.ts` and `v2/src/commands/run.test.ts` missing-gate projections stay green (shape unchanged by the mapping change).\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
+  });
+
+  test("accepts the #3700 shared-decision fixture as a Decisions bullet", () => {
+    const dir = scratchDir("shared-decision-fixture");
+    stageDraft(dir, {
+      "00-review.md":
+        "# Review\n\n## Decisions\n\n- Both `review-cycle.ts` and `review-debate.ts` take the identical resolved path from one builder-local binding; rules out drifting per-file paths.\n\n## Acceptance criteria\n\n- [ ] Resolution stays consistent.\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
+  });
+
+  test("rejects a bullet mixing stays-unchanged wording with a distinct build claim", () => {
+    const dir = scratchDir("mixed-claim");
+    stageDraft(dir, {
+      "00-mixed.md":
+        "# Mixed\n\n## Acceptance criteria\n\n- [ ] `a.test.ts` stays green while `b.ts` introduces new behavior.\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow(/mixes exempt wording with a build claim/u);
   });
 
   test("rejects a subspec with no acceptance-criteria heading", () => {

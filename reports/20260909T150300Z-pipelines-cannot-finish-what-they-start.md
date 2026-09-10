@@ -1,6 +1,8 @@
 # 2026-09-09 operator session — pipelines cannot finish what they start
 
-Dogfooded four `full-review` pipelines seed→ready, then drove every ready-intent they produced. **35 PRs merged, zero left open.** Agent order `codex,claude` (cursor and opencode out). 235 agent invocations, $96.68 agent cost.
+Dogfooded four `full-review` pipelines seed→ready, then drove every ready-intent they produced. **35 PRs merged, zero left open.** Agent order `codex,claude` (cursor and opencode out).
+
+**Cost: $210.02** — operator $113.34 (opus-5, 1h03m API of 12h08m wall, 99% cache hit) plus agent $96.68 list-price, all rungs on subscriptions. 235 agent invocations: codex 135 (35 ok, **100 quota**), claude 100 (99 ok, 1 error). Codex quota-cascaded to claude unattended all session, which is the point of setting an order. 105 files touched, $1.08/file, $0.16/minute.
 
 ## The finding
 

@@ -1,3 +1,4 @@
+import { isRecord } from "../../../shared/is-record.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import type { startDaemon } from "./daemon-lifecycle.ts";
@@ -115,10 +116,6 @@ async function queryPipelineOwner(
   } catch {
     return undefined;
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }
 
 function isNullableNumber(value: unknown): value is number | null {

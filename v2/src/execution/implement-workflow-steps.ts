@@ -1,5 +1,6 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { errorMessage } from "../../../shared/error-message.ts";
 import {
   hasUncheckedNonHumanOnlyCriteria,
   resolveActiveLinkedSubspec as realResolveActiveLinkedSubspec,
@@ -151,9 +152,7 @@ async function checkBaseFreshness(
   try {
     await runner.runAsync("git", ["fetch", "--quiet", remote, remoteBranch], projectRoot, { stdio: "ignore" });
   } catch (error) {
-    warn?.(
-      `base freshness not checked: could not fetch ${upstream} (${error instanceof Error ? error.message : String(error)})`,
-    );
+    warn?.(`base freshness not checked: could not fetch ${upstream} (${errorMessage(error)})`);
     return { ok: true };
   }
   try {
@@ -568,7 +567,7 @@ export function validateImplementSpecTreeCompletion(
   try {
     specContent = readSpecFile(absoluteSpecPath);
   } catch (err) {
-    return `implement.link_unreadable: ${err instanceof Error ? err.message : String(err)}`;
+    return `implement.link_unreadable: ${errorMessage(err)}`;
   }
   const linkedSubspecs = parseSpec(specContent).linkedSubspecs;
   if (basename(absoluteSpecPath) !== "index.md" || linkedSubspecs.length === 0) {
@@ -582,7 +581,7 @@ export function validateImplementSpecTreeCompletion(
     try {
       if (hasUncheckedNonHumanOnlyCriteria(readSpecFile(subspecPath))) return undefined;
     } catch (err) {
-      return `implement.link_unreadable: ${err instanceof Error ? err.message : String(err)}`;
+      return `implement.link_unreadable: ${errorMessage(err)}`;
     }
   }
   return ALREADY_COMPLETE_ERROR;
@@ -642,7 +641,7 @@ function loadImplementWorkflowSteps(
       ),
     };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    return { ok: false, error: errorMessage(err) };
   }
 }
 

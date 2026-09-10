@@ -1,5 +1,6 @@
 import type { CliDeps } from "../cli/deps.ts";
 import type { AgentModelConfig, LoadError } from "../config/agent-model-config.ts";
+import { isLoadError } from "../config/agent-model-config.ts";
 import { loadMachineConfig, resolveWritePathIterationBounds } from "../config/machine-config-loader.ts";
 import type { WriteLoopInput } from "../execution/write-loop.ts";
 import {
@@ -9,10 +10,6 @@ import {
 } from "../execution/write-loop-input.ts";
 
 type WriteCliInput = { ok: true; input: WriteLoopInput } | { ok: false; message?: string };
-
-function isLoadError(value: AgentModelConfig | LoadError): value is LoadError {
-  return "errors" in value && Array.isArray((value as LoadError).errors);
-}
 
 export function parseWriteCliInput(argv: readonly string[], deps: CliDeps): WriteCliInput {
   let values: Record<string, string | boolean | string[] | undefined>;

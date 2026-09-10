@@ -1,9 +1,10 @@
 import { readFileSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
+import { errorMessage } from "../../../shared/error-message.ts";
 
 class PublicationTitleResolutionError extends Error {
   constructor(specPath: string, cause: unknown) {
-    const reason = cause instanceof Error ? cause.message : String(cause);
+    const reason = errorMessage(cause);
     super(`Title resolution failed for spec ${specPath}: ${reason}`);
     this.name = "PublicationTitleResolutionError";
   }

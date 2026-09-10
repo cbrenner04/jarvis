@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { TEST_STEP_BUDGET_MS } from "../../../scripts/ready.ts";
+import { errorMessage } from "../../../shared/error-message.ts";
 import { FixCommandError, type RunFixCommandOpts, runFixCommand } from "../../../shared/fix-command.ts";
 import { getCurrentHeadAsync, getGitStatusInventory } from "../../../shared/git.ts";
 import {
@@ -325,7 +326,7 @@ export function buildSubspecCompletionInventory(
     }
     return { completedSubspecPaths: completed, remainingSubspecPaths: remaining };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     return { completedSubspecPaths: [], remainingSubspecPaths: [], inventoryError: message };
   }
 }
@@ -2589,7 +2590,7 @@ function finishExecuteWriteThrow(
     outcomeKind: "invocation_failure",
     runStatus: "failed",
   });
-  const message = error instanceof Error ? error.message : String(error);
+  const message = errorMessage(error);
   args.logSink?.append(runId, { kind: "run_execution_failed", message });
   return {
     kind: "invocation_failure",

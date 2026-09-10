@@ -9,8 +9,18 @@ import {
   readRegisteredPromptPaths,
 } from "../../../shared/prompts/registry.ts";
 import { AsyncSubprocessError, type AsyncSubprocessOptions } from "../../../shared/subprocess.ts";
-import { type ChangedLine, changedPathsFromDiff, defaultGitDiff, isProductionFile, parseDiff } from "./diff-scan.ts";
+import {
+  type ChangedLine,
+  changedPathsFromDiff,
+  defaultGitDiff,
+  defaultReadFile,
+  defaultUntrackedFiles,
+  isCodePath,
+  isProductionFile,
+  parseDiff,
+} from "./diff-scan.ts";
 import { importedModulePaths, resolveImportedModule } from "./runtime-smoke-verifier.ts";
+import { type KillingTestPaths, killingTestPaths } from "./test-scope.ts";
 import { trackProcessGroup, type VerifierProcessGroupRecorder } from "./verifier-process-groups.ts";
 
 export type DiffDerivedMutationVerifierInput = {
@@ -97,7 +107,7 @@ function deduplicateCandidates(candidates: Candidate[]): Candidate[] {
 type GitDiff = (cwd: string, baseRef: string) => Promise<string>;
 type UntrackedFiles = (cwd: string) => Promise<string[]>;
 export type RunScopedTestsOptions = { timeoutMs?: number; processGroups?: VerifierProcessGroupRecorder };
-type RunScopedTests = (cwd: string, scope: string[], options?: RunScopedTestsOptions) => Promise<boolean>;
+type RunScopedTests = (cwd: string, scope: KillingTestPaths, options?: RunScopedTestsOptions) => Promise<boolean>;
 type ReadFile = (path: string) => Promise<string>;
 type WriteFile = (path: string, content: string) => Promise<void>;
 type RegisteredPromptPaths = (cwd: string, baseRef: string) => Promise<string[]>;
@@ -299,23 +309,11 @@ function getVerifierTestRunSemaphore(): VerifierTestRunSemaphore {
   return verifierTestRunSemaphore;
 }
 
-async function defaultUntrackedFiles(cwd: string): Promise<string[]> {
-  const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
-  try {
-    const output = await realAsyncSubprocessRunner.runAsync("git", ["ls-files", "--others", "--exclude-standard"], cwd);
-    return output
-      .trim()
-      .split("\n")
-      .filter((line) => {
-        const trimmed = line.trim();
-        return trimmed && isProductionFile(trimmed);
-      });
-  } catch {
-    return [];
-  }
-}
-
-async function defaultRunScopedTests(cwd: string, scope: string[], options?: RunScopedTestsOptions): Promise<boolean> {
+async function defaultRunScopedTests(
+  cwd: string,
+  scope: KillingTestPaths,
+  options?: RunScopedTestsOptions,
+): Promise<boolean> {
   return runDiffDerivedScopedTests(cwd, scope, undefined, options);
 }
 
@@ -325,7 +323,7 @@ type ScopedTestRunner = {
 
 export async function runDiffDerivedScopedTests(
   cwd: string,
-  scope: string[],
+  scope: readonly string[],
   runner?: ScopedTestRunner,
   options?: RunScopedTestsOptions,
 ): Promise<boolean> {
@@ -371,10 +369,6 @@ export async function runDiffDerivedScopedTests(
     }
   }
   return true;
-}
-
-async function defaultReadFile(path: string): Promise<string> {
-  return readFileSync(path, "utf-8");
 }
 
 function defaultListDir(dir: string): string[] {
@@ -677,10 +671,6 @@ function deriveFromLine(file: string, lineNum: number, content: string, operator
   return deduplicateCandidates([...guardCandidates, ...operatorCandidates, ...destructiveCandidates]);
 }
 
-function isCodePath(path: string): boolean {
-  return /\.[cm]?[jt]sx?$/.test(path);
-}
-
 function resolveCoLocatedKillingTest(productionPath: string): string | null {
   if (!isCodePath(productionPath)) return null;
   const basename = productionPath.split("/").pop() ?? "";
@@ -831,13 +821,13 @@ async function verifyPromptRenderCoverage(
   }
   const bounds = promptBodyBounds(original);
   if (bounds !== null && inDiff && !hasBodyAddLines(changedLines, bounds.bodyStartLine)) {
-    return await runScopedTests(input.worktreePath, [...observerTests]);
+    return await runScopedTests(input.worktreePath, killingTestPaths([...observerTests]));
   }
   const mutated = mutateRenderedPrompt(original, changedLines);
   if (mutated === null) return false;
   try {
     await writeFile(filePath, mutated);
-    return !(await runScopedTests(input.worktreePath, [...observerTests]));
+    return !(await runScopedTests(input.worktreePath, killingTestPaths([...observerTests])));
   } finally {
     await writeFile(filePath, original);
   }
@@ -903,25 +893,29 @@ function isInsideTimerCallback(content: string, lineNum: number): boolean {
 async function runMutatedKillingSet(
   input: DiffDerivedMutationVerifierInput,
   runScopedTests: RunScopedTests,
-  killingTestPaths: string[],
+  killingTestPathList: string[],
   measureBaseline: (killingTests: readonly string[]) => Promise<KillingTestBaseline>,
   mutant: { restore: () => Promise<void>; reapply: () => Promise<void> },
 ): Promise<boolean | "inconclusive"> {
   try {
-    return await runScopedTests(input.worktreePath, killingTestPaths, { timeoutMs: KILLING_TEST_BUDGET_FLOOR_MS });
+    return await runScopedTests(input.worktreePath, killingTestPaths(killingTestPathList), {
+      timeoutMs: KILLING_TEST_BUDGET_FLOOR_MS,
+    });
   } catch (error) {
     if (!(error instanceof AsyncSubprocessError && error.code === "ETIMEDOUT")) throw error;
   }
   // Measure the unmutated set: the mutant must be off disk while the baseline runs.
   await mutant.restore();
-  const baseline = await measureBaseline(killingTestPaths);
+  const baseline = await measureBaseline(killingTestPathList);
   if (baseline.kind !== "measured") return "inconclusive";
   // The unmutated set finished inside the floor: the mutated timeout is the mutant's.
   if (baseline.budgetMs <= KILLING_TEST_BUDGET_FLOOR_MS) {
     throw new AsyncSubprocessError("killing set timed out at the floor budget", undefined, "", "", "ETIMEDOUT");
   }
   await mutant.reapply();
-  return await runScopedTests(input.worktreePath, killingTestPaths, { timeoutMs: baseline.budgetMs });
+  return await runScopedTests(input.worktreePath, killingTestPaths(killingTestPathList), {
+    timeoutMs: baseline.budgetMs,
+  });
 }
 
 async function testCandidate(
@@ -930,7 +924,7 @@ async function testCandidate(
   input: DiffDerivedMutationVerifierInput,
   writeFile: WriteFile,
   runScopedTests: RunScopedTests,
-  killingTestPaths: string[],
+  killingTestPathList: string[],
   mutationRecordStore: MutationRecordStore,
   measureBaseline: (killingTests: readonly string[]) => Promise<KillingTestBaseline>,
 ): Promise<MutationFailureResult | SkippedCandidate | null> {
@@ -946,7 +940,7 @@ async function testCandidate(
     mutationWritten = true;
 
     // Killed if any resolved killing test fails under the mutation; runScopedTests returns false on the first failure.
-    const testsPassed = await runMutatedKillingSet(input, runScopedTests, killingTestPaths, measureBaseline, {
+    const testsPassed = await runMutatedKillingSet(input, runScopedTests, killingTestPathList, measureBaseline, {
       restore: async () => {
         await writeFile(filePath, originalContent);
         mutationWritten = false;
@@ -957,12 +951,12 @@ async function testCandidate(
       },
     });
     if (testsPassed === "inconclusive") {
-      const baseline = await measureBaseline(killingTestPaths);
+      const baseline = await measureBaseline(killingTestPathList);
       if (baseline.kind === "measured") throw new Error("inconclusive settlement requires an unmeasured baseline");
       return {
         file: candidate.file,
         line: candidate.line,
-        reason: inconclusiveCandidateReason(baseline, killingTestPaths),
+        reason: inconclusiveCandidateReason(baseline, killingTestPathList),
       };
     }
     if (testsPassed) {
@@ -1330,7 +1324,9 @@ async function verifyCandidates(
       if (now() + KILLING_TEST_BUDGET_CEILING_MS > deadline) return { kind: "deadline" };
       const startedAt = now();
       try {
-        await runScopedTests(input.worktreePath, [...killingTests], { timeoutMs: KILLING_TEST_BUDGET_CEILING_MS });
+        await runScopedTests(input.worktreePath, killingTestPaths([...killingTests]), {
+          timeoutMs: KILLING_TEST_BUDGET_CEILING_MS,
+        });
       } catch (error) {
         if (error instanceof AsyncSubprocessError && error.code === "ETIMEDOUT") return { kind: "exceeded-ceiling" };
         throw error;

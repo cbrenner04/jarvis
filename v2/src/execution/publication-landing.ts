@@ -1,5 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
+import { errorMessage } from "../../../shared/error-message.ts";
 import { consumePublicationInputs } from "../../../shared/publication-input-consumption.ts";
 import { type IntentOutputConfig, landIntentWorkflowOutput } from "./intent-output.ts";
 
@@ -35,7 +36,7 @@ export function checkPlanTreeLanding(stage: string): { ok: true } | { ok: false;
     planFiles(stage);
     return { ok: true };
   } catch (error) {
-    return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+    return { ok: false, reason: errorMessage(error) };
   }
 }
 

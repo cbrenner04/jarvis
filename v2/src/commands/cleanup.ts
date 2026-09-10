@@ -28,7 +28,7 @@ import {
 } from "../execution/implement-workflow-steps.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
-import { jarvisHome } from "../paths.ts";
+import { jarvisHome, managedWorktreePath, worktreesRoot as worktreesRootPath } from "../paths.ts";
 import { isTerminalRunStatus, type Run, type StateStore } from "../persistence/state-store.ts";
 import {
   type ArtifactSpec,
@@ -56,7 +56,7 @@ export async function discoverMaterializedWorktrees(
   runner: AsyncSubprocessRunner = realAsyncSubprocessRunner,
 ): Promise<DiscoveredWorktree[]> {
   const candidates: DiscoveredWorktree[] = [];
-  const worktreesRoot = join(jarvisRoot, "worktrees");
+  const worktreesRoot = worktreesRootPath(jarvisRoot);
 
   if (!existsSync(worktreesRoot)) {
     return candidates;
@@ -1148,7 +1148,7 @@ function projectForWorktree(
   jarvisRoot: string,
 ): string | undefined {
   return Object.keys(registry).find((project) =>
-    worktree.path.startsWith(`${join(jarvisRoot, "worktrees", project)}/`),
+    worktree.path.startsWith(`${join(worktreesRootPath(jarvisRoot), project)}/`),
   );
 }
 
@@ -2226,7 +2226,7 @@ export async function resetStaleWorkspace(
   | { status: "refused"; code: "worktree_claimed"; message: string }
   | { status: "refused"; reason: string; destroyed?: DestroyedArtifacts }
 > {
-  const worktreePath = join(jarvisRoot, "worktrees", project, branch);
+  const worktreePath = managedWorktreePath(jarvisRoot, project, branch);
   if (!existsSync(worktreePath)) return { status: "no-op" };
 
   const liveCheck = await isWorktreeLiveHeld(project, branch, jarvisRoot, daemonClient);

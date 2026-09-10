@@ -1,5 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, relative } from "node:path";
+import { errorMessage } from "../../../shared/error-message.ts";
+import { listMarkdownFilesRecursive } from "./fs-walk.ts";
 
 type LandImplementSpecTreeInput = {
   worktreePath: string;
@@ -8,20 +10,6 @@ type LandImplementSpecTreeInput = {
 };
 
 type LandImplementSpecTreeResult = { ok: true; specPath: string } | { ok: false; error: string };
-
-function listMarkdownFiles(dir: string): string[] {
-  const entries = readdirSync(dir, { withFileTypes: true });
-  const files: string[] = [];
-  for (const entry of entries) {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...listMarkdownFiles(path));
-    } else if (entry.isFile() && path.endsWith(".md")) {
-      files.push(path);
-    }
-  }
-  return files;
-}
 
 function worktreeRelativeSpecPath(worktreePath: string, specPath: string): string {
   const absolute = isAbsolute(specPath) ? specPath : join(worktreePath, specPath);
@@ -36,7 +24,7 @@ export function landImplementSpecTreeFromReadRoot(input: LandImplementSpecTreeIn
     worktreeCanonical = realpathSync(input.worktreePath);
     readRootCanonical = realpathSync(input.specReadRoot);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     return { ok: false, error: `implement.spec_landing_unreadable: ${message}` };
   }
 
@@ -56,7 +44,7 @@ export function landImplementSpecTreeFromReadRoot(input: LandImplementSpecTreeIn
     return { ok: false, error: `implement.spec_landing_out_of_tree: ${absoluteSpecPath}` };
   }
 
-  for (const src of listMarkdownFiles(specDir)) {
+  for (const src of listMarkdownFilesRecursive(specDir)) {
     const relFromReadRoot = relative(specReadRoot, src);
     if (relFromReadRoot.startsWith("..")) {
       return { ok: false, error: `implement.spec_landing_out_of_tree: ${src}` };

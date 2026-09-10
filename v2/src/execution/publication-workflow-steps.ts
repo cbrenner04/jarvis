@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { errorMessage } from "../../../shared/error-message.ts";
 import { getBaseBranch } from "../../../shared/git.ts";
 import type { ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
+import { resolvePlanTargetDir } from "../../../shared/plan-target-dir.ts";
 import { findProjectMatch, type ProjectMatch, type ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import { projectSafeId } from "../../../shared/project-safe-id.ts";
 import {
@@ -13,7 +15,7 @@ import {
 import { planReviewPromptProfile } from "../../../shared/prompts/review-plan.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import type { MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
-import { jarvisHome } from "../paths.ts";
+import { jarvisHome, managedWorktreePath } from "../paths.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import type { PublicationLanding } from "./publication-landing.ts";
 import {
@@ -288,22 +290,6 @@ function machineModePlan(configPath: string | undefined): Record<string, unknown
   return modes.plan && typeof modes.plan === "object" ? (modes.plan as Record<string, unknown>) : {};
 }
 
-/** Target dir precedence: explicit flag, then project config, then machine `modes.plan`, then `spec`. */
-function resolveTargetDir(
-  explicit: string | undefined,
-  config: ReturnType<typeof projectConfig>,
-  modePlan: Record<string, unknown>,
-  canonicalSeedTargetDir?: string,
-): string {
-  return (
-    explicit ??
-    canonicalSeedTargetDir ??
-    config.plan?.targetDir ??
-    (typeof modePlan.targetDir === "string" ? modePlan.targetDir : undefined) ??
-    "spec"
-  );
-}
-
 function canonicalTargetDir(
   project: ProjectMatch,
   path: string | undefined,
@@ -362,12 +348,12 @@ function intentSource(
     const { project, seed, publishGit } = resolved;
     const config = projectConfig(input.configPath, project);
     const plan = machineModePlan(input.configPath);
-    const targetDir = resolveTargetDir(
-      input.targetDir,
-      config,
-      plan,
-      canonicalTargetDir(project, seed.paths[0], "seeds"),
-    );
+    const targetDir = resolvePlanTargetDir({
+      explicit: input.targetDir,
+      canonical: canonicalTargetDir(project, seed.paths[0], "seeds"),
+      projectTargetDir: config.plan?.targetDir,
+      modeTargetDir: plan.targetDir,
+    });
     if (!validTargetDir(targetDir)) return { error: "intent: configured targetDir is invalid" };
     const root = input.jarvisRoot ?? jarvisHome();
     const branch = `intent/${seed.slug}`;
@@ -385,7 +371,7 @@ function intentSource(
     const collision = deps.inspectIdentity?.(identity);
     if (collision && collision.recordedInvocationId !== identity.invocationId && !collision.resumable)
       return { error: `intent: ${collision.message}; rerun with a new seed or resume the recorded invocation` };
-    const worktree = join(root, "worktrees", project.key, branch);
+    const worktree = managedWorktreePath(root, project.key, branch);
     const baseRef = publishGit ? await (deps.resolveBaseBranch ?? getBaseBranch)(project.root) : "none";
     const source: WriteWorkflowSourceStep = {
       behavior: "write",
@@ -433,7 +419,7 @@ export async function buildIntentWorkflowSteps(
     try {
       return { ok: true, steps: publish("intent", loaderDeps, r.source), identity: r.identity };
     } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: errorMessage(e) };
     }
   }
   const behavior = input.reviewBehavior ?? "light";
@@ -487,7 +473,7 @@ export async function buildIntentWorkflowSteps(
       identity: r.identity,
     };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    return { ok: false, error: errorMessage(e) };
   }
 }
 export async function buildPlanWorkflowSteps(
@@ -504,7 +490,7 @@ export async function buildPlanWorkflowSteps(
     try {
       return { ok: true, steps: publish("plan", loaderDeps, r.source), identity: r.identity };
     } catch (e) {
-      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      return { ok: false, error: errorMessage(e) };
     }
   }
   const behavior = input.reviewBehavior ?? "debate";
@@ -551,7 +537,7 @@ export async function buildPlanWorkflowSteps(
     if (!loadedReview) return { ok: false, error: `plan: ${behavior} review step was not loaded` };
     return { ok: true, steps: [...publish("plan", loaderDeps, r.source, loaded), loadedReview], identity: r.identity };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    return { ok: false, error: errorMessage(e) };
   }
 }
 const intentReview = ".jarvis-intent-review-verdict.md";
@@ -588,7 +574,7 @@ export function validateReadyIntent(
       return { ok: false, message: "plan: ready-intent missing required `## Prerequisites` section" };
     return { ok: true, name: fm.name, content };
   } catch (e) {
-    return { ok: false, message: `plan: could not read ready-intent: ${e instanceof Error ? e.message : String(e)}` };
+    return { ok: false, message: `plan: could not read ready-intent: ${errorMessage(e)}` };
   }
 }
 type ResolvedPlanReadyIntent = {
@@ -648,16 +634,16 @@ function planSource(
     const resolvedReady = resolvePlanReadyIntentInput(input, project, git, deps);
     if ("error" in resolvedReady) return { error: resolvedReady.error };
     const { ready, readyIntentPath, landingInputPath, landingSourceRoot } = resolvedReady;
-    const target = resolveTargetDir(
-      input.targetDir,
-      config,
-      modePlan,
-      canonicalTargetDir(project, readyIntentPath, "ready-intents"),
-    );
+    const target = resolvePlanTargetDir({
+      explicit: input.targetDir,
+      canonical: canonicalTargetDir(project, readyIntentPath, "ready-intents"),
+      projectTargetDir: config.plan?.targetDir,
+      modeTargetDir: modePlan.targetDir,
+    });
     if (!validTargetDir(target)) return { error: "plan: configured targetDir is invalid" };
     const root = input.jarvisRoot ?? jarvisHome();
     const branch = `plan/${ready.name}`;
-    const cwd = join(root, "worktrees", project.key, branch);
+    const cwd = managedWorktreePath(root, project.key, branch);
     const timestamp = `${new Date().toISOString().replace(/[-:]/g, "").split(".")[0]}Z`;
     const specDir = join(target, `${timestamp}-${ready.name}`);
     const externalPlanPath = join(root, "specs", projectSafeId(project.key), "plans", ready.name);

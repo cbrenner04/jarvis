@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { sleep } from "../../../shared/sleep.ts";
 import type { PublicationFailure } from "../execution/publication-retry.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type { OutcomeKind, RunStatus } from "./state-store.ts";
@@ -412,13 +413,4 @@ export function priorLogRecordsFromSink(logSink: LogSink | undefined, runId: str
     return (logSink as unknown as LogReader).tail(runId);
   }
   return [];
-}
-
-/** Resolve after `ms`, or immediately if `signal` is already aborted. */
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) return Promise.resolve();
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    timer.unref?.();
-  });
 }

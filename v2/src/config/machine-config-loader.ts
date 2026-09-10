@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import type { CodexSandboxMode } from "../../../shared/invocation/agents.ts";
+import { isRecord } from "../../../shared/is-record.ts";
 import type { ProjectRegistryEntry } from "../../../shared/project-registry.ts";
 import { MACHINE_CONFIG_PATH } from "../paths.ts";
 
@@ -91,10 +92,6 @@ export function resolveWritePathIterationBounds(configPath: string = MACHINE_CON
     iterationCeilingMs,
     ...(idleOutputTimeoutMs > 0 ? { idleOutputMs: idleOutputTimeoutMs } : {}),
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function readCleanupSessionLogRetentionDays(

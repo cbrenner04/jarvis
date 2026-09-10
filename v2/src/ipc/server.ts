@@ -1,6 +1,7 @@
 import { rmSync } from "node:fs";
 import { createServer, type Server, Socket } from "node:net";
 import { promisify } from "node:util";
+import { isRecord } from "../../../shared/is-record.ts";
 import { encodeFrame, FrameDecoder } from "./codec.ts";
 import type { ErrorFrame, IpcFrame, ResponseFrame, StreamDataFrame, StreamEndFrame } from "./types.ts";
 
@@ -21,10 +22,6 @@ export type StreamHandler = (
 ) => Promise<void>;
 
 const VALID_KINDS = new Set(["request", "response", "error", "stream-open", "stream-data", "stream-end"]);
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
 
 function frameKind(frame: unknown): string | null {
   if (!isRecord(frame) || typeof frame.kind !== "string") {

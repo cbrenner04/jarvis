@@ -1037,7 +1037,7 @@ index 1234567..abcdefg 100644
 `;
 
     function verifyTimeout(
-      runScopedTests: (cwd: string, scope: string[], options?: RunScopedTestsOptions) => Promise<boolean>,
+      runScopedTests: (cwd: string, scope: readonly string[], options?: RunScopedTestsOptions) => Promise<boolean>,
       writeFile: (path: string, content: string) => Promise<void> = async () => {},
       extra: { now?: () => number; listDir?: () => string[] } = {},
     ) {
@@ -1590,7 +1590,9 @@ index 1234567..abcdefg 100644
 
   const multi = dualGuardFixture("src/multi.ts", "multi", "a", "b");
 
-  async function runMultiGuardVerification(runScopedTests: (cwd: string, scope: string[]) => Promise<boolean>) {
+  async function runMultiGuardVerification(
+    runScopedTests: (cwd: string, scope: readonly string[]) => Promise<boolean>,
+  ) {
     let currentContent = multi.content;
     const observedAtTest: string[] = [];
     const writeLog: string[] = [];
@@ -2934,7 +2936,7 @@ index 1234567..abcdefg 100644
   }
 
   it("a changed guard whose only killing test is a sibling passes when the sibling kills the mutation", async () => {
-    const scopes: string[][] = [];
+    const scopes: (readonly string[])[] = [];
     const result = await verifyDiffDerivedMutations(
       { worktreePath: "/wt", runBase: "main" },
       {
@@ -3023,7 +3025,7 @@ index 1234567..abcdefg 100644
       readFile?: (path: string) => Promise<string>;
       listDir?: () => string[];
       listImporterCandidates?: () => string[];
-      runScopedTests?: (cwd: string, scope: string[]) => Promise<boolean>;
+      runScopedTests?: (cwd: string, scope: readonly string[]) => Promise<boolean>;
     } = {},
   ) {
     return verifyDiffDerivedMutations(
@@ -3042,7 +3044,7 @@ index 1234567..abcdefg 100644
   }
 
   it("a changed guard whose only killing test is a non-sibling direct importer passes when that importer kills the mutation", async () => {
-    const scopes: string[][] = [];
+    const scopes: (readonly string[])[] = [];
     const result = await verifyImporterFixture({
       listImporterCandidates: () => [directImporter, unrelatedImporter],
       runScopedTests: async (_cwd, scope) => {
@@ -3102,7 +3104,7 @@ index 1234567..abcdefg 100644
       expect(noTransitiveResult.mutation).toBe("missing-killing-test");
     }
 
-    const scopedRuns: string[][] = [];
+    const scopedRuns: (readonly string[])[] = [];
     const capResult = await verifyImporterFixture({
       listImporterCandidates: () => ordered,
       runScopedTests: async (_cwd, scope) => {
@@ -3122,7 +3124,7 @@ index 1234567..abcdefg 100644
     const sibling = "v2/src/feature/target-part.test.ts";
     let importerDiscoveryCalls = 0;
     const candidates = lexImporterCandidates(201);
-    const scopes: string[][] = [];
+    const scopes: (readonly string[])[] = [];
     const result = await verifyImporterFixture({
       listDir: () => ["target-part.test.ts"],
       listImporterCandidates: () => {
@@ -3157,7 +3159,7 @@ index 1234567..abcdefg 100644
 
   it("runs scoped mutation execution on co-located killing tests only and excludes direct importers and unrelated tests", async () => {
     const sibling = "v2/src/feature/target-part.test.ts";
-    const scopes: string[][] = [];
+    const scopes: (readonly string[])[] = [];
     const result = await verifyImporterFixture({
       listDir: () => ["target-part.test.ts"],
       listImporterCandidates: () =>

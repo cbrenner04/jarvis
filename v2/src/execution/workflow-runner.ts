@@ -97,6 +97,8 @@ import {
 
 export { isPostCommitReviewRetryableFailureKind };
 
+import { errorMessage } from "../../../shared/error-message.ts";
+import { listMarkdownFilesRecursive } from "./fs-walk.ts";
 import { buildJsonlSink } from "./telemetry-sink.ts";
 import {
   boundaryStampFromStoredRun,
@@ -246,7 +248,7 @@ export class LinkedIndexReadError extends Error {
   override readonly cause: unknown;
 
   constructor(indexPath: string, cause: unknown) {
-    const reason = cause instanceof Error ? cause.message : String(cause);
+    const reason = errorMessage(cause);
     super(`Failed to read linked routing index ${indexPath}: ${reason}`);
     this.name = "LinkedIndexReadError";
     this.indexPath = indexPath;
@@ -1031,7 +1033,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           completionStep.stepId,
         );
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = errorMessage(error);
         const landingDetail = landingFailedTerminalFailureDetail(message);
         store.commitTerminalRunSettlement({
           runId: lastResult.runId,
@@ -1352,7 +1354,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             traceCompletionPublication(args.logSink, lastResult.runId, completionStep.landing, worktree.branchName);
           }
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
+          const message = errorMessage(error);
           const completionCommitErrorMessage = message;
           settleWorkflowPublicationFailure(
             store,
@@ -1901,7 +1903,7 @@ function readSpecTree(worktreePath: string, specPath: string, labelRoot: string)
   const specRoot = dirname(resolvedSpecPath);
   if (!existsSync(specRoot)) return "(missing spec tree)";
 
-  const files = listMarkdownFiles(specRoot).sort();
+  const files = listMarkdownFilesRecursive(specRoot).sort();
   if (files.length === 0) return "(empty spec tree)";
 
   return files
@@ -1910,20 +1912,6 @@ function readSpecTree(worktreePath: string, specPath: string, labelRoot: string)
       return `## ${label}\n\n${readFileSync(filePath, "utf8")}`;
     })
     .join("\n\n");
-}
-
-function listMarkdownFiles(dir: string): string[] {
-  const entries = readdirSync(dir, { withFileTypes: true });
-  const files: string[] = [];
-  for (const entry of entries) {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...listMarkdownFiles(path));
-    } else if (entry.isFile() && path.endsWith(".md")) {
-      files.push(path);
-    }
-  }
-  return files;
 }
 
 async function changedFiles(
@@ -2374,7 +2362,7 @@ function reviewedIntentWorkspaceFailure(stagingDir: string): string | undefined 
     }
     return undefined;
   } catch (error) {
-    return `intent review: could not inspect staged workspace ${stagingDir}: ${error instanceof Error ? error.message : String(error)}`;
+    return `intent review: could not inspect staged workspace ${stagingDir}: ${errorMessage(error)}`;
   }
 }
 
@@ -2385,7 +2373,7 @@ function reviewedIntentEvidenceFailure(result: ReviewCycleResult, verdictPath: s
     readFileSync(verdictPath, "utf8");
     return undefined;
   } catch (error) {
-    return `intent review: critic did not produce verdict artifact ${verdictPath}: ${error instanceof Error ? error.message : String(error)}`;
+    return `intent review: critic did not produce verdict artifact ${verdictPath}: ${errorMessage(error)}`;
   }
 }
 

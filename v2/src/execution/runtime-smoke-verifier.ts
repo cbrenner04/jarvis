@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, normalize, relative, resolve } from "node:path";
+import { errorMessage } from "../../../shared/error-message.ts";
 import type { AsyncSubprocessOptions, AsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { defaultGitDiff, extractFileFromDiffLine, isProductionFile } from "./diff-scan.ts";
 import { trackProcessGroup, type VerifierProcessGroupRecorder } from "./verifier-process-groups.ts";
@@ -86,7 +87,7 @@ export function createExecuteEntrypoint(runner: Pick<AsyncSubprocessRunner, "run
       const output = await runner.runAsync("bun", ["run", entrypoint, ...args], cwd, options);
       return { success: true, output };
     } catch (e) {
-      const error = e instanceof Error ? e.message : String(e);
+      const error = errorMessage(e);
       return { success: false, output: error };
     } finally {
       tracked.settle();

@@ -1,6 +1,16 @@
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { type ChangedLine, changedPathsFromDiff, defaultGitDiff, isProductionFile, parseDiff } from "./diff-scan.ts";
+import {
+  type ChangedLine,
+  changedPathsFromDiff,
+  defaultGitDiff,
+  defaultReadFile,
+  defaultUntrackedFiles,
+  isCodePath,
+  isProductionFile,
+  parseDiff,
+} from "./diff-scan.ts";
+import { type CoverageTestScope, coverageTestScope } from "./test-scope.ts";
 
 type UncoveredChangedLinesInput = {
   worktreePath: string;
@@ -19,7 +29,7 @@ type UncoveredChangedLinesReport = {
 
 type GitDiff = (cwd: string, baseRef: string) => Promise<string>;
 type UntrackedFiles = (cwd: string) => Promise<string[]>;
-type RunTests = (cwd: string, scope: string[]) => Promise<boolean>;
+type RunTests = (cwd: string, scope: CoverageTestScope) => Promise<boolean>;
 type ReadFile = (path: string) => Promise<string>;
 type DeleteFile = (path: string) => Promise<void>;
 
@@ -31,27 +41,7 @@ type ReporterSeams = {
   deleteFile?: DeleteFile;
 };
 
-function isCodePath(path: string): boolean {
-  return /\.[cm]?[jt]sx?$/.test(path);
-}
-
-async function defaultUntrackedFiles(cwd: string): Promise<string[]> {
-  const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
-  try {
-    const output = await realAsyncSubprocessRunner.runAsync("git", ["ls-files", "--others", "--exclude-standard"], cwd);
-    return output
-      .trim()
-      .split("\n")
-      .filter((line) => {
-        const trimmed = line.trim();
-        return trimmed && isProductionFile(trimmed) && isCodePath(trimmed);
-      });
-  } catch {
-    return [];
-  }
-}
-
-async function defaultRunTests(cwd: string, scope: string[]): Promise<boolean> {
+async function defaultRunTests(cwd: string, scope: CoverageTestScope): Promise<boolean> {
   if (scope.length === 0) return true;
   const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
   try {
@@ -61,10 +51,6 @@ async function defaultRunTests(cwd: string, scope: string[]): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-async function defaultReadFile(path: string): Promise<string> {
-  return readFileSync(path, "utf-8");
 }
 
 async function defaultDeleteFile(path: string): Promise<void> {
@@ -138,7 +124,7 @@ export async function reportUncoveredChangedLines(
   seams?: ReporterSeams,
 ): Promise<UncoveredChangedLinesReport> {
   const gitDiff = seams?.gitDiff ?? defaultGitDiff;
-  const untrackedFilesFunc = seams?.untrackedFiles ?? defaultUntrackedFiles;
+  const untrackedFilesFunc = seams?.untrackedFiles ?? ((cwd: string) => defaultUntrackedFiles(cwd, { codeOnly: true }));
   const runTests = seams?.runTests ?? defaultRunTests;
   const readFile = seams?.readFile ?? defaultReadFile;
   const deleteFile = seams?.deleteFile ?? defaultDeleteFile;
@@ -180,7 +166,7 @@ export async function reportUncoveredChangedLines(
       }
     }
     const dirArray = Array.from(testedDirs);
-    const testsPassed = await runTests(input.worktreePath, dirArray);
+    const testsPassed = await runTests(input.worktreePath, coverageTestScope(dirArray));
 
     if (!testsPassed) {
       // Coverage run failed — fail soft, return no report

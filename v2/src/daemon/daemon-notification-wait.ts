@@ -1,3 +1,4 @@
+import { isRecord } from "../../../shared/is-record.ts";
 import type { RpcHandler } from "../ipc/server.ts";
 import {
   encodeNotificationDeliveryCursor,
@@ -21,10 +22,6 @@ type RegisteredWaiter = {
   reject: (error: Error) => void;
   unregister: () => void;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
 
 function parseNotificationWaitFilter(
   params: unknown,

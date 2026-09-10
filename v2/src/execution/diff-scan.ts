@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 /** Shared diff plumbing for the completion verifiers (mutation + runtime smoke). */
 
 export async function defaultGitDiff(cwd: string, baseRef: string): Promise<string> {
@@ -96,4 +97,30 @@ export function changedPathsFromDiff(diffOutput: string): string[] {
     if (path !== null && isProductionFile(path)) paths.add(path);
   }
   return [...paths];
+}
+
+/** JavaScript/TypeScript source or test path. */
+export function isCodePath(path: string): boolean {
+  return /\.[cm]?[jt]sx?$/.test(path);
+}
+
+export async function defaultReadFile(path: string): Promise<string> {
+  return readFileSync(path, "utf-8");
+}
+
+/** Untracked production paths under `cwd` (`git ls-files --others --exclude-standard`), optionally code paths only. */
+export async function defaultUntrackedFiles(cwd: string, options?: { codeOnly?: boolean }): Promise<string[]> {
+  const { realAsyncSubprocessRunner } = await import("../../../shared/subprocess.ts");
+  try {
+    const output = await realAsyncSubprocessRunner.runAsync("git", ["ls-files", "--others", "--exclude-standard"], cwd);
+    return output
+      .trim()
+      .split("\n")
+      .filter((line) => {
+        const trimmed = line.trim();
+        return trimmed && isProductionFile(trimmed) && (options?.codeOnly !== true || isCodePath(trimmed));
+      });
+  } catch {
+    return [];
+  }
 }

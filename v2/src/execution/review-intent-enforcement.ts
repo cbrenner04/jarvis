@@ -10,8 +10,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
+import { errorMessage } from "../../../shared/error-message.ts";
 import { getGitStatusInventory, isGitRepoAsync } from "../../../shared/git.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
+import { listRelativeFiles } from "./fs-walk.ts";
 import type { ReviewCycleInput, ReviewCycleResult } from "./review-cycle.ts";
 import { executeReviewCycle } from "./review-cycle.ts";
 
@@ -42,21 +44,6 @@ function clearTree(dir: string): void {
   }
 }
 
-/** Relative file paths currently present under `root`, skipping {@link EXCLUDED_DIR_NAMES}. */
-function listFiles(root: string, dir: string = root, out: string[] = []): string[] {
-  if (!existsSync(dir)) return out;
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.isDirectory() && EXCLUDED_DIR_NAMES.has(entry.name)) continue;
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      listFiles(root, full, out);
-    } else if (entry.isFile()) {
-      out.push(relative(root, full).replace(/\\/g, "/"));
-    }
-  }
-  return out;
-}
-
 /**
  * Working-tree state captured before a review cycle, used to detect and undo unauthorized
  * changes afterward. Git-enabled repos are diffed via `git status`; a plain (git-disabled)
@@ -71,7 +58,7 @@ export async function snapshotWorkingTree(cwd: string): Promise<TreeSnapshot> {
   if (await isGitRepoAsync(cwd)) return { kind: "git" };
   const backupDir = mkdtempSync(join(tmpdir(), "jarvis-review-backup-"));
   copyTree(cwd, backupDir);
-  return { kind: "fs", backupDir, files: new Set(listFiles(cwd)) };
+  return { kind: "fs", backupDir, files: new Set(listRelativeFiles(cwd, EXCLUDED_DIR_NAMES)) };
 }
 
 /**
@@ -86,7 +73,7 @@ export async function getChangedPaths(
     const inventory = await getGitStatusInventory(cwd, runner);
     return new Set(inventory.map((entry) => entry.currentPath));
   }
-  const after = new Set(listFiles(cwd));
+  const after = new Set(listRelativeFiles(cwd, EXCLUDED_DIR_NAMES));
   const changed = new Set<string>();
   for (const path of after) {
     if (!before.files.has(path)) {
@@ -240,7 +227,7 @@ export async function executeReviewCycleEnforced(args: {
       return {
         result,
         verdictState,
-        boundaryViolation: `intent review boundary inspection failed: ${error instanceof Error ? error.message : String(error)}`,
+        boundaryViolation: `intent review boundary inspection failed: ${errorMessage(error)}`,
       };
     }
 

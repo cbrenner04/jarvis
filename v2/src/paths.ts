@@ -32,3 +32,13 @@ export function daemonPathsByDigest(digest: string): {
     logPath: join(home, `daemon-${key}.log`),
   };
 }
+
+/** Root of every managed worktree under a jarvis home. */
+export function worktreesRoot(jarvisRoot: string): string {
+  return join(jarvisRoot, "worktrees");
+}
+
+/** The managed worktree for a `(project, branch)` key; the only place the layout is spelled out. */
+export function managedWorktreePath(jarvisRoot: string, projectName: string, branchName: string): string {
+  return join(worktreesRoot(jarvisRoot), projectName, branchName);
+}

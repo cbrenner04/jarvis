@@ -1,9 +1,11 @@
 import { existsSync, lstatSync, mkdirSync, rmSync, statSync, symlinkSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { errorMessage } from "../../../shared/error-message.ts";
 import { branchExistsLocalAsync, branchExistsOnOriginAsync, getCurrentBranchAsync } from "../../../shared/git.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { acquireLock, releaseLock, type WorktreeLock } from "../../../shared/worktree-lock.ts";
-import { jarvisHome } from "../paths.ts";
+import { jarvisHome, managedWorktreePath } from "../paths.ts";
+import { throwIfAborted } from "./throw-if-aborted.ts";
 
 export const MATERIALIZED_NODE_MODULES_PATH = "node_modules";
 
@@ -48,7 +50,7 @@ export class WorktreeMaterializationError extends Error {
   override readonly cause: unknown;
 
   constructor(worktreePath: string, cause: unknown) {
-    const reason = cause instanceof Error ? cause.message : String(cause);
+    const reason = errorMessage(cause);
     super(`Failed to materialize worktree ${worktreePath}: ${reason}`);
     this.name = "WorktreeMaterializationError";
     this.worktreePath = worktreePath;
@@ -67,7 +69,7 @@ export type WithExternalWorktreeResult<T> = {
 export function getExternalWorktreePath(args: ExternalWorktreeInput): string {
   if (args.git === false && args.localPath !== undefined) return args.localPath;
   const jarvisRoot = args.jarvisRoot ?? jarvisHome();
-  return join(jarvisRoot, "worktrees", args.projectName, args.branchName);
+  return managedWorktreePath(jarvisRoot, args.projectName, args.branchName);
 }
 
 /**
@@ -108,10 +110,6 @@ export async function withExternalWorktree<T>(
     // the external-worktree lock-hold regression RED.
     releaseExternalWorktreeLock(lockRoot);
   }
-}
-
-function throwIfAborted(signal: AbortSignal | undefined): void {
-  if (signal?.aborted) throw new Error("write execution aborted");
 }
 
 /** Acquire the lock; a live holder throws {@link WorktreeBusyError} (refuse, don't queue). */

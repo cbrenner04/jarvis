@@ -77,6 +77,26 @@ Every export of a `v2/src` production module (the `isProductionSourceFile` predi
 
 `DEAD_EXPORT_ALLOWLIST` in the script names surface that is intentionally public but statically unreferenced, keyed `<file>#<symbol>` with a reason (today only `v2/src/cli.ts#main`, the `bin/jarvis` entry point). Add an entry only for a real external consumer, never to keep an unused export. Manual red-check: add `export const probe = 1;` to any production file under `v2/src/`, run `bun run check`, delete the line.
 
+## Canonical helper homes
+
+One implementation per helper family; a second local copy is cruft, not convenience. Import from the home instead of re-declaring:
+
+| Family | Home |
+| --- | --- |
+| `isRecord` | `shared/is-record.ts` |
+| `errorMessage` (error → text) | `shared/error-message.ts`; also replaces inline `x instanceof Error ? x.message : String(x)` |
+| `sleep` (abort-aware, unref'd) | `shared/sleep.ts` |
+| Hidden-shrink step-id suffix and helpers | `shared/shrink-step-id.ts` (re-exported by `shared/write-sibling-step-id.ts`) |
+| Plan target-directory precedence | `shared/plan-target-dir.ts` (`resolvePlanTargetDir`); callers validate shape first |
+| `isLoadError` | `v2/src/config/agent-model-config.ts`, beside `LoadError` |
+| `throwIfAborted` | `v2/src/execution/throw-if-aborted.ts` |
+| Recursive Markdown / relative-file walkers | `v2/src/execution/fs-walk.ts` |
+| Diff and untracked-file plumbing shared by the verifiers | `v2/src/execution/diff-scan.ts` |
+| Managed worktree layout (`<jarvisRoot>/worktrees/<project>/<branch>`) | `v2/src/paths.ts` (`worktreesRoot`, `managedWorktreePath`); never `join(root, "worktrees", …)` by hand |
+| Scoped-test list shapes | `v2/src/execution/test-scope.ts`: `CoverageTestScope` (patterns for one `bun test --coverage`) and `KillingTestPaths` (one `bun test <path>` per entry) are distinct brands, so the wrong list is a compile error |
+
+`v2/src/execution/helper-homes.test.ts` pins the absence of local copies and hand-rolled worktree joins under `v2/src`; `test-scope.test.ts` pins the brand distinction at compile time.
+
 ## Workflow composition gate
 
 New workflow behavior must compose the existing publication, review, landing, and linked-subspec routing groups. Do not duplicate those groups in preset-specific paths.

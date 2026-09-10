@@ -13,6 +13,7 @@ import { isGitRepoAsync } from "../../../shared/git.ts";
 import { validateIntentStage } from "../../../shared/intent-stage.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { isMaterializedNodeModulesPath } from "./external-worktree.ts";
+import { listRelativeFiles } from "./fs-walk.ts";
 
 export type IntentOutputConfig = {
   durableDir: string;
@@ -24,21 +25,9 @@ type IntentOutputResult = {
   downstreamInputs?: string[];
 };
 
-export type IntentPipelineHandoff = Pick<IntentOutputResult, "specPath" | "downstreamInputs">;
+const INTENT_OUTPUT_EXCLUDED_DIRS: ReadonlySet<string> = new Set([".git"]);
 
-/** Relative file paths currently present under `worktreePath`, excluding `.git`. */
-function listFiles(worktreePath: string, dir: string = worktreePath, out: string[] = []): string[] {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.isDirectory() && entry.name === ".git") continue;
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      listFiles(worktreePath, full, out);
-    } else if (entry.isFile()) {
-      out.push(relative(worktreePath, full).replace(/\\/g, "/"));
-    }
-  }
-  return out;
-}
+export type IntentPipelineHandoff = Pick<IntentOutputResult, "specPath" | "downstreamInputs">;
 
 function intentStageModifiedPaths(allPaths: readonly string[]): string[] {
   return allPaths.filter((path) => path === ".jarvis-intent-stage" || path.startsWith(".jarvis-intent-stage/"));
@@ -68,7 +57,7 @@ async function listWorktreeChangedPaths(
       }
     }
   }
-  return existsSync(worktreePath) ? listFiles(worktreePath) : [];
+  return existsSync(worktreePath) ? listRelativeFiles(worktreePath, INTENT_OUTPUT_EXCLUDED_DIRS) : [];
 }
 
 function failure(message: string): never {

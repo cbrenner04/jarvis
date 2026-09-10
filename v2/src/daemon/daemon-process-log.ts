@@ -1,4 +1,6 @@
 import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
+import { errorMessage } from "../../../shared/error-message.ts";
+import { sleep } from "../../../shared/sleep.ts";
 
 /** stdout/stderr sink for `jarvis daemon log`. */
 type DaemonLogIo = {
@@ -19,10 +21,6 @@ const defaultFs: DaemonLogFs = { existsSync, statSync, openSync, readSync, close
 
 /** Interval `followDaemonProcessLog` polls for appends. */
 const FOLLOW_POLL_MS = 200;
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function isEnoent(error: unknown): boolean {
   return typeof error === "object" && error !== null && (error as { code?: string }).code === "ENOENT";
@@ -60,23 +58,6 @@ export function readDaemonProcessLog(path: string, io: DaemonLogIo, fs: DaemonLo
     io.writeErr(`daemon process log read failed: ${errorMessage(error)}\n`);
     return 1;
   }
-}
-
-/** Resolve after `ms`, or immediately if `signal` is already aborted. */
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  if (signal.aborted) return Promise.resolve();
-  return new Promise((resolve) => {
-    const onAbort = (): void => {
-      clearTimeout(timer);
-      resolve();
-    };
-    const timer = setTimeout(() => {
-      signal.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    timer.unref?.();
-    signal.addEventListener("abort", onAbort, { once: true });
-  });
 }
 
 /**

@@ -1,3 +1,4 @@
+import { isRecord } from "../../../shared/is-record.ts";
 import { connectIpcClient, type IpcClient } from "../ipc/client.ts";
 import { RpcConnectionError } from "../ipc/rpc-errors.ts";
 import type { IpcFrame } from "../ipc/types.ts";
@@ -31,10 +32,6 @@ export type ConnectTuiLogTailOptions = {
   /** Injectable IPC transport seam for tests and callers. */
   connectIpcClient?: (socketPath: string) => Promise<IpcClient>;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
 
 function connectionError(message: string, cause?: unknown): RpcConnectionError {
   return new RpcConnectionError(message, cause !== undefined ? { cause } : undefined);

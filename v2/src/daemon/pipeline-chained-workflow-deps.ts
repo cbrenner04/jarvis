@@ -5,7 +5,7 @@ import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import type { BuildImplementWorkflowStepsDeps } from "../execution/implement-workflow-steps.ts";
 import type { PlanWorkflowDeps } from "../execution/publication-workflow-steps.ts";
 import { loadWorkflowSteps as realLoadWorkflowSteps } from "../execution/workflow-loader.ts";
-import { jarvisHome } from "../paths.ts";
+import { jarvisHome, worktreesRoot } from "../paths.ts";
 import type { PipelineContext } from "../persistence/state-store.ts";
 
 function isUnderPath(child: string, parent: string): boolean {
@@ -72,7 +72,7 @@ export function createChainedStageProjectMatch(context: PipelineContext): (path:
     for (const key of Object.keys(registry)) {
       const safeId = projectSafeId(key);
       if (
-        isUnderPath(resolved, join(jarvisRoot, "worktrees", key)) ||
+        isUnderPath(resolved, join(worktreesRoot(jarvisRoot), key)) ||
         isUnderPath(resolved, join(jarvisRoot, "intent-work", safeId)) ||
         isUnderPath(resolved, join(jarvisRoot, "specs", safeId))
       ) {

@@ -10,6 +10,7 @@ import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import {
   type AgentModelConfig,
+  isLoadError,
   type LoadError,
   resolveExecutableRole,
   resolveInvocationBindings,
@@ -393,10 +394,6 @@ export function settleKilledWorkflowOwnership(args: {
 }): void {
   for (const runId of args.killedRunIds) settleGuardedKill(args.stateStore, runId);
   args.releaseRegistry();
-}
-
-function isLoadError(value: AgentModelConfig | LoadError): value is LoadError {
-  return "errors" in value && Array.isArray(value.errors);
 }
 
 /** Same loader path as fresh write-step admission (`loadWorkflowSteps`). */

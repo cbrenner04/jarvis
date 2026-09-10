@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
+import { errorMessage } from "../../../shared/error-message.ts";
 import type { RunFixCommandOpts } from "../../../shared/fix-command.ts";
 import { createResolvedAgentBinding, type ResolvedAgentBinding } from "../../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
@@ -281,7 +282,7 @@ export async function landReviewedPublicationOutput(
     return { ok: true, specPath: result.specPath };
   } catch (error) {
     restoreVerdictSidecars(verdictPath, verdict, ownerPath, owner);
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     if (trace)
       resumeInjected().recordIntentFinalization(trace.logSink, trace.runId, "review_landing", trace.branch, message);
     return { ok: false, message };
@@ -765,7 +766,7 @@ async function commitRecoveredPlanLanding(
   } catch (error) {
     return {
       kind: "completion_commit_failed",
-      message: error instanceof Error ? error.message : String(error),
+      message: errorMessage(error),
     };
   }
 }
@@ -1186,7 +1187,7 @@ async function runIntentResumeCommitAndPublish(
       iterationTimeoutMs: DEFAULT_ITERATION_TIMEOUT_MS,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     return settlePublicationResumeFailure(
       store,
       context,
@@ -1365,7 +1366,7 @@ export async function resumePopulatedIntentPublication(
 
     return await runIntentResumeCommitAndPublish(context, store, attemptId, deps, writeSibling);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     return settlePublicationResumeFailure(
       store,
       context,
@@ -1780,7 +1781,7 @@ async function commitReviewMutationResumeChanges(
       ...externalSpecGitScope(context),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     return settlePublicationResumeFailure(
       store,
       context,
@@ -2005,7 +2006,7 @@ async function runMutationRepairAttempt(
       ...externalSpecGitScope(context),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     return {
       kind: "settled",
       outcome: await settlePublicationResumeFailure(
@@ -2443,7 +2444,7 @@ async function replayMutationFinalization(
 
     return await runReviewMutationCommitAndPublish(context, store, attemptId, deps, writeSibling);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     return settlePublicationResumeFailure(
       store,
       context,

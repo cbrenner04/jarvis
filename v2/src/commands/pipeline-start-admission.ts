@@ -2,6 +2,7 @@ import { accessSync, constants, realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 import { formatConnectionError, formatLifecycleError, formatRpcError } from "../cli/ipc.ts";
 import type { AgentModelConfig, LoadError } from "../config/agent-model-config.ts";
+import { isLoadError } from "../config/agent-model-config.ts";
 import type { readProjectConfigRecord } from "../config/machine-config-loader.ts";
 import type { PipelineDefinition } from "../execution/pipeline-definition.ts";
 import type { getPipelineDefinition } from "../execution/pipeline-registry.ts";
@@ -104,10 +105,6 @@ function resolvePipelineSeed(
       detail: `pipeline: cannot resolve seed path: ${error instanceof Error ? error.message : String(error)}\n`,
     };
   }
-}
-
-function isLoadError(value: AgentModelConfig | LoadError): value is LoadError {
-  return "errors" in value;
 }
 
 function connectionLifecycleDetail(error: unknown): string {

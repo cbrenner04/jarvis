@@ -14,12 +14,14 @@ import {
   runV2TestFiles,
   type SpawnOutcome,
 } from "../../../scripts/run-v2-tests.ts";
+import { errorMessage } from "../../../shared/error-message.ts";
 import {
   AsyncSubprocessError,
   type AsyncSubprocessRunner,
   realAsyncSubprocessRunner,
 } from "../../../shared/subprocess.ts";
 import type { LoopFinishedEvent, PersistedRecord } from "../persistence/log-stream.ts";
+import { listMarkdownFilesRecursive } from "./fs-walk.ts";
 import {
   defaultPublicationDelay,
   defaultPublicationRetryNotice,
@@ -393,7 +395,7 @@ function formatBaseRefProbeError(error: unknown, exitCode?: number, output?: str
     parts.push(tail.trim());
   }
   if (parts.length === 0) {
-    return error instanceof Error ? error.message : String(error);
+    return errorMessage(error);
   }
   return parts.join(": ");
 }
@@ -658,20 +660,6 @@ export function parseGitNameStatusZ(output: string): string[] | undefined {
   return paths;
 }
 
-function listMarkdownFiles(dir: string): string[] {
-  const entries = readdirSync(dir, { withFileTypes: true });
-  const files: string[] = [];
-  for (const entry of entries) {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...listMarkdownFiles(path));
-    } else if (entry.isFile() && entry.name.endsWith(".md")) {
-      files.push(path);
-    }
-  }
-  return files;
-}
-
 function resolveSpecScopeRoot(worktreePath: string, specPath: string): string | null {
   const resolvedSpecPath = isAbsolute(specPath) ? specPath : join(worktreePath, specPath);
   try {
@@ -697,7 +685,7 @@ function enumerateSpecTreePaths(worktreePath: string, specPath: string): string[
   if (!existsSync(scopeRoot)) {
     return null;
   }
-  const files = listMarkdownFiles(scopeRoot);
+  const files = listMarkdownFilesRecursive(scopeRoot);
   if (files.length === 0) {
     return null;
   }
@@ -1076,7 +1064,7 @@ function createDefaultRunReadyGate(runner: AsyncSubprocessRunner): ReadyGate {
         const timedOut = isDeadlineKilledGate(error.status, output);
         throw new ReadyGateError(command.display, error.status, output, timedOut, undefined, undefined, error.code);
       }
-      const detail = error instanceof Error ? error.message : String(error);
+      const detail = errorMessage(error);
       throw new ReadyGateError(command.display, undefined, detail);
     } finally {
       tracked.settle();
@@ -1108,7 +1096,7 @@ function createDefaultRunRequiredIntegration(runner: AsyncSubprocessRunner): Req
         const timedOut = isDeadlineKilledGate(error.status, output);
         throw new ReadyGateError(scope, error.status, output, timedOut);
       }
-      const detail = error instanceof Error ? error.message : String(error);
+      const detail = errorMessage(error);
       throw new ReadyGateError(scope, undefined, detail);
     } finally {
       tracked.settle();

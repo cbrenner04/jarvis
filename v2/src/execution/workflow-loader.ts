@@ -1,4 +1,9 @@
-import { type AgentModelConfig, type LoadError, resolveExecutableRole } from "../config/agent-model-config.ts";
+import {
+  type AgentModelConfig,
+  isLoadError,
+  type LoadError,
+  resolveExecutableRole,
+} from "../config/agent-model-config.ts";
 import { loadMachineConfig, resolveMachineProfile } from "../config/machine-config-loader.ts";
 import { loadMachineProfileModels, type MachineProfileLoadOptions } from "../config/machine-profile-loader.ts";
 import {
@@ -8,10 +13,6 @@ import {
   type WriteWorkflowStep,
 } from "./workflow-runner.ts";
 import { DEFAULT_WRITE_AGENTS } from "./write-loop-input.ts";
-
-function isLoadError(value: unknown): value is LoadError {
-  return typeof value === "object" && value !== null && "errors" in value && Array.isArray((value as LoadError).errors);
-}
 
 /** Authored write step minus config-derived `agents`/`agentModelConfig`. */
 export type WriteWorkflowSourceStep = Omit<WriteWorkflowStep, "agents" | "agentModelConfig">;

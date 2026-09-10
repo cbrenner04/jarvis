@@ -30,6 +30,11 @@ type ModelsByRole = Partial<Record<Role, ModelEscalation>>;
 
 export type AgentModelConfig = Record<string, ModelsByRole | undefined>;
 
+/** Discriminates a machine-config load failure from a loaded `AgentModelConfig`. */
+export function isLoadError(value: unknown): value is LoadError {
+  return typeof value === "object" && value !== null && "errors" in value && Array.isArray((value as LoadError).errors);
+}
+
 export type LoadError = {
   readonly errors: readonly string[];
 };

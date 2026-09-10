@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { listMarkdownFilesRecursive } from "./fs-walk.ts";
 
 export type ExternalSpecGitScope = {
   externalPlanSpec?: true;
@@ -27,17 +28,6 @@ function resolvesUnderExternalSpecRoot(worktreePath: string, path: string, specR
   }
 }
 
-function listExternalSpecArtifacts(specReadRoot: string): string[] {
-  if (!existsSync(specReadRoot)) return [];
-  const files: string[] = [];
-  for (const entry of readdirSync(specReadRoot, { withFileTypes: true })) {
-    const path = join(specReadRoot, entry.name);
-    if (entry.isDirectory()) files.push(...listExternalSpecArtifacts(path));
-    else if (entry.isFile() && path.endsWith(".md")) files.push(path);
-  }
-  return files;
-}
-
 function matchesExternalSpecCopy(worktreePath: string, path: string, externalArtifacts: readonly string[]): boolean {
   if (!path.endsWith(".md")) return false;
   try {
@@ -63,7 +53,7 @@ function captureExternalSpecTree(
   const root = realpathSync(scope.specReadRoot);
   const allowed = new Set(allowedArtifacts.map((path) => resolve(path)));
   const files = new Map<string, Buffer>();
-  for (const path of listExternalSpecArtifacts(root)) {
+  for (const path of listMarkdownFilesRecursive(root)) {
     if (!allowed.has(resolve(path))) files.set(path, readFileSync(path));
   }
   return { root, files, allowedArtifacts: allowed };
@@ -73,7 +63,7 @@ function captureExternalSpecTree(
 function restoreExternalSpecTree(snapshot: ExternalSpecTreeSnapshot | undefined): string[] {
   if (snapshot === undefined) return [];
   if (!existsSync(snapshot.root)) mkdirSync(snapshot.root, { recursive: true });
-  const current = new Set(listExternalSpecArtifacts(snapshot.root));
+  const current = new Set(listMarkdownFilesRecursive(snapshot.root));
   const changed = new Set<string>();
   for (const [path, content] of snapshot.files) {
     current.delete(path);
@@ -122,7 +112,7 @@ export function excludeExternalSpecGitPaths(
 ): string[] {
   if (scope.externalPlanSpec !== true || scope.specReadRoot === undefined) return [...paths];
   const specReadRoot = realpathSync(scope.specReadRoot);
-  const externalArtifacts = listExternalSpecArtifacts(specReadRoot);
+  const externalArtifacts = listMarkdownFilesRecursive(specReadRoot);
   return paths.filter(
     (path) =>
       !resolvesUnderExternalSpecRoot(worktreePath, path, specReadRoot) &&

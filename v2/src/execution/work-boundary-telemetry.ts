@@ -1,5 +1,6 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { errorMessage } from "../../../shared/error-message.ts";
 import { jarvisHome } from "../paths.ts";
 import type { Attempt, OutcomeKind, Run, RunStatus } from "../persistence/state-store.ts";
 
@@ -86,6 +87,6 @@ export function emitWorkBoundaryRecorded(
     });
     return undefined;
   } catch (error) {
-    return error instanceof Error ? error.message : String(error);
+    return errorMessage(error);
   }
 }

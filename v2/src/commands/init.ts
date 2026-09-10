@@ -10,6 +10,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { errorMessage } from "../../../shared/error-message.ts";
+import { isRecord } from "../../../shared/is-record.ts";
+import { resolvePlanTargetDir } from "../../../shared/plan-target-dir.ts";
 import type { Io } from "../cli/io.ts";
 import type { LoadError } from "../config/agent-model-config.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
@@ -212,10 +215,6 @@ function prepareMachineConfig(
   return { profile: selectedProfile, agents, config: next };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function validateProjectEntry(projectKey: string, project: unknown): asserts project is Record<string, unknown> {
   if (!isRecord(project)) throw new Error(`Machine config 'projects.${projectKey}' must be an object`);
   if (project.root !== undefined && typeof project.root !== "string") {
@@ -327,10 +326,6 @@ function inside(parent: string, child: string): boolean {
   return path === "" || (!path.startsWith("..") && !isAbsolute(path));
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 /**
  * Walks every existing ancestor of `relativePath` (resolved from `projectRoot`), resolving
  * symlinks physically and rejecting any that escape the resolved project root. `finalMustBeDirectory`
@@ -368,7 +363,7 @@ function assertContainedPath(projectRoot: string, relativePath: string, finalMus
 
 /** Target-dir precedence: explicit `--target-dir`, then the project's owned `plan.targetDir`,
  * then the legacy (read-only) `modes.plan.targetDir`, then `spec`. Shared by setup and scaffolding. */
-function resolveTargetDir(
+function validatedInitTargetDir(
   requestedTargetDir: string | undefined,
   existing: Record<string, unknown>,
   existingProject: Record<string, unknown> | undefined,
@@ -380,7 +375,11 @@ function resolveTargetDir(
   if (owned !== undefined && !validTargetDir(owned)) {
     throw new Error(`project 'plan.targetDir' value '${owned}' must be a relative non-traversing path`);
   }
-  return requestedTargetDir ?? owned ?? legacyModePlanTargetDir(existing) ?? "spec";
+  return resolvePlanTargetDir({
+    explicit: requestedTargetDir,
+    projectTargetDir: owned,
+    modeTargetDir: legacyModePlanTargetDir(existing),
+  });
 }
 
 type TargetDirResolution = { targetDir: string; nextProject?: Record<string, unknown> };
@@ -391,7 +390,7 @@ function prepareTargetDir(
   existingProject: Record<string, unknown> | undefined,
   projectRoot: string,
 ): TargetDirResolution {
-  const targetDir = resolveTargetDir(requestedTargetDir, existing, existingProject);
+  const targetDir = validatedInitTargetDir(requestedTargetDir, existing, existingProject);
   assertContainedPath(projectRoot, targetDir, true);
   const owned = ownedTargetDir(existingProject);
   if (requestedTargetDir === undefined || requestedTargetDir === owned) return { targetDir };
@@ -461,7 +460,7 @@ async function runCheckMode(
   const agents = resolveCheckAgents(existing, isExecutable);
 
   const registration = await resolveProjectRegistration(existing, options.name, cwd, git);
-  const targetDir = resolveTargetDir(options.targetDir, existing, registration.existingProject);
+  const targetDir = validatedInitTargetDir(options.targetDir, existing, registration.existingProject);
 
   const checkResults = await evaluateReadiness(
     {

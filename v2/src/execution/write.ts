@@ -10,6 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
+import { errorMessage } from "../../../shared/error-message.ts";
 import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
 import type { SessionLog } from "../../../shared/invocation/session-log.ts";
 import { normalizePlanDraftSpecDir } from "../../../shared/module-boundary-surfaces.ts";
@@ -30,6 +31,7 @@ import {
   withExternalWorktree as realWithExternalWorktree,
 } from "./external-worktree.ts";
 import { type BlockerTextContract, runStep, type StepContract, type StepRunResult } from "./step-runner.ts";
+import { throwIfAborted } from "./throw-if-aborted.ts";
 import { renderStepPrompt } from "./write-prompt.ts";
 
 const DEFAULT_PROMPT_ID = "write.execute";
@@ -214,7 +216,7 @@ function validatePlanDraft(
   } catch (err) {
     // Mutation checkpoint: replacing `message` with PLAN_DRAFT_SHAPE_REASON here must turn
     // "plan-draft normalizer contract_miss carries the normalizer message" RED.
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorMessage(err);
     return { ok: false, reason: message };
   }
 
@@ -703,10 +705,6 @@ export async function executeWrite(args: WriteExecuteInput): Promise<WriteExecut
     lock: wrapped.lock,
     result: wrapped.value,
   };
-}
-
-function throwIfAborted(signal: AbortSignal | undefined): void {
-  if (signal?.aborted) throw new Error("write execution aborted");
 }
 
 function resolveInWorktree(worktreePath: string, path: string): string {

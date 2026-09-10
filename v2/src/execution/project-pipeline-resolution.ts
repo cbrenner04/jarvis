@@ -1,3 +1,4 @@
+import { isRecord } from "../../../shared/is-record.ts";
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import type { ProjectPipelineConfig } from "../config/machine-config-loader.ts";
 import {
@@ -32,10 +33,6 @@ type ParsedProjectPipeline = {
   terminalAction: PipelineTerminalAction;
   reviewOverrides: Array<[stageId: string, posture: string]>;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function invalid(key: string, message: string): { ok: false; error: InvalidProjectPipelineConfigError } {
   return { ok: false, error: { code: "invalid-project-pipeline-config", key, message } };

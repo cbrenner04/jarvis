@@ -568,10 +568,10 @@ async function withOwnerRoutedPipelineClient(
   pipelineIdArgument: string,
   io: Io,
   deps: CliDeps,
-  fn: (client: IpcClient) => Promise<number>,
+  fn: (client: IpcClient, resolvedPipelineId: string) => Promise<number>,
 ): Promise<number> {
   const idResolution = await resolvePipelineIdAcrossDaemons(pipelineIdArgument, deps);
-  if (idResolution.kind === "ambiguous") {
+  if (idResolution.kind === "ambiguous" || idResolution.kind === "incomplete") {
     io.stderr(`${idResolution.message}\n`);
     return 1;
   }
@@ -581,11 +581,11 @@ async function withOwnerRoutedPipelineClient(
     io.stderr(renderPipelineDaemonResolutionRefusal(ownerResolution));
     return 1;
   }
-  return withRunClient(io, deps, fn, ownerResolution.socketPath);
+  return withRunClient(io, deps, (client) => fn(client, pipelineId), ownerResolution.socketPath);
 }
 
 async function runPipelineWaitCommand(pipelineId: string, io: Io, deps: CliDeps): Promise<number> {
-  return withOwnerRoutedPipelineClient(pipelineId, io, deps, async (client) => {
+  return withOwnerRoutedPipelineClient(pipelineId, io, deps, async (client, pipelineId) => {
     const unregister = deps.onSigint(() => client.close());
     try {
       let response: unknown;
@@ -634,8 +634,8 @@ async function runPipelineMutationCommand(
   io: Io,
   deps: CliDeps,
 ): Promise<number> {
-  return withOwnerRoutedPipelineClient(pipelineId, io, deps, async (client) => {
-    const result = await requestPipelineRpc(client, method, params, io);
+  return withOwnerRoutedPipelineClient(pipelineId, io, deps, async (client, pipelineId) => {
+    const result = await requestPipelineRpc(client, method, { ...params, pipelineId }, io);
     if (!result.ok) return 1;
     const outcome = parsePipelineMutationOutcome(result.response, successKind);
     if (outcome === undefined) {
@@ -697,7 +697,7 @@ async function runPipelineRecoverCommand(
   deps: CliDeps,
 ): Promise<number> {
   const { pipelineId, branchKey, resetDespiteDirty, resetDespiteLandedCriteria } = params;
-  return withOwnerRoutedPipelineClient(pipelineId, io, deps, async (client) => {
+  return withOwnerRoutedPipelineClient(pipelineId, io, deps, async (client, pipelineId) => {
     const result = await requestPipelineRpc(
       client,
       "pipeline_recover",
@@ -774,7 +774,7 @@ async function runPipelineDismissalCommand(
   io: Io,
   deps: CliDeps,
 ): Promise<number> {
-  return withOwnerRoutedPipelineClient(pipelineId, io, deps, async (client) => {
+  return withOwnerRoutedPipelineClient(pipelineId, io, deps, async (client, pipelineId) => {
     const method = mode === "dismiss" ? "pipeline_dismiss" : "pipeline_undismiss";
     const result = await requestPipelineRpc(client, method, { pipelineId }, io);
     if (!result.ok) return 1;

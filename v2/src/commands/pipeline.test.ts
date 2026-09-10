@@ -2314,6 +2314,59 @@ describe("pipeline dismiss", () => {
 });
 
 describe("pipeline verb owner routing", () => {
+  test.each([
+    ["approve", ["gate", "default"], { kind: "applied" }],
+    ["reject", ["gate", "default"], { kind: "applied" }],
+    ["resume", [], { kind: "resumed", pipelineId: "aaaaaaaa1111" }],
+    [
+      "recover",
+      ["alpha"],
+      { kind: "admitted", pipelineId: "aaaaaaaa1111", branchKey: "alpha", stageId: "plan", entryRunId: "run-1" },
+    ],
+    ["dismiss", [], { kind: "applied", pipelineId: "aaaaaaaa1111", state: "failed" }],
+    ["undismiss", [], { kind: "applied", pipelineId: "aaaaaaaa1111", state: "failed" }],
+    ["wait", [], { kind: "terminal", state: "succeeded" }],
+  ] as const)("sends the resolved full pipeline id for %s", async (verb, extra, outcome) => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    let calls = 0;
+    const code = await main(["pipeline", verb, "aaaaaaaa", ...extra], cap.io, {
+      ...pipelineDeps(undefined),
+      connectIpcClient: async () => {
+        calls += 1;
+        if (calls === 1)
+          return pipelineListClient({ pipelines: [{ ...SAMPLE_PIPELINE_SNAPSHOT, pipelineId: "aaaaaaaa1111" }] });
+        if (calls === 2) return pipelineListClient({ kind: "owner", pipelineId: "aaaaaaaa1111" });
+        return pipelineListClient(outcome, sent);
+      },
+    });
+    expect(code).toBe(0);
+    expect(ipcFramesWithMethod(sent, `pipeline_${verb}`)).toEqual([
+      expect.objectContaining({ params: expect.objectContaining({ pipelineId: "aaaaaaaa1111" }) }),
+    ]);
+  });
+
+  test("reports incomplete id sets before probing an owner", async () => {
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const code = await main(["pipeline", "approve", "aaaaaaaa", "gate", "default"], cap.io, {
+      ...pipelineDeps(undefined),
+      socketPath: "/good.sock",
+      socketDiscovery: async () => ["/bad.sock"],
+      connectIpcClient: async (path) =>
+        pipelineListClient(
+          path === "/good.sock"
+            ? { pipelines: [{ ...SAMPLE_PIPELINE_SNAPSHOT, pipelineId: "aaaaaaaa1111" }] }
+            : { pipelines: "malformed" },
+          sent,
+        ),
+    });
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toContain("pipeline_id_set_incomplete:");
+    expect(ipcFramesWithMethod(sent, "pipeline_owner")).toHaveLength(0);
+    expect(ipcFramesWithMethod(sent, "pipeline_approve")).toHaveLength(0);
+  });
+
   const invokingSocket = "/jarvis/daemon-ffff.sock";
   const ownerSocket = "/jarvis/daemon-0000.sock";
 
@@ -2517,7 +2570,8 @@ describe("pipeline verb owner routing", () => {
     expect(unavailableCode).toBe(1);
     expect(unavailableCap.read()).toEqual({
       stdout: "",
-      stderr: "pipeline_daemon_unavailable: No live pipeline daemon responded; run jarvis daemon start, then retry.\n",
+      stderr:
+        "pipeline_id_set_incomplete: Cannot resolve prefix pipe-unreachable: a daemon listing was malformed or unavailable; restore daemon connectivity or use a known full pipeline id.\n",
     });
 
     expect(startCalls).toBe(0);

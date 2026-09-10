@@ -466,3 +466,28 @@ test("never prefix-resolves an argument shorter than the minimum prefix length",
 
   expect(result).toEqual({ kind: "unmatched", pipelineId: "ab" });
 });
+
+test.each([
+  "malformed",
+  "disconnected",
+  "rpc-error",
+  "timeout",
+] as const)("refuses prefix resolution against an incomplete daemon listing: %s", async (failure) => {
+  const fullId = "aaaa1111bbbb";
+  const deps = {
+    socketPath: INVOKING_SOCKET,
+    socketDiscovery: async () => [OTHER_SOCKET],
+    connectIpcClient: async (socketPath: string) => {
+      if (socketPath === INVOKING_SOCKET) return replyingClient({ result: { pipelines: [pipelineSnapshot(fullId)] } });
+      if (failure === "disconnected") throw new Error("connection refused");
+      if (failure === "rpc-error") return replyingClient({ error: { code: "internal_error", message: "unavailable" } });
+      if (failure === "timeout") return replyingClient({ hung: true });
+      return replyingClient({ result: { pipelines: [{ pipelineId: "aaaa1111cccc" }] } });
+    },
+  };
+  expect(await resolvePipelineIdAcrossDaemons("aaaa1111", deps, 20)).toEqual({
+    kind: "incomplete",
+    message: expect.stringContaining("pipeline_id_set_incomplete:"),
+  });
+  expect(await resolvePipelineIdAcrossDaemons(fullId, deps, 20)).toEqual({ kind: "resolved", pipelineId: fullId });
+});

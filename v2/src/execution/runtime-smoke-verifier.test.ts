@@ -3,7 +3,11 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type RuntimeSmokeVerifierInput, verifyRuntimeSmoke } from "./runtime-smoke-verifier.ts";
+import {
+  createExecuteEntrypoint,
+  type RuntimeSmokeVerifierInput,
+  verifyRuntimeSmoke,
+} from "./runtime-smoke-verifier.ts";
 
 describe("runtime-smoke-verifier", () => {
   async function verifyMappedEntrypoint(
@@ -1150,5 +1154,65 @@ index 1234567..abcdefg 100644
       },
       { timeout: 60_000 },
     );
+  });
+});
+
+describe("runtime smoke probe process-group recording", () => {
+  it("the entrypoint probe spawn records its process group and clears it on settle", async () => {
+    const recorded: number[] = [];
+    const cleared: number[] = [];
+    const processGroups = {
+      record: (pgid: number) => recorded.push(pgid),
+      clear: (pgid: number) => cleared.push(pgid),
+    };
+    const execute = createExecuteEntrypoint({
+      runAsync: async (_cmd, _args, _cwd, options) => {
+        options?.processGroup?.onGroupId?.(9001);
+        return "ok";
+      },
+    });
+    expect(await execute("/w", "v2/src/cli.ts", ["help"], 1000, undefined, processGroups)).toEqual({
+      success: true,
+      output: "ok",
+    });
+    expect(recorded).toEqual([9001]);
+    expect(cleared).toEqual([9001]);
+
+    const failing = createExecuteEntrypoint({
+      runAsync: async (_cmd, _args, _cwd, options) => {
+        options?.processGroup?.onGroupId?.(9002);
+        throw new Error("boom");
+      },
+    });
+    expect((await failing("/w", "v2/src/cli.ts", ["help"], 1000, undefined, processGroups)).success).toBe(false);
+    expect(cleared).toEqual([9001, 9002]);
+  });
+
+  it("verifyRuntimeSmoke threads the run recorder into every probe spawn", async () => {
+    const diff = `diff --git a/v2/src/cli.ts b/v2/src/cli.ts
+index 1234567..abcdefg 100644
+--- a/v2/src/cli.ts
++++ b/v2/src/cli.ts
+@@ -1,3 +1,3 @@
+ export function changed() {
+-  return 0;
++  return 1;
+ }
+`;
+    const processGroups = { record: () => {}, clear: () => {} };
+    const seen: unknown[] = [];
+    const result = await verifyRuntimeSmoke(
+      { worktreePath: "/test/path", runBase: "main", processGroups },
+      {
+        gitDiff: async () => diff,
+        readSourceFile: async () => null,
+        executeEntrypoint: async (_cwd, _entrypoint, _args, _timeout, _env, groups) => {
+          seen.push(groups);
+          return { success: true, output: "" };
+        },
+      },
+    );
+    expect(result.kind).toBe("observed-clean");
+    expect(seen).toEqual([processGroups]);
   });
 });

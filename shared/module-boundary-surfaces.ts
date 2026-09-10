@@ -54,7 +54,10 @@ function assertIndexLinks(indexBody: string, sourceFiles: readonly string[]): vo
   const linked = new Set<string>();
   const lines = indexBody.replace(/\r\n/g, "\n").split("\n");
   for (const line of lines) {
-    const match = line.match(/^\s*-\s\[[ xX]\]\s+\[[^\]]+\]\((?:\.\/)?([^)]+)\)$/u);
+    // The link may carry a trailing annotation (`— why`, `(after 00)`), so the pattern must not
+    // anchor at the closing paren: the publication-side check (`publication-landing.ts`) reads the
+    // same lines, and a well-formed annotated link read as absent blocks a complete draft.
+    const match = line.match(/^\s*-\s\[[ xX]\]\s+\[[^\]]+\]\((?:\.\/)?([^)]+)\)/u);
     const file = match?.[1];
     if (file === undefined || !/^\d{2}-.*\.md$/u.test(file)) continue;
     if (!sourceFiles.includes(file)) throw new Error(`Plan index links unknown subspec ${file}`);

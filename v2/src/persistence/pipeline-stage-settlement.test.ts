@@ -386,7 +386,10 @@ describe("settleLinkedStagesFromEntryRunWith", () => {
       loadPipeline: () => pipeline,
       listPipelines: () => [pipeline],
       updateStage: (args: { patch: Record<string, unknown>; requiredStatus?: string }) => {
-        writes.push({ ...(args.requiredStatus !== undefined ? { requiredStatus: args.requiredStatus } : {}), status: args.patch.status });
+        writes.push({
+          ...(args.requiredStatus !== undefined ? { requiredStatus: args.requiredStatus } : {}),
+          status: args.patch.status,
+        });
         if (args.requiredStatus !== undefined && row.status !== args.requiredStatus) return false;
         Object.assign(row, args.patch);
         return true;

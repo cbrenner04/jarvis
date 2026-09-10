@@ -1,7 +1,3 @@
----
-name: index-link-check-rejects-annotated-subspec-lines
----
-
 # The index link check rejects any subspec line with a trailing annotation
 
 ## Problem
@@ -42,11 +38,12 @@ Structural sibling of [[plan-contract-classifies-the-rules-out-clause]]: a plan-
 
 ## Acceptance criteria
 
-- [ ] A test proves an index line with trailing text after the link (for example `(after 00 and 03)`) counts the subspec as linked; it fails against the current `$`-anchored pattern.
-- [ ] A test proves a numbered subspec with no index line at all still fails, with a message distinguishing it from the unparseable-line case.
-- [ ] A test proves a line with leading text before the `- [ ]` checkbox is still not treated as a link.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test proves an index line with trailing text after the link (for example `(after 00 and 03)`) counts the subspec as linked; it fails against the current `$`-anchored pattern.
+- [x] A test proves a numbered subspec with no index line at all still fails, with a message distinguishing it from the unparseable-line case.
+- [x] A test proves a line with leading text before the `- [x]` checkbox is still not treated as a link.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 
 - `v2/docs/spec-guidance.md` — state that index subspec lines may carry trailing annotations after the link.
+- `v2/docs/v1-behaviors.md` — record the corrected v2 behavior.

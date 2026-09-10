@@ -45,7 +45,7 @@ function fail(message: string): never {
 }
 
 const NUMBERED_SUBSPEC_PATTERN = /^\d{2}-.*\.md$/u;
-const INDEX_LINK_PATTERN = /^\s*-\s\[[ xX]\]\s+\[[^\]]+\]\((?:\.\/)?([^)]+)\)$/u;
+const INDEX_LINK_PATTERN = /^\s*-\s\[[ xX]\]\s+\[[^\]]+\]\((?:\.\/)?([^)]+)\)/u;
 
 /**
  * Durable plan content is exactly `index.md`, `intent.md`, and numbered subspec Markdown linked
@@ -63,7 +63,11 @@ function assertLinkedNumberedSubspecs(stage: string, files: readonly string[]): 
     if (match?.[1] !== undefined) linked.add(match[1]);
   }
   for (const file of numbered) {
-    if (!linked.has(file)) fail(`plan: unlinked_numbered_subspec: ${file} is not linked from index.md`);
+    if (linked.has(file)) continue;
+    const observation = indexBody.includes(file)
+      ? "index.md mentions the file but has no parseable checkbox link to it"
+      : "no index.md line links this file";
+    fail(`plan: unlinked_numbered_subspec: ${file}: ${observation}`);
   }
 }
 

@@ -218,7 +218,7 @@ Config load validates the config artifact itself. It does **not** prove that a l
 
 **Target surface:** both `--agent` and `--model` are required together. That pair bypasses load validation and both loops for one invocation. No matching `(agent, role)` entry is needed.
 
-**Interim shipped surface:** `jarvis write` / `jarvis run start` resolve their ordered outer fallback list (agent IDs, no per-role models) from machine config only — no CLI override. See [`write-behavior.md`](write-behavior.md). This predates full `AgentModelConfig` resolution and does not implement inner rungs or role-aware binding. `jarvis config set-agents <agent,agent,...>` persists the outer list to `~/.jarvis/config.json`.
+**Interim shipped surface:** `jarvis run start` and workflow write steps resolve their ordered outer fallback list (agent IDs, no per-role models) from machine config only — no CLI override. See [`write-behavior.md`](write-behavior.md). This predates full `AgentModelConfig` resolution and does not implement inner rungs or role-aware binding. `jarvis config set-agents <agent,agent,...>` persists the outer list to `~/.jarvis/config.json`.
 
 `set-agents` parses at the command boundary before any filesystem mutation: empty CSV segments are rejected, and `agent:model` tokens are rejected because the machine file stores agent order only. After that parse step, the landed array reuses the machine-config loader contract: `agents` must be a non-empty, string-only, duplicate-free array.
 

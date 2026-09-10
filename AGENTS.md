@@ -4,7 +4,7 @@ Conventions for working in this repo — humans and coding agents alike. **BE TE
 
 ## What this repo is
 
-Jarvis is a minimal coding-agent harness driving an underlying agent CLI (`claude`, `codex`, `cursor`, …). One engine: **`jarvis` (`v2/src/cli.ts`)**, a daemon-backed workflow runner: `init`, `write`, `daemon`, `config`, `run` (start/list/log/pause/resume/kill/dismiss/undismiss/wait), `run workflow intent|plan|implement`, `pipeline` (start/list/wait/approve/reject/resume/recover/dismiss/undismiss), `tui`, `cleanup`. Docs: [v2/docs/](v2/docs/), start at [v2/docs/onboarding.md](v2/docs/onboarding.md).
+Jarvis is a minimal coding-agent harness driving an underlying agent CLI (`claude`, `codex`, `cursor`, …). One engine: **`jarvis` (`v2/src/cli.ts`)**, a daemon-backed workflow runner: `init`, `daemon`, `config`, `run` (start/list/log/pause/resume/kill/dismiss/undismiss/wait), `run workflow intent|plan|implement`, `pipeline` (start/list/wait/approve/reject/resume/recover/dismiss/undismiss), `tui`, `cleanup`. Docs: [v2/docs/](v2/docs/), start at [v2/docs/onboarding.md](v2/docs/onboarding.md).
 
 Work here is work on the harness itself. Layout:
 

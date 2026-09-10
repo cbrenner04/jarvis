@@ -71,8 +71,6 @@ jarvis run workflow implement --base main --spec <index.md> [--branch <name>] [.
 jarvis init [--profile <name>] [--name <key>] [--target-dir <dir>] [--scaffold] [--check]
                             Configure this machine and register the current
                             repository; reports readiness. `--check` is read-only.
-jarvis write ...            In-process ad-hoc write loop (no daemon); same
-                            flags as `run start`; prints a JSON result.
 jarvis daemon start|stop|status|log [--follow]
 jarvis config show|path|set-agents <csv>
 jarvis run start ...        Daemon-backed write loop; prints run ID.

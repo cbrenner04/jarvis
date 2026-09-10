@@ -636,7 +636,7 @@ test("kill accepts a workflow-started run's step-0 runId when held live", async 
   await waitUntilActiveRun(runId as string);
 
   const killResponse = await handlers.kill(requestFrame("k1", "kill", { runId }), new AbortController().signal);
-  expect(killResponse).toEqual({ kind: "response", result: { ok: true } });
+  expect(killResponse).toMatchObject({ kind: "response", result: { ok: true, outcome: "settled", status: "killed" } });
   await flushBackgroundRuns(10);
 });
 
@@ -695,7 +695,11 @@ test("kill on a completed sibling step runId aborts the in-flight step via the s
     requestFrame("k2", "kill", { runId: step1RunId }),
     new AbortController().signal,
   );
-  expect(killResponse).toEqual({ kind: "response", result: { ok: true } });
+  // The named sibling row is already boundary-terminal: kill reports the status it keeps, never `killed`.
+  expect(killResponse).toMatchObject({
+    kind: "response",
+    result: { ok: true, outcome: "settled", status: "completed" },
+  });
   expect(stateStore.loadRun(step1RunId as string)?.status).toBe("completed");
 
   await waitFor(() => stateStore.loadRun(step2RunId as string)?.status === "killed");
@@ -719,7 +723,7 @@ test("kill aborts the daemon-injected workflow step signal and unwinds the in-fl
   await waitFor(() => observedSignal !== undefined);
 
   const killResponse = await handlers.kill(requestFrame("k1", "kill", { runId }), new AbortController().signal);
-  expect(killResponse).toEqual({ kind: "response", result: { ok: true } });
+  expect(killResponse).toMatchObject({ kind: "response", result: { ok: true, outcome: "settled", status: "killed" } });
   await flushBackgroundRuns(5);
   expect(observedSignal?.aborted).toBe(true);
 });
@@ -741,7 +745,7 @@ test("after kill settles, list reports killed rollup and preserves worktree and 
     requestFrame("k2", "kill", { runId: step2RunId }),
     new AbortController().signal,
   );
-  expect(killResponse).toEqual({ kind: "response", result: { ok: true } });
+  expect(killResponse).toMatchObject({ kind: "response", result: { ok: true, outcome: "settled", status: "killed" } });
 
   await waitFor(() => stateStore.loadRun(step2RunId as string)?.status === "killed");
   await waitFor(async () => {
@@ -806,7 +810,7 @@ test("kill accepts a later step's runId once onStepRunCreated has tracked it; pa
     requestFrame("k2", "kill", { runId: step2RunId }),
     new AbortController().signal,
   );
-  expect(killResponse).toEqual({ kind: "response", result: { ok: true } });
+  expect(killResponse).toMatchObject({ kind: "response", result: { ok: true, outcome: "settled", status: "killed" } });
 
   const pauseResponse = await handlers.pause(
     requestFrame("p2", "pause", { runId: step2RunId }),
@@ -1088,4 +1092,135 @@ test("terminal successor shell stall releases the branch claim for a fresh start
   } finally {
     implementReviewPromptProfile.render.debateRole = originalDebateRole;
   }
+});
+
+function killSettlementHandlers(overrides: {
+  boundMs?: number;
+  survivors?: Array<{ pid: number; ppid: number | null }>;
+  onSleep?: () => void;
+}): ReturnType<typeof createRunControlHandlers> {
+  return createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => memoryHeadroom,
+    registry,
+    killSettlement: {
+      boundMs: overrides.boundMs ?? 0,
+      sleep: async () => {
+        overrides.onSleep?.();
+        await flushBackgroundRuns();
+      },
+      observeSurvivors: async () => overrides.survivors ?? [],
+    },
+  });
+}
+
+/** Holds the write step open across abort: the child never unwinds, so the workflow never quiesces. */
+const nonQuiescingBindingFactory = (): NonNullable<WriteWorkflowStep["createBinding"]> => {
+  return ({ agentId, adapterModel }) => ({
+    id: `${agentId}/${adapterModel}`,
+    invoke: () => new Promise(() => {}),
+    metadata: { agent: agentId, model: adapterModel },
+  });
+};
+
+test("plain kill of a workflow held by a non-quiescing child waits only to the bound and reports unsettled", async () => {
+  const branch = "kill-non-quiescing-branch";
+  let sleeps = 0;
+  const local = killSettlementHandlers({
+    boundMs: 50,
+    survivors: [{ pid: 4242, ppid: 1 }],
+    onSleep: () => {
+      sleeps += 1;
+    },
+  });
+  const steps: AnyWorkflowStep[] = [createWriteStep("step-1", branch, nonQuiescingBindingFactory())];
+  const response = await local.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
+  const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
+  expect(runId).toBeTruthy();
+  await waitFor(() => local.context.activeRuns.get(runId as string) !== undefined);
+
+  const killResponse = await local.kill(requestFrame("k1", "kill", { runId }), new AbortController().signal);
+  expect(killResponse).toEqual({
+    kind: "response",
+    result: {
+      ok: false,
+      outcome: "unsettled",
+      runId,
+      status: "in-progress",
+      survivors: [{ pid: 4242, ppid: 1 }],
+      boundMs: 50,
+    },
+  });
+  // Bounded: 50ms at the 25ms poll interval is two waits, never an unbounded spin.
+  expect(sleeps).toBe(2);
+  expect(stateStore.loadRun(runId as string)?.status).toBe("in-progress");
+});
+
+test("kill signals every recorded verifier process group before the settlement wait begins", async () => {
+  const branch = "kill-signals-groups-branch";
+  const events: string[] = [];
+  const originalKill = process.kill;
+  process.kill = ((pid, signal) => {
+    events.push(`${signal}:${pid}`);
+    return true;
+  }) as typeof process.kill;
+  try {
+    const local = killSettlementHandlers({ boundMs: 25, onSleep: () => events.push("wait") });
+    const steps: AnyWorkflowStep[] = [createWriteStep("step-1", branch, nonQuiescingBindingFactory())];
+    const response = await local.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
+    const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
+    expect(runId).toBeTruthy();
+    await waitFor(() => local.context.activeRuns.get(runId as string) !== undefined);
+    stateStore.recordVerifierProcessGroup(runId as string, 7001);
+    stateStore.recordVerifierProcessGroup(runId as string, 7002);
+
+    const killResponse = await local.kill(requestFrame("k1", "kill", { runId }), new AbortController().signal);
+    expect(killResponse).toMatchObject({ kind: "response", result: { ok: false, outcome: "unsettled" } });
+    const termIndex = events.indexOf("SIGTERM:-7001");
+    expect(termIndex).toBeGreaterThanOrEqual(0);
+    expect(events.indexOf("SIGTERM:-7002")).toBeGreaterThanOrEqual(0);
+    expect(events.indexOf("wait")).toBeGreaterThan(events.indexOf("SIGTERM:-7002"));
+  } finally {
+    process.kill = originalKill;
+  }
+});
+
+test("force kill durably settles the named active row killed while workflow quiescence stays pending", async () => {
+  const branch = "kill-force-active-branch";
+  const local = killSettlementHandlers({ boundMs: 0, survivors: [{ pid: 5151, ppid: 99 }] });
+  const steps: AnyWorkflowStep[] = [createWriteStep("step-1", branch, nonQuiescingBindingFactory())];
+  const response = await local.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
+  const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
+  expect(runId).toBeTruthy();
+  await waitFor(() => local.context.activeRuns.get(runId as string) !== undefined);
+
+  const killResponse = await local.kill(
+    requestFrame("k1", "kill", { runId, force: true }),
+    new AbortController().signal,
+  );
+  expect(killResponse).toEqual({
+    kind: "response",
+    result: { ok: true, outcome: "force-settled", runId, status: "killed", survivors: [{ pid: 5151, ppid: 99 }] },
+  });
+  expect(stateStore.loadRun(runId as string)?.status).toBe("killed");
+  expect(stateStore.loadRun(runId as string)?.finishedAt).toBeNumber();
+});
+
+test("plain kill of a quiescing workflow reports settled with the durable killed status", async () => {
+  const branch = "kill-settles-branch";
+  const local = killSettlementHandlers({ boundMs: 5_000 });
+  const steps: AnyWorkflowStep[] = [createWriteStep("step-1", branch, heldLiveBindingFactory())];
+  const response = await local.start(requestFrame("s1", "start", { steps }), new AbortController().signal);
+  const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
+  expect(runId).toBeTruthy();
+  await waitFor(() => local.context.activeRuns.get(runId as string) !== undefined);
+
+  const killResponse = await local.kill(requestFrame("k1", "kill", { runId }), new AbortController().signal);
+  expect(killResponse).toEqual({
+    kind: "response",
+    result: { ok: true, outcome: "settled", runId, status: "killed", survivors: [] },
+  });
+  expect(stateStore.loadRun(runId as string)?.status).toBe("killed");
 });

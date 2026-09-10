@@ -534,7 +534,7 @@ test("pause and kill release write-loop ownership", async () => {
   expect(fakeExecutor.isPauseSignalTriggered()).toBe(true);
 
   const killed = await handlers.kill({ kind: "request", id: "k1", method: "kill", params: { runId } }, signal);
-  expect(killed).toEqual({ kind: "response", result: { ok: true } });
+  expect(killed).toMatchObject({ kind: "response", result: { ok: true, status: "killed" } });
   await flushBackgroundRuns();
 
   expect(ctx.registry.isClaimed({ project: "pause-kill", branch: "pause-kill" })).toBe(false);

@@ -22,6 +22,7 @@ import type { DaemonListRunRow } from "../daemon/daemon-wire.ts";
 import { parseStartResult } from "../daemon/daemon-wire.ts";
 import { mergeRunLists } from "../daemon/merge-run-lists.ts";
 import { queryDaemonListsFromSockets } from "../daemon/query-daemon-lists-from-sockets.ts";
+import { type KillSurvivor, parseRunKillOutcome, type RunKillOutcome } from "../daemon/run-kill-outcome.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import { isRunStatus, isTerminalRunStatus, type RunStatus, TERMINAL_RUN_STATUSES } from "../persistence/state-store.ts";
 import { type ListRpcParams, resolveListRpcRequest } from "./run-list-rpc.ts";
@@ -344,9 +345,10 @@ async function runActionCommand(
     });
   }
   return withRunClient(io, deps, async (client) => {
+    let result: unknown;
     try {
       const params = values.force === true ? { runId, force: true } : { runId };
-      await request(client, subcommand, params);
+      result = await request(client, subcommand, params);
     } catch (error) {
       if (error instanceof RpcError) {
         io.stderr(formatRpcError(error));
@@ -354,10 +356,47 @@ async function runActionCommand(
       }
       throw error;
     }
-    const message = subcommand === "kill" ? "killed" : `${subcommand}d`;
-    io.stdout(`${message} ${runId}\n`);
+    if (subcommand === "kill") return renderRunKillOutcome(runId, result, io);
+    io.stdout(`${subcommand}d ${runId}\n`);
     return 0;
   });
+}
+
+function formatKillSurvivors(survivors: readonly KillSurvivor[]): string {
+  return survivors.map((survivor) => `pid ${survivor.pid} (ppid ${survivor.ppid ?? "unknown"})`).join(", ");
+}
+
+/**
+ * Render the daemon's kill settlement outcome: `killed <run-id>` only when the row is durably
+ * terminal; a non-settling outcome is exit 1 with the live state and surviving children on stderr;
+ * a malformed envelope fails closed as an invalid daemon response.
+ */
+function renderRunKillOutcome(runId: string, result: unknown, io: Io): number {
+  const outcome: RunKillOutcome | undefined = parseRunKillOutcome(result);
+  if (outcome === undefined || outcome.runId !== runId) {
+    io.stderr(`kill ${runId}: invalid daemon response: expected a kill settlement outcome\n`);
+    return 1;
+  }
+  if (!outcome.ok) {
+    io.stderr(
+      `kill ${runId}: not settled within ${outcome.boundMs}ms; durable status is ${outcome.status}` +
+        (outcome.survivors.length > 0
+          ? `; surviving children: ${formatKillSurvivors(outcome.survivors)}`
+          : "; no surviving children observed") +
+        "\n",
+    );
+    io.stderr(
+      "Re-run with --force to settle the row killed, or attribute the survivors by parent pid (daemon-parented is a live verifier child; launchd-parented is an orphan) before retrying.\n",
+    );
+    return 1;
+  }
+  io.stdout(`killed ${runId}\n`);
+  if (outcome.outcome === "force-settled" && outcome.survivors.length > 0) {
+    io.stderr(
+      `warning: ${runId} force-settled ${outcome.status} while children may survive: ${formatKillSurvivors(outcome.survivors)}\n`,
+    );
+  }
+  return 0;
 }
 
 type RunDismissalOutcome =

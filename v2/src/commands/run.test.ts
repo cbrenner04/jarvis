@@ -430,7 +430,16 @@ describe("dispatch to keyed daemons", () => {
     const code = await withFixedUuid(requestId, () =>
       main(["run", "resume", "run-123"], cap.io, {
         connectIpcClient: async () =>
-          makeIpcClient([{ kind: "response", id: requestId, result: { ok: true } }], { sent }),
+          makeIpcClient(
+            [
+              {
+                kind: "response",
+                id: requestId,
+                result: { ok: true, outcome: "settled", runId: "run-123", status: "killed", survivors: [] },
+              },
+            ],
+            { sent },
+          ),
       }),
     );
 
@@ -789,7 +798,16 @@ describe("run control", () => {
     const code = await withFixedUuid(requestId, () =>
       main(["run", "kill", "--force", "run-123"], cap.io, {
         connectIpcClient: async () =>
-          makeIpcClient([{ kind: "response", id: requestId, result: { ok: true } }], { sent }),
+          makeIpcClient(
+            [
+              {
+                kind: "response",
+                id: requestId,
+                result: { ok: true, outcome: "settled", runId: "run-123", status: "killed", survivors: [] },
+              },
+            ],
+            { sent },
+          ),
       }),
     );
 
@@ -808,13 +826,100 @@ describe("run control", () => {
     const code = await withFixedUuid(requestId, () =>
       main(["run", "kill", "run-123"], cap.io, {
         connectIpcClient: async () =>
-          makeIpcClient([{ kind: "response", id: requestId, result: { ok: true } }], { sent }),
+          makeIpcClient(
+            [
+              {
+                kind: "response",
+                id: requestId,
+                result: { ok: true, outcome: "settled", runId: "run-123", status: "killed", survivors: [] },
+              },
+            ],
+            { sent },
+          ),
       }),
     );
 
     expect(code).toBe(0);
     expect(sent).toEqual([{ kind: "request", id: requestId, method: "kill", params: { runId: "run-123" } }]);
     expect(cap.read()).toEqual({ stdout: "killed run-123\n", stderr: "" });
+  });
+
+  test("run kill reports a non-settling outcome on stderr with exit 1 and prints no killed line", async () => {
+    const cap = captureIo();
+    const requestId = "00000000-0000-4000-8000-000000000031";
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "kill", "run-123"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient([
+            {
+              kind: "response",
+              id: requestId,
+              result: {
+                ok: false,
+                outcome: "unsettled",
+                runId: "run-123",
+                status: "in-progress",
+                survivors: [{ pid: 4242, ppid: 77 }],
+                boundMs: 30000,
+              },
+            },
+          ]),
+      }),
+    );
+    expect(code).toBe(1);
+    const out = cap.read();
+    expect(out.stdout).toBe("");
+    expect(out.stderr).toContain("kill run-123: not settled within 30000ms; durable status is in-progress");
+    expect(out.stderr).toContain("pid 4242 (ppid 77)");
+    expect(out.stderr).not.toContain("killed run-123");
+  });
+
+  test("run kill --force prints killed and warns about surviving children", async () => {
+    const cap = captureIo();
+    const requestId = "00000000-0000-4000-8000-000000000032";
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "kill", "--force", "run-123"], cap.io, {
+        connectIpcClient: async () =>
+          makeIpcClient([
+            {
+              kind: "response",
+              id: requestId,
+              result: {
+                ok: true,
+                outcome: "force-settled",
+                runId: "run-123",
+                status: "killed",
+                survivors: [{ pid: 5151, ppid: null }],
+              },
+            },
+          ]),
+      }),
+    );
+    expect(code).toBe(0);
+    const out = cap.read();
+    expect(out.stdout).toBe("killed run-123\n");
+    expect(out.stderr).toContain(
+      "warning: run-123 force-settled killed while children may survive: pid 5151 (ppid unknown)",
+    );
+  });
+
+  test.each([
+    ["legacy acknowledgement", { ok: true }],
+    ["unknown outcome", { ok: true, outcome: "acked", runId: "run-123", status: "killed", survivors: [] }],
+    ["missing survivors", { ok: false, outcome: "unsettled", runId: "run-123", status: "in-progress", boundMs: 1 }],
+    ["other run id", { ok: true, outcome: "settled", runId: "run-999", status: "killed", survivors: [] }],
+  ])("run kill fails closed on a malformed outcome (%s)", async (_label, result) => {
+    const cap = captureIo();
+    const requestId = "00000000-0000-4000-8000-000000000033";
+    const code = await withFixedUuid(requestId, () =>
+      main(["run", "kill", "run-123"], cap.io, {
+        connectIpcClient: async () => makeIpcClient([{ kind: "response", id: requestId, result }]),
+      }),
+    );
+    expect(code).toBe(1);
+    const out = cap.read();
+    expect(out.stdout).toBe("");
+    expect(out.stderr).toContain("invalid daemon response");
   });
 
   test("run kill run-123 --force also sends force after the run id", async () => {
@@ -825,7 +930,16 @@ describe("run control", () => {
     const code = await withFixedUuid(requestId, () =>
       main(["run", "kill", "run-123", "--force"], cap.io, {
         connectIpcClient: async () =>
-          makeIpcClient([{ kind: "response", id: requestId, result: { ok: true } }], { sent }),
+          makeIpcClient(
+            [
+              {
+                kind: "response",
+                id: requestId,
+                result: { ok: true, outcome: "settled", runId: "run-123", status: "killed", survivors: [] },
+              },
+            ],
+            { sent },
+          ),
       }),
     );
 

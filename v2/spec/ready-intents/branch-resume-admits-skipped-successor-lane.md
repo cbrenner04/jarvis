@@ -6,7 +6,7 @@ name: branch-resume-admits-skipped-successor-lane
 
 ## Problem
 
-`scanBranchSuffixForAdmission` admits only through a replayable `failed` row and otherwise falls through to `not_resumable`. A lane at `plan: succeeded` + `implement: skipped` has no failed row, so `jarvis pipeline resume <id> <branch>` refuses `branch_not_resumable` even though the lane plainly has undone work. `pipeline recover` needs a failed plan stage and refuses too, and `skipped` is terminal so nothing ages it out.
+`scanBranchSuffixForAdmission` admits only through a replayable `failed` row and otherwise falls through to `not_resumable`. A lane at `plan: succeeded` + `implement: skipped` has no failed row, so `jarvis pipeline resume <id> <branch>` refuses `branch_not_resumable` even though the lane plainly has undone work, and `skipped` is terminal so nothing ages it out. `pipeline recover` also needs a failed plan stage and refuses this shape too, but that entry point is out of scope here — this intent covers `pipeline resume` admission only.
 
 ## Decisions
 

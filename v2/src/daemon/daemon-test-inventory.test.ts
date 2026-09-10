@@ -183,12 +183,51 @@ export function countParityPreservationViolation(
   return missing.length > 0 ? missing : ["<count-parity>"];
 }
 
+/**
+ * Titles retired on purpose, each with the behavior that no longer exists. The guard's job is to
+ * catch a test that vanishes *silently*; a deliberate retirement is recorded here and reviewed in
+ * the diff. Keep this list short — an entry that is not a genuine behavior retirement is a bug.
+ *
+ * All entries below: the pipeline-stage `settlement_deferred` marker and its two redrive predicates
+ * were retired when stage settlement moved to deriving from the entry run's durable rows. The tests
+ * still exist under names describing what they now assert; only the marker wording is gone.
+ */
+const RETIRED_TEST_TITLES: ReadonlySet<string> = new Set([
+  "restart sweep settles a deferred stage whose entry run completed while the daemon was down",
+  "restart sweep fails final deferred settlement when a ready pipeline's completed entry run lacks publication PR evidence",
+  "restart sweep fails a deferred stage whose entry run ended failed",
+  "restart sweep fails a running stage whose entry run ended failed without a deferred marker",
+  "restart sweep leaves a running stage without a deferred marker untouched",
+  "restart sweep leaves an unsettled stage whose entry run is still live untouched",
+  // The marker-less and deferred reconciled cases collapse to one test now that there is no marker.
+  "restart sweep leaves a deferred stage whose entry run was just reconciled untouched",
+  "resume reopens and redispatches after an unsettled terminally failed stage",
+  "deferred settlement fails when a ready pipeline's completed entry run lacks publication PR evidence",
+  "deferred settlement fails when a merge pipeline's completed entry run lacks publication PR evidence",
+  "resume still refuses an interrupted pipeline carrying a redrivable deferred stage",
+  "fan-out re-entry with deferred-settlement admitted entry run does not terminalize until the run settles",
+  // The two redrive predicates themselves are gone, so their unit describes go with them.
+  "not a running row",
+  "running with no deferred marker",
+  "running with a differently-shaped failureDetail",
+  "running with the deferred marker but a still-live entry run",
+  "running with the deferred marker and a durably terminal entry run redrives",
+  "running with the deferred marker and an absent entry run row redrives",
+  "running with deferred marker",
+  "running with a still-live linked entry run",
+  "running with rollup-failed linked run without marker redrives",
+  "running with rollup-completed linked run without marker returns undefined",
+  "dispatch catch over a live admitted entry run records settlement_deferred",
+  "deferred settlement re-settles with operator error when entry run later terminals",
+]);
+
 /** Missing-only title preservation: surplus destination titles are allowed. */
 export function missingOnlyPreservationViolation(
   expectedTitles: readonly string[],
   actualTitles: readonly string[],
+  retiredTitles: ReadonlySet<string> = new Set(),
 ): string[] {
-  return multisetDiff(expectedTitles, actualTitles);
+  return multisetDiff(expectedTitles, actualTitles).filter((title) => !retiredTitles.has(title));
 }
 
 function loadWorktreeSources(repoPaths: readonly string[]): Record<string, string> {
@@ -232,10 +271,14 @@ describe("daemon test inventory", () => {
     expect(countParityPreservationViolation(mergeBaseTitles, withSurplus)).toEqual(["<count-parity>"]);
     expect(missingOnlyPreservationViolation(mergeBaseTitles, withSurplus)).toEqual([]);
     expect(missingOnlyPreservationViolation(mergeBaseTitles, [])).toEqual(["kept"]);
+    // The retirement allowlist suppresses a named title and nothing else.
+    expect(missingOnlyPreservationViolation(mergeBaseTitles, [], new Set(["kept"]))).toEqual([]);
+    expect(missingOnlyPreservationViolation(mergeBaseTitles, [], new Set(["other"]))).toEqual(["kept"]);
 
     const mergeBase = resolveMergeBase();
     const repoPaths = listDaemonTestFilesAtRef(mergeBase);
     const worktreeSources = loadWorktreeSources(repoPaths);
+    const retiredTitlesObserved = new Set<string>();
 
     for (const repoPath of repoPaths) {
       const mergeBaseSource = loadAtRef(mergeBase, repoPath);
@@ -244,7 +287,18 @@ describe("daemon test inventory", () => {
       if (mergeBaseSource === undefined) continue;
       const expectedTitles = collectTestTitles(mergeBaseSource);
       const actualTitles = collectTestTitles(locateDiscoveredFile(worktreeSources, repoPath));
-      expect(missingOnlyPreservationViolation(expectedTitles, actualTitles)).toEqual([]);
+      expect(missingOnlyPreservationViolation(expectedTitles, actualTitles, RETIRED_TEST_TITLES)).toEqual([]);
+      for (const title of actualTitles) {
+        // A retired title that is still present means the allowlist entry is stale and is now
+        // suppressing a live title — the failure mode an unexpiring allowlist invites.
+        expect(RETIRED_TEST_TITLES.has(title)).toBe(false);
+      }
+      for (const title of expectedTitles) {
+        if (RETIRED_TEST_TITLES.has(title)) retiredTitlesObserved.add(title);
+      }
     }
+    // Every allowlisted title must correspond to a title that genuinely existed at the merge base:
+    // an entry matching nothing is dead weight that will silently absorb a future deletion.
+    expect([...RETIRED_TEST_TITLES].filter((title) => !retiredTitlesObserved.has(title))).toEqual([]);
   });
 });

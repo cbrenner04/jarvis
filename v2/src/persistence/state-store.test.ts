@@ -325,8 +325,8 @@ describe("StateStore", () => {
       },
       {
         incidentId: "stage:pipe-1:plan:default",
-        kind: "stage-settlement-wedged" as const,
-        transition: "settlement_deferred:entry_run_dead",
+        kind: "stage-failed" as const,
+        transition: "failed",
         project: "demo",
         pipelineId: "pipe-1",
         stageId: "plan",
@@ -406,7 +406,7 @@ describe("StateStore", () => {
     const stageCursor = {
       deliveredAt: 1_700_000_000_003,
       incidentId: "stage:pipe-1:plan:default",
-      transition: "settlement_deferred:entry_run_dead",
+      transition: "failed",
     };
     expect(decodeNotificationDeliveryCursor(encodeNotificationDeliveryCursor(stageCursor))).toEqual(stageCursor);
     expect(

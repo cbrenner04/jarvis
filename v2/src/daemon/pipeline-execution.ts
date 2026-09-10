@@ -39,11 +39,9 @@ import {
   type PipelineStageArtifact,
   type PipelineWorkflowDispatch,
   type PipelineWorkflowWait,
-  redrivableDeferredSettlementEntryRunId,
   settlementLinkedEntryRunId,
   shouldStopForInFlightStageRow,
   stageArtifactKey,
-  unsettledTerminalStageEntryRunId,
 } from "./pipeline-stage-dispatch.ts";
 import {
   isFanOutStageResolution,
@@ -54,6 +52,7 @@ import {
   singleStageResolutionSteps,
 } from "./pipeline-stage-resolve.ts";
 import { capturingStaleReset } from "./pipeline-workflow-preparation.ts";
+import { settleOrphanedRunningStages } from "./stage-settlement-owner.ts";
 
 export type PipelineDerivedState =
   | "succeeded"
@@ -85,6 +84,8 @@ export type PipelineExecutionDeps = {
   context: PipelineContext;
   resolveStage?: typeof resolveStageWorkflowSteps;
   loadLogRecords?: (entryRunId: string) => PersistedRecord[];
+  /** True while this daemon still drives the entry run's invocation; stage settlement never judges a live run from its rows. */
+  isEntryRunLive?: (entryRunId: string) => boolean;
   executeTerminalPublication?: (input: TerminalPublicationInput) => Promise<TerminalPublicationResult>;
   /** Bound on a losing branch's wait for a peer's fan-out claim (see `awaitBoundedPeerClaim`). */
   peerClaimTimeoutMs?: number;
@@ -619,40 +620,60 @@ export async function resumePipeline(
     return continueAfterAdmission(undefined, reopenedStageReset);
   }
 
-  const derivedState = derivePipelineState(pipeline);
+  // Settlement precondition: a stage whose entry run this daemon no longer drives settles from
+  // its durable rows here, so resume sees the row it would otherwise have to redrive by hand.
+  // An `interrupted` pipeline is refused outright below, so it is left byte-identical instead.
+  const settledEntryRuns =
+    derivePipelineState(pipeline) === "interrupted"
+      ? []
+      : settleOrphanedRunningStages(
+          { store, isEntryRunLive: deps.isEntryRunLive ?? (() => false), loadLogRecords: deps.loadLogRecords },
+          pipelineId,
+        );
+  skipSuffixOfSettledFailures(store, settledEntryRuns, pipelineId);
+  // Every read below must see the post-settlement rows, not the snapshot loaded before it.
+  const current = (settledEntryRuns.length > 0 ? store.loadPipeline(pipelineId) : null) ?? pipeline;
+  const derivedState = derivePipelineState(current);
 
   const terminalReason = resumeTerminalRefusalReason(derivedState);
   if (terminalReason) {
     return { kind: "refused", pipelineId, reason: terminalReason };
   }
+  if (settledEntryRuns.length > 0 && !current.stages.some((stage) => stage.status === "running")) {
+    // Settling the wedged stage from its durable rows *is* this resume's work. Continuation carries
+    // it forward where there is something to carry — a pending successor, or the terminal
+    // publication a fully-satisfied pipeline still owes. A stage this settled `failed` stops here
+    // instead of being reopened: discarding a failure the operator has not yet seen is their call to
+    // make with a second resume, not this one's.
+    return continueAfterAdmission();
+  }
   if (derivedState === "running") {
-    if (resumeDrivesDeferredSettlement(store, derivedState, pipeline)) return continueAfterAdmission();
     return { kind: "refused", pipelineId, reason: "pipeline_not_resumable" };
   }
-  const approvedGateBranchKey = approvedGatePendingStrandBranchKey(pipeline);
+  const approvedGateBranchKey = approvedGatePendingStrandBranchKey(current);
   if (!resumeAwaitingClaimsOnly(derivedState) && approvedGateBranchKey !== undefined) {
     const continuationBranchKey =
       approvedGateBranchKey === DEFAULT_PIPELINE_STAGE_BRANCH_KEY ? undefined : approvedGateBranchKey;
     return continueAfterAdmission(continuationBranchKey, undefined);
   }
-  if (resumeDeferredRefusalApplies(derivedState, pipeline)) {
+  if (resumeDeferredRefusalApplies(derivedState, current)) {
     return { kind: "refused", pipelineId, reason: "pipeline_not_resumable" };
   }
 
   if (resumeAwaitingClaimsOnly(derivedState)) {
-    const branchKeys = listBranchResumeRequiredKeys(pipeline);
+    const branchKeys = listBranchResumeRequiredKeys(current);
     if (branchKeys.length > 0) {
       return { kind: "refused", pipelineId, reason: "branch_resume_required", branchKeys };
     }
-    if (pipeline.context === null) {
+    if (current.context === null) {
       return { kind: "refused", pipelineId, reason: "missing_context" };
     }
-    if (!persistedContextLoadPermitsContinuation(pipeline.context)) {
+    if (!persistedContextLoadPermitsContinuation(current.context)) {
       return { kind: "refused", pipelineId, reason: "pipeline_not_resumable" };
     }
     const claim = store.claimPipelineContinuation({
       pipelineId,
-      priorOwnerIdentity: pipeline.ownerIdentity,
+      priorOwnerIdentity: current.ownerIdentity,
     });
     if (claim.kind === "refused") {
       return { kind: "refused", pipelineId, reason: "claim_refused" };
@@ -661,11 +682,7 @@ export async function resumePipeline(
   }
 
   if (resumeFailedRequiresReopen(derivedState)) {
-    const reopenedStageReset = buildReopenedStageReset(
-      pipeline,
-      findFailedStageForReopen(pipeline, undefined),
-      options,
-    );
+    const reopenedStageReset = buildReopenedStageReset(current, findFailedStageForReopen(current, undefined), options);
     const reopen = store.reopenFailedPipeline({ pipelineId });
     if (reopen.kind === "refused") {
       return { kind: "refused", pipelineId, reason: reopen.reason };
@@ -674,7 +691,7 @@ export async function resumePipeline(
     return continueAfterAdmission(undefined, reopenedStageReset);
   }
 
-  if (resumeReopenedPendingContinuation(derivedState, pipeline)) {
+  if (resumeReopenedPendingContinuation(derivedState, current)) {
     return continueAfterAdmission();
   }
 
@@ -1008,53 +1025,30 @@ async function settlePipelineTerminalPublication(
 }
 
 /**
- * `resumeDrivesDeferredSettlement`'s reconciled-set argument: resume runs on a live daemon, not
- * a restart batch, so no entry run has been reconciled-this-start.
+ * Daemon-start sweep: settle every `running` stage whose linked entry run this daemon does not
+ * drive (durable rows are the truth), then continue every continuable pipeline with no live
+ * owner. Settlement and continuation are one path — no redrive predicate decides differently.
  */
-const NO_RECONCILED_ENTRY_RUNS: ReadonlySet<string> = new Set();
-
-/** True when derived `running` reflects a redrivable deferred-settlement wedge, not live work. */
-export function resumeDrivesDeferredSettlement(
-  store: StateStore,
-  derivedState: PipelineDerivedState,
-  pipeline: Pipeline & { stages: PipelineStageRecord[] },
-): boolean {
-  if (derivedState !== "running") return false;
-  return hasRedrivableDeferredSettlement(store, pipeline, NO_RECONCILED_ENTRY_RUNS);
-}
-
-/**
- * True when a pipeline carries a `running` stage row whose deferred-settlement marker is
- * redrivable and whose linked entry run was not reconciled by this same daemon start — that
- * case is left to `recoverReconciledRuns` instead, so the sweep doesn't fail the stage out
- * from under a run that reconciliation is independently resuming.
- */
-export function hasRedrivableDeferredSettlement(
-  store: StateStore,
-  pipeline: Pipeline & { stages: PipelineStageRecord[] },
-  reconciledEntryRunIds: ReadonlySet<string>,
-): boolean {
-  for (const stage of pipeline.stages) {
-    const deferredEntryRunId = redrivableDeferredSettlementEntryRunId(store, stage);
-    const unsettledEntryRunId = unsettledTerminalStageEntryRunId(store, stage);
-    const redrivableEntryRunId = deferredEntryRunId ?? unsettledEntryRunId;
-    if (redrivableEntryRunId === undefined) continue;
-    if (reconciledEntryRunIds.has(redrivableEntryRunId)) return false;
-    return true;
-  }
-  return false;
-}
-
 export async function recoverContinuablePipelines(
   store: StateStore,
   pipelineDeps: Omit<PipelineExecutionDeps, "context">,
   isOwnerAliveProbe: OwnerLivenessProbe = isOwnerAlive,
   reconciledEntryRunIds: ReadonlySet<string> = new Set(),
 ): Promise<{ continued: number }> {
+  // A run this same startup reconciled and handed to `recoverReconciledRuns` is being resumed right
+  // now, and resumption does not register it as live anywhere the sweep can see: its durable row
+  // still reads the terminal status reconciliation wrote. Settling from that row would fail the
+  // stage — and skip its suffix — out from under a run that is actively working, and nothing would
+  // re-settle it afterwards, because settlement only ever matches a `running` stage row.
+  const isEntryRunLive = (entryRunId: string): boolean =>
+    reconciledEntryRunIds.has(entryRunId) || (pipelineDeps.isEntryRunLive?.(entryRunId) ?? false);
+  skipSuffixOfSettledFailures(
+    store,
+    settleOrphanedRunningStages({ store, isEntryRunLive, loadLogRecords: pipelineDeps.loadLogRecords }),
+  );
   let continued = 0;
   for (const pipeline of store.listPipelines()) {
-    // biome-ignore format: mutation checkpoint requires this exact single-line guard
-    if (!isPipelineContinuable(pipeline) && !hasRedrivableDeferredSettlement(store, pipeline, reconciledEntryRunIds)) continue;
+    if (!isPipelineContinuable(pipeline)) continue;
     const owner = pipeline.ownerIdentity;
     if (owner !== null && (await isOwnerAliveProbe(owner))) continue;
     const outcome = await continuePipeline(pipeline.id, pipelineDeps);
@@ -1435,8 +1429,37 @@ function skipRemainingStages(
   for (const record of stageRecords) {
     if (record.position < fromPosition) continue;
     if (record.branchKey !== branchKey) continue;
+    // Only an undispatched row is skippable. In the in-loop failure path the suffix is always
+    // `pending`, but settlement-driven skipping can meet a row another settlement already
+    // terminalized, and overwriting a `failed` row with `skipped` would erase its failureDetail.
+    if (record.status !== "pending") continue;
     // biome-ignore format: mutation checkpoint requires this exact single-line writer
     store.updateStage({ pipelineId, stageId: record.stageId, branchKey, patch: { status: "skipped", endedAt: Date.now() } });
+  }
+}
+
+/**
+ * A stage this settlement just failed ends its branch: its suffix is skipped, exactly as an
+ * in-loop stage failure does. Without this the suffix stays `pending`, so the pipeline derives
+ * `failed` while `reopenFailedPipeline` refuses it as a malformed continuation.
+ */
+function skipSuffixOfSettledFailures(
+  store: StateStore,
+  settledEntryRunIds: readonly string[],
+  pipelineId?: string,
+): void {
+  if (settledEntryRunIds.length === 0) return;
+  const settled = new Set(settledEntryRunIds);
+  const pipelines =
+    pipelineId === undefined
+      ? store.listPipelines()
+      : [store.loadPipeline(pipelineId)].filter((entry) => entry !== null);
+  for (const pipeline of pipelines) {
+    for (const record of pipeline.stages) {
+      if (record.status !== "failed") continue;
+      if (record.workflowInvocationId === null || !settled.has(record.workflowInvocationId)) continue;
+      skipRemainingStages(store, pipeline.id, pipeline.stages, record.position + 1, record.branchKey);
+    }
   }
 }
 
@@ -1542,6 +1565,7 @@ type AdvanceWorkflowStageArgs = {
   dispatchClaims: PipelineDispatchClaims;
   peerClaimTimeoutMs: number;
   loadLogRecords?: (entryRunId: string) => PersistedRecord[];
+  isEntryRunLive?: PipelineExecutionDeps["isEntryRunLive"];
   staleResetPreflight?: PipelineExecutionDeps["staleResetPreflight"];
   reopenedStageReset?: PipelineExecutionDeps["reopenedStageReset"];
 };
@@ -2194,7 +2218,8 @@ async function runFanOutBranchAction(
     preflightCapture?: { message: string };
   },
 ): Promise<"acted" | "skip"> {
-  const { pipelineId, stage, index, split, store, dispatch, wait, loadLogRecords, dispatchClaims } = args;
+  const { pipelineId, stage, index, split, store, dispatch, wait, loadLogRecords, isEntryRunLive, dispatchClaims } =
+    args;
   const { targetBranchKey, targetRecord, pipeline, steps } = opts;
   const stageTarget = { pipelineId, stageId: stage.stageId, branchKey: targetBranchKey };
   const stageRecords = store.loadPipeline(pipelineId)?.stages ?? [];
@@ -2212,6 +2237,7 @@ async function runFanOutBranchAction(
             entryRunId: linkedEntryRun,
             wait,
             ...(loadLogRecords !== undefined ? { loadLogRecords } : {}),
+            ...(isEntryRunLive !== undefined ? { isEntryRunLive } : {}),
           }),
         ),
     });
@@ -2258,6 +2284,7 @@ async function runFanOutBranchAction(
     wait,
     store,
     ...(loadLogRecords !== undefined ? { loadLogRecords } : {}),
+    ...(isEntryRunLive !== undefined ? { isEntryRunLive } : {}),
   });
   return "acted";
 }
@@ -2296,6 +2323,7 @@ async function adoptRunningWorkflowStage(
     store,
     wait,
     loadLogRecords,
+    isEntryRunLive,
     dispatchClaims,
   } = args;
   const stageTarget = { pipelineId, stageId: stage.stageId, branchKey };
@@ -2310,6 +2338,7 @@ async function adoptRunningWorkflowStage(
           entryRunId,
           wait,
           ...(loadLogRecords !== undefined ? { loadLogRecords } : {}),
+          ...(isEntryRunLive !== undefined ? { isEntryRunLive } : {}),
         }),
       ),
   });
@@ -2423,6 +2452,7 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
     wait,
     resolveStage,
     loadLogRecords,
+    isEntryRunLive,
   } = args;
 
   try {
@@ -2530,6 +2560,7 @@ async function advanceWorkflowStage(args: AdvanceWorkflowStageArgs): Promise<Sta
       wait,
       store,
       ...(loadLogRecords !== undefined ? { loadLogRecords } : {}),
+      ...(isEntryRunLive !== undefined ? { isEntryRunLive } : {}),
     });
     return finishDispatchedWorkflowStage({
       store,
@@ -2671,6 +2702,7 @@ async function runAuthoredStages(args: {
             dispatchClaims,
             peerClaimTimeoutMs,
             ...(deps.loadLogRecords !== undefined ? { loadLogRecords: deps.loadLogRecords } : {}),
+            ...(deps.isEntryRunLive !== undefined ? { isEntryRunLive: deps.isEntryRunLive } : {}),
             ...(deps.staleResetPreflight !== undefined ? { staleResetPreflight: deps.staleResetPreflight } : {}),
             ...(deps.reopenedStageReset !== undefined ? { reopenedStageReset: deps.reopenedStageReset } : {}),
           });

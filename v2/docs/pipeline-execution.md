@@ -47,15 +47,16 @@ Stage row: `pending` → claim → `running` + `workflowInvocationId` (entry run
 
 ## Merge-day settlement
 
-Current production path (pending replacement — see [Pending settlement boundary](#pending-settlement-boundary)):
+One algorithm settles every stage linked to a workflow entry run, and its only truth is that run's durable rows:
 
-1. After dispatch, `defaultPipelineWait` (`daemon-run-lifecycle-handlers.ts`) rolls up the entry run via `waitForWorkflowEntryRun`.
-2. `applyEntryRunSettlement` copies `specPath`, `prNumber`, `prUrl`, `downstreamInputs` from the durable entry run into stage `artifact`; terminal status `succeeded` or `failed`.
-3. If the entry run is still live when settlement would run, `failureDetail: { code: "settlement_deferred", reason: "entry_run_still_live" }` is recorded (`dispatchPipelineStage` catch path).
-4. On restart/resume, `adoptAndSettlePipelineStage` / `settlementLinkedEntryRunId` redrives settlement without re-dispatching workflow steps.
-5. `redrivableDeferredSettlementEntryRunId` and `unsettledTerminalStageEntryRunId` (`pipeline-stage-dispatch.ts`) drive `resumeDrivesDeferredSettlement` and `recoverContinuablePipelines`.
+1. `settleLinkedStagesFromEntryRunWith` (`v2/src/persistence/pipeline-stage-settlement.ts`) rolls the invocation up from the entry run and its siblings, and settles every `running` stage linked to it — `succeeded` with an artifact carrying `specPath`, `prNumber`, `prUrl`, `downstreamInputs`, or `failed` with operator-error detail. A non-terminal rollup settles nothing. It is idempotent: a stage settles once. `StateStore.settleLinkedStagesFromEntryRun` wraps it in a transaction.
+2. `stage-settlement-owner.ts` is the daemon's one caller (`settleStagesForEntryRun`, `settleOrphanedRunningStages`). Its only in-memory input is **liveness** — `isEntryRunLive`, true while this daemon still drives the invocation — because a run this process is still driving must not be judged from its rows.
+3. It runs at four points: the workflow promise's terminal event, dispatch/adopt after their wait, the `pipeline_resume` precondition, and the daemon-start sweep (`recoverContinuablePipelines`, after run recovery so reconciled runs read live).
+4. A stage settled `failed` skips its branch suffix (`skipSuffixOfSettledFailures`), exactly as an in-loop stage failure does, so the pipeline derives `failed` and `reopenFailedPipeline` admits it.
 
-**PR-evidence wedge:** when deferred re-settlement completes but the entry run lacks `prNumber`/`prUrl`, settlement fails with `completion_publication_missing_pr_evidence` and terminal publication is not invoked. Tests: `pipeline-stage-dispatch.test.ts` (deferred marker, unsettled terminal), `pipeline-execution.test.ts` (`resumeDrivesDeferredSettlement`, `hasRedrivableDeferredSettlement`, terminal publication settlement).
+There is no deferred-settlement marker and no redrive predicate. A stage whose entry run is still live simply stays `running` with no `failureDetail`; the owner settles it when the run goes terminal.
+
+**PR-evidence wedge:** when settlement of the final workflow stage of a `ready`/`merge` pipeline finds no `prNumber`/`prUrl` on the entry run, it settles `failed` with `completion_publication_missing_pr_evidence` and terminal publication is not invoked. Tests: `pipeline-stage-dispatch.test.ts` (settlement after wait, live entry run untouched), `pipeline-execution.test.ts` (restart sweep, resume precondition, terminal publication settlement).
 
 Entry-run linkage is stored in `pipeline_stages.workflowInvocationId` (column name; value is the entry run id).
 
@@ -177,7 +178,7 @@ Malformed RPC params and transport errors: [`daemon-host.md`](./daemon-host.md).
 
 | Outcome | Condition | Durable effect |
 | --- | --- | --- |
-| **Admitted** `resumed` | Derived `failed` → `reopenFailedPipeline` then `continuePipeline`; derived `awaiting-approval` with no listable resumable failed-`plan` branches → `claimPipelineContinuation` only; derived `pending` after reopen → `continuePipeline`; derived `pending` with a reachable `approved` gate and undispatched pending workflow successor → `continuePipeline` scoped to that lane (not when aggregate derived state is `awaiting-approval` or `running`; unreopened failed siblings are not reopened or mis-scoped); derived `running` with `resumeDrivesDeferredSettlement` | Reopen mutates failed suffix; claim updates owner; continuation dispatches |
+| **Admitted** `resumed` | Derived `failed` → `reopenFailedPipeline` then `continuePipeline`; derived `awaiting-approval` with no listable resumable failed-`plan` branches → `claimPipelineContinuation` only; derived `pending` after reopen → `continuePipeline`; derived `pending` with a reachable `approved` gate and undispatched pending workflow successor → `continuePipeline` scoped to that lane (not when aggregate derived state is `awaiting-approval` or `running`; unreopened failed siblings are not reopened or mis-scoped); derived `running` where this call's settlement left no stage row `running` | Reopen mutates failed suffix; claim updates owner; continuation dispatches |
 | **Refused** | `pipeline_not_found`; `missing_context`; `claim_refused`; `pipeline_terminal_succeeded`; `pipeline_terminal_rejected`; `pipeline_not_resumable` (derived `running` without deferred settlement, `interrupted`, or `pending` without reopen or approved-gate pending strand, live entry run); `branch_resume_required` with `branchKeys` when aggregate derived state is `awaiting-approval` and one or more fan-out branches carry a resumable failed `plan` lane (first failed workflow row on the branch is `plan` and branch admission would reopen it — failed `implement`/`intent` lanes and approved-gate pending strands are excluded; listing is discoverability only, no multi-lane dispatch) | No dispatch |
 | **No-effect claim** | `awaiting-approval` with no listable resumable failed-`plan` branches and successful claim | Owner updated; no `continuePipeline` until approve |
 
@@ -194,7 +195,7 @@ Failed-plan resume owns the harness preamble: shared stale reset, base alignment
 
 Tests: `pipeline-execution.test.ts` — `resumePipeline`, `resumePipeline branch scope`; `commands/pipeline.test.ts`.
 
-Helper predicates (pinning): `resumeTerminalRefusalReason`, `resumeAwaitingClaimsOnly`, `resumeFailedRequiresReopen`, `resumeDeferredRefusalApplies`, `resumeReopenedPendingContinuation`, `resumeApprovedGatePendingStrandApplies`, `resumeDrivesDeferredSettlement`.
+Helper predicates (pinning): `resumeTerminalRefusalReason`, `resumeAwaitingClaimsOnly`, `resumeFailedRequiresReopen`, `resumeDeferredRefusalApplies`, `resumeReopenedPendingContinuation`, `resumeApprovedGatePendingStrandApplies`.
 
 ### `pipeline recover` (`admitAndRecoverPipelineBranchStage`)
 
@@ -214,14 +215,11 @@ Distinct from `pipeline resume`: recover never invokes plan drafting; `pipeline 
 
 After recovery-specific RPC validation and effect-free target resolution, live dispatch and recovery use the same daemon admission order: queued or live ownership after stale workflow-claim reclamation, then memory headroom, common registry/`activeRuns` acquisition, then lifecycle-specific durable admission. Thus ownership is not masked by memory pressure, while invalid recovery input or an unresolvable target returns before the memory check. Any refusal or exception before execution rolls common acquisition and recovery durable admission/log resources back, so the failed target stage stays byte-for-byte unchanged and the attempt does not run; an admitted detached recovery retains its `recovery` active-run identity until attempt, settlement, and continuation finish.
 
-### Wedged `running` stage
+### Unsettled `running` stage
 
-Two shapes settle via `resumeDrivesDeferredSettlement` or restart `recoverContinuablePipelines`:
+A `running` stage whose linked entry run is durably terminal settles from `settleOrphanedRunningStages` — run by the daemon-start sweep and as the `pipeline_resume` precondition. Both shapes the old deferred marker distinguished now settle identically, because settlement reads the run rows rather than a recorded marker.
 
-1. Deferred marker — `redrivableDeferredSettlementEntryRunId`.
-2. No marker — `unsettledTerminalStageEntryRunId` when entry run rollup is terminally `failed`.
-
-Live entry run → `pipeline_not_resumable`. No-marker wedge on live daemon may need two unscoped resumes (settle, then reopen). See [`operator-runbook.md` § Wedged pipeline-stage settlement](./operator-runbook.md#wedged-pipeline-stage-settlement-after-daemon-death).
+An entry run this daemon still drives is left alone; on `resume` that surfaces as `pipeline_not_resumable`. Resume settles and then continues only what the settlement unblocked (a pending successor, or the terminal publication a fully-satisfied pipeline owes); a stage it settles `failed` stops there, so reopening — which discards a failure the operator has not yet seen — takes a second resume. See [`operator-runbook.md` § Unsettled pipeline-stage](./operator-runbook.md#unsettled-pipeline-stage-after-daemon-death).
 
 ## Pending boundaries
 

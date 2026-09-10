@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { InvocationFailureDetail } from "../execution/invocation-failure.ts";
 import {
+  type LinkedStageSettlementStore,
   resolvePrEvidenceAcrossInvocation,
+  settleLinkedStagesFromEntryRunWith,
   stageArtifactFromEntryRun,
   stageFailureDetailFromEntryRun,
 } from "./pipeline-stage-settlement.ts";
@@ -356,5 +358,66 @@ describe("stageArtifactFromEntryRun PR evidence", () => {
     });
     expect(artifact.prNumber).toBe(55);
     expect(artifact.prUrl).toBe("https://example.test/pull/55");
+  });
+});
+
+describe("settleLinkedStagesFromEntryRunWith", () => {
+  function settlementStore(stageStatus: string) {
+    const writes: Array<{ requiredStatus?: string; status?: unknown }> = [];
+    const row = {
+      id: "row-1",
+      pipelineId: "p1",
+      stageId: "s1",
+      branchKey: "default",
+      position: 0,
+      status: stageStatus,
+      workflowInvocationId: "entry-1",
+      startedAt: null,
+      endedAt: null,
+      artifact: null,
+      failureDetail: null,
+      decidedAt: null,
+    };
+    const pipeline = { id: "p1", definition: { name: "p", stages: [] }, stages: [row] };
+    const store = {
+      loadRun: (runId: string) =>
+        runId === "entry-1" ? entryRun({ id: "entry-1", status: "completed", specPath: "spec/s1.md" }) : null,
+      findRunsByInvocationId: () => [],
+      loadPipeline: () => pipeline,
+      listPipelines: () => [pipeline],
+      updateStage: (args: { patch: Record<string, unknown>; requiredStatus?: string }) => {
+        writes.push({
+          ...(args.requiredStatus !== undefined ? { requiredStatus: args.requiredStatus } : {}),
+          status: args.patch.status,
+        });
+        if (args.requiredStatus !== undefined && row.status !== args.requiredStatus) return false;
+        Object.assign(row, args.patch);
+        return true;
+      },
+    } as unknown as LinkedStageSettlementStore;
+    return { store, writes, row };
+  }
+
+  test("settles a running linked stage under a compare-and-set on `running`", () => {
+    const { store, writes, row } = settlementStore("running");
+
+    const outcome = settleLinkedStagesFromEntryRunWith(store, "entry-1");
+
+    expect(outcome.kind).toBe("settled");
+    expect(row.status).toBe("succeeded");
+    // Without the predicate, a racing writer's terminal status would be clobbered.
+    expect(writes.every((write) => write.requiredStatus === "running")).toBe(true);
+  });
+
+  test("a stage another writer already terminalized is not settled again", () => {
+    // The read filter and the compare-and-set are independent guards; this pins the second one by
+    // presenting a row whose status changed between selection and write.
+    const { store, writes, row } = settlementStore("running");
+    row.status = "failed";
+
+    settleLinkedStagesFromEntryRunWith(store, "entry-1");
+
+    expect(row.status).toBe("failed");
+    expect(writes.every((write) => write.requiredStatus === "running")).toBe(true);
   });
 });

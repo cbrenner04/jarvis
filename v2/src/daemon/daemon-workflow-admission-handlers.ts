@@ -39,6 +39,7 @@ import {
 import { daemonFailureDetail, type RunControlHandlerContext } from "./daemon-run-control-context.ts";
 import type { RunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
 import { findTerminalLogRecord } from "./run-operator-error.ts";
+import { settleStagesForEntryRun } from "./stage-settlement-owner.ts";
 
 type WorkflowStartResult =
   | { kind: "response"; result: unknown }
@@ -251,6 +252,23 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
           }
           if (entryRunId !== undefined) {
             workflowPromisesByEntryRunId.delete(entryRunId);
+            // Terminal event: the invocation is no longer live, so its durable rows settle every
+            // linked stage now — whether or not anything still awaits the promise. Best-effort by
+            // design: this runs in a promise `finally` that can outlive the store (daemon shutdown
+            // races the last workflow), and a store that is gone has nothing left to settle. The
+            // daemon-start sweep settles anything missed here.
+            try {
+              settleStagesForEntryRun(
+                {
+                  store,
+                  isEntryRunLive: () => false,
+                  loadLogRecords: ctx.logReader === undefined ? undefined : (id) => ctx.logReader?.tail(id) ?? [],
+                },
+                entryRunId,
+              );
+            } catch (settlementError) {
+              console.error(`Stage settlement after terminal run ${entryRunId} failed:`, settlementError);
+            }
           }
           trackPromiseResolve?.();
         });

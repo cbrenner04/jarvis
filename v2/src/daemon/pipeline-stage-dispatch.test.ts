@@ -11,7 +11,19 @@ import { WORKFLOW_PRESET_BUILDERS } from "../execution/workflow-presets.ts";
 import type { AnyWorkflowStep, WriteWorkflowStep } from "../execution/workflow-runner.ts";
 import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type { PersistedRecord } from "../persistence/log-stream.ts";
-import type { PipelineStageRecord, Run, RunStatus, StateStore, WorkflowSnapshot } from "../persistence/state-store.ts";
+import {
+  type LinkedStageSettlementOptions,
+  type LinkedStageSettlementStore,
+  settleLinkedStagesFromEntryRunWith,
+} from "../persistence/pipeline-stage-settlement.ts";
+import type {
+  Pipeline,
+  PipelineStageRecord,
+  Run,
+  RunStatus,
+  StateStore,
+  WorkflowSnapshot,
+} from "../persistence/state-store.ts";
 import { spinUntilMicrotask } from "../testing/bounded-microtask-spin.ts";
 import { writeHomeMachineConfig } from "../testing/cli-test-helpers.ts";
 import { withFixedUuid } from "../testing/fixed-uuid.ts";
@@ -23,9 +35,7 @@ import {
   dispatchPipelineStage,
   type PipelineWorkflowDispatch,
   type PipelineWorkflowWait,
-  redrivableDeferredSettlementEntryRunId,
   shouldStopForInFlightStageRow,
-  unsettledTerminalStageEntryRunId,
 } from "./pipeline-stage-dispatch.ts";
 import { createChainedStageProjectMatch, type PipelineContext } from "./pipeline-stage-resolve.ts";
 import { preparePipelineStageWorkflow } from "./pipeline-workflow-preparation.ts";
@@ -38,10 +48,10 @@ const TERMINAL_STAGE_RUN_STATUSES = new Set(["succeeded", "failed", "interrupted
 const CLASSIFIED_STATUS_WRITES = new Map<string, "terminal" | "nonterminal">([
   ["pipeline-stage-dispatch.ts:settleUnexpectedThrow:failed#1", "terminal"],
   ["pipeline-stage-dispatch.ts:writeRunningStageLinkage:running#1", "nonterminal"],
-  ["pipeline-stage-dispatch.ts:applyEntryRunSettlement:failed#1", "terminal"],
-  ["pipeline-stage-dispatch.ts:applyEntryRunSettlement:succeeded#1", "terminal"],
-  ["pipeline-stage-dispatch.ts:applyEntryRunSettlement:failed#2", "terminal"],
   ["pipeline-stage-dispatch.ts:dispatchPipelineStage:failed#1", "terminal"],
+  ["pipeline-stage-settlement.ts:settleLinkedStagesFromEntryRunWith:failed#1", "terminal"],
+  ["pipeline-stage-settlement.ts:settleLinkedStagesFromEntryRunWith:failed#2", "terminal"],
+  ["pipeline-stage-settlement.ts:settleLinkedStagesFromEntryRunWith:succeeded#1", "terminal"],
   ["pipeline-execution.ts:admitFanOutBranches:skipped#1", "terminal"],
   ["pipeline-execution.ts:settleApprovalBoundaryFailure:failed#1", "terminal"],
   ["pipeline-execution.ts:skipRemainingStages:skipped#1", "terminal"],
@@ -55,14 +65,50 @@ const DISPATCH_CHAIN_BOUNDARY_SYMBOLS = [
   "dispatchPipelineStage",
   "adoptAndSettlePipelineStage",
   "adoptPipelineStageUnderAdmission",
-  "redrivableDeferredSettlementEntryRunId",
-  "unsettledTerminalStageEntryRunId",
   "shouldStopForInFlightStageRow",
   "settlementLinkedEntryRunId",
   "isLiveEntryRun",
 ] as const;
 
-type StatusWrite = { endedAt: ts.Expression | undefined; identity: string; status: string };
+type StatusWrite = {
+  endedAt: ts.Expression | undefined;
+  /** True when `endedAt` is a literal, `Date.now()`, or a shorthand bound to `Date.now()` in-file. */
+  endedAtIsTimestamp: boolean;
+  identity: string;
+  status: string;
+};
+
+/**
+ * Names bound in this file by `const <name> = Date.now()`. A patch may pass `endedAt` in shorthand,
+ * and the guard must resolve that to its binding rather than read the property as absent.
+ */
+function nowBoundNames(source: ts.SourceFile): Set<string> {
+  const names = new Set<string>();
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer !== undefined &&
+      isNowCall(node.initializer)
+    ) {
+      names.add(node.name.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return names;
+}
+
+/** The property's value expression, resolving `{ endedAt }` shorthand to its identifier. */
+function patchPropertyValue(object: ts.ObjectLiteralExpression, name: string): ts.Expression | undefined {
+  const assignment = propertyAssignment(object, name);
+  if (assignment !== undefined) return assignment.initializer;
+  const shorthand = object.properties.find(
+    (property): property is ts.ShorthandPropertyAssignment =>
+      ts.isShorthandPropertyAssignment(property) && property.name.text === name,
+  );
+  return shorthand?.name;
+}
 
 function propertyAssignment(object: ts.ObjectLiteralExpression, name: string): ts.PropertyAssignment | undefined {
   return object.properties.find(
@@ -117,6 +163,7 @@ function parseStatusWrites(path: string): StatusWrite[] {
   const source = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const writes: StatusWrite[] = [];
   const occurrences = new Map<string, number>();
+  const nowBound = nowBoundNames(source);
 
   const visit = (node: ts.Node, scope = "<top-level>"): void => {
     const nextScope = ts.isFunctionLike(node) ? (functionName(node) ?? scope) : scope;
@@ -141,7 +188,9 @@ function parseStatusWrites(path: string): StatusWrite[] {
       expect(
         patch.properties.every(
           (property) =>
-            ts.isPropertyAssignment(property) && (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)),
+            ts.isShorthandPropertyAssignment(property) ||
+            (ts.isPropertyAssignment(property) &&
+              (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))),
         ),
       ).toBe(true);
       const statusProperty = propertyAssignment(patch, "status");
@@ -152,10 +201,12 @@ function parseStatusWrites(path: string): StatusWrite[] {
         const occurrenceKey = `${basename(path)}:${nextScope}:${status}`;
         const occurrence = (occurrences.get(occurrenceKey) ?? 0) + 1;
         occurrences.set(occurrenceKey, occurrence);
+        const endedAt = patchPropertyValue(patch, "endedAt");
         writes.push({
           identity: `${occurrenceKey}#${occurrence}`,
           status,
-          endedAt: propertyAssignment(patch, "endedAt")?.initializer,
+          endedAt,
+          endedAtIsTimestamp: isNumericTimestamp(endedAt, nowBound),
         });
       }
     }
@@ -166,17 +217,21 @@ function parseStatusWrites(path: string): StatusWrite[] {
   return writes;
 }
 
-function isNumericTimestamp(expression: ts.Expression | undefined): boolean {
+function isNowCall(expression: ts.Expression): boolean {
   return (
-    expression !== undefined &&
-    (ts.isNumericLiteral(expression) ||
-      (ts.isCallExpression(expression) &&
-        expression.arguments.length === 0 &&
-        ts.isPropertyAccessExpression(expression.expression) &&
-        ts.isIdentifier(expression.expression.expression) &&
-        expression.expression.expression.text === "Date" &&
-        expression.expression.name.text === "now"))
+    ts.isCallExpression(expression) &&
+    expression.arguments.length === 0 &&
+    ts.isPropertyAccessExpression(expression.expression) &&
+    ts.isIdentifier(expression.expression.expression) &&
+    expression.expression.expression.text === "Date" &&
+    expression.expression.name.text === "now"
   );
+}
+
+function isNumericTimestamp(expression: ts.Expression | undefined, nowBound: ReadonlySet<string> = new Set()): boolean {
+  if (expression === undefined) return false;
+  if (ts.isNumericLiteral(expression) || isNowCall(expression)) return true;
+  return ts.isIdentifier(expression) && nowBound.has(expression.text);
 }
 
 function resolveDaemonRelativeImport(specifier: string): string {
@@ -209,8 +264,17 @@ export function dispatchChainRelativePaths(sources: Readonly<Record<string, stri
     .sort();
 }
 
+/**
+ * The dispatch chain's terminal stage writes live in two places: the daemon modules that dispatch and
+ * recover stages, and the shared linked-stage settlement algorithm the store delegates to. Scanning
+ * only the daemon directory would leave every settlement write unguarded.
+ */
+const SHARED_STAGE_SETTLEMENT_SOURCE = "../persistence/pipeline-stage-settlement.ts";
+
 function listPipelineStageStatusWriteSourcePaths(): string[] {
-  return dispatchChainRelativePaths(listProductionDaemonSources()).map((rel) => join(import.meta.dir, rel));
+  return [...dispatchChainRelativePaths(listProductionDaemonSources()), SHARED_STAGE_SETTLEMENT_SOURCE].map((rel) =>
+    join(import.meta.dir, rel),
+  );
 }
 
 /** Pre-fix map-equality oracle; red-gates when a new status write lands without updating the registry. */
@@ -233,12 +297,13 @@ test("every terminal pipeline stage-run write carries endedAt", () => {
       identity: "pipeline-stage-dispatch-settlement.ts:settleSibling:failed#1",
       status: "failed",
       endedAt: undefined,
+      endedAtIsTimestamp: false,
     },
   ];
   expect(classifiedStatusWritesMapEqualityGuard(withUnregisteredTerminalWrite)).toBe(false);
 
   const vacuousMapMatchMissingEndedAt = writes.map((write) =>
-    TERMINAL_STAGE_RUN_STATUSES.has(write.status) ? { ...write, endedAt: undefined } : write,
+    TERMINAL_STAGE_RUN_STATUSES.has(write.status) ? { ...write, endedAt: undefined, endedAtIsTimestamp: false } : write,
   );
   expect(classifiedStatusWritesMapEqualityGuard(vacuousMapMatchMissingEndedAt)).toBe(true);
 
@@ -246,7 +311,7 @@ test("every terminal pipeline stage-run write carries endedAt", () => {
     const terminal = write.endedAt !== undefined;
     if (TERMINAL_STAGE_RUN_STATUSES.has(write.status)) {
       expect(terminal).toBe(true);
-      expect(isNumericTimestamp(write.endedAt)).toBe(true);
+      expect(write.endedAtIsTimestamp).toBe(true);
     } else {
       expect(terminal).toBe(false);
     }
@@ -264,13 +329,35 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 function fakeStore(runsById: Record<string, Partial<Run>> = {}): {
   store: StateStore;
   patches: Array<{ pipelineId: string; stageId: string; patch: Record<string, unknown> }>;
+  registerStageRow: (record: PipelineStageRecord & { pipelineId: string }) => void;
 } {
   const patches: Array<{ pipelineId: string; stageId: string; patch: Record<string, unknown> }> = [];
   const admissionRows = new Map<string, string>();
   const currentIdentity = "test-holder";
+  // Stage rows the fake keeps in sync with applied patches, so linked-stage settlement can find them
+  // the way the SQLite store does.
+  const stageRows = new Map<string, PipelineStageRecord & { pipelineId: string }>();
+  const stageKey = (pipelineId: string, stageId: string, branchKey?: string) =>
+    `${pipelineId}:${stageId}:${branchKey ?? "default"}`;
   const store = {
-    updateStage: (args: { pipelineId: string; stageId: string; patch: Record<string, unknown> }) => {
+    updateStage: (args: {
+      pipelineId: string;
+      stageId: string;
+      branchKey?: string;
+      patch: Record<string, unknown>;
+      requiredStatus?: string;
+    }) => {
+      const key = stageKey(args.pipelineId, args.stageId, args.branchKey);
+      // Mirror the store's compare-and-set: a settlement racing another writer must no-op.
+      if (args.requiredStatus !== undefined && stageRows.get(key)?.status !== args.requiredStatus) return false;
       patches.push(args);
+      const existing =
+        stageRows.get(key) ??
+        ({
+          ...stageRecord({ stageId: args.stageId, branchKey: args.branchKey ?? "default" }),
+          pipelineId: args.pipelineId,
+        } as PipelineStageRecord & { pipelineId: string });
+      stageRows.set(key, { ...existing, ...(args.patch as Partial<PipelineStageRecord>) });
     },
     loadRun: (runId: string) => {
       const run = runsById[runId];
@@ -280,7 +367,24 @@ function fakeStore(runsById: Record<string, Partial<Run>> = {}): {
       Object.entries(runsById)
         .filter(([, run]) => run.workflowSnapshot?.invocationId === invocationId)
         .map(([id, run]) => ({ id, attempts: [], ...run }) as unknown as Run),
-    loadPipeline: () => null,
+    loadPipeline: (pipelineId: string) => {
+      const stages = [...stageRows.values()].filter((stage) => stage.pipelineId === pipelineId);
+      if (stages.length === 0) return null;
+      return { id: pipelineId, definition: { name: "fake", stages: [] }, stages } as unknown as Pipeline & {
+        stages: PipelineStageRecord[];
+      };
+    },
+    listPipelines: () => {
+      const byPipeline = new Map<string, PipelineStageRecord[]>();
+      for (const stage of stageRows.values()) {
+        byPipeline.set(stage.pipelineId, [...(byPipeline.get(stage.pipelineId) ?? []), stage]);
+      }
+      return [...byPipeline].map(
+        ([id, stages]) => ({ id, definition: { name: "fake", stages: [] }, stages }) as unknown as Pipeline,
+      );
+    },
+    settleLinkedStagesFromEntryRun: (entryRunId: string, options?: LinkedStageSettlementOptions) =>
+      settleLinkedStagesFromEntryRunWith(store as unknown as LinkedStageSettlementStore, entryRunId, options),
     claimPipelineStageAdmission: (args: { pipelineId: string; stageId: string; branchKey?: string }) => {
       const key = `${args.pipelineId}:${args.stageId}:${args.branchKey ?? "default"}`;
       if (admissionRows.has(key)) return { kind: "refused" as const, reason: "claim_lost" as const };
@@ -295,7 +399,11 @@ function fakeStore(runsById: Record<string, Partial<Run>> = {}): {
     },
     loadPipelineStageAdmission: () => ({ kind: "absent" as const }),
   } as unknown as StateStore;
-  return { store, patches };
+  /** Seed the row a dispatched/adopted stage would already have, so settlement can resolve it. */
+  const registerStageRow = (record: PipelineStageRecord & { pipelineId: string }) => {
+    stageRows.set(stageKey(record.pipelineId, record.stageId, record.branchKey), record);
+  };
+  return { store, patches, registerStageRow };
 }
 
 function stageRecord(overrides: Partial<PipelineStageRecord> = {}): PipelineStageRecord {
@@ -330,11 +438,11 @@ function expectStageNotTerminalized(patches: Array<{ patch: Record<string, unkno
 }
 
 function runningStageStore(entryRunId: string, runState: Partial<Run>) {
-  const { store, patches } = fakeStore({ [entryRunId]: runState });
-  store.loadPipeline = () =>
-    ({
-      stages: [stageRecord({ status: "running", workflowInvocationId: entryRunId })],
-    }) as ReturnType<StateStore["loadPipeline"]>;
+  const { store, patches, registerStageRow } = fakeStore({ [entryRunId]: runState });
+  registerStageRow({
+    ...stageRecord({ status: "running", workflowInvocationId: entryRunId }),
+    pipelineId: "p1",
+  });
   return { store, patches };
 }
 
@@ -364,78 +472,6 @@ describe("shouldStopForInFlightStageRow", () => {
   });
 });
 
-describe("redrivableDeferredSettlementEntryRunId", () => {
-  const deferredDetail = (entryRunId: string) => ({
-    code: "settlement_deferred",
-    reason: "entry_run_still_live",
-    entryRunId,
-    rollupStatus: "failed",
-  });
-
-  test("not a running row", () => {
-    const { store } = fakeStore();
-    expect(redrivableDeferredSettlementEntryRunId(store, stageRecord({ status: "pending" }))).toBeUndefined();
-  });
-
-  test("running with no deferred marker", () => {
-    const { store } = fakeStore({ "entry-x": { status: "completed" } });
-    expect(
-      redrivableDeferredSettlementEntryRunId(
-        store,
-        stageRecord({ status: "running", workflowInvocationId: "entry-x" }),
-      ),
-    ).toBeUndefined();
-  });
-
-  test("running with a differently-shaped failureDetail", () => {
-    const { store } = fakeStore({ "entry-x": { status: "completed" } });
-    expect(
-      redrivableDeferredSettlementEntryRunId(
-        store,
-        stageRecord({
-          status: "running",
-          workflowInvocationId: "entry-x",
-          failureDetail: { code: "harness_failure", reason: "entry_run_still_live" },
-        }),
-      ),
-    ).toBeUndefined();
-  });
-
-  test("running with the deferred marker but a still-live entry run", () => {
-    const { store } = fakeStore({ "entry-x": { status: "in-progress" } });
-    expect(
-      redrivableDeferredSettlementEntryRunId(
-        store,
-        stageRecord({ status: "running", workflowInvocationId: "entry-x", failureDetail: deferredDetail("entry-x") }),
-      ),
-    ).toBeUndefined();
-  });
-
-  test("running with the deferred marker and a durably terminal entry run redrives", () => {
-    const { store } = fakeStore({ "entry-x": { status: "completed" } });
-    expect(
-      redrivableDeferredSettlementEntryRunId(
-        store,
-        stageRecord({ status: "running", workflowInvocationId: "entry-x", failureDetail: deferredDetail("entry-x") }),
-      ),
-    ).toBe("entry-x");
-  });
-
-  test("running with the deferred marker and an absent entry run row redrives", () => {
-    const { store } = fakeStore();
-    expect(
-      redrivableDeferredSettlementEntryRunId(
-        store,
-        stageRecord({
-          status: "running",
-          workflowInvocationId: "entry-missing",
-          failureDetail: deferredDetail("entry-missing"),
-        }),
-      ),
-    ).toBe("entry-missing");
-  });
-});
-
 function entryReviewSnapshot(invocationId: string): WorkflowSnapshot {
   return {
     invocationId,
@@ -444,6 +480,14 @@ function entryReviewSnapshot(invocationId: string): WorkflowSnapshot {
       { stepId: "s1-review", role: "review", behavior: "review", durable: true },
     ],
   };
+}
+
+/** Minimal single-durable-step snapshot: the entry row alone decides the rollup. */
+function entryOnlySnapshot(invocationId: string): WorkflowSnapshot {
+  return {
+    invocationId,
+    steps: [{ stepId: "s1-entry", role: "write", behavior: "write", durable: true }],
+  } as unknown as WorkflowSnapshot;
 }
 
 function unsettledRollupWedgeRuns(
@@ -458,59 +502,6 @@ function unsettledRollupWedgeRuns(
     [reviewRunId]: { stepId: "s1-review", status: reviewStatus, workflowSnapshot: snapshot },
   };
 }
-
-describe("unsettledTerminalStageEntryRunId", () => {
-  test("not a running row", () => {
-    const { store } = fakeStore();
-    expect(unsettledTerminalStageEntryRunId(store, stageRecord({ status: "pending" }))).toBeUndefined();
-  });
-
-  test("running with deferred marker", () => {
-    const entryRunId = "entry-deferred";
-    const { store } = fakeStore({ [entryRunId]: { status: "failed" } });
-    expect(
-      unsettledTerminalStageEntryRunId(
-        store,
-        stageRecord({
-          status: "running",
-          workflowInvocationId: entryRunId,
-          failureDetail: {
-            code: "settlement_deferred",
-            reason: "entry_run_still_live",
-            entryRunId,
-            rollupStatus: "failed",
-          },
-        }),
-      ),
-    ).toBeUndefined();
-  });
-
-  test("running with a still-live linked entry run", () => {
-    const entryRunId = "entry-live";
-    const { store } = fakeStore({ [entryRunId]: { status: "in-progress" } });
-    expect(
-      unsettledTerminalStageEntryRunId(store, stageRecord({ status: "running", workflowInvocationId: entryRunId })),
-    ).toBeUndefined();
-  });
-
-  test("running with rollup-failed linked run without marker redrives", () => {
-    const entryRunId = "entry-failed";
-    const reviewRunId = "entry-failed-review";
-    const { store } = fakeStore(unsettledRollupWedgeRuns(entryRunId, reviewRunId, "inv-failed", "failed"));
-    expect(
-      unsettledTerminalStageEntryRunId(store, stageRecord({ status: "running", workflowInvocationId: entryRunId })),
-    ).toBe(entryRunId);
-  });
-
-  test("running with rollup-completed linked run without marker returns undefined", () => {
-    const entryRunId = "entry-completed";
-    const reviewRunId = "entry-completed-review";
-    const { store } = fakeStore(unsettledRollupWedgeRuns(entryRunId, reviewRunId, "inv-completed", "completed"));
-    expect(
-      unsettledTerminalStageEntryRunId(store, stageRecord({ status: "running", workflowInvocationId: entryRunId })),
-    ).toBeUndefined();
-  });
-});
 
 type RefusedRunningClaimOutcome = {
   dispatchCalled: boolean;
@@ -756,7 +747,14 @@ describe("dispatchPipelineStage", () => {
     });
     const wait: PipelineWorkflowWait = async () => "completed";
     const { store, patches } = fakeStore({
-      "entry-2": { specPath: "spec/bar.md", prNumber: 42, prUrl: "https://example.com/pr/42" },
+      "entry-2": {
+        stepId: "s1-entry",
+        specPath: "spec/bar.md",
+        status: "completed",
+        workflowSnapshot: entryOnlySnapshot("inv-2"),
+        prNumber: 42,
+        prUrl: "https://example.com/pr/42",
+      },
     });
 
     await dispatchPipelineStage({
@@ -846,17 +844,26 @@ describe("dispatchPipelineStage", () => {
       entryRunId: "entry-link-fail",
       invocationId: "inv-link-fail",
     });
-    const wait: PipelineWorkflowWait = async () => "completed";
-    const { store, patches } = fakeStore({
-      "entry-link-fail": { specPath: "spec/recover.md", status: "in-progress" },
-    });
+    // Live while dispatch runs; the wait primitive resolves only once the row is durably terminal,
+    // so settlement is driven by the durable row rather than by the failed dispatch path.
+    const wait: PipelineWorkflowWait = async () => {
+      runState.status = "completed";
+      return "completed";
+    };
+    const runState: Partial<Run> = {
+      stepId: "s1-entry",
+      specPath: "spec/recover.md",
+      status: "in-progress",
+      workflowSnapshot: entryOnlySnapshot("inv-link-fail"),
+    };
+    const { store, patches } = fakeStore({ "entry-link-fail": runState });
     const originalUpdateStage = store.updateStage.bind(store);
     store.updateStage = (args) => {
       if (args.patch.workflowInvocationId !== undefined) {
         linkageWrites += 1;
         if (linkageWrites === 1) throw new Error("forced linkage write failure");
       }
-      originalUpdateStage(args);
+      return originalUpdateStage(args);
     };
 
     await dispatchPipelineStage({
@@ -895,11 +902,18 @@ describe("dispatchPipelineStage", () => {
     const wait: PipelineWorkflowWait = async () => {
       waitAttempts += 1;
       if (waitAttempts === 1) throw new Error("forced wait rejection");
+      runState.status = "completed";
       return "completed";
     };
-    const { store, patches } = fakeStore({
-      "entry-wait-fail": { specPath: "spec/wait-recover.md", status: "in-progress" },
-    });
+    // Live while dispatch runs; flipped terminal before adopting, so settlement is driven by the
+    // durable row rather than by the failed dispatch path.
+    const runState: Partial<Run> = {
+      stepId: "s1-entry",
+      specPath: "spec/wait-recover.md",
+      status: "in-progress",
+      workflowSnapshot: entryOnlySnapshot("inv-wait-fail"),
+    };
+    const { store, patches } = fakeStore({ "entry-wait-fail": runState });
 
     await dispatchPipelineStage({
       pipelineId: "p1",
@@ -928,7 +942,7 @@ describe("dispatchPipelineStage", () => {
     });
   });
 
-  test("dispatch catch over a live admitted entry run records settlement_deferred", async () => {
+  test("dispatch catch over a live admitted entry run leaves the stage running with no marker", async () => {
     const entryRunId = "entry-catch-defer";
     const dispatch: PipelineWorkflowDispatch = async () => ({
       ok: true,
@@ -953,13 +967,10 @@ describe("dispatchPipelineStage", () => {
 
     expect(patches.some((p) => p.patch.status === "failed")).toBe(false);
     expect(patches.some((p) => p.patch.status === "succeeded")).toBe(false);
-    const deferredPatch = patches.find((p) => p.patch.failureDetail !== undefined);
-    expect(deferredPatch?.patch.failureDetail).toEqual({
-      code: "settlement_deferred",
-      reason: "entry_run_still_live",
-      entryRunId,
-      rollupStatus: "in-progress",
-    });
+    // No deferred marker is written: the row stays linked and `running`, and the settlement owner
+    // settles it from the entry run's durable rows on its terminal event or at daemon start.
+    expect(patches.some((p) => p.patch.failureDetail !== undefined)).toBe(false);
+    expect(patches.at(-1)?.patch.status).toBe("running");
   });
 
   test("non-success settlement declines to terminalize a still-live entry run", async () => {
@@ -984,13 +995,8 @@ describe("dispatchPipelineStage", () => {
     });
 
     expectStageNotTerminalized(patches);
-    const deferredPatch = patches.find((p) => p.patch.failureDetail !== undefined);
-    expect(deferredPatch?.patch.failureDetail).toEqual({
-      code: "settlement_deferred",
-      reason: "entry_run_still_live",
-      entryRunId,
-      rollupStatus: "failed",
-    });
+    // A `wait` result never terminalizes a stage on its own — only the entry run's durable rows do.
+    expect(patches.some((p) => p.patch.failureDetail !== undefined)).toBe(false);
   });
 
   test("adopt settlement does not terminalize when wait resolves non-completed over a still-live entry run", async () => {
@@ -1014,7 +1020,7 @@ describe("dispatchPipelineStage", () => {
     expectStageNotTerminalized(patches);
   });
 
-  test("deferred settlement re-settles with operator error when entry run later terminals", async () => {
+  test("an unsettled stage settles with operator error once its entry run is durably terminal", async () => {
     const entryRunId = "entry-re-settle";
     const terminalRecord = loopFinished(entryRunId, "completion_commit_failed", { resumable: true });
     const runState: Partial<Run> = { specPath: "spec/re-settle.md", status: "in-progress" };
@@ -1036,13 +1042,7 @@ describe("dispatchPipelineStage", () => {
 
     expect(waitCalls).toBe(1);
     expect(patches.some((p) => p.patch.status === "failed")).toBe(false);
-    const deferredPatch = patches.find((p) => p.patch.failureDetail !== undefined);
-    expect(deferredPatch?.patch.failureDetail).toEqual({
-      code: "settlement_deferred",
-      reason: "entry_run_still_live",
-      entryRunId,
-      rollupStatus: "failed",
-    });
+    expect(patches.some((p) => p.patch.failureDetail !== undefined)).toBe(false);
 
     runState.status = "failed";
     await adoptAndSettlePipelineStage({
@@ -1110,7 +1110,9 @@ describe("dispatchPipelineStage", () => {
       entryRunId: "entry-missing-spec",
     });
     const wait: PipelineWorkflowWait = async () => "completed";
-    const { store, patches } = fakeStore({ "entry-missing-spec": {} });
+    const { store, patches } = fakeStore({
+      "entry-missing-spec": { stepId: "s1-entry", status: "completed", specPath: "" },
+    });
 
     await dispatchPipelineStage({
       pipelineId: "p1",
@@ -1137,7 +1139,10 @@ describe("dispatchPipelineStage", () => {
     const wait: PipelineWorkflowWait = async () => "completed";
     const { store, patches } = fakeStore({
       "entry-multi": {
+        stepId: "s1-entry",
         specPath: "ready-intents",
+        status: "completed",
+        workflowSnapshot: entryOnlySnapshot("inv-multi"),
         downstreamInputs: ["ready-intents/one.md", "ready-intents/two.md"],
       },
     });
@@ -1169,7 +1174,12 @@ describe("dispatchPipelineStage", () => {
     });
     const wait: PipelineWorkflowWait = async () => "completed";
     const { store, patches } = fakeStore({
-      "entry-single-file": { specPath: "ready-intents/single.md" },
+      "entry-single-file": {
+        stepId: "s1-entry",
+        specPath: "ready-intents/single.md",
+        status: "completed",
+        workflowSnapshot: entryOnlySnapshot("inv-single-file"),
+      },
     });
 
     await dispatchPipelineStage({
@@ -1206,7 +1216,14 @@ describe("dispatchPipelineStage", () => {
       }),
     ];
     const { store, patches } = fakeStore({
-      [entryRunId]: { specPath: "spec/implement.md", prNumber: 42, prUrl: "https://example.com/pr/42" },
+      [entryRunId]: {
+        stepId: "s1-entry",
+        specPath: "spec/implement.md",
+        status: "completed",
+        workflowSnapshot: entryOnlySnapshot("inv-retarget-success"),
+        prNumber: 42,
+        prUrl: "https://example.com/pr/42",
+      },
     });
 
     await dispatchPipelineStage({

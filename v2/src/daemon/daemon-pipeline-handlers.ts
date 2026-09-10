@@ -85,6 +85,7 @@ export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: Pipe
       wait: pipelineWait,
       resolveStage,
       ...(logReader !== undefined ? { loadLogRecords: (entryRunId: string) => logReader.tail(entryRunId) } : {}),
+      isEntryRunLive: (entryRunId: string) => ctx.workflowPromisesByEntryRunId.has(entryRunId),
       ...(deps.executeTerminalPublication !== undefined
         ? { executeTerminalPublication: deps.executeTerminalPublication }
         : {}),

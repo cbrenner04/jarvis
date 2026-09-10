@@ -403,6 +403,8 @@ test("derives stage incident with branchKey for failed fan-out lane on live pipe
       kind: "stage-failed",
       branchKey: failedBranchKey,
       pipelineId,
+      // A stage-scoped incident carries the owning entry run's project, same as pipeline-level ones.
+      project: "demo",
       stageId: "plan",
       transition: "failed",
     }),

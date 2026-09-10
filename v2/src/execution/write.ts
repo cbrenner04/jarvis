@@ -14,6 +14,7 @@ import { errorMessage } from "../../../shared/error-message.ts";
 import type { InvocationBinding, InvocationTelemetryContext } from "../../../shared/invocation/execute.ts";
 import type { SessionLog } from "../../../shared/invocation/session-log.ts";
 import { normalizePlanDraftSpecDir } from "../../../shared/module-boundary-surfaces.ts";
+import { renderPromptForStep } from "../../../shared/prompts/assemble.ts";
 import {
   buildIntentSplitPrompt,
   INTENT_SPLIT_PROMPT_ID,
@@ -32,7 +33,6 @@ import {
 } from "./external-worktree.ts";
 import { type BlockerTextContract, runStep, type StepContract, type StepRunResult } from "./step-runner.ts";
 import { throwIfAborted } from "./throw-if-aborted.ts";
-import { renderStepPrompt } from "./write-prompt.ts";
 
 const DEFAULT_PROMPT_ID = "write.execute";
 
@@ -445,11 +445,14 @@ async function executePlanDraftWrite(
     prompt =
       reprompt !== undefined
         ? appendHarnessDiagnosticsSection(
-            renderArtifactTemplate(loadPromptRegistry().getById("write.staged-markdown-lint-reprompt"), {
-              RULE_ID: reprompt.ruleId,
-              OFFENDING_FILE: reprompt.offendingFile,
-              STAGING_DIR: args.expectedArtifactPath,
-              VIOLATION: reprompt.message,
+            renderPromptForStep({
+              stepPromptId: "write.staged-markdown-lint-reprompt",
+              placeholders: {
+                RULE_ID: reprompt.ruleId,
+                OFFENDING_FILE: reprompt.offendingFile,
+                STAGING_DIR: args.expectedArtifactPath,
+                VIOLATION: reprompt.message,
+              },
             }),
             harnessDiagnostics,
           )
@@ -535,17 +538,23 @@ async function executeIntentSplitWrite(
   mkdirSync(expectedArtifactPath, { recursive: true });
   const prompt =
     landingReprompt !== undefined
-      ? renderArtifactTemplate(loadPromptRegistry().getById("write.landing-contract-reprompt"), {
-          VIOLATION: landingReprompt.violation,
-          OFFENDING_FILE: landingReprompt.offendingFile,
-          STAGING_DIR: args.expectedArtifactPath,
+      ? renderPromptForStep({
+          stepPromptId: "write.landing-contract-reprompt",
+          placeholders: {
+            VIOLATION: landingReprompt.violation,
+            OFFENDING_FILE: landingReprompt.offendingFile,
+            STAGING_DIR: args.expectedArtifactPath,
+          },
         })
       : lintReprompt !== undefined
-        ? renderArtifactTemplate(loadPromptRegistry().getById("write.staged-markdown-lint-reprompt"), {
-            RULE_ID: lintReprompt.ruleId,
-            OFFENDING_FILE: lintReprompt.offendingFile,
-            STAGING_DIR: args.expectedArtifactPath,
-            VIOLATION: lintReprompt.message,
+        ? renderPromptForStep({
+            stepPromptId: "write.staged-markdown-lint-reprompt",
+            placeholders: {
+              RULE_ID: lintReprompt.ruleId,
+              OFFENDING_FILE: lintReprompt.offendingFile,
+              STAGING_DIR: args.expectedArtifactPath,
+              VIOLATION: lintReprompt.message,
+            },
           })
         : buildIntentSplitPrompt({
             workdir: args.promptPlaceholders?.WORKDIR ?? worktreePath,
@@ -593,13 +602,16 @@ async function executeDefaultWrite(
   try {
     const survivingReprompt = args.survivingMutationReprompt;
     if (promptId === "implement.prompt.body" && survivingReprompt !== undefined) {
-      prompt = renderArtifactTemplate(loadPromptRegistry().getById("write.surviving-mutation-reprompt"), {
-        SPEC_PATH: expectedArtifactPath,
-        STEP_RULES: args.stepRules,
-        SURVIVING_MUTATION: survivingReprompt.mutation,
-        SOURCE_FILE: survivingReprompt.sourceFile,
-        SOURCE_LINE: String(survivingReprompt.sourceLine),
-        DUAL_CONSTRAINT_DETAIL: dualConstraintRepromptDetail(survivingReprompt.dualConstraint),
+      prompt = renderPromptForStep({
+        stepPromptId: "write.surviving-mutation-reprompt",
+        placeholders: {
+          SPEC_PATH: expectedArtifactPath,
+          STEP_RULES: args.stepRules,
+          SURVIVING_MUTATION: survivingReprompt.mutation,
+          SOURCE_FILE: survivingReprompt.sourceFile,
+          SOURCE_LINE: String(survivingReprompt.sourceLine),
+          DUAL_CONSTRAINT_DETAIL: dualConstraintRepromptDetail(survivingReprompt.dualConstraint),
+        },
       });
     } else {
       const placeholders = assembleWriteStepPlaceholders(
@@ -607,7 +619,7 @@ async function executeDefaultWrite(
         { specPath, stepRules: args.stepRules, worktreePath, expectedArtifactPath },
         args.promptPlaceholders,
       );
-      prompt = renderStepPrompt(promptId, placeholders);
+      prompt = renderPromptForStep({ stepPromptId: promptId, placeholders });
     }
   } catch (err) {
     if (err instanceof PromptRenderingError) {

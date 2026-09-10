@@ -1,6 +1,5 @@
-import { assemblePromptForStep } from "./assemble.ts";
-import { loadPromptRegistry } from "./registry.ts";
-import { enforceDelimiterPolicy, renderArtifactTemplate } from "./render.ts";
+import { renderPromptForStep } from "./assemble.ts";
+import { enforceDelimiterPolicy } from "./render.ts";
 
 export const PLAN_DRAFT_PROMPT_ID = "plan.prompt.draft";
 
@@ -50,13 +49,6 @@ export function buildPlanDraftPrompt(opts: {
   stepRules?: string;
   harnessNormalizerDiagnostics?: readonly string[];
 }): string {
-  const registry = loadPromptRegistry();
-  const artifact = registry.getById(PLAN_DRAFT_PROMPT_ID);
-  const template = assemblePromptForStep({
-    registry,
-    stepPromptId: PLAN_DRAFT_PROMPT_ID,
-  });
-
   const workDir = opts.workDirLabel ?? opts.name;
   const targetDir = opts.targetDir ?? "spec";
   const variant = resolvePlanSpecLayoutVariant(
@@ -76,17 +68,17 @@ export function buildPlanDraftPrompt(opts: {
     placeholderName: "SPEC_GUIDANCE",
   });
 
-  const rendered = renderArtifactTemplate(
-    { ...artifact, body: template },
-    {
+  const rendered = renderPromptForStep({
+    stepPromptId: PLAN_DRAFT_PROMPT_ID,
+    placeholders: {
       WORKDIR: workDir,
       NAME: opts.name,
       INTENT: opts.intent,
       SPEC_GUIDANCE: opts.specGuidance,
       TARGET_DIR: targetDir,
     },
-    variant === undefined ? undefined : { variant },
-  );
+    variant,
+  });
 
   const sections = [rendered];
 

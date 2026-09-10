@@ -21,7 +21,7 @@ function writePromptFixture(content: string): string {
 }
 
 function stepPromptMeta(id: string, extra = ""): string {
-  return `id: ${id}\nbehavior: plan\nkind: step\nrevision: 1${extra ? `\n${extra}` : ""}`;
+  return `id: ${id}\nbehavior: plan\nkind: step\nfragmentPolicy: global\nrevision: 1${extra ? `\n${extra}` : ""}`;
 }
 
 describe("prompt registry load validation", () => {
@@ -48,13 +48,13 @@ describe("prompt registry load validation", () => {
   });
 
   test("missing required metadata is a load-time error", () => {
-    const entry = withFrontmatter("id: example.prompt\nbehavior: plan\nkind: step");
+    const entry = withFrontmatter("id: example.prompt\nbehavior: plan\nkind: step\nfragmentPolicy: global");
     expect(() => createPromptRegistry([writePromptFixture(entry)])).toThrow();
   });
 
   test("duplicate ids are rejected during load", () => {
-    const a = withFrontmatter("id: dup.prompt\nbehavior: plan\nkind: step\nrevision: 1", "A");
-    const b = withFrontmatter("id: dup.prompt\nbehavior: plan\nkind: step\nrevision: 2", "B");
+    const a = withFrontmatter("id: dup.prompt\nbehavior: plan\nkind: step\nfragmentPolicy: global\nrevision: 1", "A");
+    const b = withFrontmatter("id: dup.prompt\nbehavior: plan\nkind: step\nfragmentPolicy: global\nrevision: 2", "B");
     expect(() => createPromptRegistry([writePromptFixture(a), writePromptFixture(b)])).toThrow("duplicate prompt id");
   });
 
@@ -67,7 +67,7 @@ describe("prompt registry load validation", () => {
 
   test("unknown explicit override target is rejected during load", () => {
     const entry = withFrontmatter(
-      "id: override.prompt\nbehavior: plan\nkind: step\nrevision: 1\noverrides: [missing.target]",
+      "id: override.prompt\nbehavior: plan\nkind: step\nfragmentPolicy: global\nrevision: 1\noverrides: [missing.target]",
     );
     expect(() => createPromptRegistry([writePromptFixture(entry)])).toThrow("unknown explicit override target");
   });
@@ -94,7 +94,7 @@ describe("prompt registry load validation", () => {
 
   test("parses placeholder declarations from frontmatter", () => {
     const entry = withFrontmatter(
-      "id: placeholders.prompt\nbehavior: plan\nkind: step\nrevision: 1\nplaceholders: [WORKDIR:string!, NAME:string!]",
+      "id: placeholders.prompt\nbehavior: plan\nkind: step\nfragmentPolicy: global\nrevision: 1\nplaceholders: [WORKDIR:string!, NAME:string!]",
       "<WORKDIR> <NAME>",
     );
     const registry = createPromptRegistry([writePromptFixture(entry)]);
@@ -106,7 +106,7 @@ describe("prompt registry load validation", () => {
 
   test("invalid placeholder declarations fail during load", () => {
     const entry = withFrontmatter(
-      "id: bad.placeholders\nbehavior: plan\nkind: step\nrevision: 1\nplaceholders: [WORKDIR:number!]",
+      "id: bad.placeholders\nbehavior: plan\nkind: step\nfragmentPolicy: global\nrevision: 1\nplaceholders: [WORKDIR:number!]",
       "<WORKDIR>",
     );
     expect(() => createPromptRegistry([writePromptFixture(entry)])).toThrow("invalid placeholder declaration");
@@ -230,5 +230,43 @@ describe("prompt registry manifest surface", () => {
 
   test("readRegisteredPromptPaths throws when the manifest is absent", () => {
     expect(() => readRegisteredPromptPaths(join(import.meta.dir, "no-such-root"))).toThrow();
+  });
+});
+
+describe("fragment policy metadata", () => {
+  function artifactFile(frontmatter: string): string {
+    const dir = mkdtempSync(join(tmpdir(), "prompt-policy-"));
+    const path = join(dir, "artifact.md");
+    writeFileSync(path, `---\n${frontmatter}\n---\nbody\n`);
+    return path;
+  }
+
+  test("a step without fragmentPolicy fails to load", () => {
+    expect(() =>
+      createPromptRegistry([artifactFile("id: x.step\nbehavior: x\nkind: step\nrevision: 1\nplaceholders: []")]),
+    ).toThrow("missing fragmentPolicy");
+  });
+
+  test("an unknown fragmentPolicy fails to load", () => {
+    expect(() =>
+      createPromptRegistry([
+        artifactFile("id: x.step\nbehavior: x\nkind: step\nfragmentPolicy: lane\nrevision: 1\nplaceholders: []"),
+      ]),
+    ).toThrow("invalid fragmentPolicy `lane`");
+  });
+
+  test("fragmentPolicy on a fragment fails to load", () => {
+    expect(() =>
+      createPromptRegistry([
+        artifactFile("id: x.frag\nbehavior: x\nkind: fragment\nfragmentPolicy: none\nrevision: 1"),
+      ]),
+    ).toThrow("only valid on step artifacts");
+  });
+
+  test("steps carry their policy and fragments carry null", () => {
+    const registry = loadPromptRegistry();
+    expect(registry.getById("write.execute").metadata.fragmentPolicy).toBe("global");
+    expect(registry.getById("write.token-reprompt").metadata.fragmentPolicy).toBe("none");
+    expect(registry.getById("global.terse").metadata.fragmentPolicy).toBeNull();
   });
 });

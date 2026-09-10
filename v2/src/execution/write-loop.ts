@@ -22,6 +22,7 @@ import {
 } from "../../../shared/invocation/execute.ts";
 import { openSessionLog, type SessionLog } from "../../../shared/invocation/session-log.ts";
 import { hasUncheckedNonHumanOnlyCriteria } from "../../../shared/linked-subspec-routing.ts";
+import { renderPromptForStep } from "../../../shared/prompts/assemble.ts";
 import { INTENT_SPLIT_PROMPT_ID } from "../../../shared/prompts/intent-split.ts";
 import { PLAN_DRAFT_PROMPT_ID } from "../../../shared/prompts/plan-draft.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
@@ -587,8 +588,10 @@ async function runCoverageAdvisory(
       return null;
     }
 
-    const artifact = loadPromptRegistry().getById(COVERAGE_ADVISORY_PROMPT_ID);
-    const prompt = renderArtifactTemplate(artifact, { COVERAGE_REPORT: report.reportText });
+    const prompt = renderPromptForStep({
+      stepPromptId: COVERAGE_ADVISORY_PROMPT_ID,
+      placeholders: { COVERAGE_REPORT: report.reportText },
+    });
 
     const invocation = await executeWithQuotaFallback({
       prompt,

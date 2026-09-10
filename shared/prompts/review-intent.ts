@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { readSpecGuidance } from "../spec-guidance-path.ts";
-import { assemblePromptForStep } from "./assemble.ts";
+import { renderPromptForStep } from "./assemble.ts";
 import { listIntentStageMarkdownFiles } from "./intent-split.ts";
 import { loadPromptRegistry } from "./registry.ts";
 import { enforceDelimiterPolicy, renderTemplateWithDeclarations } from "./render.ts";
@@ -39,10 +39,9 @@ function renderIntentReviewPrompt(
     end: "<<<STAGED_INTENT_END>>>",
     placeholderName: "STAGED_INTENT",
   });
-  return renderTemplateWithDeclarations(
-    assemblePromptForStep({ registry, stepPromptId: promptId }),
-    artifact.metadata.placeholders,
-    {
+  return renderPromptForStep({
+    stepPromptId: promptId,
+    placeholders: {
       STAGED_INTENT: staged,
       SPEC_GUIDANCE: readSpecGuidance(),
       VERDICT: verdict,
@@ -57,7 +56,7 @@ function renderIntentReviewPrompt(
       ADVOCATE_RESPONSE: "(no prior response)",
       ...extra,
     },
-  ).trim();
+  });
 }
 
 export function renderIntentReviewCriticPrompt(context: IntentReviewPromptContext): string {

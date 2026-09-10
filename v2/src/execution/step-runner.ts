@@ -7,6 +7,7 @@ import {
   type InvocationTelemetryContext,
 } from "../../../shared/invocation/execute.ts";
 import type { SessionLog } from "../../../shared/invocation/session-log.ts";
+import { renderPromptForStep } from "../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import { agentAuthoredBlockerBody, extractBlockerBody, hasGenuineBlocker } from "../../../shared/spec-parser.ts";
@@ -160,9 +161,8 @@ function sharedInvocationExtras(args: StepRunInput) {
 }
 
 function buildTokenRepromptPrompt(responseText: string): string {
-  const artifact = loadPromptRegistry().getById(TOKEN_REPROMPT_PROMPT_ID);
   const text = responseText.length > 0 ? responseText : "(the previous response was empty)";
-  return renderArtifactTemplate(artifact, { RESPONSE_TEXT: text }).trim();
+  return renderPromptForStep({ stepPromptId: TOKEN_REPROMPT_PROMPT_ID, placeholders: { RESPONSE_TEXT: text } });
 }
 
 function requestTokenReprompt(args: StepRunInput, responseText: string): Promise<InvocationExecution> {

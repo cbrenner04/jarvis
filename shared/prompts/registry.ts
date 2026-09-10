@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type {
+  FragmentPolicy,
   PromptArtifact,
   PromptOptionalSection,
   PromptPlaceholderDeclaration,
@@ -208,6 +209,31 @@ function parseOptionalSectionsValue(value: string | undefined, sourcePath: strin
   return parsed.map((entry, index) => parseOptionalSection(entry, index, sourcePath));
 }
 
+const FRAGMENT_POLICIES: ReadonlySet<string> = new Set(["global", "behavior", "none"]);
+
+/** Every step declares its fragment policy; fragments carry none. Missing or unknown values fail the load. */
+function parseFragmentPolicyValue(
+  value: string | undefined,
+  kind: "step" | "fragment",
+  sourcePath: string,
+): FragmentPolicy | null {
+  if (kind === "fragment") {
+    if (value !== undefined && value.length > 0) {
+      throw new Error(`fragmentPolicy is only valid on step artifacts; found on fragment ${sourcePath}`);
+    }
+    return null;
+  }
+  if (value === undefined || value.length === 0) {
+    throw new Error(`missing fragmentPolicy in step prompt artifact ${sourcePath}; expected global|behavior|none`);
+  }
+  if (!FRAGMENT_POLICIES.has(value)) {
+    throw new Error(
+      `invalid fragmentPolicy \`${value}\` in prompt artifact ${sourcePath}; expected global|behavior|none`,
+    );
+  }
+  return value as FragmentPolicy;
+}
+
 function parseOrderValue(value: string | undefined, sourcePath: string): number | null {
   if (value === undefined || value.length === 0) return null;
   const parsed = Number(value);
@@ -228,6 +254,7 @@ function readPromptArtifact(sourcePath: string): PromptArtifact {
   if (kind !== "step" && kind !== "fragment") {
     throw new Error(`invalid kind \`${kind}\` in prompt artifact ${sourcePath}; expected step|fragment`);
   }
+  const fragmentPolicy = parseFragmentPolicyValue(fields.get("fragmentPolicy"), kind, sourcePath);
 
   const placeholders = parsePlaceholdersValue(fields.get("placeholders") ?? "");
   const optionalSections = parseOptionalSectionsValue(fields.get("optionalSections"), sourcePath);
@@ -245,6 +272,7 @@ function readPromptArtifact(sourcePath: string): PromptArtifact {
       id,
       behavior,
       kind,
+      fragmentPolicy,
       revision,
       order: parseOrderValue(fields.get("order"), sourcePath),
       fragmentOf: parseListValue(fields.get("fragmentOf") ?? ""),

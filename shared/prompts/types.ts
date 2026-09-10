@@ -11,10 +11,18 @@ export type PromptOptionalSection = {
   placeholder: string;
 };
 
+/**
+ * Which fragments a step prompt assembles ahead of its body: `global` = ranked global fragments,
+ * `behavior` = globals plus the step's behavior lane, `none` = body only. `add`/`remove` apply
+ * after the policy in every case. Fragments carry `null`.
+ */
+export type FragmentPolicy = "global" | "behavior" | "none";
+
 export type PromptMetadata = {
   id: string;
   behavior: string;
   kind: "step" | "fragment";
+  fragmentPolicy: FragmentPolicy | null;
   revision: string;
   /** Assembly rank within a behavior; lower renders first, `null` sorts last by id. */
   order: number | null;

@@ -2,6 +2,7 @@
 id: plan.prompt.review.advocate
 behavior: plan
 kind: step
+fragmentPolicy: behavior
 revision: 5
 placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, CURRENT_SPEC:string!, SPEC_GUIDANCE:string!, ADVERSARY_FINDINGS:string!, REVIEW_PASS_CONTEXT:string!]
 remove: [global.naming]

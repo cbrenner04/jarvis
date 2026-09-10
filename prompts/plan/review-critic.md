@@ -2,6 +2,7 @@
 id: plan.prompt.review.critic
 behavior: plan
 kind: step
+fragmentPolicy: behavior
 revision: 4
 placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, CURRENT_SPEC:string!, SPEC_GUIDANCE:string!, REVIEW_PASS_CONTEXT:string!]
 remove: [global.naming]

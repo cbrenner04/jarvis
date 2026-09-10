@@ -1,8 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import { renderPromptForStep } from "../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { PromptRenderingError } from "../../../shared/prompts/render.ts";
 import { DEFAULT_WRITE_STEP_RULES } from "../../../shared/prompts/step-rules.ts";
-import { renderStepPrompt } from "./write-prompt.ts";
+
+/** v2 write-step rendering is the shared assembler; the shim keeps the historical call shape. */
+function renderStepPrompt(promptId: string, placeholders: Record<string, string>): string {
+  return renderPromptForStep({ stepPromptId: promptId, placeholders });
+}
 
 const HUMAN_ONLY_STEP_RULES =
   "Human-only acceptance criteria contain `(Manual)`, `visual inspection only`, or `no automated guard` anywhere in the full bullet block (the first checklist line and any continuation lines). Recognition uses case-insensitive substring matching; markers need not be trailing or whole phrases.";

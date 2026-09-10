@@ -1,7 +1,7 @@
 import { type Dirent, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../subprocess.ts";
-import { assemblePromptForStep } from "./assemble.ts";
+import { renderPromptForStep } from "./assemble.ts";
 import { loadPromptRegistry } from "./registry.ts";
 import { renderArtifactTemplate, renderTemplateWithDeclarations } from "./render.ts";
 import { bindReviewPromptProfile, implementReviewProfile } from "./review-profile.ts";
@@ -74,11 +74,10 @@ function passContext(context: ReviewDebateRenderContext): string {
 
 function patchBodyPrompt(specPath: string): string {
   const registry = loadPromptRegistry();
-  const artifact = registry.getById("implement.prompt.body");
-  const template = assemblePromptForStep({ registry, stepPromptId: "implement.prompt.body" });
-  return renderArtifactTemplate(
-    { ...artifact, body: template },
-    {
+  return renderPromptForStep({
+    registry,
+    stepPromptId: "implement.prompt.body",
+    placeholders: {
       SPEC_PATH: specPath,
       SIBLINGS_BLOCK: "",
       REPO_GUIDANCE: "",
@@ -88,7 +87,7 @@ function patchBodyPrompt(specPath: string): string {
       TIMEOUT_CHECKPOINT_CONTEXT: "",
       STEP_RULES: "",
     },
-  ).trim();
+  });
 }
 
 async function renderStep(
@@ -97,22 +96,12 @@ async function renderStep(
   extra: Record<string, string> = {},
   runner = realAsyncSubprocessRunner,
 ): Promise<string> {
-  const registry = loadPromptRegistry();
-  const template = assemblePromptForStep({ registry, stepPromptId });
   const tree: string[] = [];
   const specPath = context.specPath.startsWith("/") ? context.specPath : join(context.cwd, context.specPath);
   visit(dirname(specPath), context.specReadRoot ?? context.cwd, tree);
-  return renderTemplateWithDeclarations(
-    template,
-    [
-      { name: "SPEC_PATH", type: "string", required: true },
-      { name: "SPEC_TREE", type: "string", required: true },
-      { name: "BRANCH_DIFF", type: "string", required: true },
-      { name: "REVIEW_PASS_NUMBER", type: "string", required: true },
-      { name: "REVIEW_PASS_CONTEXT", type: "string", required: true },
-      ...Object.keys(extra).map((name) => ({ name, type: "string" as const, required: true })),
-    ],
-    {
+  return renderPromptForStep({
+    stepPromptId,
+    placeholders: {
       SPEC_PATH: context.specPath,
       SPEC_TREE: tree.join(""),
       BRANCH_DIFF: await branchDiff(context.cwd, context.baseBranch ?? "main", runner),
@@ -120,7 +109,7 @@ async function renderStep(
       REVIEW_PASS_CONTEXT: passContext(context),
       ...extra,
     },
-  ).trim();
+  });
 }
 
 export function renderReviewDebateActuatorPrompt(verdict: string, specPath: string): string {

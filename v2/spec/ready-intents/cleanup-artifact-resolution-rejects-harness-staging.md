@@ -34,7 +34,7 @@ Unsplit rationale: every decision changes one module-boundary surface — cleanu
 - [ ] A test proves artifact resolution returns `undefined` when no candidate source contains `index.md` and none is a `.md` spec file; it fails against the current `?? sources[0]` fallback.
 - [ ] A test proves the archive destination for a registered project is under that project's `plan.targetDir` `completed/` directory even when a candidate source resolves outside it; it fails against the current `dirname(source)` home.
 - [ ] A test proves a post-retirement archive candidate absent from disk is neither previewed nor moved; it fails against the current unchecked preview.
-- [ ] Existing `cleanup` tests for in-repo spec-tree archival and external `plans/` archival stay green (destinations unchanged).
+- [ ] `cleanup.test.ts`'s in-repo spec-tree archival cases (e.g. "retires before archiving a complete durable spec and prunes only its consumed intent", "archives open-home spec when retiring its owning worktree in one invocation") and external plan archival cases (e.g. "resolves absolute external plan specPath from durable implement run for retired-worktree archival", "archives eligible external plan after completeness and ownership checks") stay green (destinations unchanged).
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

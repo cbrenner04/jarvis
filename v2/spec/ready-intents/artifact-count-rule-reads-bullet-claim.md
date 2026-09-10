@@ -16,9 +16,8 @@ Unsplit rationale: the rule, its path counter, and its refusal message all live 
 
 ## Decisions
 
-- The artifact-count rule applies only to bullets asserting an artifact is created or changed; a bullet asserting named existing artifacts stay unchanged is exempt.
-- A `## Decisions` bullet may name every call site one decision governs; the atomicity protected is one decision per bullet, not one file per bullet.
-- The refusal message distinguishes *builds two things* from *mentions two paths* and names which reading was applied.
+- The artifact-count rule applies only to bullets asserting an artifact is created or changed; two exemptions, both read from bullet wording alone (never from which section the bullet sits in, so no section-context threading is needed): (a) a bullet asserting named existing artifacts stay unchanged (e.g. "X and Y stay green"), and (b) a bullet naming multiple call sites affected by one decision — the atomicity protected there is one decision per bullet, not one file per bullet.
+- The refusal message distinguishes *builds/changes two artifacts* from *mentions two paths under an exemption* and names which reading was applied.
 
 ## Acceptance criteria
 

@@ -3599,15 +3599,12 @@ describe("implement preflight stale workspace reset", () => {
     await realAsyncSubprocessRunner.runAsync("git", ["add", "."], resetProjectRoot);
     await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "plan base"], resetProjectRoot);
 
+    // The ticked criterion lives only on disk (uncommitted): branch HEAD stays identical to base,
+    // so the descendant and unlanded-commit gates never trigger and landed-criteria drift is the
+    // sole refusal path. `--reset-despite-dirty` clears the unrelated dirty-worktree gate so it
+    // can't stand in for the landed-criteria gate either.
     const worktreePath = await materializeStaleWorktree();
     writeFileSync(join(worktreePath, specRel), "# Plan\n\n## Acceptance criteria\n\n- [x] Keep work\n", "utf8");
-    await realAsyncSubprocessRunner.runAsync("git", ["add", specRel], worktreePath);
-    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "land criterion on branch"], worktreePath);
-    await realAsyncSubprocessRunner.runAsync("git", ["merge", resetBranch], resetProjectRoot);
-    writeFileSync(join(resetProjectRoot, specRel), "# Plan\n\n## Acceptance criteria\n\n- [ ] Keep work\n", "utf8");
-    writeFileSync(join(resetProjectRoot, "base-advance-landed.md"), "advance\n");
-    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], resetProjectRoot);
-    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "revert spec tick on main"], resetProjectRoot);
 
     const cap = captureIo();
     const sent: unknown[] = [];
@@ -3615,7 +3612,7 @@ describe("implement preflight stale workspace reset", () => {
 
     const code = await withStaleResetWorkflowUuids("start", "wait", () =>
       main(
-        ["run", "workflow", "plan", "--ready-intent", specRel, "--detach"],
+        ["run", "workflow", "plan", "--ready-intent", specRel, "--reset-despite-dirty", "--detach"],
         cap.io,
         resetImplementDeps({
           workflowPresetBuilders: { plan: () => ({ ok: true as const, steps: resetImplementSteps() }) },
@@ -3774,6 +3771,38 @@ describe("implement preflight stale workspace reset", () => {
     const { stderr } = cap.read();
     expect(stderr).not.toContain("retirement disposition");
     expect(stderr).not.toContain("never-landed classification");
+    expect(ipcFramesWithMethod(sent, "start")).toHaveLength(1);
+  });
+
+  test("run workflow plan emits no disposition line when a never-landed lane's stale reset is a no-op", async () => {
+    const worktreePath = await materializeStaleWorktree();
+    // Classification inspects resetProjectRoot/branch (never-landed: no PR, no unlanded commits),
+    // but the physical worktree link is broken, so stale reset's dirty-status probe reports
+    // "not-git-repository" and short-circuits to a no-op outcome before any retirement runs.
+    writeFileSync(join(worktreePath, ".git"), "gitdir: /nonexistent\n", "utf8");
+
+    const cap = captureIo();
+    const sent: unknown[] = [];
+    const subprocessRunner = emptyPrListSubprocessRunner();
+
+    const code = await withStaleResetWorkflowUuids("start", "wait", () =>
+      main(
+        ["run", "workflow", "plan", "--ready-intent", "index.md"],
+        cap.io,
+        resetImplementDeps({
+          workflowPresetBuilders: { plan: () => ({ ok: true as const, steps: resetImplementSteps() }) },
+          subprocessRunner,
+          connectIpcClient: async () =>
+            makeStaleResetIpcClient(workflowFrames("start", "wait", "run-no-op-plan", COMPLETED_WAIT_RESULT), {
+              sent,
+            }),
+        }),
+      ),
+    );
+
+    expect(code).toBe(0);
+    const { stderr } = cap.read();
+    expect(stderr).not.toContain("worktree disposition");
     expect(ipcFramesWithMethod(sent, "start")).toHaveLength(1);
   });
 });

@@ -289,10 +289,8 @@ function standaloneInconclusiveNeverLandedRefusal(reason: string): string {
   return `Error: Cannot re-run incomplete spec: never-landed classification is inconclusive (${reason}); the lane is preserved. Re-run \`jarvis run workflow plan --ready-intent <path>\` where \`gh\` is reachable (outside the agent sandbox), or hand-finish with \`jarvis cleanup --abandon <branch>\` after confirming no open PR.`;
 }
 
-function standalonePlanLaneRetirementDisposition(status: "reset" | "no-op"): string {
-  return status === "reset"
-    ? "failed plan resume worktree disposition: retired-and-rematerialized from base"
-    : "failed plan resume worktree disposition: reused existing worktree";
+function standalonePlanLaneRetirementDisposition(): string {
+  return "failed plan resume worktree disposition: retired-and-rematerialized from base";
 }
 
 type StandalonePlanLaneClassification = { kind: "disposable" } | { kind: "refused"; message: string };
@@ -329,7 +327,8 @@ async function classifyStandalonePlanLane(
 /**
  * Retire and rematerialize a confirmed never-landed standalone plan lane, bypassing the ordinary
  * descendant/landed-criteria refusal that a disposable marker exists to skip. Emits the shared
- * retirement disposition line before returning control to the caller for dispatch.
+ * retirement disposition line only when retirement actually happened; a `no-op` outcome (nothing
+ * needed reset) is the ordinary re-dispatch path and stays silent.
  */
 async function resetDisposableStandalonePlanLane(
   prepared: Extract<WorkflowStartPreparationResult, { ok: true }>,
@@ -354,8 +353,8 @@ async function resetDisposableStandalonePlanLane(
     },
   );
   if (resetExitCode !== undefined) return resetExitCode;
-  if (outcome.status !== undefined) {
-    io.stderr(`${standalonePlanLaneRetirementDisposition(outcome.status)}\n`);
+  if (outcome.status === "reset") {
+    io.stderr(`${standalonePlanLaneRetirementDisposition()}\n`);
   }
   return undefined;
 }

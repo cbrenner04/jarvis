@@ -50,6 +50,9 @@ export type RunControlHandlerContextDeps = {
   writeLoopBindingSourceDeps?: WriteLoopBindingSourceDeps;
   /** Kill settlement seams: bounded wait clock and survivor observation (production: 30s poll, `ps`). */
   killSettlement?: KillSettlementDeps;
+  /** Run ids the outgoing generation currently reports live, observed over the handoff channel to
+   * its private endpoint. Defaults to an empty set (no outgoing generation being drained). */
+  observeOutgoingLiveRunIds?: () => ReadonlySet<string>;
 };
 
 export type KillSettlementDeps = {
@@ -80,6 +83,7 @@ export type RunControlHandlerContext = {
   settleState: PromotionSettleState;
   writeLoopBindingSourceDeps?: WriteLoopBindingSourceDeps;
   killSettlement: KillSettlementDeps | undefined;
+  observeOutgoingLiveRunIds: () => ReadonlySet<string>;
 };
 
 export function createRunControlHandlerContext(deps: RunControlHandlerContextDeps): RunControlHandlerContext {
@@ -148,6 +152,7 @@ export function createRunControlHandlerContext(deps: RunControlHandlerContextDep
     checkMemoryHeadroom,
     settleDelayMs,
     settleState,
+    observeOutgoingLiveRunIds: deps.observeOutgoingLiveRunIds ?? (() => new Set<string>()),
     ...(writeLoopBindingSourceDeps !== undefined ? { writeLoopBindingSourceDeps } : {}),
   };
 }

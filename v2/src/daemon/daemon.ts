@@ -45,6 +45,7 @@ import {
   type RunStatus,
   type StateStore,
 } from "../persistence/state-store.ts";
+import { type DrainObservation, startDrainObservation } from "./daemon-drain-observer.ts";
 import {
   createNotificationListHandler,
   createNotificationWaitHandler,
@@ -779,6 +780,9 @@ type DaemonStartupDeps = {
   /** Requests changeover from a live peer at the public address before binding it. Defaults to
    * {@link requestChangeoverFromPublicPeer}. */
   requestChangeoverFromPublicPeer?: RequestChangeoverFromPublicPeer;
+  /** Starts drain observation against a completed handoff's private endpoint. Defaults to
+   * {@link startDrainObservation}. */
+  startDrainObservation?: typeof startDrainObservation;
   /** Production write-loop body, overridable so tests can admit a run that stays running until
    * released instead of invoking the real agent-executing loop. */
   writeLoopExecutor?: (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => Promise<void>;
@@ -893,6 +897,11 @@ export async function startDaemonRuntime(
     return { kind: "response", result: { ok: true } };
   };
 
+  // Set once changeover names the outgoing generation's private endpoint (below); `list` reads it
+  // live on every call via `observeOutgoingLiveRunIds`, so reassigning it here is visible without
+  // rebuilding the handlers.
+  let outgoingDrainObservation: DrainObservation | undefined;
+
   const {
     reportReviewDebateProgress: _reportReviewDebateProgress,
     clearLiveReviewDebateProgress: _clearLiveReviewDebateProgress,
@@ -917,6 +926,7 @@ export async function startDaemonRuntime(
     // (the historical no-op); the unit test injects `daemonSocketPath` directly and cannot catch that.
     daemonSocketPath: socketPath,
     reconciledRunIds,
+    observeOutgoingLiveRunIds: () => outgoingDrainObservation?.liveRunIds() ?? new Set<string>(),
     ...(startupDeps.writeLoopBindingSourceDeps !== undefined
       ? { writeLoopBindingSourceDeps: startupDeps.writeLoopBindingSourceDeps }
       : {}),
@@ -954,6 +964,7 @@ export async function startDaemonRuntime(
   let privateServer: IpcServer | undefined;
   const bindIpcServer = startupDeps.startIpcServer ?? startIpcServer;
   const requestChangeover = startupDeps.requestChangeoverFromPublicPeer ?? requestChangeoverFromPublicPeer;
+  const startDrainObservationFn = startupDeps.startDrainObservation ?? startDrainObservation;
 
   try {
     // Private endpoint binds first: a generation that loses the public bind below is still
@@ -971,6 +982,11 @@ export async function startDaemonRuntime(
       throw new Error(`Daemon handoff at ${socketPath} failed: ${changeoverOutcome.reason}`);
     }
     server = await bindIpcServer(socketPath, handlers, tailStreamHandler);
+    // Observe the outgoing generation's drain over its private endpoint so `list` can report the
+    // runs it still holds as live and this generation's admission cutoff never strands them.
+    if (changeoverOutcome.kind === "handoff-complete" && changeoverOutcome.privateSocketPath !== undefined) {
+      outgoingDrainObservation = startDrainObservationFn(changeoverOutcome.privateSocketPath);
+    }
   } catch (err) {
     if (err instanceof DaemonSocketBindFailureError) {
       console.error(formatDaemonBindFailureLogLine(err));
@@ -1041,6 +1057,7 @@ export async function startDaemonRuntime(
     process.off("SIGTERM", signalHandler);
     process.off("SIGINT", signalHandler);
     _closeRunControlHandlers();
+    outgoingDrainObservation?.stop();
     await server.close();
     if (privateServer !== undefined) {
       await privateServer.close();

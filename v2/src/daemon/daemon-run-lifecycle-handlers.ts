@@ -748,6 +748,11 @@ export function createRunLifecycleHandlers(
     for (const activeRun of activeRuns.values()) {
       liveRunIds.add(activeRun.runId);
     }
+    // Runs the outgoing generation still holds, observed over the handoff channel; empty when no
+    // outgoing generation is being drained (see `observeOutgoingLiveRunIds`).
+    for (const runId of ctx.observeOutgoingLiveRunIds()) {
+      liveRunIds.add(runId);
+    }
 
     // Fold in dismissed siblings so the workflow index sees a complete invocation even when one
     // step run was filtered out above; siblings are indexed, not themselves listed.

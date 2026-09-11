@@ -1,4 +1,5 @@
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { errorMessage } from "../../../shared/error-message.ts";
 import type { RunFixCommandOpts } from "../../../shared/fix-command.ts";
@@ -844,9 +845,13 @@ async function lintPlanRecoveryStage(
   if (provenance.kind !== "harness") {
     return lintStagedMarkdown(PLAN_STAGE_DIR, { worktreePath });
   }
-  const scratchRoot = join(worktreePath, ".scratch");
-  mkdirSync(scratchRoot, { recursive: true });
-  const lintWorktree = mkdtempSync(join(scratchRoot, "plan-recovery-lint-"));
+  // The copy lives outside the worktree: this path only validates, and the worktree is an arbitrary
+  // target project that may not ignore `.scratch/` — or may already have a *file* there, which made
+  // `mkdirSync` throw `ENOTDIR` and surface as an opaque error instead of `plan_stage_invalid`.
+  // Lint config is resolved from the harness root and passed with an explicit `--config`, so the
+  // copy's location does not affect which rules run. Matches the tmpdir convention used by the
+  // base-ref probe, review backup, and smoke verifier.
+  const lintWorktree = mkdtempSync(join(tmpdir(), "jarvis-plan-recovery-lint-"));
   try {
     const lintStage = join(lintWorktree, PLAN_STAGE_DIR);
     cpSync(join(worktreePath, PLAN_STAGE_DIR), lintStage, { recursive: true });

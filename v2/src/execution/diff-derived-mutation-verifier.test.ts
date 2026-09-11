@@ -3717,9 +3717,14 @@ describe("verifier spawn process-group recording", () => {
 
 describe("semaphore handoff", () => {
   // A waiter resumes at least one microtask after `resolve()`. The invariant that closes the window
-  // is that whoever *grants* a slot books it, so the semaphore's state already reflects the
-  // admission before the waiter's continuation runs. Asserting the state at that instant is
-  // deterministic; trying to schedule a third caller inside the window is not.
+  // is that whoever *grants* a slot books it, so the slot is already taken before the waiter's
+  // continuation runs. Observed through a probe acquisition rather than by reading semaphore state:
+  // a production getter for tests is exactly the seam `guard-production-test-flags` forbids.
+  //
+  // Only the shared-slot direction is pinned here. The exclusive direction is not observable this
+  // way — a probe arriving mid-handoff is turned away by `exclusivePending > 0` whether or not the
+  // hold was booked — so it would pass against the deferred-admission bug. `exclusiveRunMustQueue`'s
+  // `exclusiveWaiting` clause carries that half instead, in the predicate tests below.
   function deferred(): { promise: Promise<void>; resolve: () => void } {
     let resolve = (): void => {};
     const promise = new Promise<void>((res) => {
@@ -3728,50 +3733,31 @@ describe("semaphore handoff", () => {
     return { promise, resolve };
   }
 
-  it("books a shared slot at handoff, before the waiting caller resumes", async () => {
+  it("books a shared slot at handoff, so a probe cannot take it first", async () => {
     const semaphore = new VerifierTestRunSemaphore(1);
     const firstRelease = deferred();
     const queuedRelease = deferred();
-    let queuedBodyEntered = false;
+    const probeRelease = deferred();
+    let probeEntered = false;
 
     const first = semaphore.run(() => firstRelease.promise);
-    const queued = semaphore.run(async () => {
-      queuedBodyEntered = true;
-      await queuedRelease.promise;
-    });
+    const queued = semaphore.run(() => queuedRelease.promise);
     firstRelease.resolve();
     await Promise.resolve();
 
-    // The queued caller has been handed the slot but has not entered its body yet.
-    expect(queuedBodyEntered).toBe(false);
-    expect(semaphore.admissionStateForTest.inFlight).toBe(1);
+    // The queued caller has been handed the only slot but has not resumed. A probe arriving now must
+    // queue: if the slot were booked by the waiter's continuation instead, it would read free.
+    const probe = semaphore.run(async () => {
+      probeEntered = true;
+      await probeRelease.promise;
+    });
+    await Promise.resolve();
+    expect(probeEntered).toBe(false);
 
     queuedRelease.resolve();
     await queued;
-  });
-
-  it("books an exclusive hold at handoff, before the waiting caller resumes", async () => {
-    const semaphore = new VerifierTestRunSemaphore(4);
-    const sharedRelease = deferred();
-    const exclusiveRelease = deferred();
-    let exclusiveBodyEntered = false;
-
-    const shared = semaphore.run(() => sharedRelease.promise);
-    const exclusive = semaphore.runExclusive(async () => {
-      exclusiveBodyEntered = true;
-      await exclusiveRelease.promise;
-    });
-    sharedRelease.resolve();
-    await Promise.resolve();
-
-    // The hold is granted and recorded even though the exclusive caller has not resumed, so a
-    // caller arriving in this window is gated by `exclusiveActive` rather than reading it as free.
-    expect(exclusiveBodyEntered).toBe(false);
-    expect(semaphore.admissionStateForTest.exclusiveActive).toBe(true);
-    expect(semaphore.admissionStateForTest.exclusivePending).toBe(0);
-
-    exclusiveRelease.resolve();
-    await exclusive;
+    probeRelease.resolve();
+    await Promise.all([first, probe]);
   });
 });
 

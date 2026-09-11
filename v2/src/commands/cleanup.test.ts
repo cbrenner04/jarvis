@@ -582,6 +582,67 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
     expect(stdout).not.toContain("archive:");
   });
 
+  test("prefers a spec-tree directory over a landed ready-intent on the same branch", async () => {
+    // The shape every intent branch has: an older write row whose specPath was rewritten to the
+    // landed `ready-intents/<slug>.md`, and a newer review row. `listRuns` is newest-first, so a
+    // single `find(dir || .md)` would let whichever row comes first decide and could offer the
+    // queue file for archival into a fabricated `ready-intents/completed/`. Ready-intents are
+    // pruned by byte-proof, never archived.
+    const branch = "implement/prefers-spec-dir";
+    const worktreePath = await createWorktree(branch);
+    const specName = "20260101T000000Z-prefers-spec-dir";
+    // Sources resolve worktree-relative paths against the operator checkout, so the artifacts live
+    // under `projectRoot`; the run rows still carry the worktree-side paths the harness records.
+    const specDir = join(projectRoot, "v2", "spec", specName);
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# Spec\n\n- [x] [00-a.md](./00-a.md)\n");
+    writeFileSync(join(specDir, "00-a.md"), "# A\n\n## Acceptance criteria\n\n- [x] Done.\n");
+    mkdirSync(join(projectRoot, "v2", "spec", "ready-intents"), { recursive: true });
+    const readyIntentPath = join(projectRoot, "v2", "spec", "ready-intents", "prefers-spec-dir.md");
+    writeFileSync(readyIntentPath, "# Intent\n\n## Acceptance criteria\n\n- [x] Landed.\n");
+    const worktreeSpecIndex = join(worktreePath, "v2", "spec", specName, "index.md");
+    const worktreeReadyIntent = join(worktreePath, "v2", "spec", "ready-intents", "prefers-spec-dir.md");
+
+    const store: StateStore = {
+      // Newest first, matching `listRuns`' ordering: the queue file would win a combined `find`.
+      listRuns: () => [
+        {
+          status: "completed",
+          specPath: worktreeReadyIntent,
+          project: "project",
+          branch,
+          stepId: "review",
+          worktreePath,
+        },
+        {
+          status: "completed",
+          specPath: worktreeSpecIndex,
+          project: "project",
+          branch,
+          stepId: "implement",
+          worktreePath,
+        },
+      ],
+    } as unknown as StateStore;
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    expect(
+      await runCleanupCommand(
+        { dryRun: true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(stdout).toContain(`archive: ${specDir}`);
+    expect(stdout).not.toContain("ready-intents/completed");
+    expect(stdout).not.toContain(`archive: ${readyIntentPath}`);
+  });
+
   test.each([
     {
       name: "reviewed implement",

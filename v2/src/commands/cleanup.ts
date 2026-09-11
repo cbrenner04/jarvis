@@ -754,7 +754,16 @@ function artifactForRetiredWorktree(
     .filter((run) => run.project === candidate.project && run.branch === candidate.worktree.branch)
     .map((run) => sourceForRun(run, candidate.worktree.path, projectRoot, registry, configPath))
     .filter((path): path is string => path !== undefined);
-  const source = sources.find((path) => existsSync(join(path, "index.md")) || path.endsWith(".md"));
+  // A spec-tree directory wins over a bare `.md` outright, as it did before this proof was added.
+  // Folding both into one `find` let the newest row decide instead: `listRuns` is newest-first, and
+  // an intent branch's newest row is its review row, so the older write row's landed
+  // `ready-intents/<slug>.md` would be selected and offered for archival into a fabricated
+  // `ready-intents/completed/`. Ready-intents are pruned by byte-proof, never archived.
+  // Both arms must also prove the source exists: `endsWith(".md")` is lexical, so a vanished file
+  // would otherwise resolve as a "proven" artifact and be suppressed only later, at preview.
+  const source =
+    sources.find((path) => existsSync(join(path, "index.md"))) ??
+    sources.find((path) => path.endsWith(".md") && existsSync(path));
   if (source === undefined) return undefined;
   return {
     home: dirname(source),

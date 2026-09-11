@@ -16,6 +16,21 @@ Multi-subspec specs route every subspec through one branch, so subspec N's publi
 
 Decisions: publication resolves the PR to flip by open/draft state, never most-recent match — a branch whose only matching PR is merged/closed opens a fresh draft; an unexpected open non-draft fails with a named actionable error, never the raw GitHub string; scope to the publication PR-resolution seam, no change to branch reuse.
 
+### Half 1 verified, not reaped (2026-09-11)
+
+The counter-evidence is resolved against Half 1, not for it. Two standalone implement lanes settled `completed` / `not-live` with **no `prNumber` and no `prUrl` on the durable row**, real commits on the branch, and nothing pushed:
+
+| Branch | Commits ahead of `origin/main` | On origin | PR |
+| --- | --- | --- | --- |
+| `20260911T142243Z-pipeline-list-rpc-terminal-retention` | 1 | no | none |
+| `20260910T231922Z-provisional-skip-provenance-in-state-store` | 4 | no | none |
+
+Both were acceptance-complete at settlement (8/8 and 10/10 + 9/9; the only unticked boxes were in the informational `## Task checklist`). This follows four for four on 2026-09-10, so the mode is reproducible across sessions, models and specs — it is not environmental.
+
+**The narrowing that matters: it is specific to the implement stage.** In the same session, on the same daemon, `intent` and `plan` stages published normally and ready-flipped — [#3778](https://github.com/cbrenner04/jarvis/pull/3778), [#3780](https://github.com/cbrenner04/jarvis/pull/3780), [#3781](https://github.com/cbrenner04/jarvis/pull/3781), [#3782](https://github.com/cbrenner04/jarvis/pull/3782) (intent) and [#3783](https://github.com/cbrenner04/jarvis/pull/3783) (plan). So `git`, `gh`, `origin`, auth and the publication primitives are all working; only the implement completion tail fails to reach them. Combined with 2026-09-10's finding that every durable row on such a branch is an `implement~link-N` whose log ends at `loop_finished` with no publication trace, the successor-dispatch gap named in this half's first acceptance criterion is the live hypothesis.
+
+This also silently violates the completion-honesty contract, under which a `completed` implement implies confirmed PR evidence — so the row is not merely unhelpful, it is untrue.
+
 ## Acceptance criteria
 
 - [ ] Half 1 root cause recorded (successor-dispatch gap, chain omission, or environmental), then: a `completed` implement with unpushed committed work publishes or settles a named failure, pinned by a test failing against silent local-only completion — or this half is reaped with the counter-evidence cited.

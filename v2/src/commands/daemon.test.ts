@@ -3,10 +3,11 @@ import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createRuntimeDeps } from "../cli/deps.ts";
 import { DaemonSocketBindFailureError, probeSocketLiveness, startIpcServer } from "../ipc/server.ts";
 import { captureIo, cliMain as main, tempPaths } from "../testing/cli-test-helpers.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
-import { reapDeadDaemonSockets } from "./daemon.ts";
+import { reapDeadDaemonSockets, runDaemonCommand } from "./daemon.ts";
 
 const socketTest = test.skipIf(!canUseUnixSockets());
 
@@ -31,6 +32,47 @@ describe("daemon command", () => {
       stdout: `${JSON.stringify({ pid: 42, socketPath: paths.socketPath })}\n`,
       stderr: "",
     });
+  });
+
+  test("daemon start forwards privateSocketPath to startDaemon when injected", async () => {
+    const cap = captureIo();
+    const paths = tempPaths();
+    let seenPrivateSocketPath: string | undefined;
+
+    const code = await main(["daemon", "start"], cap.io, {
+      socketPath: paths.socketPath,
+      pidPath: paths.pidPath,
+      privateSocketPath: "/my/private.sock",
+      startDaemon: async (socketPath, options) => {
+        seenPrivateSocketPath = options?.privateSocketPath;
+        return { pid: 42, socketPath };
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(seenPrivateSocketPath).toBe("/my/private.sock");
+  });
+
+  test("daemon start omits privateSocketPath from startDaemon options when not injected", async () => {
+    const cap = captureIo();
+    const paths = tempPaths();
+    let sawKey = true;
+
+    // `runDaemonCommand` + `createRuntimeDeps` directly, bypassing `main()`'s digest-derived
+    // `privateSocketPath` default, so the CliDeps field is genuinely absent.
+    const deps = createRuntimeDeps({
+      socketPath: paths.socketPath,
+      pidPath: paths.pidPath,
+      startDaemon: async (socketPath, options) => {
+        sawKey = options !== undefined && "privateSocketPath" in options;
+        return { pid: 42, socketPath };
+      },
+    });
+
+    const code = await runDaemonCommand(["start"], cap.io, deps);
+
+    expect(code).toBe(0);
+    expect(sawKey).toBe(false);
   });
 
   test("daemon start passes through lifecycle errors tersely", async () => {

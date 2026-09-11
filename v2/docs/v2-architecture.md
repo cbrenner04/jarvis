@@ -552,9 +552,12 @@ The daemon exposes a hermetic programmatic API over a Unix-domain-socket IPC tra
 - **Lifecycle API:** Programmatic `startDaemon`, `stopDaemon`, `getDaemonStatus`
   in `daemon/daemon-lifecycle.ts`. Detached child process with bounded readiness
   timeout, graceful shutdown (RPC + SIGTERM + SIGKILL), and double-start
-  protection. Production socket and PID defaults (`~/.jarvis/daemon.sock`,
-  `~/.jarvis/daemon.pid`) are pinned by the CLI and [`jarvis tui`](./write-behavior.md#tui-cli);
-  the lifecycle library still requires explicit paths from callers.
+  protection. The stable public address and PID defaults (`~/.jarvis/daemon.sock`,
+  `~/.jarvis/daemon.pid`) are pinned by the CLI and [`jarvis tui`](./write-behavior.md#tui-cli)
+  and resolved regardless of the invoking executable digest; the lifecycle
+  library still requires explicit paths from callers. `daemon start` also binds
+  a digest-keyed private endpoint, successor-only — see
+  [`daemon-host.md`](daemon-host.md#socket-path).
 - **In-memory worktree ownership:** Daemon holds a registry keyed by `{project,
   branch}` (the state-store resume key), recording `{runId, worktreePath}`.
   `claim` rejects double-claim; `release` is idempotent. No disk writes or

@@ -11,6 +11,10 @@ if (!socketPath) {
   process.exit(1);
 }
 
+// Digest-keyed private endpoint, provided by the spawning CLI; undefined for launchers (tests,
+// ad hoc scripts) that spawn the entrypoint directly without a private counterpart.
+const privateSocketPath = process.env.DAEMON_PRIVATE_SOCKET_PATH || undefined;
+
 const testOwnerPid = Number(process.env.TEST_DAEMON_OWNER_PID);
 if (Number.isInteger(testOwnerPid) && testOwnerPid > 0) {
   setInterval(() => {
@@ -22,7 +26,9 @@ if (Number.isInteger(testOwnerPid) && testOwnerPid > 0) {
   }, 100).unref();
 }
 
-startDaemonRuntime(socketPath).catch((err) => {
+startDaemonRuntime(socketPath, undefined, undefined, {
+  ...(privateSocketPath === undefined ? {} : { privateSocketPath }),
+}).catch((err) => {
   console.error("Fatal daemon error:", err);
   process.exit(1);
 });

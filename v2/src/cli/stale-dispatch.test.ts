@@ -266,7 +266,7 @@ describe("connectWithAutoStart", () => {
     client.close();
   });
 
-  test("passes keyed socket/PID/log paths to startDaemon", async () => {
+  test("passes public socket/PID/log paths to startDaemon", async () => {
     const startCalls: { socketPath: string; options: Parameters<CliDeps["startDaemon"]>[1] }[] = [];
     let connectCount = 0;
 
@@ -293,6 +293,32 @@ describe("connectWithAutoStart", () => {
     expect(firstCall.socketPath).toBe("/my/socket.sock");
     expect(firstCall.options?.pidPath).toBe("/my/pid.file");
     expect(firstCall.options?.logPath).toBe("/my/log.file");
+    expect(firstCall.options?.privateSocketPath).toBeUndefined();
+    client.close();
+  });
+
+  test("forwards privateSocketPath to startDaemon when injected", async () => {
+    const startCalls: { options: Parameters<CliDeps["startDaemon"]>[1] }[] = [];
+    let connectCount = 0;
+
+    const deps = createPartialDeps({
+      connectIpcClient: async () => {
+        connectCount += 1;
+        if (connectCount === 1) {
+          throw new Error("ECONNREFUSED");
+        }
+        return createMockIpc();
+      },
+      startDaemon: async (socketPath, options) => {
+        startCalls.push({ options });
+        return { pid: 1234, socketPath };
+      },
+      privateSocketPath: "/my/private.sock",
+    }) as CliDeps;
+
+    const client = await connectWithAutoStart(deps, "/my/socket.sock");
+    expect(startCalls).toHaveLength(1);
+    expect(startCalls[0]?.options?.privateSocketPath).toBe("/my/private.sock");
     client.close();
   });
 });

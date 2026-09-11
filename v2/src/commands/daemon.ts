@@ -109,7 +109,11 @@ export async function runDaemonCommand(argv: readonly string[], io: Io, deps: Cl
 
   if (subcommand === "start" && argv.length === 1) {
     try {
-      const result = await deps.startDaemon(deps.socketPath, { pidPath: deps.pidPath, logPath: deps.logPath });
+      const result = await deps.startDaemon(deps.socketPath, {
+        pidPath: deps.pidPath,
+        logPath: deps.logPath,
+        ...(deps.privateSocketPath === undefined ? {} : { privateSocketPath: deps.privateSocketPath }),
+      });
       io.stdout(`${JSON.stringify(result)}\n`);
       return 0;
     } catch (error) {

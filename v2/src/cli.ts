@@ -99,11 +99,11 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
     stderr: (s) => process.stderr.write(s),
   };
   const digest = deps?.getExecutableDigest ? await deps.getExecutableDigest() : await getInvokingExecutableDigest();
-  const keyedPaths = daemonPathsByDigest(digest);
+  // Daemon-directed work always resolves the stable public address (`createRuntimeDeps`'
+  // own defaults), not a digest-keyed one: every invoking executable reaches the same daemon.
+  // The digest only names the private endpoint `daemon start` also binds for a successor.
   const runtimeDeps = createRuntimeDeps({
-    socketPath: keyedPaths.socketPath,
-    pidPath: keyedPaths.pidPath,
-    logPath: keyedPaths.logPath,
+    privateSocketPath: daemonPathsByDigest(digest).socketPath,
     ...deps,
   });
   const command = argv[0];

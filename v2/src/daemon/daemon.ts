@@ -770,6 +770,9 @@ type DaemonStartupDeps = {
   writeLoopBindingSourceDeps?: WriteLoopBindingSourceDeps;
   /** Defaults to `process.exit`. */
   processExit?: (code: number) => never;
+  /** Digest-keyed private endpoint bound before the public `socketPath`, so a generation that
+   * loses the public bind is still reachable by a successor. Undefined skips the private bind. */
+  privateSocketPath?: string;
 };
 
 export async function recoverReconciledRuns(
@@ -922,9 +925,16 @@ export async function startDaemonRuntime(
   };
 
   let server: IpcServer;
+  let privateServer: IpcServer | undefined;
+  const bindIpcServer = startupDeps.startIpcServer ?? startIpcServer;
 
   try {
-    server = await (startupDeps.startIpcServer ?? startIpcServer)(socketPath, handlers, tailStreamHandler);
+    // Private endpoint binds first: a generation that loses the public bind below is still
+    // reachable by a successor at its digest-keyed address.
+    if (startupDeps.privateSocketPath !== undefined) {
+      privateServer = await bindIpcServer(startupDeps.privateSocketPath, handlers, tailStreamHandler);
+    }
+    server = await bindIpcServer(socketPath, handlers, tailStreamHandler);
   } catch (err) {
     if (err instanceof DaemonSocketBindFailureError) {
       console.error(formatDaemonBindFailureLogLine(err));
@@ -996,6 +1006,9 @@ export async function startDaemonRuntime(
     process.off("SIGINT", signalHandler);
     _closeRunControlHandlers();
     await server.close();
+    if (privateServer !== undefined) {
+      await privateServer.close();
+    }
     if (!logReader) {
       const closeable = logReaderInstance as { close?: () => void };
       closeable.close?.();

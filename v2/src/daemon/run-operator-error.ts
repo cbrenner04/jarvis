@@ -245,7 +245,11 @@ function mapFromLoopFinished(
   switch (event.loopOutcomeKind) {
     case "landing_failed":
       return {
-        ...op("landing_failed", "resume", true),
+        // A landing failure is reissuable only when the settlement said so. Plan-tree shape checks
+        // settle `resumable: false` because direct-landing recovery re-validates the same on-disk
+        // bytes, so an unmodified reissue re-fails identically; intent finalization still settles
+        // `true` and keeps its documented resume path. Same shape as `iteration_timeout` below.
+        ...(event.resumable ? op("landing_failed", "resume", true) : op("landing_failed", "stop")),
         ...(typeof event.message === "string" ? { message: event.message } : {}),
       };
     case "completion_commit_failed":

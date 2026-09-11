@@ -419,6 +419,72 @@ describe("daemon-lifecycle", () => {
       }
     });
 
+    test("passes DAEMON_PRIVATE_SOCKET_PATH to the child only when privateSocketPath is given", async () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        const logPath = join(tmpDir, "daemon.log");
+        const daemonScript = join(tmpDir, "env-echo-daemon.ts");
+        writeFileSync(
+          daemonScript,
+          `console.log("private-socket=" + (process.env.DAEMON_PRIVATE_SOCKET_PATH ?? "<unset>"));\n`,
+        );
+
+        const socketProber: SocketProber = { probe: async () => false };
+        const processProber: ProcessProber = { isAlive: () => true };
+
+        await expect(
+          startDaemon("/fake/socket", {
+            socketProber,
+            processProber,
+            readinessTimeoutMs: 500,
+            daemonScript,
+            logPath,
+            privateSocketPath: "/tmp/jarvis-private.sock",
+          }),
+        ).rejects.toThrow("Daemon failed to become ready");
+
+        const content = await waitForLogMarkers(logPath, ["private-socket="]);
+        expect(content).toContain("private-socket=/tmp/jarvis-private.sock");
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("omits DAEMON_PRIVATE_SOCKET_PATH from the child env when privateSocketPath is not given", async () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        const logPath = join(tmpDir, "daemon.log");
+        const daemonScript = join(tmpDir, "env-echo-daemon.ts");
+        writeFileSync(
+          daemonScript,
+          `console.log("private-socket=" + (process.env.DAEMON_PRIVATE_SOCKET_PATH ?? "<unset>"));\n`,
+        );
+
+        const socketProber: SocketProber = { probe: async () => false };
+        const processProber: ProcessProber = { isAlive: () => true };
+
+        await expect(
+          startDaemon("/fake/socket", {
+            socketProber,
+            processProber,
+            readinessTimeoutMs: 500,
+            daemonScript,
+            logPath,
+            // privateSocketPath omitted
+          }),
+        ).rejects.toThrow("Daemon failed to become ready");
+
+        const content = await waitForLogMarkers(logPath, ["private-socket="]);
+        expect(content).toContain("private-socket=<unset>");
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
     test("appends the new daemon's output alongside a prior daemon's after restart", async () => {
       const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
       mkdirSync(tmpDir, { recursive: true });

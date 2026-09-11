@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { landPublication } from "./publication-landing.ts";
+import { landPublication, PlanTreeLandingError } from "./publication-landing.ts";
 
 function repo(): string {
   const root = mkdtempSync(join(tmpdir(), "jarvis-publication-landing-"));
@@ -14,6 +14,17 @@ function repo(): string {
   execFileSync("git", ["add", "."], { cwd: root });
   execFileSync("git", ["commit", "-qm", "base"], { cwd: root });
   return root;
+}
+
+async function capturePlanTreeLandingError(promise: Promise<unknown>): Promise<PlanTreeLandingError> {
+  try {
+    await promise;
+  } catch (error) {
+    expect(error).toBeInstanceOf(PlanTreeLandingError);
+    if (error instanceof PlanTreeLandingError) return error;
+    throw error;
+  }
+  throw new Error("expected plan-tree landing to fail");
 }
 
 describe("publication landing hooks", () => {
@@ -296,5 +307,71 @@ describe("publication landing hooks", () => {
       ),
     ).rejects.toThrow("unlinked_numbered_subspec");
     expect(existsSync(join(durable, "01-second.md"))).toBe(true);
+  });
+
+  test("plan landing distinguishes an unmatched candidate line from no candidate", async () => {
+    const root = repo();
+    const stage = join(root, ".jarvis-plan-stage");
+    mkdirSync(stage);
+    writeFileSync(join(stage, "intent.md"), "intent\n");
+    writeFileSync(join(stage, "00-work.md"), "# Work\n");
+
+    const candidate = "- [ ] Work: 00-work.md";
+    writeFileSync(join(stage, "index.md"), `${candidate}\n`);
+    const unmatched = await capturePlanTreeLandingError(
+      landPublication({ kind: "plan-tree", stagingDir: stage, durablePath: "spec/unmatched" }, root),
+    );
+    expect(unmatched.operatorFailureRecord).toMatchObject({
+      expectation: "index.md contains a parseable checkbox link to 00-work.md",
+      observation: "index.md mentions 00-work.md, but the candidate line is not a parseable checkbox link",
+      nearMiss: candidate,
+      retryable: false,
+    });
+
+    writeFileSync(join(stage, "index.md"), "# Plan\n");
+    const absent = await capturePlanTreeLandingError(
+      landPublication({ kind: "plan-tree", stagingDir: stage, durablePath: "spec/absent" }, root),
+    );
+    expect(absent.operatorFailureRecord.observation).toBe("index.md contains no candidate line mentioning 00-work.md");
+    expect(absent.operatorFailureRecord).not.toHaveProperty("nearMiss");
+  });
+
+  test("plan landing attributes shape failures to the path branch that observed them", async () => {
+    const root = repo();
+    const stage = join(root, ".jarvis-plan-stage");
+    mkdirSync(stage);
+    writeFileSync(join(stage, "index.md"), "# Plan\n");
+    const staged = await capturePlanTreeLandingError(
+      landPublication({ kind: "plan-tree", stagingDir: stage, durablePath: "spec/staged" }, root),
+    );
+    expect(staged.operatorFailureRecord.referencedPaths).toEqual([{ path: stage, origin: "harness-internal" }]);
+
+    const durable = join(root, "spec/recovered");
+    mkdirSync(durable, { recursive: true });
+    writeFileSync(join(durable, "index.md"), "# Plan\n");
+    const recovered = await capturePlanTreeLandingError(
+      landPublication({ kind: "plan-tree", stagingDir: ".jarvis-plan-stage-missing", durablePath: durable }, root),
+    );
+    expect(recovered.operatorFailureRecord.referencedPaths).toEqual([{ path: durable, origin: "operator-repository" }]);
+  });
+
+  test("plan landing attributes differing collisions to both compared files", async () => {
+    const root = repo();
+    const stage = join(root, ".jarvis-plan-stage");
+    const durable = join(root, "spec/conflict");
+    mkdirSync(stage);
+    writeFileSync(join(stage, "index.md"), "# Plan\n\n- [ ] [Work](./00-work.md)\n");
+    writeFileSync(join(stage, "intent.md"), "intent\n");
+    writeFileSync(join(stage, "00-work.md"), "# Staged\n");
+    mkdirSync(durable, { recursive: true });
+    writeFileSync(join(durable, "00-work.md"), "# Durable\n");
+
+    const conflict = await capturePlanTreeLandingError(
+      landPublication({ kind: "plan-tree", stagingDir: stage, durablePath: durable }, root),
+    );
+    expect(conflict.operatorFailureRecord.referencedPaths).toEqual([
+      { path: join(stage, "00-work.md"), origin: "harness-internal" },
+      { path: join(durable, "00-work.md"), origin: "operator-repository" },
+    ]);
   });
 });

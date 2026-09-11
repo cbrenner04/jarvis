@@ -186,7 +186,12 @@ function seedLiveFanOutFailedLaneFixture(entryRuns: boolean): {
     store.createPipelineStageBranch({ pipelineId, stageId: "implement", branchKey });
   }
   for (const stageId of ["plan", "implement"] as const) {
-    store.updateStage({ pipelineId, stageId, branchKey: "default", patch: { status: "skipped" } });
+    store.updateStage({
+      pipelineId,
+      stageId,
+      branchKey: "default",
+      patch: { status: "skipped", skipProvenance: "terminal" },
+    });
   }
 
   store.updateStage({
@@ -203,7 +208,7 @@ function seedLiveFanOutFailedLaneFixture(entryRuns: boolean): {
     pipelineId,
     stageId: "implement",
     branchKey: failedBranchKey,
-    patch: { status: "skipped" },
+    patch: { status: "skipped", skipProvenance: "provisional" },
   });
   store.updateStage({
     pipelineId,

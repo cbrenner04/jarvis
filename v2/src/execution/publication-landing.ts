@@ -1,6 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
 import { errorMessage } from "../../../shared/error-message.ts";
+import type { OperatorFailurePathOrigin, OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
 import { consumePublicationInputs } from "../../../shared/publication-input-consumption.ts";
 import { type IntentOutputConfig, landIntentWorkflowOutput } from "./intent-output.ts";
 
@@ -33,15 +34,25 @@ type PublicationLandingResult = { specPath: string; files: string[] };
  */
 export function checkPlanTreeLanding(stage: string): { ok: true } | { ok: false; reason: string } {
   try {
-    planFiles(stage);
+    planFiles(stage, "harness-internal");
     return { ok: true };
   } catch (error) {
     return { ok: false, reason: errorMessage(error) };
   }
 }
 
-function fail(message: string): never {
-  throw new Error(`${message}; rerun to retry pre-publication`);
+export class PlanTreeLandingError extends Error {
+  readonly operatorFailureRecord: OperatorFailureRecord;
+
+  constructor(message: string, operatorFailureRecord: OperatorFailureRecord) {
+    super(`${message}; rerun to retry pre-publication`);
+    this.name = "PlanTreeLandingError";
+    this.operatorFailureRecord = operatorFailureRecord;
+  }
+}
+
+function failPlanTree(message: string, operatorFailureRecord: OperatorFailureRecord): never {
+  throw new PlanTreeLandingError(message, operatorFailureRecord);
 }
 
 const NUMBERED_SUBSPEC_PATTERN = /^\d{2}-.*\.md$/u;
@@ -53,7 +64,11 @@ const INDEX_LINK_PATTERN = /^\s*-\s\[[ xX]\]\s+\[[^\]]+\]\((?:\.\/)?([^)]+)\)/u;
  * rather than silently copied. Applies identically to ordinary and recovered landing, since both
  * flow through {@link planFiles}.
  */
-function assertLinkedNumberedSubspecs(stage: string, files: readonly string[]): void {
+function assertLinkedNumberedSubspecs(
+  stage: string,
+  files: readonly string[],
+  origin: OperatorFailurePathOrigin,
+): void {
   const numbered = files.filter((file) => NUMBERED_SUBSPEC_PATTERN.test(file));
   if (numbered.length === 0) return;
   const indexBody = readFileSync(join(stage, "index.md"), "utf8").replace(/\r\n/g, "\n");
@@ -64,15 +79,33 @@ function assertLinkedNumberedSubspecs(stage: string, files: readonly string[]): 
   }
   for (const file of numbered) {
     if (linked.has(file)) continue;
-    const observation = indexBody.includes(file)
-      ? "index.md mentions the file but has no parseable checkbox link to it"
-      : "no index.md line links this file";
-    fail(`plan: unlinked_numbered_subspec: ${file}: ${observation}`);
+    const candidateLine = indexBody.split("\n").find((line) => line.includes(file));
+    const messageObservation =
+      candidateLine !== undefined
+        ? "index.md mentions the file but has no parseable checkbox link to it"
+        : "no index.md line links this file";
+    failPlanTree(`plan: unlinked_numbered_subspec: ${file}: ${messageObservation}`, {
+      expectation: `index.md contains a parseable checkbox link to ${file}`,
+      observation:
+        candidateLine !== undefined
+          ? `index.md mentions ${file}, but the candidate line is not a parseable checkbox link`
+          : `index.md contains no candidate line mentioning ${file}`,
+      ...(candidateLine !== undefined ? { nearMiss: candidateLine } : {}),
+      retryable: false,
+      referencedPaths: [{ path: stage, origin }],
+    });
   }
 }
 
-function planFiles(stage: string): string[] {
-  if (!existsSync(stage) || !statSync(stage).isDirectory()) fail("plan: .jarvis-plan-stage is missing");
+function planFiles(stage: string, origin: OperatorFailurePathOrigin): string[] {
+  if (!existsSync(stage) || !statSync(stage).isDirectory()) {
+    failPlanTree("plan: .jarvis-plan-stage is missing", {
+      expectation: "plan landing source is an existing directory",
+      observation: "plan landing source is missing or is not a directory",
+      retryable: false,
+      referencedPaths: [{ path: stage, origin }],
+    });
+  }
   const files = readdirSync(stage, { withFileTypes: true })
     .filter(
       (entry) =>
@@ -86,8 +119,13 @@ function planFiles(stage: string): string[] {
     !files.includes("intent.md") ||
     !files.some((file) => NUMBERED_SUBSPEC_PATTERN.test(file))
   )
-    fail("plan: staged spec tree has invalid shape");
-  assertLinkedNumberedSubspecs(stage, files);
+    failPlanTree("plan: staged spec tree has invalid shape", {
+      expectation: "plan tree contains index.md, intent.md, and at least one numbered subspec",
+      observation: `plan tree files are ${files.length === 0 ? "(none)" : files.join(", ")}`,
+      retryable: false,
+      referencedPaths: [{ path: stage, origin }],
+    });
+  assertLinkedNumberedSubspecs(stage, files, origin);
   return files;
 }
 
@@ -110,11 +148,11 @@ function landPlanTree(
   const durablePath = resolve(landing.durablePath);
   const root = resolve(landing.stagingDir, "..");
   if (!existsSync(landing.stagingDir) && existsSync(durablePath)) {
-    const files = planFiles(durablePath);
+    const files = planFiles(durablePath, "operator-repository");
     if (landing.inputs !== undefined) consumeInputs(landing.inputs, worktreePath);
     return { specPath: relativePath(root, durablePath), files };
   }
-  const files = planFiles(landing.stagingDir);
+  const files = planFiles(landing.stagingDir, "harness-internal");
   const backup = join(root, `.jarvis-plan-backup-${crypto.randomUUID()}`);
   const created: string[] = [];
   const backups: Array<[string, string]> = [];
@@ -125,7 +163,15 @@ function landPlanTree(
       const destination = join(durablePath, file);
       if (existsSync(destination)) {
         if (readFileSync(source).compare(readFileSync(destination)) !== 0)
-          fail(`plan: ${file} already exists with different contents`);
+          failPlanTree(`plan: ${file} already exists with different contents`, {
+            expectation: `${file} is absent from the durable plan tree or byte-identical to the staged file`,
+            observation: `${file} exists in the durable plan tree with different contents`,
+            retryable: false,
+            referencedPaths: [
+              { path: source, origin: "harness-internal" },
+              { path: destination, origin: "operator-repository" },
+            ],
+          });
       } else {
         created.push(destination);
       }

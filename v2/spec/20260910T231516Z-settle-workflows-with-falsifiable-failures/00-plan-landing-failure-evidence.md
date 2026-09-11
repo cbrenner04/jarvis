@@ -21,12 +21,12 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/publication-landing.test.ts` proves an unlinked numbered subspec whose index mentions it reports an unmatched near-miss index line, distinct from an index with no candidate line, which reports no near miss; it fails against the pre-fix single `unlinked_numbered_subspec` message.
-- [ ] `v2/src/execution/publication-landing.test.ts` proves a normal-branch (staging present) shape-check failure carries only the staging path with `harness-internal` origin, and a staging-absent recovery-branch failure (`planFiles(durablePath)`) carries only the durable path with `operator-repository` origin; it fails against the pre-fix plain strings.
-- [ ] `v2/src/execution/publication-landing.test.ts` proves the "file already exists with different contents" conflict carries both the staging path (`harness-internal`) and the durable path (`operator-repository`); it fails against the pre-fix plain string.
-- [ ] `v2/src/execution/workflow-runner-publication.test.ts` proves a plan-landing failure settles the run with a populated `operatorFailureRecord` whose `retryable` is `false`, matching the settlement's `loop_finished.resumable`; it fails against the pre-fix verdict-only landing settlement advertising `resume`.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` and `bun run test:integration:v2` pass.
+- [x] `v2/src/execution/publication-landing.test.ts` proves an unlinked numbered subspec whose index mentions it reports an unmatched near-miss index line, distinct from an index with no candidate line, which reports no near miss; it fails against the pre-fix single `unlinked_numbered_subspec` message.
+- [x] `v2/src/execution/publication-landing.test.ts` proves a normal-branch (staging present) shape-check failure carries only the staging path with `harness-internal` origin, and a staging-absent recovery-branch failure (`planFiles(durablePath)`) carries only the durable path with `operator-repository` origin; it fails against the pre-fix plain strings.
+- [x] `v2/src/execution/publication-landing.test.ts` proves the "file already exists with different contents" conflict carries both the staging path (`harness-internal`) and the durable path (`operator-repository`); it fails against the pre-fix plain string.
+- [x] `v2/src/execution/workflow-runner-publication.test.ts` proves a plan-landing failure settles the run with a populated `operatorFailureRecord` whose `retryable` is `false`, matching the settlement's `loop_finished.resumable`; it fails against the pre-fix verdict-only landing settlement advertising `resume`.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

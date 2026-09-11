@@ -1,4 +1,5 @@
-import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { errorMessage } from "../../../shared/error-message.ts";
 import type { RunFixCommandOpts } from "../../../shared/fix-command.ts";
@@ -786,8 +787,8 @@ async function commitRecoveredPlanLanding(
  * Recovers a stopped `contract_miss`/`blocked` plan-draft run whose staged subspec was
  * hand-corrected, without redrafting: verifies the run identified by `runId` still identifies
  * the captured `(project, branch, worktreePath, writeStepId)` checkout and a populated
- * `.jarvis-plan-stage/`, admits it independently of `resumable`, strips only a proven
- * harness-authored blocker, validates the on-disk staged tree, then lands it directly via
+ * `.jarvis-plan-stage/`, admits it independently of `resumable`, validates the on-disk staged
+ * tree, strips only a proven harness-authored blocker, then lands it directly via
  * {@link landReviewedPublicationOutput} — no review/actuator role runs between validation and
  * landing, so nothing can mutate the operator's correction — and, once landing completes,
  * commits the durable output via {@link commitRecoveredPlanLanding}.
@@ -824,12 +825,43 @@ function admitPlanRecoveryBlockerAndClaim(
   if (provenance.kind === "operator") {
     return { ok: false, code: "operator_blocker", message: "staged plan carries an operator-authored blocker" };
   }
+  return undefined;
+}
+
+/** Removes a provenance-proven harness blocker after staged-tree validation admits recovery. */
+function stripHarnessPlanBlocker(run: Run & { attempts: Attempt[] }, provenance: PlanBlockerProvenance): void {
   if (provenance.kind === "harness") {
     const intentPath = join(run.worktreePath, PLAN_STAGE_DIR, "intent.md");
     const content = readFileSync(intentPath, "utf8");
     writeFileSync(intentPath, content.slice(0, content.length - provenance.text.length), "utf8");
   }
-  return undefined;
+}
+
+/** Lints the admitted bytes with a proven harness blocker omitted, without mutating the staged tree. */
+async function lintPlanRecoveryStage(
+  worktreePath: string,
+  provenance: PlanBlockerProvenance,
+): ReturnType<typeof lintStagedMarkdown> {
+  if (provenance.kind !== "harness") {
+    return lintStagedMarkdown(PLAN_STAGE_DIR, { worktreePath });
+  }
+  // The copy lives outside the worktree: this path only validates, and the worktree is an arbitrary
+  // target project that may not ignore `.scratch/` — or may already have a *file* there, which made
+  // `mkdirSync` throw `ENOTDIR` and surface as an opaque error instead of `plan_stage_invalid`.
+  // Lint config is resolved from the harness root and passed with an explicit `--config`, so the
+  // copy's location does not affect which rules run. Matches the tmpdir convention used by the
+  // base-ref probe, review backup, and smoke verifier.
+  const lintWorktree = mkdtempSync(join(tmpdir(), "jarvis-plan-recovery-lint-"));
+  try {
+    const lintStage = join(lintWorktree, PLAN_STAGE_DIR);
+    cpSync(join(worktreePath, PLAN_STAGE_DIR), lintStage, { recursive: true });
+    const intentPath = join(lintStage, "intent.md");
+    const content = readFileSync(intentPath, "utf8");
+    writeFileSync(intentPath, content.slice(0, content.length - provenance.text.length), "utf8");
+    return await lintStagedMarkdown(PLAN_STAGE_DIR, { worktreePath: lintWorktree });
+  } finally {
+    rmSync(lintWorktree, { recursive: true, force: true });
+  }
 }
 
 /** Narrows a captured recovery step to the review/review-debate step carrying its plan-tree landing config. */
@@ -893,6 +925,12 @@ export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promi
     capturedReviewStepIds,
   );
   if (blockerAdmission) return blockerAdmission;
+  const blockerProvenance = resolvePlanBlockerProvenance(
+    run.worktreePath,
+    run.attempts.at(-1)?.outcomeKind ?? null,
+    request.logSink,
+    run.id,
+  );
 
   // Validate the on-disk staged tree before landing: an operator correction never trusted past
   // admission. No agent role runs between this check and landing, so it never needs repeating.
@@ -901,13 +939,15 @@ export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promi
   if (!contract.ok) {
     return { ok: false, code: "plan_stage_invalid", message: contract.reason };
   }
-  const lint = await lintStagedMarkdown(PLAN_STAGE_DIR, { worktreePath: run.worktreePath });
+  const lint = await lintPlanRecoveryStage(run.worktreePath, blockerProvenance);
   if (lint.kind === "violation") {
     return { ok: false, code: "plan_stage_invalid", message: `${lint.ruleId}: ${lint.message} (${lint.filePath})` };
   }
   if (lint.kind === "invocation_error") {
     return { ok: false, code: "plan_stage_invalid", message: lint.message };
   }
+
+  stripHarnessPlanBlocker(run, blockerProvenance);
 
   const landed = await landReviewedPublicationOutput(run.worktreePath, landingStep.landing, landingStep.verdictPath);
   if (!landed.ok) {

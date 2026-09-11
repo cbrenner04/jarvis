@@ -773,25 +773,54 @@ export function createRunLifecycleHandlers(
     return { kind: "response", result: { runs: runList } };
   };
 
-  const handleRunDismissalHandler =
-    (mode: "dismiss" | "undismiss"): RpcHandler =>
-    (frame) => {
-      const params = frame.params as { runId?: unknown } | undefined;
-      const runId = typeof params?.runId === "string" ? params.runId : "";
-      if (runId.length === 0) {
-        return { kind: "error", code: "invalid_params", message: "runId required" };
-      }
-      const dismissal = mode === "dismiss" ? store.dismissRun(runId) : store.undismissRun(runId);
-      if (dismissal.kind === "refused") {
-        return { kind: "response", result: dismissal };
-      }
-      // biome-ignore lint/style/noNonNullAssertion: dismissal returned non-refused, so the run is present
-      const run = store.loadRun(runId)!;
-      return { kind: "response", result: { ...dismissal, status: run.status } };
-    };
+  /** Shared applied/refused projection for a single-id `dismissRun`/`undismissRun` outcome. */
+  const respondRunDismissal = (
+    dismissal: ReturnType<StateStore["dismissRun"]>,
+  ): { kind: "response"; result: unknown } => {
+    if (dismissal.kind === "refused") {
+      return { kind: "response", result: dismissal };
+    }
+    // biome-ignore lint/style/noNonNullAssertion: dismissal returned non-refused, so the run is present
+    const run = store.loadRun(dismissal.runId)!;
+    return { kind: "response", result: { ...dismissal, status: run.status } };
+  };
 
-  const dismissRunHandler = handleRunDismissalHandler("dismiss");
-  const undismissRunHandler = handleRunDismissalHandler("undismiss");
+  const dismissRunHandler: RpcHandler = (frame) => {
+    const params = frame.params as { runId?: unknown; project?: unknown } | undefined;
+    const runIdProvided = params?.runId !== undefined;
+    const projectProvided = params?.project !== undefined;
+
+    if (runIdProvided && projectProvided) {
+      return { kind: "error", code: "invalid_params", message: "Provide exactly one of runId or project" };
+    }
+
+    if (projectProvided) {
+      const project = typeof params?.project === "string" ? params.project : "";
+      if (project.length === 0) {
+        return { kind: "error", code: "invalid_params", message: "project required" };
+      }
+      const dismissedCount = store.dismissTerminalRunsForProject({ project });
+      return { kind: "response", result: { kind: "applied", dismissedCount } };
+    }
+
+    const runId = typeof params?.runId === "string" ? params.runId : "";
+    if (runId.length === 0) {
+      return { kind: "error", code: "invalid_params", message: "runId required" };
+    }
+    return respondRunDismissal(store.dismissRun(runId));
+  };
+
+  const undismissRunHandler: RpcHandler = (frame) => {
+    const params = frame.params as { runId?: unknown; project?: unknown } | undefined;
+    if (params?.project !== undefined) {
+      return { kind: "error", code: "invalid_params", message: "undismiss does not accept a project selector" };
+    }
+    const runId = typeof params?.runId === "string" ? params.runId : "";
+    if (runId.length === 0) {
+      return { kind: "error", code: "invalid_params", message: "runId required" };
+    }
+    return respondRunDismissal(store.undismissRun(runId));
+  };
 
   const pauseHandler: RpcHandler = (frame) => {
     const params = frame.params as { runId?: string } | undefined;

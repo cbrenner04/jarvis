@@ -18,7 +18,7 @@ Written at a quota boundary, not a natural stop. Several lanes are mid-flight; t
 
 **Live:** `dbe6b295` — the daemon chain's head lane (`handoff-daemon-generations-at-stable-address`), pipeline `77b5ca90`. It committed `80e341967` (the stable-address change) and is working the changeover subspec. Resumed once after `gate_invocation_refused`.
 
-**Needs a resume, not a re-run:** `b5be44cb` settled `non_terminating_mutation_failed` (retryable, `nextAction: resume`) *after* publishing #3773. Resume replays mutation re-verification, the gate, and publication without re-invoking the agent, and will pick up the two fix commits pushed since.
+**Needs a resume, not a re-run:** `b5be44cb` (the `implement-review` row) settled `non_terminating_mutation_failed` (retryable, `nextAction: resume`) after publishing #3773 as a **draft**. Resuming is also what flips it to ready. Resume replays mutation re-verification, the gate, and publication without re-invoking the agent, and will pick up the two fix commits pushed since.
 
 **Pipelines.** `77b5ca90` (daemon identity) is the priority and is live. `9b1c81aa` is **unreachable** — `approve`, `resume` and `recover` all refuse `pipeline_no_live_owner` because its admitting daemon exited; its work was driven standalone instead, so nothing is lost. `f930a0f1`'s three remaining lanes are blocked on a strict prerequisite chain whose head is #3765 — approve `stage-success-reopens-skipped-successors` only after that merges. `135c1e08`'s work published by hand as #3770.
 
@@ -30,7 +30,9 @@ Four of four implement lanes that finished work settled `completed` with a real 
 
 Established so far: every durable row on those branches is an `implement~link-N`; the write step's log ends at `loop_finished` with no publication trace; and the daemon log shows no workflow exception, so the workflow *completed normally* after step 0. Candidate mechanism, **not yet confirmed**: `linkedImplementRoutingFailureOutcome` returns a synthesized `crypto.randomUUID()` with no durable row for the `already_complete`/`empty_index` cases, while the tail's redirect-to-a-real-row guard fires only when the last step is non-durable — which a `review-debate` step is not. That would send every publication record to a phantom row, which matches the silence exactly.
 
-Counter-evidence to weigh first: #3773's lane *did* publish itself end-to-end (write → review-debate → publication, three attributed commits). It is a single-subspec spec; three of the four failures were multi-subspec trees. So the defect is likely in the linked path, not publication generally.
+Counter-evidence to weigh, stated carefully: **no lane completed end-to-end this session.** #3773's lane got materially further than the four silent ones — rows for `implement~link-0` (completed), `implement~shrink` (completed) and `implement-review` (failed), and a **draft** PR published — but its finalization tail died at `non_terminating_mutation_failed`, so it never re-gated and never flipped draft→ready. Draft-and-not-flipped is the correct outcome for a failed gate tail, so the harness is honest here.
+
+What that does and does not support: it shows the linked path *can* reach shrink, review and publication, which is a real difference from the four lanes that produced only `implement~link-N` rows and no publication trace at all. It is **not** evidence that the tail succeeds on a single-subspec spec, and should not be used that way. #3773 is single-subspec; three of the four silent lanes were multi-subspec trees — suggestive, not established.
 
 ## Two things I got wrong
 

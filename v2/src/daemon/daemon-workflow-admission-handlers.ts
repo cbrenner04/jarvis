@@ -216,6 +216,19 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
         });
       };
       execute()
+        .then((result) => {
+          // A workflow that returns a non-`complete` outcome is not an exception, so the catch
+          // below never sees it — and before this, the result was simply discarded. The entry run
+          // could then sit durably `completed` (its write loop settles the row before the
+          // publication tail runs) with no commit tail, no PR and no diagnostic. The runner now
+          // settles the owning step row itself; this logs the workflow-level verdict so the
+          // operator can see which step ended the workflow and why.
+          if (result.kind === "complete") return;
+          const detail = result.routingFailure ?? result.invocationFailureMessage ?? result.kind;
+          console.error(
+            `Workflow ended ${result.kind} (${workflowTelemetryLabel(steps)}) at step ${String(result.stepIndex)} ${result.stepId}: ${detail}`,
+          );
+        })
         .catch((err) => {
           const message = err instanceof Error ? err.message : String(err);
           console.error(`Workflow execution failed (${workflowTelemetryLabel(steps)}): ${message}`);

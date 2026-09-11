@@ -433,6 +433,205 @@ describe("executeWorkflow linked implement routing", () => {
     });
   });
 
+  test("settles the step row and logs when a linked implement pass ends contract_miss after its write loop completed", async () => {
+    // The write loop settles a workflow write step's row before the publication tail runs, so a
+    // linked-implement finalizer converting the outcome afterwards used to leave a durable
+    // `completed` row with no commit tail, no PR and no diagnostic anywhere.
+    const planWorktree = mkdtempSync(join(tmpdir(), "unticked-link-plan-"));
+    roots.push(planWorktree);
+    const specDir = join(planWorktree, "spec", "feature");
+    mkdirSync(specDir, { recursive: true });
+    const indexPath = join(specDir, "index.md");
+    writeFileSync(indexPath, "- [ ] [Sub](./00-work.md)\n", "utf8");
+    writeFileSync(join(specDir, "00-work.md"), "# Sub\n\n## Acceptance criteria\n\n- [ ] criterion\n", "utf8");
+
+    const home = createJarvisHome();
+    roots.push(home.jarvisRoot);
+    const branchName = "unticked-link";
+    const worktreePath = join(home.jarvisRoot, "worktrees", "demo", branchName);
+    mkdirSync(worktreePath, { recursive: true });
+    writeFileSync(join(worktreePath, "README.md"), "implement only\n", "utf8");
+
+    const implementStep: WriteWorkflowStep = {
+      ...createStep({
+        stepId: "implement",
+        role: "implement",
+        branchName,
+        specPath: indexPath,
+        expectedArtifactPath: join(specDir, "00-work.md"),
+        // Reports `done` without ticking the criterion, so `completeLinkedSubspec` refuses
+        // `link_incomplete` after the write loop has already settled the row `completed`.
+        createBinding: createBindingFactory(async () => ({ kind: "ok", stdout: "done", stderr: "" }) as const),
+      }),
+      specReadRoot: planWorktree,
+      worktree: {
+        projectRoot: planWorktree,
+        projectName: "demo",
+        branchName,
+        baseRef: "HEAD",
+        jarvisRoot: home.jarvisRoot,
+      },
+      withExternalWorktree: async <T>(
+        args: { branchName: string; projectName: string },
+        run: (worktree: ExternalWorktree) => Promise<T> | T,
+      ): Promise<WithExternalWorktreeResult<T>> => {
+        const wtPath = join(home.jarvisRoot, "worktrees", args.projectName, args.branchName);
+        const existed = existsSync(wtPath);
+        mkdirSync(wtPath, { recursive: true });
+        const value = await run({ path: wtPath, reused: existed });
+        return { worktree: { path: wtPath, reused: existed }, lock: { kind: "acquired" }, value };
+      },
+      linkedIndexRouting: true,
+    };
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [implementStep],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("contract_miss");
+
+      const run = store.listRuns().find((row) => row.stepId === "implement~link-0");
+      expect(run).toBeDefined();
+      // The row must say what happened. `completed` here is the honesty violation: it implies
+      // confirmed PR evidence that does not exist.
+      expect(run?.status).toBe("blocked");
+      expect(run?.terminalCause).toBe("contract_miss");
+      expect(run?.terminalFailureDetail?.message).toContain("implement.link_incomplete");
+    });
+  });
+
+  test("settles the real link row when routing fails after that link's write loop completed", async () => {
+    // The malignant half of the routing-failure path: the link ran, its row is `completed`, and
+    // only then does pinned-link resolution fail. Minting a fresh run id here would orphan the
+    // outcome and leave that row `completed` with no publication — the same lie, one branch over.
+    const planWorktree = mkdtempSync(join(tmpdir(), "post-complete-routing-plan-"));
+    roots.push(planWorktree);
+    const specDir = join(planWorktree, "spec", "feature");
+    mkdirSync(specDir, { recursive: true });
+    const indexPath = join(specDir, "index.md");
+    writeFileSync(indexPath, "- [ ] [Sub](./00-work.md)\n", "utf8");
+    writeFileSync(join(specDir, "00-work.md"), "# Sub\n\n## Acceptance criteria\n\n- [ ] criterion\n", "utf8");
+
+    const home = createJarvisHome();
+    roots.push(home.jarvisRoot);
+    const branchName = "post-complete-routing";
+    const worktreePath = join(home.jarvisRoot, "worktrees", "demo", branchName);
+    mkdirSync(worktreePath, { recursive: true });
+
+    const implementStep: WriteWorkflowStep = {
+      ...createStep({
+        stepId: "implement",
+        role: "implement",
+        branchName,
+        specPath: indexPath,
+        expectedArtifactPath: join(specDir, "00-work.md"),
+        createBinding: createBindingFactory(async ({ cwd }) => {
+          // Tick the criterion so the write loop completes, then drop the link from the index so
+          // pinned resolution fails afterwards.
+          writeFileSync(
+            join(cwd, "spec/feature/00-work.md"),
+            "# Sub\n\n## Acceptance criteria\n\n- [x] criterion\n",
+            "utf8",
+          );
+          writeFileSync(join(cwd, "spec/feature/index.md"), "# Index with no links\n", "utf8");
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        }),
+      }),
+      specReadRoot: planWorktree,
+      worktree: {
+        projectRoot: planWorktree,
+        projectName: "demo",
+        branchName,
+        baseRef: "HEAD",
+        jarvisRoot: home.jarvisRoot,
+      },
+      withExternalWorktree: async <T>(
+        args: { branchName: string; projectName: string },
+        run: (worktree: ExternalWorktree) => Promise<T> | T,
+      ): Promise<WithExternalWorktreeResult<T>> => {
+        const wtPath = join(home.jarvisRoot, "worktrees", args.projectName, args.branchName);
+        const existed = existsSync(wtPath);
+        mkdirSync(wtPath, { recursive: true });
+        const value = await run({ path: wtPath, reused: existed });
+        return { worktree: { path: wtPath, reused: existed }, lock: { kind: "acquired" }, value };
+      },
+      linkedIndexRouting: true,
+    };
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [implementStep],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("blocked");
+      // The outcome must carry the link's own run id, not a freshly minted one, or nothing can
+      // settle the row that actually exists.
+      const linkRun = store.listRuns().find((row) => row.stepId === "implement~link-0");
+      expect(linkRun).toBeDefined();
+      expect(result.runId).toBe(String(linkRun?.id));
+      expect(linkRun?.status).toBe("blocked");
+      expect(linkRun?.terminalCause).toBe("blocked");
+    });
+  });
+
+  test("returns a routing failure whose run id was never persisted without throwing", async () => {
+    // `linkedImplementRoutingFailureOutcome` mints a crypto.randomUUID() that no row exists for.
+    // Settling it must be skipped, not attempted, or the step loop throws instead of returning.
+    const planWorktree = mkdtempSync(join(tmpdir(), "phantom-run-plan-"));
+    roots.push(planWorktree);
+    const specDir = join(planWorktree, "spec", "feature");
+    mkdirSync(specDir, { recursive: true });
+    const indexPath = join(specDir, "index.md");
+    // A link pointing outside the project routes `link_out_of_tree` before any run row is created.
+    writeFileSync(indexPath, "- [ ] [Sub](../../../outside.md)\n", "utf8");
+
+    const home = createJarvisHome();
+    roots.push(home.jarvisRoot);
+    const branchName = "phantom-run";
+    const worktreePath = join(home.jarvisRoot, "worktrees", "demo", branchName);
+    mkdirSync(worktreePath, { recursive: true });
+
+    const implementStep: WriteWorkflowStep = {
+      ...createStep({ stepId: "implement", role: "implement", branchName, specPath: indexPath }),
+      specReadRoot: planWorktree,
+      worktree: {
+        projectRoot: planWorktree,
+        projectName: "demo",
+        branchName,
+        baseRef: "HEAD",
+        jarvisRoot: home.jarvisRoot,
+      },
+      withExternalWorktree: async <T>(
+        args: { branchName: string; projectName: string },
+        run: (worktree: ExternalWorktree) => Promise<T> | T,
+      ): Promise<WithExternalWorktreeResult<T>> => {
+        const wtPath = join(home.jarvisRoot, "worktrees", args.projectName, args.branchName);
+        const existed = existsSync(wtPath);
+        mkdirSync(wtPath, { recursive: true });
+        const value = await run({ path: wtPath, reused: existed });
+        return { worktree: { path: wtPath, reused: existed }, lock: { kind: "acquired" }, value };
+      },
+      linkedIndexRouting: true,
+    };
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({ steps: [implementStep], stateStore: store });
+      expect(result.kind).toBe("blocked");
+      expect(result.routingFailure).toContain("implement.link_out_of_tree");
+      // Nothing was persisted under this id, so settlement finds no row and must not throw.
+      expect(store.loadRun(result.runId)).toBeNull();
+    });
+  });
+
   test("lands chained spec tree from specReadRoot into the implement worktree before the agent writes and reads back its criteria", async () => {
     const planWorktree = mkdtempSync(join(tmpdir(), "chained-spec-landing-plan-"));
     roots.push(planWorktree);

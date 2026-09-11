@@ -43,6 +43,14 @@ const PERMITTED_TERMINAL_WRITES: PermittedTerminalWrite[] = [
   },
   { file: "workflow-runner.ts", functionName: "executeWorkflow", writer: "commitTerminalRunSettlement", count: 2 },
   {
+    // A workflow step that ends non-`complete` after its write loop already settled the row
+    // `completed`. Without this write the row keeps a status implying PR evidence it does not
+    // have — see `settleNonCompleteWorkflowStep`.
+    file: "workflow-runner.ts",
+    functionName: "settleNonCompleteWorkflowStep",
+    writer: "commitTerminalRunSettlement",
+  },
+  {
     file: "workflow-runner-debate-landing.ts",
     functionName: "commitReviewDebateOutcome",
     writer: "commitCompletionBoundary",

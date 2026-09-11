@@ -33,10 +33,16 @@ import type {
   PipelineStageRecord,
   Run,
   RunStatus,
+  StageLifecyclePatch,
   StateStore,
   WorkflowSnapshot,
 } from "../persistence/state-store.ts";
-import { analyzeFailedPipelineReopenShape, isTerminalRunStatus, openStateStore } from "../persistence/state-store.ts";
+import {
+  analyzeFailedPipelineReopenShape,
+  isTerminalRunStatus,
+  openStateStore,
+  validateStageSkipProvenance,
+} from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
 import { rollupWorkflowRunStatus } from "../persistence/workflow-run-status-rollup.ts";
 import { spinUntilMicrotask } from "../testing/bounded-microtask-spin.ts";
@@ -191,6 +197,7 @@ function fakeStore(
     branchKey: "default",
     position: index,
     status: "pending",
+    skipProvenance: null,
     workflowInvocationId: null,
     startedAt: null,
     endedAt: null,
@@ -242,7 +249,12 @@ function fakeStore(
       if (!record) throw new Error(`unknown stage ${args.stageId} (branch ${branchKey})`);
       // Mirror the store's compare-and-set: a settlement racing another writer must no-op.
       if (args.requiredStatus !== undefined && record.status !== args.requiredStatus) return false;
+      // Enforce the real store's skip-provenance pairing, not a copy of it. Without this the double
+      // accepts a skip write that dropped provenance, which production throws on — inside a
+      // `catch {}` that swallows it and strands the suffix `pending`.
+      validateStageSkipProvenance(args.patch as StageLifecyclePatch);
       Object.assign(record, args.patch);
+      if (args.patch.status !== undefined && args.patch.status !== "skipped") record.skipProvenance = null;
       return true;
     },
     createPipelineStageBranch: (args: { pipelineId: string; stageId: string; branchKey: string }) => {
@@ -262,6 +274,7 @@ function fakeStore(
         branchKey: args.branchKey,
         position: defaultSibling.position,
         status: "pending",
+        skipProvenance: null,
         workflowInvocationId: null,
         startedAt: null,
         endedAt: null,
@@ -358,6 +371,7 @@ function fakeStore(
       }
       Object.assign(failedRecord, {
         status: "pending",
+        skipProvenance: null,
         workflowInvocationId: null,
         startedAt: null,
         endedAt: null,
@@ -371,6 +385,7 @@ function fakeStore(
         }
         Object.assign(suffix, {
           status: "pending",
+          skipProvenance: null,
           workflowInvocationId: null,
           startedAt: null,
           endedAt: null,
@@ -2125,7 +2140,11 @@ describe("pipeline activation after restart", () => {
     const { store } = fakeStore(reopenDefinition, {}, { context: persistedContext, ownerIdentity: PRIOR_OWNER });
     store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "succeeded" } });
     store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s2", patch: { status: "failed" } });
-    store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s3", patch: { status: "skipped" } });
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "s3",
+      patch: { status: "skipped", skipProvenance: "provisional" },
+    });
 
     const pipeline = store.loadPipeline(PIPELINE_ID);
     if (!pipeline) throw new Error("expected pipeline");
@@ -2929,7 +2948,11 @@ describe("resumePipeline", () => {
       store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s3", patch: { status: "pending" } });
     } else {
       store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s2", patch: { status: "failed" } });
-      store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s3", patch: { status: "skipped" } });
+      store.updateStage({
+        pipelineId: PIPELINE_ID,
+        stageId: "s3",
+        patch: { status: "skipped", skipProvenance: "provisional" },
+      });
     }
     return { store, stages };
   }
@@ -3055,7 +3078,12 @@ describe("resumePipeline", () => {
         store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "implement", branchKey: branchKeyName });
       }
       for (const stageId of ["gate", "plan", "implement"] as const) {
-        store.updateStage({ pipelineId: PIPELINE_ID, stageId, branchKey: "default", patch: { status: "skipped" } });
+        store.updateStage({
+          pipelineId: PIPELINE_ID,
+          stageId,
+          branchKey: "default",
+          patch: { status: "skipped", skipProvenance: "terminal" },
+        });
       }
       store.updateStage({
         pipelineId: PIPELINE_ID,
@@ -3114,7 +3142,12 @@ describe("resumePipeline", () => {
       store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "implement", branchKey });
     }
     for (const stageId of ["gate", "plan", "implement"] as const) {
-      store.updateStage({ pipelineId: PIPELINE_ID, stageId, branchKey: "default", patch: { status: "skipped" } });
+      store.updateStage({
+        pipelineId: PIPELINE_ID,
+        stageId,
+        branchKey: "default",
+        patch: { status: "skipped", skipProvenance: "terminal" },
+      });
     }
     store.updateStage({
       pipelineId: PIPELINE_ID,
@@ -3132,7 +3165,7 @@ describe("resumePipeline", () => {
       pipelineId: PIPELINE_ID,
       stageId: "implement",
       branchKey: FAN_OUT_RESUME_BRANCH_TARGET,
-      patch: { status: "skipped" },
+      patch: { status: "skipped", skipProvenance: "provisional" },
     });
     const extraFailedPlan = new Set(options.extraFailedPlanBranches ?? []);
     for (const branchKey of FAN_OUT_RESUME_BRANCH_KEYS) {
@@ -3144,7 +3177,7 @@ describe("resumePipeline", () => {
           pipelineId: PIPELINE_ID,
           stageId: "implement",
           branchKey,
-          patch: { status: "skipped" },
+          patch: { status: "skipped", skipProvenance: "provisional" },
         });
       } else {
         store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey, patch: { status: "awaiting" } });
@@ -3231,7 +3264,12 @@ describe("resumePipeline", () => {
       store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "implement", branchKey: branchKeyName });
     }
     for (const stageId of ["gate", "plan", "implement"] as const) {
-      store.updateStage({ pipelineId: PIPELINE_ID, stageId, branchKey: "default", patch: { status: "skipped" } });
+      store.updateStage({
+        pipelineId: PIPELINE_ID,
+        stageId,
+        branchKey: "default",
+        patch: { status: "skipped", skipProvenance: "terminal" },
+      });
     }
     store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey: "alpha", patch: { status: "awaiting" } });
     store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey: "beta", patch: { status: "approved" } });
@@ -3285,7 +3323,12 @@ describe("resumePipeline", () => {
         store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "implement", branchKey: branchKeyName });
       }
       for (const stageId of ["gate", "plan", "implement"] as const) {
-        store.updateStage({ pipelineId: PIPELINE_ID, stageId, branchKey: "default", patch: { status: "skipped" } });
+        store.updateStage({
+          pipelineId: PIPELINE_ID,
+          stageId,
+          branchKey: "default",
+          patch: { status: "skipped", skipProvenance: "terminal" },
+        });
       }
       store.updateStage({
         pipelineId: PIPELINE_ID,
@@ -3299,7 +3342,7 @@ describe("resumePipeline", () => {
         pipelineId: PIPELINE_ID,
         stageId: "implement",
         branchKey: "beta",
-        patch: { status: "skipped" },
+        patch: { status: "skipped", skipProvenance: "provisional" },
       });
       const before = stages().map((stage) => ({ ...stage }));
       const pipeline = store.loadPipeline(PIPELINE_ID);
@@ -3341,7 +3384,12 @@ describe("resumePipeline", () => {
         store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "implement", branchKey: branchKeyName });
       }
       for (const stageId of ["gate", "plan", "implement"] as const) {
-        store.updateStage({ pipelineId: PIPELINE_ID, stageId, branchKey: "default", patch: { status: "skipped" } });
+        store.updateStage({
+          pipelineId: PIPELINE_ID,
+          stageId,
+          branchKey: "default",
+          patch: { status: "skipped", skipProvenance: "terminal" },
+        });
       }
       store.updateStage({
         pipelineId: PIPELINE_ID,
@@ -3353,7 +3401,7 @@ describe("resumePipeline", () => {
         pipelineId: PIPELINE_ID,
         stageId: "implement",
         branchKey: "alpha",
-        patch: { status: "skipped" },
+        patch: { status: "skipped", skipProvenance: "provisional" },
       });
       store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey: "beta", patch: { status: "approved" } });
       const alphaPlanBefore = stages().find((stage) => stage.stageId === "plan" && stage.branchKey === "alpha");
@@ -3437,7 +3485,12 @@ describe("resumePipeline", () => {
         store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "implement", branchKey: branchKeyName });
       }
       for (const stageId of ["gate", "plan", "implement"] as const) {
-        store.updateStage({ pipelineId: PIPELINE_ID, stageId, branchKey: "default", patch: { status: "skipped" } });
+        store.updateStage({
+          pipelineId: PIPELINE_ID,
+          stageId,
+          branchKey: "default",
+          patch: { status: "skipped", skipProvenance: "terminal" },
+        });
       }
       store.updateStage({
         pipelineId: PIPELINE_ID,
@@ -3608,7 +3661,11 @@ describe("resumePipeline", () => {
       patch: { status: "succeeded", artifact: { specPath: "spec/s1.md" }, workflowInvocationId: "inv-1" },
     });
     failedSeed.updateStage({ pipelineId: failedPipelineId, stageId: "s2", patch: { status: "failed" } });
-    failedSeed.updateStage({ pipelineId: failedPipelineId, stageId: "s3", patch: { status: "skipped" } });
+    failedSeed.updateStage({
+      pipelineId: failedPipelineId,
+      stageId: "s3",
+      patch: { status: "skipped", skipProvenance: "provisional" },
+    });
     failedSeed.close();
 
     const failedStore = openStateStore(dbPath, { currentIdentity: CURRENT_OWNER, isOwnerAlive: async () => false });
@@ -3963,7 +4020,12 @@ describe("resumePipeline branch scope", () => {
       store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "implement", branchKey });
     }
     for (const stageId of ["gate", "plan", "implement"] as const) {
-      store.updateStage({ pipelineId: PIPELINE_ID, stageId, branchKey: "default", patch: { status: "skipped" } });
+      store.updateStage({
+        pipelineId: PIPELINE_ID,
+        stageId,
+        branchKey: "default",
+        patch: { status: "skipped", skipProvenance: "terminal" },
+      });
     }
 
     store.updateStage({
@@ -4178,7 +4240,11 @@ describe("resumePipeline branch scope", () => {
       );
       store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s1", patch: { status: "succeeded" } });
       store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s2", patch: { status: "failed" } });
-      store.updateStage({ pipelineId: PIPELINE_ID, stageId: "s3", patch: { status: "skipped" } });
+      store.updateStage({
+        pipelineId: PIPELINE_ID,
+        stageId: "s3",
+        patch: { status: "skipped", skipProvenance: "provisional" },
+      });
       return { store, stages };
     }
 
@@ -4239,7 +4305,12 @@ describe("resumePipeline branch scope", () => {
       store.createPipelineStageBranch({ pipelineId: PIPELINE_ID, stageId: "implement", branchKey });
     }
     for (const stageId of ["gate", "plan", "implement"] as const) {
-      store.updateStage({ pipelineId: PIPELINE_ID, stageId, branchKey: "default", patch: { status: "skipped" } });
+      store.updateStage({
+        pipelineId: PIPELINE_ID,
+        stageId,
+        branchKey: "default",
+        patch: { status: "skipped", skipProvenance: "terminal" },
+      });
     }
     store.updateStage({
       pipelineId: PIPELINE_ID,
@@ -4916,7 +4987,7 @@ function setupFanOutLinearPostIntent(store: StateStore): void {
       pipelineId: PIPELINE_ID,
       stageId,
       branchKey: "default",
-      patch: { status: "skipped" },
+      patch: { status: "skipped", skipProvenance: "terminal" },
     });
   }
 }
@@ -4944,7 +5015,7 @@ function setupFanOutAlphaLiveLinked(
       pipelineId: PIPELINE_ID,
       stageId,
       branchKey: "default",
-      patch: { status: "skipped" },
+      patch: { status: "skipped", skipProvenance: "terminal" },
     });
   }
   store.updateStage({
@@ -5229,6 +5300,8 @@ describe("pipeline branch fan-out execution", () => {
     expect(dispatchLog.filter((entry) => entry.stageId === "implement" && entry.branchKey === "default")).toEqual([]);
     expect(stageRecord(stages(), "plan", "default")?.status).toBe("skipped");
     expect(stageRecord(stages(), "implement", "default")?.status).toBe("skipped");
+    expect(stageRecord(stages(), "plan", "default")?.skipProvenance).toBe("terminal");
+    expect(stageRecord(stages(), "implement", "default")?.skipProvenance).toBe("terminal");
     expect(
       dispatchLog
         .filter((entry) => entry.stageId === "plan")
@@ -5971,13 +6044,16 @@ describe("pipeline branch fan-out execution", () => {
           }
         : status === "failed"
           ? { status: "failed", endedAt: Date.now(), failureDetail: { message: "prior failure" } }
-          : { status: "skipped" };
+          : // A plan stage reaches `skipped` only via predecessor-failure suffix skipping, which is
+            // provisional. The bare `{ status: "skipped" }` this used to seed is a state production
+            // can no longer produce; the shared validator on the double now rejects it.
+            { status: "skipped", skipProvenance: "provisional" };
     setupFanOutAlphaLiveLinked(store, alphaPlanPatch);
     store.updateStage({
       pipelineId: PIPELINE_ID,
       stageId: "implement",
       branchKey: "alpha",
-      patch: { status: "skipped" },
+      patch: { status: "skipped", skipProvenance: "provisional" },
     });
   }
 
@@ -6113,6 +6189,7 @@ describe("pipeline branch fan-out execution", () => {
     expect(beta?.status).toBe("failed");
     expect((beta?.failureDetail as { message?: string } | null)?.message).toContain("timed out");
     expect(stageRecord(stages(), "implement", "beta")?.status).toBe("skipped");
+    expect(stageRecord(stages(), "implement", "beta")?.skipProvenance).toBe("provisional");
   });
 });
 
@@ -6997,7 +7074,11 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
       }
     }
     for (const stageId of ["gate", "plan", "implement"] as const) {
-      store.updateStage({ pipelineId: PIPELINE_ID, stageId, patch: { status: "skipped" } });
+      store.updateStage({
+        pipelineId: PIPELINE_ID,
+        stageId,
+        patch: { status: "skipped", skipProvenance: "provisional" },
+      });
     }
     store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey: "alpha", patch: { status: "approved" } });
     store.updateStage({ pipelineId: PIPELINE_ID, stageId: "plan", branchKey: "alpha", patch: { status: "failed" } });
@@ -7005,7 +7086,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
       pipelineId: PIPELINE_ID,
       stageId: "implement",
       branchKey: "alpha",
-      patch: { status: "skipped" },
+      patch: { status: "skipped", skipProvenance: "provisional" },
     });
     store.updateStage({ pipelineId: PIPELINE_ID, stageId: "gate", branchKey: "beta", patch: { status: "awaiting" } });
 
@@ -8146,7 +8227,7 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
         pipelineId: PIPELINE_ID,
         stageId,
         branchKey: "default",
-        patch: { status: "skipped" },
+        patch: { status: "skipped", skipProvenance: "terminal" },
       });
     }
 

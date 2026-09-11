@@ -52,7 +52,7 @@ One algorithm settles every stage linked to a workflow entry run, and its only t
 1. `settleLinkedStagesFromEntryRunWith` (`v2/src/persistence/pipeline-stage-settlement.ts`) rolls the invocation up from the entry run and its siblings, and settles every `running` stage linked to it — `succeeded` with an artifact carrying `specPath`, `prNumber`, `prUrl`, `downstreamInputs`, or `failed` with operator-error detail. A non-terminal rollup settles nothing. It is idempotent: a stage settles once. `StateStore.settleLinkedStagesFromEntryRun` wraps it in a transaction.
 2. `stage-settlement-owner.ts` is the daemon's one caller (`settleStagesForEntryRun`, `settleOrphanedRunningStages`). Its only in-memory input is **liveness** — `isEntryRunLive`, true while this daemon still drives the invocation — because a run this process is still driving must not be judged from its rows.
 3. It runs at four points: the workflow promise's terminal event, dispatch/adopt after their wait, the `pipeline_resume` precondition, and the daemon-start sweep (`recoverContinuablePipelines`, after run recovery so reconciled runs read live).
-4. A stage settled `failed` skips its branch suffix (`skipSuffixOfSettledFailures`), exactly as an in-loop stage failure does, so the pipeline derives `failed` and `reopenFailedPipeline` admits it.
+4. A stage settled `failed` skips its branch suffix (`skipSuffixOfSettledFailures`), exactly as an in-loop stage failure does, so the pipeline derives `failed` and `reopenFailedPipeline` admits it. `skipRemainingStages` records these predecessor-failure skips with `skipProvenance: "provisional"`: the work remains legitimately redoable.
 
 There is no deferred-settlement marker and no redrive predicate. A stage whose entry run is still live simply stays `running` with no `failureDetail`; the owner settles it when the run goes terminal.
 
@@ -65,7 +65,7 @@ Entry-run linkage is stored in `pipeline_stages.workflowInvocationId` (column na
 When a splitting intent stage artifact carries `downstreamInputs` with length ≥ 2 (`findFanOutSplit` in `pipeline-execution.ts`):
 
 - One `pipeline_stages` row per `(stageId, branchKey)`; `branchKey` = ready-intent basename without `.md` (`branchKeyFromDownstreamInput`).
-- Pre-admitted `default` suffix rows reconcile to `skipped`.
+- Pre-admitted `default` suffix rows reconcile to `skipped` with `skipProvenance: "terminal"`; fan-out branch rows permanently supersede them, so they are never applicable again.
 - First chained workflow stage resolves fan-out (`isFanOutStageResolution`); later stages resolve per-branch from branch-local artifacts.
 - Branch-scoped plan resolution selects the sole downstream input whose derived branch key equals the active lane, verifies only that input, and returns single-path `{ steps }`. Initial `default`-row whole-list verification treats a sibling input consumed into its succeeded plan-stage spec tree as satisfied.
 - If no downstream input matches the active lane, resolution refuses with the lane and available inputs named. When the intent stage succeeded, the refusal omits standalone intent re-drive guidance.

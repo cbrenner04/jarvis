@@ -24,16 +24,16 @@ Both skip writers stamp the same `status: "skipped"`: `skipRemainingStages` (pre
 
 ## Acceptance criteria
 
-- [ ] A state-store test proves a stage row skipped through the predecessor-failure path records provisional provenance and a split-retired `default` row records terminal provenance; it fails against the pre-fix schema.
-- [ ] A state-store test proves `updateStage` rejects a patch carrying skip provenance without `status: "skipped"`; it fails against the pre-fix code.
-- [ ] A state-store test proves `updateStage` rejects a `status: "skipped"` patch that omits provenance; it fails against the pre-fix code.
-- [ ] A state-store test proves a later non-skip status write to a provenance-carrying row clears the provenance; it fails against the pre-fix code.
-- [ ] A state-store test proves `reopenFailedPipeline` reopening a provisionally-skipped suffix row clears its provenance; it fails against the pre-fix code.
-- [ ] A state-store test proves a row written by a database whose `pipeline_stages` table was created without the provenance column before the store opened loads, after the store's migration runs, with provenance absent.
-- [ ] `v2/docs/pipeline-execution.md` documents provisional vs terminal `skipped` and which writer produces each.
-- [ ] `v2/docs/state-store.md` documents the provenance field on the stage-patch surface.
-- [ ] `v2/docs/v1-behaviors.md` records the changed skip-write semantics.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A state-store test proves a stage row skipped through the predecessor-failure path records provisional provenance and a split-retired `default` row records terminal provenance; it fails against the pre-fix schema.
+- [x] A state-store test proves `updateStage` rejects a patch carrying skip provenance without `status: "skipped"`; it fails against the pre-fix code.
+- [x] A state-store test proves `updateStage` rejects a `status: "skipped"` patch that omits provenance; it fails against the pre-fix code.
+- [x] A state-store test proves a later non-skip status write to a provenance-carrying row clears the provenance; it fails against the pre-fix code.
+- [x] A state-store test proves `reopenFailedPipeline` reopening a provisionally-skipped suffix row clears its provenance; it fails against the pre-fix code.
+- [x] A state-store test proves a row written by a database whose `pipeline_stages` table was created without the provenance column before the store opened loads, after the store's migration runs, with provenance absent.
+- [x] `v2/docs/pipeline-execution.md` documents provisional vs terminal `skipped` and which writer produces each.
+- [x] `v2/docs/state-store.md` documents the provenance field on the stage-patch surface.
+- [x] `v2/docs/v1-behaviors.md` records the changed skip-write semantics.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

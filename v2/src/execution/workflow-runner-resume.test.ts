@@ -3898,6 +3898,133 @@ describe("recoverPlanStage", () => {
     }
   });
 
+  test("retains a proven harness blocker when structural validation refuses recovery", async () => {
+    const worktreePath = planWorktree("recover-plan-stage-invalid-before-strip-");
+    const stage = join(worktreePath, ".jarvis-plan-stage");
+    const durable = join(worktreePath, "spec", "2026-invalid-before-strip");
+    const branch = "recover-plan-stage-invalid-before-strip";
+    const stepId = "plan";
+    const specPath = "spec/2026-invalid-before-strip";
+    const reason = "missing index";
+    const blocker = harnessPlanBlocker(reason);
+    const stagedIntent = `---\nname: test\n---\n${blocker}`;
+
+    writeLintCleanPlanStage(stage, "00-first.md");
+    writeFileSync(join(stage, "intent.md"), stagedIntent, "utf8");
+    rmSync(join(stage, "index.md"));
+
+    await withStateStore(async (store) => {
+      const runId = seedBlockedPlanDraftRun(store, {
+        project: "demo",
+        branch,
+        worktreePath,
+        specPath,
+        stepId,
+        invocationId: "recover-plan-stage-invalid-before-strip-inv",
+        outcomeKind: "contract_miss",
+      });
+      const logSink = new TestLogSink();
+      logSink.append(runId, {
+        kind: "contract_miss_detail",
+        attemptId: "attempt-1",
+        failedContractId: "plan.draft.shape",
+        responseText: "done",
+        failureReason: reason,
+      });
+      const reviewStep = planReviewStep({
+        worktreePath,
+        stage,
+        durable,
+        branch,
+        invoke: async () => {
+          throw new Error("review must not run on a structurally invalid recovered plan stage");
+        },
+      });
+
+      const outcome = await recoverPlanStage({
+        runId,
+        project: "demo",
+        branch,
+        worktreePath,
+        writeStepId: stepId,
+        steps: [reviewStep],
+        stateStore: store,
+        logSink,
+      });
+
+      expect(outcome).toMatchObject({ ok: false, code: "plan_stage_invalid" });
+      expect(readFileSync(join(stage, "intent.md"), "utf8")).toBe(stagedIntent);
+      expect(readFileSync(join(stage, "intent.md"), "utf8").endsWith(blocker)).toBe(true);
+      expect(existsSync(durable)).toBe(false);
+    });
+  });
+
+  test("retains staged intent bytes when lint validation refuses recovery", async () => {
+    if (skipReviewWithoutHarnessMarkdownlint("lint refusal retains recovered plan-stage intent")) return;
+
+    const worktreePath = planWorktree("recover-plan-stage-lint-before-strip-");
+    const stage = join(worktreePath, ".jarvis-plan-stage");
+    const durable = join(worktreePath, "spec", "2026-lint-before-strip");
+    const branch = "recover-plan-stage-lint-before-strip";
+    const stepId = "plan";
+    const specPath = "spec/2026-lint-before-strip";
+    const reason = "lint violation";
+    const stagedIntent = `---\nname: test\n---\n${harnessPlanBlocker(reason)}`;
+
+    writeLintCleanPlanStage(stage, "00-first.md");
+    writeFileSync(join(stage, "intent.md"), stagedIntent, "utf8");
+    writeFileSync(
+      join(stage, "00-first.md"),
+      readReviewMdLintFixture(REVIEW_MD_LINT_FIXTURE_IDS.planMd038ViolationSubspec),
+      "utf8",
+    );
+
+    await withStateStore(async (store) => {
+      const runId = seedBlockedPlanDraftRun(store, {
+        project: "demo",
+        branch,
+        worktreePath,
+        specPath,
+        stepId,
+        invocationId: "recover-plan-stage-lint-before-strip-inv",
+        outcomeKind: "contract_miss",
+      });
+      const logSink = new TestLogSink();
+      logSink.append(runId, {
+        kind: "contract_miss_detail",
+        attemptId: "attempt-1",
+        failedContractId: "plan.markdownlint",
+        responseText: "done",
+        failureReason: reason,
+      });
+      const reviewStep = planReviewStep({
+        worktreePath,
+        stage,
+        durable,
+        branch,
+        invoke: async () => {
+          throw new Error("review must not run on a lint-invalid recovered plan stage");
+        },
+      });
+
+      const outcome = await recoverPlanStage({
+        runId,
+        project: "demo",
+        branch,
+        worktreePath,
+        writeStepId: stepId,
+        steps: [reviewStep],
+        stateStore: store,
+        logSink,
+      });
+
+      expect(outcome).toMatchObject({ ok: false, code: "plan_stage_invalid" });
+      expect(outcome).toMatchObject({ message: expect.stringContaining("MD038") });
+      expect(readFileSync(join(stage, "intent.md"), "utf8")).toBe(stagedIntent);
+      expect(existsSync(durable)).toBe(false);
+    });
+  });
+
   test("refuses Git-disabled plan-stage recovery", async () => {
     const worktreePath = noGitPlanWorktree("recover-plan-stage-no-git-");
     const stage = join(worktreePath, ".jarvis-plan-stage");

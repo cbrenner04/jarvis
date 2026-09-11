@@ -49,7 +49,12 @@ import { listLandedIntentFiles } from "./intent-output.ts";
 import { deriveIntentRunBodySummary } from "./intent-run-body-summary.ts";
 import type { InvocationFailureDetail } from "./invocation-failure.ts";
 import { readBranchCommits } from "./pr-attribution.ts";
-import { landPublication, type PublicationInputs, type PublicationLanding } from "./publication-landing.ts";
+import {
+  landPublication,
+  PlanTreeLandingError,
+  type PublicationInputs,
+  type PublicationLanding,
+} from "./publication-landing.ts";
 import { type PublicationFailure, publicationFailureFor } from "./publication-retry.ts";
 import type { ReadyFinalizer } from "./ready-finalize.ts";
 import {
@@ -1078,17 +1083,20 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       } catch (error) {
         const message = errorMessage(error);
         const landingDetail = landingFailedTerminalFailureDetail(message);
+        const operatorFailureRecord = error instanceof PlanTreeLandingError ? error.operatorFailureRecord : undefined;
+        const resumable = operatorFailureRecord?.retryable ?? true;
         store.commitTerminalRunSettlement({
           runId: lastResult.runId,
           status: "failed",
           terminalCause: "landing_failed",
           ...(landingDetail !== undefined ? { terminalFailureDetail: landingDetail } : {}),
+          ...(operatorFailureRecord !== undefined ? { operatorFailureRecord } : {}),
         });
         args.logSink?.append(lastResult.runId, {
           kind: "loop_finished",
           loopOutcomeKind: "landing_failed",
           iterationsConsumed: totalIterationsConsumed,
-          resumable: true,
+          resumable,
         });
         traceCompletionPublication(
           args.logSink,
@@ -1103,7 +1111,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
           stepId: lastStepId,
           runId: lastResult.runId,
           iterationsConsumed: totalIterationsConsumed,
-          resumable: true,
+          resumable,
           prePublicationError: message,
         };
       }

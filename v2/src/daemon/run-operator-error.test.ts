@@ -520,6 +520,18 @@ test("composeRunOperatorError omits message for cause-less landing_failed", () =
   expect(error).not.toHaveProperty("message");
 });
 
+test("composeRunOperatorError stops a landing_failed the settlement marked non-resumable", () => {
+  // Plan-tree shape checks settle `resumable: false` because direct-landing recovery re-validates
+  // the same on-disk bytes. Advertising `resume` there admits a reissue that re-fails identically —
+  // `daemon-run-resume-admission` gates on exactly `nextAction === "resume"`.
+  const stopped = composeRunOperatorError(runWith("failed"), loopFinished("landing_failed", { resumable: false }));
+  expect(stopped).toEqual(err("landing_failed", "stop"));
+
+  // The intent-finalization path still settles `true` and keeps its documented resume recovery.
+  const resumable = composeRunOperatorError(runWith("failed"), loopFinished("landing_failed", { resumable: true }));
+  expect(resumable).toEqual(err("landing_failed", "resume", true));
+});
+
 test("composeRunOperatorError maps ready_gate_command_missing to fix_config without resume", () => {
   expect(
     composeRunOperatorError(

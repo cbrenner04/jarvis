@@ -1474,6 +1474,52 @@ describe("executeWorkflow completion publication", () => {
     });
   });
 
+  test("settles plan-tree landing evidence with matching non-retryable semantics", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "plan-landing-evidence-"));
+    const stage = join(workspace, ".jarvis-plan-stage");
+    const durablePath = join(workspace, "spec/plan-landing-evidence");
+    mkdirSync(stage);
+    writeFileSync(join(stage, "index.md"), "# Invalid plan\n", "utf8");
+    const step = createStep({
+      stepId: "plan",
+      role: "plan",
+      branchName: "plan-landing-evidence",
+      specPath: durablePath,
+      expectedArtifactPath: ".jarvis-plan-stage",
+      landing: { kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath },
+      agentModelConfig: { claude: { plan: { rungs: [{ adapterModel: "plan", priceKey: "plan" }] } } },
+    });
+    step.worktree = {
+      projectRoot: workspace,
+      projectName: "demo",
+      branchName: "plan-landing-evidence",
+      baseRef: "HEAD",
+      git: false,
+      localPath: workspace,
+    };
+    step.withExternalWorktree = externalWorktreeBinding(workspace);
+
+    const logSink = new TestLogSink();
+    await withStateStore(async (store) => {
+      seedCompletedWriteRun(store, step, workspace, "plan-landing-evidence");
+      const result = await executeWorkflow({ steps: [step], stateStore: store, logSink });
+
+      expect(result.kind).toBe("pre-publication");
+      expect(result.resumable).toBe(false);
+      const run = store.loadRun(result.runId);
+      expect(run?.operatorFailureRecord).toMatchObject({
+        expectation: "plan tree contains index.md, intent.md, and at least one numbered subspec",
+        retryable: false,
+        referencedPaths: [{ path: stage, origin: "harness-internal" }],
+      });
+      const terminal = logSink
+        .getEventsForRun(result.runId)
+        .filter((event) => event.kind === "loop_finished")
+        .at(-1);
+      expect(terminal).toMatchObject({ loopOutcomeKind: "landing_failed", resumable: false });
+    });
+  });
+
   test("publishes reviewed-intent body summary after review-last landing", async () => {
     const { workspace, withExternalWorktree } = createIntentWorktreeHarness("reviewed-intent-body-summary");
     const invocationId = "reviewed-intent-body-summary";

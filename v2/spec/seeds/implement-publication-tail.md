@@ -42,9 +42,30 @@ That is the shape to test first: a lane whose workspace and branch are materiali
 
 This also silently violates the completion-honesty contract, under which a `completed` implement implies confirmed PR evidence — so the row is not merely unhelpful, it is untrue.
 
+### Half 1 root cause (2026-09-11) — there is no throw, and the row is settled before publication
+
+The first acceptance criterion asks for the root cause before the fix. It is not a successor-dispatch race and not environmental. Three independent mechanisms compose:
+
+**1. A workflow write step's durable row is settled `completed` before any verification runs.** `prepareWorkflowStep` hard-sets `publishCompletion: false` (`v2/src/execution/workflow-runner.ts:1865`), and `keepsCompletionInProgress` in the write loop requires `args.publishCompletion !== false` (`v2/src/execution/write-loop.ts:1876-1879`). So `boundaryRunStatus` takes `terminal.runStatus` (`"completed"`) instead of `"in-progress"`. At the moment `boundary_committed` is written the row is terminal, PR-less, and carries no `terminalCause`. Everything after that point is best-effort, which is precisely what the completion-honesty contract forbids.
+
+**2. `executeWorkflow` bails on a non-`complete` step result with no log and no settlement.** `workflow-runner.ts:905-918` returns the step result verbatim when `stepResult.kind !== "complete"` — no log append, no store write. The producers that can return non-`complete` *after* the write loop has already logged `loop_finished: complete`, instantaneously and silently, are the linked-implement finalizers: `finalizeLinkedImplementPass` (`:717-742`, `link_incomplete` → `contract_miss`, `index_routing_mutated` → `blocked`, which also reverts the index tick it just wrote) and `linkedImplementRoutingFailureOutcome` (`:645-666`, routing failures → `blocked` on a phantom `crypto.randomUUID()` run id; `empty_index`/`already_complete` → `complete` with `implementReviewEligible: false`, which skips shrink *and* review).
+
+**3. The daemon discards the result.** The admission handler's `execute().catch(...).finally(...)` (`v2/src/daemon/daemon-workflow-admission-handlers.ts:218-241`) has no `.then`, so the returned `WorkflowResult` is dropped. A non-`complete` workflow outcome on a run that already exists is recorded nowhere.
+
+**`harness_failure` on the stage is not an exception.** It is the fallthrough in `pipeline-stage-settlement.ts:144` for a terminal entry run with no `terminalCause` and an unmapped last-attempt `outcomeKind: "done"` — exactly the row shape mechanism 1 produces.
+
+**Proof there was no throw.** The daemon spawns with `stdio: [ignore, logFd, logFd]` (`daemon-lifecycle.ts:159-161`), and the admission catch both `console.error`s and appends `run_execution_failed`. The current daemon's log holds only its startup line and no run carries that record, while a *different* daemon generation's log does contain a caught error — so the path works and simply was not taken. Timing corroborates it: the stage's `ended_at` equals the `loop_finished` second, so the tail (gate, completion commit, publication — minutes of work) never started.
+
+**Correction to the dispatch-shape table above.** The correlation is real but the causal axis is *who publishes*, not fresh-vs-re-entry. Lanes that publish do so **inside the write loop** (or from the review step), which is reached when `publishCompletion !== false` — the resumed lane `854d55f2` logged `runStatus: "in-progress"` and then `loop_finished … prNumber: 3787`. Lanes that defer publication to `executeWorkflow`'s tail are the ones gated behind mechanisms 2 and 3. Every implement publication observed this session came from the write loop or the review step; none came from the tail.
+
+**Cheapest next step**, and it is diagnostic rather than structural: append a log event at each of the four silent return sites, so the next occurrence names which producer fired. Two candidates could not be separated from the surviving evidence — `index_routing_mutated` (`shared/linked-subspec-routing.ts:200-208`, plausible when a prior link's index tick was written to the worktree but never committed, so it reads as mutated on the next dispatch) and the `already_complete` re-scan. Independently of which one it is, mechanism 1 is a defect on its own: a `completed` implement row must not be written before publication evidence exists.
+
 ## Acceptance criteria
 
-- [ ] Half 1 root cause recorded (successor-dispatch gap, chain omission, or environmental), then: a `completed` implement with unpushed committed work publishes or settles a named failure, pinned by a test failing against silent local-only completion — or this half is reaped with the counter-evidence cited.
+- [x] Half 1 root cause recorded (2026-09-11, above): workflow write steps settle `completed` before verification because `prepareWorkflowStep` forces `publishCompletion: false`; `executeWorkflow` returns a non-`complete` step result with no log and no settlement; the daemon discards that result.
+- [ ] A workflow write step no longer settles its durable row `completed` before publication evidence exists — the honesty contract holds for workflow-dispatched implements as it does for the write-loop path, pinned by a test failing against the current `publishCompletion: false` settlement.
+- [ ] Each silent non-`complete` return in `executeWorkflow`'s linked-implement finalization appends a durable log event naming the producer and reason, pinned by a test failing against the current no-log early return.
+- [ ] A non-`complete` `WorkflowResult` returned to the daemon settles the owning run and stage with a named operator-visible failure rather than being discarded, pinned by a test failing against the current `.catch().finally()` with no `.then`.
 - [ ] A publication whose branch has only a merged/closed matching PR opens and readies a fresh draft, pinned by a test failing against resolve-most-recent (covers every `defaultGhReadyFlip`-family call site).
 - [ ] An open draft on the branch is still reused; the raw `ready_flip_failed` GitHub-string terminal is unreachable for closed-PR shapes.
 - [ ] `bun run typecheck` and `bun run test:v2` pass.

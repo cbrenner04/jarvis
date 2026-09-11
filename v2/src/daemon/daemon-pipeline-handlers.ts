@@ -7,13 +7,15 @@ import { connectIpcClient, type IpcClient } from "../ipc/client";
 import type { RpcHandler } from "../ipc/server.ts";
 import { jarvisHome } from "../paths.ts";
 import { type LogSink, openLogSink } from "../persistence/log-stream.ts";
-import { loadPipelineContext } from "../persistence/state-store.ts";
+import { loadPipelineContext, type Pipeline, type PipelineStageRecord } from "../persistence/state-store.ts";
 import type { ActiveRun, OwnershipKey } from "./daemon.ts";
 import { ownershipKeyString, type RunControlHandlerContext } from "./daemon-run-control-context.ts";
 import type { WorkflowStartAdmission } from "./daemon-workflow-admission-handlers.ts";
 import {
   applyPipelineApprovalDecision,
   derivePipelineState,
+  isPipelineTerminal,
+  type PipelineDerivedState,
   type PipelineExecutionDeps,
   recoverContinuablePipelines,
   resumePipeline,
@@ -41,6 +43,59 @@ import {
 import { resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
 
 const STALE_RESET_RPC_TIMEOUT_MS = 30_000;
+const PIPELINE_LIST_TERMINAL_LIMIT = 50;
+
+/** Every `PipelineDerivedState`, for `pipeline_list` param validation. */
+const PIPELINE_DERIVED_STATES: readonly PipelineDerivedState[] = [
+  "succeeded",
+  "failed",
+  "rejected",
+  "interrupted",
+  "awaiting-approval",
+  "running",
+  "pending",
+];
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isPipelineDerivedState(value: unknown): value is PipelineDerivedState {
+  return typeof value === "string" && (PIPELINE_DERIVED_STATES as readonly string[]).includes(value);
+}
+
+type PipelineListRow = Pipeline & { stages: PipelineStageRecord[] };
+
+/** `listPipelines()` issues an unordered SELECT; sort newest-first, `id` descending as tie break. */
+function sortPipelinesNewestFirst(pipelines: PipelineListRow[]): PipelineListRow[] {
+  return [...pipelines].sort((a, b) => {
+    if (a.createdAt !== b.createdAt) return b.createdAt - a.createdAt;
+    if (a.id === b.id) return 0;
+    return a.id < b.id ? 1 : -1;
+  });
+}
+
+/** Default projection: every non-terminal pipeline plus the newest `PIPELINE_LIST_TERMINAL_LIMIT` terminals. */
+function retainListedPipelines(pipelines: PipelineListRow[]): PipelineListRow[] {
+  let terminalKept = 0;
+  return pipelines.filter((pipeline) => {
+    if (!isPipelineTerminal(derivePipelineState(pipeline))) return true;
+    if (terminalKept >= PIPELINE_LIST_TERMINAL_LIMIT) return false;
+    terminalKept++;
+    return true;
+  });
+}
+
+/** Filtered/history path: `sinceMs` and/or `state` compose conjunctively; no retention cap applies. */
+function pipelineMatchesListFilter(
+  pipeline: PipelineListRow,
+  sinceMs: number | undefined,
+  state: PipelineDerivedState | undefined,
+): boolean {
+  if (sinceMs !== undefined && pipeline.createdAt < sinceMs) return false;
+  if (state !== undefined && derivePipelineState(pipeline) !== state) return false;
+  return true;
+}
 
 type PipelineHandlerDeps = {
   pipelineDispatch: PipelineWorkflowDispatch;
@@ -348,10 +403,36 @@ export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: Pipe
   const pipeline_undismiss = handlePipelineDismissalHandler("undismiss");
 
   const pipeline_list: RpcHandler = (frame) => {
-    const params = frame.params as { includeDismissed?: unknown } | undefined;
+    const params = frame.params as { includeDismissed?: unknown; sinceMs?: unknown; state?: unknown } | undefined;
     const includeDismissed = params?.includeDismissed === true;
-    const pipelines = store.listPipelines().filter((pipeline) => includeDismissed || pipeline.dismissedAt === null);
-    return { kind: "response", result: { pipelines: pipelines.map(projectPipelineSnapshot) } };
+    // Both filter params fail closed. A non-finite sinceMs would make every `createdAt < sinceMs`
+    // comparison false and return the whole unbounded history — the condition retention exists to
+    // remove — and an unrecognized state would match nothing and read to the operator as "no
+    // pipelines" rather than as a bad request.
+    if (params?.sinceMs !== undefined && !isFiniteNumber(params.sinceMs)) {
+      return { kind: "error", code: "invalid_params", message: "sinceMs must be a finite number" };
+    }
+    if (params?.state !== undefined && !isPipelineDerivedState(params.state)) {
+      return {
+        kind: "error",
+        code: "invalid_params",
+        message: `state must be one of ${PIPELINE_DERIVED_STATES.join(", ")}`,
+      };
+    }
+    const sinceMs = params?.sinceMs as number | undefined;
+    const state = params?.state as PipelineDerivedState | undefined;
+    const isFiltered = sinceMs !== undefined || state !== undefined;
+
+    // Dismissal filter runs ahead of retention/filtered matching: a dismissed pipeline must not
+    // consume a terminal-retention slot.
+    const sorted = sortPipelinesNewestFirst(
+      store.listPipelines().filter((pipeline) => includeDismissed || pipeline.dismissedAt === null),
+    );
+    const projected = isFiltered
+      ? sorted.filter((pipeline) => pipelineMatchesListFilter(pipeline, sinceMs, state))
+      : retainListedPipelines(sorted);
+
+    return { kind: "response", result: { pipelines: projected.map(projectPipelineSnapshot) } };
   };
 
   /**

@@ -22,15 +22,15 @@ The only un-skip path is `reopenFailedPipeline`, which is anchored on a `failed`
 
 ## Acceptance criteria
 
-- [ ] A state-store test proves the reopen returns provisional `skipped` rows to `pending` with lifecycle columns cleared and no `failed` row present; it fails against the pre-fix code.
-- [ ] A state-store test proves the reopen leaves terminal split-retired `default` rows `skipped`.
-- [ ] A state-store test proves the reopen leaves provenance-less legacy `skipped` rows `skipped`.
-- [ ] A state-store test proves the reopen is branch-scoped: a sibling branch's provisional `skipped` rows are untouched.
-- [ ] A state-store test proves that on a branch holding both a `failed` row and provisional `skipped` rows, the reopen returns the provisional skips to `pending` and leaves the `failed` row unchanged.
-- [ ] A state-store test proves the reopen refuses an unknown pipeline id, returning `{ kind: "refused", reason: "pipeline_not_found" }` with no reopened rows.
-- [ ] `v2/docs/state-store.md` documents the branch-scoped provisional-skip reopen.
-- [ ] `v2/docs/v1-behaviors.md` records the added un-skip path.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A state-store test proves the reopen returns provisional `skipped` rows to `pending` with lifecycle columns cleared and no `failed` row present; it fails against the pre-fix code.
+- [x] A state-store test proves the reopen leaves terminal split-retired `default` rows `skipped`.
+- [x] A state-store test proves the reopen leaves provenance-less legacy `skipped` rows `skipped`.
+- [x] A state-store test proves the reopen is branch-scoped: a sibling branch's provisional `skipped` rows are untouched.
+- [x] A state-store test proves that on a branch holding both a `failed` row and provisional `skipped` rows, the reopen returns the provisional skips to `pending` and leaves the `failed` row unchanged.
+- [x] A state-store test proves the reopen refuses an unknown pipeline id, returning `{ kind: "refused", reason: "pipeline_not_found" }` with no reopened rows.
+- [x] `v2/docs/state-store.md` documents the branch-scoped provisional-skip reopen.
+- [x] `v2/docs/v1-behaviors.md` records the added un-skip path.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

@@ -199,7 +199,7 @@ function parsePipelineList(value: unknown): readonly PipelineSnapshot[] | undefi
 async function queryPipelineList(
   connectIpcClient: (socketPath: string) => Promise<IpcClient>,
   socketPath: string,
-  params: { includeDismissed: true } | undefined,
+  params: PipelineListRequestParams | undefined,
   timeoutMs: number,
 ): Promise<{ snapshots?: readonly PipelineSnapshot[]; malformed: boolean }> {
   try {
@@ -219,10 +219,17 @@ async function queryPipelineList(
 }
 
 /** Queries every supplied socket without starting a daemon; individual connection, RPC, and timeout failures are skipped. */
+/** `pipeline_list` request params: dismissal visibility plus the filtered-bypass filters. */
+export type PipelineListRequestParams = {
+  includeDismissed?: true;
+  sinceMs?: number;
+  state?: PipelineDerivedState;
+};
+
 export async function queryPipelineListsFromSocketPaths(
   connectIpcClient: (socketPath: string) => Promise<IpcClient>,
   socketPaths: readonly string[],
-  params: { includeDismissed: true } | undefined,
+  params: PipelineListRequestParams | undefined,
   timeoutMs = PIPELINE_OWNER_RPC_TIMEOUT_MS,
 ): Promise<PipelineListQueryResult> {
   const answers = await Promise.all(
@@ -324,7 +331,10 @@ export async function resolvePipelineIdAcrossDaemons(
   const queryResult = await queryPipelineListsFromSocketPaths(
     deps.connectIpcClient,
     socketPaths,
-    { includeDismissed: true },
+    // sinceMs: 0 takes the daemon's filtered bypass so the terminal-retention cap cannot evict a
+    // pipeline out of the candidate id set; a prefix the operator read from an earlier listing must
+    // keep resolving.
+    { includeDismissed: true, sinceMs: 0 },
     timeoutMs,
   );
   const ids = mergePipelineSnapshots(queryResult.snapshotsBySocketPath).map((snapshot) => snapshot.pipelineId);

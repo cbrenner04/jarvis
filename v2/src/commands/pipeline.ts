@@ -28,6 +28,7 @@ import {
   PIPELINE_NO_LIVE_OWNER_RECOVERY,
   type PipelineDaemonResolution,
   type PipelineListQueryResult,
+  type PipelineListRequestParams,
   queryPipelineListsFromSocketPaths,
   resolvePipelineDaemon,
   resolvePipelineIdAcrossDaemons,
@@ -501,6 +502,23 @@ function renderPipelineListRows(pipelines: readonly PipelineSnapshot[], nowMs: n
     .join("\n")}\n`;
 }
 
+/**
+ * Request params for `pipeline_list`.
+ *
+ * `--since` / `--state` are forwarded so the daemon takes its filtered bypass instead of the
+ * default terminal-retention cap; without them a history query would be silently truncated to the
+ * newest retained terminals before the client-side filter ever runs.
+ */
+function pipelineListRequestParams(
+  parsed: Extract<PipelineListCliInput, { ok: true }>,
+): PipelineListRequestParams | undefined {
+  const params: PipelineListRequestParams = {};
+  if (parsed.all) params.includeDismissed = true;
+  if (parsed.since !== undefined) params.sinceMs = parsed.since;
+  if (parsed.state !== undefined) params.state = parsed.state;
+  return Object.keys(params).length === 0 ? undefined : params;
+}
+
 async function runPipelineListCommand(argv: readonly string[], io: Io, deps: PipelineListDeps): Promise<number> {
   const parsed = parsePipelineListArgs(argv, deps.now());
   if (!parsed.ok) {
@@ -518,7 +536,7 @@ async function runPipelineListCommand(argv: readonly string[], io: Io, deps: Pip
     queryResult = await queryPipelineListsFromSocketPaths(
       deps.connectIpcClient,
       socketPaths,
-      parsed.all ? { includeDismissed: true } : undefined,
+      pipelineListRequestParams(parsed),
     );
   } catch {
     io.stderr(`No live pipeline daemon responded; run ${PIPELINE_NO_LIVE_OWNER_RECOVERY}.\n`);

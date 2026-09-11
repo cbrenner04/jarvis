@@ -336,6 +336,10 @@ type PipelineReopenOutcome =
   | { kind: "applied"; stageRecordId: string }
   | { kind: "refused"; pipelineId: string; reason: PipelineReopenRefusalReason };
 
+type ProvisionalSkipReopenOutcome =
+  | { kind: "applied"; pipelineId: string; stageRecordIds: readonly string[] }
+  | { kind: "refused"; pipelineId: string; reason: "pipeline_not_found" };
+
 type PipelineStageAdmissionLoadOutcome = { kind: "absent" } | { kind: "present"; holderIdentity: string };
 
 type PipelineStageAdmissionClaimOutcome = { kind: "applied" } | { kind: "refused"; reason: "claim_lost" };
@@ -815,6 +819,9 @@ export interface StateStore {
    */
   reopenFailedPipeline(args: { pipelineId: string; branchKey?: string }): PipelineReopenOutcome;
 
+  /** Reopen every provisional skip on one branch; omitted `branchKey` defaults to `"default"`. */
+  reopenProvisionalSkippedStages(args: { pipelineId: string; branchKey?: string }): ProvisionalSkipReopenOutcome;
+
   /**
    * Atomically record a terminal-publication failure on the pipeline row without mutating
    * stage rows. Idempotent when a failure or success marker is already present.
@@ -873,6 +880,15 @@ export interface StateStore {
    * run was never dismissed; refuses on an unknown run id.
    */
   undismissRun(runId: string): RunDismissalOutcome;
+
+  /**
+   * Atomically dismiss every currently undismissed terminal run row of an exactly-matching
+   * `project`, expanded to the terminal run rows sharing a matched entry run's
+   * `workflowSnapshot.invocationId` even when those rows would not be matched on their own
+   * (a nonterminal sibling stays undismissed). Ignores list retention. First-writer-wins per
+   * row, same as `dismissRun`. Returns the count of rows newly stamped, not the count matched.
+   */
+  dismissTerminalRunsForProject(args: { project: string }): number;
 
   /**
    * Whether a forced kill may settle `runId`'s owner: admits when `owner_identity` is
@@ -2238,6 +2254,42 @@ class StateStoreImpl implements StateStore {
     }
   }
 
+  reopenProvisionalSkippedStages(args: { pipelineId: string; branchKey?: string }): ProvisionalSkipReopenOutcome {
+    const branchKey = args.branchKey ?? DEFAULT_PIPELINE_STAGE_BRANCH_KEY;
+    return this.db.transaction((): ProvisionalSkipReopenOutcome => {
+      if (this.db.prepare("SELECT 1 FROM pipelines WHERE id = ?").get(args.pipelineId) === null) {
+        return { kind: "refused", pipelineId: args.pipelineId, reason: "pipeline_not_found" };
+      }
+
+      const candidates = this.db
+        .prepare(
+          `SELECT id FROM pipeline_stages
+           WHERE pipeline_id = ? AND branch_key = ? AND status = 'skipped' AND skip_provenance = 'provisional'
+           ORDER BY position ASC, id ASC`,
+        )
+        .all(args.pipelineId, branchKey) as Array<{ id: string }>;
+      const reopen = this.db.prepare(`
+        UPDATE pipeline_stages
+        SET status = 'pending',
+            skip_provenance = NULL,
+            workflow_invocation_id = NULL,
+            started_at = NULL,
+            ended_at = NULL,
+            artifact = NULL,
+            decided_at = NULL,
+            failure_detail = NULL
+        WHERE id = ? AND status = 'skipped' AND skip_provenance = 'provisional'
+      `);
+      const stageRecordIds: string[] = [];
+      for (const candidate of candidates) {
+        if (reopen.run(candidate.id).changes > 0) {
+          stageRecordIds.push(candidate.id);
+        }
+      }
+      return { kind: "applied", pipelineId: args.pipelineId, stageRecordIds };
+    })();
+  }
+
   commitTerminalPublicationFailure(args: {
     pipelineId: string;
     terminalAction: PipelineTerminalAction;
@@ -2626,6 +2678,45 @@ class StateStoreImpl implements StateStore {
     }
     this.db.prepare("UPDATE runs SET dismissed_at = NULL WHERE id = ?").run(runId);
     return { kind: "applied", runId };
+  }
+
+  dismissTerminalRunsForProject(args: { project: string }): number {
+    return this.db.transaction(() => {
+      // The harvest deliberately does not filter `dismissed_at IS NULL`. An entry run dismissed by
+      // an earlier single-id `dismissRun` must still contribute its invocation id, or its terminal
+      // step siblings are orphaned visible and no repeat call can ever reach them — the exact
+      // orphan this operation exists to prevent. The UPDATE keeps the filter, so idempotence and
+      // the newly-dismissed count are unaffected.
+      const entryInvocationRows = this.db
+        .prepare(
+          `SELECT DISTINCT json_extract(workflow_snapshot, '$.invocationId') AS invocationId
+           FROM runs
+           WHERE project = ?
+             AND status IN (${TERMINAL_RUN_STATUSES_SQL})
+             AND workflow_snapshot IS NOT NULL`,
+        )
+        .all(args.project) as Array<{ invocationId: string | null }>;
+      const invocationIds = entryInvocationRows
+        .map((row) => row.invocationId)
+        .filter((invocationId): invocationId is string => invocationId !== null);
+
+      const placeholders = invocationIds.map(() => "?").join(", ");
+      const invocationClause =
+        invocationIds.length === 0
+          ? ""
+          : `OR (workflow_snapshot IS NOT NULL AND json_extract(workflow_snapshot, '$.invocationId') IN (${placeholders}))`;
+
+      const result = this.db
+        .prepare(
+          `UPDATE runs
+           SET dismissed_at = ?
+           WHERE dismissed_at IS NULL
+             AND status IN (${TERMINAL_RUN_STATUSES_SQL})
+             AND (project = ? ${invocationClause})`,
+        )
+        .run(Date.now(), args.project, ...invocationIds);
+      return result.changes;
+    })();
   }
 
   async forceKillOwnerAdmits(runId: string): Promise<boolean> {

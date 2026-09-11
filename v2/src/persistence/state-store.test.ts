@@ -5146,6 +5146,36 @@ describe("dismissTerminalRunsForProject", () => {
     expect(loadRunOrThrow(store, otherProjectTerminal).dismissedAt).toBeNull();
   });
 
+  test("expands an invocation whose entry run was already dismissed, so its step siblings cannot be orphaned", () => {
+    const invocationSnapshot = (stepId: string) => ({
+      invocationId: "inv-already-dismissed",
+      steps: [{ stepId, role: "implement" }],
+    });
+
+    const entryRun = seedRun(store, {
+      project: "orphan-project",
+      stepId: "entry",
+      workflowSnapshot: invocationSnapshot("entry"),
+      status: "completed",
+    });
+    // Same invocation, another project: reachable only through invocation expansion.
+    const stepSibling = seedRun(store, {
+      project: "other-project",
+      stepId: "sibling",
+      workflowSnapshot: invocationSnapshot("sibling"),
+      status: "completed",
+    });
+
+    // The operator dismissed the entry row by id first. If the invocation harvest skipped
+    // already-dismissed rows, this invocation would drop out of the expansion set and the sibling
+    // would stay visible forever — no later call could reach it.
+    store.dismissRun(entryRun);
+    expect(loadRunOrThrow(store, stepSibling).dismissedAt).toBeNull();
+
+    expect(store.dismissTerminalRunsForProject({ project: "orphan-project" })).toBe(1);
+    expect(loadRunOrThrow(store, stepSibling).dismissedAt).not.toBeNull();
+  });
+
   test("returns the count of rows newly dismissed; an immediate repeat call returns 0 and leaves dismissedAt unchanged", () => {
     const runA = seedRun(store, { project: "count-project", branch: "a", status: "completed" });
     const runB = seedRun(store, { project: "count-project", branch: "b", status: "failed" });

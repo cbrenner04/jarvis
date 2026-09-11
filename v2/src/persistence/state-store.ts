@@ -2639,13 +2639,17 @@ class StateStoreImpl implements StateStore {
 
   dismissTerminalRunsForProject(args: { project: string }): number {
     return this.db.transaction(() => {
+      // The harvest deliberately does not filter `dismissed_at IS NULL`. An entry run dismissed by
+      // an earlier single-id `dismissRun` must still contribute its invocation id, or its terminal
+      // step siblings are orphaned visible and no repeat call can ever reach them — the exact
+      // orphan this operation exists to prevent. The UPDATE keeps the filter, so idempotence and
+      // the newly-dismissed count are unaffected.
       const entryInvocationRows = this.db
         .prepare(
           `SELECT DISTINCT json_extract(workflow_snapshot, '$.invocationId') AS invocationId
            FROM runs
            WHERE project = ?
              AND status IN (${TERMINAL_RUN_STATUSES_SQL})
-             AND dismissed_at IS NULL
              AND workflow_snapshot IS NOT NULL`,
         )
         .all(args.project) as Array<{ invocationId: string | null }>;

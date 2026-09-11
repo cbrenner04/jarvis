@@ -598,6 +598,14 @@ describe("executeWorkflow", () => {
         stepId: "step-2",
       });
       expect(run2?.status).toBe("blocked");
+      // A write loop that settled its own row honestly is left alone: the step loop settles only a
+      // row still reading `completed`, so this row keeps the write loop's own finish timestamp
+      // rather than having a second settlement stamped over it.
+      const run2Full = run2 === null || run2 === undefined ? null : store.loadRun(run2.id);
+      expect(run2Full?.terminalCause).toBe("blocked");
+      const finishedAtAfterWorkflow = run2Full?.finishedAt;
+      expect(finishedAtAfterWorkflow).toBeGreaterThan(0);
+      expect(run2Full?.status).toBe("blocked");
     });
   });
 

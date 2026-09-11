@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,7 +7,11 @@ import type { WriteWorkflowStep } from "../execution/workflow-runner.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { flushBackgroundRuns, mockWriteLoopInput } from "../testing/run-control.ts";
-import { doneWithArtifactBindingFactory, writeStepFixtures } from "../testing/workflow-step-fixtures.ts";
+import {
+  createBindingFactory,
+  doneWithArtifactBindingFactory,
+  writeStepFixtures,
+} from "../testing/workflow-step-fixtures.ts";
 import { createFakeWriteLoopExecutor, type FakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { WorktreeOwnershipRegistry } from "./daemon.ts";
 import { createRunControlHandlerContext } from "./daemon-run-control-context.ts";
@@ -299,6 +303,52 @@ function workflowStep(stepId: string, branch: string): WriteWorkflowStep {
   const { createWriteStep } = writeStepFixtures();
   return createWriteStep(stepId, branch, doneWithArtifactBindingFactory, { suppressShrink: true });
 }
+
+/** A workflow whose single step ends non-`complete`, plus the console.error lines the daemon wrote. */
+async function runWorkflowCapturingStderr(
+  branch: string,
+  createBinding: NonNullable<WriteWorkflowStep["createBinding"]>,
+): Promise<string[]> {
+  const lines: string[] = [];
+  const spy = spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+    lines.push(args.map((arg) => String(arg)).join(" "));
+  });
+  try {
+    const { createWriteStep } = writeStepFixtures();
+    const step = createWriteStep("step-1", branch, createBinding, { suppressShrink: true });
+    const { lifecycle } = workflowAdmission();
+    const response = await lifecycle.start(
+      requestFrame("s-verdict", "start", { steps: [step] }),
+      new AbortController().signal,
+    );
+    expect(response.kind).toBe("response");
+    await flushBackgroundRuns(5);
+  } finally {
+    spy.mockRestore();
+  }
+  return lines;
+}
+
+test("logs the workflow-level verdict when the workflow resolves non-complete", async () => {
+  // Before this, the returned WorkflowResult was discarded: a workflow could end non-`complete`
+  // with nothing written to the daemon log, so the operator had no record of which step ended it.
+  const blockedBinding = createBindingFactory(
+    async () => ({ kind: "ok", stdout: "## Blocker\n\nneeds a decision\n\nblocked", stderr: "" }) as const,
+  );
+  const lines = await runWorkflowCapturingStderr("workflow-verdict-blocked", blockedBinding);
+
+  const verdict = lines.find((line) => line.startsWith("Workflow ended "));
+  expect(verdict).toBeDefined();
+  expect(verdict).toContain("at step 0 step-1");
+});
+
+test("logs no workflow verdict when the workflow completes", async () => {
+  // The companion direction: a complete workflow must stay silent here, or every successful run
+  // writes a spurious failure line to the daemon log.
+  const lines = await runWorkflowCapturingStderr("workflow-verdict-complete", doneWithArtifactBindingFactory);
+
+  expect(lines.filter((line) => line.startsWith("Workflow ended "))).toEqual([]);
+});
 
 test("workflow failure does not re-demote a paused step run", async () => {
   const branch = "workflow-paused-settled";

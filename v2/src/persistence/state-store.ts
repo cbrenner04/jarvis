@@ -554,10 +554,10 @@ export const DEFAULT_PIPELINE_STAGE_BRANCH_KEY = "default";
 
 export const PIPELINE_STAGE_BRANCH_KEY_TIE_ORDER_SQL = `(branch_key = '${DEFAULT_PIPELINE_STAGE_BRANCH_KEY}') DESC, branch_key ASC`;
 
-export const PIPELINE_STAGE_SKIP_PROVENANCES = ["provisional", "terminal"] as const;
+const PIPELINE_STAGE_SKIP_PROVENANCES = ["provisional", "terminal"] as const;
 
 /** Whether a `skipped` stage row may be reopened (predecessor failure) or never applies again. */
-export type PipelineStageSkipProvenance = (typeof PIPELINE_STAGE_SKIP_PROVENANCES)[number];
+type PipelineStageSkipProvenance = (typeof PIPELINE_STAGE_SKIP_PROVENANCES)[number];
 
 /** A durable stage record belonging to an admitted pipeline. */
 export type PipelineStageRecord = {

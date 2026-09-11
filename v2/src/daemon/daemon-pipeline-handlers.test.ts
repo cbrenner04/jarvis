@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,11 +25,13 @@ const SINGLE_STAGE_DEFINITION: PipelineDefinition = {
   stages: [{ stageId: "only", kind: "workflow", workflow: "intent", review: "none" }],
 };
 
+let dbPath: string;
 let stateStore: StateStore;
 let fakeExecutor: FakeWriteLoopExecutor;
 
 beforeEach(() => {
-  stateStore = openStateStore(join(tmpdir(), `jarvis-pipeline-handlers-${process.pid}-${Date.now()}.db`));
+  dbPath = join(tmpdir(), `jarvis-pipeline-handlers-${process.pid}-${Date.now()}.db`);
+  stateStore = openStateStore(dbPath);
   fakeExecutor = createFakeWriteLoopExecutor();
 });
 
@@ -72,6 +75,27 @@ function pipelineHandlers(
     admitWorkflowStart: workflowStart.admitWorkflowStart,
     resolveStage,
   });
+}
+
+/** Admits a single-stage pipeline; `terminal: true` settles it `succeeded`. `createdAt` overrides the durable row directly. */
+function seedPipeline(store: StateStore, overrides: { createdAt?: number; terminal?: boolean } = {}): string {
+  const pipelineId = store.createPipeline({
+    definition: SINGLE_STAGE_DEFINITION,
+    context: ADMISSION_CONTEXT,
+  });
+  if (overrides.terminal === true) {
+    store.updateStage({
+      pipelineId,
+      stageId: "only",
+      patch: { status: "succeeded", workflowInvocationId: `inv-${pipelineId}`, endedAt: Date.now() },
+    });
+  }
+  if (overrides.createdAt !== undefined) {
+    const db = new Database(dbPath);
+    db.prepare("UPDATE pipelines SET created_at = ? WHERE id = ?").run(overrides.createdAt, pipelineId);
+    db.close();
+  }
+  return pipelineId;
 }
 
 test("pipeline_start refuses context missing configPath without creating pipeline rows", async () => {
@@ -147,6 +171,157 @@ test("pipeline_list omits dismissed pipelines unless includeDismissed is true", 
   expect((includeDismissed as { result: { pipelines: Array<{ pipelineId: string }> } }).result.pipelines).toHaveLength(
     1,
   );
+});
+
+type ListedPipeline = { pipelineId: string; state: string; createdAt: number };
+
+async function listPipelinesDirect(
+  handlers: ReturnType<typeof pipelineHandlers>,
+  params?: unknown,
+): Promise<ListedPipeline[]> {
+  const response = await handlers.pipeline_list(
+    requestFrame("l", "pipeline_list", params),
+    new AbortController().signal,
+  );
+  return (response as { result: { pipelines: ListedPipeline[] } }).result.pipelines;
+}
+
+const GATE_DEFINITION: PipelineDefinition = {
+  name: "gate-only",
+  stages: [{ stageId: "gate", kind: "approval" }],
+};
+
+/** Approval-stage pipeline left at its default `pending` row status derives `awaiting-approval`. */
+function seedAwaitingApprovalPipeline(store: StateStore, createdAt: number): string {
+  const pipelineId = store.createPipeline({ definition: GATE_DEFINITION, context: ADMISSION_CONTEXT });
+  const db = new Database(dbPath);
+  db.prepare("UPDATE pipelines SET created_at = ? WHERE id = ?").run(createdAt, pipelineId);
+  db.close();
+  return pipelineId;
+}
+
+function seedRunningPipeline(store: StateStore, createdAt: number): string {
+  const pipelineId = seedPipeline(store, { createdAt });
+  store.updateStage({
+    pipelineId,
+    stageId: "only",
+    patch: { status: "running", workflowInvocationId: `inv-${pipelineId}` },
+  });
+  return pipelineId;
+}
+
+test("pipeline_list retains only the 50 newest terminal pipelines plus every non-terminal pipeline", async () => {
+  const handlers = pipelineHandlers();
+  const terminalIds: string[] = [];
+  for (let index = 0; index < 55; index++) {
+    terminalIds.push(seedPipeline(stateStore, { terminal: true, createdAt: index }));
+  }
+  const pendingId = seedPipeline(stateStore, { createdAt: -1000 });
+  const runningId = seedRunningPipeline(stateStore, -1001);
+  const awaitingApprovalId = seedAwaitingApprovalPipeline(stateStore, -1002);
+
+  const listed = await listPipelinesDirect(handlers);
+  const listedTerminalIds = new Set(listed.filter((row) => row.state === "succeeded").map((row) => row.pipelineId));
+
+  expect(listedTerminalIds.size).toBe(50);
+  for (let index = 5; index < 55; index++) {
+    expect(listedTerminalIds.has(terminalIds[index] as string)).toBe(true);
+  }
+  for (let index = 0; index < 5; index++) {
+    expect(listedTerminalIds.has(terminalIds[index] as string)).toBe(false);
+    expect(stateStore.loadPipeline(terminalIds[index] as string)).not.toBeNull();
+  }
+  expect(listed.find((row) => row.pipelineId === pendingId)?.state).toBe("pending");
+  expect(listed.find((row) => row.pipelineId === runningId)?.state).toBe("running");
+  expect(listed.find((row) => row.pipelineId === awaitingApprovalId)?.state).toBe("awaiting-approval");
+});
+
+test("pipeline_list sinceMs returns a terminal pipeline beyond the default cap, newest-first", async () => {
+  const handlers = pipelineHandlers();
+  for (let index = 0; index < 55; index++) {
+    seedPipeline(stateStore, { terminal: true, createdAt: index });
+  }
+  const evictedId = seedPipeline(stateStore, { terminal: true, createdAt: -1 });
+
+  const defaultListed = await listPipelinesDirect(handlers);
+  expect(defaultListed.some((row) => row.pipelineId === evictedId)).toBe(false);
+
+  const sinceListed = await listPipelinesDirect(handlers, { sinceMs: -1 });
+  expect(sinceListed.some((row) => row.pipelineId === evictedId)).toBe(true);
+  const createdAtOrder = sinceListed.map((row) => row.createdAt);
+  expect(createdAtOrder).toEqual([...createdAtOrder].sort((a, b) => b - a));
+});
+
+test("pipeline_list breaks createdAt ties by pipelineId descending, deterministically across calls", async () => {
+  const handlers = pipelineHandlers();
+  const tiedAt = 42;
+  const tiedIds: string[] = [];
+  for (let index = 0; index < 5; index++) {
+    tiedIds.push(seedPipeline(stateStore, { createdAt: tiedAt }));
+  }
+  const expectedOrder = [...tiedIds].sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
+
+  const first = await listPipelinesDirect(handlers);
+  const second = await listPipelinesDirect(handlers);
+
+  expect(first.map((row) => row.pipelineId)).toEqual(expectedOrder);
+  expect(second.map((row) => row.pipelineId)).toEqual(expectedOrder);
+});
+
+test("pipeline_list state filter returns matching terminal pipelines beyond the cap and composes with sinceMs", async () => {
+  const handlers = pipelineHandlers();
+  for (let index = 0; index < 55; index++) {
+    seedPipeline(stateStore, { terminal: true, createdAt: index });
+  }
+  const pendingId = seedPipeline(stateStore, { createdAt: -1 });
+
+  const stateListed = await listPipelinesDirect(handlers, { state: "succeeded" });
+  expect(stateListed).toHaveLength(55);
+  expect(stateListed.some((row) => row.pipelineId === pendingId)).toBe(false);
+
+  const composedListed = await listPipelinesDirect(handlers, { sinceMs: 50, state: "succeeded" });
+  expect(composedListed).toHaveLength(5);
+  expect(composedListed.every((row) => row.createdAt >= 50)).toBe(true);
+});
+
+test("a pipeline evicted from the default projection is still returned in full by loadPipeline", async () => {
+  const handlers = pipelineHandlers();
+  for (let index = 0; index < 55; index++) {
+    seedPipeline(stateStore, { terminal: true, createdAt: index });
+  }
+  const evictedId = seedPipeline(stateStore, { terminal: true, createdAt: -1 });
+
+  await listPipelinesDirect(handlers);
+  await listPipelinesDirect(handlers, { sinceMs: -1 });
+
+  const loaded = stateStore.loadPipeline(evictedId);
+  expect(loaded).not.toBeNull();
+  expect(loaded?.stages).toHaveLength(1);
+});
+
+test("a dismissed terminal pipeline consumes no retention slot and is hidden in default and sinceMs modes", async () => {
+  const handlers = pipelineHandlers();
+  const dismissedId = seedPipeline(stateStore, { terminal: true, createdAt: -1 });
+  stateStore.dismissPipeline({ pipelineId: dismissedId });
+  for (let index = 0; index < 50; index++) {
+    seedPipeline(stateStore, { terminal: true, createdAt: index });
+  }
+
+  const defaultListed = await listPipelinesDirect(handlers);
+  expect(defaultListed).toHaveLength(50);
+  expect(defaultListed.some((row) => row.pipelineId === dismissedId)).toBe(false);
+
+  const sinceListed = await listPipelinesDirect(handlers, { sinceMs: -1 });
+  expect(sinceListed.some((row) => row.pipelineId === dismissedId)).toBe(false);
+
+  // includeDismissed alone does not bypass the terminal cap: the dismissed pipeline is the
+  // oldest of 51 terminals and still ages out under the 50-newest retention rule.
+  const includeDismissedListed = await listPipelinesDirect(handlers, { includeDismissed: true });
+  expect(includeDismissedListed).toHaveLength(50);
+  expect(includeDismissedListed.some((row) => row.pipelineId === dismissedId)).toBe(false);
+
+  const includeDismissedSinceListed = await listPipelinesDirect(handlers, { includeDismissed: true, sinceMs: -1 });
+  expect(includeDismissedSinceListed.some((row) => row.pipelineId === dismissedId)).toBe(true);
 });
 
 test("pipeline_owner accepts a nonempty string pipelineId", async () => {

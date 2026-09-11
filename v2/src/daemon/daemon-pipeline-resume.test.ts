@@ -188,7 +188,12 @@ function setupFanOutResumeFixture(store: StateStore, pipelineId: string): void {
     store.createPipelineStageBranch({ pipelineId, stageId: "implement", branchKey });
   }
   for (const stageId of ["gate", "plan", "implement"] as const) {
-    store.updateStage({ pipelineId, stageId, branchKey: "default", patch: { status: "skipped" } });
+    store.updateStage({
+      pipelineId,
+      stageId,
+      branchKey: "default",
+      patch: { status: "skipped", skipProvenance: "terminal" },
+    });
   }
   store.updateStage({ pipelineId, stageId: "gate", branchKey: RESUME_BRANCH_TARGET, patch: { status: "approved" } });
   store.updateStage({ pipelineId, stageId: "plan", branchKey: RESUME_BRANCH_TARGET, patch: { status: "failed" } });
@@ -196,7 +201,7 @@ function setupFanOutResumeFixture(store: StateStore, pipelineId: string): void {
     pipelineId,
     stageId: "implement",
     branchKey: RESUME_BRANCH_TARGET,
-    patch: { status: "skipped" },
+    patch: { status: "skipped", skipProvenance: "provisional" },
   });
   store.updateStage({
     pipelineId,
@@ -239,7 +244,12 @@ function setupApprovedGatePendingFanOutFixture(store: StateStore, pipelineId: st
     store.createPipelineStageBranch({ pipelineId, stageId: "implement", branchKey });
   }
   for (const stageId of ["gate", "plan", "implement"] as const) {
-    store.updateStage({ pipelineId, stageId, branchKey: "default", patch: { status: "skipped" } });
+    store.updateStage({
+      pipelineId,
+      stageId,
+      branchKey: "default",
+      patch: { status: "skipped", skipProvenance: "terminal" },
+    });
   }
   store.updateStage({
     pipelineId,

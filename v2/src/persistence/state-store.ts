@@ -554,6 +554,10 @@ export const DEFAULT_PIPELINE_STAGE_BRANCH_KEY = "default";
 
 export const PIPELINE_STAGE_BRANCH_KEY_TIE_ORDER_SQL = `(branch_key = '${DEFAULT_PIPELINE_STAGE_BRANCH_KEY}') DESC, branch_key ASC`;
 
+const PIPELINE_STAGE_SKIP_PROVENANCES = ["provisional", "terminal"] as const;
+
+type PipelineStageSkipProvenance = (typeof PIPELINE_STAGE_SKIP_PROVENANCES)[number];
+
 /** A durable stage record belonging to an admitted pipeline. */
 export type PipelineStageRecord = {
   id: string;
@@ -562,6 +566,7 @@ export type PipelineStageRecord = {
   branchKey: string;
   position: number;
   status: string;
+  skipProvenance?: PipelineStageSkipProvenance | null;
   workflowInvocationId: string | null;
   startedAt: number | null;
   endedAt: number | null;
@@ -578,6 +583,7 @@ export type PipelineStageRecord = {
  */
 type StageLifecyclePatch = {
   status?: string;
+  skipProvenance?: PipelineStageSkipProvenance;
   workflowInvocationId?: string | null;
   startedAt?: number | null;
   endedAt?: number | null;
@@ -1106,6 +1112,7 @@ const SCHEMA = `
     branch_key TEXT NOT NULL DEFAULT '${DEFAULT_PIPELINE_STAGE_BRANCH_KEY}',
     position INTEGER NOT NULL,
     status TEXT NOT NULL,
+    skip_provenance TEXT,
     workflow_invocation_id TEXT,
     started_at INTEGER,
     ended_at INTEGER,
@@ -1156,6 +1163,7 @@ const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, s
 const PIPELINE_COLUMNS = `id, name, created_at AS createdAt, owner_identity AS ownerIdentity, status, definition AS definitionJson, context AS contextJson, terminal_publication_failure AS terminalPublicationFailureJson, terminal_publication_succeeded_at AS terminalPublicationSucceededAt, dismissed_at AS dismissedAt`;
 
 const STAGE_COLUMNS = `id, pipeline_id AS pipelineId, stage_id AS stageId, branch_key AS branchKey, position, status,
+  skip_provenance AS skipProvenance,
   workflow_invocation_id AS workflowInvocationId, started_at AS startedAt, ended_at AS endedAt,
   artifact AS artifactJson, failure_detail AS failureDetailJson, decided_at AS decidedAt`;
 
@@ -1461,6 +1469,18 @@ function stageLifecyclePatchWithTerminalFinish(patch: StageLifecyclePatch, now: 
   return { ...patch, endedAt: now };
 }
 
+function validateStageSkipProvenance(patch: StageLifecyclePatch): void {
+  if (patch.status === "skipped") {
+    if (!PIPELINE_STAGE_SKIP_PROVENANCES.includes(patch.skipProvenance as PipelineStageSkipProvenance)) {
+      throw new Error('Stage lifecycle patch with status "skipped" requires valid skip provenance');
+    }
+    return;
+  }
+  if (patch.skipProvenance !== undefined) {
+    throw new Error('Stage lifecycle patch may carry skip provenance only with status "skipped"');
+  }
+}
+
 /** Probes whether the process recorded as a run's owner is still alive. */
 export type OwnerLivenessProbe = (identity: string) => Promise<boolean>;
 
@@ -1700,9 +1720,10 @@ class StateStoreImpl implements StateStore {
     applySchemaMigrations(this.db);
     backfillVerifierProcessGroupsFromReadyGatePgid(this.db);
     addColumnIfMissing(this.db, "operator_notification_deliveries", "incident_json", "TEXT");
-    // Stores stamped `031-baseline-squash` before this column existed skip `upgradeFromLegacyEra`;
+    // Stores stamped `031-baseline-squash` before these columns existed skip `upgradeFromLegacyEra`;
     // the stamp is not proof every baseline column is present.
     addColumnIfMissing(this.db, "runs", "operator_failure_record", "TEXT");
+    addColumnIfMissing(this.db, "pipeline_stages", "skip_provenance", "TEXT");
     this.currentIdentity = overrides?.currentIdentity ?? CURRENT_OWNER_IDENTITY;
     this.isOwnerAliveProbe = overrides?.isOwnerAlive ?? isOwnerAlive;
   }
@@ -2179,6 +2200,7 @@ class StateStoreImpl implements StateStore {
         const reopenLifecycle = this.db.prepare(`
         UPDATE pipeline_stages
         SET status = 'pending',
+            skip_provenance = NULL,
             workflow_invocation_id = NULL,
             started_at = NULL,
             ended_at = NULL,
@@ -2317,6 +2339,7 @@ class StateStoreImpl implements StateStore {
     requiredStatus?: PipelineStageRecord["status"];
   }): boolean {
     const branchKey = args.branchKey ?? DEFAULT_PIPELINE_STAGE_BRANCH_KEY;
+    validateStageSkipProvenance(args.patch);
     const patch = stageLifecyclePatchWithTerminalFinish(args.patch, Date.now());
     const keys = (Object.keys(patch) as (keyof StageLifecyclePatch)[]).filter((key) => patch[key] !== undefined);
     if (keys.length === 0) {
@@ -2325,6 +2348,7 @@ class StateStoreImpl implements StateStore {
 
     const columnByField: Record<keyof StageLifecyclePatch, string> = {
       status: "status",
+      skipProvenance: "skip_provenance",
       workflowInvocationId: "workflow_invocation_id",
       startedAt: "started_at",
       endedAt: "ended_at",
@@ -2340,6 +2364,9 @@ class StateStoreImpl implements StateStore {
         (key === "artifact" || key === "failureDetail") && rawValue !== null ? JSON.stringify(rawValue) : rawValue;
       setClauses.push(`${columnByField[key]} = ?`);
       params.push(value as SQLQueryBindings);
+    }
+    if (patch.status !== undefined && patch.status !== "skipped") {
+      setClauses.push("skip_provenance = NULL");
     }
     params.push(args.pipelineId, args.stageId, branchKey);
     // `requiredStatus` makes the write a compare-and-set, so a settlement racing another writer

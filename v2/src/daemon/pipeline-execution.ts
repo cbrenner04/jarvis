@@ -1269,7 +1269,7 @@ function admitFanOutBranches(
         pipelineId,
         stageId: stage.stageId,
         branchKey: DEFAULT_PIPELINE_STAGE_BRANCH_KEY,
-        patch: { status: "skipped", endedAt: Date.now() },
+        patch: { status: "skipped", skipProvenance: "terminal", endedAt: Date.now() },
       });
     }
   }
@@ -1434,7 +1434,7 @@ function skipRemainingStages(
     // terminalized, and overwriting a `failed` row with `skipped` would erase its failureDetail.
     if (record.status !== "pending") continue;
     // biome-ignore format: mutation checkpoint requires this exact single-line writer
-    store.updateStage({ pipelineId, stageId: record.stageId, branchKey, patch: { status: "skipped", endedAt: Date.now() } });
+    store.updateStage({ pipelineId, stageId: record.stageId, branchKey, patch: { status: "skipped", skipProvenance: "provisional", endedAt: Date.now() } });
   }
 }
 

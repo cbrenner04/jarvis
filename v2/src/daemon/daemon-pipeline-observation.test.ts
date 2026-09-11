@@ -641,7 +641,11 @@ test("pipeline_wait returns terminal and awaiting-approval boundaries for durabl
   for (const [index, { definition, statuses, state, overrides }] of terminalCases.entries()) {
     const pipelineId = stateStore.createPipeline({ definition });
     for (const [stageId, patch] of Object.entries(statuses)) {
-      stateStore.updateStage({ pipelineId, stageId, patch });
+      stateStore.updateStage({
+        pipelineId,
+        stageId,
+        patch: patch as Parameters<StateStore["updateStage"]>[0]["patch"],
+      });
     }
     if (overrides?.status) {
       const dbPath = (stateStore as unknown as { db: Database }).db.filename as string;
@@ -931,7 +935,12 @@ function admitFanOutObservationPipeline(): string {
     }
   }
   for (const stageId of ["gate", "plan", "implement"]) {
-    stateStore.updateStage({ pipelineId, stageId, branchKey: "default", patch: { status: "skipped" } });
+    stateStore.updateStage({
+      pipelineId,
+      stageId,
+      branchKey: "default",
+      patch: { status: "skipped", skipProvenance: "terminal" },
+    });
   }
   return pipelineId;
 }

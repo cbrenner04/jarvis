@@ -22,18 +22,18 @@ Widen the result so each surviving-mutation constructor records the resolved kil
 
 ## Acceptance criteria
 
-- [ ] A confirmed survivor from `testCandidate` reports the resolved killing test paths it ran and `killingSetObservedResult: "passed-confirmed"`.
-- [ ] A survivor reported without the isolated confirmation re-run (insufficient deadline headroom) reports the same killing test paths and `killingSetObservedResult: "passed-unconfirmed"`.
-- [ ] A `missing-killing-test` survivor reports an empty killing set and `killingSetObservedResult: "not-run"`.
-- [ ] An `importer-discovery-cap-exceeded` survivor reports an empty killing set and `killingSetObservedResult: "not-run"`.
-- [ ] A `missing-render-coverage` survivor from the sentinel-mutation site (mapped observer tests ran and passed under the mutation) reports the mapped render-observer test paths and `killingSetObservedResult: "passed-unconfirmed"`.
-- [ ] A `missing-render-coverage` survivor from any pre-resolution site (verification cap/deadline exceeded, unreadable observer map, unmapped/empty observer list, escaping observer path) reports an empty killing set and `killingSetObservedResult: "not-run"`.
-- [ ] `v2/src/execution/diff-derived-mutation-verifier.test.ts` gains tests asserting the killing set and observed result on a confirmed `testCandidate` survivor and on both `missing-render-coverage` shapes; they fail against the pre-change code.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] A confirmed survivor from `testCandidate` reports the resolved killing test paths it ran and `killingSetObservedResult: "passed-confirmed"`.
+- [x] A survivor reported without the isolated confirmation re-run (insufficient deadline headroom) reports the same killing test paths and `killingSetObservedResult: "passed-unconfirmed"`.
+- [x] A `missing-killing-test` survivor reports an empty killing set and `killingSetObservedResult: "not-run"`.
+- [x] An `importer-discovery-cap-exceeded` survivor reports an empty killing set and `killingSetObservedResult: "not-run"`.
+- [x] A `missing-render-coverage` survivor from the sentinel-mutation site (mapped observer tests ran and passed under the mutation) reports the mapped render-observer test paths and `killingSetObservedResult: "passed-unconfirmed"`.
+- [x] A `missing-render-coverage` survivor from any pre-resolution site (verification cap/deadline exceeded, unreadable observer map, unmapped/empty observer list, escaping observer path) reports an empty killing set and `killingSetObservedResult: "not-run"`.
+- [x] `v2/src/execution/diff-derived-mutation-verifier.test.ts` gains tests asserting the killing set and observed result on a confirmed `testCandidate` survivor and on both `missing-render-coverage` shapes; they fail against the pre-change code.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 
-- [ ] `v2/docs/write-behavior.md` records that a surviving-mutation result carries the killing test paths it ran and that set's observed result, which observed result each survivor shape reports, and names the already-documented isolated-confirmation-re-run mechanism (§ mutation verification) as the rule these two `killingSetObservedResult` values formalize: `passed-confirmed` is the confirmed-isolated-rerun path, `passed-unconfirmed` is the documented skip-confirmation path (deadline headroom, or the render-observer sentinel path, which has no confirmation re-run at all).
-- [ ] `v2/docs/v1-behaviors.md` records the widened surviving-mutation verifier result (existing behavior changed).
+- [x] `v2/docs/write-behavior.md` records that a surviving-mutation result carries the killing test paths it ran and that set's observed result, which observed result each survivor shape reports, and names the already-documented isolated-confirmation-re-run mechanism (§ mutation verification) as the rule these two `killingSetObservedResult` values formalize: `passed-confirmed` is the confirmed-isolated-rerun path, `passed-unconfirmed` is the documented skip-confirmation path (deadline headroom, or the render-observer sentinel path, which has no confirmation re-run at all).
+- [x] `v2/docs/v1-behaviors.md` records the widened surviving-mutation verifier result (existing behavior changed).

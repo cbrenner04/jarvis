@@ -55,6 +55,8 @@ type PassResult = {
 type SurvivingMutationResult = {
   kind: "surviving-mutation";
   mutation: string;
+  killingTests: string[];
+  killingSetObservedResult: "passed-confirmed" | "passed-unconfirmed" | "not-run";
   sourceSite: {
     file: string;
     line: number;
@@ -957,6 +959,35 @@ async function buildChangedFiles(
   return { changedFiles, changedLinesByFile, diffPaths };
 }
 
+/**
+ * Outcome of one registered prompt's render-observer check.
+ *
+ * `observed` is the verdict. `observersPassedUnmutated` says whether the mapped observer set was
+ * actually executed and passed — the only state whose paths are honest evidence to report on a
+ * survivor. A read failure, an inapplicable sentinel mutation, and observers that ran and *failed*
+ * are all `observed: false` too, and reporting `passed-unconfirmed` for those would hand the
+ * operator a test path to re-run that either never ran or failed.
+ */
+type PromptRenderCoverageOutcome = {
+  observed: boolean;
+  observersPassedUnmutated: boolean;
+};
+
+/**
+ * Fail-closed render result for one prompt, carrying the observer paths as evidence only when they
+ * genuinely ran and passed. Otherwise the survivor carries no killing set rather than naming a set
+ * the operator cannot reproduce.
+ */
+function renderCoverageFailure(
+  promptPath: string,
+  coverage: PromptRenderCoverageOutcome,
+  observerTests: readonly string[],
+): SurvivingMutationResult {
+  return coverage.observersPassedUnmutated
+    ? missingRenderCoverage(promptPath, observerTests)
+    : missingRenderCoverage(promptPath);
+}
+
 async function verifyPromptRenderCoverage(
   promptPath: string,
   changedLines: ChangedLine[],
@@ -966,23 +997,27 @@ async function verifyPromptRenderCoverage(
   writeFile: WriteFile,
   runScopedTests: RunScopedTests,
   observerTests: readonly string[],
-): Promise<boolean> {
+): Promise<PromptRenderCoverageOutcome> {
   const filePath = `${input.worktreePath}/${promptPath}`;
   let original: string;
   try {
     original = await readFile(filePath);
   } catch {
-    return false;
+    return { observed: false, observersPassedUnmutated: false };
   }
   const bounds = promptBodyBounds(original);
   if (bounds !== null && inDiff && !hasBodyAddLines(changedLines, bounds.bodyStartLine)) {
-    return await runScopedTests(input.worktreePath, killingTestPaths([...observerTests]));
+    // Exempt path: observers run against unmutated post-change content, so their own result is the
+    // verdict. A false here means they ran and failed — not that they passed unconfirmed.
+    const passed = await runScopedTests(input.worktreePath, killingTestPaths([...observerTests]));
+    return { observed: passed, observersPassedUnmutated: passed };
   }
   const mutated = mutateRenderedPrompt(original, changedLines);
-  if (mutated === null) return false;
+  if (mutated === null) return { observed: false, observersPassedUnmutated: false };
   try {
     await writeFile(filePath, mutated);
-    return !(await runScopedTests(input.worktreePath, killingTestPaths([...observerTests])));
+    const passedUnderMutation = await runScopedTests(input.worktreePath, killingTestPaths([...observerTests]));
+    return { observed: !passedUnderMutation, observersPassedUnmutated: passedUnderMutation };
   } finally {
     await writeFile(filePath, original);
   }
@@ -1098,10 +1133,14 @@ async function testCandidate(
   let mutationWritten = false;
   let recordWritten = false;
 
-  function survivorResult(): SurvivingMutationResult {
+  function survivorResult(
+    killingSetObservedResult: "passed-confirmed" | "passed-unconfirmed",
+  ): SurvivingMutationResult {
     const result: SurvivingMutationResult = {
       kind: "surviving-mutation",
       mutation: candidate.mutation,
+      killingTests: killingTestPathList,
+      killingSetObservedResult,
       sourceSite: {
         file: candidate.file,
         line: candidate.line,
@@ -1150,7 +1189,7 @@ async function testCandidate(
       // killed mutation to a false pass). Confirm with an isolated re-run at the same budget before
       // reporting a survivor; skip it only when there isn't time left to pay for it.
       const confirmationBudget = killingSetResult.timeoutMs;
-      if (now() + confirmationBudget > deadline) return survivorResult();
+      if (now() + confirmationBudget > deadline) return survivorResult("passed-unconfirmed");
 
       let confirmationPassed: boolean;
       try {
@@ -1172,7 +1211,7 @@ async function testCandidate(
         throw error;
       }
 
-      if (confirmationPassed) return survivorResult();
+      if (confirmationPassed) return survivorResult("passed-confirmed");
       // Confirmation failed: the mutation is killed. Fall through to the killed/null return below.
     }
   } catch (error) {
@@ -1196,10 +1235,12 @@ async function testCandidate(
   return null;
 }
 
-function missingRenderCoverage(promptPath: string): SurvivingMutationResult {
+function missingRenderCoverage(promptPath: string, observerTests?: readonly string[]): SurvivingMutationResult {
   return {
     kind: "surviving-mutation",
     mutation: "missing-render-coverage",
+    killingTests: observerTests === undefined ? [] : [...observerTests],
+    killingSetObservedResult: observerTests === undefined ? "not-run" : "passed-unconfirmed",
     sourceSite: { file: promptPath, line: 1 },
   };
 }
@@ -1216,6 +1257,8 @@ function missingKillingTest(candidate: Candidate): SurvivingMutationResult {
   return {
     kind: "surviving-mutation",
     mutation: "missing-killing-test",
+    killingTests: [],
+    killingSetObservedResult: "not-run",
     sourceSite: { file: candidate.file, line: candidate.line },
   };
 }
@@ -1224,6 +1267,8 @@ function importerDiscoveryCapExceeded(candidate: Candidate): SurvivingMutationRe
   return {
     kind: "surviving-mutation",
     mutation: "importer-discovery-cap-exceeded",
+    killingTests: [],
+    killingSetObservedResult: "not-run",
     sourceSite: { file: candidate.file, line: candidate.line },
   };
 }
@@ -1262,7 +1307,7 @@ async function verifyChangedPrompts(
       if (!observerPathConfinedToWorktree(input.worktreePath, observerPath)) return missingRenderCoverage(promptPath);
     }
     try {
-      const renderedOutputObserved = await verifyPromptRenderCoverage(
+      const renderCoverage = await verifyPromptRenderCoverage(
         promptPath,
         changedLinesByFile.get(promptPath) ?? [],
         diffPaths.has(promptPath),
@@ -1272,7 +1317,7 @@ async function verifyChangedPrompts(
         runScopedTests,
         observerTests,
       );
-      if (!renderedOutputObserved) return missingRenderCoverage(promptPath);
+      if (!renderCoverage.observed) return renderCoverageFailure(promptPath, renderCoverage, observerTests);
     } catch (error) {
       if (error instanceof AsyncSubprocessError && error.code === "ETIMEDOUT") {
         return nonTerminatingRenderObserverMutation(promptPath);

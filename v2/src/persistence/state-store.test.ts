@@ -1418,6 +1418,7 @@ describe("pipelines", () => {
       const expectedStages = raw
         .prepare(
           `SELECT id, pipeline_id AS pipelineId, stage_id AS stageId, branch_key AS branchKey, position, status,
+                  skip_provenance AS skipProvenance,
                   workflow_invocation_id AS workflowInvocationId, started_at AS startedAt, ended_at AS endedAt,
                   artifact, failure_detail AS failureDetail, decided_at AS decidedAt
            FROM pipeline_stages WHERE pipeline_id IN (?, ?)
@@ -1430,6 +1431,7 @@ describe("pipelines", () => {
         branchKey: string;
         position: number;
         status: string;
+        skipProvenance: "provisional" | "terminal" | null;
         workflowInvocationId: string | null;
         startedAt: number | null;
         endedAt: number | null;
@@ -1598,6 +1600,70 @@ describe("pipelines", () => {
     if (loaded.ok) throw new Error("expected loader failure");
     expect(loaded.error.kind).toBe("pipeline-context-loader");
     expect(loaded.error.errors).toContain("missing required field: configPath");
+  });
+
+  test("a database created without skip provenance adds the column and loads legacy provenance as absent", () => {
+    const legacyDbPath = join(tmpdir(), "jarvis-test-state-legacy-skip-provenance.sqlite");
+    removeOrchestrationStore(legacyDbPath);
+    try {
+      const raw = new Database(legacyDbPath);
+      raw.exec(`
+        CREATE TABLE pipelines (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          definition TEXT NOT NULL,
+          owner_identity TEXT,
+          status TEXT NOT NULL DEFAULT 'active',
+          context TEXT,
+          terminal_publication_failure TEXT,
+          terminal_publication_succeeded_at INTEGER,
+          dismissed_at INTEGER
+        );
+        CREATE TABLE pipeline_stages (
+          id TEXT PRIMARY KEY,
+          pipeline_id TEXT NOT NULL REFERENCES pipelines(id),
+          stage_id TEXT NOT NULL,
+          branch_key TEXT NOT NULL DEFAULT 'default',
+          position INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          workflow_invocation_id TEXT,
+          started_at INTEGER,
+          ended_at INTEGER,
+          artifact TEXT,
+          failure_detail TEXT,
+          decided_at INTEGER,
+          UNIQUE (pipeline_id, stage_id, branch_key)
+        );
+        CREATE TABLE _migrations (
+          id TEXT PRIMARY KEY,
+          applied_at INTEGER NOT NULL
+        );
+      `);
+      raw.prepare("INSERT INTO _migrations (id, applied_at) VALUES ('031-baseline-squash', ?)").run(Date.now());
+      raw
+        .prepare("INSERT INTO pipelines (id, name, created_at, definition) VALUES ('legacy-pipeline', 'legacy', ?, ?)")
+        .run(Date.now(), JSON.stringify(singlePlanStagePipeline("legacy")));
+      raw
+        .prepare(
+          "INSERT INTO pipeline_stages (id, pipeline_id, stage_id, branch_key, position, status) VALUES ('legacy-stage', 'legacy-pipeline', 'plan', 'default', 0, 'skipped')",
+        )
+        .run();
+      raw.close();
+
+      const migrated = openStateStore(legacyDbPath);
+      expect(loadPipelineOrThrow(migrated, "legacy-pipeline").stages[0]?.skipProvenance).toBeNull();
+      const verify = new Database(legacyDbPath);
+      expect(
+        (verify.prepare("PRAGMA table_info(pipeline_stages)").all() as Array<{ name: string }>).some(
+          (column) => column.name === "skip_provenance",
+        ),
+      ).toBe(true);
+      verify.close();
+      migrated.close();
+    } finally {
+      removeOrchestrationStore(legacyDbPath);
+    }
   });
 
   test("a pre-context-migration database opens successfully and loads legacy pipeline context as absent", () => {
@@ -1981,6 +2047,56 @@ describe("pipelines", () => {
     expect(() => store.updateStage({ pipelineId, stageId: "plan", patch: {} })).toThrow();
   });
 
+  test("updateStage persists skip provenance and validates its status pairing", () => {
+    const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
+
+    expect(() =>
+      store.updateStage({
+        pipelineId,
+        stageId: "plan",
+        patch: { status: "running", skipProvenance: "provisional" },
+      }),
+    ).toThrow('only with status "skipped"');
+    expect(() => store.updateStage({ pipelineId, stageId: "plan", patch: { status: "skipped" } })).toThrow(
+      'status "skipped" requires valid skip provenance',
+    );
+    expect(() =>
+      store.updateStage({
+        pipelineId,
+        stageId: "plan",
+        patch: { status: "skipped", skipProvenance: "unknown" as never },
+      }),
+    ).toThrow('status "skipped" requires valid skip provenance');
+
+    store.updateStage({
+      pipelineId,
+      stageId: "plan",
+      patch: { status: "skipped", skipProvenance: "provisional" },
+    });
+    store.updateStage({
+      pipelineId,
+      stageId: "gate",
+      patch: { status: "skipped", skipProvenance: "terminal" },
+    });
+
+    const stages = loadPipelineOrThrow(store, pipelineId).stages;
+    expect(stages.find((stage) => stage.stageId === "plan")?.skipProvenance).toBe("provisional");
+    expect(stages.find((stage) => stage.stageId === "gate")?.skipProvenance).toBe("terminal");
+  });
+
+  test("updateStage clears skip provenance on a later non-skip status write", () => {
+    const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline("clear-skip-provenance") });
+    store.updateStage({
+      pipelineId,
+      stageId: "plan",
+      patch: { status: "skipped", skipProvenance: "provisional" },
+    });
+
+    store.updateStage({ pipelineId, stageId: "plan", patch: { status: "pending" } });
+
+    expect(loadPipelineOrThrow(store, pipelineId).stages[0]?.skipProvenance).toBeNull();
+  });
+
   test("updateStage rejects a patch whose only fields are undefined", () => {
     const pipelineId = store.createPipeline({ definition: SAMPLE_PIPELINE_DEFINITION });
     expect(() =>
@@ -2048,7 +2164,11 @@ describe("pipelines", () => {
     for (const status of ["succeeded", "failed", "interrupted", "skipped"] as const) {
       const pipelineId = store.createPipeline({ definition: singlePlanStagePipeline(`terminal-${status}`) });
       const before = Date.now();
-      store.updateStage({ pipelineId, stageId: "plan", patch: { status } });
+      store.updateStage({
+        pipelineId,
+        stageId: "plan",
+        patch: status === "skipped" ? { status, skipProvenance: "provisional" } : { status },
+      });
 
       const stage = store.loadPipeline(pipelineId)?.stages.find((row) => row.stageId === "plan");
       if (!stage) throw new Error("plan stage should exist");
@@ -3489,6 +3609,7 @@ describe("failed pipeline reopen", () => {
 
   type StageSeed = {
     status: string;
+    skipProvenance?: "provisional" | "terminal" | null;
     workflowInvocationId?: string | null;
     startedAt?: number | null;
     endedAt?: number | null;
@@ -3536,11 +3657,12 @@ describe("failed pipeline reopen", () => {
         raw
           .prepare(
             `UPDATE pipeline_stages
-             SET status = ?, workflow_invocation_id = ?, started_at = ?, ended_at = ?, artifact = ?, failure_detail = ?
+             SET status = ?, skip_provenance = ?, workflow_invocation_id = ?, started_at = ?, ended_at = ?, artifact = ?, failure_detail = ?
              WHERE pipeline_id = ? AND stage_id = ? AND branch_key = ?`,
           )
           .run(
             seed.status,
+            seed.skipProvenance ?? (seed.status === "skipped" ? "provisional" : null),
             seed.workflowInvocationId ?? null,
             seed.startedAt ?? null,
             seed.endedAt ?? null,
@@ -3563,6 +3685,7 @@ describe("failed pipeline reopen", () => {
     branch_key: string;
     position: number;
     status: string;
+    skip_provenance: string | null;
     workflow_invocation_id: string | null;
     started_at: number | null;
     ended_at: number | null;
@@ -3577,7 +3700,7 @@ describe("failed pipeline reopen", () => {
     try {
       return raw
         .prepare(
-          `SELECT id, pipeline_id, stage_id, branch_key, position, status, workflow_invocation_id, started_at,
+          `SELECT id, pipeline_id, stage_id, branch_key, position, status, skip_provenance, workflow_invocation_id, started_at,
                   ended_at, artifact, failure_detail, decided_at
            FROM pipeline_stages WHERE pipeline_id = ? ORDER BY id`,
         )
@@ -3621,6 +3744,7 @@ describe("failed pipeline reopen", () => {
     if (!reopenedFailed) throw new Error("failed row should exist");
     expect(reopenedFailed.stageId).toBe(failed.stageId);
     expect(reopenedFailed.status).toBe("pending");
+    expect(reopenedFailed.skipProvenance).toBeNull();
     expect(reopenedFailed.workflowInvocationId).toBeNull();
     expect(reopenedFailed.startedAt).toBeNull();
     expect(reopenedFailed.endedAt).toBeNull();
@@ -3633,6 +3757,7 @@ describe("failed pipeline reopen", () => {
       expect(stage.endedAt).toBeNull();
       expect(stage.artifact).toBeNull();
       expect(stage.failureDetail).toBeNull();
+      expect(stage.skipProvenance).toBeNull();
     }
 
     const succeeded = after.stages.find((stage) => stage.stageId === "stage-0");
@@ -3666,7 +3791,7 @@ describe("failed pipeline reopen", () => {
     expect(decidedStages.find((stage) => stage.id === gateTwo.id)?.decidedAt).not.toBeNull();
 
     store.updateStage({ pipelineId, stageId: "gate", patch: { status: "failed" } });
-    store.updateStage({ pipelineId, stageId: "gate-two", patch: { status: "skipped" } });
+    store.updateStage({ pipelineId, stageId: "gate-two", patch: { status: "skipped", skipProvenance: "provisional" } });
 
     expect(store.reopenFailedPipeline({ pipelineId })).toEqual({ kind: "applied", stageRecordId: gate.id });
 

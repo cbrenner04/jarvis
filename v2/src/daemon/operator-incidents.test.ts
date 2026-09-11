@@ -161,7 +161,7 @@ test("pipeline and stage incidents emit project from entry runs and null when un
   store.updateStage({
     pipelineId: conflictingPipelineId,
     stageId: "implement",
-    patch: { status: "skipped", workflowInvocationId: entryRunB },
+    patch: { status: "skipped", skipProvenance: "provisional", workflowInvocationId: entryRunB },
   });
 
   const conflictingIncidents = deriveOperatorIncidents(store);

@@ -325,14 +325,6 @@ export class VerifierTestRunSemaphore {
 
   constructor(private readonly limit: number) {}
 
-  /**
-   * Admission state as the guards see it. Read by the handoff regressions, which assert a slot is
-   * booked at handoff — before the waiter's continuation runs — rather than by the waiter itself.
-   */
-  get admissionStateForTest(): SemaphoreState {
-    return this.state();
-  }
-
   private state(): SemaphoreState {
     return { exclusiveActive: this.exclusiveActive, exclusivePending: this.exclusivePending, inFlight: this.inFlight };
   }

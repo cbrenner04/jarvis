@@ -2151,6 +2151,44 @@ describe("implement preflight stale workspace reset", () => {
     ];
   }
 
+  /**
+   * The shape `buildPlanWorkflowSteps` actually produces, as opposed to the implement fixture the
+   * other stale-reset cases substitute: `stepId`/`role` of `plan`, and a `specPath` naming a
+   * freshly-timestamped durable spec directory (`${timestamp}-${ready.name}`) that, by construction,
+   * exists in neither tree on a re-dispatch. That last detail is why the landed-criteria gate is
+   * inert on this path, so a case asserting the gate must not use the implement fixture's stable
+   * `index.md` and call the result a plan behavior.
+   */
+  function resetPlanSteps(branch = resetBranch): AnyWorkflowStep[] {
+    const timestamp = `${new Date().toISOString().replace(/[-:]/gu, "").split(".")[0]}Z`;
+    return [
+      {
+        behavior: "write",
+        stepId: "plan",
+        role: "plan",
+        promptId: "plan.prompt.draft",
+        stepRules: DEFAULT_WRITE_STEP_RULES,
+        agents: ["claude"],
+        agentModelConfig: {
+          claude: {
+            plan: { rungs: [{ adapterModel: "M1", priceKey: "P1" }] },
+            shrink: { rungs: [{ adapterModel: "S1", priceKey: "P1" }] },
+          },
+        },
+        worktree: {
+          projectRoot: realpathSync(resetProjectRoot),
+          projectName: "demo",
+          branchName: branch,
+          baseRef: resetProjectBaseRef(),
+          jarvisRoot: resetJarvisRoot,
+        },
+        specPath: join("spec", `${timestamp}-improve-api`),
+        expectedArtifactPath: join("spec", `${timestamp}-improve-api`),
+        publishCompletion: false,
+      },
+    ];
+  }
+
   const resetIntentBranch = "intent/improve-api";
 
   function resetIntentSteps(branch = resetIntentBranch): AnyWorkflowStep[] {
@@ -3661,6 +3699,12 @@ describe("implement preflight stale workspace reset", () => {
     expect(stderr).toContain("hand-finish");
     expect(stderr).toContain("jarvis cleanup --abandon");
     expect(stderr).not.toContain("retired-and-rematerialized from base");
+    // Pins which gate refused, so a change that swaps the mechanism cannot keep this green on the
+    // shared salvage wording alone. Note the honest limit: this lane *is* a descendant of base (it
+    // is ahead of it), so the descendant gate passes either way and stderr cannot distinguish a
+    // `landed` classification from an erroneous `disposable` one — `disposableLane` does not bypass
+    // the unlanded-commits gate. The teeth here are the preservation assertions below.
+    expect(stderr).toContain("commit(s) not on base");
     const list = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], resetProjectRoot);
     expect(list).toContain(worktreePath);
     const branchTipAfter = (

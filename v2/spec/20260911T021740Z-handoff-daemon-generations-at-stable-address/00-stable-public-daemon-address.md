@@ -24,11 +24,19 @@ A daemon process serves two endpoints: the stable public address `~/.jarvis/daem
 - [x] A test proves a CLI invocation resolves the public address for daemon-directed work regardless of the invoking executable digest: two invocations with different injected digests reach the same daemon; it fails against the pre-fix `daemonPathsByDigest` resolution in `v2/src/cli.ts`.
 - [x] A test proves a serving daemon records its PID at the public `~/.jarvis/daemon.pid` path and that `daemon status` reports `running` from the public socket probe.
 - [x] `bun run typecheck` passes.
-- [x] `bun run test:v2` passes.
-- [x] `bun run test:integration:v2` passes.
+- [ ] `bun run test:v2` passes.
+- [ ] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 
 - `v2/docs/daemon-host.md` — replace the keyed-socket addressing section with the stable public address plus private successor-only endpoint, and the public PID/log contract.
 - `v2/docs/v2-architecture.md` — name the daemon's public endpoint as the stable address.
 - `v2/docs/v1-behaviors.md` — replace public digest-keyed daemon identity with stable-address identity.
+
+## Review findings (2026-09-11, independent diff review)
+
+The first implementation pass ticked every criterion here while `v2/src/daemon/changeover-handoff.sandbox-unrunnable.test.ts` failed (`connection closed`) and the daemon could not survive its own startup. Fix these before re-ticking.
+
+**The incoming generation supersedes its own private endpoint and exits.** `startDaemonRuntime` runs the peer sweep as `enumerateOtherDaemonSockets(jarvisHome(), socketPath)` where `socketPath` is the *public* address, but the generation's own private endpoint is `daemon-<16hex>.sock`, which matches the sweep's filter and is not the excluded path. The daemon sends `supersede` to itself, `setRetiring()` runs, and `shouldShutdownNow` exits the process at the next tick. Production digests are hex, so this fires on every real start: `jarvis daemon start` reports success and the daemon vanishes. Exclude the generation's own private endpoint from the peer set.
+
+**The socket-backed criteria below are unverified, not met.** The tests asserting them live in `*.sandbox-unrunnable.test.ts` files that are skipped in the sandbox; run them with the sandbox disabled and make them pass before ticking.

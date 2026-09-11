@@ -1,5 +1,6 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname } from "node:path";
+import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { CliDeps } from "../cli/deps.ts";
 import type { Io } from "../cli/io.ts";
 import { formatRpcError, request } from "../cli/ipc.ts";
@@ -9,6 +10,7 @@ import { WORKFLOW_IMPLEMENT_USAGE, WORKFLOW_INTENT_USAGE, WORKFLOW_PLAN_USAGE, W
 import type { AgentModelConfig } from "../config/agent-model-config.ts";
 import { resolveWritePathIterationBounds } from "../config/machine-config-loader.ts";
 import { parseStartResult } from "../daemon/daemon-wire.ts";
+import { getExternalWorktreePath } from "../execution/external-worktree.ts";
 import {
   resolveImplementSpecIdentity,
   validateImplementSpecTreeCompletion,
@@ -22,7 +24,7 @@ import type {
 import { IMPLEMENT_WRITE_STEP_RULES } from "../execution/write-loop-input.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
-import type { DestroyedArtifacts } from "./cleanup.ts";
+import { classifyNeverLandedLane, type DestroyedArtifacts } from "./cleanup.ts";
 import { maybeResetStaleWorkspace } from "./stale-reset-workspace.ts";
 import {
   type ImplementWorkflowCliInput,
@@ -32,7 +34,11 @@ import {
   parseIntentWorkflowArgs,
   parsePlanWorkflowArgs,
 } from "./workflow-args.ts";
-import { prepareWorkflowStart, type WorkflowStartPreparationResult } from "./workflow-start-preparation.ts";
+import {
+  prepareWorkflowStart,
+  type WorkflowStartPreparationResult,
+  type WorkflowStartResetFlags,
+} from "./workflow-start-preparation.ts";
 import { stampWorkflowStepsWithMachineConfig } from "./workflow-step-config-stamp.ts";
 
 function parseWorkflowDetachFlag(argv: readonly string[]): { rest: readonly string[]; detach: boolean } {
@@ -278,6 +284,102 @@ function formatDestroyedArtifactsSummary(destroyed: DestroyedArtifacts): string 
   return lines.join("\n");
 }
 
+/** Refusal for a standalone plan lane whose never-landed classification could not be established. */
+function standaloneInconclusiveNeverLandedRefusal(reason: string): string {
+  return `Error: Cannot re-run incomplete spec: never-landed classification is inconclusive (${reason}); the lane is preserved. Re-run \`jarvis run workflow plan --ready-intent <path>\` where \`gh\` is reachable (outside the agent sandbox), or hand-finish with \`jarvis cleanup --abandon <branch>\` after confirming no open PR.`;
+}
+
+function standalonePlanLaneRetirementDisposition(status: "reset" | "no-op"): string {
+  return status === "reset"
+    ? "failed plan resume worktree disposition: retired-and-rematerialized from base"
+    : "failed plan resume worktree disposition: reused existing worktree";
+}
+
+type StandalonePlanLaneClassification =
+  | { kind: "skip" }
+  | { kind: "landed" }
+  | { kind: "disposable" }
+  | { kind: "refused"; message: string };
+
+/**
+ * Standalone plan re-dispatch onto an existing materialized lane classifies it before stale
+ * reset, so a confirmed never-landed lane (no open PR, no unlanded commit outside harness
+ * staging) is retired rather than refused by the ordinary descendant/landed-criteria gate. Fresh
+ * materialization (no existing worktree) skips classification and makes no `gh` probe.
+ */
+async function classifyStandalonePlanLane(
+  built: SuccessfulWorkflowBuild,
+  deps: CliDeps,
+): Promise<StandalonePlanLaneClassification> {
+  const writeStep = built.steps.find((step) => step.behavior === "write");
+  const worktree = writeStep?.behavior === "write" ? writeStep.worktree : undefined;
+  if (worktree === undefined || worktree.git === false) return { kind: "skip" };
+  if (!existsSync(getExternalWorktreePath(worktree))) return { kind: "skip" };
+  const runner = deps.subprocessRunner ?? realAsyncSubprocessRunner;
+  const classification = await classifyNeverLandedLane(
+    worktree.projectRoot,
+    worktree.branchName,
+    worktree.baseRef,
+    runner,
+  );
+  if (classification.kind === "inconclusive") {
+    return { kind: "refused", message: standaloneInconclusiveNeverLandedRefusal(classification.reason) };
+  }
+  return { kind: classification.kind === "never-landed" ? "disposable" : "landed" };
+}
+
+/**
+ * Retire and rematerialize a confirmed never-landed standalone plan lane, bypassing the ordinary
+ * descendant/landed-criteria refusal that a disposable marker exists to skip. Emits the shared
+ * retirement disposition line before returning control to the caller for dispatch.
+ */
+async function resetDisposableStandalonePlanLane(
+  prepared: Extract<WorkflowStartPreparationResult, { ok: true }>,
+  baseFlags: WorkflowStartResetFlags,
+  client: IpcClient,
+  deps: CliDeps,
+  io: Io,
+): Promise<number | undefined> {
+  const outcome: { status?: "reset" | "no-op" } = {};
+  const resetExitCode = await maybeResetStaleWorkspace(
+    "plan",
+    prepared.built,
+    deps,
+    io,
+    { ...baseFlags, disposableLane: true },
+    client,
+    (destroyed) => {
+      prepared.destroyedArtifacts = destroyed;
+    },
+    (status) => {
+      outcome.status = status;
+    },
+  );
+  if (resetExitCode !== undefined) return resetExitCode;
+  if (outcome.status !== undefined) {
+    io.stderr(`${standalonePlanLaneRetirementDisposition(outcome.status)}\n`);
+  }
+  return undefined;
+}
+
+/** Standalone plan admission gate for an existing lane; `handled: false` means no classification applied (fresh dispatch or non-plan workflow). */
+async function admitStandalonePlanLane(
+  prepared: Extract<WorkflowStartPreparationResult, { ok: true }>,
+  baseFlags: WorkflowStartResetFlags,
+  client: IpcClient,
+  deps: CliDeps,
+  io: Io,
+): Promise<{ exitCode: number | undefined; handled: boolean }> {
+  const laneClassification = await classifyStandalonePlanLane(prepared.built, deps);
+  if (laneClassification.kind === "refused") {
+    io.stderr(`${laneClassification.message}\n`);
+    return { exitCode: 1, handled: true };
+  }
+  if (laneClassification.kind !== "disposable") return { exitCode: undefined, handled: false };
+  const exitCode = await resetDisposableStandalonePlanLane(prepared, baseFlags, client, deps, io);
+  return { exitCode, handled: true };
+}
+
 export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: CliDeps): Promise<number> {
   const resolved = resolveWorkflowPresetBuilder(argv[0], deps);
   if (resolved === undefined) {
@@ -334,7 +436,10 @@ export async function runWorkflowCommand(argv: readonly string[], io: Io, deps: 
       return 1;
     }
     completedPreparation = prepared;
-    const resetExitCode = await prepared.runStaleResetPreflight(client);
+    const laneGate = isPlanPreset
+      ? await admitStandalonePlanLane(prepared, preparationRequest.staleReset.flags, client, deps, io)
+      : { exitCode: undefined, handled: false as const };
+    const resetExitCode = laneGate.handled ? laneGate.exitCode : await prepared.runStaleResetPreflight(client);
     if (resetExitCode !== undefined) return resetExitCode;
     return startWorkflowRun(client, prepared.steps, prepared.built, isIntentPreset, detach, io, deps);
   });

@@ -7343,6 +7343,73 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     }
   });
 
+  test("ordinary pipeline plan dispatch neither classifies its lane as disposable nor emits a retirement disposition", async () => {
+    // Same never-landed shape (non-descendant HEAD, no open PR) as the resume-retirement tests
+    // above, but dispatched through ordinary `runPipeline` rather than `resumePipeline`: the plan
+    // stage stays `pending` (first attempt), so `reopenedStageReset` is never set and never-landed
+    // classification must not apply. Inversion target: widening `stage.workflow === "plan" &&
+    // resetFlags !== undefined` in `runFailedPlanAwareStaleResetPreflight` to skip the
+    // `resetFlags !== undefined` half would retire this lane and turn this test RED.
+    const intentWorktree = await materializeWorktree(intentBranch);
+    await seedIntentReadyIntent(intentWorktree);
+    const planWorktree = await materializeWorktree(planBranch, intentBranch);
+    await advanceBasePastWorktree(planWorktree, intentWorktree, intentBranch);
+
+    const { store, stages } = fakeStore(
+      planChainDefinition(),
+      {
+        "run-intent": { specPath: readyIntentRel, worktreePath: intentWorktree, branch: intentBranch },
+        "run-plan": { specPath: "spec/plan" },
+      },
+      { context: { ...persistedContext, cwd: projectRoot }, ownerIdentity: PRIOR_OWNER },
+    );
+    store.updateStage({
+      pipelineId: PIPELINE_ID,
+      stageId: "intent",
+      patch: { status: "succeeded", artifact: intentArtifact(), workflowInvocationId: "run-intent" },
+    });
+    // plan stage left `pending`: this is a first attempt, not a failed-plan resume.
+
+    const rpc = daemonRpcClient();
+    let dispatchCalled = false;
+    let stderr = "";
+    try {
+      await runPipeline(PIPELINE_ID, {
+        store,
+        dispatch: async () => {
+          dispatchCalled = true;
+          return { ok: true, entryRunId: "run-plan", invocationId: "inv-plan" };
+        },
+        wait: async () => "completed",
+        context: { ...persistedContext, cwd: projectRoot },
+        resolveStage: resolveStageWithFixedPlanSteps,
+        staleResetPreflight: staleResetBundle(rpc, {
+          stdout: () => {},
+          stderr: (text) => {
+            stderr += text;
+          },
+        }),
+      });
+
+      expect(dispatchCalled).toBe(false);
+      expect(stderr).not.toContain("worktree disposition");
+      expect(stderr).not.toContain("never-landed");
+      const record = stageRecord(stages(), "plan");
+      expect(record?.status).toBe("failed");
+      expect((record?.failureDetail as { message?: string } | null)?.message).toContain("not a descendant");
+      expect(existsSync(planWorktree)).toBe(true);
+      const branchTip = (
+        await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", planBranch], projectRoot)
+      ).trim();
+      const worktreeHead = (
+        await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], planWorktree)
+      ).trim();
+      expect(branchTip).toBe(worktreeHead);
+    } finally {
+      rpc.close();
+    }
+  });
+
   test("pipeline resume refuses operator blocker committed on base", async () => {
     const intentWorktree = await materializeWorktree(intentBranch);
     await seedIntentReadyIntent(intentWorktree);

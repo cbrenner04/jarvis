@@ -20,11 +20,11 @@ Executable digests identify the daemon's public socket, PID file, and process lo
 
 ## Decision ledger
 
-- Pin the internal handoff mechanism in the first implementing subspec: either keep the outgoing generation on a private successor-only endpoint or transfer its live ownership state; callers never see that mechanism.
+- Keep the outgoing generation reachable through a private successor-only endpoint (not the public address); the incoming generation opens an internal handoff channel to that endpoint to observe drain progress and route ownership queries. Callers never see the private endpoint or channel.
 - Close outgoing admission before releasing the public address, then make the incoming generation available before reporting upgrade success; rules out a socketless daemon admitting work and a changeover gap with no serving generation.
 - Keep already-admitted work executing under exactly one generation; rules out duplicate execution or forced settlement during upgrade.
 - Make the incoming generation the public PID owner while process logs remain readable through the stable lifecycle log contract; rules out public generation-keyed metadata.
-- Bring a compatible pre-stable keyed daemon into the same drain contract during migration; rules out the first stable-address rollout orphaning work already admitted by the old layout.
+- Treat a live pre-stable digest-keyed daemon as a legacy outgoing generation: the incoming generation uses that daemon's existing digest-keyed socket as its private successor-only endpoint and drains it over the same handoff channel, using the run/pipeline RPCs that socket already answers today — no legacy-side code change required. Rules out the first stable-address rollout orphaning work already admitted by the old layout.
 
 ## Acceptance criteria
 

@@ -37,7 +37,7 @@ CLI bootstrap computes the executable digest, injects digest-keyed lifecycle pat
 - [ ] End-to-end client tests prove run list/log/wait/kill and every pipeline verb use only the stable socket while still reaching draining-owned work.
 - [ ] TUI monitor, log-follow, and steering tests prove one stable connection presents current and draining work without client-side socket discovery or cross-socket ownership maps.
 - [ ] A structural test proves production CLI, command, runtime-smoke, and TUI client layers neither compute an executable digest nor enumerate digest-keyed sockets to locate a daemon; it fails against the pre-fix bootstrap and discovery modules.
-- [ ] Existing command output, run/pipeline exit-code, filtering, and TUI presentation tests stay green at their cited source paths.
+- [ ] `v2/src/commands/run.test.ts`, `v2/src/commands/pipeline.test.ts`, `v2/src/commands/run-list-dimension-filters.test.ts`, `v2/src/commands/run-list-query-limit-cap.test.ts`, `v2/src/tui/tui-monitor-pipeline-tree.test.ts`, and `v2/src/tui/tui-attention-rows.test.ts` stay green (output/exit-code/filtering/presentation unchanged by the client-resolution change).
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

@@ -15,11 +15,11 @@ name: route-draining-pipelines-through-stable-daemon
 
 ## Problem
 
-Pipeline listing, prefix resolution, and every control verb currently discover and compare keyed daemon sockets. An absent invoking-version socket makes the pipeline id set incomplete, while a superseded owner can make a healthy pipeline unroutable as `pipeline_no_live_owner`.
+Pipeline listing, prefix resolution, and the seven ownership-sensitive control verbs (`wait`, `approve`, `reject`, `resume`, `recover`, `dismiss`, `undismiss`) currently discover and compare keyed daemon sockets. An absent invoking-version socket makes the pipeline id set incomplete, while a superseded owner can make a healthy pipeline unroutable as `pipeline_no_live_owner`.
 
 ## Behavior
 
-- The stable daemon exposes one complete pipeline namespace and routes every pipeline verb to the generation owning the relevant live workflow, so source changes do not affect identifiers or control.
+- The stable daemon exposes one complete pipeline namespace: `list` and prefix resolution read it directly, and each of the seven ownership-sensitive verbs (`wait`, `approve`, `reject`, `resume`, `recover`, `dismiss`, `undismiss`) routes to the generation owning the relevant live workflow, so source changes do not affect identifiers or control. `start` admission stays out of scope here — it is always handled by the incoming generation.
 
 ## Decision ledger
 
@@ -32,7 +32,7 @@ Pipeline listing, prefix resolution, and every control verb currently discover a
 ## Acceptance criteria
 
 - [ ] A regression test proves a prefix printed by `pipeline list` resolves after a source change when no invoking-version socket exists; it fails against the pre-fix completeness predicate.
-- [ ] Tests prove each pipeline control verb reaches a pipeline whose live stage is owned by a draining generation through the stable address, without `pipeline_no_live_owner` caused by supersession.
+- [ ] Tests prove each of the seven verbs (`wait`, `approve`, `reject`, `resume`, `recover`, `dismiss`, `undismiss`) reaches a pipeline whose live stage is owned by a draining generation through the stable address, without `pipeline_no_live_owner` caused by supersession.
 - [ ] A test proves pipeline snapshots from incoming and draining work are deduplicated behind the stable address with unchanged derived state and dismissal behavior.
 - [ ] A concurrency test proves one pipeline stage continues under its draining owner while a successor stage is admitted only once by the correct generation.
 - [ ] Tests preserve ambiguous-prefix, unknown-id, terminal-state, and genuinely ownerless refusals without consulting public generation sockets.

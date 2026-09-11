@@ -625,7 +625,7 @@ index be281d02..00000000
     expect(untracked).toEqual(missingCriticRenderCoverage);
   });
 
-  it("fails untracked registered prompts even when mapped observers pass on unmutated content", async () => {
+  it("fails an untracked registered prompt with no killing set, because its observers never ran", async () => {
     const observerPath = "v2/src/execution/review-critic-render.test.ts";
     const mapSource = renderObserverMapSource({ "prompts/implement/review-critic.md": [observerPath] });
     let scopedRuns = 0;
@@ -643,12 +643,42 @@ index be281d02..00000000
       },
     );
 
-    expect(result).toEqual({
-      ...missingCriticRenderCoverage,
-      killingTests: [observerPath],
-      killingSetObservedResult: "passed-unconfirmed",
-    });
+    // The sentinel mutation does not apply to an untracked prompt, so the observer set is never
+    // executed. Reporting its path as `passed-unconfirmed` would hand the operator a test to
+    // re-run that never ran at all.
+    expect(result).toEqual(missingCriticRenderCoverage);
     expect(scopedRuns).toBe(0);
+    expect(observerPath).toBeTruthy();
+  });
+
+  it("fails a frontmatter-only prompt change with no killing set when its observers ran and failed", async () => {
+    const observerPath = "v2/src/execution/review-critic-render.test.ts";
+    const mapSource = renderObserverMapSource({ "prompts/implement/review-critic.md": [observerPath] });
+    let scopedRuns = 0;
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => `diff --git a/prompts/implement/review-critic.md b/prompts/implement/review-critic.md
+index f424d7da..be281d02 100644
+--- a/prompts/implement/review-critic.md
++++ b/prompts/implement/review-critic.md
+@@ -4,1 +4,1 @@
+-revision: 1
++revision: 2
+`,
+        registeredPromptPaths: registeredCritic,
+        readFile: seamReadFile(criticSource.replace("revision: 1", "revision: 2"), mapSource),
+        runScopedTests: async () => {
+          scopedRuns += 1;
+          return false;
+        },
+      },
+    );
+
+    // On the exempt path the observers' own result is the verdict, so `false` means they ran and
+    // FAILED — the opposite of passing. It must not be reported as `passed-unconfirmed`.
+    expect(result).toEqual(missingCriticRenderCoverage);
+    expect(scopedRuns).toBe(1);
   });
 
   it("bounds scoped render checks across changed prompts", async () => {

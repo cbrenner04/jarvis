@@ -51,6 +51,10 @@ Expect `noRestrictedImports` on the v1 import.
 
 Tests must be deterministic and sandbox-runnable by default. See [`test-writing.md`](./test-writing.md) for agent-runnable test conventions (dependency injection seams instead of spawning real processes or depending on wall-clock timing) and how to mark the rare real-process/real-clock exception.
 
+## Operator failure evidence
+
+Operator-facing checks state both the expected condition and the observed condition in an `OperatorFailureRecord`; a bare verdict is insufficient. When an input nearly matches, `nearMiss` preserves the specific unmatched evidence, while an absent candidate is stated in `observation` with no `nearMiss`. Every referenced path carries its origin at the branch that observed it: Jarvis-owned staging is `harness-internal`, operator-owned durable content is `operator-repository`, and a comparison across both names both paths separately.
+
 ## Synchronous subprocesses
 
 `v2/**` and `shared/**` may not introduce synchronous child processes. The only allowlisted module is `shared/subprocess.ts`, the CLI-only synchronous runner seam; new allowlist entries need a CLI-only reason. `bun run check` enforces this, including v2 imports of synchronous runner seams and Git helpers. Small synchronous filesystem reads remain permitted.

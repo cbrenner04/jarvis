@@ -92,3 +92,4 @@ report,specs_driven,completed_specs,partial_or_blocked,session_active_tokens,ope
 20260905T220000Z-daemon-socket-outage-and-queue-prune,6,5,1,512400,512400,275700000,166.13,166.13,102480,33.23
 20260906T020000Z-parallelization-and-the-stale-base-tax,8,8,0,277300,277300,227600000,126.82,126.82,34662,15.85
 20260908T072035Z-the-gate-was-right-and-two-shipped-fixes-were-not,7,5,2,542500,542500,416900000,272.73,245.71,108500,49.14
+20260911T133000Z-parallel-pipeline-dogfood-and-the-publication-fix,7,6,1,520300,520300,203600000,140.33,140.33,86717,23.39

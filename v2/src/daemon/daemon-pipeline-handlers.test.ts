@@ -301,7 +301,11 @@ test("a pipeline evicted from the default projection is still returned in full b
 
 test("a dismissed terminal pipeline consumes no retention slot and is hidden in default and sinceMs modes", async () => {
   const handlers = pipelineHandlers();
-  const dismissedId = seedPipeline(stateStore, { terminal: true, createdAt: -1 });
+  // The dismissed pipeline is deliberately NOT the oldest: it sits mid-pack among 51 terminals.
+  // If dismissal filtering ran after retention, the 50-newest slice would include it and then strip
+  // it, leaving 49 rows — so the length assertion below is what discriminates the two orderings.
+  // With it seeded oldest, both orderings return the same 50 and the test proves nothing.
+  const dismissedId = seedPipeline(stateStore, { terminal: true, createdAt: 25 });
   stateStore.dismissPipeline({ pipelineId: dismissedId });
   for (let index = 0; index < 50; index++) {
     seedPipeline(stateStore, { terminal: true, createdAt: index });
@@ -314,14 +318,54 @@ test("a dismissed terminal pipeline consumes no retention slot and is hidden in 
   const sinceListed = await listPipelinesDirect(handlers, { sinceMs: -1 });
   expect(sinceListed.some((row) => row.pipelineId === dismissedId)).toBe(false);
 
-  // includeDismissed alone does not bypass the terminal cap: the dismissed pipeline is the
-  // oldest of 51 terminals and still ages out under the 50-newest retention rule.
+  // includeDismissed alone does not bypass the terminal cap: with the dismissed pipeline counted,
+  // 51 terminals compete for 50 slots and the oldest ages out under the 50-newest retention rule.
   const includeDismissedListed = await listPipelinesDirect(handlers, { includeDismissed: true });
   expect(includeDismissedListed).toHaveLength(50);
-  expect(includeDismissedListed.some((row) => row.pipelineId === dismissedId)).toBe(false);
+  expect(includeDismissedListed.some((row) => row.pipelineId === dismissedId)).toBe(true);
 
   const includeDismissedSinceListed = await listPipelinesDirect(handlers, { includeDismissed: true, sinceMs: -1 });
   expect(includeDismissedSinceListed.some((row) => row.pipelineId === dismissedId)).toBe(true);
+});
+
+test("pipeline_list refuses a non-finite sinceMs instead of returning the whole unbounded history", async () => {
+  const handlers = pipelineHandlers();
+  for (let index = 0; index < 51; index++) {
+    seedPipeline(stateStore, { terminal: true, createdAt: index });
+  }
+
+  // `createdAt < NaN` is false for every row, so an unvalidated NaN takes the filtered bypass and
+  // returns all 51 — the unbounded payload retention exists to remove.
+  for (const sinceMs of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+    const response = await handlers.pipeline_list(
+      requestFrame("l1", "pipeline_list", { sinceMs }),
+      new AbortController().signal,
+    );
+    expect(response).toEqual({
+      kind: "error",
+      code: "invalid_params",
+      message: "sinceMs must be a finite number",
+    });
+  }
+
+  expect(await listPipelinesDirect(handlers)).toHaveLength(50);
+});
+
+test("pipeline_list refuses an unrecognized state instead of answering with an empty list", async () => {
+  const handlers = pipelineHandlers();
+  seedPipeline(stateStore, { terminal: true, createdAt: 1 });
+
+  // A typo must not read to the operator as "no pipelines".
+  const response = await handlers.pipeline_list(
+    requestFrame("l2", "pipeline_list", { state: "suceeded" }),
+    new AbortController().signal,
+  );
+
+  expect(response).toEqual({
+    kind: "error",
+    code: "invalid_params",
+    message: "state must be one of succeeded, failed, rejected, interrupted, awaiting-approval, running, pending",
+  });
 });
 
 test("pipeline_owner accepts a nonempty string pipelineId", async () => {

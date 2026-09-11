@@ -45,6 +45,25 @@ import { resolveStageWorkflowSteps } from "./pipeline-stage-resolve.ts";
 const STALE_RESET_RPC_TIMEOUT_MS = 30_000;
 const PIPELINE_LIST_TERMINAL_LIMIT = 50;
 
+/** Every `PipelineDerivedState`, for `pipeline_list` param validation. */
+const PIPELINE_DERIVED_STATES: readonly PipelineDerivedState[] = [
+  "succeeded",
+  "failed",
+  "rejected",
+  "interrupted",
+  "awaiting-approval",
+  "running",
+  "pending",
+];
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isPipelineDerivedState(value: unknown): value is PipelineDerivedState {
+  return typeof value === "string" && (PIPELINE_DERIVED_STATES as readonly string[]).includes(value);
+}
+
 type PipelineListRow = Pipeline & { stages: PipelineStageRecord[] };
 
 /** `listPipelines()` issues an unordered SELECT; sort newest-first, `id` descending as tie break. */
@@ -386,8 +405,22 @@ export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: Pipe
   const pipeline_list: RpcHandler = (frame) => {
     const params = frame.params as { includeDismissed?: unknown; sinceMs?: unknown; state?: unknown } | undefined;
     const includeDismissed = params?.includeDismissed === true;
-    const sinceMs = typeof params?.sinceMs === "number" ? params.sinceMs : undefined;
-    const state = typeof params?.state === "string" ? (params.state as PipelineDerivedState) : undefined;
+    // Both filter params fail closed. A non-finite sinceMs would make every `createdAt < sinceMs`
+    // comparison false and return the whole unbounded history — the condition retention exists to
+    // remove — and an unrecognized state would match nothing and read to the operator as "no
+    // pipelines" rather than as a bad request.
+    if (params?.sinceMs !== undefined && !isFiniteNumber(params.sinceMs)) {
+      return { kind: "error", code: "invalid_params", message: "sinceMs must be a finite number" };
+    }
+    if (params?.state !== undefined && !isPipelineDerivedState(params.state)) {
+      return {
+        kind: "error",
+        code: "invalid_params",
+        message: `state must be one of ${PIPELINE_DERIVED_STATES.join(", ")}`,
+      };
+    }
+    const sinceMs = params?.sinceMs as number | undefined;
+    const state = params?.state as PipelineDerivedState | undefined;
     const isFiltered = sinceMs !== undefined || state !== undefined;
 
     // Dismissal filter runs ahead of retention/filtered matching: a dismissed pipeline must not

@@ -33,7 +33,7 @@ The TUI requests the default retained `pipeline_list` projection and derives the
 - [ ] A TUI client test proves normal and show-dismissed polling request `pipeline_list` without `sinceMs`, with only the expected `includeDismissed` value.
 - [ ] Pure work-tree model tests select a daemon-retained subset from a fixture with more than 50 terminal pipelines and prove only the returned terminal members render while every returned old non-terminal member remains visible.
 - [ ] Pure attention-model tests prove a terminal pipeline omitted by retention contributes no gate, stage-failure, or publication-failure row, while retained actionable pipelines keep existing attention behavior.
-- [ ] A successful refresh replaces a prior larger snapshot so beyond-window terminal pipeline rows, descendants, counts, and attention do not linger.
+- [ ] A TUI regression test proves a successful refresh replaces a prior larger snapshot so beyond-window terminal pipeline rows, descendants, counts, and attention do not linger; it fails against the pre-fix refresh behavior.
 
 ## Documentation updates
 

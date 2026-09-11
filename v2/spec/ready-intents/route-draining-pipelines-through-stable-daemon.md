@@ -17,6 +17,8 @@ name: route-draining-pipelines-through-stable-daemon
 
 Pipeline listing, prefix resolution, and the seven ownership-sensitive control verbs (`wait`, `approve`, `reject`, `resume`, `recover`, `dismiss`, `undismiss`) currently discover and compare keyed daemon sockets. An absent invoking-version socket makes the pipeline id set incomplete, while a superseded owner can make a healthy pipeline unroutable as `pipeline_no_live_owner`.
 
+Both reproduced on 2026-09-11. Prefix resolution: `jarvis pipeline recover 9b1c81aa default` refused `pipeline_id_set_incomplete` with one healthy daemon serving and `pipeline list` having just printed that prefix; the full id worked immediately. Unroutable owner: the same pipeline, sitting `awaiting-approval` after its admitting daemon was superseded and exited, refused `approve`, `resume` **and** `recover` with `pipeline_no_live_owner: … run jarvis daemon start, then retry` — advice that cannot work, because a daemon was running and answering every other command. No verb reached it; its remaining stage had to be re-driven as a standalone workflow. The stranding is therefore terminal from the operator's side, not merely inconvenient, and that is the bar this intent has to clear.
+
 ## Behavior
 
 - The stable daemon exposes one complete pipeline namespace: `list` and prefix resolution read it directly, and each of the seven ownership-sensitive verbs (`wait`, `approve`, `reject`, `resume`, `recover`, `dismiss`, `undismiss`) routes to the generation owning the relevant live workflow, so source changes do not affect identifiers or control. `start` admission stays out of scope here — it is always handled by the incoming generation.

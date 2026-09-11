@@ -25,7 +25,7 @@ CLI bootstrap computes the executable digest, injects digest-keyed lifecycle pat
 ## Decision ledger
 
 - Remove executable-digest resolution from daemon location and use the stable socket, PID, and process-log paths for lifecycle commands and auto-start.
-- Make `daemon status` report the serving daemon as `running` even when its loaded executable digest differs from the invoking source; retain loaded/current revision display as information, not reachability or failure.
+- Make `daemon status` report the serving daemon as `running` even when its loaded executable digest differs from the invoking source, and stop rendering two identifiers that can disagree under a `running` verdict. Today `daemon-lifecycle.ts` decides with `loadedExecutableDigest === currentExecutableDigest` but displays `loadedRevision`/`currentRevision`, which are git `HEAD` commits: observed 2026-09-11 printing `running loaded=a5624c9 current=65f6dab` after a spec-only merge, which provably cannot rotate the key because `EXECUTABLE_TREE_PATHSPECS` covers only `v2/src`, `shared`, and build config. Keeping that pair "as information" is what teaches operators to read normal operation as staleness and bounce for nothing; display the values the decision consumed, or none when they agree. Rules out treating the display as cosmetic while the verdict is correct.
 - Make `init --check`, `cleanup --abandon`, run commands, pipeline commands, runtime smoke verification, and TUI clients use the same stable endpoint; rules out surface-specific fallback discovery.
 - Delete client-side live-daemon socket enumeration, multi-socket list merging, and owner probing once the stable daemon supplies those views; rules out version coupling returning through a new command.
 - Add a structural guard over CLI and command/TUI client layers proving no source digest is computed or digest-keyed socket set enumerated to locate a daemon.
@@ -33,6 +33,7 @@ CLI bootstrap computes the executable digest, injects digest-keyed lifecycle pat
 ## Acceptance criteria
 
 - [ ] A CLI lifecycle test proves `daemon status` prints `running` and exits zero while a daemon serves the stable socket with a different loaded executable digest; it fails against the pre-fix digest-scoped probe/stale result.
+- [ ] A CLI lifecycle test proves `daemon status` never renders two differing identifiers alongside a `running` verdict — the displayed values are the ones the same-or-stale decision consumed, not `HEAD` commits that can differ while the verdict is `running`; it fails against the pre-fix `loadedRevision`/`currentRevision` rendering.
 - [ ] Command tests prove `init --check` and `cleanup --abandon` reach a healthy stable daemon after the invoking source changes.
 - [ ] End-to-end client tests prove run list/log/wait/kill and every pipeline verb use only the stable socket while still reaching draining-owned work.
 - [ ] TUI monitor, log-follow, and steering tests prove one stable connection presents current and draining work without client-side socket discovery or cross-socket ownership maps.

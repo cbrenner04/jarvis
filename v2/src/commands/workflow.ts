@@ -295,26 +295,24 @@ function standalonePlanLaneRetirementDisposition(status: "reset" | "no-op"): str
     : "failed plan resume worktree disposition: reused existing worktree";
 }
 
-type StandalonePlanLaneClassification =
-  | { kind: "skip" }
-  | { kind: "landed" }
-  | { kind: "disposable" }
-  | { kind: "refused"; message: string };
+type StandalonePlanLaneClassification = { kind: "disposable" } | { kind: "refused"; message: string };
 
 /**
  * Standalone plan re-dispatch onto an existing materialized lane classifies it before stale
  * reset, so a confirmed never-landed lane (no open PR, no unlanded commit outside harness
  * staging) is retired rather than refused by the ordinary descendant/landed-criteria gate. Fresh
  * materialization (no existing worktree) skips classification and makes no `gh` probe.
+ * Returns `undefined` when no special handling applies (fresh dispatch, or a landed lane that
+ * falls through to the ordinary descendant/landed-criteria gate).
  */
 async function classifyStandalonePlanLane(
   built: SuccessfulWorkflowBuild,
   deps: CliDeps,
-): Promise<StandalonePlanLaneClassification> {
+): Promise<StandalonePlanLaneClassification | undefined> {
   const writeStep = built.steps.find((step) => step.behavior === "write");
   const worktree = writeStep?.behavior === "write" ? writeStep.worktree : undefined;
-  if (worktree === undefined || worktree.git === false) return { kind: "skip" };
-  if (!existsSync(getExternalWorktreePath(worktree))) return { kind: "skip" };
+  if (worktree === undefined || worktree.git === false) return undefined;
+  if (!existsSync(getExternalWorktreePath(worktree))) return undefined;
   const runner = deps.subprocessRunner ?? realAsyncSubprocessRunner;
   const classification = await classifyNeverLandedLane(
     worktree.projectRoot,
@@ -325,7 +323,7 @@ async function classifyStandalonePlanLane(
   if (classification.kind === "inconclusive") {
     return { kind: "refused", message: standaloneInconclusiveNeverLandedRefusal(classification.reason) };
   }
-  return { kind: classification.kind === "never-landed" ? "disposable" : "landed" };
+  return classification.kind === "never-landed" ? { kind: "disposable" } : undefined;
 }
 
 /**
@@ -371,11 +369,11 @@ async function admitStandalonePlanLane(
   io: Io,
 ): Promise<{ exitCode: number | undefined; handled: boolean }> {
   const laneClassification = await classifyStandalonePlanLane(prepared.built, deps);
+  if (laneClassification === undefined) return { exitCode: undefined, handled: false };
   if (laneClassification.kind === "refused") {
     io.stderr(`${laneClassification.message}\n`);
     return { exitCode: 1, handled: true };
   }
-  if (laneClassification.kind !== "disposable") return { exitCode: undefined, handled: false };
   const exitCode = await resetDisposableStandalonePlanLane(prepared, baseFlags, client, deps, io);
   return { exitCode, handled: true };
 }

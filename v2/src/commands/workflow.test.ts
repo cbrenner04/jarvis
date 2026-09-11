@@ -2211,6 +2211,19 @@ describe("implement preflight stale workspace reset", () => {
     return worktreePath;
   }
 
+  /** Advance base past `worktreePath`'s `HEAD` with a throwaway commit; returns both tips. */
+  async function advanceBasePastStaleWorktree(
+    worktreePath: string,
+    marker: string,
+  ): Promise<{ worktreeHead: string; baseHead: string }> {
+    const worktreeHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
+    writeFileSync(join(resetProjectRoot, `base-advance-${marker}.md`), "advance\n", "utf8");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], resetProjectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "advance base"], resetProjectRoot);
+    const baseHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], resetProjectRoot)).trim();
+    return { worktreeHead, baseHead };
+  }
+
   async function setupOriginForResetProject(): Promise<void> {
     const originRoot = join(resetTmp, "origin.git");
     await realAsyncSubprocessRunner.runAsync("git", ["init", "--bare", originRoot], resetTmp);
@@ -3531,11 +3544,7 @@ describe("implement preflight stale workspace reset", () => {
 
   test("run workflow plan retires and rematerializes a never-landed lane whose HEAD is not a descendant of base", async () => {
     const worktreePath = await materializeStaleWorktree();
-    const worktreeHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
-    writeFileSync(join(resetProjectRoot, "base-advance-never-landed.md"), "advance\n", "utf8");
-    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], resetProjectRoot);
-    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "advance base"], resetProjectRoot);
-    const baseHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], resetProjectRoot)).trim();
+    const { worktreeHead, baseHead } = await advanceBasePastStaleWorktree(worktreePath, "never-landed");
     expect(worktreeHead).not.toBe(baseHead);
 
     const cap = captureIo();
@@ -3665,11 +3674,7 @@ describe("implement preflight stale workspace reset", () => {
 
   test("run workflow plan refuses a non-descendant lane with an open PR, preserving the worktree and branch tip", async () => {
     const worktreePath = await materializeStaleWorktree();
-    const worktreeHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
-    writeFileSync(join(resetProjectRoot, "base-advance-open-pr.md"), "advance\n", "utf8");
-    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], resetProjectRoot);
-    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "advance base"], resetProjectRoot);
-    const baseHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], resetProjectRoot)).trim();
+    const { worktreeHead, baseHead } = await advanceBasePastStaleWorktree(worktreePath, "open-pr");
     expect(worktreeHead).not.toBe(baseHead);
 
     const cap = captureIo();
@@ -3702,9 +3707,7 @@ describe("implement preflight stale workspace reset", () => {
 
   test("run workflow plan preserves the lane and refuses when the never-landed probe is inconclusive", async () => {
     const worktreePath = await materializeStaleWorktree();
-    writeFileSync(join(resetProjectRoot, "base-advance-inconclusive.md"), "advance\n", "utf8");
-    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], resetProjectRoot);
-    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "advance base"], resetProjectRoot);
+    await advanceBasePastStaleWorktree(worktreePath, "inconclusive");
 
     const cap = captureIo();
     const subprocessRunner: AsyncSubprocessRunner = {

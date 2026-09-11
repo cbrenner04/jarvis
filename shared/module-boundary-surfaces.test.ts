@@ -115,6 +115,35 @@ describe("plan draft normalization", () => {
     expect(() => normalizePlanDraftSpecDir(dir)).toThrow(/naming multiple artifact paths/u);
   });
 
+  // Both bullets below are verbatim shapes the gate rejected on live plan lanes (2026-09-10): each
+  // names one real artifact and mentions the spec tree's own scaffolding as the subject of the work.
+  test.each([
+    [
+      "a bullet describing a fixture's missing index file",
+      "- [ ] A regression test in `v2/src/execution/workflow-runner-resume.test.ts` recovers a stage with a structurally invalid tree (missing `index.md`) and asserts staged `intent.md` still ends with the harness blocker.\n",
+    ],
+    [
+      "a documentation bullet quoting what the doc says about index.md",
+      "- [ ] `v2/docs/operator-runbook.md` — the `.jarvis-*` staging ignore covers post-retirement artifact resolution, so a staging dir is never resolved as a spec `index.md`.\n",
+    ],
+  ])("accepts %s", (name, bullet) => {
+    const dir = scratchDir(`scaffolding-${name.replace(/[^a-z]+/gu, "-")}`);
+    stageDraft(dir, { "00-case.md": `# Case\n\n## Acceptance criteria\n\n${bullet}` });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow(/naming multiple artifact paths/u);
+  });
+
+  test("a repo-relative index path is still a counted artifact", () => {
+    // Only the bare filenames are scaffolding; `<dir>/index.md` names a real file in a real place.
+    const dir = scratchDir("scaffolding-qualified-path");
+    stageDraft(dir, {
+      "00-case.md":
+        "# Case\n\n## Acceptance criteria\n\n- [ ] Adds `v2/spec/example/index.md` and `v2/docs/other.md`.\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow(/naming multiple artifact paths/u);
+  });
+
   test("rejects a bullet mixing stays-unchanged wording with a distinct build claim", () => {
     const dir = scratchDir("mixed-claim");
     stageDraft(dir, {

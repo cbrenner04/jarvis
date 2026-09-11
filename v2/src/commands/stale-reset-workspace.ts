@@ -23,7 +23,7 @@ export const STALE_RESET_WORKFLOWS = new Set(["implement", "plan", "intent"]);
  * biome's cognitive-complexity limit: the two conditional spreads are the branching that pushed it
  * over when `disposableLane` was threaded through.
  */
-function buildResetStaleWorkspaceOptions(args: {
+export function buildResetStaleWorkspaceOptions(args: {
   skipDirtyWorktreeGate: boolean;
   skipLandedCriteriaGate: boolean;
   baseRef: string | undefined;

@@ -754,7 +754,16 @@ function artifactForRetiredWorktree(
     .filter((run) => run.project === candidate.project && run.branch === candidate.worktree.branch)
     .map((run) => sourceForRun(run, candidate.worktree.path, projectRoot, registry, configPath))
     .filter((path): path is string => path !== undefined);
-  const source = sources.find((path) => existsSync(join(path, "index.md"))) ?? sources[0];
+  // A spec-tree directory wins over a bare `.md` outright, as it did before this proof was added.
+  // Folding both into one `find` let the newest row decide instead: `listRuns` is newest-first, and
+  // an intent branch's newest row is its review row, so the older write row's landed
+  // `ready-intents/<slug>.md` would be selected and offered for archival into a fabricated
+  // `ready-intents/completed/`. Ready-intents are pruned by byte-proof, never archived.
+  // Both arms must also prove the source exists: `endsWith(".md")` is lexical, so a vanished file
+  // would otherwise resolve as a "proven" artifact and be suppressed only later, at preview.
+  const source =
+    sources.find((path) => existsSync(join(path, "index.md"))) ??
+    sources.find((path) => path.endsWith(".md") && existsSync(path));
   if (source === undefined) return undefined;
   return {
     home: dirname(source),
@@ -797,6 +806,7 @@ function sourceForRun(
 
   const identity = isAbsolute(run.specPath) ? relative(worktreePath, run.specPath) : run.specPath;
   if (identity === "" || identity === ".." || identity.startsWith("../") || isAbsolute(identity)) return undefined;
+  if (isJarvisHarnessSidecarPath(identity)) return undefined;
 
   const durablePath = resolve(projectRoot, identity);
   return basename(durablePath) === "index.md" ? dirname(durablePath) : durablePath;
@@ -1336,7 +1346,7 @@ function previewWorktreeCandidates(
     const projectRoot = registry[candidate.project]?.root;
     if (projectRoot === undefined) continue;
     const spec = artifactForRetiredWorktree(candidate, projectRoot, store, registry);
-    if (spec !== undefined) previewArtifact(spec, io);
+    if (spec !== undefined && existsSync(spec.source)) previewArtifact(spec, io);
   }
 }
 
@@ -2265,6 +2275,11 @@ export function staleResetUnlandedCommitsGateReason(tipSha: string, commitCount:
   return `branch has ${commitCount} commit(s) not on base (tip ${tipSha}); ${staleResetUnlandedSalvageRecovery}`;
 }
 
+/** Refusal when the worktree holds a commit the branch ref cannot reach, so retiring it would lose work. */
+export function staleResetUnreachableWorktreeHeadGateReason(branch: string, worktreeHead: string): string {
+  return `worktree HEAD ${worktreeHead} is not reachable from ${branch}, so retiring the branch would discard it; ${staleResetUnlandedSalvageRecovery}`;
+}
+
 async function unlandedNonStagingPaths(
   projectRoot: string,
   branch: string,
@@ -2429,6 +2444,16 @@ export async function resetStaleWorkspace(
           refusalParts.push(staleResetUnlandedCommitsGateReason(worktreeHead, commitCount));
         }
       }
+    }
+    // Never-landed classification reasons entirely from the *branch* ref (`unlandedCommitCount` and
+    // `unlandedNonStagingPaths` compare `branch` against `baseRef` in `projectRoot`), so commits the
+    // worktree made that the branch ref cannot reach are invisible to it — a detached `HEAD`, or a
+    // branch ref moved back while the worktree kept committing. The descendant gate below was the
+    // only check that resolved `HEAD` inside the worktree, and `disposableLane` skips it. This gate
+    // survives the bypass: it does not require descent from base, only that retiring the branch
+    // cannot destroy a commit reachable only from the worktree.
+    if (disposableLane && !(await isDescendantOfBase(branch, worktreeHead, projectRoot, runner))) {
+      refusalParts.push(staleResetUnreachableWorktreeHeadGateReason(branch, worktreeHead));
     }
     if (!disposableLane) {
       if (!(await isDescendantOfBase(worktreeHead, baseRef, projectRoot, runner))) {

@@ -30,11 +30,21 @@ function sectionBulletTexts(body: string, heading: string, bulletPattern: RegExp
   return bullets;
 }
 
+/**
+ * A spec tree's own scaffolding. Bare `index.md` / `intent.md` are named constantly in spec prose —
+ * "a structurally invalid tree (missing `index.md`)", "the staged `intent.md` still ends with the
+ * blocker" — describing the *subject* of the work, never a second artifact the bullet builds. Only
+ * the bare forms are excluded: a genuine repo-relative path like `v2/spec/<name>/index.md` still
+ * counts, because naming one alongside another artifact really is two artifacts.
+ */
+const SPEC_SCAFFOLDING_FILENAMES: ReadonlySet<string> = new Set(["index.md", "intent.md"]);
+
 export function referencedArtifactPaths(text: string): string[] {
   const paths = new Set<string>();
   for (const match of text.matchAll(BACKTICKED_PATH_PATTERN)) {
     const path = match[1] ?? match[2];
-    if (path !== undefined) paths.add(path);
+    if (path === undefined || SPEC_SCAFFOLDING_FILENAMES.has(path)) continue;
+    paths.add(path);
   }
   return [...paths];
 }

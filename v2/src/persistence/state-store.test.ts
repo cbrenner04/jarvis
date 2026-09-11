@@ -5077,6 +5077,164 @@ describe("run dismissal", () => {
   });
 });
 
+describe("dismissTerminalRunsForProject", () => {
+  let store: StateStore;
+
+  beforeEach(() => {
+    removeOrchestrationStore(TEST_DB_PATH);
+    store = openStateStore(TEST_DB_PATH);
+  });
+
+  afterEach(() => {
+    store.close();
+    removeOrchestrationStore(TEST_DB_PATH);
+  });
+
+  test("dismisses matched-project terminal rows and invocation-linked terminal rows, leaving other projects and nonterminal rows alone", () => {
+    const invocationSnapshot = (stepId: string) => ({
+      invocationId: "inv-bulk-1",
+      steps: [{ stepId, role: "implement" }],
+    });
+
+    const entryRun = seedRun(store, {
+      project: "bulk-project",
+      stepId: "entry",
+      workflowSnapshot: invocationSnapshot("entry"),
+      status: "completed",
+    });
+    // Same invocation, different project: would not match project selection on its own.
+    const invocationSibling = seedRun(store, {
+      project: "other-project",
+      stepId: "sibling",
+      workflowSnapshot: invocationSnapshot("sibling"),
+      status: "failed",
+    });
+    // Same invocation, nonterminal: expansion must not sweep up live work.
+    const invocationLiveSibling = seedRun(store, {
+      project: "bulk-project",
+      stepId: "sibling-live",
+      workflowSnapshot: invocationSnapshot("sibling-live"),
+      status: "in-progress",
+    });
+    const standaloneTerminal = seedRun(store, { project: "bulk-project", branch: "standalone", status: "blocked" });
+    const inProgress = seedRun(store, { project: "bulk-project", branch: "in-progress-branch", status: "in-progress" });
+    const queued = seedRun(store, { project: "bulk-project", branch: "queued-branch", status: "queued" });
+    const paused = seedRun(store, { project: "bulk-project", branch: "paused-branch", status: "paused" });
+    const budgetSoftStopped = seedRun(store, {
+      project: "bulk-project",
+      branch: "budget-branch",
+      status: "budget-soft-stopped",
+    });
+    const otherProjectTerminal = seedRun(store, {
+      project: "unrelated-project",
+      branch: "other-branch",
+      status: "completed",
+    });
+
+    const dismissedCount = store.dismissTerminalRunsForProject({ project: "bulk-project" });
+
+    expect(dismissedCount).toBe(3);
+    expect(loadRunOrThrow(store, entryRun).dismissedAt).not.toBeNull();
+    expect(loadRunOrThrow(store, invocationSibling).dismissedAt).not.toBeNull();
+    expect(loadRunOrThrow(store, standaloneTerminal).dismissedAt).not.toBeNull();
+
+    expect(loadRunOrThrow(store, invocationLiveSibling).dismissedAt).toBeNull();
+    expect(loadRunOrThrow(store, inProgress).dismissedAt).toBeNull();
+    expect(loadRunOrThrow(store, queued).dismissedAt).toBeNull();
+    expect(loadRunOrThrow(store, paused).dismissedAt).toBeNull();
+    expect(loadRunOrThrow(store, budgetSoftStopped).dismissedAt).toBeNull();
+    expect(loadRunOrThrow(store, otherProjectTerminal).dismissedAt).toBeNull();
+  });
+
+  test("expands an invocation whose entry run was already dismissed, so its step siblings cannot be orphaned", () => {
+    const invocationSnapshot = (stepId: string) => ({
+      invocationId: "inv-already-dismissed",
+      steps: [{ stepId, role: "implement" }],
+    });
+
+    const entryRun = seedRun(store, {
+      project: "orphan-project",
+      stepId: "entry",
+      workflowSnapshot: invocationSnapshot("entry"),
+      status: "completed",
+    });
+    // Same invocation, another project: reachable only through invocation expansion.
+    const stepSibling = seedRun(store, {
+      project: "other-project",
+      stepId: "sibling",
+      workflowSnapshot: invocationSnapshot("sibling"),
+      status: "completed",
+    });
+
+    // The operator dismissed the entry row by id first. If the invocation harvest skipped
+    // already-dismissed rows, this invocation would drop out of the expansion set and the sibling
+    // would stay visible forever — no later call could reach it.
+    store.dismissRun(entryRun);
+    expect(loadRunOrThrow(store, stepSibling).dismissedAt).toBeNull();
+
+    expect(store.dismissTerminalRunsForProject({ project: "orphan-project" })).toBe(1);
+    expect(loadRunOrThrow(store, stepSibling).dismissedAt).not.toBeNull();
+  });
+
+  test("returns the count of rows newly dismissed; an immediate repeat call returns 0 and leaves dismissedAt unchanged", () => {
+    const runA = seedRun(store, { project: "count-project", branch: "a", status: "completed" });
+    const runB = seedRun(store, { project: "count-project", branch: "b", status: "failed" });
+    seedRun(store, { project: "count-project", branch: "c", status: "in-progress" });
+
+    expect(store.dismissTerminalRunsForProject({ project: "count-project" })).toBe(2);
+
+    const dismissedAtA = loadRunOrThrow(store, runA).dismissedAt;
+    const dismissedAtB = loadRunOrThrow(store, runB).dismissedAt;
+    expect(dismissedAtA).not.toBeNull();
+    expect(dismissedAtB).not.toBeNull();
+
+    expect(store.dismissTerminalRunsForProject({ project: "count-project" })).toBe(0);
+
+    expect(loadRunOrThrow(store, runA).dismissedAt).toBe(dismissedAtA);
+    expect(loadRunOrThrow(store, runB).dismissedAt).toBe(dismissedAtB);
+  });
+
+  test("bypasses list retention and touches only dismissedAt on the selected row", () => {
+    const snapshot = { invocationId: "inv-retention", steps: [{ stepId: "step-1", role: "implement" }] };
+    const runId = seedRun(store, { project: "retention-project", stepId: "step-1", workflowSnapshot: snapshot });
+    const attemptId = store.recordAttemptStart(runId);
+    store.commitCompletionBoundary({
+      attemptId,
+      runStatus: "completed",
+      outcomeKind: "done",
+      completionAgent: "claude",
+      terminalCause: "complete",
+    });
+    store.setPrEvidence(runId, 7, "https://github.com/example/pr/7");
+
+    const oldFinishedAt = Date.now() - 1000 * 60 * 60 * 24 * 365;
+    const raw = new Database(TEST_DB_PATH);
+    try {
+      raw
+        .prepare("UPDATE runs SET finished_at = ?, created_at = ? WHERE id = ?")
+        .run(oldFinishedAt, oldFinishedAt, runId);
+    } finally {
+      raw.close();
+    }
+
+    const before = loadRunOrThrow(store, runId);
+    expect(before.dismissedAt).toBeNull();
+
+    expect(store.dismissTerminalRunsForProject({ project: "retention-project" })).toBe(1);
+
+    const after = loadRunOrThrow(store, runId);
+    expect(after.dismissedAt).not.toBeNull();
+    expect(after.status).toBe(before.status);
+    expect(after.attemptCount).toBe(before.attemptCount);
+    expect(after.workflowSnapshot).toEqual(before.workflowSnapshot);
+    expect(after.finishedAt).toBe(before.finishedAt);
+    expect(after.reconciledAt).toBe(before.reconciledAt);
+    expect(after.prNumber).toBe(before.prNumber);
+    expect(after.prUrl).toBe(before.prUrl);
+    expect(after.attempts).toEqual(before.attempts);
+  });
+});
+
 describe("incident candidate list queries", () => {
   let store: StateStore;
 

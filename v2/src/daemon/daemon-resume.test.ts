@@ -490,6 +490,8 @@ test("resumes implement write row after in-loop surviving_mutation_failed exhaus
         return {
           kind: "surviving-mutation",
           mutation: "operator-flip: === → !==",
+          killingTests: ["v2/src/guard.test.ts"],
+          killingSetObservedResult: "passed-confirmed",
           sourceSite: { file: "v2/src/guard.ts", line: 17 },
         };
       },

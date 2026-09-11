@@ -19,6 +19,19 @@ The lane was textbook recoverable. `.jarvis-plan-stage/` held `index.md`, two nu
 
 This is the second distinct resolution refusal to block recover on `full-review`. The first — recover reading position `n-1`, always an approval gate — was fixed and the class recorded as no-longer-reproducing. The class is not closed: recover still reaches its stage through a resolver built for dispatch.
 
+## Second reproduction (2026-09-11, later) — with a controlled sibling
+
+Pipeline `e2e82daa` (`cleanup-archives-hand-landed-specs`, single lane, `default`) refused with the identical message:
+
+```text
+$ jarvis pipeline recover e2e82daa default
+stage_resolution_failed: pipeline-stage-resolve: stage "plan" has no preceding workflow artifact
+```
+
+Its intent stage had plainly succeeded. What makes this reproduction stronger than the first is the control: two sibling lanes on other pipelines failed with the **same** `contract_miss` shape and took the **same** one-file correction, and `recover` admitted both (`{"kind":"admitted",…}` on `a02ed556 pipeline-list-rpc-terminal-retention` and `c6773daf bulk-terminal-run-dismissal-store`). So the refusal is not about the correction, the staged tree, or the contract that failed — it is the dispatch-shaped predecessor-artifact precondition in the resolver, exactly as this seed states.
+
+Cost: the corrected tree had to be hand-landed as [#3784](https://github.com/cbrenner04/jarvis/pull/3784) and its implement dispatched standalone, while the two recoverable siblings continued inside their pipelines unattended.
+
 ## Decisions
 
 - Recovery resolves its target from the failed stage's own durable row — its `workflowInvocationId`, that run's `worktreePath`, and its staged tree — not from the predecessor artifact chain.

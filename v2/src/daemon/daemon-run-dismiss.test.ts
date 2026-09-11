@@ -248,7 +248,11 @@ test("an unknown run id is refused on dismiss and undismiss", async () => {
 
 test("a missing runId is refused invalid_params on dismiss and undismiss", async () => {
   const dismissResponse = await dismissDirect(handlers);
-  expect(dismissResponse).toEqual({ kind: "error", code: "invalid_params", message: "runId required" });
+  expect(dismissResponse).toEqual({
+    kind: "error",
+    code: "invalid_params",
+    message: "dismiss requires exactly one of runId or project",
+  });
 
   const undismissResponse = await undismissDirect(handlers);
   expect(undismissResponse).toEqual({ kind: "error", code: "invalid_params", message: "runId required" });
@@ -429,7 +433,12 @@ test("dismiss carrying both runId and project refuses invalid_params and mutates
 
 test("dismiss carrying neither selector, and an empty project, each refuse invalid_params", async () => {
   const neither = await dismissParams(handlers, {});
-  expect(neither).toEqual({ kind: "error", code: "invalid_params", message: "runId required" });
+  // `dismiss` takes either selector, so naming only runId misdescribes the refusal.
+  expect(neither).toEqual({
+    kind: "error",
+    code: "invalid_params",
+    message: "dismiss requires exactly one of runId or project",
+  });
 
   const emptyProject = await dismissParams(handlers, { project: "" });
   expect(emptyProject).toEqual({ kind: "error", code: "invalid_params", message: "project required" });

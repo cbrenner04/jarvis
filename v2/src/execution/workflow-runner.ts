@@ -24,6 +24,7 @@ import { type IntentFinalizationEvent, type LogSink, priorLogRecordsFromSink } f
 import {
   type Attempt,
   openStateStore,
+  type RunStatus,
   type StateStore,
   type WorkflowSnapshot,
   type WorkflowSnapshotStep,
@@ -147,6 +148,59 @@ const WORKFLOW_PRESET_PINNED_FIELDS: Partial<Record<WorkflowPresetName, { role: 
   "plan-reviewed": { role: "plan", promptId: "plan.prompt.draft" },
   "plan-reviewed-light": { role: "plan", promptId: "plan.prompt.draft" },
 };
+
+/**
+ * Run statuses for a workflow step that ended non-`complete`. Mirrors the write loop's
+ * `terminalMapping`: an agent blocker and a contract miss are `blocked`; everything else failed.
+ */
+function nonCompleteWorkflowStepStatus(cause: WriteLoopOutcomeKind): RunStatus {
+  return cause === "blocked" || cause === "contract_miss" ? "blocked" : "failed";
+}
+
+/**
+ * Settle a workflow step's durable row when the step ended non-`complete` after its write loop had
+ * already settled the row.
+ *
+ * A workflow write step is settled `completed` by the write loop before the workflow's publication
+ * tail runs (`prepareWorkflowStep` sets `publishCompletion: false`, so the loop does not keep the
+ * row `in-progress`). The linked-implement finalizers then convert that outcome to `contract_miss`
+ * or `blocked` — and `executeWorkflow` used to return on that without touching the row or the log.
+ * The result was a durable `completed` row with no commit tail, no PR, and no diagnostic anywhere:
+ * a direct violation of the completion-honesty contract, since `completed` implies PR evidence.
+ *
+ * Settling here makes the row say what actually happened. A phantom run id (the routing-failure
+ * outcome mints one that was never persisted) resolves to no row and is skipped; a row already
+ * carrying this cause is left alone so a re-entry cannot rewrite its own settlement.
+ */
+function settleNonCompleteWorkflowStep(
+  store: StateStore,
+  logSink: LogSink | undefined,
+  result: WorkflowStepOutcome,
+  iterationsConsumed: number,
+): void {
+  const cause: WriteLoopOutcomeKind = result.kind;
+  const run = store.loadRun(result.runId);
+  if (run === null) return;
+  // Only the lie is corrected: a row reading `completed` under a step that did not complete. Every
+  // other status belongs to the write loop and must survive untouched — notably `budget-exhausted`
+  // and `paused`, which are deliberately non-terminal so the next dispatch resumes the step.
+  if (run.status !== "completed") return;
+  const status = nonCompleteWorkflowStepStatus(cause);
+  const message = result.routingFailure ?? result.invocationFailureMessage ?? `workflow step ended ${cause}`;
+  store.commitTerminalRunSettlement({
+    runId: result.runId,
+    status,
+    terminalCause: cause,
+    terminalFailureDetail: terminalFailureDetailFromError(undefined, message),
+  });
+  logSink?.append(result.runId, { kind: "run_execution_failed", message });
+  logSink?.append(result.runId, {
+    kind: "loop_finished",
+    loopOutcomeKind: cause,
+    iterationsConsumed,
+    resumable: result.resumable === true,
+  });
+}
 
 function terminalFailureDetailFromError(error?: Error, fallbackMessage?: string): InvocationFailureDetail {
   const message = error?.message || fallbackMessage || "harness failure";
@@ -643,9 +697,14 @@ function linkedImplementRoutingFailureOutcome(
   totalIterationsConsumed: number,
   stepIndex: number,
   onStepRunCreated: ((stepIndex: number, runId: string) => void) | undefined,
+  existingRunId?: string,
 ): WorkflowStepOutcome {
-  const runId = crypto.randomUUID();
-  onStepRunCreated?.(stepIndex, runId);
+  // When routing fails *after* a link's write loop already ran, that link has a real durable row —
+  // and it is sitting `completed`. Minting a fresh id here would orphan the outcome from the row,
+  // leaving it `completed` with no publication and nothing to settle it (`settleNonCompleteWorkflowStep`
+  // resolves no row for an id that was never persisted). Reuse the real id so the row is corrected.
+  const runId = existingRunId ?? crypto.randomUUID();
+  if (existingRunId === undefined) onStepRunCreated?.(stepIndex, runId);
 
   if (routing.errorKind === "empty_index" || routing.errorKind === "already_complete") {
     return {
@@ -810,7 +869,13 @@ async function runLinkedImplementStep(
 
     const pinnedRouting = resolvePinnedLinkedSubspec(indexPath, linkedProjectRoot, routing.active.index);
     if (!pinnedRouting.ok) {
-      return linkedImplementRoutingFailureOutcome(pinnedRouting, totalIterationsConsumed, stepIndex, onStepRunCreated);
+      return linkedImplementRoutingFailureOutcome(
+        pinnedRouting,
+        totalIterationsConsumed,
+        stepIndex,
+        onStepRunCreated,
+        stepped.runId,
+      );
     }
 
     const finalized = finalizeLinkedImplementPass(stepped, pinnedRouting, beforeIndexContent, indexPath);
@@ -903,6 +968,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       }
 
       if (stepResult.kind !== "complete") {
+        settleNonCompleteWorkflowStep(store, args.logSink, stepResult, totalIterationsConsumed);
         return {
           kind: stepResult.kind,
           stepIndex,

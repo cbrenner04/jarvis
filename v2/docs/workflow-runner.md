@@ -253,6 +253,20 @@ This rollup is computed at read time, never overwriting a step row's status in p
 
 The returned run id's status reported by daemon `wait` and `list` operations reflects this rollup for workflow entry runs: `wait` awaits the full workflow completion and returns the rollup status; `list` reports the rollup status for the entry row, while other step rows report their own durable statuses. When hidden finalization owns the stopping outcome, both entry responses source `loopOutcomeKind`, `iterationsConsumed`, and error detail from that row rather than the earlier completed entry log; `resumable` remains eligible only when the entry row itself can resume.
 
+### Non-`complete` step settlement
+
+When a **step** returns a kind other than `complete`, `executeWorkflow` settles that step's durable row before returning. This matters because a workflow write step's row is already terminal by then: `prepareWorkflowStep` sets `publishCompletion: false`, so the write loop does not hold the row `in-progress` for the workflow's publication tail and settles it `completed` at its own boundary. The linked-implement finalizers can then convert that outcome to `contract_miss` or `blocked` — and without this settlement the row would keep a `completed` status implying PR evidence that does not exist, with no commit tail, no PR, and no record of the real outcome.
+
+**Settlement applies only to a row that currently reads `completed`** — the status that is a lie under a step that did not complete. Every other status belongs to the write loop and is left exactly as written, cause-blind. That narrowness is load-bearing: `budget-exhausted` and `paused` rows are deliberately non-terminal so the next dispatch resumes the step, and settling them terminal silently destroys resume.
+
+Status follows the write loop's own `terminalMapping`: `blocked` and `contract_miss` settle `blocked`; every other outcome settles `failed`. The terminal cause is the outcome kind, and the failure detail carries the step's `routingFailure` when present, else its invocation-failure message, else the outcome kind. A `run_execution_failed` record and a corrected `loop_finished` are appended to the run log; the settled row is **not** resumable (`jarvis run resume` refuses it), so recovery is inspecting the spec and re-dispatching.
+
+A run id that resolves to no row is skipped rather than settled. Routing that fails *before* any link ran mints a `crypto.randomUUID()` for its outcome and has no row to correct; routing that fails *after* a link's write loop completed reuses that link's real run id precisely so its `completed` row can be corrected.
+
+**Not covered:** the shrink early return. A non-`complete` hidden shrink outcome replaces the workflow result at the implement step and returns without this settlement, so the implement row can still read `completed` with no publication on that path. Tracked with the rest of [[implement-publication-tail]].
+
+The daemon separately logs the workflow-level verdict when `executeWorkflow` resolves non-`complete`, naming the step index, step id, and detail — before this it discarded the returned `WorkflowResult` entirely. That line goes to the daemon process log, not the run log.
+
 ## Validation
 
 Before running any step, `executeWorkflow` validates:

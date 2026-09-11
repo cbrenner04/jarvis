@@ -805,7 +805,7 @@ export function createRunLifecycleHandlers(
 
     const runId = typeof params?.runId === "string" ? params.runId : "";
     if (runId.length === 0) {
-      return { kind: "error", code: "invalid_params", message: "runId required" };
+      return { kind: "error", code: "invalid_params", message: "dismiss requires exactly one of runId or project" };
     }
     return respondRunDismissal(store.dismissRun(runId));
   };

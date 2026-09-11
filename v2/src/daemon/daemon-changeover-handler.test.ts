@@ -9,6 +9,7 @@ import type { LogReader, LogSink } from "../persistence/log-stream.ts";
 import type { StateStore } from "../persistence/state-store.ts";
 import { mockWriteLoopInput } from "../testing/run-control.ts";
 import { startDaemonRuntime } from "./daemon.ts";
+import type { DrainObservation } from "./daemon-drain-observer.ts";
 import type { ChangeoverOutcome } from "./daemon-peer-socket.ts";
 
 function fakeStore(): StateStore {
@@ -135,4 +136,38 @@ test("a fresh start (no peer) and a completed handoff both proceed to bind the p
     expect(boundPaths).toEqual(["/fake/public.sock"]);
     await runtime.close();
   }
+});
+
+test("a completed handoff reporting a private endpoint starts drain observation against it; a fresh start does not", async () => {
+  const startIpcServer = async (socketPath: string): Promise<IpcServer> => ({
+    socketPath,
+    close: async () => undefined,
+  });
+  const observedPaths: string[] = [];
+  const startDrainObservation = (privateSocketPath: string): DrainObservation => {
+    observedPaths.push(privateSocketPath);
+    return { liveRunIds: () => new Set(), stop: () => undefined };
+  };
+
+  const handoffRuntime = await startDaemonRuntime("/fake/public.sock", fakeStore(), fakeReader(), {
+    openLogSink: () => fakeSink(),
+    startIpcServer,
+    startDrainObservation,
+    requestChangeoverFromPublicPeer: async (): Promise<ChangeoverOutcome> => ({
+      kind: "handoff-complete",
+      privateSocketPath: "/fake/outgoing-private.sock",
+    }),
+  });
+  expect(observedPaths).toEqual(["/fake/outgoing-private.sock"]);
+  await handoffRuntime.close();
+
+  const freshRuntime = await startDaemonRuntime("/fake/public.sock", fakeStore(), fakeReader(), {
+    openLogSink: () => fakeSink(),
+    startIpcServer,
+    startDrainObservation,
+    requestChangeoverFromPublicPeer: async (): Promise<ChangeoverOutcome> => ({ kind: "no-peer" }),
+  });
+  // No peer to hand off from: drain observation is never started against anything.
+  expect(observedPaths).toEqual(["/fake/outgoing-private.sock"]);
+  await freshRuntime.close();
 });

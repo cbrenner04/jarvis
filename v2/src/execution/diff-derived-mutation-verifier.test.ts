@@ -433,6 +433,8 @@ index f424d7da..be281d02 100644
   const missingCriticRenderCoverage = {
     kind: "surviving-mutation" as const,
     mutation: "missing-render-coverage",
+    killingTests: [],
+    killingSetObservedResult: "not-run" as const,
     sourceSite: { file: "prompts/implement/review-critic.md", line: 1 },
   };
   const criticSource = `---
@@ -561,7 +563,11 @@ index f424d7da..be281d02 100644
       },
     );
 
-    expect(result).toEqual(missingCriticRenderCoverage);
+    expect(result).toEqual({
+      ...missingCriticRenderCoverage,
+      killingTests: [...(resolveRenderObserverTests("prompts/implement/review-critic.md") ?? [])],
+      killingSetObservedResult: "passed-unconfirmed",
+    });
   });
 
   it("uses each registered prompt's rendering contract instead of a renderer name", async () => {
@@ -619,7 +625,7 @@ index be281d02..00000000
     expect(untracked).toEqual(missingCriticRenderCoverage);
   });
 
-  it("fails untracked registered prompts even when mapped observers pass on unmutated content", async () => {
+  it("fails an untracked registered prompt with no killing set, because its observers never ran", async () => {
     const observerPath = "v2/src/execution/review-critic-render.test.ts";
     const mapSource = renderObserverMapSource({ "prompts/implement/review-critic.md": [observerPath] });
     let scopedRuns = 0;
@@ -637,8 +643,42 @@ index be281d02..00000000
       },
     );
 
+    // The sentinel mutation does not apply to an untracked prompt, so the observer set is never
+    // executed. Reporting its path as `passed-unconfirmed` would hand the operator a test to
+    // re-run that never ran at all.
     expect(result).toEqual(missingCriticRenderCoverage);
     expect(scopedRuns).toBe(0);
+    expect(observerPath).toBeTruthy();
+  });
+
+  it("fails a frontmatter-only prompt change with no killing set when its observers ran and failed", async () => {
+    const observerPath = "v2/src/execution/review-critic-render.test.ts";
+    const mapSource = renderObserverMapSource({ "prompts/implement/review-critic.md": [observerPath] });
+    let scopedRuns = 0;
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => `diff --git a/prompts/implement/review-critic.md b/prompts/implement/review-critic.md
+index f424d7da..be281d02 100644
+--- a/prompts/implement/review-critic.md
++++ b/prompts/implement/review-critic.md
+@@ -4,1 +4,1 @@
+-revision: 1
++revision: 2
+`,
+        registeredPromptPaths: registeredCritic,
+        readFile: seamReadFile(criticSource.replace("revision: 1", "revision: 2"), mapSource),
+        runScopedTests: async () => {
+          scopedRuns += 1;
+          return false;
+        },
+      },
+    );
+
+    // On the exempt path the observers' own result is the verdict, so `false` means they ran and
+    // FAILED — the opposite of passing. It must not be reported as `passed-unconfirmed`.
+    expect(result).toEqual(missingCriticRenderCoverage);
+    expect(scopedRuns).toBe(1);
   });
 
   it("bounds scoped render checks across changed prompts", async () => {
@@ -685,6 +725,8 @@ index 1234567..abcdefg 100644
     expect(result).toEqual({
       kind: "surviving-mutation",
       mutation: "missing-render-coverage",
+      killingTests: [],
+      killingSetObservedResult: "not-run",
       sourceSite: { file: uncoveredPath, line: 1 },
     });
     expect(scopedRuns).toBe(5);
@@ -788,6 +830,8 @@ index f424d7da..be281d02 100644
     expect(result).toEqual({
       kind: "surviving-mutation",
       mutation: "missing-render-coverage",
+      killingTests: [],
+      killingSetObservedResult: "not-run",
       sourceSite: { file: "prompts/patch/review-critic.md", line: 1 },
     });
   });
@@ -1290,6 +1334,8 @@ index 1234567..abcdefg 100644
         expect(result.kind).toBe("surviving-mutation");
         if (result.kind === "surviving-mutation") {
           expect(result.mutation).toContain("guard-flip");
+          expect(result.killingTests).toEqual(["src/hangs.test.ts"]);
+          expect(result.killingSetObservedResult).toBe("passed-confirmed");
           expect(result.sourceSite).toEqual({ file: "src/hangs.ts", line: 2 });
         }
       });
@@ -1339,6 +1385,10 @@ index 1234567..abcdefg 100644
 
         expect(callCount).toBe(1);
         expect(result.kind).toBe("surviving-mutation");
+        if (result.kind === "surviving-mutation") {
+          expect(result.killingTests).toEqual(["src/hangs.test.ts"]);
+          expect(result.killingSetObservedResult).toBe("passed-unconfirmed");
+        }
       });
 
       it("a confirmation run that times out settles the candidate inconclusive, not surviving or non-terminating", async () => {
@@ -3135,6 +3185,8 @@ index 1234567..abcdefg 100644
     expect(result.kind).toBe("surviving-mutation");
     if (result.kind === "surviving-mutation") {
       expect(result.mutation).toBe("missing-killing-test");
+      expect(result.killingTests).toEqual([]);
+      expect(result.killingSetObservedResult).toBe("not-run");
       expect(result.sourceSite.file).toBe("v2/src/big.ts");
     }
   });
@@ -3280,6 +3332,8 @@ index 1234567..abcdefg 100644
     expect(capResult.kind).toBe("surviving-mutation");
     if (capResult.kind === "surviving-mutation") {
       expect(capResult.mutation).toBe("importer-discovery-cap-exceeded");
+      expect(capResult.killingTests).toEqual([]);
+      expect(capResult.killingSetObservedResult).toBe("not-run");
       expect(capResult.sourceSite.file).toBe(targetFile);
     }
     expect(scopedRuns).toHaveLength(0);
@@ -3423,6 +3477,8 @@ index 1234567..abcdefg 100644
     return {
       kind: "surviving-mutation" as const,
       mutation: "missing-render-coverage",
+      killingTests: [],
+      killingSetObservedResult: "not-run" as const,
       sourceSite: { file: promptPath, line: 1 },
     };
   }
@@ -3534,7 +3590,11 @@ The diff comes from git merge-base <base> HEAD.
     commitChangedBranchPrompt(dir);
 
     const result = await verifyDiffDerivedMutations({ worktreePath: dir, runBase: baseSha });
-    expect(result).toEqual(missingRenderCoverageAtPrompt(branchPromptPath));
+    expect(result).toEqual({
+      ...missingRenderCoverageAtPrompt(branchPromptPath),
+      killingTests: [observerPath],
+      killingSetObservedResult: "passed-unconfirmed",
+    });
     rmSync(dir, { recursive: true, force: true });
   });
 

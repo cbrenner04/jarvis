@@ -25,6 +25,16 @@ Five concurrent implement lanes on one daemon, load 11–17, zero watchdog kills
 
 `20260911T141706Z-glob-patterns-are-not-artifact-paths` was resumed and refused a second time, which is the treadmill: resume is the documented recovery and it has no better odds than the dispatch that just failed.
 
+### The refusal also loses the iteration (2026-09-11, same session)
+
+A refused lane does not merely stop — it discards the iteration's work. `20260911T141706Z-glob-patterns-are-not-artifact-paths` was refused four times, and after all four its branch was **zero commits ahead of base with zero acceptance criteria ticked**, while a complete implementation (a one-line predicate change, eight regression cases, two doc updates) sat uncommitted in the worktree. The refusal aborts the harness invocation after the agent CLI announced the Bash call, and that abort lands before the iteration's checkpoint commit, so nothing durable survives it.
+
+This compounds the treadmill into something worse than wasted wall clock: repeated refusal makes no forward progress at all, and each retry re-pays for work the previous one already did. It also means the operator cannot tell a refused lane's progress from `run list` or the branch — only by reading `git status` in the worktree.
+
+Fold into the decisions above: a slot refusal must checkpoint the iteration's work before settling, the same as every other controlled loss in [`write-behavior.md` § Per-iteration commits](../../docs/write-behavior.md). An added acceptance criterion:
+
+- [ ] A write-path test proves a lane refused for the gate slot checkpoints its iteration's file changes before settling, so the retained branch carries the work; it fails against the current abort-before-checkpoint path.
+
 ## Decisions
 
 - A lane refused for the **slot** (not for ceiling headroom) is re-driven by the daemon when a lease is released, without an operator command. Slot contention is transient and the daemon owns the lease set, so it knows exactly when the condition clears. Rules out leaving a transient, harness-known condition as hand work.

@@ -754,7 +754,7 @@ function artifactForRetiredWorktree(
     .filter((run) => run.project === candidate.project && run.branch === candidate.worktree.branch)
     .map((run) => sourceForRun(run, candidate.worktree.path, projectRoot, registry, configPath))
     .filter((path): path is string => path !== undefined);
-  const source = sources.find((path) => existsSync(join(path, "index.md"))) ?? sources[0];
+  const source = sources.find((path) => existsSync(join(path, "index.md")) || path.endsWith(".md"));
   if (source === undefined) return undefined;
   return {
     home: dirname(source),
@@ -797,6 +797,7 @@ function sourceForRun(
 
   const identity = isAbsolute(run.specPath) ? relative(worktreePath, run.specPath) : run.specPath;
   if (identity === "" || identity === ".." || identity.startsWith("../") || isAbsolute(identity)) return undefined;
+  if (isJarvisHarnessSidecarPath(identity)) return undefined;
 
   const durablePath = resolve(projectRoot, identity);
   return basename(durablePath) === "index.md" ? dirname(durablePath) : durablePath;
@@ -1336,7 +1337,7 @@ function previewWorktreeCandidates(
     const projectRoot = registry[candidate.project]?.root;
     if (projectRoot === undefined) continue;
     const spec = artifactForRetiredWorktree(candidate, projectRoot, store, registry);
-    if (spec !== undefined) previewArtifact(spec, io);
+    if (spec !== undefined && existsSync(spec.source)) previewArtifact(spec, io);
   }
 }
 

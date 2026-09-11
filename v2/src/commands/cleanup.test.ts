@@ -476,6 +476,113 @@ describe("cleanup: end-to-end via runCleanupCommand", () => {
   });
 
   test.each([
+    { name: "relative", specPath: () => join(".jarvis-plan-stage", "verdict-plan.md") },
+    {
+      name: "absolute under the worktree",
+      specPath: (worktreePath: string) => join(worktreePath, ".jarvis-plan-stage", "verdict-plan.md"),
+    },
+  ])("rejects a $name .jarvis-* specPath as a spec source identity", async ({ specPath }) => {
+    const branch = "plan/harness-staging-only";
+    const worktreePath = await createWorktree(branch);
+    const store: StateStore = {
+      listRuns: () => [
+        {
+          status: "completed",
+          specPath: specPath(worktreePath),
+          project: "project",
+          branch,
+          stepId: "plan",
+          worktreePath,
+        },
+      ],
+    } as unknown as StateStore;
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(stdout).toContain(`Skipped artifact: ${worktreePath} — no durable spec identity`);
+    expect(existsSync(worktreePath)).toBe(false);
+  });
+
+  test("returns no artifact when the resolved source has no index.md and is not a Markdown file", async () => {
+    const branch = "plan/unproven-source";
+    const bogusDir = join(projectRoot, "v2", "spec", "not-a-spec");
+    mkdirSync(bogusDir, { recursive: true });
+    writeFileSync(join(bogusDir, "notes.txt"), "not a spec\n");
+    const worktreePath = await materializeWorktree(branch, "unproven source");
+    const store: StateStore = {
+      listRuns: () => [
+        {
+          status: "completed",
+          specPath: join(worktreePath, "v2", "spec", "not-a-spec"),
+          project: "project",
+          branch,
+          stepId: "plan",
+          worktreePath,
+        },
+      ],
+    } as unknown as StateStore;
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    expect(
+      await runCleanupCommand(
+        { promptConfirm: async () => true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(stdout).toContain(`Skipped artifact: ${worktreePath} — no durable spec identity`);
+  });
+
+  test("does not preview archiving a candidate whose resolved source no longer exists on disk", async () => {
+    const branch = "plan/ghost-source";
+    const worktreePath = await createWorktree(branch);
+    const store: StateStore = {
+      listRuns: () => [
+        {
+          status: "completed",
+          specPath: join(worktreePath, "v2", "spec", "ready-intents", "ghost.md"),
+          project: "project",
+          branch,
+          stepId: "plan",
+          worktreePath,
+        },
+      ],
+    } as unknown as StateStore;
+    let stdout = "";
+    const io = { stdout: (s: string) => (stdout += s), stderr: () => {} };
+
+    expect(
+      await runCleanupCommand(
+        { dryRun: true },
+        { project: { root: projectRoot } },
+        jarvisRoot,
+        ghRunnerForPr("MERGED"),
+        async () => [],
+        store,
+        io,
+      ),
+    ).toBe(0);
+    expect(stdout).toContain(worktreePath);
+    expect(stdout).not.toContain("archive:");
+  });
+
+  test.each([
     {
       name: "reviewed implement",
       branch: "implement/reviewed-archive",

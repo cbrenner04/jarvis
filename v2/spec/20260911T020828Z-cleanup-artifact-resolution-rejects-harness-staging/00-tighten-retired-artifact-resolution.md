@@ -21,14 +21,14 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src/commands/cleanup.test.ts` proves a run whose `specPath` — relative, or absolute and resolving under the worktree — contains a `.jarvis-*` segment after relativization yields no source from `sourceForRun`; it fails against the current containment-guard-only filter.
-- [ ] `v2/src/commands/cleanup.test.ts` proves `artifactForRetiredWorktree` returns no candidate when no source contains `index.md` and none is a Markdown spec file; it fails against the current `?? sources[0]` fallback.
-- [ ] `v2/src/commands/cleanup.test.ts` proves `previewWorktreeCandidates` prints no archive preview line for a retired-worktree candidate whose resolved source is absent from disk immediately before preview; it fails against the current unguarded `previewArtifact` call.
-- [ ] `v2/src/commands/cleanup.test.ts` tests "retires before archiving a complete durable spec and prunes only its consumed intent", "archives open-home spec when retiring its owning worktree in one invocation", "resolves absolute external plan specPath from durable implement run for retired-worktree archival", and "archives eligible external plan after completeness and ownership checks" stay green (destinations unchanged).
-- [ ] `v2/src/commands/cleanup.test.ts` tests "recordedStrandedBranch matches external plan directory from chained implement specPath" and "keys stranded ownership to the recorded project branch and rechecks it before archival" stay green (the `.jarvis-*` filter in `sourceForRun` does not affect stranded-branch or ownership resolution).
-- [ ] `v2/docs/operator-runbook.md` states that post-retirement resolution ignores every `.jarvis-*` identity and accepts only an extant, proven spec source; archive destinations are unchanged.
-- [ ] `v2/docs/v1-behaviors.md` records the tightened retired-worktree source proof (harness-staging rejection, proven-source requirement, pre-preview existence recheck).
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/commands/cleanup.test.ts` proves a run whose `specPath` — relative, or absolute and resolving under the worktree — contains a `.jarvis-*` segment after relativization yields no source from `sourceForRun`; it fails against the current containment-guard-only filter.
+- [x] `v2/src/commands/cleanup.test.ts` proves `artifactForRetiredWorktree` returns no candidate when no source contains `index.md` and none is a Markdown spec file; it fails against the current `?? sources[0]` fallback.
+- [x] `v2/src/commands/cleanup.test.ts` proves `previewWorktreeCandidates` prints no archive preview line for a retired-worktree candidate whose resolved source is absent from disk immediately before preview; it fails against the current unguarded `previewArtifact` call.
+- [x] `v2/src/commands/cleanup.test.ts` tests "retires before archiving a complete durable spec and prunes only its consumed intent", "archives open-home spec when retiring its owning worktree in one invocation", "resolves absolute external plan specPath from durable implement run for retired-worktree archival", and "archives eligible external plan after completeness and ownership checks" stay green (destinations unchanged).
+- [x] `v2/src/commands/cleanup.test.ts` tests "recordedStrandedBranch matches external plan directory from chained implement specPath" and "keys stranded ownership to the recorded project branch and rechecks it before archival" stay green (the `.jarvis-*` filter in `sourceForRun` does not affect stranded-branch or ownership resolution).
+- [x] `v2/docs/operator-runbook.md` states that post-retirement resolution ignores every `.jarvis-*` identity and accepts only an extant, proven spec source; archive destinations are unchanged.
+- [x] `v2/docs/v1-behaviors.md` records the tightened retired-worktree source proof (harness-staging rejection, proven-source requirement, pre-preview existence recheck).
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

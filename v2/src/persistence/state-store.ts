@@ -554,9 +554,10 @@ export const DEFAULT_PIPELINE_STAGE_BRANCH_KEY = "default";
 
 export const PIPELINE_STAGE_BRANCH_KEY_TIE_ORDER_SQL = `(branch_key = '${DEFAULT_PIPELINE_STAGE_BRANCH_KEY}') DESC, branch_key ASC`;
 
-const PIPELINE_STAGE_SKIP_PROVENANCES = ["provisional", "terminal"] as const;
+export const PIPELINE_STAGE_SKIP_PROVENANCES = ["provisional", "terminal"] as const;
 
-type PipelineStageSkipProvenance = (typeof PIPELINE_STAGE_SKIP_PROVENANCES)[number];
+/** Whether a `skipped` stage row may be reopened (predecessor failure) or never applies again. */
+export type PipelineStageSkipProvenance = (typeof PIPELINE_STAGE_SKIP_PROVENANCES)[number];
 
 /** A durable stage record belonging to an admitted pipeline. */
 export type PipelineStageRecord = {
@@ -581,7 +582,7 @@ export type PipelineStageRecord = {
  * unchanged; an explicit `null` clears a nullable field. `status`, when
  * present, is a non-null string. Empty patches are rejected by `updateStage`.
  */
-type StageLifecyclePatch = {
+export type StageLifecyclePatch = {
   status?: string;
   skipProvenance?: PipelineStageSkipProvenance;
   workflowInvocationId?: string | null;
@@ -1469,7 +1470,12 @@ function stageLifecyclePatchWithTerminalFinish(patch: StageLifecyclePatch, now: 
   return { ...patch, endedAt: now };
 }
 
-function validateStageSkipProvenance(patch: StageLifecyclePatch): void {
+/**
+ * The skip-provenance pairing rule, shared so test doubles enforce it too. A double that only
+ * `Object.assign`s a patch would let a writer that dropped provenance pass its whole suite and then
+ * throw in production — inside a `catch {}` that swallows it, stranding suffix stages `pending`.
+ */
+export function validateStageSkipProvenance(patch: StageLifecyclePatch): void {
   if (patch.status === "skipped") {
     if (!PIPELINE_STAGE_SKIP_PROVENANCES.includes(patch.skipProvenance as PipelineStageSkipProvenance)) {
       throw new Error('Stage lifecycle patch with status "skipped" requires valid skip provenance');

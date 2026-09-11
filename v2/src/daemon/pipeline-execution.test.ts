@@ -33,10 +33,16 @@ import type {
   PipelineStageRecord,
   Run,
   RunStatus,
+  StageLifecyclePatch,
   StateStore,
   WorkflowSnapshot,
 } from "../persistence/state-store.ts";
-import { analyzeFailedPipelineReopenShape, isTerminalRunStatus, openStateStore } from "../persistence/state-store.ts";
+import {
+  analyzeFailedPipelineReopenShape,
+  isTerminalRunStatus,
+  openStateStore,
+  validateStageSkipProvenance,
+} from "../persistence/state-store.ts";
 import { removeOrchestrationStore } from "../persistence/state-store-on-disk.ts";
 import { rollupWorkflowRunStatus } from "../persistence/workflow-run-status-rollup.ts";
 import { spinUntilMicrotask } from "../testing/bounded-microtask-spin.ts";
@@ -243,6 +249,10 @@ function fakeStore(
       if (!record) throw new Error(`unknown stage ${args.stageId} (branch ${branchKey})`);
       // Mirror the store's compare-and-set: a settlement racing another writer must no-op.
       if (args.requiredStatus !== undefined && record.status !== args.requiredStatus) return false;
+      // Enforce the real store's skip-provenance pairing, not a copy of it. Without this the double
+      // accepts a skip write that dropped provenance, which production throws on — inside a
+      // `catch {}` that swallows it and strands the suffix `pending`.
+      validateStageSkipProvenance(args.patch as StageLifecyclePatch);
       Object.assign(record, args.patch);
       if (args.patch.status !== undefined && args.patch.status !== "skipped") record.skipProvenance = null;
       return true;
@@ -6034,7 +6044,10 @@ describe("pipeline branch fan-out execution", () => {
           }
         : status === "failed"
           ? { status: "failed", endedAt: Date.now(), failureDetail: { message: "prior failure" } }
-          : { status: "skipped" };
+          : // A plan stage reaches `skipped` only via predecessor-failure suffix skipping, which is
+            // provisional. The bare `{ status: "skipped" }` this used to seed is a state production
+            // can no longer produce; the shared validator on the double now rejects it.
+            { status: "skipped", skipProvenance: "provisional" };
     setupFanOutAlphaLiveLinked(store, alphaPlanPatch);
     store.updateStage({
       pipelineId: PIPELINE_ID,

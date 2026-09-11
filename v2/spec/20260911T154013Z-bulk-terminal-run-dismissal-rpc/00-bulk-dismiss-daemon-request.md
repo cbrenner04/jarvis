@@ -25,18 +25,18 @@
 
 ## Acceptance criteria
 
-- [ ] A daemon test issues `dismiss { project }` against a store holding terminal runs, terminal workflow step rows of a matched entry invocation (including a step row whose own project differs from the selector), and nonterminal rows, and asserts every terminal row and matched step row is dismissed while every nonterminal row keeps a null `dismissedAt`, stays in the default `list` projection, and stays out of `activeRuns`; it fails against the pre-fix `{ runId }`-only handler.
-- [ ] A daemon test asserts `dismiss { project }` returns the store-reported `dismissedCount`, including rows the default `list` projection's retention omits, rather than a count derived from `list`; it fails against the pre-fix handler.
-- [ ] A daemon test asserts `dismiss { project }` against a project with no matching undismissed terminal rows returns `applied` with `dismissedCount: 0` and mutates no row.
-- [ ] A daemon test asserts `dismiss` carrying both `runId` and `project` refuses with `invalid_params` and leaves every row's `dismissedAt` unchanged; it fails against the pre-fix handler, which dismisses the named run.
-- [ ] A daemon test asserts `dismiss` carrying neither selector, and `dismiss { project: "" }`, each refuse with `invalid_params`.
-- [ ] A daemon test asserts `undismiss { project }` refuses with `invalid_params` and mutates no row.
-- [ ] `v2/src/daemon/daemon-run-dismiss.test.ts` stays green (single-id dismiss and undismiss unchanged).
-- [ ] `v2/docs/daemon-host.md` documents the `dismiss` bulk selector, exclusive-selector `invalid_params` refusal, the no-match `dismissedCount: 0` outcome, store-owned terminal-only selection stating plainly that a matched invocation's terminal step rows are dismissed even when their own project differs from the selector, and the `dismissedCount` response.
-- [ ] `v2/docs/v1-behaviors.md` records the additive bulk `dismiss` request contract.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] A daemon test issues `dismiss { project }` against a store holding terminal runs, terminal workflow step rows of a matched entry invocation (including a step row whose own project differs from the selector), and nonterminal rows, and asserts every terminal row and matched step row is dismissed while every nonterminal row keeps a null `dismissedAt`, stays in the default `list` projection, and stays out of `activeRuns`; it fails against the pre-fix `{ runId }`-only handler.
+- [x] A daemon test asserts `dismiss { project }` returns the store-reported `dismissedCount`, including rows the default `list` projection's retention omits, rather than a count derived from `list`; it fails against the pre-fix handler.
+- [x] A daemon test asserts `dismiss { project }` against a project with no matching undismissed terminal rows returns `applied` with `dismissedCount: 0` and mutates no row.
+- [x] A daemon test asserts `dismiss` carrying both `runId` and `project` refuses with `invalid_params` and leaves every row's `dismissedAt` unchanged; it fails against the pre-fix handler, which dismisses the named run.
+- [x] A daemon test asserts `dismiss` carrying neither selector, and `dismiss { project: "" }`, each refuse with `invalid_params`.
+- [x] A daemon test asserts `undismiss { project }` refuses with `invalid_params` and mutates no row.
+- [x] `v2/src/daemon/daemon-run-dismiss.test.ts` stays green (single-id dismiss and undismiss unchanged).
+- [x] `v2/docs/daemon-host.md` documents the `dismiss` bulk selector, exclusive-selector `invalid_params` refusal, the no-match `dismissedCount: 0` outcome, store-owned terminal-only selection stating plainly that a matched invocation's terminal step rows are dismissed even when their own project differs from the selector, and the `dismissedCount` response.
+- [x] `v2/docs/v1-behaviors.md` records the additive bulk `dismiss` request contract.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

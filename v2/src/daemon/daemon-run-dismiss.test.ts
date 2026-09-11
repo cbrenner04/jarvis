@@ -30,6 +30,14 @@ async function dismissDirect(h: Handlers, runId?: string): Promise<DismissalResu
   ) as Promise<DismissalResult>;
 }
 
+async function dismissParams(h: Handlers, params: Record<string, unknown>): Promise<DismissalResult> {
+  return h.dismiss(requestFrame("d", "dismiss", params), new AbortController().signal) as Promise<DismissalResult>;
+}
+
+async function undismissParams(h: Handlers, params: Record<string, unknown>): Promise<DismissalResult> {
+  return h.undismiss(requestFrame("u", "undismiss", params), new AbortController().signal) as Promise<DismissalResult>;
+}
+
 async function undismissDirect(h: Handlers, runId?: string): Promise<DismissalResult> {
   return h.undismiss(
     requestFrame("u", "undismiss", runId === undefined ? {} : { runId }),
@@ -240,7 +248,11 @@ test("an unknown run id is refused on dismiss and undismiss", async () => {
 
 test("a missing runId is refused invalid_params on dismiss and undismiss", async () => {
   const dismissResponse = await dismissDirect(handlers);
-  expect(dismissResponse).toEqual({ kind: "error", code: "invalid_params", message: "runId required" });
+  expect(dismissResponse).toEqual({
+    kind: "error",
+    code: "invalid_params",
+    message: "dismiss requires exactly one of runId or project",
+  });
 
   const undismissResponse = await undismissDirect(handlers);
   expect(undismissResponse).toEqual({ kind: "error", code: "invalid_params", message: "runId required" });
@@ -320,4 +332,128 @@ test("dismissing a mid-flight run changes only dismissed_at and lets it settle t
   const settledRun = loadRunOrThrow(stateStore, runId);
   expect(settledRun.status).toBe("completed");
   expect(settledRun.dismissedAt).toEqual(expect.any(Number));
+});
+
+test("dismiss { project } dismisses matched-project and invocation-linked terminal rows, leaving nonterminal rows and activeRuns untouched", async () => {
+  const snapshot = workflowSnapshot("inv-bulk-rpc", [
+    { stepId: "entry", role: "implement" },
+    { stepId: "sibling", role: "review" },
+  ]);
+  const entryRun = seedRun(stateStore, {
+    status: "completed",
+    project: "bulk-proj",
+    stepId: "entry",
+    workflowSnapshot: snapshot,
+  });
+  // Same invocation, different project: dismissed via invocation expansion, not project match.
+  const crossProjectSibling = seedRun(stateStore, {
+    status: "failed",
+    project: "other-proj",
+    branch: "sibling-br",
+    stepId: "sibling",
+    workflowSnapshot: snapshot,
+  });
+  const standaloneTerminal = seedRun(stateStore, {
+    status: "blocked",
+    project: "bulk-proj",
+    branch: "standalone",
+  });
+  const nonTerminalSameInvocation = seedRun(stateStore, {
+    status: "in-progress",
+    project: "bulk-proj",
+    branch: "sibling-live-br",
+    stepId: "sibling-live",
+    workflowSnapshot: workflowSnapshot("inv-bulk-rpc-live", [{ stepId: "sibling-live", role: "implement" }]),
+  });
+  const otherProjectTerminal = seedRun(stateStore, { status: "completed", project: "other-proj", branch: "op" });
+  const liveRunId = await startRunDirect(
+    handlers,
+    mockWriteLoopInput({ projectName: "bulk-proj", branchName: "bulk-proj-live" }),
+  );
+  if (!liveRunId) throw new Error("expected an admitted live run id");
+
+  const response = await dismissParams(handlers, { project: "bulk-proj" });
+  expect(response).toEqual({ kind: "response", result: { kind: "applied", dismissedCount: 3 } });
+
+  expect(loadRunOrThrow(stateStore, entryRun).dismissedAt).toEqual(expect.any(Number));
+  expect(loadRunOrThrow(stateStore, crossProjectSibling).dismissedAt).toEqual(expect.any(Number));
+  expect(loadRunOrThrow(stateStore, standaloneTerminal).dismissedAt).toEqual(expect.any(Number));
+
+  expect(loadRunOrThrow(stateStore, nonTerminalSameInvocation).dismissedAt).toBeNull();
+  expect(loadRunOrThrow(stateStore, otherProjectTerminal).dismissedAt).toBeNull();
+  expect(loadRunOrThrow(stateStore, liveRunId).dismissedAt).toBeNull();
+
+  const runs = await listRunsDirect(handlers);
+  const ids = runs?.map((row) => row.runId);
+  expect(ids).toContain(nonTerminalSameInvocation);
+  const liveRow = runs?.find((row) => row.runId === liveRunId);
+  expect(liveRow?.isLive).toBe(true);
+
+  fakeExecutor.settleAll();
+  await flushBackgroundRuns();
+  const attemptId = stateStore.recordAttemptStart(liveRunId);
+  stateStore.commitCompletionBoundary({ attemptId, runStatus: "completed", outcomeKind: "done" });
+});
+
+test("dismiss { project } returns the store-reported dismissedCount beyond default list retention", async () => {
+  const terminalIds: string[] = [];
+  for (let index = 0; index < 55; index++) {
+    terminalIds.push(
+      seedRun(stateStore, { project: "retention-proj", branch: `br-${index}`, status: "completed", createdAt: index }),
+    );
+  }
+
+  const response = await dismissParams(handlers, { project: "retention-proj" });
+  expect(response).toEqual({ kind: "response", result: { kind: "applied", dismissedCount: 55 } });
+
+  for (const runId of terminalIds) {
+    expect(loadRunOrThrow(stateStore, runId).dismissedAt).toEqual(expect.any(Number));
+  }
+});
+
+test("dismiss { project } with no matching undismissed terminal rows returns applied dismissedCount 0 and mutates nothing", async () => {
+  const runId = seedRun(stateStore, { status: "completed", project: "some-proj" });
+
+  const response = await dismissParams(handlers, { project: "no-match-proj" });
+  expect(response).toEqual({ kind: "response", result: { kind: "applied", dismissedCount: 0 } });
+  expect(loadRunOrThrow(stateStore, runId).dismissedAt).toBeNull();
+});
+
+test("dismiss carrying both runId and project refuses invalid_params and mutates nothing", async () => {
+  const runId = seedRun(stateStore, { status: "completed", project: "conflict-proj" });
+
+  const response = await dismissParams(handlers, { runId, project: "conflict-proj" });
+  expect(response).toEqual({
+    kind: "error",
+    code: "invalid_params",
+    message: "Provide exactly one of runId or project",
+  });
+  expect(loadRunOrThrow(stateStore, runId).dismissedAt).toBeNull();
+});
+
+test("dismiss carrying neither selector, and an empty project, each refuse invalid_params", async () => {
+  const neither = await dismissParams(handlers, {});
+  // `dismiss` takes either selector, so naming only runId misdescribes the refusal.
+  expect(neither).toEqual({
+    kind: "error",
+    code: "invalid_params",
+    message: "dismiss requires exactly one of runId or project",
+  });
+
+  const emptyProject = await dismissParams(handlers, { project: "" });
+  expect(emptyProject).toEqual({ kind: "error", code: "invalid_params", message: "project required" });
+});
+
+test("undismiss { project } refuses invalid_params and mutates nothing", async () => {
+  const runId = seedRun(stateStore, { status: "completed", project: "undismiss-proj" });
+  await dismissDirect(handlers, runId);
+  const dismissedAt = loadRunOrThrow(stateStore, runId).dismissedAt;
+
+  const response = await undismissParams(handlers, { project: "undismiss-proj" });
+  expect(response).toEqual({
+    kind: "error",
+    code: "invalid_params",
+    message: "undismiss does not accept a project selector",
+  });
+  expect(loadRunOrThrow(stateStore, runId).dismissedAt).toBe(dismissedAt);
 });

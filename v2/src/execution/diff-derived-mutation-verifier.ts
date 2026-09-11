@@ -55,6 +55,8 @@ type PassResult = {
 type SurvivingMutationResult = {
   kind: "surviving-mutation";
   mutation: string;
+  killingTests: string[];
+  killingSetObservedResult: "passed-confirmed" | "passed-unconfirmed" | "not-run";
   sourceSite: {
     file: string;
     line: number;
@@ -1098,10 +1100,14 @@ async function testCandidate(
   let mutationWritten = false;
   let recordWritten = false;
 
-  function survivorResult(): SurvivingMutationResult {
+  function survivorResult(
+    killingSetObservedResult: "passed-confirmed" | "passed-unconfirmed",
+  ): SurvivingMutationResult {
     const result: SurvivingMutationResult = {
       kind: "surviving-mutation",
       mutation: candidate.mutation,
+      killingTests: killingTestPathList,
+      killingSetObservedResult,
       sourceSite: {
         file: candidate.file,
         line: candidate.line,
@@ -1150,7 +1156,7 @@ async function testCandidate(
       // killed mutation to a false pass). Confirm with an isolated re-run at the same budget before
       // reporting a survivor; skip it only when there isn't time left to pay for it.
       const confirmationBudget = killingSetResult.timeoutMs;
-      if (now() + confirmationBudget > deadline) return survivorResult();
+      if (now() + confirmationBudget > deadline) return survivorResult("passed-unconfirmed");
 
       let confirmationPassed: boolean;
       try {
@@ -1172,7 +1178,7 @@ async function testCandidate(
         throw error;
       }
 
-      if (confirmationPassed) return survivorResult();
+      if (confirmationPassed) return survivorResult("passed-confirmed");
       // Confirmation failed: the mutation is killed. Fall through to the killed/null return below.
     }
   } catch (error) {
@@ -1196,10 +1202,12 @@ async function testCandidate(
   return null;
 }
 
-function missingRenderCoverage(promptPath: string): SurvivingMutationResult {
+function missingRenderCoverage(promptPath: string, observerTests?: readonly string[]): SurvivingMutationResult {
   return {
     kind: "surviving-mutation",
     mutation: "missing-render-coverage",
+    killingTests: observerTests === undefined ? [] : [...observerTests],
+    killingSetObservedResult: observerTests === undefined ? "not-run" : "passed-unconfirmed",
     sourceSite: { file: promptPath, line: 1 },
   };
 }
@@ -1216,6 +1224,8 @@ function missingKillingTest(candidate: Candidate): SurvivingMutationResult {
   return {
     kind: "surviving-mutation",
     mutation: "missing-killing-test",
+    killingTests: [],
+    killingSetObservedResult: "not-run",
     sourceSite: { file: candidate.file, line: candidate.line },
   };
 }
@@ -1224,6 +1234,8 @@ function importerDiscoveryCapExceeded(candidate: Candidate): SurvivingMutationRe
   return {
     kind: "surviving-mutation",
     mutation: "importer-discovery-cap-exceeded",
+    killingTests: [],
+    killingSetObservedResult: "not-run",
     sourceSite: { file: candidate.file, line: candidate.line },
   };
 }
@@ -1272,7 +1284,7 @@ async function verifyChangedPrompts(
         runScopedTests,
         observerTests,
       );
-      if (!renderedOutputObserved) return missingRenderCoverage(promptPath);
+      if (!renderedOutputObserved) return missingRenderCoverage(promptPath, observerTests);
     } catch (error) {
       if (error instanceof AsyncSubprocessError && error.code === "ETIMEDOUT") {
         return nonTerminatingRenderObserverMutation(promptPath);

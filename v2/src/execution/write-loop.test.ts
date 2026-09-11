@@ -6480,6 +6480,8 @@ export function isLoadSensitive(file: string): boolean {
             return {
               kind: "surviving-mutation",
               mutation: IN_LOOP_SURVIVING_MUTATION,
+              killingTests: ["v2/src/guard.test.ts"],
+              killingSetObservedResult: "passed-confirmed",
               sourceSite: { file: IN_LOOP_SURVIVING_SOURCE_FILE, line: IN_LOOP_SURVIVING_SOURCE_LINE },
               dualConstraint: true,
             };
@@ -6603,6 +6605,8 @@ index 1234567..abcdefg 100644
         verifyDiffDerivedMutations: async () => ({
           kind: "surviving-mutation",
           mutation: IN_LOOP_SURVIVING_MUTATION,
+          killingTests: ["v2/src/guard.test.ts"],
+          killingSetObservedResult: "passed-confirmed",
           sourceSite: { file: IN_LOOP_SURVIVING_SOURCE_FILE, line: IN_LOOP_SURVIVING_SOURCE_LINE },
         }),
         completionCommitter: async () => ({ commitSha: "commit-abc", filesChanged: 1 }),

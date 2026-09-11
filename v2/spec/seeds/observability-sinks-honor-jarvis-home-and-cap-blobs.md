@@ -16,7 +16,7 @@ Measured 2026-09-10 on the operator machine. `~/.jarvis/sessions/` held 1.24 mil
 - A test-preload guard fails the suite when any test writes under the real `~/.jarvis` (compare a pre/post snapshot of `sessions/`, `specs/`, and `telemetry.jsonl`, or fence the real home read-only for the test process).
 - Telemetry rows cap `exit_reason` and `warnings` at write time (a few KB, tail-truncated with a marker); the full text stays in the session log, which the row already joins to by `run_id`/`attempt_id`.
 - The session-log reaper falls back to file mtime against the same retention window when the name does not parse or the run row is gone; a live run row still protects its logs. Reaping is streamed, not `readdirSync`-then-filter, so a large directory does not stall cleanup.
-- One-time purge of the existing leak is operator housekeeping, not code (done 2026-09-10).
+- The bulk purge of the existing leak was operator housekeeping (2026-09-10: 1.24M files moved out by hand). Fixtures leaked before this lands, including ~2k skipped by that purge, are not purged by hand again: the mtime fallback reaps them on the first cleanup after they age past the window.
 
 ## Acceptance criteria
 

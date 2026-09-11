@@ -25,6 +25,10 @@ if (queryResult.hasMalformedResponse || socketPaths.some((path) => !(path in que
 
 The two conditions folded into that predicate are not the same claim. A socket file that exists but does not answer is inconclusive: a daemon may hold pipelines this listing cannot see, so refusing is right. A socket path that does not exist is conclusive: no daemon was ever listening on that digest, so it owns nothing and excluding it loses no ids. `pipeline list` already draws that line the tolerant way — it skips sockets that fail and merges what answers — which is why `list` renders an id that every verb then rejects.
 
+## Relation to the root cause
+
+This is one symptom of [[daemon-identity-is-not-its-version]]: the invoking digest's socket only fails to exist because the daemon's address is a function of its build. If that seed lands first, this one is moot — prefer it. Landing this one first is still worth it as a cheap, isolated unblock, since the umbrella is a large change and the prefix refusal costs an operator on every post-merge command.
+
 ## Decisions
 
 - Distinguish conclusive absence from inconclusive failure when judging listing completeness: a socket path absent from disk does not make the id set incomplete; a present-but-unanswering or malformed socket still does.

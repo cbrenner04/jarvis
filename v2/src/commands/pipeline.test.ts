@@ -1251,6 +1251,27 @@ describe("pipeline list", () => {
     ]);
   });
 
+  test("list --since and --state are forwarded so the daemon takes its filtered bypass", async () => {
+    // Without forwarding, the daemon applies its 50-newest-terminal cap and the client-side filter
+    // then runs over an already-truncated window, silently shortening every history query.
+    const cap = captureIo();
+    const sent: unknown[] = [];
+
+    const code = await withFixedUuid([SESSION_UUID, "pipe-list-filtered"], () =>
+      main(["pipeline", "list", "--since", "1000", "--state", "succeeded"], cap.io, {
+        ...pipelineDeps(undefined),
+        connectIpcClient: async () => makeIpcClient([pipelineListFrame("pipe-list-filtered", [])], { sent }),
+      }),
+    );
+
+    expect(code).toBe(0);
+    const frames = ipcFramesWithMethod(sent, "pipeline_list") as Array<{ params?: Record<string, unknown> }>;
+    expect(frames).toHaveLength(1);
+    expect(frames[0]?.params?.state).toBe("succeeded");
+    expect(typeof frames[0]?.params?.sinceMs).toBe("number");
+    expect(frames[0]?.params).not.toHaveProperty("includeDismissed");
+  });
+
   test("list without --all requests the parameterless snapshot", async () => {
     const cap = captureIo();
     const sent: unknown[] = [];

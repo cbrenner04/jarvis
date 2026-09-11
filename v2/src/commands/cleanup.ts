@@ -2275,6 +2275,11 @@ export function staleResetUnlandedCommitsGateReason(tipSha: string, commitCount:
   return `branch has ${commitCount} commit(s) not on base (tip ${tipSha}); ${staleResetUnlandedSalvageRecovery}`;
 }
 
+/** Refusal when the worktree holds a commit the branch ref cannot reach, so retiring it would lose work. */
+export function staleResetUnreachableWorktreeHeadGateReason(branch: string, worktreeHead: string): string {
+  return `worktree HEAD ${worktreeHead} is not reachable from ${branch}, so retiring the branch would discard it; ${staleResetUnlandedSalvageRecovery}`;
+}
+
 async function unlandedNonStagingPaths(
   projectRoot: string,
   branch: string,
@@ -2439,6 +2444,16 @@ export async function resetStaleWorkspace(
           refusalParts.push(staleResetUnlandedCommitsGateReason(worktreeHead, commitCount));
         }
       }
+    }
+    // Never-landed classification reasons entirely from the *branch* ref (`unlandedCommitCount` and
+    // `unlandedNonStagingPaths` compare `branch` against `baseRef` in `projectRoot`), so commits the
+    // worktree made that the branch ref cannot reach are invisible to it — a detached `HEAD`, or a
+    // branch ref moved back while the worktree kept committing. The descendant gate below was the
+    // only check that resolved `HEAD` inside the worktree, and `disposableLane` skips it. This gate
+    // survives the bypass: it does not require descent from base, only that retiring the branch
+    // cannot destroy a commit reachable only from the worktree.
+    if (disposableLane && !(await isDescendantOfBase(branch, worktreeHead, projectRoot, runner))) {
+      refusalParts.push(staleResetUnreachableWorktreeHeadGateReason(branch, worktreeHead));
     }
     if (!disposableLane) {
       if (!(await isDescendantOfBase(worktreeHead, baseRef, projectRoot, runner))) {

@@ -336,6 +336,10 @@ type PipelineReopenOutcome =
   | { kind: "applied"; stageRecordId: string }
   | { kind: "refused"; pipelineId: string; reason: PipelineReopenRefusalReason };
 
+type ProvisionalSkipReopenOutcome =
+  | { kind: "applied"; pipelineId: string; stageRecordIds: readonly string[] }
+  | { kind: "refused"; pipelineId: string; reason: "pipeline_not_found" };
+
 type PipelineStageAdmissionLoadOutcome = { kind: "absent" } | { kind: "present"; holderIdentity: string };
 
 type PipelineStageAdmissionClaimOutcome = { kind: "applied" } | { kind: "refused"; reason: "claim_lost" };
@@ -814,6 +818,9 @@ export interface StateStore {
    * `PipelineStageRecord.id` of the failed row on application.
    */
   reopenFailedPipeline(args: { pipelineId: string; branchKey?: string }): PipelineReopenOutcome;
+
+  /** Reopen every provisional skip on one branch; omitted `branchKey` defaults to `"default"`. */
+  reopenProvisionalSkippedStages(args: { pipelineId: string; branchKey?: string }): ProvisionalSkipReopenOutcome;
 
   /**
    * Atomically record a terminal-publication failure on the pipeline row without mutating
@@ -2245,6 +2252,42 @@ class StateStoreImpl implements StateStore {
       }
       throw error;
     }
+  }
+
+  reopenProvisionalSkippedStages(args: { pipelineId: string; branchKey?: string }): ProvisionalSkipReopenOutcome {
+    const branchKey = args.branchKey ?? DEFAULT_PIPELINE_STAGE_BRANCH_KEY;
+    return this.db.transaction((): ProvisionalSkipReopenOutcome => {
+      if (this.db.prepare("SELECT 1 FROM pipelines WHERE id = ?").get(args.pipelineId) === null) {
+        return { kind: "refused", pipelineId: args.pipelineId, reason: "pipeline_not_found" };
+      }
+
+      const candidates = this.db
+        .prepare(
+          `SELECT id FROM pipeline_stages
+           WHERE pipeline_id = ? AND branch_key = ? AND status = 'skipped' AND skip_provenance = 'provisional'
+           ORDER BY position ASC, id ASC`,
+        )
+        .all(args.pipelineId, branchKey) as Array<{ id: string }>;
+      const reopen = this.db.prepare(`
+        UPDATE pipeline_stages
+        SET status = 'pending',
+            skip_provenance = NULL,
+            workflow_invocation_id = NULL,
+            started_at = NULL,
+            ended_at = NULL,
+            artifact = NULL,
+            decided_at = NULL,
+            failure_detail = NULL
+        WHERE id = ? AND status = 'skipped' AND skip_provenance = 'provisional'
+      `);
+      const stageRecordIds: string[] = [];
+      for (const candidate of candidates) {
+        if (reopen.run(candidate.id).changes > 0) {
+          stageRecordIds.push(candidate.id);
+        }
+      }
+      return { kind: "applied", pipelineId: args.pipelineId, stageRecordIds };
+    })();
   }
 
   commitTerminalPublicationFailure(args: {

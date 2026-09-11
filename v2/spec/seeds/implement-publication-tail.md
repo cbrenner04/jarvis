@@ -29,6 +29,17 @@ Both were acceptance-complete at settlement (8/8 and 10/10 + 9/9; the only untic
 
 **The narrowing that matters: it is specific to the implement stage.** In the same session, on the same daemon, `intent` and `plan` stages published normally and ready-flipped — [#3778](https://github.com/cbrenner04/jarvis/pull/3778), [#3780](https://github.com/cbrenner04/jarvis/pull/3780), [#3781](https://github.com/cbrenner04/jarvis/pull/3781), [#3782](https://github.com/cbrenner04/jarvis/pull/3782) (intent) and [#3783](https://github.com/cbrenner04/jarvis/pull/3783) (plan). So `git`, `gh`, `origin`, auth and the publication primitives are all working; only the implement completion tail fails to reach them. Combined with 2026-09-10's finding that every durable row on such a branch is an `implement~link-N` whose log ends at `loop_finished` with no publication trace, the successor-dispatch gap named in this half's first acceptance criterion is the live hypothesis.
 
+**Counter-example in the same session, and it narrows the hypothesis sharply.** A fourth lane, `20260910T230153Z-surviving-mutation-settlement-records-killing-set`, published correctly and unaided: pushed, [#3787](https://github.com/cbrenner04/jarvis/pull/3787) opened, ready-flipped, and `prUrl` recorded on the durable row. So the tail is not uniformly broken. The distinguishing property is how the lane was dispatched:
+
+| Lane | Dispatch | Published |
+| --- | --- | --- |
+| `surviving-mutation-settlement-records-killing-set` | fresh, after `cleanup --abandon` retired the old workspace | **yes** |
+| `provisional-skip-provenance-in-state-store` | re-dispatch onto an existing branch carrying prior commits | no |
+| `pipeline-list-rpc-terminal-retention` | chained pipeline implement stage | no |
+| `bulk-terminal-run-dismissal-store` | chained pipeline implement stage | no |
+
+That is the shape to test first: a lane whose workspace and branch are materialized fresh from base publishes, while a re-dispatch over an existing branch and a chained pipeline implement stage do not. It is consistent with 2026-09-10's observation that every durable row on a failing branch is an `implement~link-N` whose log ends at `loop_finished` with no publication trace — the successor that publishes is not dispatched when the run re-enters an existing lane. Confirm the correlation against more lanes before building on it; four lanes is suggestive, not conclusive.
+
 This also silently violates the completion-honesty contract, under which a `completed` implement implies confirmed PR evidence — so the row is not merely unhelpful, it is untrue.
 
 ## Acceptance criteria

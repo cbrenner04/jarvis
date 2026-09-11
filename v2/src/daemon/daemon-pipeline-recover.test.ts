@@ -113,7 +113,12 @@ function seedFanOutPipeline(store: StateStore, args: { targetBranchKey: string; 
     store.createPipelineStageBranch({ pipelineId, stageId: "implement", branchKey });
   }
   for (const stageId of ["approve-intent", "plan", "approve-plan", "implement"] as const) {
-    store.updateStage({ pipelineId, stageId, branchKey: "default", patch: { status: "skipped" } });
+    store.updateStage({
+      pipelineId,
+      stageId,
+      branchKey: "default",
+      patch: { status: "skipped", skipProvenance: "terminal" },
+    });
   }
   for (const branchKey of BRANCH_KEYS) {
     store.updateStage({ pipelineId, stageId: "approve-intent", branchKey, patch: { status: "approved" } });
@@ -126,7 +131,12 @@ function seedFanOutPipeline(store: StateStore, args: { targetBranchKey: string; 
   });
   // Mirrors the real failure cascade: a failed workflow stage skips the rest of that branch's suffix.
   for (const stageId of ["approve-plan", "implement"] as const) {
-    store.updateStage({ pipelineId, stageId, branchKey: args.targetBranchKey, patch: { status: "skipped" } });
+    store.updateStage({
+      pipelineId,
+      stageId,
+      branchKey: args.targetBranchKey,
+      patch: { status: "skipped", skipProvenance: "provisional" },
+    });
   }
   return pipelineId;
 }

@@ -3615,6 +3615,7 @@ describe("failed pipeline reopen", () => {
     endedAt?: number | null;
     artifact?: unknown;
     failureDetail?: unknown;
+    decidedAt?: number | null;
   };
 
   function seedContinuationPipeline(stageSeeds: StageSeed[]): { pipelineId: string; stages: PipelineStageRecord[] } {
@@ -3657,17 +3658,22 @@ describe("failed pipeline reopen", () => {
         raw
           .prepare(
             `UPDATE pipeline_stages
-             SET status = ?, skip_provenance = ?, workflow_invocation_id = ?, started_at = ?, ended_at = ?, artifact = ?, failure_detail = ?
+             SET status = ?, skip_provenance = ?, workflow_invocation_id = ?, started_at = ?, ended_at = ?, artifact = ?, failure_detail = ?, decided_at = ?
              WHERE pipeline_id = ? AND stage_id = ? AND branch_key = ?`,
           )
           .run(
             seed.status,
-            seed.skipProvenance ?? (seed.status === "skipped" ? "provisional" : null),
+            seed.skipProvenance === undefined
+              ? seed.status === "skipped"
+                ? "provisional"
+                : null
+              : seed.skipProvenance,
             seed.workflowInvocationId ?? null,
             seed.startedAt ?? null,
             seed.endedAt ?? null,
             seed.artifact === undefined ? null : JSON.stringify(seed.artifact),
             seed.failureDetail === undefined ? null : JSON.stringify(seed.failureDetail),
+            seed.decidedAt ?? null,
             pipelineId,
             seed.stageId,
             seed.branchKey ?? "default",
@@ -4636,6 +4642,162 @@ describe("failed pipeline reopen", () => {
       storeA.close();
       storeB.close();
     }
+  });
+
+  test("reopens only provisional skips on the default branch and clears lifecycle fields without a failed anchor", () => {
+    const { pipelineId, stages } = seedContinuationPipeline([
+      {
+        status: "skipped",
+        skipProvenance: "provisional",
+        workflowInvocationId: "wf-provisional",
+        startedAt: 10,
+        endedAt: 20,
+        artifact: { note: "blocked" },
+        failureDetail: { message: "not run" },
+        decidedAt: 30,
+      },
+      {
+        status: "skipped",
+        skipProvenance: "terminal",
+        workflowInvocationId: "wf-terminal",
+        startedAt: 40,
+        endedAt: 50,
+        artifact: { note: "retired default" },
+        failureDetail: { message: "never applies" },
+        decidedAt: 60,
+      },
+      {
+        status: "skipped",
+        skipProvenance: null,
+        workflowInvocationId: "wf-legacy",
+        startedAt: 70,
+        endedAt: 80,
+        artifact: { note: "legacy" },
+        failureDetail: { message: "unknown provenance" },
+        decidedAt: 90,
+      },
+    ]);
+    expect(stages.some((stage) => stage.status === "failed")).toBe(false);
+    const provisional = stages[0];
+    if (!provisional) throw new Error("provisional stage should exist");
+    const before = rawStageRows(pipelineId);
+
+    expect(store.reopenProvisionalSkippedStages({ pipelineId })).toEqual({
+      kind: "applied",
+      pipelineId,
+      stageRecordIds: [provisional.id],
+    });
+
+    const after = rawStageRows(pipelineId);
+    const reopened = after.find((row) => row.id === provisional.id);
+    if (!reopened) throw new Error("reopened stage should exist");
+    expect(reopened.status).toBe("pending");
+    expect(reopened.skip_provenance).toBeNull();
+    expect(reopened.workflow_invocation_id).toBeNull();
+    expect(reopened.started_at).toBeNull();
+    expect(reopened.ended_at).toBeNull();
+    expect(reopened.artifact).toBeNull();
+    expect(reopened.failure_detail).toBeNull();
+    expect(reopened.decided_at).toBeNull();
+    for (const untouched of before.filter((row) => row.id !== provisional.id)) {
+      expect(after.find((row) => row.id === untouched.id)).toEqual(untouched);
+    }
+  });
+
+  test("provisional skip reopen is branch-scoped and leaves a failed row unchanged", () => {
+    const pipelineId = createFanOutPipeline(
+      "provisional-skip-branch-scope",
+      ["plan", "implement"],
+      [
+        { stageId: "plan", branchKey: "alpha" },
+        { stageId: "implement", branchKey: "alpha" },
+        { stageId: "implement", branchKey: "beta" },
+      ],
+    );
+    rawSeedStages(pipelineId, [
+      { stageId: "plan", branchKey: "alpha", status: "failed", failureDetail: { message: "boom" } },
+      {
+        stageId: "implement",
+        branchKey: "alpha",
+        status: "skipped",
+        skipProvenance: "provisional",
+        artifact: { note: "alpha blocked" },
+      },
+      {
+        stageId: "implement",
+        branchKey: "beta",
+        status: "skipped",
+        skipProvenance: "provisional",
+        artifact: { note: "beta blocked" },
+      },
+    ]);
+    const before = rawStageRows(pipelineId);
+    const alphaSkip = before.find((row) => row.stage_id === "implement" && row.branch_key === "alpha");
+    const alphaFailure = before.find((row) => row.stage_id === "plan" && row.branch_key === "alpha");
+    const betaSkip = before.find((row) => row.stage_id === "implement" && row.branch_key === "beta");
+    if (!alphaSkip || !alphaFailure || !betaSkip) throw new Error("branch rows should exist");
+
+    expect(store.reopenProvisionalSkippedStages({ pipelineId, branchKey: "alpha" })).toEqual({
+      kind: "applied",
+      pipelineId,
+      stageRecordIds: [alphaSkip.id],
+    });
+
+    const after = rawStageRows(pipelineId);
+    expect(after.find((row) => row.id === alphaSkip.id)?.status).toBe("pending");
+    expect(after.find((row) => row.id === alphaFailure.id)).toEqual(alphaFailure);
+    expect(after.find((row) => row.id === betaSkip.id)).toEqual(betaSkip);
+    expect(store.reopenProvisionalSkippedStages({ pipelineId, branchKey: "alpha" })).toEqual({
+      kind: "applied",
+      pipelineId,
+      stageRecordIds: [],
+    });
+  });
+
+  test("provisional skip reopen refuses an unknown pipeline without mutation", () => {
+    const { pipelineId } = seedContinuationPipeline([{ status: "skipped", skipProvenance: "provisional" }]);
+    const before = rawStageRows(pipelineId);
+
+    expect(store.reopenProvisionalSkippedStages({ pipelineId: "missing-pipeline" })).toEqual({
+      kind: "refused",
+      pipelineId: "missing-pipeline",
+      reason: "pipeline_not_found",
+    });
+    expect(rawStageRows(pipelineId)).toEqual(before);
+  });
+
+  test("provisional skip reopen excludes a row that loses its compare-and-set race", () => {
+    const { pipelineId, stages } = seedContinuationPipeline([
+      { status: "skipped", skipProvenance: "provisional", artifact: { note: "first" } },
+      { status: "skipped", skipProvenance: "provisional", artifact: { note: "second" } },
+    ]);
+    const first = stages[0];
+    const second = stages[1];
+    if (!first || !second) throw new Error("provisional stages should exist");
+    const triggerConnection = new Database(TEST_DB_PATH);
+    try {
+      triggerConnection.run(
+        `CREATE TRIGGER provisional_skip_reopen_interference
+         AFTER UPDATE OF status ON pipeline_stages
+         WHEN NEW.id = '${first.id}' AND NEW.status = 'pending'
+         BEGIN
+           UPDATE pipeline_stages SET status = 'succeeded', skip_provenance = NULL WHERE id = '${second.id}';
+         END;`,
+      );
+    } finally {
+      triggerConnection.close();
+    }
+
+    expect(store.reopenProvisionalSkippedStages({ pipelineId })).toEqual({
+      kind: "applied",
+      pipelineId,
+      stageRecordIds: [first.id],
+    });
+    const after = rawStageRows(pipelineId);
+    expect(after.find((row) => row.id === first.id)?.status).toBe("pending");
+    const settled = after.find((row) => row.id === second.id);
+    expect(settled?.status).toBe("succeeded");
+    expect(settled?.artifact).toBe(JSON.stringify({ note: "second" }));
   });
 });
 

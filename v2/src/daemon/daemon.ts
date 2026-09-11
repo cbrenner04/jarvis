@@ -51,8 +51,11 @@ import {
   NotificationWaitRegistry,
 } from "./daemon-notification-wait.ts";
 import {
+  type ChangeoverOutcome,
   type EnumerateOtherDaemonSockets,
   enumerateOtherDaemonSockets,
+  type RequestChangeoverFromPublicPeer,
+  requestChangeoverFromPublicPeer,
   type SupersedePeerDaemon,
   supersedePeerDaemon,
 } from "./daemon-peer-socket.ts";
@@ -773,6 +776,12 @@ type DaemonStartupDeps = {
   /** Digest-keyed private endpoint bound before the public `socketPath`, so a generation that
    * loses the public bind is still reachable by a successor. Undefined skips the private bind. */
   privateSocketPath?: string;
+  /** Requests changeover from a live peer at the public address before binding it. Defaults to
+   * {@link requestChangeoverFromPublicPeer}. */
+  requestChangeoverFromPublicPeer?: RequestChangeoverFromPublicPeer;
+  /** Production write-loop body, overridable so tests can admit a run that stays running until
+   * released instead of invoking the real agent-executing loop. */
+  writeLoopExecutor?: (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => Promise<void>;
 };
 
 export async function recoverReconciledRuns(
@@ -848,20 +857,22 @@ export async function startDaemonRuntime(
 
   await sweepOrphanReadyGateGroups(store);
 
-  const writeLoopExecutor = async (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => {
-    const logSink = openLogSink(logsPath);
-    try {
-      await executeWriteLoop({
-        ...applyOperatorSessionId(input, operatorSessionId),
-        stateStore: store,
-        logSink,
-        signal,
-        pauseSignal,
-      });
-    } finally {
-      logSink.close();
-    }
-  };
+  const writeLoopExecutor =
+    startupDeps.writeLoopExecutor ??
+    (async (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => {
+      const logSink = openLogSink(logsPath);
+      try {
+        await executeWriteLoop({
+          ...applyOperatorSessionId(input, operatorSessionId),
+          stateStore: store,
+          logSink,
+          signal,
+          pauseSignal,
+        });
+      } finally {
+        logSink.close();
+      }
+    });
 
   const tailStreamHandler = createTailStreamHandler({ stateStore: store, logReader: logReaderInstance });
 
@@ -916,17 +927,33 @@ export async function startDaemonRuntime(
     return { kind: "response", result: { ok: true } };
   };
 
+  /**
+   * Handoff request from an incoming generation: closes admission before anything else, then
+   * releases the public listener without awaiting its drain — awaiting here would block this very
+   * reply on the requester's own socket closing, which only happens once it has read the reply.
+   * The response names this generation's private endpoint so the successor can observe drain.
+   */
+  const changeoverHandler: RpcHandler = () => {
+    setRetiring();
+    const result: { privateSocketPath?: string } =
+      startupDeps.privateSocketPath !== undefined ? { privateSocketPath: startupDeps.privateSocketPath } : {};
+    void server.close();
+    return { kind: "response", result };
+  };
+
   const handlers: Record<string, RpcHandler> = {
     health: healthHandler,
     status: statusHandler,
     shutdown: shutdownHandler,
     supersede: supersedHandler,
+    changeover: changeoverHandler,
     ...runControlHandlers,
   };
 
   let server: IpcServer;
   let privateServer: IpcServer | undefined;
   const bindIpcServer = startupDeps.startIpcServer ?? startIpcServer;
+  const requestChangeover = startupDeps.requestChangeoverFromPublicPeer ?? requestChangeoverFromPublicPeer;
 
   try {
     // Private endpoint binds first: a generation that loses the public bind below is still
@@ -934,14 +961,23 @@ export async function startDaemonRuntime(
     if (startupDeps.privateSocketPath !== undefined) {
       privateServer = await bindIpcServer(startupDeps.privateSocketPath, handlers, tailStreamHandler);
     }
+    // A live peer at the public address is asked to hand off rather than treated as an occupancy
+    // conflict: it retires, releases the address, and reports its private endpoint before this
+    // resolves. No peer (fresh start) clears this the same as a completed handoff; a peer that is
+    // live but never completes the exchange aborts startup below without ever attempting to bind,
+    // leaving that peer's socket serving.
+    const changeoverOutcome: ChangeoverOutcome = await requestChangeover(socketPath);
+    if (changeoverOutcome.kind === "handoff-failed") {
+      throw new Error(`Daemon handoff at ${socketPath} failed: ${changeoverOutcome.reason}`);
+    }
     server = await bindIpcServer(socketPath, handlers, tailStreamHandler);
   } catch (err) {
     if (err instanceof DaemonSocketBindFailureError) {
       console.error(formatDaemonBindFailureLogLine(err));
-      process.exit(1);
+      processExit(1);
     }
     console.error(`Failed to start IPC server on ${socketPath}:`, err);
-    process.exit(1);
+    processExit(1);
   }
 
   // Send supersede to peer daemons after our server is listening, best-effort and non-blocking.

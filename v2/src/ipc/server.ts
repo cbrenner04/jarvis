@@ -422,7 +422,14 @@ function createIpcServerClose(
   activeSockets: Set<Socket>,
   setAcceptingConnections: (accepting: boolean) => void,
 ): IpcServer["close"] {
+  // Idempotent: a handoff's `changeover` handler can release this server while the process stays
+  // up serving its private endpoint, and full shutdown later closes the same handle again. Node's
+  // `server.close()` throws when the server is not listening, so a second call must be a no-op
+  // rather than re-invoking it.
+  let closed = false;
   return async (options) => {
+    if (closed) return;
+    closed = true;
     setAcceptingConnections(false);
     const drainTimeoutMs = options?.drainTimeoutMs ?? DEFAULT_DRAIN_TIMEOUT_MS;
     try {

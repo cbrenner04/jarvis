@@ -4315,6 +4315,43 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(branchList.trim()).toContain(branch);
   });
 
+  test("resetStaleWorkspace refuses a worktree HEAD the branch ref cannot reach when disposableLane is set", async () => {
+    // Never-landed classification compares the *branch* against base, so a commit reachable only
+    // from the worktree is invisible to it. Detach HEAD and commit there: the branch ref stays at
+    // base — classification would call this disposable — while the worktree holds real work that
+    // retiring the branch would destroy. The descendant gate used to catch this, and disposableLane
+    // skips it.
+    const branch = "impl/unreachable-worktree-head";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await realAsyncSubprocessRunner.runAsync("git", ["checkout", "--detach"], worktreePath);
+    const detachedRel = "detached-work.txt";
+    writeFileSync(join(worktreePath, detachedRel), "work only the worktree has\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", detachedRel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "detached work"], worktreePath);
+    const detachedSha = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
+
+    const teardownCalls: string[] = [];
+    const base = ghPrListRunner(projectRoot, []);
+    const result = await callReset(
+      branch,
+      {
+        runAsync: async (cmd, args, cwd) => {
+          if (cmd === "git" && args[0] === "worktree" && args[1] === "remove") teardownCalls.push("worktree-remove");
+          return base.runAsync(cmd, args, cwd);
+        },
+      },
+      noLiveDaemon,
+      silentIo,
+      { baseRef: "HEAD", disposableLane: true },
+    );
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(detachedSha);
+    expect(reason).toContain("not reachable from");
+    expect(teardownCalls).toEqual([]);
+  });
+
   test("resetStaleWorkspace refuses unlanded commits even when disposableLane is set", async () => {
     const branch = "impl/unlanded-disposable";
     const worktreePath = await setupWorktreeAndBranch(branch);

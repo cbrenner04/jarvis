@@ -38,12 +38,13 @@ function sectionBulletTexts(body: string, heading: string, bulletPattern: RegExp
  * counts, because naming one alongside another artifact really is two artifacts.
  */
 const SPEC_SCAFFOLDING_FILENAMES: ReadonlySet<string> = new Set(["index.md", "intent.md"]);
+const GLOB_PATTERN = /[*?]|\[[^\]]+\]/u;
 
 export function referencedArtifactPaths(text: string): string[] {
   const paths = new Set<string>();
   for (const match of text.matchAll(BACKTICKED_PATH_PATTERN)) {
     const path = match[1] ?? match[2];
-    if (path === undefined || SPEC_SCAFFOLDING_FILENAMES.has(path)) continue;
+    if (path === undefined || SPEC_SCAFFOLDING_FILENAMES.has(path) || GLOB_PATTERN.test(path)) continue;
     paths.add(path);
   }
   return [...paths];

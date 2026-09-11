@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { normalizePlanDraftSpecDir } from "./module-boundary-surfaces.ts";
+import { normalizePlanDraftSpecDir, referencedArtifactPaths } from "./module-boundary-surfaces.ts";
 
 const scratchRoot = resolve(".scratch");
 const tempDirs: string[] = [];
@@ -51,6 +51,53 @@ describe("plan draft normalization", () => {
     });
 
     expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
+  });
+
+  test("accepts a Decisions bullet naming a glob convention beside one concrete artifact", () => {
+    const dir = scratchDir("glob-with-concrete-artifact");
+    stageDraft(dir, {
+      "00-sandbox.md":
+        "# Sandbox\n\n## Decisions\n\n- `*.sandbox-unrunnable.test.ts` names the convention built by `shared/sandbox-unrunnable.test.ts`.\n\n## Acceptance criteria\n\n- [ ] The convention is accepted.\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
+  });
+
+  test.each([
+    "*.sandbox-unrunnable.test.ts",
+    "?.sandbox-unrunnable.test.ts",
+    "[ab].sandbox-unrunnable.test.ts",
+  ])("excludes the glob pattern %s from referenced artifacts", (glob) => {
+    expect(referencedArtifactPaths(`\`${glob}\``)).toEqual([]);
+  });
+
+  test.each([
+    "## Acceptance criteria",
+    "## Decisions",
+    "## Documentation updates",
+  ])("excludes glob conventions under %s", (heading) => {
+    const dir = scratchDir(`glob-${heading.replace(/[^a-z]+/giu, "-")}`);
+    const bullet = `\`*.sandbox-unrunnable.test.ts\` names the convention built by \`shared/sandbox-unrunnable.test.ts\`.`;
+    stageDraft(dir, {
+      "00-sandbox.md":
+        heading === "## Acceptance criteria"
+          ? `# Sandbox\n\n${heading}\n\n- [ ] ${bullet}\n`
+          : `# Sandbox\n\n${heading}\n\n- ${bullet}\n\n## Acceptance criteria\n\n- [ ] The convention is accepted.\n`,
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).not.toThrow();
+  });
+
+  test("still rejects a glob convention beside two concrete artifacts", () => {
+    const dir = scratchDir("glob-with-two-concrete-artifacts");
+    stageDraft(dir, {
+      "00-sandbox.md":
+        "# Sandbox\n\n## Decisions\n\n- `*.sandbox-unrunnable.test.ts` names the convention built by `shared/first.test.ts` and `shared/second.test.ts`.\n\n## Acceptance criteria\n\n- [ ] The convention is accepted.\n",
+    });
+
+    expect(() => normalizePlanDraftSpecDir(dir)).toThrow(
+      "Plan subspec 00-sandbox.md has a ## Decisions bullet naming multiple artifact paths (shared/first.test.ts, shared/second.test.ts)",
+    );
   });
 
   test("still rejects a bullet naming two root-level artifact files", () => {

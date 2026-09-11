@@ -66,6 +66,8 @@ A bullet under `## Acceptance criteria`, `## Decisions`, or `## Documentation up
 
 Wording that matches neither exemption is refused (fail closed). A bullet mixing stays-unchanged wording with a genuine build claim on a second artifact is still refused.
 
+A backticked token containing glob syntax (`*`, `?`, or a bracketed character class) names a file convention rather than a concrete artifact, not a counted artifact path. It may accompany the one concrete artifact that the bullet builds or changes.
+
 Review the generated index and subspecs on the PR; edit the files directly if needed, then merge. Once merged, the spec is available to `implement`. Plan-generated specs follow the same merge-first rule.
 
 When work starts from a structured index (a feature checklist, a work queue): treat the item plus matching context docs as source input, write a concise build brief, draft with `intent`/`plan`, implement with `implement`. Do not frame work-start prompts as "draft a spec" — done is merged implementation code, not generated spec artifacts.

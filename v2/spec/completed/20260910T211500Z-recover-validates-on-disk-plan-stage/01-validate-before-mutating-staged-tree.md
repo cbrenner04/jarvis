@@ -21,5 +21,5 @@ On the blocked-write path, `admitPlanRecoveryBlockerAndClaim` (`v2/src/execution
 
 ## Documentation updates
 
-- [ ] `v2/docs/workflow-runner.md` — recovery refuses an invalid staged tree before mutating it; the harness-blocker strip happens only on an admitted, validated tree.
-- [ ] `v2/docs/v1-behaviors.md` — record the strip-after-validation ordering on the `recoverPlanStage` entry.
+- [x] `v2/docs/workflow-runner.md` — recovery refuses an invalid staged tree before mutating it; the harness-blocker strip happens only on an admitted, validated tree.
+- [x] `v2/docs/v1-behaviors.md` — record the strip-after-validation ordering on the `recoverPlanStage` entry.

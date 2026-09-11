@@ -19,11 +19,11 @@ A daemon process serves two endpoints: the stable public address `~/.jarvis/daem
 
 ## Acceptance criteria
 
-- [x] A daemon lifecycle test starts a daemon and proves `health` is answered on the stable public socket path under `JARVIS_HOME`, with no digest in the path; it fails against the pre-fix keyed-only addressing.
-- [x] A test proves the same running daemon also answers `health` on its digest-keyed private endpoint, so a successor can reach it.
-- [x] A test proves a CLI invocation resolves the public address for daemon-directed work regardless of the invoking executable digest: two invocations with different injected digests reach the same daemon; it fails against the pre-fix `daemonPathsByDigest` resolution in `v2/src/cli.ts`.
-- [x] A test proves a serving daemon records its PID at the public `~/.jarvis/daemon.pid` path and that `daemon status` reports `running` from the public socket probe.
-- [x] `bun run typecheck` passes.
+- [ ] A daemon lifecycle test starts a daemon and proves `health` is answered on the stable public socket path under `JARVIS_HOME`, with no digest in the path; it fails against the pre-fix keyed-only addressing.
+- [ ] A test proves the same running daemon also answers `health` on its digest-keyed private endpoint, so a successor can reach it.
+- [ ] A test proves a CLI invocation resolves the public address for daemon-directed work regardless of the invoking executable digest: two invocations with different injected digests reach the same daemon; it fails against the pre-fix `daemonPathsByDigest` resolution in `v2/src/cli.ts`.
+- [ ] A test proves a serving daemon records its PID at the public `~/.jarvis/daemon.pid` path and that `daemon status` reports `running` from the public socket probe.
+- [ ] `bun run typecheck` passes.
 - [ ] `bun run test:v2` passes.
 - [ ] `bun run test:integration:v2` passes.
 

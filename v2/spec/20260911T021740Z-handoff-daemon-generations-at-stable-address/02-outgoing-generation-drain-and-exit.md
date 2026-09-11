@@ -17,12 +17,12 @@ The incoming generation observes the outgoing generation's drain over the handof
 
 ## Acceptance criteria
 
-- [x] A multi-project test proves that upgrading while project A's run is in flight leaves a second registered project's in-flight run uninterrupted and still steerable to its normal outcome; it fails against the pre-fix shape where the run's owning daemon is addressable only by digest.
+- [ ] A multi-project test proves that upgrading while project A's run is in flight leaves a second registered project's in-flight run uninterrupted and still steerable to its normal outcome; it fails against the pre-fix shape where the run's owning daemon is addressable only by digest.
 - [ ] A lifecycle test proves an outgoing generation exits after its last admitted run settles and leaves no public socket file and no public PID ownership behind; it fails against the pre-fix retirement path that leaves the retiring daemon owning its keyed socket.
 - [ ] A test proves the incoming generation reports a run still held by the outgoing generation as live while that run is in flight, and stops reporting it once the outgoing generation has drained.
 - [ ] A test proves drain observation against an already-exited private endpoint completes without failing the incoming generation.
-- [x] `bun run typecheck` passes.
-- [x] `bun run test:v2` passes.
+- [ ] `bun run typecheck` passes.
+- [ ] `bun run test:v2` passes.
 - [ ] `bun run test:integration:v2` passes.
 
 ## Documentation updates

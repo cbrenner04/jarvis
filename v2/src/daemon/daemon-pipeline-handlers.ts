@@ -446,8 +446,11 @@ export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: Pipe
     }
     const { pipelineId } = params;
     const pipeline = store.loadPipeline(pipelineId);
-    const ownership = resolvePipelineOwnership(pipeline, store.currentOwnerIdentity());
-    return { kind: "response", result: { ...ownership, pipelineId } };
+    const ownerIdentity = store.currentOwnerIdentity();
+    const ownership = resolvePipelineOwnership(pipeline, ownerIdentity);
+    // The identity lets a caller tell one daemon answering on two socket paths (stable public plus
+    // digest-keyed private) from two daemons genuinely claiming the same pipeline.
+    return { kind: "response", result: { ...ownership, pipelineId, ownerIdentity } };
   };
 
   const pipeline_wait: RpcHandler = async (frame, signal) => {

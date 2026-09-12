@@ -20,10 +20,11 @@ The workflow runner's own terminal settlements in `v2/src/execution/workflow-run
 
 ## Acceptance criteria
 
-- [ ] `v2/src/execution/workflow-runner-publication.test.ts` proves a representative failure at the unresolvable-publication-agent settlement settles a run row whose `operatorFailureRecord` states expectation, observation, and `retryable: true`; it fails against the pre-fix verdict-only settlement.
-- [ ] `v2/src/execution/workflow-runner-publication.test.ts` proves a representative implement-publication failure with `readyGateOrigin: "repair_budget_exhausted"` settles a populated `operatorFailureRecord` with `retryable: false`, matching `loop_finished.resumable`; it fails against the pre-fix verdict-only settlement.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` and `bun run test:integration:v2` pass.
+- [x] `v2/src/execution/workflow-runner-publication.test.ts` proves a representative failure at the unresolvable-publication-agent settlement settles a run row whose `operatorFailureRecord` states expectation, observation, and `retryable: true`; it fails against the pre-fix verdict-only settlement.
+- [x] `v2/src/execution/workflow-runner-publication.test.ts` proves a representative implement-publication failure with `readyGateOrigin: "repair_budget_exhausted"` settles a populated `operatorFailureRecord` whose `retryable` matches `loop_finished.resumable`; it fails against the pre-fix verdict-only settlement. (Originally asserted `retryable: false`; corrected to `true` when subspec 01's `repair_budget_exhausted` rule was withdrawn — see that subspec's Decisions.)
+- [x] `v2/src/execution/workflow-runner-publication.test.ts` asserts `resumable` on the `runtime_smoke_failed` publication settlement. Adopting `readyFailureResumable` here reclassifies that kind `true` → `false`; the prior `true` was a known lie (`daemon-host.md` records that resume refuses smoke rows regardless), so the new value is correct, but it is a behavior change and is now pinned.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

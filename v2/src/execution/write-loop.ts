@@ -22,11 +22,10 @@ import {
 } from "../../../shared/invocation/execute.ts";
 import { openSessionLog, type SessionLog } from "../../../shared/invocation/session-log.ts";
 import { hasUncheckedNonHumanOnlyCriteria } from "../../../shared/linked-subspec-routing.ts";
+import type { OperatorFailureRecord } from "../../../shared/operator-failure-record.ts";
 import { renderPromptForStep } from "../../../shared/prompts/assemble.ts";
 import { INTENT_SPLIT_PROMPT_ID } from "../../../shared/prompts/intent-split.ts";
 import { PLAN_DRAFT_PROMPT_ID } from "../../../shared/prompts/plan-draft.ts";
-import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
-import { renderArtifactTemplate } from "../../../shared/prompts/render.ts";
 import { isHumanOnlyCriterion, parseSpec } from "../../../shared/spec-parser.ts";
 import {
   AsyncSubprocessError,
@@ -4122,7 +4121,7 @@ type ReadyFailureKind =
   | "non_terminating_mutation_failed"
   | "runtime_smoke_failed";
 
-function readyFailureResumable(
+export function readyFailureResumable(
   kind: ReadyFailureKind,
   outsidePaths: readonly string[] | undefined,
   priorRecords: ReturnType<typeof priorLogRecordsFromSink>,
@@ -4132,6 +4131,26 @@ function readyFailureResumable(
   return (
     kind === "ready_gate_failed" || kind === "surviving_mutation_failed" || kind === "non_terminating_mutation_failed"
   );
+}
+
+function readyGateOperatorFailureRecord(
+  kind: ReadyFailureKind,
+  error: Error | undefined,
+  retryable: boolean,
+  worktreePath: string,
+): OperatorFailureRecord | undefined {
+  if (kind !== "ready_gate_failed" && kind !== "ready_gate_command_missing" && kind !== "ready_gate_out_of_scope") {
+    return undefined;
+  }
+  const command = error instanceof ReadyGateError ? error.command : "unknown";
+  const exitCode = error instanceof ReadyGateError ? String(error.exitCode ?? "unknown") : "unknown";
+  const findings = error instanceof ReadyGateError ? error.output.trim().slice(-4096) : error?.message.trim();
+  return {
+    expectation: `ready gate "${command}" exits 0 with no findings`,
+    observation: `ready gate exited ${exitCode}; findings: ${findings || "none reported"}`,
+    retryable,
+    referencedPaths: [{ path: worktreePath, origin: "operator-repository" }],
+  };
 }
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: ready-gate failure classification fans over many terminal kinds
@@ -4147,6 +4166,12 @@ function readyFailed(
   const outOfScopeFields = readyGateOutOfScopeLogFields(error);
   const priorRecords = priorLogRecordsFromSink(args.logSink, result.runId);
   const resumable = readyFailureResumable(kind, outOfScopeFields.readyGateOutsidePaths, priorRecords);
+  const operatorFailureRecord = readyGateOperatorFailureRecord(
+    kind,
+    error,
+    resumable,
+    getExternalWorktreePath(args.worktree),
+  );
   const mutationFields = {
     ...survivingMutationLogFields(error),
     ...nonTerminatingMutationLogFields(error),
@@ -4178,6 +4203,7 @@ function readyFailed(
     status: terminalStatus,
     terminalCause: kind,
     ...(terminalFailureDetail !== undefined ? { terminalFailureDetail } : {}),
+    ...(operatorFailureRecord !== undefined ? { operatorFailureRecord } : {}),
     ...(result.prNumber !== undefined ? { prNumber: result.prNumber } : {}),
     ...(result.prUrl !== undefined ? { prUrl: result.prUrl } : {}),
   });

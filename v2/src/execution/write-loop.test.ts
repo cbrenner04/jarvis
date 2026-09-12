@@ -3268,6 +3268,7 @@ describe("write loop", () => {
       const result = await runLoop({
         jarvisRoot,
         stateDbPath,
+        maxIterations: 1,
         bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
         logSink,
         ...completionHooks,
@@ -3395,6 +3396,13 @@ describe("write loop", () => {
       const events = logSink.getEventsForRun(result.runId);
       expect(events.filter((event) => event.kind === "iteration_started")).toHaveLength(4);
       expect(events.filter((event) => event.kind === "ready_gate_repair")).toHaveLength(3);
+      expect(events.at(-1)).toMatchObject({
+        kind: "loop_finished",
+        loopOutcomeKind: "ready_gate_failed",
+        readyGateOrigin: "repair_budget_exhausted",
+        resumable: true,
+      });
+      expect(loadRunOnce(stateDbPath, result.runId)?.operatorFailureRecord?.retryable).toBe(true);
     });
 
     test("returns ready_gate_failed when the repair budget is exhausted", async () => {
@@ -4614,6 +4622,7 @@ describe("write loop", () => {
           stateDbPath,
           branchName,
           baseRef,
+          maxIterations: 2,
           logSink,
           readyGateScopeSeams: {
             reproduceReadyGateAtBaseRef: async () => ({ kind: "error", message: probeMessage }),
@@ -4636,6 +4645,7 @@ describe("write loop", () => {
         });
 
         expect(result.kind).toBe("ready_gate_failed");
+        expect(result.resumable).toBe(true);
         expect(invocations).toBeGreaterThanOrEqual(2);
         const events = logSink.getEventsForRun(result.runId);
         const probeIndex = events.findIndex((event) => event.kind === "ready_gate_base_ref_probe");
@@ -4644,6 +4654,12 @@ describe("write loop", () => {
         expect(repairIndex).toBeGreaterThan(probeIndex);
         expect(events[probeIndex]).toMatchObject({ kind: "ready_gate_base_ref_probe", message: probeMessage });
         expect(events.some((event) => event.kind === "ready_gate_repair")).toBe(true);
+        expect(events.at(-1)).toMatchObject({
+          kind: "loop_finished",
+          loopOutcomeKind: "ready_gate_failed",
+          resumable: true,
+        });
+        expect(loadRunOnce(stateDbPath, result.runId)?.operatorFailureRecord?.retryable).toBe(true);
       });
     });
 
@@ -6277,6 +6293,7 @@ export function isLoadSensitive(file: string): boolean {
       const result = await runLoop({
         jarvisRoot,
         stateDbPath,
+        maxIterations: 1,
         bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
         ...completionHooks,
         readyFinalizer: async () => {
@@ -6291,6 +6308,12 @@ export function isLoadSensitive(file: string): boolean {
         failureKind: "error",
         bindingAttempts: [],
         message: expect.stringContaining("tests failed"),
+      });
+      expect(settled?.operatorFailureRecord).toEqual({
+        expectation: 'ready gate "bun run ready" exits 0 with no findings',
+        observation: "ready gate exited 1; findings: tests failed",
+        retryable: true,
+        referencedPaths: [{ path: join(jarvisRoot, "worktrees", "demo", "write-run"), origin: "operator-repository" }],
       });
     });
 
@@ -6827,6 +6850,7 @@ index 1234567..abcdefg 100644
       expect(result.resumable).toBe(false);
       expect(result.runtimeSmokeCommand).toBe("bun run v2/src/cli.ts --help");
       expect(result.runtimeSmokeObservation).toBe("error: command failed");
+      expect(loadRunOnce(stateDbPath, result.runId)?.operatorFailureRecord).toBeNull();
       expect(logSink.getEventsForRun(result.runId).at(-1)).toMatchObject({
         kind: "loop_finished",
         loopOutcomeKind: "runtime_smoke_failed",

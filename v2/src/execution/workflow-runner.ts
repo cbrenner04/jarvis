@@ -11,6 +11,7 @@ import {
   resolveActiveLinkedSubspec,
   resolvePinnedLinkedSubspec,
 } from "../../../shared/linked-subspec-routing.ts";
+import type { OperatorFailureRecord, OperatorFailureReferencedPath } from "../../../shared/operator-failure-record.ts";
 import { extractBlockerBody } from "../../../shared/spec-parser.ts";
 import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import { LINK_STEP_ID_INFIX, SHRINK_STEP_ID_SUFFIX } from "../../../shared/write-sibling-step-id.ts";
@@ -60,7 +61,7 @@ import { type PublicationFailure, publicationFailureFor } from "./publication-re
 import type { ReadyFinalizer } from "./ready-finalize.ts";
 import {
   nonTerminatingMutationLogFields,
-  outOfScopeSettlementResumable,
+  ReadyGateError,
   readyGateFailureLogFields,
   readyGateOutOfScopeLogFields,
   survivingMutationLogFields,
@@ -119,6 +120,7 @@ import {
   exhaustedRedTerminalLogFields,
   getUncommittedPaths,
   publishWithReadyRepair,
+  readyFailureResumable,
   type WriteLoopInput,
   type WriteLoopOutcomeKind,
   type WriteLoopResult,
@@ -245,10 +247,54 @@ type WorkflowPublicationFailureKind =
   | "non_terminating_mutation_failed"
   | "runtime_smoke_failed";
 
+/** Expectation text for the publication failure kinds that don't carry a ready-gate command/exit/findings triple. */
+const WORKFLOW_PUBLICATION_EXPECTATION: Record<
+  Exclude<
+    WorkflowPublicationFailureKind,
+    "ready_gate_failed" | "ready_gate_command_missing" | "ready_gate_out_of_scope"
+  >,
+  string
+> = {
+  completion_commit_failed:
+    "completion publication lands: the completion commit, its push, and the draft PR all succeed",
+  ready_flip_failed: "the draft PR flips to ready after the completion commit lands",
+  surviving_mutation_failed: "the mutation-testing gate reports no surviving mutants",
+  non_terminating_mutation_failed: "the mutation-testing gate reports no non-terminating mutants",
+  runtime_smoke_failed: "the runtime smoke check exits 0 for the changed entrypoint",
+};
+
+function workflowPublicationOperatorFailureRecord(
+  kind: WorkflowPublicationFailureKind,
+  error: Error | undefined,
+  retryable: boolean,
+  worktreePath: string,
+): OperatorFailureRecord {
+  const referencedPaths: OperatorFailureReferencedPath[] = [{ path: worktreePath, origin: "operator-repository" }];
+  if (kind === "ready_gate_failed" || kind === "ready_gate_command_missing" || kind === "ready_gate_out_of_scope") {
+    const command = error instanceof ReadyGateError ? error.command : "unknown";
+    const exitCode = error instanceof ReadyGateError ? String(error.exitCode ?? "unknown") : "unknown";
+    const findings = error instanceof ReadyGateError ? error.output.trim().slice(-4096) : error?.message.trim();
+    return {
+      expectation: `ready gate "${command}" exits 0 with no findings`,
+      observation: `ready gate exited ${exitCode}; findings: ${findings || "none reported"}`,
+      retryable,
+      referencedPaths,
+    };
+  }
+  return {
+    expectation: WORKFLOW_PUBLICATION_EXPECTATION[kind],
+    observation: error?.message.trim() || "no failure detail captured",
+    retryable,
+    referencedPaths,
+  };
+}
+
 function settleWorkflowPublicationFailure(
   store: StateStore,
   runId: string,
   kind: WorkflowPublicationFailureKind,
+  resumable: boolean,
+  worktreePath: string,
   error?: Error,
   prNumber?: number,
   prUrl?: string,
@@ -258,11 +304,13 @@ function settleWorkflowPublicationFailure(
   // runtime_smoke_failed — settles failed, matching the resume path and the pre-atomic inline path.
   const terminalStatus = kind === "ready_flip_failed" ? "completed" : "failed";
   const terminalFailureDetail = workflowPublicationFailureTerminalDetail(kind, error);
+  const operatorFailureRecord = workflowPublicationOperatorFailureRecord(kind, error, resumable, worktreePath);
   store.commitTerminalRunSettlement({
     runId,
     status: terminalStatus,
     terminalCause: kind,
     ...(terminalFailureDetail !== undefined ? { terminalFailureDetail } : {}),
+    operatorFailureRecord,
     ...(prNumber !== undefined ? { prNumber } : {}),
     ...(prUrl !== undefined ? { prUrl } : {}),
   });
@@ -1096,11 +1144,19 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
       completionStep.publishCompletion !== false
     ) {
       const message = "no completion agent available to attribute the publication commit";
+      const operatorFailureRecord: OperatorFailureRecord = {
+        expectation:
+          "a configured agent, a durably recorded write-step completion agent, or a branch commit trailer resolves a publishing identity",
+        observation: message,
+        retryable: true,
+        referencedPaths: [{ path: getExternalWorktreePath(completionStep.worktree), origin: "operator-repository" }],
+      };
       store.commitTerminalRunSettlement({
         runId: lastResult.runId,
         status: "failed",
         terminalCause: "invocation_failure",
         terminalFailureDetail: terminalFailureDetailFromError(undefined, message),
+        operatorFailureRecord,
       });
       args.logSink?.append(lastResult.runId, {
         kind: "loop_finished",
@@ -1245,6 +1301,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 store,
                 lastResult.runId,
                 "completion_commit_failed",
+                true,
+                worktreePath,
                 new Error(uncommittedChangesMessage),
               );
               args.logSink?.append(lastResult.runId, {
@@ -1375,11 +1433,13 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
               const gateOutOfScopeFields = readyGateOutOfScopeLogFields(publication.failure.error);
               const priorRecords = priorLogRecordsFromSink(args.logSink, lastResult.runId);
               const publicationResumable =
-                publication.failure.kind === "ready_gate_out_of_scope"
-                  ? outOfScopeSettlementResumable(gateOutOfScopeFields.readyGateOutsidePaths, priorRecords)
-                  : publication.failure.kind === "ready_gate_command_missing"
-                    ? false
-                    : !isFlipFailure;
+                publication.failure.kind === "completion_commit_failed"
+                  ? true
+                  : readyFailureResumable(
+                      publication.failure.kind,
+                      gateOutOfScopeFields.readyGateOutsidePaths,
+                      priorRecords,
+                    );
               const publicationLoopFinishedBase = {
                 kind: "loop_finished" as const,
                 iterationsConsumed: totalIterationsConsumed,
@@ -1410,6 +1470,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
                 store,
                 lastResult.runId,
                 publication.failure.kind,
+                publicationResumable,
+                worktreePath,
                 publication.failure.error,
                 publication.failure.prNumber,
                 publication.failure.prUrl,
@@ -1477,6 +1539,8 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
             store,
             lastResult.runId,
             "completion_commit_failed",
+            true,
+            worktreePath,
             error instanceof Error ? error : new Error(message),
           );
           args.logSink?.append(lastResult.runId, {

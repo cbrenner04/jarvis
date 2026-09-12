@@ -520,6 +520,13 @@ describe("executeWorkflow completion publication", () => {
         },
       });
       expect(settledRow?.finishedAt).not.toBeNull();
+      // Not a ready-gate kind: the record states the flip's own expectation, not a gate
+      // command/exit/findings triple.
+      expect(settledRow?.operatorFailureRecord).toMatchObject({
+        expectation: "the draft PR flips to ready after the completion commit lands",
+        observation: "gh pr ready failed",
+        retryable: false,
+      });
     });
   });
 
@@ -540,10 +547,14 @@ describe("executeWorkflow completion publication", () => {
         },
       });
       expect(result.kind).toBe("runtime_smoke_failed");
+      // Adopting readyFailureResumable here reclassified this kind from resumable to not.
+      // The prior true was a known lie: resume refuses smoke rows regardless (daemon-host.md).
+      expect(result.resumable).toBe(false);
       const settledRow = store.loadRun(result.runId);
       // Only ready_flip_failed keeps the run completed; runtime_smoke_failed must settle failed.
       expect(settledRow?.status).toBe("failed");
       expect(settledRow?.terminalCause).toBe("runtime_smoke_failed");
+      expect(settledRow?.operatorFailureRecord?.retryable).toBe(false);
       expect(settledRow?.finishedAt).not.toBeNull();
     });
   });
@@ -731,6 +742,11 @@ describe("executeWorkflow completion publication", () => {
       const run = store.loadRun(result.runId);
       expect(run?.status).toBe("failed");
       expect(run?.retainedFinalizationCheckpoint?.completionAgent).toBeTruthy();
+      expect(run?.operatorFailureRecord).toMatchObject({
+        expectation: 'ready gate "bun run ready" exits 0 with no findings',
+        retryable: true,
+        referencedPaths: [{ origin: "operator-repository" }],
+      });
       expect(events.at(-1)).toMatchObject({
         kind: "loop_finished",
         loopOutcomeKind: "ready_gate_failed",
@@ -1517,6 +1533,68 @@ describe("executeWorkflow completion publication", () => {
         .filter((event) => event.kind === "loop_finished")
         .at(-1);
       expect(terminal).toMatchObject({ loopOutcomeKind: "landing_failed", resumable: false });
+    });
+  });
+
+  test("settles an unresolvable publication agent with falsifiable retryable evidence", async () => {
+    const workspace = initGitWorkspace("unresolvable-publication-agent-");
+    writeFileSync(join(workspace, "base.txt"), "base\n", "utf8");
+    execFileSync("git", ["add", "."], { cwd: workspace });
+    execFileSync("git", ["commit", "-qm", "base"], { cwd: workspace });
+    const branchName = "unresolvable-publication-agent";
+    const step = createStep({ stepId: "implement", role: "implement", branchName, agents: [], suppressShrink: true });
+    step.worktree = {
+      projectRoot: workspace,
+      projectName: "demo",
+      branchName,
+      baseRef: "HEAD",
+      git: false,
+      localPath: workspace,
+    };
+    step.withExternalWorktree = externalWorktreeBinding(workspace);
+    const reviewStep: ReviewWorkflowStep = {
+      behavior: "review",
+      stepId: "review",
+      project: "demo",
+      branch: branchName,
+      cwd: workspace,
+      prompt: "review",
+      verdictPath: join(workspace, ".jarvis-review-verdict.md"),
+      maxCycles: 1,
+      agents: { critic: ["claude"], actuator: ["codex"] },
+      agentModelConfig: {
+        claude: { critic: { rungs: [{ adapterModel: "critic", priceKey: "critic" }] } },
+        codex: { actuator: { rungs: [{ adapterModel: "actuator", priceKey: "actuator" }] } },
+      },
+      // Approves immediately (empty verdict): the actuator never runs, so no completion agent is
+      // ever recorded for either the write step or the review step.
+      createBinding: () => ({
+        id: "claude",
+        metadata: { agent: "claude", model: "claude" },
+        invoke: async () => ({ kind: "ok" as const, stdout: "", stderr: "" }),
+      }),
+    };
+
+    const logSink = new TestLogSink();
+    await withStateStore(async (store) => {
+      seedCompletedWriteRunWithoutAgent(store, step, workspace, "unresolvable-publication-agent-inv");
+      const result = await executeWorkflow({ steps: [step, reviewStep], stateStore: store, logSink });
+
+      expect(result.kind).toBe("invocation_failure");
+      expect(result.resumable).toBe(true);
+      const run = store.loadRun(result.runId);
+      expect(run?.operatorFailureRecord).toMatchObject({
+        expectation:
+          "a configured agent, a durably recorded write-step completion agent, or a branch commit trailer resolves a publishing identity",
+        observation: "no completion agent available to attribute the publication commit",
+        retryable: true,
+        referencedPaths: [{ path: workspace, origin: "operator-repository" }],
+      });
+      const terminal = logSink
+        .getEventsForRun(result.runId)
+        .filter((event) => event.kind === "loop_finished")
+        .at(-1);
+      expect(terminal).toMatchObject({ loopOutcomeKind: "invocation_failure", resumable: true });
     });
   });
 

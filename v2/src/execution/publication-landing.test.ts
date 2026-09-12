@@ -196,10 +196,15 @@ describe("publication landing hooks", () => {
   test("retains staged plans on shape failure and rejects differing collisions", async () => {
     const root = repo();
     mkdirSync(join(root, ".jarvis-plan-stage"));
-    writeFileSync(join(root, ".jarvis-plan-stage", "index.md"), "# Plan\n");
-    await expect(
+    const empty = await capturePlanTreeLandingError(
       landPublication({ kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: "v2/spec/tree" }, root),
-    ).rejects.toThrow("invalid shape");
+    );
+    expect(empty.operatorFailureRecord.observation).toBe("plan tree files are (none)");
+    writeFileSync(join(root, ".jarvis-plan-stage", "index.md"), "# Plan\n");
+    const partial = await capturePlanTreeLandingError(
+      landPublication({ kind: "plan-tree", stagingDir: ".jarvis-plan-stage", durablePath: "v2/spec/tree" }, root),
+    );
+    expect(partial.operatorFailureRecord.observation).toBe("plan tree files are index.md");
     writeFileSync(join(root, ".jarvis-plan-stage", "index.md"), "# Plan\n\n- [ ] [First](./00-first.md)\n");
     writeFileSync(join(root, ".jarvis-plan-stage", "intent.md"), "intent\n");
     writeFileSync(join(root, ".jarvis-plan-stage", "00-first.md"), "# staged\n");

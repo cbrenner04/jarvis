@@ -26,6 +26,21 @@ Deleting the orphan corrected all three trees with no other edit. The draft prom
 
 Consider naming the unlinked-staged-subspec shape specifically in the reprompt: the detail names the file the index *fails* to link, which reads as "add a link" when the correct repair is usually "delete the stale file".
 
+## Evidence (2026-09-12) — orphaned renamed subspec, 3 of 3 plan lanes
+
+Every plan lane in one session failed `artifact.exists` the same way: the drafter authored a subspec, re-split or renamed it, updated `index.md` to the new name, and **left the original file in the staged tree**. The index links only the keepers, so the orphan is unlinked and the contract refuses.
+
+| Lane | Orphan left behind | Keeper(s) the index links |
+| --- | --- | --- |
+| `classify-and-checkpoint-gate-refusals` | `00-classify-and-checkpoint-gate-refusals.md` | `00-classify-refusal-cause.md`, `01-checkpoint-slot-refused-iteration.md` |
+| `bulk-terminal-run-dismissal-cli` | `00-project-scoped-run-dismissal.md` | `00-run-dismiss-project-selector.md` |
+
+The drafts were sound both times; the only correction was `rm` of one file. The plan-draft prompt already instructs the agent to delete the old file after a rename, so this is a compliance failure the harness could absorb rather than a missing instruction — which is exactly what a reprompt would fix, since the fix is mechanical and the agent has the staged tree in front of it.
+
+Cost per occurrence is asymmetric: a pipeline lane can be corrected in place with `jarvis pipeline recover` (verified working on the first lane above), but a **standalone** plan lane has no equivalent — re-dispatch retires the never-landed lane and redrafts, discarding a sound draft, so the second lane had to be hand-landed.
+
+Note the refusal message names the orphan (`Plan index does not link 00-….md`), so the harness already knows precisely which file is the problem.
+
 ## Decisions
 
 - On a plan-draft step `contract_miss`, spend one bounded reprompt to the same binding chain quoting the failed contract id and `contractMissDetail` verbatim, asking for a staged-tree fix only; re-run the contract evaluation after. Mirrors the existing `landing_contract_reprompt` shape. Rules out unbounded repair loops.

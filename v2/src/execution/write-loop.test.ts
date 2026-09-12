@@ -10316,6 +10316,7 @@ index 1234567..abcdefg 100644
 
         expect(result).toMatchObject({ kind: "gate_invocation_refused", gateRefusalCause: "ceiling_headroom" });
         expect(gitIn(worktreePath, ["rev-parse", "HEAD"])).toBe(seedBase);
+        expect(gitIn(worktreePath, ["status", "--porcelain"])).toContain("ceiling-headroom-proof.txt");
         const events = sink.getEventsForRun(result.runId);
         expect(events.some((event) => event.kind === "iteration_commit")).toBe(false);
       } finally {

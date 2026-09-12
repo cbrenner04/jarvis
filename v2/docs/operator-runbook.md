@@ -285,6 +285,15 @@ Every verb sends the resolved full pipeline id in its RPC, including when the op
 
 `wait`, `approve`, `reject`, `resume`, `recover`, `dismiss`, and `undismiss` each resolve the pipeline id argument, then the socket that owns it (`pipeline_owner`), then issue their RPC there — never against the invoking digest's socket directly, and never auto-starting a daemon at any step (see [`daemon-host.md` § Socket discovery](./daemon-host.md#socket-discovery)). This survives a digest rotation mid-pipeline: a merge between admitting a pipeline and running its next control verb no longer strands the verb behind `connect ENOENT`. A terminal pipeline, or one reconciled `interrupted`, has no live `owner` witness but still routes — to the resolver's deterministic (lexicographically smallest) socket — so `resume`/`recover` can still execute it; the verb's own daemon-side refusal (for example `pipeline_terminal_succeeded`) is still what prints for a genuinely terminal pipeline. Resolution failures refuse before any verb RPC, each with its own identifier: `pipeline_owner_conflict: Pipeline <id> is claimed by multiple daemons (<path1>, <path2>); this needs manual investigation before retrying.` (two live `owner` claimants — an operator, not the CLI, must resolve which is authoritative), `pipeline_no_live_owner: Pipeline <id> has no live owner; run jarvis daemon start, then retry.`, `pipeline_not_found: Pipeline <id> was not found; run jarvis pipeline list --all to verify the id.` (the id argument resolved to nothing), and `pipeline_daemon_unavailable: No live pipeline daemon responded; run jarvis daemon start, then retry.` (no owner probe answered; incomplete prefix listings refuse earlier).
 
+**A `pipeline_owner_conflict` naming two sockets can be one daemon (2026-09-12).** Since the stable public address landed, a daemon listens on both `~/.jarvis/daemon.sock` and its digest-keyed private endpoint, and client discovery unions both. Owner resolution counts distinct claimants by the daemon's own `ownerIdentity`, so one daemon answering twice is no longer a conflict ([#3818](https://github.com/cbrenner04/jarvis/pull/3818)) — but the refusal's wording ("claimed by multiple daemons … this needs manual investigation") still reads like the two-daemon shape whose recoveries are destructive. Confirm the process count before acting on it:
+
+```sh
+ps ax -o pid,command | grep '[d]aemon-entrypoint.ts'   # one PID = one daemon
+lsof -p <pid> | grep '\.sock$'                          # the paths that one daemon holds
+```
+
+Every other caller that unions the discovery set (`run list`, `cleanup`, prefix resolution) counts sockets the same way; the general fix is the [[connect-operator-clients-to-stable-daemon]] lane.
+
 ### Pipeline approve and reject
 
 Read the deciding `stageId` and `branchKey` from `pipeline wait` boundary JSON (`{kind:"awaiting-approval",stageId,branchKey}`) or from `pipeline list` stage rows (`status: "awaiting"`). Admit or reject the named branch gate:

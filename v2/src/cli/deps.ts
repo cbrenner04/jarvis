@@ -49,6 +49,8 @@ export type CliDeps = {
   pidPath: string;
   logPath: string;
   machineConfigPath: string;
+  /** Digest-keyed private endpoint `daemon start` binds alongside the public `socketPath`. */
+  privateSocketPath?: string;
 };
 
 export function createRuntimeDeps(deps?: Partial<CliDeps>): CliDeps {

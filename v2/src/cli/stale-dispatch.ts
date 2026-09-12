@@ -8,7 +8,7 @@ import { formatConnectionError, formatLifecycleError, formatRpcError } from "./i
 const CONNECT_DEADLINE_MS = 5000;
 const CONNECT_RETRY_INTERVAL_MS = 50;
 
-/** Connects to the keyed daemon, starting it when nothing is listening. A start that loses the race
+/** Connects to the public daemon, starting it when nothing is listening. A start that loses the race
  * (`DaemonAlreadyRunningError`) is treated as "the winner is up"; every other `startDaemon` error is
  * re-thrown unchanged. The post-start connect retries against injected `now`/`sleep` until its deadline. */
 export async function connectWithAutoStart(deps: CliDeps, socketPath: string): Promise<IpcClient> {
@@ -23,7 +23,11 @@ export async function connectWithAutoStart(deps: CliDeps, socketPath: string): P
   }
 
   try {
-    await deps.startDaemon(socketPath, { pidPath: deps.pidPath, logPath: deps.logPath });
+    await deps.startDaemon(socketPath, {
+      pidPath: deps.pidPath,
+      logPath: deps.logPath,
+      ...(deps.privateSocketPath === undefined ? {} : { privateSocketPath: deps.privateSocketPath }),
+    });
   } catch (error) {
     if (!(error instanceof DaemonAlreadyRunningError)) throw error;
     lastError = error;
@@ -60,7 +64,7 @@ function reportDispatchError(io: Io, error: unknown, connected: boolean): void {
   io.stderr(connected ? formatConnectionError(error) : formatLifecycleError(error));
 }
 
-/** Connects to the keyed daemon and dispatches work. Auto-starts the daemon if absent. */
+/** Connects to the public daemon and dispatches work. Auto-starts the daemon if absent. */
 export async function withConnectDispatch(
   io: Io,
   deps: CliDeps,

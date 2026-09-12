@@ -31,7 +31,8 @@ import {
   WORKFLOW_PLAN_USAGE,
   WORKFLOW_USAGE,
 } from "./cli/usage.ts";
-import { enumerateCommands, findCommand, resolveHelpFlagAlias } from "./cli.ts";
+import { enumerateCommands, findCommand, resolveHelpFlagAlias, main as runtimeMain } from "./cli.ts";
+import { DAEMON_SOCKET_PATH } from "./paths.ts";
 import { captureIo, cliMain as main, tempPaths, writeMachineConfig } from "./testing/cli-test-helpers.ts";
 
 const commandNames = "init, daemon, config, run, tui, pipeline, notifications, cleanup, help";
@@ -698,5 +699,24 @@ describe("v2 cli dispatch", () => {
         expect(cap.read().stderr).not.toContain(parentUnknownOutput(path));
       });
     }
+  });
+});
+
+describe("stable public daemon address resolution", () => {
+  test("daemon-directed work resolves the public socket regardless of executable digest", async () => {
+    const seenSocketPaths: string[] = [];
+    for (const digest of ["digest-one", "digest-two"]) {
+      const cap = captureIo();
+      const code = await runtimeMain(["daemon", "status"], cap.io, {
+        getExecutableDigest: async () => digest,
+        getDaemonStatus: async (socketPath) => {
+          seenSocketPaths.push(socketPath);
+          return { state: "stopped" };
+        },
+      });
+      expect(code).toBe(1);
+    }
+
+    expect(seenSocketPaths).toEqual([DAEMON_SOCKET_PATH, DAEMON_SOCKET_PATH]);
   });
 });

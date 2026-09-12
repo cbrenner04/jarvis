@@ -549,12 +549,7 @@ The daemon exposes a hermetic programmatic API over a Unix-domain-socket IPC tra
 - **IPC transport:** Length-prefixed JSON frames over Unix sockets. RPC methods
   (`health`, `status`, custom handlers) and multiplexed streams (log, workflow
   output). See [`daemon-host.md`](daemon-host.md) for frame shapes and semantics.
-- **Lifecycle API:** Programmatic `startDaemon`, `stopDaemon`, `getDaemonStatus`
-  in `daemon/daemon-lifecycle.ts`. Detached child process with bounded readiness
-  timeout, graceful shutdown (RPC + SIGTERM + SIGKILL), and double-start
-  protection. Production socket and PID defaults (`~/.jarvis/daemon.sock`,
-  `~/.jarvis/daemon.pid`) are pinned by the CLI and [`jarvis tui`](./write-behavior.md#tui-cli);
-  the lifecycle library still requires explicit paths from callers.
+- **Lifecycle API:** Programmatic `startDaemon`, `stopDaemon`, and `getDaemonStatus` in `daemon/daemon-lifecycle.ts`. The detached child has bounded readiness, graceful shutdown, and double-start protection. The CLI and [`jarvis tui`](./write-behavior.md#tui-cli) resolve the stable public `~/.jarvis/daemon.sock` and public `~/.jarvis/daemon.pid` regardless of executable digest; `daemon start` also supplies the digest-keyed private successor endpoint described in [`daemon-host.md`](daemon-host.md#socket-path). The lifecycle library requires explicit paths.
 - **In-memory worktree ownership:** Daemon holds a registry keyed by `{project,
   branch}` (the state-store resume key), recording `{runId, worktreePath}`.
   `claim` rejects double-claim; `release` is idempotent. No disk writes or

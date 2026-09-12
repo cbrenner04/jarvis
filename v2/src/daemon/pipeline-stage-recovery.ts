@@ -1,9 +1,11 @@
+import { join } from "node:path";
+import { isRecord } from "../../../shared/is-record.ts";
 import type { CompletionCommitter } from "../execution/completion-commit.ts";
 import type { PipelineStage } from "../execution/pipeline-definition.ts";
-import type { PublicationLanding } from "../execution/publication-landing.ts";
-import type { AnyWorkflowStep, ReviewDebateWorkflowStep, ReviewWorkflowStep } from "../execution/workflow-runner.ts";
+import type { PublicationInputs } from "../execution/publication-landing.ts";
 import {
   isPlanStageEntryRunRecoverable,
+  type PlanStageRecoveryLanding,
   type PlanStageRecoveryOutcome,
   type PlanStageRecoveryRequest,
   recoverPlanStage,
@@ -15,35 +17,22 @@ import type {
   PipelineStageRecord,
   StateStore,
 } from "../persistence/state-store.ts";
-import { DEFAULT_PIPELINE_STAGE_BRANCH_KEY, loadPipelineContext } from "../persistence/state-store.ts";
 import type { PipelineExecutionDeps } from "./pipeline-execution.ts";
-import {
-  buildBranchStageArtifacts,
-  continuePipeline,
-  fanOutPlanResultForBranch,
-  findFanOutSplit,
-  findStageRecord,
-} from "./pipeline-execution.ts";
-import { type PipelineStageArtifact, stageArtifactFromEntryRun } from "./pipeline-stage-dispatch.ts";
-import {
-  isFanOutStageResolution,
-  resolveStageWorkflowSteps,
-  singleStageResolutionSteps,
-} from "./pipeline-stage-resolve.ts";
+import { continuePipeline, findStageRecord } from "./pipeline-execution.ts";
+import { stageArtifactFromEntryRun } from "./pipeline-stage-dispatch.ts";
 
 type PipelineStageRecoveryDeps = {
   store: StateStore;
-  resolveStage?: typeof resolveStageWorkflowSteps;
+  /** Compatibility injection for callers sharing dispatch deps; recovery never invokes it. */
+  resolveStage?: PipelineExecutionDeps["resolveStage"];
 };
 
 type PipelineStageRecoveryRefusalReason =
   | "pipeline_not_found"
   | "branch_not_found"
-  | "missing_context"
   | "no_failed_stage"
   | "stage_not_plan"
   | "stage_not_linked"
-  | "stage_resolution_failed"
   | "stage_not_recoverable";
 
 /** A recovery target admitted for a branch's blocked plan stage: enough to build a `PlanStageRecoveryRequest`. */
@@ -53,7 +42,7 @@ type PipelineStageRecoveryTarget = {
   branch: string;
   worktreePath: string;
   writeStepId: string;
-  steps: AnyWorkflowStep[];
+  recoveryLanding: PlanStageRecoveryLanding;
   /** The captured failed row's own authored `stageId` — the row recovery execution admits, settles, and reopens. */
   stageId: string;
 };
@@ -62,26 +51,25 @@ type PipelineStageRecoveryResolution =
   | { ok: true; target: PipelineStageRecoveryTarget }
   | { ok: false; reason: PipelineStageRecoveryRefusalReason; message: string };
 
-type PlanTreeReviewStep = (ReviewWorkflowStep | ReviewDebateWorkflowStep) & {
-  landing: Extract<PublicationLanding, { kind: "plan-tree" }>;
-};
+const PLAN_STAGE_DIR = ".jarvis-plan-stage";
+const PLAN_VERDICT_FILE = "verdict-plan.md";
 
-function isPlanTreeReviewStep(step: AnyWorkflowStep): step is PlanTreeReviewStep {
-  return (step.behavior === "review" || step.behavior === "review-debate") && step.landing?.kind === "plan-tree";
+function isNonBlankString(value: unknown): value is string {
+  return typeof value === "string" && value.trim() !== "";
 }
 
-function intentDownstreamInputsForRecovery(
-  pipeline: Pipeline & { stages: PipelineStageRecord[] },
-  splitPosition: number,
-): readonly string[] | undefined {
-  const intentStage = pipeline.definition.stages[splitPosition];
-  if (intentStage === undefined) return undefined;
-  const intentRecord = findStageRecord(pipeline.stages, intentStage.stageId, DEFAULT_PIPELINE_STAGE_BRANCH_KEY);
-  const artifact = intentRecord?.artifact;
-  if (artifact !== null && typeof artifact === "object" && "downstreamInputs" in artifact) {
-    return (artifact as PipelineStageArtifact).downstreamInputs;
-  }
-  return undefined;
+function isPublicationInputs(value: unknown): value is PublicationInputs {
+  if (!isRecord(value) || !isNonBlankString(value.sourceRoot) || !Array.isArray(value.paths)) return false;
+  if (!value.paths.every(isNonBlankString)) return false;
+  return value.consumeFrom === "worktree" || value.consumeFrom === "source";
+}
+
+function stageNotRecoverable(stageId: string, detail: string): PipelineStageRecoveryResolution {
+  return {
+    ok: false,
+    reason: "stage_not_recoverable",
+    message: `stage "${stageId}" has incomplete durable recovery context: ${detail}`,
+  };
 }
 
 /** True when the pipeline carries any durable row (any status) under `branchKey`. */
@@ -107,18 +95,15 @@ function findBranchFailedWorkflowStage(
 
 /**
  * Resolves `{ pipelineId, branchKey }` against durable pipeline/stage rows into a recovery
- * target for that branch's blocked plan stage — its linked entry run, and the re-resolved
- * review actuator step(s) that carry the plan-tree landing, with `landing.durablePath` pinned
- * to the entry run's own recorded `specPath`. `branchKey: "default"` addresses unscoped rows;
- * no fan-out split is required. Effect-free: no store writes, no claims, no dispatch.
+ * target for that branch's blocked plan stage from its linked run and workflow snapshot.
+ * `branchKey: "default"` addresses unscoped rows. Effect-free: no store writes, claims,
+ * pipeline-context loads, workflow resolution, or dispatch.
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: one effect-free resolver walks pipeline, stage, fan-out split, branch-key binding, and entry-run lookup, returning a distinct named refusal at each step; the branches are a flat sequence of guards over shared resolution state, so extracting them would thread that state through helpers without reducing the decision count.
 export async function resolveBlockedPlanStageRecoveryTarget(
   args: { pipelineId: string; branchKey: string },
   deps: PipelineStageRecoveryDeps,
 ): Promise<PipelineStageRecoveryResolution> {
   const { store } = deps;
-  const resolveStage = deps.resolveStage ?? resolveStageWorkflowSteps;
   const { pipelineId, branchKey } = args;
 
   const pipeline = store.loadPipeline(pipelineId);
@@ -143,108 +128,58 @@ export async function resolveBlockedPlanStageRecoveryTarget(
   if (stage.workflow !== "plan") {
     return { ok: false, reason: "stage_not_plan", message: `stage "${stage.stageId}" is not a plan stage` };
   }
+  if (stage.review === "none") {
+    return stageNotRecoverable(stage.stageId, "plan stage has no review landing");
+  }
 
   const entryRunId = record.workflowInvocationId;
   const entryRun = entryRunId !== null ? store.loadRun(entryRunId) : null;
-  if (entryRunId === null || entryRun === null || !entryRun.stepId) {
+  if (entryRunId === null || entryRun === null) {
     return { ok: false, reason: "stage_not_linked", message: `stage "${stage.stageId}" has no linked entry run` };
   }
-
-  if (pipeline.context === null) {
-    return {
-      ok: false,
-      reason: "missing_context",
-      message: `pipeline ${pipelineId} has no persisted admission context`,
-    };
+  if (!isNonBlankString(entryRun.project) || !isNonBlankString(entryRun.branch)) {
+    return stageNotRecoverable(stage.stageId, "linked run identity is missing or malformed");
   }
-
-  const loadedContext = loadPipelineContext(pipeline.context);
-  if (!loadedContext.ok) {
-    return {
-      ok: false,
-      reason: "stage_resolution_failed",
-      message: `pipeline-context-loader: ${loadedContext.error.errors.join("; ")}`,
-    };
+  if (!isNonBlankString(entryRun.worktreePath) || !isNonBlankString(entryRun.specPath)) {
+    return stageNotRecoverable(stage.stageId, "linked run worktreePath or specPath is missing or malformed");
   }
-
-  const split = findFanOutSplit(pipeline);
-  const stageArtifacts =
-    split !== null ? buildBranchStageArtifacts(pipeline, split, branchKey, record.position) : new Map();
-
-  const resolution = await resolveStage(pipeline.definition, record.position, loadedContext.context, stageArtifacts, {
-    loadRun: (runId) => {
-      const run = store.loadRun(runId);
-      return run === null ? null : { worktreePath: run.worktreePath, branch: run.branch };
-    },
-    branchKey,
-    ...(split !== null ? { splitPosition: split.splitPosition } : {}),
-  });
-
-  if (resolution.ok === false) {
-    return {
-      ok: false,
-      reason: "stage_resolution_failed",
-      message: resolution.error,
-    };
+  if (!isNonBlankString(entryRun.stepId)) {
+    return stageNotRecoverable(stage.stageId, "linked write step identity is missing or malformed");
   }
-
-  const downstreamInputs =
-    split !== null ? intentDownstreamInputsForRecovery(pipeline, split.splitPosition) : undefined;
-  let resolvedSteps: AnyWorkflowStep[] | undefined;
-  if (branchKey === "default") {
-    resolvedSteps = isFanOutStageResolution(resolution) ? undefined : singleStageResolutionSteps(resolution);
-  } else if (isFanOutStageResolution(resolution)) {
-    const binding =
-      downstreamInputs === undefined
-        ? { ok: false as const, error: `pipeline-stage-recovery: branch "${branchKey}" has no paired stage resolution` }
-        : fanOutPlanResultForBranch(downstreamInputs, resolution.results, branchKey);
-    resolvedSteps = binding.ok ? binding.result.steps : undefined;
-    if (!binding.ok && resolvedSteps === undefined) {
-      return {
-        ok: false,
-        reason: "stage_resolution_failed",
-        message: binding.error,
-      };
-    }
-  } else {
-    resolvedSteps = singleStageResolutionSteps(resolution);
+  const snapshot = entryRun.workflowSnapshot;
+  if (!isRecord(snapshot) || !isNonBlankString(snapshot.invocationId) || !Array.isArray(snapshot.steps)) {
+    return stageNotRecoverable(stage.stageId, "linked workflow snapshot is missing or malformed");
   }
-  if (resolvedSteps === undefined) {
-    return {
-      ok: false,
-      reason: "stage_resolution_failed",
-      message: `pipeline-stage-recovery: branch "${branchKey}" has no paired stage resolution`,
-    };
+  const writeStep = snapshot.steps.find((candidate) => isRecord(candidate) && candidate.stepId === entryRun.stepId);
+  if (!isRecord(writeStep) || writeStep.expectedArtifactPath !== PLAN_STAGE_DIR) {
+    return stageNotRecoverable(stage.stageId, "linked write snapshot identity is missing or malformed");
   }
-
-  // Recovery never re-runs the leading write step.
-  const [, ...remainingSteps] = resolvedSteps;
-  const reviewStep = remainingSteps.find(isPlanTreeReviewStep);
-  if (reviewStep === undefined) {
-    return {
-      ok: false,
-      reason: "stage_not_recoverable",
-      message: `stage "${stage.stageId}" has no plan-tree review landing to recover`,
-    };
+  const reviewStep = snapshot.steps.find(
+    (candidate) =>
+      isRecord(candidate) &&
+      isNonBlankString(candidate.stepId) &&
+      (candidate.behavior === "review" || candidate.behavior === "review-debate"),
+  );
+  if (!isRecord(reviewStep) || !isNonBlankString(reviewStep.stepId)) {
+    return stageNotRecoverable(stage.stageId, "linked review snapshot identity is missing or malformed");
   }
-  if (reviewStep.cwd !== entryRun.worktreePath) {
-    return {
-      ok: false,
-      reason: "stage_not_recoverable",
-      message: `resolved review step cwd "${reviewStep.cwd}" does not match the linked run's worktree "${entryRun.worktreePath}"`,
-    };
+  if (!isPublicationInputs(writeStep.landingInputs)) {
+    return stageNotRecoverable(stage.stageId, "linked write snapshot landingInputs is missing or malformed");
   }
   if (!isPlanStageEntryRunRecoverable(entryRun, store, reviewStep.stepId)) {
-    return {
-      ok: false,
-      reason: "stage_not_recoverable",
-      message: `linked entry run for stage "${stage.stageId}" is not a recoverable plan stage`,
-    };
+    return stageNotRecoverable(stage.stageId, "linked entry run is not a recoverable plan stage");
   }
 
-  const recoveredStep: AnyWorkflowStep = {
-    ...reviewStep,
-    landing: { ...reviewStep.landing, durablePath: entryRun.specPath },
+  const recoveryLanding: PlanStageRecoveryLanding = {
+    stepId: reviewStep.stepId,
+    behavior: reviewStep.behavior as "review" | "review-debate",
+    verdictPath: join(entryRun.worktreePath, PLAN_STAGE_DIR, PLAN_VERDICT_FILE),
+    landing: {
+      kind: "plan-tree",
+      stagingDir: PLAN_STAGE_DIR,
+      durablePath: entryRun.specPath,
+      inputs: writeStep.landingInputs,
+    },
   };
 
   return {
@@ -255,7 +190,7 @@ export async function resolveBlockedPlanStageRecoveryTarget(
       branch: entryRun.branch,
       worktreePath: entryRun.worktreePath,
       writeStepId: entryRun.stepId,
-      steps: [recoveredStep],
+      recoveryLanding,
       stageId: stage.stageId,
     },
   };
@@ -397,7 +332,7 @@ async function runClaimedRecoveryAttempt(
       branch: target.branch,
       worktreePath: target.worktreePath,
       writeStepId: target.writeStepId,
-      steps: [...target.steps],
+      recoveryLanding: target.recoveryLanding,
       stateStore: store,
       ...(deps.logSink !== undefined ? { logSink: deps.logSink } : {}),
       ...(deps.completionCommitter !== undefined ? { completionCommitter: deps.completionCommitter } : {}),

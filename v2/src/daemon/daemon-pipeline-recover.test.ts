@@ -82,7 +82,16 @@ function seedBlockedPlanDraftRun(
     stepId: args.stepId,
     workflowSnapshot: {
       invocationId: args.invocationId,
-      steps: [{ stepId: args.stepId, role: "plan", expectedArtifactPath: ".jarvis-plan-stage", agents: ["claude"] }],
+      steps: [
+        {
+          stepId: args.stepId,
+          role: "plan",
+          expectedArtifactPath: ".jarvis-plan-stage",
+          agents: ["claude"],
+          landingInputs: { sourceRoot: args.worktreePath, paths: [], consumeFrom: "worktree" },
+        },
+        { stepId: "plan-review", role: "", behavior: "review" },
+      ],
     },
   });
   const attemptId = store.recordAttemptStart(runId);

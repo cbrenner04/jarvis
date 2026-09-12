@@ -62,14 +62,7 @@ import { lintReviewedStagedMarkdownOrFail } from "./reviewed-staged-markdown-lin
 import { resolvePublicationTitle } from "./spec-creation-title.ts";
 import { deriveSpecRunBodySummary } from "./spec-run-body-summary.ts";
 import { lintStagedMarkdown } from "./staged-markdown-lint.ts";
-import type {
-  AnyWorkflowStep,
-  ReviewDebateWorkflowStep,
-  ReviewWorkflowStep,
-  WorkflowResult,
-  WorkflowRunnerInput,
-  WriteWorkflowStep,
-} from "./workflow-runner.ts";
+import type { WorkflowResult, WorkflowRunnerInput, WriteWorkflowStep } from "./workflow-runner.ts";
 import { revalidateStagedPlanContract } from "./workflow-runner-debate-landing.ts";
 import {
   appendRuntimeSmokeOutcome,
@@ -655,17 +648,23 @@ export function isPlanStageEntryRunRecoverable(
 /**
  * Names one stopped plan run to recover: the run identified by `runId` must still resolve to
  * the persisted `(project, branch, worktreePath, writeStepId)` relationship captured for that
- * attempt. `steps` carries the captured review step, whose `landing`/`verdictPath` config
- * recovery reads to land the on-disk staged tree directly — recovery never dispatches that
- * step's review/actuator roles, and never constructs or invokes a plan-draft step itself.
+ * attempt. `recoveryLanding` carries only the durable review identity and plan-tree paths needed
+ * to land the on-disk staged tree directly; recovery never reconstructs or dispatches a workflow.
  */
+export type PlanStageRecoveryLanding = {
+  stepId: string;
+  behavior: "review" | "review-debate";
+  verdictPath: string;
+  landing: Extract<PublicationLanding, { kind: "plan-tree" }>;
+};
+
 export type PlanStageRecoveryRequest = Omit<WorkflowRunnerInput, "steps"> & {
   runId: string;
   project: string;
   branch: string;
   worktreePath: string;
   writeStepId: string;
-  steps: readonly AnyWorkflowStep[];
+  recoveryLanding: PlanStageRecoveryLanding;
   stateStore: StateStore;
 };
 
@@ -864,13 +863,6 @@ async function lintPlanRecoveryStage(
   }
 }
 
-/** Narrows a captured recovery step to the review/review-debate step carrying its plan-tree landing config. */
-function isPlanTreeLandingStep(step: AnyWorkflowStep): step is (ReviewWorkflowStep | ReviewDebateWorkflowStep) & {
-  landing: Extract<PublicationLanding, { kind: "plan-tree" }>;
-} {
-  return (step.behavior === "review" || step.behavior === "review-debate") && step.landing?.kind === "plan-tree";
-}
-
 export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promise<PlanStageRecoveryOutcome> {
   const store = request.stateStore;
   const run = store.loadRun(request.runId);
@@ -890,9 +882,15 @@ export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promi
     };
   }
   const writeStep = run.workflowSnapshot.steps.find((candidate) => candidate.stepId === run.stepId);
-  const capturedReviewStepIds = request.steps
-    .filter((step) => step.behavior === "review" || step.behavior === "review-debate")
-    .map((step) => step.stepId);
+  const landingStep = request.recoveryLanding;
+  if (landingStep === undefined || landingStep.landing?.kind !== "plan-tree") {
+    return {
+      ok: false,
+      code: "missing_plan_context",
+      message: "no plan-tree landing captured for recovery",
+    };
+  }
+  const capturedReviewStepIds = [landingStep.stepId];
   const reviewFailedPath = isReviewFailedPlanWriteRecoveryCandidate(run, writeStep, store, capturedReviewStepIds);
   const blockedWritePath = isBlockedPlanWriteRecoveryCandidate(run, writeStep);
   if ((!blockedWritePath && !reviewFailedPath) || !hasPopulatedPlanStage(run.worktreePath)) {
@@ -905,18 +903,6 @@ export async function recoverPlanStage(request: PlanStageRecoveryRequest): Promi
       message: "plan-stage recovery requires Git-backed publication mode",
     };
   }
-  // Resolved before anything mutates the staged tree. A request with no plan-tree landing step is a
-  // malformed *request*, not an invalid tree: refusing after the blocker strip would permanently
-  // edit the operator's `intent.md` and then report their markdown as the problem.
-  const landingStep = request.steps.find(isPlanTreeLandingStep);
-  if (landingStep === undefined) {
-    return {
-      ok: false,
-      code: "missing_plan_context",
-      message: "no plan-tree landing step captured for recovery",
-    };
-  }
-
   const blockerAdmission = admitPlanRecoveryBlockerAndClaim(
     run,
     store,

@@ -185,6 +185,7 @@ export async function startDaemon(
   const processProber = options?.processProber ?? { isAlive: isProcessAlive };
   const socketProber = options?.socketProber ?? { probe: probeSocket };
 
+  let predecessorSocketPath: string | undefined;
   const alreadyUp = await socketProber.probe(socketPath, 500);
   if (alreadyUp) {
     // Replaces the old immediate refusal: an occupied public address is a handoff, not a rejection.
@@ -199,6 +200,10 @@ export async function startDaemon(
     if (!released) {
       throw new DaemonHandoffFailedError(socketPath);
     }
+    // The outgoing generation's own private endpoint, so the spawned successor can observe its
+    // drain (see `daemon-drain-observer.ts`) rather than treating its already-admitted work as
+    // gone the moment it stops holding the public address.
+    predecessorSocketPath = outcome.privateSocketPath;
   }
 
   const daemonScript = options?.daemonScript ?? resolve(import.meta.dir, "../daemon-entrypoint.ts");
@@ -214,6 +219,7 @@ export async function startDaemon(
       ...process.env,
       DAEMON_SOCKET_PATH: socketPath,
       ...(options?.privateSocketPath === undefined ? {} : { DAEMON_PRIVATE_SOCKET_PATH: options.privateSocketPath }),
+      ...(predecessorSocketPath === undefined ? {} : { DAEMON_PREDECESSOR_SOCKET_PATH: predecessorSocketPath }),
       ...(options?.testOwnerPid === undefined ? {} : { TEST_DAEMON_OWNER_PID: String(options.testOwnerPid) }),
     },
   });

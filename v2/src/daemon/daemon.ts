@@ -45,6 +45,7 @@ import {
   type RunStatus,
   type StateStore,
 } from "../persistence/state-store.ts";
+import { observePredecessorDrain } from "./daemon-drain-observer.ts";
 import {
   createNotificationListHandler,
   createNotificationWaitHandler,
@@ -300,6 +301,35 @@ export function workflowInvocationIsLive(
  */
 export function shouldShutdownNow(shutdownRequested: boolean, isRetiring: boolean, hasActiveRuns: boolean): boolean {
   return shutdownRequested || (isRetiring && !hasActiveRuns);
+}
+
+/**
+ * Wires the drain-exit check on an interval: once `shouldShutdown` reads true (see
+ * {@link shouldShutdownNow}), it closes the daemon and exits — an outgoing generation whose
+ * active-run set empties while retiring exits on its own, owning nothing public. Extracted from
+ * `startDaemonRuntime` so the wiring itself, not just the guard, is exercisable against a real
+ * `close()`/socket-file outcome without spinning up a full daemon.
+ */
+export function startDrainExitLoop(deps: {
+  shouldShutdown: () => boolean;
+  close: () => Promise<void>;
+  processExit: (code: number) => void;
+  intervalMs?: number;
+}): { stop: () => void } {
+  const timer = setInterval(() => {
+    if (deps.shouldShutdown()) {
+      void deps
+        .close()
+        .then(() => {
+          deps.processExit(0);
+        })
+        .catch((err: unknown) => {
+          console.error("Error during shutdown:", err);
+          deps.processExit(1);
+        });
+    }
+  }, deps.intervalMs ?? 100);
+  return { stop: () => clearInterval(timer) };
 }
 
 /**
@@ -810,6 +840,13 @@ type DaemonStartupDeps = {
   processExit?: (code: number) => never;
   /** Digest-keyed private endpoint bound before the public `socketPath`. */
   privateSocketPath?: string;
+  /**
+   * The outgoing generation's private endpoint, learned from a successful `changeover` reply.
+   * When set, this daemon polls it for the predecessor's live run set (see
+   * `daemon-drain-observer.ts`) so `list` keeps reporting those runs live until it drains.
+   */
+  predecessorSocketPath?: string;
+  observePredecessorDrain?: typeof observePredecessorDrain;
 };
 
 export async function recoverReconciledRuns(
@@ -919,6 +956,11 @@ export async function startDaemonRuntime(
     return { kind: "response", result: { ok: true } };
   };
 
+  const predecessorDrainObserver =
+    startupDeps.predecessorSocketPath === undefined
+      ? undefined
+      : (startupDeps.observePredecessorDrain ?? observePredecessorDrain)(startupDeps.predecessorSocketPath);
+
   const {
     reportReviewDebateProgress: _reportReviewDebateProgress,
     clearLiveReviewDebateProgress: _clearLiveReviewDebateProgress,
@@ -943,6 +985,9 @@ export async function startDaemonRuntime(
     // (the historical no-op); the unit test injects `daemonSocketPath` directly and cannot catch that.
     daemonSocketPath: socketPath,
     reconciledRunIds,
+    ...(predecessorDrainObserver === undefined
+      ? {}
+      : { externalLiveRunIds: () => predecessorDrainObserver.liveRunIds() }),
     ...(startupDeps.writeLoopBindingSourceDeps !== undefined
       ? { writeLoopBindingSourceDeps: startupDeps.writeLoopBindingSourceDeps }
       : {}),
@@ -1043,11 +1088,12 @@ export async function startDaemonRuntime(
   const close = async (): Promise<void> => {
     if (closed) return;
     closed = true;
-    clearInterval(checkShutdown);
+    drainExitLoop.stop();
     clearInterval(notificationSweepTimer);
     process.off("SIGTERM", signalHandler);
     process.off("SIGINT", signalHandler);
     _closeRunControlHandlers();
+    predecessorDrainObserver?.stop();
     await server.close();
     if (privateServer !== undefined) {
       await privateServer.close();
@@ -1061,21 +1107,14 @@ export async function startDaemonRuntime(
     }
   };
 
-  // Extracted so both directions of the retiring/active-runs guard are unit-testable
-  // without a real timer (the deterministic-daemon-test guard forbids one).
-  const checkShutdown = setInterval(() => {
-    const shouldShutdown = shouldShutdownNow(shutdownRequested, isRetiring(), hasActiveRuns());
-    if (shouldShutdown) {
-      void close()
-        .then(() => {
-          processExit(0);
-        })
-        .catch((err: unknown) => {
-          console.error("Error during shutdown:", err);
-          processExit(1);
-        });
-    }
-  }, 100);
+  // Extracted (`startDrainExitLoop`) so both directions of the retiring/active-runs guard, and
+  // the wiring that closes and exits once it flips, are unit-testable without a real timer (the
+  // deterministic-daemon-test guard forbids one) or a full daemon.
+  const drainExitLoop = startDrainExitLoop({
+    shouldShutdown: () => shouldShutdownNow(shutdownRequested, isRetiring(), hasActiveRuns()),
+    close,
+    processExit,
+  });
 
   console.error(`Daemon running on socket ${socketPath} with PID ${process.pid}`);
   return { close };

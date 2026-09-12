@@ -14,6 +14,10 @@ if (!socketPath) {
 // The spawning CLI resolves this because its executable digest may differ from the daemon's.
 const privateSocketPath = process.env.DAEMON_PRIVATE_SOCKET_PATH || undefined;
 
+// Set only after a successful `changeover`: the outgoing generation's own private endpoint,
+// so this daemon can observe its drain (see `daemon-drain-observer.ts`).
+const predecessorSocketPath = process.env.DAEMON_PREDECESSOR_SOCKET_PATH || undefined;
+
 const testOwnerPid = Number(process.env.TEST_DAEMON_OWNER_PID);
 if (Number.isInteger(testOwnerPid) && testOwnerPid > 0) {
   setInterval(() => {
@@ -27,6 +31,7 @@ if (Number.isInteger(testOwnerPid) && testOwnerPid > 0) {
 
 startDaemonRuntime(socketPath, undefined, undefined, {
   ...(privateSocketPath === undefined ? {} : { privateSocketPath }),
+  ...(predecessorSocketPath === undefined ? {} : { predecessorSocketPath }),
 }).catch((err) => {
   console.error("Fatal daemon error:", err);
   process.exit(1);

@@ -748,6 +748,11 @@ export function createRunLifecycleHandlers(
     for (const activeRun of activeRuns.values()) {
       liveRunIds.add(activeRun.runId);
     }
+    // A run a draining predecessor generation still holds keeps reporting live at the stable
+    // public address until the predecessor actually drains (see `daemon-drain-observer.ts`).
+    for (const runId of ctx.externalLiveRunIds?.() ?? []) {
+      liveRunIds.add(runId);
+    }
 
     // Fold in dismissed siblings so the workflow index sees a complete invocation even when one
     // step run was filtered out above; siblings are indexed, not themselves listed.

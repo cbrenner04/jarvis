@@ -421,8 +421,15 @@ function createIpcServerClose(
   server: Server,
   activeSockets: Set<Socket>,
   setAcceptingConnections: (accepting: boolean) => void,
+  probeDetailed: DetailedSocketProbe,
 ): IpcServer["close"] {
+  let closed = false;
   return async (options) => {
+    // Handoff releases this server from an RPC handler and the daemon's own full shutdown may
+    // also call it; a second call must be a no-op rather than re-closing a stopped Node server
+    // or re-running the unlink race below against whoever now owns the path.
+    if (closed) return;
+    closed = true;
     setAcceptingConnections(false);
     const drainTimeoutMs = options?.drainTimeoutMs ?? DEFAULT_DRAIN_TIMEOUT_MS;
     try {
@@ -437,12 +444,15 @@ function createIpcServerClose(
         throw drainResult.reason;
       }
     } finally {
-      // Note: `server.close()` already unlinks by path, and node keys that on the path
-      // rather than the inode it created — so a socket force-rebound by a successor is
-      // removed by node before this runs. Guarding here would be inert; the durable
-      // protection is the start-side liveness check, which stops the replacement from
-      // happening at all.
-      rmSync(socketPath, { force: true }); // @mutate-equivalent mutation="skip-destructive: rmSync(" reason="node unlinks the socket path inside server.close() before this finally runs, so this defensive cleanup has no observable effect on any reachable path"
+      // Closing stops accepting new connections immediately, well before this `finally` runs, so
+      // a successor waiting for the path to go non-live can already have rebound it during our own
+      // drain wait. Unlinking unconditionally here would delete the successor's live socket instead
+      // of our own dead one — a probe first, so a `live` verdict (someone else now owns the path)
+      // leaves it alone.
+      const liveness = (await probeDetailed(socketPath, LIVENESS_PROBE_TIMEOUT_MS)).liveness;
+      if (liveness !== "live") {
+        rmSync(socketPath, { force: true });
+      }
     }
   };
 }
@@ -514,8 +524,14 @@ export async function startIpcServer(
 
   return listenForIpcServer(server, socketPath, probeDetailed, () => ({
     socketPath,
-    close: createIpcServerClose(socketPath, server, activeSockets, (accepting) => {
-      acceptingConnections = accepting;
-    }),
+    close: createIpcServerClose(
+      socketPath,
+      server,
+      activeSockets,
+      (accepting) => {
+        acceptingConnections = accepting;
+      },
+      probeDetailed,
+    ),
   }));
 }

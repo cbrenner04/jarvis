@@ -18,13 +18,13 @@ An incoming generation that finds a live peer on the public address opens an int
 
 ## Acceptance criteria
 
-- [ ] A changeover-race test proves the outgoing generation refuses new admission with `daemon_superseded` at a point strictly before it releases the public address, and that the public address answers `health` from the incoming generation once handoff reports success; it fails against the pre-fix refusal-on-occupied-address behavior.
-- [ ] A lifecycle test proves an incoming generation admits a new run at the stable address while the outgoing generation's already-admitted run keeps running under the outgoing generation; it fails against the pre-fix keyed-socket coexistence model pinned by `keyed-daemon-coexistence.sandbox-unrunnable.test.ts`.
-- [ ] A test proves an incoming generation whose handoff request goes unanswered fails startup and leaves the incumbent's public socket serving.
-- [ ] A test proves the handoff RPC reply names the outgoing generation's private endpoint and that the endpoint answers after the public address is released.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] A changeover-race test proves the outgoing generation refuses new admission with `daemon_superseded` at a point strictly before it releases the public address, and that the public address answers `health` from the incoming generation once handoff reports success; it fails against the pre-fix refusal-on-occupied-address behavior.
+- [x] A lifecycle test proves an incoming generation admits a new run at the stable address while the outgoing generation's already-admitted run keeps running under the outgoing generation; it fails against the pre-fix keyed-socket coexistence model pinned by `keyed-daemon-coexistence.sandbox-unrunnable.test.ts`.
+- [x] A test proves an incoming generation whose handoff request goes unanswered fails startup and leaves the incumbent's public socket serving.
+- [x] A test proves the handoff RPC reply names the outgoing generation's private endpoint and that the endpoint answers after the public address is released.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

@@ -758,6 +758,44 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   return handlersOut;
 }
 
+type ChangeoverHandlerDeps = {
+  /** The daemon's own private successor-only endpoint; `undefined` means it has nothing to hand off. */
+  getPrivateSocketPath: () => string | undefined;
+  /** Cuts admission for new `start`/`resume` calls; reuses the existing retiring state. */
+  setRetiring: () => void;
+  /** Releases the public listener; invoked only after the reply is queued for write. */
+  closePublicServer: () => Promise<void>;
+};
+
+/**
+ * `changeover` RPC: an incoming generation asks the current public-address occupant to hand off.
+ * Admission is cut off synchronously before the reply is built, so no work can be admitted after
+ * the successor is told to take the address. The public listener is released only after this
+ * response is written — `setImmediate` runs after the synchronous frame write in `dispatchRequest`'s
+ * `.then()` (`v2/src/ipc/server.ts`), so a caller can never observe a released address before it can
+ * see this reply's private endpoint.
+ */
+export function createChangeoverHandler(deps: ChangeoverHandlerDeps): RpcHandler {
+  return () => {
+    const privateSocketPath = deps.getPrivateSocketPath();
+    if (privateSocketPath === undefined) {
+      return {
+        kind: "error",
+        code: "no_private_endpoint",
+        message: "daemon has no private successor endpoint to hand off to",
+      };
+    }
+    deps.setRetiring();
+    setImmediate(() => {
+      deps.closePublicServer().catch(() => {
+        // Release failure leaves the address occupied; the successor's own wait-for-release
+        // times out and fails startup rather than unlinking a live peer's socket.
+      });
+    });
+    return { kind: "response", result: { ok: true, privateSocketPath } };
+  };
+}
+
 type DaemonStartupDeps = {
   logsPath?: string;
   openLogSink?: typeof openLogSink;
@@ -915,16 +953,24 @@ export async function startDaemonRuntime(
     return { kind: "response", result: { ok: true } };
   };
 
+  let server: IpcServer;
+  let privateServer: IpcServer | undefined;
+
+  const changeoverHandler = createChangeoverHandler({
+    getPrivateSocketPath: () => startupDeps.privateSocketPath,
+    setRetiring,
+    closePublicServer: () => server.close(),
+  });
+
   const handlers: Record<string, RpcHandler> = {
     health: healthHandler,
     status: statusHandler,
     shutdown: shutdownHandler,
     supersede: supersedHandler,
+    changeover: changeoverHandler,
     ...runControlHandlers,
   };
 
-  let server: IpcServer;
-  let privateServer: IpcServer | undefined;
   const bindIpcServer = startupDeps.startIpcServer ?? startIpcServer;
 
   try {

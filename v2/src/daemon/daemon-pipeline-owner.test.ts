@@ -68,7 +68,7 @@ test("classifies an owned active pipeline", async () => {
     new AbortController().signal,
   );
 
-  expect(response).toEqual({ kind: "response", result: { kind: "owner", pipelineId } });
+  expect(response).toEqual({ kind: "response", result: { kind: "owner", pipelineId, ownerIdentity: "daemon-a" } });
   store.close();
 });
 
@@ -84,7 +84,7 @@ test("classifies a foreign active pipeline", async () => {
     requestFrame("o", "pipeline_owner", { pipelineId }),
     new AbortController().signal,
   );
-  expect(response).toEqual({ kind: "response", result: { kind: "not_owner", pipelineId } });
+  expect(response).toEqual({ kind: "response", result: { kind: "not_owner", pipelineId, ownerIdentity: "daemon-b" } });
 
   // A `null`-owner active row is unowned, not foreign-owned, but resolves the same way: `not_owner`.
   setOwnerIdentity(stateDbPath, pipelineId, null);
@@ -92,7 +92,10 @@ test("classifies a foreign active pipeline", async () => {
     requestFrame("o2", "pipeline_owner", { pipelineId }),
     new AbortController().signal,
   );
-  expect(nullOwnerResponse).toEqual({ kind: "response", result: { kind: "not_owner", pipelineId } });
+  expect(nullOwnerResponse).toEqual({
+    kind: "response",
+    result: { kind: "not_owner", pipelineId, ownerIdentity: "daemon-b" },
+  });
   store.close();
 });
 
@@ -108,7 +111,7 @@ test("classifies reconciled and terminal pipelines", async () => {
   );
   expect(interruptedResponse).toEqual({
     kind: "response",
-    result: { kind: "durable_state", pipelineId: interruptedId, state: "pending" },
+    result: { kind: "durable_state", pipelineId: interruptedId, state: "pending", ownerIdentity: "daemon-a" },
   });
 
   // Terminal precedes ownership: `active` and owned by this daemon, but derived state is terminal.
@@ -120,7 +123,7 @@ test("classifies reconciled and terminal pipelines", async () => {
   );
   expect(terminalResponse).toEqual({
     kind: "response",
-    result: { kind: "durable_state", pipelineId: terminalOwnedId, state: "failed" },
+    result: { kind: "durable_state", pipelineId: terminalOwnedId, state: "failed", ownerIdentity: "daemon-a" },
   });
   store.close();
 });
@@ -133,7 +136,10 @@ test("classifies an absent pipeline", async () => {
     requestFrame("o", "pipeline_owner", { pipelineId: "no-such-pipeline" }),
     new AbortController().signal,
   );
-  expect(response).toEqual({ kind: "response", result: { kind: "not_found", pipelineId: "no-such-pipeline" } });
+  expect(response).toEqual({
+    kind: "response",
+    result: { kind: "not_found", pipelineId: "no-such-pipeline", ownerIdentity: "daemon-a" },
+  });
   store.close();
 });
 

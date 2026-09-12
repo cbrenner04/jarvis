@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
-import { type AcceptanceCriterion, type LinkedSubspec, parseSpec } from "./spec-parser.ts";
+import { type AcceptanceCriterion, isLinkedSubspecLine, type LinkedSubspec, parseSpec } from "./spec-parser.ts";
 
 /** Extract required integration test scope from acceptance criteria.
  * Looks for criteria containing `bun run test:integration:v2`.
@@ -217,10 +217,9 @@ export function advanceLinkedSubspecCheckbox(indexContent: string, linkIndex: nu
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
     if (!line) continue;
-    const match = line.match(/^\s*-\s\[(.)\]\s+\[([^\]]+)\]\(([^)]+)\)$/);
-    if (!match) continue;
+    if (!isLinkedSubspecLine(line)) continue;
     if (found === linkIndex) {
-      if (match[1]?.toLowerCase() === "x") return indexContent;
+      if (/^\s*-\s\[[xX]\]/.test(line)) return indexContent;
       lines[i] = line.replace(/^\s*-\s\[\s\]/, "- [x]");
       return lines.join("\n");
     }

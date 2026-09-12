@@ -40,6 +40,22 @@ export const PATCH_TIERS = ["trivial", "standard", "hard"] as const;
 export type PatchTier = (typeof PATCH_TIERS)[number];
 
 const taskPattern = /^\s*-\s\[([ xX])\]\s+(.*)$/;
+
+/**
+ * True when a task-line body opens with a Markdown link, which is what makes that task a linked
+ * subspec. The pattern deliberately does not anchor at the closing paren: an index link may carry a
+ * trailing annotation (`— why`, `(after 00)`). Every consumer that identifies index link lines must
+ * use this, or the two notions drift and a spec reads as having fewer links than it has.
+ */
+export function linkedSubspecBodyMatch(body: string): RegExpMatchArray | null {
+  return body.trim().match(/^\[([^\]]+)\]\(([^)]+)\)/);
+}
+
+/** True when a whole index line is a linked-subspec entry, annotated or not. */
+export function isLinkedSubspecLine(line: string): boolean {
+  const taskMatch = line.match(taskPattern);
+  return taskMatch?.[2] !== undefined && linkedSubspecBodyMatch(taskMatch[2]) !== null;
+}
 const h1Pattern = /^#\s+(.+)$/;
 const headingPattern = /^(#{1,6})\s+(.+)$/;
 
@@ -290,10 +306,7 @@ function parseTasksAndSubspecs(lines: string[]): {
     const body = taskMatch[2].trim();
     tasks.push({ checked, body });
 
-    // An index link may carry a trailing annotation (`— why`, `(after 00)`), so the pattern must not
-    // anchor at the closing paren: an unrecognized link is not a linked subspec at all, which makes
-    // every criterion under it invisible to implement routing.
-    const linkMatch = body.match(/^\[([^\]]+)\]\(([^)]+)\)/);
+    const linkMatch = linkedSubspecBodyMatch(body);
     if (linkMatch?.[1] && linkMatch[2]) {
       linkedSubspecs.push({
         checked,

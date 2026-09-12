@@ -13,7 +13,7 @@ const PIPELINE_OWNER_RPC_TIMEOUT_MS = 2_000;
 export const PIPELINE_NO_LIVE_OWNER_RECOVERY = "jarvis daemon start, then retry";
 
 type PipelineOwnerWitness =
-  | { kind: "owner" }
+  | { kind: "owner"; ownerIdentity?: string }
   | { kind: "not_owner" }
   | { kind: "durable_state"; state: PipelineDerivedState }
   | { kind: "not_found" };
@@ -52,10 +52,13 @@ const PIPELINE_TERMINAL_ACTIONS: ReadonlySet<string> = new Set(["leave-draft", "
 
 function parsePipelineOwnerWitness(value: unknown, pipelineId: string): PipelineOwnerWitness | undefined {
   if (typeof value !== "object" || value === null) return undefined;
-  const response = value as { kind?: unknown; pipelineId?: unknown; state?: unknown };
+  const response = value as { kind?: unknown; pipelineId?: unknown; state?: unknown; ownerIdentity?: unknown };
   if (response.pipelineId !== pipelineId) return undefined;
   switch (response.kind) {
     case "owner":
+      return typeof response.ownerIdentity === "string" && response.ownerIdentity.length > 0
+        ? { kind: "owner", ownerIdentity: response.ownerIdentity }
+        : { kind: "owner" };
     case "not_owner":
     case "not_found":
       return { kind: response.kind };
@@ -263,15 +266,20 @@ export async function resolvePipelineDaemonFromSocketPaths(
     (answer): answer is { socketPath: string; witness: Extract<PipelineOwnerWitness, { kind: "owner" }> } =>
       answer.witness?.kind === "owner",
   );
-  if (owners.length > 1) {
+  // One daemon binds more than one socket path (the stable public endpoint plus its digest-keyed
+  // private endpoint), so answering twice is not two claimants. Distinct daemons are distinguished
+  // by the owner identity the daemon stamps on its own rows; a daemon too old to report one falls
+  // back to its socket path, preserving the pre-identity conflict behaviour for legacy peers.
+  const distinctClaimants = new Set(owners.map(({ socketPath, witness }) => witness.ownerIdentity ?? socketPath));
+  if (distinctClaimants.size > 1) {
     return {
       kind: "pipeline_owner_conflict",
       pipelineId,
       claimantPaths: owners.map(({ socketPath }) => socketPath).sort(),
     };
   }
-  const owner = owners[0];
-  if (owner !== undefined) return { kind: "owner", pipelineId, socketPath: owner.socketPath };
+  const owner = owners.map(({ socketPath }) => socketPath).sort()[0];
+  if (owner !== undefined) return { kind: "owner", pipelineId, socketPath: owner };
 
   const durableAnswers = answers.filter(
     (

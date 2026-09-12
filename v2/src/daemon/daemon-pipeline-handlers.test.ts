@@ -380,7 +380,13 @@ test("pipeline_owner accepts a nonempty string pipelineId", async () => {
     new AbortController().signal,
   );
 
-  expect(response).toEqual({ kind: "response", result: { kind: "owner", pipelineId } });
+  // The identity lets a caller tell one daemon answering on two socket paths from two daemons
+  // genuinely claiming the same pipeline; without it every post-stable-address CLI verb refuses
+  // `pipeline_owner_conflict`.
+  expect(response).toEqual({
+    kind: "response",
+    result: { kind: "owner", pipelineId, ownerIdentity: stateStore.currentOwnerIdentity() },
+  });
 });
 
 test("pipelineExecutionDeps omits loadLogRecords without logReader", () => {

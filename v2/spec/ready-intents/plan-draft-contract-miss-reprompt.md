@@ -24,7 +24,8 @@ A plan write step whose staged tree fails a normalizer contract settles `blocked
 ## Acceptance criteria
 
 - [ ] A write-loop test proves a plan-draft `contract_miss` triggers exactly one reprompt carrying the failed contract id and detail, and that a staged fix passing re-evaluation settles the step's normal complete path; it fails against the current immediate-settle behavior.
-- [ ] A companion test proves a second consecutive miss settles `blocked` / `contract_miss` with the same operator-visible detail as today, with the reprompt recorded in the run log.
+- [ ] A write-loop test drives the unlinked-staged-subspec fixture from `plan-draft normalizer contract_miss carries failureReason on contract_miss_detail` (write-loop.test.ts) through a `contract_miss` and asserts the reprompt text tells the drafter to delete the stale file rather than add a link; it fails against the current immediate-settle behavior.
+- [ ] A companion test proves a second consecutive miss settles `blocked` / `contract_miss` with the same `contract_miss_detail` shape as `plan-draft normalizer contract_miss carries failureReason on contract_miss_detail` (write-loop.test.ts), with the reprompt recorded in the run log.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

@@ -20,6 +20,15 @@ export type DrainObserver = {
   stop(): void;
 };
 
+/** Union of live run ids across every observed predecessor, real or legacy keyed-socket. */
+export function unionLiveRunIds(observers: readonly Pick<DrainObserver, "liveRunIds">[]): ReadonlySet<string> {
+  const union = new Set<string>();
+  for (const observer of observers) {
+    for (const runId of observer.liveRunIds()) union.add(runId);
+  }
+  return union;
+}
+
 async function defaultListLiveRunIds(socketPath: string, timeoutMs: number): Promise<readonly string[]> {
   const client = await connectIpcClient(socketPath);
   const transport = createRpcTransport(client);

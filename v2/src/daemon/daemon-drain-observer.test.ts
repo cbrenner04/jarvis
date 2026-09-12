@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startIpcServer, type SocketLiveness } from "../ipc/server.ts";
+import { type SocketLiveness, startIpcServer } from "../ipc/server.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
-import { drainObservationEndsOnLiveness, observePredecessorDrain } from "./daemon-drain-observer.ts";
+import { drainObservationEndsOnLiveness, observePredecessorDrain, unionLiveRunIds } from "./daemon-drain-observer.ts";
 
 const socketTest = test.skipIf(!canUseUnixSockets());
 
@@ -162,5 +162,17 @@ describe("observePredecessorDrain", () => {
     });
     observer.stop();
     observer.stop();
+  });
+});
+
+describe("unionLiveRunIds", () => {
+  test("unions run ids across every observer, deduplicating overlaps", () => {
+    const a = { liveRunIds: () => new Set(["run-1", "run-2"]) };
+    const b = { liveRunIds: () => new Set(["run-2", "run-3"]) };
+    expect(unionLiveRunIds([a, b])).toEqual(new Set(["run-1", "run-2", "run-3"]));
+  });
+
+  test("returns an empty set for no observers", () => {
+    expect(unionLiveRunIds([])).toEqual(new Set());
   });
 });

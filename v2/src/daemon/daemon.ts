@@ -45,7 +45,7 @@ import {
   type RunStatus,
   type StateStore,
 } from "../persistence/state-store.ts";
-import { observePredecessorDrain } from "./daemon-drain-observer.ts";
+import { type DrainObserver, observePredecessorDrain, unionLiveRunIds } from "./daemon-drain-observer.ts";
 import {
   createNotificationListHandler,
   createNotificationWaitHandler,
@@ -843,7 +843,9 @@ type DaemonStartupDeps = {
   /**
    * The outgoing generation's private endpoint, learned from a successful `changeover` reply.
    * When set, this daemon polls it for the predecessor's live run set (see
-   * `daemon-drain-observer.ts`) so `list` keeps reporting those runs live until it drains.
+   * `daemon-drain-observer.ts`) so `list` keeps reporting those runs live until it drains. Every
+   * live legacy digest-keyed peer discovered via `enumerateOtherDaemonSockets` is drained the
+   * same way, without needing to be named here.
    */
   predecessorSocketPath?: string;
   observePredecessorDrain?: typeof observePredecessorDrain;
@@ -887,6 +889,24 @@ export async function recoverReconciledRuns(
     }
   }
   return { resumed };
+}
+
+/**
+ * Every drain observer this generation owns: the real handoff predecessor (if any) plus one per
+ * live legacy digest-keyed peer discovered on the same address space (see
+ * 03-legacy-keyed-daemon-migration.md). Combined via `unionLiveRunIds` for `externalLiveRunIds`.
+ */
+function buildDrainObservers(
+  predecessorSocketPath: string | undefined,
+  legacyPeerSocketPaths: readonly string[],
+  observeDrain: typeof observePredecessorDrain,
+): DrainObserver[] {
+  const predecessorDrainObserver =
+    predecessorSocketPath === undefined ? undefined : observeDrain(predecessorSocketPath);
+  return [
+    ...(predecessorDrainObserver === undefined ? [] : [predecessorDrainObserver]),
+    ...legacyPeerSocketPaths.map((peerSocketPath) => observeDrain(peerSocketPath)),
+  ];
 }
 
 export async function startDaemonRuntime(
@@ -956,10 +976,14 @@ export async function startDaemonRuntime(
     return { kind: "response", result: { ok: true } };
   };
 
-  const predecessorDrainObserver =
-    startupDeps.predecessorSocketPath === undefined
-      ? undefined
-      : (startupDeps.observePredecessorDrain ?? observePredecessorDrain)(startupDeps.predecessorSocketPath);
+  const observeDrain = startupDeps.observePredecessorDrain ?? observePredecessorDrain;
+  // A live pre-stable digest-keyed daemon has no public address and no handoff RPC, so it is
+  // treated as a legacy outgoing generation: its keyed socket becomes a private successor-only
+  // endpoint, drained the same way as a real handoff predecessor (see 03-legacy-keyed-daemon-
+  // migration.md). Enumeration is pure and synchronous, so this is safe before either server binds.
+  const enumerateSockets = startupDeps.enumerateOtherDaemonSockets ?? enumerateOtherDaemonSockets;
+  const legacyPeerSocketPaths = enumerateSockets(jarvisHome(), startupDeps.privateSocketPath ?? socketPath);
+  const drainObservers = buildDrainObservers(startupDeps.predecessorSocketPath, legacyPeerSocketPaths, observeDrain);
 
   const {
     reportReviewDebateProgress: _reportReviewDebateProgress,
@@ -985,9 +1009,7 @@ export async function startDaemonRuntime(
     // (the historical no-op); the unit test injects `daemonSocketPath` directly and cannot catch that.
     daemonSocketPath: socketPath,
     reconciledRunIds,
-    ...(predecessorDrainObserver === undefined
-      ? {}
-      : { externalLiveRunIds: () => predecessorDrainObserver.liveRunIds() }),
+    ...(drainObservers.length === 0 ? {} : { externalLiveRunIds: () => unionLiveRunIds(drainObservers) }),
     ...(startupDeps.writeLoopBindingSourceDeps !== undefined
       ? { writeLoopBindingSourceDeps: startupDeps.writeLoopBindingSourceDeps }
       : {}),
@@ -1032,13 +1054,13 @@ export async function startDaemonRuntime(
     process.exit(1);
   }
 
-  // Send supersede to peer daemons after our server is listening, best-effort and non-blocking.
-  const enumerateSockets = startupDeps.enumerateOtherDaemonSockets ?? enumerateOtherDaemonSockets;
+  // Cut admission on each legacy peer after our server is listening, best-effort and
+  // non-blocking. A peer that does not answer is skipped rather than failing startup; drain
+  // observation above already tracks its live run set regardless of whether this RPC lands.
   const supersedePeer = startupDeps.supersedePeerDaemon ?? supersedePeerDaemon;
   (async () => {
-    const peerSockets = enumerateSockets(jarvisHome(), startupDeps.privateSocketPath ?? socketPath);
-    for (const peerSocket of peerSockets) {
-      await supersedePeer(peerSocket);
+    for (const peerSocketPath of legacyPeerSocketPaths) {
+      await supersedePeer(peerSocketPath);
     }
   })().catch(() => {
     // Ignore errors: the supersede pass is best-effort.
@@ -1093,7 +1115,7 @@ export async function startDaemonRuntime(
     process.off("SIGTERM", signalHandler);
     process.off("SIGINT", signalHandler);
     _closeRunControlHandlers();
-    predecessorDrainObserver?.stop();
+    for (const observer of drainObservers) observer.stop();
     await server.close();
     if (privateServer !== undefined) {
       await privateServer.close();

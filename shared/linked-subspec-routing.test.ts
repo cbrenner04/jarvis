@@ -118,4 +118,33 @@ describe("shared linked-subspec routing", () => {
     expect(findModifiedLinkedCheckbox(before, mutated)?.modifiedIndex).toBe(0);
     expect(advanceLinkedSubspecCheckbox(before, 1)).toContain("- [x] [Two]");
   });
+
+  test("advances an annotated index link, which anchoring at the closing paren could not", () => {
+    const annotated =
+      "# Spec\n\n" +
+      "- [ ] [00-a.md](./00-a.md) — carry an explicit refusal cause\n" +
+      "- [ ] [01-b.md](./01-b.md) (after 00)\n";
+
+    expect(advanceLinkedSubspecCheckbox(annotated, 0)).toBe(
+      "# Spec\n\n" +
+        "- [x] [00-a.md](./00-a.md) — carry an explicit refusal cause\n" +
+        "- [ ] [01-b.md](./01-b.md) (after 00)\n",
+    );
+    expect(advanceLinkedSubspecCheckbox(annotated, 1)).toContain("- [x] [01-b.md](./01-b.md) (after 00)");
+  });
+
+  test("completes a linked subspec whose index links carry annotations", () => {
+    const before = "# Spec\n\n- [ ] [00-a.md](./00-a.md) — why\n- [ ] [01-b.md](./01-b.md) — why\n";
+    const subspec = "# A\n\n## Acceptance criteria\n\n- [x] done\n";
+
+    expect(completeLinkedSubspec(before, before, { index: 0, isTerminal: false }, subspec)).toMatchObject({
+      ok: true,
+      indexContent: expect.stringContaining("- [x] [00-a.md](./00-a.md) — why"),
+    });
+  });
+
+  test("an already-checked annotated link is returned unchanged rather than refused", () => {
+    const content = "# Spec\n\n- [x] [00-a.md](./00-a.md) — why\n";
+    expect(advanceLinkedSubspecCheckbox(content, 0)).toBe(content);
+  });
 });

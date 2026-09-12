@@ -61,6 +61,7 @@ import {
 } from "./workflow-runner.ts";
 import {
   INTENT_RESUME_LANDING_INPUTS_NOT_RECORDED,
+  type PlanStageRecoveryLanding,
   reconstructPausedWriteResumeInput,
   recoverPlanStage,
   resolveIntentFinalizationResumeContext,
@@ -74,6 +75,16 @@ import { findFirstMarkdownOnlyFenceViolation } from "./write-loop.ts";
 
 /** Seed-less landing inputs: a recorded, empty seed set so resume admission is exercised without consumption. */
 const EMPTY_LANDING_INPUTS = { sourceRoot: tmpdir(), paths: [] as string[], consumeFrom: "worktree" as const };
+
+function planRecoveryLanding(step: ReviewWorkflowStep | ReviewDebateWorkflowStep): PlanStageRecoveryLanding {
+  if (step.landing?.kind !== "plan-tree") throw new Error("expected plan-tree landing");
+  return {
+    stepId: step.stepId,
+    behavior: step.behavior,
+    verdictPath: step.verdictPath,
+    landing: step.landing,
+  };
+}
 
 describe("executeWorkflow review dispatch", () => {
   test("retries reviewed-intent landing without rerunning review and persists its cause", async () => {
@@ -3280,7 +3291,7 @@ describe("recoverPlanStage", () => {
         branch,
         worktreePath,
         writeStepId: stepId,
-        steps: [reviewStep],
+        recoveryLanding: planRecoveryLanding(reviewStep),
         stateStore: store,
         logSink,
       });
@@ -3365,7 +3376,7 @@ describe("recoverPlanStage", () => {
         branch,
         worktreePath,
         writeStepId: stepId,
-        steps: [reviewStep],
+        recoveryLanding: planRecoveryLanding(reviewStep),
         stateStore: store,
         logSink,
       });
@@ -3459,7 +3470,7 @@ describe("recoverPlanStage", () => {
         branch,
         worktreePath,
         writeStepId: stepId,
-        steps: [reviewStep],
+        recoveryLanding: planRecoveryLanding(reviewStep),
         stateStore: store,
         logSink,
       });
@@ -3514,7 +3525,7 @@ describe("recoverPlanStage", () => {
         branch,
         worktreePath,
         writeStepId: stepId,
-        steps: [nonPlanLandingStep],
+        recoveryLanding: nonPlanLandingStep as never,
         stateStore: store,
       });
 
@@ -3522,7 +3533,7 @@ describe("recoverPlanStage", () => {
       if (outcome.ok) throw new Error("unreachable");
       // `plan_stage_invalid` would send the operator hunting through markdown that is fine.
       expect(outcome.code).not.toBe("plan_stage_invalid");
-      expect(outcome.message).toContain("no plan-tree landing step captured");
+      expect(outcome.message).toContain("no plan-tree landing captured");
       // Refused ahead of the blocker strip, so the operator's tree is untouched.
       expect(readFileSync(join(stage, "intent.md"), "utf8")).toBe(stagedIntentBody);
     });
@@ -3573,7 +3584,7 @@ describe("recoverPlanStage", () => {
         branch,
         worktreePath,
         writeStepId: stepId,
-        steps: [reviewStep],
+        recoveryLanding: planRecoveryLanding(reviewStep),
         stateStore: store,
       });
 
@@ -3631,7 +3642,7 @@ describe("recoverPlanStage", () => {
           branch,
           worktreePath,
           writeStepId: stepId,
-          steps: [reviewStep],
+          recoveryLanding: planRecoveryLanding(reviewStep),
           stateStore: store,
         });
 
@@ -3670,7 +3681,7 @@ describe("recoverPlanStage", () => {
         branch,
         worktreePath,
         writeStepId: stepId,
-        steps: [spyReviewStep()],
+        recoveryLanding: planRecoveryLanding(spyReviewStep()),
         stateStore: store,
       });
       expect(missing).toMatchObject({ ok: false, code: "missing_plan_context" });
@@ -3692,7 +3703,7 @@ describe("recoverPlanStage", () => {
         branch: "some-other-branch",
         worktreePath,
         writeStepId: stepId,
-        steps: [spyReviewStep()],
+        recoveryLanding: planRecoveryLanding(spyReviewStep()),
         stateStore: store,
       });
       expect(mismatched).toMatchObject({ ok: false, code: "stage_identity_mismatch" });
@@ -3720,7 +3731,7 @@ describe("recoverPlanStage", () => {
         branch,
         worktreePath,
         writeStepId: "implement",
-        steps: [spyReviewStep()],
+        recoveryLanding: planRecoveryLanding(spyReviewStep()),
         stateStore: store,
       });
       expect(unrelated).toMatchObject({ ok: false, code: "unrelated_plan_stage" });
@@ -3779,7 +3790,7 @@ describe("recoverPlanStage", () => {
           branch,
           worktreePath,
           writeStepId: stepId,
-          steps: [reviewStep],
+          recoveryLanding: planRecoveryLanding(reviewStep),
           stateStore: store,
           logSink,
         });
@@ -3837,7 +3848,7 @@ describe("recoverPlanStage", () => {
           branch,
           worktreePath,
           writeStepId: stepId,
-          steps: [reviewStep],
+          recoveryLanding: planRecoveryLanding(reviewStep),
           stateStore: store,
           logSink,
         });
@@ -3888,7 +3899,7 @@ describe("recoverPlanStage", () => {
           branch,
           worktreePath,
           writeStepId: stepId,
-          steps: [reviewStep],
+          recoveryLanding: planRecoveryLanding(reviewStep),
           stateStore: store,
         });
 
@@ -3947,7 +3958,7 @@ describe("recoverPlanStage", () => {
         branch,
         worktreePath,
         writeStepId: stepId,
-        steps: [reviewStep],
+        recoveryLanding: planRecoveryLanding(reviewStep),
         stateStore: store,
         logSink,
       });
@@ -4013,7 +4024,7 @@ describe("recoverPlanStage", () => {
         branch,
         worktreePath,
         writeStepId: stepId,
-        steps: [reviewStep],
+        recoveryLanding: planRecoveryLanding(reviewStep),
         stateStore: store,
         logSink,
       });
@@ -4063,7 +4074,7 @@ describe("recoverPlanStage", () => {
         branch,
         worktreePath,
         writeStepId: stepId,
-        steps: [reviewStep],
+        recoveryLanding: planRecoveryLanding(reviewStep),
         stateStore: store,
       });
 
@@ -4125,7 +4136,7 @@ describe("recoverPlanStage", () => {
         branch,
         worktreePath,
         writeStepId: stepId,
-        steps: [reviewStep],
+        recoveryLanding: planRecoveryLanding(reviewStep),
         stateStore: store,
         logSink,
       });
@@ -4240,7 +4251,7 @@ describe("recoverPlanStage", () => {
           branch,
           worktreePath,
           writeStepId: stepId,
-          steps: [reviewStep],
+          recoveryLanding: planRecoveryLanding(reviewStep),
           stateStore: store,
         });
 
@@ -4301,7 +4312,7 @@ describe("recoverPlanStage", () => {
         branch,
         worktreePath,
         writeStepId: stepId,
-        steps: [reviewStep],
+        recoveryLanding: planRecoveryLanding(reviewStep),
         stateStore: store,
       });
 
@@ -4355,7 +4366,7 @@ describe("recoverPlanStage", () => {
         branch,
         worktreePath,
         writeStepId: stepId,
-        steps: [reviewStep],
+        recoveryLanding: planRecoveryLanding(reviewStep),
         stateStore: store,
         logSink,
       });
@@ -4545,7 +4556,7 @@ describe("recoverPlanStage review-failed admission", () => {
         branch,
         worktreePath,
         writeStepId: stepId,
-        steps: [reviewStep],
+        recoveryLanding: planRecoveryLanding(reviewStep),
         stateStore: store,
       });
 
@@ -4618,7 +4629,7 @@ describe("recoverPlanStage review-failed admission", () => {
         branch,
         worktreePath,
         writeStepId: stepId,
-        steps: [spyReviewStep()],
+        recoveryLanding: planRecoveryLanding(spyReviewStep()),
         stateStore: store,
       });
       expect(failedWriteOutcome).toMatchObject({ ok: false, code: "unrelated_plan_stage" });
@@ -4639,7 +4650,7 @@ describe("recoverPlanStage review-failed admission", () => {
         branch: `${branch}-in-progress`,
         worktreePath,
         writeStepId: stepId,
-        steps: [spyReviewStep()],
+        recoveryLanding: planRecoveryLanding(spyReviewStep()),
         stateStore: store,
       });
       expect(inProgressOutcome).toMatchObject({ ok: false, code: "unrelated_plan_stage" });
@@ -4651,7 +4662,7 @@ describe("recoverPlanStage review-failed admission", () => {
         branch,
         worktreePath,
         writeStepId: stepId,
-        steps: [spyReviewStep()],
+        recoveryLanding: planRecoveryLanding(spyReviewStep()),
         stateStore: store,
       });
       expect(missingStageOutcome).toMatchObject({ ok: false, code: "unrelated_plan_stage" });
@@ -4664,7 +4675,7 @@ describe("recoverPlanStage review-failed admission", () => {
         branch,
         worktreePath,
         writeStepId: stepId,
-        steps: [spyReviewStep()],
+        recoveryLanding: planRecoveryLanding(spyReviewStep()),
         stateStore: store,
       });
       expect(invalidStageOutcome).toMatchObject({ ok: false, code: "plan_stage_invalid" });
@@ -4677,7 +4688,7 @@ describe("recoverPlanStage review-failed admission", () => {
         branch,
         worktreePath,
         writeStepId: stepId,
-        steps: [spyReviewStep()],
+        recoveryLanding: planRecoveryLanding(spyReviewStep()),
         stateStore: store,
       });
       expect(blockerOutcome).toMatchObject({ ok: false, code: "operator_blocker" });
@@ -4703,7 +4714,7 @@ describe("recoverPlanStage review-failed admission", () => {
         branch,
         worktreePath,
         writeStepId: stepId,
-        steps: [spyReviewStep()],
+        recoveryLanding: planRecoveryLanding(spyReviewStep()),
         stateStore: store,
       });
       expect(liveClaimOutcome).toMatchObject({ ok: false, code: "unrelated_plan_stage" });
@@ -4726,7 +4737,7 @@ describe("recoverPlanStage review-failed admission", () => {
         branch,
         worktreePath,
         writeStepId: stepId,
-        steps: [spyReviewStep()],
+        recoveryLanding: planRecoveryLanding(spyReviewStep()),
         stateStore: store,
       });
       expect(nonTerminalReviewOutcome).toMatchObject({ ok: false, code: "unrelated_plan_stage" });

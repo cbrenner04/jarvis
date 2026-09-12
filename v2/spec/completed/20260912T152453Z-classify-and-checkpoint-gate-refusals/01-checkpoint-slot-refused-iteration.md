@@ -17,13 +17,13 @@ Subspec 00 (refusal cause available at the settlement seam).
 
 ## Acceptance criteria
 
-- [ ] A git-backed write-loop test drives a slot-refused lane whose invocation quiesced with edits and asserts the retained branch is ahead of its base with those edits committed before `boundary_committed` appends; it fails against the pre-fix abort-before-checkpoint path.
-- [ ] A checkpoint failure on a slot-refused iteration settles through the same `iteration_commit_failed` path as other controlled losses.
-- [ ] A ceiling-headroom refusal commits no checkpoint before its boundary.
-- [ ] Existing owned-lease and ceiling-headroom refusal tests in `v2/src/execution/write-loop.test.ts` stay green (abort timing and lease release unchanged).
-- [ ] `v2/docs/write-behavior.md` documents slot-refusal checkpoint ordering relative to the refusal boundary.
-- [ ] `v2/docs/v1-behaviors.md` records the changed v2 slot-refusal durability behavior.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A git-backed write-loop test drives a slot-refused lane whose invocation quiesced with edits and asserts the retained branch is ahead of its base with those edits committed before `boundary_committed` appends; it fails against the pre-fix abort-before-checkpoint path.
+- [x] A checkpoint failure on a slot-refused iteration settles through the same `iteration_commit_failed` path as other controlled losses.
+- [x] A ceiling-headroom refusal commits no checkpoint before its boundary.
+- [x] Existing owned-lease and ceiling-headroom refusal tests in `v2/src/execution/write-loop.test.ts` stay green (abort timing and lease release unchanged).
+- [x] `v2/docs/write-behavior.md` documents slot-refusal checkpoint ordering relative to the refusal boundary.
+- [x] `v2/docs/v1-behaviors.md` records the changed v2 slot-refusal durability behavior.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

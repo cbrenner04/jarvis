@@ -4,6 +4,8 @@ name: cleanup-never-reaps-socketless-daemon-pid-and-log-pairs
 
 # `jarvis cleanup` discovers dead daemon artifacts only through `.sock` files, so socket-less `.pid`/`.log` pairs accumulate forever
 
+> **Absorbed by the daemon-identity chain (annotated 2026-09-12).** This seed is not separately scheduled: its fix falls out of [[daemon-identity-is-not-its-version]], specifically the `retire-digest-daemon-artifacts` lane. It is retained rather than reaped because the chain's ready-intents do **not** carry the reproductions recorded below, and those are the evidence that the lane actually closed this shape. Reap it once that lane lands and the behaviour here is verified on `main` — not before.
+
 ## Problem
 
 The dead daemon-digest artifact slice in `v2/src/commands/cleanup.ts` enumerates `~/.jarvis/daemon-<key>.sock` names and treats each key's `.sock`/`.pid`/`.log` as one lifecycle unit. A daemon that exits cleanly (supersede, `daemon stop`, restart on a new digest) unlinks its socket but leaves its `.pid` and `.log`. Because discovery starts from the socket, those keys are never enumerated and the pairs are never reaped. Every merge that rotates the digest adds one more pair.

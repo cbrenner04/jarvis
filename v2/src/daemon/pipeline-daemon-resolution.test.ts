@@ -44,6 +44,10 @@ function owner(kind: "owner" | "not_owner" | "not_found", pipelineId = PIPELINE_
   return { result: { kind, pipelineId } };
 }
 
+function identifiedOwner(ownerIdentity: string, pipelineId = PIPELINE_ID): Reply {
+  return { result: { kind: "owner", pipelineId, ownerIdentity } };
+}
+
 function durable(state: "succeeded" | "interrupted", pipelineId = PIPELINE_ID): Reply {
   return { result: { kind: "durable_state", pipelineId, state } };
 }
@@ -150,6 +154,46 @@ test("refuses duplicate owner witnesses", async () => {
   });
   expect(sent).toHaveLength(2);
   expect(sent.every((frame) => (frame as { method?: string }).method === "pipeline_owner")).toBeTrue();
+});
+
+test("one daemon answering on its public and private sockets is not a conflict", async () => {
+  // A post-stable-address daemon binds `daemon.sock` and its digest-keyed private endpoint, so both
+  // paths answer `owner` for the same pipeline. Deduping by the daemon's own owner identity keeps
+  // that a single claimant; deduping by socket path refuses every control verb.
+  const result = await resolvePipelineDaemonFromSocketPaths(
+    async () => replyingClient(identifiedOwner("4242:1757700000000")),
+    [INVOKING_SOCKET, OTHER_SOCKET],
+    PIPELINE_ID,
+    20,
+  );
+
+  expect(result).toEqual({ kind: "owner", pipelineId: PIPELINE_ID, socketPath: OTHER_SOCKET });
+});
+
+test("two daemons with distinct identities still conflict", async () => {
+  const result = await resolvePipelineDaemonFromSocketPaths(
+    async (socketPath) => replyingClient(identifiedOwner(socketPath === OTHER_SOCKET ? "11:1" : "22:2")),
+    [INVOKING_SOCKET, OTHER_SOCKET],
+    PIPELINE_ID,
+    20,
+  );
+
+  expect(result).toEqual({
+    kind: "pipeline_owner_conflict",
+    pipelineId: PIPELINE_ID,
+    claimantPaths: [OTHER_SOCKET, INVOKING_SOCKET],
+  });
+});
+
+test("an identified owner and an unidentified legacy owner still conflict", async () => {
+  const result = await resolvePipelineDaemonFromSocketPaths(
+    async (socketPath) => replyingClient(socketPath === OTHER_SOCKET ? identifiedOwner("11:1") : owner("owner")),
+    [INVOKING_SOCKET, OTHER_SOCKET],
+    PIPELINE_ID,
+    20,
+  );
+
+  expect(result).toMatchObject({ kind: "pipeline_owner_conflict", pipelineId: PIPELINE_ID });
 });
 
 test("reports absent and unavailable pipelines", async () => {

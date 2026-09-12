@@ -172,8 +172,7 @@ test("one daemon answering on its public and private sockets is not a conflict",
 
 test("two daemons with distinct identities still conflict", async () => {
   const result = await resolvePipelineDaemonFromSocketPaths(
-    async (socketPath) =>
-      replyingClient(identifiedOwner(socketPath === OTHER_SOCKET ? "11:1" : "22:2")),
+    async (socketPath) => replyingClient(identifiedOwner(socketPath === OTHER_SOCKET ? "11:1" : "22:2")),
     [INVOKING_SOCKET, OTHER_SOCKET],
     PIPELINE_ID,
     20,

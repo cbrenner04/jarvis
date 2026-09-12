@@ -4,6 +4,8 @@ name: supersede-reaches-a-socketless-resident-daemon
 
 # Supersede is addressed by socket file, so a daemon that released its socket is never retired
 
+> **Absorbed by the daemon-identity chain (annotated 2026-09-12).** This seed is not separately scheduled: its fix falls out of [[daemon-identity-is-not-its-version]], specifically the `handoff-daemon-generations-at-stable-address` lane. It is retained rather than reaped because the chain's ready-intents do **not** carry the reproductions recorded below, and those are the evidence that the lane actually closed this shape. Reap it once that lane lands and the behaviour here is verified on `main` — not before.
+
 ## Problem
 
 Daemon supersede is discovered and delivered purely by socket file. `enumerateOtherDaemonSockets` (`v2/src/daemon/daemon-peer-socket.ts:6`) lists `daemon-<16hex>.sock` entries under `~/.jarvis` and returns everything but its own path; `supersedePeerDaemon` then RPCs each one, ignoring every error.

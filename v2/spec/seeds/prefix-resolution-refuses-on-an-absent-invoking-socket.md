@@ -4,6 +4,8 @@ name: prefix-resolution-refuses-on-an-absent-invoking-socket
 
 # Pipeline id prefix resolution fails closed when the invoking digest has no socket
 
+> **Absorbed by the daemon-identity chain (annotated 2026-09-12).** This seed is not separately scheduled: its fix falls out of [[daemon-identity-is-not-its-version]], specifically the `connect-operator-clients-to-stable-daemon` lane. It is retained rather than reaped because the chain's ready-intents do **not** carry the reproductions recorded below, and those are the evidence that the lane actually closed this shape. Reap it once that lane lands and the behaviour here is verified on `main` — not before.
+
 ## Problem
 
 `jarvis pipeline list` prints a short prefix as each pipeline's first column, and every pipeline verb is documented to accept it. In the ordinary state after any in-session merge, every verb refuses it instead:

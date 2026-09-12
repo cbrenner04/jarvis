@@ -25,7 +25,14 @@ import { ensureWorkflowRunnerResumeDepsWired } from "../testing/workflow-runner-
 ensureWorkflowRunnerResumeDepsWired();
 
 import type { LogEvent, LogSink, PersistedRecord } from "../persistence/log-stream.ts";
-import type { Pipeline, PipelineContext, PipelineStageRecord, Run, StateStore } from "../persistence/state-store.ts";
+import type {
+  Pipeline,
+  PipelineContext,
+  PipelineStageRecord,
+  Run,
+  StateStore,
+  WorkflowSnapshotStep,
+} from "../persistence/state-store.ts";
 import { createMinimalDispatchWriteStep, DEFAULT_AGENT_MODEL_CONFIG } from "../testing/workflow-step-fixtures.ts";
 import { withStateStore } from "../testing/write-fixtures.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
@@ -104,7 +111,26 @@ function makeStore(
   return {
     loadPipeline: (id: string) => pipelines[id] ?? null,
     loadRun: (id: string) =>
-      runs[id] ? ({ id, attempts: [], ...runs[id] } as unknown as Run & { attempts: [] }) : null,
+      runs[id]
+        ? ({
+            id,
+            attempts: [],
+            status: "failed",
+            workflowSnapshot: {
+              invocationId: `${id}-invocation`,
+              steps: [
+                {
+                  stepId: runs[id]?.stepId ?? "plan",
+                  role: "plan",
+                  expectedArtifactPath: ".jarvis-plan-stage",
+                  landingInputs: { sourceRoot: "/source", paths: [], consumeFrom: "source" },
+                },
+                { stepId: "plan-review", role: "", behavior: "review-debate" },
+              ],
+            },
+            ...runs[id],
+          } as unknown as Run & { attempts: [] })
+        : null,
   } as unknown as StateStore;
 }
 
@@ -137,7 +163,7 @@ function reviewDebateStep(args: { cwd: string; durablePath: string; branch?: str
 }
 
 describe("resolveBlockedPlanStageRecoveryTarget", () => {
-  test("selects the named non-first fan-out result for plan recovery", async () => {
+  test("resolves a non-first fan-out plan recovery from its linked run without dispatch resolution", async () => {
     const branchKeys = ["branch-a", "branch-b", "branch-c"];
     const stages: PipelineStageRecord[] = [
       stageRow({
@@ -171,42 +197,32 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
       stepId: "plan",
     };
     const store = makeStore({ [PIPELINE_ID]: makePipeline(FAN_OUT_DEFINITION, stages) }, { "run-plan-b": entryRun });
-    const writeSteps = branchKeys.map((branchKey) => createMinimalDispatchWriteStep({ stepId: `plan-${branchKey}` }));
-    const reviewSteps = branchKeys.map((branchKey) =>
-      reviewDebateStep({
-        cwd: `/worktrees/demo/plan/${branchKey}`,
-        durablePath: `/fresh/${branchKey}`,
-        branch: `plan/${branchKey}`,
-      }),
-    );
-
     const result = await resolveBlockedPlanStageRecoveryTarget(
       { pipelineId: PIPELINE_ID, branchKey: "branch-b" },
       {
         store,
-        resolveStage: stubResolveFanOut(
-          branchKeys.map((_, index) => [writeSteps[index] as AnyWorkflowStep, reviewSteps[index] as AnyWorkflowStep]),
-        ),
+        resolveStage: async () => {
+          throw new Error("recovery must not call the dispatch resolver");
+        },
       },
     );
 
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("expected an admitted recovery target");
     expect(result.target.runId).toBe("run-plan-b");
-    expect(result.target.steps).toHaveLength(1);
-    expect(result.target.steps[0]?.stepId).toBe("review-debate");
-    expect((result.target.steps[0] as ReviewDebateWorkflowStep).branch).toBe("plan/branch-b");
-    expect((result.target.steps[0] as ReviewDebateWorkflowStep).cwd).toBe(entryRun.worktreePath as string);
-    expect((result.target.steps[0] as ReviewDebateWorkflowStep).landing).toMatchObject({
-      kind: "plan-tree",
-      durablePath: entryRun.specPath,
+    expect(result.target.recoveryLanding).toMatchObject({
+      stepId: "plan-review",
+      behavior: "review-debate",
+      verdictPath: "/worktrees/demo/plan/branch-b/.jarvis-plan-stage/verdict-plan.md",
+      landing: {
+        kind: "plan-tree",
+        stagingDir: ".jarvis-plan-stage",
+        durablePath: entryRun.specPath,
+      },
     });
-    expect(result.target.steps).not.toContain(writeSteps[1]);
-    expect(result.target.steps).not.toContain(reviewSteps[0]);
-    expect(result.target.steps).not.toContain(reviewSteps[2]);
   });
 
-  test("refuses fan-out recovery when the named branch has no paired result", async () => {
+  test("does not consult paired dispatch results for fan-out recovery", async () => {
     const stages: PipelineStageRecord[] = [
       stageRow({
         stageId: "intent",
@@ -249,11 +265,9 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
       },
     );
 
-    expect(result).toEqual(expect.objectContaining({ ok: false, reason: "stage_resolution_failed" }));
-    if (result.ok) throw new Error("expected refusal");
-    expect(result.message).toContain('plan lane "branch-c"');
-    expect(result.message).toContain("has no matching downstream input");
-    expect("target" in result).toBe(false);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected durable recovery target");
+    expect(result.target.branch).toBe("plan/branch-c");
   });
 
   test("resolves a branch blocked plan stage into a recovery request pinned to the linked run", async () => {
@@ -323,13 +337,12 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
     expect(fanOutResult.target.branch).toBe("plan/branch-a");
     expect(fanOutResult.target.worktreePath).toBe("/worktrees/demo/plan/branch-a");
     expect(fanOutResult.target.writeStepId).toBe("plan");
-    expect(fanOutResult.target.steps).toHaveLength(1);
-    const fanOutStep = fanOutResult.target.steps[0] as ReviewDebateWorkflowStep;
+    const fanOutStep = fanOutResult.target.recoveryLanding;
     expect(fanOutStep.behavior).toBe("review-debate");
     // Pinned to the linked entry run's own recorded specPath, not the freshly re-resolved timestamped path.
     expect(fanOutStep.landing?.kind).toBe("plan-tree");
-    expect((fanOutStep.landing as { durablePath: string }).durablePath).toBe(fanOutEntryRun.specPath as string);
-    expect((fanOutStep.landing as { durablePath: string }).durablePath).not.toBe(staleDurablePath);
+    expect(fanOutStep.landing.durablePath).toBe(fanOutEntryRun.specPath as string);
+    expect(fanOutStep.landing.durablePath).not.toBe(staleDurablePath);
 
     // Single-branch pipeline: the failed plan row is recorded under branchKey "default".
     const singleStages: PipelineStageRecord[] = [
@@ -378,9 +391,7 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
     if (!singleResult.ok) throw new Error("expected an admitted recovery target");
     expect(singleResult.target.runId).toBe("run-plan-solo");
     expect(singleResult.target.worktreePath).toBe("/worktrees/demo/plan/solo");
-    expect(singleResult.target.steps).toHaveLength(1);
-    const singleStep = singleResult.target.steps[0] as ReviewDebateWorkflowStep;
-    expect((singleStep.landing as { durablePath: string }).durablePath).toBe(singleEntryRun.specPath as string);
+    expect(singleResult.target.recoveryLanding.landing.durablePath).toBe(singleEntryRun.specPath as string);
 
     // Keystone checkpoint: rebinding the recovered step/landing to the raw re-resolved step
     // restores redraft-shaped output (the stale, freshly-resolved durablePath) — must go RED.
@@ -398,13 +409,22 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
     writeFileSync(join(stage, "intent.md"), "---\nname: test\n---\n", "utf8");
     writeFileSync(join(stage, "index.md"), "# Index\n\n- [ ] [One](./00-first.md)\n", "utf8");
     writeFileSync(join(stage, "00-first.md"), "# One\n\n## Acceptance criteria\n\n- [ ] one\n", "utf8");
+    const readyRoot = mkdtempSync(join(tmpdir(), "pipeline-review-failed-ready-"));
+    const readyIntent = join(readyRoot, "ready-intent.md");
+    writeFileSync(readyIntent, "---\nname: test\n---\n", "utf8");
     const branch = "plan/pipeline-review-failed";
     const specPath = "spec/2026-pipeline-review-failed";
     const invocationId = "pipeline-review-failed-inv";
     const snapshot = {
       invocationId,
       steps: [
-        { stepId: "plan", role: "plan", expectedArtifactPath: ".jarvis-plan-stage", agents: ["claude"] },
+        {
+          stepId: "plan",
+          role: "plan",
+          expectedArtifactPath: ".jarvis-plan-stage",
+          agents: ["claude"],
+          landingInputs: { sourceRoot: readyRoot, paths: [readyIntent], consumeFrom: "source" as const },
+        },
         { stepId: "plan-review", role: "", behavior: "review-debate" as const },
       ],
     };
@@ -496,8 +516,12 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
 
       expect(resolution.ok).toBe(true);
       if (!resolution.ok) throw new Error("expected an admitted recovery target");
-      expect(resolution.target.steps).toHaveLength(1);
-      expect(resolution.target.steps[0]?.behavior).toBe("review");
+      expect(resolution.target.recoveryLanding.behavior).toBe("review-debate");
+      expect(resolution.target.recoveryLanding.landing.inputs).toEqual({
+        sourceRoot: readyRoot,
+        paths: [readyIntent],
+        consumeFrom: "source",
+      });
 
       const outcome = await recoverPlanStage({
         runId: resolution.target.runId,
@@ -505,7 +529,7 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
         branch: resolution.target.branch,
         worktreePath: resolution.target.worktreePath,
         writeStepId: resolution.target.writeStepId,
-        steps: resolution.target.steps,
+        recoveryLanding: resolution.target.recoveryLanding,
         stateStore: store,
       });
 
@@ -514,6 +538,7 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
       expect(outcome.kind).toBe("complete");
       expect(writeInvocations).toEqual([]);
       expect(existsSync(join(durable, "00-first.md"))).toBe(true);
+      expect(existsSync(readyIntent)).toBe(false);
     });
   });
 
@@ -566,14 +591,14 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
     );
     expect(emptyBranch).toEqual(expect.objectContaining({ ok: false, reason: "branch_not_found" }));
 
-    // An otherwise-resolvable failed branch whose pipeline context is null.
+    // Recovery does not consume pipeline context.
     const noContextPipeline = makePipeline(SINGLE_DEFINITION, stages, null);
     const noContextStore = makeStore({ [PIPELINE_ID]: noContextPipeline }, { "run-plan": entryRun });
     const missingContext = await resolveBlockedPlanStageRecoveryTarget(
       { pipelineId: PIPELINE_ID, branchKey: "default" },
       { store: noContextStore },
     );
-    expect(missingContext).toEqual(expect.objectContaining({ ok: false, reason: "missing_context" }));
+    expect(missingContext.ok).toBe(true);
 
     const incompleteContext = { cwd: "/repo", seed: "legacy inline seed" } as PipelineContext;
     const incompleteContextPipeline = makePipeline(SINGLE_DEFINITION, stages, incompleteContext);
@@ -582,13 +607,7 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
       { pipelineId: PIPELINE_ID, branchKey: "default" },
       { store: incompleteContextStore },
     );
-    expect(incompleteContextResult).toEqual(
-      expect.objectContaining({
-        ok: false,
-        reason: "stage_resolution_failed",
-        message: expect.stringMatching(/^pipeline-context-loader:/),
-      }),
-    );
+    expect(incompleteContextResult.ok).toBe(true);
 
     // Mutation checkpoints: inverting each guard suppresses the refusal (and the request stays
     // absent — either the guard's `false` branch throws downstream, or it wrongly proceeds to
@@ -665,7 +684,7 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
     );
     expect(missingRunResult).toEqual(expect.objectContaining({ ok: false, reason: "stage_not_linked" }));
 
-    // resolveStage itself reports a resolution error.
+    // Dispatch resolution errors are outside recovery admission.
     const failedStages: PipelineStageRecord[] = [
       stageRow({ stageId: "intent", branchKey: "default", position: 0, status: "succeeded" }),
       stageRow({
@@ -683,23 +702,25 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
         resolveStage: stubResolveError("pipeline-stage-resolve: boom"),
       },
     );
-    expect(resolutionFailedResult).toEqual({
-      ok: false,
-      reason: "stage_resolution_failed",
-      message: "pipeline-stage-resolve: boom",
-    });
+    expect(resolutionFailedResult.ok).toBe(true);
 
-    // A `review: "none"` plan stage: re-resolution lands only the write step, no review step.
+    // A `review: "none"` plan stage remains ineligible even if its snapshot is malformed with a review identity.
+    const noReviewDefinition: PipelineDefinition = {
+      ...SINGLE_DEFINITION,
+      stages: SINGLE_DEFINITION.stages.map((stage) =>
+        stage.kind === "workflow" && stage.workflow === "plan" ? { ...stage, review: "none" } : stage,
+      ),
+    };
     const noReviewResult = await resolveBlockedPlanStageRecoveryTarget(
       { pipelineId: PIPELINE_ID, branchKey: "default" },
       {
-        store: makeStore({ [PIPELINE_ID]: makePipeline(SINGLE_DEFINITION, failedStages) }, { "run-plan": entryRun }),
+        store: makeStore({ [PIPELINE_ID]: makePipeline(noReviewDefinition, failedStages) }, { "run-plan": entryRun }),
         resolveStage: stubResolveSteps([createMinimalDispatchWriteStep({ stepId: "plan" })]),
       },
     );
     expect(noReviewResult).toEqual(expect.objectContaining({ ok: false, reason: "stage_not_recoverable" }));
 
-    // A resolved review step whose cwd differs from the linked run's worktreePath.
+    // A freshly resolved cwd is not durable recovery input.
     const cwdMismatchResult = await resolveBlockedPlanStageRecoveryTarget(
       { pipelineId: PIPELINE_ID, branchKey: "default" },
       {
@@ -710,12 +731,122 @@ describe("resolveBlockedPlanStageRecoveryTarget", () => {
         ]),
       },
     );
-    expect(cwdMismatchResult).toEqual(expect.objectContaining({ ok: false, reason: "stage_not_recoverable" }));
+    expect(cwdMismatchResult.ok).toBe(true);
 
     // Mutation checkpoints: inverting each guard suppresses its refusal — the request stays
     // absent because the bypassed guard's `false` branch either throws downstream on the
     // fixture's own missing data, or (resolution-error / cwd-mismatch) never reaches an
     // admitted target — must go RED.
+  });
+
+  test("refuses incomplete durable recovery context before admission claim", async () => {
+    const stages: PipelineStageRecord[] = [
+      stageRow({ stageId: "intent", branchKey: "default", position: 0, status: "succeeded" }),
+      stageRow({
+        stageId: "plan",
+        branchKey: "default",
+        position: 1,
+        status: "failed",
+        workflowInvocationId: "run-plan",
+      }),
+    ];
+    const validSnapshot = {
+      invocationId: "run-plan-invocation",
+      steps: [
+        {
+          stepId: "plan",
+          role: "plan",
+          expectedArtifactPath: ".jarvis-plan-stage",
+          landingInputs: { sourceRoot: "/source", paths: ["/source/ready.md"], consumeFrom: "source" as const },
+        },
+        { stepId: "plan-review", role: "", behavior: "review-debate" as const },
+      ],
+    };
+    const validRun: Partial<Run> = {
+      project: "demo",
+      branch: "plan/solo",
+      worktreePath: "/worktrees/demo/plan/solo",
+      specPath: "specs/demo/plan/solo-plan.md",
+      stepId: "plan",
+      workflowSnapshot: validSnapshot,
+    };
+    const writeSnapshot = validSnapshot.steps[0] as WorkflowSnapshotStep;
+    const reviewSnapshot = validSnapshot.steps[1] as WorkflowSnapshotStep;
+    const { landingInputs: _landingInputs, ...writeWithoutLandingInputs } = writeSnapshot;
+    const cases: Array<{ name: string; run: Partial<Run> }> = [
+      { name: "missing snapshot", run: { ...validRun, workflowSnapshot: null } },
+      {
+        name: "malformed snapshot",
+        run: { ...validRun, workflowSnapshot: { invocationId: "", steps: [] } },
+      },
+      { name: "missing linked identity", run: { ...validRun, project: "" } },
+      { name: "missing write identity", run: { ...validRun, stepId: null as unknown as string } },
+      {
+        name: "missing write snapshot",
+        run: { ...validRun, workflowSnapshot: { ...validSnapshot, steps: validSnapshot.steps.slice(1) } },
+      },
+      {
+        name: "malformed write snapshot",
+        run: {
+          ...validRun,
+          workflowSnapshot: {
+            ...validSnapshot,
+            steps: [{ ...writeSnapshot, expectedArtifactPath: "elsewhere" }, reviewSnapshot],
+          },
+        },
+      },
+      {
+        name: "missing review identity",
+        run: { ...validRun, workflowSnapshot: { ...validSnapshot, steps: validSnapshot.steps.slice(0, 1) } },
+      },
+      {
+        name: "malformed review identity",
+        run: {
+          ...validRun,
+          workflowSnapshot: {
+            ...validSnapshot,
+            steps: [writeSnapshot, { stepId: "", role: "", behavior: "review-debate" }],
+          },
+        },
+      },
+      { name: "missing worktree path", run: { ...validRun, worktreePath: "" } },
+      { name: "missing spec path", run: { ...validRun, specPath: "" } },
+      {
+        name: "missing landing inputs",
+        run: {
+          ...validRun,
+          workflowSnapshot: {
+            ...validSnapshot,
+            steps: [writeWithoutLandingInputs, reviewSnapshot],
+          },
+        },
+      },
+      {
+        name: "malformed landing inputs",
+        run: {
+          ...validRun,
+          workflowSnapshot: {
+            ...validSnapshot,
+            steps: [{ ...writeSnapshot, landingInputs: { sourceRoot: "/source", paths: "ready.md" } }, reviewSnapshot],
+          } as never,
+        },
+      },
+    ];
+
+    for (const fixture of cases) {
+      let claims = 0;
+      const store = makeStore({ [PIPELINE_ID]: makePipeline(SINGLE_DEFINITION, stages) }, { "run-plan": fixture.run });
+      store.claimPipelineStageAdmission = () => {
+        claims += 1;
+        throw new Error("durable reconstruction refusal must precede admission claim");
+      };
+      const result = await resolveBlockedPlanStageRecoveryTarget(
+        { pipelineId: PIPELINE_ID, branchKey: "default" },
+        { store },
+      );
+      expect(result, fixture.name).toEqual(expect.objectContaining({ ok: false, reason: "stage_not_recoverable" }));
+      expect(claims, fixture.name).toBe(0);
+    }
   });
 });
 
@@ -775,7 +906,16 @@ describe("recoverPipelineBranchStage", () => {
       stepId: args.stepId,
       workflowSnapshot: {
         invocationId: args.invocationId,
-        steps: [{ stepId: args.stepId, role: "plan", expectedArtifactPath: ".jarvis-plan-stage", agents: ["claude"] }],
+        steps: [
+          {
+            stepId: args.stepId,
+            role: "plan",
+            expectedArtifactPath: ".jarvis-plan-stage",
+            agents: ["claude"],
+            landingInputs: { sourceRoot: args.worktreePath, paths: [], consumeFrom: "worktree" },
+          },
+          { stepId: "plan-review", role: "", behavior: "review" },
+        ],
       },
     });
     const attemptId = store.recordAttemptStart(runId);

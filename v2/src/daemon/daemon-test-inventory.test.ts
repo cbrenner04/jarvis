@@ -219,6 +219,9 @@ const RETIRED_TEST_TITLES: ReadonlySet<string> = new Set([
   "running with rollup-completed linked run without marker returns undefined",
   "dispatch catch over a live admitted entry run records settlement_deferred",
   "deferred settlement re-settles with operator error when entry run later terminals",
+  // Renamed: recovery no longer resolves through dispatch, so the title no longer describes fan-out pairing.
+  "selects the named non-first fan-out result for plan recovery",
+  "refuses fan-out recovery when the named branch has no paired result",
 ]);
 
 /** Missing-only title preservation: surplus destination titles are allowed. */

@@ -31,7 +31,7 @@ Durable run state records only `gate_invocation_refused`. After the process boun
 
 - [ ] State-store and log-schema tests prove each refusal cause round-trips with its gate command and slot re-drive count; they fail against the pre-fix single-cause record.
 - [ ] A reopen test proves the same recovery state survives closing and reopening the store.
-- [ ] A compatibility test proves a legacy refusal without cause or count loads safely and does not become eligible for automatic slot re-drive.
+- [ ] A compatibility test proves a legacy refusal without cause or count loads safely as an explicit legacy/unknown cause with no slot re-drive count.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates

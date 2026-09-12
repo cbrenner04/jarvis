@@ -4,6 +4,8 @@ name: run-list-cannot-reach-superseded-daemon-runs
 
 # `run list` renders live runs on a superseded daemon as `not-live`, which reads exactly like the deadlock shape
 
+> **Absorbed by the daemon-identity chain (annotated 2026-09-12).** This seed is not separately scheduled: its fix falls out of [[daemon-identity-is-not-its-version]], specifically the `route-draining-runs-through-stable-daemon` lane. It is retained rather than reaped because the chain's ready-intents do **not** carry the reproductions recorded below, and those are the evidence that the lane actually closed this shape. Reap it once that lane lands and the behaviour here is verified on `main` — not before.
+
 ## Problem
 
 Every keyed daemon binds the **same** socket path (one `daemon-<key>.sock` file per key, replaced on each new start), so the CLI can only ever reach the newest daemon on that key. A superseded daemon keeps running the runs it owns — by design — but those runs live only in *its* memory. The reachable daemon does not know them, so:

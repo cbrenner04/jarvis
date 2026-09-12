@@ -4,6 +4,8 @@ name: superseded-daemon-releases-run-ownership
 
 # A superseded daemon releases ownership of non-active runs to its successor
 
+> **Absorbed by the daemon-identity chain (annotated 2026-09-12).** This seed is not separately scheduled: its fix falls out of [[daemon-identity-is-not-its-version]], specifically the `route-draining-runs-through-stable-daemon / route-draining-pipelines-through-stable-daemon` lane. It is retained rather than reaped because the chain's ready-intents do **not** carry the reproductions recorded below, and those are the evidence that the lane actually closed this shape. Reap it once that lane lands and the behaviour here is verified on `main` — not before.
+
 ## Problem
 
 When the source digest rotates, the new daemon rebinds the socket but the old daemon stays alive holding `owner_identity` on its rows. The successor's `jarvis run kill --force` refuses `run_not_active` (`forceKillOwnerAdmits` sees the owner pid alive and not itself) and `pipeline resume` refuses `branch_not_resumable` (stage wedged `settlement_deferred` behind the paused run) — nothing can reach the old daemon to kill, resume, or hand off. Only exit: hand-SIGTERM the old daemon after its last live child finishes; while it still has a live agent child for a sibling lane there is no safe move at all. Evidence: #3464 (chess pipeline `c8901aa3`, run `98747dd7`, owner `40563`, four `daemon-entrypoint` processes holding the same socket path, 2026-09-04).

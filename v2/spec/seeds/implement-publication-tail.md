@@ -60,6 +60,20 @@ The first acceptance criterion asks for the root cause before the fix. It is not
 
 **Cheapest next step**, and it is diagnostic rather than structural: append a log event at each of the four silent return sites, so the next occurrence names which producer fired. Two candidates could not be separated from the surviving evidence — `index_routing_mutated` (`shared/linked-subspec-routing.ts:200-208`, plausible when a prior link's index tick was written to the worktree but never committed, so it reads as mutated on the next dispatch) and the `already_complete` re-scan. Independently of which one it is, mechanism 1 is a defect on its own: a `completed` implement row must not be written before publication evidence exists.
 
+### Half 2 reproduced live (2026-09-12)
+
+Half 1 shipped as [#3794](https://github.com/cbrenner04/jarvis/pull/3794). Half 2 is unchanged and reproduced cleanly on a multi-subspec spec whose subspecs land as separate PRs off one branch.
+
+Spec `20260912T152453Z-classify-and-checkpoint-gate-refusals`, branch of the same name:
+
+1. Subspec 00 landed as [#3804](https://github.com/cbrenner04/jarvis/pull/3804), squash-merged; GitHub closed the PR and retired the branch.
+2. The spec was re-dispatched for subspec 01. The lane completed it: three commits including a `review-debate(1)` pass, 7/7 acceptance criteria ticked, and the index checkbox advanced — so routing was healthy.
+3. Publication then resolved the **merged** #3804 as the branch's PR and called `gh pr ready` on it, settling `ready_flip_failed` / `resumable: false` / `nextAction: "stop"`.
+
+`gh pr list --head <branch> --state all` returns exactly one row: `3804 MERGED draft=false`. There is no open PR to flip, and the lane's finished work has no PR of its own.
+
+Note the title says *closed* same-branch PR; this instance is a **merged** one, which is the more common shape once land-a-slice is in use. Landing each subspec as its own PR is the documented way to converge a multi-subspec spec, and it is exactly what makes this fire — so the cost scales with subspec count and always lands on work that is otherwise complete and green. Publication must resolve an **open draft** PR for the branch, or open one, rather than accepting any same-branch PR regardless of state.
+
 ## Acceptance criteria
 
 - [x] Half 1 root cause recorded (2026-09-11, above): workflow write steps settle `completed` before verification because `prepareWorkflowStep` forces `publishCompletion: false`; `executeWorkflow` returns a non-`complete` step result with no log and no settlement; the daemon discards that result.

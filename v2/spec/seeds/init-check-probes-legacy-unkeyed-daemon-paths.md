@@ -4,6 +4,8 @@ name: init-check-probes-legacy-unkeyed-daemon-paths
 
 # `jarvis init --check` reports `daemon missing` while the keyed daemon is running
 
+> **Absorbed by the daemon-identity chain (annotated 2026-09-12).** This seed is not separately scheduled: its fix falls out of [[daemon-identity-is-not-its-version]], specifically the `connect-operator-clients-to-stable-daemon` lane. It is retained rather than reaped because the chain's ready-intents do **not** carry the reproductions recorded below, and those are the evidence that the lane actually closed this shape. Reap it once that lane lands and the behaviour here is verified on `main` — not before.
+
 ## Problem
 
 The readiness report's `daemon` row is produced by `defaultCheckDaemon` in `v2/src/commands/init-readiness.ts`, which first reads `DAEMON_PID_PATH` (`~/.jarvis/daemon.pid`) and, when that file is absent, returns `stopped` without probing anything. Daemons have been digest-keyed for months: the live process writes `~/.jarvis/daemon-<16hex>.pid` and listens on `daemon-<16hex>.sock`, and the unkeyed `daemon.pid` / `daemon.sock` no longer exist on an operator machine. The row therefore always prints `daemon missing: daemon is not running`, and `init --check` exits `1`, even when `jarvis daemon status` in the same shell reports `running` at the current digest.

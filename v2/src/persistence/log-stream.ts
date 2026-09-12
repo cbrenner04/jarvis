@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { sleep } from "../../../shared/sleep.ts";
 import type { PublicationFailure } from "../execution/publication-retry.ts";
-import type { WriteLoopOutcomeKind } from "../execution/write-loop.ts";
+import type { GateInvocationRefusalCause, WriteLoopOutcomeKind } from "../execution/write-loop.ts";
 import type { OutcomeKind, RunStatus } from "./state-store.ts";
 
 type IterationStartedEvent = {
@@ -70,6 +70,7 @@ export type LoopFinishedEvent = {
   remainingSubspecPaths?: string[];
   inventoryError?: string;
   gateCommand?: string;
+  gateRefusalCause?: GateInvocationRefusalCause;
   gateInvocationCommand?: string;
   gateInvocationElapsedMs?: number;
 };

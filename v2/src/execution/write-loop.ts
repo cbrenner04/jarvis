@@ -135,6 +135,8 @@ const INVOCATION_FAILURE_MESSAGE_MAX_CODE_UNITS = 2048;
 
 export type WriteLoopOutcomeKind = (typeof WRITE_LOOP_OUTCOME_KINDS)[number];
 
+export type GateInvocationRefusalCause = "slot_contention" | "ceiling_headroom";
+
 const writeLoopOutcomeKindSet = new Set<string>(WRITE_LOOP_OUTCOME_KINDS);
 
 export function isWriteLoopOutcomeKind(value: unknown): value is WriteLoopOutcomeKind {
@@ -173,6 +175,7 @@ export type WriteLoopResult = {
   remainingSubspecPaths?: readonly string[];
   inventoryError?: string;
   gateCommand?: string;
+  gateRefusalCause?: GateInvocationRefusalCause;
   gateInvocationCommand?: string;
   gateInvocationElapsedMs?: number;
 } & Partial<InvocationFailureDetail>;
@@ -541,7 +544,7 @@ function createIterationActiveGateTracker(options: {
   clock: () => number;
   iterationStartedAtMs: number;
   iterationCeilingMs?: number;
-  onRefused: (command: string) => void;
+  onRefused: (command: string, cause: GateInvocationRefusalCause) => void;
 }): {
   getActiveGate: () => IterationActiveGate | undefined;
   onAgentShellCommand: (command: string) => void;
@@ -557,12 +560,12 @@ function createIterationActiveGateTracker(options: {
     onAgentShellCommand: (command: string) => {
       if (!isReadyTestCommand(command) || activeGate !== undefined) return;
       if (iterationCeilingHeadroomMs() < TEST_STEP_BUDGET_MS) {
-        options.onRefused(command);
+        options.onRefused(command, "ceiling_headroom");
         return;
       }
       const lease = acquireGateInvocationLease();
       if (lease === undefined) {
-        options.onRefused(command);
+        options.onRefused(command, "slot_contention");
         return;
       }
       activeGate = { command, startedAtMs: options.clock(), lease };
@@ -1268,7 +1271,15 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       }
       if (settled.kind === "gate_invocation_refused") {
         closeSessionLog(sessionLog, "error");
-        return finishGateInvocationRefused(args, store, runId, attemptId, iterationsConsumed + 1, settled.gateCommand);
+        return finishGateInvocationRefused(
+          args,
+          store,
+          runId,
+          attemptId,
+          iterationsConsumed + 1,
+          settled.gateCommand,
+          settled.gateRefusalCause,
+        );
       }
       if (settled.kind === "timed_out") {
         closeSessionLog(sessionLog, "timeout");
@@ -2180,7 +2191,12 @@ type IterationSettlement =
   | Extract<RaceOutcome, { kind: "settled" } | { kind: "threw" }>
   | { kind: "timed_out"; quiesced: QuiescedExecutionOutcome; activeGateAtTimeout?: IterationActiveGate }
   | { kind: "aborted"; quiesced: QuiescedExecutionOutcome }
-  | { kind: "gate_invocation_refused"; gateCommand: string; quiesced: QuiescedExecutionOutcome };
+  | {
+      kind: "gate_invocation_refused";
+      gateCommand: string;
+      gateRefusalCause: GateInvocationRefusalCause;
+      quiesced: QuiescedExecutionOutcome;
+    };
 
 type AbortWatchdogRole = "abort" | "watchdog";
 type IterationSettlementPolicy = "bounded" | "finalization-repair";
@@ -2280,13 +2296,13 @@ async function awaitIteration(
 
   const onInvocationOutputProgress = args.resetIterationWallOnOutput === false ? undefined : bumpWallSegment;
   const iterationStartedAtMs = (args.clock ?? (() => new Date()))().getTime();
-  let gateRefusalCommand: string | undefined;
+  let gateRefusal: { command: string; cause: GateInvocationRefusalCause } | undefined;
   const gateTracker = createIterationActiveGateTracker({
     clock: () => (args.clock ?? (() => new Date()))().getTime(),
     iterationStartedAtMs,
     ...(args.iterationCeilingMs !== undefined ? { iterationCeilingMs: args.iterationCeilingMs } : {}),
-    onRefused: (command) => {
-      gateRefusalCommand = command;
+    onRefused: (command, cause) => {
+      gateRefusal = { command, cause };
       abortExecution();
     },
   });
@@ -2334,11 +2350,16 @@ async function awaitIteration(
   args.signal?.removeEventListener("abort", abortExecution);
   removeAbort?.();
 
-  if (gateRefusalCommand !== undefined) {
+  if (gateRefusal !== undefined) {
     const quiesced = isInterruptedRace(raced)
       ? await boundQuiescenceWait(execution, schedule, args.quiescenceTimeoutMs ?? DEFAULT_QUIESCENCE_TIMEOUT_MS)
       : raced;
-    return { kind: "gate_invocation_refused", gateCommand: gateRefusalCommand, quiesced };
+    return {
+      kind: "gate_invocation_refused",
+      gateCommand: gateRefusal.command,
+      gateRefusalCause: gateRefusal.cause,
+      quiesced,
+    };
   }
 
   if (settlementPolicy === "finalization-repair") {
@@ -2445,6 +2466,7 @@ async function finishGateInvocationRefused(
   attemptId: string,
   iterationsConsumed: number,
   gateCommand: string,
+  gateRefusalCause: GateInvocationRefusalCause,
 ): Promise<WriteLoopResult> {
   store.commitCompletionBoundary({
     attemptId,
@@ -2468,6 +2490,7 @@ async function finishGateInvocationRefused(
     iterationsConsumed,
     resumable: true,
     gateCommand,
+    gateRefusalCause,
   });
   return {
     ...loopResult,
@@ -2475,6 +2498,7 @@ async function finishGateInvocationRefused(
     outcomeKind: "gate_invocation_refused",
     runStatus: "failed",
     gateCommand,
+    gateRefusalCause,
   };
 }
 

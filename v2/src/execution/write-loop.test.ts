@@ -1086,11 +1086,12 @@ describe.serial("gate invocation budget and settlement", () => {
         iterationsConsumed: 1,
         resumable: true,
         gateCommand,
+        gateRefusalCause: "ceiling_headroom",
       });
       const finished = sink
         .getEventsForRun(result.runId)
         .find((event) => event.kind === "loop_finished" && event.loopOutcomeKind === "gate_invocation_refused");
-      expect(finished).toMatchObject({ resumable: true, gateCommand });
+      expect(finished).toMatchObject({ resumable: true, gateCommand, gateRefusalCause: "ceiling_headroom" });
     } finally {
       store.close();
     }
@@ -1187,7 +1188,12 @@ describe.serial("gate invocation budget and settlement", () => {
         iterationsConsumed: 1,
         resumable: true,
         gateCommand,
+        gateRefusalCause: "slot_contention",
       });
+      const finished = sink
+        .getEventsForRun(second.runId)
+        .find((event) => event.kind === "loop_finished" && event.loopOutcomeKind === "gate_invocation_refused");
+      expect(finished).toMatchObject({ gateCommand, gateRefusalCause: "slot_contention" });
     } finally {
       store.close();
     }

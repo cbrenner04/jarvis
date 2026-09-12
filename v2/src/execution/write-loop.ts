@@ -1274,11 +1274,14 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         return finishGateInvocationRefused(
           args,
           store,
+          prepared,
           runId,
+          worktreePath,
           attemptId,
           iterationsConsumed + 1,
           settled.gateCommand,
           settled.gateRefusalCause,
+          settled.quiesced,
         );
       }
       if (settled.kind === "timed_out") {
@@ -2459,15 +2462,38 @@ async function finishIterationTimeout(
   };
 }
 
+/**
+ * A `slot_contention` refusal aborts an invocation that may already have settled with real edits;
+ * those checkpoint through the same controlled-loss seam as an abort/watchdog loss, ahead of the
+ * terminal boundary, so the retained branch carries the work instead of losing it to the worktree.
+ * A `ceiling_headroom` refusal cut its iteration short precisely to avoid spending the ceiling, so
+ * it keeps the abort-before-boundary settlement unchanged.
+ */
 async function finishGateInvocationRefused(
   args: WriteLoopInput,
   store: StateStore,
+  prepared: { creationTitle?: string },
   runId: string,
+  worktreePath: string,
   attemptId: string,
   iterationsConsumed: number,
   gateCommand: string,
   gateRefusalCause: GateInvocationRefusalCause,
+  quiesced: QuiescedExecutionOutcome,
 ): Promise<WriteLoopResult> {
+  if (gateRefusalCause === "slot_contention" && quiesced.kind === "settled") {
+    const failure = await checkpointBeforeControlledLoss(
+      args,
+      prepared,
+      store,
+      runId,
+      worktreePath,
+      attemptId,
+      iterationsConsumed,
+      quiesced.result.result,
+    );
+    if (failure !== undefined) return failure;
+  }
   store.commitCompletionBoundary({
     attemptId,
     runStatus: "failed",

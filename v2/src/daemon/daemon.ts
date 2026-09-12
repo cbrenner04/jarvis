@@ -770,6 +770,8 @@ type DaemonStartupDeps = {
   writeLoopBindingSourceDeps?: WriteLoopBindingSourceDeps;
   /** Defaults to `process.exit`. */
   processExit?: (code: number) => never;
+  /** Digest-keyed private endpoint bound before the public `socketPath`. */
+  privateSocketPath?: string;
 };
 
 export async function recoverReconciledRuns(
@@ -922,9 +924,14 @@ export async function startDaemonRuntime(
   };
 
   let server: IpcServer;
+  let privateServer: IpcServer | undefined;
+  const bindIpcServer = startupDeps.startIpcServer ?? startIpcServer;
 
   try {
-    server = await (startupDeps.startIpcServer ?? startIpcServer)(socketPath, handlers, tailStreamHandler);
+    if (startupDeps.privateSocketPath !== undefined) {
+      privateServer = await bindIpcServer(startupDeps.privateSocketPath, handlers, tailStreamHandler);
+    }
+    server = await bindIpcServer(socketPath, handlers, tailStreamHandler);
   } catch (err) {
     if (err instanceof DaemonSocketBindFailureError) {
       console.error(formatDaemonBindFailureLogLine(err));
@@ -938,7 +945,7 @@ export async function startDaemonRuntime(
   const enumerateSockets = startupDeps.enumerateOtherDaemonSockets ?? enumerateOtherDaemonSockets;
   const supersedePeer = startupDeps.supersedePeerDaemon ?? supersedePeerDaemon;
   (async () => {
-    const peerSockets = enumerateSockets(jarvisHome(), socketPath);
+    const peerSockets = enumerateSockets(jarvisHome(), startupDeps.privateSocketPath ?? socketPath);
     for (const peerSocket of peerSockets) {
       await supersedePeer(peerSocket);
     }
@@ -996,6 +1003,9 @@ export async function startDaemonRuntime(
     process.off("SIGINT", signalHandler);
     _closeRunControlHandlers();
     await server.close();
+    if (privateServer !== undefined) {
+      await privateServer.close();
+    }
     if (!logReader) {
       const closeable = logReaderInstance as { close?: () => void };
       closeable.close?.();

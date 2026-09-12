@@ -138,6 +138,8 @@ export async function startDaemon(
     socketProber?: SocketProber;
     testOwnerPid?: number;
     onSpawn?: (pid: number) => void;
+    /** Digest-keyed private endpoint the spawned daemon binds before the public address. */
+    privateSocketPath?: string;
   },
 ): Promise<DaemonMetadata> {
   const readinessTimeoutMs = options?.readinessTimeoutMs ?? 5_000;
@@ -162,6 +164,7 @@ export async function startDaemon(
     env: {
       ...process.env,
       DAEMON_SOCKET_PATH: socketPath,
+      ...(options?.privateSocketPath === undefined ? {} : { DAEMON_PRIVATE_SOCKET_PATH: options.privateSocketPath }),
       ...(options?.testOwnerPid === undefined ? {} : { TEST_DAEMON_OWNER_PID: String(options.testOwnerPid) }),
     },
   });

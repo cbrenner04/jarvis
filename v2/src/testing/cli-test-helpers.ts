@@ -34,7 +34,7 @@ export const TEST_EXECUTABLE_DIGEST = "test-executable-digest";
  * criteria section (all zero items "checked") would. */
 export const INCOMPLETE_SPEC_CONTENT = "# Spec\n\n## Acceptance criteria\n\n- [ ] pending\n";
 
-/** `runtimeMain` with a fixed executable digest so daemon path keying is deterministic. */
+/** `runtimeMain` with a fixed executable digest so the private daemon path is deterministic. */
 export function cliMain(
   argv: readonly string[],
   io?: Parameters<typeof runtimeMain>[1],

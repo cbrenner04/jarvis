@@ -93,6 +93,19 @@ export function parseStatusResult(value: unknown):
   return undefined;
 }
 
+/** Parse a daemon `changeover` success payload; returns `undefined` when malformed. */
+export function parseChangeoverResult(value: unknown): { ok: true; privateSocketPath: string } | undefined {
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { ok?: unknown }).ok === true &&
+    typeof (value as { privateSocketPath?: unknown }).privateSocketPath === "string"
+  ) {
+    return { ok: true, privateSocketPath: (value as { privateSocketPath: string }).privateSocketPath };
+  }
+  return undefined;
+}
+
 /** Parse a daemon `start` success payload; returns `undefined` when malformed. */
 export function parseStartResult(value: unknown): { runId: string } | undefined {
   if (typeof value === "object" && value !== null && typeof (value as { runId?: unknown }).runId === "string") {

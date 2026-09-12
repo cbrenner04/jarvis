@@ -253,6 +253,21 @@ test("startIpcServer refuses immediately when a peer answers the probe", async (
   }
 });
 
+// The daemon's own full shutdown may close a server a changeover handler already closed; a second
+// call must not re-invoke Node's already-stopped `server.close()` or re-run the unlink race below.
+test("close is idempotent", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-idempotent-"));
+  const path = join(dir, "daemon.sock");
+  try {
+    const server = await startIpcServer(path);
+    await server.close();
+    expect(await Bun.file(path).exists()).toBe(false);
+    await expect(server.close()).resolves.toBeUndefined();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("startIpcServer refuses to unlink a live peer socket", async () => {
   const dir = mkdtempSync(join(tmpdir(), "jarvis-sock-reclaim-"));
   const path = join(dir, "daemon.sock");

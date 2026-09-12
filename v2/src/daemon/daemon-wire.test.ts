@@ -1,5 +1,23 @@
 import { expect, test } from "bun:test";
-import { type DaemonListRunRow, parseListRuns, parseWaitCompletion } from "./daemon-wire.ts";
+import { type DaemonListRunRow, parseChangeoverResult, parseListRuns, parseWaitCompletion } from "./daemon-wire.ts";
+
+test("parseChangeoverResult rejects a missing envelope", () => {
+  expect(parseChangeoverResult(undefined)).toBeUndefined();
+  expect(parseChangeoverResult(null)).toBeUndefined();
+});
+
+test("parseChangeoverResult rejects a malformed envelope (privateSocketPath not a string)", () => {
+  expect(parseChangeoverResult({ ok: true, privateSocketPath: 1 })).toBeUndefined();
+  expect(parseChangeoverResult({ ok: true })).toBeUndefined();
+  expect(parseChangeoverResult({ privateSocketPath: "/tmp/daemon-abc.sock" })).toBeUndefined();
+});
+
+test("parseChangeoverResult accepts a well-shaped envelope", () => {
+  expect(parseChangeoverResult({ ok: true, privateSocketPath: "/tmp/daemon-abc.sock" })).toEqual({
+    ok: true,
+    privateSocketPath: "/tmp/daemon-abc.sock",
+  });
+});
 
 test("parseListRuns rejects a missing envelope", () => {
   expect(parseListRuns(undefined)).toBeUndefined();

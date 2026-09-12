@@ -5,4 +5,4 @@ Today a daemon's public identity is its executable digest: socket, PID file, and
 - [ ] [00-stable-public-daemon-address.md](./00-stable-public-daemon-address.md) — daemon serves the stable public socket and keeps the digest-keyed socket as a private endpoint; public PID ownership.
 - [x] [01-handoff-changeover-protocol.md](./01-handoff-changeover-protocol.md) — admission cutoff, public-address release, incoming bind, ready only after the incoming generation answers.
 - [x] [02-outgoing-generation-drain-and-exit.md](./02-outgoing-generation-drain-and-exit.md) — incoming generation observes drain over the handoff channel; idle outgoing generation exits owning nothing public.
-- [ ] [03-legacy-keyed-daemon-migration.md](./03-legacy-keyed-daemon-migration.md) — a live pre-stable digest-keyed daemon is drained as a legacy outgoing generation, with no legacy-side code change.
+- [x] [03-legacy-keyed-daemon-migration.md](./03-legacy-keyed-daemon-migration.md) — a live pre-stable digest-keyed daemon is drained as a legacy outgoing generation, with no legacy-side code change.

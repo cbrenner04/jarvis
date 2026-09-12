@@ -901,12 +901,9 @@ function buildDrainObservers(
   legacyPeerSocketPaths: readonly string[],
   observeDrain: typeof observePredecessorDrain,
 ): DrainObserver[] {
-  const predecessorDrainObserver =
-    predecessorSocketPath === undefined ? undefined : observeDrain(predecessorSocketPath);
-  return [
-    ...(predecessorDrainObserver === undefined ? [] : [predecessorDrainObserver]),
-    ...legacyPeerSocketPaths.map((peerSocketPath) => observeDrain(peerSocketPath)),
-  ];
+  const socketPaths =
+    predecessorSocketPath === undefined ? legacyPeerSocketPaths : [predecessorSocketPath, ...legacyPeerSocketPaths];
+  return socketPaths.map((peerSocketPath) => observeDrain(peerSocketPath));
 }
 
 export async function startDaemonRuntime(
@@ -1009,7 +1006,7 @@ export async function startDaemonRuntime(
     // (the historical no-op); the unit test injects `daemonSocketPath` directly and cannot catch that.
     daemonSocketPath: socketPath,
     reconciledRunIds,
-    ...(drainObservers.length === 0 ? {} : { externalLiveRunIds: () => unionLiveRunIds(drainObservers) }),
+    externalLiveRunIds: () => unionLiveRunIds(drainObservers),
     ...(startupDeps.writeLoopBindingSourceDeps !== undefined
       ? { writeLoopBindingSourceDeps: startupDeps.writeLoopBindingSourceDeps }
       : {}),

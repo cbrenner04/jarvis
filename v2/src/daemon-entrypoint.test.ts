@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { resolveHandoffOptions } from "./daemon-entrypoint";
+import { resolveHandoffOptions, shouldWatchOwnerPid } from "./daemon-entrypoint";
 
 const entrypoint = new URL("./daemon-entrypoint.ts", import.meta.url).pathname;
 
@@ -15,6 +15,18 @@ describe("daemon-entrypoint process", () => {
     const exitCode = await proc.exited;
     expect(exitCode).toBe(1);
     expect(stderr).toContain("DAEMON_SOCKET_PATH environment variable required");
+  });
+});
+
+describe("shouldWatchOwnerPid", () => {
+  test("watches a positive integer PID", () => {
+    expect(shouldWatchOwnerPid(123)).toBe(true);
+  });
+
+  test("does not watch zero, negative, or non-integer PIDs", () => {
+    expect(shouldWatchOwnerPid(0)).toBe(false);
+    expect(shouldWatchOwnerPid(-1)).toBe(false);
+    expect(shouldWatchOwnerPid(Number.NaN)).toBe(false);
   });
 });
 

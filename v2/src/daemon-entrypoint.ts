@@ -21,6 +21,12 @@ export function resolveHandoffOptions(env: NodeJS.ProcessEnv): {
   };
 }
 
+// Pure: true when `TEST_DAEMON_OWNER_PID` names a real PID worth watching (test-only owner
+// liveness hook — the entrypoint exits once that PID disappears).
+export function shouldWatchOwnerPid(testOwnerPid: number): boolean {
+  return Number.isInteger(testOwnerPid) && testOwnerPid > 0;
+}
+
 if (import.meta.main) {
   if (process.argv.slice(2).includes("--help")) {
     console.log("usage: daemon-entrypoint [--help]");
@@ -34,7 +40,7 @@ if (import.meta.main) {
   }
 
   const testOwnerPid = Number(process.env.TEST_DAEMON_OWNER_PID);
-  if (Number.isInteger(testOwnerPid) && testOwnerPid > 0) {
+  if (shouldWatchOwnerPid(testOwnerPid)) {
     setInterval(() => {
       try {
         process.kill(testOwnerPid, 0);

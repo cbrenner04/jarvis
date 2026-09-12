@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import type { SocketLiveness } from "../ipc/server.ts";
+import { rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { startIpcServer, type SocketLiveness } from "../ipc/server.ts";
+import { canUseUnixSockets } from "../testing/unix-socket.ts";
 import { drainObservationEndsOnLiveness, observePredecessorDrain } from "./daemon-drain-observer.ts";
+
+const socketTest = test.skipIf(!canUseUnixSockets());
 
 describe("drainObservationEndsOnLiveness", () => {
   test("ends observation when the socket reads absent or stale", () => {
@@ -121,6 +127,30 @@ describe("observePredecessorDrain", () => {
       expect(observer.liveRunIds().has("run-1")).toBe(false);
     } finally {
       observer.stop();
+    }
+  });
+
+  socketTest("parses a real socket's well-formed list response into live run ids", async () => {
+    const socketPath = join(tmpdir(), `jarvis-drain-observer-real-list-${process.pid}-${Date.now()}.sock`);
+    rmSync(socketPath, { force: true });
+    const server = await startIpcServer(socketPath, {
+      list: () => ({
+        kind: "response",
+        result: { runs: [{ runId: "run-1", project: "p", branch: "b", status: "in-progress", isLive: true }] },
+      }),
+    });
+    const observer = observePredecessorDrain(socketPath, {
+      pollIntervalMs: 10,
+      probeLiveness: async () => "live",
+    });
+    try {
+      // Exercises the real `defaultListLiveRunIds`, not an injected stand-in: a well-formed
+      // response must parse and surface the run id, not be treated as malformed.
+      await waitFor(() => observer.liveRunIds().has("run-1"));
+    } finally {
+      observer.stop();
+      await server.close();
+      rmSync(socketPath, { force: true });
     }
   });
 

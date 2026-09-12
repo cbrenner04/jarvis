@@ -10200,6 +10200,130 @@ index 1234567..abcdefg 100644
       }
     });
 
+    test("slot-refused gate invocation checkpoints quiesced agent edits before its boundary", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "slot-refused-checkpoint";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      const seedBase = gitIn(worktreePath, ["rev-parse", "HEAD"]);
+      const otherLane = acquireGateInvocationLease();
+      expect(otherLane).toBeDefined();
+
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => {
+          writeFileSync(join(worktreePath, "slot-refused-proof.txt"), "slot-refused-work\n", "utf8");
+          const settled = resolveOnAbort(input, progressWrite(worktreePath));
+          input.onAgentShellCommand?.("bun run test:v2");
+          return settled;
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(iterLoopInput(jarvisRoot, branchName, store, { logSink: sink }));
+
+        expect(result).toMatchObject({ kind: "gate_invocation_refused", gateRefusalCause: "slot_contention" });
+        const head = gitIn(worktreePath, ["rev-parse", "HEAD"]);
+        expect(head).not.toBe(seedBase);
+        expect(() => gitIn(worktreePath, ["merge-base", "--is-ancestor", seedBase, head])).not.toThrow();
+        expect(gitIn(worktreePath, ["show", "HEAD:slot-refused-proof.txt"])).toBe("slot-refused-work");
+        expect(gitIn(worktreePath, ["status", "--porcelain"])).toBe("");
+
+        const events = sink.getEventsForRun(result.runId);
+        const commitIndex = events.findIndex((event) => event.kind === "iteration_commit");
+        const boundaryIndex = events.findIndex(
+          (event) => event.kind === "boundary_committed" && event.outcomeKind === "gate_invocation_refused",
+        );
+        expect(commitIndex).toBeGreaterThanOrEqual(0);
+        expect(boundaryIndex).toBeGreaterThan(commitIndex);
+      } finally {
+        otherLane?.release();
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("slot-refused checkpoint failure settles iteration_commit_failed", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "slot-refused-checkpoint-fail";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      const otherLane = acquireGateInvocationLease();
+      expect(otherLane).toBeDefined();
+
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => {
+          writeFileSync(join(worktreePath, "slot-refused-fail-proof.txt"), "x\n", "utf8");
+          const settled = resolveOnAbort(input, progressWrite(worktreePath));
+          input.onAgentShellCommand?.("bun run test:v2");
+          return settled;
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            logSink: sink,
+            completionCommitter: async () => {
+              throw new Error("checkpoint blew up");
+            },
+          }),
+        );
+
+        expect(result.kind).toBe("iteration_commit_failed");
+        expect(result.resumable).toBe(true);
+
+        const events = sink.getEventsForRun(result.runId);
+        expect(events.some((event) => event.kind === "boundary_committed")).toBe(false);
+        expect(
+          events.some((event) => event.kind === "loop_finished" && event.loopOutcomeKind === "gate_invocation_refused"),
+        ).toBe(false);
+      } finally {
+        otherLane?.release();
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
+    test("ceiling-headroom gate refusal commits no checkpoint before its boundary", async () => {
+      const { jarvisRoot, stateDbPath } = createJarvisHome();
+      roots.push(join(jarvisRoot, ".."));
+      const branchName = "ceiling-headroom-no-checkpoint";
+      const worktreePath = initGitWorktree(jarvisRoot, branchName);
+      const store = openStateStore(stateDbPath);
+      const sink = new TestLogSink();
+      const seedBase = gitIn(worktreePath, ["rev-parse", "HEAD"]);
+
+      mock.module("./write.ts", () => ({
+        executeWrite: (input: WriteExecuteInput) => {
+          writeFileSync(join(worktreePath, "ceiling-headroom-proof.txt"), "x\n", "utf8");
+          const settled = resolveOnAbort(input, progressWrite(worktreePath));
+          input.onAgentShellCommand?.("bun run test:v2");
+          return settled;
+        },
+      }));
+
+      try {
+        const result = await executeWriteLoop(
+          iterLoopInput(jarvisRoot, branchName, store, {
+            logSink: sink,
+            iterationCeilingMs: TEST_STEP_BUDGET_MS - 1,
+          }),
+        );
+
+        expect(result).toMatchObject({ kind: "gate_invocation_refused", gateRefusalCause: "ceiling_headroom" });
+        expect(gitIn(worktreePath, ["rev-parse", "HEAD"])).toBe(seedBase);
+        const events = sink.getEventsForRun(result.runId);
+        expect(events.some((event) => event.kind === "iteration_commit")).toBe(false);
+      } finally {
+        store.close();
+        mock.module("./write.ts", () => ({ executeWrite: realExecuteWrite }));
+      }
+    });
+
     test("controlled-loss checkpoint commits despite biome complexity lint on quiesced edit", async () => {
       const { jarvisRoot, stateDbPath } = createJarvisHome();
       roots.push(join(jarvisRoot, ".."));

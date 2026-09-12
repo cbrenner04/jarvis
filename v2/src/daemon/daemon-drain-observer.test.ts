@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type SocketLiveness, startIpcServer } from "../ipc/server.ts";
 import { canUseUnixSockets } from "../testing/unix-socket.ts";
-import { drainObservationEndsOnLiveness, observePredecessorDrain, unionLiveRunIds } from "./daemon-drain-observer.ts";
+import {
+  drainObservationEndsOnLiveness,
+  observePredecessorDrain,
+  type SchedulePollLoop,
+  unionLiveRunIds,
+} from "./daemon-drain-observer.ts";
 
 const socketTest = test.skipIf(!canUseUnixSockets());
 
@@ -19,32 +24,54 @@ describe("drainObservationEndsOnLiveness", () => {
   });
 });
 
-async function waitFor(predicate: () => boolean, boundMs = 2_000): Promise<void> {
-  const deadline = Date.now() + boundMs;
-  while (!predicate()) {
-    if (Date.now() >= deadline) throw new Error("condition not met within bound");
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
+/**
+ * Drives the observer's poll loop by hand instead of racing a real timer: `tick()` awaits one
+ * complete poll, and `cleared` reports whether the loop was cancelled. The production default
+ * (`scheduleRealPollLoop`) runs the first tick eagerly, which this mirrors by exposing it rather
+ * than running it.
+ */
+function manualPollLoop(): { schedulePollLoop: SchedulePollLoop; tick: () => Promise<void>; cleared: () => boolean } {
+  let onTick: (() => Promise<void>) | undefined;
+  let cleared = false;
+  return {
+    schedulePollLoop: (fn) => {
+      onTick = fn;
+      return {
+        clear: () => {
+          cleared = true;
+        },
+      };
+    },
+    tick: async () => {
+      if (onTick === undefined) throw new Error("poll loop was never scheduled");
+      await onTick();
+    },
+    cleared: () => cleared,
+  };
 }
 
 describe("observePredecessorDrain", () => {
   test("reports the predecessor's live run ids from list", async () => {
+    const loop = manualPollLoop();
     const observer = observePredecessorDrain("irrelevant.sock", {
-      pollIntervalMs: 10,
+      schedulePollLoop: loop.schedulePollLoop,
       probeLiveness: async () => "live",
       listLiveRunIds: async () => ["run-1"],
     });
     try {
-      await waitFor(() => observer.liveRunIds().has("run-1"));
+      expect(observer.liveRunIds().size).toBe(0);
+      await loop.tick();
+      expect(observer.liveRunIds().has("run-1")).toBe(true);
     } finally {
       observer.stop();
     }
   });
 
   test("retains the last known live set across a transient list RPC failure", async () => {
+    const loop = manualPollLoop();
     let listCalls = 0;
     const observer = observePredecessorDrain("irrelevant.sock", {
-      pollIntervalMs: 10,
+      schedulePollLoop: loop.schedulePollLoop,
       probeLiveness: async () => "live",
       listLiveRunIds: async () => {
         listCalls += 1;
@@ -53,12 +80,15 @@ describe("observePredecessorDrain", () => {
       },
     });
     try {
-      await waitFor(() => observer.liveRunIds().has("run-1"));
-      await waitFor(() => listCalls >= 2);
-      // The failed poll (call 2) must not have cleared the previously observed live set: the
-      // socket itself is still live, so this is a stall, not a drain.
+      await loop.tick();
       expect(observer.liveRunIds().has("run-1")).toBe(true);
-      await waitFor(() => listCalls >= 3);
+      // The failed poll (call 2) must not clear the previously observed live set: the socket
+      // itself is still live, so this is a stall, not a drain.
+      await loop.tick();
+      expect(listCalls).toBe(2);
+      expect(observer.liveRunIds().has("run-1")).toBe(true);
+      await loop.tick();
+      expect(listCalls).toBe(3);
       expect(observer.liveRunIds().has("run-1")).toBe(true);
     } finally {
       observer.stop();
@@ -66,10 +96,11 @@ describe("observePredecessorDrain", () => {
   });
 
   test("ends observation and clears the live set once the predecessor's socket reads absent", async () => {
+    const loop = manualPollLoop();
     let liveness: SocketLiveness = "live";
     let listCalls = 0;
     const observer = observePredecessorDrain("irrelevant.sock", {
-      pollIntervalMs: 10,
+      schedulePollLoop: loop.schedulePollLoop,
       probeLiveness: async () => liveness,
       listLiveRunIds: async () => {
         listCalls += 1;
@@ -77,12 +108,15 @@ describe("observePredecessorDrain", () => {
       },
     });
     try {
-      await waitFor(() => observer.liveRunIds().has("run-1"));
+      await loop.tick();
+      expect(observer.liveRunIds().has("run-1")).toBe(true);
       liveness = "absent";
-      await waitFor(() => observer.liveRunIds().size === 0);
+      await loop.tick();
+      expect(observer.liveRunIds().size).toBe(0);
+      // Polling actually stopped: the loop was cancelled, and a further tick issues no `list`.
+      expect(loop.cleared()).toBe(true);
       const callsAtDrain = listCalls;
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      // Polling actually stopped: no further `list` calls after the socket read absent.
+      await loop.tick();
       expect(listCalls).toBe(callsAtDrain);
     } finally {
       observer.stop();
@@ -90,9 +124,10 @@ describe("observePredecessorDrain", () => {
   });
 
   test("observing an already-exited endpoint completes without failing: the live set stays empty and no RPC is attempted", async () => {
+    const loop = manualPollLoop();
     let listCalls = 0;
     const observer = observePredecessorDrain("irrelevant.sock", {
-      pollIntervalMs: 10,
+      schedulePollLoop: loop.schedulePollLoop,
       probeLiveness: async () => "absent",
       listLiveRunIds: async () => {
         listCalls += 1;
@@ -100,18 +135,20 @@ describe("observePredecessorDrain", () => {
       },
     });
     try {
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      await loop.tick();
       expect(observer.liveRunIds().size).toBe(0);
       expect(listCalls).toBe(0);
+      expect(loop.cleared()).toBe(true);
     } finally {
       observer.stop();
     }
   });
 
   test("stop() called while a list RPC is in flight discards that RPC's result", async () => {
+    const loop = manualPollLoop();
     let releaseList: ((ids: readonly string[]) => void) | undefined;
     const observer = observePredecessorDrain("irrelevant.sock", {
-      pollIntervalMs: 10,
+      schedulePollLoop: loop.schedulePollLoop,
       probeLiveness: async () => "live",
       listLiveRunIds: () =>
         new Promise<readonly string[]>((resolve) => {
@@ -119,11 +156,14 @@ describe("observePredecessorDrain", () => {
         }),
     });
     try {
-      await waitFor(() => releaseList !== undefined);
+      const inFlight = loop.tick();
+      // The tick is parked inside `listLiveRunIds`; stop, then release it and await the same
+      // promise, so the continuation is observed without a timer.
+      await Promise.resolve();
+      expect(releaseList).toBeDefined();
       observer.stop();
       releaseList?.(["run-1"]);
-      // Let the resolved promise's continuation run before asserting.
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await inFlight;
       expect(observer.liveRunIds().has("run-1")).toBe(false);
     } finally {
       observer.stop();
@@ -139,14 +179,16 @@ describe("observePredecessorDrain", () => {
         result: { runs: [{ runId: "run-1", project: "p", branch: "b", status: "in-progress", isLive: true }] },
       }),
     });
+    const loop = manualPollLoop();
     const observer = observePredecessorDrain(socketPath, {
-      pollIntervalMs: 10,
+      schedulePollLoop: loop.schedulePollLoop,
       probeLiveness: async () => "live",
     });
     try {
       // Exercises the real `defaultListLiveRunIds`, not an injected stand-in: a well-formed
       // response must parse and surface the run id, not be treated as malformed.
-      await waitFor(() => observer.liveRunIds().has("run-1"));
+      await loop.tick();
+      expect(observer.liveRunIds().has("run-1")).toBe(true);
     } finally {
       observer.stop();
       await server.close();
@@ -156,7 +198,7 @@ describe("observePredecessorDrain", () => {
 
   test("stop() is idempotent and safe to call multiple times", () => {
     const observer = observePredecessorDrain("irrelevant.sock", {
-      pollIntervalMs: 10,
+      schedulePollLoop: manualPollLoop().schedulePollLoop,
       probeLiveness: async () => "live",
       listLiveRunIds: async () => [],
     });

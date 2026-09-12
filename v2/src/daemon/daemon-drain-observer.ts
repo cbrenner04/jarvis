@@ -41,11 +41,30 @@ async function defaultListLiveRunIds(socketPath: string, timeoutMs: number): Pro
   }
 }
 
+/** Cancels a scheduled poll loop. */
+type PollLoopHandle = { clear(): void };
+
+/**
+ * Starts the poll loop: runs `onTick` once immediately, then every `intervalMs`. Injectable so a
+ * test can drive ticks itself and await each one, instead of racing a real timer.
+ */
+export type SchedulePollLoop = (onTick: () => Promise<void>, intervalMs: number) => PollLoopHandle;
+
+function scheduleRealPollLoop(onTick: () => Promise<void>, intervalMs: number): PollLoopHandle {
+  void onTick();
+  const timer = setInterval(() => {
+    void onTick();
+  }, intervalMs);
+  timer.unref();
+  return { clear: () => clearInterval(timer) };
+}
+
 type DrainObserverDeps = {
   probeLiveness?: (socketPath: string) => Promise<SocketLiveness>;
   listLiveRunIds?: (socketPath: string, timeoutMs: number) => Promise<readonly string[]>;
   pollIntervalMs?: number;
   rpcTimeoutMs?: number;
+  schedulePollLoop?: SchedulePollLoop;
 };
 
 /**
@@ -65,7 +84,7 @@ export function observePredecessorDrain(socketPath: string, deps: DrainObserverD
 
   let live = new Set<string>();
   let stopped = false;
-  let timer: ReturnType<typeof setInterval> | undefined;
+  let loop: PollLoopHandle | undefined;
 
   const tick = async (): Promise<void> => {
     if (stopped) return;
@@ -74,7 +93,7 @@ export function observePredecessorDrain(socketPath: string, deps: DrainObserverD
     if (drainObservationEndsOnLiveness(liveness)) {
       live = new Set();
       stopped = true;
-      clearInterval(timer);
+      loop?.clear();
       return;
     }
     try {
@@ -85,17 +104,16 @@ export function observePredecessorDrain(socketPath: string, deps: DrainObserverD
     }
   };
 
-  void tick();
-  timer = setInterval(() => {
-    void tick();
-  }, pollIntervalMs);
-  timer.unref();
+  loop = (deps.schedulePollLoop ?? scheduleRealPollLoop)(tick, pollIntervalMs);
+  // A drain observed during the very first tick clears the loop before `loop` was assigned, so
+  // honour that here rather than leaving a real timer running behind a `stopped` observer.
+  if (stopped) loop.clear();
 
   return {
     liveRunIds: () => live,
     stop: () => {
       stopped = true;
-      clearInterval(timer);
+      loop?.clear();
     },
   };
 }

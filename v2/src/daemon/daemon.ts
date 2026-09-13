@@ -1087,17 +1087,6 @@ async function daemonAnswersAt(socketPath: string): Promise<boolean> {
   }
 }
 
-function daemonRunControlOverrides(
-  startupDeps: DaemonStartupDeps,
-): Pick<RunControlHandlerContextDeps, "hasMemoryHeadroom" | "writeLoopBindingSourceDeps"> {
-  return {
-    ...(startupDeps.hasMemoryHeadroom === undefined ? {} : { hasMemoryHeadroom: startupDeps.hasMemoryHeadroom }),
-    ...(startupDeps.writeLoopBindingSourceDeps === undefined
-      ? {}
-      : { writeLoopBindingSourceDeps: startupDeps.writeLoopBindingSourceDeps }),
-  };
-}
-
 export async function startDaemonRuntime(
   socketPath: string,
   stateStore?: StateStore,
@@ -1199,7 +1188,10 @@ export async function startDaemonRuntime(
     daemonSocketPath: socketPath,
     reconciledRunIds,
     externalLiveRunIds: () => unionLiveRunIds(drainObservers),
-    ...daemonRunControlOverrides(startupDeps),
+    ...(startupDeps.hasMemoryHeadroom === undefined ? {} : { hasMemoryHeadroom: startupDeps.hasMemoryHeadroom }),
+    ...(startupDeps.writeLoopBindingSourceDeps === undefined
+      ? {}
+      : { writeLoopBindingSourceDeps: startupDeps.writeLoopBindingSourceDeps }),
   });
 
   const supersedHandler: RpcHandler = () => {

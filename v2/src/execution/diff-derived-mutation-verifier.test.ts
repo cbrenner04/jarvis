@@ -122,7 +122,13 @@ function verifyAddedSource(file: string, hunks: string[][], source: string, muta
   return verifyDiffSource(file, addedLineDiff(file, hunks), source, mutations);
 }
 
-function verifyDiffSource(_file: string, diff: string, source: string, mutations?: string[]) {
+function verifyDiffSource(
+  _file: string,
+  diff: string,
+  source: string,
+  mutations?: string[],
+  runScopedTests: () => Promise<boolean> = async () => false,
+) {
   return verifyDiffDerivedMutations(
     { worktreePath: "/test/path", runBase: "main" },
     {
@@ -133,7 +139,7 @@ function verifyDiffSource(_file: string, diff: string, source: string, mutations
         if (content !== source) mutations?.push(content);
       },
       listDir: () => [],
-      runScopedTests: async () => false,
+      runScopedTests,
     },
   );
 }
@@ -1782,18 +1788,7 @@ index 1234567..abcdefg 100644
     const originalContent = "if (!CONSUMER_FILES.has(file)) return;";
     const mutatedContents: string[] = [];
 
-    const result = await verifyDiffDerivedMutations(
-      { worktreePath: "/test/path", runBase: "main" },
-      {
-        gitDiff: async () => diff,
-        untrackedFiles: async () => [],
-        readFile: async () => originalContent,
-        writeFile: async (_path, content) => {
-          if (content !== originalContent) mutatedContents.push(content);
-        },
-        runScopedTests: async () => true,
-      },
-    );
+    const result = await verifyDiffSource("src/consumer.ts", diff, originalContent, mutatedContents, async () => true);
 
     expect(result.kind).toBe("surviving-mutation");
     if (result.kind === "surviving-mutation") {
@@ -1814,18 +1809,7 @@ index 1234567..abcdefg 100644
     const originalContent = "!(a && (b || c.has(d)));";
     const mutatedContents: string[] = [];
 
-    const result = await verifyDiffDerivedMutations(
-      { worktreePath: "/test/path", runBase: "main" },
-      {
-        gitDiff: async () => diff,
-        untrackedFiles: async () => [],
-        readFile: async () => originalContent,
-        writeFile: async (_path, content) => {
-          if (content !== originalContent) mutatedContents.push(content);
-        },
-        runScopedTests: async () => true,
-      },
-    );
+    const result = await verifyDiffSource("src/nested.ts", diff, originalContent, mutatedContents, async () => true);
 
     expect(result.kind).toBe("surviving-mutation");
     if (result.kind === "surviving-mutation") {
@@ -1846,19 +1830,7 @@ index 1234567..abcdefg 100644
     const originalContent = "!!x;";
     const mutatedContents: string[] = [];
 
-    const result = await verifyDiffDerivedMutations(
-      { worktreePath: "/test/path", runBase: "main" },
-      {
-        gitDiff: async () => diff,
-        untrackedFiles: async () => [],
-        readFile: async (path) => (path.endsWith(".test.ts") ? "export {};\n" : originalContent),
-        writeFile: async (_path, content) => {
-          if (content !== originalContent) mutatedContents.push(content);
-        },
-        listDir: () => [],
-        runScopedTests: async () => false,
-      },
-    );
+    const result = await verifyDiffSource("src/toggle.ts", diff, originalContent, mutatedContents);
 
     expect(result.kind).toBe("pass");
     if (result.kind === "pass") expect(result.candidateCount).toBe(1);
@@ -1877,15 +1849,7 @@ index 1234567..abcdefg 100644
  return noop;
 `;
     const unchangedContent = "if (!flag) return;\nconst noop = 1;\nreturn noop;";
-    const unchangedResult = await verifyDiffDerivedMutations(
-      { worktreePath: "/test/path", runBase: "main" },
-      {
-        gitDiff: async () => unchangedDiff,
-        untrackedFiles: async () => [],
-        readFile: async () => unchangedContent,
-        runScopedTests: async () => false,
-      },
-    );
+    const unchangedResult = await verifyDiffSource("src/unchanged.ts", unchangedDiff, unchangedContent);
     expect(unchangedResult.kind).toBe("pass");
     if (unchangedResult.kind === "pass") expect(unchangedResult.candidateCount).toBe(0);
 
@@ -1900,22 +1864,16 @@ index 1234567..abcdefg 100644
 +);
 `;
     const multilineContent = "const guarded = !(\n  a && b\n);";
-    let multilineMutated: string | null = null;
-    const multilineResult = await verifyDiffDerivedMutations(
-      { worktreePath: "/test/path", runBase: "main" },
-      {
-        gitDiff: async () => multilineDiff,
-        untrackedFiles: async () => [],
-        readFile: async () => multilineContent,
-        writeFile: async (_path, content) => {
-          if (content !== multilineContent) multilineMutated = content;
-        },
-        runScopedTests: async () => false,
-      },
+    const multilineMutations: string[] = [];
+    const multilineResult = await verifyDiffSource(
+      "src/multiline.ts",
+      multilineDiff,
+      multilineContent,
+      multilineMutations,
     );
     expect(multilineResult.kind).toBe("pass");
     if (multilineResult.kind === "pass") expect(multilineResult.candidateCount).toBe(0);
-    expect(multilineMutated).toBeNull();
+    expect(multilineMutations).toEqual([]);
 
     // (c) guard-first ordering and deduplication hold when a guard and an operator candidate share a changed line.
     const sharedContent = "if (!a && b < c) return;";

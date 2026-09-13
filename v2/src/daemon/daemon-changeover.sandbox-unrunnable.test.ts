@@ -1,7 +1,7 @@
 // Real-socket coverage for the handoff changeover protocol at the stable public address.
 
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connectIpcClient } from "../ipc/client";
@@ -218,6 +218,36 @@ describe("daemon handoff changeover (real sockets)", () => {
         rmSync(publicSocketPath, { force: true });
         rmSync(incumbentPrivate, { force: true });
         rmSync(successorPrivate, { force: true });
+      }
+    },
+    30_000,
+  );
+
+  socketTest(
+    "the incumbent's drained public release never unlinks the successor's rebound public socket",
+    async () => {
+      const incumbent = await startIncumbent("release-unlink");
+      let successor: IpcServer | undefined;
+      try {
+        // A live run keeps the committed incumbent draining, as in the observed outage.
+        await startWork(incumbent.publicSocketPath, "draining-through-release");
+        // A long-lived public client (e.g. a follow stream) holds the incumbent's release in drain.
+        const held = await connectIpcClient(incumbent.publicSocketPath);
+        const handoffId = await beginChangeover(incumbent);
+        expect(await waitFor(() => !existsSync(incumbent.publicSocketPath), 2_000)).toBe(true);
+        successor = await startIpcServer(incumbent.publicSocketPath, {
+          health: () => ({ kind: "response", result: { successor: true } }),
+        });
+        held.close();
+        const committed = await request(incumbent.privateSocketPath, "handoff_commit", { handoffId });
+        expect(committed.kind).toBe("response");
+        await flushBackgroundRuns(3);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(existsSync(incumbent.publicSocketPath)).toBe(true);
+        expect(await health(incumbent.publicSocketPath)).toEqual({ successor: true });
+      } finally {
+        await successor?.close();
+        await incumbent.close();
       }
     },
     30_000,

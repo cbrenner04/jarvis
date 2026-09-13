@@ -1,4 +1,4 @@
-import { rmSync } from "node:fs";
+import { lstatSync, rmSync } from "node:fs";
 import { createServer, type Server, Socket } from "node:net";
 import { promisify } from "node:util";
 import { isRecord } from "../../../shared/is-record.ts";
@@ -421,8 +421,28 @@ export async function removeStaleSocketPath(
   }
 }
 
+type SocketIdentity = { dev: number; ino: number } | undefined;
+
+function readSocketIdentity(socketPath: string): SocketIdentity {
+  try {
+    const stats = lstatSync(socketPath);
+    return { dev: stats.dev, ino: stats.ino };
+  } catch {
+    return undefined;
+  }
+}
+
+/** Unlink `socketPath` only while it is still the socket inode identified by `bound`. */
+function removeOwnSocketPath(socketPath: string, bound: SocketIdentity): void {
+  const current = readSocketIdentity(socketPath);
+  if (bound === undefined || current === undefined) return;
+  if (current.dev !== bound.dev || current.ino !== bound.ino) return;
+  rmSync(socketPath, { force: true });
+}
+
 function createIpcServerClose(
   socketPath: string,
+  boundIdentity: SocketIdentity,
   server: Server,
   activeSockets: Set<Socket>,
   setAcceptingConnections: (accepting: boolean) => void,
@@ -448,12 +468,10 @@ function createIpcServerClose(
         throw drainResult.reason;
       }
     } finally {
-      // Note: `server.close()` already unlinks by path, and node keys that on the path
-      // rather than the inode it created — so a socket force-rebound by a successor is
-      // removed by node before this runs. Guarding here would be inert; the durable
-      // protection is the start-side liveness check, which stops the replacement from
-      // happening at all.
-      rmSync(socketPath, { force: true }); // @mutate-equivalent mutation="skip-destructive: rmSync(" reason="node unlinks the socket path inside server.close() before this finally runs, so this defensive cleanup has no observable effect on any reachable path"
+      // Bun's `server.close()` unlinks the path synchronously, before any successor can bind; this
+      // cleanup runs only after the drain (up to `drainTimeoutMs`), by which time a handoff
+      // successor may own the path. Unlink only the inode this server bound.
+      removeOwnSocketPath(socketPath, boundIdentity);
     }
   };
 }
@@ -525,7 +543,7 @@ export async function startIpcServer(
 
   return listenForIpcServer(server, socketPath, probeDetailed, () => ({
     socketPath,
-    close: createIpcServerClose(socketPath, server, activeSockets, (accepting) => {
+    close: createIpcServerClose(socketPath, readSocketIdentity(socketPath), server, activeSockets, (accepting) => {
       acceptingConnections = accepting;
     }),
   }));

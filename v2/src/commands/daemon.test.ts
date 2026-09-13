@@ -159,7 +159,6 @@ describe("daemon command", () => {
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: "running loaded=abc123\n", stderr: "" });
-    expect(cap.read().stdout).not.toContain("current=");
   });
 
   // The pid file is a hint, not the service. A doomed start clobbers it with a pid that never

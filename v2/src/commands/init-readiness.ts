@@ -106,12 +106,14 @@ export type ReadinessContext = {
   targetDir: string;
 };
 
+export type DaemonCheck = () => Promise<{ state: "running" | "stopped" }>;
+
 export type ReadinessProbes = {
   checkBunRuntime?: () => Promise<{ ok: boolean; detail?: string }>;
   checkGithubAuth?: () => Promise<{ ok: boolean; detail?: string }>;
   currentOrigin?: (projectRoot: string) => Promise<string | undefined>;
   directoryExists?: (path: string) => boolean;
-  checkDaemon?: () => Promise<{ state: "running" | "stopped" }>;
+  checkDaemon?: DaemonCheck;
 };
 
 async function defaultCheckBunRuntime(): Promise<{ ok: boolean; detail?: string }> {

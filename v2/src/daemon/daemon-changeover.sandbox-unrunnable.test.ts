@@ -13,7 +13,7 @@ import { flushBackgroundRuns, loadRunOrThrow, mockWriteLoopInput } from "../test
 import { createTestDaemonLifecycle } from "../testing/test-daemon-lifecycle";
 import { canUseUnixSockets } from "../testing/unix-socket";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor";
-import { shouldShutdownNow, startDaemonRuntime } from "./daemon";
+import { fallbackVerdict, isHandoffStillPending, shouldShutdownNow, startDaemonRuntime } from "./daemon";
 import { DaemonHandoffFailedError, startDaemon } from "./daemon-lifecycle";
 
 const socketTest = test.skipIf(!canUseUnixSockets());
@@ -158,6 +158,19 @@ describe("daemon handoff changeover (real sockets)", () => {
     expect(shouldShutdownNow(false, true, false, true)).toBe(false);
     expect(shouldShutdownNow(false, true, false, false)).toBe(true);
     expect(shouldShutdownNow(true, true, false, true)).toBe(true);
+  });
+
+  test("isHandoffStillPending is true only for the exact still-pending transaction", () => {
+    expect(isHandoffStillPending("h1", "pending", "h1")).toBe(true);
+    expect(isHandoffStillPending("h1", "committed", "h1")).toBe(false);
+    expect(isHandoffStillPending("h1", "rolled_back", "h1")).toBe(false);
+    expect(isHandoffStillPending("h2", "pending", "h1")).toBe(false);
+    expect(isHandoffStillPending(undefined, undefined, "h1")).toBe(false);
+  });
+
+  test("fallbackVerdict commits only when the public address answers live", () => {
+    expect(fallbackVerdict(true)).toBe("commit");
+    expect(fallbackVerdict(false)).toBe("rollback");
   });
 
   socketTest(
@@ -521,6 +534,61 @@ describe("daemon handoff changeover (real sockets)", () => {
         expect(await answersHealth(incumbent.publicSocketPath)).toBe(false);
         const refused = await request(incumbent.privateSocketPath, "start", {
           input: mockWriteLoopInput({ projectName: "refused-after-rebind-failure" }),
+        });
+        expect(refused.kind).toBe("error");
+        expect((refused as { code?: string }).code).toBe("daemon_superseded");
+      } finally {
+        await incumbent.close();
+      }
+    },
+    15_000,
+  );
+
+  socketTest(
+    "a fallback rollback that fails once still resolves the pending handoff once rebind succeeds",
+    async () => {
+      let publicBinds = 0;
+      const incumbent = await startIncumbent("fallback-retry", {
+        fallbackMs: 100,
+        bind: async (path, handlers) => {
+          if (path.endsWith("daemon.sock")) {
+            publicBinds += 1;
+            // The first fallback-triggered rebind fails; the pre-fix code never tries again and
+            // the pending handoff is stuck forever. A later rebind attempt succeeds.
+            if (publicBinds === 2) throw new Error("rebind failed");
+          }
+          return startIpcServer(path, handlers);
+        },
+      });
+      try {
+        await beginChangeover(incumbent);
+        expect(await waitFor(() => answersHealth(incumbent.publicSocketPath), 3_000)).toBe(true);
+        expect(incumbent.exitCodes).toEqual([]);
+        expect(publicBinds).toBeGreaterThanOrEqual(3);
+        await startWork(incumbent.publicSocketPath, "admitted-after-fallback-retry");
+      } finally {
+        await incumbent.close();
+      }
+    },
+    15_000,
+  );
+
+  socketTest(
+    "rollback after supersede rebinds the public listener but leaves the incumbent non-admitting",
+    async () => {
+      const incumbent = await startIncumbent("superseded-rollback", { fallbackMs: 5_000 });
+      try {
+        const superseded = await request(incumbent.privateSocketPath, "supersede");
+        expect(superseded.kind).toBe("response");
+
+        const handoffId = await beginChangeover(incumbent);
+        const rollback = await request(incumbent.privateSocketPath, "handoff_rollback", { handoffId });
+        expect((rollback as ResponseFrame).result).toEqual({ ok: true, state: "rolled_back" });
+
+        // The pre-fix code always reopens admission on rollback, ignoring an earlier supersede.
+        expect(await health(incumbent.publicSocketPath)).toEqual({ ok: true });
+        const refused = await request(incumbent.publicSocketPath, "start", {
+          input: mockWriteLoopInput({ projectName: "refused-after-superseded-rollback" }),
         });
         expect(refused.kind).toBe("error");
         expect((refused as { code?: string }).code).toBe("daemon_superseded");

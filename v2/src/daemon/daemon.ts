@@ -804,21 +804,25 @@ type ChangeoverHandlerDeps = {
   closePublicServer: () => Promise<void>;
 };
 
-type HandoffState = "pending" | "committed" | "rolled_back";
+export type HandoffState = "pending" | "committed" | "rolled_back";
 
 type HandoffTransaction = {
   id: string;
   state: HandoffState;
   releasePromise: Promise<void>;
   rollbackPromise?: Promise<RpcHandlerResult>;
-  fallbackTimer: ReturnType<typeof setTimeout>;
+  /** Set by `scheduleFallback` once the transaction exists; a failed fallback rollback reschedules it. */
+  fallbackTimer?: ReturnType<typeof setTimeout>;
 };
 
 type RpcHandlerResult = Awaited<ReturnType<RpcHandler>>;
 
 type HandoffHandlersDeps = ChangeoverHandlerDeps & {
-  /** Reopens admission only after the public listener has rebound. */
+  /** Reopens admission only after the public listener has rebound; skipped when superseded. */
   setAdmitting: () => void;
+  /** True once this generation has been superseded (via `supersede` or `changeover`), before or
+   * during the pending handoff — rollback must not reopen admission for it. */
+  wasSuperseded: () => boolean;
   /** Rebinds the stable public listener. */
   bindPublicServer: () => Promise<void>;
   /** True only when a daemon answers at the stable public address. */
@@ -826,6 +830,28 @@ type HandoffHandlersDeps = ChangeoverHandlerDeps & {
   /** Bounds an unanswered handoff. Defaults to 5000ms. */
   fallbackMs?: number;
 };
+
+/**
+ * True when `handoffId` still names the transaction identified by `activeId`/`activeState` — a
+ * fallback timer firing after that transaction settled, or after a new transaction replaced it,
+ * must not act. Extracted so both call sites in `resolveFallback` (before and after the async
+ * probe) share one guard and are directly testable without a real timer.
+ */
+export function isHandoffStillPending(
+  activeId: string | undefined,
+  activeState: HandoffState | undefined,
+  handoffId: string,
+): boolean {
+  return activeId === handoffId && activeState === "pending";
+}
+
+/**
+ * The liveness-fallback verdict: commit when a daemon answers live at the stable public address,
+ * roll back otherwise. Extracted so the choice is directly testable without a real timer or probe.
+ */
+export function fallbackVerdict(publicDaemonLive: boolean): "commit" | "rollback" {
+  return publicDaemonLive ? "commit" : "rollback";
+}
 
 function handoffIdentity(frame: Parameters<RpcHandler>[0]): string | undefined {
   const params = frame.params;
@@ -857,7 +883,7 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
   let transaction: HandoffTransaction | undefined;
 
   const clearFallback = (active: HandoffTransaction): void => {
-    clearTimeout(active.fallbackTimer);
+    if (active.fallbackTimer !== undefined) clearTimeout(active.fallbackTimer);
   };
 
   const rollback = (active: HandoffTransaction): Promise<RpcHandlerResult> => {
@@ -875,7 +901,7 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
       }
       active.state = "rolled_back";
       clearFallback(active);
-      deps.setAdmitting();
+      if (!deps.wasSuperseded()) deps.setAdmitting();
       return handoffResponse("rolled_back");
     })();
     active.rollbackPromise = rollbackPromise;
@@ -891,18 +917,31 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
     return handoffResponse("committed");
   };
 
+  const scheduleFallback = (active: HandoffTransaction, handoffId: string): void => {
+    active.fallbackTimer = setTimeout(() => {
+      void resolveFallback(handoffId);
+    }, deps.fallbackMs ?? 5_000);
+  };
+
   const resolveFallback = async (handoffId: string): Promise<void> => {
     const active = transaction;
-    if (active === undefined || active.id !== handoffId || active.state !== "pending") return;
+    if (active === undefined || !isHandoffStillPending(active.id, active.state, handoffId)) return;
     let publicDaemonLive = false;
     try {
       publicDaemonLive = await deps.probePublicServer();
     } catch {
       publicDaemonLive = false;
     }
-    if (transaction !== active || active.state !== "pending") return;
-    const result = publicDaemonLive ? await commit(active) : await rollback(active);
-    if (result.kind === "error") console.error(`Daemon handoff fallback failed: ${result.message}`);
+    if (transaction !== active || !isHandoffStillPending(transaction.id, transaction.state, handoffId)) return;
+    const result = fallbackVerdict(publicDaemonLive) === "commit" ? await commit(active) : await rollback(active);
+    if (result.kind === "error") {
+      console.error(`Daemon handoff fallback failed: ${result.message}`);
+      // A failed rollback (rebind still failing) must not strand the transaction pending forever:
+      // reschedule another attempt on the same cadence until one of them resolves it.
+      if (transaction === active && isHandoffStillPending(transaction.id, transaction.state, handoffId)) {
+        scheduleFallback(active, handoffId);
+      }
+    }
   };
 
   const changeover: RpcHandler = () => {
@@ -927,10 +966,8 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
     const releasePromise = new Promise<void>((resolve) => {
       releaseDone = resolve;
     });
-    const fallbackTimer = setTimeout(() => {
-      void resolveFallback(handoffId);
-    }, deps.fallbackMs ?? 5_000);
-    const active: HandoffTransaction = { id: handoffId, state: "pending", releasePromise, fallbackTimer };
+    const active: HandoffTransaction = { id: handoffId, state: "pending", releasePromise };
+    scheduleFallback(active, handoffId);
     transaction = active;
     setImmediate(() => {
       deps.closePublicServer().then(releaseDone, releaseDone);
@@ -1193,7 +1230,11 @@ export async function startDaemonRuntime(
       : { writeLoopBindingSourceDeps: startupDeps.writeLoopBindingSourceDeps }),
   });
 
+  // Recorded separately from `retiring`: a handoff's own `changeover` sets `retiring` too, but only
+  // a real `supersede` must stop rollback from reopening admission (see `wasSuperseded` below).
+  let superseded = false;
   const supersedHandler: RpcHandler = () => {
+    superseded = true;
     setRetiring();
     return { kind: "response", result: { ok: true } };
   };
@@ -1210,6 +1251,7 @@ export async function startDaemonRuntime(
     setAdmitting: () => {
       runControlContext.retiring = false;
     },
+    wasSuperseded: () => superseded,
     bindPublicServer: async () => {
       server = await bindIpcServer(socketPath, handlers, tailStreamHandler);
     },

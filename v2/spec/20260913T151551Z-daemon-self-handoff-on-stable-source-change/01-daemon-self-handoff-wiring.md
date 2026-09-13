@@ -19,16 +19,16 @@ A merged source change leaves the old daemon generation serving until an operato
 
 ## Acceptance criteria
 
-- [ ] A daemon-level regression test injects a fake sampler through the same startup-deps injection seam as the interval, returning one divergent digest for two consecutive samples, exercises the real daemon startup wiring, and asserts successor startup begins with no client request; it fails against the pre-fix daemon.
-- [ ] A test proves a run admitted before self-handoff completes normally under the outgoing generation without interruption.
-- [ ] A test proves sampling stops as soon as `isRetiring()` is set — whether by a client-initiated changeover or by this controller's own trigger — and that no second successor is spawned after the cut or after commit.
-- [ ] A test proves a self-handoff does not start while a client-initiated handoff is already pending.
-- [ ] A test proves successor startup failure restores incumbent admission via the existing rollback and a later retry needs two fresh matching samples.
-- [ ] A test proves the initiating generation's process log records both loaded and observed digests as the self-handoff cause.
-- [ ] `v2/docs/daemon-host.md` describes autonomous sampling, two-sample stability, single-flight (including the pending-client-handoff and admission-cut stop conditions), drain preservation, rollback retry reset, and logged cause.
-- [ ] `v2/docs/operator-runbook.md` states merged executable changes take effect after automatic handoff and drain, and explains `daemon status` loaded/current during convergence.
-- [ ] `v2/docs/v1-behaviors.md` records autonomous v2 daemon generation replacement.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A daemon-level regression test injects a fake sampler through the same startup-deps injection seam as the interval, returning one divergent digest for two consecutive samples, exercises the real daemon startup wiring, and asserts successor startup begins with no client request; it fails against the pre-fix daemon.
+- [x] A test proves a run admitted before self-handoff completes normally under the outgoing generation without interruption.
+- [x] A test proves sampling stops as soon as `isRetiring()` is set — whether by a client-initiated changeover or by this controller's own trigger — and that no second successor is spawned after the cut or after commit.
+- [x] A test proves a self-handoff does not start while a client-initiated handoff is already pending.
+- [x] A test proves successor startup failure restores incumbent admission via the existing rollback and a later retry needs two fresh matching samples.
+- [x] A test proves the initiating generation's process log records both loaded and observed digests as the self-handoff cause.
+- [x] `v2/docs/daemon-host.md` describes autonomous sampling, two-sample stability, single-flight (including the pending-client-handoff and admission-cut stop conditions), drain preservation, rollback retry reset, and logged cause.
+- [x] `v2/docs/operator-runbook.md` states merged executable changes take effect after automatic handoff and drain, and explains `daemon status` loaded/current during convergence.
+- [x] `v2/docs/v1-behaviors.md` records autonomous v2 daemon generation replacement.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

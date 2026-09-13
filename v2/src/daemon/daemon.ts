@@ -31,7 +31,7 @@ import {
   type RpcHandler,
   startIpcServer,
 } from "../ipc/server";
-import { jarvisHome } from "../paths.ts";
+import { DAEMON_LOG_PATH, DAEMON_PID_PATH, daemonPathsByDigest, jarvisHome } from "../paths.ts";
 import {
   type LogReader,
   type LogSink,
@@ -42,6 +42,7 @@ import {
 import { isTerminalRunStatus, openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { DEFAULT_HANDOFF_FALLBACK_MS } from "./daemon-changeover.ts";
 import { type DrainObserver, observePredecessorDrain, unionLiveRunIds } from "./daemon-drain-observer.ts";
+import { startDaemon } from "./daemon-lifecycle.ts";
 import {
   createNotificationListHandler,
   createNotificationWaitHandler,
@@ -72,6 +73,7 @@ import {
 } from "./operator-notification-sweep.ts";
 import type { KillSurvivor } from "./run-kill-outcome.ts";
 import type { RunOperatorError } from "./run-operator-error.ts";
+import { startStableDigestTrigger } from "./stable-digest-trigger.ts";
 
 export { reconcileOrphanedRuns };
 
@@ -1050,6 +1052,16 @@ type DaemonStartupDeps = {
   observePredecessorDrain?: typeof observePredecessorDrain;
   /** Bounds incumbent fallback resolution while no successor verdict arrives. Defaults to `DEFAULT_HANDOFF_FALLBACK_MS`. */
   handoffFallbackMs?: number;
+  /** Digest sampler for self-handoff triggering; defaults to sampling this process's own executable tree. */
+  sampleExecutableDigest?: () => Promise<string>;
+  /**
+   * Starts and awaits a self-handoff successor for an observed digest; defaults to the real
+   * `startDaemon` spawn -> changeover -> readiness -> commit/rollback path against a digest-keyed
+   * private endpoint. A rejection propagates unchanged, same as any other `startHandoff` failure.
+   */
+  startSelfHandoffSuccessor?: (loaded: string, observed: string) => Promise<"committed" | "rolled_back">;
+  /** Self-handoff sampling interval; defaults to 30s. Same injection seam as `startDrainExitLoop`'s `intervalMs`. */
+  selfHandoffSamplingIntervalMs?: number;
 };
 
 export async function recoverReconciledRuns(
@@ -1205,7 +1217,7 @@ export async function startDaemonRuntime(
     wakeNotificationWaiters,
     close: _closeRunControlHandlers,
     continueContinuablePipelines,
-    setRetiring,
+    setRetiring: setRetiringRaw,
     hasActiveRuns,
     isRetiring,
     pipelineExecutionDeps: _pipelineExecutionDeps,
@@ -1229,6 +1241,16 @@ export async function startDaemonRuntime(
       ? {}
       : { writeLoopBindingSourceDeps: startupDeps.writeLoopBindingSourceDeps }),
   });
+
+  // Teardown backstop for the self-handoff sampling loop (see below): stopped here so both a
+  // client-initiated `changeover` and this generation's own `supersede` cut sampling immediately,
+  // not only once `close()` eventually runs. The per-tick `isRetiring()` check is the primary
+  // cutoff; this closes the narrower race where a tick is already past that check.
+  let selfHandoffTrigger: { stop(): void } | undefined;
+  const setRetiring = (): void => {
+    setRetiringRaw();
+    selfHandoffTrigger?.stop();
+  };
 
   // Recorded separately from `retiring`: a handoff's own `changeover` sets `retiring` too, but only
   // a real `supersede` must stop rollback from reopening admission (see `wasSuperseded` below).
@@ -1329,6 +1351,43 @@ export async function startDaemonRuntime(
   }, NOTIFICATION_SWEEP_INTERVAL_MS);
   notificationSweepTimer.unref();
 
+  // Autonomous self-handoff: a merged source change leaves this daemon's loaded executable digest
+  // stably diverged from the tree on disk, so it starts its own successor with no client request.
+  // Skipped when the loaded digest is unknown — there is no baseline to diverge from.
+  const sampleExecutableDigest =
+    startupDeps.sampleExecutableDigest ?? (() => getExecutableTreeDigest(import.meta.dir, realAsyncSubprocessRunner));
+  const spawnSelfHandoffSuccessor =
+    startupDeps.startSelfHandoffSuccessor ??
+    (async (_loaded: string, observed: string): Promise<"committed" | "rolled_back"> => {
+      await startDaemon(socketPath, {
+        pidPath: DAEMON_PID_PATH,
+        logPath: DAEMON_LOG_PATH,
+        privateSocketPath: daemonPathsByDigest(observed).socketPath,
+      });
+      return "committed";
+    });
+  if (loadedExecutableDigest !== "unknown") {
+    selfHandoffTrigger = startStableDigestTrigger(loadedExecutableDigest, {
+      sample: sampleExecutableDigest,
+      startHandoff: async (loaded, observed) => {
+        console.error(`Self-handoff triggered: loaded digest ${loaded}, observed digest ${observed}`);
+        // A client-initiated handoff already cut admission and is negotiating with its own
+        // successor; spawning a second successor here would race it for the same private
+        // socket. Treated the same as any other `startHandoff` non-commit outcome.
+        if (handoffHandlers.isPending()) return "rolled_back";
+        return spawnSelfHandoffSuccessor(loaded, observed);
+      },
+      scheduleSampling: (onTick) => {
+        const timer = setInterval(() => {
+          if (isRetiring()) return;
+          void onTick();
+        }, startupDeps.selfHandoffSamplingIntervalMs ?? 30_000);
+        timer.unref?.();
+        return { stop: () => clearInterval(timer) };
+      },
+    });
+  }
+
   const signalHandler = () => {
     shutdownRequested = true;
   };
@@ -1342,6 +1401,7 @@ export async function startDaemonRuntime(
     closed = true;
     drainExitLoop.stop();
     clearInterval(notificationSweepTimer);
+    selfHandoffTrigger?.stop();
     process.off("SIGTERM", signalHandler);
     process.off("SIGINT", signalHandler);
     handoffHandlers.close();

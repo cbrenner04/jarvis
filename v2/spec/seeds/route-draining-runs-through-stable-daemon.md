@@ -20,6 +20,10 @@ Run liveness and control are answered only from the daemon process receiving the
 
 - The stable-address daemon presents draining-generation runs as live and routes each run observation or control request to the generation that owns it without exposing generations to the caller.
 
+## Split guidance
+
+Split one operator-visible behavior per ready-intent, each independently shippable and useful on its own: (1) merged `run list` observation of a draining predecessor's live runs; (2) `run wait` and `run kill` routed to the owner; (3) `run log` replay/follow routed to the owner; (4) admission protection (no start/resume/force-claim over a draining owner) and route-loss recovery. Order them as a prerequisite chain only where a real code dependency exists.
+
 ## Replanned 2026-09-13
 
 The first plan (six subspecs, multi-generation chains, a blocking readiness gate) was abandoned after review found it regressed single-daemon `list` latency, blocked every verb for a daemon's lifetime after a slow route probe, and skipped orphan reconciliation. Plan narrowly.

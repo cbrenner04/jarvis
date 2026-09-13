@@ -1,7 +1,7 @@
 // Real-socket coverage for the stable public daemon address and private successor endpoint.
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getInvokingExecutableDigest } from "../cli/dispatch-revision";
@@ -121,6 +121,9 @@ describe("daemon (stable public address)", () => {
       const successorPrivate = join(tempHome, "daemon-successor-test.sock");
       const dbPath = join(tempHome, "state", "v2.sqlite");
       mkdirSync(join(tempHome, "state"), { recursive: true });
+      // The successor is a real daemon: admitting a run resolves the machine profile from this
+      // home's config.json, and a missing profile throws inside the `start` handler.
+      writeFileSync(join(tempHome, "config.json"), JSON.stringify({ machineProfile: "home" }));
 
       // No `currentIdentity` override: this store stamps the real test process's own `pid:epoch`,
       // so the successor's real cross-process liveness check correctly finds it alive.

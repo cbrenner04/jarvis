@@ -4,7 +4,8 @@ import { join } from "node:path";
 import type { IpcServer, RpcHandler } from "../ipc/server.ts";
 import type { LogReader } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
-import { listRunsDirect } from "../testing/run-control.ts";
+import { listRunsDirect, mockWriteLoopInput, startRunDirect } from "../testing/run-control.ts";
+import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor.ts";
 import { createRunControlHandlers, startDaemonRuntime } from "./daemon.ts";
 import type { DaemonListRunRow } from "./daemon-wire.ts";
 
@@ -105,6 +106,46 @@ test("a run id present in the ownership directory but absent from local durable 
 
   const runs = await listRunsDirect(handlers);
   expect(runs?.some((row) => row.runId === orphanRunId)).toBe(false);
+});
+
+test("a stale cached owner row never overwrites a run that completed locally", async () => {
+  const runId = stateStore.createRun({
+    project: "local-project",
+    specRef: "main",
+    worktreePath: "/tmp/wt",
+    branch: "local-branch",
+    specPath: "/tmp/spec.md",
+    status: "completed",
+  });
+  const handlers = handlersWithOwnerRow((id) => (id === runId ? ownerRowFixture(runId) : undefined));
+
+  const row = (await listRunsDirect(handlers))?.find((candidate) => candidate.runId === runId);
+  expect(row?.status).toBe("completed");
+  expect(row?.isLive).toBe(false);
+  expect(row?.project).toBe("local-project");
+});
+
+test("a cached owner row never overwrites a run this daemon itself holds live", async () => {
+  const fakeExecutor = createFakeWriteLoopExecutor();
+  const handlers = createRunControlHandlers({
+    stateStore,
+    writeLoopExecutor: fakeExecutor.executor,
+    failureReporter: () => {},
+    hasMemoryHeadroom: () => true,
+    settleDelayMs: 0,
+    ownerRow: (id) => ownerRowFixture(id),
+  });
+  try {
+    const runId = await startRunDirect(handlers, mockWriteLoopInput({ projectName: "local-project" }));
+    if (runId === undefined) throw new Error("run did not start");
+
+    const row = (await listRunsDirect(handlers))?.find((candidate) => candidate.runId === runId);
+    expect(row?.isLive).toBe(true);
+    expect(row?.project).toBe("local-project");
+    expect(row?.prNumber).toBeUndefined();
+  } finally {
+    fakeExecutor.abortAll();
+  }
 });
 
 function fakeReader(): LogReader {

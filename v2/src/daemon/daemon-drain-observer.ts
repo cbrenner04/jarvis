@@ -183,11 +183,22 @@ export function observeRunOwnership(
   let rowsByRunId = new Map<string, DaemonListRunRow>();
   let stopped = false;
   let loop: PollLoopHandle | undefined;
+  // Ticks may overlap (a slow reply outlives the interval); a tick's outcome applies only if no
+  // later-started tick has already applied one, so a stale reply never resurrects a cleared row.
+  let startedTicks = 0;
+  let appliedTick = 0;
+  const applies = (tickNumber: number): boolean => {
+    if (stopped || tickNumber < appliedTick) return false;
+    appliedTick = tickNumber;
+    return true;
+  };
 
   const tick = async (): Promise<void> => {
     if (stopped) return;
+    startedTicks += 1;
+    const tickNumber = startedTicks;
     const liveness = await probeLiveness(predecessorSocketPath);
-    if (stopped) return;
+    if (!applies(tickNumber)) return;
     if (drainObservationEndsOnLiveness(liveness)) {
       rowsByRunId = new Map();
       stopped = true;
@@ -196,11 +207,11 @@ export function observeRunOwnership(
     }
     try {
       const rows = await listOwnedRuns(predecessorSocketPath, rpcTimeoutMs);
-      if (!stopped) rowsByRunId = new Map(rows.map((row) => [row.runId, row]));
+      if (applies(tickNumber)) rowsByRunId = new Map(rows.map((row) => [row.runId, row]));
     } catch {
       // Stricter than `observePredecessorDrain`'s transient-failure retention: a poll failure here
       // clears every cached row rather than keeping a snapshot the owner is no longer confirming.
-      if (!stopped) rowsByRunId = new Map();
+      if (applies(tickNumber)) rowsByRunId = new Map();
     }
   };
 

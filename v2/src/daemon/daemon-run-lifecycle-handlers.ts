@@ -761,11 +761,8 @@ export function createRunLifecycleHandlers(
     // Dismissal filter runs ahead of retention/filtered slicing: a dismissed run must not
     // consume a terminal-retention slot or a filtered-limit slot.
     const projectedRuns = applyRetention(store.listRuns().filter(isNotDismissed));
-    const liveRunIds = new Set<string>();
-
-    for (const activeRun of activeRuns.values()) {
-      liveRunIds.add(activeRun.runId);
-    }
+    const activeRunIds = new Set([...activeRuns.values()].map((activeRun) => activeRun.runId));
+    const liveRunIds = new Set<string>(activeRunIds);
     // A run a draining predecessor generation still holds keeps reporting live at the stable
     // public address until the predecessor actually drains (see `daemon-drain-observer.ts`).
     for (const runId of ctx.externalLiveRunIds?.() ?? []) {
@@ -799,11 +796,15 @@ export function createRunLifecycleHandlers(
     // output as before (see `daemon-drain-observer.ts`'s `observeRunOwnership`). `isLive` is
     // forced rather than trusted from the owner row: the owner's own `list_owned` always reports
     // `true`, but that must hold here even if a future owner projection ever didn't.
+    // Only a locally in-progress run this daemon does not itself own is substitutable: a stale
+    // cached owner row must never overwrite a run that completed locally or was resumed here.
     const ownerRowFor = ctx.ownerRow;
+    const localStatusById = new Map(projectedRuns.map((run) => [run.id, run.status]));
     const runs =
       ownerRowFor === undefined
         ? runList
         : runList.map((row) => {
+            if (localStatusById.get(row.runId) !== "in-progress" || activeRunIds.has(row.runId)) return row;
             const owned = ownerRowFor(row.runId);
             return owned === undefined ? row : { ...owned, isLive: true };
           });

@@ -80,6 +80,16 @@ function predecessorOwnerRowFixture(runId: string, overrides: Partial<DaemonList
   };
 }
 
+/** `list` over a connection closed afterwards: a leaked client holds the daemon's `close()` in its socket drain. */
+async function listRunsAt(socketPath: string): Promise<DaemonListRunRow[] | undefined> {
+  const client = await connectIpcClient(socketPath);
+  try {
+    return await listRuns(client);
+  } finally {
+    client.close();
+  }
+}
+
 /** Whether `socketPath`'s `list` currently reports `runId` as live; `false` on any RPC failure. */
 async function isRunLiveAt(socketPath: string, runId: string): Promise<boolean> {
   try {
@@ -337,7 +347,7 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
       });
 
       try {
-        const rows = await listRuns(await connectIpcClient(socketPath));
+        const rows = await listRunsAt(socketPath);
         expect(rows?.find((row) => row.runId === runId)?.isLive).toBe(true);
       } finally {
         await daemon.close();
@@ -374,7 +384,7 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
       });
 
       try {
-        const rows = await listRuns(await connectIpcClient(socketPath));
+        const rows = await listRunsAt(socketPath);
         const matching = rows?.filter((row) => row.runId === runId) ?? [];
         // The daemon's own local reprojection has no PR data for this run; only the substituted
         // owner row does. This fails against the pre-fix per-daemon projection.
@@ -425,7 +435,7 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
       try {
         // The ownership directory is populated and merging through `list` — proof it never
         // empties on its own during this test.
-        const rows = await listRuns(await connectIpcClient(socketPath));
+        const rows = await listRunsAt(socketPath);
         expect(rows?.find((row) => row.runId === runId)?.isLive).toBe(true);
 
         const supersedeClient = await connectIpcClient(socketPath);

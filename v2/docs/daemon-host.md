@@ -435,7 +435,7 @@ The daemon is a detached child process. Callers interact via three programmatic 
 Spawns a detached child running `v2/src/daemon/daemon.ts`. Returns metadata `{pid,
 socketPath}` or throws on startup failure.
 
-**Injected paths:** Callers must supply an explicit `socketPath`; the daemon environment variable is `DAEMON_SOCKET_PATH`. Tests may inject `pidPath` (for cleanup); `daemonScript` (test override); `readinessTimeoutMs` (default 5s); `logPath` (process-level stdio capture); and `logCapBytes` (rotation cap, default 5 MiB).
+**Injected paths:** Callers must supply an explicit `socketPath`; the daemon receives it as `--socket <path>` (addresses travel as argv, never env, so the daemon's children cannot inherit them). Tests may inject `pidPath` (for cleanup); `daemonScript` (test override); `readinessTimeoutMs` (default 5s); `logPath` (process-level stdio capture); and `logCapBytes` (rotation cap, default 5 MiB).
 
 **Log path:** When `logPath` is provided, child stdout and stderr are opened in append mode before spawn and inherited by the child. Missing or unwritable log directory throws before spawn. Caller closes its fd copy after spawn. When `logPath` is omitted, stdio remains discarded (existing behavior).
 

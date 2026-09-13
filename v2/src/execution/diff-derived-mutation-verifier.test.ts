@@ -110,6 +110,34 @@ function testParseDiff(diff: string): { file: string; lineNumber: number; conten
   return lines;
 }
 
+function addedLineDiff(file: string, hunks: string[][]): string {
+  return `diff --git a/${file} b/${file}
+index 1234567..abcdefg 100644
+--- a/${file}
++++ b/${file}
+${hunks.map((lines) => `@@ -0,0 +1,${lines.length} @@\n+${lines.join("\n+")}\n`).join("")}`;
+}
+
+function verifyAddedSource(file: string, hunks: string[][], source: string, mutations?: string[]) {
+  return verifyDiffSource(file, addedLineDiff(file, hunks), source, mutations);
+}
+
+function verifyDiffSource(_file: string, diff: string, source: string, mutations?: string[]) {
+  return verifyDiffDerivedMutations(
+    { worktreePath: "/test/path", runBase: "main" },
+    {
+      gitDiff: async () => diff,
+      untrackedFiles: async () => [],
+      readFile: async (path) => (path.endsWith(".test.ts") ? "export {};\n" : source),
+      writeFile: async (_path, content) => {
+        if (content !== source) mutations?.push(content);
+      },
+      listDir: () => [],
+      runScopedTests: async () => false,
+    },
+  );
+}
+
 describe("diff-derived-mutation-verifier", () => {
   it("parses diff correctly to extract changed lines", () => {
     const diff = `diff --git a/src/test.ts b/src/test.ts
@@ -166,6 +194,11 @@ index 1234567..abcdefg 100644
    return x;
 `;
 
+    const originalContent = `export function safe(x: any) {
+  if (!x) return "safe";
+  return x;
+}`;
+
     const result = await verifyDiffDerivedMutations(
       {
         worktreePath: "/test/path",
@@ -174,6 +207,8 @@ index 1234567..abcdefg 100644
       {
         gitDiff: async () => diffWithGuardFlip,
         untrackedFiles: async () => [],
+        readFile: async () => originalContent,
+        writeFile: async () => {},
         runScopedTests: async () => {
           // Mutation caused tests to fail, so it's caught
           return false;
@@ -1653,34 +1688,6 @@ index 1234567..abcdefg 100644
 });
 
 describe("TypeScript operator candidate classification", () => {
-  function addedLineDiff(file: string, hunks: string[][]): string {
-    return `diff --git a/${file} b/${file}
-index 1234567..abcdefg 100644
---- a/${file}
-+++ b/${file}
-${hunks.map((lines) => `@@ -0,0 +1,${lines.length} @@\n+${lines.join("\n+")}\n`).join("")}`;
-  }
-
-  function verifyAddedSource(file: string, hunks: string[][], source: string, mutations?: string[]) {
-    return verifyDiffSource(file, addedLineDiff(file, hunks), source, mutations);
-  }
-
-  function verifyDiffSource(_file: string, diff: string, source: string, mutations?: string[]) {
-    return verifyDiffDerivedMutations(
-      { worktreePath: "/test/path", runBase: "main" },
-      {
-        gitDiff: async () => diff,
-        untrackedFiles: async () => [],
-        readFile: async (path) => (path.endsWith(".test.ts") ? "export {};\n" : source),
-        writeFile: async (_path, content) => {
-          if (content !== source) mutations?.push(content);
-        },
-        listDir: () => [],
-        runScopedTests: async () => false,
-      },
-    );
-  }
-
   it("skips operator-flip for type-position angle brackets", async () => {
     const lines = [
       "const parameter = x as Parameters<Foo>[0];",
@@ -1759,6 +1766,216 @@ index 1234567..abcdefg 100644
 
     expect(result.kind).toBe("pass");
     if (result.kind === "pass") expect(result.candidateCount).toBe(0);
+  });
+});
+
+describe("TypeScript guard candidate classification", () => {
+  it("derives guard-flip for a negated member-call chain", async () => {
+    const diff = `diff --git a/src/consumer.ts b/src/consumer.ts
+index 1234567..abcdefg 100644
+--- a/src/consumer.ts
++++ b/src/consumer.ts
+@@ -1 +1 @@
+-if (CONSUMER_FILES.has(file)) return;
++if (!CONSUMER_FILES.has(file)) return;
+`;
+    const originalContent = "if (!CONSUMER_FILES.has(file)) return;";
+    const mutatedContents: string[] = [];
+
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        readFile: async () => originalContent,
+        writeFile: async (_path, content) => {
+          if (content !== originalContent) mutatedContents.push(content);
+        },
+        runScopedTests: async () => true,
+      },
+    );
+
+    expect(result.kind).toBe("surviving-mutation");
+    if (result.kind === "surviving-mutation") {
+      expect(result.mutation).toBe("guard-flip: !CONSUMER_FILES.has(file) → CONSUMER_FILES.has(file)");
+    }
+    expect(mutatedContents).toEqual(["if (CONSUMER_FILES.has(file)) return;"]);
+  });
+
+  it("derives guard-flip for a nested parenthesized operand", async () => {
+    const diff = `diff --git a/src/nested.ts b/src/nested.ts
+index 1234567..abcdefg 100644
+--- a/src/nested.ts
++++ b/src/nested.ts
+@@ -1 +1 @@
+-(a && (b || c.has(d)));
++!(a && (b || c.has(d)));
+`;
+    const originalContent = "!(a && (b || c.has(d)));";
+    const mutatedContents: string[] = [];
+
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        readFile: async () => originalContent,
+        writeFile: async (_path, content) => {
+          if (content !== originalContent) mutatedContents.push(content);
+        },
+        runScopedTests: async () => true,
+      },
+    );
+
+    expect(result.kind).toBe("surviving-mutation");
+    if (result.kind === "surviving-mutation") {
+      expect(result.mutation).toBe("guard-flip: !(a && (b || c.has(d))) → (a && (b || c.has(d)))");
+    }
+    expect(mutatedContents).toEqual(["(a && (b || c.has(d)));"]);
+  });
+
+  it("collapses double negation to one guard candidate", async () => {
+    const diff = `diff --git a/src/toggle.ts b/src/toggle.ts
+index 1234567..abcdefg 100644
+--- a/src/toggle.ts
++++ b/src/toggle.ts
+@@ -1 +1 @@
+-x;
++!!x;
+`;
+    const originalContent = "!!x;";
+    const mutatedContents: string[] = [];
+
+    const result = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => diff,
+        untrackedFiles: async () => [],
+        readFile: async (path) => (path.endsWith(".test.ts") ? "export {};\n" : originalContent),
+        writeFile: async (_path, content) => {
+          if (content !== originalContent) mutatedContents.push(content);
+        },
+        listDir: () => [],
+        runScopedTests: async () => false,
+      },
+    );
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(1);
+    expect(mutatedContents).toEqual(["!x;"]);
+  });
+
+  it("respects line-scoped guard admission boundaries", async () => {
+    // (a) a negated expression on an unchanged (context) line yields no candidate.
+    const unchangedDiff = `diff --git a/src/unchanged.ts b/src/unchanged.ts
+index 1234567..abcdefg 100644
+--- a/src/unchanged.ts
++++ b/src/unchanged.ts
+@@ -1,2 +1,3 @@
+ if (!flag) return;
++const noop = 1;
+ return noop;
+`;
+    const unchangedContent = "if (!flag) return;\nconst noop = 1;\nreturn noop;";
+    const unchangedResult = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => unchangedDiff,
+        untrackedFiles: async () => [],
+        readFile: async () => unchangedContent,
+        runScopedTests: async () => false,
+      },
+    );
+    expect(unchangedResult.kind).toBe("pass");
+    if (unchangedResult.kind === "pass") expect(unchangedResult.candidateCount).toBe(0);
+
+    // (b) the `!` token's line is changed, but its AST span crosses lines — no candidate, no partial span.
+    const multilineDiff = `diff --git a/src/multiline.ts b/src/multiline.ts
+index 1234567..abcdefg 100644
+--- a/src/multiline.ts
++++ b/src/multiline.ts
+@@ -0,0 +1,3 @@
++const guarded = !(
++  a && b
++);
+`;
+    const multilineContent = "const guarded = !(\n  a && b\n);";
+    let multilineMutated: string | null = null;
+    const multilineResult = await verifyDiffDerivedMutations(
+      { worktreePath: "/test/path", runBase: "main" },
+      {
+        gitDiff: async () => multilineDiff,
+        untrackedFiles: async () => [],
+        readFile: async () => multilineContent,
+        writeFile: async (_path, content) => {
+          if (content !== multilineContent) multilineMutated = content;
+        },
+        runScopedTests: async () => false,
+      },
+    );
+    expect(multilineResult.kind).toBe("pass");
+    if (multilineResult.kind === "pass") expect(multilineResult.candidateCount).toBe(0);
+    expect(multilineMutated).toBeNull();
+
+    // (c) guard-first ordering and deduplication hold when a guard and an operator candidate share a changed line.
+    const sharedContent = "if (!a && b < c) return;";
+    const sharedMutations: string[] = [];
+    const sharedResult = await verifyAddedSource("src/shared.ts", [[sharedContent]], sharedContent, sharedMutations);
+    expect(sharedResult.kind).toBe("pass");
+    if (sharedResult.kind === "pass") expect(sharedResult.candidateCount).toBe(2);
+    expect(sharedMutations).toEqual([sharedContent.replace("!a", "a"), sharedContent.replace("b < c", "b >= c")]);
+  });
+
+  it("classifies guard-flips with TypeScript lexical context", async () => {
+    const commentLine = "const kept = value; // !flag";
+    const commentResult = await verifyAddedSource("src/lexical.ts", [[commentLine]], commentLine);
+    expect(commentResult.kind).toBe("pass");
+    if (commentResult.kind === "pass") expect(commentResult.candidateCount).toBe(0);
+
+    const stringLine = 'const label = "!flag";';
+    const stringResult = await verifyAddedSource("src/lexical.ts", [[stringLine]], stringLine);
+    expect(stringResult.kind).toBe("pass");
+    if (stringResult.kind === "pass") expect(stringResult.candidateCount).toBe(0);
+
+    // A changed continuation line inside an already-open multi-line block comment: excluded.
+    const blockCommentSource = "/*\n  !flag\n*/";
+    const blockCommentResult = await verifyDiffSource(
+      "src/comment.ts",
+      `diff --git a/src/comment.ts b/src/comment.ts
+index 1234567..abcdefg 100644
+--- a/src/comment.ts
++++ b/src/comment.ts
+@@ -2 +2 @@
+-  previous text
++  !flag
+`,
+      blockCommentSource,
+    );
+    expect(blockCommentResult.kind).toBe("pass");
+    if (blockCommentResult.kind === "pass") expect(blockCommentResult.candidateCount).toBe(0);
+
+    // A changed continuation line inside an already-open multi-line template literal: plain template
+    // text stays excluded, while a negated expression inside a `${…}` substitution remains a candidate.
+    const templateSource = "const message = `\n  !flag\n  ${!other}\n`;";
+    const templateMutations: string[] = [];
+    const templateResult = await verifyDiffSource(
+      "src/template.ts",
+      `diff --git a/src/template.ts b/src/template.ts
+index 1234567..abcdefg 100644
+--- a/src/template.ts
++++ b/src/template.ts
+@@ -2,2 +2,2 @@
+-  previous text
+-  \${previous}
++  !flag
++  \${!other}
+`,
+      templateSource,
+      templateMutations,
+    );
+    expect(templateResult.kind).toBe("pass");
+    if (templateResult.kind === "pass") expect(templateResult.candidateCount).toBe(1);
+    expect(templateMutations).toEqual([templateSource.replace("!other", "other")]);
   });
 });
 

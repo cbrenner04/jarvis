@@ -18,7 +18,7 @@ import type { LoadError } from "../config/agent-model-config.ts";
 import { readMachineConfigDocument } from "../config/machine-config-loader.ts";
 import { loadMachineProfileModels } from "../config/machine-profile-loader.ts";
 import { MACHINE_CONFIG_PATH } from "../paths.ts";
-import { evaluateReadiness, readinessExitCode, renderReadinessReport } from "./init-readiness.ts";
+import { type DaemonCheck, evaluateReadiness, readinessExitCode, renderReadinessReport } from "./init-readiness.ts";
 
 const DEFAULT_AGENT_CANDIDATES = ["claude", "codex", "cursor"] as const;
 const PROJECT_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
@@ -36,7 +36,7 @@ export type InitCommandDeps = {
   git?: GitRunner;
   checkBunRuntime?: () => Promise<{ ok: boolean; detail?: string }>;
   checkGithubAuth?: () => Promise<{ ok: boolean; detail?: string }>;
-  checkDaemon?: () => Promise<{ state: "running" | "stale" | "stopped" }>;
+  checkDaemon?: DaemonCheck;
 };
 
 type InitOptions = {

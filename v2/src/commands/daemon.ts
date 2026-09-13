@@ -134,9 +134,8 @@ export async function runDaemonCommand(argv: readonly string[], io: Io, deps: Cl
       io.stdout("stopped\n");
       return 1;
     }
-    const output = `${status.state} loaded=${status.loadedRevision} current=${status.currentRevision}`;
-    io.stdout(`${output}\n`);
-    return status.state === "running" ? 0 : 1;
+    io.stdout(`running loaded=${status.loadedRevision}\n`);
+    return 0;
   }
 
   if (subcommand === "log") {

@@ -69,7 +69,7 @@ Every invocation, including `--check`, ends with one line per check, in this fix
 | `project-registration` | yes | Current root is registered under the resolved key |
 | `origin` | yes | Current `origin` matches the stored project origin |
 | `spec-directory` | no | Resolved target directory exists |
-| `daemon` | no | Daemon is running (`warn` when its loaded revision is stale) |
+| `daemon` | no | `ok` when the daemon is running; `missing` when stopped |
 
 Any required check not `ok` exits `1`; `spec-directory` and `daemon` alone never affect the exit code.
 

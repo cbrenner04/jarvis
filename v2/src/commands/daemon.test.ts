@@ -153,12 +153,12 @@ describe("daemon command", () => {
       pidPath: paths.pidPath,
       getDaemonStatus: async (socketPath) => {
         expect(socketPath).toBe(paths.socketPath);
-        return { state: "running", loadedRevision: "abc123", currentRevision: "abc123" };
+        return { state: "running", loadedRevision: "abc123" };
       },
     });
 
     expect(code).toBe(0);
-    expect(cap.read()).toEqual({ stdout: "running loaded=abc123 current=abc123\n", stderr: "" });
+    expect(cap.read()).toEqual({ stdout: "running loaded=abc123\n", stderr: "" });
   });
 
   // The pid file is a hint, not the service. A doomed start clobbers it with a pid that never
@@ -173,12 +173,11 @@ describe("daemon command", () => {
       getDaemonStatus: async () => ({
         state: "running",
         loadedRevision: "abc123",
-        currentRevision: "abc123",
       }),
     });
 
     expect(code).toBe(0);
-    expect(cap.read()).toEqual({ stdout: "running loaded=abc123 current=abc123\n", stderr: "" });
+    expect(cap.read()).toEqual({ stdout: "running loaded=abc123\n", stderr: "" });
   });
 
   test("daemon status prints stopped with exit 1 when the socket does not answer", async () => {

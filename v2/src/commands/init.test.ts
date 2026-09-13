@@ -961,6 +961,17 @@ describe("init readiness", () => {
     });
     expect(multiline.find((result) => result.id === "bun")?.detail).toBe("line one");
 
+    const invalidDaemonState = await evaluateReadiness(baseContext, {
+      ...okProbes,
+      checkDaemon: async () =>
+        ({ state: "stale" }) as unknown as Awaited<ReturnType<NonNullable<ReadinessProbes["checkDaemon"]>>>,
+    });
+    expect(invalidDaemonState.find((result) => result.id === "daemon")).toEqual({
+      id: "daemon",
+      status: "missing",
+      detail: "daemon is not running",
+    });
+
     // warning guard: spec-directory and daemon stay non-required.
     expect(isReadinessCheckRequired("spec-directory")).toBe(false);
     expect(isReadinessCheckRequired("daemon")).toBe(false);

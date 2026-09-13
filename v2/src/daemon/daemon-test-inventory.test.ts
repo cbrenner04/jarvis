@@ -196,9 +196,14 @@ export function countParityPreservationViolation(
  * gone — an occupied public address now attempts handoff instead (see the handoff-changeover-protocol
  * spec). Replacement coverage: the `startDaemon` handoff-success/handoff-failed/release-timeout tests
  * in the same file.
+ *
+ * The daemon-status digest comparison is gone: any serving daemon reports running with its loaded
+ * revision. Replacement coverage lives in the `getDaemonStatus` tests in the same file.
  */
 const RETIRED_TEST_TITLES: ReadonlySet<string> = new Set([
   "throws DaemonAlreadyRunningError if socket already responds",
+  "returns running when executable digests match even if HEAD differs",
+  "returns stale when executable digests differ",
   "restart sweep settles a deferred stage whose entry run completed while the daemon was down",
   "restart sweep fails final deferred settlement when a ready pipeline's completed entry run lacks publication PR evidence",
   "restart sweep fails a deferred stage whose entry run ended failed",

@@ -1,10 +1,10 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { realAsyncSubprocessRunner } from "../../../shared/subprocess.ts";
 import type { LoadError } from "../config/agent-model-config.ts";
 import { loadMachineProfileModels } from "../config/machine-profile-loader.ts";
 import { getDaemonStatus } from "../daemon/daemon-lifecycle.ts";
-import { DAEMON_PID_PATH, DAEMON_SOCKET_PATH } from "../paths.ts";
+import { DAEMON_SOCKET_PATH } from "../paths.ts";
 
 /** Fixed, single-line readiness report: identifiers, statuses, requiredness, and rendering. */
 export const READINESS_CHECK_ORDER = [
@@ -106,12 +106,14 @@ export type ReadinessContext = {
   targetDir: string;
 };
 
+export type DaemonCheck = () => Promise<{ state: "running" | "stopped" }>;
+
 export type ReadinessProbes = {
   checkBunRuntime?: () => Promise<{ ok: boolean; detail?: string }>;
   checkGithubAuth?: () => Promise<{ ok: boolean; detail?: string }>;
   currentOrigin?: (projectRoot: string) => Promise<string | undefined>;
   directoryExists?: (path: string) => boolean;
-  checkDaemon?: () => Promise<{ state: "running" | "stale" | "stopped" }>;
+  checkDaemon?: DaemonCheck;
 };
 
 async function defaultCheckBunRuntime(): Promise<{ ok: boolean; detail?: string }> {
@@ -143,17 +145,7 @@ function defaultDirectoryExists(path: string): boolean {
   return existsSync(path);
 }
 
-function readDaemonPid(pidPath: string): number | null {
-  if (!existsSync(pidPath)) return null;
-  const raw = readFileSync(pidPath, "utf8").trim();
-  if (raw.length === 0) return null;
-  const pid = Number.parseInt(raw, 10);
-  return Number.isNaN(pid) ? null : pid;
-}
-
-async function defaultCheckDaemon(): Promise<{ state: "running" | "stale" | "stopped" }> {
-  const pid = readDaemonPid(DAEMON_PID_PATH);
-  if (pid === null) return { state: "stopped" };
+async function defaultCheckDaemon(): Promise<{ state: "running" | "stopped" }> {
   try {
     return await getDaemonStatus(DAEMON_SOCKET_PATH);
   } catch {
@@ -237,7 +229,6 @@ export async function evaluateReadiness(
     await safeCheck("daemon", async () => {
       const status = await checkDaemon();
       if (status.state === "running") return ok();
-      if (status.state === "stale") return warn("daemon loaded revision is stale");
       return missing("daemon is not running");
     }),
   );

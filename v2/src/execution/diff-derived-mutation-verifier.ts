@@ -702,7 +702,9 @@ function deriveGuardMutations(
       const startPos = sourceFile.getLineAndCharacterOfPosition(start);
       const endPos = sourceFile.getLineAndCharacterOfPosition(end);
       const line = startPos.line + 1;
+      let admitted = false;
       if (changedLineNumbers.has(line) && startPos.line === endPos.line) {
+        admitted = true;
         const original = node.getText(sourceFile);
         const mutated = original.slice(1).trimStart();
         candidates.push({
@@ -715,7 +717,11 @@ function deriveGuardMutations(
           mutation: `guard-flip: ${original} → ${mutated}`,
         });
       }
-      return;
+      let operand: ts.Node = node.operand;
+      while (ts.isParenthesizedExpression(operand)) operand = operand.expression;
+      if (admitted && ts.isPrefixUnaryExpression(operand) && operand.operator === ts.SyntaxKind.ExclamationToken) {
+        return;
+      }
     }
     ts.forEachChild(node, visit);
   }

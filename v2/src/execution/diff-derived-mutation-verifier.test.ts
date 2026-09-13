@@ -1837,6 +1837,37 @@ index 1234567..abcdefg 100644
     expect(mutatedContents).toEqual(["!x;"]);
   });
 
+  it("derives a nested guard candidate inside another negated expression", async () => {
+    const content = "if (!(a && !b)) return;";
+    const mutations: string[] = [];
+
+    const result = await verifyAddedSource("src/nested-guard.ts", [[content]], content, mutations);
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(2);
+    expect(mutations).toEqual([content.replace("!(a && !b)", "(a && !b)"), content.replace("!b", "b")]);
+  });
+
+  it("derives a single-line inner guard candidate inside a rejected multi-line outer negation", async () => {
+    const diff = `diff --git a/src/multiline-nested.ts b/src/multiline-nested.ts
+index 1234567..abcdefg 100644
+--- a/src/multiline-nested.ts
++++ b/src/multiline-nested.ts
+@@ -0,0 +1,3 @@
++const guarded = !(
++  a && !b
++);
+`;
+    const content = "const guarded = !(\n  a && !b\n);";
+    const mutations: string[] = [];
+
+    const result = await verifyDiffSource("src/multiline-nested.ts", diff, content, mutations);
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(1);
+    expect(mutations).toEqual([content.replace("!b", "b")]);
+  });
+
   it("respects line-scoped guard admission boundaries", async () => {
     // (a) a negated expression on an unchanged (context) line yields no candidate.
     const unchangedDiff = `diff --git a/src/unchanged.ts b/src/unchanged.ts

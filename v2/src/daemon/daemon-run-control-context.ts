@@ -18,6 +18,7 @@ import type {
 } from "./daemon.ts";
 import { WorktreeOwnershipRegistry as WorktreeOwnershipRegistryImpl } from "./daemon.ts";
 import type { NotificationWaitRegistry } from "./daemon-notification-wait.ts";
+import type { DaemonListRunRow } from "./daemon-wire.ts";
 import { hasMemoryHeadroom, loadSettleDelayMs } from "./memory-watermark.ts";
 import { bindPipelineWaitObserver, PipelineWaitObserver } from "./pipeline-observation.ts";
 import type { PipelineWorkflowDispatch, PipelineWorkflowWait } from "./pipeline-stage-dispatch.ts";
@@ -57,6 +58,13 @@ export type RunControlHandlerContextDeps = {
    * public address until the predecessor actually drains.
    */
   externalLiveRunIds?: () => ReadonlySet<string>;
+  /**
+   * The direct handoff predecessor's cached row for a run id, from the run ownership directory
+   * (`observeRunOwnership` in `daemon-drain-observer.ts`). `list` substitutes this row, when
+   * present, for the matching local candidate after selection — never for a legacy digest-keyed
+   * peer, and never appended when no local candidate matches.
+   */
+  ownerRow?: (runId: string) => DaemonListRunRow | undefined;
 };
 
 export type KillSettlementDeps = {
@@ -88,6 +96,7 @@ export type RunControlHandlerContext = {
   writeLoopBindingSourceDeps?: WriteLoopBindingSourceDeps;
   killSettlement: KillSettlementDeps | undefined;
   externalLiveRunIds: (() => ReadonlySet<string>) | undefined;
+  ownerRow: ((runId: string) => DaemonListRunRow | undefined) | undefined;
 };
 
 export function createRunControlHandlerContext(deps: RunControlHandlerContextDeps): RunControlHandlerContext {
@@ -138,6 +147,7 @@ export function createRunControlHandlerContext(deps: RunControlHandlerContextDep
   return {
     killSettlement: deps.killSettlement,
     externalLiveRunIds: deps.externalLiveRunIds,
+    ownerRow: deps.ownerRow,
     registry,
     activeRuns,
     waitAbortControllers,

@@ -1231,7 +1231,7 @@ export async function startDaemonRuntime(
   const enumerateSockets = startupDeps.enumerateOtherDaemonSockets ?? enumerateOtherDaemonSockets;
   const legacyPeerSocketPaths = enumerateSockets(jarvisHome(), startupDeps.privateSocketPath ?? socketPath);
   const drainObservers = buildDrainObservers(startupDeps.predecessorSocketPath, legacyPeerSocketPaths, observeDrain);
-  // Ownership routing (for a future authoritative-owner `list` merge) is direct-predecessor only:
+  // Ownership routing feeds `list`'s authoritative-owner-row merge and is direct-predecessor only:
   // never fed from `legacyPeerSocketPaths`, unlike `drainObservers` above.
   const ownershipDirectory = (startupDeps.observeRunOwnership ?? observeRunOwnership)(
     startupDeps.predecessorSocketPath,
@@ -1262,6 +1262,11 @@ export async function startDaemonRuntime(
     daemonSocketPath: socketPath,
     reconciledRunIds,
     externalLiveRunIds: () => unionLiveRunIds(drainObservers),
+    // Unset (never even called) with no direct predecessor: `list` then skips substitution
+    // entirely, matching the documented no-predecessor fast path exactly (see
+    // `daemon-run-lifecycle-handlers.ts`'s `listHandler`). A configured-but-currently-empty
+    // directory still wires `ownerRow` through, since it can populate later.
+    ...(startupDeps.predecessorSocketPath === undefined ? {} : { ownerRow: ownershipDirectory.ownerRow }),
     ...(startupDeps.hasMemoryHeadroom === undefined ? {} : { hasMemoryHeadroom: startupDeps.hasMemoryHeadroom }),
     ...(startupDeps.writeLoopBindingSourceDeps === undefined
       ? {}

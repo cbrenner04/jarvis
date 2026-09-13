@@ -2,10 +2,13 @@ import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { IpcServer, RpcHandler } from "../ipc/server.ts";
+import type { LogReader } from "../persistence/log-stream.ts";
 import type { WorkflowSnapshot } from "../persistence/state-store.ts";
 import { openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
 import { listRunsDirect, loadRunOrThrow, workflowSnapshot } from "../testing/run-control.ts";
-import { createRunControlHandlers } from "./daemon.ts";
+import { createRunControlHandlers, startDaemonRuntime } from "./daemon.ts";
+import { observeRunOwnership } from "./daemon-drain-observer.ts";
 
 type Handlers = ReturnType<typeof createRunControlHandlers>;
 
@@ -238,4 +241,110 @@ test("a force-settled workflow step ages out only once every sibling in its invo
   runs = await listRunsDirect(handlers);
   expect(runs?.some((row) => row.runId === step1Id)).toBe(false);
   expect(runs?.some((row) => row.runId === step2Id)).toBe(false);
+});
+
+test("the real no-predecessor path never polls the ownership directory's predecessor RPCs, reads each retained row's log tail exactly once, and preserves retained-row order", async () => {
+  const ids: string[] = [];
+  for (let index = 0; index < 5; index++) {
+    ids.push(seedRun(stateStore, { status: "completed", createdAt: index }));
+  }
+
+  let tailCalls = 0;
+  const fakeReader: LogReader = {
+    tail: (_runId: string) => {
+      tailCalls += 1;
+      return [];
+    },
+    async *follow() {},
+  };
+
+  // Counts the ownership directory's own poll seam (`probeLiveness`/`listOwnedRuns`), not just
+  // whether `observeRunOwnership` itself was called — with no `predecessorSocketPath`, the real
+  // `observeRunOwnership` (`daemon-drain-observer.ts`) returns before ever touching either, so
+  // this proves no predecessor RPC happens, not merely that this test chose not to make one.
+  let probeLivenessCalls = 0;
+  let listOwnedRunsCalls = 0;
+  const countingObserveRunOwnership: typeof observeRunOwnership = (predecessorSocketPath) =>
+    observeRunOwnership(predecessorSocketPath, {
+      probeLiveness: async () => {
+        probeLivenessCalls += 1;
+        return "absent";
+      },
+      listOwnedRuns: async () => {
+        listOwnedRunsCalls += 1;
+        return [];
+      },
+    });
+
+  let boundHandlers: Record<string, RpcHandler> | undefined;
+  const fakeServer = async (socketPath: string, handlers?: Record<string, RpcHandler>): Promise<IpcServer> => {
+    boundHandlers = handlers;
+    return { socketPath, close: async () => undefined };
+  };
+
+  const runtime = await startDaemonRuntime("/fake/public.sock", stateStore, fakeReader, {
+    openLogSink: () => ({ append: () => undefined, close: () => undefined }),
+    startIpcServer: fakeServer,
+    enumerateOtherDaemonSockets: () => [],
+    observeRunOwnership: countingObserveRunOwnership,
+  });
+
+  try {
+    const listResponse = await boundHandlers?.list?.(
+      { kind: "request", id: "l1", method: "list" },
+      new AbortController().signal,
+    );
+    const runs =
+      listResponse?.kind === "response" ? (listResponse.result as { runs?: { runId: string }[] })?.runs : undefined;
+
+    // Newest-first, matching `store.listRuns()`'s own order — retention preserves it rather than
+    // reordering.
+    expect(runs?.map((row) => row.runId)).toEqual([...ids].reverse());
+    expect(tailCalls).toBe(10);
+    expect(probeLivenessCalls).toBe(0);
+    expect(listOwnedRunsCalls).toBe(0);
+  } finally {
+    await runtime.close();
+  }
+});
+
+test("a predecessor route configured with an empty directory costs exactly what the no-predecessor path costs", async () => {
+  for (let index = 0; index < 5; index++) {
+    seedRun(stateStore, { status: "completed", createdAt: index });
+  }
+
+  function countingHandlers(ownerRow?: (runId: string) => undefined): { handlers: Handlers; calls: () => number } {
+    let tailCalls = 0;
+    const handlers = createRunControlHandlers({
+      stateStore,
+      logReader: {
+        tail: (_runId: string) => {
+          tailCalls += 1;
+          return [];
+        },
+        async *follow() {},
+      },
+      writeLoopExecutor: async () => {},
+      failureReporter: () => {},
+      hasMemoryHeadroom: () => true,
+      settleDelayMs: 0,
+      ...(ownerRow !== undefined ? { ownerRow } : {}),
+    });
+    return { handlers, calls: () => tailCalls };
+  }
+
+  // No `ownerRow` dep at all — the true no-predecessor path (see `observeRunOwnership` in
+  // `daemon-drain-observer.ts`, which is the only production source of that dep).
+  const noPredecessor = countingHandlers();
+  const noPredecessorRuns = await listRunsDirect(noPredecessor.handlers);
+  expect(noPredecessorRuns).toHaveLength(5);
+
+  // `ownerRow` configured but the directory is empty (predecessor route present, nothing cached
+  // yet) — must cost exactly the same as no route at all: an in-memory lookup per row, no extra
+  // log read.
+  const emptyDirectory = countingHandlers(() => undefined);
+  const emptyDirectoryRuns = await listRunsDirect(emptyDirectory.handlers);
+  expect(emptyDirectoryRuns).toHaveLength(5);
+
+  expect(emptyDirectory.calls()).toBe(noPredecessor.calls());
 });

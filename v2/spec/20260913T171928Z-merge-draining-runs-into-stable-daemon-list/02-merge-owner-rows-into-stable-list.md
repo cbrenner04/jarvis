@@ -23,13 +23,13 @@ The stable `list` handler has no way to substitute a direct predecessor's author
 
 ## Acceptance criteria
 
-- [ ] `daemon-stable-run-list.test.ts` proves a direct predecessor's differing live run appears exactly once through the stable handler with the owner's fields and `isLive: true`, and that a filtered list request selects (or excludes) that run using its local durable fields even when the owner row differs on the filtered field; it fails against the pre-fix per-daemon projection, which has no substitution step.
-- [ ] A test proves a run id present in the ownership directory but absent from local durable candidates is dropped from the merged result rather than appended as a synthetic row.
-- [ ] `daemon-terminal-run-retention.test.ts` proves the no-predecessor path performs no predecessor RPC and no extra per-row log read (via injected call counters) and its existing retained-rows/order assertions stay green.
-- [ ] `generation-drain-and-exit.sandbox-unrunnable.test.ts` proves the real stable address returns the outgoing owner's live run exactly once with the owner's fields; it fails against the pre-fix per-daemon projection. Runs under `test:integration:v2` (`.sandbox-unrunnable.test.ts` suffix routing in `scripts/test-slice.ts`).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] `daemon-stable-run-list.test.ts` proves a direct predecessor's differing live run appears exactly once through the stable handler with the owner's fields and `isLive: true`, and that a filtered list request selects (or excludes) that run using its local durable fields even when the owner row differs on the filtered field; it fails against the pre-fix per-daemon projection, which has no substitution step.
+- [x] A test proves a run id present in the ownership directory but absent from local durable candidates is dropped from the merged result rather than appended as a synthetic row.
+- [x] `daemon-terminal-run-retention.test.ts` proves the no-predecessor path performs no predecessor RPC and no extra per-row log read (via injected call counters) and its existing retained-rows/order assertions stay green.
+- [x] `generation-drain-and-exit.sandbox-unrunnable.test.ts` proves the real stable address returns the outgoing owner's live run exactly once with the owner's fields; it fails against the pre-fix per-daemon projection. Runs under `test:integration:v2` (`.sandbox-unrunnable.test.ts` suffix routing in `scripts/test-slice.ts`).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

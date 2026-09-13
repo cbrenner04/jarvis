@@ -278,6 +278,28 @@ describe("observeRunOwnership", () => {
     }
   });
 
+  test("a slow older reply landing after a newer clearing reply does not resurrect the row", async () => {
+    const loop = manualPollLoop();
+    const replies: ((rows: DaemonListRunRow[]) => void)[] = [];
+    const directory = observeRunOwnership("irrelevant.sock", {
+      schedulePollLoop: loop.schedulePollLoop,
+      probeLiveness: async () => "live",
+      listOwnedRuns: () => new Promise((resolve) => replies.push(resolve)),
+    });
+    try {
+      const older = loop.tick();
+      const newer = loop.tick();
+      while (replies.length < 2) await Promise.resolve();
+      replies[1]?.([]);
+      await newer;
+      replies[0]?.([ownedRow("run-1")]);
+      await older;
+      expect(directory.ownerRow("run-1")).toBeUndefined();
+    } finally {
+      directory.stop();
+    }
+  });
+
   // Contrast with `observePredecessorDrain`'s advisory `unionLiveRunIds`, which carries no row
   // data and retains its last known live set across a transient `list` RPC failure (see the
   // "retains the last known live set" test above): a poll failure here must never leave a stale

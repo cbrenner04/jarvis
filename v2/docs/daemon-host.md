@@ -101,6 +101,8 @@ One connection carries length-prefixed UTF-8 JSON frames:
 
 Framing failures — bad length (over cap), truncated body, invalid JSON — close the connection. The listener keeps serving other clients.
 
+Handler failures never close the connection: an RPC handler that rejects *or throws synchronously* is answered with an `error` frame, code `internal_error`, carrying the error message under the request's `id`. Only framing violations and an invalid `kind` destroy the socket.
+
 ## Envelope `kind` union
 
 | `kind` | Role |

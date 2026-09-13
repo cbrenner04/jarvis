@@ -447,6 +447,57 @@ describe("executeWorkflow linked implement routing", () => {
     });
   });
 
+  test("a linked implement terminal link settles completed when shrink runs after it", async () => {
+    const specDir = mkdtempSync(join(tmpdir(), "linked-terminal-shrink-"));
+    roots.push(specDir);
+    writeFileSync(join(specDir, "index.md"), "- [ ] [Sub](./sub.md)\n", "utf8");
+    writeFileSync(join(specDir, "sub.md"), "# Sub\n\n## Acceptance criteria\n\n- [ ] criterion\n", "utf8");
+    const home = createJarvisHome();
+    roots.push(home.jarvisRoot);
+    const branchName = "linked-terminal-shrink";
+    const implementStep: WriteWorkflowStep = {
+      ...createStep({
+        stepId: "implement",
+        role: "implement",
+        branchName,
+        specPath: "spec/index.md",
+        expectedArtifactPath: "spec/index.md",
+        createBinding: createBindingFactory(async ({ cwd }) => {
+          writeFileSync(join(cwd, "spec", "sub.md"), "# Sub\n\n## Acceptance criteria\n\n- [x] criterion\n", "utf8");
+          return { kind: "ok", stdout: "done", stderr: "" } as const;
+        }),
+      }),
+      worktree: { projectRoot: specDir, projectName: "demo", branchName, baseRef: "HEAD", jarvisRoot: home.jarvisRoot },
+      withExternalWorktree: async <T>(
+        args: { branchName: string; projectName: string },
+        run: (worktree: ExternalWorktree) => Promise<T> | T,
+      ): Promise<WithExternalWorktreeResult<T>> => {
+        const wtPath = join(home.jarvisRoot, "worktrees", args.projectName, args.branchName);
+        const existed = existsSync(wtPath);
+        if (!existed) cpSync(specDir, join(wtPath, "spec"), { recursive: true });
+        const value = await run({ path: wtPath, reused: existed });
+        return { worktree: { path: wtPath, reused: existed }, lock: { kind: "acquired" }, value };
+      },
+      linkedIndexRouting: true,
+    };
+
+    await withStateStore(async (store) => {
+      const result = await executeWorkflow({
+        steps: [implementStep],
+        stateStore: store,
+        completionCommitter: async () => ({ commitSha: "commit-1" }),
+        completionPublisher: async () => ({}),
+        readyFinalizer: async () => {},
+      });
+
+      expect(result.kind).toBe("complete");
+      const runs = store.listRuns();
+      expect(runs.map((row) => row.stepId)).toContain("implement~shrink");
+      expect(runs.find((row) => row.stepId === "implement~link-0")?.status).toBe("completed");
+      expect(runs.filter((row) => row.status === "in-progress")).toEqual([]);
+    });
+  });
+
   test("settles the step row and logs when a linked implement pass ends contract_miss after its write loop completed", async () => {
     // The write loop settles a workflow write step's row before the publication tail runs, so a
     // linked-implement finalizer converting the outcome afterwards used to leave a durable

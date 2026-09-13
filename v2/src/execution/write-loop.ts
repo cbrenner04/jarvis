@@ -386,6 +386,14 @@ export type WriteLoopInput = WriteExecuteInput & {
   completionPublisher?: CompletionPublisher;
   readyFinalizer?: ReadyFinalizer;
   publishCompletion?: boolean;
+  /**
+   * Marks this row as the workflow's resolved completion row — the one a later workflow
+   * publication tail settles with PR evidence or a terminal cause. Meaningful only alongside
+   * `publishCompletion: false`: it keeps a `complete` outcome `in-progress` at this boundary
+   * instead of settling `completed` here. A `publishCompletion: false` dispatch without this flag
+   * has no owning tail and keeps settling `completed` at its own boundary, as before.
+   */
+  isCompletionRow?: boolean;
   creationTitle?: string;
   sessionsDir?: string;
   clock?: () => Date;
@@ -1986,7 +1994,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         result.kind === "complete" ? result.invocation.final?.binding.metadata?.agent?.trim() : undefined;
       const keepsCompletionInProgress =
         terminal.kind === "complete" &&
-        args.publishCompletion !== false &&
+        (args.publishCompletion !== false || args.isCompletionRow === true) &&
         (existsSync(join(worktreePath, ".git")) || completionAgent !== undefined);
       const boundaryRunStatus = keepsCompletionInProgress ? ("in-progress" as const) : terminal.runStatus;
       const bindingAttempts = (invocation: InvocationExecution) =>

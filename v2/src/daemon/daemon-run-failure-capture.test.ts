@@ -381,6 +381,9 @@ test("workflow async rejection exposes atomic durable cause and evidence", async
     new AbortController().signal,
   );
   expect(secondResponse.kind).toBe("response");
+  // Settle the retry before teardown closes the store: its publication tail is still running.
+  const retryRunId = (secondResponse as { result: { runId: string } }).result.runId;
+  await workflowHandlers.wait(requestFrame("w2", "wait", { runId: retryRunId }), new AbortController().signal);
 });
 
 test("a run already terminal at rejection time is not re-demoted but still records the failure", async () => {

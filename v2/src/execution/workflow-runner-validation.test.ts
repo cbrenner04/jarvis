@@ -234,7 +234,8 @@ describe("executeWorkflow telemetry", () => {
         run_id: shrinkRun?.id,
         attempt_id: shrinkAttemptId,
         outcome_kind: "done",
-        run_status: "completed",
+        // The workflow completion row is still deferred when its completion commit is recorded.
+        run_status: "in-progress",
         commit_sha: "wf-commit",
         files_changed: 4,
       });

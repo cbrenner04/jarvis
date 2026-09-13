@@ -322,6 +322,12 @@ async function runWorkflowCapturingStderr(
       new AbortController().signal,
     );
     expect(response.kind).toBe("response");
+    // Settle the run before teardown closes the store: a completing step's publication tail is still running.
+    const runId = (response as { result: { runId: string } }).result.runId;
+    await lifecycle.wait(requestFrame("w-verdict", "wait", { runId }), new AbortController().signal);
+    for (let i = 0; i < 10_000 && stateStore.loadRun(runId)?.status === "in-progress"; i++) {
+      await flushBackgroundRuns();
+    }
     await flushBackgroundRuns(5);
   } finally {
     spy.mockRestore();

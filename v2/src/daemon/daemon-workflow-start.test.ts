@@ -318,6 +318,13 @@ test("admission routing survives handler symbol rename when admitWorkflowStart c
 afterEach(async () => {
   fakeExecutor.abortAll();
   await flushBackgroundRuns();
+  // A completing workflow's publication tail can outlive the test body; let it settle before the
+  // store closes. Bounded, because held-live workflows never settle.
+  let pending = true;
+  void Promise.all([...handlers.context.workflowPromisesByEntryRunId.values()]).then(() => {
+    pending = false;
+  });
+  await waitFor(() => !pending, 3_000);
   try {
     stateStore.close();
   } catch {
@@ -459,7 +466,8 @@ test("start with steps dispatches to executeWorkflow and returns step 0's runId"
   const runId = response.kind === "response" ? (response.result as { runId?: string }).runId : undefined;
   expect(runId).toBeTruthy();
 
-  await flushBackgroundRuns();
+  // Settle the workflow (including its publication tail) before teardown closes the store.
+  await handlers.context.workflowPromisesByEntryRunId.get(runId as string);
   const run = runId ? stateStore.loadRun(runId) : null;
   expect(run?.project).toBe("demo");
   expect(run?.branch).toBe("workflow-branch");

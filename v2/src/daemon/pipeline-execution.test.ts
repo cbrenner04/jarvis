@@ -7434,6 +7434,9 @@ describe("pipeline workflow-stage stale-reset preflight", () => {
     const intentWorktree = await materializeWorktree(intentBranch);
     await seedIntentReadyIntent(intentWorktree);
     const planWorktree = await materializeWorktree(planBranch, intentBranch);
+    writeFileSync(join(planWorktree, "plan-lane-work.txt"), "lane work\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], planWorktree);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "plan lane work"], planWorktree);
     await advanceBasePastWorktree(planWorktree, intentWorktree, intentBranch);
 
     const { store, stages } = fakeStore(

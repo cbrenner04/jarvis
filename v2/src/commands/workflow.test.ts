@@ -2249,6 +2249,13 @@ describe("implement preflight stale workspace reset", () => {
     return worktreePath;
   }
 
+  /** Commit lane work base lacks, so the lane is not exempt from the descendant gate. */
+  async function commitLaneWork(worktreePath: string, marker: string): Promise<void> {
+    writeFileSync(join(worktreePath, `lane-${marker}.txt`), "lane work\n", "utf8");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "lane work"], worktreePath);
+  }
+
   /** Advance base past `worktreePath`'s `HEAD` with a throwaway commit; returns both tips. */
   async function advanceBasePastStaleWorktree(
     worktreePath: string,
@@ -3402,6 +3409,7 @@ describe("implement preflight stale workspace reset", () => {
 
   test("run workflow implement refuses re-run when worktree HEAD is not a descendant of base", async () => {
     const worktreePath = await materializeStaleWorktree();
+    await commitLaneWork(worktreePath, "non-descendant");
     const worktreeHead = (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
     writeFileSync(join(resetProjectRoot, "base-advance.md"), "advance\n", "utf8");
     await realAsyncSubprocessRunner.runAsync("git", ["add", "."], resetProjectRoot);
@@ -3441,6 +3449,7 @@ describe("implement preflight stale workspace reset", () => {
 
   test("run workflow implement refuses stale reuse when HEAD lags base despite reset-despite-dirty", async () => {
     const worktreePath = await materializeStaleWorktree();
+    await commitLaneWork(worktreePath, "lags-dirty");
     const dirtyFile = "stale-timeout-edit.txt";
     writeFileSync(join(worktreePath, dirtyFile), "dirty\n", "utf8");
     writeFileSync(join(resetProjectRoot, "base-advance.md"), "advance\n", "utf8");
@@ -3715,6 +3724,7 @@ describe("implement preflight stale workspace reset", () => {
 
   test("run workflow plan refuses a non-descendant lane with an open PR, preserving the worktree and branch tip", async () => {
     const worktreePath = await materializeStaleWorktree();
+    await commitLaneWork(worktreePath, "open-pr");
     const { worktreeHead, baseHead } = await advanceBasePastStaleWorktree(worktreePath, "open-pr");
     expect(worktreeHead).not.toBe(baseHead);
 

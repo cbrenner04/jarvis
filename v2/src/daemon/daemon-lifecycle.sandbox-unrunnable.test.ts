@@ -444,7 +444,7 @@ describe("daemon-lifecycle", () => {
           [
             `import { writeFileSync } from "node:fs";`,
             `import { startIpcServer, formatDaemonBindFailureLogLine, DaemonSocketBindFailureError } from ${JSON.stringify(serverModule)};`,
-            `const socketPath = process.env.DAEMON_SOCKET_PATH!;`,
+            `const socketPath = process.argv[process.argv.indexOf("--socket") + 1]!;`,
             `writeFileSync(socketPath, "");`,
             `try { await startIpcServer(socketPath, undefined, undefined, async () => ({ liveness: "absent", peerConnected: false })); }`,
             `catch (err) { if (err instanceof DaemonSocketBindFailureError) console.error(formatDaemonBindFailureLogLine(err)); process.exit(1); }`,

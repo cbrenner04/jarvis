@@ -203,6 +203,37 @@ async function waitForPublicRelease(
   }
 }
 
+/** Legacy env keys that once addressed a daemon generation; stripped from every daemon spawn. */
+const DAEMON_ADDRESS_ENV_KEYS = [
+  "DAEMON_SOCKET_PATH",
+  "DAEMON_PRIVATE_SOCKET_PATH",
+  "DAEMON_PREDECESSOR_SOCKET_PATH",
+  "TEST_DAEMON_OWNER_PID",
+];
+
+export function withoutDaemonAddressEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const copy = { ...env };
+  for (const key of DAEMON_ADDRESS_ENV_KEYS) delete copy[key];
+  return copy;
+}
+
+type DaemonEntrypointAddress = {
+  socketPath: string;
+  privateSocketPath?: string;
+  predecessorSocketPath?: string;
+  testOwnerPid?: number;
+};
+
+export function daemonEntrypointArgs(address: DaemonEntrypointAddress): string[] {
+  return [
+    "--socket",
+    address.socketPath,
+    ...(address.privateSocketPath === undefined ? [] : ["--private-socket", address.privateSocketPath]),
+    ...(address.predecessorSocketPath === undefined ? [] : ["--predecessor-socket", address.predecessorSocketPath]),
+    ...(address.testOwnerPid === undefined ? [] : ["--test-owner-pid", String(address.testOwnerPid)]),
+  ];
+}
+
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: daemon startup sequences socket probing, occupancy-aware handoff, spawn, and readiness handshake as one ordered lifecycle; each branch depends on the prior step's outcome, so extracting them would thread the whole startup state through helpers without reducing the real decision count.
 export async function startDaemon(
   socketPath: string,
@@ -280,17 +311,25 @@ export async function startDaemon(
     const logOffsetBytes =
       options?.logPath !== undefined && existsSync(options.logPath) ? statSync(options.logPath).size : 0;
 
-    const proc = spawn("bun", [daemonScript], {
-      detached: true,
-      stdio: logFd !== undefined ? ["ignore", logFd, logFd] : "ignore",
-      env: {
-        ...process.env,
-        DAEMON_SOCKET_PATH: socketPath,
-        ...(options?.privateSocketPath === undefined ? {} : { DAEMON_PRIVATE_SOCKET_PATH: options.privateSocketPath }),
-        ...(handoff === undefined ? {} : { DAEMON_PREDECESSOR_SOCKET_PATH: handoff.privateSocketPath }),
-        ...(options?.testOwnerPid === undefined ? {} : { TEST_DAEMON_OWNER_PID: String(options.testOwnerPid) }),
+    // Addresses travel as argv, never env: a daemon's environment is inherited by every agent, gate,
+    // and test it spawns, and an inherited address lets those children bind or hand off the live daemon.
+    const proc = spawn(
+      "bun",
+      [
+        daemonScript,
+        ...daemonEntrypointArgs({
+          socketPath,
+          ...(options?.privateSocketPath === undefined ? {} : { privateSocketPath: options.privateSocketPath }),
+          ...(handoff === undefined ? {} : { predecessorSocketPath: handoff.privateSocketPath }),
+          ...(options?.testOwnerPid === undefined ? {} : { testOwnerPid: options.testOwnerPid }),
+        }),
+      ],
+      {
+        detached: true,
+        stdio: logFd !== undefined ? ["ignore", logFd, logFd] : "ignore",
+        env: withoutDaemonAddressEnv(process.env),
       },
-    });
+    );
 
     // Close parent's copy of the log fd
     if (logFd !== undefined) {

@@ -312,3 +312,93 @@ test("paused run under a failed stage's invocation is suppressed", () => {
   const pipelineId = linkRunningStage(entryRunId, "failed");
   expect(deriveOperatorIncidents(store)).toEqual([expect.objectContaining({ kind: "pipeline-terminal", pipelineId })]);
 });
+
+function seedFanOutPipeline(stages: { stageId: string; kind: "workflow" | "approval" }[]): string {
+  const pipelineId = store.createPipeline({
+    definition: {
+      name: "fan-out",
+      stages: [
+        { stageId: "intent", kind: "workflow", workflow: "intent", review: "none" },
+        ...stages.map((stage) =>
+          stage.kind === "approval"
+            ? { stageId: stage.stageId, kind: "approval" as const }
+            : { stageId: stage.stageId, kind: "workflow" as const, workflow: "plan" as const, review: "none" as const },
+        ),
+      ],
+    },
+  });
+  store.updateStage({
+    pipelineId,
+    stageId: "intent",
+    patch: {
+      status: "succeeded",
+      workflowInvocationId: "run-intent",
+      artifact: {
+        entryRunId: "run-intent",
+        specPath: "ready-intents",
+        downstreamInputs: ["ready-intents/a.md", "ready-intents/b.md"],
+      },
+    },
+  });
+  for (const { stageId } of stages) {
+    for (const branchKey of ["a", "b"]) store.createPipelineStageBranch({ pipelineId, stageId, branchKey });
+    store.updateStage({
+      pipelineId,
+      stageId,
+      branchKey: "default",
+      patch: { status: "skipped", skipProvenance: "terminal" },
+    });
+  }
+  return pipelineId;
+}
+
+function deliverAll(): void {
+  for (const incident of deriveOperatorIncidents(store)) {
+    store.tryRecordNotificationDelivery({
+      incidentId: incident.incidentId,
+      transition: incident.transition,
+      deliveredAt: 1,
+    });
+  }
+}
+
+test("fan-out lane that fails, resumes, and fails again notifies each failure", () => {
+  setSystemTime(new Date(1_000_000));
+  const pipelineId = seedFanOutPipeline([{ stageId: "plan", kind: "workflow" }]);
+  store.updateStage({ pipelineId, stageId: "plan", branchKey: "b", patch: { status: "running" } });
+  store.updateStage({ pipelineId, stageId: "plan", branchKey: "a", patch: { status: "failed" } });
+  expect(deriveOperatorIncidents(store)).toEqual([expect.objectContaining({ kind: "stage-failed", branchKey: "a" })]);
+  deliverAll();
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+
+  store.updateStage({ pipelineId, stageId: "plan", branchKey: "a", patch: { status: "running", endedAt: null } });
+  setSystemTime(new Date(1_001_000));
+  store.updateStage({ pipelineId, stageId: "plan", branchKey: "a", patch: { status: "failed" } });
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ kind: "stage-failed", branchKey: "a", transition: "failed:1001000" }),
+  ]);
+});
+
+test("each newly reached fan-out gate notifies once while an earlier gate stays awaiting", () => {
+  setSystemTime(new Date(1_000_000));
+  const pipelineId = seedFanOutPipeline([
+    { stageId: "plan", kind: "workflow" },
+    { stageId: "approve-plan", kind: "approval" },
+  ]);
+  store.updateStage({ pipelineId, stageId: "plan", branchKey: "a", patch: { status: "succeeded" } });
+  store.updateStage({ pipelineId, stageId: "approve-plan", branchKey: "a", patch: { status: "awaiting" } });
+  store.updateStage({ pipelineId, stageId: "plan", branchKey: "b", patch: { status: "running" } });
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ kind: "pipeline-awaiting-approval", stageId: "approve-plan", branchKey: "a" }),
+  ]);
+  deliverAll();
+
+  setSystemTime(new Date(1_002_000));
+  store.updateStage({ pipelineId, stageId: "plan", branchKey: "b", patch: { status: "succeeded" } });
+  store.updateStage({ pipelineId, stageId: "approve-plan", branchKey: "b", patch: { status: "awaiting" } });
+  expect(deriveOperatorIncidents(store)).toEqual([
+    expect.objectContaining({ kind: "pipeline-awaiting-approval", stageId: "approve-plan", branchKey: "b" }),
+  ]);
+  deliverAll();
+  expect(deriveOperatorIncidents(store)).toEqual([]);
+});

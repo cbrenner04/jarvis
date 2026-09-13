@@ -296,6 +296,17 @@ afterEach(() => {
   removeOrchestrationStore(dbPath);
 });
 
+function gateTransition(pipelineId: string): string {
+  return `awaiting-approval:gate:default:${store.loadPipeline(pipelineId)?.createdAt}`;
+}
+
+function failedLaneTransition(pipelineId: string, branchKey: string): string {
+  const stage = store
+    .loadPipeline(pipelineId)
+    ?.stages.find((row) => row.stageId === "plan" && row.branchKey === branchKey);
+  return `failed:${stage?.endedAt}`;
+}
+
 test("pipeline awaiting-approval then terminal fires the sink once per transition", () => {
   const payloads: string[] = [];
   const pipelineId = store.createPipeline({
@@ -332,7 +343,7 @@ test("pipeline awaiting-approval then terminal fires the sink once per transitio
   };
   expect(first.kind).toBe("pipeline-awaiting-approval");
   expect(first.pipelineId).toBe(pipelineId);
-  expect(first.transition).toBe("awaiting-approval:gate:default");
+  expect(first.transition).toBe(gateTransition(pipelineId));
   expect(second.kind).toBe("pipeline-terminal");
   expect(second.pipelineId).toBe(pipelineId);
   expect(second.transition).toBe("terminal:rejected");
@@ -411,7 +422,7 @@ test("derives stage incident with branchKey for failed fan-out lane on live pipe
       // A stage-scoped incident carries the owning entry run's project, same as pipeline-level ones.
       project: "demo",
       stageId: "plan",
-      transition: "failed",
+      transition: failedLaneTransition(pipelineId, failedBranchKey),
     }),
   );
 });
@@ -459,7 +470,7 @@ test("suppresses entry-run terminal incident when failed fan-out lane emits stag
       branchKey: failedBranchKey,
       pipelineId,
       stageId: "plan",
-      transition: "failed",
+      transition: failedLaneTransition(pipelineId, failedBranchKey),
     }),
   ]);
   expect(laneIncidents.some((incident) => incident.runId === blockedSiblingRunId)).toBe(false);
@@ -474,7 +485,7 @@ test("delivery ledger suppresses delivered stage-failed preview keys on non-term
       pipelineId,
       stageId: "plan",
       branchKey: failedBranchKey,
-      transition: "failed",
+      transition: failedLaneTransition(pipelineId, failedBranchKey),
     }),
   ]);
 
@@ -487,7 +498,7 @@ test("delivery ledger suppresses delivered stage-failed preview keys on non-term
   expect(
     store.hasNotificationDelivery({
       incidentId: `stage:${pipelineId}:plan:${failedBranchKey}`,
-      transition: "failed",
+      transition: failedLaneTransition(pipelineId, failedBranchKey),
     }),
   ).toBe(true);
 
@@ -573,7 +584,7 @@ test.each([{ label: "awaiting approval" }])("delivery ledger suppresses incident
   expect(
     store.hasNotificationDelivery({
       incidentId: `pipeline:${pipelineId}`,
-      transition: "awaiting-approval:gate:default",
+      transition: gateTransition(pipelineId),
     }),
   ).toBe(true);
 
@@ -609,7 +620,7 @@ test("concurrent sweeps deliver an owed incident once", async () => {
   expect(
     store.hasNotificationDelivery({
       incidentId: `pipeline:${pipelineId}`,
-      transition: "awaiting-approval:gate:default",
+      transition: gateTransition(pipelineId),
     }),
   ).toBe(true);
 });
@@ -632,7 +643,7 @@ test("a sink spawn failure leaves the incident owed and the next sweep retries",
   expect(
     store.hasNotificationDelivery({
       incidentId: `pipeline:${pipelineId}`,
-      transition: "awaiting-approval:gate:default",
+      transition: gateTransition(pipelineId),
     }),
   ).toBe(false);
 
@@ -640,7 +651,7 @@ test("a sink spawn failure leaves the incident owed and the next sweep retries",
   expect(
     store.hasNotificationDelivery({
       incidentId: `pipeline:${pipelineId}`,
-      transition: "awaiting-approval:gate:default",
+      transition: gateTransition(pipelineId),
     }),
   ).toBe(true);
   expect(attempts).toBe(2);
@@ -667,7 +678,7 @@ test("no sink configured advances the ledger without spawning", () => {
   expect(
     store.hasNotificationDelivery({
       incidentId: `pipeline:${pipelineId}`,
-      transition: "awaiting-approval:gate:default",
+      transition: gateTransition(pipelineId),
     }),
   ).toBe(true);
 });

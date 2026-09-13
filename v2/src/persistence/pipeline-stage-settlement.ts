@@ -9,7 +9,7 @@ import {
   type RunStatus,
   type StateStore,
 } from "./state-store.ts";
-import { rollupWorkflowRunStatus } from "./workflow-run-status-rollup.ts";
+import { resolveWorkflowRunRollup } from "./workflow-run-status-rollup.ts";
 
 export type PipelineStageArtifact = {
   entryRunId: string;
@@ -170,8 +170,8 @@ export type LinkedStageSettlementOptions = {
   stageTargets?: readonly LinkedStageTarget[];
   /** Log-derived `requestedBase`/`resolvedBase` for a succeeded stage artifact. */
   publicationBaseRetarget?: { requestedBase: string; resolvedBase: string };
-  /** Log-derived operator failure detail; the durable row projection is the fallback. */
-  failureDetail?: unknown;
+  /** Log-derived operator failure detail for the run that failed the rollup; the durable row projection is the fallback. */
+  failureDetailForRun?: (runId: string) => unknown;
 };
 
 export type LinkedStageSettlement =
@@ -238,12 +238,19 @@ export function settleLinkedStagesFromEntryRunWith(
   if (entryRun === null) return { kind: "no-entry-run" };
   const workflowSnapshot = entryRun.workflowSnapshot ?? null;
   const siblingRuns = workflowSnapshot === null ? [] : store.findRunsByInvocationId(workflowSnapshot.invocationId);
-  const rollupStatus = rollupWorkflowRunStatus({ entryRun, workflowSnapshot, siblingRuns, isLive: false });
+  const { status: rollupStatus, causeRun } = resolveWorkflowRunRollup({
+    entryRun,
+    workflowSnapshot,
+    siblingRuns,
+    isLive: false,
+  });
   if (!isTerminalRunStatus(rollupStatus)) return { kind: "not-terminal", rollupStatus };
 
   const linked = linkedRunningStages(store, entryRunId, options.stageTargets);
   if (linked.length === 0) return { kind: "no-linked-stages", rollupStatus };
   const endedAt = Date.now();
+  // The sibling row that failed the rollup names the cause; a plain entry-row failure keeps the entry projection.
+  const failedRun = causeRun === undefined ? entryRun : (store.loadRun(causeRun.id) ?? entryRun);
   const settled: LinkedStageTarget[] = [];
   for (const { pipeline, stage } of linked) {
     const target = { pipelineId: pipeline.id, stageId: stage.stageId, branchKey: stage.branchKey };
@@ -255,7 +262,11 @@ export function settleLinkedStagesFromEntryRunWith(
         patch: {
           status: "failed",
           endedAt,
-          failureDetail: options.failureDetail ?? stageFailureDetailFromEntryRun(entryRun),
+          failureDetail:
+            failedRun.status === "completed"
+              ? // No row failed (a durable step never ran): project the rollup, not the completed entry row.
+                stageFailureDetailFromEntryRun({ ...failedRun, status: rollupStatus })
+              : (options.failureDetailForRun?.(failedRun.id) ?? stageFailureDetailFromEntryRun(failedRun)),
         },
       });
       continue;

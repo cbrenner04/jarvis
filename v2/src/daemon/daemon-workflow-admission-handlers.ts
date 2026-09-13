@@ -206,7 +206,8 @@ export function createWorkflowStartAdmission(ctx: RunControlHandlerContext): Wor
           onStepRunCreated: (stepIndex, runId) => {
             workflowRunIds.add(runId);
             activeRuns.set(runId, { kind: "workflow", runId, abortController });
-            if (stepIndex === 0) {
+            // Linked-implement link and shrink rows also report step 0; only the first is the entry.
+            if (stepIndex === 0 && entryRunId === undefined) {
               entryRunId = runId;
               workflowInvocationId = store.loadRun(runId)?.workflowSnapshot?.invocationId;
               workflowPromisesByEntryRunId.set(runId, trackPromise);

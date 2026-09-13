@@ -49,7 +49,7 @@ Stage row: `pending` → claim → `running` + `workflowInvocationId` (entry run
 
 One algorithm settles every stage linked to a workflow entry run, and its only truth is that run's durable rows:
 
-1. `settleLinkedStagesFromEntryRunWith` (`v2/src/persistence/pipeline-stage-settlement.ts`) rolls the invocation up from the entry run and its siblings, and settles every `running` stage linked to it — `succeeded` with an artifact carrying `specPath`, `prNumber`, `prUrl`, `downstreamInputs`, or `failed` with operator-error detail. A non-terminal rollup settles nothing. It is idempotent: a stage settles once. `StateStore.settleLinkedStagesFromEntryRun` wraps it in a transaction.
+1. `settleLinkedStagesFromEntryRunWith` (`v2/src/persistence/pipeline-stage-settlement.ts`) rolls the invocation up from the entry run and its siblings, and settles every `running` stage linked to it — `succeeded` with an artifact carrying `specPath`, `prNumber`, `prUrl`, `downstreamInputs`, or `failed` with operator-error detail taken from the row that failed the rollup (a `~link-N`/`~shrink`/later-step sibling, else the entry run). Rollup (`resolveWorkflowRunRollup`) maps sibling rows to authored steps (`findSnapshotStepForRunStepId`); a step fails if any of its rows failed, else takes its latest row. A completed `~link-N` step counts `completed` only when its `~shrink` row or a later step's row exists (else `killed`); a no-failed-row non-completed rollup projects the rollup status, not the completed entry row. A non-terminal rollup settles nothing. It is idempotent: a stage settles once. `StateStore.settleLinkedStagesFromEntryRun` wraps it in a transaction.
 2. `stage-settlement-owner.ts` is the daemon's one caller (`settleStagesForEntryRun`, `settleOrphanedRunningStages`). Its only in-memory input is **liveness** — `isEntryRunLive`, true while this daemon still drives the invocation — because a run this process is still driving must not be judged from its rows.
 3. It runs at four points: the workflow promise's terminal event, dispatch/adopt after their wait, the `pipeline_resume` precondition, and the daemon-start sweep (`recoverContinuablePipelines`, after run recovery so reconciled runs read live).
 4. A stage settled `failed` skips its branch suffix (`skipSuffixOfSettledFailures`), exactly as an in-loop stage failure does, so the pipeline derives `failed` and `reopenFailedPipeline` admits it. `skipRemainingStages` records these predecessor-failure skips with `skipProvenance: "provisional"`: the work remains legitimately redoable.
@@ -58,7 +58,7 @@ There is no deferred-settlement marker and no redrive predicate. A stage whose e
 
 **PR-evidence wedge:** when settlement of the final workflow stage of a `ready`/`merge` pipeline finds no `prNumber`/`prUrl` on the entry run, it settles `failed` with `completion_publication_missing_pr_evidence` and terminal publication is not invoked. Tests: `pipeline-stage-dispatch.test.ts` (settlement after wait, live entry run untouched), `pipeline-execution.test.ts` (restart sweep, resume precondition, terminal publication settlement).
 
-Entry-run linkage is stored in `pipeline_stages.workflowInvocationId` (column name; value is the entry run id).
+Entry-run linkage is stored in `pipeline_stages.workflowInvocationId` (column name; value is the entry run id). The entry run is the invocation's first step-0 row; linked-implement link and shrink rows also report step 0 but never re-point the entry, its live-promise registration, or settlement.
 
 ## Fan-out lanes
 

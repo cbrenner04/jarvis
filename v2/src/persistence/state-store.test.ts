@@ -2345,7 +2345,8 @@ describe("pipelines", () => {
     expect(loadPipelineOrThrow(store, siblingFailurePipelineId).stages[0]).toMatchObject({
       status: "failed",
       artifact: null,
-      failureDetail: { entryRunStatus: "completed" },
+      // Detail projects the failing sibling row, not the completed entry row.
+      failureDetail: { entryRunStatus: "failed" },
     });
   });
 

@@ -23,6 +23,8 @@ The serving generation handles `wait`, `kill`, and other live controls only agai
 
 ## Decisions
 
+- Regression case inherited from closed seed superseded-daemon-releases-run-ownership (#3464): `run kill --force` on a draining owner's live run routes to that owner instead of refusing on the owner's live pid.
+
 - Resolve ownership from the stable daemon's authoritative live-run directory and execute current-generation requests locally.
 - Forward only to the direct predecessor; do not enumerate sockets or permit hop-by-hop forwarding.
 - `wait` returns the owner's eventual settlement, and `kill` aborts and settles the owner's invocation rather than applying successor-local terminal/not-active logic.

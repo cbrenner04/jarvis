@@ -25,6 +25,8 @@ The successor's local registry does not contain predecessor-owned work. Start, r
 
 ## Decisions
 
+- Regression cases inherited from closed seeds: #3595 (a run dispatched during handoff must not be swallowed or leave an orphaned worktree lease) and #3464 (a draining owner's paused run must stay controllable, never force-killed or claimed by the incoming generation while its owner is alive).
+
 - Treat an authoritative predecessor owner as an admission and force-claim conflict for that run and its protected worktree ownership; never drive one invocation from two generations.
 - Keep unrelated `start` and eligible `resume` admission on the incoming generation; routing availability is not a daemon-wide readiness gate.
 - Always run startup reconciliation during handoff and continue to decide genuine orphanhood from durable owner identity and process liveness, not mere peer presence.

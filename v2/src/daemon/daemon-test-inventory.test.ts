@@ -188,11 +188,17 @@ export function countParityPreservationViolation(
  * catch a test that vanishes *silently*; a deliberate retirement is recorded here and reviewed in
  * the diff. Keep this list short — an entry that is not a genuine behavior retirement is a bug.
  *
- * All entries below: the pipeline-stage `settlement_deferred` marker and its two redrive predicates
+ * Most entries below: the pipeline-stage `settlement_deferred` marker and its two redrive predicates
  * were retired when stage settlement moved to deriving from the entry run's durable rows. The tests
  * still exist under names describing what they now assert; only the marker wording is gone.
+ *
+ * `throws DaemonAlreadyRunningError if socket already responds`: the immediate refusal it pinned is
+ * gone — an occupied public address now attempts handoff instead (see the handoff-changeover-protocol
+ * spec). Replacement coverage: the `startDaemon` handoff-success/handoff-failed/release-timeout tests
+ * in the same file.
  */
 const RETIRED_TEST_TITLES: ReadonlySet<string> = new Set([
+  "throws DaemonAlreadyRunningError if socket already responds",
   "restart sweep settles a deferred stage whose entry run completed while the daemon was down",
   "restart sweep fails final deferred settlement when a ready pipeline's completed entry run lacks publication PR evidence",
   "restart sweep fails a deferred stage whose entry run ended failed",

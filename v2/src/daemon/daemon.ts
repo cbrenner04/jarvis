@@ -45,6 +45,7 @@ import {
   type RunStatus,
   type StateStore,
 } from "../persistence/state-store.ts";
+import { type DrainObserver, observePredecessorDrain, unionLiveRunIds } from "./daemon-drain-observer.ts";
 import {
   createNotificationListHandler,
   createNotificationWaitHandler,
@@ -300,6 +301,35 @@ export function workflowInvocationIsLive(
  */
 export function shouldShutdownNow(shutdownRequested: boolean, isRetiring: boolean, hasActiveRuns: boolean): boolean {
   return shutdownRequested || (isRetiring && !hasActiveRuns);
+}
+
+/**
+ * Wires the drain-exit check on an interval: once `shouldShutdown` reads true (see
+ * {@link shouldShutdownNow}), it closes the daemon and exits — an outgoing generation whose
+ * active-run set empties while retiring exits on its own, owning nothing public. Extracted from
+ * `startDaemonRuntime` so the wiring itself, not just the guard, is exercisable against a real
+ * `close()`/socket-file outcome without spinning up a full daemon.
+ */
+export function startDrainExitLoop(deps: {
+  shouldShutdown: () => boolean;
+  close: () => Promise<void>;
+  processExit: (code: number) => void;
+  intervalMs?: number;
+}): { stop: () => void } {
+  const timer = setInterval(() => {
+    if (deps.shouldShutdown()) {
+      void deps
+        .close()
+        .then(() => {
+          deps.processExit(0);
+        })
+        .catch((err: unknown) => {
+          console.error("Error during shutdown:", err);
+          deps.processExit(1);
+        });
+    }
+  }, deps.intervalMs ?? 100);
+  return { stop: () => clearInterval(timer) };
 }
 
 /**
@@ -758,6 +788,44 @@ export function createRunControlHandlers(deps: RunControlHandlerDeps) {
   return handlersOut;
 }
 
+type ChangeoverHandlerDeps = {
+  /** The daemon's own private successor-only endpoint; `undefined` means it has nothing to hand off. */
+  getPrivateSocketPath: () => string | undefined;
+  /** Cuts admission for new `start`/`resume` calls; reuses the existing retiring state. */
+  setRetiring: () => void;
+  /** Releases the public listener; invoked only after the reply is queued for write. */
+  closePublicServer: () => Promise<void>;
+};
+
+/**
+ * `changeover` RPC: an incoming generation asks the current public-address occupant to hand off.
+ * Admission is cut off synchronously before the reply is built, so no work can be admitted after
+ * the successor is told to take the address. The public listener is released only after this
+ * response is written — `setImmediate` runs after the synchronous frame write in `dispatchRequest`'s
+ * `.then()` (`v2/src/ipc/server.ts`), so a caller can never observe a released address before it can
+ * see this reply's private endpoint.
+ */
+export function createChangeoverHandler(deps: ChangeoverHandlerDeps): RpcHandler {
+  return () => {
+    const privateSocketPath = deps.getPrivateSocketPath();
+    if (privateSocketPath === undefined) {
+      return {
+        kind: "error",
+        code: "no_private_endpoint",
+        message: "daemon has no private successor endpoint to hand off to",
+      };
+    }
+    deps.setRetiring();
+    setImmediate(() => {
+      deps.closePublicServer().catch(() => {
+        // Release failure leaves the address occupied; the successor's own wait-for-release
+        // times out and fails startup rather than unlinking a live peer's socket.
+      });
+    });
+    return { kind: "response", result: { ok: true, privateSocketPath } };
+  };
+}
+
 type DaemonStartupDeps = {
   logsPath?: string;
   openLogSink?: typeof openLogSink;
@@ -772,6 +840,15 @@ type DaemonStartupDeps = {
   processExit?: (code: number) => never;
   /** Digest-keyed private endpoint bound before the public `socketPath`. */
   privateSocketPath?: string;
+  /**
+   * The outgoing generation's private endpoint, learned from a successful `changeover` reply.
+   * When set, this daemon polls it for the predecessor's live run set (see
+   * `daemon-drain-observer.ts`) so `list` keeps reporting those runs live until it drains. Every
+   * live legacy digest-keyed peer discovered via `enumerateOtherDaemonSockets` is drained the
+   * same way, without needing to be named here.
+   */
+  predecessorSocketPath?: string;
+  observePredecessorDrain?: typeof observePredecessorDrain;
 };
 
 export async function recoverReconciledRuns(
@@ -812,6 +889,21 @@ export async function recoverReconciledRuns(
     }
   }
   return { resumed };
+}
+
+/**
+ * Every drain observer this generation owns: the real handoff predecessor (if any) plus one per
+ * live legacy digest-keyed peer discovered on the same address space (see
+ * 03-legacy-keyed-daemon-migration.md). Combined via `unionLiveRunIds` for `externalLiveRunIds`.
+ */
+function buildDrainObservers(
+  predecessorSocketPath: string | undefined,
+  legacyPeerSocketPaths: readonly string[],
+  observeDrain: typeof observePredecessorDrain,
+): DrainObserver[] {
+  const socketPaths =
+    predecessorSocketPath === undefined ? legacyPeerSocketPaths : [predecessorSocketPath, ...legacyPeerSocketPaths];
+  return socketPaths.map((peerSocketPath) => observeDrain(peerSocketPath));
 }
 
 export async function startDaemonRuntime(
@@ -881,6 +973,15 @@ export async function startDaemonRuntime(
     return { kind: "response", result: { ok: true } };
   };
 
+  const observeDrain = startupDeps.observePredecessorDrain ?? observePredecessorDrain;
+  // A live pre-stable digest-keyed daemon has no public address and no handoff RPC, so it is
+  // treated as a legacy outgoing generation: its keyed socket becomes a private successor-only
+  // endpoint, drained the same way as a real handoff predecessor (see 03-legacy-keyed-daemon-
+  // migration.md). Enumeration is pure and synchronous, so this is safe before either server binds.
+  const enumerateSockets = startupDeps.enumerateOtherDaemonSockets ?? enumerateOtherDaemonSockets;
+  const legacyPeerSocketPaths = enumerateSockets(jarvisHome(), startupDeps.privateSocketPath ?? socketPath);
+  const drainObservers = buildDrainObservers(startupDeps.predecessorSocketPath, legacyPeerSocketPaths, observeDrain);
+
   const {
     reportReviewDebateProgress: _reportReviewDebateProgress,
     clearLiveReviewDebateProgress: _clearLiveReviewDebateProgress,
@@ -905,6 +1006,7 @@ export async function startDaemonRuntime(
     // (the historical no-op); the unit test injects `daemonSocketPath` directly and cannot catch that.
     daemonSocketPath: socketPath,
     reconciledRunIds,
+    externalLiveRunIds: () => unionLiveRunIds(drainObservers),
     ...(startupDeps.writeLoopBindingSourceDeps !== undefined
       ? { writeLoopBindingSourceDeps: startupDeps.writeLoopBindingSourceDeps }
       : {}),
@@ -915,16 +1017,24 @@ export async function startDaemonRuntime(
     return { kind: "response", result: { ok: true } };
   };
 
+  let server: IpcServer;
+  let privateServer: IpcServer | undefined;
+
+  const changeoverHandler = createChangeoverHandler({
+    getPrivateSocketPath: () => startupDeps.privateSocketPath,
+    setRetiring,
+    closePublicServer: () => server.close(),
+  });
+
   const handlers: Record<string, RpcHandler> = {
     health: healthHandler,
     status: statusHandler,
     shutdown: shutdownHandler,
     supersede: supersedHandler,
+    changeover: changeoverHandler,
     ...runControlHandlers,
   };
 
-  let server: IpcServer;
-  let privateServer: IpcServer | undefined;
   const bindIpcServer = startupDeps.startIpcServer ?? startIpcServer;
 
   try {
@@ -941,13 +1051,13 @@ export async function startDaemonRuntime(
     process.exit(1);
   }
 
-  // Send supersede to peer daemons after our server is listening, best-effort and non-blocking.
-  const enumerateSockets = startupDeps.enumerateOtherDaemonSockets ?? enumerateOtherDaemonSockets;
+  // Cut admission on each legacy peer after our server is listening, best-effort and
+  // non-blocking. A peer that does not answer is skipped rather than failing startup; drain
+  // observation above already tracks its live run set regardless of whether this RPC lands.
   const supersedePeer = startupDeps.supersedePeerDaemon ?? supersedePeerDaemon;
   (async () => {
-    const peerSockets = enumerateSockets(jarvisHome(), startupDeps.privateSocketPath ?? socketPath);
-    for (const peerSocket of peerSockets) {
-      await supersedePeer(peerSocket);
+    for (const peerSocketPath of legacyPeerSocketPaths) {
+      await supersedePeer(peerSocketPath);
     }
   })().catch(() => {
     // Ignore errors: the supersede pass is best-effort.
@@ -997,11 +1107,12 @@ export async function startDaemonRuntime(
   const close = async (): Promise<void> => {
     if (closed) return;
     closed = true;
-    clearInterval(checkShutdown);
+    drainExitLoop.stop();
     clearInterval(notificationSweepTimer);
     process.off("SIGTERM", signalHandler);
     process.off("SIGINT", signalHandler);
     _closeRunControlHandlers();
+    for (const observer of drainObservers) observer.stop();
     await server.close();
     if (privateServer !== undefined) {
       await privateServer.close();
@@ -1015,21 +1126,14 @@ export async function startDaemonRuntime(
     }
   };
 
-  // Extracted so both directions of the retiring/active-runs guard are unit-testable
-  // without a real timer (the deterministic-daemon-test guard forbids one).
-  const checkShutdown = setInterval(() => {
-    const shouldShutdown = shouldShutdownNow(shutdownRequested, isRetiring(), hasActiveRuns());
-    if (shouldShutdown) {
-      void close()
-        .then(() => {
-          processExit(0);
-        })
-        .catch((err: unknown) => {
-          console.error("Error during shutdown:", err);
-          processExit(1);
-        });
-    }
-  }, 100);
+  // Extracted (`startDrainExitLoop`) so both directions of the retiring/active-runs guard, and
+  // the wiring that closes and exits once it flips, are unit-testable without a real timer (the
+  // deterministic-daemon-test guard forbids one) or a full daemon.
+  const drainExitLoop = startDrainExitLoop({
+    shouldShutdown: () => shouldShutdownNow(shutdownRequested, isRetiring(), hasActiveRuns()),
+    close,
+    processExit,
+  });
 
   console.error(`Daemon running on socket ${socketPath} with PID ${process.pid}`);
   return { close };

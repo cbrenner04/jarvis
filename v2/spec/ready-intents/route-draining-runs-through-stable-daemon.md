@@ -20,12 +20,21 @@ Run liveness and control are answered only from the daemon process receiving the
 
 - The stable-address daemon presents draining-generation runs as live and routes each run observation or control request to the generation that owns it without exposing generations to the caller.
 
+## Replanned 2026-09-13
+
+The first plan (six subspecs, multi-generation chains, a blocking readiness gate) was abandoned after review found it regressed single-daemon `list` latency, blocked every verb for a daemon's lifetime after a slow route probe, and skipped orphan reconciliation. Plan narrowly.
+
 ## Decision ledger
 
 - Route by authoritative live run ownership, not by source version, socket enumeration, durable row visibility, or process liveness alone.
 - Merge current- and draining-generation run rows behind the stable daemon with one row per run and the live owner's row winning; rules out client-side aggregation and `in-progress` plus `not-live` for executing work.
 - Route `run log`, `run wait`, `run kill`, and other live controls to the owner over the internal handoff channel; rules out successor-local `terminal_run` or `run_not_active` refusals for a draining live run.
 - Keep new `start` and eligible `resume` admission on the incoming generation while an active draining run remains pinned to its outgoing owner; rules out two generations driving one invocation.
+- One predecessor only: route to the direct outgoing generation; rules out multi-generation chains, hop-by-hop forwarding, and chain-retirement bookkeeping.
+- Route only runs the predecessor reports live; rules out routing or retaining ownership for its terminal/historical rows and rules out a retiring daemon staying up while its predecessor merely exists.
+- Single-daemon operation is unchanged: no readiness gate, no extra RPC or per-row log reads on `list` when no predecessor is draining, and retention still applies before per-row work; rules out any public verb failing or slowing because routing is unready.
+- Routing setup failure degrades to today's per-daemon behavior, never to refusing verbs; rules out `run_routing_unavailable`-style blanket refusals.
+- Startup reconciliation of genuinely orphaned runs still runs during a handoff; rules out skipping it whenever a peer is observed.
 - Treat a lost draining-generation channel as an ownership-loss recovery condition rather than silently claiming the run live; preserve existing reconciliation safety for genuinely dead owners.
 
 ## Acceptance criteria

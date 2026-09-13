@@ -10,6 +10,7 @@ import { parseDaemonBindFailureLogLine } from "../ipc/server.ts";
 import { jarvisHome } from "../paths.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { isTerminalRunStatus, openStateStore, type StateStore } from "../persistence/state-store";
+import { type RequestChangeover, requestChangeoverFromPublicPeer } from "./daemon-changeover.ts";
 import { reconcileOrphanedRuns } from "./daemon-run-reconciliation.ts";
 import { parseListRuns, parseStatusResult } from "./daemon-wire";
 
@@ -39,6 +40,18 @@ export class DaemonAlreadyRunningError extends Error {
   constructor(socketPath: string) {
     super(`Daemon already running on socket ${socketPath}`);
     this.name = "DaemonAlreadyRunningError";
+  }
+}
+
+/**
+ * Raised when an occupied public address does not hand off: the occupant's `changeover` request
+ * failed (unanswered, timed out, or errored) or it never released the address within bound. Either
+ * way, the incoming generation fails startup rather than unlinking a live peer's socket.
+ */
+export class DaemonHandoffFailedError extends Error {
+  constructor(socketPath: string) {
+    super(`Daemon at socket ${socketPath} did not hand off the address; refusing to replace a live peer's socket.`);
+    this.name = "DaemonHandoffFailedError";
   }
 }
 
@@ -125,7 +138,26 @@ function setupLogFile(logPath: string, logCapBytes: number): number | undefined 
   }
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: daemon startup sequences socket probing, occupancy-aware reclaim, spawn, and readiness handshake as one ordered lifecycle; each branch depends on the prior step's outcome, so extracting them would thread the whole startup state through helpers without reducing the real decision count.
+/**
+ * Polls until `socketPath` stops answering (the occupant released it) or `timeoutMs` elapses.
+ * Called only after a successful `changeover` reply, so a `false` return means the occupant agreed
+ * to hand off but never actually released the address — treated the same as an unanswered request.
+ */
+async function waitForPublicRelease(
+  socketPath: string,
+  timeoutMs: number,
+  socketProber: SocketProber,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const stillUp = await socketProber.probe(socketPath, 200);
+    if (!stillUp) return true;
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: daemon startup sequences socket probing, occupancy-aware handoff, spawn, and readiness handshake as one ordered lifecycle; each branch depends on the prior step's outcome, so extracting them would thread the whole startup state through helpers without reducing the real decision count.
 export async function startDaemon(
   socketPath: string,
   options?: {
@@ -140,6 +172,12 @@ export async function startDaemon(
     onSpawn?: (pid: number) => void;
     /** Digest-keyed private endpoint the spawned daemon binds before the public address. */
     privateSocketPath?: string;
+    /** Requests changeover from an occupying peer; defaults to `requestChangeoverFromPublicPeer`. */
+    requestChangeover?: RequestChangeover;
+    /** Bounds the `changeover` RPC itself. Defaults to 2000ms. */
+    changeoverTimeoutMs?: number;
+    /** Bounds how long to wait for the occupant to actually release the address after a successful changeover reply. Defaults to 5000ms. */
+    changeoverReleaseTimeoutMs?: number;
   },
 ): Promise<DaemonMetadata> {
   const readinessTimeoutMs = options?.readinessTimeoutMs ?? 5_000;
@@ -147,9 +185,25 @@ export async function startDaemon(
   const processProber = options?.processProber ?? { isAlive: isProcessAlive };
   const socketProber = options?.socketProber ?? { probe: probeSocket };
 
+  let predecessorSocketPath: string | undefined;
   const alreadyUp = await socketProber.probe(socketPath, 500);
   if (alreadyUp) {
-    throw new DaemonAlreadyRunningError(socketPath);
+    // Replaces the old immediate refusal: an occupied public address is a handoff, not a rejection.
+    // Either failure mode below — an unanswered/errored request, or a request the occupant accepted
+    // but never actually released — fails startup without ever unlinking the occupant's socket.
+    const requestChangeover = options?.requestChangeover ?? requestChangeoverFromPublicPeer;
+    const outcome = await requestChangeover(socketPath, { timeoutMs: options?.changeoverTimeoutMs ?? 2_000 });
+    if (outcome.kind === "handoff-failed") {
+      throw new DaemonHandoffFailedError(socketPath);
+    }
+    const released = await waitForPublicRelease(socketPath, options?.changeoverReleaseTimeoutMs ?? 5_000, socketProber);
+    if (!released) {
+      throw new DaemonHandoffFailedError(socketPath);
+    }
+    // The outgoing generation's own private endpoint, so the spawned successor can observe its
+    // drain (see `daemon-drain-observer.ts`) rather than treating its already-admitted work as
+    // gone the moment it stops holding the public address.
+    predecessorSocketPath = outcome.privateSocketPath;
   }
 
   const daemonScript = options?.daemonScript ?? resolve(import.meta.dir, "../daemon-entrypoint.ts");
@@ -165,6 +219,7 @@ export async function startDaemon(
       ...process.env,
       DAEMON_SOCKET_PATH: socketPath,
       ...(options?.privateSocketPath === undefined ? {} : { DAEMON_PRIVATE_SOCKET_PATH: options.privateSocketPath }),
+      ...(predecessorSocketPath === undefined ? {} : { DAEMON_PREDECESSOR_SOCKET_PATH: predecessorSocketPath }),
       ...(options?.testOwnerPid === undefined ? {} : { TEST_DAEMON_OWNER_PID: String(options.testOwnerPid) }),
     },
   });

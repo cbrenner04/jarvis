@@ -2160,6 +2160,22 @@ export async function isDescendantOfBase(
   }
 }
 
+/** True when `head` carries nothing unlanded: an ancestor of base, or every `base..head` commit patch-equivalent in base (squash-merged). */
+async function carriesNoUnlandedCommits(
+  head: string,
+  baseRef: string,
+  projectRoot: string,
+  runner: AsyncSubprocessRunner,
+): Promise<boolean> {
+  if (await isDescendantOfBase(baseRef, head, projectRoot, runner)) return true;
+  try {
+    const cherry = await runner.runAsync("git", ["cherry", baseRef, head], projectRoot);
+    return !cherry.split("\n").some((line) => line.startsWith("+"));
+  } catch {
+    return false;
+  }
+}
+
 function specTreeRelPaths(projectRoot: string, specPath: string, readFile: (absPath: string) => string): string[] {
   const absoluteSpecPath = isAbsolute(specPath) ? specPath : resolve(projectRoot, specPath);
   const specContent = readFile(absoluteSpecPath);
@@ -2440,7 +2456,7 @@ export async function resetStaleWorkspace(
       const commitCount = await unlandedCommitCount(projectRoot, branch, baseRef, runner);
       if (commitCount > 0) {
         const nonStagingPaths = await unlandedNonStagingPaths(projectRoot, branch, baseRef, runner);
-        if (nonStagingPaths.length > 0) {
+        if (nonStagingPaths.length > 0 && !(await carriesNoUnlandedCommits(branch, baseRef, projectRoot, runner))) {
           refusalParts.push(staleResetUnlandedCommitsGateReason(worktreeHead, commitCount));
         }
       }
@@ -2456,7 +2472,10 @@ export async function resetStaleWorkspace(
       refusalParts.push(staleResetUnreachableWorktreeHeadGateReason(branch, worktreeHead));
     }
     if (!disposableLane) {
-      if (!(await isDescendantOfBase(worktreeHead, baseRef, projectRoot, runner))) {
+      if (
+        !(await isDescendantOfBase(worktreeHead, baseRef, projectRoot, runner)) &&
+        !(await carriesNoUnlandedCommits(worktreeHead, baseRef, projectRoot, runner))
+      ) {
         refusalParts.push(staleResetDescendantGateReason(baseRef, baseHead, worktreeHead));
       }
       if (specPath !== undefined && isStaleResetLandedCriteriaSpecPath(projectRoot, specPath)) {

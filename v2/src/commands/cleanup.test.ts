@@ -4584,6 +4584,67 @@ describe("resetStaleWorkspace: incomplete implement re-run reset", () => {
     expect(listOutput).not.toContain(worktreePath);
   });
 
+  async function advanceBase(name: string): Promise<void> {
+    writeFileSync(join(projectRoot, name), "advance\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", "."], projectRoot);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", `advance ${name}`], projectRoot);
+  }
+
+  async function commitInWorktree(worktreePath: string, rel: string): Promise<string> {
+    writeFileSync(join(worktreePath, rel), "lane work\n");
+    await realAsyncSubprocessRunner.runAsync("git", ["add", rel], worktreePath);
+    await realAsyncSubprocessRunner.runAsync("git", ["commit", "-m", "lane work"], worktreePath);
+    return (await realAsyncSubprocessRunner.runAsync("git", ["rev-parse", "HEAD"], worktreePath)).trim();
+  }
+
+  test("resetStaleWorkspace retires a clean lane whose HEAD is an older base commit", async () => {
+    const branch = "impl/empty-lane-behind-base";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    await advanceBase("empty-lane-advance.md");
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+    });
+
+    expect(genericRefusalReason(result)).toBe("");
+    expect(result.status).toBe("reset");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).not.toContain(worktreePath);
+  });
+
+  test("resetStaleWorkspace retires a clean lane whose commits were squash-merged into base", async () => {
+    const branch = "impl/squash-merged-lane";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const laneSha = await commitInWorktree(worktreePath, "squashed.txt");
+    await advanceBase("squash-advance.md");
+    await realAsyncSubprocessRunner.runAsync("git", ["cherry-pick", laneSha], projectRoot);
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+    });
+
+    expect(genericRefusalReason(result)).toBe("");
+    expect(result.status).toBe("reset");
+  });
+
+  test("resetStaleWorkspace still refuses a non-descendant lane with an unlanded commit", async () => {
+    const branch = "impl/unlanded-behind-base";
+    const worktreePath = await setupWorktreeAndBranch(branch);
+    const laneSha = await commitInWorktree(worktreePath, "unlanded.txt");
+    await advanceBase("unlanded-advance.md");
+
+    const result = await callReset(branch, ghPrListRunner(projectRoot, []), noLiveDaemon, silentIo, {
+      baseRef: "HEAD",
+    });
+
+    expect(result.status).toBe("refused");
+    const reason = genericRefusalReason(result);
+    expect(reason).toContain(`worktree HEAD ${laneSha} is not a descendant of base HEAD`);
+    expect(reason).toContain("stale reuse refused");
+    const listOutput = await realAsyncSubprocessRunner.runAsync("git", ["worktree", "list"], projectRoot);
+    expect(listOutput).toContain(worktreePath);
+  });
+
   test("resetStaleWorkspace retires a disposable never-landed lane past landed-criteria drift", async () => {
     const branch = "impl/disposable-landed-criteria";
     const specDir = join(projectRoot, "v2", "spec", "disposable-spec");

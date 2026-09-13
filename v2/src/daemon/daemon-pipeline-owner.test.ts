@@ -77,7 +77,7 @@ test("classifies a foreign active pipeline", async () => {
   const pipelineId = seedStore.createPipeline({ definition: SINGLE_WORKFLOW("foreign") });
   seedStore.close();
 
-  const store = openStateStore(stateDbPath, { currentIdentity: "daemon-b" });
+  const store = openStateStore(stateDbPath, { currentIdentity: "daemon-b", isOwnerAlive: async () => true });
   const handlers = makeHandlers(store);
 
   const response = await handlers.pipeline_owner(
@@ -86,7 +86,10 @@ test("classifies a foreign active pipeline", async () => {
   );
   expect(response).toEqual({ kind: "response", result: { kind: "not_owner", pipelineId, ownerIdentity: "daemon-b" } });
 
-  // A `null`-owner active row is unowned, not foreign-owned, but resolves the same way: `not_owner`.
+  // A live foreign owner is never taken.
+  expect(store.loadPipeline(pipelineId)?.ownerIdentity).toBe("daemon-a");
+
+  // A `null`-owner active row is unowned: the answering daemon adopts it, like the startup sweep.
   setOwnerIdentity(stateDbPath, pipelineId, null);
   const nullOwnerResponse = await handlers.pipeline_owner(
     requestFrame("o2", "pipeline_owner", { pipelineId }),
@@ -94,9 +97,46 @@ test("classifies a foreign active pipeline", async () => {
   );
   expect(nullOwnerResponse).toEqual({
     kind: "response",
-    result: { kind: "not_owner", pipelineId, ownerIdentity: "daemon-b" },
+    result: { kind: "owner", pipelineId, ownerIdentity: "daemon-b" },
   });
+  expect(store.loadPipeline(pipelineId)?.ownerIdentity).toBe("daemon-b");
   store.close();
+});
+
+test("adopts a pipeline whose recorded owner is dead, but not while retiring", async () => {
+  const seedStore = openStateStore(stateDbPath, { currentIdentity: "daemon-a" });
+  const pipelineId = seedStore.createPipeline({ definition: SINGLE_WORKFLOW("dead-owner") });
+  seedStore.close();
+
+  const probed: string[] = [];
+  const store = openStateStore(stateDbPath, {
+    currentIdentity: "daemon-b",
+    isOwnerAlive: async (identity) => {
+      probed.push(identity);
+      return false;
+    },
+  });
+  const handlers = makeHandlers(store);
+
+  handlers.setRetiring();
+  const retiring = await handlers.pipeline_owner(
+    requestFrame("r", "pipeline_owner", { pipelineId }),
+    new AbortController().signal,
+  );
+  expect(retiring).toEqual({ kind: "response", result: { kind: "not_owner", pipelineId, ownerIdentity: "daemon-b" } });
+  expect(store.loadPipeline(pipelineId)?.ownerIdentity).toBe("daemon-a");
+  store.close();
+
+  const liveStore = openStateStore(stateDbPath, { currentIdentity: "daemon-c", isOwnerAlive: async () => false });
+  const liveHandlers = makeHandlers(liveStore);
+  const response = await liveHandlers.pipeline_owner(
+    requestFrame("o", "pipeline_owner", { pipelineId }),
+    new AbortController().signal,
+  );
+  expect(response).toEqual({ kind: "response", result: { kind: "owner", pipelineId, ownerIdentity: "daemon-c" } });
+  expect(liveStore.loadPipeline(pipelineId)?.ownerIdentity).toBe("daemon-c");
+  expect(probed).toEqual([]);
+  liveStore.close();
 });
 
 test("classifies reconciled and terminal pipelines", async () => {

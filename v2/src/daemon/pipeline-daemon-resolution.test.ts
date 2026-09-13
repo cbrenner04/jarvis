@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import type { IpcClient } from "../ipc/client.ts";
 import type { PipelineDaemonResolutionDeps } from "./pipeline-daemon-resolution.ts";
 import {
-  PIPELINE_NO_LIVE_OWNER_RECOVERY,
+  PIPELINE_UNREACHABLE_OWNER_RECOVERY,
   queryPipelineListsFromSocketPaths,
   resolvePipelineDaemon,
   resolvePipelineDaemonFromSocketPaths,
@@ -133,9 +133,8 @@ test("selects a durable-state endpoint or reports a dead active owner", async ()
   expect(deadOwner).toEqual({
     kind: "pipeline_no_live_owner",
     pipelineId: PIPELINE_ID,
-    recovery: PIPELINE_NO_LIVE_OWNER_RECOVERY,
+    recovery: PIPELINE_UNREACHABLE_OWNER_RECOVERY,
   });
-  expect(deadOwner).toMatchObject({ recovery: "jarvis daemon start, then retry" });
 });
 
 test("refuses duplicate owner witnesses", async () => {

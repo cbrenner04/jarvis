@@ -439,15 +439,21 @@ export function createPipelineHandlers(ctx: RunControlHandlerContext, deps: Pipe
    * Durable ownership answer for one full pipeline id — no prefix resolution. A `pipeline_list`
    * snapshot proves nothing about ownership under a shared store; this is the dedicated answer.
    */
-  const pipeline_owner: RpcHandler = (frame) => {
+  const pipeline_owner: RpcHandler = async (frame) => {
     const params = frame.params as { pipelineId?: unknown } | undefined;
     if (typeof params?.pipelineId !== "string" || params.pipelineId.length === 0) {
       return { kind: "error", code: "invalid_params", message: "pipelineId required" };
     }
     const { pipelineId } = params;
-    const pipeline = store.loadPipeline(pipelineId);
     const ownerIdentity = store.currentOwnerIdentity();
-    const ownership = resolvePipelineOwnership(pipeline, ownerIdentity);
+    let pipeline = store.loadPipeline(pipelineId);
+    let ownership = resolvePipelineOwnership(pipeline, ownerIdentity);
+    // A dead (or absent) recorded owner — e.g. a drained daemon generation after a handoff — is
+    // adopted here, so the answering daemon owns the pipeline instead of stranding every verb.
+    if (ownership.kind === "not_owner" && !ctx.retiring && (await store.adoptOrphanedPipeline(pipelineId))) {
+      pipeline = store.loadPipeline(pipelineId);
+      ownership = resolvePipelineOwnership(pipeline, ownerIdentity);
+    }
     // The identity lets a caller tell one daemon answering on two socket paths (stable public plus
     // digest-keyed private) from two daemons genuinely claiming the same pipeline.
     return { kind: "response", result: { ...ownership, pipelineId, ownerIdentity } };

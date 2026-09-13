@@ -2566,7 +2566,7 @@ describe("pipeline verb owner routing", () => {
     expect(noOwnerCap.read()).toEqual({
       stdout: "",
       stderr:
-        "pipeline_no_live_owner: Pipeline pipe-no-owner has no live owner; run jarvis daemon start, then retry.\n",
+        "pipeline_no_live_owner: Pipeline pipe-no-owner has no reachable live owner; wait for its owning daemon to exit (a draining generation hands it to the live daemon), then retry.\n",
     });
 
     const notFoundCap = captureIo();

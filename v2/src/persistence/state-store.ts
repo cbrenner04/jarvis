@@ -794,6 +794,13 @@ export interface StateStore {
     priorOwnerIdentity: string | null;
   }): PipelineContinuationOutcome;
 
+  /**
+   * Adopt an `active` pipeline whose recorded owner is unowned (`null`) or provably dead (the same
+   * orphan predicate `reconcilePipelines` uses) through `claimPipelineContinuation`. Returns
+   * whether this process now owns the row; a live foreign owner is never taken.
+   */
+  adoptOrphanedPipeline(pipelineId: string): Promise<boolean>;
+
   claimPipelineStageAdmission(args: {
     pipelineId: string;
     stageId: string;
@@ -2129,6 +2136,15 @@ class StateStoreImpl implements StateStore {
       nextStatus: args.decision,
       decidedAt: Date.now(),
     });
+  }
+
+  async adoptOrphanedPipeline(pipelineId: string): Promise<boolean> {
+    const pipeline = this.loadPipeline(pipelineId);
+    if (pipeline === null || pipeline.status !== "active") return false;
+    const owner = pipeline.ownerIdentity;
+    if (owner === this.currentIdentity) return true;
+    if (owner !== null && (await this.isOwnerAliveProbe(owner))) return false;
+    return this.claimPipelineContinuation({ pipelineId, priorOwnerIdentity: owner }).kind === "applied";
   }
 
   claimPipelineContinuation(args: {

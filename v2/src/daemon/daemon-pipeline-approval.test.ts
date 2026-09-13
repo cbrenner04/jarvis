@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -57,13 +58,13 @@ const APPROVAL_DEFINITION: PipelineDefinition = {
 };
 
 let stateStore: StateStore;
+let stateDbPath: string;
 let fakeExecutor: FakeWriteLoopExecutor;
 let handlers: ReturnType<typeof createRunControlHandlers>;
 
 beforeEach(() => {
-  stateStore = openStateStore(
-    join(tmpdir(), `jarvis-pipeline-approval-${process.pid}-${Date.now()}-${Math.random()}.db`),
-  );
+  stateDbPath = join(tmpdir(), `jarvis-pipeline-approval-${process.pid}-${Date.now()}-${Math.random()}.db`);
+  stateStore = openStateStore(stateDbPath);
   fakeExecutor = createFakeWriteLoopExecutor();
   handlers = createRunControlHandlers({
     stateStore,
@@ -293,6 +294,50 @@ test("pipeline_approve dispatches successor without recoverContinuablePipelines"
   } finally {
     recoverSpy.mockRestore();
   }
+});
+
+function setOwnerIdentity(pipelineId: string, ownerIdentity: string): void {
+  const db = new Database(stateDbPath);
+  try {
+    db.prepare("UPDATE pipelines SET owner_identity = ? WHERE id = ?").run(ownerIdentity, pipelineId);
+  } finally {
+    db.close();
+  }
+}
+
+test("a live daemon adopts an awaiting-approval pipeline whose owner generation exited, then approve dispatches", async () => {
+  const { approvalHandlers, pipelineId, stage3 } = await approvalHandlersThroughGate();
+  // No pid parses from this identity, so the real liveness probe proves the owner dead.
+  setOwnerIdentity(pipelineId, "drained-generation");
+
+  const ownerResponse = await approvalHandlers.pipeline_owner(
+    requestFrame("owner", "pipeline_owner", { pipelineId }),
+    new AbortController().signal,
+  );
+  expect(ownerResponse).toEqual({
+    kind: "response",
+    result: { kind: "owner", pipelineId, ownerIdentity: stateStore.currentOwnerIdentity() },
+  });
+  expect(stateStore.loadPipeline(pipelineId)?.ownerIdentity).toBe(stateStore.currentOwnerIdentity());
+
+  await expectDefaultApproveLinksSuccessor(approvalHandlers, pipelineId, stage3);
+});
+
+test("a live foreign owner of an awaiting-approval pipeline is not adopted", async () => {
+  const { approvalHandlers, pipelineId } = await approvalHandlersThroughGate();
+  // The parent process is alive; a zero start epoch cannot prove reuse, so the probe says alive.
+  const liveForeign = `${process.ppid}:0`;
+  setOwnerIdentity(pipelineId, liveForeign);
+
+  const ownerResponse = await approvalHandlers.pipeline_owner(
+    requestFrame("owner", "pipeline_owner", { pipelineId }),
+    new AbortController().signal,
+  );
+  expect(ownerResponse).toEqual({
+    kind: "response",
+    result: { kind: "not_owner", pipelineId, ownerIdentity: stateStore.currentOwnerIdentity() },
+  });
+  expect(stateStore.loadPipeline(pipelineId)?.ownerIdentity).toBe(liveForeign);
 });
 
 test("pipeline_approve returns refused envelope for unknown pipeline", async () => {

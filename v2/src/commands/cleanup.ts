@@ -2169,8 +2169,13 @@ async function carriesNoUnlandedCommits(
 ): Promise<boolean> {
   if (await isDescendantOfBase(baseRef, head, projectRoot, runner)) return true;
   try {
-    const cherry = await runner.runAsync("git", ["cherry", baseRef, head], projectRoot);
-    return !cherry.split("\n").some((line) => line.startsWith("+"));
+    // Merging the lane into base changes nothing: every lane change already landed, including a
+    // multi-commit lane squash-merged into one base commit (which `git cherry` reports as unlanded).
+    const [mergedTree, baseTree] = await Promise.all([
+      runner.runAsync("git", ["merge-tree", "--write-tree", baseRef, head], projectRoot),
+      runner.runAsync("git", ["rev-parse", `${baseRef}^{tree}`], projectRoot),
+    ]);
+    return mergedTree.split("\n")[0]?.trim() === baseTree.trim();
   } catch {
     return false;
   }

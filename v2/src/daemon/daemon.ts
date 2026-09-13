@@ -11,7 +11,6 @@ import { type AsyncSubprocessRunner, realAsyncSubprocessRunner } from "../../../
 import {
   type AgentModelConfig,
   isLoadError,
-  type LoadError,
   resolveExecutableRole,
   resolveInvocationBindings,
 } from "../config/agent-model-config.ts";
@@ -23,6 +22,8 @@ import {
 import { loadMachineProfileModels } from "../config/machine-profile-loader.ts";
 import type { AnyWorkflowStep } from "../execution/workflow-runner.ts";
 import { applyOperatorSessionId, executeWriteLoop, type WriteLoopInput } from "../execution/write-loop.ts";
+import { connectIpcClient } from "../ipc/client.ts";
+import { createRpcTransport } from "../ipc/rpc-transport.ts";
 import {
   DaemonSocketBindFailureError,
   formatDaemonBindFailureLogLine,
@@ -38,13 +39,8 @@ import {
   openLogReader,
   openLogSink,
 } from "../persistence/log-stream.ts";
-import {
-  isTerminalRunStatus,
-  openStateStore,
-  type Run,
-  type RunStatus,
-  type StateStore,
-} from "../persistence/state-store.ts";
+import { isTerminalRunStatus, openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
+import { DEFAULT_HANDOFF_FALLBACK_MS } from "./daemon-changeover.ts";
 import { type DrainObserver, observePredecessorDrain, unionLiveRunIds } from "./daemon-drain-observer.ts";
 import {
   createNotificationListHandler,
@@ -65,7 +61,7 @@ import {
   type RunControlHandlerContextDeps,
 } from "./daemon-run-control-context.ts";
 import { createRunLifecycleHandlers } from "./daemon-run-lifecycle-handlers.ts";
-import { reconcileOrphanedRuns, reconciliationTerminalStatus } from "./daemon-run-reconciliation.ts";
+import { reconcileOrphanedRuns } from "./daemon-run-reconciliation.ts";
 import { createTailStreamHandler } from "./daemon-tail-stream.ts";
 import { createImplementRecoverHandler, createWorkflowStartAdmission } from "./daemon-workflow-admission-handlers.ts";
 import {
@@ -299,8 +295,13 @@ export function workflowInvocationIsLive(
  * retiring (superseded) and no run is still active. A retiring daemon with an
  * active run stays up until that run settles.
  */
-export function shouldShutdownNow(shutdownRequested: boolean, isRetiring: boolean, hasActiveRuns: boolean): boolean {
-  return shutdownRequested || (isRetiring && !hasActiveRuns);
+export function shouldShutdownNow(
+  shutdownRequested: boolean,
+  isRetiring: boolean,
+  hasActiveRuns: boolean,
+  handoffPending = false,
+): boolean {
+  return shutdownRequested || (isRetiring && !hasActiveRuns && !handoffPending);
 }
 
 /**
@@ -797,6 +798,202 @@ type ChangeoverHandlerDeps = {
   closePublicServer: () => Promise<void>;
 };
 
+type HandoffState = "pending" | "committed" | "rolled_back";
+
+type HandoffTransaction = {
+  id: string;
+  state: HandoffState;
+  releasePromise: Promise<void>;
+  rollbackPromise?: Promise<RpcHandlerResult>;
+  /** Set by `scheduleFallback` once the transaction exists; a failed fallback rollback reschedules it. */
+  fallbackTimer?: ReturnType<typeof setTimeout>;
+};
+
+type RpcHandlerResult = Awaited<ReturnType<RpcHandler>>;
+
+type HandoffHandlersDeps = ChangeoverHandlerDeps & {
+  /** Reopens admission only after the public listener has rebound; skipped when superseded. */
+  setAdmitting: () => void;
+  /** True once this generation has been superseded (via `supersede` or `changeover`), before or
+   * during the pending handoff — rollback must not reopen admission for it. */
+  wasSuperseded: () => boolean;
+  /** Rebinds the stable public listener. */
+  bindPublicServer: () => Promise<void>;
+  /** True only when a daemon answers at the stable public address. */
+  probePublicServer: () => Promise<boolean>;
+  /** Bounds an unanswered handoff. Defaults to `DEFAULT_HANDOFF_FALLBACK_MS`. */
+  fallbackMs?: number;
+};
+
+/**
+ * True when `handoffId` still names the transaction identified by `activeId`/`activeState` — a
+ * fallback timer firing after that transaction settled, or after a new transaction replaced it,
+ * must not act. Extracted so both call sites in `resolveFallback` (before and after the async
+ * probe) share one guard and are directly testable without a real timer.
+ */
+export function isHandoffStillPending(
+  activeId: string | undefined,
+  activeState: HandoffState | undefined,
+  handoffId: string,
+): boolean {
+  return activeId === handoffId && activeState === "pending";
+}
+
+/**
+ * The liveness-fallback verdict: commit when a daemon answers live at the stable public address,
+ * roll back otherwise. Extracted so the choice is directly testable without a real timer or probe.
+ */
+export function fallbackVerdict(publicDaemonLive: boolean): "commit" | "rollback" {
+  return publicDaemonLive ? "commit" : "rollback";
+}
+
+function handoffIdentity(frame: Parameters<RpcHandler>[0]): string | undefined {
+  const params = frame.params;
+  if (typeof params !== "object" || params === null) return undefined;
+  const handoffId = (params as { handoffId?: unknown }).handoffId;
+  return typeof handoffId === "string" && handoffId.length > 0 ? handoffId : undefined;
+}
+
+function handoffResponse(state: Exclude<HandoffState, "pending">): RpcHandlerResult {
+  return { kind: "response", result: { ok: true, state } };
+}
+
+function handoffMismatch(): RpcHandlerResult {
+  return {
+    kind: "error",
+    code: "handoff_identity_mismatch",
+    message: "handoff identity does not match the active transaction",
+  };
+}
+
+/** Owns the reversible interval between accepted changeover and successor readiness. */
+function createHandoffHandlers(deps: HandoffHandlersDeps): {
+  changeover: RpcHandler;
+  handoff_commit: RpcHandler;
+  handoff_rollback: RpcHandler;
+  isPending: () => boolean;
+  close: () => void;
+} {
+  let transaction: HandoffTransaction | undefined;
+  let closed = false;
+
+  const clearFallback = (active: HandoffTransaction): void => {
+    if (active.fallbackTimer !== undefined) clearTimeout(active.fallbackTimer);
+  };
+
+  const rollback = (active: HandoffTransaction): Promise<RpcHandlerResult> => {
+    if (active.state === "committed") return Promise.resolve(handoffResponse("committed"));
+    if (active.state === "rolled_back") return Promise.resolve(handoffResponse("rolled_back"));
+    if (active.rollbackPromise !== undefined) return active.rollbackPromise;
+    const rollbackPromise = (async (): Promise<RpcHandlerResult> => {
+      await active.releasePromise;
+      try {
+        await deps.bindPublicServer();
+      } catch (error) {
+        delete active.rollbackPromise;
+        const message = error instanceof Error ? error.message : String(error);
+        return { kind: "error", code: "handoff_rollback_failed", message };
+      }
+      active.state = "rolled_back";
+      clearFallback(active);
+      if (!deps.wasSuperseded()) deps.setAdmitting();
+      return handoffResponse("rolled_back");
+    })();
+    active.rollbackPromise = rollbackPromise;
+    return rollbackPromise;
+  };
+
+  const commit = async (active: HandoffTransaction): Promise<RpcHandlerResult> => {
+    if (active.rollbackPromise !== undefined) return active.rollbackPromise;
+    if (active.state === "rolled_back") return handoffResponse("rolled_back");
+    if (active.state === "committed") return handoffResponse("committed");
+    active.state = "committed";
+    clearFallback(active);
+    return handoffResponse("committed");
+  };
+
+  const scheduleFallback = (active: HandoffTransaction, handoffId: string): void => {
+    if (closed) return;
+    active.fallbackTimer = setTimeout(() => {
+      void resolveFallback(handoffId);
+    }, deps.fallbackMs ?? DEFAULT_HANDOFF_FALLBACK_MS);
+  };
+
+  const resolveFallback = async (handoffId: string): Promise<void> => {
+    const active = transaction;
+    if (closed || active === undefined || !isHandoffStillPending(active.id, active.state, handoffId)) return;
+    let publicDaemonLive = false;
+    try {
+      publicDaemonLive = await deps.probePublicServer();
+    } catch {
+      publicDaemonLive = false;
+    }
+    if (closed || transaction !== active || !isHandoffStillPending(transaction.id, transaction.state, handoffId)) {
+      return;
+    }
+    const result = fallbackVerdict(publicDaemonLive) === "commit" ? await commit(active) : await rollback(active);
+    if (result.kind === "error") {
+      console.error(`Daemon handoff fallback failed: ${result.message}`);
+      // A failed rollback (rebind still failing) must not strand the transaction pending forever:
+      // reschedule another attempt on the same cadence until one of them resolves it.
+      if (transaction === active && isHandoffStillPending(transaction.id, transaction.state, handoffId)) {
+        scheduleFallback(active, handoffId);
+      }
+    }
+  };
+
+  const changeover: RpcHandler = () => {
+    const privateSocketPath = deps.getPrivateSocketPath();
+    if (privateSocketPath === undefined) {
+      return {
+        kind: "error",
+        code: "no_private_endpoint",
+        message: "daemon has no private successor endpoint to hand off to",
+      };
+    }
+    if (transaction?.state === "pending") {
+      return { kind: "response", result: { ok: true, privateSocketPath, handoffId: transaction.id } };
+    }
+    if (transaction?.state === "committed") {
+      return { kind: "error", code: "handoff_committed", message: "daemon handoff is already committed" };
+    }
+
+    deps.setRetiring();
+    const handoffId = crypto.randomUUID();
+    let releaseDone: (() => void) | undefined;
+    const releasePromise = new Promise<void>((resolve) => {
+      releaseDone = resolve;
+    });
+    const active: HandoffTransaction = { id: handoffId, state: "pending", releasePromise };
+    scheduleFallback(active, handoffId);
+    transaction = active;
+    setImmediate(() => {
+      deps.closePublicServer().then(releaseDone, releaseDone);
+    });
+    return { kind: "response", result: { ok: true, privateSocketPath, handoffId } };
+  };
+
+  const settle = (resolution: "commit" | "rollback"): RpcHandler => {
+    return async (frame) => {
+      const active = transaction;
+      const handoffId = handoffIdentity(frame);
+      if (active === undefined || handoffId === undefined || active.id !== handoffId) return handoffMismatch();
+      return resolution === "commit" ? commit(active) : rollback(active);
+    };
+  };
+
+  return {
+    changeover,
+    handoff_commit: settle("commit"),
+    handoff_rollback: settle("rollback"),
+    isPending: () => transaction?.state === "pending",
+    close: () => {
+      closed = true;
+      if (transaction !== undefined) clearFallback(transaction);
+    },
+  };
+}
+
 /**
  * `changeover` RPC: an incoming generation asks the current public-address occupant to hand off.
  * Admission is cut off synchronously before the reply is built, so no work can be admitted after
@@ -836,6 +1033,8 @@ type DaemonStartupDeps = {
   readNotificationSinkCommand?: () => string | undefined;
   notificationSpawnSink?: NotificationSinkSpawner;
   writeLoopBindingSourceDeps?: WriteLoopBindingSourceDeps;
+  writeLoopExecutor?: RunControlHandlerContextDeps["writeLoopExecutor"];
+  hasMemoryHeadroom?: () => boolean;
   /** Defaults to `process.exit`. */
   processExit?: (code: number) => never;
   /** Digest-keyed private endpoint bound before the public `socketPath`. */
@@ -849,6 +1048,8 @@ type DaemonStartupDeps = {
    */
   predecessorSocketPath?: string;
   observePredecessorDrain?: typeof observePredecessorDrain;
+  /** Bounds incumbent fallback resolution while no successor verdict arrives. Defaults to `DEFAULT_HANDOFF_FALLBACK_MS`. */
+  handoffFallbackMs?: number;
 };
 
 export async function recoverReconciledRuns(
@@ -906,6 +1107,22 @@ function buildDrainObservers(
   return socketPaths.map((peerSocketPath) => observeDrain(peerSocketPath));
 }
 
+async function daemonAnswersAt(socketPath: string): Promise<boolean> {
+  try {
+    const client = await connectIpcClient(socketPath);
+    const transport = createRpcTransport(client);
+    try {
+      await transport.request("health", undefined, { timeoutMs: 500 });
+      return true;
+    } finally {
+      transport.close();
+    }
+  } catch {
+    return false;
+  }
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: startup wires handoff rollback, listeners, and recovery in one ordered sequence
 export async function startDaemonRuntime(
   socketPath: string,
   stateStore?: StateStore,
@@ -939,7 +1156,7 @@ export async function startDaemonRuntime(
 
   await sweepOrphanReadyGateGroups(store);
 
-  const writeLoopExecutor = async (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => {
+  const executeProductionWriteLoop = async (input: WriteLoopInput, signal: AbortSignal, pauseSignal: AbortSignal) => {
     const logSink = openLogSink(logsPath);
     try {
       await executeWriteLoop({
@@ -992,14 +1209,14 @@ export async function startDaemonRuntime(
     hasActiveRuns,
     isRetiring,
     pipelineExecutionDeps: _pipelineExecutionDeps,
-    context: _runControlContext,
+    context: runControlContext,
     ...runControlHandlers
   } = createRunControlHandlers({
     stateStore: store,
     logReader: logReaderInstance,
     logsPath,
     operatorSessionId,
-    writeLoopExecutor,
+    writeLoopExecutor: startupDeps.writeLoopExecutor ?? executeProductionWriteLoop,
     failureReporter: createRunExecutionFailureReporter(logsPath),
     // Load-bearing: this is the only production wire that enables the pipeline intent-stage
     // stale-reset preflight. Removing it silently reverts the daemon to constructing no bundle
@@ -1007,35 +1224,51 @@ export async function startDaemonRuntime(
     daemonSocketPath: socketPath,
     reconciledRunIds,
     externalLiveRunIds: () => unionLiveRunIds(drainObservers),
-    ...(startupDeps.writeLoopBindingSourceDeps !== undefined
-      ? { writeLoopBindingSourceDeps: startupDeps.writeLoopBindingSourceDeps }
-      : {}),
+    ...(startupDeps.hasMemoryHeadroom === undefined ? {} : { hasMemoryHeadroom: startupDeps.hasMemoryHeadroom }),
+    ...(startupDeps.writeLoopBindingSourceDeps === undefined
+      ? {}
+      : { writeLoopBindingSourceDeps: startupDeps.writeLoopBindingSourceDeps }),
   });
 
+  // Recorded separately from `retiring`: a handoff's own `changeover` sets `retiring` too, but only
+  // a real `supersede` must stop rollback from reopening admission (see `wasSuperseded` below).
+  let superseded = false;
   const supersedHandler: RpcHandler = () => {
+    superseded = true;
     setRetiring();
     return { kind: "response", result: { ok: true } };
   };
 
   let server: IpcServer;
   let privateServer: IpcServer | undefined;
+  const bindIpcServer = startupDeps.startIpcServer ?? startIpcServer;
+  let handlers: Record<string, RpcHandler>;
 
-  const changeoverHandler = createChangeoverHandler({
+  const handoffHandlers = createHandoffHandlers({
     getPrivateSocketPath: () => startupDeps.privateSocketPath,
     setRetiring,
     closePublicServer: () => server.close(),
+    setAdmitting: () => {
+      runControlContext.retiring = false;
+    },
+    wasSuperseded: () => superseded,
+    bindPublicServer: async () => {
+      server = await bindIpcServer(socketPath, handlers, tailStreamHandler);
+    },
+    probePublicServer: () => daemonAnswersAt(socketPath),
+    ...(startupDeps.handoffFallbackMs === undefined ? {} : { fallbackMs: startupDeps.handoffFallbackMs }),
   });
 
-  const handlers: Record<string, RpcHandler> = {
+  handlers = {
     health: healthHandler,
     status: statusHandler,
     shutdown: shutdownHandler,
     supersede: supersedHandler,
-    changeover: changeoverHandler,
+    changeover: handoffHandlers.changeover,
+    handoff_commit: handoffHandlers.handoff_commit,
+    handoff_rollback: handoffHandlers.handoff_rollback,
     ...runControlHandlers,
   };
-
-  const bindIpcServer = startupDeps.startIpcServer ?? startIpcServer;
 
   try {
     if (startupDeps.privateSocketPath !== undefined) {
@@ -1111,6 +1344,7 @@ export async function startDaemonRuntime(
     clearInterval(notificationSweepTimer);
     process.off("SIGTERM", signalHandler);
     process.off("SIGINT", signalHandler);
+    handoffHandlers.close();
     _closeRunControlHandlers();
     for (const observer of drainObservers) observer.stop();
     await server.close();
@@ -1130,7 +1364,8 @@ export async function startDaemonRuntime(
   // the wiring that closes and exits once it flips, are unit-testable without a real timer (the
   // deterministic-daemon-test guard forbids one) or a full daemon.
   const drainExitLoop = startDrainExitLoop({
-    shouldShutdown: () => shouldShutdownNow(shutdownRequested, isRetiring(), hasActiveRuns()),
+    shouldShutdown: () =>
+      shouldShutdownNow(shutdownRequested, isRetiring(), hasActiveRuns(), handoffHandlers.isPending()),
     close,
     processExit,
   });

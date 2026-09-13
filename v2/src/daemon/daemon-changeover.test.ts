@@ -8,10 +8,18 @@ test("requestChangeoverFromPublicPeer returns the peer's private endpoint on suc
     const outcome = await requestChangeoverFromPublicPeer("/fake/socket", {
       connect: async () =>
         makeIpcClient([
-          { kind: "response", id: "req-1", result: { ok: true, privateSocketPath: "/fake/private.sock" } },
+          {
+            kind: "response",
+            id: "req-1",
+            result: { ok: true, privateSocketPath: "/fake/private.sock", handoffId: "handoff-1" },
+          },
         ]),
     });
-    expect(outcome).toEqual({ kind: "changeover", privateSocketPath: "/fake/private.sock" });
+    expect(outcome).toEqual({
+      kind: "changeover",
+      privateSocketPath: "/fake/private.sock",
+      handoffId: "handoff-1",
+    });
   });
 });
 

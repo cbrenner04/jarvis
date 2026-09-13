@@ -10,6 +10,7 @@ import { type IpcServer, startIpcServer } from "../ipc/server";
 import type { ResponseFrame } from "../ipc/types";
 import { daemonPathsByDigest } from "../paths";
 import { openStateStore } from "../persistence/state-store";
+import { withHandoffIdentity } from "../testing/handoff-identity";
 import { listRuns, startRun, toIpcHandlers } from "../testing/run-control";
 import { createTestDaemonLifecycle } from "../testing/test-daemon-lifecycle";
 import { canUseUnixSockets } from "../testing/unix-socket";
@@ -145,10 +146,15 @@ describe("daemon (stable public address)", () => {
         setRetiring: incumbentHandlers.setRetiring,
         closePublicServer: () => incumbentPublicServer.close(),
       });
-      const incumbentPrivateServer = await startIpcServer(incumbentPrivate, { health: healthHandler, ...ipcHandlers });
+      const handoff = withHandoffIdentity(changeoverHandler);
+      const incumbentPrivateServer = await startIpcServer(incumbentPrivate, {
+        health: healthHandler,
+        handoff_commit: handoff.handoff_commit,
+        ...ipcHandlers,
+      });
       incumbentPublicServer = await startIpcServer(publicSocketPath, {
         health: healthHandler,
-        changeover: changeoverHandler,
+        changeover: handoff.changeover,
         ...ipcHandlers,
       });
 

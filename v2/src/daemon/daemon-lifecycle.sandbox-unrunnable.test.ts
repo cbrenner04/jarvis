@@ -45,10 +45,47 @@ import {
 } from "./daemon-lifecycle";
 import { enumerateOtherDaemonSockets, supersedePeerDaemon } from "./daemon-peer-socket.ts";
 
+/** True while `pid` is running and not a zombie awaiting reap. */
+function isChildRunning(pid: number): boolean {
+  const result = Bun.spawnSync(["ps", "-o", "stat=", "-p", String(pid)]);
+  const stat = result.stdout.toString().trim();
+  return stat.length > 0 && !stat.startsWith("Z");
+}
+
+const CHANGEOVER_OUTCOME = {
+  kind: "changeover" as const,
+  privateSocketPath: "/fake/private.sock",
+  handoffId: "handoff-1",
+};
+
+/**
+ * Records every `requestHandoffResolution` call as a `[privateSocketPath, handoffId, resolution]` tuple
+ * and replies with the matching settled state unless `commitReply` overrides the commit answer.
+ */
+function recordingHandoffResolution(commitReply: "committed" | "rolled_back" | "unparsed" = "committed"): {
+  resolutions: unknown[][];
+  requestHandoffResolution: (
+    privateSocketPath: string,
+    handoffId: string,
+    resolution: "commit" | "rollback",
+  ) => Promise<"committed" | "rolled_back" | undefined>;
+} {
+  const resolutions: unknown[][] = [];
+  return {
+    resolutions,
+    requestHandoffResolution: async (privateSocketPath, handoffId, resolution) => {
+      resolutions.push([privateSocketPath, handoffId, resolution]);
+      if (resolution === "rollback") return "rolled_back";
+      return commitReply === "unparsed" ? undefined : commitReply;
+    },
+  };
+}
+
 describe("daemon-lifecycle", () => {
   describe("startDaemon", () => {
     test("does not attempt changeover when nothing occupies the address", async () => {
       let changeoverCalls = 0;
+      let resolutionCalls = 0;
       const socketProber: SocketProber = { probe: async () => false };
       const processProber: ProcessProber = { isAlive: () => true };
 
@@ -62,9 +99,14 @@ describe("daemon-lifecycle", () => {
             changeoverCalls += 1;
             return { kind: "handoff-failed" };
           },
+          requestHandoffResolution: async () => {
+            resolutionCalls += 1;
+            return undefined;
+          },
         }),
       ).rejects.toThrow(DaemonReadinessTimeoutError);
       expect(changeoverCalls).toBe(0);
+      expect(resolutionCalls).toBe(0);
     });
 
     test("throws DaemonHandoffFailedError when the occupying peer's changeover request fails", async () => {
@@ -81,15 +123,18 @@ describe("daemon-lifecycle", () => {
 
     test("throws DaemonHandoffFailedError when the occupying peer never releases the address", async () => {
       const socketProber: SocketProber = { probe: async () => true };
+      const { resolutions, requestHandoffResolution } = recordingHandoffResolution();
 
       await expect(
         startDaemon("/fake/socket", {
           socketProber,
           readinessTimeoutMs: 1000,
-          requestChangeover: async () => ({ kind: "changeover", privateSocketPath: "/fake/private.sock" }),
+          requestChangeover: async () => CHANGEOVER_OUTCOME,
+          requestHandoffResolution,
           changeoverReleaseTimeoutMs: 50,
         }),
       ).rejects.toThrow(DaemonHandoffFailedError);
+      expect(resolutions).toEqual([["/fake/private.sock", "handoff-1", "rollback"]]);
     });
 
     test("proceeds past occupancy once changeover succeeds and the address is released", async () => {
@@ -109,10 +154,199 @@ describe("daemon-lifecycle", () => {
           processProber,
           readinessTimeoutMs: 100,
           daemonScript: "/fake/script",
-          requestChangeover: async () => ({ kind: "changeover", privateSocketPath: "/fake/private.sock" }),
+          requestChangeover: async () => CHANGEOVER_OUTCOME,
         }),
       ).rejects.toThrow(DaemonReadinessTimeoutError);
       expect(probeCount).toBeGreaterThan(1);
+    });
+
+    test("requests rollback with the carried identity when successor bind fails", async () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        const socketPath = join(tmpDir, "daemon.sock");
+        const logPath = join(tmpDir, "daemon.log");
+        let probeCount = 0;
+        const { resolutions, requestHandoffResolution } = recordingHandoffResolution();
+
+        await expect(
+          startDaemon(socketPath, {
+            socketProber: { probe: async () => ++probeCount === 1 },
+            processProber: { isAlive: () => false },
+            daemonScript: "/fake/script",
+            logPath,
+            requestChangeover: async () => CHANGEOVER_OUTCOME,
+            requestHandoffResolution,
+            onSpawn: () => {
+              writeFileSync(
+                logPath,
+                `${formatDaemonBindFailureLogLine(new DaemonSocketBindFailureError(socketPath, "EADDRINUSE"))}\n`,
+                { flag: "a" },
+              );
+            },
+          }),
+        ).rejects.toBeInstanceOf(DaemonSocketBindFailureError);
+        expect(resolutions).toEqual([["/fake/private.sock", "handoff-1", "rollback"]]);
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("requests rollback with the carried identity when readiness probes never succeed", async () => {
+      let probeCount = 0;
+      const { resolutions, requestHandoffResolution } = recordingHandoffResolution();
+
+      await expect(
+        startDaemon("/fake/socket", {
+          socketProber: { probe: async () => ++probeCount === 1 },
+          processProber: { isAlive: () => true },
+          readinessTimeoutMs: 100,
+          daemonScript: "/fake/script",
+          requestChangeover: async () => CHANGEOVER_OUTCOME,
+          requestHandoffResolution,
+        }),
+      ).rejects.toThrow(DaemonReadinessTimeoutError);
+      expect(resolutions).toEqual([["/fake/private.sock", "handoff-1", "rollback"]]);
+    });
+
+    test("requests rollback with the carried identity when startup throws after cutoff", async () => {
+      let probeCount = 0;
+      const { resolutions, requestHandoffResolution } = recordingHandoffResolution();
+
+      await expect(
+        startDaemon("/fake/socket", {
+          socketProber: { probe: async () => ++probeCount === 1 },
+          daemonScript: "/fake/script",
+          requestChangeover: async () => CHANGEOVER_OUTCOME,
+          requestHandoffResolution,
+          onSpawn: () => {
+            throw new Error("startup failed");
+          },
+        }),
+      ).rejects.toThrow("startup failed");
+      expect(resolutions).toEqual([["/fake/private.sock", "handoff-1", "rollback"]]);
+    });
+
+    test("requests commit exactly once with the carried identity after readiness", async () => {
+      let probeCount = 0;
+      const { resolutions, requestHandoffResolution } = recordingHandoffResolution();
+      const metadata = await startDaemon("/fake/socket", {
+        socketProber: { probe: async () => probeCount++ !== 1 },
+        processProber: { isAlive: () => true },
+        daemonScript: "/fake/script",
+        requestChangeover: async () => CHANGEOVER_OUTCOME,
+        requestHandoffResolution,
+      });
+
+      expect(metadata.socketPath).toBe("/fake/socket");
+      expect(resolutions).toEqual([["/fake/private.sock", "handoff-1", "commit"]]);
+    });
+
+    test("fails without writing the pid file when the incumbent's commit reply is not committed", async () => {
+      // Regression: a slow successor's readiness probe can be answered by a rolled-back incumbent.
+      // The commit reply then says `rolled_back`; startup must fail rather than record a dead pid.
+      for (const commitReply of ["rolled_back", "unparsed"] as const) {
+        let probeCount = 0;
+        const { resolutions, requestHandoffResolution } = recordingHandoffResolution(commitReply);
+        const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}-${commitReply}`);
+        mkdirSync(tmpDir, { recursive: true });
+        const pidPath = join(tmpDir, "daemon.pid");
+        try {
+          await expect(
+            startDaemon("/fake/socket", {
+              socketProber: { probe: async () => probeCount++ !== 1 },
+              processProber: { isAlive: () => true },
+              daemonScript: "/fake/script",
+              pidPath,
+              requestChangeover: async () => CHANGEOVER_OUTCOME,
+              requestHandoffResolution,
+            }),
+          ).rejects.toBeInstanceOf(DaemonHandoffFailedError);
+          expect(existsSync(pidPath)).toBe(false);
+          expect(resolutions).toEqual([["/fake/private.sock", "handoff-1", "commit"]]);
+        } finally {
+          rmSync(tmpDir, { recursive: true, force: true });
+        }
+      }
+    });
+
+    test("fails without writing the pid file when the successor is dead once the address answers", async () => {
+      let probeCount = 0;
+      let aliveChecks = 0;
+      const { requestHandoffResolution } = recordingHandoffResolution();
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}-dead`);
+      mkdirSync(tmpDir, { recursive: true });
+      const pidPath = join(tmpDir, "daemon.pid");
+      try {
+        await expect(
+          startDaemon("/fake/socket", {
+            socketProber: { probe: async () => probeCount++ !== 1 },
+            processProber: { isAlive: () => aliveChecks++ === 0 },
+            daemonScript: "/fake/script",
+            pidPath,
+            requestChangeover: async () => CHANGEOVER_OUTCOME,
+            requestHandoffResolution,
+          }),
+        ).rejects.toThrow("died during startup");
+        expect(existsSync(pidPath)).toBe(false);
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("kills the spawned successor before requesting rollback on readiness timeout", async () => {
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}-kill`);
+      mkdirSync(tmpDir, { recursive: true });
+      const script = join(tmpDir, "linger.ts");
+      writeFileSync(script, "setInterval(() => {}, 1000);\n");
+      let probeCount = 0;
+      let spawnedPid: number | undefined;
+      let aliveAtRollback: boolean | undefined;
+      try {
+        await expect(
+          startDaemon("/fake/socket", {
+            socketProber: { probe: async () => ++probeCount === 1 },
+            readinessTimeoutMs: 200,
+            daemonScript: script,
+            onSpawn: (pid) => {
+              spawnedPid = pid;
+            },
+            requestChangeover: async () => CHANGEOVER_OUTCOME,
+            requestHandoffResolution: async () => {
+              aliveAtRollback = spawnedPid !== undefined && isChildRunning(spawnedPid);
+              return "rolled_back";
+            },
+          }),
+        ).rejects.toThrow(DaemonReadinessTimeoutError);
+        expect(aliveAtRollback).toBe(false);
+      } finally {
+        if (spawnedPid !== undefined && isChildRunning(spawnedPid)) process.kill(spawnedPid, "SIGKILL");
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    test("does not ask the incumbent again when startup throws after readiness commit", async () => {
+      let probeCount = 0;
+      const { resolutions, requestHandoffResolution } = recordingHandoffResolution();
+      const tmpDir = join(process.env.TMPDIR || "/tmp", `jarvis-test-${Date.now()}`);
+      mkdirSync(tmpDir, { recursive: true });
+
+      try {
+        await expect(
+          startDaemon("/fake/socket", {
+            socketProber: { probe: async () => probeCount++ !== 1 },
+            processProber: { isAlive: () => true },
+            daemonScript: "/fake/script",
+            pidPath: tmpDir,
+            requestChangeover: async () => CHANGEOVER_OUTCOME,
+            requestHandoffResolution,
+          }),
+        ).rejects.toThrow();
+        expect(resolutions).toEqual([["/fake/private.sock", "handoff-1", "commit"]]);
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
     });
 
     test("throws DaemonReadinessTimeoutError if socket never becomes ready", async () => {

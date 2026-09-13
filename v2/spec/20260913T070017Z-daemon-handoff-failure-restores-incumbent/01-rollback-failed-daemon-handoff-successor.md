@@ -23,9 +23,9 @@ The successor carries the handoff identity it received in the incumbent's `chang
 
 ## Acceptance criteria
 
-- [ ] `v2/src/daemon/daemon-lifecycle.sandbox-unrunnable.test.ts` proves each of these pre-readiness failures requests rollback using the carried handoff identity: successor bind failure, release-wait timeout, readiness probe failure, and a thrown startup exception; it fails against the pre-fix code, which never signals the incumbent on any of these paths.
-- [ ] `v2/src/daemon/daemon-lifecycle.sandbox-unrunnable.test.ts` proves successful readiness requests commit exactly once and the incumbent is not asked again afterward.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] `v2/src/daemon/daemon-lifecycle.sandbox-unrunnable.test.ts` proves each of these pre-readiness failures requests rollback using the carried handoff identity: successor bind failure, release-wait timeout, readiness probe failure, and a thrown startup exception; it fails against the pre-fix code, which never signals the incumbent on any of these paths.
+- [x] `v2/src/daemon/daemon-lifecycle.sandbox-unrunnable.test.ts` proves successful readiness requests commit exactly once and the incumbent is not asked again afterward.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

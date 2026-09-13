@@ -8,6 +8,7 @@ import { connectIpcClient } from "../ipc/client";
 import { type IpcServer, startIpcServer } from "../ipc/server";
 import type { ResponseFrame } from "../ipc/types";
 import { openStateStore } from "../persistence/state-store";
+import { withHandoffIdentity } from "../testing/handoff-identity";
 import {
   flushBackgroundRuns,
   listRuns,
@@ -96,10 +97,15 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
         setRetiring: incumbentHandlers.setRetiring,
         closePublicServer: () => incumbentPublicServer.close(),
       });
-      const incumbentPrivateServer = await startIpcServer(incumbentPrivate, { health: healthHandler, ...ipcHandlers });
+      const handoff = withHandoffIdentity(changeoverHandler);
+      const incumbentPrivateServer = await startIpcServer(incumbentPrivate, {
+        health: healthHandler,
+        handoff_commit: handoff.handoff_commit,
+        ...ipcHandlers,
+      });
       incumbentPublicServer = await startIpcServer(publicSocketPath, {
         health: healthHandler,
-        changeover: changeoverHandler,
+        changeover: handoff.changeover,
         ...ipcHandlers,
       });
 
@@ -189,10 +195,15 @@ describe("outgoing-generation drain and exit (real sockets)", () => {
         setRetiring: outgoingHandlers.setRetiring,
         closePublicServer: () => outgoingPublicServer.close(),
       });
-      const outgoingPrivateServer = await startIpcServer(outgoingPrivate, { health: healthHandler, ...ipcHandlers });
+      const handoff = withHandoffIdentity(changeoverHandler);
+      const outgoingPrivateServer = await startIpcServer(outgoingPrivate, {
+        health: healthHandler,
+        handoff_commit: handoff.handoff_commit,
+        ...ipcHandlers,
+      });
       outgoingPublicServer = await startIpcServer(publicSocketPath, {
         health: healthHandler,
-        changeover: changeoverHandler,
+        changeover: handoff.changeover,
         ...ipcHandlers,
       });
 

@@ -1,7 +1,7 @@
 import type { LogReader, LogSink } from "../persistence/log-stream.ts";
 import { isTerminalRunStatus, type Run, type StateStore } from "../persistence/state-store.ts";
 
-export function reconciliationTerminalStatus(run: Run): "killed" | "interrupted" | undefined {
+function reconciliationTerminalStatus(run: Run): "killed" | "interrupted" | undefined {
   if (isTerminalRunStatus(run.status)) return undefined;
   const isReviewDebate = run.workflowSnapshot?.steps.some(
     (step) => step.stepId === run.stepId && step.behavior === "review-debate",

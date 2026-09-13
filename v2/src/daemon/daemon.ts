@@ -1080,7 +1080,6 @@ async function daemonAnswersAt(socketPath: string): Promise<boolean> {
       return true;
     } finally {
       transport.close();
-      client.close();
     }
   } catch {
     return false;

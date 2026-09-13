@@ -32,3 +32,9 @@ The daemon's private endpoint answers an owner-local list projection scoped to i
 ## Documentation updates
 
 - `v2/docs/daemon-host.md` — define the owner-local private projection and the direct-predecessor-only ownership directory, and that legacy peers are excluded from it.
+
+## Blocker
+
+`bun run test:integration:v2` cannot be verified in this sandbox: `daemon-lifecycle.sandbox-unrunnable.test.ts` (a file unrelated to this subspec's changes) calls `Bun.spawnSync(["ps", ...])`, which the coding-agent sandbox denies with `EPERM: operation not permitted, posix_spawn 'ps'`. Reproduces identically under plain serial `bun test` on that file. Per `v2/docs/test-writing.md`, `.sandbox-unrunnable.test.ts` files are a documented exception class that must run outside the coding-agent sandbox. A `dangerouslyDisableSandbox` retry was denied. All other acceptance criteria are satisfied; the operator needs to run `bun run test:integration:v2` outside the sandbox to confirm and tick the last box.
+
+blocked

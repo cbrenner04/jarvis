@@ -11,6 +11,9 @@ import { type QueryDaemonListsDeps, resolveDaemonListSocketPaths } from "./query
 const PIPELINE_OWNER_RPC_TIMEOUT_MS = 2_000;
 
 export const PIPELINE_NO_LIVE_OWNER_RECOVERY = "jarvis daemon start, then retry";
+/** `not_owner` now means a live foreign owner that did not answer (a dead owner is adopted by the answering daemon). */
+export const PIPELINE_UNREACHABLE_OWNER_RECOVERY =
+  "wait for its owning daemon to exit (a draining generation hands it to the live daemon), then retry";
 
 type PipelineOwnerWitness =
   | { kind: "owner"; ownerIdentity?: string }
@@ -27,7 +30,7 @@ export type PipelineDaemonResolution =
   | { kind: "owner"; pipelineId: string; socketPath: string }
   | { kind: "durable_state"; pipelineId: string; socketPath: string; state: PipelineDerivedState }
   | { kind: "pipeline_owner_conflict"; pipelineId: string; claimantPaths: string[] }
-  | { kind: "pipeline_no_live_owner"; pipelineId: string; recovery: typeof PIPELINE_NO_LIVE_OWNER_RECOVERY }
+  | { kind: "pipeline_no_live_owner"; pipelineId: string; recovery: typeof PIPELINE_UNREACHABLE_OWNER_RECOVERY }
   | { kind: "pipeline_not_found"; pipelineId: string }
   | { kind: "pipeline_daemon_unavailable"; pipelineId: string };
 
@@ -300,7 +303,7 @@ export async function resolvePipelineDaemonFromSocketPaths(
     };
   }
   if (answers.some(({ witness }) => witness?.kind === "not_owner")) {
-    return { kind: "pipeline_no_live_owner", pipelineId, recovery: PIPELINE_NO_LIVE_OWNER_RECOVERY };
+    return { kind: "pipeline_no_live_owner", pipelineId, recovery: PIPELINE_UNREACHABLE_OWNER_RECOVERY };
   }
   if (answers.some(({ witness }) => witness?.kind === "not_found")) {
     return { kind: "pipeline_not_found", pipelineId };

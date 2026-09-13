@@ -123,7 +123,7 @@ Completion publication (per-stage push/draft/ready during implement) and termina
 
 Startup order (`daemon-host.md`): IPC listener → `recoverContinuablePipelines` → `reconcilePipelines` → reconciled run resume.
 
-`recoverContinuablePipelines` (`pipeline-execution.ts`) calls `continuePipeline` for pipelines whose owner is dead and that pass `isPipelineContinuable` or carry `hasRedrivableDeferredSettlement` (excluding entry runs reconciled this boot). `continuePipeline` loads `pipeline.context`, `claimPipelineContinuation`, then `runPipeline`.
+`recoverContinuablePipelines` (`pipeline-execution.ts`) calls `continuePipeline` for pipelines whose owner is dead and that pass `isPipelineContinuable` or carry `hasRedrivableDeferredSettlement` (excluding entry runs reconciled this boot). `continuePipeline` loads `pipeline.context`, `claimPipelineContinuation`, then `runPipeline`. A pipeline not continuable at startup (e.g. `awaiting-approval`) whose owner dies later — a drained generation after a handoff — is adopted on demand by the answering daemon's `pipeline_owner` through the same `claimPipelineContinuation` claim.
 
 `isPipelineContinuable` — requires `persistedContextLoadPermitsContinuation` (complete `cwd`/`configPath`; `null` and incomplete JSON are not continuable). True when `isPipelineSettlementPending`, or derived `pending` with no blocking approval rows and no unreopened `failed` rows (`approvalOutcomePermitsActivation`, `reopenedFailurePermitsActivation`). Does not activate `awaiting-approval` or `rejected` without an explicit decision.
 

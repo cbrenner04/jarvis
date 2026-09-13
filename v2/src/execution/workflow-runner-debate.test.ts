@@ -4,7 +4,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, write
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import type { InvocationResult } from "../../../shared/invocation/execute.ts";
-import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
+import { type LogEvent, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { createJarvisHome, withStateStore } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter } from "./completion-commit.ts";
 import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
@@ -32,6 +32,18 @@ import {
   type ReviewDebateWorkflowStep,
   type WriteWorkflowStep,
 } from "./workflow-runner.ts";
+
+function expectLinkedImplementFinalization(
+  logsPath: string,
+  runId: string,
+  event: Extract<LogEvent, { kind: "linked_implement_finalization" }>,
+): void {
+  expect(
+    openLogReader(logsPath)
+      .tail(runId)
+      .find((record) => record.event.kind === event.kind)?.event,
+  ).toEqual(event);
+}
 
 describe("executeWorkflow review-debate dispatch", () => {
   test("dispatches a review-debate step, resolving each role's agents order to that role's bindings", async () => {
@@ -508,13 +520,9 @@ describe("executeWorkflow linked implement routing", () => {
       expect(run?.terminalCause).toBe("contract_miss");
       expect(run?.terminalFailureDetail?.message).toContain("implement.link_incomplete");
 
-      // The event is only fetchable if the run id it's appended under durably resolves.
       expect(store.loadRun(result.runId)).not.toBeNull();
       logSink.close();
-      const persisted = openLogReader(logsPath)
-        .tail(result.runId)
-        .find((record) => record.event.kind === "linked_implement_finalization");
-      expect(persisted?.event).toEqual({
+      expectLinkedImplementFinalization(logsPath, result.runId, {
         kind: "linked_implement_finalization",
         producer: "pass_finalization",
         reason: "link_incomplete",
@@ -602,13 +610,9 @@ describe("executeWorkflow linked implement routing", () => {
       expect(run?.terminalCause).toBe("blocked");
       expect(run?.terminalFailureDetail?.message).toContain("implement.index_routing_mutated");
 
-      // The event is only fetchable if the run id it's appended under durably resolves.
       expect(store.loadRun(result.runId)).not.toBeNull();
       logSink.close();
-      const persisted = openLogReader(logsPath)
-        .tail(result.runId)
-        .find((record) => record.event.kind === "linked_implement_finalization");
-      expect(persisted?.event).toEqual({
+      expectLinkedImplementFinalization(logsPath, result.runId, {
         kind: "linked_implement_finalization",
         producer: "pass_finalization",
         reason: "index_routing_mutated",
@@ -697,13 +701,9 @@ describe("executeWorkflow linked implement routing", () => {
       expect(linkRun?.status).toBe("blocked");
       expect(linkRun?.terminalCause).toBe("blocked");
 
-      // The event is only fetchable if the run id it's appended under durably resolves.
       expect(store.loadRun(result.runId)).not.toBeNull();
       logSink.close();
-      const persisted = openLogReader(logsPath)
-        .tail(result.runId)
-        .find((record) => record.event.kind === "linked_implement_finalization");
-      expect(persisted?.event).toEqual({
+      expectLinkedImplementFinalization(logsPath, result.runId, {
         kind: "linked_implement_finalization",
         producer: "routing",
         reason: "malformed_link",

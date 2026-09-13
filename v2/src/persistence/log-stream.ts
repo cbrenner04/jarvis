@@ -245,14 +245,6 @@ export type IntentFinalizationEvent = {
   stopReason?: string;
 };
 
-/**
- * Emitted when a linked-implement finalizer converts a completed link's write-loop outcome to a
- * non-complete workflow outcome, for the two return sites where the run id already resolves
- * through the durable store: `pass_finalization` (advancing the pinned link's checkbox after its
- * write loop completed) and `routing` (re-resolving that same pinned link before advancing it).
- * The fresh-run routing check — before any write loop has run for a link — mints a run id that is
- * never persisted, so it has no durable row to attach this event to and stays unlogged.
- */
 export type LinkedImplementFinalizationEvent = {
   kind: "linked_implement_finalization";
   producer: "pass_finalization" | "routing";

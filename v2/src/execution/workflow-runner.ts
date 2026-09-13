@@ -7,7 +7,6 @@ import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { isRecord } from "../../../shared/is-record.ts";
 import {
   completeLinkedSubspec,
-  type LinkedIndexErrorKind,
   type LinkedIndexRoutingResult,
   resolveActiveLinkedSubspec,
   resolvePinnedLinkedSubspec,
@@ -22,12 +21,7 @@ import {
   resolveInvocationBindings,
 } from "../config/agent-model-config.ts";
 import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts";
-import {
-  type IntentFinalizationEvent,
-  type LinkedImplementFinalizationEvent,
-  type LogSink,
-  priorLogRecordsFromSink,
-} from "../persistence/log-stream.ts";
+import { type IntentFinalizationEvent, type LogSink, priorLogRecordsFromSink } from "../persistence/log-stream.ts";
 import {
   type Attempt,
   openStateStore,
@@ -746,24 +740,6 @@ function resolveImplementSpecPathForPublication(step: WriteWorkflowStep, worktre
   return landed.specPath;
 }
 
-/**
- * Maps a routing error kind to `linked_implement_finalization`'s `reason` field for the reused-run
- * branch, or `undefined` for kinds that branch never produces (`resolvePinnedLinkedSubspec` only
- * ever returns `link_unreadable`, `malformed_link`, or `link_out_of_tree`).
- */
-function linkedImplementRoutingFinalizationReason(
-  errorKind: LinkedIndexErrorKind,
-): LinkedImplementFinalizationEvent["reason"] | undefined {
-  switch (errorKind) {
-    case "link_unreadable":
-    case "malformed_link":
-    case "link_out_of_tree":
-      return errorKind;
-    default:
-      return undefined;
-  }
-}
-
 function linkedImplementRoutingFailureOutcome(
   routing: Extract<LinkedIndexRoutingResult, { ok: false }>,
   totalIterationsConsumed: number,
@@ -788,18 +764,18 @@ function linkedImplementRoutingFailureOutcome(
       implementReviewEligible: false,
     };
   }
-  // Only the reused-run branch (a real durable row) has an id `jarvis run log` can reach; the
-  // fresh-run branch's minted id was never persisted, so it stays unlogged here.
-  if (existingRunId !== undefined) {
-    const reason = linkedImplementRoutingFinalizationReason(routing.errorKind);
-    if (reason !== undefined) {
-      logSink?.append(existingRunId, {
-        kind: "linked_implement_finalization",
-        producer: "routing",
-        reason,
-        outcomeKind: "blocked",
-      });
-    }
+  if (
+    existingRunId !== undefined &&
+    (routing.errorKind === "link_unreadable" ||
+      routing.errorKind === "malformed_link" ||
+      routing.errorKind === "link_out_of_tree")
+  ) {
+    logSink?.append(existingRunId, {
+      kind: "linked_implement_finalization",
+      producer: "routing",
+      reason: routing.errorKind,
+      outcomeKind: "blocked",
+    });
   }
   return {
     kind: "blocked",

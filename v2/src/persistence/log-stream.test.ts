@@ -40,19 +40,6 @@ describe("log-stream", () => {
     expect(event.failureReason).toBe("plan.draft.shape");
   });
 
-  it("linked_implement_finalization is assignable on LogEvent", () => {
-    const event: LogEvent = {
-      kind: "linked_implement_finalization",
-      producer: "pass_finalization",
-      reason: "link_incomplete",
-      outcomeKind: "contract_miss",
-    };
-    expect(event.kind).toBe("linked_implement_finalization");
-    expect(event.producer).toBe("pass_finalization");
-    expect(event.reason).toBe("link_incomplete");
-    expect(event.outcomeKind).toBe("contract_miss");
-  });
-
   it("linked_implement_finalization survives a durable log round-trip", () => {
     const sink = openLogSink(storagePath);
     const reader = openLogReader(storagePath);

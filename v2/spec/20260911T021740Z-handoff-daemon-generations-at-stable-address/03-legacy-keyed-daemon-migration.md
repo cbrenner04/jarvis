@@ -17,12 +17,12 @@ When the public address is free but live `daemon-<key>.sock` peers exist, the in
 
 ## Acceptance criteria
 
-- [ ] A migration test proves a live daemon reachable only on a legacy digest-keyed socket is put into admission cutoff and drained, with its already-admitted run reaching its normal outcome, when the first stable-address generation starts; it fails against the pre-fix shape where the new daemon starts alongside it.
-- [ ] A test proves the incoming generation's own private endpoint is never treated as a legacy peer.
-- [ ] A test proves an unreachable keyed socket path is skipped and the incoming generation still starts and serves the public address.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] A migration test proves a live daemon reachable only on a legacy digest-keyed socket is put into admission cutoff and drained, with its already-admitted run reaching its normal outcome, when the first stable-address generation starts; it fails against the pre-fix shape where the new daemon starts alongside it.
+- [x] A test proves the incoming generation's own private endpoint is never treated as a legacy peer.
+- [x] A test proves an unreachable keyed socket path is skipped and the incoming generation still starts and serves the public address.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

@@ -1,4 +1,4 @@
-import { DaemonAlreadyRunningError } from "../daemon/daemon-lifecycle.ts";
+import { DaemonAlreadyRunningError, DaemonHandoffFailedError } from "../daemon/daemon-lifecycle.ts";
 import type { IpcClient } from "../ipc/client.ts";
 import { RpcError } from "../ipc/rpc-errors.ts";
 import type { CliDeps } from "./deps.ts";
@@ -9,8 +9,10 @@ const CONNECT_DEADLINE_MS = 5000;
 const CONNECT_RETRY_INTERVAL_MS = 50;
 
 /** Connects to the public daemon, starting it when nothing is listening. A start that loses the race
- * (`DaemonAlreadyRunningError`) is treated as "the winner is up"; every other `startDaemon` error is
- * re-thrown unchanged. The post-start connect retries against injected `now`/`sleep` until its deadline. */
+ * (`DaemonAlreadyRunningError`) or finds the address occupied by an unresponsive/non-releasing peer
+ * (`DaemonHandoffFailedError`) is treated as "someone is up there"; every other `startDaemon` error
+ * is re-thrown unchanged. The post-start connect retries against injected `now`/`sleep` until its
+ * deadline. */
 export async function connectWithAutoStart(deps: CliDeps, socketPath: string): Promise<IpcClient> {
   const now = deps.now ?? (() => Date.now());
   const sleep = deps.sleep ?? ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
@@ -29,7 +31,7 @@ export async function connectWithAutoStart(deps: CliDeps, socketPath: string): P
       ...(deps.privateSocketPath === undefined ? {} : { privateSocketPath: deps.privateSocketPath }),
     });
   } catch (error) {
-    if (!(error instanceof DaemonAlreadyRunningError)) throw error;
+    if (!(error instanceof DaemonAlreadyRunningError) && !(error instanceof DaemonHandoffFailedError)) throw error;
     lastError = error;
   }
 

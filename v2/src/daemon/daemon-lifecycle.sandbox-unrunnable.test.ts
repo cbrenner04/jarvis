@@ -33,7 +33,7 @@ import { DaemonSocketBindFailureError, formatDaemonBindFailureLogLine } from "..
 import type { Run } from "../persistence/state-store";
 import { makeIpcClient } from "../testing/cli-test-helpers.ts";
 import {
-  DaemonAlreadyRunningError,
+  DaemonHandoffFailedError,
   DaemonReadinessTimeoutError,
   DaemonStopInspectionError,
   DaemonStopRefusedError,
@@ -47,17 +47,72 @@ import { enumerateOtherDaemonSockets, supersedePeerDaemon } from "./daemon-peer-
 
 describe("daemon-lifecycle", () => {
   describe("startDaemon", () => {
-    test("throws DaemonAlreadyRunningError if socket already responds", async () => {
-      const socketProber: SocketProber = {
-        probe: async () => true,
-      };
+    test("does not attempt changeover when nothing occupies the address", async () => {
+      let changeoverCalls = 0;
+      const socketProber: SocketProber = { probe: async () => false };
+      const processProber: ProcessProber = { isAlive: () => true };
+
+      await expect(
+        startDaemon("/fake/socket", {
+          socketProber,
+          processProber,
+          readinessTimeoutMs: 100,
+          daemonScript: "/fake/script",
+          requestChangeover: async () => {
+            changeoverCalls += 1;
+            return { kind: "handoff-failed" };
+          },
+        }),
+      ).rejects.toThrow(DaemonReadinessTimeoutError);
+      expect(changeoverCalls).toBe(0);
+    });
+
+    test("throws DaemonHandoffFailedError when the occupying peer's changeover request fails", async () => {
+      const socketProber: SocketProber = { probe: async () => true };
 
       await expect(
         startDaemon("/fake/socket", {
           socketProber,
           readinessTimeoutMs: 1000,
+          requestChangeover: async () => ({ kind: "handoff-failed" }),
         }),
-      ).rejects.toThrow(DaemonAlreadyRunningError);
+      ).rejects.toThrow(DaemonHandoffFailedError);
+    });
+
+    test("throws DaemonHandoffFailedError when the occupying peer never releases the address", async () => {
+      const socketProber: SocketProber = { probe: async () => true };
+
+      await expect(
+        startDaemon("/fake/socket", {
+          socketProber,
+          readinessTimeoutMs: 1000,
+          requestChangeover: async () => ({ kind: "changeover", privateSocketPath: "/fake/private.sock" }),
+          changeoverReleaseTimeoutMs: 50,
+        }),
+      ).rejects.toThrow(DaemonHandoffFailedError);
+    });
+
+    test("proceeds past occupancy once changeover succeeds and the address is released", async () => {
+      let probeCount = 0;
+      const socketProber: SocketProber = {
+        probe: async () => {
+          probeCount += 1;
+          // Occupied on the initial occupancy check, released on every probe after.
+          return probeCount === 1;
+        },
+      };
+      const processProber: ProcessProber = { isAlive: () => true };
+
+      await expect(
+        startDaemon("/fake/socket", {
+          socketProber,
+          processProber,
+          readinessTimeoutMs: 100,
+          daemonScript: "/fake/script",
+          requestChangeover: async () => ({ kind: "changeover", privateSocketPath: "/fake/private.sock" }),
+        }),
+      ).rejects.toThrow(DaemonReadinessTimeoutError);
+      expect(probeCount).toBeGreaterThan(1);
     });
 
     test("throws DaemonReadinessTimeoutError if socket never becomes ready", async () => {

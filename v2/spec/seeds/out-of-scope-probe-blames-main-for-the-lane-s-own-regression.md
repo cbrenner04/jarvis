@@ -22,7 +22,7 @@ Measured afterwards on an **idle** machine:
 | `main` | **12 pass / 0 fail** |
 | the lane's branch | **11 pass / 1 fail** |
 
-So the failure does not reproduce on `main` at all. It is the lane's own: its change adds a `store.loadRun` call inside `settleFailedWorkflowRun` (`v2/src/daemon/daemon-workflow-admission-handlers.ts:156`), where sqlite `prepare` throws, breaking `a run already terminal at rejection time is not re-demoted but still records the failure`. The existing test caught the regression correctly; the classifier then told the operator to disregard it.
+So the failure does not reproduce on `main` at all. It is the lane's own: deferring the completion row lengthens the publication tail, so the prior test's un-awaited retry workflow outlived its store and threw `Cannot use a closed database` into `a run already terminal at rejection time is not re-demoted but still records the failure` (fixed in [#3842](https://github.com/cbrenner04/jarvis/pull/3842)). The existing test caught the regression correctly; the classifier then told the operator to disregard it.
 
 This is worse than the known load-flake shape. The runbook already warns that a saturated machine can make the probe flake the same test it is checking — that costs a stranded lane. This instance costs **a shipped regression**, because the settlement's whole meaning is "not your diff." The same session hit the load-flake shape separately (`daemon-test-lifecycle.sandbox-unrunnable.test.ts`, 3/3 green in both timezones when quiet), so the two failure directions are now both evidenced.
 

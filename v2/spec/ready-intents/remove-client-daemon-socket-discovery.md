@@ -25,12 +25,13 @@ CLI bootstrap computes the executable digest, injects digest-keyed lifecycle pat
 - Delete client-side live-daemon socket enumeration, multi-socket list merging, and owner probing; no surface-specific fallback discovery.
 - Add a structural guard over CLI, command, runtime-smoke, and TUI client layers.
 - No `init --check` criterion: stable paths already apply.
+- One PR: the bootstrap/discovery layer is shared plumbing consumed atomically by every surface; a per-surface split would leave interim surfaces routing against a mixed digest-keyed/stable daemon set.
 
 ## Acceptance criteria
 
-- [ ] A command test proves `cleanup --abandon` reaches a healthy stable daemon after the invoking source changes.
-- [ ] End-to-end client tests prove run list/log/wait/kill and every pipeline verb use only the stable socket while still reaching draining-owned work.
-- [ ] TUI monitor, log-follow, and steering tests prove one stable connection presents current and draining work without client-side socket discovery or cross-socket ownership maps.
+- [ ] A command test proves `cleanup --abandon` reaches a healthy stable daemon after the invoking source changes; it fails against the pre-fix admission path that resolves the invoking source's own executable digest instead of the stable socket.
+- [ ] End-to-end client tests prove run list/log/wait/kill and every pipeline verb use only the stable socket while still reaching draining-owned work; they fail against the pre-fix multi-socket discovery and list-merging in `run.ts`/`pipeline.ts`.
+- [ ] TUI monitor, log-follow, and steering tests prove one stable connection presents current and draining work without client-side socket discovery or cross-socket ownership maps; they fail against the pre-fix cross-socket ownership map and enumeration.
 - [ ] A structural test proves production CLI, command, runtime-smoke, and TUI client layers neither compute an executable digest nor enumerate digest-keyed sockets to locate a daemon; it fails against the pre-fix bootstrap and discovery modules.
 - [ ] `v2/src/commands/run.test.ts`, `v2/src/commands/pipeline.test.ts`, `v2/src/commands/run-list-dimension-filters.test.ts`, `v2/src/commands/run-list-query-limit-cap.test.ts`, `v2/src/tui/tui-monitor-pipeline-tree.test.ts`, and `v2/src/tui/tui-attention-rows.test.ts` stay green.
 - [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.

@@ -17,7 +17,7 @@ name: daemon-status-reports-serving-daemon-honestly
 ## Behavior
 
 - `daemon status` prints `running` and exits zero whenever a daemon serves the stable socket, regardless of loaded executable digest.
-- Status decides and prints on one version identity: rendered values are the ones the decision consumed, or none when they agree; never two differing identifiers under `running`.
+- Under `running`, status prints only the serving daemon's own loaded identity (e.g. `loaded=<digest-or-revision>`); it never prints a separate "current" identifier and never compares the two to decide or display staleness.
 
 ## Acceptance criteria
 

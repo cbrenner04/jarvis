@@ -33,6 +33,39 @@ function trackPreservationSeams(closeCalls: string[], deleteCalls: string[]) {
   };
 }
 
+/** Mocks the raw `gh` command so the pre-flip resolver sees a single open draft PR. */
+function ghResolvesOpenDraft(prNumber: number, prUrl: string, baseRef = "main") {
+  return async (_cwd: string, args: readonly string[]) => {
+    if (args[0] === "pr" && args[1] === "list") {
+      return JSON.stringify([{ number: prNumber, baseRefName: baseRef, isDraft: true }]);
+    }
+    if (args[0] === "pr" && args[1] === "view") {
+      return JSON.stringify({ number: prNumber, url: prUrl, baseRefName: baseRef });
+    }
+    throw new Error(`unexpected gh args: ${args.join(" ")}`);
+  };
+}
+
+/** Mocks the raw `gh` command so the pre-flip resolver sees no open PR for the branch/base. */
+function ghResolvesNoOpenPr() {
+  return async (_cwd: string, args: readonly string[]) => {
+    if (args[0] === "pr" && args[1] === "list") {
+      return JSON.stringify([]);
+    }
+    throw new Error(`unexpected gh args: ${args.join(" ")}`);
+  };
+}
+
+/** Mocks the raw `gh` command so the pre-flip resolver sees an open PR that has left draft state. */
+function ghResolvesOpenNonDraft(prNumber: number, baseRef = "main") {
+  return async (_cwd: string, args: readonly string[]) => {
+    if (args[0] === "pr" && args[1] === "list") {
+      return JSON.stringify([{ number: prNumber, baseRefName: baseRef, isDraft: false }]);
+    }
+    throw new Error(`unexpected gh args: ${args.join(" ")}`);
+  };
+}
+
 afterEach(() => {});
 
 describe("executeTerminalPublication", () => {
@@ -45,8 +78,9 @@ describe("executeTerminalPublication", () => {
       runReadyGate: async (worktreePath, baseRef) => {
         gateCalls.push(`${worktreePath}:${baseRef}`);
       },
-      ghReadyFlip: async (branch, worktreePath) => {
-        flipCalls.push(`${branch}:${worktreePath}`);
+      gh: ghResolvesOpenDraft(42, "https://github.com/user/repo/pull/42"),
+      ghReadyFlip: async (prNumber, worktreePath) => {
+        flipCalls.push(`${prNumber}:${worktreePath}`);
       },
       ghMerge: async (branch, worktreePath) => {
         mergeCalls.push(`${branch}:${worktreePath}`);
@@ -66,7 +100,7 @@ describe("executeTerminalPublication", () => {
     const ready = await execute({ ...baseInput, terminalAction: "ready" });
     expect(ready).toEqual({ prNumber: 42, prUrl: "https://github.com/user/repo/pull/42" });
     expect(gateCalls).toEqual(["/tmp/worktree:main"]);
-    expect(flipCalls).toEqual(["feature-branch:/tmp/worktree"]);
+    expect(flipCalls).toEqual(["42:/tmp/worktree"]);
     expect(mergeCalls).toHaveLength(0);
 
     gateCalls.length = 0;
@@ -76,7 +110,7 @@ describe("executeTerminalPublication", () => {
     const merge = await execute({ ...baseInput, terminalAction: "merge" });
     expect(merge).toEqual({ prNumber: 42, prUrl: "https://github.com/user/repo/pull/42" });
     expect(gateCalls).toEqual(["/tmp/worktree:main"]);
-    expect(flipCalls).toEqual(["feature-branch:/tmp/worktree"]);
+    expect(flipCalls).toEqual(["42:/tmp/worktree"]);
     expect(mergeCalls).toEqual(["feature-branch:/tmp/worktree"]);
   });
 
@@ -174,6 +208,7 @@ describe("executeTerminalPublication", () => {
 
     const executeReady = createExecuteTerminalPublication({
       runReadyGate: async () => {},
+      gh: ghResolvesOpenDraft(42, "https://github.com/user/repo/pull/42"),
       ghReadyFlip: async () => {
         throw ghCommandError("flip failed", "not a draft");
       },
@@ -194,6 +229,7 @@ describe("executeTerminalPublication", () => {
 
     const executeMerge = createExecuteTerminalPublication({
       runReadyGate: async () => {},
+      gh: ghResolvesOpenDraft(42, "https://github.com/user/repo/pull/42"),
       ghReadyFlip: async () => {},
       ghMerge: async () => {
         throw ghCommandError("merge failed", "merge blocked");
@@ -253,5 +289,108 @@ describe("executeTerminalPublication", () => {
     });
     expect(leaveDraft).toEqual({});
     expect(ghCalls).toHaveLength(0);
+  });
+
+  it("re-resolves the open draft and flips it ready, ignoring stale persisted PR evidence", async () => {
+    const flipCalls: string[] = [];
+
+    // baseInput.prNumber (42) is stale persisted evidence for a since-merged PR; the branch's
+    // current open draft is #99 on the same branch/base.
+    const execute = createExecuteTerminalPublication({
+      runReadyGate: async () => {},
+      gh: ghResolvesOpenDraft(99, "https://github.com/user/repo/pull/99"),
+      ghReadyFlip: async (prNumber, worktreePath) => {
+        flipCalls.push(`${prNumber}:${worktreePath}`);
+      },
+    });
+
+    const result = await execute({ ...baseInput, terminalAction: "ready" });
+
+    expect(flipCalls).toEqual(["99:/tmp/worktree"]);
+    expect(result).toEqual({ prNumber: 42, prUrl: "https://github.com/user/repo/pull/42" });
+  });
+
+  it("refuses without destroying PR evidence when the resolved open PR is not a draft", async () => {
+    const closeCalls: string[] = [];
+    const deleteCalls: string[] = [];
+    const flipCalls: string[] = [];
+
+    const execute = createExecuteTerminalPublication({
+      runReadyGate: async () => {},
+      gh: ghResolvesOpenNonDraft(42),
+      ghReadyFlip: async (prNumber, worktreePath) => {
+        flipCalls.push(`${prNumber}:${worktreePath}`);
+      },
+      ...trackPreservationSeams(closeCalls, deleteCalls),
+    });
+
+    try {
+      await execute({ ...baseInput, terminalAction: "ready" });
+      throw new Error("expected open-non-draft refusal");
+    } catch (error) {
+      expect(error).toBeInstanceOf(TerminalPublicationError);
+      const publicationError = error as TerminalPublicationError;
+      expect(publicationError.failure.message).toContain("#42");
+      expect(publicationError.failure.message).toContain(baseInput.branch);
+      expect(publicationError.failure.message).toContain("expected draft");
+      expect(publicationError.failure.message).toContain("close/merge");
+    }
+
+    expect(flipCalls).toHaveLength(0);
+    expect(closeCalls).toHaveLength(0);
+    expect(deleteCalls).toHaveLength(0);
+  });
+
+  it("refuses without destroying PR evidence when no open draft PR is found for the branch", async () => {
+    const closeCalls: string[] = [];
+    const deleteCalls: string[] = [];
+    const flipCalls: string[] = [];
+
+    const execute = createExecuteTerminalPublication({
+      runReadyGate: async () => {},
+      gh: ghResolvesNoOpenPr(),
+      ghReadyFlip: async (prNumber, worktreePath) => {
+        flipCalls.push(`${prNumber}:${worktreePath}`);
+      },
+      ...trackPreservationSeams(closeCalls, deleteCalls),
+    });
+
+    try {
+      await execute({ ...baseInput, terminalAction: "ready" });
+      throw new Error("expected no-open-draft refusal");
+    } catch (error) {
+      expect(error).toBeInstanceOf(TerminalPublicationError);
+      const publicationError = error as TerminalPublicationError;
+      expect(publicationError.failure.message).toContain(baseInput.branch);
+      expect(publicationError.failure.message).toContain("No open draft PR found");
+    }
+
+    expect(flipCalls).toHaveLength(0);
+    expect(closeCalls).toHaveLength(0);
+    expect(deleteCalls).toHaveLength(0);
+  });
+
+  it("propagates an unexpected resolution error unwrapped, without destroying PR evidence", async () => {
+    const closeCalls: string[] = [];
+    const deleteCalls: string[] = [];
+
+    const execute = createExecuteTerminalPublication({
+      runReadyGate: async () => {},
+      gh: async () => {
+        throw new Error("gh pr list failed: rate limited");
+      },
+      ...trackPreservationSeams(closeCalls, deleteCalls),
+    });
+
+    try {
+      await execute({ ...baseInput, terminalAction: "ready" });
+      throw new Error("expected resolution error to propagate");
+    } catch (error) {
+      expect(error).not.toBeInstanceOf(TerminalPublicationError);
+      expect((error as Error).message).toBe("gh pr list failed: rate limited");
+    }
+
+    expect(closeCalls).toHaveLength(0);
+    expect(deleteCalls).toHaveLength(0);
   });
 });

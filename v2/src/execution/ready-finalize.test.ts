@@ -743,7 +743,7 @@ describe("ready gate untouched-path classification", () => {
 });
 
 describe("createReadyFinalizer", () => {
-  const input = { worktreePath: "/tmp/worktree", branch: "feature-branch", baseRef: "main" };
+  const input = { worktreePath: "/tmp/worktree", branch: "feature-branch", baseRef: "main", prNumber: 42 };
   const noopDelay = async () => {};
 
   it("skips the ready gate but completes remaining finalization when admitted", async () => {
@@ -773,20 +773,22 @@ describe("createReadyFinalizer", () => {
     expect(calls).toEqual(["integration", "mutation", "smoke", "flip"]);
   });
 
-  it("runs the ready gate then flips the draft PR on green", async () => {
+  it("runs the ready gate then flips the resolved PR number, never the branch, on green", async () => {
+    // The branch's PR history may carry closed PRs behind the current open draft (subspec 00);
+    // publication resolves that draft's number and threads it here as `prNumber`.
     const calls: string[] = [];
     const finalizer = createReadyFinalizer({
       runReadyGate: async (worktreePath, baseRef) => {
         calls.push(`gate:${worktreePath}@${baseRef}`);
       },
-      ghReadyFlip: async (branch, worktreePath) => {
-        calls.push(`flip:${branch}@${worktreePath}`);
+      ghReadyFlip: async (prNumber, worktreePath) => {
+        calls.push(`flip:${prNumber}@${worktreePath}`);
       },
     });
 
     await finalizer(input);
 
-    expect(calls).toEqual(["gate:/tmp/worktree@main", "flip:feature-branch@/tmp/worktree"]);
+    expect(calls).toEqual(["gate:/tmp/worktree@main", "flip:42@/tmp/worktree"]);
   });
 
   it("returns a successful runtime smoke outcome", async () => {
@@ -954,7 +956,9 @@ index 1234567..abcdefg 100644
         },
       });
 
-      await expect(finalizer({ worktreePath: dir, branch: "feature", baseRef: baseSha })).resolves.toEqual({});
+      await expect(finalizer({ worktreePath: dir, branch: "feature", baseRef: baseSha, prNumber: 7 })).resolves.toEqual(
+        {},
+      );
       expect(flipCalls).toBe(1);
       expect(execFileSync("git", ["status", "--porcelain"], { cwd: dir }).toString().trim()).toBe("");
     } finally {

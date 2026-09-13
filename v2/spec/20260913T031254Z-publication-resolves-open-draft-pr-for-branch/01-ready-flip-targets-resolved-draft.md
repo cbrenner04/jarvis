@@ -24,16 +24,16 @@ Both default ready-flip paths — `defaultGhReadyFlip` in `v2/src/execution/read
 
 ## Acceptance criteria
 
-- [ ] A regression test in `v2/src/execution/ready-finalize.test.ts` places closed PR history beside the current open draft, confirms the finalizer receives that draft's number, and proves the flip targets the number, never a branch selector; it fails against the pre-fix `gh pr ready <branch>` command.
-- [ ] A regression test in `v2/src/execution/terminal-publication.test.ts` supplies stale persisted PR evidence for a since-merged PR beside a current open draft on the same branch/base, and proves the default flip re-resolves and targets the open draft's number; it fails against the pre-fix branch-selector default.
-- [ ] `retries transient gh pr ready errors up to 3 attempts`, `treats already ready stderr as success without retry`, and `treats not a draft stderr as success without retry` (ready-finalize.test.ts) stay green, proving retry-after-successful-flip recovery survives the number-keyed flip.
-- [ ] A regression test in `v2/src/execution/terminal-publication.test.ts` supplies an open non-draft for the branch/base and observes a failure naming its PR number, branch, expected draft state, and recovery, without invoking `ghClose` or `ghDelete`; it fails against the pre-fix path that reaches `failTerminalPublication`'s cleanup.
-- [ ] A regression test in `v2/src/execution/terminal-publication.test.ts` supplies only historical (merged/closed) PRs for the branch/base and observes the named no-open-draft error without `gh pr ready` being invoked; it fails against the pre-fix branch-selector default, which forwards GitHub's raw closed-PR string instead.
-- [ ] `v2/src/execution/ready-finalize.test.ts` gate, mutation, and smoke tests stay green.
-- [ ] `v2/src/execution/terminal-publication.test.ts` leave-draft, ready-gate, merge, and PR-evidence tests stay green.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test:v2` passes.
-- [ ] `bun run test:integration:v2` passes.
+- [x] A regression test in `v2/src/execution/ready-finalize.test.ts` places closed PR history beside the current open draft, confirms the finalizer receives that draft's number, and proves the flip targets the number, never a branch selector; it fails against the pre-fix `gh pr ready <branch>` command.
+- [x] A regression test in `v2/src/execution/terminal-publication.test.ts` supplies stale persisted PR evidence for a since-merged PR beside a current open draft on the same branch/base, and proves the default flip re-resolves and targets the open draft's number; it fails against the pre-fix branch-selector default.
+- [x] `retries transient gh pr ready errors up to 3 attempts`, `treats already ready stderr as success without retry`, and `treats not a draft stderr as success without retry` (ready-finalize.test.ts) stay green, proving retry-after-successful-flip recovery survives the number-keyed flip.
+- [x] A regression test in `v2/src/execution/terminal-publication.test.ts` supplies an open non-draft for the branch/base and observes a failure naming its PR number, branch, expected draft state, and recovery, without invoking `ghClose` or `ghDelete`; it fails against the pre-fix path that reaches `failTerminalPublication`'s cleanup.
+- [x] A regression test in `v2/src/execution/terminal-publication.test.ts` supplies only historical (merged/closed) PRs for the branch/base and observes the named no-open-draft error without `gh pr ready` being invoked; it fails against the pre-fix branch-selector default, which forwards GitHub's raw closed-PR string instead.
+- [x] `v2/src/execution/ready-finalize.test.ts` gate, mutation, and smoke tests stay green.
+- [x] `v2/src/execution/terminal-publication.test.ts` leave-draft, ready-gate, merge, and PR-evidence tests stay green.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test:v2` passes.
+- [x] `bun run test:integration:v2` passes.
 
 ## Documentation updates
 

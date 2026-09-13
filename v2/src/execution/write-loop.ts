@@ -3918,7 +3918,13 @@ async function runPublisher(
 
 async function runReadyFinalizer(
   seams: CompletionPublicationSeams,
-  input: { worktreePath: string; baseRef: string; branch: string; requiredIntegrationScope?: string },
+  input: {
+    worktreePath: string;
+    baseRef: string;
+    branch: string;
+    prNumber?: number;
+    requiredIntegrationScope?: string;
+  },
   verifierProcessGroups?: VerifierProcessGroupRecorder,
 ): Promise<SmokePass | undefined> {
   const readyFinalizer =
@@ -3959,6 +3965,7 @@ async function runReadyFinalizer(
     worktreePath: input.worktreePath,
     branch: input.branch,
     baseRef: input.baseRef,
+    ...(input.prNumber !== undefined ? { prNumber: input.prNumber } : {}),
     ...(input.requiredIntegrationScope ? { requiredIntegrationScope: input.requiredIntegrationScope } : {}),
     ...(seams.signal !== undefined ? { signal: seams.signal } : {}),
     ...(verifierProcessGroups !== undefined ? { verifierProcessGroups } : {}),
@@ -4082,6 +4089,7 @@ export async function publishCompletionArtifacts(
           worktreePath: input.worktreePath,
           baseRef: input.baseRef,
           branch: input.branch,
+          ...(publisherResult?.prNumber !== undefined ? { prNumber: publisherResult.prNumber } : {}),
           ...(input.requiredIntegrationScope ? { requiredIntegrationScope: input.requiredIntegrationScope } : {}),
         },
         verifierProcessGroups,

@@ -7,7 +7,7 @@ import {
   isPipelineTerminal,
   type PipelineDerivedState,
 } from "./pipeline-execution.ts";
-import { derivePipelineBoundary, type PipelineBoundaryResult } from "./pipeline-observation.ts";
+import { derivePipelineAwaitingGates } from "./pipeline-observation.ts";
 
 type OperatorIncidentKind =
   | "pipeline-awaiting-approval"
@@ -85,18 +85,44 @@ function loadDeliveredIncidentKeys(store: StateStore, incidentIds: readonly stri
   return delivered;
 }
 
+/** Reopened failed stages reuse their row; the settlement time separates each failure from the last. */
+function stageFailedTransition(stage: PipelineStageRecord): string {
+  return `failed:${stage.endedAt ?? stage.startedAt ?? 0}`;
+}
+
+/**
+ * Gate rows carry no awaiting-since column; the latest settlement among the gate's branch-suffix
+ * predecessors marks when the gate was (re)reached, so each gate and each re-reach notifies once.
+ */
+function gateReachedAt(pipeline: Pipeline & { stages: PipelineStageRecord[] }, gate: PipelineStageRecord): number {
+  let reachedAt = pipeline.createdAt;
+  for (const stage of pipeline.stages) {
+    if (stage.position >= gate.position) continue;
+    if (stage.branchKey !== gate.branchKey && stage.branchKey !== "default") continue;
+    const settledAt = stage.endedAt ?? stage.decidedAt;
+    if (settledAt !== null && settledAt > reachedAt) reachedAt = settledAt;
+  }
+  return reachedAt;
+}
+
+function awaitingGateTransition(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+  gate: PipelineStageRecord,
+): string {
+  return `awaiting-approval:${gate.stageId}:${gate.branchKey}:${gateReachedAt(pipeline, gate)}`;
+}
+
 function previewPipelineIncidentKeys(
   store: StateStore,
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
 ): IncidentKey[] {
   const keys: IncidentKey[] = [];
   const state = derivePipelineState(pipeline);
-  const boundary = derivePipelineBoundary(pipeline);
 
-  if (boundary?.kind === "awaiting-approval") {
+  for (const gate of derivePipelineAwaitingGates(pipeline)) {
     keys.push({
       incidentId: pipelineIncidentId(pipeline.id),
-      transition: `awaiting-approval:${boundary.stageId}:${boundary.branchKey}`,
+      transition: awaitingGateTransition(pipeline, gate.record),
     });
   }
 
@@ -113,7 +139,7 @@ function previewPipelineIncidentKeys(
       if (stage.status === "failed") {
         keys.push({
           incidentId: stageIncidentId(pipeline.id, stage.stageId, stage.branchKey),
-          transition: "failed",
+          transition: stageFailedTransition(stage),
         });
       }
     }
@@ -244,20 +270,18 @@ function resolvePipelineIncidentProject(
 function pushAwaitingApprovalIncident(
   incidents: OperatorIncident[],
   pipeline: Pipeline & { stages: PipelineStageRecord[] },
-  boundary: Extract<PipelineBoundaryResult, { kind: "awaiting-approval" }>,
+  gate: PipelineStageRecord,
   project: string | null,
 ): void {
   incidents.push({
     incidentId: pipelineIncidentId(pipeline.id),
     kind: "pipeline-awaiting-approval",
-    transition: `awaiting-approval:${boundary.stageId}:${boundary.branchKey}`,
+    transition: awaitingGateTransition(pipeline, gate),
     project,
     pipelineId: pipeline.id,
-    stageId: boundary.stageId,
-    branchKey: boundary.branchKey,
-    sinceMs:
-      pipeline.stages.find((stage) => stage.stageId === boundary.stageId && stage.branchKey === boundary.branchKey)
-        ?.decidedAt ?? null,
+    stageId: gate.stageId,
+    branchKey: gate.branchKey,
+    sinceMs: gate.decidedAt,
   });
 }
 
@@ -302,11 +326,10 @@ function collectPipelineIncidents(
   const incidents: OperatorIncident[] = [];
   const suppressedInvocationIds = new Set<string>();
   const state = derivePipelineState(pipeline);
-  const boundary = derivePipelineBoundary(pipeline);
   const project = resolvePipelineIncidentProject(pipeline, entryRunsById);
 
-  if (boundary?.kind === "awaiting-approval") {
-    pushAwaitingApprovalIncident(incidents, pipeline, boundary, project);
+  for (const gate of derivePipelineAwaitingGates(pipeline)) {
+    pushAwaitingApprovalIncident(incidents, pipeline, gate.record, project);
   }
 
   if (isPipelineTerminal(state)) {
@@ -323,7 +346,7 @@ function collectPipelineIncidents(
         incidents.push({
           incidentId: stageIncidentId(pipeline.id, stage.stageId, stage.branchKey),
           kind: "stage-failed",
-          transition: "failed",
+          transition: stageFailedTransition(stage),
           project,
           pipelineId: pipeline.id,
           stageId: stage.stageId,

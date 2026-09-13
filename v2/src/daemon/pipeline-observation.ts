@@ -25,15 +25,15 @@ export type PipelineBoundaryResult =
   | { kind: "terminal"; state: PipelineTerminalState }
   | { kind: "awaiting-approval"; stageId: string; branchKey: string };
 
-export function derivePipelineBoundary(
-  pipeline: Pipeline & { stages: PipelineStageRecord[] },
-): PipelineBoundaryResult | null {
-  const state = derivePipelineState(pipeline);
-  if (isPipelineTerminal(state)) {
-    return { kind: "terminal", state: state as PipelineTerminalState };
-  }
+type AwaitingApprovalGate = { stageId: string; branchKey: string; record: PipelineStageRecord };
 
+/** Every reachable undecided approval gate on a non-terminal pipeline, in stage-row order. */
+export function derivePipelineAwaitingGates(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+): AwaitingApprovalGate[] {
+  if (isPipelineTerminal(derivePipelineState(pipeline))) return [];
   const split = findFanOutSplit(pipeline);
+  const gates: AwaitingApprovalGate[] = [];
   for (const record of pipeline.stages) {
     const stage = pipeline.definition.stages[record.position];
     if (stage === undefined) continue;
@@ -42,9 +42,21 @@ export function derivePipelineBoundary(
     if (record.status !== "awaiting" && record.status !== "pending") continue;
     if (split !== null && fanOutBranchSuffixTerminallySettled(pipeline, split, record.branchKey)) continue;
     if (!branchSuffixPredecessorsSatisfied(pipeline, record, split)) continue;
-    return { kind: "awaiting-approval", stageId: stage.stageId, branchKey: record.branchKey };
+    gates.push({ stageId: stage.stageId, branchKey: record.branchKey, record });
   }
-  return null;
+  return gates;
+}
+
+export function derivePipelineBoundary(
+  pipeline: Pipeline & { stages: PipelineStageRecord[] },
+): PipelineBoundaryResult | null {
+  const state = derivePipelineState(pipeline);
+  if (isPipelineTerminal(state)) {
+    return { kind: "terminal", state: state as PipelineTerminalState };
+  }
+  const gate = derivePipelineAwaitingGates(pipeline)[0];
+  if (gate === undefined) return null;
+  return { kind: "awaiting-approval", stageId: gate.stageId, branchKey: gate.branchKey };
 }
 
 type PipelineOwnershipResult =

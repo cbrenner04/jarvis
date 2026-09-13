@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { exitCodeForWriteResult } from "../cli/run-completion.ts";
 import { composeRunOperatorError, findTerminalLogRecord } from "../daemon/run-operator-error.ts";
-import { openLogReader, openLogSink, type LogSink } from "../persistence/log-stream.ts";
+import { type LogSink, openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { openStateStore, type StateStore } from "../persistence/state-store.ts";
 import { createFakeWithExternalWorktree, createJarvisHome, withStateStore } from "../testing/write-fixtures.ts";
 import { createCompletionCommitter } from "./completion-commit.ts";
@@ -502,6 +502,7 @@ describe("executeWorkflow completion publication", () => {
     const prNumber = 321;
     const prUrl = "https://github.com/owner/repo/pull/321";
     let boundarySnapshot: ReturnType<StateStore["loadRun"]> | undefined;
+    let boundaryRunStatus: string | undefined;
 
     await withStateStore(async (store) => {
       // A minimal LogSink reading the durable row back at the exact moment the write loop commits
@@ -510,6 +511,7 @@ describe("executeWorkflow completion publication", () => {
       const logSink: LogSink = {
         append: (runId, event) => {
           if (event.kind === "boundary_committed" && boundarySnapshot === undefined) {
+            boundaryRunStatus = event.runStatus;
             boundarySnapshot = store.loadRun(runId);
           }
         },
@@ -526,6 +528,7 @@ describe("executeWorkflow completion publication", () => {
       });
 
       expect(result.kind).toBe("complete");
+      expect(boundaryRunStatus).toBe("in-progress");
       expect(boundarySnapshot).toMatchObject({
         status: "in-progress",
         prNumber: null,
@@ -542,6 +545,30 @@ describe("executeWorkflow completion publication", () => {
         terminalCause: "complete",
       });
       expect(settledRow?.finishedAt).not.toBeNull();
+    });
+  });
+
+  test("a workflow write with publication disabled settles completed at its own boundary", async () => {
+    const step = createStep({
+      stepId: "step-1",
+      role: "implement",
+      branchName: "publication-disabled-settles-at-boundary",
+      suppressShrink: true,
+      publishCompletion: false,
+    });
+    let boundarySnapshot: ReturnType<StateStore["loadRun"]> | undefined;
+
+    await withStateStore(async (store) => {
+      const logSink: LogSink = {
+        append: (runId, event) => {
+          if (event.kind === "boundary_committed") boundarySnapshot = store.loadRun(runId);
+        },
+        close: () => {},
+      };
+      const result = await executeWorkflow({ steps: [step], stateStore: store, logSink });
+
+      expect(result.kind).toBe("complete");
+      expect(boundarySnapshot).toMatchObject({ status: "completed" });
     });
   });
 
@@ -3130,6 +3157,7 @@ describe("executeWorkflow completion publication", () => {
         },
       });
       expect(result.kind).toBe("complete");
+      expect(store.loadRun(result.runId)).toMatchObject({ status: "completed", terminalCause: "complete" });
     });
 
     expect(publisherCalled).toBe(false);

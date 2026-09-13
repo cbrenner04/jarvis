@@ -764,9 +764,10 @@ function linkedImplementRoutingFailureOutcome(
   existingRunId?: string,
 ): WorkflowStepOutcome {
   // When routing fails *after* a link's write loop already ran, that link has a real durable row —
-  // and it is sitting `completed`. Minting a fresh id here would orphan the outcome from the row,
-  // leaving it `completed` with no publication and nothing to settle it (`settleNonCompleteWorkflowStep`
-  // resolves no row for an id that was never persisted). Reuse the real id so the row is corrected.
+  // `completed` when superseded by another link, or deferred `in-progress` when it was the resolved
+  // completion row. Minting a fresh id here would orphan the outcome from that row and leave its
+  // stale status with nothing to settle it (`settleNonCompleteWorkflowStep` resolves no row for an
+  // id that was never persisted). Reuse the real id so the row is corrected.
   const runId = existingRunId ?? crypto.randomUUID();
   if (existingRunId === undefined) onStepRunCreated?.(stepIndex, runId);
 
@@ -1627,6 +1628,11 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         }
       }
     }
+    // A content-empty publication tail has no PR work, but it still owns a deferred completion
+    // row and must supply the terminal cause before reporting workflow success.
+    if (store.loadRun(lastResult.runId)?.status === "in-progress") {
+      settleCompletedPublication(store, lastResult.runId);
+    }
     return {
       kind: "complete",
       stepIndex: args.steps.length - 1,
@@ -1773,7 +1779,12 @@ function isCompletionRowOwningStep(
   completionStep: WriteWorkflowStep | undefined,
   lastStep: AnyWorkflowStep | undefined,
 ): boolean {
-  if (completionStep === undefined || step.stepId !== completionStep.stepId) return false;
+  if (
+    completionStep === undefined ||
+    completionStep.publishCompletion === false ||
+    step.stepId !== completionStep.stepId
+  )
+    return false;
   return lastStep === undefined || lastStep.stepId === completionStep.stepId || !isDurableWorkflowStep(lastStep);
 }
 

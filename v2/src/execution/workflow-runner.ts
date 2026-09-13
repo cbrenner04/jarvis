@@ -24,6 +24,7 @@ import type { ImplementReviewBehavior } from "../config/machine-config-loader.ts
 import { type IntentFinalizationEvent, type LogSink, priorLogRecordsFromSink } from "../persistence/log-stream.ts";
 import {
   type Attempt,
+  type OutcomeKind,
   openStateStore,
   type RunStatus,
   type StateStore,
@@ -191,7 +192,7 @@ function settleNonCompleteWorkflowStep(
   // publication tail that will now never run, under a step that did not complete. Every other
   // status belongs to the write loop and must survive untouched — notably `budget-exhausted` and
   // `paused`, which are deliberately non-terminal so the next dispatch resumes the step.
-  if (run.status !== "completed" && run.status !== "in-progress") return;
+  if (run.status !== "completed" && !isDeferredCompletionRow(run)) return;
   const status = nonCompleteWorkflowStepStatus(cause);
   const message = result.routingFailure ?? result.invocationFailureMessage ?? `workflow step ended ${cause}`;
   store.commitTerminalRunSettlement({
@@ -207,6 +208,18 @@ function settleNonCompleteWorkflowStep(
     iterationsConsumed,
     resumable: result.resumable === true,
   });
+}
+
+/**
+ * A row the write loop left `in-progress` on a `complete` outcome for the publication tail to settle.
+ * Any other `in-progress` row (a killed or still-quiescing step) belongs to its own settlement path.
+ */
+function isDeferredCompletionRow(run: {
+  status: RunStatus;
+  attempts: Array<{ outcomeKind: OutcomeKind | null }>;
+}): boolean {
+  const outcome = run.attempts.at(-1)?.outcomeKind;
+  return run.status === "in-progress" && (outcome === "done" || outcome === "no-work");
 }
 
 function terminalFailureDetailFromError(error?: Error, fallbackMessage?: string): InvocationFailureDetail {
@@ -1085,7 +1098,7 @@ export async function executeWorkflow(args: WorkflowRunnerInput): Promise<Workfl
         if (
           deferredCompletionRunId !== undefined &&
           deferredCompletionRunId !== stepResult.runId &&
-          store.loadRun(deferredCompletionRunId)?.status === "in-progress"
+          isDeferredCompletionRow(store.loadRun(deferredCompletionRunId) ?? { status: "failed", attempts: [] })
         ) {
           settleNonCompleteWorkflowStep(
             store,

@@ -318,6 +318,14 @@ test("admission routing survives handler symbol rename when admitWorkflowStart c
 afterEach(async () => {
   fakeExecutor.abortAll();
   await flushBackgroundRuns();
+  // Deferred completion rows keep a workflow's publication tail running past the test body; let it
+  // settle before the store closes underneath it.
+  // Bounded: held-live workflows never settle and are torn down by the store close.
+  let pending = true;
+  void Promise.all([...handlers.context.workflowPromisesByEntryRunId.values()]).then(() => {
+    pending = false;
+  });
+  for (let i = 0; i < 2_000 && pending; i++) await flushBackgroundRuns();
   try {
     stateStore.close();
   } catch {

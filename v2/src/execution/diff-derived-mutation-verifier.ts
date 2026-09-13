@@ -620,43 +620,6 @@ async function defaultRegisteredPromptPaths(cwd: string, baseRef: string): Promi
   }
 }
 
-function deriveGuardMutations(
-  file: string,
-  lineNum: number,
-  content: string,
-  masked: string,
-  candidates: Candidate[],
-): void {
-  const guardMatches = Array.from(masked.matchAll(/(!\s*[a-zA-Z_][a-zA-Z0-9_]*|!(?:\([^)]+\)))/g));
-  for (const match of guardMatches) {
-    if (match.index === undefined) continue;
-    const start = match.index;
-    // Matching happens on the masked line, but the mutation is applied to the
-    // real file: a guard span may enclose a masked string (`!("k" in o)`), so
-    // the candidate's text has to come from the original line.
-    const original = content.slice(start, start + match[0].length);
-    let mutated: string;
-
-    if (original.startsWith("!")) {
-      mutated = original.slice(1).trimStart();
-    } else {
-      mutated = `!${original}`;
-    }
-
-    if (mutated !== original) {
-      candidates.push({
-        file,
-        line: lineNum,
-        columnStart: start,
-        columnEnd: start + original.length,
-        originalText: original,
-        mutatedText: mutated,
-        mutation: `guard-flip: ${original} → ${mutated}`,
-      });
-    }
-  }
-}
-
 function flipOperator(original: string): string {
   if (original === "===") return "!==";
   if (original === "!==") return "===";
@@ -708,6 +671,68 @@ function deriveOperatorMutations(
         mutatedText: mutated,
         mutation: `operator-flip: ${original} → ${mutated}`,
       });
+    }
+    ts.forEachChild(node, visit);
+  }
+
+  visit(sourceFile);
+}
+
+/**
+ * Classifies `!` prefix-unary expressions over the full current source, admitting a candidate only
+ * when its `!` token sits on a changed line and the node's complete span fits on that one line — a
+ * multi-line negated expression is not sliced into a partial, unappliable candidate. The span is the
+ * whole node text (member/call chains, parenthesized operands included), not just the operator, so
+ * the mutation matches the boolean expression the verifier actually toggles. Once a `!` prefix-unary
+ * node is found, its operand subtree is not descended into: a chained negation (`!!x`) yields one
+ * candidate spanning the whole chain, not one per nested `!`.
+ */
+function deriveGuardMutations(
+  file: string,
+  source: string,
+  changedLineNumbers: ReadonlySet<number>,
+  candidates: Candidate[],
+): void {
+  const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+
+  function visit(node: ts.Node): void {
+    if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.ExclamationToken) {
+      const start = node.getStart(sourceFile);
+      const end = node.getEnd();
+      const startPos = sourceFile.getLineAndCharacterOfPosition(start);
+      const endPos = sourceFile.getLineAndCharacterOfPosition(end);
+      const line = startPos.line + 1;
+      let admitted = false;
+      if (changedLineNumbers.has(line) && startPos.line === endPos.line) {
+        admitted = true;
+        const original = node.getText(sourceFile);
+        const mutated = original.slice(1).trimStart();
+        candidates.push({
+          file,
+          line,
+          columnStart: startPos.character,
+          columnEnd: endPos.character,
+          originalText: original,
+          mutatedText: mutated,
+          mutation: `guard-flip: ${original} → ${mutated}`,
+        });
+      }
+      let operand: ts.Node = node.operand;
+      while (ts.isParenthesizedExpression(operand)) operand = operand.expression;
+      if (admitted && ts.isPrefixUnaryExpression(operand) && operand.operator === ts.SyntaxKind.ExclamationToken) {
+        // One logical toggle is one candidate, so the chained `!`s are not re-derived. Abandoning the
+        // whole subtree here would also drop an independent guard nested inside the operand
+        // (`!!foo(!bar)` loses `!bar`), so descend past the chain and keep visiting from the first
+        // non-negation node instead of returning outright.
+        let inner: ts.Node = operand;
+        while (ts.isPrefixUnaryExpression(inner) && inner.operator === ts.SyntaxKind.ExclamationToken) {
+          let next: ts.Node = inner.operand;
+          while (ts.isParenthesizedExpression(next)) next = next.expression;
+          inner = next;
+        }
+        visit(inner);
+        return;
+      }
     }
     ts.forEachChild(node, visit);
   }
@@ -811,20 +836,25 @@ export function maskNonCodeSpans(line: string): string {
   return masked.join("");
 }
 
-function deriveFromLine(file: string, lineNum: number, content: string, operatorCandidates: Candidate[]): Candidate[] {
+function deriveFromLine(
+  file: string,
+  lineNum: number,
+  content: string,
+  operatorCandidates: Candidate[],
+  guardCandidates: Candidate[],
+): Candidate[] {
   // Skip comments and empty lines
   if (!content.trim() || content.trim().startsWith("//") || content.trim().startsWith("*")) {
     return [];
   }
 
   const maskedContent = maskNonCodeSpans(content);
-  const guardCandidates: Candidate[] = [];
   const destructiveCandidates: Candidate[] = [];
 
-  deriveGuardMutations(file, lineNum, content, maskedContent, guardCandidates);
   deriveDestructiveMutations(file, lineNum, content, maskedContent, destructiveCandidates);
 
   operatorCandidates.sort((left, right) => left.columnStart - right.columnStart);
+  guardCandidates.sort((left, right) => left.columnStart - right.columnStart);
   return deduplicateCandidates([...guardCandidates, ...operatorCandidates, ...destructiveCandidates]);
 }
 
@@ -1336,6 +1366,16 @@ function sourceWithChangedLines(source: string, changedLines: ChangedLine[]): st
   return lines.join("\n");
 }
 
+function groupCandidatesByLine(candidates: readonly Candidate[]): Map<number, Candidate[]> {
+  const byLine = new Map<number, Candidate[]>();
+  for (const candidate of candidates) {
+    const lineCandidates = byLine.get(candidate.line) ?? [];
+    lineCandidates.push(candidate);
+    byLine.set(candidate.line, lineCandidates);
+  }
+  return byLine;
+}
+
 async function deriveCandidates(
   changedLinesByFile: Map<string, ChangedLine[]>,
   worktreePath: string,
@@ -1343,19 +1383,20 @@ async function deriveCandidates(
 ): Promise<Candidate[]> {
   const candidates: Candidate[] = [];
   for (const [file, lines] of changedLinesByFile) {
-    const operatorCandidatesByLine = new Map<number, Candidate[]>();
+    let operatorCandidatesByLine = new Map<number, Candidate[]>();
+    let guardCandidatesByLine = new Map<number, Candidate[]>();
     if (isCodePath(file)) {
       try {
         const source = sourceWithChangedLines(await readFile(`${worktreePath}/${file}`), lines);
+        const changedLineNumbers = new Set(lines.map((line) => line.lineNumber));
         const operatorCandidates: Candidate[] = [];
-        deriveOperatorMutations(file, source, new Set(lines.map((line) => line.lineNumber)), operatorCandidates);
-        for (const candidate of operatorCandidates) {
-          const lineCandidates = operatorCandidatesByLine.get(candidate.line) ?? [];
-          lineCandidates.push(candidate);
-          operatorCandidatesByLine.set(candidate.line, lineCandidates);
-        }
+        deriveOperatorMutations(file, source, changedLineNumbers, operatorCandidates);
+        operatorCandidatesByLine = groupCandidatesByLine(operatorCandidates);
+        const guardCandidates: Candidate[] = [];
+        deriveGuardMutations(file, source, changedLineNumbers, guardCandidates);
+        guardCandidatesByLine = groupCandidatesByLine(guardCandidates);
       } catch {
-        // The later verifier read will report an untestable production file; omit operators here rather than parsing a changed line without lexical context.
+        // The later verifier read will report an untestable production file; omit guards/operators here rather than parsing a changed line without lexical context.
       }
     }
     for (const line of lines) {
@@ -1366,6 +1407,7 @@ async function deriveCandidates(
             line.lineNumber,
             line.content,
             operatorCandidatesByLine.get(line.lineNumber) ?? [],
+            guardCandidatesByLine.get(line.lineNumber) ?? [],
           ),
         );
       }

@@ -522,3 +522,14 @@ Recorded because the first version of this section got it wrong. Both remaining 
 **`guard-dead-exports` caught a missing test, not just tidiness.** Four of four implement lanes this session failed that guard, each on a newly exported type or class referenced only through inference. On `publication-resolves-open-draft-pr` it was load-bearing: `AmbiguousOpenPrError` was thrown by production and referenced by *nothing*, because the criterion claiming to cover it ("supplies two matching open PRs for the same branch/base") was satisfied by a test using two PRs on **different** bases — which filters to a single match and never reaches the `matches.length > 1` guard. Fifth vacuous tick of the session. The real regression was added and verified falsifiable by disabling the guard.
 
 **Counting acceptance criteria: count inside `## Acceptance criteria` only.** A raw grep for unticked boxes over a subspec also catches its informational `## Task checklist`, which routing ignores. That made a complete lane read as 21 ticked / 11 unticked; scoped to the acceptance section it is 10/10 on both subspecs, with only the index box lagging.
+
+### Carried into the next session (2026-09-13 close)
+
+**One lane left running deliberately.** `workflow-write-step-settles-after-publication-evidence` (run `75ca2a7a`, pipeline `08a7092c`, branch `20260913T031255Z-…`) was resumed at 05:07Z with the gate slot free and left in flight at session close. State at handoff: one real commit on the branch (`034c573f1`, "Keep deferred completion in progress") from the pre-refusal iteration, clean worktree, and **0 of 9 acceptance criteria ticked** — it was refused on its *first* gate invocation, so it has never self-verified. It has verification to redo, not implementation to write. Its plan PR [#3830](https://github.com/cbrenner04/jarvis/pull/3830) is deliberately left open; close it as subsumed if the implement lands carrying the spec tree, per the #3783 rule.
+
+**There is a live prediction attached to it.** This is a **fan-out** lane, and [[repair-fence-refuses-every-path-on-a-fan-out-lane]] claims fan-out is the discriminator for that fence refusal — the other two fan-out lanes refused on reaching the gate, while the single-lane chained implement did not. So:
+
+- if this lane settles `completion_commit_failed` naming the `v1/spec/completed/**/verdict-*.md` corpus, that is **3 of 3** and the seed's discriminator is confirmed;
+- if it publishes cleanly, the discriminator is **falsified** and the seed must be corrected before anyone builds on it.
+
+Either outcome is worth recording explicitly. The seed was written to say "confirm the mechanism before changing the fence" precisely because the refused list matching nothing on disk is not explained by the collapsed-allowset hypothesis alone.

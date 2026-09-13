@@ -2983,6 +2983,88 @@ test("resumes paused intent-split write loop with landing-contract reprompt cont
   expect(readFileSync(stageFile, "utf8")).toContain("Still prose.");
 });
 
+test("resumes a paused plan-draft workflow row with pending repair context from log", async () => {
+  const runId = createWorkflowRun({ invocationId: "plan-draft-paused-reprompt" });
+  stateStore.setRunStatus(runId, "paused");
+
+  const response = await resumeDirect(
+    createHandlers(
+      logReader(runId, [
+        {
+          kind: "draft_contract_reprompt",
+          attemptId: "attempt-1",
+          contractId: "artifact.exists",
+          detail: "Plan index links unknown subspec 01-wrong.md",
+        },
+        { kind: "loop_finished", loopOutcomeKind: "paused", iterationsConsumed: 1, resumable: true },
+      ]),
+    ),
+    runId,
+  );
+
+  expect(response.kind).toBe("response");
+  expect(starts).toHaveLength(1);
+  expect(starts[0]?.draftContractReprompt).toEqual({
+    contractId: "artifact.exists",
+    detail: "Plan index links unknown subspec 01-wrong.md",
+  });
+  expect(starts[0]?.draftContractRepromptSpent).toBe(true);
+});
+
+test("resumes a killed plan-draft workflow row with pending repair context from log", async () => {
+  const runId = createWorkflowRun({ invocationId: "plan-draft-killed-reprompt" });
+  stateStore.setRunStatus(runId, "killed");
+
+  const response = await resumeDirect(
+    createHandlers(
+      logReader(runId, [
+        {
+          kind: "draft_contract_reprompt",
+          attemptId: "attempt-1",
+          contractId: "artifact.exists",
+          detail: "Plan index links unknown subspec 01-wrong.md",
+        },
+      ]),
+    ),
+    runId,
+  );
+
+  expect(response.kind).toBe("response");
+  expect(starts).toHaveLength(1);
+  expect(starts[0]?.draftContractReprompt).toEqual({
+    contractId: "artifact.exists",
+    detail: "Plan index links unknown subspec 01-wrong.md",
+  });
+  expect(starts[0]?.draftContractRepromptSpent).toBe(true);
+});
+
+test("a settled plan-draft repair stays spent when a paused workflow row resumes", async () => {
+  const runId = createWorkflowRun({ invocationId: "plan-draft-paused-spent" });
+  stateStore.setRunStatus(runId, "paused");
+
+  const response = await resumeDirect(
+    createHandlers(
+      logReader(runId, [
+        {
+          kind: "draft_contract_reprompt",
+          attemptId: "attempt-1",
+          contractId: "artifact.exists",
+          detail: "Plan index links unknown subspec 01-wrong.md",
+        },
+        { kind: "iteration_started", attemptId: "attempt-2" },
+        { kind: "boundary_committed", attemptId: "attempt-2", outcomeKind: "progress", runStatus: "in-progress" },
+        { kind: "loop_finished", loopOutcomeKind: "paused", iterationsConsumed: 2, resumable: true },
+      ]),
+    ),
+    runId,
+  );
+
+  expect(response.kind).toBe("response");
+  expect(starts).toHaveLength(1);
+  expect(starts[0]?.draftContractReprompt).toBeUndefined();
+  expect(starts[0]?.draftContractRepromptSpent).toBe(true);
+});
+
 const GUARD_REPAIRS = [
   {
     kind: "guard",
@@ -3234,6 +3316,33 @@ test("paused direct write resume strips stale checkpoint queuedInput without see
   expect(starts).toHaveLength(1);
   expectNoCheckpointRepromptReplay(starts[0]);
   expect(starts[0]?.maxIterations).toBe(3);
+});
+
+test("a direct write resume replays an interrupted plan-draft repair from log", async () => {
+  const runId = createPausedDirectWriteRun("direct-plan-draft-interrupted-repair");
+
+  const response = await resumeDirect(
+    createHandlers(
+      logReader(runId, [
+        {
+          kind: "draft_contract_reprompt",
+          attemptId: "attempt-1",
+          contractId: "artifact.exists",
+          detail: "Plan index links unknown subspec 01-wrong.md",
+        },
+        { kind: "iteration_started", attemptId: "attempt-2" },
+      ]),
+    ),
+    runId,
+  );
+
+  expect(response.kind).toBe("response");
+  expect(starts).toHaveLength(1);
+  expect(starts[0]?.draftContractReprompt).toEqual({
+    contractId: "artifact.exists",
+    detail: "Plan index links unknown subspec 01-wrong.md",
+  });
+  expect(starts[0]?.draftContractRepromptSpent).toBe(true);
 });
 
 test("exhausted-red eligibility guard inversion: origin evidence", () => {

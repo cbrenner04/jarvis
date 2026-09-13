@@ -110,6 +110,40 @@ function testParseDiff(diff: string): { file: string; lineNumber: number; conten
   return lines;
 }
 
+function addedLineDiff(file: string, hunks: string[][]): string {
+  return `diff --git a/${file} b/${file}
+index 1234567..abcdefg 100644
+--- a/${file}
++++ b/${file}
+${hunks.map((lines) => `@@ -0,0 +1,${lines.length} @@\n+${lines.join("\n+")}\n`).join("")}`;
+}
+
+function verifyAddedSource(file: string, hunks: string[][], source: string, mutations?: string[]) {
+  return verifyDiffSource(file, addedLineDiff(file, hunks), source, mutations);
+}
+
+function verifyDiffSource(
+  _file: string,
+  diff: string,
+  source: string,
+  mutations?: string[],
+  runScopedTests: () => Promise<boolean> = async () => false,
+) {
+  return verifyDiffDerivedMutations(
+    { worktreePath: "/test/path", runBase: "main" },
+    {
+      gitDiff: async () => diff,
+      untrackedFiles: async () => [],
+      readFile: async (path) => (path.endsWith(".test.ts") ? "export {};\n" : source),
+      writeFile: async (_path, content) => {
+        if (content !== source) mutations?.push(content);
+      },
+      listDir: () => [],
+      runScopedTests,
+    },
+  );
+}
+
 describe("diff-derived-mutation-verifier", () => {
   it("parses diff correctly to extract changed lines", () => {
     const diff = `diff --git a/src/test.ts b/src/test.ts
@@ -166,6 +200,11 @@ index 1234567..abcdefg 100644
    return x;
 `;
 
+    const originalContent = `export function safe(x: any) {
+  if (!x) return "safe";
+  return x;
+}`;
+
     const result = await verifyDiffDerivedMutations(
       {
         worktreePath: "/test/path",
@@ -174,6 +213,8 @@ index 1234567..abcdefg 100644
       {
         gitDiff: async () => diffWithGuardFlip,
         untrackedFiles: async () => [],
+        readFile: async () => originalContent,
+        writeFile: async () => {},
         runScopedTests: async () => {
           // Mutation caused tests to fail, so it's caught
           return false;
@@ -1653,34 +1694,6 @@ index 1234567..abcdefg 100644
 });
 
 describe("TypeScript operator candidate classification", () => {
-  function addedLineDiff(file: string, hunks: string[][]): string {
-    return `diff --git a/${file} b/${file}
-index 1234567..abcdefg 100644
---- a/${file}
-+++ b/${file}
-${hunks.map((lines) => `@@ -0,0 +1,${lines.length} @@\n+${lines.join("\n+")}\n`).join("")}`;
-  }
-
-  function verifyAddedSource(file: string, hunks: string[][], source: string, mutations?: string[]) {
-    return verifyDiffSource(file, addedLineDiff(file, hunks), source, mutations);
-  }
-
-  function verifyDiffSource(_file: string, diff: string, source: string, mutations?: string[]) {
-    return verifyDiffDerivedMutations(
-      { worktreePath: "/test/path", runBase: "main" },
-      {
-        gitDiff: async () => diff,
-        untrackedFiles: async () => [],
-        readFile: async (path) => (path.endsWith(".test.ts") ? "export {};\n" : source),
-        writeFile: async (_path, content) => {
-          if (content !== source) mutations?.push(content);
-        },
-        listDir: () => [],
-        runScopedTests: async () => false,
-      },
-    );
-  }
-
   it("skips operator-flip for type-position angle brackets", async () => {
     const lines = [
       "const parameter = x as Parameters<Foo>[0];",
@@ -1759,6 +1772,218 @@ index 1234567..abcdefg 100644
 
     expect(result.kind).toBe("pass");
     if (result.kind === "pass") expect(result.candidateCount).toBe(0);
+  });
+});
+
+describe("TypeScript guard candidate classification", () => {
+  it("derives guard-flip for a negated member-call chain", async () => {
+    const diff = `diff --git a/src/consumer.ts b/src/consumer.ts
+index 1234567..abcdefg 100644
+--- a/src/consumer.ts
++++ b/src/consumer.ts
+@@ -1 +1 @@
+-if (CONSUMER_FILES.has(file)) return;
++if (!CONSUMER_FILES.has(file)) return;
+`;
+    const originalContent = "if (!CONSUMER_FILES.has(file)) return;";
+    const mutatedContents: string[] = [];
+
+    const result = await verifyDiffSource("src/consumer.ts", diff, originalContent, mutatedContents, async () => true);
+
+    expect(result.kind).toBe("surviving-mutation");
+    if (result.kind === "surviving-mutation") {
+      expect(result.mutation).toBe("guard-flip: !CONSUMER_FILES.has(file) → CONSUMER_FILES.has(file)");
+    }
+    expect(mutatedContents).toEqual(["if (CONSUMER_FILES.has(file)) return;"]);
+  });
+
+  it("derives guard-flip for a nested parenthesized operand", async () => {
+    const diff = `diff --git a/src/nested.ts b/src/nested.ts
+index 1234567..abcdefg 100644
+--- a/src/nested.ts
++++ b/src/nested.ts
+@@ -1 +1 @@
+-(a && (b || c.has(d)));
++!(a && (b || c.has(d)));
+`;
+    const originalContent = "!(a && (b || c.has(d)));";
+    const mutatedContents: string[] = [];
+
+    const result = await verifyDiffSource("src/nested.ts", diff, originalContent, mutatedContents, async () => true);
+
+    expect(result.kind).toBe("surviving-mutation");
+    if (result.kind === "surviving-mutation") {
+      expect(result.mutation).toBe("guard-flip: !(a && (b || c.has(d))) → (a && (b || c.has(d)))");
+    }
+    expect(mutatedContents).toEqual(["(a && (b || c.has(d)));"]);
+  });
+
+  it("collapses double negation to one guard candidate", async () => {
+    const diff = `diff --git a/src/toggle.ts b/src/toggle.ts
+index 1234567..abcdefg 100644
+--- a/src/toggle.ts
++++ b/src/toggle.ts
+@@ -1 +1 @@
+-x;
++!!x;
+`;
+    const originalContent = "!!x;";
+    const mutatedContents: string[] = [];
+
+    // Force a surviving mutation so the derived `mutation` string is observable: the pre-fix regex
+    // also yielded one candidate here (`!!` fails its identifier class, so it matched the inner
+    // `!x`) and the same mutated content, so candidate count and file bytes cannot discriminate the
+    // implementations. Only the span the candidate claims can.
+    const result = await verifyDiffSource("src/toggle.ts", diff, originalContent, mutatedContents, async () => true);
+
+    expect(result.kind).toBe("surviving-mutation");
+    if (result.kind === "surviving-mutation") {
+      expect(result.mutation).toBe("guard-flip: !!x → !x");
+    }
+    expect(mutatedContents).toEqual(["!x;"]);
+  });
+
+  it("keeps an independent guard nested inside a double-negated operand", async () => {
+    // Collapsing `!!` to one candidate must not abandon the operand subtree: `!bar` is its own
+    // toggle, not part of the outer chain. Fails against a bare `return` after the chain check.
+    const content = "if (!!foo(!bar)) return;";
+    const mutations: string[] = [];
+
+    const result = await verifyAddedSource("src/chained-guard.ts", [[content]], content, mutations);
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(2);
+    expect(mutations).toContain(content.replace("!bar", "bar"));
+  });
+
+  it("derives a nested guard candidate inside another negated expression", async () => {
+    const content = "if (!(a && !b)) return;";
+    const mutations: string[] = [];
+
+    const result = await verifyAddedSource("src/nested-guard.ts", [[content]], content, mutations);
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(2);
+    expect(mutations).toEqual([content.replace("!(a && !b)", "(a && !b)"), content.replace("!b", "b")]);
+  });
+
+  it("derives a single-line inner guard candidate inside a rejected multi-line outer negation", async () => {
+    const diff = `diff --git a/src/multiline-nested.ts b/src/multiline-nested.ts
+index 1234567..abcdefg 100644
+--- a/src/multiline-nested.ts
++++ b/src/multiline-nested.ts
+@@ -0,0 +1,3 @@
++const guarded = !(
++  a && !b
++);
+`;
+    const content = "const guarded = !(\n  a && !b\n);";
+    const mutations: string[] = [];
+
+    const result = await verifyDiffSource("src/multiline-nested.ts", diff, content, mutations);
+
+    expect(result.kind).toBe("pass");
+    if (result.kind === "pass") expect(result.candidateCount).toBe(1);
+    expect(mutations).toEqual([content.replace("!b", "b")]);
+  });
+
+  it("respects line-scoped guard admission boundaries", async () => {
+    // (a) a negated expression on an unchanged (context) line yields no candidate.
+    const unchangedDiff = `diff --git a/src/unchanged.ts b/src/unchanged.ts
+index 1234567..abcdefg 100644
+--- a/src/unchanged.ts
++++ b/src/unchanged.ts
+@@ -1,2 +1,3 @@
+ if (!flag) return;
++const noop = 1;
+ return noop;
+`;
+    const unchangedContent = "if (!flag) return;\nconst noop = 1;\nreturn noop;";
+    const unchangedResult = await verifyDiffSource("src/unchanged.ts", unchangedDiff, unchangedContent);
+    expect(unchangedResult.kind).toBe("pass");
+    if (unchangedResult.kind === "pass") expect(unchangedResult.candidateCount).toBe(0);
+
+    // (b) the `!` token's line is changed, but its AST span crosses lines — no candidate, no partial span.
+    const multilineDiff = `diff --git a/src/multiline.ts b/src/multiline.ts
+index 1234567..abcdefg 100644
+--- a/src/multiline.ts
++++ b/src/multiline.ts
+@@ -0,0 +1,3 @@
++const guarded = !(
++  a && b
++);
+`;
+    const multilineContent = "const guarded = !(\n  a && b\n);";
+    const multilineMutations: string[] = [];
+    const multilineResult = await verifyDiffSource(
+      "src/multiline.ts",
+      multilineDiff,
+      multilineContent,
+      multilineMutations,
+    );
+    expect(multilineResult.kind).toBe("pass");
+    if (multilineResult.kind === "pass") expect(multilineResult.candidateCount).toBe(0);
+    expect(multilineMutations).toEqual([]);
+
+    // (c) guard-first ordering and deduplication hold when a guard and an operator candidate share a changed line.
+    const sharedContent = "if (!a && b < c) return;";
+    const sharedMutations: string[] = [];
+    const sharedResult = await verifyAddedSource("src/shared.ts", [[sharedContent]], sharedContent, sharedMutations);
+    expect(sharedResult.kind).toBe("pass");
+    if (sharedResult.kind === "pass") expect(sharedResult.candidateCount).toBe(2);
+    expect(sharedMutations).toEqual([sharedContent.replace("!a", "a"), sharedContent.replace("b < c", "b >= c")]);
+  });
+
+  it("classifies guard-flips with TypeScript lexical context", async () => {
+    const commentLine = "const kept = value; // !flag";
+    const commentResult = await verifyAddedSource("src/lexical.ts", [[commentLine]], commentLine);
+    expect(commentResult.kind).toBe("pass");
+    if (commentResult.kind === "pass") expect(commentResult.candidateCount).toBe(0);
+
+    const stringLine = 'const label = "!flag";';
+    const stringResult = await verifyAddedSource("src/lexical.ts", [[stringLine]], stringLine);
+    expect(stringResult.kind).toBe("pass");
+    if (stringResult.kind === "pass") expect(stringResult.candidateCount).toBe(0);
+
+    // A changed continuation line inside an already-open multi-line block comment: excluded.
+    const blockCommentSource = "/*\n  !flag\n*/";
+    const blockCommentResult = await verifyDiffSource(
+      "src/comment.ts",
+      `diff --git a/src/comment.ts b/src/comment.ts
+index 1234567..abcdefg 100644
+--- a/src/comment.ts
++++ b/src/comment.ts
+@@ -2 +2 @@
+-  previous text
++  !flag
+`,
+      blockCommentSource,
+    );
+    expect(blockCommentResult.kind).toBe("pass");
+    if (blockCommentResult.kind === "pass") expect(blockCommentResult.candidateCount).toBe(0);
+
+    // A changed continuation line inside an already-open multi-line template literal: plain template
+    // text stays excluded, while a negated expression inside a `${…}` substitution remains a candidate.
+    const templateSource = "const message = `\n  !flag\n  ${!other}\n`;";
+    const templateMutations: string[] = [];
+    const templateResult = await verifyDiffSource(
+      "src/template.ts",
+      `diff --git a/src/template.ts b/src/template.ts
+index 1234567..abcdefg 100644
+--- a/src/template.ts
++++ b/src/template.ts
+@@ -2,2 +2,2 @@
+-  previous text
+-  \${previous}
++  !flag
++  \${!other}
+`,
+      templateSource,
+      templateMutations,
+    );
+    expect(templateResult.kind).toBe("pass");
+    if (templateResult.kind === "pass") expect(templateResult.candidateCount).toBe(1);
+    expect(templateMutations).toEqual([templateSource.replace("!other", "other")]);
   });
 });
 

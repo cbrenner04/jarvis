@@ -13,6 +13,18 @@ export type RequestChangeover = (
 ) => Promise<ChangeoverRequestOutcome>;
 
 const DEFAULT_CHANGEOVER_TIMEOUT_MS = 2_000;
+/** Successor startup budget, shared by `startDaemon` and the incumbent's fallback deadline. */
+export const DEFAULT_CHANGEOVER_RELEASE_TIMEOUT_MS = 5_000;
+export const DEFAULT_DAEMON_READINESS_TIMEOUT_MS = 5_000;
+export const HANDOFF_RESOLUTION_TIMEOUT_MS = 2_000;
+
+/**
+ * Default incumbent fallback deadline: beyond the successor's worst-case budget after the accepted
+ * reply (release wait + readiness wait + settlement RPC) plus slack, so the fallback never rolls back
+ * a successor still inside its own startup bound.
+ */
+export const DEFAULT_HANDOFF_FALLBACK_MS =
+  DEFAULT_CHANGEOVER_RELEASE_TIMEOUT_MS + DEFAULT_DAEMON_READINESS_TIMEOUT_MS + HANDOFF_RESOLUTION_TIMEOUT_MS + 1_000;
 
 /**
  * Requests changeover from whatever is answering `socketPath`. Called only after the caller has

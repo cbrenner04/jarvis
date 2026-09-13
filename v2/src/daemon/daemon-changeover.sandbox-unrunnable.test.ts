@@ -14,6 +14,11 @@ import { createTestDaemonLifecycle } from "../testing/test-daemon-lifecycle";
 import { canUseUnixSockets } from "../testing/unix-socket";
 import { createFakeWriteLoopExecutor } from "../testing/write-loop-executor";
 import { fallbackVerdict, isHandoffStillPending, shouldShutdownNow, startDaemonRuntime } from "./daemon";
+import {
+  DEFAULT_CHANGEOVER_RELEASE_TIMEOUT_MS,
+  DEFAULT_DAEMON_READINESS_TIMEOUT_MS,
+  HANDOFF_RESOLUTION_TIMEOUT_MS,
+} from "./daemon-changeover";
 import { DaemonHandoffFailedError, startDaemon } from "./daemon-lifecycle";
 
 const socketTest = test.skipIf(!canUseUnixSockets());
@@ -127,9 +132,11 @@ async function startIncumbent(
     exitCodes,
     publicBindCount: () => publicBindCount,
     close: async () => {
+      // Stop the runtime (and its drain-exit loop) before aborting runs: aborting first let an
+      // idle retiring incumbent drain-exit mid-teardown under load ("unexpected process exit").
+      await runtime.close();
       fakeExecutor.abortAll();
       await flushBackgroundRuns(3);
-      await runtime.close();
       store.close();
       rmSync(root, { recursive: true, force: true });
     },
@@ -311,9 +318,16 @@ describe("daemon handoff changeover (real sockets)", () => {
         expect(await health(incumbent.publicSocketPath)).toEqual({ ok: true });
 
         const newRunId = await startWork(incumbent.publicSocketPath, "admitted-after-rollback");
-        const duplicate = await request(incumbent.privateSocketPath, "handoff_rollback", { handoffId });
-        expect((duplicate as ResponseFrame).result).toEqual({ ok: true, state: "rolled_back" });
+        const duplicates = await Promise.all([
+          request(incumbent.privateSocketPath, "handoff_rollback", { handoffId }),
+          request(incumbent.privateSocketPath, "handoff_rollback", { handoffId }),
+        ]);
+        for (const duplicate of duplicates) {
+          expect((duplicate as ResponseFrame).result).toEqual({ ok: true, state: "rolled_back" });
+        }
         expect(incumbent.publicBindCount()).toBe(2);
+        // The one rebound listener admits; a stray second listener would have failed the live-socket guard.
+        await startWork(incumbent.publicSocketPath, "admitted-after-duplicate-rollback");
 
         incumbent.fakeExecutor.settleAll();
         expect(
@@ -423,6 +437,30 @@ describe("daemon handoff changeover (real sockets)", () => {
   );
 
   socketTest(
+    "the default fallback does not roll back a successor still inside its startup budget",
+    async () => {
+      // Regression: a 5s default fallback rolled back while a slow successor was still within
+      // startDaemon's release + readiness budget, letting the incumbent answer the successor's probe.
+      const budgetMs =
+        DEFAULT_CHANGEOVER_RELEASE_TIMEOUT_MS + DEFAULT_DAEMON_READINESS_TIMEOUT_MS + HANDOFF_RESOLUTION_TIMEOUT_MS;
+      const incumbent = await startIncumbent("default-fallback");
+      try {
+        const handoffId = await beginChangeover(incumbent);
+        // Probing continuously past the old 5s deadline: a premature rollback rebinds the public address.
+        const rolledBackEarly = await waitFor(() => answersHealth(incumbent.publicSocketPath), 5_500);
+        expect(rolledBackEarly).toBe(false);
+        expect(incumbent.publicBindCount()).toBe(1);
+        expect(budgetMs).toBeGreaterThan(5_500);
+        const rollback = await request(incumbent.privateSocketPath, "handoff_rollback", { handoffId });
+        expect((rollback as ResponseFrame).result).toEqual({ ok: true, state: "rolled_back" });
+      } finally {
+        await incumbent.close();
+      }
+    },
+    20_000,
+  );
+
+  socketTest(
     "an unanswered handoff rolls back after fallback finds no public daemon",
     async () => {
       const incumbent = await startIncumbent("fallback", { fallbackMs: 100 });
@@ -442,17 +480,49 @@ describe("daemon handoff changeover (real sockets)", () => {
   socketTest(
     "an unanswered handoff commits after fallback finds a live public daemon",
     async () => {
-      const incumbent = await startIncumbent("fallback-commit", { fallbackMs: 500 });
+      // Resolves once the incumbent's public close (including its trailing path unlink) finishes, so the
+      // stand-in successor never binds a path the incumbent is still about to unlink under load.
+      let markReleased: (() => void) | undefined;
+      const released = new Promise<void>((resolve) => {
+        markReleased = resolve;
+      });
+      let decorated = false;
+      const incumbent = await startIncumbent("fallback-commit", {
+        fallbackMs: 1_000,
+        bind: async (path, handlers) => {
+          const server = await startIpcServer(path, handlers);
+          if (!path.endsWith("daemon.sock") || decorated) return server;
+          decorated = true;
+          return {
+            ...server,
+            close: async () => {
+              try {
+                await server.close();
+              } finally {
+                markReleased?.();
+              }
+            },
+          };
+        },
+      });
       let successor: IpcServer | undefined;
       try {
         await startWork(incumbent.publicSocketPath, "active-through-fallback-commit");
         const handoffId = await beginChangeover(incumbent);
-        expect(await waitFor(() => answersHealth(incumbent.publicSocketPath).then((live) => !live), 3_000)).toBe(true);
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        await released;
         successor = await startIpcServer(incumbent.publicSocketPath, {
           health: () => ({ kind: "response", result: { ok: true } }),
         });
-        await new Promise((resolve) => setTimeout(resolve, 600));
+        // `changeover` returns the same pending transaction until settled and refuses `handoff_committed`
+        // after commit, so it observes the fallback's verdict without a fixed sleep. Stop polling if the
+        // incumbent rebinds (rollback): a changeover after rollback would open a new transaction.
+        const settledByFallback = async (): Promise<boolean> => {
+          if (incumbent.publicBindCount() !== 1) return true;
+          const frame = await request(incumbent.privateSocketPath, "changeover");
+          return frame.kind === "error" && (frame as { code?: string }).code === "handoff_committed";
+        };
+        expect(await waitFor(settledByFallback, 10_000)).toBe(true);
+        expect(incumbent.publicBindCount()).toBe(1);
         const lateRollback = await request(incumbent.privateSocketPath, "handoff_rollback", { handoffId });
         expect((lateRollback as ResponseFrame).result).toEqual({ ok: true, state: "committed" });
         expect(await health(incumbent.publicSocketPath)).toEqual({ ok: true });

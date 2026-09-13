@@ -10,7 +10,13 @@ import { parseDaemonBindFailureLogLine } from "../ipc/server.ts";
 import { jarvisHome } from "../paths.ts";
 import { openLogReader, openLogSink } from "../persistence/log-stream.ts";
 import { isTerminalRunStatus, openStateStore, type StateStore } from "../persistence/state-store";
-import { type RequestChangeover, requestChangeoverFromPublicPeer } from "./daemon-changeover.ts";
+import {
+  DEFAULT_CHANGEOVER_RELEASE_TIMEOUT_MS,
+  DEFAULT_DAEMON_READINESS_TIMEOUT_MS,
+  HANDOFF_RESOLUTION_TIMEOUT_MS,
+  type RequestChangeover,
+  requestChangeoverFromPublicPeer,
+} from "./daemon-changeover.ts";
 import { reconcileOrphanedRuns } from "./daemon-run-reconciliation.ts";
 import { parseListRuns, parseStatusResult } from "./daemon-wire";
 
@@ -69,11 +75,14 @@ type DaemonMetadata = {
 
 type HandoffResolution = "commit" | "rollback";
 
+type HandoffSettledState = "committed" | "rolled_back";
+
+/** Resolves to the incumbent's settled state, or `undefined` when the reply is not a settled state. */
 type RequestHandoffResolution = (
   privateSocketPath: string,
   handoffId: string,
   resolution: HandoffResolution,
-) => Promise<void>;
+) => Promise<HandoffSettledState | undefined>;
 
 export type ProcessProber = {
   isAlive(pid: number): boolean;
@@ -111,13 +120,28 @@ async function requestHandoffResolution(
   privateSocketPath: string,
   handoffId: string,
   resolution: HandoffResolution,
-): Promise<void> {
+): Promise<HandoffSettledState | undefined> {
   const client = await connectIpcClient(privateSocketPath);
   const transport = createRpcTransport(client);
   try {
-    await transport.request(`handoff_${resolution}`, { handoffId }, { timeoutMs: 2_000 });
+    const reply = await transport.request(
+      `handoff_${resolution}`,
+      { handoffId },
+      { timeoutMs: HANDOFF_RESOLUTION_TIMEOUT_MS },
+    );
+    const state = (reply as { state?: unknown } | null)?.state;
+    return state === "committed" || state === "rolled_back" ? state : undefined;
   } finally {
     transport.close();
+  }
+}
+
+/** Kills a spawned successor that must not serve; a no-op once it has exited. */
+function killSpawnedSuccessor(proc: { kill: (signal: NodeJS.Signals) => boolean }): void {
+  try {
+    proc.kill("SIGKILL");
+  } catch {
+    // already exited
   }
 }
 
@@ -204,24 +228,27 @@ export async function startDaemon(
     requestHandoffResolution?: RequestHandoffResolution;
   },
 ): Promise<DaemonMetadata> {
-  const readinessTimeoutMs = options?.readinessTimeoutMs ?? 5_000;
+  const readinessTimeoutMs = options?.readinessTimeoutMs ?? DEFAULT_DAEMON_READINESS_TIMEOUT_MS;
   const logCapBytes = options?.logCapBytes ?? 5 * 1024 * 1024;
   const processProber = options?.processProber ?? { isAlive: isProcessAlive };
   const socketProber = options?.socketProber ?? { probe: probeSocket };
 
   let handoff: { privateSocketPath: string; handoffId: string } | undefined;
   let handoffResolutionRequested = false;
-  const resolveHandoff = async (resolution: HandoffResolution): Promise<void> => {
-    if (handoff === undefined || handoffResolutionRequested) return;
+  let handoffCommitted = false;
+  let spawned: ReturnType<typeof spawn> | undefined;
+  const resolveHandoff = async (resolution: HandoffResolution): Promise<HandoffSettledState | undefined> => {
+    if (handoff === undefined || handoffResolutionRequested) return undefined;
     handoffResolutionRequested = true;
     try {
-      await (options?.requestHandoffResolution ?? requestHandoffResolution)(
+      return await (options?.requestHandoffResolution ?? requestHandoffResolution)(
         handoff.privateSocketPath,
         handoff.handoffId,
         resolution,
       );
     } catch {
       // The incumbent's bounded fallback resolves a lost settlement request.
+      return undefined;
     }
   };
 
@@ -239,7 +266,7 @@ export async function startDaemon(
       handoff = { privateSocketPath: outcome.privateSocketPath, handoffId: outcome.handoffId };
       const released = await waitForPublicRelease(
         socketPath,
-        options?.changeoverReleaseTimeoutMs ?? 5_000,
+        options?.changeoverReleaseTimeoutMs ?? DEFAULT_CHANGEOVER_RELEASE_TIMEOUT_MS,
         socketProber,
       );
       if (!released) {
@@ -278,6 +305,7 @@ export async function startDaemon(
       throw new Error("Failed to spawn daemon process: pid is undefined");
     }
     const pid = proc.pid;
+    spawned = proc;
     options?.onSpawn?.(pid);
     proc.unref();
 
@@ -299,7 +327,18 @@ export async function startDaemon(
       }
       const up = await socketProber.probe(socketPath, 100);
       if (up) {
-        await resolveHandoff("commit");
+        if (handoff !== undefined) {
+          // The answering daemon may be a rolled-back incumbent, not this successor: only a
+          // `committed` reply from a still-live successor proves the successor owns the address.
+          const settled = await resolveHandoff("commit");
+          if (settled !== "committed") {
+            throw new DaemonHandoffFailedError(socketPath);
+          }
+          handoffCommitted = true;
+          if (!processProber.isAlive(pid)) {
+            throw new Error(`Daemon process ${pid} died during startup`);
+          }
+        }
         // Recorded only once this daemon is actually serving. Writing it at spawn time let a
         // doomed start (one that never binds) overwrite a healthy daemon's pid with a dead one,
         // which made `daemon status` report `stopped` for a daemon that was answering fine.
@@ -313,6 +352,8 @@ export async function startDaemon(
 
     throw new DaemonReadinessTimeoutError(socketPath, readinessTimeoutMs);
   } catch (error) {
+    // A successor that did not win the handoff must not bind late and serve behind a failed start.
+    if (handoff !== undefined && !handoffCommitted && spawned !== undefined) killSpawnedSuccessor(spawned);
     await resolveHandoff("rollback");
     throw error;
   }

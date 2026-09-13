@@ -40,6 +40,7 @@ import {
   openLogSink,
 } from "../persistence/log-stream.ts";
 import { isTerminalRunStatus, openStateStore, type RunStatus, type StateStore } from "../persistence/state-store.ts";
+import { DEFAULT_HANDOFF_FALLBACK_MS } from "./daemon-changeover.ts";
 import { type DrainObserver, observePredecessorDrain, unionLiveRunIds } from "./daemon-drain-observer.ts";
 import {
   createNotificationListHandler,
@@ -797,7 +798,7 @@ type ChangeoverHandlerDeps = {
   closePublicServer: () => Promise<void>;
 };
 
-export type HandoffState = "pending" | "committed" | "rolled_back";
+type HandoffState = "pending" | "committed" | "rolled_back";
 
 type HandoffTransaction = {
   id: string;
@@ -820,7 +821,7 @@ type HandoffHandlersDeps = ChangeoverHandlerDeps & {
   bindPublicServer: () => Promise<void>;
   /** True only when a daemon answers at the stable public address. */
   probePublicServer: () => Promise<boolean>;
-  /** Bounds an unanswered handoff. Defaults to 5000ms. */
+  /** Bounds an unanswered handoff. Defaults to `DEFAULT_HANDOFF_FALLBACK_MS`. */
   fallbackMs?: number;
 };
 
@@ -874,6 +875,7 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
   close: () => void;
 } {
   let transaction: HandoffTransaction | undefined;
+  let closed = false;
 
   const clearFallback = (active: HandoffTransaction): void => {
     if (active.fallbackTimer !== undefined) clearTimeout(active.fallbackTimer);
@@ -911,21 +913,24 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
   };
 
   const scheduleFallback = (active: HandoffTransaction, handoffId: string): void => {
+    if (closed) return;
     active.fallbackTimer = setTimeout(() => {
       void resolveFallback(handoffId);
-    }, deps.fallbackMs ?? 5_000);
+    }, deps.fallbackMs ?? DEFAULT_HANDOFF_FALLBACK_MS);
   };
 
   const resolveFallback = async (handoffId: string): Promise<void> => {
     const active = transaction;
-    if (active === undefined || !isHandoffStillPending(active.id, active.state, handoffId)) return;
+    if (closed || active === undefined || !isHandoffStillPending(active.id, active.state, handoffId)) return;
     let publicDaemonLive = false;
     try {
       publicDaemonLive = await deps.probePublicServer();
     } catch {
       publicDaemonLive = false;
     }
-    if (transaction !== active || !isHandoffStillPending(transaction.id, transaction.state, handoffId)) return;
+    if (closed || transaction !== active || !isHandoffStillPending(transaction.id, transaction.state, handoffId)) {
+      return;
+    }
     const result = fallbackVerdict(publicDaemonLive) === "commit" ? await commit(active) : await rollback(active);
     if (result.kind === "error") {
       console.error(`Daemon handoff fallback failed: ${result.message}`);
@@ -983,6 +988,7 @@ function createHandoffHandlers(deps: HandoffHandlersDeps): {
     handoff_rollback: settle("rollback"),
     isPending: () => transaction?.state === "pending",
     close: () => {
+      closed = true;
       if (transaction !== undefined) clearFallback(transaction);
     },
   };
@@ -1042,7 +1048,7 @@ type DaemonStartupDeps = {
    */
   predecessorSocketPath?: string;
   observePredecessorDrain?: typeof observePredecessorDrain;
-  /** Bounds incumbent fallback resolution while no successor verdict arrives. Defaults to 5000ms. */
+  /** Bounds incumbent fallback resolution while no successor verdict arrives. Defaults to `DEFAULT_HANDOFF_FALLBACK_MS`. */
   handoffFallbackMs?: number;
 };
 

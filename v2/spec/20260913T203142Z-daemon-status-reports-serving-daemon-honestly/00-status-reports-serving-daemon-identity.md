@@ -24,11 +24,11 @@
 
 ## Acceptance criteria
 
-- [ ] A test added to `describe("getDaemonStatus")` in `v2/src/daemon/daemon-lifecycle.sandbox-unrunnable.test.ts`, injecting `socketProber` (probe resolves `true`) and `connectIpcClient` (a `status` RPC reply whose `loadedExecutableDigest` differs from any digest the test computes for the tree), asserts `{ state: "running", loadedRevision: <value> }` with no digest comparison and no `currentRevision` field; it fails against the pre-fix digest comparison returning `stale`.
-- [ ] A test added to the same `describe("getDaemonStatus")` block drives a succeeding socket probe paired with a `status` RPC that throws, or replies unparseable/missing `loadedRevision`, and asserts `{ state: "running", loadedRevision: "unknown" }`; it fails against the pre-fix `stopped` result for these cases.
-- [ ] A test in `v2/src/commands/daemon.test.ts` asserts `daemon status` for a serving daemon prints exactly `running loaded=<revision>\n` with exit 0 and no `current=` substring; it fails against the pre-fix `loaded=… current=…` rendering.
-- [ ] A test drives `evaluateReadiness`'s `daemon` check with a `checkDaemon` result outside `{running, stopped}` (cast around the narrowed `ReadinessProbes` type) and asserts the check settles `missing`, never `warn`; it fails against the pre-fix `warn("daemon loaded revision is stale")` branch.
-- [ ] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
+- [x] A test added to `describe("getDaemonStatus")` in `v2/src/daemon/daemon-lifecycle.sandbox-unrunnable.test.ts`, injecting `socketProber` (probe resolves `true`) and `connectIpcClient` (a `status` RPC reply whose `loadedExecutableDigest` differs from any digest the test computes for the tree), asserts `{ state: "running", loadedRevision: <value> }` with no digest comparison and no `currentRevision` field; it fails against the pre-fix digest comparison returning `stale`.
+- [x] A test added to the same `describe("getDaemonStatus")` block drives a succeeding socket probe paired with a `status` RPC that throws, or replies unparseable/missing `loadedRevision`, and asserts `{ state: "running", loadedRevision: "unknown" }`; it fails against the pre-fix `stopped` result for these cases.
+- [x] A test in `v2/src/commands/daemon.test.ts` asserts `daemon status` for a serving daemon prints exactly `running loaded=<revision>\n` with exit 0 and no `current=` substring; it fails against the pre-fix `loaded=… current=…` rendering.
+- [x] A test drives `evaluateReadiness`'s `daemon` check with a `checkDaemon` result outside `{running, stopped}` (cast around the narrowed `ReadinessProbes` type) and asserts the check settles `missing`, never `warn`; it fails against the pre-fix `warn("daemon loaded revision is stale")` branch.
+- [x] `bun run typecheck`, `bun run test:v2`, and `bun run test:integration:v2` pass.
 
 ## Documentation updates
 

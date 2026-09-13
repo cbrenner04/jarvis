@@ -111,7 +111,7 @@ export type ReadinessProbes = {
   checkGithubAuth?: () => Promise<{ ok: boolean; detail?: string }>;
   currentOrigin?: (projectRoot: string) => Promise<string | undefined>;
   directoryExists?: (path: string) => boolean;
-  checkDaemon?: () => Promise<{ state: "running" | "stale" | "stopped" }>;
+  checkDaemon?: () => Promise<{ state: "running" | "stopped" }>;
 };
 
 async function defaultCheckBunRuntime(): Promise<{ ok: boolean; detail?: string }> {
@@ -151,7 +151,7 @@ function readDaemonPid(pidPath: string): number | null {
   return Number.isNaN(pid) ? null : pid;
 }
 
-async function defaultCheckDaemon(): Promise<{ state: "running" | "stale" | "stopped" }> {
+async function defaultCheckDaemon(): Promise<{ state: "running" | "stopped" }> {
   const pid = readDaemonPid(DAEMON_PID_PATH);
   if (pid === null) return { state: "stopped" };
   try {
@@ -237,7 +237,6 @@ export async function evaluateReadiness(
     await safeCheck("daemon", async () => {
       const status = await checkDaemon();
       if (status.state === "running") return ok();
-      if (status.state === "stale") return warn("daemon loaded revision is stale");
       return missing("daemon is not running");
     }),
   );

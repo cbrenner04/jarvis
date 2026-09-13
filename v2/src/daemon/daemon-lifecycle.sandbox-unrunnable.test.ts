@@ -955,7 +955,7 @@ describe("daemon-lifecycle", () => {
   });
 
   describe("getDaemonStatus", () => {
-    test("returns running when executable digests match even if HEAD differs", async () => {
+    test("returns the serving daemon revision without comparing executable digests", async () => {
       const socketProber: SocketProber = {
         probe: async () => true,
       };
@@ -963,36 +963,48 @@ describe("daemon-lifecycle", () => {
         socketProber,
         connectIpcClient: async () =>
           makeIpcClient([], {
-            statusResult: { loadedRevision: "daemon-head", loadedExecutableDigest: "same-digest" },
+            statusResult: { loadedRevision: "daemon-head", loadedExecutableDigest: "definitely-not-the-tree-digest" },
           }),
-        getCurrentRevision: async () => "cli-head",
-        getExecutableDigest: async () => "same-digest",
       });
       expect(status).toEqual({
         state: "running",
         loadedRevision: "daemon-head",
-        currentRevision: "cli-head",
       });
     });
 
-    test("returns stale when executable digests differ", async () => {
-      const socketProber: SocketProber = {
-        probe: async () => true,
-      };
+    test("returns running with an unknown revision when the status RPC fails", async () => {
+      const socketProber: SocketProber = { probe: async () => true };
       const status = await getDaemonStatus("/fake/socket", {
         socketProber,
-        connectIpcClient: async () =>
-          makeIpcClient([], {
-            statusResult: { loadedRevision: "daemon-head", loadedExecutableDigest: "daemon-digest" },
+        connectIpcClient: async () => ({
+          send: () => {},
+          nextFrame: async () => {
+            throw new Error("status unavailable");
+          },
+          close: () => {},
+        }),
+      });
+      expect(status).toEqual({ state: "running", loadedRevision: "unknown" });
+    });
+
+    test("returns running with an unknown revision when status metadata is incomplete", async () => {
+      const socketProber: SocketProber = { probe: async () => true };
+      let requestId = "";
+      const status = await getDaemonStatus("/fake/socket", {
+        socketProber,
+        connectIpcClient: async () => ({
+          send: (frame) => {
+            requestId = (frame as { id?: string }).id ?? "";
+          },
+          nextFrame: async () => ({
+            kind: "response",
+            id: requestId,
+            result: { state: "running", loadedRevision: "daemon-head" },
           }),
-        getCurrentRevision: async () => "cli-head",
-        getExecutableDigest: async () => "cli-digest",
+          close: () => {},
+        }),
       });
-      expect(status).toEqual({
-        state: "stale",
-        loadedRevision: "daemon-head",
-        currentRevision: "cli-head",
-      });
+      expect(status).toEqual({ state: "running", loadedRevision: "unknown" });
     });
 
     // A doomed start used to overwrite the pid file with a pid that never served, and status
@@ -1016,10 +1028,8 @@ describe("daemon-lifecycle", () => {
           makeIpcClient([], {
             statusResult: { loadedRevision: "head", loadedExecutableDigest: "digest" },
           }),
-        getCurrentRevision: async () => "head",
-        getExecutableDigest: async () => "digest",
       });
-      expect(status).toEqual({ state: "running", loadedRevision: "head", currentRevision: "head" });
+      expect(status).toEqual({ state: "running", loadedRevision: "head" });
     });
 
     test("returns stopped if socket probe fails", async () => {

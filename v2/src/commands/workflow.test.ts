@@ -1207,7 +1207,6 @@ const code = await main(argv, undefined, createRuntimeDeps({
   getDaemonStatus: async () => ({
     state: "running" as const,
     loadedRevision: "test",
-    currentRevision: "test",
   }),
   readProjectRegistry: () => registry,
   workflowPresetBuilders: { implement: () => ({ ok: true, steps }) },

@@ -331,18 +331,17 @@ Daemon lifecycle commands use production defaults:
 | --- | --- | --- |
 | `jarvis daemon start` | Compact JSON `{"pid":<n>,"socketPath":"..."}` | `0` on success, `1` with `<ErrorName>: <message>` on lifecycle failure |
 | `jarvis daemon stop [--force]` | `stopped`, or blocker IDs on stderr | `0`, or `1` when guarded |
-| `jarvis daemon status` | `running loaded=<revision> current=<revision>`, `stale loaded=<revision> current=<revision>`, or `stopped` | `0` when running, `1` when stale or stopped |
+| `jarvis daemon status` | `running loaded=<revision>` or `stopped` | `0` when running, `1` when stopped |
 | `jarvis daemon log` | Retained bytes of the daemon process log (`~/.jarvis/daemon.log`) on stdout | `0` on success, `1` with `daemon process log not found: <path>` on stderr when absent, `1` on read failure |
 | `jarvis daemon log --follow` | Replay then follow appends on stdout | `130` on SIGINT; `1` on read/watch/reopen failure or when the file is removed while following (missing path on stderr) |
 
 `jarvis daemon stop` refuses when durable non-terminal runs exist and reports their IDs on stderr; it does not print `stopped`. Add `--force` to bypass that guard and use the existing shutdown path. See the lifecycle contract in [`daemon-host.md`](./daemon-host.md#stopdaemonsocketpath-options).
 
-`jarvis daemon status` probes the PID file and socket for lifecycle state and compares the daemon's boot-time executable-tree digest with the invoking CLI's current digest (`v2/src/**`, `shared/**`, and repo manifests). `loaded` and `current` in the output are Git HEAD values for display; they may differ after a docs-only merge while the daemon remains running. Output format:
-- `running loaded=<revision> current=<revision>` (exit 0): daemon is alive and executable digests match
-- `stale loaded=<revision> current=<revision>` (exit 1): daemon is alive but executable digests differ (executable code changed since daemon boot)
+`jarvis daemon status` probes the socket for lifecycle state. A socket that answers reports the daemon's boot-time Git revision without comparing executable digests; if the follow-up status RPC fails or omits that revision, it reports `unknown` because the daemon is still serving. Output format:
+- `running loaded=<revision>` (exit 0): daemon is serving; `<revision>` is `unknown` when its status reply cannot supply the boot-time Git revision
 - `stopped` (exit 1): daemon process dead or socket unreachable
 
-The daemon captures its startup Git HEAD and executable digest once at boot. Exit `0` means running; `1` means stale or stopped. PID file absence or parse failure returns `stopped` without further checks. Note: this is distinct from the daemon IPC `status` RPC response, which work-dispatch guards and `jarvis tui` use after `health` to prove the channel is live. See [TUI CLI](#tui-cli).
+The daemon captures its startup Git HEAD once at boot. Exit `0` means running; `1` means stopped. PID file absence or parse failure does not determine status. Note: this is distinct from the daemon IPC `status` RPC response, which work-dispatch guards and `jarvis tui` use after `health` to prove the channel is live. See [TUI CLI](#tui-cli).
 
 `jarvis daemon log` reads the process log directly off disk — no PID, socket, or IPC-status check, so it works regardless of whether the daemon is running. It is distinct from `jarvis run log <run-id>` and `jarvis tui log <run-id>`, which read structured per-run records over IPC (see [Run control CLI](#run-control-cli) and [TUI CLI](#tui-cli)). Only the bare and `--follow` forms are accepted; any other flags, args, or ordering print `usage: jarvis daemon log [--follow]` and exit `1`. See [`daemon-host.md`](./daemon-host.md#jarvis-daemon-log---follow) for the replay/follow contract (lossless handoff, truncation/replacement resume, removal/failure reporting).
 

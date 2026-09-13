@@ -36,7 +36,7 @@ export type InitCommandDeps = {
   git?: GitRunner;
   checkBunRuntime?: () => Promise<{ ok: boolean; detail?: string }>;
   checkGithubAuth?: () => Promise<{ ok: boolean; detail?: string }>;
-  checkDaemon?: () => Promise<{ state: "running" | "stale" | "stopped" }>;
+  checkDaemon?: () => Promise<{ state: "running" | "stopped" }>;
 };
 
 type InitOptions = {
